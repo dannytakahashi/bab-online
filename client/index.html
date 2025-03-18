@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' http://localhost:3000; script-src 'self' 'unsafe-eval' https://cdn.jsdelivr.net https://cdn.socket.io; img-src 'self' data: blob:; connect-src 'self' ws://localhost:3000;">
+
+    <title>BAB Online</title>
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.55.2/dist/phaser.min.js"></script>
+    <script src="https://cdn.socket.io/4.0.1/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.55.2/dist/phaser.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/phaser3-rex-plugins@1.1.0/dist/rexwebfontloaderplugin.min.js"></script>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="icon" type="image/x-icon" href="favicon.ico">
+
+</head>
+<body>
+    <div id="game-container"></div>
+    <script src="socketManager.js"></script>
+    <script src="ui.js"></script>  <!-- ✅ Load UI functions -->  
+    <script src="game.js"></script>
+</body>
+</html>
