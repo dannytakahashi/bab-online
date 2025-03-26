@@ -7,6 +7,19 @@ function clearUI() {
     let uiElements = document.querySelectorAll(".ui-element"); // ✅ Select all UI elements
     uiElements.forEach(el => el.remove()); // ✅ Remove only UI elements
 }
+function clearAllDomElements() {
+    const tagsToRemove = ["div", "input", "button", "textarea", "img", "canvas"];
+
+    tagsToRemove.forEach(tag => {
+        document.querySelectorAll(tag).forEach(el => {
+            if (!el.classList.contains("phaser-vignette") && el !== document.querySelector("canvas")) {
+                el.remove();
+            }
+        });
+    });
+
+    console.log("🧹 DOM elements cleared.");
+}
 function removeAllVignettes() {
     console.log("🗑 Removing all vignettes...");
 
@@ -804,7 +817,7 @@ function createPlayerInfoBox() {
         .setStrokeStyle(3, 0xffffff); // White border
 
     // ✅ Player Name Text
-    let playerAvatar = gameScene.add.image(boxX, boxY - 110, "default_user") // Load texture from assets
+    let playerAvatar = gameScene.add.image(boxX, boxY - 110, "profile" + playerData.pics[playerData.position.indexOf(position)]) // Load texture from assets
         .setScale(0.2) // Adjust size
         .setOrigin(0.5)
     let playerNameText = gameScene.add.text(boxX, boxY - 40, playerData.username[playerData.position.indexOf(position)].username, {

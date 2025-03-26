@@ -11,6 +11,14 @@ document.addEventListener("playerAssigned", (event) => {
         console.log("✅ playerID:", playerId);
     }
 });
+function visible(){
+    if(document.visibilityState === "visible"){
+        return true;
+    }
+    else{
+        return false;
+    }
+}
 function createVignette() {
     let screenWidth = this.scale.width;
     let screenHeight = this.scale.height;
@@ -85,7 +93,8 @@ function create() {
         playerData = {
             position: data.positions,
             socket: data.sockets,
-            username: data.usernames
+            username: data.usernames,
+            pics: data.pics
         }
     });
     socket.on("gameStart", (data) => {
@@ -109,12 +118,12 @@ function create() {
             opp1 = playerData.username[playerData.position.indexOf(rotate(position))].username;
             opp2 = playerData.username[playerData.position.indexOf(rotate(rotate(rotate(position))))].username;
             if(position % 2 !== 0){
-                scoreUI.teamScoreLabel.setText(me + "/" + partner + "(" + position + "/" + team(position) + ")" + ": -/- " +  score1);
-                scoreUI.oppScoreLabel.setText(opp1 + "/" + opp2 + "("+ rotate(position) + "/" + rotate(rotate(rotate(position))) + ")" + ": -/- " + score2);
+                scoreUI.teamScoreLabel.setText(me + "/" + partner  + ": -/-       " +  score1);
+                scoreUI.oppScoreLabel.setText(opp1 + "/" + opp2  + ": -/-       " + score2);
             }
             else{
-                scoreUI.teamScoreLabel.setText(me + "/" + partner + "(" + position + "/" + team(position) + ")" + ": -/- " + score2);
-                scoreUI.oppScoreLabel.setText(opp1 + "/" + opp2 + "("+ rotate(position) + "/" + rotate(rotate(rotate(position))) + ")" + ": -/- " + score1);
+                scoreUI.teamScoreLabel.setText(me + "/" + partner + ": -/-       " + score2);
+                scoreUI.oppScoreLabel.setText(opp1 + "/" + opp2 + ": -/-       " + score1);
             }
             let playerInfo = createPlayerInfoBox(); // Store the reference
             displayCards.call(this, playerCards);
@@ -139,7 +148,14 @@ const config = {
         mode: Phaser.Scale.FIT, // ✅ Ensures full coverage
         autoCenter: Phaser.Scale.CENTER_BOTH
     },
-    scene: { preload, create, update }
+    scene: { preload, create, update },
+    fps: {
+        min: 10,       // prevent freezing
+        target: 60,
+        forceSetTimeOut: true // ⬅️ uses setTimeout instead of requestAnimationFrame
+      },
+      autoFocus: true,
+      disableVisibilityChange: true // ⬅️ KEY LINE!
 };
 const game = new Phaser.Game(config);// ✅ Small delay to ensure the game is loaded
 let playerId, playerCards, trump = [];
@@ -206,7 +222,14 @@ function preload() {
     this.load.image("2_diamonds", "assets/2_diamonds.png");
     this.load.image("hi_joker", "assets/hi_joker.png");
     this.load.image("lo_joker", "assets/lo_joker.png");
-    this.load.image("default_user", "assets/default_user.png");
+    this.load.image("profile1", "assets/profile1.png");
+    this.load.image("profile2", "assets/profile2.png");
+    this.load.image("profile3", "assets/profile3.png");
+    this.load.image("profile4", "assets/profile4.png");
+    this.load.image("profile5", "assets/profile5.png");
+    this.load.image("profile6", "assets/profile6.png");
+    this.load.image("profile7", "assets/profile7.png");
+
 }
 let ranks = {
     "HI": 16,
@@ -228,6 +251,11 @@ let ranks = {
 let opponentCardSprites = {};
 let tableCardSprite;
 function createGameFeed() {
+    let feedCheck = document.getElementById("gameFeed");
+    if(feedCheck){ 
+        console.log("feed already exists.");
+        return;
+    }
     console.log("📝 Creating game feed...");
 
     // ✅ Create a container for the game feed
@@ -336,14 +364,29 @@ function draw() {
    
 
     for (let i = 0; i < 54; i++) {
-        let cardSprite = this.add.image(startX + i * overlap, startY, "cardBack") // ✅ All cards face down
+        let cardSprite = this.add.image(screenWidth/2 + 500, startY, "cardBack") // ✅ All cards face down
             .setScale(1.2)
             .setInteractive()
             .setDepth(100);
 
         // ✅ Enable dragging
         this.input.setDraggable(cardSprite);
-        
+        if (visible()){
+        this.tweens.add({
+            targets: cardSprite,
+            x: startX + i * overlap,
+            y: startY,
+            duration: 750,
+            ease: "Power2",
+            delay: 0,
+            onComplete: () =>{
+            }
+        });
+        }else{
+            cardSprite.x = startX + i * overlap;
+            cardSprite.y = startY;
+        }
+
         // ✅ Make cards draggable
         cardSprite.on("pointerup", () => {
             console.log(`📦 Picked up card ${i + 1}`);
@@ -394,7 +437,7 @@ function displayTableCard(card) {
     let screenWidth = this.scale.width;
     let screenHeight = this.scale.height;
 
-    let tableX = screenWidth / 2 + 400;
+    let tableX = screenWidth / 2 + 500;
     let tableY = screenHeight / 2 - 300;
 
     let cardKey = getCardImageKey(card);
@@ -526,6 +569,12 @@ function clearAllTricks() {
     oppTrickHistory = [];
     console.log("🧹 All tricks have been cleared.");
 }
+socket.on("abortGame", (data) => {
+    console.log("caught abortGame");
+    clearUI();
+    showLobbyScreen();
+    gameScene.children.removeAll(true);
+});
 socket.on("gameEnd", (data) => {
     console.log("caught gameEnd");
     showFinalScore(data.score.team1,data.score.team2);
@@ -685,11 +734,11 @@ function displayCards(playerHand) {
     // ✅ Position the input box relative to the game canvas
     function updateInputBoxPosition() {
         let canvasRect = document.querySelector("canvas").getBoundingClientRect();
-        inputBox.style.left = `${canvasRect.left + handAreaWidth - 630}px`; // Right of hand area
+        inputBox.style.left = `${canvasRect.left + handAreaWidth - 640}px`; // Right of hand area
         inputBox.style.top = `${canvasRect.top + screenHeight - handAreaHeight / 2 - 20}px`;
-        bidButton.style.left = `${canvasRect.left + handAreaWidth - 630}px`; // Right of hand area
+        bidButton.style.left = `${canvasRect.left + handAreaWidth - 640}px`; // Right of hand area
         bidButton.style.top = `${canvasRect.top + screenHeight - handAreaHeight / 2 + 35}px`;
-        bidContainer.style.left = `${canvasRect.left + handAreaWidth - 650}px`; // Right of hand area
+        bidContainer.style.left = `${canvasRect.left + handAreaWidth - 660}px`; // Right of hand area
         bidContainer.style.top = `${canvasRect.top + screenHeight - handAreaHeight / 2 - 50}px`;
     }
     // ✅ Update position initially and on window resize
@@ -741,21 +790,27 @@ function displayCards(playerHand) {
     playerHand.forEach((card, index) => {
         let cardKey = getCardImageKey(card);
         console.log(`Using image key: ${cardKey}`);
-        let cardSprite = this.add.image(screenWidth / 2 + 700, screenHeight / 2 - 300, cardKey)
+        let cardSprite = this.add.image(screenWidth / 2 + 500, screenHeight / 2 - 300, cardKey)
         .setInteractive()
         .setScale(1.5);  // ✅ Increase size
         if (!cardSprite) {
             console.error(`🚨 ERROR: Failed to create card sprite for ${card.rank} of ${card.suit}`);
         }
-        this.tweens.add({
-            targets: cardSprite,
-            x: startX + index * cardSpacing,
-            y: startY,
-            duration: 750,
-            ease: "Power2",
-            onComplete: () =>{
-            }
-        });
+        if (visible()){
+            this.tweens.add({
+                targets: cardSprite,
+                x: startX + index * cardSpacing,
+                y: startY,
+                duration: 750,
+                ease: "Power2",
+                delay: index * 30,
+                onComplete: () =>{
+                }
+            });
+        }else{
+            cardSprite.x = startX + index * cardSpacing;
+            cardSprite.y = startY;
+        }
         this.input.setDraggable(cardSprite);
         let originalX = startX + index * cardSpacing;
         let originalY = startY;
@@ -863,13 +918,13 @@ function displayCards(playerHand) {
         }
         if(position % 2 !== 0){
             console.log("updating my scoreBug");
-            scoreUI.teamScoreLabel.setText(me + "/" + partner + "(" + position + "/" + team(position) + ")" + ": " + myBids[position - 1] + "/" + myBids[team(position) - 1] + " " +  score1);
-            scoreUI.oppScoreLabel.setText(opp1 + "/" + opp2 + "("+ rotate(position) + "/" + rotate(rotate(rotate(position))) + ")" + ": " + myBids[rotate(position) - 1] + "/" + myBids[rotate(rotate(rotate(position))) - 1] + " " + score2);
+            scoreUI.teamScoreLabel.setText(me + "/" + partner + ": " + myBids[position - 1] + "/" + myBids[team(position) - 1] + "       " +  score1);
+            scoreUI.oppScoreLabel.setText(opp1 + "/" + opp2 +  ": " + myBids[rotate(position) - 1] + "/" + myBids[rotate(rotate(rotate(position))) - 1] + "       " + score2);
         }
         else{
             console.log("updating their scoreBug");
-            scoreUI.teamScoreLabel.setText(me + "/" + partner + "(" + position + "/" + team(position) + ")" + ": " + myBids[position - 1] + "/" + myBids[team(position) - 1] + " " +  score2);
-            scoreUI.oppScoreLabel.setText(opp1 + "/" + opp2 + "("+ rotate(position) + "/" + rotate(rotate(rotate(position))) + ")" + ": " + myBids[rotate(position) - 1] + "/" + myBids[rotate(rotate(rotate(position))) - 1] + " " + score1);
+            scoreUI.teamScoreLabel.setText(me + "/" + partner + ": " + myBids[position - 1] + "/" + myBids[team(position) - 1] + "       " +  score2);
+            scoreUI.oppScoreLabel.setText(opp1 + "/" + opp2 + ": " + myBids[rotate(position) - 1] + "/" + myBids[rotate(rotate(rotate(position))) - 1] + "       " + score1);
         }
     });
     socket.on("updateTurn", (data) => {
@@ -903,20 +958,28 @@ function displayCards(playerHand) {
             if (opponentCardSprites["opp1"] && opponentCardSprites["opp1"].length > 0) {
                 let removedCard = opponentCardSprites["opp1"].pop();
                 currentTrick.push(removedCard); // Add the removed card to the current trick
-                this.tweens.add({
-                    targets: removedCard,
-                    x: opponent1_x,
-                    y: opponent1_y,
-                    duration: 500,
-                    ease: "Power2",
-                    rotation: 0,
-                    scale: 1.5,
-                    onComplete: () => {
-                        removedCard.setTexture(cardKey);
-                        removedCard.setDepth(200);
-                        console.log("card texture changed to: ", cardKey);
-                    } 
-                })
+                if(visible()){
+                    this.tweens.add({
+                        targets: removedCard,
+                        x: opponent1_x,
+                        y: opponent1_y,
+                        duration: 500,
+                        ease: "Power2",
+                        rotation: 0,
+                        scale: 1.5,
+                        onComplete: () => {
+                            removedCard.setTexture(cardKey);
+                            removedCard.setDepth(200);
+                            console.log("card texture changed to: ", cardKey);
+                        } 
+                    });
+                }else{
+                    removedCard.x = opponent1_x;
+                    removedCard.y = opponent1_y;
+                    removedCard.setTexture(cardKey);
+                    removedCard.setDepth(200);
+                    console.log("card texture changed to: ", cardKey);
+                }
                 console.log("✅ Removed a card from Opponent 1");
             } else {
                 console.warn("⚠️ No cards left to remove from Opponent 1!");
@@ -926,20 +989,28 @@ function displayCards(playerHand) {
             if (opponentCardSprites["partner"] && opponentCardSprites["partner"].length > 0) {
                 let removedCard = opponentCardSprites["partner"].pop();
                 currentTrick.push(removedCard); // Add the removed card to the current trick
-                this.tweens.add({
-                    targets: removedCard,
-                    x: team1_x,
-                    y: team1_y,
-                    duration: 500,
-                    ease: "Power2",
-                    rotation: 0,
-                    scale: 1.5,
-                    onComplete: () => {
-                        removedCard.setTexture(cardKey);
-                        removedCard.setDepth(200);
-                        console.log("card texture changed to: ", cardKey);
-                    } 
-                })
+                if(visible()){
+                    this.tweens.add({
+                        targets: removedCard,
+                        x: team1_x,
+                        y: team1_y,
+                        duration: 500,
+                        ease: "Power2",
+                        rotation: 0,
+                        scale: 1.5,
+                        onComplete: () => {
+                            removedCard.setTexture(cardKey);
+                            removedCard.setDepth(200);
+                            console.log("card texture changed to: ", cardKey);
+                        } 
+                    });
+                }else{
+                    removedCard.x = team1_x;
+                    removedCard.y = team1_y;
+                    removedCard.setTexture(cardKey);
+                    removedCard.setDepth(200);
+                    console.log("card texture changed to: ", cardKey);
+                }
                 console.log("✅ Removed a card from Partner");
             } else {
                 console.warn("⚠️ No cards left to remove from Partner!");
@@ -948,21 +1019,29 @@ function displayCards(playerHand) {
         else if (data.position === position + 3 || data.position === position - 1){
             if (opponentCardSprites["opp2"] && opponentCardSprites["opp2"].length > 0) {
                 let removedCard = opponentCardSprites["opp2"].pop();
-                currentTrick.push(removedCard); // Add the removed card to the current trick  
-                this.tweens.add({
-                    targets: removedCard,
-                    x: opponent2_x,
-                    y: opponent2_y,
-                    duration: 500,
-                    ease: "Power2",
-                    rotation: 0,
-                    scale: 1.5,
-                    onComplete: () => {
-                        removedCard.setTexture(cardKey);
-                        removedCard.setDepth(200);
-                        console.log("card texture changed to: ", cardKey);
-                    } 
-                })
+                currentTrick.push(removedCard); // Add the removed card to the current trick
+                if(visible()){  
+                    this.tweens.add({
+                        targets: removedCard,
+                        x: opponent2_x,
+                        y: opponent2_y,
+                        duration: 500,
+                        ease: "Power2",
+                        rotation: 0,
+                        scale: 1.5,
+                        onComplete: () => {
+                            removedCard.setTexture(cardKey);
+                            removedCard.setDepth(200);
+                            console.log("card texture changed to: ", cardKey);
+                        } 
+                    });
+                }else{
+                    removedCard.x = opponent2_x;
+                    removedCard.y = opponent2_y;
+                    removedCard.setTexture(cardKey);
+                    removedCard.setDepth(200);
+                    console.log("card texture changed to: ", cardKey);
+                }
                 console.log("✅ Removed a card from Opponent 2");
             } else {
                 console.warn("⚠️ No cards left to remove from Opponent 2!");
@@ -1000,18 +1079,25 @@ function displayCards(playerHand) {
             if(data.winner % 2 !== position % 2){
                 card.setTexture("cardBack");
             }
-            this.tweens.add({
-                targets: card,
-                x: winningPosition.x,
-                y: winningPosition.y,
-                scale: 0.75, // ✅ Shrink while moving
-                duration: 500,
-                ease: "Power2",
-                onComplete: () => {
-                    card.setDepth(200 + stackIndex);
-                    console.log(`✅ Trick moved and stacked.`);
-                }
-            });
+            if(visible()){
+                this.tweens.add({
+                    targets: card,
+                    x: winningPosition.x,
+                    y: winningPosition.y,
+                    scale: 0.75, // ✅ Shrink while moving
+                    duration: 500,
+                    ease: "Power2",
+                    onComplete: () => {
+                        card.setDepth(200 + stackIndex);
+                        console.log(`✅ Trick moved and stacked.`);
+                    }
+                });
+            }else{
+                card.x = winningPosition.x;
+                card.y = winningPosition.y;
+                card.setDepth(200 + stackIndex);
+                console.log(`✅ Trick moved and stacked.`);
+            }
             stackIndex += 1; // ✅ Increment stack index for depth
             card.setInteractive();
             card.originalDepth = card.depth;
@@ -1029,13 +1115,18 @@ function displayCards(playerHand) {
         function fanOutTrick(trick) {
             trick.forEach((card, index) => {
                 card.setDepth(250 + index);
-                this.tweens.add({
-                    targets: card,
-                    x: winningPosition.x + index * 20, // ✅ Fan out horizontally
-                    y: winningPosition.y - index * 5, // ✅ Slight vertical offset
-                    duration: 200,
-                    ease: "Power1"
-                });
+                if(visible()){   
+                    this.tweens.add({
+                        targets: card,
+                        x: winningPosition.x + index * 20, // ✅ Fan out horizontally
+                        y: winningPosition.y - index * 5, // ✅ Slight vertical offset
+                        duration: 200,
+                        ease: "Power1"
+                    });
+                }else{
+                    card.x = winningPosition.x + index * 20;
+                    card.y = winningPosition.y - index * 5;
+                }
             });
         }
     
@@ -1043,13 +1134,18 @@ function displayCards(playerHand) {
         function resetTrick(trick) {
             trick.forEach((card) => {
                 card.setDepth(card.originalDepth);
-                this.tweens.add({
-                    targets: card,
-                    x: winningPosition.x,
-                    y: winningPosition.y,
-                    duration: 200,
-                    ease: "Power1"
-                });
+                if(visible()){
+                    this.tweens.add({
+                        targets: card,
+                        x: winningPosition.x,
+                        y: winningPosition.y,
+                        duration: 200,
+                        ease: "Power1"
+                    });
+                }else{
+                    card.x = winningPosition.x;
+                    card.y = winningPosition.y;
+                }
             });
         }
         // ✅ Add hover events to THIS trick only
@@ -1122,11 +1218,11 @@ function displayOpponentHands(numCards) {
     opponentCardSprites = {}; // ✅ Reset storage
     Object.keys(opponentPositions).forEach((opponentId) => {
         let { x, y, rotation, horizontal, avatarX, avatarY } = opponentPositions[opponentId];
-        this.add.image(avatarX, avatarY, "default_user")
+        if(opponentId === "partner"){
+            this.add.image(avatarX, avatarY, "profile" + playerData.pics[playerData.position.indexOf(team(position))])
             .setScale(0.2) // Adjust size
             .setDepth(250) // Ensure it's above the cards
             .setAlpha(1);
-        if(opponentId === "partner"){
             this.add.text(avatarX, avatarY + 60, playerData.username[playerData.position.indexOf(team(position))].username, {
                 fontSize: "18px",
                 fontFamily: "Arial",
@@ -1137,6 +1233,10 @@ function displayOpponentHands(numCards) {
             .setDepth(250);
         }
         if(opponentId === "opp1"){
+            this.add.image(avatarX, avatarY, "profile" + playerData.pics[playerData.position.indexOf(rotate(position))])
+            .setScale(0.2) // Adjust size
+            .setDepth(250) // Ensure it's above the cards
+            .setAlpha(1);
             this.add.text(avatarX, avatarY + 60, playerData.username[playerData.position.indexOf(rotate(position))].username, {
                 fontSize: "18px",
                 fontFamily: "Arial",
@@ -1147,6 +1247,10 @@ function displayOpponentHands(numCards) {
             .setDepth(250);
         }
         if(opponentId === "opp2"){
+            this.add.image(avatarX, avatarY, "profile" + playerData.pics[playerData.position.indexOf(rotate(rotate(rotate(position))))])
+            .setScale(0.2) // Adjust size
+            .setDepth(250) // Ensure it's above the cards
+            .setAlpha(1);
             this.add.text(avatarX, avatarY + 60, playerData.username[playerData.position.indexOf(rotate(rotate(rotate(position))))].username, {
                 fontSize: "18px",
                 fontFamily: "Arial",
@@ -1161,24 +1265,32 @@ function displayOpponentHands(numCards) {
             let offsetX = horizontal ? (i - numCards / 2) * cardSpacing : 0; // ✅ Left/Right: No horizontal movement
             let offsetY = horizontal ? 0 : (i - numCards / 2) * cardSpacing; // ✅ Top: No vertical movement
 
-            let cardBack = this.add.image(screenWidth / 2 + 700, screenHeight / 2 - 300, "cardBack")
+            let cardBack = this.add.image(screenWidth / 2 + 500, screenHeight / 2 - 300, "cardBack")
                 .setScale(1.5)
             // Ensure opponent cards are visually below player cards
             cardBack.setDepth(200);
             opponentCardSprites[opponentId].push(cardBack);
-            this.tweens.add({
-                targets: cardBack,
-                x: x + offsetX,
-                y: y + offsetY,
-                duration: 750,
-                ease: "Power2",
-                scaleX: 1.2,
-                scaleY: 1.2,
-                rotation: rotation,
-                onComplete: () => {
+            if(visible()){
+                this.tweens.add({
+                    targets: cardBack,
+                    x: x + offsetX,
+                    y: y + offsetY,
+                    duration: 750,
+                    ease: "Power2",
+                    scaleX: 1.2,
+                    scaleY: 1.2,
+                    rotation: rotation,
+                    delay: i*30,
+                    onComplete: () => {
                     //cardBack.setRotation(rotation);
-                }
-            })
+                    }
+                });
+            }else{
+                cardBack.x = x + offsetX;
+                cardBack.y = y + offsetY;
+                cardBack.rotation = rotation;
+                cardBack.setScale(1.2);
+            }
         }
     });
 

@@ -129,7 +129,7 @@ let gameState = {
     bidding: 1,
     dealer: 1,
     bidder: 2,
-    currentHand: 13,
+    currentHand: 2,
     trump: {}, 
     isTrumpBroken: false,
     bids: {
@@ -147,6 +147,7 @@ let gameState = {
     cardIndex : 0,
     team1Mult : 1,
     team2Mult : 1,
+    start: false
 };
 let trumpCard = [];
 function drawOrder(myCard,cards){
@@ -197,9 +198,30 @@ function cleanupNextHand(dealer, hand){
     io.emit("gameStart", { players, hands: gameState.hands, trump: gameState.trump, score1: gameState.score.team1, score2: gameState.score.team2 });
     console.log("hand started", gameState.hands);
     gameState.currentTurn = gameState.bidder;
+    gameState.start = true;
     io.emit("updateTurn", { currentTurn: gameState.currentTurn });
     console.log("emitted update turn on a cleanup/handstart");
 
+}
+function abortClean(){
+    gameState.deck = [];
+    gameState.hands = {};
+    gameState.currentTurn = 1;
+    gameState.bidding = 1;
+    gameState.dealer = 1;
+    gameState.bidder = rotate(gameState.dealer);
+    gameState.currentHand = 12;
+    gameState.trump = {};
+    gameState.isTrumpBroken = false;
+    gameState.bids = {
+        team1: 0,
+        team2: 0
+    }; 
+    gameState.tricks = {
+        team1: 0,
+        team2: 0
+    };
+    gameState.start = false;
 }
 function initializeDeck() {
     const suits = ["spades", "hearts", "diamonds", "clubs"];
@@ -433,6 +455,14 @@ io.on("connection", (socket) => {
     });
     socket.on("draw", (data)=> {
         let order = data.num;
+        let pics = [];
+        let picInt = 0;
+        for(i = 0; i < 4; i++){
+            do{
+                picInt = Math.floor(Math.random() * 7) + 1;
+            }while(pics.includes(picInt));
+            pics.push(picInt);
+        }
         if (order > gameState.deck.length -1){
             order = gameState.deck.length -1;
         }
@@ -456,7 +486,7 @@ io.on("connection", (socket) => {
             console.log("positions: ", positions);
             console.log("sockets: ", players);
             sleepSync(1000);
-            io.emit("positionUpdate", {positions: positions, sockets: players, usernames: currentUsers});
+            io.emit("positionUpdate", {positions: positions, sockets: players, usernames: currentUsers, pics: pics});
             i = 0;
             sleepSync(2000);
             gameState.deck = initializeDeck();
@@ -470,6 +500,7 @@ io.on("connection", (socket) => {
             drawIDs = [];
             io.emit("gameStart", { players, hands: gameState.hands, trump: gameState.trump, score1: gameState.score.team1, score2: gameState.score.team2 });
             console.log("Game started", gameState.hands);
+            gameState.start = true;
             gameState.currentTurn = rotate(gameState.dealer);
             io.emit("updateTurn", { currentTurn: gameState.currentTurn });
             console.log("emitted update turn on game start");
@@ -561,6 +592,7 @@ io.on("connection", (socket) => {
                         io.emit("gameEnd", {score:gameState.score});
                         players = [];
                         gameState.bidding = 1;
+                        gameState.start = false;
                     }
                     else{
                         cleanupNextHand(rotate(gameState.dealer), gameState.currentHand + 2);
@@ -642,6 +674,12 @@ io.on("connection", (socket) => {
         players = players.filter((player) => player !== socket.id);
         currentUsers = currentUsers.filter((user) => user.socketId !== socket.id);
         console.log(`Player disconnected: ${socket.id}`);
+        console.log(gameState.start);
+        if (gameState.start){
+            console.log("aborting mid-game...");
+            io.emit("abortGame");
+            abortClean();
+        }
     });
 });
 
