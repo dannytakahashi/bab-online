@@ -105,7 +105,7 @@ function showSignInScreen() {
 
     signInContainer.appendChild(signInButton);
     let signUpButton = document.createElement("button");
-    signUpButton.innerText = "Sign Up";
+    signUpButton.innerText = "Register";
     signUpButton.style.fontSize = "14px";
     signUpButton.style.padding = "10px 20px";
     signUpButton.style.borderRadius = "5px";
@@ -115,20 +115,111 @@ function showSignInScreen() {
     signUpButton.style.cursor = "pointer";
     signUpButton.style.marginTop = "10px";
 
-    signUpButton.onclick = () => {
-        username = usernameInput.value.trim();
-        password = passwordInput.value.trim();
-
-        if (username.length === 0 || password.length === 0) {
-            alert("Please enter a valid username and password.");
-            return;
-        }
-
-        console.log(`📡 Registering user: ${username}`);
-        socket.emit("signUp", { username, password });
-    };
+    signUpButton.onclick = showRegisterScreen;
     signInContainer.appendChild(signUpButton);
     document.body.appendChild(signInContainer);
+}
+function showRegisterScreen(){
+    let registerVignette = document.createElement("div");
+    registerVignette.classList.add("vignette"); // ✅ Add a class for easy removal
+    registerVignette.style.position = "fixed";
+    registerVignette.style.top = "0";
+    registerVignette.style.left = "0";
+    registerVignette.style.width = "100vw";
+    registerVignette.style.height = "100vh";
+    registerVignette.style.pointerEvents = "none"; // ✅ Allows interaction with UI elements underneath
+    registerVignette.style.background = "radial-gradient(circle, rgba(34, 139, 34, 1) 30%, rgba(0, 0, 0, 1) 100%)";
+    document.body.appendChild(registerVignette); 
+
+    let registerContainer = document.createElement("div");
+    registerContainer.id = "signInContainer";
+    registerContainer.style.position = "absolute";
+    registerContainer.style.top = "0";
+    registerContainer.style.left = "0";
+    registerContainer.style.width = "100vw";
+    registerContainer.style.height = "100vh";
+    registerContainer.style.background = "none";
+    registerContainer.style.border = "none"; 
+    registerContainer.style.display = "flex";
+    registerContainer.style.flexDirection = "column";
+    registerContainer.style.justifyContent = "center";
+    registerContainer.style.alignItems = "center";
+    registerContainer.style.color = "white";
+    registerContainer.style.fontSize = "24px";
+    let logo = document.createElement("img");
+    logo.src = "assets/logo.png"; // ✅ Path to your logo image
+    logo.alt = "Game Logo";
+    logo.style.width = "500px"; // ✅ Adjust size as needed
+    logo.style.marginBottom = "20px";
+    logo.style.position = "relative";
+    logo.style.left = "30px"
+    registerContainer.appendChild(logo); 
+    // ✅ Username Input
+    let usernameInput = document.createElement("input");
+    usernameInput.type = "text";
+    usernameInput.placeholder = "Username";
+    usernameInput.style.fontSize = "12px";
+    usernameInput.style.padding = "10px";
+    usernameInput.style.marginBottom = "10px";
+    usernameInput.style.borderRadius = "5px";
+    usernameInput.style.border = "none";
+    usernameInput.style.textAlign = "center";
+    registerContainer.appendChild(usernameInput);
+
+    // ✅ Password Input
+    let passwordInput = document.createElement("input");
+    passwordInput.type = "password"; // ✅ Password type hides input
+    passwordInput.placeholder = "Password";
+    passwordInput.style.fontSize = "12px";
+    passwordInput.style.padding = "10px";
+    passwordInput.style.marginBottom = "10px";
+    passwordInput.style.borderRadius = "5px";
+    passwordInput.style.border = "none";
+    passwordInput.style.textAlign = "center";
+    registerContainer.appendChild(passwordInput);
+
+    let confirmPasswordInput = document.createElement("input");
+    confirmPasswordInput.type = "password"; // ✅ Password type hides input
+    confirmPasswordInput.placeholder = "confirm password";
+    confirmPasswordInput.style.fontSize = "12px";
+    confirmPasswordInput.style.padding = "10px";
+    confirmPasswordInput.style.marginBottom = "10px";
+    confirmPasswordInput.style.borderRadius = "5px";
+    confirmPasswordInput.style.border = "none";
+    confirmPasswordInput.style.textAlign = "center";
+    registerContainer.appendChild(confirmPasswordInput);
+
+    let registerButton = document.createElement("button");
+    registerButton.innerText = "Register";
+    registerButton.style.fontSize = "14px";
+    registerButton.style.padding = "10px 20px";
+    registerButton.style.borderRadius = "5px";
+    registerButton.style.border = "none";
+    registerButton.style.background = "#23782d";
+    registerButton.style.color = "#fff";
+    registerButton.style.cursor = "pointer";
+
+    registerButton.onclick = () =>  {
+        let username = usernameInput.value.trim();
+        let password = passwordInput.value.trim();
+        let confirmPassword = confirmPasswordInput.value.trim();
+    
+        if (username === "" || password === "" || confirmPassword === "") {
+            alert("❌ Please fill out all fields.");
+            return;
+        }
+    
+        if (password !== confirmPassword) {
+            alert("❌ Passwords do not match!");
+            return;
+        }
+    
+        console.log(`📡 Registering user: ${username}`);
+        socket.emit("signUp", { username, password });
+        showSignInScreen();
+    }
+    registerContainer.appendChild(registerButton);
+    document.body.appendChild(registerContainer);
 }
 socket.on("signInResponse", (data) => {
     if (data.success) {
@@ -578,6 +669,49 @@ function hideFinal() {
         showLobbyScreen();
     }
 }
+function initGameChat(){
+    let chatInput = document.createElement("input");
+    chatInput.type = "text";
+    chatInput.placeholder = "Type a message...";
+    chatInput.style.position = "absolute";
+    chatInput.style.bottom = "10px";  // Adjust position
+    chatInput.style.left = "50%";
+    chatInput.style.transform = "translateX(-50%)";
+    chatInput.style.fontSize = "18px";
+    chatInput.style.padding = "8px";
+    chatInput.style.width = "300px";
+    chatInput.style.border = "2px solid #8B4513";
+    chatInput.style.background = "#FFF8DC"; // Light beige color
+    chatInput.style.color = "#000";
+    chatInput.style.borderRadius = "8px";
+    chatInput.style.textAlign = "center";
+    chatInput.style.display = "none"; // ✅ Keep hidden initially
+    document.body.appendChild(chatInput);
+
+    // ✅ Listen for "Enter" key to show input field
+    document.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && chatInput.style.display === "none") {
+            chatInput.style.display = "block";
+            chatInput.focus(); // Auto-focus when opened
+        } else if (event.key === "Escape") {
+            chatInput.style.display = "none"; // Hide on Escape
+            chatInput.value = ""; // Clear input
+        }
+    });
+
+    // ✅ Handle submission when pressing "Enter" inside the input box
+    chatInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+            let message = chatInput.value.trim();
+            if (message !== "") {
+                console.log("📡 Sending message:", message);
+                socket.emit("chatMessage", { message });
+            }
+            chatInput.value = ""; // Clear input
+            chatInput.style.display = "none"; // Hide after sending
+        }
+    });     
+}
 function clearScreen() {
     console.log("🔥 Clearing all elements from the screen...");
 
@@ -609,12 +743,122 @@ function clearScreen() {
 
     console.log("✅ All elements removed from the screen.");
 }
-window.onload = () => {
-    let savedUsername = sessionStorage.getItem("username");
-    if (savedUsername) {
-        console.log(`🔄 Auto-signing in as ${savedUsername}`);
-        showLobbyScreen(); // ✅ Go to lobby if user is already signed in
-    } else {
-        showSignInScreen(); // ✅ Show sign-in if no user is saved
+function createSpeechBubble(scene, x, y, width, height, text, color) {
+    console.log(`🎈 Creating speech bubble at (${x}, ${y}) with text: "${text}"`);
+    let bubblePadding = 10;
+    let tailSize = 20;
+    let bubbleText = null;
+
+    // ✅ Create the speech bubble background
+    let bubble = gameScene.add.graphics();
+
+    // ✅ Draw rounded rectangle (main bubble)
+    bubble.fillStyle(0xffffff, 1); // White background
+    bubble.fillRoundedRect(x, y, width, height, 16); // Rounded edges
+
+    // ✅ Draw speech tail (triangle)
+    bubble.fillTriangle(
+        x + 20, y + height,      // Bottom-left corner of the bubble
+        x - tailSize, y + height, // Tail extending further left
+        x + 10, y + height - tailSize // Diagonal upwards
+    );
+
+    // ✅ Create text inside the bubble
+    if(color ==="#FF0000"){
+            bubbleText = gameScene.add.text(x + bubblePadding + 10, y + bubblePadding, text, {
+            fontSize: "20px",
+            fontFamily: "Arial",
+            fontStyle: "bold",
+            color: "#FF0000", // Default to black if no color provided
+            wordWrap: { width: width - bubblePadding * 2 }
+        });
     }
+    else{
+            bubbleText = gameScene.add.text(x + bubblePadding, y + bubblePadding, text, {
+            fontSize: "16px",
+            fontFamily: "Arial",
+            color: "#000000", // Default to black if no color provided
+            wordWrap: { width: width - bubblePadding * 2 }
+        });
+    }
+    // ✅ Group everything for easy control
+    let container = gameScene.add.container(0, 0, [bubble, bubbleText]);
+    console.log("✅ Speech bubble created:", container);
+    container.setDepth(500);
+    container.setAlpha(1);
+    return container;
+}
+function createPlayerInfoBox() {
+    let screenWidth = gameScene.scale.width;
+    let screenHeight = gameScene.scale.height;
+
+    let boxWidth = 180;
+    let boxHeight = 200;
+    let boxX = screenWidth - 380; // Position it where the bid UI used to be
+    let boxY = screenHeight - 150; // Near the hand area
+
+    // ✅ Create the dark background for player info
+    let playerBox = gameScene.add.rectangle(boxX, boxY, boxWidth, boxHeight, 0x222222)
+        .setOrigin(0.5)
+        .setAlpha(0.8) // Semi-transparent
+        .setStrokeStyle(3, 0xffffff); // White border
+
+    // ✅ Player Name Text
+    let playerAvatar = gameScene.add.image(boxX, boxY - 110, "default_user") // Load texture from assets
+        .setScale(0.2) // Adjust size
+        .setOrigin(0.5)
+    let playerNameText = gameScene.add.text(boxX, boxY - 40, playerData.username[playerData.position.indexOf(position)].username, {
+        fontSize: "18px",
+        fontFamily: "Arial",
+        color: "#ffffff"
+    }).setOrigin(0.5);
+
+    // ✅ Score Text
+    let playerPositionText = gameScene.add.text(boxX, boxY, "POSITION: " + position, {
+        fontSize: "16px",
+        fontFamily: "Arial",
+        color: "#ffffff"
+    }).setOrigin(0.5);
+
+    // ✅ Group all elements into a container
+    let playerInfoContainer = gameScene.add.container(0, 0, [playerBox, playerAvatar, playerNameText, playerPositionText]);
+
+    return { playerBox, playerAvatar, playerNameText, playerPositionText };
+}
+function createScorebug(){
+    const screenWidth = gameScene.scale.width;
+    const padding = 20;
+    const boxWidth = 300;
+    const boxHeight = 60;
+
+    const scorebugX = screenWidth - boxWidth - padding;
+    const scorebugY = padding;
+
+    // ✅ Background box
+    const background = gameScene.add.rectangle(scorebugX, scorebugY, boxWidth, boxHeight, 0x222222)
+        .setOrigin(0, 0)
+        .setAlpha(0.85)
+        .setStrokeStyle(2, 0xffffff)
+        .setDepth(300);
+
+    // ✅ Team Score Labels
+    const teamScoreLabel = gameScene.add.text(scorebugX + 10, scorebugY + 8, "Team: 0", {
+        fontSize: "16px",
+        fontFamily: "Arial",
+        fontStyle: "bold",
+        color: "#00ff00"
+    }).setDepth(301);
+
+    const oppScoreLabel = gameScene.add.text(scorebugX + 10, scorebugY + 32, "Opp: 0", {
+        fontSize: "16px",
+        fontFamily: "Arial",
+        fontStyle: "bold",
+        color: "#ff3333"
+    }).setDepth(301);
+
+    // ✅ Return references to update later
+    return { background, teamScoreLabel, oppScoreLabel };
+}
+window.onload = () => {
+        showSignInScreen(); // ✅ Show sign-in if no user is saved
 };

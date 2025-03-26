@@ -115,6 +115,7 @@ app.use(helmet({
 app.get("/", (req, res) => {
     res.send("Server is running!");
 });
+let positions = [];
 let players = [];
 let playedCards = [];
 let playedCardsIndex = 0;
@@ -193,7 +194,7 @@ function cleanupNextHand(dealer, hand){
     }
     trumpCard = gameState.deck.shift()
     gameState.trump = trumpCard;
-    io.emit("gameStart", { players, hands: gameState.hands, trump: gameState.trump });
+    io.emit("gameStart", { players, hands: gameState.hands, trump: gameState.trump, score1: gameState.score.team1, score2: gameState.score.team2 });
     console.log("hand started", gameState.hands);
     gameState.currentTurn = gameState.bidder;
     io.emit("updateTurn", { currentTurn: gameState.currentTurn });
@@ -292,6 +293,14 @@ function removeCard(hand, card) {
     });
     return hand;
 }
+function reOrderUsers(currentUsers, players) {
+    let orderedUsers = [];
+    for (let i = 0; i < players.length; i++) {
+        let playerIndex = players.indexOf(currentUsers[i].socketId);
+        orderedUsers[playerIndex] = currentUsers[i];
+    }
+    return orderedUsers;
+}
 function determineWinner(trick, lead, trump){
     let winner = lead;
     let tempIndex = 0;
@@ -330,6 +339,7 @@ function determineWinner(trick, lead, trump){
 }
 let leadCard = [];
 let leadPosition = 1;
+let currentUsers = [];
 io.on("connection", (socket) => {
     console.log(`Player connected: ${socket.id}`);
         // ✅ Handle player sign-in
@@ -370,6 +380,9 @@ io.on("connection", (socket) => {
                 // ✅ Send sign-in success response
                 socket.emit("signInResponse", { success: true, username });
                 console.log(`✅ ${username} signed in successfully.`);
+                currentUsers = currentUsers.filter((user) => user.username !== username);
+                currentUsers.push({username, socketId: socket.id });
+                console.log("current users: ", currentUsers);
             } catch (error) {
                 console.error("❌ Database error:", error);
                 socket.emit("signInResponse", { success: false, message: "Database error. Try again." });
@@ -435,8 +448,15 @@ io.on("connection", (socket) => {
             for(let player of drawIDs){
                 io.to(player).emit("playerAssigned", {playerId: player, position: drawOrder(drawCards[i], drawCards) });
                 console.log("assigned player with socket ", player, " to position ", drawOrder(drawCards[i], drawCards));
+                positions[players.indexOf(player)] = drawOrder(drawCards[i], drawCards);
                 i++;
             }
+            currentUsers = reOrderUsers(currentUsers, players);
+            console.log("current users after reordering: ", currentUsers);
+            console.log("positions: ", positions);
+            console.log("sockets: ", players);
+            sleepSync(1000);
+            io.emit("positionUpdate", {positions: positions, sockets: players, usernames: currentUsers});
             i = 0;
             sleepSync(2000);
             gameState.deck = initializeDeck();
@@ -448,7 +468,7 @@ io.on("connection", (socket) => {
             drawCards = [];
             drawIndex = 0;
             drawIDs = [];
-            io.emit("gameStart", { players, hands: gameState.hands, trump: gameState.trump });
+            io.emit("gameStart", { players, hands: gameState.hands, trump: gameState.trump, score1: gameState.score.team1, score2: gameState.score.team2 });
             console.log("Game started", gameState.hands);
             gameState.currentTurn = rotate(gameState.dealer);
             io.emit("updateTurn", { currentTurn: gameState.currentTurn });
@@ -456,7 +476,7 @@ io.on("connection", (socket) => {
         }
     });
     socket.on("playCard", (data) => {
-        //console.log("bidding: ", gameState.bidding);
+        console.log("bidding: ", gameState.bidding);
         if (data.position !== gameState.currentTurn || gameState.bidding === 1){
             console.log(`❌ Player ${socket.id} tried to play out of turn!`);
             return;
@@ -557,7 +577,7 @@ io.on("connection", (socket) => {
             playerBids[gameState.currentTurn - 1] = data.bid;
             numBids = numBids + 1;   
             console.log("position ", data.position, " bid ", data.bid);
-            io.emit("bidReceived", { bid: data.bid, position: data.position });
+            io.emit("bidReceived", { bid: data.bid, position: data.position, bidArray: playerBids });
             gameState.currentTurn += 1;
             if(gameState.currentTurn === 5){
                 gameState.currentTurn = 1;  
@@ -613,8 +633,15 @@ io.on("connection", (socket) => {
             return;
         }
     })
+    socket.on("chatMessage", (data) => {
+        console.log(`Chat message from ${socket.id}: ${data.message}`);
+        // Emit the chat message to all players
+        io.emit("chatMessage", { position: positions[players.indexOf(socket.id)], message: data.message });
+    });
     socket.on("disconnect", () => {
         players = players.filter((player) => player !== socket.id);
+        currentUsers = currentUsers.filter((user) => user.socketId !== socket.id);
+        console.log(`Player disconnected: ${socket.id}`);
     });
 });
 
