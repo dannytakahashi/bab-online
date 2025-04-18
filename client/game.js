@@ -233,9 +233,7 @@ function preload() {
     this.load.image("profile6", "assets/profile6.png");
     this.load.image("profile7", "assets/profile7.png");
     this.load.image("profile8", "assets/profile8.png");
-    this.load.image("profile9", "alt_assets/test_profile2.png");
-    this.load.image("profile10", "alt_assets/profile10.png");
-    this.load.image("profile11", "alt_assets/profile11.png");
+    this.load.image("profile9", "assets/profile9.png");
     this.load.image("profile12", "assets/profile12.png");
     this.load.image("profile13", "assets/profile13.png");
     this.load.image("profile14", "assets/profile14.png");
@@ -315,7 +313,6 @@ function preload() {
     this.load.image("2b", "assets/2b.png");
     this.load.image("3b", "assets/3b.png");
     this.load.image("4b", "assets/4b.png");
-    this.load.image("profile84", "alt_assets/profile82.png");
 }
 let ranks = {
     "HI": 16,
