@@ -76,17 +76,26 @@ let opp1 = null;
 let opp2 = null;
 let score1 = 0;
 let score2 = 0;
+let playedCard = false;
+let playerInfo = null;
 function create() {
     gameScene = this; // Store reference to the game scene
     console.log("running create4...");
     console.log("Socket in game.js:", socket);
-    // Connect to server
     let screenWidth = this.scale.width;
     let screenHeight = this.scale.height;
-    this.cameras.main.setBackgroundColor("#228B22");
-    //createVignette.call(this);
-    console.log("✅ Background fade effect applied.");
-
+    //this.cameras.main.setBackgroundColor("transparent");
+    const bg = this.add.image(0, 0, 'background')
+    .setOrigin(0, 0)
+    .setDisplaySize(this.scale.width, this.scale.height)  // Stretch to fill screen
+    .setScrollFactor(0)
+    .setDepth(-100)  // Make it non-scrollable (fixed to camera)
+    this.time.delayedCall(10, () => {
+        bg.setDisplaySize(this.scale.width, this.scale.height);
+    });
+    this.scale.on('resize', (gameSize) => {
+        bg.setDisplaySize(gameSize.width, gameSize.height);
+    });
     console.log("⏳ Waiting for players...");
     socket.on("positionUpdate", (data) => {
         console.log("Position update received:", data);
@@ -102,15 +111,13 @@ function create() {
         // Debug: Check if playerId is set correctly
         console.log("playerId:", playerId);
         // Debug: Check if player has received cards
-        console.log("Hands data:", data.hands);
+        console.log("Hands data:", data.hand);
         console.log("scores:", data.score1, data.score2);
-        console.log("Player's hand:", data.hands[playerId]);
-        playerCards = data.hands[playerId]; 
+        console.log("Player's hand:", data.hand);
+        playerCards = data.hand;
+        dealer = data.dealer; 
         if (playerCards) {
             console.log("running display cards...");
-            createGameFeed();
-            initGameChat();
-            scoreUI = createScorebug(this);
             score1 = data.score1;
             score2 = data.score2;
             me = playerData.username[playerData.position.indexOf(position)].username;
@@ -125,37 +132,33 @@ function create() {
                 scoreUI.teamScoreLabel.setText(me + "/" + partner + ": -/-       " + score2);
                 scoreUI.oppScoreLabel.setText(opp1 + "/" + opp2 + ": -/-       " + score1);
             }
-            let playerInfo = createPlayerInfoBox(); // Store the reference
+            if(!playerInfo){
+                playerInfo = createPlayerInfoBox(); // Store the reference
+            }
             displayCards.call(this, playerCards);
-            createVignette.call(this);
+            //createVignette.call(this);
         } else {
             console.error("🚨 ERROR: playerCards is undefined! GameState may not be initializing correctly.");
         }
-        displayOpponentHands.call(this, playerCards.length);
+        displayOpponentHands.call(this, playerCards.length, dealer);
         if (data.trump) {
             displayTableCard.call(this, data.trump);
             trump = data.trump;
         }
     });
 }
+
 const config = {
     type: Phaser.AUTO,
-    width: window.innerWidth,
-    height: window.innerHeight,
-    backgroundColor: "transparent",
+    width: innerWidth,
+    height: innerHeight,
+    //backgroundColor: "transparent",
     parent: "game-container",
     scale: {
         mode: Phaser.Scale.FIT, // ✅ Ensures full coverage
         autoCenter: Phaser.Scale.CENTER_BOTH
     },
-    scene: { preload, create, update },
-    fps: {
-        min: 10,       // prevent freezing
-        target: 60,
-        forceSetTimeOut: true // ⬅️ uses setTimeout instead of requestAnimationFrame
-      },
-      autoFocus: true,
-      disableVisibilityChange: true // ⬅️ KEY LINE!
+    scene: { preload, create, update }
 };
 const game = new Phaser.Game(config);// ✅ Small delay to ensure the game is loaded
 let playerId, playerCards, trump = [];
@@ -229,7 +232,89 @@ function preload() {
     this.load.image("profile5", "assets/profile5.png");
     this.load.image("profile6", "assets/profile6.png");
     this.load.image("profile7", "assets/profile7.png");
-
+    this.load.image("profile8", "assets/profile8.png");
+    this.load.image("profile9", "assets/profile9.png");
+    this.load.image("profile10", "assets/profile10.png");
+    this.load.image("profile11", "assets/profile11.png");
+    this.load.image("profile12", "assets/profile12.png");
+    this.load.image("profile13", "assets/profile13.png");
+    this.load.image("profile14", "assets/profile14.png");
+    this.load.image("profile15", "assets/profile15.png");
+    this.load.image("profile16", "assets/profile16.png");
+    this.load.image("profile17", "assets/profile17.png");
+    this.load.image("profile18", "assets/profile18.png");
+    this.load.image("profile19", "assets/profile19.png");
+    this.load.image("profile20", "assets/profile20.png");
+    this.load.image("profile21", "assets/profile21.png");
+    this.load.image("profile22", "assets/profile22.png");
+    this.load.image("profile23", "assets/profile23.png");
+    this.load.image("profile24", "assets/profile24.png");
+    this.load.image("profile25", "assets/profile25.png");
+    this.load.image("profile26", "assets/profile26.png");
+    this.load.image("profile27", "assets/profile27.png");
+    this.load.image("profile28", "assets/profile28.png");
+    this.load.image("profile29", "assets/profile29.png");
+    this.load.image("profile30", "assets/profile30.png");
+    this.load.image("profile31", "assets/profile31.png");
+    this.load.image("profile32", "assets/profile32.png");
+    this.load.image("profile33", "assets/profile33.png");
+    this.load.image("profile34", "assets/profile34.png");
+    this.load.image("profile35", "assets/profile35.png");
+    this.load.image("profile36", "assets/profile36.png");
+    this.load.image("profile37", "assets/profile37.png");
+    this.load.image("profile38", "assets/profile38.png");
+    this.load.image("profile39", "assets/profile39.png");
+    this.load.image("profile40", "assets/profile40.png");
+    this.load.image("profile41", "assets/profile41.png");
+    this.load.image("profile42", "assets/profile42.png");
+    this.load.image("profile43", "assets/profile43.png");
+    this.load.image("profile44", "assets/profile44.png");
+    this.load.image("profile45", "assets/profile45.png");
+    this.load.image("profile46", "assets/profile46.png");
+    this.load.image("profile47", "assets/profile47.png");
+    this.load.image("profile48", "assets/profile48.png");
+    this.load.image("profile49", "assets/profile49.png");
+    this.load.image("profile50", "assets/profile50.png");
+    this.load.image("profile51", "assets/profile51.png");
+    this.load.image("profile52", "assets/profile52.png");
+    this.load.image("profile53", "assets/profile53.png");
+    this.load.image("profile54", "assets/profile54.png");
+    this.load.image("profile55", "assets/profile55.png");
+    this.load.image("profile56", "assets/profile56.png");
+    this.load.image("profile57", "assets/profile57.png");
+    this.load.image("profile58", "assets/profile58.png");
+    this.load.image("profile59", "assets/profile59.png");
+    this.load.image("profile60", "assets/profile60.png");
+    this.load.image("profile61", "assets/profile61.png");
+    this.load.image("profile62", "assets/profile62.png");
+    this.load.image("profile63", "assets/profile63.png");
+    this.load.image("profile64", "assets/profile64.png");
+    this.load.image("profile65", "assets/profile65.png");
+    this.load.image("profile66", "assets/profile66.png");
+    this.load.image("profile67", "assets/profile67.png");
+    this.load.image("profile68", "assets/profile68.png");
+    this.load.image("profile69", "assets/profile69.png");
+    this.load.image("profile70", "assets/profile70.png");
+    this.load.image("profile71", "assets/profile71.png");
+    this.load.image("profile72", "assets/profile72.png");
+    this.load.image("profile73", "assets/profile73.png");
+    this.load.image("profile74", "assets/profile74.png");
+    this.load.image("profile75", "assets/profile75.png");
+    this.load.image("profile76", "assets/profile76.png");
+    this.load.image("profile77", "assets/profile77.png");
+    this.load.image("profile78", "assets/profile78.png");
+    this.load.image("profile79", "assets/profile79.png");
+    this.load.image("profile80", "assets/profile80.png");
+    this.load.image("profile81", "assets/profile81.png");
+    this.load.image("profile82", "assets/profile82.png");
+    this.load.image("dealer", "assets/frog.png");
+    this.load.image("background", "assets/background.png");
+    this.load.image("rainbow", "assets/rainbow1.png");
+    this.load.image("ot", "assets/ot.png");
+    this.load.image("b", "assets/b.png");
+    this.load.image("2b", "assets/2b.png");
+    this.load.image("3b", "assets/3b.png");
+    this.load.image("4b", "assets/4b.png");
 }
 let ranks = {
     "HI": 16,
@@ -348,28 +433,55 @@ function removeTurnGlow(scene) {
     }
 }
 let allCards = [];
+let rainbows = [];
+socket.on("rainbow", (data) => {
+    console.log("caught rainbow");
+    rainbows.push(data.position);
+});
+function destroyAllCards(){
+    myCards.forEach((card) => {
+        card.destroy(); // ✅ Remove card from the game
+    });
+    opponentCardSprites["opp1"].forEach((card) => {
+        card.destroy(); // ✅ Remove card from the game
+    });
+    opponentCardSprites["opp2"].forEach((card) => {
+        card.destroy(); // ✅ Remove card from the game
+    });
+    opponentCardSprites["partner"].forEach((card) => {
+        card.destroy(); // ✅ Remove card from the game
+    });
+}
+socket.on("destroyHands", (data) => {
+    console.log("caught destroyHands");
+    socket.off("handComplete");
+    socket.off("doneBidding");
+    socket.off("trickComplete");
+    socket.off("cardPlayed");
+    socket.off("updateTurn");
+    socket.off("bidReceived");
+    socket.off("cardPlayed");
+    destroyAllCards();
+});
 function draw() {
     clearScreen.call(game.scene.scenes[0]);
     socket.off("youDrew");
     console.log("🃏 Placing all 54 cards face down...");
-    createVignette.call(game.scene.scenes[0]);
     let screenWidth = this.scale.width;
     let screenHeight = this.scale.height;
-    
     let startX = 400; // ✅ Starting X position for first card
     let startY = screenHeight / 2; // ✅ Center the row of cards
-
     let overlap = 20; // ✅ Adjust overlap for better spacing
-
-   
-
+    const bg = this.add.image(0, 0, 'background')
+    .setOrigin(0, 0)
+    .setDisplaySize(this.scale.width, this.scale.height)  // Stretch to fill screen
+    .setScrollFactor(0)
+    .setDepth(-100)  // Make it non-scrollable (fixed to camera)
     for (let i = 0; i < 54; i++) {
         let cardSprite = this.add.image(screenWidth/2 + 500, startY, "cardBack") // ✅ All cards face down
             .setScale(1.2)
             .setInteractive()
             .setDepth(100);
-
-        // ✅ Enable dragging
         this.input.setDraggable(cardSprite);
         if (visible()){
         this.tweens.add({
@@ -386,8 +498,6 @@ function draw() {
             cardSprite.x = startX + i * overlap;
             cardSprite.y = startY;
         }
-
-        // ✅ Make cards draggable
         cardSprite.on("pointerup", () => {
             console.log(`📦 Picked up card ${i + 1}`);
             socket.emit("draw", {num: Math.floor(Math.random() * 54)});
@@ -407,15 +517,12 @@ function draw() {
                 console.log("🚫 All other cards are now non-draggable.");
             });
         });
-
         this.input.on("drag", (pointer, gameObject, dragX, dragY) => {
             gameObject.x = dragX;
             gameObject.y = dragY;
         });
-
         allCards.push(cardSprite);
     }
-
     console.log("✅ All 54 cards placed face down and draggable.");
 }
 function removeDraw() {
@@ -433,21 +540,14 @@ function removeDraw() {
 }
 function displayTableCard(card) {
     console.log(`🎴 Displaying table card: ${card.rank} of ${card.suit}`);
-
     let screenWidth = this.scale.width;
     let screenHeight = this.scale.height;
-
     let tableX = screenWidth / 2 + 500;
     let tableY = screenHeight / 2 - 300;
-
     let cardKey = getCardImageKey(card);
-
-    // ✅ Remove the old table card if it exists
     if (this.tableCardBackground) this.tableCardBackground.destroy();
     if (this.tableCardSprite) this.tableCardSprite.destroy();
     if (this.tableCardLabel) this.tableCardLabel.destroy();
-
-    // ✅ Create new table card sprite
     this.tableCardBackground = this.add.rectangle(tableX, tableY, 120, 160, 0x8B4513)
         .setStrokeStyle(4, 0x654321)
         .setDepth(-1); // ✅ Ensure it's behind the card
@@ -483,7 +583,7 @@ function isVoid(hand, ledsuit){
 }
 function isTrumpTight(hand, trump){
     for(let card of hand){
-        if(card.suit !== trump.suit){
+        if(card.suit !== trump.suit && card.suit !== "joker"){
             return false;
         }
     }
@@ -543,6 +643,7 @@ let leadPosition = [];
 let leadBool = false;
 let tempBids = [];
 let currentTrick = [];
+let thisTrick = [];
 let handBackground;
 let border;
 function clearAllTricks() {
@@ -570,10 +671,12 @@ function clearAllTricks() {
     console.log("🧹 All tricks have been cleared.");
 }
 socket.on("abortGame", (data) => {
+    playedCard = false;
     console.log("caught abortGame");
     clearUI();
     showLobbyScreen();
     gameScene.children.removeAll(true);
+    gameScene.scene.restart();
 });
 socket.on("gameEnd", (data) => {
     console.log("caught gameEnd");
@@ -628,6 +731,18 @@ socket.on("chatMessage", (data) => {
     }
     
 });
+socket.on("createUI", (data) => {
+    let scene = game.scene.scenes[0];
+    console.log("caught createUI");
+    removeWaitingScreen();
+    removeDraw();
+    createGameFeed();
+    initGameChat();
+    scoreUI = createScorebug(this);
+    if (!scene.handElements) {
+        scene.handElements = [];
+    }
+});
 function clearDisplayCards() {
     console.log("🗑️ Clearing all elements from displayCards...");
 
@@ -640,12 +755,15 @@ function clearDisplayCards() {
     }
     console.log("✅ All elements cleared from displayCards.");
 }
+let myCards = [];
 function displayCards(playerHand) {
+    console.log("🧠 Scene children:", this.children.list.length);
+    console.log("🎯 Active tweens:", this.tweens._active.length);
+    console.log("📨 cardPlayed listeners:", socket.listeners("cardPlayed").length);
+    console.log("🧱 DOM elements:", document.querySelectorAll("*").length);
     if (!this.handElements) {
         this.handElements = [];
-    }
-    removeWaitingScreen();
-    removeDraw();
+    };
     console.log("running card display...");
     let screenWidth = this.scale.width;
     let screenHeight = this.scale.height;
@@ -654,25 +772,23 @@ function displayCards(playerHand) {
     let totalWidth = (playerHand.length - 1) * cardSpacing; // Width of all cards together
     let startX = (screenWidth - totalWidth) / 2; // ✅ Centered starting position
     let startY = this.scale.height - 200; // ✅ Adjust vertical position lower
-    let handAreaHeight = 250; // ✅ Height of the background area
-    let handAreaWidth = screenWidth * 0.5; // ✅ Width of the background area
     let opponent1_x = screenWidth / 2 - 200;
     let opponent1_y = screenHeight / 2;
     let opponent2_x = screenWidth / 2 + 200;
     let opponent2_y = screenHeight / 2;
     let team1_x = screenWidth / 2;
     let team1_y = screenHeight / 2 -150;
+    let handAreaWidth = screenWidth * 0.5; // ✅ Width of the background area
+    let handAreaHeight = 250; // ✅ Height of the background area
     if (!playZone) {
         let playZoneWidth = 600;
         let playZoneHeight = 400;
         let playZoneX = (screenWidth - playZoneWidth) / 2;
         let playZoneY = (this.scale.height - playZoneHeight) / 2;
-
         playZone = this.add.rectangle(playZoneX + playZoneWidth / 2, playZoneY + playZoneHeight / 2,
                                       playZoneWidth, playZoneHeight, 0x32CD32)
                         .setStrokeStyle(4, 0xffffff)
                         .setAlpha(0.6);
-
         console.log("📍 Play zone created at:", playZoneX, playZoneY);
     }
     if (!handBackground){
@@ -685,8 +801,6 @@ function displayCards(playerHand) {
             .setDepth(-1); // ✅ Slightly above background, but below cards
     }
     console.log("🟫 Added background for player hand.");
-    this.handElements.push(playZone);
-
     let bidContainer = document.createElement("div");
     bidContainer.id = "bidContainer";
     bidContainer.style.position = "absolute";
@@ -715,7 +829,6 @@ function displayCards(playerHand) {
     inputBox.style.textAlign = "center";
     document.body.appendChild(inputBox);
     this.handElements.push(inputBox);
-
     let bidButton = document.createElement("button");
     bidButton.id = "bidButton";
     bidButton.innerText = "BID";
@@ -750,7 +863,7 @@ function displayCards(playerHand) {
             console.warn("⚠️ No bid entered.");
             return;
         }
-        if ((bidValue < 0 || bidValue > playerCards.length) && (bidValue.toUpperCase() !== "B" || bidValue.toUpperCase() !== "2B" || bidValue.toUpperCase() !== "3B" || bidValue.toUpperCase() !== "4B")){
+        if ((bidValue < 0 || bidValue > playerCards.length) || (isNaN(Number(bidValue)) && bidValue.toUpperCase() !== "B" && bidValue.toUpperCase() !== "2B" && bidValue.toUpperCase() !== "3B" && bidValue.toUpperCase() !== "4B")){
             console.warn("⚠️ Invalid bid entered.");
             return;
         }
@@ -796,6 +909,7 @@ function displayCards(playerHand) {
         if (!cardSprite) {
             console.error(`🚨 ERROR: Failed to create card sprite for ${card.rank} of ${card.suit}`);
         }
+        myCards.push(cardSprite);
         if (visible()){
             this.tweens.add({
                 targets: cardSprite,
@@ -823,7 +937,7 @@ function displayCards(playerHand) {
             console.log("you dropped at: ", cardSprite.x, ", ", cardSprite.y);
             if (Phaser.Geom.Rectangle.Contains(playZone.getBounds(), cardSprite.x, cardSprite.y)) {
                 console.log(`✅ Card dropped in play zone: ${card.rank} of ${card.suit}`);
-                if(currentTurn !== position || bidding === 1){
+                if(currentTurn !== position || bidding === 1 || playedCard){
                     console.log("Not your turn!");
                     cardSprite.setPosition(originalX, originalY); // Return the card to its original position
                     return;
@@ -841,7 +955,8 @@ function displayCards(playerHand) {
                     return;
                 }
                 socket.emit("playCard", { card, position });
-                if(card.suit === trump.suit){
+                playedCard = true;
+                if(card.suit === trump.suit || card.suit === "joker"){
                     isTrumpBroken = true;
                 }
                 leadBool = false;
@@ -863,7 +978,19 @@ function displayCards(playerHand) {
     });
     socket.on("bidReceived", (data) => {
         console.log("bid received: ", data.bid);
-        addToGameFeed("Player "+ data.position + " bid "+ data.bid + ".");
+        if(data.bid.toUpperCase() === "B"){
+            showImpactEvent("b");
+        }
+        if(data.bid.toUpperCase() === "2B"){
+            showImpactEvent("2b");
+        }
+        if(data.bid.toUpperCase() === "3B"){
+            showImpactEvent("3b");
+        }
+        if(data.bid.toUpperCase() === "4B"){
+            showImpactEvent("4b");
+        }
+        addToGameFeed(playerData.username[playerData.position.indexOf(data.position)].username + " bid "+ data.bid + ".");
         tempBids.push(data.bid.toUpperCase());
         let scene = game.scene.scenes[0];
         let screenWidth = scene.scale.width;
@@ -929,6 +1056,7 @@ function displayCards(playerHand) {
     });
     socket.on("updateTurn", (data) => {
         currentTurn = data.currentTurn;
+        playedCard = false;
         console.log("Current turn:", currentTurn);
         if(currentTurn === position){
             addTurnGlow(this);
@@ -948,6 +1076,19 @@ function displayCards(playerHand) {
         console.log("is trump broken? ", isTrumpBroken, "server thinks its ", data.trump);
         console.log("incrementing index after receiving cardPlayed");
         playedCardIndex += 1;
+        thisTrick.push(data.card);
+        console.log("trick length:",thisTrick.length)
+        if(thisTrick.length > 2){
+            console.log("trump suit:", trump.suit);
+            console.log("played card suit:", thisTrick[thisTrick.length - 1].suit);
+            console.log("previous card suit:", thisTrick[thisTrick.length - 2].suit);
+            console.log("played card rank:", ranks[thisTrick[thisTrick.length - 1].rank]);
+            console.log("previous card rank:", ranks[thisTrick[thisTrick.length - 2].rank]);
+            if((thisTrick[thisTrick.length - 1].suit === trump.suit || thisTrick[thisTrick.length - 1].suit === "joker") && (thisTrick[thisTrick.length - 2].suit === trump.suit || thisTrick[thisTrick.length - 2].suit === "joker" ) && (ranks[thisTrick[thisTrick.length - 1].rank] > ranks[thisTrick[thisTrick.length - 2].rank]) && leadCard.suit !== trump.suit && leadCard.suit !== "joker"){
+                console.log("showing ot");
+                showImpactEvent("ot");
+            }
+        }
         console.log("playedCardIndex: ", playedCardIndex);
         if (playedCardIndex === 4){
             playedCardIndex = 0;
@@ -978,6 +1119,8 @@ function displayCards(playerHand) {
                     removedCard.y = opponent1_y;
                     removedCard.setTexture(cardKey);
                     removedCard.setDepth(200);
+                    removedCard.setScale(1.5);
+                    removedCard.setRotation(0);
                     console.log("card texture changed to: ", cardKey);
                 }
                 console.log("✅ Removed a card from Opponent 1");
@@ -1009,6 +1152,8 @@ function displayCards(playerHand) {
                     removedCard.y = team1_y;
                     removedCard.setTexture(cardKey);
                     removedCard.setDepth(200);
+                    removedCard.setScale(1.5);
+                    removedCard.setRotation(0);
                     console.log("card texture changed to: ", cardKey);
                 }
                 console.log("✅ Removed a card from Partner");
@@ -1040,6 +1185,8 @@ function displayCards(playerHand) {
                     removedCard.y = opponent2_y;
                     removedCard.setTexture(cardKey);
                     removedCard.setDepth(200);
+                    removedCard.setScale(1.5);
+                    removedCard.setRotation(0);
                     console.log("card texture changed to: ", cardKey);
                 }
                 console.log("✅ Removed a card from Opponent 2");
@@ -1053,7 +1200,7 @@ function displayCards(playerHand) {
     })
     socket.on("trickComplete", (data) => {
         console.log("🏆 Trick complete. Moving and stacking to the right...");
-        addToGameFeed("Trick won by player " + data.winner + ".");
+        addToGameFeed("Trick won by " + playerData.username[playerData.position.indexOf(data.winner)].username + ".");
         let screenWidth = this.scale.width;
         let screenHeight = this.scale.height;
         let trickSpacing = 40; // ✅ Horizontal spacing between tricks
@@ -1071,7 +1218,8 @@ function displayCards(playerHand) {
         }
     
         let trickCards = [...currentTrick]; // ✅ Store the completed trick
-        currentTrick = []; // ✅ Clear the reference to avoid moving previous tricks
+        currentTrick = [];
+        thisTrick = []; // ✅ Clear the reference to avoid moving previous tricks
     
         // ✅ Stack the new trick at the correct position
         let stackIndex = 0;
@@ -1096,6 +1244,7 @@ function displayCards(playerHand) {
                 card.x = winningPosition.x;
                 card.y = winningPosition.y;
                 card.setDepth(200 + stackIndex);
+                card.setScale(0.75);
                 console.log(`✅ Trick moved and stacked.`);
             }
             stackIndex += 1; // ✅ Increment stack index for depth
@@ -1178,6 +1327,97 @@ function displayCards(playerHand) {
         bidding = 0;
         playerBids = data;
         console.log("bids: ", playerBids);
+        rainbows.forEach((rainbow) => {
+            if(rainbow === position){
+                console.log("adding rainbow to me");
+                addToGameFeed(playerData.username[playerData.position.indexOf(position)].username + " has a rainbow!");
+                let myRainbow = this.add.image(screenWidth / 2 + 580, screenHeight / 2 + 125, "rainbow").setScale(1).setDepth(1000).setAlpha(1);
+                this.tweens.add({
+                    targets: myRainbow,
+                    scale: { from: 0, to: 1},
+                    ease: 'Back.Out',
+                    duration: 500
+                });
+                this.time.delayedCall(5000, () => {
+                    this.tweens.add({
+                        targets: myRainbow,
+                        alpha: { from: 1, to: 0},
+                        duration: 1000,
+                        ease: 'Power1',
+                        onComplete: () => {
+                            myRainbow.destroy();
+                        }
+                    });
+                });
+            }
+            if(rainbow === rotate(position)){
+                console.log("adding rainbow to opp1");
+                addToGameFeed(playerData.username[playerData.position.indexOf(rotate(position))].username + " has a rainbow!");
+                let opp1Rainbow = this.add.image(screenWidth / 2 - 645, screenHeight / 2, "rainbow").setScale(1).setDepth(1000).setAlpha(1);
+                this.tweens.add({
+                    targets: opp1Rainbow,
+                    scale: { from: 0, to: 1},
+                    ease: 'Back.Out',
+                    duration: 500
+                });
+                this.time.delayedCall(5000, () => {
+                    this.tweens.add({
+                        targets: opp1Rainbow,
+                        alpha: { from: 1, to: 0},
+                        duration: 1000,
+                        ease: 'Power1',
+                        onComplete: () => {
+                            opp1Rainbow.destroy();
+                        }
+                    });
+                });
+            }
+            if(rainbow === team(position)){
+                console.log("adding rainbow to partner");
+                addToGameFeed(playerData.username[playerData.position.indexOf(team(position))].username + " has a rainbow!");
+                let teamRainbow = this.add.image(screenWidth / 2 + 135, screenHeight / 2 - 400, "rainbow").setScale(1).setDepth(1000).setAlpha(1);
+                this.tweens.add({
+                    targets: teamRainbow,
+                    scale: { from: 0, to: 1},
+                    ease: 'Back.Out',
+                    duration: 500
+                });
+                this.time.delayedCall(5000, () => {
+                    this.tweens.add({
+                        targets: teamRainbow,
+                        alpha: { from: 1, to: 0},
+                        duration: 1000,
+                        ease: 'Power1',
+                        onComplete: () => {
+                            teamRainbow.destroy();
+                        }
+                    });
+                });
+            }
+            if(rainbow === rotate(rotate(rotate(position)))){
+                console.log("adding rainbow to opp2");
+                addToGameFeed(playerData.username[playerData.position.indexOf(rotate(rotate(rotate(position))))].username + " has a rainbow!");
+                let opp2Rainbow = this.add.image(screenWidth / 2 + 630, screenHeight / 2, "rainbow").setScale(1).setDepth(1000).setAlpha(1);
+                this.tweens.add({
+                    targets: opp2Rainbow,
+                    scale: { from: 0, to: 1},
+                    ease: 'Back.Out',
+                    duration: 500
+                });
+                this.time.delayedCall(5000, () => {
+                    this.tweens.add({
+                        targets: opp2Rainbow,
+                        alpha: { from: 1, to: 0},
+                        duration: 1000,
+                        ease: 'Power1',
+                        onComplete: () => {
+                            opp2Rainbow.destroy();
+                        }
+                    });
+                });
+            }
+        });
+        rainbows = [];
     });
     socket.on("handComplete", (data) => {
         if(data.team1Tricks + data.team2Tricks !== 13){
@@ -1199,9 +1439,16 @@ function displayCards(playerHand) {
         clearDisplayCards();
     });
 }
-function displayOpponentHands(numCards) {
+let buttonHandle;
+let oppUI = [];
+function displayOpponentHands(numCards,dealer) {
+    if (buttonHandle && typeof buttonHandle.destroy === 'function') {
+        buttonHandle.destroy();
+      }
+    oppUI.forEach((element) => element.destroy());
+    oppUI = [];
     console.log("🎭 Displaying opponent hands...");
-
+    console.log("dealer: ", dealer);
     let screenWidth = this.scale.width;
     let screenHeight = this.scale.height;
     let cardSpacing = 10; // Spacing between cards
@@ -1219,11 +1466,12 @@ function displayOpponentHands(numCards) {
     Object.keys(opponentPositions).forEach((opponentId) => {
         let { x, y, rotation, horizontal, avatarX, avatarY } = opponentPositions[opponentId];
         if(opponentId === "partner"){
-            this.add.image(avatarX, avatarY, "profile" + playerData.pics[playerData.position.indexOf(team(position))])
+            let partnerAvi = this.add.image(avatarX, avatarY, "profile" + playerData.pics[playerData.position.indexOf(team(position))])
             .setScale(0.2) // Adjust size
             .setDepth(250) // Ensure it's above the cards
             .setAlpha(1);
-            this.add.text(avatarX, avatarY + 60, playerData.username[playerData.position.indexOf(team(position))].username, {
+            oppUI.push(partnerAvi);
+            let partnerText = this.add.text(avatarX, avatarY + 60, playerData.username[playerData.position.indexOf(team(position))].username, {
                 fontSize: "18px",
                 fontFamily: "Arial",
                 color: "#ffffff",
@@ -1231,13 +1479,22 @@ function displayOpponentHands(numCards) {
             })
             .setOrigin(0.5)  // Center the text horizontally
             .setDepth(250);
+            oppUI.push(partnerText);
+            if(team(position) === dealer){
+                buttonHandle = this.add.image(avatarX + 75, avatarY, "dealer")
+                .setScale(0.03) // Adjust size
+                .setDepth(250) // Ensure it's above the cards
+                .setAlpha(1);
+                playerInfo.playerPositionText.setText("MP");
+            }
         }
         if(opponentId === "opp1"){
-            this.add.image(avatarX, avatarY, "profile" + playerData.pics[playerData.position.indexOf(rotate(position))])
+            let opp1Avi = this.add.image(avatarX, avatarY, "profile" + playerData.pics[playerData.position.indexOf(rotate(position))])
             .setScale(0.2) // Adjust size
             .setDepth(250) // Ensure it's above the cards
             .setAlpha(1);
-            this.add.text(avatarX, avatarY + 60, playerData.username[playerData.position.indexOf(rotate(position))].username, {
+            oppUI.push(opp1Avi);
+            let opp1Text = this.add.text(avatarX, avatarY + 60, playerData.username[playerData.position.indexOf(rotate(position))].username, {
                 fontSize: "18px",
                 fontFamily: "Arial",
                 color: "#ffffff",
@@ -1245,13 +1502,22 @@ function displayOpponentHands(numCards) {
             })
             .setOrigin(0.5)  // Center the text horizontally
             .setDepth(250);
+            oppUI.push(opp1Text);
+            if(rotate(position) === dealer){
+                buttonHandle = this.add.image(avatarX - 75, avatarY, "dealer")
+                .setScale(0.03) // Adjust size
+                .setDepth(250) // Ensure it's above the cards
+                .setAlpha(1);
+                playerInfo.playerPositionText.setText("CO");
+            }
         }
         if(opponentId === "opp2"){
-            this.add.image(avatarX, avatarY, "profile" + playerData.pics[playerData.position.indexOf(rotate(rotate(rotate(position))))])
+            let opp2Avi = this.add.image(avatarX, avatarY, "profile" + playerData.pics[playerData.position.indexOf(rotate(rotate(rotate(position))))])
             .setScale(0.2) // Adjust size
             .setDepth(250) // Ensure it's above the cards
             .setAlpha(1);
-            this.add.text(avatarX, avatarY + 60, playerData.username[playerData.position.indexOf(rotate(rotate(rotate(position))))].username, {
+            oppUI.push(opp2Avi);
+            let opp2Text = this.add.text(avatarX, avatarY + 60, playerData.username[playerData.position.indexOf(rotate(rotate(rotate(position))))].username, {
                 fontSize: "18px",
                 fontFamily: "Arial",
                 color: "#ffffff",
@@ -1259,6 +1525,24 @@ function displayOpponentHands(numCards) {
             })
             .setOrigin(0.5)  // Center the text horizontally
             .setDepth(250);
+            oppUI.push(opp2Text);
+            if(rotate(rotate(rotate(position))) === dealer){
+                buttonHandle = this.add.image(avatarX + 75, avatarY, "dealer")
+                .setScale(0.03) // Adjust size
+                .setDepth(250) // Ensure it's above the cards
+                .setAlpha(1);
+                playerInfo.playerPositionText.setText("UTG");
+            }
+        }
+        if(dealer === position){
+            if (buttonHandle && typeof buttonHandle.destroy === 'function') {
+                buttonHandle.destroy();
+            }
+            playerInfo.playerPositionText.setText("BTN");
+            buttonHandle = this.add.image(centerPlayAreaX + 580, centerPlayAreaY + 365, "dealer")
+            .setScale(0.03) // Adjust size
+            .setDepth(250) // Ensure it's above the cards
+            .setAlpha(1);
         }
         opponentCardSprites[opponentId] = [];
         for (let i = 0; i < numCards; i++) {

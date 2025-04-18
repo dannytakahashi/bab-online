@@ -2,7 +2,6 @@
 function sleepSync(milliseconds) {
     const start = Date.now();
     while (Date.now() - start < milliseconds) {
-        // Do nothing, just wait
     }
 }
 function rotate(num){
@@ -129,7 +128,7 @@ let gameState = {
     bidding: 1,
     dealer: 1,
     bidder: 2,
-    currentHand: 2,
+    currentHand: 4,
     trump: {}, 
     isTrumpBroken: false,
     bids: {
@@ -141,6 +140,10 @@ let gameState = {
         team2: 0
     },
     score : {
+        team1: 0,
+        team2: 0
+    },
+    rainbows : {
         team1: 0,
         team2: 0
     },
@@ -169,7 +172,13 @@ function drawOrder(myCard,cards){
             rank ++;
         }
     }
-    return 4 - rank;
+    if(4 - rank === 2){
+        return 3;
+    }else if(4 - rank === 3){
+        return 2;
+    }else{
+        return 4 - rank;
+    }
 }
 function cleanupNextHand(dealer, hand){
     gameState.deck = [];
@@ -185,17 +194,40 @@ function cleanupNextHand(dealer, hand){
         team1: 0,
         team2: 0
     }; 
+    gameState.team1Mult = 1;
+    gameState.team2Mult = 1;
     gameState.tricks = {
         team1: 0,
         team2: 0
     };
+    gameState.rainbows = {
+        team1: 0,
+        team2: 0
+    }
     gameState.deck = initializeDeck();
     for (let i = 0; i < players.length; i++) {
         gameState.hands[players[i]] = gameState.deck.splice(0, gameState.currentHand);
     }
     trumpCard = gameState.deck.shift()
     gameState.trump = trumpCard;
-    io.emit("gameStart", { players, hands: gameState.hands, trump: gameState.trump, score1: gameState.score.team1, score2: gameState.score.team2 });
+    for(let i = 0; i < players.length; i++){
+        if((isRainbow(gameState.hands[players[i]])) && gameState.hands[players[i]].length === 4){
+            console.log("player ", players[i], " has a rainbow!");
+            if(positions[i] === 1 || positions[i] === 3){
+                gameState.rainbows.team1 += 1;
+            }
+            else if(positions[i] === 2 || positions[i] === 4){
+                gameState.rainbows.team2 += 1;
+            }
+        }
+    }
+    players.forEach((player) => {
+        let socketId = player;
+        let socket = io.sockets.sockets.get(socketId);
+        if(socket){
+            socket.emit("gameStart", { players, hand: gameState.hands[player], trump: gameState.trump, score1: gameState.score.team1, score2: gameState.score.team2, dealer: gameState.dealer });
+        }
+    });
     console.log("hand started", gameState.hands);
     gameState.currentTurn = gameState.bidder;
     gameState.start = true;
@@ -221,6 +253,16 @@ function abortClean(){
         team1: 0,
         team2: 0
     };
+    gameState.rainbows = {
+        team1: 0,
+        team2: 0
+    }
+    gameState.score = {
+        team1: 0,
+        team2: 0
+    }
+    playerBids = [];
+    numBids = 0;
     gameState.start = false;
 }
 function initializeDeck() {
@@ -249,6 +291,48 @@ function isVoid(hand, ledsuit){
         }
     }
     return true;
+}
+function isRainbow(hand){
+    let flags = {
+        spades: false,
+        hearts: false,
+        diamonds: false,
+        clubs: false
+    }
+    for(let card of hand){
+        if(card.suit === "spades"){
+            flags.spades = true;
+        }
+        else if(card.suit === "hearts"){
+            flags.hearts = true;
+        }
+        else if(card.suit === "diamonds"){
+            flags.diamonds = true;
+        }
+        else if(card.suit === "clubs"){
+            flags.clubs = true;
+        }
+        else if(card.suit === "joker"){
+            if(gameState.trump.suit === "spades"){
+                flags.spades = true;
+            }
+            else if(gameState.trump.suit === "hearts"){
+                flags.hearts = true;
+            }
+            else if(gameState.trump.suit === "diamonds"){
+                flags.diamonds = true;
+            }
+            else if(gameState.trump.suit === "clubs"){
+                flags.clubs = true;
+            }
+        }
+    }
+    if(flags.spades && flags.hearts && flags.diamonds && flags.clubs){
+        return true;
+    }
+    else{
+        return false;
+    }
 }
 function sameSuit(card1, card2){
     if(card1.suit === card2.suit){
@@ -459,7 +543,7 @@ io.on("connection", (socket) => {
         let picInt = 0;
         for(i = 0; i < 4; i++){
             do{
-                picInt = Math.floor(Math.random() * 7) + 1;
+                picInt = Math.floor(Math.random() * 83) + 1;
             }while(pics.includes(picInt));
             pics.push(picInt);
         }
@@ -492,13 +576,34 @@ io.on("connection", (socket) => {
             gameState.deck = initializeDeck();
             for (let i = 0; i < players.length; i++) {
                 gameState.hands[players[i]] = gameState.deck.splice(0, gameState.currentHand);
+                
             }
             trumpCard = gameState.deck.shift()
             gameState.trump = trumpCard;
+            for (let i = 0; i < players.length; i++){
+                if((isRainbow(gameState.hands[players[i]])) && gameState.hands[players[i]].length === 4){
+                    console.log("player ", players[i], " has a rainbow!");
+                    io.emit("rainbow", {position: positions[i]});
+                    if(positions[i] === 1 || positions[i] === 3){
+                        gameState.rainbows.team1 += 1;
+                    }
+                    else if(positions[i] === 2 || positions[i] === 4){
+                        gameState.rainbows.team2 += 1;
+                    }
+                }
+            }
             drawCards = [];
             drawIndex = 0;
             drawIDs = [];
-            io.emit("gameStart", { players, hands: gameState.hands, trump: gameState.trump, score1: gameState.score.team1, score2: gameState.score.team2 });
+            io.emit("createUI");
+            sleepSync(1000);
+            players.forEach((player) => {
+                let socketId = player;
+                let socket = io.sockets.sockets.get(socketId);
+                if(socket){
+                    socket.emit("gameStart", { players, hand: gameState.hands[player], trump: gameState.trump, score1: gameState.score.team1, score2: gameState.score.team2, dealer: gameState.dealer });
+                }
+            });
             console.log("Game started", gameState.hands);
             gameState.start = true;
             gameState.currentTurn = rotate(gameState.dealer);
@@ -564,16 +669,16 @@ io.on("connection", (socket) => {
                     team1OldScore = gameState.score.team1;
                     team2OldScore = gameState.score.team2;
                     if(gameState.tricks.team1 >= gameState.bids.team1){
-                        gameState.score.team1 += gameState.bids.team1*10*gameState.team1Mult + gameState.tricks.team1*1 - gameState.bids.team1*1;
+                        gameState.score.team1 += gameState.bids.team1*10*gameState.team1Mult + gameState.tricks.team1*1 - gameState.bids.team1*1 + gameState.rainbows.team1*10;
                     }
                     if(gameState.tricks.team1 < gameState.bids.team1){
-                        gameState.score.team1 -= gameState.bids.team1*10*gameState.team1Mult;
+                        gameState.score.team1 -= gameState.bids.team1*10*gameState.team1Mult + gameState.rainbows.team1*10;
                     }
                     if(gameState.tricks.team2 >= gameState.bids.team2){
-                        gameState.score.team2 += gameState.bids.team2*10*gameState.team2Mult + gameState.tricks.team2*1 - gameState.bids.team2*1;
+                        gameState.score.team2 += gameState.bids.team2*10*gameState.team2Mult + gameState.tricks.team2*1 - gameState.bids.team2*1 + gameState.rainbows.team2*10;
                     }
                     if(gameState.tricks.team2 < gameState.bids.team2){
-                        gameState.score.team2 -= gameState.bids.team2*10*gameState.team2Mult;
+                        gameState.score.team2 -= gameState.bids.team2*10*gameState.team2Mult + gameState.rainbows.team2*10;
                     }
                     console.log("team 1 score: ", gameState.score.team1, " bidding ", playerBids[0], " and ", playerBids[2], " and getting ", gameState.tricks.team1);
                     console.log("team 2 score: ", gameState.score.team2, " bidding ", playerBids[1], " and ", playerBids[3], " and getting ", gameState.tricks.team2);
@@ -593,6 +698,9 @@ io.on("connection", (socket) => {
                         players = [];
                         gameState.bidding = 1;
                         gameState.start = false;
+                        gameState.score.team1 = 0;
+                        gameState.score.team2 = 0;
+
                     }
                     else{
                         cleanupNextHand(rotate(gameState.dealer), gameState.currentHand + 2);
@@ -606,7 +714,7 @@ io.on("connection", (socket) => {
     socket.on("playerBid", (data) => {
         console.log("server thinks its ", gameState.currentTurn, " turn");
         if(gameState.bidding === 1 && data.position === gameState.currentTurn){
-            playerBids[gameState.currentTurn - 1] = data.bid;
+            playerBids[gameState.currentTurn - 1] = data.bid.toUpperCase();
             numBids = numBids + 1;   
             console.log("position ", data.position, " bid ", data.bid);
             io.emit("bidReceived", { bid: data.bid, position: data.position, bidArray: playerBids });
@@ -652,6 +760,14 @@ io.on("connection", (socket) => {
                 console.log("team 1 bid: ", gameState.bids.team1);
                 console.log("team 2 bid: ", gameState.bids.team2);
                 io.emit("doneBidding", { bids: playerBids, lead: indexOfMax(gameState.bidder, playerBids) + 1 });
+                if(gameState.bids.team1 === 0 && gameState.bids.team2 === 0){
+                    console.log("zero bids, redeal!");
+                    playerBids = [];
+                    numBids = 0;
+                    io.emit("destroyHands");
+                    cleanupNextHand(gameState.dealer, gameState.currentHand);
+                    return;
+                }
                 console.log("position ", indexOfMax(gameState.bidder, playerBids) + 1, " leads");
                 gameState.currentTurn = indexOfMax(gameState.bidder, playerBids) + 1;
                 numBids = 0;

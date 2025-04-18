@@ -326,7 +326,7 @@ function showScore(teamScore, opponentScore, bidArray, team1Tricks, team2Tricks,
     teamScoreSection.style.width = "30%";
 
     let teamTitle = document.createElement("p");
-    teamTitle.innerText = "Player 1/Player 3";
+    teamTitle.innerText = playerData.username[playerData.position.indexOf(position)].username + "/" + playerData.username[playerData.position.indexOf(team(position))].username;
     teamTitle.style.fontWeight = "bold";
     teamTitle.style.marginBottom = "5px";
 
@@ -354,7 +354,7 @@ function showScore(teamScore, opponentScore, bidArray, team1Tricks, team2Tricks,
     opponentScoreSection.style.width = "30%";
 
     let opponentTitle = document.createElement("p");
-    opponentTitle.innerText = "Player 2/Player 4";
+    opponentTitle.innerText = playerData.username[playerData.position.indexOf(rotate(position))].username + "/" + playerData.username[playerData.position.indexOf(rotate(rotate(rotate(position))))].username;
     opponentTitle.style.fontWeight = "bold";
     opponentTitle.style.marginBottom = "5px";
 
@@ -603,7 +603,7 @@ function showFinalScore(teamScore, opponentScore) {
     teamScoreSection.style.width = "35%";
 
     let teamTitle = document.createElement("p");
-    teamTitle.innerText = "Player 1/Player 3";
+    teamTitle.innerText = playerData.username[playerData.position.indexOf(position)].username + "/" + playerData.username[playerData.position.indexOf(team(position))].username;;
     teamTitle.style.fontWeight = "bold";
     teamTitle.style.marginBottom = "5px";
 
@@ -631,7 +631,7 @@ function showFinalScore(teamScore, opponentScore) {
     opponentScoreSection.style.width = "35%";
 
     let opponentTitle = document.createElement("p");
-    opponentTitle.innerText = "Player 2/Player 4";
+    opponentTitle.innerText = playerData.username[playerData.position.indexOf(rotate(position))].username + "/" + playerData.username[playerData.position.indexOf(rotate(rotate(rotate(position))))].username;
     opponentTitle.style.fontWeight = "bold";
     opponentTitle.style.marginBottom = "5px";
 
@@ -679,10 +679,18 @@ function hideFinal() {
     if (overlay) {
         overlay.remove();
         console.log(" Final score popup closed.");
+        gameScene.scene.restart();
+        socket.off("gameStart");
+        playZone = null;
+        handBackground = null;
         showLobbyScreen();
     }
 }
 function initGameChat(){
+    let chatCheck = document.getElementById("chatInput");
+    if (chatCheck){
+        return;
+    }
     let chatInput = document.createElement("input");
     chatInput.type = "text";
     chatInput.placeholder = "Type a message...";
@@ -699,6 +707,7 @@ function initGameChat(){
     chatInput.style.borderRadius = "8px";
     chatInput.style.textAlign = "center";
     chatInput.style.display = "none"; // ✅ Keep hidden initially
+    chatInput.id = "chatInput";
     document.body.appendChild(chatInput);
 
     // ✅ Listen for "Enter" key to show input field
@@ -836,7 +845,7 @@ function createPlayerInfoBox() {
     // ✅ Group all elements into a container
     let playerInfoContainer = gameScene.add.container(0, 0, [playerBox, playerAvatar, playerNameText, playerPositionText]);
 
-    return { playerBox, playerAvatar, playerNameText, playerPositionText };
+    return {playerBox, playerAvatar, playerNameText, playerPositionText, playerInfoContainer};
 }
 function createScorebug(){
     const screenWidth = gameScene.scale.width;
@@ -871,6 +880,36 @@ function createScorebug(){
 
     // ✅ Return references to update later
     return { background, teamScoreLabel, oppScoreLabel };
+}
+function showImpactEvent(event){
+    let scene = game.scene.scenes[0];
+    const screenWidth = scene.scale.width;
+    const screenHeight = scene.scale.height;
+    const impactImage = scene.add.image(screenWidth / 2, screenHeight / 2, event)
+        .setScale(0)      // Start small for impact effect
+        .setAlpha(1)      // Fully visible
+        .setDepth(999);   // Make sure it's on top
+
+    // 2. Tween for impact effect (scale up + bounce)
+    scene.tweens.add({
+        targets: impactImage,
+        scale: { from: 0, to: 1.2 },
+        ease: 'Back.Out',
+        duration: 500
+    });
+
+    // 3. Remove the image after 3 seconds
+    scene.time.delayedCall(1500, () => {
+        scene.tweens.add({
+            targets: impactImage,
+            alpha: { from: 1, to: 0 },
+            duration: 1000, // 1 second fade
+            ease: 'Power1',
+            onComplete: () => {
+                impactImage.destroy(); // Clean up
+            }
+        });
+    });
 }
 window.onload = () => {
         showSignInScreen(); // ✅ Show sign-in if no user is saved
