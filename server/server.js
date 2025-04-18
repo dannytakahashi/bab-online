@@ -104,7 +104,7 @@ app.use((req, res, next) => {
         "img-src 'self' data: blob:; " +
         "connect-src 'self' ws://localhost:3000 ws://127.0.0.1:3000 wss://localhost:3000;"
     );
-    console.log("Headers being sent:", res.getHeaders());
+    //console.log("Headers being sent:", res.getHeaders());
     next();
 });
 app.use(express.static(path.join(__dirname,'..', 'client')));
