@@ -104,7 +104,7 @@ app.use((req, res, next) => {
         "img-src 'self' data: blob:; " +
         "connect-src 'self' wss://bab-online-production.up.railway.app https://bab-online-production.up.railway.app; " +
         "font-src 'self' https://fonts.gstatic.com; " + 
-        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
     );
     //console.log("Headers being sent:", res.getHeaders());
     next();
