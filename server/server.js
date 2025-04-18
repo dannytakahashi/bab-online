@@ -120,6 +120,7 @@ app.get("/", (req, res) => {
 });
 let positions = [];
 let players = [];
+let currentPlayers = [];
 let playedCards = [];
 let playedCardsIndex = 0;
 let playerBids = [];
@@ -268,6 +269,7 @@ function abortClean(){
     playerBids = [];
     numBids = 0;
     gameState.start = false;
+    currentPlayers = [];
 }
 function initializeDeck() {
     const suits = ["spades", "hearts", "diamonds", "clubs"];
@@ -535,6 +537,7 @@ io.on("connection", (socket) => {
                 console.log("Game is starting...");
                 sleepSync(3500);
                 io.emit("startDraw", {start : true});
+                currentPlayers = players;
                 gameState.deck = initializeDeck();
             }
         } else {
@@ -699,6 +702,7 @@ io.on("connection", (socket) => {
                     else if(gameState.currentHand === 13){
                         console.log("firing gameEnd");
                         io.emit("gameEnd", {score:gameState.score});
+                        currentPlayers = [];
                         players = [];
                         gameState.bidding = 1;
                         gameState.start = false;
@@ -791,6 +795,10 @@ io.on("connection", (socket) => {
         io.emit("chatMessage", { position: positions[players.indexOf(socket.id)], message: data.message });
     });
     socket.on("disconnect", () => {
+        if(currentPlayers.includes(socket.id)){
+            console.log("non-player disconnected.")
+            return;
+        }
         players = players.filter((player) => player !== socket.id);
         currentUsers = currentUsers.filter((user) => user.socketId !== socket.id);
         console.log(`Player disconnected: ${socket.id}`);
