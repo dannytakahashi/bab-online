@@ -1,4 +1,4 @@
-const socket = io("bab-online-production.up.railway.app:3000", { transports: ["websocket"] });
+const socket = io("bab-online-production.up.railway.app", { transports: ["websocket"] });
 
 socket.on("connect", () => {
     console.log("Connected to server");
