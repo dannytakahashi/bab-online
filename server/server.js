@@ -99,10 +99,12 @@ console.log("update check2");
 app.use((req, res, next) => {
     //console.log("✅ CSP Middleware running for:", req.url);
     res.setHeader("Content-Security-Policy",
-        "default-src 'self' http://localhost:3000; " +
+        "default-src 'self' https://bab-online-production.up.railway.app; " +
         "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cdn.socket.io; " +
         "img-src 'self' data: blob:; " +
-        "connect-src 'self' ws://localhost:3000 ws://127.0.0.1:3000 wss://localhost:3000;"
+        "connect-src 'self' wss://bab-online-production.up.railway.app https://bab-online-production.up.railway.app; " +
+        "font-src 'self' https://fonts.gstatic.com; " + 
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
     );
     //console.log("Headers being sent:", res.getHeaders());
     next();
