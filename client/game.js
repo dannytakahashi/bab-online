@@ -233,7 +233,7 @@ function preload() {
     this.load.image("profile6", "assets/profile6.png");
     this.load.image("profile7", "assets/profile7.png");
     this.load.image("profile8", "assets/profile8.png");
-    this.load.image("profile9", "assets/test_profile.png");
+    this.load.image("profile9", "assets/test_profile2.png");
     this.load.image("profile10", "assets/profile10.png");
     this.load.image("profile11", "assets/profile11.png");
     this.load.image("profile12", "assets/profile12.png");
