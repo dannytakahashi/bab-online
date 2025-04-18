@@ -110,6 +110,7 @@ app.use((req, res, next) => {
     next();
 });
 app.use(express.static(path.join(__dirname,'..', 'client')));
+app.use('/assets-debug', express.static(path.join(__dirname, '../client/assets')));
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, '..', 'client', 'index.html'));
   });
