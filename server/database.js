@@ -1,6 +1,6 @@
 const { MongoClient } = require("mongodb");
 
-const mongoURI = "mongodb://localhost:27017"; // ✅ Change this if using a remote database
+const mongoURI = "mongodb://mongo:roWpPIazFwKzrQZbJrOgmUETsGlXAmWS@mongodb.railway.internal:27017"//"mongodb://localhost:27017"; // ✅ Change this if using a remote database
 const dbName = "yourDatabaseName"; // ✅ Change to your actual database name
 
 let db, usersCollection;

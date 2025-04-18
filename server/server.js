@@ -97,7 +97,7 @@ const io = socketIo(server, {
 });
 console.log("update check2");
 app.use((req, res, next) => {
-    console.log("✅ CSP Middleware running for:", req.url);
+    //console.log("✅ CSP Middleware running for:", req.url);
     res.setHeader("Content-Security-Policy",
         "default-src 'self' http://localhost:3000; " +
         "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cdn.socket.io; " +
