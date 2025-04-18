@@ -79,7 +79,7 @@ function indexOfMax(position, arr) {
     return maxIndex;
 }
 require("dotenv").config();
-const bcrypt = require("bcrypt");
+const bcrypt = require("bcryptjs");
 const User = require("./database"); // ✅ Import User model
 const express = require("express");
 const http = require("http");
