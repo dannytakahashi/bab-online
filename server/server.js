@@ -533,7 +533,7 @@ io.on("connection", (socket) => {
     socket.on("joinQueue", () =>{
         if (players.length < 4) {
             players.push(socket.id);
-            console.log(players.length);
+            console.log("length of queue: ",players.length);
             if (players.length === 4) {
                 console.log("Game is starting...");
                 sleepSync(3500);
@@ -543,6 +543,7 @@ io.on("connection", (socket) => {
             }
         } else {
             socket.emit("roomFull");
+            console.log("Room is full. Cannot join.");
         }
     });
     socket.on("draw", (data)=> {
@@ -646,7 +647,7 @@ io.on("connection", (socket) => {
             }
             playedCards[data.position - 1] = data.card;
             console.log("leadCard: ", leadCard);
-            if(data.card.suit === gameState.trump.suit){
+            if(data.card.suit === gameState.trump.suit || data.card.suit === "joker"){
                 gameState.isTrumpBroken = true;
             }
             //console.log("trying to send trump boolean ", gameState.isTrumpBroken);
