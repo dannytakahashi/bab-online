@@ -248,7 +248,7 @@ function abortClean(){
     gameState.bidding = 1;
     gameState.dealer = 1;
     gameState.bidder = rotate(gameState.dealer);
-    gameState.currentHand = 12;
+    gameState.currentHand = 1;
     gameState.trump = {};
     gameState.isTrumpBroken = false;
     gameState.bids = {
