@@ -301,7 +301,7 @@ function showScore(teamScore, opponentScore, bidArray, team1Tricks, team2Tricks,
     testTextSection.style.display = "flex";
     testTextSection.style.flexDirection = "column"; 
     testTextSection.style.alignItems = "center";
-    testTextSection.style.width = "15%";
+    testTextSection.style.width = "30%";
 
     let testTitle = document.createElement("p");
     testTitle.innerText = "";
