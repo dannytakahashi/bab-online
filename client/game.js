@@ -702,28 +702,28 @@ socket.on("chatMessage", (data) => {
     if (data.position === position + 1 || data.position === position - 3) {
         console.log("placing chat on opp1");
         let chatBubble = createSpeechBubble(scene, opp1_x, opp1_y, 150, 50, data.message);
-        scene.time.delayedCall(3000, () => {
+        scene.time.delayedCall(6000, () => {
             chatBubble.destroy(); // ✅ Destroy the chat bubble after 3 seconds
         });
     }
     if (data.position === position - 1 || data.position === position + 3) {
         console.log("placing chat on opp2");
         let chatBubble = createSpeechBubble(scene, opp2_x, opp2_y, 150, 50, data.message);
-        scene.time.delayedCall(3000, () => {
+        scene.time.delayedCall(6000, () => {
             chatBubble.destroy(); // ✅ Destroy the chat bubble after 3 seconds
         });
     }
     if (data.position === position + 2 || data.position === position - 2) {
         console.log("placing chat on team1");
         let chatBubble = createSpeechBubble(scene, team1_x, team1_y, 150, 50, data.message);
-        scene.time.delayedCall(3000, () => {
+        scene.time.delayedCall(6000, () => {
             chatBubble.destroy(); // ✅ Destroy the chat bubble after 3 seconds
         });
     }
     if (data.position === position) {
         console.log("placing chat on me");
         let chatBubble = createSpeechBubble(scene, me_x, me_y, 150, 50, data.message);
-        scene.time.delayedCall(3000, () => {
+        scene.time.delayedCall(6000, () => {
             chatBubble.destroy(); // ✅ Destroy the chat bubble after 3 seconds
         });
     }
@@ -1016,28 +1016,28 @@ function displayCards(playerHand) {
         if (data.position === position + 1 || data.position === position - 3) {
             console.log("placing chat on opp1");
             let chatBubble = createSpeechBubble(scene, opp1_x, opp1_y, 50, 50, data.bid, "#FF0000");
-            scene.time.delayedCall(3000, () => {
+            scene.time.delayedCall(5000, () => {
                 chatBubble.destroy(); // ✅ Destroy the chat bubble after 3 seconds
             });
         }
         if (data.position === position - 1 || data.position === position + 3) {
             console.log("placing chat on opp2");
             let chatBubble = createSpeechBubble(scene, opp2_x, opp2_y, 50, 50, data.bid, "#FF0000");
-            scene.time.delayedCall(3000, () => {
+            scene.time.delayedCall(5000, () => {
                 chatBubble.destroy(); // ✅ Destroy the chat bubble after 3 seconds
             });
         }
         if (data.position === position + 2 || data.position === position - 2) {
             console.log("placing chat on team1");
             let chatBubble = createSpeechBubble(scene, team1_x, team1_y, 50, 50, data.bid, "#FF0000");
-            scene.time.delayedCall(3000, () => {
+            scene.time.delayedCall(5000, () => {
                 chatBubble.destroy(); // ✅ Destroy the chat bubble after 3 seconds
             });
         }
         if (data.position === position) {
             console.log("placing chat on me");
             let chatBubble = createSpeechBubble(scene, me_x, me_y, 50, 50, data.bid, "#FF0000");
-            scene.time.delayedCall(3000, () => {
+            scene.time.delayedCall(5000, () => {
                 chatBubble.destroy(); // ✅ Destroy the chat bubble after 3 seconds
             });
         }
