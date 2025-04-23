@@ -309,7 +309,7 @@ function showScore(teamScore, opponentScore, bidArray, team1Tricks, team2Tricks,
     testTitle.style.marginBottom = "5px";
 
     let testTextBox = document.createElement("div");
-    testTextBox.innerText = "\n\nCONTRACT\nACTUAL\n\n\nSCORE";
+    testTextBox.innerText = "\n\nCONTRACT\nACTUAL\nOLD SCORE\nTHIS ROUND\nSCORE";
     testTextBox.style.fontSize = "16px";
     testTextBox.style.textAlign = "right";
     testTextBox.style.alignItems = "center";
@@ -326,12 +326,16 @@ function showScore(teamScore, opponentScore, bidArray, team1Tricks, team2Tricks,
     teamScoreSection.style.width = "30%";
 
     let teamTitle = document.createElement("p");
-    teamTitle.innerText = playerData.username[playerData.position.indexOf(position)].username + "/" + playerData.username[playerData.position.indexOf(team(position))].username;
+    teamTitle.innerText = playerData.username[playerData.position.indexOf(1)].username + "/" + playerData.username[playerData.position.indexOf(team(1))].username;
     teamTitle.style.fontWeight = "bold";
     teamTitle.style.marginBottom = "5px";
 
     let teamScoreBox = document.createElement("div");
-    teamScoreBox.innerText = bidArray[0] + "/" + bidArray [2] + "\n" + team1Tricks + "\n" + team1OldScore + "\n" + "+" + (teamScore - team1OldScore) + "\n" + teamScore;
+    if(teamScore > team1OldScore){
+        teamScoreBox.innerText = bidArray[0] + "/" + bidArray [2] + "\n" + team1Tricks + "\n" + team1OldScore + "\n" + "+" + (teamScore - team1OldScore) + "\n" + teamScore;
+    }else{
+        teamScoreBox.innerText = bidArray[0] + "/" + bidArray [2] + "\n" + team1Tricks + "\n" + team1OldScore + "\n" + (teamScore - team1OldScore) + "\n" + teamScore;
+    }
     teamScoreBox.style.width = "100%";
     teamScoreBox.style.minHeight = "60px";
     teamScoreBox.style.padding = "10px";
@@ -354,12 +358,16 @@ function showScore(teamScore, opponentScore, bidArray, team1Tricks, team2Tricks,
     opponentScoreSection.style.width = "30%";
 
     let opponentTitle = document.createElement("p");
-    opponentTitle.innerText = playerData.username[playerData.position.indexOf(rotate(position))].username + "/" + playerData.username[playerData.position.indexOf(rotate(rotate(rotate(position))))].username;
+    opponentTitle.innerText = playerData.username[playerData.position.indexOf(rotate(1))].username + "/" + playerData.username[playerData.position.indexOf(rotate(rotate(rotate(1))))].username;
     opponentTitle.style.fontWeight = "bold";
     opponentTitle.style.marginBottom = "5px";
 
     let opponentScoreBox = document.createElement("div");
-    opponentScoreBox.innerText = bidArray[1] + "/" + bidArray [3] + "\n" + team2Tricks + "\n" + team2OldScore + "\n" + "+" + (opponentScore - team2OldScore) + "\n" + opponentScore;
+    if(opponentScore > team2OldScore){
+        opponentScoreBox.innerText = bidArray[1] + "/" + bidArray [3] + "\n" + team2Tricks + "\n" + team2OldScore + "\n" + "+" + (opponentScore - team2OldScore) + "\n" + opponentScore;
+    }else{
+        opponentScoreBox.innerText = bidArray[1] + "/" + bidArray [3] + "\n" + team2Tricks + "\n" + team2OldScore + "\n" + (opponentScore - team2OldScore) + "\n" + opponentScore;
+    }
     opponentScoreBox.style.width = "100%";
     opponentScoreBox.style.minHeight = "60px";
     opponentScoreBox.style.padding = "10px";
