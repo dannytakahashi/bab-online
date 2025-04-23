@@ -862,7 +862,7 @@ function displayCards(playerHand) {
             console.warn("⚠️ No bid entered.");
             return;
         }
-        if ((bidValue < 0 || bidValue > playerCards.length) || (isNaN(Number(bidValue)) && bidValue.toUpperCase() !== "B" && bidValue.toUpperCase() !== "2B" && bidValue.toUpperCase() !== "3B" && bidValue.toUpperCase() !== "4B")){
+        if ((bidValue < 0 || bidValue > playerCards.length) || ((!Number.isInteger(Number(bidValue))) && bidValue.toUpperCase() !== "B" && bidValue.toUpperCase() !== "2B" && bidValue.toUpperCase() !== "3B" && bidValue.toUpperCase() !== "4B")){
             console.warn("⚠️ Invalid bid entered.");
             return;
         }
@@ -888,9 +888,8 @@ function displayCards(playerHand) {
                 return;
             }
         }
+        bidValue = Math.round(Number(bidValue)).toString(); // ✅ Round to nearest integer
         console.log(`📩 Sending bid: ${bidValue}`);
-
-        // ✅ Send bid data to the server
         socket.emit("playerBid", { position: position, bid: bidValue });
 
         // ✅ Clear the input box after submission
