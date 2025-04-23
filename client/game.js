@@ -755,6 +755,7 @@ function clearDisplayCards() {
 }
 let myCards = [];
 function displayCards(playerHand) {
+    bidding = 1;
     console.log("🧠 Scene children:", this.children.list.length);
     console.log("🎯 Active tweens:", this.tweens._active.length);
     console.log("📨 cardPlayed listeners:", socket.listeners("cardPlayed").length);
