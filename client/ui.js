@@ -273,7 +273,7 @@ function showScore(teamScore, opponentScore, bidArray, team1Tricks, team2Tricks,
     // ✅ Create the popup box
     let popup = document.createElement("div");
     popup.id = "popupBox";
-    popup.style.width = "800px"; // ✅ Increased width for 3 sections
+    popup.style.width = "650px"; // ✅ Increased width for 3 sections
     popup.style.padding = "20px";
     popup.style.background = "#FFF";
     popup.style.color = "#000";

@@ -1,12 +1,14 @@
+require("dotenv").config();
 const { MongoClient } = require("mongodb");
-
-const mongoURI = "mongodb://mongo:roWpPIazFwKzrQZbJrOgmUETsGlXAmWS@mongodb.railway.internal:27017"//"mongodb://localhost:27017"; // ✅ Change this if using a remote database
+const mongoURI = process.env.MONGO_URI;
+//const mongoURI = "mongodb://mongo:roWpPIazFwKzrQZbJrOgmUETsGlXAmWS@mongodb.railway.internal:27017""mongodb://localhost:27017"; // ✅ Change this if using a remote database
 const dbName = "yourDatabaseName"; // ✅ Change to your actual database name
 
 let db, usersCollection;
 
 // ✅ Function to connect to MongoDB
 async function connectDB() {
+    console.log(`Mongo URI: ${mongoURI}`);
     try {
         const client = await MongoClient.connect(mongoURI, {
             useNewUrlParser: true,

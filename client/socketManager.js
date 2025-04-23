@@ -1,5 +1,9 @@
-const socket = io("bab-online-production.up.railway.app", { transports: ["websocket"] });
-
+const socket = io(
+    location.hostname === "localhost"
+      ? "http://localhost:3000"
+      : "https://bab-online-production.up.railway.app",
+       { transports: ["websocket"] }
+);
 socket.on("connect", () => {
     console.log("Connected to server");
 });
