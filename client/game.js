@@ -858,6 +858,10 @@ function displayCards(playerHand) {
     window.addEventListener("resize", updateInputBoxPosition);
     bidButton.addEventListener("click", () => {
         let bidValue = inputBox.value.trim();
+        if (currentTurn !== position || bidding === 0){
+            console.warn("not your bid.");
+            return;
+        }
         if (bidValue === "") {
             console.warn("⚠️ No bid entered.");
             return;
