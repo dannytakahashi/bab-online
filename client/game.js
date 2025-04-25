@@ -904,6 +904,7 @@ function displayCards(playerHand) {
         let cardSprite = this.add.image(screenWidth / 2 + 500, screenHeight / 2 - 300, cardKey)
         .setInteractive()
         .setScale(1.5);  // ✅ Increase size
+        cardSprite.input.hitArea.setTo(cardSprite.width * 0.15, 0, cardSprite.width * 0.7, cardSprite.height);
         if (!cardSprite) {
             console.error(`🚨 ERROR: Failed to create card sprite for ${card.rank} of ${card.suit}`);
         }
