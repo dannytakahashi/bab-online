@@ -962,6 +962,8 @@ function displayCards(playerHand) {
                 playerHand = removeCard(playerHand, card);
                 console.log("my hand: ", playerHand);
             }else if (Phaser.Geom.Rectangle.Contains(handBackground.getBounds(), cardSprite.x, cardSprite.y)) {
+                originalX = cardSprite.x;
+                originalY = cardSprite.y;
                 return;
             }else {
                 console.warn("🚫 Card dropped outside play zone, returning to original position.");
