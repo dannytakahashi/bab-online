@@ -388,6 +388,57 @@ function addToGameFeed(message) {
     console.log("📝 Game Feed Updated:", message);
 }
 let handGlow;
+function addOpponentGlow(scene, relation){
+    let glowRadius = 47; // ✅ Adjust the radius as needed
+    if (!scene) {
+        console.error("🚨 ERROR: Scene is undefined in addOpponentGlow!");
+        return;
+    }
+    if (scene.opponentGlow) {
+        scene.opponentGlow.destroy(); // ✅ Remove from the game
+        scene.opponentGlow = null; // ✅ Clear reference
+    }
+    let screenWidth = scene.scale.width;
+    let screenHeight = scene.scale.height;
+    let centerPlayAreaX = screenWidth / 2;
+    let centerPlayAreaY = screenHeight / 2;
+    if (relation === "opp1"){
+        glowX = centerPlayAreaX - 550;
+        glowY = centerPlayAreaY;
+    }
+    else if (relation === "partner"){
+        glowX = centerPlayAreaX;
+        glowY = centerPlayAreaY - 400;
+    }
+    else if (relation === "opp2"){
+        glowX = centerPlayAreaX + 550;
+        glowY = centerPlayAreaY;
+    }
+    scene.opponentGlow = scene.add.circle(glowX, glowY, glowRadius, 0xFFD700)
+        .setAlpha(0.3)
+        .setDepth(-3);
+    console.log("🟫 Added solid background & pulsing glow for opponent hand.");
+    scene.tweens.add({
+        targets: scene.opponentGlow,
+        alpha: { from: 0.1, to: 0.5 },
+        duration: 1000,
+        yoyo: true,
+        repeat: -1,
+        ease: "Sine.easeInOut"
+    });
+}
+function removeOpponentGlow(scene){
+    if (!scene) {
+        console.error("🚨 ERROR: Scene is undefined in removeTurnGlow!");
+        return;
+    }
+
+    if (scene.opponentGlow) {
+        console.log("🚫 Removing turn glow...");
+        scene.opponentGlow.destroy(); // ✅ Remove from the game
+        scene.opponentGlow = null; // ✅ Clear reference
+    }
+}
 function addTurnGlow(scene) {
     if (!scene) {
         console.error("🚨 ERROR: Scene is undefined in addTurnGlow!");
@@ -1097,11 +1148,22 @@ function displayCards(playerHand) {
         currentTurn = data.currentTurn;
         playedCard = false;
         console.log("Current turn:", currentTurn);
+        removeOpponentGlow(this);
         if(currentTurn === position){
             addTurnGlow(this);
         }
         else{
             removeTurnGlow(this);
+        }
+        if (currentTurn === rotate(position)){
+            addOpponentGlow(this, "opp1");
+        }
+        else if (currentTurn === team(position)){
+            addOpponentGlow(this, "partner");
+        }
+        else if (currentTurn === rotate(rotate(rotate(position)))){
+            addOpponentGlow(this, "opp2");
+
         }
     })
     socket.on("cardPlayed", (data) => {
