@@ -834,51 +834,62 @@ function clearScreen() {
 
     console.log("✅ All elements removed from the screen.");
 }
-function createSpeechBubble(scene, x, y, width, height, text, color) {
-    console.log(`🎈 Creating speech bubble at (${x}, ${y}) with text: "${text}"`);
-    let bubblePadding = 10;
-    let tailSize = 20;
-    let bubbleText = null;
-
-    // ✅ Create the speech bubble background
-    let bubble = gameScene.add.graphics();
-
-    // ✅ Draw rounded rectangle (main bubble)
-    bubble.fillStyle(0xffffff, 1); // White background
-    bubble.fillRoundedRect(x, y, width, height, 16); // Rounded edges
-
-    // ✅ Draw speech tail (triangle)
+function createSpeechBubble(scene, x, bottomY, width, height, text, color) {
+    const PADDING   = 10;
+    const TAIL_SIZE = 20;
+    const MAX_W     = 250;
+    const MAX_H     = 120;
+  
+    // 1) style & measure the text off-screen
+    const style = {
+      fontSize:  "16px",
+      fontFamily:"Arial",
+      color:     (color === "#FF0000" ? "#FF0000" : "#000000"),
+      wordWrap:  { width: MAX_W - 2*PADDING }
+    };
+    const textObj = scene.add.text(0, 0, text, style);
+  
+    // 2) clamp its measured size
+    const txtW = Math.min(textObj.width,  MAX_W - 2*PADDING);
+    const txtH = Math.min(textObj.height, MAX_H - 2*PADDING);
+  
+    // final bubble dims
+    const bW = txtW + 2*PADDING;
+    const bH = txtH + 2*PADDING;
+  
+    // 3) compute the top‐left Y so the bottom edge sits at bottomY
+    const topY = bottomY - bH;
+  
+    // 4) position the text inside the bubble
+    textObj.setPosition(x + PADDING, topY + PADDING);
+  
+    // 5) draw the bubble background at (x, topY)
+    const bubble = scene.add.graphics();
+    bubble.fillStyle(0xffffff, 1);
+    bubble.fillRoundedRect(x, topY, bW, bH, 16);
+  
+    // 6) draw the tail so it “points” down at bottomY
+    //    (adjust its triangle coords accordingly)
     bubble.fillTriangle(
-        x + 20, y + height,      // Bottom-left corner of the bubble
-        x - tailSize, y + height, // Tail extending further left
-        x + 10, y + height - tailSize // Diagonal upwards
+      x + 20,      topY + bH,       // left corner of bottom edge
+      x - TAIL_SIZE, topY + bH,     // tail tip farther left
+      x + 10,      topY + bH - TAIL_SIZE
     );
-
-    // ✅ Create text inside the bubble
-    if(color ==="#FF0000"){
-            bubbleText = gameScene.add.text(x + bubblePadding + 10, y + bubblePadding, text, {
-            fontSize: "20px",
-            fontFamily: "Arial",
-            fontStyle: "bold",
-            color: "#FF0000", // Default to black if no color provided
-            wordWrap: { width: width - bubblePadding * 2 }
-        });
-    }
-    else{
-            bubbleText = gameScene.add.text(x + bubblePadding, y + bubblePadding, text, {
-            fontSize: "16px",
-            fontFamily: "Arial",
-            color: "#000000", // Default to black if no color provided
-            wordWrap: { width: width - bubblePadding * 2 }
-        });
-    }
-    // ✅ Group everything for easy control
-    let container = gameScene.add.container(0, 0, [bubble, bubbleText]);
-    console.log("✅ Speech bubble created:", container);
+  
+    // 7) mask off any overflow below the rect
+    const maskShape = scene.make.graphics();
+    maskShape.fillStyle(0xffffff);
+    maskShape.fillRect(x, topY, bW, bH);
+    const mask = maskShape.createGeometryMask();
+  
+    // 8) group & apply mask
+    const container = scene.add.container(0, 0, [bubble, textObj]);
+    container.setMask(mask);
     container.setDepth(500);
     container.setAlpha(1);
+  
     return container;
-}
+  }
 function createPlayerInfoBox() {
     let screenWidth = gameScene.scale.width;
     let screenHeight = gameScene.scale.height;

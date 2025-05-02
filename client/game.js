@@ -731,6 +731,7 @@ socket.on("disconnect", () => {
         playZone = null;
         handBackground = null;
     }
+    removeWaitingScreen();
     clearUI();
     showSignInScreen();
 });
@@ -744,6 +745,24 @@ socket.on("abortGame", (data) => {
     showLobbyScreen();
     gameScene.children.removeAll(true);
     gameScene.scene.restart();
+});
+socket.on("forceLogout", (data) => {
+    console.log("someone else signed in as you. Logging out.");
+    if(gameScene){
+        gameScene.scene.restart();
+        socket.off("gameStart");
+        playZone = null;
+        handBackground = null;
+    }
+    removeWaitingScreen();
+    clearUI();
+    showSignInScreen();
+});
+socket.on("roomFull", (data) => {
+    console.log("caught roomFull");
+    removeWaitingScreen();
+    showLobbyScreen();
+    alert("Queue is full. Please try again later.");
 });
 socket.on("gameEnd", (data) => {
     console.log("caught gameEnd");
@@ -761,13 +780,13 @@ socket.on("chatMessage", (data) => {
     let centerPlayAreaX = screenWidth / 2;
     let centerPlayAreaY = screenHeight / 2;
     let opp1_x = centerPlayAreaX - 480;
-    let opp1_y = centerPlayAreaY - 60;
+    let opp1_y = centerPlayAreaY;
     let opp2_x = centerPlayAreaX + 620;
-    let opp2_y = centerPlayAreaY - 60;
+    let opp2_y = centerPlayAreaY;
     let team1_x = centerPlayAreaX + 80;
-    let team1_y = centerPlayAreaY - 470;
+    let team1_y = centerPlayAreaY - 380;
     let me_x = screenWidth - 310;
-    let me_y = screenHeight - 330;
+    let me_y = screenHeight - 270;
     if (data.position === position + 1 || data.position === position - 3) {
         console.log("placing chat on opp1");
         let chatBubble = createSpeechBubble(scene, opp1_x, opp1_y, 150, 50, data.message);

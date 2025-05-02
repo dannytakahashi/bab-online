@@ -464,7 +464,7 @@ let currentUsers = [];
 let queuedUsers = [];
 io.on("connection", (socket) => {
     console.log(`Player connected: ${socket.id}`);
-        // ✅ Handle player sign-in
+        //Handle player sign-in
         socket.on("signIn", async (data) => {
             let usersCollection = getUsersCollection();
             let { username, password } = data;
@@ -478,7 +478,7 @@ io.on("connection", (socket) => {
                     return;
                 }
         
-                // ✅ Verify the password
+                // Verify the password
                 let passwordMatch = await bcrypt.compare(password, user.password);
                 if (!passwordMatch) {
                     socket.emit("signInResponse", { success: false, message: "Invalid username or password!" });
@@ -486,20 +486,23 @@ io.on("connection", (socket) => {
                     return;
                 }
         
-                // ✅ If user is already logged in, disconnect the old session
+                // If user is already logged in, disconnect the old session
                 if (user.socketId) {
                     let oldSocket = io.sockets.sockets.get(user.socketId);
                     if (oldSocket) {
                         oldSocket.emit("forceLogout"); // ✅ Notify the old session
+                        players = players.filter((player) => player !== oldSocket.id);
+                        currentUsers = currentUsers.filter((user) => user.socketId !== oldSocket.id);
+                        queuedUsers = queuedUsers.filter((user) => user.socketId !== oldSocket.id);
                         oldSocket.disconnect();
                         console.log(`🔄 ${username} was logged out from another device.`);
                     }
                 }
         
-                // ✅ Update MongoDB with the new socket ID
+                // Update MongoDB with the new socket ID
                 await usersCollection.updateOne({ username }, { $set: { socketId: socket.id } });
         
-                // ✅ Send sign-in success response
+                // Send sign-in success response
                 socket.emit("signInResponse", { success: true, username });
                 console.log(`✅ ${username} signed in successfully.`);
                 currentUsers = currentUsers.filter((user) => user.username !== username);
