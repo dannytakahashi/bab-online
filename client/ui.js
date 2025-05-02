@@ -500,6 +500,65 @@ function showLobbyScreen() {
     document.body.appendChild(logo);
     document.body.appendChild(lobbyContainer);
 }
+function removeLobbyScreen(){
+    console.log("🏢 Removing lobby screen...");
+    let lobbyContainer = document.getElementById("lobbyContainer");
+    if (lobbyContainer) lobbyContainer.remove(); // ✅ Remove lobby container
+    let lobbyVignette = document.getElementById("lobbyVignette");
+    if (lobbyVignette) lobbyVignette.remove(); // ✅ Remove lobby vignette
+    let logo = document.querySelector("img[src='assets/logo.png']"); // ✅ Select the logo by its source
+    if (logo) logo.remove(); // ✅ Remove the logo
+}
+function showPlayerQueue(currentUsers) {
+    console.log("inside of SPQ, currentUsers: ", currentUsers);
+    let oldContainer = document.getElementById("queueContainer");
+    if (oldContainer) oldContainer.remove();
+
+    // Create container
+    const container = document.createElement("div");
+    container.id = "queueContainer";
+    container.style.position = "absolute";
+    container.style.top = "50%";
+    container.style.left = "50%";
+    container.style.transform = "translate(-50%, -50%)";
+    container.style.background = "rgba(34, 34, 34, 0.9)";
+    container.style.color = "#fff";
+    container.style.padding = "30px";
+    container.style.borderRadius = "10px";
+    container.style.border = "3px solid #888";
+    container.style.fontSize = "20px";
+    container.style.fontFamily = "Arial, sans-serif";
+    container.style.minWidth = "300px";
+    container.style.textAlign = "center";
+    container.style.zIndex = 1000;
+
+    // Add heading
+    const heading = document.createElement("div");
+    heading.innerText = "Waiting for players...";
+    heading.style.fontSize = "24px";
+    heading.style.marginBottom = "20px";
+    container.appendChild(heading);
+
+    // Add usernames
+    console.log("currentUsers: ", currentUsers);
+    console.log("length of currentUsers: ", currentUsers.length);
+    for(let i=0; i < currentUsers.length; i++){
+        console.log("trying to add: ", currentUsers[i].username);
+        const nameLine = document.createElement("div");
+        nameLine.innerText = `${i + 1}. ${currentUsers[i].username}`;
+        nameLine.style.marginBottom = "10px";
+        container.appendChild(nameLine);
+   }
+    // Add to body
+    document.body.appendChild(container);
+}
+function removePlayerQueue() {
+    const queueContainer = document.getElementById("queueContainer");
+    if (queueContainer) {
+        queueContainer.remove();
+        console.log("🗑 Player queue removed.");
+    }
+}
 function signOut() {
     console.log("🚪 Signing out...");
     sessionStorage.removeItem("username"); // ✅ Clear stored username
@@ -507,16 +566,12 @@ function signOut() {
 }
 // ✅ Function to Show Waiting Screen
 function showWaitingScreen() {
+    waitBool = true;
     console.log("⌛ Showing waiting screen...");
-
-    // ✅ Remove lobby UI
-    let lobbyVignette = document.getElementById("lobbyVignette");
-    if (lobbyVignette) lobbyVignette.remove();
-    let lobbyContainer = document.getElementById("lobbyContainer");
-    if (lobbyContainer) lobbyContainer.remove();
+    removeLobbyScreen();
 
     // ✅ Create waiting container
-    waitingVignette = document.createElement("div");
+    /*waitingVignette = document.createElement("div");
     waitingVignette.classList.add("vignette"); // ✅ Add a class for easy removal
     waitingVignette.style.position = "fixed";
     waitingVignette.style.top = "0";
@@ -545,9 +600,12 @@ function showWaitingScreen() {
     // ✅ Waiting message
     let waitingText = document.createElement("p");
     waitingText.innerText = "Waiting for players...";
-    waitingContainer.appendChild(waitingText);
+    waitingContainer.appendChild(waitingText);*/
 
-    document.body.appendChild(waitingContainer);
+    //document.body.appendChild(waitingContainer);
+    if(queueDelay){
+        showPlayerQueue(queueDelay);
+    }
 }
 
 // ✅ Function to Remove Waiting Screen (Start Game)
@@ -558,6 +616,8 @@ function removeWaitingScreen() {
     if (waitingVignette) waitingVignette.remove();
     removeAllVignettes();
     clearUI();
+    removePlayerQueue();
+    waitBool = false;
     console.log("🚀 Game starting...");
 }
 function showFinalScore(teamScore, opponentScore) {
@@ -701,6 +761,7 @@ function initGameChat(){
     }
     let chatInput = document.createElement("input");
     chatInput.type = "text";
+    chatInput.classList.add("ui-element");
     chatInput.placeholder = "Type a message...";
     chatInput.style.position = "absolute";
     chatInput.style.bottom = "10px";  // Adjust position

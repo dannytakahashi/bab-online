@@ -78,6 +78,9 @@ let score1 = 0;
 let score2 = 0;
 let playedCard = false;
 let playerInfo = null;
+let waitBool = false;
+let queueDelay = false;
+let lastQueueData; 
 function create() {
     gameScene = this; // Store reference to the game scene
     console.log("running create4...");
@@ -344,6 +347,7 @@ function createGameFeed() {
     // ✅ Create a container for the game feed
     let feedContainer = document.createElement("div");
     feedContainer.id = "gameFeed";
+    feedContainer.classList.add("ui-element");
     feedContainer.style.position = "absolute";
     feedContainer.style.width = "200px";
     feedContainer.style.height = "200px";
@@ -668,8 +672,22 @@ function clearAllTricks() {
     oppTrickHistory = [];
     console.log("🧹 All tricks have been cleared.");
 }
+socket.on("disconnect", () => {
+    console.log("⚠️ Disconnected from server.");
+    if(gameScene){
+        gameScene.scene.restart();
+        socket.off("gameStart");
+        playZone = null;
+        handBackground = null;
+    }
+    clearUI();
+    showSignInScreen();
+});
 socket.on("abortGame", (data) => {
     playedCard = false;
+    playZone = null;
+    playerInfo = null;
+    handBackground = null;
     console.log("caught abortGame");
     clearUI();
     showLobbyScreen();
@@ -741,6 +759,17 @@ socket.on("createUI", (data) => {
         scene.handElements = [];
     }
 });
+socket.on("queueUpdate", (data) => {
+    console.log("caught queueUpdate");
+    if(waitBool){
+        console.log("queue update data is: ", data);
+        showPlayerQueue(data.queuedUsers);
+    }
+    else{
+        queueDelay = true;
+        lastQueueData = data.queuedUsers;
+    }
+});
 function clearDisplayCards() {
     console.log("🗑️ Clearing all elements from displayCards...");
 
@@ -766,6 +795,8 @@ function displayCards(playerHand) {
     console.log("running card display...");
     let screenWidth = this.scale.width;
     let screenHeight = this.scale.height;
+    console.log("screenWidth: ", screenWidth);
+    console.log("screenHeight: ", screenHeight);
     let cardWidth = 100; // Approximate width of each card
     let cardSpacing = 50; // Spacing between cards
     let totalWidth = (playerHand.length - 1) * cardSpacing; // Width of all cards together
@@ -802,6 +833,7 @@ function displayCards(playerHand) {
     console.log("🟫 Added background for player hand.");
     let bidContainer = document.createElement("div");
     bidContainer.id = "bidContainer";
+    bidContainer.classList.add("ui-element");
     bidContainer.style.position = "absolute";
     bidContainer.style.width = "120px"; // Slightly wider than input box
     bidContainer.style.height = "100px"; // Taller than input box
@@ -816,6 +848,7 @@ function displayCards(playerHand) {
     let inputBox = document.createElement("input");
     inputBox.id = "inputBox";
     inputBox.type = "text";
+    inputBox.classList.add("ui-element");
     inputBox.placeholder = "Enter Bid...";
     inputBox.style.position = "absolute";
     inputBox.style.fontSize = "20px";
@@ -830,6 +863,7 @@ function displayCards(playerHand) {
     this.handElements.push(inputBox);
     let bidButton = document.createElement("button");
     bidButton.id = "bidButton";
+    bidButton.classList.add("ui-element");
     bidButton.innerText = "BID";
     bidButton.style.position = "absolute";
     bidButton.style.fontSize = "18px";

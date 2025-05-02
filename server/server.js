@@ -127,6 +127,7 @@ let playedCardsIndex = 0;
 let playerBids = [];
 let numBids = 0;
 let team1OldScore, team2OldScore = [];
+let idx;
 let gameState = { 
     deck: [], 
     hands: {},
@@ -156,7 +157,8 @@ let gameState = {
     cardIndex : 0,
     team1Mult : 1,
     team2Mult : 1,
-    start: false
+    start : false,
+    draw : false
 };
 let trumpCard = [];
 function drawOrder(myCard,cards){
@@ -271,6 +273,12 @@ function abortClean(){
     numBids = 0;
     gameState.start = false;
     currentPlayers = [];
+    players = [];
+    gameState.draw = false;
+    queuedUsers = [];
+    drawCards = [];
+    drawIDs = [];
+    drawIndex = 0;
 }
 function initializeDeck() {
     const suits = ["spades", "hearts", "diamonds", "clubs"];
@@ -453,6 +461,7 @@ function determineWinner(trick, lead, trump){
 let leadCard = [];
 let leadPosition = 1;
 let currentUsers = [];
+let queuedUsers = [];
 io.on("connection", (socket) => {
     console.log(`Player connected: ${socket.id}`);
         // ✅ Handle player sign-in
@@ -494,7 +503,7 @@ io.on("connection", (socket) => {
                 socket.emit("signInResponse", { success: true, username });
                 console.log(`✅ ${username} signed in successfully.`);
                 currentUsers = currentUsers.filter((user) => user.username !== username);
-                currentUsers.push({username, socketId: socket.id });
+                currentUsers.push({username: username, socketId: socket.id });
                 console.log("current users: ", currentUsers);
             } catch (error) {
                 console.error("❌ Database error:", error);
@@ -534,10 +543,19 @@ io.on("connection", (socket) => {
         if (players.length < 4) {
             players.push(socket.id);
             console.log("length of queue: ",players.length);
+            idx = currentUsers.findIndex((user) => user.socketId === socket.id);
+            console.log("idx: ", idx);
+            if (idx !== -1) {
+                queuedUsers.push(currentUsers[idx]);
+                console.log("added user to queue: ", currentUsers[idx]);
+                console.log("queued users: ", queuedUsers);
+            }
+            io.emit("queueUpdate", { queuedUsers });
             if (players.length === 4) {
                 console.log("Game is starting...");
                 sleepSync(3500);
                 io.emit("startDraw", {start : true});
+                gameState.draw = true;
                 currentPlayers = players;
                 gameState.deck = initializeDeck();
             }
@@ -615,6 +633,7 @@ io.on("connection", (socket) => {
             });
             console.log("Game started", gameState.hands);
             gameState.start = true;
+            gameState.draw = false;
             gameState.currentTurn = rotate(gameState.dealer);
             io.emit("updateTurn", { currentTurn: gameState.currentTurn });
             console.log("emitted update turn on game start");
@@ -797,15 +816,21 @@ io.on("connection", (socket) => {
         io.emit("chatMessage", { position: positions[players.indexOf(socket.id)], message: data.message });
     });
     socket.on("disconnect", () => {
-        if(currentPlayers.includes(socket.id)){
+        if(!currentPlayers.includes(socket.id)){
+            players = players.filter((player) => player !== socket.id);
+            currentUsers = currentUsers.filter((user) => user.socketId !== socket.id);
+            queuedUsers = queuedUsers.filter((user) => user.socketId !== socket.id);
+            io.emit("queueUpdate", { queuedUsers });
             console.log("non-player disconnected.")
             return;
         }
         players = players.filter((player) => player !== socket.id);
         currentUsers = currentUsers.filter((user) => user.socketId !== socket.id);
+        queuedUsers = queuedUsers.filter((user) => user.socketId !== socket.id);
+        io.emit("queueUpdate", { queuedUsers });
         console.log(`Player disconnected: ${socket.id}`);
         console.log(gameState.start);
-        if (gameState.start){
+        if (gameState.start || gameState.draw){
             console.log("aborting mid-game...");
             io.emit("abortGame");
             abortClean();
