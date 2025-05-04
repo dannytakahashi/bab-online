@@ -349,8 +349,8 @@ function createGameFeed() {
     feedContainer.id = "gameFeed";
     feedContainer.classList.add("ui-element");
     feedContainer.style.position = "absolute";
-    feedContainer.style.width = "200px";
-    feedContainer.style.height = "200px";
+    feedContainer.style.width = "10vw";
+    feedContainer.style.height = "20vh";
     feedContainer.style.bottom = "20px"; // ✅ Position in lower right
     feedContainer.style.right = "20px";
     feedContainer.style.padding = "10px";
@@ -361,7 +361,7 @@ function createGameFeed() {
     feedContainer.style.overflowY = "auto";
     feedContainer.style.borderRadius = "10px";
     feedContainer.style.border = "2px solid #FFFFFF";
-    feedContainer.style.maxHeight = "200px"; // ✅ Limits scrolling area
+    feedContainer.style.maxHeight = "20vh"; // ✅ Limits scrolling area
     feedContainer.style.textAlign = "right";
 
     document.body.appendChild(feedContainer);
@@ -400,18 +400,20 @@ function addOpponentGlow(scene, relation){
     }
     let screenWidth = scene.scale.width;
     let screenHeight = scene.scale.height;
+    let scaleFactorX = screenWidth / 1920; // Adjust based on your design resolution
+    let scaleFactorY = screenHeight / 953; // Adjust based on your design resolution
     let centerPlayAreaX = screenWidth / 2;
     let centerPlayAreaY = screenHeight / 2;
     if (relation === "opp1"){
-        glowX = centerPlayAreaX - 550;
+        glowX = centerPlayAreaX - 550*scaleFactorX;
         glowY = centerPlayAreaY;
     }
     else if (relation === "partner"){
         glowX = centerPlayAreaX;
-        glowY = centerPlayAreaY - 400;
+        glowY = centerPlayAreaY - 400*scaleFactorY;
     }
     else if (relation === "opp2"){
-        glowX = centerPlayAreaX + 550;
+        glowX = centerPlayAreaX + 550*scaleFactorX;
         glowY = centerPlayAreaY;
     }
     scene.opponentGlow = scene.add.circle(glowX, glowY, glowRadius, 0xFFD700)
@@ -450,7 +452,9 @@ function addTurnGlow(scene) {
     }
     let screenWidth = scene.scale.width;
     let screenHeight = scene.scale.height;
-    let handAreaHeight = 257;
+    let scaleFactorX = screenWidth / 1920; // Adjust based on your design resolution
+    let scaleFactorY = screenHeight / 953; // Adjust based on your design resolution
+    let handAreaHeight = 257*scaleFactorY;
     let handAreaWidth = screenWidth * 0.51;
 
     let handX = screenWidth / 2;
@@ -522,16 +526,18 @@ function draw() {
     console.log("🃏 Placing all 54 cards face down...");
     let screenWidth = this.scale.width;
     let screenHeight = this.scale.height;
-    let startX = 400; // ✅ Starting X position for first card
+    let scaleFactorX = screenWidth / 1920; // Adjust based on your design resolution
+    let scaleFactorY = screenHeight / 953; // Adjust based on your design resolution
+    let startX = 400*scaleFactorX; // ✅ Starting X position for first card
     let startY = screenHeight / 2; // ✅ Center the row of cards
-    let overlap = 20; // ✅ Adjust overlap for better spacing
+    let overlap = 20*scaleFactorX; // ✅ Adjust overlap for better spacing
     const bg = this.add.image(0, 0, 'background')
     .setOrigin(0, 0)
     .setDisplaySize(this.scale.width, this.scale.height)  // Stretch to fill screen
     .setScrollFactor(0)
     .setDepth(-100)  // Make it non-scrollable (fixed to camera)
     for (let i = 0; i < 54; i++) {
-        let cardSprite = this.add.image(screenWidth/2 + 500, startY, "cardBack") // ✅ All cards face down
+        let cardSprite = this.add.image(screenWidth/2 + 500*scaleFactorX, startY, "cardBack") // ✅ All cards face down
             .setScale(1.2)
             .setInteractive()
             .setDepth(100);
@@ -595,13 +601,15 @@ function displayTableCard(card) {
     console.log(`🎴 Displaying table card: ${card.rank} of ${card.suit}`);
     let screenWidth = this.scale.width;
     let screenHeight = this.scale.height;
-    let tableX = screenWidth / 2 + 500;
-    let tableY = screenHeight / 2 - 300;
+    let scaleFactorX = screenWidth / 1920; // Adjust based on your design resolution
+    let scaleFactorY = screenHeight / 953; // Adjust based on your design resolution
+    let tableX = screenWidth / 2 + 500*scaleFactorX;
+    let tableY = screenHeight / 2 - 300*scaleFactorY;
     let cardKey = getCardImageKey(card);
     if (this.tableCardBackground) this.tableCardBackground.destroy();
     if (this.tableCardSprite) this.tableCardSprite.destroy();
     if (this.tableCardLabel) this.tableCardLabel.destroy();
-    this.tableCardBackground = this.add.rectangle(tableX, tableY, 120, 160, 0x8B4513)
+    this.tableCardBackground = this.add.rectangle(tableX, tableY, 120*scaleFactorX, 160*scaleFactorY, 0x8B4513)
         .setStrokeStyle(4, 0x654321)
         .setDepth(-1); // ✅ Ensure it's behind the card
     tableCardSprite = this.add.image(tableX, tableY, cardKey).setScale(1.5);
@@ -777,16 +785,18 @@ socket.on("chatMessage", (data) => {
     let scene = game.scene.scenes[0];
     let screenWidth = scene.scale.width;
     let screenHeight = scene.scale.height;
+    let scaleFactorX = screenWidth / 1920; // Adjust based on your design resolution
+    let scaleFactorY = screenHeight / 953; // Adjust based on your design resolution
     let centerPlayAreaX = screenWidth / 2;
     let centerPlayAreaY = screenHeight / 2;
-    let opp1_x = centerPlayAreaX - 480;
+    let opp1_x = centerPlayAreaX - 480*scaleFactorX;
     let opp1_y = centerPlayAreaY;
-    let opp2_x = centerPlayAreaX + 620;
+    let opp2_x = centerPlayAreaX + 620*scaleFactorX;
     let opp2_y = centerPlayAreaY;
-    let team1_x = centerPlayAreaX + 80;
-    let team1_y = centerPlayAreaY - 380;
-    let me_x = screenWidth - 310;
-    let me_y = screenHeight - 270;
+    let team1_x = centerPlayAreaX + 80*scaleFactorX;
+    let team1_y = centerPlayAreaY - 380*scaleFactorY;
+    let me_x = screenWidth - 310*scaleFactorX;
+    let me_y = screenHeight - 270*scaleFactorY;
     if (data.position === position + 1 || data.position === position - 3) {
         console.log("placing chat on opp1");
         let chatBubble = createSpeechBubble(scene, opp1_x, opp1_y, 150, 50, data.message);
@@ -854,6 +864,8 @@ function clearDisplayCards() {
 }
 let myCards = [];
 function displayCards(playerHand) {
+    let scaleFactorX = this.scale.width / 1920; // Adjust based on your design resolution
+    let scaleFactorY = this.scale.height / 953; // Adjust based on your design resolution
     bidding = 1;
     console.log("🧠 Scene children:", this.children.list.length);
     console.log("🎯 Active tweens:", this.tweens._active.length);
@@ -865,24 +877,25 @@ function displayCards(playerHand) {
     console.log("running card display...");
     let screenWidth = this.scale.width;
     let screenHeight = this.scale.height;
+    console.log("🖥️ Screen dimensions: ", screenWidth, "x", screenHeight, "y");
     console.log("screenWidth: ", screenWidth);
     console.log("screenHeight: ", screenHeight);
-    let cardWidth = 100; // Approximate width of each card
-    let cardSpacing = 50; // Spacing between cards
+    let cardWidth = 100*scaleFactorX; // Approximate width of each card
+    let cardSpacing = 50*scaleFactorX; // Spacing between cards
     let totalWidth = (playerHand.length - 1) * cardSpacing; // Width of all cards together
     let startX = (screenWidth - totalWidth) / 2; // ✅ Centered starting position
-    let startY = this.scale.height - 200; // ✅ Adjust vertical position lower
-    let opponent1_x = screenWidth / 2 - 200;
+    let startY = this.scale.height - 200*scaleFactorY; // ✅ Adjust vertical position lower
+    let opponent1_x = screenWidth / 2 - 200*scaleFactorX;
     let opponent1_y = screenHeight / 2;
-    let opponent2_x = screenWidth / 2 + 200;
+    let opponent2_x = screenWidth / 2 + 200*scaleFactorX;
     let opponent2_y = screenHeight / 2;
     let team1_x = screenWidth / 2;
-    let team1_y = screenHeight / 2 -150;
+    let team1_y = screenHeight / 2 - 150*scaleFactorY;
     let handAreaWidth = screenWidth * 0.5; // ✅ Width of the background area
-    let handAreaHeight = 250; // ✅ Height of the background area
+    let handAreaHeight = 250*scaleFactorY; // ✅ Height of the background area
     if (!playZone) {
-        let playZoneWidth = 600;
-        let playZoneHeight = 400;
+        let playZoneWidth = 600*scaleFactorX;
+        let playZoneHeight = 400*scaleFactorY;
         let playZoneX = (screenWidth - playZoneWidth) / 2;
         let playZoneY = (this.scale.height - playZoneHeight) / 2;
         playZone = this.add.rectangle(playZoneX + playZoneWidth / 2, playZoneY + playZoneHeight / 2,
@@ -905,9 +918,9 @@ function displayCards(playerHand) {
     bidContainer.id = "bidContainer";
     bidContainer.classList.add("ui-element");
     bidContainer.style.position = "absolute";
-    bidContainer.style.width = "120px"; // Slightly wider than input box
-    bidContainer.style.height = "100px"; // Taller than input box
-    bidContainer.style.padding = "20px";
+    bidContainer.style.width = "6vw"; // Slightly wider than input box
+    bidContainer.style.height = "10vh"; // Taller than input box
+    bidContainer.style.padding = "1vw";
     bidContainer.style.background = "#333333"; // Dark grey
     bidContainer.style.border = "3px solid #444444"; // Slightly lighter grey border
     bidContainer.style.borderRadius = "10px";
@@ -923,7 +936,7 @@ function displayCards(playerHand) {
     inputBox.style.position = "absolute";
     inputBox.style.fontSize = "20px";
     inputBox.style.padding = "10px";
-    inputBox.style.width = "100px";
+    inputBox.style.width = "5vw";
     inputBox.style.border = "2px solid #8B4513";
     inputBox.style.background = "#FFF8DC"; // Light beige color
     inputBox.style.color = "#000";
@@ -938,7 +951,7 @@ function displayCards(playerHand) {
     bidButton.style.position = "absolute";
     bidButton.style.fontSize = "18px";
     bidButton.style.padding = "10px 20px";
-    bidButton.style.width = "125px"; // Same width as input box
+    bidButton.style.width = "6vw"; // Same width as input box
     bidButton.style.border = "2px solid #8B4513";
     bidButton.style.background = "#D50505";
     bidButton.style.color = "#FFF";
@@ -950,12 +963,12 @@ function displayCards(playerHand) {
     // ✅ Position the input box relative to the game canvas
     function updateInputBoxPosition() {
         let canvasRect = document.querySelector("canvas").getBoundingClientRect();
-        inputBox.style.left = `${canvasRect.left + handAreaWidth - 640}px`; // Right of hand area
-        inputBox.style.top = `${canvasRect.top + screenHeight - handAreaHeight / 2 - 20}px`;
-        bidButton.style.left = `${canvasRect.left + handAreaWidth - 640}px`; // Right of hand area
-        bidButton.style.top = `${canvasRect.top + screenHeight - handAreaHeight / 2 + 35}px`;
-        bidContainer.style.left = `${canvasRect.left + handAreaWidth - 660}px`; // Right of hand area
-        bidContainer.style.top = `${canvasRect.top + screenHeight - handAreaHeight / 2 - 50}px`;
+        inputBox.style.left = `${canvasRect.left + handAreaWidth - 640*scaleFactorX}px`; // Right of hand area
+        inputBox.style.top = `${canvasRect.top + screenHeight - handAreaHeight / 2 - 20*scaleFactorY}px`;
+        bidButton.style.left = `${canvasRect.left + handAreaWidth - 640*scaleFactorX}px`; // Right of hand area
+        bidButton.style.top = `${canvasRect.top + screenHeight - handAreaHeight / 2 + 35*scaleFactorY}px`;
+        bidContainer.style.left = `${canvasRect.left + handAreaWidth - 660*scaleFactorX}px`; // Right of hand area
+        bidContainer.style.top = `${canvasRect.top + screenHeight - handAreaHeight / 2 - 50*scaleFactorY}px`;
     }
     // ✅ Update position initially and on window resize
     updateInputBoxPosition();
@@ -1009,7 +1022,7 @@ function displayCards(playerHand) {
     playerHand.forEach((card, index) => {
         let cardKey = getCardImageKey(card);
         console.log(`Using image key: ${cardKey}`);
-        let cardSprite = this.add.image(screenWidth / 2 + 500, screenHeight / 2 - 300, cardKey)
+        let cardSprite = this.add.image(screenWidth / 2 + 500*scaleFactorX, screenHeight / 2 - 300*scaleFactorY, cardKey)
         .setInteractive()
         .setScale(1.5);  // ✅ Increase size
         cardSprite.input.hitArea.setTo(cardSprite.width * 0.15, 0, cardSprite.width * 0.7, cardSprite.height);
@@ -1106,14 +1119,14 @@ function displayCards(playerHand) {
         let screenHeight = scene.scale.height;
         let centerPlayAreaX = screenWidth / 2;
         let centerPlayAreaY = screenHeight / 2;
-        let opp1_x = centerPlayAreaX - 480;
-        let opp1_y = centerPlayAreaY - 60;
-        let opp2_x = centerPlayAreaX + 620;
-        let opp2_y = centerPlayAreaY - 60;
-        let team1_x = centerPlayAreaX + 80;
-        let team1_y = centerPlayAreaY - 470;
-        let me_x = screenWidth - 310;
-        let me_y = screenHeight - 330;
+        let opp1_x = centerPlayAreaX - 480*scaleFactorX;
+        let opp1_y = centerPlayAreaY - 60*scaleFactorY;
+        let opp2_x = centerPlayAreaX + 620*scaleFactorX;
+        let opp2_y = centerPlayAreaY - 60*scaleFactorY;
+        let team1_x = centerPlayAreaX + 80*scaleFactorX;
+        let team1_y = centerPlayAreaY - 470*scaleFactorY;
+        let me_x = screenWidth - 310*scaleFactorX;
+        let me_y = screenHeight - 330*scaleFactorY;
         let myBids = ["-","-","-","-"];
         console.log("got bidArray: ", data.bidArray);
         console.log("myBids before: ", myBids);
@@ -1323,7 +1336,7 @@ function displayCards(playerHand) {
         addToGameFeed("Trick won by " + playerData.username[playerData.position.indexOf(data.winner)].username + ".");
         let screenWidth = this.scale.width;
         let screenHeight = this.scale.height;
-        let trickSpacing = 40; // ✅ Horizontal spacing between tricks
+        let trickSpacing = 40*scaleFactorX; // ✅ Horizontal spacing between tricks
     
     
         let winningPosition;
@@ -1387,14 +1400,14 @@ function displayCards(playerHand) {
                 if(visible()){   
                     this.tweens.add({
                         targets: card,
-                        x: winningPosition.x + index * 20, // ✅ Fan out horizontally
-                        y: winningPosition.y - index * 5, // ✅ Slight vertical offset
+                        x: winningPosition.x + index * 20*scaleFactorX, // ✅ Fan out horizontally
+                        y: winningPosition.y - index * 5*scaleFactorY, // ✅ Slight vertical offset
                         duration: 200,
                         ease: "Power1"
                     });
                 }else{
-                    card.x = winningPosition.x + index * 20;
-                    card.y = winningPosition.y - index * 5;
+                    card.x = winningPosition.x + index * 20*scaleFactorX;
+                    card.y = winningPosition.y - index * 5*scaleFactorY;
                 }
             });
         }
@@ -1451,7 +1464,7 @@ function displayCards(playerHand) {
             if(rainbow === position){
                 console.log("adding rainbow to me");
                 addToGameFeed(playerData.username[playerData.position.indexOf(position)].username + " has a rainbow!");
-                let myRainbow = this.add.image(screenWidth / 2 + 580, screenHeight / 2 + 125, "rainbow").setScale(1).setDepth(1000).setAlpha(1);
+                let myRainbow = this.add.image(screenWidth / 2 + 580*scaleFactorX, screenHeight / 2 + 125*scaleFactorY, "rainbow").setScale(1).setDepth(1000).setAlpha(1);
                 this.tweens.add({
                     targets: myRainbow,
                     scale: { from: 0, to: 1},
@@ -1473,7 +1486,7 @@ function displayCards(playerHand) {
             if(rainbow === rotate(position)){
                 console.log("adding rainbow to opp1");
                 addToGameFeed(playerData.username[playerData.position.indexOf(rotate(position))].username + " has a rainbow!");
-                let opp1Rainbow = this.add.image(screenWidth / 2 - 645, screenHeight / 2, "rainbow").setScale(1).setDepth(1000).setAlpha(1);
+                let opp1Rainbow = this.add.image(screenWidth / 2 - 645*scaleFactorX, screenHeight / 2, "rainbow").setScale(1).setDepth(1000).setAlpha(1);
                 this.tweens.add({
                     targets: opp1Rainbow,
                     scale: { from: 0, to: 1},
@@ -1495,7 +1508,7 @@ function displayCards(playerHand) {
             if(rainbow === team(position)){
                 console.log("adding rainbow to partner");
                 addToGameFeed(playerData.username[playerData.position.indexOf(team(position))].username + " has a rainbow!");
-                let teamRainbow = this.add.image(screenWidth / 2 + 135, screenHeight / 2 - 400, "rainbow").setScale(1).setDepth(1000).setAlpha(1);
+                let teamRainbow = this.add.image(screenWidth / 2 + 135*scaleFactorX, screenHeight / 2 - 400*scaleFactorY, "rainbow").setScale(1).setDepth(1000).setAlpha(1);
                 this.tweens.add({
                     targets: teamRainbow,
                     scale: { from: 0, to: 1},
@@ -1517,7 +1530,7 @@ function displayCards(playerHand) {
             if(rainbow === rotate(rotate(rotate(position)))){
                 console.log("adding rainbow to opp2");
                 addToGameFeed(playerData.username[playerData.position.indexOf(rotate(rotate(rotate(position))))].username + " has a rainbow!");
-                let opp2Rainbow = this.add.image(screenWidth / 2 + 630, screenHeight / 2, "rainbow").setScale(1).setDepth(1000).setAlpha(1);
+                let opp2Rainbow = this.add.image(screenWidth / 2 + 630*scaleFactorX, screenHeight / 2, "rainbow").setScale(1).setDepth(1000).setAlpha(1);
                 this.tweens.add({
                     targets: opp2Rainbow,
                     scale: { from: 0, to: 1},
@@ -1571,13 +1584,15 @@ function displayOpponentHands(numCards,dealer) {
     console.log("dealer: ", dealer);
     let screenWidth = this.scale.width;
     let screenHeight = this.scale.height;
-    let cardSpacing = 10; // Spacing between cards
+    let scaleFactorX = this.scale.width / 1920;
+    let scaleFactorY = this.scale.height / 953;
+    let cardSpacing = 10*scaleFactorX; // Spacing between cards
     let centerPlayAreaX = screenWidth / 2;
     let centerPlayAreaY = screenHeight / 2;
     let opponentPositions = {
-        "partner": { x: centerPlayAreaX, y: centerPlayAreaY - 275, rotation: 0, horizontal: true, avatarX: centerPlayAreaX, avatarY: centerPlayAreaY - 400 },  // ✅ Top (horizontal)
-        "opp1": { x: centerPlayAreaX - 425, y: centerPlayAreaY, rotation: Math.PI / 2, horizontal: false, avatarX: centerPlayAreaX - 550, avatarY: centerPlayAreaY},  // ✅ Left (closer)
-        "opp2": { x: centerPlayAreaX + 425, y: centerPlayAreaY, rotation: -Math.PI / 2, horizontal: false, avatarX: centerPlayAreaX + 550, avatarY: centerPlayAreaY} // ✅ Right (closer)
+        "partner": { x: centerPlayAreaX, y: centerPlayAreaY - 275*scaleFactorY, rotation: 0, horizontal: true, avatarX: centerPlayAreaX, avatarY: centerPlayAreaY - 400*scaleFactorY },  // ✅ Top (horizontal)
+        "opp1": { x: centerPlayAreaX - 425*scaleFactorX, y: centerPlayAreaY, rotation: Math.PI / 2, horizontal: false, avatarX: centerPlayAreaX - 550*scaleFactorX, avatarY: centerPlayAreaY},  // ✅ Left (closer)
+        "opp2": { x: centerPlayAreaX + 425*scaleFactorX, y: centerPlayAreaY, rotation: -Math.PI / 2, horizontal: false, avatarX: centerPlayAreaX + 550*scaleFactorX, avatarY: centerPlayAreaY} // ✅ Right (closer)
     };
     Object.keys(opponentCardSprites).forEach((opponentId) => {
         opponentCardSprites[opponentId].forEach(card => card.destroy());
@@ -1591,7 +1606,7 @@ function displayOpponentHands(numCards,dealer) {
             .setDepth(250) // Ensure it's above the cards
             .setAlpha(1);
             oppUI.push(partnerAvi);
-            let partnerText = this.add.text(avatarX, avatarY + 60, playerData.username[playerData.position.indexOf(team(position))].username, {
+            let partnerText = this.add.text(avatarX, avatarY + 60*scaleFactorY, playerData.username[playerData.position.indexOf(team(position))].username, {
                 fontSize: "18px",
                 fontFamily: "Arial",
                 color: "#ffffff",
@@ -1601,7 +1616,7 @@ function displayOpponentHands(numCards,dealer) {
             .setDepth(250);
             oppUI.push(partnerText);
             if(team(position) === dealer){
-                buttonHandle = this.add.image(avatarX + 75, avatarY, "dealer")
+                buttonHandle = this.add.image(avatarX + 75*scaleFactorX, avatarY, "dealer")
                 .setScale(0.03) // Adjust size
                 .setDepth(250) // Ensure it's above the cards
                 .setAlpha(1);
@@ -1614,7 +1629,7 @@ function displayOpponentHands(numCards,dealer) {
             .setDepth(250) // Ensure it's above the cards
             .setAlpha(1);
             oppUI.push(opp1Avi);
-            let opp1Text = this.add.text(avatarX, avatarY + 60, playerData.username[playerData.position.indexOf(rotate(position))].username, {
+            let opp1Text = this.add.text(avatarX, avatarY + 60*scaleFactorY, playerData.username[playerData.position.indexOf(rotate(position))].username, {
                 fontSize: "18px",
                 fontFamily: "Arial",
                 color: "#ffffff",
@@ -1624,7 +1639,7 @@ function displayOpponentHands(numCards,dealer) {
             .setDepth(250);
             oppUI.push(opp1Text);
             if(rotate(position) === dealer){
-                buttonHandle = this.add.image(avatarX - 75, avatarY, "dealer")
+                buttonHandle = this.add.image(avatarX - 75*scaleFactorX, avatarY, "dealer")
                 .setScale(0.03) // Adjust size
                 .setDepth(250) // Ensure it's above the cards
                 .setAlpha(1);
@@ -1637,7 +1652,7 @@ function displayOpponentHands(numCards,dealer) {
             .setDepth(250) // Ensure it's above the cards
             .setAlpha(1);
             oppUI.push(opp2Avi);
-            let opp2Text = this.add.text(avatarX, avatarY + 60, playerData.username[playerData.position.indexOf(rotate(rotate(rotate(position))))].username, {
+            let opp2Text = this.add.text(avatarX, avatarY + 60*scaleFactorY, playerData.username[playerData.position.indexOf(rotate(rotate(rotate(position))))].username, {
                 fontSize: "18px",
                 fontFamily: "Arial",
                 color: "#ffffff",
@@ -1647,7 +1662,7 @@ function displayOpponentHands(numCards,dealer) {
             .setDepth(250);
             oppUI.push(opp2Text);
             if(rotate(rotate(rotate(position))) === dealer){
-                buttonHandle = this.add.image(avatarX + 75, avatarY, "dealer")
+                buttonHandle = this.add.image(avatarX + 75*scaleFactorX, avatarY, "dealer")
                 .setScale(0.03) // Adjust size
                 .setDepth(250) // Ensure it's above the cards
                 .setAlpha(1);
@@ -1659,7 +1674,7 @@ function displayOpponentHands(numCards,dealer) {
                 buttonHandle.destroy();
             }
             playerInfo.playerPositionText.setText("BTN");
-            buttonHandle = this.add.image(centerPlayAreaX + 580, centerPlayAreaY + 365, "dealer")
+            buttonHandle = this.add.image(centerPlayAreaX + 580*scaleFactorX, centerPlayAreaY + 365*scaleFactorY, "dealer")
             .setScale(0.03) // Adjust size
             .setDepth(250) // Ensure it's above the cards
             .setAlpha(1);
@@ -1669,7 +1684,7 @@ function displayOpponentHands(numCards,dealer) {
             let offsetX = horizontal ? (i - numCards / 2) * cardSpacing : 0; // ✅ Left/Right: No horizontal movement
             let offsetY = horizontal ? 0 : (i - numCards / 2) * cardSpacing; // ✅ Top: No vertical movement
 
-            let cardBack = this.add.image(screenWidth / 2 + 500, screenHeight / 2 - 300, "cardBack")
+            let cardBack = this.add.image(screenWidth / 2 + 500*scaleFactorX, screenHeight / 2 - 300*scaleFactorY, "cardBack")
                 .setScale(1.5)
             // Ensure opponent cards are visually below player cards
             cardBack.setDepth(200);

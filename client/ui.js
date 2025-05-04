@@ -61,10 +61,10 @@ function showSignInScreen() {
     let logo = document.createElement("img");
     logo.src = "assets/logo.png"; // ✅ Path to your logo image
     logo.alt = "Game Logo";
-    logo.style.width = "500px"; // ✅ Adjust size as needed
-    logo.style.marginBottom = "20px";
+    logo.style.width = "26vw"; // ✅ Adjust size as needed
+    logo.style.marginBottom = "2vh";
     logo.style.position = "relative";
-    logo.style.left = "30px"
+    logo.style.left = "2vw"
     signInContainer.appendChild(logo); 
     // ✅ Username Input
     let usernameInput = document.createElement("input");
@@ -162,10 +162,10 @@ function showRegisterScreen(){
     let logo = document.createElement("img");
     logo.src = "assets/logo.png"; // ✅ Path to your logo image
     logo.alt = "Game Logo";
-    logo.style.width = "500px"; // ✅ Adjust size as needed
-    logo.style.marginBottom = "20px";
+    logo.style.width = "26vw"; // ✅ Adjust size as needed
+    logo.style.marginBottom = "2vh";
     logo.style.position = "relative";
-    logo.style.left = "30px"
+    logo.style.left = "2vw"
     registerContainer.appendChild(logo); 
     // ✅ Username Input
     let usernameInput = document.createElement("input");
@@ -273,7 +273,7 @@ function showScore(teamScore, opponentScore, bidArray, team1Tricks, team2Tricks,
     // ✅ Create the popup box
     let popup = document.createElement("div");
     popup.id = "popupBox";
-    popup.style.width = "650px"; // ✅ Increased width for 3 sections
+    popup.style.width = "34vw"; // ✅ Increased width for 3 sections
     popup.style.padding = "20px";
     popup.style.background = "#FFF";
     popup.style.color = "#000";
@@ -490,7 +490,7 @@ function showLobbyScreen() {
     logo.src = "assets/logo.png"; // ✅ Path to your logo image
     logo.alt = "Game Logo";
     logo.classList.add("ui-element"); // ✅ Mark it for removal
-    logo.style.width = "200px"; // ✅ Adjust size as needed
+    logo.style.width = "11vw"; // ✅ Adjust size as needed
     logo.style.position = "absolute";
     logo.style.top = "10%"; // ✅ Position above the lobby container
     logo.style.left = "50%";
@@ -528,7 +528,7 @@ function showPlayerQueue(currentUsers) {
     container.style.border = "3px solid #888";
     container.style.fontSize = "20px";
     container.style.fontFamily = "Arial, sans-serif";
-    container.style.minWidth = "300px";
+    container.style.minWidth = "16vw";
     container.style.textAlign = "center";
     container.style.zIndex = 1000;
 
@@ -569,40 +569,6 @@ function showWaitingScreen() {
     waitBool = true;
     console.log("⌛ Showing waiting screen...");
     removeLobbyScreen();
-
-    // ✅ Create waiting container
-    /*waitingVignette = document.createElement("div");
-    waitingVignette.classList.add("vignette"); // ✅ Add a class for easy removal
-    waitingVignette.style.position = "fixed";
-    waitingVignette.style.top = "0";
-    waitingVignette.style.left = "0";
-    waitingVignette.style.width = "100vw";
-    waitingVignette.style.height = "100vh";
-    waitingVignette.style.pointerEvents = "none"; // ✅ Allows interaction with UI elements underneath
-    waitingVignette.style.background = "radial-gradient(circle, rgba(34, 139, 34, 1) 30%, rgba(0, 0, 0, 1) 100%)";
-    document.body.appendChild(waitingVignette); 
-
-    let waitingContainer = document.createElement("div");
-    waitingContainer.id = "waitingContainer";
-    waitingContainer.style.position = "absolute";
-    waitingContainer.style.top = "0";
-    waitingContainer.style.left = "0";
-    waitingContainer.style.width = "100vw";
-    waitingContainer.style.height = "100vh";
-    waitingContainer.style.background = "none"; // Darker background
-    waitingContainer.style.display = "flex";
-    waitingContainer.style.flexDirection = "column";
-    waitingContainer.style.justifyContent = "center";
-    waitingContainer.style.alignItems = "center";
-    waitingContainer.style.color = "white";
-    waitingContainer.style.fontSize = "24px";
-
-    // ✅ Waiting message
-    let waitingText = document.createElement("p");
-    waitingText.innerText = "Waiting for players...";
-    waitingContainer.appendChild(waitingText);*/
-
-    //document.body.appendChild(waitingContainer);
     if(queueDelay){
         showPlayerQueue(queueDelay);
     }
@@ -640,7 +606,7 @@ function showFinalScore(teamScore, opponentScore) {
     // ✅ Create the popup box
     let popup = document.createElement("div");
     popup.id = "finalPopupBox";
-    popup.style.width = "600px"; // ✅ Increased width for 3 sections
+    popup.style.width = "32vw"; // ✅ Increased width for 3 sections
     popup.style.padding = "20px";
     popup.style.background = "#FFF";
     popup.style.color = "#000";
@@ -678,7 +644,7 @@ function showFinalScore(teamScore, opponentScore) {
     let teamScoreBox = document.createElement("div");
     teamScoreBox.innerText = teamScore;
     teamScoreBox.style.width = "100%";
-    teamScoreBox.style.minHeight = "60px";
+    teamScoreBox.style.minHeight = "7vh";
     teamScoreBox.style.padding = "10px";
     teamScoreBox.style.fontSize = "16px";
     teamScoreBox.style.textAlign = "center";
@@ -706,7 +672,7 @@ function showFinalScore(teamScore, opponentScore) {
     let opponentScoreBox = document.createElement("div");
     opponentScoreBox.innerText = opponentScore;
     opponentScoreBox.style.width = "100%";
-    opponentScoreBox.style.minHeight = "60px";
+    opponentScoreBox.style.minHeight = "7vh";
     opponentScoreBox.style.padding = "10px";
     opponentScoreBox.style.fontSize = "16px";
     opponentScoreBox.style.textAlign = "center";
@@ -769,7 +735,7 @@ function initGameChat(){
     chatInput.style.transform = "translateX(-50%)";
     chatInput.style.fontSize = "18px";
     chatInput.style.padding = "8px";
-    chatInput.style.width = "300px";
+    chatInput.style.width = "16vw";
     chatInput.style.border = "2px solid #8B4513";
     chatInput.style.background = "#FFF8DC"; // Light beige color
     chatInput.style.color = "#000";
@@ -835,10 +801,12 @@ function clearScreen() {
     console.log("✅ All elements removed from the screen.");
 }
 function createSpeechBubble(scene, x, bottomY, width, height, text, color) {
+    let scaleFactorX = scene.scale.width / 1920; // Adjust based on your design resolution
+    let scaleFactorY = scene.scale.height / 953; // Adjust based on your design resolution
     const PADDING   = 10;
-    const TAIL_SIZE = 20;
-    const MAX_W     = 250;
-    const MAX_H     = 120;
+    const TAIL_SIZE = 20*scaleFactorX;
+    const MAX_W     = 250*scaleFactorX;
+    const MAX_H     = 120*scaleFactorY;
   
     // 1) style & measure the text off-screen
     const style = {
@@ -893,11 +861,13 @@ function createSpeechBubble(scene, x, bottomY, width, height, text, color) {
 function createPlayerInfoBox() {
     let screenWidth = gameScene.scale.width;
     let screenHeight = gameScene.scale.height;
+    let scaleFactorX = screenWidth / 1920; // Adjust based on your design resolution
+    let scaleFactorY = screenHeight / 953; // Adjust based on your design resolution
 
-    let boxWidth = 180;
-    let boxHeight = 200;
-    let boxX = screenWidth - 380; // Position it where the bid UI used to be
-    let boxY = screenHeight - 150; // Near the hand area
+    let boxWidth = 180*scaleFactorX;;
+    let boxHeight = 200*scaleFactorY;
+    let boxX = screenWidth - 380*scaleFactorX; // Position it where the bid UI used to be
+    let boxY = screenHeight - 150*scaleFactorY; // Near the hand area
 
     // ✅ Create the dark background for player info
     let playerBox = gameScene.add.rectangle(boxX, boxY, boxWidth, boxHeight, 0x222222)
@@ -906,10 +876,10 @@ function createPlayerInfoBox() {
         .setStrokeStyle(3, 0xffffff); // White border
 
     // ✅ Player Name Text
-    let playerAvatar = gameScene.add.image(boxX, boxY - 110, "profile" + playerData.pics[playerData.position.indexOf(position)]) // Load texture from assets
+    let playerAvatar = gameScene.add.image(boxX, boxY - 110*scaleFactorY, "profile" + playerData.pics[playerData.position.indexOf(position)]) // Load texture from assets
         .setScale(0.2) // Adjust size
         .setOrigin(0.5)
-    let playerNameText = gameScene.add.text(boxX, boxY - 40, playerData.username[playerData.position.indexOf(position)].username, {
+    let playerNameText = gameScene.add.text(boxX, boxY - 40*scaleFactorY, playerData.username[playerData.position.indexOf(position)].username, {
         fontSize: "18px",
         fontFamily: "Arial",
         color: "#ffffff"
@@ -929,9 +899,12 @@ function createPlayerInfoBox() {
 }
 function createScorebug(){
     const screenWidth = gameScene.scale.width;
+    const screenHeight = gameScene.scale.height;
+    let scaleFactorX = screenWidth / 1920; // Adjust based on your design resolution
+    let scaleFactorY = screenHeight / 953; // Adjust based on your design resolution
     const padding = 20;
-    const boxWidth = 300;
-    const boxHeight = 60;
+    const boxWidth = 300*scaleFactorX;
+    const boxHeight = 60*scaleFactorY;
 
     const scorebugX = screenWidth - boxWidth - padding;
     const scorebugY = padding;
@@ -944,14 +917,14 @@ function createScorebug(){
         .setDepth(300);
 
     // ✅ Team Score Labels
-    const teamScoreLabel = gameScene.add.text(scorebugX + 10, scorebugY + 8, "Team: 0", {
+    const teamScoreLabel = gameScene.add.text(scorebugX + 10*scaleFactorX, scorebugY + 8*scaleFactorY, "Team: 0", {
         fontSize: "16px",
         fontFamily: "Arial",
         fontStyle: "bold",
         color: "#00ff00"
     }).setDepth(301);
 
-    const oppScoreLabel = gameScene.add.text(scorebugX + 10, scorebugY + 32, "Opp: 0", {
+    const oppScoreLabel = gameScene.add.text(scorebugX + 10*scaleFactorX, scorebugY + 32*scaleFactorY, "Opp: 0", {
         fontSize: "16px",
         fontFamily: "Arial",
         fontStyle: "bold",
