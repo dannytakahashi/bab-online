@@ -135,7 +135,7 @@ let gameState = {
     bidding: 1,
     dealer: 1,
     bidder: 2,
-    currentHand: 12,
+    currentHand:1,
     trump: {}, 
     isTrumpBroken: false,
     bids: {
