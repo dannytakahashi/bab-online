@@ -1009,7 +1009,9 @@ function displayCards(playerHand) {
                 return;
             }
         }
-        bidValue = Math.round(Number(bidValue)).toString(); // ✅ Round to nearest integer
+        if(bidValue.toUpperCase() !== "B" && bidValue.toUpperCase() !== "2B" && bidValue.toUpperCase() !== "3B" && bidValue.toUpperCase() !== "4B"){
+            bidValue = Math.round(Number(bidValue)).toString(); // ✅ Round to nearest integer
+        }
         console.log(`📩 Sending bid: ${bidValue}`);
         socket.emit("playerBid", { position: position, bid: bidValue });
 
