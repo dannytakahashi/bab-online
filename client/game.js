@@ -104,6 +104,7 @@ document.addEventListener("rejoinSuccess", (event) => {
 // Handle rejoin failure
 document.addEventListener("rejoinFailed", (event) => {
     console.log("❌ Rejoin failed:", event.detail.reason);
+    console.log("[DEBUG] rejoinFailed event detail:", JSON.stringify(event.detail));
     // Show lobby screen since we can't rejoin
     showLobbyScreen();
 });

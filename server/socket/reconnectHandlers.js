@@ -11,7 +11,8 @@ const { cancelAbortTimer } = require('./queueHandlers');
 async function rejoinGame(socket, io, data) {
     const { gameId, username } = data;
 
-    console.log(`Rejoin attempt: ${username} trying to rejoin game ${gameId}`);
+    console.log(`[REJOIN] Attempt: ${username} trying to rejoin game ${gameId}`);
+    console.log(`[REJOIN] Data received:`, JSON.stringify(data));
 
     // Find the game
     const game = gameManager.getGameById(gameId);

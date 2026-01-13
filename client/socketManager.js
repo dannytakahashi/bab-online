@@ -61,9 +61,14 @@ socket.on("connect", () => {
     const gameId = getGameId();
     const username = getUsername();
 
+    console.log(`[DEBUG] gameId in storage: ${gameId}`);
+    console.log(`[DEBUG] username in storage: ${username}`);
+
     if (gameId && username) {
         console.log(`Attempting to rejoin game ${gameId} as ${username}`);
         socket.emit('rejoinGame', { gameId, username });
+    } else {
+        console.log(`[DEBUG] NOT attempting rejoin - missing gameId or username`);
     }
 });
 
