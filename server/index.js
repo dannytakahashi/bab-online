@@ -27,18 +27,8 @@ const routes = require('./routes');
 const app = express();
 const server = http.createServer(app);
 
-// Security middleware
-app.use(helmet({
-    contentSecurityPolicy: false // Disable for now, configure properly later
-}));
-
-// CORS
-app.use(cors({
-    origin: config.allowedOrigins,
-    methods: ['GET', 'POST']
-}));
-
 // CSP Header (custom, matches original)
+// Note: helmet() and cors() middleware removed - old server didn't use them
 app.use((req, res, next) => {
     res.setHeader('Content-Security-Policy',
         "default-src 'self' https://bab-online-production.up.railway.app; " +
