@@ -196,8 +196,8 @@ The `docs/todos/` directory contains detailed improvement plans:
 | 1 | `01-server-architecture.md` | Modularize server code | ✅ Complete |
 | 2 | `02-client-architecture.md` | Restructure client code | ✅ Complete |
 | 3 | `03-state-management.md` | Fix global state issues | ✅ Complete |
-| 4 | `04-socket-patterns.md` | Fix socket event handling | 🔄 In Progress |
-| 5 | `05-security.md` | Security hardening | Pending |
+| 4 | `04-socket-patterns.md` | Fix socket event handling | ✅ Complete |
+| 5 | `05-security.md` | Security hardening | ✅ Complete |
 | 6 | `06-error-handling-logging.md` | Add logging & error handling | Pending |
 | 7 | `07-testing.md` | Add test coverage | Pending |
 | 8 | `08-devops-deployment.md` | CI/CD & containerization | Pending |
@@ -228,12 +228,22 @@ The `docs/todos/` directory contains detailed improvement plans:
 - Fixed Railway 502 error: hardcoded port 3000 (Railway expects this despite setting `PORT=8080`)
 - Removed `node_modules` from git, added proper `.gitignore`
 
-### Socket Patterns (In Progress)
+### Socket Patterns
 - Added Joi validation schemas for all socket events (`validators.js`)
 - Added error handling wrappers for async/sync handlers (`errorHandler.js`)
 - Added per-socket rate limiting with configurable limits (`rateLimiter.js`)
 - Added Socket.IO room support for targeted game broadcasts (game events only go to game participants)
-- Remaining: Reconnection logic, connection state UI, heartbeat monitoring
+- Added reconnection logic with automatic game state recovery (`reconnectHandlers.js`)
+- Client stores gameId/username in sessionStorage for reconnection
+- Server tracks disconnected players for 5 minutes, allowing rejoin
+
+### Security Hardening
+- Fixed CORS: Replaced wildcard `*` with whitelist of allowed origins
+- Enabled Helmet middleware for security headers
+- Improved CSP: Removed `unsafe-inline` from script-src (kept `unsafe-eval` for Phaser WebGL)
+- Added `.gitignore` to protect `.env` files from accidental commits
+- Created `.env.example` template for required environment variables
+- Removed sensitive connection string logging from database errors
 
 ## Contributing
 
