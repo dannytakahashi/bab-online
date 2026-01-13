@@ -22,17 +22,9 @@ async function joinQueue(socket, io) {
         const game = result.game;
 
         // Join all players to the game room for targeted broadcasts
-        // result.players is the array of socket IDs that joined this game
-        console.log(`Joining ${result.players.length} players to room ${game.roomName}:`, result.players);
         for (const socketId of result.players) {
-            const sock = io.sockets.sockets.get(socketId);
-            console.log(`  - Socket ${socketId}: ${sock ? 'found' : 'NOT FOUND'}`);
             game.joinToRoom(io, socketId);
         }
-
-        // Verify room membership
-        const room = io.sockets.adapter.rooms.get(game.roomName);
-        console.log(`Room ${game.roomName} now has ${room ? room.size : 0} members:`, room ? Array.from(room) : []);
 
         // Wait before starting draw phase
         await delay(3500);

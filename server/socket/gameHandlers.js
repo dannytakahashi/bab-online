@@ -158,16 +158,10 @@ async function startHand(game, io) {
 }
 
 async function playerBid(socket, io, data) {
-    console.log(`playerBid received from ${socket.id}:`, data);
-
     const game = gameManager.getPlayerGame(socket.id);
-    if (!game) {
-        console.log(`playerBid rejected: ${socket.id} not in a game`);
-        return;
-    }
+    if (!game) return;
 
     const position = game.getPositionBySocketId(socket.id);
-    console.log(`playerBid: socket ${socket.id} is position ${position}, game.currentTurn=${game.currentTurn}, game.bidding=${game.bidding}`);
 
     // Validate turn
     if (!game.bidding || position !== game.currentTurn) {
