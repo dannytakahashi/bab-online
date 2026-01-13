@@ -27,18 +27,13 @@ class GameManager {
         // Remove any existing entry for this username
         this.currentUsers = this.currentUsers.filter(u => u.username !== username);
         this.currentUsers.push({ username, socketId });
-        console.log(`[DEBUG] registerUser: ${username} with socketId ${socketId}`);
-        console.log(`[DEBUG] currentUsers now:`, this.currentUsers.map(u => `${u.username}:${u.socketId}`));
     }
 
     /**
      * Get user by socket ID
      */
     getUserBySocketId(socketId) {
-        console.log(`[GM] getUserBySocketId(${socketId}), currentUsers has ${this.currentUsers.length} entries`);
-        const user = this.currentUsers.find(u => u.socketId === socketId);
-        console.log(`[GM] Found user:`, user);
-        return user;
+        return this.currentUsers.find(u => u.socketId === socketId);
     }
 
     /**

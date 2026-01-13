@@ -98,27 +98,19 @@ function processRejoin(data) {
 
 document.addEventListener("rejoinSuccess", (event) => {
     let data = event.detail;
-    console.log("🔄 Rejoining game:", data);
-    console.log("[REJOIN DEBUG] gameScene:", gameScene);
-    console.log("[REJOIN DEBUG] gameScene?.scale:", gameScene?.scale);
 
     // Check if gameScene is ready - must have scale property
     if (gameScene && gameScene.scale && gameScene.scale.width) {
-        // Scene is ready, process immediately
-        console.log("[REJOIN DEBUG] Scene ready, processing immediately");
         processRejoin(data);
     } else {
         // Scene not ready, store data and wait for create()
-        console.log("[REJOIN DEBUG] Scene NOT ready, storing for later. pendingRejoinData set.");
         pendingRejoinData = data;
     }
 });
 
 // Handle rejoin failure
 document.addEventListener("rejoinFailed", (event) => {
-    console.log("❌ Rejoin failed:", event.detail.reason);
-    console.log("[DEBUG] rejoinFailed event detail:", JSON.stringify(event.detail));
-    // Show lobby screen since we can't rejoin
+    console.log("Rejoin failed:", event.detail.reason);
     showLobbyScreen();
 });
 
@@ -240,15 +232,11 @@ function create() {
     });
 
     // Check if there's pending rejoin data from before scene was ready
-    console.log("[CREATE DEBUG] pendingRejoinData:", pendingRejoinData);
     if (pendingRejoinData) {
-        console.log("[CREATE DEBUG] Found pending rejoin data, processing now...");
         processRejoin(pendingRejoinData);
         pendingRejoinData = null;
         return; // Skip normal create flow since we're rejoining
     }
-
-    console.log("⏳ Waiting for players...");
     socket.on("positionUpdate", (data) => {
         console.log("Position update received:", data);
         playerData = {

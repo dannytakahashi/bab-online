@@ -57,12 +57,9 @@ async function draw(socket, io, data) {
             positions.push(position);
 
             const user = gameManager.getUserBySocketId(playerId);
-            console.log(`[DEBUG] getUserBySocketId(${playerId}) returned:`, user);
-            console.log(`[DEBUG] currentUsers:`, gameManager.currentUsers);
             game.addPlayer(playerId, user?.username || 'Player', position, pics[i]);
 
             io.to(playerId).emit('playerAssigned', { playerId, position });
-            console.log(`assigned player with socket ${playerId} to position ${position} with username ${user?.username || 'Player'}`);
         }
 
         // Reorder users for display

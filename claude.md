@@ -45,8 +45,9 @@ bab-online/
 │   ├── socket/
 │   │   ├── index.js                # Socket event routing
 │   │   ├── authHandlers.js         # signIn, signUp
-│   │   ├── queueHandlers.js        # joinQueue, leaveQueue
+│   │   ├── queueHandlers.js        # joinQueue, leaveQueue, disconnect handling
 │   │   ├── gameHandlers.js         # playCard, playerBid, draw
+│   │   ├── reconnectHandlers.js    # rejoinGame for mid-game reconnection
 │   │   ├── chatHandlers.js         # chatMessage
 │   │   ├── validators.js           # Joi validation schemas
 │   │   ├── errorHandler.js         # Handler wrappers with rate limiting
@@ -96,6 +97,7 @@ bab-online/
 - **Socket Rooms**: Game events broadcast only to game participants via `game.broadcast()`
 - **Optimistic Updates**: Client updates UI immediately, rolls back on server rejection
 - **Socket Cleanup**: `SocketManager` tracks listeners, prevents memory leaks
+- **Reconnection**: 30-second grace period for disconnected players to rejoin via `rejoinGame` event
 - **UI**: Phaser for game canvas, `UIManager` for DOM lifecycle
 - **Animations**: Phaser tweens (Power2 easing, 200-500ms durations)
 - **Game Logic**: Pure functions in `rules.js` for testability
@@ -110,9 +112,9 @@ bab-online/
 
 ## Key Socket Events
 
-**Client → Server**: `signIn`, `signUp`, `joinQueue`, `leaveQueue`, `playerBid`, `playCard`, `chatMessage`, `draw`
+**Client → Server**: `signIn`, `signUp`, `joinQueue`, `leaveQueue`, `playerBid`, `playCard`, `chatMessage`, `draw`, `rejoinGame`
 
-**Server → Client**: `gameStart`, `yourHand`, `trumpCard`, `bidReceived`, `doneBidding`, `cardPlayed`, `updateTurn`, `trickComplete`, `handComplete`, `gameEnd`, `rainbow`, `positionUpdate`
+**Server → Client**: `gameStart`, `yourHand`, `trumpCard`, `bidReceived`, `doneBidding`, `cardPlayed`, `updateTurn`, `trickComplete`, `handComplete`, `gameEnd`, `rainbow`, `positionUpdate`, `rejoinSuccess`, `rejoinFailed`, `playerDisconnected`, `playerReconnected`
 
 ## Development Commands
 
@@ -224,7 +226,18 @@ Deck: 52 standard cards + 2 jokers (HI and LO)
 ## Key Classes
 
 ### GameManager (server)
-Singleton managing queue and active games. Methods: `joinQueue()`, `leaveQueue()`, `createGame()`, `getPlayerGame()`, `handleDisconnect()`
+Singleton managing queue and active games. Methods: `joinQueue()`, `leaveQueue()`, `createGame()`, `getPlayerGame()`, `handleDisconnect()`, `updatePlayerGameMapping()`, `checkGameAbort()`
+
+### Reconnection Flow
+When a player disconnects mid-game:
+1. Server marks player as disconnected, starts 30-second grace period timer
+2. Other players see "[username] disconnected - waiting for reconnection..."
+3. If player refreshes/reconnects within 30 seconds:
+   - Client sends `rejoinGame` with stored `gameId` and `username` from sessionStorage
+   - Server finds game, validates player, updates socket mapping
+   - Client receives `rejoinSuccess` with full game state (hand, trump, scores, etc.)
+   - Client waits for Phaser scene to be ready, then rebuilds UI
+4. If grace period expires, game is aborted for all players
 
 ### SocketManager (client)
 Singleton for socket connection with listener tracking. Methods: `connect()`, `on()`, `off()`, `offAll()`, `emit()`, `cleanupGameListeners()`

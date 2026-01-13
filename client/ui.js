@@ -972,20 +972,12 @@ window.onload = () => {
     const username = sessionStorage.getItem('username');
     const gameId = sessionStorage.getItem('gameId');
 
-    console.log(`[DEBUG window.onload] username: ${username}, gameId: ${gameId}`);
-
     if (!username) {
-        // Not logged in, show sign-in
-        console.log("[DEBUG] No username, showing sign-in");
         showSignInScreen();
     } else if (gameId) {
         // Was in a game - socketManager will attempt rejoin
-        // Don't show anything yet, wait for rejoin result
-        console.log("[DEBUG] Has gameId, waiting for rejoin result...");
         // The rejoinSuccess/rejoinFailed handlers in game.js will handle the UI
     } else {
-        // Logged in but not in a game, show lobby
-        console.log("[DEBUG] Has username but no gameId, showing lobby");
         showLobbyScreen();
     }
 };
