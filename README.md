@@ -221,6 +221,10 @@ The `docs/todos/` directory contains detailed improvement plans:
 - Added client-side optimistic updates with rollback capability
 - Added event system for reactive UI updates (`on`/`off`/`_emit`)
 
+### Deployment Fixes
+- Fixed Railway 502 error: hardcoded port 3000 (Railway expects this despite setting `PORT=8080`)
+- Removed `node_modules` from git, added proper `.gitignore`
+
 ## Contributing
 
 1. Check the `docs/todos/` for areas needing work
