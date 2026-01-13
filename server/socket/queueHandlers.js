@@ -19,18 +19,25 @@ async function joinQueue(socket, io) {
 
     if (result.gameStarted) {
         console.log('Game is starting...');
+        const game = result.game;
+
+        // Join all players to the game room for targeted broadcasts
+        const queuedSocketIds = result.queuedUsers.map(u => u.socketId);
+        for (const socketId of queuedSocketIds) {
+            game.joinToRoom(io, socketId);
+        }
 
         // Wait before starting draw phase
         await delay(3500);
 
         // Initialize deck for draw phase
-        const game = result.game;
         const deck = new Deck();
         deck.shuffle();
         game.deck = deck;
         game.phase = 'drawing';
 
-        io.emit('startDraw', { start: true });
+        // Broadcast to game room only
+        game.broadcast(io, 'startDraw', { start: true });
     }
 }
 
@@ -53,7 +60,9 @@ function handleDisconnect(socket, io) {
     // If player was in an active game, abort it
     if (result.wasInGame && result.game) {
         console.log('Aborting mid-game...');
-        io.emit('abortGame');
+        // Broadcast abort to game room only, then clean up room
+        result.game.broadcast(io, 'abortGame', {});
+        result.game.leaveAllFromRoom(io);
         gameManager.abortGame(result.gameId);
     }
 }

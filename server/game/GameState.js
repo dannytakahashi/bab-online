@@ -5,6 +5,7 @@
 class GameState {
     constructor(gameId) {
         this.gameId = gameId;
+        this.roomName = `game:${gameId}`;  // Socket.IO room name
         this.createdAt = Date.now();
         this._debugMode = process.env.NODE_ENV !== 'production';
 
@@ -149,6 +150,85 @@ class GameState {
 
     getSocketIds() {
         return Array.from(this.players.keys());
+    }
+
+    // ========================================
+    // Room Management Methods
+    // ========================================
+
+    /**
+     * Join all current players to the game room
+     * @param {Server} io - Socket.IO server instance
+     */
+    joinAllToRoom(io) {
+        for (const socketId of this.players.keys()) {
+            const socket = io.sockets.sockets.get(socketId);
+            if (socket) {
+                socket.join(this.roomName);
+            }
+        }
+        this.logAction('joinAllToRoom', { roomName: this.roomName, playerCount: this.players.size });
+    }
+
+    /**
+     * Join a single player to the game room
+     * @param {Server} io - Socket.IO server instance
+     * @param {string} socketId - Socket ID to join
+     */
+    joinToRoom(io, socketId) {
+        const socket = io.sockets.sockets.get(socketId);
+        if (socket) {
+            socket.join(this.roomName);
+            this.logAction('joinToRoom', { roomName: this.roomName, socketId });
+        }
+    }
+
+    /**
+     * Remove a player from the game room
+     * @param {Server} io - Socket.IO server instance
+     * @param {string} socketId - Socket ID to remove
+     */
+    leaveRoom(io, socketId) {
+        const socket = io.sockets.sockets.get(socketId);
+        if (socket) {
+            socket.leave(this.roomName);
+            this.logAction('leaveRoom', { roomName: this.roomName, socketId });
+        }
+    }
+
+    /**
+     * Remove all players from the game room
+     * @param {Server} io - Socket.IO server instance
+     */
+    leaveAllFromRoom(io) {
+        for (const socketId of this.players.keys()) {
+            const socket = io.sockets.sockets.get(socketId);
+            if (socket) {
+                socket.leave(this.roomName);
+            }
+        }
+        this.logAction('leaveAllFromRoom', { roomName: this.roomName });
+    }
+
+    /**
+     * Broadcast an event to all players in this game
+     * @param {Server} io - Socket.IO server instance
+     * @param {string} event - Event name
+     * @param {Object} data - Event data
+     */
+    broadcast(io, event, data) {
+        io.to(this.roomName).emit(event, data);
+    }
+
+    /**
+     * Send an event to a specific player in the game
+     * @param {Server} io - Socket.IO server instance
+     * @param {string} socketId - Target socket ID
+     * @param {string} event - Event name
+     * @param {Object} data - Event data
+     */
+    sendToPlayer(io, socketId, event, data) {
+        io.to(socketId).emit(event, data);
     }
 
     toJSON() {

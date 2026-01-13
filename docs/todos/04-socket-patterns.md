@@ -550,50 +550,26 @@ socket.on('disconnect', () => {
 
 ---
 
-## Task 7: Server - Socket Rooms for Games
+## Task 7: Server - Socket Rooms for Games ✅
 
 **Problem:** Broadcasting to all players inefficient
 
-**Current:**
-```javascript
-// Manually emit to each player
-for (const [socketId] of game.players) {
-    io.to(socketId).emit('cardPlayed', data);
-}
-```
-
-**Solution:** Use Socket.IO rooms
+**Solution:** Use Socket.IO rooms - implemented in GameState with helper methods:
 
 ```javascript
-// When game starts, add all players to a room
-function startGame(io, game) {
-    const roomName = `game:${game.gameId}`;
-
-    for (const [socketId] of game.players) {
-        io.sockets.sockets.get(socketId)?.join(roomName);
-    }
-
-    game.roomName = roomName;
-}
-
-// Broadcast to game
-function broadcastToGame(io, game, event, data) {
-    io.to(game.roomName).emit(event, data);
-}
-
-// Send to specific player
-function sendToPlayer(io, socketId, event, data) {
-    io.to(socketId).emit(event, data);
-}
-
-// Cleanup when game ends
-function endGame(io, game) {
-    // Remove all players from room
-    for (const [socketId] of game.players) {
-        io.sockets.sockets.get(socketId)?.leave(game.roomName);
-    }
-}
+// GameState methods added:
+joinAllToRoom(io)      // Join all players to game room
+joinToRoom(io, socketId)  // Join single player
+leaveRoom(io, socketId)   // Remove single player
+leaveAllFromRoom(io)      // Remove all on game end
+broadcast(io, event, data) // io.to(roomName).emit()
+sendToPlayer(io, socketId, event, data) // Individual send
 ```
+
+**Implementation:**
+- queueHandlers.js: Players join room when game starts
+- gameHandlers.js: All io.emit() calls replaced with game.broadcast()
+- Rooms cleaned up on disconnect and game end
 
 ---
 
@@ -651,5 +627,5 @@ socketManager.on('pong', (latency) => {
 4. [x] Invalid data is rejected with helpful error messages - Joi validation in validators.js
 5. [x] Rate limiting prevents spam - rateLimiter.js with per-socket tracking
 6. [x] Errors don't crash server - errorHandler.js wraps all handlers
-7. [ ] Room-based broadcasting works correctly
+7. [x] Room-based broadcasting works correctly - GameState methods + gameHandlers updated
 8. [ ] Stale connections are cleaned up
