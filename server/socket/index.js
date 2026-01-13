@@ -7,7 +7,7 @@ const authHandlers = require('./authHandlers');
 const queueHandlers = require('./queueHandlers');
 const gameHandlers = require('./gameHandlers');
 const chatHandlers = require('./chatHandlers');
-const { asyncHandler, syncHandler, safeHandler } = require('./errorHandler');
+const { asyncHandler, syncHandler, safeHandler, rateLimiter } = require('./errorHandler');
 
 function setupSocketHandlers(io) {
     io.on('connection', (socket) => {
@@ -45,9 +45,13 @@ function setupSocketHandlers(io) {
             syncHandler('chatMessage', chatHandlers.chatMessage)(socket, io, data)
         );
 
-        // Disconnect - no validation needed
+        // Disconnect - cleanup rate limiter and handle game state
         socket.on('disconnect', () => {
             try {
+                // Clear rate limit data for this socket
+                rateLimiter.clearSocket(socket.id);
+
+                // Handle game/queue disconnect
                 queueHandlers.handleDisconnect(socket, io);
             } catch (error) {
                 console.error('Error in disconnect handler:', error);
