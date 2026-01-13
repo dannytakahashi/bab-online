@@ -78,6 +78,12 @@ document.addEventListener("playerReconnected", (event) => {
     addToGameFeed(`${data.username} reconnected`);
 });
 
+// Handle player disconnect notification (from server)
+socket.on("playerDisconnected", (data) => {
+    console.log(`⚠️ Player at position ${data.position} disconnected`);
+    addToGameFeed(`Player ${data.position} disconnected - waiting for reconnection...`);
+});
+
 // Handle complete reconnection failure (all attempts exhausted)
 document.addEventListener("reconnectFailed", () => {
     console.log("❌ All reconnection attempts failed");

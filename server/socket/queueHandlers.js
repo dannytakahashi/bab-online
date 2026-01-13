@@ -48,6 +48,12 @@ function leaveQueue(socket, io) {
     }
 }
 
+// Track pending abort timers by gameId
+const pendingAbortTimers = new Map();
+
+// Grace period for reconnection (30 seconds)
+const RECONNECT_GRACE_PERIOD = 30000;
+
 function handleDisconnect(socket, io) {
     const result = gameManager.handleDisconnect(socket.id);
 
@@ -56,18 +62,49 @@ function handleDisconnect(socket, io) {
 
     console.log(`Player disconnected: ${socket.id}`);
 
-    // If player was in an active game, abort it
+    // If player was in an active game, give them time to reconnect
     if (result.wasInGame && result.game) {
-        console.log('Aborting mid-game...');
-        // Broadcast abort to game room only, then clean up room
-        result.game.broadcast(io, 'abortGame', {});
-        result.game.leaveAllFromRoom(io);
-        gameManager.abortGame(result.gameId);
+        const position = result.game.getPositionBySocketId(socket.id);
+        console.log(`Player at position ${position} disconnected from game ${result.gameId}. Waiting ${RECONNECT_GRACE_PERIOD/1000}s for reconnection...`);
+
+        // Notify other players that someone disconnected
+        result.game.broadcast(io, 'playerDisconnected', { position });
+
+        // Start a timer to abort if they don't reconnect
+        // Clear any existing timer for this game (in case multiple disconnects)
+        if (pendingAbortTimers.has(result.gameId)) {
+            clearTimeout(pendingAbortTimers.get(result.gameId));
+        }
+
+        const timer = setTimeout(() => {
+            const checkResult = gameManager.checkGameAbort(result.gameId);
+            if (checkResult.shouldAbort) {
+                console.log(`Grace period expired. Aborting game ${result.gameId}...`);
+                checkResult.game.broadcast(io, 'abortGame', { reason: 'Player did not reconnect' });
+                checkResult.game.leaveAllFromRoom(io);
+                gameManager.abortGame(result.gameId);
+            }
+            pendingAbortTimers.delete(result.gameId);
+        }, RECONNECT_GRACE_PERIOD);
+
+        pendingAbortTimers.set(result.gameId, timer);
+    }
+}
+
+/**
+ * Cancel abort timer when player reconnects
+ */
+function cancelAbortTimer(gameId) {
+    if (pendingAbortTimers.has(gameId)) {
+        clearTimeout(pendingAbortTimers.get(gameId));
+        pendingAbortTimers.delete(gameId);
+        console.log(`Abort timer cancelled for game ${gameId}`);
     }
 }
 
 module.exports = {
     joinQueue,
     leaveQueue,
-    handleDisconnect
+    handleDisconnect,
+    cancelAbortTimer
 };

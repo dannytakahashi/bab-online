@@ -50,6 +50,9 @@ class GameState {
         this.drawCards = [];
         this.drawIDs = [];
         this.drawIndex = 0;
+
+        // Disconnection tracking: position → { disconnectedAt, socketId }
+        this.disconnectedPlayers = {};
     }
 
     addPlayer(socketId, username, position, pic) {
@@ -88,6 +91,45 @@ class GameState {
             }
         }
         return null;
+    }
+
+    /**
+     * Mark a player as disconnected (for reconnection grace period)
+     * @param {number} position - Player's position (1-4)
+     */
+    markPlayerDisconnected(position) {
+        const socketId = this.positions[position];
+        this.disconnectedPlayers[position] = {
+            disconnectedAt: Date.now(),
+            socketId
+        };
+        this.logAction('markPlayerDisconnected', { position, socketId });
+    }
+
+    /**
+     * Clear disconnected status for a player (on reconnect)
+     * @param {number} position - Player's position (1-4)
+     */
+    clearPlayerDisconnected(position) {
+        delete this.disconnectedPlayers[position];
+        this.logAction('clearPlayerDisconnected', { position });
+    }
+
+    /**
+     * Get list of positions that have been disconnected
+     * @returns {number[]} - Array of disconnected positions
+     */
+    getDisconnectedPlayers() {
+        return Object.keys(this.disconnectedPlayers).map(Number);
+    }
+
+    /**
+     * Check if a position is currently disconnected
+     * @param {number} position - Player's position (1-4)
+     * @returns {boolean}
+     */
+    isPlayerDisconnected(position) {
+        return position in this.disconnectedPlayers;
     }
 
     /**

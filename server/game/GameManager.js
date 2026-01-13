@@ -158,28 +158,52 @@ class GameManager {
     }
 
     /**
-     * Handle player disconnect
+     * Handle player disconnect - now with grace period for reconnection
      */
     handleDisconnect(socketId) {
-        // Remove from current users
-        this.currentUsers = this.currentUsers.filter(u => u.socketId !== socketId);
-
-        // Remove from queue
+        // Remove from queue (if in queue, not in game)
         const wasInQueue = this.leaveQueue(socketId).success;
 
-        // Handle in-game disconnect
+        // Handle in-game disconnect - DON'T immediately abort
         const gameId = this.playerGames.get(socketId);
         if (gameId) {
             const game = this.games.get(gameId);
+            if (game) {
+                // Mark player as disconnected but keep their spot
+                const position = game.getPositionBySocketId(socketId);
+                if (position) {
+                    game.markPlayerDisconnected(position);
+                }
+            }
             return {
                 wasInQueue,
                 wasInGame: true,
                 game,
-                gameId
+                gameId,
+                // Don't abort immediately - give time to reconnect
+                shouldAbort: false
             };
         }
 
+        // Only remove from currentUsers if not in a game
+        this.currentUsers = this.currentUsers.filter(u => u.socketId !== socketId);
+
         return { wasInQueue, wasInGame: false, queuedUsers: this.queuedUsers };
+    }
+
+    /**
+     * Check if game should be aborted (called after grace period)
+     */
+    checkGameAbort(gameId) {
+        const game = this.games.get(gameId);
+        if (!game) return { shouldAbort: false };
+
+        // Check if any player has been disconnected too long
+        const disconnectedPlayers = game.getDisconnectedPlayers();
+        if (disconnectedPlayers.length > 0) {
+            return { shouldAbort: true, game, gameId };
+        }
+        return { shouldAbort: false };
     }
 
     /**

@@ -3,6 +3,7 @@
  */
 
 const gameManager = require('../game/GameManager');
+const { cancelAbortTimer } = require('./queueHandlers');
 
 /**
  * Handle a player attempting to rejoin a game after disconnect
@@ -38,6 +39,14 @@ async function rejoinGame(socket, io, data) {
     // Update socket ID mapping
     const oldSocketId = game.updatePlayerSocket(existingPlayer.position, socket.id, io);
     gameManager.updatePlayerGameMapping(oldSocketId, socket.id, gameId);
+
+    // Clear disconnected status for this player
+    game.clearPlayerDisconnected(existingPlayer.position);
+
+    // Cancel the abort timer if no more disconnected players
+    if (game.getDisconnectedPlayers().length === 0) {
+        cancelAbortTimer(gameId);
+    }
 
     // Register user with new socket
     gameManager.registerUser(socket.id, username);
