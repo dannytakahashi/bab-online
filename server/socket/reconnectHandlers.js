@@ -31,8 +31,16 @@ async function rejoinGame(socket, io, data) {
     // Find player by username
     const existingPlayer = game.getPlayerByUsername(username);
     if (!existingPlayer) {
-        console.log(`[REJOIN] Failed: ${username} not found in game ${gameId}`);
-        socket.emit('rejoinFailed', { reason: 'Not a player in this game' });
+        // Collect player names for debugging
+        const playersInGame = [];
+        for (const [sid, p] of game.players.entries()) {
+            playersInGame.push(p.username);
+        }
+        console.log(`[REJOIN] Failed: ${username} not found. Players in game: ${playersInGame.join(', ')}`);
+        socket.emit('rejoinFailed', {
+            reason: 'Not a player in this game',
+            debug: { lookingFor: username, playersInGame }
+        });
         return;
     }
 
