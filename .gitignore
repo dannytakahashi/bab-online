@@ -1,3 +1,31 @@
+# Dependencies
 node_modules/
+
+# Environment files (contain secrets)
+.env
+.env.local
+.env.production
+.env.*.local
+server/.env
+
+# OS files
 .DS_Store
 *.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# IDE/Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Build artifacts
+dist/
+build/
+
+# Coverage
+coverage/

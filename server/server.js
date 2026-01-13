@@ -16,31 +16,47 @@ const cors = require("cors");
 const { connectDB } = require("./database");
 const { setupSocketHandlers } = require("./socket");
 
+// Allowed origins for CORS (production + local development)
+const ALLOWED_ORIGINS = [
+    'https://bab-online-production.up.railway.app',
+    'http://localhost:3000',
+    'http://127.0.0.1:3000'
+];
+
 // Initialize Express
 const app = express();
 const server = http.createServer(app);
 
-// Initialize Socket.IO
+// Initialize Socket.IO with restricted CORS
 const io = socketIo(server, {
     cors: {
-        origin: "*",
-        methods: ["GET", "POST"]
+        origin: ALLOWED_ORIGINS,
+        methods: ["GET", "POST"],
+        credentials: true
     }
 });
 
 // Connect to database
 connectDB();
 
-// Middleware
-app.use(cors());
+// Security Middleware
+app.use(helmet({
+    contentSecurityPolicy: false  // We set CSP manually below for Phaser compatibility
+}));
 
-// CSP Middleware
+// CORS Middleware with whitelist
+app.use(cors({
+    origin: ALLOWED_ORIGINS,
+    credentials: true
+}));
+
+// CSP Middleware (Phaser requires unsafe-eval for WebGL, unsafe-inline for styles)
 app.use((req, res, next) => {
     res.setHeader("Content-Security-Policy",
-        "default-src 'self' https://bab-online-production.up.railway.app; " +
-        "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cdn.socket.io; " +
+        "default-src 'self'; " +
+        "script-src 'self' 'unsafe-eval' https://cdn.jsdelivr.net https://cdn.socket.io; " +
         "img-src 'self' data: blob:; " +
-        "connect-src 'self' wss://bab-online-production.up.railway.app https://bab-online-production.up.railway.app; " +
+        "connect-src 'self' ws://localhost:3000 wss://bab-online-production.up.railway.app https://bab-online-production.up.railway.app; " +
         "font-src 'self' https://fonts.gstatic.com; " +
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
     );
