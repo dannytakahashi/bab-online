@@ -39,7 +39,7 @@ bab-online/
 │   │   └── index.js                # Server configuration
 │   ├── game/
 │   │   ├── Deck.js                 # Card deck with shuffle
-│   │   ├── GameState.js            # Per-game state container
+│   │   ├── GameState.js            # Per-game state + room management
 │   │   ├── GameManager.js          # Queue and game coordination
 │   │   └── rules.js                # Pure game logic functions
 │   ├── socket/
@@ -47,7 +47,10 @@ bab-online/
 │   │   ├── authHandlers.js         # signIn, signUp
 │   │   ├── queueHandlers.js        # joinQueue, leaveQueue
 │   │   ├── gameHandlers.js         # playCard, playerBid, draw
-│   │   └── chatHandlers.js         # chatMessage
+│   │   ├── chatHandlers.js         # chatMessage
+│   │   ├── validators.js           # Joi validation schemas
+│   │   ├── errorHandler.js         # Handler wrappers with rate limiting
+│   │   └── rateLimiter.js          # Per-socket rate limiting
 │   ├── routes/
 │   │   └── index.js                # Express routes, /health endpoint
 │   ├── utils/
@@ -87,6 +90,10 @@ bab-online/
 - **State**: Server-authoritative, `GameState` class per game instance
 - **Client State**: `GameState` singleton replaces 50+ globals
 - **State Validation**: Server validates all actions (`validateTurn`, `validateCardPlay`, `validateBid`)
+- **Input Validation**: Joi schemas validate all socket event data (`validators.js`)
+- **Error Handling**: All handlers wrapped with try/catch, validation errors sent to client (`errorHandler.js`)
+- **Rate Limiting**: Per-socket limits prevent spam/abuse (`rateLimiter.js`)
+- **Socket Rooms**: Game events broadcast only to game participants via `game.broadcast()`
 - **Optimistic Updates**: Client updates UI immediately, rolls back on server rejection
 - **Socket Cleanup**: `SocketManager` tracks listeners, prevents memory leaks
 - **UI**: Phaser for game canvas, `UIManager` for DOM lifecycle
@@ -155,7 +162,7 @@ Server runs on port 3000.
 ```javascript
 class GameState {
     // Core state
-    gameId, players, positions, hands, currentHand, dealer,
+    gameId, roomName, players, positions, hands, currentHand, dealer,
     bidding, bids, team1Mult, team2Mult, currentTurn, leadPosition,
     currentTrick, trump, trumpBroken, team1Tricks, team2Tricks,
     team1Score, team2Score, team1Rainbows, team2Rainbows
@@ -165,6 +172,14 @@ class GameState {
     validateCardPlay(socketId, card) // Validates turn, phase, card ownership, trick state
     validateBid(socketId, bid)       // Validates turn, phase, bid value
     validateGameState()              // Full consistency check, returns { valid, errors[] }
+
+    // Room management (Socket.IO rooms for targeted broadcasts)
+    joinToRoom(io, socketId)         // Add player to game room
+    leaveRoom(io, socketId)          // Remove player from room
+    joinAllToRoom(io)                // Add all players to room
+    leaveAllFromRoom(io)             // Remove all (on game end)
+    broadcast(io, event, data)       // Send to all players in game
+    sendToPlayer(io, socketId, event, data) // Send to specific player
 
     // Debug logging (development mode only)
     logAction(action, details)       // Log state changes
@@ -219,3 +234,21 @@ Manages card sprites in Phaser. Methods: `displayHand()`, `playCard()`, `animate
 
 ### UIManager (client)
 DOM element lifecycle management. Methods: `getOrCreate()`, `remove()`, `show()`, `hide()`, `showModal()`, `showError()`, `cleanup()`
+
+### Socket Infrastructure (server)
+
+**validators.js** - Joi validation schemas for socket events:
+- `signIn`, `signUp` - Auth validation
+- `playCard`, `playerBid`, `draw` - Game action validation
+- `chatMessage` - Chat validation
+- Usage: `validate('playCard', data)` returns validated data or throws `ValidationError`
+
+**errorHandler.js** - Handler wrappers:
+- `asyncHandler(schemaName, handler)` - Wraps async handlers with validation, rate limiting, error handling
+- `syncHandler(schemaName, handler)` - Same for sync handlers
+- `safeHandler(handler)` - Simple wrapper without validation/rate limiting
+
+**rateLimiter.js** - Per-socket rate limiting:
+- Configurable limits per event type (e.g., `signIn: 5/min`, `chatMessage: 10/10s`)
+- `check(socketId, event)` - Returns true if allowed
+- `clearSocket(socketId)` - Cleanup on disconnect
