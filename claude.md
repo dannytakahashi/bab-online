@@ -4,7 +4,7 @@ A 4-player online multiplayer trick-taking card game. Players bid on tricks, wit
 
 ## Technology Stack
 
-- **Frontend**: Phaser 3.55.2 (game engine), Vanilla JavaScript, Socket.io 4.0.1
+- **Frontend**: Phaser 3.55.2 (game engine), ES6 Modules, Socket.io 4.0.1
 - **Backend**: Node.js, Express.js 4.21.2, Socket.IO 4.8.1
 - **Database**: MongoDB with Mongoose 8.12.1
 - **Security**: Helmet, bcryptjs for password hashing
@@ -15,31 +15,81 @@ A 4-player online multiplayer trick-taking card game. Players bid on tricks, wit
 ```
 bab-online/
 ├── client/
-│   ├── game.js          # Phaser game scene, card rendering, animations
-│   ├── ui.js            # Auth screens, lobby, chat, score displays
-│   ├── socketManager.js # Socket.io connection setup
-│   ├── index.html       # Entry point with CDN dependencies
-│   ├── styles.css       # Minimal styling
-│   └── assets/          # 151 PNG files (cards, backgrounds)
+│   ├── js/                         # Modular ES6 client code
+│   │   ├── main.js                 # Entry point, auth flow
+│   │   ├── config.js               # Centralized constants
+│   │   ├── socket/
+│   │   │   └── SocketManager.js    # Connection with listener cleanup
+│   │   ├── scenes/
+│   │   │   └── GameScene.js        # Phaser game scene
+│   │   ├── game/
+│   │   │   ├── CardManager.js      # Card sprites and animations
+│   │   │   └── GameState.js        # Client state container
+│   │   └── ui/
+│   │       └── UIManager.js        # DOM lifecycle management
+│   ├── styles/
+│   │   └── components.css          # All UI component styles
+│   ├── game.js                     # Legacy: Phaser scene (preserved)
+│   ├── ui.js                       # Legacy: DOM UI (preserved)
+│   ├── index.html                  # Entry point
+│   └── assets/                     # Card images, backgrounds
 ├── server/
-│   ├── server.js        # Main game logic, socket handlers, state management
-│   └── database.js      # MongoDB connection for user auth
+│   ├── index.js                    # Entry point
+│   ├── config/
+│   │   └── index.js                # Server configuration
+│   ├── game/
+│   │   ├── Deck.js                 # Card deck with shuffle
+│   │   ├── GameState.js            # Per-game state container
+│   │   ├── GameManager.js          # Queue and game coordination
+│   │   └── rules.js                # Pure game logic functions
+│   ├── socket/
+│   │   ├── index.js                # Socket event routing
+│   │   ├── authHandlers.js         # signIn, signUp
+│   │   ├── queueHandlers.js        # joinQueue, leaveQueue
+│   │   ├── gameHandlers.js         # playCard, playerBid, draw
+│   │   └── chatHandlers.js         # chatMessage
+│   ├── routes/
+│   │   └── index.js                # Express routes, /health endpoint
+│   ├── utils/
+│   │   └── timing.js               # Async delay utilities
+│   ├── server.js                   # Legacy: monolithic server (preserved)
+│   └── database.js                 # MongoDB connection
+├── docs/
+│   └── todos/                      # Improvement roadmap
 ├── package.json
 └── .env
 ```
 
 ## Key Files
 
-- `server/server.js` - All game logic, socket event handlers, scoring (~32KB)
-- `client/game.js` - Phaser scene, card interactions, animations (~73KB)
-- `client/ui.js` - DOM-based UI overlays and modals (~39KB)
+### Server (Modular)
+- `server/index.js` - Entry point, Express/Socket.IO setup
+- `server/game/rules.js` - Pure functions: `determineWinner()`, `isLegalMove()`, `calculateScore()`, `isRainbow()`
+- `server/game/GameState.js` - Encapsulated game state class
+- `server/game/GameManager.js` - Singleton managing queue and active games
+- `server/socket/gameHandlers.js` - Game event handlers
+
+### Client (Modular)
+- `client/js/main.js` - Entry point, auth/lobby flow
+- `client/js/game/GameState.js` - Client state (replaces globals)
+- `client/js/game/CardManager.js` - Card sprites and animations
+- `client/js/socket/SocketManager.js` - Socket with listener tracking
+- `client/js/scenes/GameScene.js` - Phaser scene with lifecycle
+
+### Legacy (Preserved)
+- `server/server.js` - Original monolithic server
+- `client/game.js` - Original Phaser scene
+- `client/ui.js` - Original DOM UI
 
 ## Architecture Patterns
 
 - **Communication**: Socket.io bidirectional WebSocket
-- **State**: Server-authoritative game state, client mirrors via socket events
-- **UI**: Phaser for game canvas, vanilla JS DOM manipulation for overlays
+- **State**: Server-authoritative, `GameState` class per game instance
+- **Client State**: `GameState` singleton replaces 50+ globals
+- **Socket Cleanup**: `SocketManager` tracks listeners, prevents memory leaks
+- **UI**: Phaser for game canvas, `UIManager` for DOM lifecycle
 - **Animations**: Phaser tweens (Power2 easing, 200-500ms durations)
+- **Game Logic**: Pure functions in `rules.js` for testability
 
 ## Game Flow
 
@@ -51,43 +101,73 @@ bab-online/
 
 ## Key Socket Events
 
-**Client → Server**: `signIn`, `signUp`, `joinQueue`, `playerBid`, `playCard`, `chatMessage`, `draw`
+**Client → Server**: `signIn`, `signUp`, `joinQueue`, `leaveQueue`, `playerBid`, `playCard`, `chatMessage`, `draw`
 
-**Server → Client**: `gameStart`, `bidReceived`, `cardPlayed`, `trickComplete`, `handComplete`, `gameEnd`, `updateTurn`, `doneBidding`, `rainbow`, `positionUpdate`
+**Server → Client**: `gameStart`, `yourHand`, `trumpCard`, `bidReceived`, `doneBidding`, `cardPlayed`, `updateTurn`, `trickComplete`, `handComplete`, `gameEnd`, `rainbow`, `positionUpdate`
 
 ## Development Commands
 
 ```bash
-npm start     # Production: node server/server.js
-npm run dev   # Development: nodemon server/server.js
+npm run dev      # Development: nodemon server/index.js (modular)
+npm run dev:old  # Development: nodemon server/server.js (legacy)
+npm start        # Production: node server/index.js
+npm start:old    # Production: node server/server.js (legacy)
 ```
 
 Server runs on port 3000.
 
 ## Common Tasks
 
-- **Card game logic**: `server/server.js` - functions `isLegalMove()`, `determineWinner()`, `cleanupNextHand()`
-- **UI changes**: `client/ui.js` for overlays, `client/game.js` for game canvas
-- **Adding card assets**: Place in `client/assets/`, preload in `game.js` preload function
-- **Socket events**: Add handler in `server/server.js`, listener in `client/game.js`
+### Game Logic Changes
+- **Rules**: `server/game/rules.js` - `determineWinner()`, `isLegalMove()`, `calculateScore()`
+- **State**: `server/game/GameState.js` - game state management
+- **Flow**: `server/socket/gameHandlers.js` - `playCard()`, `playerBid()`
+
+### UI Changes
+- **Styles**: `client/styles/components.css` - CSS classes for all UI
+- **DOM**: `client/js/ui/UIManager.js` - element lifecycle
+- **Game Canvas**: `client/js/scenes/GameScene.js` - Phaser scene
+- **Cards**: `client/js/game/CardManager.js` - card sprites
+
+### Adding Socket Events
+1. Add handler in `server/socket/gameHandlers.js` (or appropriate handler file)
+2. Register in `server/socket/index.js`
+3. Add listener in `client/js/scenes/GameScene.js` via `socketManager.on()`
+4. Remember to add cleanup in `shutdown()` method
+
+### Adding Card Assets
+1. Place PNG in `client/assets/`
+2. Add to `loadCardAssets()` in `GameScene.js`
+3. Update `getCardTextureKey()` in `CardManager.js` if needed
 
 ## Scoring Rules
 
 - Made bid: `+(bid × 10 × multiplier) + (tricks - bid) + (rainbows × 10)`
 - Missed bid: `-(bid × 10 × multiplier) + (rainbows × 10)`
 - Rainbow = hand containing all 4 suits (+10 points bonus)
+- Multipliers: Board (2x), Double Board (4x)
 
-## Game State (server/server.js)
+## Game State
 
-Key state variables in `gameState` object:
-- `hands` - Player cards by socket ID
-- `currentTurn` - Position (1-4) of active player
-- `bidding` - 1 for bidding phase, 0 for playing phase
-- `dealer` - Position of dealer (rotates each hand)
-- `currentHand` - Card count (12 down to 1)
-- `trump` - Trump card {suit, rank}
-- `bids/tricks/score` - Per-team tracking
-- `rainbows` - Rainbow hand count per team
+### Server (`server/game/GameState.js`)
+```javascript
+class GameState {
+    gameId, players, positions, hands, currentHand, dealer,
+    bidding, bids, team1Mult, team2Mult, currentTurn, leadPosition,
+    currentTrick, trump, trumpBroken, team1Tricks, team2Tricks,
+    team1Score, team2Score, team1Rainbows, team2Rainbows
+}
+```
+
+### Client (`client/js/game/GameState.js`)
+```javascript
+class GameState {
+    playerId, username, position, pic, myCards, currentHand,
+    trump, dealer, phase, currentTurn, isBidding, leadCard,
+    playedCards, trumpBroken, bids, teamTricks, oppTricks,
+    teamScore, oppScore, players
+}
+```
 
 ## Card Data Structure
 
@@ -96,3 +176,17 @@ Key state variables in `gameState` object:
 ```
 
 Deck: 52 standard cards + 2 jokers (HI and LO)
+
+## Key Classes
+
+### GameManager (server)
+Singleton managing queue and active games. Methods: `joinQueue()`, `leaveQueue()`, `createGame()`, `getPlayerGame()`, `handleDisconnect()`
+
+### SocketManager (client)
+Singleton for socket connection with listener tracking. Methods: `connect()`, `on()`, `off()`, `offAll()`, `emit()`, `cleanupGameListeners()`
+
+### CardManager (client)
+Manages card sprites in Phaser. Methods: `displayHand()`, `playCard()`, `animateOpponentCard()`, `collectTrick()`, `isLegalMove()`
+
+### UIManager (client)
+DOM element lifecycle management. Methods: `getOrCreate()`, `remove()`, `show()`, `hide()`, `showModal()`, `showError()`, `cleanup()`
