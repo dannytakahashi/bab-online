@@ -1,35 +1,57 @@
 /**
  * Socket.IO setup and event routing
+ * All handlers are wrapped with validation and error handling
  */
 
 const authHandlers = require('./authHandlers');
 const queueHandlers = require('./queueHandlers');
 const gameHandlers = require('./gameHandlers');
 const chatHandlers = require('./chatHandlers');
+const { asyncHandler, syncHandler, safeHandler } = require('./errorHandler');
 
 function setupSocketHandlers(io) {
     io.on('connection', (socket) => {
         console.log(`Player connected: ${socket.id}`);
 
-        // Auth events
-        socket.on('signIn', (data) => authHandlers.signIn(socket, io, data));
-        socket.on('signUp', (data) => authHandlers.signUp(socket, io, data));
+        // Auth events - with validation
+        socket.on('signIn', (data) =>
+            asyncHandler('signIn', authHandlers.signIn)(socket, io, data)
+        );
+        socket.on('signUp', (data) =>
+            asyncHandler('signUp', authHandlers.signUp)(socket, io, data)
+        );
 
-        // Queue events
-        socket.on('joinQueue', () => queueHandlers.joinQueue(socket, io));
-        socket.on('leaveQueue', () => queueHandlers.leaveQueue(socket, io));
+        // Queue events - no data to validate
+        socket.on('joinQueue', () =>
+            safeHandler(queueHandlers.joinQueue)(socket, io, {})
+        );
+        socket.on('leaveQueue', () =>
+            safeHandler(queueHandlers.leaveQueue)(socket, io, {})
+        );
 
-        // Game events
-        socket.on('draw', (data) => gameHandlers.draw(socket, io, data));
-        socket.on('playerBid', (data) => gameHandlers.playerBid(socket, io, data));
-        socket.on('playCard', (data) => gameHandlers.playCard(socket, io, data));
+        // Game events - with validation
+        socket.on('draw', (data) =>
+            asyncHandler('draw', gameHandlers.draw)(socket, io, data)
+        );
+        socket.on('playerBid', (data) =>
+            asyncHandler('playerBid', gameHandlers.playerBid)(socket, io, data)
+        );
+        socket.on('playCard', (data) =>
+            asyncHandler('playCard', gameHandlers.playCard)(socket, io, data)
+        );
 
-        // Chat events
-        socket.on('chatMessage', (data) => chatHandlers.chatMessage(socket, io, data));
+        // Chat events - with validation
+        socket.on('chatMessage', (data) =>
+            syncHandler('chatMessage', chatHandlers.chatMessage)(socket, io, data)
+        );
 
-        // Disconnect
+        // Disconnect - no validation needed
         socket.on('disconnect', () => {
-            queueHandlers.handleDisconnect(socket, io);
+            try {
+                queueHandlers.handleDisconnect(socket, io);
+            } catch (error) {
+                console.error('Error in disconnect handler:', error);
+            }
         });
     });
 }

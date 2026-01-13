@@ -19,7 +19,7 @@ Socket event handling has critical issues on both client and server that cause m
 
 ---
 
-## Task 1: Client - Fix Event Listener Leaks
+## Task 1: Client - Fix Event Listener Leaks ✅
 
 **Problem:** Listeners registered every time without cleanup
 
@@ -265,7 +265,7 @@ class ConnectionIndicator {
 
 ---
 
-## Task 4: Server - Add Event Validation
+## Task 4: Server - Add Event Validation ✅
 
 **Problem:** No validation on incoming socket data
 
@@ -401,7 +401,7 @@ socket.on('playCard', (data) => {
 
 ---
 
-## Task 5: Server - Add Error Handling Wrapper
+## Task 5: Server - Add Error Handling Wrapper ✅
 
 **Problem:** Errors in handlers crash or behave unexpectedly
 
@@ -645,11 +645,11 @@ socketManager.on('pong', (latency) => {
 
 ## Verification
 
-1. [ ] No socket listener accumulation (check with `socket.listeners()`)
+1. [x] No socket listener accumulation (check with `socket.listeners()`) - SocketManager tracks listeners
 2. [ ] Reconnection works and restores game state
 3. [ ] Connection indicator shows correct status
-4. [ ] Invalid data is rejected with helpful error messages
+4. [x] Invalid data is rejected with helpful error messages - Joi validation in validators.js
 5. [ ] Rate limiting prevents spam
-6. [ ] Errors don't crash server
+6. [x] Errors don't crash server - errorHandler.js wraps all handlers
 7. [ ] Room-based broadcasting works correctly
 8. [ ] Stale connections are cleaned up
