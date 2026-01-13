@@ -22,7 +22,7 @@ BAB is a partnership trick-taking game where players bid on tricks and score poi
 
 | Layer | Technology |
 |-------|------------|
-| Frontend | Phaser 3.55.2, Vanilla JavaScript, Socket.IO Client 4.0.1 |
+| Frontend | Phaser 3.55.2, ES6 Modules, Socket.IO Client 4.0.1 |
 | Backend | Node.js, Express.js 4.21.2, Socket.IO 4.8.1 |
 | Database | MongoDB with Mongoose 8.12.1 |
 | Security | Helmet, bcryptjs |
@@ -65,17 +65,44 @@ MONGO_URI=mongodb://localhost:27017/bab-online
 ```
 bab-online/
 ├── client/
-│   ├── game.js          # Phaser game scene, card rendering, animations
-│   ├── ui.js            # Auth screens, lobby, chat, score displays
-│   ├── socketManager.js # Socket.IO connection setup
-│   ├── index.html       # Entry point
-│   ├── styles.css       # Styling
-│   └── assets/          # Card images, backgrounds (151 PNGs)
+│   ├── js/                     # Modular ES6 client code
+│   │   ├── main.js             # Entry point
+│   │   ├── config.js           # Centralized constants
+│   │   ├── socket/
+│   │   │   └── SocketManager.js    # Connection management
+│   │   ├── scenes/
+│   │   │   └── GameScene.js        # Phaser game scene
+│   │   ├── game/
+│   │   │   ├── CardManager.js      # Card sprites & logic
+│   │   │   └── GameState.js        # Client state container
+│   │   └── ui/
+│   │       └── UIManager.js        # DOM lifecycle management
+│   ├── styles/
+│   │   └── components.css      # UI component styles
+│   ├── index.html              # Entry point
+│   └── assets/                 # Card images, backgrounds
 ├── server/
-│   ├── server.js        # Game logic, socket handlers, state management
-│   └── database.js      # MongoDB connection
+│   ├── index.js                # Entry point
+│   ├── config/
+│   │   └── index.js            # Server configuration
+│   ├── game/
+│   │   ├── Deck.js             # Card deck management
+│   │   ├── GameState.js        # Game state container
+│   │   ├── GameManager.js      # Multi-game coordination
+│   │   └── rules.js            # Pure game logic functions
+│   ├── socket/
+│   │   ├── index.js            # Socket event routing
+│   │   ├── authHandlers.js     # Auth events
+│   │   ├── queueHandlers.js    # Matchmaking events
+│   │   ├── gameHandlers.js     # Game events
+│   │   └── chatHandlers.js     # Chat events
+│   ├── routes/
+│   │   └── index.js            # Express routes
+│   ├── utils/
+│   │   └── timing.js           # Async timing utilities
+│   └── database.js             # MongoDB connection
 ├── docs/
-│   └── todos/           # Improvement roadmap (see below)
+│   └── todos/                  # Improvement roadmap
 ├── package.json
 └── .env.example
 ```
@@ -83,8 +110,11 @@ bab-online/
 ## Development
 
 ```bash
-# Start with hot reload
+# Start with hot reload (new modular server)
 npm run dev
+
+# Start with legacy server
+npm run dev:old
 
 # Start production server
 npm start
@@ -112,8 +142,28 @@ Trump suit beats all other suits. Must follow suit if possible.
 
 ### Communication Flow
 ```
-Client (Phaser/JS) ←→ Socket.IO ←→ Server (Node/Express) ←→ MongoDB
+Client (Phaser/ES6) ←→ Socket.IO ←→ Server (Node/Express) ←→ MongoDB
 ```
+
+### Server Architecture
+
+The server uses a modular architecture with clear separation of concerns:
+
+- **GameManager** - Singleton managing queue and active games
+- **GameState** - Encapsulated state for each game instance
+- **Deck** - Card deck with Fisher-Yates shuffle
+- **rules.js** - Pure functions for game logic (testable)
+- **Socket handlers** - Organized by domain (auth, queue, game, chat)
+
+### Client Architecture
+
+The client uses ES6 modules with proper lifecycle management:
+
+- **SocketManager** - Tracks listeners for cleanup (prevents memory leaks)
+- **GameState** - Single source of truth (replaces 50+ globals)
+- **CardManager** - Phaser sprite management
+- **UIManager** - DOM element lifecycle management
+- **GameScene** - Proper Phaser scene with shutdown cleanup
 
 ### Key Socket Events
 
@@ -138,27 +188,31 @@ Client (Phaser/JS) ←→ Socket.IO ←→ Server (Node/Express) ←→ MongoDB
 
 The `docs/todos/` directory contains detailed improvement plans:
 
-| Priority | File | Focus |
-|----------|------|-------|
-| 1 | `01-server-architecture.md` | Modularize server code |
-| 2 | `02-client-architecture.md` | Restructure client code |
-| 3 | `03-state-management.md` | Fix global state issues |
-| 4 | `04-socket-patterns.md` | Fix socket event handling |
-| 5 | `05-security.md` | Security hardening |
-| 6 | `06-error-handling-logging.md` | Add logging & error handling |
-| 7 | `07-testing.md` | Add test coverage |
-| 8 | `08-devops-deployment.md` | CI/CD & containerization |
-| 9 | `09-asset-management.md` | Optimize asset loading |
+| Priority | File | Focus | Status |
+|----------|------|-------|--------|
+| 1 | `01-server-architecture.md` | Modularize server code | ✅ Complete |
+| 2 | `02-client-architecture.md` | Restructure client code | ✅ Complete |
+| 3 | `03-state-management.md` | Fix global state issues | Pending |
+| 4 | `04-socket-patterns.md` | Fix socket event handling | Pending |
+| 5 | `05-security.md` | Security hardening | Pending |
+| 6 | `06-error-handling-logging.md` | Add logging & error handling | Pending |
+| 7 | `07-testing.md` | Add test coverage | Pending |
+| 8 | `08-devops-deployment.md` | CI/CD & containerization | Pending |
+| 9 | `09-asset-management.md` | Optimize asset loading | Pending |
 
-## Known Issues
+## Recent Improvements
 
-- Server uses blocking `sleepSync()` for timing (should be async)
-- Single global game state (can't run concurrent games)
-- Socket event listeners accumulate (memory leak)
-- No input validation on socket events
-- Missing `.gitignore` (secrets may be exposed)
+### Server Refactor
+- Replaced blocking `sleepSync()` with async `delay()` utilities
+- Created `GameManager` singleton for concurrent game support
+- Extracted pure game rules to `rules.js` for testability
+- Organized socket handlers by domain
 
-See the TODO files for detailed solutions.
+### Client Refactor
+- Created `SocketManager` with listener tracking (fixes memory leaks)
+- Created `GameState` class (replaces 50+ global variables)
+- Moved 200+ inline styles to CSS classes
+- Added proper Phaser scene lifecycle management
 
 ## Contributing
 
