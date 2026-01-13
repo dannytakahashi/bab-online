@@ -86,16 +86,19 @@ async function draw(socket, io, data) {
 
         await delay(2000);
 
-        // Start the actual game
-        await startHand(game, io);
-
         // Reset draw state
         game.drawCards = [];
         game.drawIndex = 0;
         game.drawIDs = [];
         game.phase = 'bidding';
 
+        // createUI must come BEFORE gameStart (client expects this order)
         io.emit('createUI');
+
+        await delay(1000);
+
+        // Start the actual game (emits gameStart to each player)
+        await startHand(game, io);
     }
 }
 
