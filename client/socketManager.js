@@ -86,8 +86,58 @@ socket.on("reconnect_failed", () => {
 });
 
 socket.on("error", (data) => {
-    console.error("🚨 Server error:", data);
+    console.error("Server error:", data);
+    handleSocketError(data);
 });
+
+/**
+ * Show error toast notification
+ */
+function showErrorToast(message, duration = 5000) {
+    // Remove existing toast
+    const existing = document.querySelector('.error-toast');
+    if (existing) existing.remove();
+
+    const toast = document.createElement('div');
+    toast.className = 'error-toast';
+    toast.textContent = message;
+    document.body.appendChild(toast);
+
+    setTimeout(() => {
+        toast.classList.add('fade-out');
+        setTimeout(() => toast.remove(), 300);
+    }, duration);
+}
+
+/**
+ * Handle socket error based on type
+ */
+function handleSocketError(error) {
+    let message = 'Something went wrong';
+
+    switch (error.type) {
+        case 'VALIDATION_ERROR':
+        case 'validation':
+            message = error.message || 'Invalid input';
+            break;
+        case 'AUTH_ERROR':
+            message = 'Please sign in again';
+            break;
+        case 'RATE_LIMIT_ERROR':
+        case 'rateLimit':
+            message = 'Too many requests. Please slow down.';
+            break;
+        case 'GAME_STATE_ERROR':
+            message = error.message || 'Game error occurred';
+            break;
+        case 'server':
+        default:
+            message = 'Server error. Please try again.';
+            break;
+    }
+
+    showErrorToast(message);
+}
 
 // Rejoin response handlers
 socket.on("rejoinSuccess", (data) => {
@@ -139,5 +189,6 @@ window.socketManager = {
     setGameId,
     clearGameId,
     getGameId,
-    getUsername
+    getUsername,
+    showErrorToast
 };

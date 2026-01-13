@@ -7,7 +7,10 @@
         "start": "node server/index.js",
         "start:old": "node server/server.js",
         "dev": "nodemon server/index.js",
-        "dev:old": "nodemon server/server.js"
+        "dev:old": "nodemon server/server.js",
+        "test": "jest",
+        "test:watch": "jest --watch",
+        "test:coverage": "jest --coverage"
     },
     "dependencies": {
         "bcryptjs": "^3.0.2",
@@ -18,10 +21,29 @@
         "joi": "^18.0.2",
         "mongoose": "^8.12.1",
         "socket.io": "^4.8.1",
-        "uuid": "^9.0.0"
+        "uuid": "^9.0.0",
+        "winston": "^3.19.0"
     },
     "devDependencies": {
+        "jest": "^29.7.0",
         "nodemon": "^3.1.9"
+    },
+    "jest": {
+        "testEnvironment": "node",
+        "roots": [
+            "<rootDir>/server"
+        ],
+        "testMatch": [
+            "**/__tests__/**/*.js",
+            "**/*.test.js"
+        ],
+        "coverageDirectory": "coverage",
+        "collectCoverageFrom": [
+            "server/**/*.js",
+            "!server/**/__tests__/**",
+            "!server/rainbowTest.js"
+        ],
+        "verbose": true
     },
     "engines": {
         "node": ">=14.0.0"

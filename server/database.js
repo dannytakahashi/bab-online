@@ -1,5 +1,6 @@
 require("dotenv").config();
 const { MongoClient } = require("mongodb");
+const { dbLogger } = require("./utils/logger");
 
 const mongoURI = process.env.MONGO_URI || 'mongodb://localhost:27017/babonline';
 const dbName = "babonline";
@@ -13,12 +14,11 @@ async function connectDB() {
     try {
         const client = await MongoClient.connect(mongoURI);
 
-        console.log("Connected to MongoDB");
+        dbLogger.info("Connected to MongoDB");
         db = client.db(dbName);
         usersCollection = db.collection("users");
     } catch (error) {
-        console.error("MongoDB Connection Error:", error.message);
-        // Don't log full error object as it may contain connection string
+        dbLogger.error("MongoDB connection failed", { error: error.message });
     }
 }
 

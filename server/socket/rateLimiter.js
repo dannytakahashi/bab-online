@@ -3,6 +3,8 @@
  * Prevents spam and abuse by limiting event frequency per socket
  */
 
+const { socketLogger } = require('../utils/logger');
+
 class RateLimiter {
     constructor() {
         // Define rate limits per event type
@@ -58,7 +60,7 @@ class RateLimiter {
 
         // Check if limit exceeded
         if (timestamps.length >= limit.max) {
-            console.warn(`Rate limit exceeded: ${socketId} for ${event} (${timestamps.length}/${limit.max})`);
+            socketLogger.warn('Rate limit exceeded', { socketId, event, count: timestamps.length, max: limit.max });
             return false;
         }
 
@@ -133,7 +135,7 @@ class RateLimiter {
         }
 
         if (cleaned > 0) {
-            console.log(`Rate limiter cleanup: removed ${cleaned} stale entries`);
+            socketLogger.debug('Rate limiter cleanup', { removed: cleaned });
         }
     }
 

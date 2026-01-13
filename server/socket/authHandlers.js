@@ -5,6 +5,7 @@
 const bcrypt = require('bcryptjs');
 const { getUsersCollection } = require('../database');
 const gameManager = require('../game/GameManager');
+const { authLogger } = require('../utils/logger');
 
 async function signIn(socket, io, data) {
     const usersCollection = getUsersCollection();
@@ -18,7 +19,7 @@ async function signIn(socket, io, data) {
                 success: false,
                 message: 'Invalid username or password!'
             });
-            console.log(`❌ Sign-in failed: User ${username} not found.`);
+            authLogger.warn('Sign-in failed: user not found', { username });
             return;
         }
 
@@ -28,7 +29,7 @@ async function signIn(socket, io, data) {
                 success: false,
                 message: 'Invalid username or password!'
             });
-            console.log(`❌ Sign-in failed: Incorrect password for ${username}`);
+            authLogger.warn('Sign-in failed: incorrect password', { username });
             return;
         }
 
@@ -39,7 +40,7 @@ async function signIn(socket, io, data) {
                 oldSocket.emit('forceLogout');
                 gameManager.handleDisconnect(user.socketId);
                 oldSocket.disconnect();
-                console.log(`🔄 ${username} was logged out from another device.`);
+                authLogger.info('User logged out from another device', { username });
             }
         }
 
@@ -53,10 +54,10 @@ async function signIn(socket, io, data) {
         gameManager.registerUser(socket.id, username);
 
         socket.emit('signInResponse', { success: true, username });
-        console.log(`✅ ${username} signed in successfully.`);
+        authLogger.info('User signed in', { username, socketId: socket.id });
 
     } catch (error) {
-        console.error('❌ Database error:', error);
+        authLogger.error('Database error during sign-in', { username, error: error.message });
         socket.emit('signInResponse', {
             success: false,
             message: 'Database error. Try again.'
@@ -72,7 +73,8 @@ async function signUp(socket, io, data) {
             success: false,
             message: 'Database not ready. Try again.'
         });
-        return console.error('❌ Database error: usersCollection is undefined.');
+        authLogger.error('Database not ready: usersCollection is undefined');
+        return;
     }
 
     const { username, password } = data;
@@ -85,17 +87,18 @@ async function signUp(socket, io, data) {
                 success: false,
                 message: 'Username already taken!'
             });
-            return console.log(`❌ Sign-up failed: Username "${username}" is already in use.`);
+            authLogger.warn('Sign-up failed: username taken', { username });
+            return;
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
         await usersCollection.insertOne({ username, password: hashedPassword });
 
         socket.emit('signUpResponse', { success: true });
-        console.log(`✅ New user registered: ${username}`);
+        authLogger.info('New user registered', { username });
 
     } catch (error) {
-        console.error('❌ Database error:', error);
+        authLogger.error('Database error during sign-up', { username, error: error.message });
         socket.emit('signUpResponse', {
             success: false,
             message: 'Database error. Try again.'

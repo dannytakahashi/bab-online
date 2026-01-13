@@ -15,3 +15,52 @@ canvas {
 h1 {
     color: white;
 }
+
+/* Error Toast Notifications */
+.error-toast {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #dc2626;
+    color: white;
+    padding: 12px 24px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    z-index: 10000;
+    animation: slideUp 0.3s ease;
+    font-size: 14px;
+    max-width: 400px;
+    text-align: center;
+}
+
+.error-toast.fade-out {
+    animation: fadeOut 0.3s ease forwards;
+}
+
+@keyframes slideUp {
+    from {
+        transform: translate(-50%, 100%);
+        opacity: 0;
+    }
+    to {
+        transform: translate(-50%, 0);
+        opacity: 1;
+    }
+}
+
+@keyframes fadeOut {
+    to {
+        opacity: 0;
+    }
+}
+
+/* Warning toast (yellow) */
+.warning-toast {
+    background: #f59e0b;
+}
+
+/* Info toast (blue) */
+.info-toast {
+    background: #3b82f6;
+}

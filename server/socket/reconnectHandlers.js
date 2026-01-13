@@ -4,6 +4,7 @@
 
 const gameManager = require('../game/GameManager');
 const { cancelAbortTimer } = require('./queueHandlers');
+const { socketLogger } = require('../utils/logger');
 
 /**
  * Handle a player attempting to rejoin a game after disconnect
@@ -11,32 +12,21 @@ const { cancelAbortTimer } = require('./queueHandlers');
 async function rejoinGame(socket, io, data) {
     const { gameId, username } = data;
 
-    console.log(`[REJOIN] Attempt: ${username} trying to rejoin game ${gameId}`);
-    console.log(`[REJOIN] Data received:`, JSON.stringify(data));
+    socketLogger.debug('Rejoin attempt', { username, gameId });
 
     // Find the game
     const game = gameManager.getGameById(gameId);
     if (!game) {
-        console.log(`[REJOIN] Failed: game ${gameId} not found`);
+        socketLogger.debug('Rejoin failed: game not found', { gameId });
         socket.emit('rejoinFailed', { reason: 'Game no longer exists' });
         return;
-    }
-
-    // Debug: Log all players in the game
-    console.log(`[REJOIN] Game found. Players in game:`);
-    for (const [socketId, player] of game.players.entries()) {
-        console.log(`  - socketId: ${socketId}, username: ${player.username}, position: ${player.position}`);
     }
 
     // Find player by username
     const existingPlayer = game.getPlayerByUsername(username);
     if (!existingPlayer) {
-        // Collect player names for debugging
-        const playersInGame = [];
-        for (const [sid, p] of game.players.entries()) {
-            playersInGame.push(p.username);
-        }
-        console.log(`[REJOIN] Failed: ${username} not found. Players in game: ${playersInGame.join(', ')}`);
+        const playersInGame = Array.from(game.players.values()).map(p => p.username);
+        socketLogger.debug('Rejoin failed: player not in game', { username, playersInGame });
         socket.emit('rejoinFailed', {
             reason: 'Not a player in this game',
             debug: { lookingFor: username, playersInGame }
@@ -46,7 +36,7 @@ async function rejoinGame(socket, io, data) {
 
     // Check if this is actually a reconnect (different socket ID)
     if (existingPlayer.socketId === socket.id) {
-        console.log(`Rejoin: ${username} already connected with same socket`);
+        socketLogger.debug('Rejoin failed: already connected', { username });
         socket.emit('rejoinFailed', { reason: 'Already connected' });
         return;
     }
@@ -66,7 +56,7 @@ async function rejoinGame(socket, io, data) {
     // Register user with new socket
     gameManager.registerUser(socket.id, username);
 
-    console.log(`Rejoin success: ${username} rejoined game ${gameId} at position ${existingPlayer.position}`);
+    socketLogger.info('Player rejoined game', { username, gameId, position: existingPlayer.position });
 
     // Send current game state to rejoining player
     const gameState = game.getClientState(socket.id);
