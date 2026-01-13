@@ -7,6 +7,7 @@ const authHandlers = require('./authHandlers');
 const queueHandlers = require('./queueHandlers');
 const gameHandlers = require('./gameHandlers');
 const chatHandlers = require('./chatHandlers');
+const reconnectHandlers = require('./reconnectHandlers');
 const { asyncHandler, syncHandler, safeHandler, rateLimiter } = require('./errorHandler');
 
 function setupSocketHandlers(io) {
@@ -43,6 +44,11 @@ function setupSocketHandlers(io) {
         // Chat events - with validation
         socket.on('chatMessage', (data) =>
             syncHandler('chatMessage', chatHandlers.chatMessage)(socket, io, data)
+        );
+
+        // Reconnection events
+        socket.on('rejoinGame', (data) =>
+            asyncHandler('rejoinGame', reconnectHandlers.rejoinGame)(socket, io, data)
         );
 
         // Disconnect - cleanup rate limiter and handle game state

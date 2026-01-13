@@ -138,6 +138,26 @@ class GameManager {
     }
 
     /**
+     * Update player-game mapping when a player reconnects with new socket
+     * @param {string} oldSocketId - Previous socket ID
+     * @param {string} newSocketId - New socket ID
+     * @param {string} gameId - Game ID
+     */
+    updatePlayerGameMapping(oldSocketId, newSocketId, gameId) {
+        this.playerGames.delete(oldSocketId);
+        this.playerGames.set(newSocketId, gameId);
+    }
+
+    /**
+     * Find game by ID (for reconnection)
+     * @param {string} gameId - Game ID to find
+     * @returns {GameState|null}
+     */
+    getGameById(gameId) {
+        return this.games.get(gameId) || null;
+    }
+
+    /**
      * Handle player disconnect
      */
     handleDisconnect(socketId) {
