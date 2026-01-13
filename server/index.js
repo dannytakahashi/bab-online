@@ -64,10 +64,11 @@ setupSocketHandlers(io);
 
 // Start server
 function start() {
-    // Hardcode port 3000 - Railway expects this despite setting PORT env var
-    server.listen(3000, () => {
-        logger.info('Server running on port 3000');
+    const port = process.env.PORT || 3000;
+    server.listen(port, '0.0.0.0', () => {
+        logger.info(`Server running on port ${port}`);
         logger.info(`Environment: ${config.env}`);
+        console.log(`Server started successfully on port ${port}`);
     });
 
     // Setup graceful shutdown
