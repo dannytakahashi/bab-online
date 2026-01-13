@@ -86,6 +86,8 @@ bab-online/
 - **Communication**: Socket.io bidirectional WebSocket
 - **State**: Server-authoritative, `GameState` class per game instance
 - **Client State**: `GameState` singleton replaces 50+ globals
+- **State Validation**: Server validates all actions (`validateTurn`, `validateCardPlay`, `validateBid`)
+- **Optimistic Updates**: Client updates UI immediately, rolls back on server rejection
 - **Socket Cleanup**: `SocketManager` tracks listeners, prevents memory leaks
 - **UI**: Phaser for game canvas, `UIManager` for DOM lifecycle
 - **Animations**: Phaser tweens (Power2 easing, 200-500ms durations)
@@ -152,20 +154,47 @@ Server runs on port 3000.
 ### Server (`server/game/GameState.js`)
 ```javascript
 class GameState {
+    // Core state
     gameId, players, positions, hands, currentHand, dealer,
     bidding, bids, team1Mult, team2Mult, currentTurn, leadPosition,
     currentTrick, trump, trumpBroken, team1Tricks, team2Tricks,
     team1Score, team2Score, team1Rainbows, team2Rainbows
+
+    // Validation methods
+    validateTurn(socketId)           // Returns { valid, error? }
+    validateCardPlay(socketId, card) // Validates turn, phase, card ownership, trick state
+    validateBid(socketId, bid)       // Validates turn, phase, bid value
+    validateGameState()              // Full consistency check, returns { valid, errors[] }
+
+    // Debug logging (development mode only)
+    logAction(action, details)       // Log state changes
+    logState()                       // Log current state summary
+    logValidation(action, result)    // Log failed validations
 }
 ```
 
 ### Client (`client/js/game/GameState.js`)
 ```javascript
 class GameState {
+    // Core state
     playerId, username, position, pic, myCards, currentHand,
     trump, dealer, phase, currentTurn, isBidding, leadCard,
     playedCards, trumpBroken, bids, teamTricks, oppTricks,
     teamScore, oppScore, players
+
+    // Optimistic updates (instant UI feedback before server confirms)
+    optimisticPlayCard(card)   // Remove card locally, returns boolean
+    confirmCardPlay()          // Clear pending state on success
+    rollbackCardPlay()         // Restore card on server rejection
+    optimisticBid(bid)         // Record bid locally
+    confirmBid() / rollbackBid()
+    hasPendingAction()         // Check if waiting for server
+
+    // Event system (for reactive UI updates)
+    on(event, callback)        // Subscribe, returns unsubscribe function
+    off(event, callback)       // Unsubscribe
+    _emit(event, data)         // Notify listeners
+    // Events: 'handChanged', 'bidChanged'
 }
 ```
 
