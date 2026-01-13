@@ -65,10 +65,12 @@ function handleDisconnect(socket, io) {
     // If player was in an active game, give them time to reconnect
     if (result.wasInGame && result.game) {
         const position = result.game.getPositionBySocketId(socket.id);
-        console.log(`Player at position ${position} disconnected from game ${result.gameId}. Waiting ${RECONNECT_GRACE_PERIOD/1000}s for reconnection...`);
+        const player = result.game.getPlayerByPosition(position);
+        const username = player?.username || `Player ${position}`;
+        console.log(`Player ${username} at position ${position} disconnected from game ${result.gameId}. Waiting ${RECONNECT_GRACE_PERIOD/1000}s for reconnection...`);
 
         // Notify other players that someone disconnected
-        result.game.broadcast(io, 'playerDisconnected', { position });
+        result.game.broadcast(io, 'playerDisconnected', { position, username });
 
         // Start a timer to abort if they don't reconnect
         // Clear any existing timer for this game (in case multiple disconnects)

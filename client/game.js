@@ -13,9 +13,11 @@ document.addEventListener("playerAssigned", (event) => {
 });
 
 // Handle rejoin after reconnection
-document.addEventListener("rejoinSuccess", (event) => {
-    let data = event.detail;
-    console.log("🔄 Rejoining game:", data);
+// Store rejoin data to process when scene is ready
+let pendingRejoinData = null;
+
+function processRejoin(data) {
+    console.log("🔄 Processing rejoin with data:", data);
 
     // Clear any sign-in/lobby screens first
     removeAllVignettes();
@@ -44,13 +46,6 @@ document.addEventListener("rejoinSuccess", (event) => {
     bidding = data.bidding ? 1 : 0;
     score1 = data.score.team1;
     score2 = data.score.team2;
-
-    // Get the scene
-    let scene = game.scene.scenes[0];
-    if (!scene) {
-        console.error("🚨 No scene available for rejoin");
-        return;
-    }
 
     console.log("🔄 Rebuilding game UI after rejoin");
 
@@ -87,18 +82,36 @@ document.addEventListener("rejoinSuccess", (event) => {
 
     // Display cards
     if (playerCards && playerCards.length > 0) {
-        displayCards.call(scene, playerCards);
+        displayCards.call(gameScene, playerCards);
     }
 
     // Display opponent hands (card backs)
-    displayOpponentHands.call(scene, playerCards ? playerCards.length : 0, dealer);
+    displayOpponentHands.call(gameScene, playerCards ? playerCards.length : 0, dealer);
 
     // Display trump card
     if (trump) {
-        displayTableCard.call(scene, trump);
+        displayTableCard.call(gameScene, trump);
     }
 
     addToGameFeed("Reconnected to game!");
+}
+
+document.addEventListener("rejoinSuccess", (event) => {
+    let data = event.detail;
+    console.log("🔄 Rejoining game:", data);
+    console.log("[REJOIN DEBUG] gameScene:", gameScene);
+    console.log("[REJOIN DEBUG] gameScene?.scale:", gameScene?.scale);
+
+    // Check if gameScene is ready - must have scale property
+    if (gameScene && gameScene.scale && gameScene.scale.width) {
+        // Scene is ready, process immediately
+        console.log("[REJOIN DEBUG] Scene ready, processing immediately");
+        processRejoin(data);
+    } else {
+        // Scene not ready, store data and wait for create()
+        console.log("[REJOIN DEBUG] Scene NOT ready, storing for later. pendingRejoinData set.");
+        pendingRejoinData = data;
+    }
 });
 
 // Handle rejoin failure
@@ -118,8 +131,8 @@ document.addEventListener("playerReconnected", (event) => {
 
 // Handle player disconnect notification (from server)
 socket.on("playerDisconnected", (data) => {
-    console.log(`⚠️ Player at position ${data.position} disconnected`);
-    addToGameFeed(`Player ${data.position} disconnected - waiting for reconnection...`);
+    console.log(`⚠️ Player ${data.username} at position ${data.position} disconnected`);
+    addToGameFeed(`${data.username} disconnected - waiting for reconnection...`);
 });
 
 // Handle complete reconnection failure (all attempts exhausted)
@@ -210,6 +223,7 @@ function create() {
     gameScene = this; // Store reference to the game scene
     console.log("running create4...");
     console.log("Socket in game.js:", socket);
+
     let screenWidth = this.scale.width;
     let screenHeight = this.scale.height;
     //this.cameras.main.setBackgroundColor("transparent");
@@ -224,6 +238,16 @@ function create() {
     this.scale.on('resize', (gameSize) => {
         bg.setDisplaySize(gameSize.width, gameSize.height);
     });
+
+    // Check if there's pending rejoin data from before scene was ready
+    console.log("[CREATE DEBUG] pendingRejoinData:", pendingRejoinData);
+    if (pendingRejoinData) {
+        console.log("[CREATE DEBUG] Found pending rejoin data, processing now...");
+        processRejoin(pendingRejoinData);
+        pendingRejoinData = null;
+        return; // Skip normal create flow since we're rejoining
+    }
+
     console.log("⏳ Waiting for players...");
     socket.on("positionUpdate", (data) => {
         console.log("Position update received:", data);

@@ -581,6 +581,8 @@ function removeWaitingScreen() {
     if (waitingContainer) waitingContainer.remove();
     let waitingVignette = document.getElementById("waitingVignette");
     if (waitingVignette) waitingVignette.remove();
+    let lobbyContainer = document.getElementById("lobbyContainer");
+    if (lobbyContainer) lobbyContainer.remove();
     removeAllVignettes();
     clearUI();
     removePlayerQueue();
