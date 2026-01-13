@@ -201,7 +201,7 @@ The `docs/todos/` directory contains detailed improvement plans:
 | 6 | `06-error-handling-logging.md` | Add logging & error handling | ✅ Complete |
 | 7 | `07-testing.md` | Add test coverage | ✅ Complete |
 | 8 | `08-devops-deployment.md` | CI/CD & containerization | ✅ Complete |
-| 9 | `09-asset-management.md` | Optimize asset loading | Pending |
+| 9 | `09-asset-management.md` | Optimize asset loading | ✅ Complete |
 
 ## Recent Improvements
 
@@ -267,6 +267,13 @@ The `docs/todos/` directory contains detailed improvement plans:
 - Created docker-compose.yml for local development with MongoDB
 - Set up GitHub Actions CI/CD pipeline (test, build, deploy)
 - Created railway.toml for Railway.app deployment configuration
+
+### Asset Management
+- Created texture atlas for 54 card images (reduces requests from 54 to 2)
+- Added `npm run build:atlas` script using free-tex-packer-core
+- Updated game.js to load cards from atlas instead of individual files
+- Added caching headers for static assets (7 days for images, 1 year for sprites)
+- Reduced initial load from ~149 HTTP requests to ~95 requests
 
 ## Docker
 

@@ -310,141 +310,12 @@ function getCardImageKey(card) {
 }
 function preload() {
     console.log("running preload...");
+
+    // Load card atlas (reduces 54 requests to 2)
+    this.load.atlas("cards", "assets/sprites/cards.png", "assets/sprites/cards.json");
+
+    // Load other essential assets
     this.load.image("cardBack", "assets/card_back.png");
-    this.load.image("a_spades", "assets/ace_spades.png");
-    this.load.image("k_spades", "assets/king_spades.png");
-    this.load.image("q_spades", "assets/queen_spades.png");
-    this.load.image("j_spades", "assets/jack_spades.png");
-    this.load.image("10_spades", "assets/10_spades.png");
-    this.load.image("9_spades", "assets/9_spades.png");
-    this.load.image("8_spades", "assets/8_spades.png");
-    this.load.image("7_spades", "assets/7_spades.png");
-    this.load.image("6_spades", "assets/6_spades.png");
-    this.load.image("5_spades", "assets/5_spades.png");
-    this.load.image("4_spades", "assets/4_spades.png");
-    this.load.image("3_spades", "assets/3_spades.png");
-    this.load.image("2_spades", "assets/2_spades.png");
-    this.load.image("a_hearts", "assets/ace_hearts.png");
-    this.load.image("k_hearts", "assets/king_hearts.png");
-    this.load.image("q_hearts", "assets/queen_hearts.png");
-    this.load.image("j_hearts", "assets/jack_hearts.png");
-    this.load.image("10_hearts", "assets/10_hearts.png");
-    this.load.image("9_hearts", "assets/9_hearts.png");
-    this.load.image("8_hearts", "assets/8_hearts.png");
-    this.load.image("7_hearts", "assets/7_hearts.png");
-    this.load.image("6_hearts", "assets/6_hearts.png");
-    this.load.image("5_hearts", "assets/5_hearts.png");
-    this.load.image("4_hearts", "assets/4_hearts.png");
-    this.load.image("3_hearts", "assets/3_hearts.png");
-    this.load.image("2_hearts", "assets/2_hearts.png");
-    this.load.image("a_clubs", "assets/ace_clubs.png");
-    this.load.image("k_clubs", "assets/king_clubs.png");
-    this.load.image("q_clubs", "assets/queen_clubs.png");
-    this.load.image("j_clubs", "assets/jack_clubs.png");
-    this.load.image("10_clubs", "assets/10_clubs.png");
-    this.load.image("9_clubs", "assets/9_clubs.png");
-    this.load.image("8_clubs", "assets/8_clubs.png");
-    this.load.image("7_clubs", "assets/7_clubs.png");
-    this.load.image("6_clubs", "assets/6_clubs.png");
-    this.load.image("5_clubs", "assets/5_clubs.png");
-    this.load.image("4_clubs", "assets/4_clubs.png");
-    this.load.image("3_clubs", "assets/3_clubs.png");
-    this.load.image("2_clubs", "assets/2_clubs.png");
-    this.load.image("a_diamonds", "assets/ace_diamonds.png");
-    this.load.image("k_diamonds", "assets/king_diamonds.png");
-    this.load.image("q_diamonds", "assets/queen_diamonds.png");
-    this.load.image("j_diamonds", "assets/jack_diamonds.png");
-    this.load.image("10_diamonds", "assets/10_diamonds.png");
-    this.load.image("9_diamonds", "assets/9_diamonds.png");
-    this.load.image("8_diamonds", "assets/8_diamonds.png");
-    this.load.image("7_diamonds", "assets/7_diamonds.png");
-    this.load.image("6_diamonds", "assets/6_diamonds.png");
-    this.load.image("5_diamonds", "assets/5_diamonds.png");
-    this.load.image("4_diamonds", "assets/4_diamonds.png");
-    this.load.image("3_diamonds", "assets/3_diamonds.png");
-    this.load.image("2_diamonds", "assets/2_diamonds.png");
-    this.load.image("hi_joker", "assets/hi_joker.png");
-    this.load.image("lo_joker", "assets/lo_joker.png");
-    this.load.image("profile1", "assets/profile1.png");
-    this.load.image("profile2", "assets/profile2.png");
-    this.load.image("profile3", "assets/profile3.png");
-    this.load.image("profile4", "assets/profile4.png");
-    this.load.image("profile5", "assets/profile5.png");
-    this.load.image("profile6", "assets/profile6.png");
-    this.load.image("profile7", "assets/profile7.png");
-    this.load.image("profile8", "assets/profile8.png");
-    this.load.image("profile9", "assets/profile9.png");
-    this.load.image("profile12", "assets/profile12.png");
-    this.load.image("profile13", "assets/profile13.png");
-    this.load.image("profile14", "assets/profile14.png");
-    this.load.image("profile15", "assets/profile15.png");
-    this.load.image("profile16", "assets/profile16.png");
-    this.load.image("profile17", "assets/profile17.png");
-    this.load.image("profile18", "assets/profile18.png");
-    this.load.image("profile19", "assets/profile19.png");
-    this.load.image("profile20", "assets/profile20.png");
-    this.load.image("profile21", "assets/profile21.png");
-    this.load.image("profile22", "assets/profile22.png");
-    this.load.image("profile23", "assets/profile23.png");
-    this.load.image("profile24", "assets/profile24.png");
-    this.load.image("profile25", "assets/profile25.png");
-    this.load.image("profile26", "assets/profile26.png");
-    this.load.image("profile27", "assets/profile27.png");
-    this.load.image("profile28", "assets/profile28.png");
-    this.load.image("profile29", "assets/profile29.png");
-    this.load.image("profile30", "assets/profile30.png");
-    this.load.image("profile31", "assets/profile31.png");
-    this.load.image("profile32", "assets/profile32.png");
-    this.load.image("profile33", "assets/profile33.png");
-    this.load.image("profile34", "assets/profile34.png");
-    this.load.image("profile35", "assets/profile35.png");
-    this.load.image("profile36", "assets/profile36.png");
-    this.load.image("profile37", "assets/profile37.png");
-    this.load.image("profile38", "assets/profile38.png");
-    this.load.image("profile39", "assets/profile39.png");
-    this.load.image("profile40", "assets/profile40.png");
-    this.load.image("profile41", "assets/profile41.png");
-    this.load.image("profile42", "assets/profile42.png");
-    this.load.image("profile43", "assets/profile43.png");
-    this.load.image("profile44", "assets/profile44.png");
-    this.load.image("profile45", "assets/profile45.png");
-    this.load.image("profile46", "assets/profile46.png");
-    this.load.image("profile47", "assets/profile47.png");
-    this.load.image("profile48", "assets/profile48.png");
-    this.load.image("profile49", "assets/profile49.png");
-    this.load.image("profile50", "assets/profile50.png");
-    this.load.image("profile51", "assets/profile51.png");
-    this.load.image("profile52", "assets/profile52.png");
-    this.load.image("profile53", "assets/profile53.png");
-    this.load.image("profile54", "assets/profile54.png");
-    this.load.image("profile55", "assets/profile55.png");
-    this.load.image("profile56", "assets/profile56.png");
-    this.load.image("profile57", "assets/profile57.png");
-    this.load.image("profile58", "assets/profile58.png");
-    this.load.image("profile59", "assets/profile59.png");
-    this.load.image("profile60", "assets/profile60.png");
-    this.load.image("profile61", "assets/profile61.png");
-    this.load.image("profile62", "assets/profile62.png");
-    this.load.image("profile63", "assets/profile63.png");
-    this.load.image("profile64", "assets/profile64.png");
-    this.load.image("profile65", "assets/profile65.png");
-    this.load.image("profile66", "assets/profile66.png");
-    this.load.image("profile67", "assets/profile67.png");
-    this.load.image("profile68", "assets/profile68.png");
-    this.load.image("profile69", "assets/profile69.png");
-    this.load.image("profile70", "assets/profile70.png");
-    this.load.image("profile71", "assets/profile71.png");
-    this.load.image("profile72", "assets/profile72.png");
-    this.load.image("profile73", "assets/profile73.png");
-    this.load.image("profile74", "assets/profile74.png");
-    this.load.image("profile75", "assets/profile75.png");
-    this.load.image("profile76", "assets/profile76.png");
-    this.load.image("profile77", "assets/profile77.png");
-    this.load.image("profile78", "assets/profile78.png");
-    this.load.image("profile79", "assets/profile79.png");
-    this.load.image("profile80", "assets/profile80.png");
-    this.load.image("profile81", "assets/profile81.png");
-    this.load.image("profile82", "assets/profile82.png");
     this.load.image("dealer", "assets/frog.png");
     this.load.image("background", "assets/background.png");
     this.load.image("rainbow", "assets/rainbow1.png");
@@ -453,6 +324,13 @@ function preload() {
     this.load.image("2b", "assets/2b.png");
     this.load.image("3b", "assets/3b.png");
     this.load.image("4b", "assets/4b.png");
+
+    // Load profile images (will be lazy-loaded in future optimization)
+    for (let i = 1; i <= 82; i++) {
+        // Skip missing profile numbers (10, 11 don't exist)
+        if (i === 10 || i === 11) continue;
+        this.load.image(`profile${i}`, `assets/profile${i}.png`);
+    }
 }
 let ranks = {
     "HI": 16,
@@ -701,10 +579,10 @@ function draw() {
                 console.log(`🎴 You drew: ${data.card.rank} of ${data.card.suit}`);
 
                 let textureKey = getCardImageKey(data.card); // ✅ Convert card to asset key
-                if (this.textures.exists(textureKey)) {
-                    cardSprite.setTexture(textureKey); // ✅ Change the sprite
+                if (this.textures.get('cards').has(textureKey)) {
+                    cardSprite.setTexture('cards', textureKey); // ✅ Change the sprite from atlas
                 } else {
-                    console.error(`❌ Texture ${textureKey} not found!`);
+                    console.error(`❌ Texture ${textureKey} not found in cards atlas!`);
                 }
                 allCards.forEach(card => {
                     card.disableInteractive(); // ✅ Remove interactivity from other cards
@@ -749,7 +627,7 @@ function displayTableCard(card) {
     this.tableCardBackground = this.add.rectangle(tableX, tableY, 120*scaleFactorX, 160*scaleFactorY, 0x8B4513)
         .setStrokeStyle(4, 0x654321)
         .setDepth(-1); // ✅ Ensure it's behind the card
-    tableCardSprite = this.add.image(tableX, tableY, cardKey).setScale(1.5);
+    tableCardSprite = this.add.image(tableX, tableY, 'cards', cardKey).setScale(1.5);
     this.tableCardLabel = this.add.text(tableX, tableY - 100, "TRUMP", {
         fontSize: "24px",
         fontStyle: "bold",
@@ -1154,7 +1032,7 @@ function displayCards(playerHand) {
     playerHand.forEach((card, index) => {
         let cardKey = getCardImageKey(card);
         console.log(`Using image key: ${cardKey}`);
-        let cardSprite = this.add.image(screenWidth / 2 + 500*scaleFactorX, screenHeight / 2 - 300*scaleFactorY, cardKey)
+        let cardSprite = this.add.image(screenWidth / 2 + 500*scaleFactorX, screenHeight / 2 - 300*scaleFactorY, 'cards', cardKey)
         .setInteractive()
         .setScale(1.5);  // ✅ Increase size
         cardSprite.input.hitArea.setTo(cardSprite.width * 0.15, 0, cardSprite.width * 0.7, cardSprite.height);
@@ -1374,7 +1252,7 @@ function displayCards(playerHand) {
                         rotation: 0,
                         scale: 1.5,
                         onComplete: () => {
-                            removedCard.setTexture(cardKey);
+                            removedCard.setTexture('cards', cardKey);
                             removedCard.setDepth(200);
                             console.log("card texture changed to: ", cardKey);
                         } 
@@ -1382,7 +1260,7 @@ function displayCards(playerHand) {
                 }else{
                     removedCard.x = opponent1_x;
                     removedCard.y = opponent1_y;
-                    removedCard.setTexture(cardKey);
+                    removedCard.setTexture('cards', cardKey);
                     removedCard.setDepth(200);
                     removedCard.setScale(1.5);
                     removedCard.setRotation(0);
@@ -1407,7 +1285,7 @@ function displayCards(playerHand) {
                         rotation: 0,
                         scale: 1.5,
                         onComplete: () => {
-                            removedCard.setTexture(cardKey);
+                            removedCard.setTexture('cards', cardKey);
                             removedCard.setDepth(200);
                             console.log("card texture changed to: ", cardKey);
                         } 
@@ -1415,7 +1293,7 @@ function displayCards(playerHand) {
                 }else{
                     removedCard.x = team1_x;
                     removedCard.y = team1_y;
-                    removedCard.setTexture(cardKey);
+                    removedCard.setTexture('cards', cardKey);
                     removedCard.setDepth(200);
                     removedCard.setScale(1.5);
                     removedCard.setRotation(0);
@@ -1440,7 +1318,7 @@ function displayCards(playerHand) {
                         rotation: 0,
                         scale: 1.5,
                         onComplete: () => {
-                            removedCard.setTexture(cardKey);
+                            removedCard.setTexture('cards', cardKey);
                             removedCard.setDepth(200);
                             console.log("card texture changed to: ", cardKey);
                         } 
@@ -1448,7 +1326,7 @@ function displayCards(playerHand) {
                 }else{
                     removedCard.x = opponent2_x;
                     removedCard.y = opponent2_y;
-                    removedCard.setTexture(cardKey);
+                    removedCard.setTexture('cards', cardKey);
                     removedCard.setDepth(200);
                     removedCard.setScale(1.5);
                     removedCard.setRotation(0);
@@ -1460,7 +1338,7 @@ function displayCards(playerHand) {
             }
         }
         else if (data.position === position){
-            currentTrick.push(this.add.image(screenWidth / 2, screenHeight / 2 + 150, cardKey).setScale(1.5));
+            currentTrick.push(this.add.image(screenWidth / 2, screenHeight / 2 + 150, 'cards', cardKey).setScale(1.5));
         }
     })
     socket.on("trickComplete", (data) => {

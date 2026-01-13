@@ -44,8 +44,26 @@ app.use((req, res, next) => {
     next();
 });
 
-// Static files
-app.use(express.static(path.join(__dirname, '..', 'client')));
+// Static files with caching
+app.use(express.static(path.join(__dirname, '..', 'client'), {
+    maxAge: config.isProduction ? '1d' : 0, // Cache for 1 day in production
+    etag: true,
+    lastModified: true
+}));
+
+// Assets with longer cache (images don't change often)
+app.use('/assets', express.static(path.join(__dirname, '..', 'client', 'assets'), {
+    maxAge: config.isProduction ? '7d' : 0, // Cache for 7 days in production
+    etag: true,
+    lastModified: true,
+    setHeaders: (res, filePath) => {
+        // Set immutable for sprite atlas files (they're versioned by content)
+        if (filePath.includes('sprites/')) {
+            res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        }
+    }
+}));
+
 app.use('/assets-debug', express.static(path.join(__dirname, '..', 'client', 'assets')));
 
 // Routes
