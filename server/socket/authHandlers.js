@@ -51,6 +51,7 @@ async function signIn(socket, io, data) {
 
         // Register with game manager
         gameManager.registerUser(socket.id, username);
+        console.log(`[AUTH] After registerUser, currentUsers:`, JSON.stringify(gameManager.currentUsers));
 
         socket.emit('signInResponse', { success: true, username });
         console.log(`✅ ${username} signed in successfully.`);

@@ -35,7 +35,10 @@ class GameManager {
      * Get user by socket ID
      */
     getUserBySocketId(socketId) {
-        return this.currentUsers.find(u => u.socketId === socketId);
+        console.log(`[GM] getUserBySocketId(${socketId}), currentUsers has ${this.currentUsers.length} entries`);
+        const user = this.currentUsers.find(u => u.socketId === socketId);
+        console.log(`[GM] Found user:`, user);
+        return user;
     }
 
     /**
