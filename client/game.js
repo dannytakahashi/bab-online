@@ -70,6 +70,21 @@ document.addEventListener("playerReconnected", (event) => {
     console.log(`🔄 Player ${data.username} at position ${data.position} reconnected`);
     addToGameFeed(`${data.username} reconnected`);
 });
+
+// Handle complete reconnection failure (all attempts exhausted)
+document.addEventListener("reconnectFailed", () => {
+    console.log("❌ All reconnection attempts failed");
+    if(gameScene){
+        gameScene.scene.restart();
+        socket.off("gameStart");
+        playZone = null;
+        handBackground = null;
+    }
+    removeWaitingScreen();
+    clearUI();
+    showSignInScreen();
+    alert("Connection lost. Please sign in again.");
+});
 function visible(){
     if(document.visibilityState === "visible"){
         return true;
@@ -791,16 +806,9 @@ function clearAllTricks() {
     console.log("🧹 All tricks have been cleared.");
 }
 socket.on("disconnect", () => {
-    console.log("⚠️ Disconnected from server.");
-    if(gameScene){
-        gameScene.scene.restart();
-        socket.off("gameStart");
-        playZone = null;
-        handBackground = null;
-    }
-    removeWaitingScreen();
-    clearUI();
-    showSignInScreen();
+    console.log("⚠️ Disconnected from server. Auto-reconnecting...");
+    // Don't show sign-in screen - let Socket.IO handle reconnection
+    // The socketManager will attempt to rejoin the game on reconnect
 });
 socket.on("abortGame", (data) => {
     playedCard = false;
