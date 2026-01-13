@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - PORT=3000
+      - MONGO_URI=mongodb://mongo:27017/bab-online
+      - ALLOWED_ORIGINS=http://localhost:3000
+      - LOG_LEVEL=debug
+    depends_on:
+      mongo:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Development variant with hot reload
+  app-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - PORT=3000
+      - MONGO_URI=mongodb://mongo:27017/bab-online
+      - ALLOWED_ORIGINS=http://localhost:3000
+      - LOG_LEVEL=debug
+    depends_on:
+      mongo:
+        condition: service_healthy
+    volumes:
+      - ./server:/app/server:ro
+      - ./client:/app/client:ro
+    profiles:
+      - dev
+
+  mongo:
+    image: mongo:6
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  mongo-data:
