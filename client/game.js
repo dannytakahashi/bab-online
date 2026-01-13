@@ -17,6 +17,13 @@ document.addEventListener("rejoinSuccess", (event) => {
     let data = event.detail;
     console.log("🔄 Rejoining game:", data);
 
+    // Clear any sign-in/lobby screens first
+    removeAllVignettes();
+    let signInContainer = document.getElementById("signInContainer");
+    if (signInContainer) signInContainer.remove();
+    let lobbyContainer = document.getElementById("lobbyContainer");
+    if (lobbyContainer) lobbyContainer.remove();
+
     // Restore position and game state
     position = data.position;
     playerId = socket.id;

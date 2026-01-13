@@ -33,6 +33,7 @@ function showSignInScreen() {
 
     // ✅ Create sign-in container
     let signInVignette = document.createElement("div");
+    signInVignette.id = "SignInVignette"; // ID for removal
     signInVignette.classList.add("vignette"); // ✅ Add a class for easy removal
     signInVignette.style.position = "fixed";
     signInVignette.style.top = "0";
@@ -965,5 +966,12 @@ function showImpactEvent(event){
     });
 }
 window.onload = () => {
-        showSignInScreen(); // ✅ Show sign-in if no user is saved
+    // Only show sign-in if user is not already logged in
+    const username = sessionStorage.getItem('username');
+    if (!username) {
+        showSignInScreen();
+    } else {
+        // User is logged in, show lobby
+        showLobbyScreen();
+    }
 };
