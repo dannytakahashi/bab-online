@@ -2,10 +2,12 @@
  * Client-side game state container
  * Single source of truth for game data on the client
  * Replaces 50+ scattered global variables
+ * Supports optimistic updates with rollback
  */
 class GameState {
     constructor() {
         this.reset();
+        this._listeners = new Map();  // event -> Set of callbacks
     }
 
     /**
@@ -53,6 +55,10 @@ class GameState {
 
         // Players info
         this.players = {};  // position -> { username, pic, socketId }
+
+        // Optimistic update tracking
+        this._pendingCard = null;      // Card being played (before server confirms)
+        this._pendingBid = null;       // Bid being submitted (before server confirms)
     }
 
     /**
@@ -212,6 +218,154 @@ class GameState {
         this.clearTrick();
     }
 
+    // ========================================
+    // Optimistic Updates
+    // ========================================
+
+    /**
+     * Optimistically play a card (before server confirms)
+     * @param {Object} card - Card to play
+     * @returns {boolean} - Whether card was found in hand
+     */
+    optimisticPlayCard(card) {
+        const index = this.myCards.findIndex(c =>
+            c.suit === card.suit && c.rank === card.rank
+        );
+
+        if (index === -1) return false;
+
+        // Store for potential rollback
+        this._pendingCard = this.myCards.splice(index, 1)[0];
+
+        // Update local state
+        this.playedCards[this.position - 1] = card;
+        this.cardsPlayedThisTrick++;
+
+        // Emit event for UI update
+        this._emit('handChanged', this.myCards);
+
+        return true;
+    }
+
+    /**
+     * Confirm the pending card play (server accepted)
+     */
+    confirmCardPlay() {
+        this._pendingCard = null;
+    }
+
+    /**
+     * Rollback a rejected card play
+     */
+    rollbackCardPlay() {
+        if (this._pendingCard) {
+            // Put card back in hand
+            this.myCards.push(this._pendingCard);
+
+            // Remove from played cards
+            this.playedCards[this.position - 1] = null;
+            this.cardsPlayedThisTrick--;
+
+            this._pendingCard = null;
+
+            // Emit event for UI update
+            this._emit('handChanged', this.myCards);
+        }
+    }
+
+    /**
+     * Optimistically record a bid (before server confirms)
+     * @param {*} bid - Bid value
+     */
+    optimisticBid(bid) {
+        this._pendingBid = bid;
+        this.bids[this.position] = bid;
+        this.myBid = bid;
+
+        this._emit('bidChanged', { position: this.position, bid });
+    }
+
+    /**
+     * Confirm the pending bid (server accepted)
+     */
+    confirmBid() {
+        this._pendingBid = null;
+    }
+
+    /**
+     * Rollback a rejected bid
+     */
+    rollbackBid() {
+        if (this._pendingBid !== null) {
+            delete this.bids[this.position];
+            this.myBid = null;
+            this._pendingBid = null;
+
+            this._emit('bidChanged', { position: this.position, bid: null });
+        }
+    }
+
+    /**
+     * Check if there's a pending action
+     * @returns {boolean}
+     */
+    hasPendingAction() {
+        return this._pendingCard !== null || this._pendingBid !== null;
+    }
+
+    // ========================================
+    // Event System (for UI updates)
+    // ========================================
+
+    /**
+     * Subscribe to state changes
+     * @param {string} event - Event name
+     * @param {Function} callback - Callback function
+     * @returns {Function} - Unsubscribe function
+     */
+    on(event, callback) {
+        if (!this._listeners.has(event)) {
+            this._listeners.set(event, new Set());
+        }
+        this._listeners.get(event).add(callback);
+
+        return () => this.off(event, callback);
+    }
+
+    /**
+     * Unsubscribe from state changes
+     * @param {string} event - Event name
+     * @param {Function} callback - Callback function
+     */
+    off(event, callback) {
+        const callbacks = this._listeners.get(event);
+        if (callbacks) {
+            callbacks.delete(callback);
+        }
+    }
+
+    /**
+     * Emit a state change event
+     * @param {string} event - Event name
+     * @param {*} data - Event data
+     */
+    _emit(event, data) {
+        const callbacks = this._listeners.get(event);
+        if (callbacks) {
+            callbacks.forEach(cb => {
+                try {
+                    cb(data);
+                } catch (err) {
+                    console.error(`Error in ${event} listener:`, err);
+                }
+            });
+        }
+    }
+
+    // ========================================
+    // Debug
+    // ========================================
+
     /**
      * Serialize state for debugging
      * @returns {Object}
@@ -226,8 +380,16 @@ class GameState {
             handSize: this.myCards.length,
             trump: this.trump,
             teamScore: this.teamScore,
-            oppScore: this.oppScore
+            oppScore: this.oppScore,
+            hasPending: this.hasPendingAction()
         };
+    }
+
+    /**
+     * Log current state (for debugging)
+     */
+    logState() {
+        console.log('[GameState]', this.toJSON());
     }
 }
 
