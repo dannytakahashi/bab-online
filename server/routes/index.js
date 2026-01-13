@@ -4,7 +4,7 @@
 
 const express = require('express');
 const path = require('path');
-const mongoose = require('mongoose');
+const { getDB } = require('../database');
 const router = express.Router();
 
 // Serve main page
@@ -30,11 +30,12 @@ router.get('/health', (req, res) => {
 router.get('/ready', async (req, res) => {
     try {
         // Check database connection
-        if (mongoose.connection.readyState !== 1) {
+        const db = getDB();
+        if (!db) {
             throw new Error('Database not connected');
         }
 
-        await mongoose.connection.db.admin().ping();
+        await db.admin().ping();
 
         res.json({
             status: 'ready',

@@ -7,10 +7,19 @@ const winston = require('winston');
 const path = require('path');
 const fs = require('fs');
 
-// Ensure logs directory exists
+// Attempt to create logs directory (may fail on some deployment platforms)
 const logsDir = path.join(__dirname, '..', '..', 'logs');
-if (!fs.existsSync(logsDir)) {
-    fs.mkdirSync(logsDir, { recursive: true });
+let canWriteLogs = false;
+try {
+    if (!fs.existsSync(logsDir)) {
+        fs.mkdirSync(logsDir, { recursive: true });
+    }
+    // Test write access
+    fs.accessSync(logsDir, fs.constants.W_OK);
+    canWriteLogs = true;
+} catch (err) {
+    // File logging will be disabled - console only
+    console.warn('Cannot create logs directory, file logging disabled:', err.message);
 }
 
 // Define log levels
@@ -67,8 +76,8 @@ const transports = [
     })
 ];
 
-// Add file transports only if not in test environment
-if (process.env.NODE_ENV !== 'test') {
+// Add file transports only if logs directory is writable and not in test environment
+if (canWriteLogs && process.env.NODE_ENV !== 'test') {
     transports.push(
         // Error log file
         new winston.transports.File({
