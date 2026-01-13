@@ -8,6 +8,10 @@ socket.on("connect", () => {
     console.log("Connected to server");
 });
 
+socket.on("error", (data) => {
+    console.error("🚨 Server error:", data);
+});
+
 socket.on("playerAssigned", (data) => {
     console.log("📡 (socketManager) Received playerAssigned:", data);
     console.log(`You are player ${data.position}`);
