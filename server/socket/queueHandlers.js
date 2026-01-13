@@ -5,6 +5,7 @@
 const gameManager = require('../game/GameManager');
 const Deck = require('../game/Deck');
 const { delay } = require('../utils/timing');
+const { socketLogger } = require('../utils/logger');
 
 async function joinQueue(socket, io) {
     const result = gameManager.joinQueue(socket.id);
@@ -18,7 +19,7 @@ async function joinQueue(socket, io) {
     io.emit('queueUpdate', { queuedUsers: result.queuedUsers || gameManager.getQueueStatus().queuedUsers });
 
     if (result.gameStarted) {
-        console.log('Game is starting...');
+        socketLogger.info('Game starting', { gameId: result.game.gameId, players: result.players });
         const game = result.game;
 
         // Join all players to the game room for targeted broadcasts
@@ -60,14 +61,16 @@ function handleDisconnect(socket, io) {
     // Update queue display
     io.emit('queueUpdate', { queuedUsers: gameManager.getQueueStatus().queuedUsers });
 
-    console.log(`Player disconnected: ${socket.id}`);
+    socketLogger.debug('Player disconnected', { socketId: socket.id });
 
     // If player was in an active game, give them time to reconnect
     if (result.wasInGame && result.game) {
         const position = result.game.getPositionBySocketId(socket.id);
         const player = result.game.getPlayerByPosition(position);
         const username = player?.username || `Player ${position}`;
-        console.log(`Player ${username} at position ${position} disconnected from game ${result.gameId}. Waiting ${RECONNECT_GRACE_PERIOD/1000}s for reconnection...`);
+        socketLogger.info('Player disconnected from game, waiting for reconnection', {
+            username, position, gameId: result.gameId, gracePeriod: RECONNECT_GRACE_PERIOD / 1000
+        });
 
         // Notify other players that someone disconnected
         result.game.broadcast(io, 'playerDisconnected', { position, username });
@@ -81,7 +84,7 @@ function handleDisconnect(socket, io) {
         const timer = setTimeout(() => {
             const checkResult = gameManager.checkGameAbort(result.gameId);
             if (checkResult.shouldAbort) {
-                console.log(`Grace period expired. Aborting game ${result.gameId}...`);
+                socketLogger.warn('Grace period expired, aborting game', { gameId: result.gameId });
                 checkResult.game.broadcast(io, 'abortGame', { reason: 'Player did not reconnect' });
                 checkResult.game.leaveAllFromRoom(io);
                 gameManager.abortGame(result.gameId);
@@ -100,7 +103,7 @@ function cancelAbortTimer(gameId) {
     if (pendingAbortTimers.has(gameId)) {
         clearTimeout(pendingAbortTimers.get(gameId));
         pendingAbortTimers.delete(gameId);
-        console.log(`Abort timer cancelled for game ${gameId}`);
+        socketLogger.debug('Abort timer cancelled', { gameId });
     }
 }
 

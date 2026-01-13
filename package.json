@@ -18,7 +18,8 @@
         "joi": "^18.0.2",
         "mongoose": "^8.12.1",
         "socket.io": "^4.8.1",
-        "uuid": "^9.0.0"
+        "uuid": "^9.0.0",
+        "winston": "^3.19.0"
     },
     "devDependencies": {
         "nodemon": "^3.1.9"

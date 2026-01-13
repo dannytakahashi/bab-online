@@ -6,6 +6,7 @@
 
 const { validate, ValidationError } = require('./validators');
 const rateLimiter = require('./rateLimiter');
+const { socketLogger } = require('../utils/logger');
 
 /**
  * Wrap an async socket handler with rate limiting, validation, and error handling
@@ -84,22 +85,28 @@ function syncHandler(schemaName, handler, options = { rateLimit: true }) {
  * @param {Error} error - The error that occurred
  */
 function handleError(socket, handlerName, error) {
-    // Log error details
-    console.error(`Socket handler error [${handlerName}]:`, {
+    const errorContext = {
         socketId: socket.id,
-        error: error.message,
-        stack: error.stack,
-        isValidation: error.isValidation || false
-    });
+        handler: handlerName,
+        errorCode: error.code,
+        context: error.context
+    };
 
-    // Send appropriate error to client
-    if (error.isValidation) {
+    // Log based on error type
+    if (error.isValidation || error.isOperational) {
+        // Expected errors - log as warning
+        socketLogger.warn(error.message, errorContext);
         socket.emit('error', {
-            type: 'validation',
+            type: error.code || 'validation',
             message: error.message,
             handler: handlerName
         });
     } else {
+        // Unexpected errors - log full stack as error
+        socketLogger.error(error.message, {
+            ...errorContext,
+            stack: error.stack
+        });
         // Don't expose internal error details to client
         socket.emit('error', {
             type: 'server',

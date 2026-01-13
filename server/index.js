@@ -20,10 +20,16 @@ const config = require('./config');
 const { connectDB } = require('./database');
 const { setupSocketHandlers } = require('./socket');
 const routes = require('./routes');
+const { logger } = require('./utils/logger');
+const { setupGracefulShutdown } = require('./utils/shutdown');
+const requestLogger = require('./middleware/requestLogger');
 
 // Initialize Express
 const app = express();
 const server = http.createServer(app);
+
+// Request logging middleware
+app.use(requestLogger);
 
 // CSP Header (custom, matches original)
 app.use((req, res, next) => {
@@ -60,32 +66,18 @@ setupSocketHandlers(io);
 function start() {
     // Hardcode port 3000 - Railway expects this despite setting PORT env var
     server.listen(3000, () => {
-        console.log('Server running on port 3000');
-        console.log(`Environment: ${config.env}`);
+        logger.info('Server running on port 3000');
+        logger.info(`Environment: ${config.env}`);
     });
+
+    // Setup graceful shutdown
+    setupGracefulShutdown(server, io);
 
     // Connect to database in background (fire and forget like original)
     connectDB()
-        .then(() => console.log('Database connected'))
-        .catch(err => console.error('Database connection error:', err));
+        .then(() => logger.info('Database connected'))
+        .catch(err => logger.error('Database connection error', { error: err.message }));
 }
-
-// Handle graceful shutdown
-process.on('SIGTERM', () => {
-    console.log('SIGTERM received, shutting down...');
-    server.close(() => {
-        console.log('Server closed');
-        process.exit(0);
-    });
-});
-
-process.on('SIGINT', () => {
-    console.log('SIGINT received, shutting down...');
-    server.close(() => {
-        console.log('Server closed');
-        process.exit(0);
-    });
-});
 
 // Start the server
 start();

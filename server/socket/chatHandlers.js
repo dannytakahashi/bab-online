@@ -3,24 +3,23 @@
  */
 
 const gameManager = require('../game/GameManager');
+const { socketLogger } = require('../utils/logger');
 
 function chatMessage(socket, io, data) {
     const game = gameManager.getPlayerGame(socket.id);
 
     if (!game) {
         // Not in a game, can't chat
-        console.log(`Chat rejected: ${socket.id} not in a game`);
+        socketLogger.debug('Chat rejected: not in a game', { socketId: socket.id });
         return;
     }
 
     const position = game.getPositionBySocketId(socket.id);
 
     if (!position) {
-        console.log(`Chat rejected: ${socket.id} has no position`);
+        socketLogger.debug('Chat rejected: no position', { socketId: socket.id });
         return;
     }
-
-    console.log(`Chat message from position ${position}: ${data.message}`);
 
     // Broadcast to players in the same game only
     game.broadcast(io, 'chatMessage', {

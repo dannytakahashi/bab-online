@@ -9,10 +9,11 @@ const gameHandlers = require('./gameHandlers');
 const chatHandlers = require('./chatHandlers');
 const reconnectHandlers = require('./reconnectHandlers');
 const { asyncHandler, syncHandler, safeHandler, rateLimiter } = require('./errorHandler');
+const { socketLogger } = require('../utils/logger');
 
 function setupSocketHandlers(io) {
     io.on('connection', (socket) => {
-        console.log(`Player connected: ${socket.id}`);
+        socketLogger.debug('Player connected', { socketId: socket.id });
 
         // Auth events - with validation
         socket.on('signIn', (data) =>
@@ -60,7 +61,11 @@ function setupSocketHandlers(io) {
                 // Handle game/queue disconnect
                 queueHandlers.handleDisconnect(socket, io);
             } catch (error) {
-                console.error('Error in disconnect handler:', error);
+                socketLogger.error('Error in disconnect handler', {
+                    socketId: socket.id,
+                    error: error.message,
+                    stack: error.stack
+                });
             }
         });
     });

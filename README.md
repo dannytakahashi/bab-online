@@ -198,7 +198,7 @@ The `docs/todos/` directory contains detailed improvement plans:
 | 3 | `03-state-management.md` | Fix global state issues | ✅ Complete |
 | 4 | `04-socket-patterns.md` | Fix socket event handling | ✅ Complete |
 | 5 | `05-security.md` | Security hardening | ✅ Complete |
-| 6 | `06-error-handling-logging.md` | Add logging & error handling | Pending |
+| 6 | `06-error-handling-logging.md` | Add logging & error handling | ✅ Complete |
 | 7 | `07-testing.md` | Add test coverage | Pending |
 | 8 | `08-devops-deployment.md` | CI/CD & containerization | Pending |
 | 9 | `09-asset-management.md` | Optimize asset loading | Pending |
@@ -244,6 +244,15 @@ The `docs/todos/` directory contains detailed improvement plans:
 - Added `.gitignore` to protect `.env` files from accidental commits
 - Created `.env.example` template for required environment variables
 - Removed sensitive connection string logging from database errors
+
+### Error Handling & Logging
+- Implemented Winston structured logging with module-specific loggers
+- Added custom error classes (`GameError`, `ValidationError`, `AuthError`, etc.)
+- Replaced all `console.log` statements with structured logging
+- Added graceful shutdown handler for SIGTERM/SIGINT signals
+- Added HTTP request logging middleware
+- Added client-side error toast notifications for user-friendly error display
+- Log files written to `logs/` directory (error.log + combined.log)
 
 ## Contributing
 
