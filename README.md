@@ -87,7 +87,7 @@ bab-online/
 │   │   └── index.js            # Server configuration
 │   ├── game/
 │   │   ├── Deck.js             # Card deck management
-│   │   ├── GameState.js        # Game state container
+│   │   ├── GameState.js        # Game state + room management
 │   │   ├── GameManager.js      # Multi-game coordination
 │   │   └── rules.js            # Pure game logic functions
 │   ├── socket/
@@ -95,7 +95,10 @@ bab-online/
 │   │   ├── authHandlers.js     # Auth events
 │   │   ├── queueHandlers.js    # Matchmaking events
 │   │   ├── gameHandlers.js     # Game events
-│   │   └── chatHandlers.js     # Chat events
+│   │   ├── chatHandlers.js     # Chat events
+│   │   ├── validators.js       # Joi validation schemas
+│   │   ├── errorHandler.js     # Handler wrappers
+│   │   └── rateLimiter.js      # Per-socket rate limiting
 │   ├── routes/
 │   │   └── index.js            # Express routes
 │   ├── utils/
@@ -193,7 +196,7 @@ The `docs/todos/` directory contains detailed improvement plans:
 | 1 | `01-server-architecture.md` | Modularize server code | ✅ Complete |
 | 2 | `02-client-architecture.md` | Restructure client code | ✅ Complete |
 | 3 | `03-state-management.md` | Fix global state issues | ✅ Complete |
-| 4 | `04-socket-patterns.md` | Fix socket event handling | Pending |
+| 4 | `04-socket-patterns.md` | Fix socket event handling | 🔄 In Progress |
 | 5 | `05-security.md` | Security hardening | Pending |
 | 6 | `06-error-handling-logging.md` | Add logging & error handling | Pending |
 | 7 | `07-testing.md` | Add test coverage | Pending |
@@ -224,6 +227,13 @@ The `docs/todos/` directory contains detailed improvement plans:
 ### Deployment Fixes
 - Fixed Railway 502 error: hardcoded port 3000 (Railway expects this despite setting `PORT=8080`)
 - Removed `node_modules` from git, added proper `.gitignore`
+
+### Socket Patterns (In Progress)
+- Added Joi validation schemas for all socket events (`validators.js`)
+- Added error handling wrappers for async/sync handlers (`errorHandler.js`)
+- Added per-socket rate limiting with configurable limits (`rateLimiter.js`)
+- Added Socket.IO room support for targeted game broadcasts (game events only go to game participants)
+- Remaining: Reconnection logic, connection state UI, heartbeat monitoring
 
 ## Contributing
 

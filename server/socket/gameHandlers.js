@@ -77,7 +77,7 @@ async function draw(socket, io, data) {
 
         await delay(1000);
 
-        io.emit('positionUpdate', {
+        game.broadcast(io, 'positionUpdate', {
             positions,
             sockets: game.drawIDs,
             usernames: orderedUsers,
@@ -93,7 +93,7 @@ async function draw(socket, io, data) {
         game.phase = 'bidding';
 
         // createUI must come BEFORE gameStart (client expects this order)
-        io.emit('createUI');
+        game.broadcast(io, 'createUI', {});
 
         await delay(1000);
 
@@ -124,7 +124,7 @@ async function startHand(game, io) {
             if (isRainbow(hand, game.trump)) {
                 const position = game.getPositionBySocketId(socketId);
                 console.log(`player ${socketId} has a rainbow!`);
-                io.emit('rainbow', { position });
+                game.broadcast(io, 'rainbow', { position });
 
                 if (position === 1 || position === 3) {
                     game.rainbows.team1 += 1;
@@ -135,19 +135,16 @@ async function startHand(game, io) {
         }
     }
 
-    // Send game start to all players
+    // Send game start to all players (each gets their own hand)
     for (const socketId of socketIds) {
-        const socket = io.sockets.sockets.get(socketId);
-        if (socket) {
-            socket.emit('gameStart', {
-                players: socketIds,
-                hand: game.getHand(socketId),
-                trump: game.trump,
-                score1: game.score.team1,
-                score2: game.score.team2,
-                dealer: game.dealer
-            });
-        }
+        game.sendToPlayer(io, socketId, 'gameStart', {
+            players: socketIds,
+            hand: game.getHand(socketId),
+            trump: game.trump,
+            score1: game.score.team1,
+            score2: game.score.team2,
+            dealer: game.dealer
+        });
     }
 
     console.log('Game started');
@@ -156,7 +153,7 @@ async function startHand(game, io) {
 
     await delay(1000);
 
-    io.emit('updateTurn', { currentTurn: game.currentTurn });
+    game.broadcast(io, 'updateTurn', { currentTurn: game.currentTurn });
     console.log('emitted update turn on game start');
 }
 
@@ -176,7 +173,7 @@ async function playerBid(socket, io, data) {
     game.recordBid(position, bid);
 
     console.log(`position ${position} bid ${bid}`);
-    io.emit('bidReceived', {
+    game.broadcast(io, 'bidReceived', {
         bid: data.bid,
         position,
         bidArray: game.playerBids
@@ -213,12 +210,12 @@ async function playerBid(socket, io, data) {
 
         const lead = findHighestBidder(game.bidder, bids) + 1;
 
-        io.emit('doneBidding', { bids, lead });
+        game.broadcast(io, 'doneBidding', { bids, lead });
 
         // Check for zero bids (redeal)
         if (game.bids.team1 === 0 && game.bids.team2 === 0) {
             console.log('zero bids, redeal!');
-            io.emit('destroyHands');
+            game.broadcast(io, 'destroyHands', {});
             await cleanupNextHand(game, io, game.dealer, game.currentHand);
             return;
         }
@@ -228,7 +225,7 @@ async function playerBid(socket, io, data) {
         game.leadPosition = lead;
     }
 
-    io.emit('updateTurn', { currentTurn: game.currentTurn });
+    game.broadcast(io, 'updateTurn', { currentTurn: game.currentTurn });
     console.log('emitted update turn after a bid');
 }
 
@@ -282,7 +279,7 @@ async function playCard(socket, io, data) {
         game.isTrumpBroken = true;
     }
 
-    io.emit('cardPlayed', {
+    game.broadcast(io, 'cardPlayed', {
         playerId: socket.id,
         card,
         position,
@@ -308,7 +305,7 @@ async function playCard(socket, io, data) {
 
         game.currentTurn = winner;
 
-        io.emit('trickComplete', { winner });
+        game.broadcast(io, 'trickComplete', { winner });
         console.log('fired trick complete');
 
         game.playedCards = [];
@@ -321,7 +318,7 @@ async function playCard(socket, io, data) {
         }
     }
 
-    io.emit('updateTurn', { currentTurn: game.currentTurn });
+    game.broadcast(io, 'updateTurn', { currentTurn: game.currentTurn });
     console.log('emitted update turn on a playCard');
 }
 
@@ -354,7 +351,7 @@ async function handleHandComplete(game, io) {
     console.log(`team 1 score: ${game.score.team1}, bidding ${game.playerBids[0]} and ${game.playerBids[2]}, getting ${game.tricks.team1}`);
     console.log(`team 2 score: ${game.score.team2}, bidding ${game.playerBids[1]} and ${game.playerBids[3]}, getting ${game.tricks.team2}`);
 
-    io.emit('handComplete', {
+    game.broadcast(io, 'handComplete', {
         score: game.score,
         team1Tricks: game.tricks.team1,
         team2Tricks: game.tricks.team2,
@@ -380,7 +377,8 @@ async function handleHandComplete(game, io) {
     if (nextHandSize === 13) {
         // Game over
         console.log('firing gameEnd');
-        io.emit('gameEnd', { score: game.score });
+        game.broadcast(io, 'gameEnd', { score: game.score });
+        game.leaveAllFromRoom(io);
         game.resetForNewGame();
     } else {
         console.log(`starting next hand with dealer ${nextDealer} and hand ${nextHandSize}`);
@@ -410,7 +408,7 @@ async function cleanupNextHand(game, io, dealer, handSize) {
             if (isRainbow(hand, game.trump)) {
                 const position = game.getPositionBySocketId(socketId);
                 console.log(`player ${socketId} has a rainbow!`);
-                io.emit('rainbow', { position });
+                game.broadcast(io, 'rainbow', { position });
 
                 if (position === 1 || position === 3) {
                     game.rainbows.team1 += 1;
@@ -421,25 +419,22 @@ async function cleanupNextHand(game, io, dealer, handSize) {
         }
     }
 
-    // Send new hand to all players
+    // Send new hand to all players (each gets their own hand)
     for (const socketId of socketIds) {
-        const socket = io.sockets.sockets.get(socketId);
-        if (socket) {
-            socket.emit('gameStart', {
-                players: socketIds,
-                hand: game.getHand(socketId),
-                trump: game.trump,
-                score1: game.score.team1,
-                score2: game.score.team2,
-                dealer: game.dealer
-            });
-        }
+        game.sendToPlayer(io, socketId, 'gameStart', {
+            players: socketIds,
+            hand: game.getHand(socketId),
+            trump: game.trump,
+            score1: game.score.team1,
+            score2: game.score.team2,
+            dealer: game.dealer
+        });
     }
 
     console.log('hand started');
     game.currentTurn = game.bidder;
 
-    io.emit('updateTurn', { currentTurn: game.currentTurn });
+    game.broadcast(io, 'updateTurn', { currentTurn: game.currentTurn });
     console.log('emitted update turn on a cleanup/handstart');
 }
 
