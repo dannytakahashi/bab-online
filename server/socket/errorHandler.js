@@ -1,19 +1,32 @@
 /**
  * Error handling utilities for socket event handlers
  * Wraps handlers to catch and properly handle errors
+ * Includes rate limiting and validation
  */
 
 const { validate, ValidationError } = require('./validators');
+const rateLimiter = require('./rateLimiter');
 
 /**
- * Wrap an async socket handler with error handling and validation
+ * Wrap an async socket handler with rate limiting, validation, and error handling
  * @param {string} schemaName - Name of validation schema (or null to skip validation)
  * @param {Function} handler - Async handler function (socket, io, data) => Promise
+ * @param {Object} options - Options { rateLimit: boolean }
  * @returns {Function} - Wrapped handler
  */
-function asyncHandler(schemaName, handler) {
+function asyncHandler(schemaName, handler, options = { rateLimit: true }) {
     return async (socket, io, data) => {
         try {
+            // Check rate limit first
+            if (options.rateLimit && schemaName && !rateLimiter.check(socket.id, schemaName)) {
+                socket.emit('error', {
+                    type: 'rateLimit',
+                    message: 'Too many requests, please slow down',
+                    handler: schemaName
+                });
+                return;
+            }
+
             // Validate input if schema provided
             let validatedData = data;
             if (schemaName) {
@@ -30,14 +43,25 @@ function asyncHandler(schemaName, handler) {
 }
 
 /**
- * Wrap a sync socket handler with error handling and validation
+ * Wrap a sync socket handler with rate limiting, validation, and error handling
  * @param {string} schemaName - Name of validation schema (or null to skip validation)
  * @param {Function} handler - Sync handler function (socket, io, data) => void
+ * @param {Object} options - Options { rateLimit: boolean }
  * @returns {Function} - Wrapped handler
  */
-function syncHandler(schemaName, handler) {
+function syncHandler(schemaName, handler, options = { rateLimit: true }) {
     return (socket, io, data) => {
         try {
+            // Check rate limit first
+            if (options.rateLimit && schemaName && !rateLimiter.check(socket.id, schemaName)) {
+                socket.emit('error', {
+                    type: 'rateLimit',
+                    message: 'Too many requests, please slow down',
+                    handler: schemaName
+                });
+                return;
+            }
+
             // Validate input if schema provided
             let validatedData = data;
             if (schemaName) {
@@ -86,18 +110,19 @@ function handleError(socket, handlerName, error) {
 }
 
 /**
- * Create a simple wrapper that just adds error handling (no validation)
+ * Create a simple wrapper that just adds error handling (no validation or rate limiting)
  * Useful for handlers that don't need input validation
  * @param {Function} handler - Handler function
  * @returns {Function} - Wrapped handler
  */
 function safeHandler(handler) {
-    return asyncHandler(null, handler);
+    return asyncHandler(null, handler, { rateLimit: false });
 }
 
 module.exports = {
     asyncHandler,
     syncHandler,
     safeHandler,
-    handleError
+    handleError,
+    rateLimiter
 };
