@@ -175,7 +175,7 @@ async function playerBid(socket, io, data) {
         return;
     }
 
-    const bid = data.bid.toUpperCase();
+    const bid = String(data.bid).toUpperCase();
     game.recordBid(position, bid);
 
     console.log(`position ${position} bid ${bid}`);
