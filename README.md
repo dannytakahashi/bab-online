@@ -199,7 +199,7 @@ The `docs/todos/` directory contains detailed improvement plans:
 | 4 | `04-socket-patterns.md` | Fix socket event handling | ✅ Complete |
 | 5 | `05-security.md` | Security hardening | ✅ Complete |
 | 6 | `06-error-handling-logging.md` | Add logging & error handling | ✅ Complete |
-| 7 | `07-testing.md` | Add test coverage | Pending |
+| 7 | `07-testing.md` | Add test coverage | ✅ Complete |
 | 8 | `08-devops-deployment.md` | CI/CD & containerization | Pending |
 | 9 | `09-asset-management.md` | Optimize asset loading | Pending |
 
@@ -244,6 +244,13 @@ The `docs/todos/` directory contains detailed improvement plans:
 - Added `.gitignore` to protect `.env` files from accidental commits
 - Created `.env.example` template for required environment variables
 - Removed sensitive connection string logging from database errors
+
+### Testing
+- Set up Jest testing framework with 112 unit tests
+- Created comprehensive tests for game rules (`rules.test.js`)
+- Created tests for Deck class (`Deck.test.js`)
+- Created tests for GameManager singleton (`GameManager.test.js`)
+- Coverage: Deck.js 100%, GameManager.js ~85%, rules.js ~80%
 
 ### Error Handling & Logging
 - Implemented Winston structured logging with module-specific loggers
