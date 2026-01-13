@@ -217,6 +217,11 @@ class GameState {
      * @param {Object} data - Event data
      */
     broadcast(io, event, data) {
+        const room = io.sockets.adapter.rooms.get(this.roomName);
+        const roomSize = room ? room.size : 0;
+        if (this._debugMode) {
+            console.log(`[Broadcast] ${event} to room ${this.roomName} (${roomSize} members)`);
+        }
         io.to(this.roomName).emit(event, data);
     }
 
