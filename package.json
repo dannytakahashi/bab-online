@@ -2,10 +2,12 @@
     "name": "multiplayer-card-game",
     "version": "1.0.0",
     "description": "A 4-player online card game using Phaser and Socket.io",
-    "main": "server.js",
+    "main": "server/index.js",
     "scripts": {
-        "start": "node server/server.js",
-        "dev": "nodemon server.js"
+        "start": "node server/index.js",
+        "start:old": "node server/server.js",
+        "dev": "nodemon server/index.js",
+        "dev:old": "nodemon server/server.js"
     },
     "dependencies": {
         "bcryptjs": "^3.0.2",
@@ -14,7 +16,8 @@
         "express": "^4.21.2",
         "helmet": "^8.0.0",
         "mongoose": "^8.12.1",
-        "socket.io": "^4.8.1"
+        "socket.io": "^4.8.1",
+        "uuid": "^9.0.0"
     },
     "devDependencies": {
         "nodemon": "^3.1.9"
