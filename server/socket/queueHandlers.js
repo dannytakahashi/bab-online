@@ -22,8 +22,8 @@ async function joinQueue(socket, io) {
         const game = result.game;
 
         // Join all players to the game room for targeted broadcasts
-        const queuedSocketIds = result.queuedUsers.map(u => u.socketId);
-        for (const socketId of queuedSocketIds) {
+        // result.players is the array of socket IDs that joined this game
+        for (const socketId of result.players) {
             game.joinToRoom(io, socketId);
         }
 
