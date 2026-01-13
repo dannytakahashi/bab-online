@@ -1,12 +1,5 @@
 /**
- * BAB Online Server - Entry Point
- *
- * Refactored architecture with modular components:
- * - config/: Server configuration
- * - game/: Game logic (Deck, GameState, GameManager, rules)
- * - socket/: Socket.IO event handlers
- * - routes/: Express routes
- * - utils/: Utility functions
+ * BAB Online Server - Minimal version for debugging
  */
 
 require('dotenv').config();
@@ -15,26 +8,18 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
-const helmet = require('helmet');
-const cors = require('cors');
-
-const config = require('./config');
-const { connectDB } = require('./database');
-const { setupSocketHandlers } = require('./socket');
-const routes = require('./routes');
 
 // Initialize Express
 const app = express();
 const server = http.createServer(app);
 
-// CSP Header (custom, matches original)
-// Note: helmet() and cors() middleware removed - old server didn't use them
+// Minimal CSP
 app.use((req, res, next) => {
     res.setHeader('Content-Security-Policy',
         "default-src 'self' https://bab-online-production.up.railway.app; " +
         "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cdn.socket.io; " +
         "img-src 'self' data: blob:; " +
-        "connect-src 'self' wss://bab-online-production.up.railway.app https://bab-online-production.up.railway.app; " +
+        "connect-src 'self' wss://bab-online-production.up.railway.app https://bab-online-production.up.railway.app wss://babonline.io https://babonline.io; " +
         "font-src 'self' https://fonts.gstatic.com; " +
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
     );
@@ -43,52 +28,44 @@ app.use((req, res, next) => {
 
 // Static files
 app.use(express.static(path.join(__dirname, '..', 'client')));
-app.use('/assets-debug', express.static(path.join(__dirname, '..', 'client', 'assets')));
 
-// Routes
-app.use('/', routes);
+// Health check
+app.get('/health', (req, res) => {
+    res.json({ status: 'ok' });
+});
 
-// Socket.IO
+// Main route
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, '..', 'client', 'index.html'));
+});
+
+// Socket.IO with minimal config
 const io = new Server(server, {
     cors: {
-        origin: config.allowedOrigins,
-        methods: ['GET', 'POST']
+        origin: "*",
+        methods: ["GET", "POST"]
     }
 });
 
-// Setup socket event handlers
-setupSocketHandlers(io);
+// Minimal socket handler - just log connections
+io.on('connection', (socket) => {
+    console.log(`Player connected: ${socket.id}`);
+    socket.on('disconnect', () => {
+        console.log(`Player disconnected: ${socket.id}`);
+    });
+});
 
 // Start server
-function start() {
-    // Start listening immediately (don't wait for DB)
-    server.listen(config.port, () => {
-        console.log(`Server running on port ${config.port}`);
-        console.log(`Environment: ${config.env}`);
-    });
-
-    // Connect to database in background (fire and forget like original)
-    connectDB()
-        .then(() => console.log('Database connected'))
-        .catch(err => console.error('Database connection error:', err));
-}
-
-// Handle graceful shutdown
-process.on('SIGTERM', () => {
-    console.log('SIGTERM received, shutting down...');
-    server.close(() => {
-        console.log('Server closed');
-        process.exit(0);
-    });
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
 });
 
-process.on('SIGINT', () => {
-    console.log('SIGINT received, shutting down...');
-    server.close(() => {
-        console.log('Server closed');
-        process.exit(0);
-    });
+// Log any uncaught errors
+process.on('uncaughtException', (err) => {
+    console.error('Uncaught Exception:', err);
 });
 
-// Start the server
-start();
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
