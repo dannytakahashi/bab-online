@@ -81,6 +81,7 @@ function indexOfMax(position, arr) {
 require("dotenv").config();
 const path = require('path');
 const bcrypt = require("bcryptjs");
+const { v4: uuidv4 } = require('uuid');
 const User = require("./database"); // ✅ Import User model
 const express = require("express");
 const http = require("http");
@@ -128,19 +129,19 @@ let playerBids = [];
 let numBids = 0;
 let team1OldScore, team2OldScore = [];
 let idx;
-let gameState = { 
-    deck: [], 
+let gameState = {
+    deck: [],
     hands: {},
     currentTurn: 1,
     bidding: 1,
     dealer: 1,
     bidder: 2,
     currentHand:12,
-    trump: {}, 
+    trump: {},
     isTrumpBroken: false,
     bids: {
         team1: 0,
-        team2: 0    
+        team2: 0
     },
     tricks: {
         team1: 0,
@@ -158,8 +159,11 @@ let gameState = {
     team1Mult : 1,
     team2Mult : 1,
     start : false,
-    draw : false
+    draw : false,
+    gameId: null  // Track current game ID for reconnection
 };
+// Player info for reconnection: { username: { socketId, position, pic } }
+let playerInfoByUsername = {};
 let trumpCard = [];
 function drawOrder(myCard,cards){
     let suits = {
@@ -588,17 +592,37 @@ io.on("connection", (socket) => {
         gameState.deck.splice(order,1);
         drawIndex ++;
         if (drawIndex === 4){
+            // Generate a new game ID for reconnection support
+            gameState.gameId = uuidv4();
+            console.log(`[GAME] New game started with ID: ${gameState.gameId}`);
+
             let i = 0;
             for(let player of drawIDs){
-                io.to(player).emit("playerAssigned", {playerId: player, position: drawOrder(drawCards[i], drawCards) });
-                console.log("assigned player with socket ", player, " to position ", drawOrder(drawCards[i], drawCards));
-                positions[players.indexOf(player)] = drawOrder(drawCards[i], drawCards);
+                const pos = drawOrder(drawCards[i], drawCards);
+                io.to(player).emit("playerAssigned", {playerId: player, position: pos });
+                console.log("assigned player with socket ", player, " to position ", pos);
+                positions[players.indexOf(player)] = pos;
                 i++;
             }
             currentUsers = reOrderUsers(currentUsers, players);
             console.log("current users after reordering: ", currentUsers);
             console.log("positions: ", positions);
             console.log("sockets: ", players);
+
+            // Store player info for reconnection
+            playerInfoByUsername = {};
+            for (let i = 0; i < players.length; i++) {
+                const user = currentUsers[i];
+                if (user && user.username) {
+                    playerInfoByUsername[user.username] = {
+                        socketId: players[i],
+                        position: positions[i],
+                        pic: pics[i]
+                    };
+                    console.log(`[RECONNECT] Stored player info: ${user.username} -> position ${positions[i]}`);
+                }
+            }
+
             sleepSync(1000);
             io.emit("positionUpdate", {positions: positions, sockets: players, usernames: currentUsers, pics: pics});
             i = 0;
@@ -606,7 +630,7 @@ io.on("connection", (socket) => {
             gameState.deck = initializeDeck();
             for (let i = 0; i < players.length; i++) {
                 gameState.hands[players[i]] = gameState.deck.splice(0, gameState.currentHand);
-                
+
             }
             trumpCard = gameState.deck.shift()
             gameState.trump = trumpCard;
@@ -631,7 +655,8 @@ io.on("connection", (socket) => {
                 let socketId = player;
                 let socket = io.sockets.sockets.get(socketId);
                 if(socket){
-                    socket.emit("gameStart", { players, hand: gameState.hands[player], trump: gameState.trump, score1: gameState.score.team1, score2: gameState.score.team2, dealer: gameState.dealer });
+                    // Include gameId for reconnection support
+                    socket.emit("gameStart", { gameId: gameState.gameId, players, hand: gameState.hands[player], trump: gameState.trump, score1: gameState.score.team1, score2: gameState.score.team2, dealer: gameState.dealer });
                 }
             });
             console.log("Game started", gameState.hands);
@@ -818,7 +843,111 @@ io.on("connection", (socket) => {
         // Emit the chat message to all players
         io.emit("chatMessage", { position: positions[players.indexOf(socket.id)], message: data.message });
     });
+
+    // Handle reconnection attempt
+    socket.on("rejoinGame", (data) => {
+        const { gameId, username } = data;
+        console.log(`[REJOIN] Attempt: ${username} trying to rejoin game ${gameId}`);
+
+        // Check if game exists and matches
+        if (!gameState.gameId || gameState.gameId !== gameId) {
+            console.log(`[REJOIN] Failed: game ${gameId} not found (current: ${gameState.gameId})`);
+            socket.emit('rejoinFailed', { reason: 'Game no longer exists' });
+            return;
+        }
+
+        // Check if this player was in the game
+        const playerInfo = playerInfoByUsername[username];
+        if (!playerInfo) {
+            console.log(`[REJOIN] Failed: ${username} not found in game`);
+            console.log(`[REJOIN] Known players:`, Object.keys(playerInfoByUsername));
+            socket.emit('rejoinFailed', { reason: 'Not a player in this game' });
+            return;
+        }
+
+        console.log(`[REJOIN] Found player ${username} at position ${playerInfo.position}`);
+
+        // Update socket mappings
+        const oldSocketId = playerInfo.socketId;
+        const position = playerInfo.position;
+
+        // Update players array
+        const playerIndex = players.indexOf(oldSocketId);
+        if (playerIndex !== -1) {
+            players[playerIndex] = socket.id;
+        }
+
+        // Update currentPlayers
+        const cpIndex = currentPlayers.indexOf(oldSocketId);
+        if (cpIndex !== -1) {
+            currentPlayers[cpIndex] = socket.id;
+        }
+
+        // Move hand from old socket to new socket
+        if (gameState.hands[oldSocketId]) {
+            gameState.hands[socket.id] = gameState.hands[oldSocketId];
+            delete gameState.hands[oldSocketId];
+        }
+
+        // Update playerInfoByUsername
+        playerInfoByUsername[username].socketId = socket.id;
+
+        // Update currentUsers
+        const userIndex = currentUsers.findIndex(u => u.username === username);
+        if (userIndex !== -1) {
+            currentUsers[userIndex].socketId = socket.id;
+        } else {
+            currentUsers.push({ username, socketId: socket.id });
+        }
+
+        // Build player info for client
+        const playerInfoList = [];
+        for (const [uname, info] of Object.entries(playerInfoByUsername)) {
+            playerInfoList.push({
+                username: uname,
+                socketId: info.socketId,
+                position: info.position,
+                pic: info.pic
+            });
+        }
+
+        console.log(`[REJOIN] Success: ${username} rejoined at position ${position}`);
+
+        // Send game state to rejoining player
+        socket.emit('rejoinSuccess', {
+            gameId: gameState.gameId,
+            position: position,
+            hand: gameState.hands[socket.id],
+            trump: gameState.trump,
+            currentHand: gameState.currentHand,
+            dealer: gameState.dealer,
+            bidding: gameState.bidding,
+            currentTurn: gameState.currentTurn,
+            bids: gameState.bids,
+            playerBids: playerBids,
+            tricks: gameState.tricks,
+            score: gameState.score,
+            players: playerInfoList
+        });
+
+        // Notify other players
+        io.emit('playerReconnected', { position, username });
+    });
+
     socket.on("disconnect", () => {
+        // Check if this is a player in an active game
+        const isInActiveGame = currentPlayers.includes(socket.id) && (gameState.start || gameState.draw);
+
+        if (isInActiveGame) {
+            // Don't abort immediately - give time to reconnect
+            const position = positions[players.indexOf(socket.id)];
+            console.log(`[DISCONNECT] Player at position ${position} disconnected. Waiting for reconnection...`);
+            io.emit("playerDisconnected", { position });
+            // Don't remove from players/currentUsers - they might reconnect
+            return;
+        }
+
+        // Not in active game - clean up normally
         if(!currentPlayers.includes(socket.id)){
             players = players.filter((player) => player !== socket.id);
             currentUsers = currentUsers.filter((user) => user.socketId !== socket.id);

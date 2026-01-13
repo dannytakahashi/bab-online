@@ -27,6 +27,8 @@ class GameManager {
         // Remove any existing entry for this username
         this.currentUsers = this.currentUsers.filter(u => u.username !== username);
         this.currentUsers.push({ username, socketId });
+        console.log(`[DEBUG] registerUser: ${username} with socketId ${socketId}`);
+        console.log(`[DEBUG] currentUsers now:`, this.currentUsers.map(u => `${u.username}:${u.socketId}`));
     }
 
     /**
