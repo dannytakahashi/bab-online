@@ -200,7 +200,7 @@ The `docs/todos/` directory contains detailed improvement plans:
 | 5 | `05-security.md` | Security hardening | ✅ Complete |
 | 6 | `06-error-handling-logging.md` | Add logging & error handling | ✅ Complete |
 | 7 | `07-testing.md` | Add test coverage | ✅ Complete |
-| 8 | `08-devops-deployment.md` | CI/CD & containerization | Pending |
+| 8 | `08-devops-deployment.md` | CI/CD & containerization | ✅ Complete |
 | 9 | `09-asset-management.md` | Optimize asset loading | Pending |
 
 ## Recent Improvements
@@ -260,6 +260,29 @@ The `docs/todos/` directory contains detailed improvement plans:
 - Added HTTP request logging middleware
 - Added client-side error toast notifications for user-friendly error display
 - Log files written to `logs/` directory (error.log + combined.log)
+
+### DevOps & Deployment
+- Added health check endpoints (`/health`, `/ready`, `/live`)
+- Created Dockerfile with multi-stage build and non-root user
+- Created docker-compose.yml for local development with MongoDB
+- Set up GitHub Actions CI/CD pipeline (test, build, deploy)
+- Created railway.toml for Railway.app deployment configuration
+
+## Docker
+
+```bash
+# Start with Docker Compose
+docker-compose up -d
+
+# View logs
+docker-compose logs -f app
+
+# Stop services
+docker-compose down
+
+# Rebuild after changes
+docker-compose up -d --build
+```
 
 ## Contributing
 

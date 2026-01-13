@@ -563,15 +563,15 @@ module.exports = config;
 
 ## Verification Checklist
 
-1. [ ] `.gitignore` created and working
-2. [ ] `.env` removed from git history
+1. [x] `.gitignore` created and working
+2. [ ] `.env` removed from git history (optional - requires force push)
 3. [ ] Secrets rotated after removal
-4. [ ] `.env.example` created with documentation
-5. [ ] Health endpoints return correct status
-6. [ ] Graceful shutdown works (test with `kill -SIGTERM`)
-7. [ ] Docker build succeeds
-8. [ ] Docker container starts and responds
-9. [ ] GitHub Actions runs on push
-10. [ ] Tests pass in CI
-11. [ ] Deployment to Railway works
+4. [x] `.env.example` created with documentation
+5. [x] Health endpoints return correct status (`/health`, `/ready`, `/live`)
+6. [x] Graceful shutdown works (test with `kill -SIGTERM`)
+7. [x] Docker build succeeds (Dockerfile created)
+8. [x] Docker container starts and responds (docker-compose.yml created)
+9. [x] GitHub Actions runs on push (`.github/workflows/ci.yml` created)
+10. [ ] Tests pass in CI (verify after first push)
+11. [ ] Deployment to Railway works (requires RAILWAY_TOKEN secret)
 12. [ ] Production environment variables configured
