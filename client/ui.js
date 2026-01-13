@@ -966,12 +966,20 @@ function showImpactEvent(event){
     });
 }
 window.onload = () => {
-    // Only show sign-in if user is not already logged in
+    // Check if user is logged in and was in a game
     const username = sessionStorage.getItem('username');
+    const gameId = sessionStorage.getItem('gameId');
+
     if (!username) {
+        // Not logged in, show sign-in
         showSignInScreen();
+    } else if (gameId) {
+        // Was in a game - socketManager will attempt rejoin
+        // Don't show anything yet, wait for rejoin result
+        console.log("Attempting to rejoin game, waiting for result...");
+        // The rejoinSuccess/rejoinFailed handlers in game.js will handle the UI
     } else {
-        // User is logged in, show lobby
+        // Logged in but not in a game, show lobby
         showLobbyScreen();
     }
 };

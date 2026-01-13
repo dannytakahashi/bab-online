@@ -28,7 +28,7 @@ document.addEventListener("rejoinSuccess", (event) => {
     position = data.position;
     playerId = socket.id;
 
-    // Restore player data
+    // Restore player data (matching the structure from positionUpdate)
     playerData = {
         position: data.players.map(p => p.position),
         socket: data.players.map(p => p.socketId),
@@ -45,23 +45,60 @@ document.addEventListener("rejoinSuccess", (event) => {
     score1 = data.score.team1;
     score2 = data.score.team2;
 
-    // Rebuild UI - trigger a scene restart with the restored state
+    // Get the scene
     let scene = game.scene.scenes[0];
-    if (scene) {
-        console.log("🔄 Rebuilding game UI after rejoin");
-        // Remove waiting screen if present
-        removeWaitingScreen();
-        removeDraw();
-        createGameFeed();
-        initGameChat();
-        if (!scoreUI) {
-            scoreUI = createScorebug();
-        }
-        // Trigger displayCards with restored hand
-        if (playerCards && playerCards.length > 0) {
-            displayCards.call(scene, playerCards);
-        }
+    if (!scene) {
+        console.error("🚨 No scene available for rejoin");
+        return;
     }
+
+    console.log("🔄 Rebuilding game UI after rejoin");
+
+    // Remove any overlays
+    removeWaitingScreen();
+    removeDraw();
+
+    // Create game UI elements
+    createGameFeed();
+    initGameChat();
+    if (!scoreUI) {
+        scoreUI = createScorebug();
+    }
+
+    // Calculate player names (same as gameStart handler)
+    me = playerData.username[playerData.position.indexOf(position)]?.username || 'You';
+    partner = playerData.username[playerData.position.indexOf(team(position))]?.username || 'Partner';
+    opp1 = playerData.username[playerData.position.indexOf(rotate(position))]?.username || 'Opp1';
+    opp2 = playerData.username[playerData.position.indexOf(rotate(rotate(rotate(position))))]?.username || 'Opp2';
+
+    // Update score display with team names
+    if (position % 2 !== 0) {
+        scoreUI.teamScoreLabel.setText(me + "/" + partner + ": -/-       " + score1);
+        scoreUI.oppScoreLabel.setText(opp1 + "/" + opp2 + ": -/-       " + score2);
+    } else {
+        scoreUI.teamScoreLabel.setText(me + "/" + partner + ": -/-       " + score2);
+        scoreUI.oppScoreLabel.setText(opp1 + "/" + opp2 + ": -/-       " + score1);
+    }
+
+    // Create player info box
+    if (!playerInfo) {
+        playerInfo = createPlayerInfoBox();
+    }
+
+    // Display cards
+    if (playerCards && playerCards.length > 0) {
+        displayCards.call(scene, playerCards);
+    }
+
+    // Display opponent hands (card backs)
+    displayOpponentHands.call(scene, playerCards ? playerCards.length : 0, dealer);
+
+    // Display trump card
+    if (trump) {
+        displayTableCard.call(scene, trump);
+    }
+
+    addToGameFeed("Reconnected to game!");
 });
 
 // Handle rejoin failure
