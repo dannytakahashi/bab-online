@@ -17,15 +17,21 @@ async function rejoinGame(socket, io, data) {
     // Find the game
     const game = gameManager.getGameById(gameId);
     if (!game) {
-        console.log(`Rejoin failed: game ${gameId} not found`);
+        console.log(`[REJOIN] Failed: game ${gameId} not found`);
         socket.emit('rejoinFailed', { reason: 'Game no longer exists' });
         return;
+    }
+
+    // Debug: Log all players in the game
+    console.log(`[REJOIN] Game found. Players in game:`);
+    for (const [socketId, player] of game.players.entries()) {
+        console.log(`  - socketId: ${socketId}, username: ${player.username}, position: ${player.position}`);
     }
 
     // Find player by username
     const existingPlayer = game.getPlayerByUsername(username);
     if (!existingPlayer) {
-        console.log(`Rejoin failed: ${username} not found in game ${gameId}`);
+        console.log(`[REJOIN] Failed: ${username} not found in game ${gameId}`);
         socket.emit('rejoinFailed', { reason: 'Not a player in this game' });
         return;
     }
