@@ -138,6 +138,7 @@ async function startHand(game, io) {
     // Send game start to all players (each gets their own hand)
     for (const socketId of socketIds) {
         game.sendToPlayer(io, socketId, 'gameStart', {
+            gameId: game.gameId,
             players: socketIds,
             hand: game.getHand(socketId),
             trump: game.trump,
@@ -422,6 +423,7 @@ async function cleanupNextHand(game, io, dealer, handSize) {
     // Send new hand to all players (each gets their own hand)
     for (const socketId of socketIds) {
         game.sendToPlayer(io, socketId, 'gameStart', {
+            gameId: game.gameId,
             players: socketIds,
             hand: game.getHand(socketId),
             trump: game.trump,

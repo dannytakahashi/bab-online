@@ -61,19 +61,31 @@ class GameScene extends Phaser.Scene {
 
 ---
 
-## Task 2: Client - Implement Reconnection Logic
+## Task 2: Client - Implement Reconnection Logic ✅
 
 **Problem:** Disconnect just restarts scene, loses game state
 
-**Current (game.js lines 734-744):**
-```javascript
-socket.on("disconnect", () => {
-    // Just restarts everything - loses game progress!
-    this.scene.restart();
-});
-```
+**Solution:** Implemented reconnection with state recovery:
 
-**Solution:** Implement reconnection with state recovery
+**Server-side:**
+- `GameState.getPlayerByUsername()` - Find player by username
+- `GameState.updatePlayerSocket()` - Update socket mapping on rejoin
+- `GameState.getClientState()` - Return full game state for rejoining client
+- `reconnectHandlers.js` - New handler for `rejoinGame` event
+
+**Client-side:**
+- `socketManager.js` - Tracks gameId, auto-attempts rejoin on reconnect
+- `game.js` - Handlers for `rejoinSuccess`, `rejoinFailed`, `playerReconnected`
+- Game ID stored in sessionStorage for persistence across refreshes
+
+**Flow:**
+1. Client stores gameId when game starts
+2. On disconnect, Socket.IO auto-reconnects (5 attempts)
+3. On reconnect, client emits `rejoinGame` with gameId + username
+4. Server validates and restores player to game with current state
+5. Client rebuilds UI with restored game state
+
+**Original proposed solution (preserved for reference):**
 
 ```javascript
 class SocketManager {
@@ -622,7 +634,7 @@ socketManager.on('pong', (latency) => {
 ## Verification
 
 1. [x] No socket listener accumulation (check with `socket.listeners()`) - SocketManager tracks listeners
-2. [ ] Reconnection works and restores game state
+2. [x] Reconnection works and restores game state - rejoinGame handler + client auto-rejoin
 3. [ ] Connection indicator shows correct status
 4. [x] Invalid data is rejected with helpful error messages - Joi validation in validators.js
 5. [x] Rate limiting prevents spam - rateLimiter.js with per-socket tracking

@@ -76,6 +76,101 @@ class GameState {
         return player ? player.position : null;
     }
 
+    /**
+     * Find a player by username
+     * @param {string} username - Username to find
+     * @returns {Object|null} - Player info with socketId, or null
+     */
+    getPlayerByUsername(username) {
+        for (const [socketId, player] of this.players.entries()) {
+            if (player.username === username) {
+                return { socketId, ...player };
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Update socket ID for a reconnecting player
+     * @param {number} position - Player's position (1-4)
+     * @param {string} newSocketId - New socket ID
+     * @param {Server} io - Socket.IO server for room management
+     * @returns {string|null} - Old socket ID, or null if position not found
+     */
+    updatePlayerSocket(position, newSocketId, io) {
+        const oldSocketId = this.positions[position];
+        if (!oldSocketId) return null;
+
+        const player = this.players.get(oldSocketId);
+        if (!player) return null;
+
+        // Remove old socket from room
+        if (io) {
+            this.leaveRoom(io, oldSocketId);
+        }
+
+        // Transfer player data to new socket
+        this.players.delete(oldSocketId);
+        this.players.set(newSocketId, player);
+        this.positions[position] = newSocketId;
+
+        // Transfer hand to new socket
+        if (this.hands[oldSocketId]) {
+            this.hands[newSocketId] = this.hands[oldSocketId];
+            delete this.hands[oldSocketId];
+        }
+
+        // Add new socket to room
+        if (io) {
+            this.joinToRoom(io, newSocketId);
+        }
+
+        this.logAction('updatePlayerSocket', { position, oldSocketId, newSocketId });
+        return oldSocketId;
+    }
+
+    /**
+     * Get current game state for a rejoining client
+     * @param {string} socketId - Socket ID of the player
+     * @returns {Object} - Game state object
+     */
+    getClientState(socketId) {
+        const position = this.getPositionBySocketId(socketId);
+
+        // Build player info array
+        const playerInfo = [];
+        for (let pos = 1; pos <= 4; pos++) {
+            const player = this.getPlayerByPosition(pos);
+            if (player) {
+                playerInfo.push({
+                    position: pos,
+                    username: player.username,
+                    pic: player.pic,
+                    socketId: player.socketId
+                });
+            }
+        }
+
+        return {
+            gameId: this.gameId,
+            position,
+            hand: this.getHand(socketId),
+            trump: this.trump,
+            currentHand: this.currentHand,
+            dealer: this.dealer,
+            phase: this.phase,
+            bidding: this.bidding,
+            currentTurn: this.currentTurn,
+            bids: this.bids,
+            playerBids: this.playerBids,
+            tricks: this.tricks,
+            score: this.score,
+            playedCards: this.playedCards,
+            isTrumpBroken: this.isTrumpBroken,
+            players: playerInfo
+        };
+    }
+
     setHand(socketId, cards) {
         this.hands[socketId] = [...cards];
     }

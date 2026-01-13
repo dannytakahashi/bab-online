@@ -11,6 +11,65 @@ document.addEventListener("playerAssigned", (event) => {
         console.log("✅ playerID:", playerId);
     }
 });
+
+// Handle rejoin after reconnection
+document.addEventListener("rejoinSuccess", (event) => {
+    let data = event.detail;
+    console.log("🔄 Rejoining game:", data);
+
+    // Restore position and game state
+    position = data.position;
+    playerId = socket.id;
+
+    // Restore player data
+    playerData = {
+        position: data.players.map(p => p.position),
+        socket: data.players.map(p => p.socketId),
+        username: data.players.map(p => ({ username: p.username })),
+        pics: data.players.map(p => p.pic)
+    };
+
+    // Restore game state
+    playerCards = data.hand;
+    trump = data.trump;
+    dealer = data.dealer;
+    currentTurn = data.currentTurn;
+    bidding = data.bidding ? 1 : 0;
+    score1 = data.score.team1;
+    score2 = data.score.team2;
+
+    // Rebuild UI - trigger a scene restart with the restored state
+    let scene = game.scene.scenes[0];
+    if (scene) {
+        console.log("🔄 Rebuilding game UI after rejoin");
+        // Remove waiting screen if present
+        removeWaitingScreen();
+        removeDraw();
+        createGameFeed();
+        initGameChat();
+        if (!scoreUI) {
+            scoreUI = createScorebug();
+        }
+        // Trigger displayCards with restored hand
+        if (playerCards && playerCards.length > 0) {
+            displayCards.call(scene, playerCards);
+        }
+    }
+});
+
+// Handle rejoin failure
+document.addEventListener("rejoinFailed", (event) => {
+    console.log("❌ Rejoin failed:", event.detail.reason);
+    // Show lobby screen since we can't rejoin
+    showLobbyScreen();
+});
+
+// Handle player reconnection notification
+document.addEventListener("playerReconnected", (event) => {
+    let data = event.detail;
+    console.log(`🔄 Player ${data.username} at position ${data.position} reconnected`);
+    addToGameFeed(`${data.username} reconnected`);
+});
 function visible(){
     if(document.visibilityState === "visible"){
         return true;
