@@ -70,21 +70,17 @@ const io = new Server(server, {
 setupSocketHandlers(io);
 
 // Start server
-async function start() {
-    try {
-        // Connect to database
-        await connectDB();
-        console.log('Database connected');
+function start() {
+    // Start listening immediately (don't wait for DB)
+    server.listen(config.port, () => {
+        console.log(`Server running on port ${config.port}`);
+        console.log(`Environment: ${config.env}`);
+    });
 
-        // Start listening
-        server.listen(config.port, () => {
-            console.log(`Server running on port ${config.port}`);
-            console.log(`Environment: ${config.env}`);
-        });
-    } catch (error) {
-        console.error('Failed to start server:', error);
-        process.exit(1);
-    }
+    // Connect to database in background (fire and forget like original)
+    connectDB()
+        .then(() => console.log('Database connected'))
+        .catch(err => console.error('Database connection error:', err));
 }
 
 // Handle graceful shutdown
