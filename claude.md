@@ -46,11 +46,12 @@ bab-online/
 │   │   └── rules.js                # Pure game logic functions
 │   ├── socket/
 │   │   ├── index.js                # Socket event routing
-│   │   ├── authHandlers.js         # signIn, signUp
-│   │   ├── queueHandlers.js        # joinQueue, leaveQueue, disconnect handling
+│   │   ├── authHandlers.js         # signIn, signUp (with auto-login)
+│   │   ├── queueHandlers.js        # joinQueue (creates/joins lobby)
+│   │   ├── lobbyHandlers.js        # playerReady, lobbyChat, leaveLobby
 │   │   ├── gameHandlers.js         # playCard, playerBid, draw
 │   │   ├── reconnectHandlers.js    # rejoinGame for mid-game reconnection
-│   │   ├── chatHandlers.js         # chatMessage
+│   │   ├── chatHandlers.js         # chatMessage (in-game)
 │   │   ├── validators.js           # Joi validation schemas
 │   │   ├── errorHandler.js         # Handler wrappers with rate limiting
 │   │   └── rateLimiter.js          # Per-socket rate limiting
@@ -107,17 +108,18 @@ bab-online/
 
 ## Game Flow
 
-1. Authentication (signIn/signUp) → MongoDB users collection
-2. Queue management → Game starts when 4 players ready
-3. Draw phase → Players draw cards to determine dealer (highest) and partners (high pair vs low pair)
-4. Hand progression (12→10→8→6→4→2→1→3→5→7→9→11→13) with bidding then playing phases
-5. Trick evaluation, scoring with rainbow bonuses (4-card hand only)
+1. Authentication (signIn/signUp) → MongoDB users collection; auto-login after registration
+2. Lobby phase → Players auto-join lobby, can chat, click "Ready" when prepared
+3. All 4 ready → Transition to draw phase
+4. Draw phase → Players draw cards to determine positions; teams announced (1&3 vs 2&4)
+5. Hand progression (12→10→8→6→4→2→1→3→5→7→9→11→13) with bidding then playing phases
+6. Trick evaluation, scoring with rainbow bonuses (4-card hand only)
 
 ## Key Socket Events
 
-**Client → Server**: `signIn`, `signUp`, `joinQueue`, `leaveQueue`, `playerBid`, `playCard`, `chatMessage`, `draw`, `rejoinGame`
+**Client → Server**: `signIn`, `signUp`, `joinQueue`, `playerReady`, `lobbyChat`, `leaveLobby`, `draw`, `playerBid`, `playCard`, `chatMessage`, `rejoinGame`
 
-**Server → Client**: `gameStart`, `yourHand`, `trumpCard`, `bidReceived`, `doneBidding`, `cardPlayed`, `updateTurn`, `trickComplete`, `handComplete`, `gameEnd`, `rainbow`, `positionUpdate`, `rejoinSuccess`, `rejoinFailed`, `playerDisconnected`, `playerReconnected`
+**Server → Client**: `lobbyCreated`, `playerReadyUpdate`, `lobbyMessage`, `lobbyPlayerLeft`, `allPlayersReady`, `startDraw`, `playerDrew`, `youDrew`, `teamsAnnounced`, `positionUpdate`, `createUI`, `gameStart`, `bidReceived`, `doneBidding`, `cardPlayed`, `updateTurn`, `trickComplete`, `handComplete`, `gameEnd`, `rainbow`, `rejoinSuccess`, `rejoinFailed`, `playerDisconnected`, `playerReconnected`
 
 ## Development Commands
 
@@ -229,7 +231,7 @@ Deck: 52 standard cards + 2 jokers (HI and LO)
 ## Key Classes
 
 ### GameManager (server)
-Singleton managing queue and active games. Methods: `joinQueue()`, `leaveQueue()`, `createGame()`, `getPlayerGame()`, `handleDisconnect()`, `updatePlayerGameMapping()`, `checkGameAbort()`
+Singleton managing lobbies, queue, and active games. Methods: `joinQueue()` (creates/joins lobby), `createLobby()`, `setPlayerReady()`, `addLobbyMessage()`, `leaveLobby()`, `startGameFromLobby()`, `createGame()`, `getPlayerGame()`, `getPlayerLobby()`, `handleDisconnect()`, `updatePlayerGameMapping()`, `checkGameAbort()`
 
 ### Reconnection Flow
 When a player disconnects mid-game:
@@ -255,8 +257,9 @@ DOM element lifecycle management. Methods: `getOrCreate()`, `remove()`, `show()`
 
 **validators.js** - Joi validation schemas for socket events:
 - `signIn`, `signUp` - Auth validation
+- `lobbyChat` - Lobby chat validation
 - `playCard`, `playerBid`, `draw` - Game action validation
-- `chatMessage` - Chat validation
+- `chatMessage` - In-game chat validation
 - Usage: `validate('playCard', data)` returns validated data or throws `ValidationError`
 
 **errorHandler.js** - Handler wrappers:

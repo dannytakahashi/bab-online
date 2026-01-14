@@ -127,9 +127,9 @@ The server runs on `http://localhost:3000` by default.
 
 ## How to Play
 
-1. **Sign up/Sign in** - Create an account or log in
-2. **Join Queue** - Wait for 4 players to be matched
-3. **Draw Phase** - Draw cards to determine seating positions
+1. **Sign up/Sign in** - Create an account (auto-logs in) or log in
+2. **Lobby** - Wait for 4 players, chat, and click "Ready" when prepared
+3. **Draw Phase** - Draw cards from deck to determine seating positions; teams announced
 4. **Bidding** - Bid on how many tricks your team will take
 5. **Play** - Take turns playing cards, following suit when possible
 6. **Score** - Points awarded based on bids vs tricks taken
@@ -173,14 +173,25 @@ The client uses ES6 modules with proper lifecycle management:
 | Client → Server | Description |
 |-----------------|-------------|
 | `signIn` | Authenticate user |
-| `joinQueue` | Enter matchmaking |
+| `joinQueue` | Enter matchmaking / join lobby |
+| `playerReady` | Mark ready in lobby |
+| `lobbyChat` | Send lobby chat message |
+| `leaveLobby` | Leave lobby before game starts |
+| `draw` | Draw card during draw phase |
 | `playerBid` | Submit bid |
 | `playCard` | Play a card |
-| `chatMessage` | Send chat message |
+| `chatMessage` | Send in-game chat message |
 
 | Server → Client | Description |
 |-----------------|-------------|
-| `gameStart` | Game begins |
+| `lobbyCreated` | Joined lobby with player list |
+| `playerReadyUpdate` | Player ready status changed |
+| `lobbyMessage` | Lobby chat message received |
+| `allPlayersReady` | All 4 players ready, transitioning |
+| `startDraw` | Draw phase begins |
+| `playerDrew` | Player drew a card (visible to all) |
+| `teamsAnnounced` | Teams announced after draw |
+| `gameStart` | Game begins with hand dealt |
 | `bidReceived` | Player bid received |
 | `cardPlayed` | Card was played |
 | `trickComplete` | Trick finished |
@@ -274,6 +285,17 @@ The `docs/todos/` directory contains detailed improvement plans:
 - Updated game.js to load cards from atlas instead of individual files
 - Added caching headers for static assets (7 days for images, 1 year for sprites)
 - Reduced initial load from ~149 HTTP requests to ~95 requests
+
+### Lobby System & UX Polish
+- Implemented pre-game lobby with chat and ready-up functionality
+- Players auto-join lobby on sign-in (no manual "Join Queue" button)
+- Auto-login after registration (no need to sign in again)
+- Lobby persists when players leave; next queued player fills the slot
+- Draw phase improvements: cards animate visibly, all players see each draw
+- Team announcements displayed after draw phase before game starts
+- Fixed HI joker rule: opponents must play highest trump when HI joker leads
+- Fixed follow-suit validation for void hands
+- Improved card table styling with bottom clearance
 
 ## Docker
 
