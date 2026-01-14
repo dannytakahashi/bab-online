@@ -1619,12 +1619,17 @@ function displayCards(playerHand) {
 
     // Position the bid container in the center of the play zone (green square)
     function updateBidContainerPosition() {
-        let canvasRect = document.querySelector("canvas").getBoundingClientRect();
         let containerWidth = bidContainer.offsetWidth || 200; // Estimate if not yet rendered
         let containerHeight = bidContainer.offsetHeight || 150;
-        // Center both horizontally and vertically on the canvas (where the play zone is)
-        bidContainer.style.left = `${canvasRect.left + (canvasRect.width - containerWidth) / 2}px`;
-        bidContainer.style.top = `${canvasRect.top + (canvasRect.height - containerHeight) / 2}px`;
+
+        // Use the same width calculation as Phaser config: innerWidth - GAME_LOG_WIDTH
+        // This ensures the bid UI center matches the play zone center
+        let gameAreaWidth = window.innerWidth - GAME_LOG_WIDTH;
+        let gameAreaHeight = window.innerHeight;
+
+        // Center the bid container on the game area (where play zone is centered)
+        bidContainer.style.left = `${(gameAreaWidth - containerWidth) / 2}px`;
+        bidContainer.style.top = `${(gameAreaHeight - containerHeight) / 2}px`;
     }
 
     updateBidContainerPosition();
