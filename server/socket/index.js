@@ -5,6 +5,7 @@
 
 const authHandlers = require('./authHandlers');
 const queueHandlers = require('./queueHandlers');
+const lobbyHandlers = require('./lobbyHandlers');
 const gameHandlers = require('./gameHandlers');
 const chatHandlers = require('./chatHandlers');
 const reconnectHandlers = require('./reconnectHandlers');
@@ -29,6 +30,17 @@ function setupSocketHandlers(io) {
         );
         socket.on('leaveQueue', () =>
             safeHandler(queueHandlers.leaveQueue)(socket, io, {})
+        );
+
+        // Lobby events
+        socket.on('playerReady', () =>
+            safeHandler(lobbyHandlers.playerReady)(socket, io, {})
+        );
+        socket.on('lobbyChat', (data) =>
+            syncHandler('chatMessage', lobbyHandlers.lobbyChat)(socket, io, data)
+        );
+        socket.on('leaveLobby', () =>
+            safeHandler(lobbyHandlers.leaveLobby)(socket, io, {})
         );
 
         // Game events - with validation

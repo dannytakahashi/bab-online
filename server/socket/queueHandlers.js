@@ -18,26 +18,19 @@ async function joinQueue(socket, io) {
     // Broadcast updated queue to all
     io.emit('queueUpdate', { queuedUsers: result.queuedUsers || gameManager.getQueueStatus().queuedUsers });
 
-    if (result.gameStarted) {
-        socketLogger.info('Game starting', { gameId: result.game.gameId, players: result.players });
-        const game = result.game;
+    // If a lobby was created (4 players found), notify all players
+    if (result.lobbyCreated) {
+        socketLogger.info('Lobby created', { lobbyId: result.lobby.id, players: result.players });
+        const lobby = result.lobby;
 
-        // Join all players to the game room for targeted broadcasts
-        for (const socketId of result.players) {
-            game.joinToRoom(io, socketId);
-        }
-
-        // Wait before starting draw phase
-        await delay(3500);
-
-        // Initialize deck for draw phase
-        const deck = new Deck();
-        deck.shuffle();
-        game.deck = deck;
-        game.phase = 'drawing';
-
-        // Broadcast to game room only
-        game.broadcast(io, 'startDraw', { start: true });
+        // Notify all 4 players that they're in a lobby
+        result.players.forEach(socketId => {
+            io.to(socketId).emit('lobbyCreated', {
+                lobbyId: lobby.id,
+                players: lobby.players,
+                messages: lobby.messages
+            });
+        });
     }
 }
 

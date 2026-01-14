@@ -247,7 +247,15 @@ socket.on("signInResponse", (data) => {
 // ✅ Listen for Sign-Up Response
 socket.on("signUpResponse", (data) => {
     if (data.success) {
-        alert("✅ Registration successful! Please sign in.");
+        if (data.autoLoggedIn) {
+            // Auto-login: go straight to lobby
+            console.log(`✅ Registration & auto-login successful: ${data.username}`);
+            username = data.username;  // Update global username
+            sessionStorage.setItem("username", data.username);
+            showLobbyScreen();
+        } else {
+            alert("✅ Registration successful! Please sign in.");
+        }
     } else {
         alert(`❌ Registration failed: ${data.message}`);
     }
@@ -586,9 +594,246 @@ function removeWaitingScreen() {
     removeAllVignettes();
     clearUI();
     removePlayerQueue();
+    removeGameLobby();
     waitBool = false;
     console.log("🚀 Game starting...");
 }
+
+// ==================== GAME LOBBY (Pre-game with Ready/Chat) ====================
+
+let currentLobbyId = null;
+let isPlayerReady = false;
+
+function showGameLobby(lobbyData) {
+    console.log("🎮 Showing game lobby...", lobbyData);
+    currentLobbyId = lobbyData.lobbyId;
+    isPlayerReady = false;
+
+    // Remove any existing lobby/queue UI
+    removePlayerQueue();
+    let oldGameLobby = document.getElementById("gameLobbyContainer");
+    if (oldGameLobby) oldGameLobby.remove();
+
+    // Create container
+    const container = document.createElement("div");
+    container.id = "gameLobbyContainer";
+    container.style.position = "fixed";
+    container.style.top = "50%";
+    container.style.left = "50%";
+    container.style.transform = "translate(-50%, -50%)";
+    container.style.background = "rgba(26, 26, 46, 0.95)";
+    container.style.color = "#fff";
+    container.style.padding = "30px";
+    container.style.borderRadius = "12px";
+    container.style.border = "2px solid #4a5568";
+    container.style.fontSize = "16px";
+    container.style.fontFamily = "Arial, sans-serif";
+    container.style.minWidth = "400px";
+    container.style.maxWidth = "500px";
+    container.style.textAlign = "center";
+    container.style.zIndex = 1000;
+
+    // Header
+    const header = document.createElement("div");
+    header.innerText = "Game Lobby";
+    header.style.fontSize = "28px";
+    header.style.fontWeight = "bold";
+    header.style.marginBottom = "20px";
+    header.style.color = "#4ade80";
+    container.appendChild(header);
+
+    // Players list
+    const playersDiv = document.createElement("div");
+    playersDiv.id = "lobbyPlayersList";
+    playersDiv.style.marginBottom = "20px";
+    playersDiv.style.textAlign = "left";
+    playersDiv.style.padding = "15px";
+    playersDiv.style.background = "rgba(0, 0, 0, 0.3)";
+    playersDiv.style.borderRadius = "8px";
+    updateLobbyPlayersList(playersDiv, lobbyData.players);
+    container.appendChild(playersDiv);
+
+    // Chat area
+    const chatArea = document.createElement("div");
+    chatArea.id = "lobbyChatArea";
+    chatArea.style.height = "150px";
+    chatArea.style.overflowY = "auto";
+    chatArea.style.background = "rgba(0, 0, 0, 0.4)";
+    chatArea.style.borderRadius = "8px";
+    chatArea.style.padding = "10px";
+    chatArea.style.marginBottom = "15px";
+    chatArea.style.textAlign = "left";
+    chatArea.style.fontSize = "14px";
+    // Add any existing messages
+    if (lobbyData.messages) {
+        lobbyData.messages.forEach(msg => {
+            addLobbyChatMessage(msg.username, msg.message);
+        });
+    }
+    container.appendChild(chatArea);
+
+    // Chat input row
+    const chatInputRow = document.createElement("div");
+    chatInputRow.style.display = "flex";
+    chatInputRow.style.gap = "10px";
+    chatInputRow.style.marginBottom = "20px";
+
+    const chatInput = document.createElement("input");
+    chatInput.id = "lobbyChatInput";
+    chatInput.type = "text";
+    chatInput.placeholder = "Type a message...";
+    chatInput.style.flex = "1";
+    chatInput.style.padding = "10px";
+    chatInput.style.borderRadius = "6px";
+    chatInput.style.border = "1px solid #4a5568";
+    chatInput.style.background = "#2d3748";
+    chatInput.style.color = "#fff";
+    chatInput.style.fontSize = "14px";
+    chatInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && chatInput.value.trim()) {
+            socket.emit("lobbyChat", { message: chatInput.value.trim() });
+            chatInput.value = "";
+        }
+    });
+    chatInputRow.appendChild(chatInput);
+
+    const sendBtn = document.createElement("button");
+    sendBtn.innerText = "Send";
+    sendBtn.style.padding = "10px 20px";
+    sendBtn.style.borderRadius = "6px";
+    sendBtn.style.border = "none";
+    sendBtn.style.background = "#3b82f6";
+    sendBtn.style.color = "#fff";
+    sendBtn.style.cursor = "pointer";
+    sendBtn.addEventListener("click", () => {
+        if (chatInput.value.trim()) {
+            socket.emit("lobbyChat", { message: chatInput.value.trim() });
+            chatInput.value = "";
+        }
+    });
+    chatInputRow.appendChild(sendBtn);
+    container.appendChild(chatInputRow);
+
+    // Button row
+    const buttonRow = document.createElement("div");
+    buttonRow.style.display = "flex";
+    buttonRow.style.gap = "15px";
+    buttonRow.style.justifyContent = "center";
+
+    const readyBtn = document.createElement("button");
+    readyBtn.id = "lobbyReadyBtn";
+    readyBtn.innerText = "Ready";
+    readyBtn.style.padding = "15px 40px";
+    readyBtn.style.fontSize = "18px";
+    readyBtn.style.fontWeight = "bold";
+    readyBtn.style.borderRadius = "8px";
+    readyBtn.style.border = "none";
+    readyBtn.style.background = "#4ade80";
+    readyBtn.style.color = "#000";
+    readyBtn.style.cursor = "pointer";
+    readyBtn.addEventListener("click", () => {
+        if (!isPlayerReady) {
+            socket.emit("playerReady");
+            readyBtn.innerText = "Ready!";
+            readyBtn.style.background = "#22c55e";
+            readyBtn.style.cursor = "default";
+            isPlayerReady = true;
+        }
+    });
+    buttonRow.appendChild(readyBtn);
+
+    const leaveBtn = document.createElement("button");
+    leaveBtn.innerText = "Leave";
+    leaveBtn.style.padding = "15px 30px";
+    leaveBtn.style.fontSize = "18px";
+    leaveBtn.style.borderRadius = "8px";
+    leaveBtn.style.border = "none";
+    leaveBtn.style.background = "#dc2626";
+    leaveBtn.style.color = "#fff";
+    leaveBtn.style.cursor = "pointer";
+    leaveBtn.addEventListener("click", () => {
+        socket.emit("leaveLobby");
+    });
+    buttonRow.appendChild(leaveBtn);
+    container.appendChild(buttonRow);
+
+    document.body.appendChild(container);
+}
+
+function updateLobbyPlayersList(container, players) {
+    if (!container) {
+        container = document.getElementById("lobbyPlayersList");
+    }
+    if (!container) return;
+
+    container.innerHTML = "";
+    const header = document.createElement("div");
+    header.innerText = "Players:";
+    header.style.fontWeight = "bold";
+    header.style.marginBottom = "10px";
+    header.style.color = "#9ca3af";
+    container.appendChild(header);
+
+    players.forEach((player, index) => {
+        const playerRow = document.createElement("div");
+        playerRow.style.display = "flex";
+        playerRow.style.justifyContent = "space-between";
+        playerRow.style.alignItems = "center";
+        playerRow.style.padding = "8px 0";
+        playerRow.style.borderBottom = index < players.length - 1 ? "1px solid #374151" : "none";
+
+        const nameSpan = document.createElement("span");
+        nameSpan.innerText = player.username;
+        nameSpan.style.fontSize = "16px";
+        playerRow.appendChild(nameSpan);
+
+        const statusSpan = document.createElement("span");
+        if (player.ready) {
+            statusSpan.innerText = "✓ Ready";
+            statusSpan.style.color = "#4ade80";
+        } else {
+            statusSpan.innerText = "Waiting...";
+            statusSpan.style.color = "#9ca3af";
+        }
+        statusSpan.style.fontSize = "14px";
+        playerRow.appendChild(statusSpan);
+
+        container.appendChild(playerRow);
+    });
+}
+
+function addLobbyChatMessage(username, message) {
+    const chatArea = document.getElementById("lobbyChatArea");
+    if (!chatArea) return;
+
+    const msgDiv = document.createElement("div");
+    msgDiv.style.marginBottom = "8px";
+    msgDiv.style.wordWrap = "break-word";
+
+    const nameSpan = document.createElement("span");
+    nameSpan.innerText = username + ": ";
+    nameSpan.style.fontWeight = "bold";
+    nameSpan.style.color = "#60a5fa";
+    msgDiv.appendChild(nameSpan);
+
+    const textSpan = document.createElement("span");
+    textSpan.innerText = message;
+    textSpan.style.color = "#e5e7eb";
+    msgDiv.appendChild(textSpan);
+
+    chatArea.appendChild(msgDiv);
+    chatArea.scrollTop = chatArea.scrollHeight;
+}
+
+function removeGameLobby() {
+    const gameLobby = document.getElementById("gameLobbyContainer");
+    if (gameLobby) gameLobby.remove();
+    currentLobbyId = null;
+    isPlayerReady = false;
+}
+
+// ==================== END GAME LOBBY ====================
+
 function showFinalScore(teamScore, opponentScore) {
     console.log("📢 Displaying score popup...");
 
@@ -808,8 +1053,8 @@ function createSpeechBubble(scene, x, bottomY, width, height, text, color) {
     let scaleFactorY = scene.scale.height / 953; // Adjust based on your design resolution
     const PADDING   = 10;
     const TAIL_SIZE = 20*scaleFactorX;
-    const MAX_W     = 250*scaleFactorX;
-    const MAX_H     = 120*scaleFactorY;
+    const MAX_W     = 350*scaleFactorX;  // Increased for longer messages
+    const MAX_H     = 200*scaleFactorY;  // Increased for longer messages
   
     // 1) style & measure the text off-screen
     const style = {

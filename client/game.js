@@ -885,6 +885,50 @@ socket.on("queueUpdate", (data) => {
         lastQueueData = data.queuedUsers;
     }
 });
+
+// ==================== LOBBY SOCKET HANDLERS ====================
+
+socket.on("lobbyCreated", (data) => {
+    console.log("🎮 Lobby created!", data);
+    showGameLobby(data);
+});
+
+socket.on("playerReadyUpdate", (data) => {
+    console.log("👤 Player ready update", data);
+    updateLobbyPlayersList(null, data.players);
+});
+
+socket.on("lobbyMessage", (data) => {
+    console.log("💬 Lobby message", data);
+    addLobbyChatMessage(data.username, data.message);
+});
+
+socket.on("lobbyPlayerLeft", (data) => {
+    console.log("👋 Player left lobby", data);
+    updateLobbyPlayersList(null, data.players);
+    addLobbyChatMessage("System", `${data.leftUsername} left the lobby`);
+});
+
+socket.on("lobbyPlayerJoined", (data) => {
+    console.log("👋 Player joined lobby", data);
+    updateLobbyPlayersList(null, data.players);
+    addLobbyChatMessage("System", `${data.newPlayer.username} joined the lobby`);
+});
+
+socket.on("leftLobby", () => {
+    console.log("👋 You left the lobby");
+    removeGameLobby();
+    showLobbyScreen();
+});
+
+socket.on("allPlayersReady", (data) => {
+    console.log("✅ All players ready! Starting game...", data);
+    removeGameLobby();
+    // The draw phase will be triggered by startDraw event
+});
+
+// ==================== END LOBBY SOCKET HANDLERS ====================
+
 function clearDisplayCards() {
     console.log("🗑️ Clearing all elements from displayCards...");
 
@@ -992,13 +1036,14 @@ function displayCards(playerHand) {
         console.log("📍 Play zone created at:", playZoneX, playZoneY);
     }
     if (!handBackground){
-            handBackground = this.add.rectangle(screenWidth / 2, screenHeight - handAreaHeight / 2, 
-            screenWidth * 0.5, handAreaHeight, 0xD2B48C)
-            .setDepth(-2); // 
-            border = this.add.rectangle(screenWidth / 2, screenHeight - handAreaHeight / 2, 
+            handBackground = this.add.rectangle(screenWidth / 2, screenHeight - handAreaHeight / 2,
+            screenWidth * 0.5, handAreaHeight, 0x1a3328)  // Dark green felt
+            .setAlpha(0.85)
+            .setDepth(-2);
+            border = this.add.rectangle(screenWidth / 2, screenHeight - handAreaHeight / 2,
             screenWidth * 0.5, handAreaHeight)
-            .setStrokeStyle(4, 0x8B4513) // ✅ Dark brown border
-            .setDepth(-1); // ✅ Slightly above background, but below cards
+            .setStrokeStyle(2, 0x2d5a40) // Subtle green border
+            .setDepth(-1);
     }
     console.log("🟫 Added background for player hand.");
     // ✅ Create button-grid bidding UI
