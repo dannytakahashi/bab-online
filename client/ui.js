@@ -721,9 +721,11 @@ function showGameLobby(lobbyData) {
     container.style.borderRadius = "12px";
     container.style.border = "2px solid #4a5568";
     container.style.fontSize = "16px";
+    container.style.width = "400px";
+    container.style.maxWidth = "90vw";
+    container.style.boxSizing = "border-box";
+    container.style.overflow = "hidden";
     container.style.fontFamily = "Arial, sans-serif";
-    container.style.minWidth = "400px";
-    container.style.maxWidth = "500px";
     container.style.textAlign = "center";
     container.style.zIndex = 1000;
 
@@ -966,15 +968,20 @@ function updateLobbyPlayersList(container, players) {
 
 // Generate a consistent color from a username using a hash
 function getUsernameColor(username) {
-    // Simple hash function to get a number from a string
-    let hash = 0;
+    // Better hash function (djb2 variant) for more distribution
+    let hash = 5381;
     for (let i = 0; i < username.length; i++) {
-        hash = username.charCodeAt(i) + ((hash << 5) - hash);
-        hash = hash & hash; // Convert to 32bit integer
+        hash = ((hash << 5) + hash) ^ username.charCodeAt(i);
     }
-    // Use HSL for consistent saturation and lightness
-    // Hue: 0-360, Saturation: 70%, Lightness: 60%
-    const hue = Math.abs(hash) % 360;
+    // Add username length as additional entropy
+    hash = ((hash << 5) + hash) ^ (username.length * 7);
+    // Mix the bits more
+    hash = Math.abs(hash ^ (hash >> 16));
+
+    // Use golden ratio to spread hues more evenly
+    // This ensures even sequential/similar usernames get different colors
+    const goldenRatio = 0.618033988749895;
+    const hue = ((hash * goldenRatio) % 1) * 360;
     return `hsl(${hue}, 70%, 60%)`;
 }
 
