@@ -253,68 +253,109 @@ function create() {
         pendingRejoinData = null;
         return; // Skip normal create flow since we're rejoining
     }
-    socket.on("positionUpdate", (data) => {
-        console.log("Position update received:", data);
-        playerData = {
-            position: data.positions,
-            socket: data.sockets,
-            username: data.usernames,
-            pics: data.pics
-        };
-        console.log("✅ playerData initialized:", playerData);
 
-        // If playerInfo was deferred because playerData wasn't ready, create it now
-        if (!playerInfo && position) {
-            playerInfo = createPlayerInfoBox();
-            if (playerInfo) {
-                console.log("✅ playerInfo created after positionUpdate");
-            }
-        }
-    });
-    socket.on("gameStart", (data) => {
-        console.log("Game started! Data received:", data);
-        // Debug: Check if playerId is set correctly
-        console.log("playerId:", playerId);
-        // Debug: Check if player has received cards
-        console.log("Hands data:", data.hand);
-        console.log("scores:", data.score1, data.score2);
-        console.log("Player's hand:", data.hand);
-        playerCards = data.hand;
-        dealer = data.dealer; 
-        if (playerCards) {
-            console.log("running display cards...");
-            score1 = data.score1;
-            score2 = data.score2;
-            me = playerData.username[playerData.position.indexOf(position)].username;
-            partner = playerData.username[playerData.position.indexOf(team(position))].username;
-            opp1 = playerData.username[playerData.position.indexOf(rotate(position))].username;
-            opp2 = playerData.username[playerData.position.indexOf(rotate(rotate(rotate(position))))].username;
-            if(position % 2 !== 0){
-                scoreUI.teamScoreLabel.setText(me + "/" + partner  + ": -/-       " +  score1);
-                scoreUI.oppScoreLabel.setText(opp1 + "/" + opp2  + ": -/-       " + score2);
-            }
-            else{
-                scoreUI.teamScoreLabel.setText(me + "/" + partner + ": -/-       " + score2);
-                scoreUI.oppScoreLabel.setText(opp1 + "/" + opp2 + ": -/-       " + score1);
-            }
-            if(!playerInfo){
-                playerInfo = createPlayerInfoBox(); // Store the reference
-            }
-            // Set trump BEFORE displayCards so sorting works correctly
-            if (data.trump) {
-                trump = data.trump;
-            }
-            displayCards.call(gameScene, playerCards);
-            //createVignette.call(gameScene);
-        } else {
-            console.error("🚨 ERROR: playerCards is undefined! GameState may not be initializing correctly.");
-        }
-        displayOpponentHands.call(gameScene, playerCards.length, dealer);
-        if (data.trump) {
-            displayTableCard.call(gameScene, data.trump);
-        }
-    });
+    // Process any pending game data that arrived before scene was ready
+    if (pendingPositionData) {
+        processPositionUpdate(pendingPositionData);
+        pendingPositionData = null;
+    }
+    if (pendingGameStartData) {
+        processGameStart(pendingGameStartData);
+        pendingGameStartData = null;
+    }
 }
+
+// Store pending data if events arrive before scene is ready
+let pendingPositionData = null;
+let pendingGameStartData = null;
+
+function processPositionUpdate(data) {
+    console.log("Position update received:", data);
+    playerData = {
+        position: data.positions,
+        socket: data.sockets,
+        username: data.usernames,
+        pics: data.pics
+    };
+    console.log("✅ playerData initialized:", playerData);
+
+    // If playerInfo was deferred because playerData wasn't ready, create it now
+    if (!playerInfo && position && gameScene) {
+        playerInfo = createPlayerInfoBox();
+        if (playerInfo) {
+            console.log("✅ playerInfo created after positionUpdate");
+        }
+    }
+}
+
+function processGameStart(data) {
+    console.log("🎮 processGameStart called!");
+    console.log("🎮 gameScene:", gameScene);
+    console.log("🎮 gameScene.add:", gameScene?.add);
+    console.log("Game started! Data received:", data);
+    // Debug: Check if playerId is set correctly
+    console.log("playerId:", playerId);
+    // Debug: Check if player has received cards
+    console.log("Hands data:", data.hand);
+    console.log("scores:", data.score1, data.score2);
+    console.log("Player's hand:", data.hand);
+    playerCards = data.hand;
+    dealer = data.dealer;
+    if (playerCards && playerCards.length > 0) {
+        console.log("🎮 playerCards has", playerCards.length, "cards, running display cards...");
+        score1 = data.score1;
+        score2 = data.score2;
+        me = playerData.username[playerData.position.indexOf(position)].username;
+        partner = playerData.username[playerData.position.indexOf(team(position))].username;
+        opp1 = playerData.username[playerData.position.indexOf(rotate(position))].username;
+        opp2 = playerData.username[playerData.position.indexOf(rotate(rotate(rotate(position))))].username;
+        if(position % 2 !== 0){
+            scoreUI.teamScoreLabel.setText(me + "/" + partner  + ": -/-       " +  score1);
+            scoreUI.oppScoreLabel.setText(opp1 + "/" + opp2  + ": -/-       " + score2);
+        }
+        else{
+            scoreUI.teamScoreLabel.setText(me + "/" + partner + ": -/-       " + score2);
+            scoreUI.oppScoreLabel.setText(opp1 + "/" + opp2 + ": -/-       " + score1);
+        }
+        if(!playerInfo){
+            playerInfo = createPlayerInfoBox(); // Store the reference
+        }
+        // Set trump BEFORE displayCards so sorting works correctly
+        if (data.trump) {
+            trump = data.trump;
+        }
+        console.log("🎮 Calling displayCards.call(gameScene, playerCards)");
+        displayCards.call(gameScene, playerCards);
+        //createVignette.call(gameScene);
+    } else {
+        console.error("🚨 ERROR: playerCards is undefined or empty!", playerCards);
+    }
+    console.log("🎮 Calling displayOpponentHands");
+    displayOpponentHands.call(gameScene, playerCards?.length || 0, dealer);
+    if (data.trump) {
+        console.log("🎮 Calling displayTableCard");
+        displayTableCard.call(gameScene, data.trump);
+    }
+}
+
+// Register socket handlers globally (outside create) so they're ready immediately
+socket.on("positionUpdate", (data) => {
+    if (gameScene && gameScene.scale) {
+        processPositionUpdate(data);
+    } else {
+        console.log("⏳ Scene not ready, queuing positionUpdate data");
+        pendingPositionData = data;
+    }
+});
+
+socket.on("gameStart", (data) => {
+    if (gameScene && gameScene.scale) {
+        processGameStart(data);
+    } else {
+        console.log("⏳ Scene not ready, queuing gameStart data");
+        pendingGameStartData = data;
+    }
+});
 
 const config = {
     type: Phaser.AUTO,
