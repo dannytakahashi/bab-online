@@ -1451,11 +1451,17 @@ function displayCards(playerHand) {
     bidContainer.style.zIndex = "1000";
     bidContainer.style.display = (bidding === 1 && currentTurn === position) ? "flex" : "none";
     bidContainer.style.flexDirection = "column";
+    bidContainer.style.alignItems = "center"; // Center the rows within the container
     bidContainer.style.gap = "8px";
     bidContainer.style.padding = "12px";
     bidContainer.style.background = "rgba(0, 0, 0, 0.85)";
     bidContainer.style.border = "2px solid #444";
     bidContainer.style.borderRadius = "8px";
+    // Set initial position centered on game area (left of game log)
+    let gameAreaWidth = window.innerWidth - GAME_LOG_WIDTH;
+    bidContainer.style.left = `${gameAreaWidth / 2}px`;
+    bidContainer.style.top = "50%";
+    bidContainer.style.transform = "translate(-50%, -50%)";
     document.body.appendChild(bidContainer);
     this.handElements.push(bidContainer);
 
@@ -1491,12 +1497,13 @@ function displayCards(playerHand) {
         selectedBid = bidValue;
     }
 
-    // Row 1: Numeric bids (0 to hand size)
+    // Row 1: Numeric bids (0 to hand size) - max 6 per row
     let numericRow = document.createElement("div");
     numericRow.style.display = "flex";
     numericRow.style.gap = "4px";
     numericRow.style.flexWrap = "wrap";
     numericRow.style.justifyContent = "center";
+    numericRow.style.maxWidth = "280px"; // 6 buttons * (40px + 4px gap) + padding
 
     for (let i = 0; i <= playerHand.length; i++) {
         let btn = document.createElement("button");
@@ -1618,18 +1625,16 @@ function displayCards(playerHand) {
     console.log("✅ Button-grid bidding UI created.");
 
     // Position the bid container in the center of the play zone (green square)
+    // Use CSS transform for centering - doesn't require measuring element dimensions
     function updateBidContainerPosition() {
-        let containerWidth = bidContainer.offsetWidth || 200; // Estimate if not yet rendered
-        let containerHeight = bidContainer.offsetHeight || 150;
-
-        // Use the same width calculation as Phaser config: innerWidth - GAME_LOG_WIDTH
-        // This ensures the bid UI center matches the play zone center
+        // The game area is window.innerWidth - GAME_LOG_WIDTH (same as Phaser config)
         let gameAreaWidth = window.innerWidth - GAME_LOG_WIDTH;
         let gameAreaHeight = window.innerHeight;
 
-        // Center the bid container on the game area (where play zone is centered)
-        bidContainer.style.left = `${(gameAreaWidth - containerWidth) / 2}px`;
-        bidContainer.style.top = `${(gameAreaHeight - containerHeight) / 2}px`;
+        // Position at center of game area, then use transform to shift by half its own size
+        bidContainer.style.left = `${gameAreaWidth / 2}px`;
+        bidContainer.style.top = `${gameAreaHeight / 2}px`;
+        bidContainer.style.transform = "translate(-50%, -50%)";
     }
 
     updateBidContainerPosition();
