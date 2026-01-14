@@ -178,6 +178,7 @@ function createVignette() {
 }
 let gameScene;
 let playerData;
+let currentTurn;
 function team(position){
     if(position === 1){
         return 3;
