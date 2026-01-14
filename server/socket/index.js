@@ -36,6 +36,9 @@ function setupSocketHandlers(io) {
         socket.on('playerReady', () =>
             safeHandler(lobbyHandlers.playerReady)(socket, io, {})
         );
+        socket.on('playerUnready', () =>
+            safeHandler(lobbyHandlers.playerUnready)(socket, io, {})
+        );
         socket.on('lobbyChat', (data) =>
             syncHandler('chatMessage', lobbyHandlers.lobbyChat)(socket, io, data)
         );

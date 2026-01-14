@@ -196,6 +196,24 @@ class GameManager {
     }
 
     /**
+     * Unset player ready status in their current lobby
+     */
+    unsetPlayerReady(socketId) {
+        const lobbyId = this.playerLobbies.get(socketId);
+        if (!lobbyId) return { success: false, error: 'Not in a lobby' };
+
+        const lobby = this.lobbies.get(lobbyId);
+        if (!lobby) return { success: false, error: 'Lobby not found' };
+
+        // Mark player as not ready
+        lobby.readyPlayers.delete(socketId);
+        const player = lobby.players.find(p => p.socketId === socketId);
+        if (player) player.ready = false;
+
+        return { success: true, lobby };
+    }
+
+    /**
      * Add chat message to lobby
      */
     addLobbyMessage(socketId, message) {

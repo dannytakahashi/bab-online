@@ -858,12 +858,20 @@ function showGameLobby(lobbyData) {
     }
 
     readyBtn.addEventListener("click", () => {
-        if (!isPlayerReady && !readyBtn.disabled) {
+        if (readyBtn.disabled) return;
+
+        if (!isPlayerReady) {
             socket.emit("playerReady");
             readyBtn.innerText = "Ready!";
             readyBtn.style.background = "#22c55e";
-            readyBtn.style.cursor = "default";
+            readyBtn.style.cursor = "pointer";
             isPlayerReady = true;
+        } else {
+            socket.emit("playerUnready");
+            readyBtn.innerText = "Ready";
+            readyBtn.style.background = "#4ade80";
+            readyBtn.style.cursor = "pointer";
+            isPlayerReady = false;
         }
     });
     buttonRow.appendChild(readyBtn);
@@ -949,15 +957,29 @@ function updateLobbyPlayersList(container, players) {
         container.appendChild(emptyRow);
     }
 
+    // Sync local ready state with server data
+    const myPlayer = players.find(p => p.username === username);
+    if (myPlayer) {
+        isPlayerReady = myPlayer.ready;
+    }
+
     // Update Ready button state
     const readyBtn = document.getElementById("lobbyReadyBtn");
-    if (readyBtn && !isPlayerReady) {
+    if (readyBtn) {
         if (players.length < 4) {
+            // Not enough players - disable button
             readyBtn.disabled = true;
             readyBtn.style.background = "#6b7280";
             readyBtn.style.cursor = "not-allowed";
             readyBtn.innerText = `Waiting for ${4 - players.length} more...`;
+        } else if (isPlayerReady) {
+            // Player is ready - show ready state
+            readyBtn.disabled = false;
+            readyBtn.innerText = "Ready!";
+            readyBtn.style.background = "#22c55e";
+            readyBtn.style.cursor = "pointer";
         } else {
+            // Player is not ready - show ready button
             readyBtn.disabled = false;
             readyBtn.style.background = "#4ade80";
             readyBtn.style.cursor = "pointer";

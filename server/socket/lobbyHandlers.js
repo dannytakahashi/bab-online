@@ -113,6 +113,35 @@ function lobbyChat(socket, io, data) {
 }
 
 /**
+ * Handle player unmarking themselves as ready
+ */
+function playerUnready(socket, io) {
+    const result = gameManager.unsetPlayerReady(socket.id);
+
+    if (!result.success) {
+        socket.emit('error', { message: result.error });
+        return;
+    }
+
+    const lobby = result.lobby;
+
+    // Broadcast ready status update to all lobby members
+    lobby.players.forEach(player => {
+        io.to(player.socketId).emit('playerReadyUpdate', {
+            lobbyId: lobby.id,
+            players: lobby.players,
+            unreadySocketId: socket.id
+        });
+    });
+
+    socketLogger.info('Player marked unready', {
+        socketId: socket.id,
+        lobbyId: lobby.id,
+        readyCount: lobby.readyPlayers.size
+    });
+}
+
+/**
  * Handle player leaving lobby
  */
 function leaveLobby(socket, io) {
@@ -159,6 +188,7 @@ function leaveLobby(socket, io) {
 
 module.exports = {
     playerReady,
+    playerUnready,
     lobbyChat,
     leaveLobby
 };
