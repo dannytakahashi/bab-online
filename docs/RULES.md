@@ -54,6 +54,16 @@ Before each hand, after dealing, one card is flipped from the remaining deck to 
 
 Both jokers are always considered trump suit, regardless of the flipped trump card.
 
+### No Trump (Joker Flipped)
+
+If a joker is flipped as the trump card, the hand is played with **no trump suit**:
+
+- There is no trump suit for that hand
+- The only trump cards are the two jokers (HI and LO)
+- All other rules remain the same
+- This makes bidding more difficult since you can't rely on a trump suit to win tricks
+- The joker that was flipped is out of play for that hand
+
 ---
 
 ## Bidding
