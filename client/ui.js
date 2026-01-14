@@ -676,10 +676,25 @@ function showGameLobby(lobbyData) {
     chatArea.style.marginBottom = "15px";
     chatArea.style.textAlign = "left";
     chatArea.style.fontSize = "14px";
-    // Add any existing messages
+    // Add any existing messages directly to chatArea element
     if (lobbyData.messages) {
         lobbyData.messages.forEach(msg => {
-            addLobbyChatMessage(msg.username, msg.message);
+            const msgDiv = document.createElement("div");
+            msgDiv.style.marginBottom = "8px";
+            msgDiv.style.wordWrap = "break-word";
+
+            const nameSpan = document.createElement("span");
+            nameSpan.innerText = msg.username + ": ";
+            nameSpan.style.fontWeight = "bold";
+            nameSpan.style.color = "#60a5fa";
+            msgDiv.appendChild(nameSpan);
+
+            const textSpan = document.createElement("span");
+            textSpan.innerText = msg.message;
+            textSpan.style.color = "#e5e7eb";
+            msgDiv.appendChild(textSpan);
+
+            chatArea.appendChild(msgDiv);
         });
     }
     container.appendChild(chatArea);

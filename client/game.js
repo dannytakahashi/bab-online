@@ -892,17 +892,7 @@ socket.on("createUI", (data) => {
         scene.handElements = [];
     }
 });
-socket.on("queueUpdate", (data) => {
-    console.log("caught queueUpdate");
-    if(waitBool){
-        console.log("queue update data is: ", data);
-        showPlayerQueue(data.queuedUsers);
-    }
-    else{
-        queueDelay = true;
-        lastQueueData = data.queuedUsers;
-    }
-});
+// queueUpdate handler removed - now using lobby system instead
 
 // ==================== LOBBY SOCKET HANDLERS ====================
 
