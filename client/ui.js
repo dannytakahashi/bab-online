@@ -118,42 +118,82 @@ function showSignInScreen() {
     };
 
     signInContainer.appendChild(signInButton);
+
+    // Divider with "or" text
+    let divider = document.createElement("div");
+    divider.style.display = "flex";
+    divider.style.alignItems = "center";
+    divider.style.width = "80%";
+    divider.style.margin = "15px 0 10px 0";
+    divider.innerHTML = `
+        <div style="flex: 1; height: 1px; background: rgba(255,255,255,0.3);"></div>
+        <span style="padding: 0 10px; color: rgba(255,255,255,0.7); font-size: 12px;">New user?</span>
+        <div style="flex: 1; height: 1px; background: rgba(255,255,255,0.3);"></div>
+    `;
+    signInContainer.appendChild(divider);
+
     let signUpButton = document.createElement("button");
-    signUpButton.innerText = "Register";
+    signUpButton.innerText = "Create Account";
     signUpButton.style.fontSize = "14px";
     signUpButton.style.padding = "10px 20px";
     signUpButton.style.borderRadius = "5px";
-    signUpButton.style.border = "none";
-    signUpButton.style.background = "#007bff";
-    signUpButton.style.color = "#fff";
+    signUpButton.style.border = "2px solid #007bff";
+    signUpButton.style.background = "transparent";
+    signUpButton.style.color = "#007bff";
     signUpButton.style.cursor = "pointer";
-    signUpButton.style.marginTop = "10px";
 
     signUpButton.onclick = showRegisterScreen;
     signInContainer.appendChild(signUpButton);
+
+    // Enter key to submit on any input field
+    const handleEnterKey = (e) => {
+        if (e.key === 'Enter') {
+            signInButton.click();
+        }
+    };
+    usernameInput.addEventListener('keypress', handleEnterKey);
+    passwordInput.addEventListener('keypress', handleEnterKey);
+
     document.body.appendChild(signInContainer);
 }
 function showRegisterScreen(){
+    // Capture values from sign-in form before removing it
+    let existingContainer = document.getElementById("signInContainer");
+    let existingUsername = "";
+    let existingPassword = "";
+    if (existingContainer) {
+        let existingUsernameInput = existingContainer.querySelector('input[type="text"]');
+        let existingPasswordInput = existingContainer.querySelector('input[type="password"]');
+        if (existingUsernameInput) existingUsername = existingUsernameInput.value;
+        if (existingPasswordInput) existingPassword = existingPasswordInput.value;
+        existingContainer.remove();
+    }
+
+    // Remove old vignette if exists
+    let oldVignette = document.getElementById("SignInVignette");
+    if (oldVignette) oldVignette.remove();
+
     let registerVignette = document.createElement("div");
-    registerVignette.classList.add("vignette"); // ✅ Add a class for easy removal
+    registerVignette.id = "RegisterVignette";
+    registerVignette.classList.add("vignette");
     registerVignette.style.position = "fixed";
     registerVignette.style.top = "0";
     registerVignette.style.left = "0";
     registerVignette.style.width = "100vw";
     registerVignette.style.height = "100vh";
-    registerVignette.style.pointerEvents = "none"; // ✅ Allows interaction with UI elements underneath
+    registerVignette.style.pointerEvents = "none";
     registerVignette.style.background = "radial-gradient(circle, rgba(34, 139, 34, 1) 30%, rgba(0, 0, 0, 1) 100%)";
-    document.body.appendChild(registerVignette); 
+    document.body.appendChild(registerVignette);
 
     let registerContainer = document.createElement("div");
-    registerContainer.id = "signInContainer";
+    registerContainer.id = "registerContainer";
     registerContainer.style.position = "absolute";
     registerContainer.style.top = "0";
     registerContainer.style.left = "0";
     registerContainer.style.width = "100vw";
     registerContainer.style.height = "100vh";
     registerContainer.style.background = "none";
-    registerContainer.style.border = "none"; 
+    registerContainer.style.border = "none";
     registerContainer.style.display = "flex";
     registerContainer.style.flexDirection = "column";
     registerContainer.style.justifyContent = "center";
@@ -161,17 +201,19 @@ function showRegisterScreen(){
     registerContainer.style.color = "white";
     registerContainer.style.fontSize = "24px";
     let logo = document.createElement("img");
-    logo.src = "assets/logo.png"; // ✅ Path to your logo image
+    logo.src = "assets/logo.png";
     logo.alt = "Game Logo";
-    logo.style.width = "26vw"; // ✅ Adjust size as needed
+    logo.style.width = "26vw";
     logo.style.marginBottom = "2vh";
     logo.style.position = "relative";
     logo.style.left = "2vw"
-    registerContainer.appendChild(logo); 
-    // ✅ Username Input
+    registerContainer.appendChild(logo);
+
+    // Username Input - pre-fill with value from sign-in form
     let usernameInput = document.createElement("input");
     usernameInput.type = "text";
     usernameInput.placeholder = "Username";
+    usernameInput.value = existingUsername;
     usernameInput.style.fontSize = "12px";
     usernameInput.style.padding = "10px";
     usernameInput.style.marginBottom = "10px";
@@ -180,10 +222,11 @@ function showRegisterScreen(){
     usernameInput.style.textAlign = "center";
     registerContainer.appendChild(usernameInput);
 
-    // ✅ Password Input
+    // Password Input - pre-fill with value from sign-in form
     let passwordInput = document.createElement("input");
-    passwordInput.type = "password"; // ✅ Password type hides input
+    passwordInput.type = "password";
     passwordInput.placeholder = "Password";
+    passwordInput.value = existingPassword;
     passwordInput.style.fontSize = "12px";
     passwordInput.style.padding = "10px";
     passwordInput.style.marginBottom = "10px";
@@ -233,6 +276,39 @@ function showRegisterScreen(){
         showSignInScreen();
     }
     registerContainer.appendChild(registerButton);
+
+    // Back to Sign In button
+    let backButton = document.createElement("button");
+    backButton.innerText = "Back to Sign In";
+    backButton.style.fontSize = "14px";
+    backButton.style.padding = "10px 20px";
+    backButton.style.borderRadius = "5px";
+    backButton.style.border = "none";
+    backButton.style.background = "#6b7280";
+    backButton.style.color = "#fff";
+    backButton.style.cursor = "pointer";
+    backButton.style.marginTop = "10px";
+    backButton.onclick = () => {
+        // Clean up register screen
+        let regContainer = document.getElementById("registerContainer");
+        if (regContainer) regContainer.remove();
+        let regVignette = document.getElementById("RegisterVignette");
+        if (regVignette) regVignette.remove();
+        // Show sign-in screen
+        showSignInScreen();
+    };
+    registerContainer.appendChild(backButton);
+
+    // Enter key to submit on any input field
+    const handleEnterKey = (e) => {
+        if (e.key === 'Enter') {
+            registerButton.click();
+        }
+    };
+    usernameInput.addEventListener('keypress', handleEnterKey);
+    passwordInput.addEventListener('keypress', handleEnterKey);
+    confirmPasswordInput.addEventListener('keypress', handleEnterKey);
+
     document.body.appendChild(registerContainer);
 }
 socket.on("signInResponse", (data) => {
@@ -347,15 +423,21 @@ function showScore(teamScore, opponentScore, bidArray, team1Tricks, team2Tricks,
     teamScoreSection.style.width = "30%";
 
     let teamTitle = document.createElement("p");
-    teamTitle.innerText = playerData.username[playerData.position.indexOf(1)].username + "/" + playerData.username[playerData.position.indexOf(team(1))].username;
+    teamTitle.innerText = playerData.username[playerData.position.indexOf(position)].username + "/" + playerData.username[playerData.position.indexOf(team(position))].username;
     teamTitle.style.fontWeight = "bold";
     teamTitle.style.marginBottom = "5px";
 
+    // Get bid indices based on player's position (position is 1-indexed, array is 0-indexed)
+    let myBidIdx = position - 1;
+    let partnerBidIdx = team(position) - 1;
+    let opp1BidIdx = rotate(position) - 1;
+    let opp2BidIdx = rotate(rotate(rotate(position))) - 1;
+
     let teamScoreBox = document.createElement("div");
     if(teamScore > team1OldScore){
-        teamScoreBox.innerText = bidArray[0] + "/" + bidArray [2] + "\n" + team1Tricks + "\n" + team1OldScore + "\n" + "+" + (teamScore - team1OldScore) + "\n" + teamScore;
+        teamScoreBox.innerText = bidArray[myBidIdx] + "/" + bidArray[partnerBidIdx] + "\n" + team1Tricks + "\n" + team1OldScore + "\n" + "+" + (teamScore - team1OldScore) + "\n" + teamScore;
     }else{
-        teamScoreBox.innerText = bidArray[0] + "/" + bidArray [2] + "\n" + team1Tricks + "\n" + team1OldScore + "\n" + (teamScore - team1OldScore) + "\n" + teamScore;
+        teamScoreBox.innerText = bidArray[myBidIdx] + "/" + bidArray[partnerBidIdx] + "\n" + team1Tricks + "\n" + team1OldScore + "\n" + (teamScore - team1OldScore) + "\n" + teamScore;
     }
     teamScoreBox.style.width = "100%";
     teamScoreBox.style.minHeight = "60px";
@@ -379,15 +461,15 @@ function showScore(teamScore, opponentScore, bidArray, team1Tricks, team2Tricks,
     opponentScoreSection.style.width = "30%";
 
     let opponentTitle = document.createElement("p");
-    opponentTitle.innerText = playerData.username[playerData.position.indexOf(rotate(1))].username + "/" + playerData.username[playerData.position.indexOf(rotate(rotate(rotate(1))))].username;
+    opponentTitle.innerText = playerData.username[playerData.position.indexOf(rotate(position))].username + "/" + playerData.username[playerData.position.indexOf(rotate(rotate(rotate(position))))].username;
     opponentTitle.style.fontWeight = "bold";
     opponentTitle.style.marginBottom = "5px";
 
     let opponentScoreBox = document.createElement("div");
     if(opponentScore > team2OldScore){
-        opponentScoreBox.innerText = bidArray[1] + "/" + bidArray [3] + "\n" + team2Tricks + "\n" + team2OldScore + "\n" + "+" + (opponentScore - team2OldScore) + "\n" + opponentScore;
+        opponentScoreBox.innerText = bidArray[opp1BidIdx] + "/" + bidArray[opp2BidIdx] + "\n" + team2Tricks + "\n" + team2OldScore + "\n" + "+" + (opponentScore - team2OldScore) + "\n" + opponentScore;
     }else{
-        opponentScoreBox.innerText = bidArray[1] + "/" + bidArray [3] + "\n" + team2Tricks + "\n" + team2OldScore + "\n" + (opponentScore - team2OldScore) + "\n" + opponentScore;
+        opponentScoreBox.innerText = bidArray[opp1BidIdx] + "/" + bidArray[opp2BidIdx] + "\n" + team2Tricks + "\n" + team2OldScore + "\n" + (opponentScore - team2OldScore) + "\n" + opponentScore;
     }
     opponentScoreBox.style.width = "100%";
     opponentScoreBox.style.minHeight = "60px";
@@ -670,12 +752,15 @@ function showGameLobby(lobbyData) {
     chatArea.id = "lobbyChatArea";
     chatArea.style.height = "150px";
     chatArea.style.overflowY = "auto";
+    chatArea.style.overflowX = "hidden";
     chatArea.style.background = "rgba(0, 0, 0, 0.4)";
     chatArea.style.borderRadius = "8px";
     chatArea.style.padding = "10px";
     chatArea.style.marginBottom = "15px";
     chatArea.style.textAlign = "left";
     chatArea.style.fontSize = "14px";
+    chatArea.style.wordBreak = "break-word";
+    chatArea.style.overflowWrap = "break-word";
     // Add any existing messages directly to chatArea element
     if (lobbyData.messages) {
         lobbyData.messages.forEach(msg => {
@@ -879,6 +964,20 @@ function updateLobbyPlayersList(container, players) {
     }
 }
 
+// Generate a consistent color from a username using a hash
+function getUsernameColor(username) {
+    // Simple hash function to get a number from a string
+    let hash = 0;
+    for (let i = 0; i < username.length; i++) {
+        hash = username.charCodeAt(i) + ((hash << 5) - hash);
+        hash = hash & hash; // Convert to 32bit integer
+    }
+    // Use HSL for consistent saturation and lightness
+    // Hue: 0-360, Saturation: 70%, Lightness: 60%
+    const hue = Math.abs(hash) % 360;
+    return `hsl(${hue}, 70%, 60%)`;
+}
+
 function addLobbyChatMessage(username, message) {
     const chatArea = document.getElementById("lobbyChatArea");
     if (!chatArea) return;
@@ -890,7 +989,7 @@ function addLobbyChatMessage(username, message) {
     const nameSpan = document.createElement("span");
     nameSpan.innerText = username + ": ";
     nameSpan.style.fontWeight = "bold";
-    nameSpan.style.color = "#60a5fa";
+    nameSpan.style.color = getUsernameColor(username);
     msgDiv.appendChild(nameSpan);
 
     const textSpan = document.createElement("span");
@@ -1185,6 +1284,18 @@ function createSpeechBubble(scene, x, bottomY, width, height, text, color) {
     return container;
   }
 function createPlayerInfoBox() {
+    // Safety check: ensure playerData is fully populated
+    if (!playerData || !playerData.username || !playerData.position || !playerData.pics) {
+        console.warn("⚠️ createPlayerInfoBox called before playerData is ready, deferring...");
+        return null;
+    }
+
+    let positionIndex = playerData.position.indexOf(position);
+    if (positionIndex === -1 || !playerData.username[positionIndex]) {
+        console.warn("⚠️ createPlayerInfoBox: position not found in playerData, deferring...");
+        return null;
+    }
+
     let screenWidth = gameScene.scale.width;
     let screenHeight = gameScene.scale.height;
     let scaleFactorX = screenWidth / 1920; // Adjust based on your design resolution
@@ -1202,10 +1313,10 @@ function createPlayerInfoBox() {
         .setStrokeStyle(3, 0xffffff); // White border
 
     // ✅ Player Name Text
-    let playerAvatar = gameScene.add.image(boxX, boxY - 110*scaleFactorY, "profile" + playerData.pics[playerData.position.indexOf(position)]) // Load texture from assets
+    let playerAvatar = gameScene.add.image(boxX, boxY - 110*scaleFactorY, "profile" + playerData.pics[positionIndex]) // Load texture from assets
         .setScale(0.2) // Adjust size
         .setOrigin(0.5)
-    let playerNameText = gameScene.add.text(boxX, boxY - 40*scaleFactorY, playerData.username[playerData.position.indexOf(position)].username, {
+    let playerNameText = gameScene.add.text(boxX, boxY - 40*scaleFactorY, playerData.username[positionIndex].username, {
         fontSize: "18px",
         fontFamily: "Arial",
         color: "#ffffff"
@@ -1257,8 +1368,27 @@ function createScorebug(){
         color: "#ff3333"
     }).setDepth(301);
 
+    // ✅ Function to update scorebug position and size on resize
+    function updateScorebugLayout() {
+        const newScreenWidth = gameScene.scale.width;
+        const newScreenHeight = gameScene.scale.height;
+        const newScaleFactorX = newScreenWidth / 1920;
+        const newScaleFactorY = newScreenHeight / 953;
+        const newBoxWidth = 300 * newScaleFactorX;
+        const newBoxHeight = 60 * newScaleFactorY;
+        const newScorebugX = newScreenWidth - newBoxWidth - padding;
+
+        background.setPosition(newScorebugX, padding);
+        background.setSize(newBoxWidth, newBoxHeight);
+        teamScoreLabel.setPosition(newScorebugX + 10 * newScaleFactorX, padding + 8 * newScaleFactorY);
+        oppScoreLabel.setPosition(newScorebugX + 10 * newScaleFactorX, padding + 32 * newScaleFactorY);
+    }
+
+    // Listen for resize events
+    gameScene.scale.on('resize', updateScorebugLayout);
+
     // ✅ Return references to update later
-    return { background, teamScoreLabel, oppScoreLabel };
+    return { background, teamScoreLabel, oppScoreLabel, updateLayout: updateScorebugLayout };
 }
 function showImpactEvent(event){
     let scene = game.scene.scenes[0];

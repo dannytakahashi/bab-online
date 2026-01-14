@@ -224,6 +224,7 @@ let score1 = 0;
 let score2 = 0;
 let playedCard = false;
 let playerInfo = null;
+let gameListenersRegistered = false; // Track if socket listeners are already registered
 let waitBool = false;
 let queueDelay = false;
 let lastQueueData; 
@@ -262,6 +263,14 @@ function create() {
             pics: data.pics
         };
         console.log("✅ playerData initialized:", playerData);
+
+        // If playerInfo was deferred because playerData wasn't ready, create it now
+        if (!playerInfo && position) {
+            playerInfo = createPlayerInfoBox();
+            if (playerInfo) {
+                console.log("✅ playerInfo created after positionUpdate");
+            }
+        }
     });
     socket.on("gameStart", (data) => {
         console.log("Game started! Data received:", data);
@@ -931,7 +940,15 @@ socket.on("roomFull", (data) => {
 });
 socket.on("gameEnd", (data) => {
     console.log("caught gameEnd");
-    showFinalScore(data.score.team1,data.score.team2);
+    // Determine which team the player is on (positions 1,3 = Team 1, positions 2,4 = Team 2)
+    // and show scores accordingly
+    if (position % 2 !== 0) {
+        // Player is on Team 1 (odd positions 1, 3)
+        showFinalScore(data.score.team1, data.score.team2);
+    } else {
+        // Player is on Team 2 (even positions 2, 4)
+        showFinalScore(data.score.team2, data.score.team1);
+    }
 });
 socket.on("startDraw", (data) => {
     removeWaitingScreen();
@@ -1219,12 +1236,12 @@ function displayCards(playerHand) {
             .setDepth(-1);
     }
     console.log("🟫 Added background for player hand.");
-    // ✅ Create button-grid bidding UI
+    // ✅ Create button-grid bidding UI (hidden initially, shown only when it's your turn)
     let bidContainer = document.createElement("div");
     bidContainer.id = "bidContainer";
     bidContainer.classList.add("ui-element", "bid-grid");
     bidContainer.style.position = "absolute";
-    bidContainer.style.display = "flex";
+    bidContainer.style.display = (bidding === 1 && currentTurn === position) ? "flex" : "none";
     bidContainer.style.flexDirection = "column";
     bidContainer.style.gap = "8px";
     bidContainer.style.padding = "12px";
@@ -1392,11 +1409,14 @@ function displayCards(playerHand) {
 
     console.log("✅ Button-grid bidding UI created.");
 
-    // Position the bid container relative to the game canvas
+    // Position the bid container in the center of the table
     function updateBidContainerPosition() {
         let canvasRect = document.querySelector("canvas").getBoundingClientRect();
-        bidContainer.style.left = `${canvasRect.left + handAreaWidth - 720*scaleFactorX}px`;
-        bidContainer.style.top = `${canvasRect.top + screenHeight - handAreaHeight / 2 - 60*scaleFactorY}px`;
+        // Center horizontally and position in upper-middle of play area (not covering cards at bottom)
+        let containerWidth = bidContainer.offsetWidth || 200; // Estimate if not yet rendered
+        let containerHeight = bidContainer.offsetHeight || 150;
+        bidContainer.style.left = `${canvasRect.left + (canvasRect.width - containerWidth) / 2}px`;
+        bidContainer.style.top = `${canvasRect.top + (canvasRect.height * 0.35) - containerHeight / 2}px`;
     }
 
     updateBidContainerPosition();
@@ -1522,6 +1542,14 @@ function displayCards(playerHand) {
     // Initial update of card legality (cards should be dimmed during bidding)
     updateCardLegality();
 
+    // Only register socket listeners once to prevent duplicates across hands
+    if (gameListenersRegistered) {
+        console.log("⏭️ Socket listeners already registered, skipping...");
+        return;
+    }
+    gameListenersRegistered = true;
+    console.log("📡 Registering game socket listeners...");
+
     socket.on("bidReceived", (data) => {
         console.log("bid received: ", data.bid);
         const bidStr = String(data.bid).toUpperCase();
@@ -1558,7 +1586,8 @@ function displayCards(playerHand) {
         let opp2_x = centerPlayAreaX + 620*scaleFactorX;
         let opp2_y = centerPlayAreaY - 60*scaleFactorY;
         let team1_x = centerPlayAreaX + 80*scaleFactorX;
-        let team1_y = centerPlayAreaY - 470*scaleFactorY;
+        // Reduce offset and ensure minimum Y of 80 to keep bubble visible
+        let team1_y = Math.max(80, centerPlayAreaY - 280*scaleFactorY);
         let me_x = screenWidth - 310*scaleFactorX;
         let me_y = screenHeight - 330*scaleFactorY;
         let myBids = ["-","-","-","-"];
@@ -1634,6 +1663,16 @@ function displayCards(playerHand) {
         // Update card legality when turn changes
         if (window.updateCardLegality) {
             window.updateCardLegality();
+        }
+
+        // Show/hide bid container based on whose turn it is during bidding
+        let bidContainer = document.getElementById("bidContainer");
+        if (bidContainer) {
+            if (bidding === 1 && currentTurn === position) {
+                bidContainer.style.display = "flex";
+            } else {
+                bidContainer.style.display = "none";
+            }
         }
     })
     socket.on("cardPlayed", (data) => {
@@ -1999,20 +2038,22 @@ function displayCards(playerHand) {
     });
     socket.on("handComplete", (data) => {
         if(data.team1Tricks + data.team2Tricks !== 13){
-            showScore(data.score.team1, data.score.team2, playerBids.bids, data.team1Tricks, data.team2Tricks,data.team1OldScore,data.team2OldScore);
+            // Swap team1/team2 data based on player's team (positions 1,3 = Team 1, positions 2,4 = Team 2)
+            if (position % 2 !== 0) {
+                // Player is on Team 1
+                showScore(data.score.team1, data.score.team2, playerBids.bids, data.team1Tricks, data.team2Tricks, data.team1OldScore, data.team2OldScore);
+            } else {
+                // Player is on Team 2 - swap all team1/team2 values
+                showScore(data.score.team2, data.score.team1, playerBids.bids, data.team2Tricks, data.team1Tricks, data.team2OldScore, data.team1OldScore);
+            }
         }
         console.log("🏁 Hand complete. Clearing all tricks...");
         addToGameFeed("Hand complete. Clearing all tricks...");
         teamTricks = 0;
         oppTricks = 0;
         isTrumpBroken = false;
-        socket.off("handComplete");
-        socket.off("doneBidding");
-        socket.off("trickComplete");
-        socket.off("cardPlayed");
-        socket.off("updateTurn");
-        socket.off("bidReceived");
-        socket.off("cardPlayed");
+        // NOTE: Do NOT remove socket listeners here - they need to persist across hands
+        // The gameStart event for the next hand will reinitialize state
         clearAllTricks();
         clearDisplayCards();
     });

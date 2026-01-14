@@ -116,12 +116,14 @@ function showAuthScreen() {
         toggleAuth.textContent = isSignUp ? 'Have an account? Sign In' : 'Need an account? Sign Up';
     });
 
-    // Enter key to submit
-    uiManager.addEventListener(passwordInput, 'keypress', (e) => {
+    // Enter key to submit (on both username and password fields)
+    const handleEnterKey = (e) => {
         if (e.key === 'Enter') {
             signinBtn.click();
         }
-    });
+    };
+    uiManager.addEventListener(usernameInput, 'keypress', handleEnterKey);
+    uiManager.addEventListener(passwordInput, 'keypress', handleEnterKey);
 }
 
 /**
