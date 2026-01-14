@@ -12,6 +12,10 @@ class GameManager {
         this.queue = [];
         this.queuedUsers = [];
 
+        // Lobbies (pre-game waiting rooms)
+        this.lobbies = new Map();      // lobbyId → { players: [], readyPlayers: Set, messages: [] }
+        this.playerLobbies = new Map(); // socketId → lobbyId
+
         // Active games
         this.games = new Map();        // gameId → GameState
         this.playerGames = new Map();  // socketId → gameId
@@ -37,12 +41,12 @@ class GameManager {
     }
 
     /**
-     * Add player to matchmaking queue
+     * Add player to lobby (creates one immediately or joins existing)
      */
     joinQueue(socketId) {
-        // Check if already in queue
-        if (this.queue.includes(socketId)) {
-            return { success: false, error: 'Already in queue' };
+        // Check if already in lobby
+        if (this.playerLobbies.has(socketId)) {
+            return { success: false, error: 'Already in lobby' };
         }
 
         // Check if already in game
@@ -50,32 +54,56 @@ class GameManager {
             return { success: false, error: 'Already in game' };
         }
 
-        this.queue.push(socketId);
-
-        // Add to queuedUsers for display
-        const user = this.getUserBySocketId(socketId);
-        if (user) {
-            this.queuedUsers.push(user);
+        // Find an existing open lobby (less than 4 players)
+        let openLobby = null;
+        for (const [lobbyId, lobby] of this.lobbies) {
+            if (lobby.players.length < 4) {
+                openLobby = lobby;
+                break;
+            }
         }
 
-        // Check if we have enough players to start
-        if (this.queue.length >= 4) {
-            const players = this.queue.splice(0, 4);
-            const game = this.createGame(players);
+        if (openLobby) {
+            // Join existing lobby
+            const result = this.addPlayerToLobby(socketId, openLobby.id);
             return {
                 success: true,
-                gameStarted: true,
-                game,
-                players
+                lobbyCreated: false,
+                joinedExisting: true,
+                lobby: openLobby,
+                players: openLobby.players.map(p => p.socketId)
+            };
+        } else {
+            // Create new lobby with just this player
+            const lobby = this.createLobby([socketId]);
+            return {
+                success: true,
+                lobbyCreated: true,
+                lobby,
+                players: [socketId]
             };
         }
+    }
 
-        return {
-            success: true,
-            gameStarted: false,
-            queuePosition: this.queue.length,
-            queuedUsers: this.queuedUsers
+    /**
+     * Add a player to an existing lobby
+     */
+    addPlayerToLobby(socketId, lobbyId) {
+        const lobby = this.lobbies.get(lobbyId);
+        if (!lobby) return { success: false, error: 'Lobby not found' };
+        if (lobby.players.length >= 4) return { success: false, error: 'Lobby is full' };
+
+        const user = this.getUserBySocketId(socketId);
+        const newPlayer = {
+            socketId,
+            username: user?.username || 'Unknown',
+            ready: false
         };
+
+        lobby.players.push(newPlayer);
+        this.playerLobbies.set(socketId, lobbyId);
+
+        return { success: true, lobby, newPlayer };
     }
 
     /**
@@ -90,6 +118,198 @@ class GameManager {
         }
         return { success: false };
     }
+
+    // ==================== LOBBY METHODS ====================
+
+    /**
+     * Create a new lobby with 4 players
+     */
+    createLobby(playerSocketIds) {
+        const lobbyId = uuidv4();
+        const players = playerSocketIds.map(socketId => {
+            const user = this.getUserBySocketId(socketId);
+            return {
+                socketId,
+                username: user?.username || 'Unknown',
+                ready: false
+            };
+        });
+
+        const lobby = {
+            id: lobbyId,
+            players,
+            readyPlayers: new Set(),
+            messages: [],
+            createdAt: Date.now()
+        };
+
+        this.lobbies.set(lobbyId, lobby);
+
+        // Map each player to this lobby
+        playerSocketIds.forEach(socketId => {
+            this.playerLobbies.set(socketId, lobbyId);
+        });
+
+        // Clear queued users who are now in lobby
+        this.queuedUsers = this.queuedUsers.filter(
+            u => !playerSocketIds.includes(u.socketId)
+        );
+
+        return lobby;
+    }
+
+    /**
+     * Get lobby a player is in
+     */
+    getPlayerLobby(socketId) {
+        const lobbyId = this.playerLobbies.get(socketId);
+        return lobbyId ? this.lobbies.get(lobbyId) : null;
+    }
+
+    /**
+     * Get lobby by ID
+     */
+    getLobbyById(lobbyId) {
+        return this.lobbies.get(lobbyId);
+    }
+
+    /**
+     * Mark player as ready in lobby
+     * Returns { allReady, lobby } if successful
+     */
+    setPlayerReady(socketId) {
+        const lobbyId = this.playerLobbies.get(socketId);
+        if (!lobbyId) return { success: false, error: 'Not in a lobby' };
+
+        const lobby = this.lobbies.get(lobbyId);
+        if (!lobby) return { success: false, error: 'Lobby not found' };
+
+        // Mark player as ready
+        lobby.readyPlayers.add(socketId);
+        const player = lobby.players.find(p => p.socketId === socketId);
+        if (player) player.ready = true;
+
+        // Check if all players are ready
+        const allReady = lobby.readyPlayers.size === 4;
+
+        return { success: true, allReady, lobby };
+    }
+
+    /**
+     * Add chat message to lobby
+     */
+    addLobbyMessage(socketId, message) {
+        const lobbyId = this.playerLobbies.get(socketId);
+        if (!lobbyId) return { success: false, error: 'Not in a lobby' };
+
+        const lobby = this.lobbies.get(lobbyId);
+        if (!lobby) return { success: false, error: 'Lobby not found' };
+
+        const user = this.getUserBySocketId(socketId);
+        const chatMessage = {
+            username: user?.username || 'Unknown',
+            message,
+            timestamp: Date.now()
+        };
+
+        lobby.messages.push(chatMessage);
+
+        return { success: true, lobby, chatMessage };
+    }
+
+    /**
+     * Handle player leaving lobby
+     * Returns remaining players or null if lobby should be dissolved
+     */
+    leaveLobby(socketId) {
+        const lobbyId = this.playerLobbies.get(socketId);
+        if (!lobbyId) return { success: false, error: 'Not in a lobby' };
+
+        const lobby = this.lobbies.get(lobbyId);
+        if (!lobby) return { success: false, error: 'Lobby not found' };
+
+        // Remove player from lobby
+        lobby.players = lobby.players.filter(p => p.socketId !== socketId);
+        lobby.readyPlayers.delete(socketId);
+        this.playerLobbies.delete(socketId);
+
+        // If lobby is now empty, delete it
+        if (lobby.players.length === 0) {
+            this.lobbies.delete(lobbyId);
+            return {
+                success: true,
+                lobby: null,
+                lobbyDeleted: true,
+                playerLeft: socketId
+            };
+        }
+
+        // Reset all ready states when someone leaves
+        lobby.readyPlayers.clear();
+        lobby.players.forEach(p => p.ready = false);
+
+        return {
+            success: true,
+            lobby,
+            playerLeft: socketId,
+            needsMorePlayers: lobby.players.length < 4
+        };
+    }
+
+    /**
+     * Try to fill an empty lobby slot from the queue
+     */
+    fillLobbyFromQueue(lobbyId) {
+        const lobby = this.lobbies.get(lobbyId);
+        if (!lobby || lobby.players.length >= 4) return null;
+
+        // Get next player from queue
+        if (this.queue.length === 0) return null;
+
+        const socketId = this.queue.shift();
+        const user = this.getUserBySocketId(socketId);
+
+        // Remove from queuedUsers
+        this.queuedUsers = this.queuedUsers.filter(u => u.socketId !== socketId);
+
+        // Add to lobby
+        lobby.players.push({
+            socketId,
+            username: user?.username || 'Unknown',
+            ready: false
+        });
+        this.playerLobbies.set(socketId, lobbyId);
+
+        return { socketId, username: user?.username };
+    }
+
+    /**
+     * Convert lobby to game when all players are ready
+     */
+    startGameFromLobby(lobbyId) {
+        const lobby = this.lobbies.get(lobbyId);
+        if (!lobby) return { success: false, error: 'Lobby not found' };
+
+        if (lobby.readyPlayers.size !== 4) {
+            return { success: false, error: 'Not all players ready' };
+        }
+
+        // Get player socket IDs
+        const playerSocketIds = lobby.players.map(p => p.socketId);
+
+        // Remove lobby mappings
+        playerSocketIds.forEach(socketId => {
+            this.playerLobbies.delete(socketId);
+        });
+        this.lobbies.delete(lobbyId);
+
+        // Create the actual game
+        const game = this.createGame(playerSocketIds);
+
+        return { success: true, game, players: playerSocketIds };
+    }
+
+    // ==================== END LOBBY METHODS ====================
 
     /**
      * Create new game with players
@@ -161,8 +381,9 @@ class GameManager {
      * Handle player disconnect - now with grace period for reconnection
      */
     handleDisconnect(socketId) {
-        // Remove from queue (if in queue, not in game)
-        const wasInQueue = this.leaveQueue(socketId).success;
+        // Remove from lobby (if in lobby, not in game)
+        const lobbyResult = this.leaveLobby(socketId);
+        const wasInLobby = lobbyResult.success;
 
         // Handle in-game disconnect - DON'T immediately abort
         const gameId = this.playerGames.get(socketId);
@@ -176,7 +397,7 @@ class GameManager {
                 }
             }
             return {
-                wasInQueue,
+                wasInLobby,
                 wasInGame: true,
                 game,
                 gameId,
@@ -188,7 +409,7 @@ class GameManager {
         // Only remove from currentUsers if not in a game
         this.currentUsers = this.currentUsers.filter(u => u.socketId !== socketId);
 
-        return { wasInQueue, wasInGame: false, queuedUsers: this.queuedUsers };
+        return { wasInLobby, wasInGame: false, lobby: lobbyResult.lobby };
     }
 
     /**

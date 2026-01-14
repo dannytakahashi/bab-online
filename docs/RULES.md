@@ -68,7 +68,7 @@ If a joker is flipped as the trump card, the hand is played with **no trump suit
 
 ## Bidding
 
-After the deal, players bid in counter-clockwise order starting with the player to the left of the dealer. The dealer bids last.
+After the deal, players bid in clockwise order starting with the player to the left of the dealer. The dealer bids last.
 
 ### What is a Bid?
 
@@ -112,7 +112,7 @@ A "bore" is a double-or-nothing bet that your team will win ALL tricks.
 
 ### Following a Trick
 
-Play proceeds counter-clockwise. Each player must:
+Play proceeds clockwise. Each player must:
 
 1. **Follow suit** if possible - play a card of the same suit as the lead card
 2. If you cannot follow suit, you may play any card including trump

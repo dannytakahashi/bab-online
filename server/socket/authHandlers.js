@@ -92,10 +92,17 @@ async function signUp(socket, io, data) {
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
-        await usersCollection.insertOne({ username, password: hashedPassword });
+        await usersCollection.insertOne({
+            username,
+            password: hashedPassword,
+            socketId: socket.id  // Set socketId immediately for auto-login
+        });
 
-        socket.emit('signUpResponse', { success: true });
-        authLogger.info('New user registered', { username });
+        // Auto-login: register with game manager (same as signIn)
+        gameManager.registerUser(socket.id, username);
+
+        socket.emit('signUpResponse', { success: true, username, autoLoggedIn: true });
+        authLogger.info('New user registered and auto-logged in', { username, socketId: socket.id });
 
     } catch (error) {
         authLogger.error('Database error during sign-up', { username, error: error.message });

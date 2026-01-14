@@ -16,7 +16,9 @@ const BID_RANKS = {
 };
 
 /**
- * Rotate position (1→2→3→4→1)
+ * Rotate to next player position (clockwise)
+ * Seating: Position 1 (bottom), 2 (left), 3 (top), 4 (right)
+ * Clockwise order: 1 → 2 → 3 → 4 → 1
  * @param {number} position - Current position (1-4)
  * @returns {number} - Next position
  */

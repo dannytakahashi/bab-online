@@ -192,12 +192,27 @@ function team(position){
         return 2;
     }
 }
+// Rotate to next player position (clockwise: 1→2→3→4→1)
 function rotate(num){
-    num = num + 1;
-    if (num > 4){
-        num = 1;
+    return (num % 4) + 1;
+}
+// Helper function to safely get player username from position
+function getPlayerName(pos) {
+    if (!playerData || !playerData.username || !playerData.position) {
+        console.warn("⚠️ playerData not initialized when getting name for position:", pos);
+        return `Player ${pos}`;
     }
-    return num;
+    const index = playerData.position.indexOf(pos);
+    if (index === -1) {
+        console.warn("⚠️ Position not found in playerData:", pos);
+        return `Player ${pos}`;
+    }
+    const player = playerData.username[index];
+    if (!player || !player.username) {
+        console.warn("⚠️ No username at index:", index);
+        return `Player ${pos}`;
+    }
+    return player.username;
 }
 let scoreUI = null;
 let me = null;
@@ -244,7 +259,8 @@ function create() {
             socket: data.sockets,
             username: data.usernames,
             pics: data.pics
-        }
+        };
+        console.log("✅ playerData initialized:", playerData);
     });
     socket.on("gameStart", (data) => {
         console.log("Game started! Data received:", data);
@@ -885,6 +901,50 @@ socket.on("queueUpdate", (data) => {
         lastQueueData = data.queuedUsers;
     }
 });
+
+// ==================== LOBBY SOCKET HANDLERS ====================
+
+socket.on("lobbyCreated", (data) => {
+    console.log("🎮 Lobby created!", data);
+    showGameLobby(data);
+});
+
+socket.on("playerReadyUpdate", (data) => {
+    console.log("👤 Player ready update", data);
+    updateLobbyPlayersList(null, data.players);
+});
+
+socket.on("lobbyMessage", (data) => {
+    console.log("💬 Lobby message", data);
+    addLobbyChatMessage(data.username, data.message);
+});
+
+socket.on("lobbyPlayerLeft", (data) => {
+    console.log("👋 Player left lobby", data);
+    updateLobbyPlayersList(null, data.players);
+    addLobbyChatMessage("System", `${data.leftUsername} left the lobby`);
+});
+
+socket.on("lobbyPlayerJoined", (data) => {
+    console.log("👋 Player joined lobby", data);
+    updateLobbyPlayersList(null, data.players);
+    addLobbyChatMessage("System", `${data.newPlayer.username} joined the lobby`);
+});
+
+socket.on("leftLobby", () => {
+    console.log("👋 You left the lobby");
+    removeGameLobby();
+    showLobbyScreen();
+});
+
+socket.on("allPlayersReady", (data) => {
+    console.log("✅ All players ready! Starting game...", data);
+    removeGameLobby();
+    // The draw phase will be triggered by startDraw event
+});
+
+// ==================== END LOBBY SOCKET HANDLERS ====================
+
 function clearDisplayCards() {
     console.log("🗑️ Clearing all elements from displayCards...");
 
@@ -992,13 +1052,14 @@ function displayCards(playerHand) {
         console.log("📍 Play zone created at:", playZoneX, playZoneY);
     }
     if (!handBackground){
-            handBackground = this.add.rectangle(screenWidth / 2, screenHeight - handAreaHeight / 2, 
-            screenWidth * 0.5, handAreaHeight, 0xD2B48C)
-            .setDepth(-2); // 
-            border = this.add.rectangle(screenWidth / 2, screenHeight - handAreaHeight / 2, 
+            handBackground = this.add.rectangle(screenWidth / 2, screenHeight - handAreaHeight / 2,
+            screenWidth * 0.5, handAreaHeight, 0x1a3328)  // Dark green felt
+            .setAlpha(0.85)
+            .setDepth(-2);
+            border = this.add.rectangle(screenWidth / 2, screenHeight - handAreaHeight / 2,
             screenWidth * 0.5, handAreaHeight)
-            .setStrokeStyle(4, 0x8B4513) // ✅ Dark brown border
-            .setDepth(-1); // ✅ Slightly above background, but below cards
+            .setStrokeStyle(2, 0x2d5a40) // Subtle green border
+            .setDepth(-1);
     }
     console.log("🟫 Added background for player hand.");
     // ✅ Create button-grid bidding UI
@@ -1316,7 +1377,7 @@ function displayCards(playerHand) {
         if(data.bid.toUpperCase() === "4B"){
             showImpactEvent("4b");
         }
-        addToGameFeed(playerData.username[playerData.position.indexOf(data.position)].username + " bid "+ data.bid + ".");
+        addToGameFeed(getPlayerName(data.position) + " bid " + data.bid + ".");
         tempBids.push(data.bid.toUpperCase());
 
         // Update bore button states after receiving a bid
@@ -1552,7 +1613,7 @@ function displayCards(playerHand) {
     })
     socket.on("trickComplete", (data) => {
         console.log("🏆 Trick complete. Moving and stacking to the right...");
-        addToGameFeed("Trick won by " + playerData.username[playerData.position.indexOf(data.winner)].username + ".");
+        addToGameFeed("Trick won by " + getPlayerName(data.winner) + ".");
         let screenWidth = this.scale.width;
         let screenHeight = this.scale.height;
         let trickSpacing = 40*scaleFactorX; // ✅ Horizontal spacing between tricks
@@ -1679,7 +1740,7 @@ function displayCards(playerHand) {
         rainbows.forEach((rainbow) => {
             if(rainbow === position){
                 console.log("adding rainbow to me");
-                addToGameFeed(playerData.username[playerData.position.indexOf(position)].username + " has a rainbow!");
+                addToGameFeed(getPlayerName(position) + " has a rainbow!");
                 let myRainbow = this.add.image(screenWidth / 2 + 580*scaleFactorX, screenHeight / 2 + 125*scaleFactorY, "rainbow").setScale(1).setDepth(1000).setAlpha(1);
                 this.tweens.add({
                     targets: myRainbow,
@@ -1701,7 +1762,7 @@ function displayCards(playerHand) {
             }
             if(rainbow === rotate(position)){
                 console.log("adding rainbow to opp1");
-                addToGameFeed(playerData.username[playerData.position.indexOf(rotate(position))].username + " has a rainbow!");
+                addToGameFeed(getPlayerName(rotate(position)) + " has a rainbow!");
                 let opp1Rainbow = this.add.image(screenWidth / 2 - 645*scaleFactorX, screenHeight / 2, "rainbow").setScale(1).setDepth(1000).setAlpha(1);
                 this.tweens.add({
                     targets: opp1Rainbow,
@@ -1723,7 +1784,7 @@ function displayCards(playerHand) {
             }
             if(rainbow === team(position)){
                 console.log("adding rainbow to partner");
-                addToGameFeed(playerData.username[playerData.position.indexOf(team(position))].username + " has a rainbow!");
+                addToGameFeed(getPlayerName(team(position)) + " has a rainbow!");
                 let teamRainbow = this.add.image(screenWidth / 2 + 135*scaleFactorX, screenHeight / 2 - 400*scaleFactorY, "rainbow").setScale(1).setDepth(1000).setAlpha(1);
                 this.tweens.add({
                     targets: teamRainbow,
@@ -1745,7 +1806,7 @@ function displayCards(playerHand) {
             }
             if(rainbow === rotate(rotate(rotate(position)))){
                 console.log("adding rainbow to opp2");
-                addToGameFeed(playerData.username[playerData.position.indexOf(rotate(rotate(rotate(position))))].username + " has a rainbow!");
+                addToGameFeed(getPlayerName(rotate(rotate(rotate(position)))) + " has a rainbow!");
                 let opp2Rainbow = this.add.image(screenWidth / 2 + 630*scaleFactorX, screenHeight / 2, "rainbow").setScale(1).setDepth(1000).setAlpha(1);
                 this.tweens.add({
                     targets: opp2Rainbow,

@@ -15,29 +15,42 @@ async function joinQueue(socket, io) {
         return;
     }
 
-    // Broadcast updated queue to all
-    io.emit('queueUpdate', { queuedUsers: result.queuedUsers || gameManager.getQueueStatus().queuedUsers });
+    const lobby = result.lobby;
+    socketLogger.info('Player joined lobby', {
+        socketId: socket.id,
+        lobbyId: lobby.id,
+        playerCount: lobby.players.length,
+        isNewLobby: result.lobbyCreated
+    });
 
-    if (result.gameStarted) {
-        socketLogger.info('Game starting', { gameId: result.game.gameId, players: result.players });
-        const game = result.game;
+    if (result.lobbyCreated) {
+        // New lobby created - send lobbyCreated to the joining player
+        socket.emit('lobbyCreated', {
+            lobbyId: lobby.id,
+            players: lobby.players,
+            messages: lobby.messages
+        });
+    } else if (result.joinedExisting) {
+        // Joined existing lobby - send lobbyCreated to the new player
+        socket.emit('lobbyCreated', {
+            lobbyId: lobby.id,
+            players: lobby.players,
+            messages: lobby.messages
+        });
 
-        // Join all players to the game room for targeted broadcasts
-        for (const socketId of result.players) {
-            game.joinToRoom(io, socketId);
-        }
-
-        // Wait before starting draw phase
-        await delay(3500);
-
-        // Initialize deck for draw phase
-        const deck = new Deck();
-        deck.shuffle();
-        game.deck = deck;
-        game.phase = 'drawing';
-
-        // Broadcast to game room only
-        game.broadcast(io, 'startDraw', { start: true });
+        // Notify existing players that someone joined
+        lobby.players.forEach(player => {
+            if (player.socketId !== socket.id) {
+                io.to(player.socketId).emit('lobbyPlayerJoined', {
+                    lobbyId: lobby.id,
+                    players: lobby.players,
+                    newPlayer: {
+                        socketId: socket.id,
+                        username: lobby.players.find(p => p.socketId === socket.id)?.username
+                    }
+                });
+            }
+        });
     }
 }
 
