@@ -1497,13 +1497,11 @@ function displayCards(playerHand) {
         selectedBid = bidValue;
     }
 
-    // Row 1: Numeric bids (0 to hand size) - max 6 per row
+    // Row 1: Numeric bids (0 to hand size) - 6 per row using CSS grid
     let numericRow = document.createElement("div");
-    numericRow.style.display = "flex";
+    numericRow.style.display = "grid";
+    numericRow.style.gridTemplateColumns = "repeat(6, 1fr)";
     numericRow.style.gap = "4px";
-    numericRow.style.flexWrap = "wrap";
-    numericRow.style.justifyContent = "center";
-    numericRow.style.maxWidth = "280px"; // 6 buttons * (40px + 4px gap) + padding
 
     for (let i = 0; i <= playerHand.length; i++) {
         let btn = document.createElement("button");
