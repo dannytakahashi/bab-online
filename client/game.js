@@ -775,11 +775,7 @@ function draw() {
     const drawDisplayStartX = screenWidth / 2 - 300*scaleFactorX;
     const drawDisplaySpacing = 200*scaleFactorX;
 
-    const bg = this.add.image(0, 0, 'background')
-        .setOrigin(0, 0)
-        .setDisplaySize(this.scale.width, this.scale.height)
-        .setScrollFactor(0)
-        .setDepth(-100);
+    // Background is now handled by CSS gradient on body - canvas is transparent
 
     // Add "Draw for Deal" title
     const titleText = this.add.text(screenWidth / 2, 80*scaleFactorY, "Draw for Deal", {
