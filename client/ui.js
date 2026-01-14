@@ -137,9 +137,9 @@ function showSignInScreen() {
     signUpButton.style.fontSize = "14px";
     signUpButton.style.padding = "10px 20px";
     signUpButton.style.borderRadius = "5px";
-    signUpButton.style.border = "2px solid #007bff";
-    signUpButton.style.background = "transparent";
-    signUpButton.style.color = "#007bff";
+    signUpButton.style.border = "none";
+    signUpButton.style.background = "#007bff";
+    signUpButton.style.color = "#fff";
     signUpButton.style.cursor = "pointer";
 
     signUpButton.onclick = showRegisterScreen;
