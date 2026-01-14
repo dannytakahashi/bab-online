@@ -236,18 +236,7 @@ function create() {
 
     let screenWidth = this.scale.width;
     let screenHeight = this.scale.height;
-    //this.cameras.main.setBackgroundColor("transparent");
-    const bg = this.add.image(0, 0, 'background')
-    .setOrigin(0, 0)
-    .setDisplaySize(this.scale.width, this.scale.height)  // Stretch to fill screen
-    .setScrollFactor(0)
-    .setDepth(-100)  // Make it non-scrollable (fixed to camera)
-    this.time.delayedCall(10, () => {
-        bg.setDisplaySize(this.scale.width, this.scale.height);
-    });
-    this.scale.on('resize', (gameSize) => {
-        bg.setDisplaySize(gameSize.width, gameSize.height);
-    });
+    // Background is now handled by CSS gradient on body - canvas is transparent
 
     // Check if there's pending rejoin data from before scene was ready
     if (pendingRejoinData) {
@@ -406,7 +395,7 @@ const config = {
     type: Phaser.AUTO,
     width: innerWidth - GAME_LOG_WIDTH,
     height: innerHeight,
-    //backgroundColor: "transparent",
+    transparent: true, // Make canvas transparent so CSS background shows through
     parent: "game-container",
     scale: {
         mode: Phaser.Scale.FIT, // ✅ Ensures full coverage
