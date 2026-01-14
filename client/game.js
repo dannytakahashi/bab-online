@@ -1497,10 +1497,10 @@ function displayCards(playerHand) {
         selectedBid = bidValue;
     }
 
-    // Row 1: Numeric bids (0 to hand size) - 6 per row using CSS grid
+    // Row 1: Numeric bids (0 to hand size) - 4 per row using CSS grid
     let numericRow = document.createElement("div");
     numericRow.style.display = "grid";
-    numericRow.style.gridTemplateColumns = "repeat(6, 1fr)";
+    numericRow.style.gridTemplateColumns = "repeat(4, 1fr)";
     numericRow.style.gap = "4px";
 
     for (let i = 0; i <= playerHand.length; i++) {
