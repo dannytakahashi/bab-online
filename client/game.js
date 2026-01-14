@@ -1420,7 +1420,8 @@ function displayCards(playerHand) {
             }
 
             // Check if this card is a legal move
-            const isLegal = isLegalMove(card, playerCards, leadCard, playedCardIndex === 0, position);
+            // Pass leadPosition (who led the trick) for HI joker rule, not player's position
+            const isLegal = isLegalMove(card, playerCards, leadCard, playedCardIndex === 0, leadPosition);
 
             if (isLegal) {
                 sprite.clearTint();
@@ -1777,8 +1778,9 @@ function displayCards(playerHand) {
         console.log("🏆 Trick complete. Moving and stacking to the right...");
         addToGameFeed("Trick won by " + getPlayerName(data.winner) + ".");
 
-        // Reset lead card for next trick
+        // Reset lead card and position for next trick
         leadCard = null;
+        leadPosition = null;
         playedCardIndex = 0;
         let screenWidth = this.scale.width;
         let screenHeight = this.scale.height;
