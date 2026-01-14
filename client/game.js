@@ -408,12 +408,14 @@ function createGameFeed() {
     addToGameFeed("Game started!");
 }
 function addToGameFeed(message, playerPosition = null) {
+    console.log("📋 addToGameFeed called with:", message);
     let feedContainer = document.getElementById("gameFeed");
 
     if (!feedContainer) {
         console.warn("⚠️ Game feed container not found!");
         return;
     }
+    console.log("📋 Feed container found, adding message");
 
     // Get current time for timestamp
     const now = new Date();
@@ -1507,7 +1509,10 @@ function displayCards(playerHand) {
         if(data.bid.toUpperCase() === "4B"){
             showImpactEvent("4b");
         }
-        addToGameFeed(getPlayerName(data.position) + " bid " + data.bid + ".");
+        const playerName = getPlayerName(data.position);
+        const feedMessage = playerName + " bid " + data.bid + ".";
+        console.log("📝 Adding to game feed:", feedMessage, "position:", data.position);
+        addToGameFeed(feedMessage);
         tempBids.push(data.bid.toUpperCase());
 
         // Update bore button states after receiving a bid
