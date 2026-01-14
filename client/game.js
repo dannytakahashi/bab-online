@@ -800,27 +800,38 @@ let isTrumpBroken = false;
 let teamTricks = 0;
 let oppTricks = 0;
 function isLegalMove(card, hand, lead, leadBool, leadPosition){
-    console.log("card.suit: ", card.suit);
-    console.log("lead.suit: ", lead);
-    console.log("leadBool: ", leadBool);
-    console.log("isVoid: ", isVoid(hand, lead.suit));
-    if (sameSuit(card,trump) && !isTrumpBroken && leadBool && !isTrumpTight(hand, trump)){
-        console.log("trump not broken");
-        return false;
-    }
-    if (!sameSuit(card,lead) && !isVoid(hand, lead.suit)){
-        console.log("not void of lead suit.");
-        return false;
-    }
-    if (lead.rank === "HI" && !highestTrump(card.rank,hand,trump) && (leadPosition % 2 !== position % 2)){
-        console.log("Hi lead. Highest trump only.")
-        return false;
-    }
-    else{
-        console.log("legal move.");
+    console.log("=== isLegalMove check ===");
+    console.log("card:", card.rank, "of", card.suit);
+    console.log("lead:", lead?.rank, "of", lead?.suit);
+    console.log("leadBool (is leading?):", leadBool);
+    console.log("hand suits:", hand.map(c => c.suit));
+    console.log("trump:", trump?.suit);
+
+    // Skip following-suit check if we're leading
+    if (leadBool) {
+        // Leading: can't lead trump unless broken (or trump tight)
+        if (sameSuit(card,trump) && !isTrumpBroken && !isTrumpTight(hand, trump)){
+            console.log("ILLEGAL: trump not broken and not trump tight");
+            return false;
+        }
+        console.log("LEGAL: leading");
         return true;
     }
 
+    // Following
+    const isVoidInLeadSuit = isVoid(hand, lead.suit);
+    console.log("isVoid in lead suit:", isVoidInLeadSuit);
+
+    if (!sameSuit(card, lead) && !isVoidInLeadSuit){
+        console.log("ILLEGAL: not following suit when not void");
+        return false;
+    }
+    if (lead.rank === "HI" && !highestTrump(card.rank, hand, trump) && (leadPosition % 2 !== position % 2)){
+        console.log("ILLEGAL: HI lead requires highest trump");
+        return false;
+    }
+    console.log("LEGAL: following rules satisfied");
+    return true;
 }
 let waitingText;
 let playZone;
