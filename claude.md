@@ -1,6 +1,8 @@
 # BAB Online
 
-A 4-player online multiplayer trick-taking card game. Players bid on tricks, with special scoring for "rainbow" hands (all 4 suits). Game progresses from 12-card hands down to 1, then repeats. Teams: Positions 1 & 3 vs Positions 2 & 4.
+A 4-player online multiplayer trick-taking card game (Back Alley Bridge). Players bid on tricks, with special scoring for "rainbow" hands (all 4 suits). Hand progression: 12→10→8→6→4→2→1→3→5→7→9→11→13, then game ends. Teams: Positions 1 & 3 vs Positions 2 & 4.
+
+> **Complete game rules**: See [docs/RULES.md](docs/RULES.md) for detailed rules including bidding, bore mechanics, trump, and scoring.
 
 ## Technology Stack
 
@@ -59,6 +61,7 @@ bab-online/
 │   ├── server.js                   # Legacy: monolithic server (preserved)
 │   └── database.js                 # MongoDB connection
 ├── docs/
+│   ├── RULES.md                    # Complete game rules
 │   └── todos/                      # Improvement roadmap
 ├── package.json
 └── .env
@@ -106,9 +109,9 @@ bab-online/
 
 1. Authentication (signIn/signUp) → MongoDB users collection
 2. Queue management → Game starts when 4 players ready
-3. Draw phase → Players draw cards to determine positions (1-4)
-4. Hand progression (12→1 cards) with bidding then playing phases
-5. Trick evaluation, scoring with rainbow bonuses
+3. Draw phase → Players draw cards to determine dealer (highest) and partners (high pair vs low pair)
+4. Hand progression (12→10→8→6→4→2→1→3→5→7→9→11→13) with bidding then playing phases
+5. Trick evaluation, scoring with rainbow bonuses (4-card hand only)
 
 ## Key Socket Events
 
@@ -155,8 +158,8 @@ Server runs on port 3000.
 
 - Made bid: `+(bid × 10 × multiplier) + (tricks - bid) + (rainbows × 10)`
 - Missed bid: `-(bid × 10 × multiplier) + (rainbows × 10)`
-- Rainbow = hand containing all 4 suits (+10 points bonus)
-- Multipliers: Board (2x), Double Board (4x)
+- Rainbow = 4-card hand containing all 4 suits (+10 points bonus)
+- Bore multipliers: B (2x), 2B (4x), 3B (8x), 4B (16x)
 
 ## Game State
 
