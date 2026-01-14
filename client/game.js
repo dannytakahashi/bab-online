@@ -1455,7 +1455,8 @@ function displayCards(playerHand) {
     let bidContainer = document.createElement("div");
     bidContainer.id = "bidContainer";
     bidContainer.classList.add("ui-element", "bid-grid");
-    bidContainer.style.position = "absolute";
+    bidContainer.style.position = "fixed";
+    bidContainer.style.zIndex = "1000";
     bidContainer.style.display = (bidding === 1 && currentTurn === position) ? "flex" : "none";
     bidContainer.style.flexDirection = "column";
     bidContainer.style.gap = "8px";

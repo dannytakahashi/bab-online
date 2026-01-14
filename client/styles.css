@@ -1,5 +1,5 @@
 html,body {
-    background-color: transparent; /* Green background like a poker table */
+    background: radial-gradient(ellipse at center, #228B22 0%, #0d1a0d 100%); /* Green poker table gradient */
     font-family: Arial, sans-serif;
     text-align: center;
     margin: 0;
