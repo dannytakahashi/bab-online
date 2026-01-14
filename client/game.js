@@ -1505,6 +1505,7 @@ function displayCards(playerHand) {
             leadBool = false;
             cardSprite.destroy(); // Remove after playing
             playerHand = removeCard(playerHand, card);
+            playerCards = removeCard(playerCards, card); // Also update global playerCards for legality checks
             console.log("my hand: ", playerHand);
         });
     });
