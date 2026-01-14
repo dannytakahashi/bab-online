@@ -275,6 +275,10 @@ function create() {
             if(!playerInfo){
                 playerInfo = createPlayerInfoBox(); // Store the reference
             }
+            // Set trump BEFORE displayCards so sorting works correctly
+            if (data.trump) {
+                trump = data.trump;
+            }
             displayCards.call(this, playerCards);
             //createVignette.call(this);
         } else {
@@ -283,7 +287,6 @@ function create() {
         displayOpponentHands.call(this, playerCards.length, dealer);
         if (data.trump) {
             displayTableCard.call(this, data.trump);
-            trump = data.trump;
         }
     });
 }
@@ -903,11 +906,13 @@ let myCards = [];
  */
 function getSuitOrder(trumpSuit) {
     // Alternating colors with trump always last (rightmost)
+    // If trump is joker (no trump), use default alternating order
     const orders = {
         'spades':   ['hearts', 'clubs', 'diamonds', 'spades'],
         'hearts':   ['spades', 'diamonds', 'clubs', 'hearts'],
         'diamonds': ['clubs', 'hearts', 'spades', 'diamonds'],
-        'clubs':    ['diamonds', 'spades', 'hearts', 'clubs']
+        'clubs':    ['diamonds', 'spades', 'hearts', 'clubs'],
+        'joker':    ['clubs', 'diamonds', 'hearts', 'spades']  // No trump - just alternate colors
     };
     return orders[trumpSuit] || ['clubs', 'diamonds', 'hearts', 'spades'];
 }
@@ -1011,6 +1016,38 @@ function displayCards(playerHand) {
     document.body.appendChild(bidContainer);
     this.handElements.push(bidContainer);
 
+    // Header label
+    let bidHeader = document.createElement("div");
+    bidHeader.style.color = "#ffd700";
+    bidHeader.style.fontSize = "18px";
+    bidHeader.style.fontWeight = "bold";
+    bidHeader.style.textAlign = "center";
+    bidHeader.style.marginBottom = "4px";
+    bidHeader.innerText = "Your Bid:";
+    bidContainer.appendChild(bidHeader);
+
+    // Track all bid buttons for selection highlighting
+    let allBidButtons = [];
+    let selectedBid = null;
+
+    // Function to highlight selected button
+    function selectBidButton(btn, bidValue) {
+        // Remove highlight from previously selected button
+        allBidButtons.forEach(b => {
+            if (b.classList.contains('bore-button')) {
+                b.style.background = b.disabled ? "#666" : "#c53030";
+                b.style.border = "none";
+            } else {
+                b.style.background = "#4a5568";
+                b.style.border = "none";
+            }
+        });
+        // Highlight selected button
+        btn.style.background = "#38a169";
+        btn.style.border = "2px solid #68d391";
+        selectedBid = bidValue;
+    }
+
     // Row 1: Numeric bids (0 to hand size)
     let numericRow = document.createElement("div");
     numericRow.style.display = "flex";
@@ -1032,13 +1069,19 @@ function displayCards(playerHand) {
         btn.style.background = "#4a5568";
         btn.style.color = "white";
         btn.style.cursor = "pointer";
-        btn.addEventListener("mouseenter", () => { btn.style.background = "#2d3748"; });
-        btn.addEventListener("mouseleave", () => { btn.style.background = "#4a5568"; });
+        allBidButtons.push(btn);
+        btn.addEventListener("mouseenter", () => {
+            if (selectedBid !== i.toString()) btn.style.background = "#2d3748";
+        });
+        btn.addEventListener("mouseleave", () => {
+            if (selectedBid !== i.toString()) btn.style.background = "#4a5568";
+        });
         btn.addEventListener("click", () => {
             if (currentTurn !== position || bidding === 0) {
                 console.warn("Not your turn to bid.");
                 return;
             }
+            selectBidButton(btn, i.toString());
             console.log(`📩 Sending bid: ${i}`);
             socket.emit("playerBid", { position: position, bid: i.toString() });
         });
@@ -1070,12 +1113,13 @@ function displayCards(playerHand) {
         btn.style.background = "#c53030";
         btn.style.color = "white";
         btn.style.cursor = "pointer";
+        allBidButtons.push(btn);
 
         btn.addEventListener("mouseenter", () => {
-            if (!btn.disabled) btn.style.background = "#9b2c2c";
+            if (!btn.disabled && selectedBid !== bid) btn.style.background = "#9b2c2c";
         });
         btn.addEventListener("mouseleave", () => {
-            if (!btn.disabled) btn.style.background = "#c53030";
+            if (!btn.disabled && selectedBid !== bid) btn.style.background = "#c53030";
         });
 
         btn.addEventListener("click", () => {
@@ -1084,6 +1128,7 @@ function displayCards(playerHand) {
                 console.warn("Not your turn to bid.");
                 return;
             }
+            selectBidButton(btn, bid);
             console.log(`📩 Sending bore bid: ${bid}`);
             socket.emit("playerBid", { position: position, bid: bid });
         });
