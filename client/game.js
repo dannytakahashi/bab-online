@@ -1764,6 +1764,10 @@ function displayCards(playerHand) {
     socket.on("trickComplete", (data) => {
         console.log("🏆 Trick complete. Moving and stacking to the right...");
         addToGameFeed("Trick won by " + getPlayerName(data.winner) + ".");
+
+        // Reset lead card for next trick
+        leadCard = null;
+        playedCardIndex = 0;
         let screenWidth = this.scale.width;
         let screenHeight = this.scale.height;
         let trickSpacing = 40*scaleFactorX; // ✅ Horizontal spacing between tricks
