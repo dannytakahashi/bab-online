@@ -4,6 +4,7 @@
  */
 
 const gameManager = require('../game/GameManager');
+const Deck = require('../game/Deck');
 const { socketLogger } = require('../utils/logger');
 const { delay } = require('../utils/timing');
 
@@ -64,6 +65,10 @@ async function playerReady(socket, io) {
 
             // After another delay, start the draw phase
             await delay(2000);
+
+            // Create and shuffle deck for draw phase
+            game.deck = new Deck();
+            game.deck.shuffle();
 
             game.phase = 'drawing';
             game.broadcast(io, 'startDraw', { start: true });
