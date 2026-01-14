@@ -41,14 +41,9 @@ class GameManager {
     }
 
     /**
-     * Add player to matchmaking queue
+     * Add player to lobby (creates one immediately or joins existing)
      */
     joinQueue(socketId) {
-        // Check if already in queue
-        if (this.queue.includes(socketId)) {
-            return { success: false, error: 'Already in queue' };
-        }
-
         // Check if already in lobby
         if (this.playerLobbies.has(socketId)) {
             return { success: false, error: 'Already in lobby' };
@@ -59,32 +54,56 @@ class GameManager {
             return { success: false, error: 'Already in game' };
         }
 
-        this.queue.push(socketId);
-
-        // Add to queuedUsers for display
-        const user = this.getUserBySocketId(socketId);
-        if (user) {
-            this.queuedUsers.push(user);
+        // Find an existing open lobby (less than 4 players)
+        let openLobby = null;
+        for (const [lobbyId, lobby] of this.lobbies) {
+            if (lobby.players.length < 4) {
+                openLobby = lobby;
+                break;
+            }
         }
 
-        // Check if we have enough players to create a lobby
-        if (this.queue.length >= 4) {
-            const players = this.queue.splice(0, 4);
-            const lobby = this.createLobby(players);
+        if (openLobby) {
+            // Join existing lobby
+            const result = this.addPlayerToLobby(socketId, openLobby.id);
+            return {
+                success: true,
+                lobbyCreated: false,
+                joinedExisting: true,
+                lobby: openLobby,
+                players: openLobby.players.map(p => p.socketId)
+            };
+        } else {
+            // Create new lobby with just this player
+            const lobby = this.createLobby([socketId]);
             return {
                 success: true,
                 lobbyCreated: true,
                 lobby,
-                players
+                players: [socketId]
             };
         }
+    }
 
-        return {
-            success: true,
-            lobbyCreated: false,
-            queuePosition: this.queue.length,
-            queuedUsers: this.queuedUsers
+    /**
+     * Add a player to an existing lobby
+     */
+    addPlayerToLobby(socketId, lobbyId) {
+        const lobby = this.lobbies.get(lobbyId);
+        if (!lobby) return { success: false, error: 'Lobby not found' };
+        if (lobby.players.length >= 4) return { success: false, error: 'Lobby is full' };
+
+        const user = this.getUserBySocketId(socketId);
+        const newPlayer = {
+            socketId,
+            username: user?.username || 'Unknown',
+            ready: false
         };
+
+        lobby.players.push(newPlayer);
+        this.playerLobbies.set(socketId, lobbyId);
+
+        return { success: true, lobby, newPlayer };
     }
 
     /**
@@ -214,18 +233,25 @@ class GameManager {
         lobby.readyPlayers.delete(socketId);
         this.playerLobbies.delete(socketId);
 
+        // If lobby is now empty, delete it
+        if (lobby.players.length === 0) {
+            this.lobbies.delete(lobbyId);
+            return {
+                success: true,
+                lobby: null,
+                lobbyDeleted: true,
+                playerLeft: socketId
+            };
+        }
+
         // Reset all ready states when someone leaves
         lobby.readyPlayers.clear();
         lobby.players.forEach(p => p.ready = false);
-
-        // Try to fill slot from queue
-        const filledFromQueue = this.fillLobbyFromQueue(lobbyId);
 
         return {
             success: true,
             lobby,
             playerLeft: socketId,
-            filledFromQueue,
             needsMorePlayers: lobby.players.length < 4
         };
     }
@@ -355,8 +381,9 @@ class GameManager {
      * Handle player disconnect - now with grace period for reconnection
      */
     handleDisconnect(socketId) {
-        // Remove from queue (if in queue, not in game)
-        const wasInQueue = this.leaveQueue(socketId).success;
+        // Remove from lobby (if in lobby, not in game)
+        const lobbyResult = this.leaveLobby(socketId);
+        const wasInLobby = lobbyResult.success;
 
         // Handle in-game disconnect - DON'T immediately abort
         const gameId = this.playerGames.get(socketId);
@@ -370,7 +397,7 @@ class GameManager {
                 }
             }
             return {
-                wasInQueue,
+                wasInLobby,
                 wasInGame: true,
                 game,
                 gameId,
@@ -382,7 +409,7 @@ class GameManager {
         // Only remove from currentUsers if not in a game
         this.currentUsers = this.currentUsers.filter(u => u.socketId !== socketId);
 
-        return { wasInQueue, wasInGame: false, queuedUsers: this.queuedUsers };
+        return { wasInLobby, wasInGame: false, lobby: lobbyResult.lobby };
     }
 
     /**

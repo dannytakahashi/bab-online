@@ -118,17 +118,28 @@ function leaveLobby(socket, io) {
         return;
     }
 
-    const lobby = result.lobby;
     const user = gameManager.getUserBySocketId(socket.id);
+
+    // Notify leaving player they're back to main menu
+    socket.emit('leftLobby', {});
+
+    // If lobby was deleted (no players left), nothing more to do
+    if (result.lobbyDeleted) {
+        socketLogger.info('Player left lobby (lobby deleted)', {
+            socketId: socket.id,
+            username: user?.username
+        });
+        return;
+    }
+
+    const lobby = result.lobby;
 
     socketLogger.info('Player left lobby', {
         socketId: socket.id,
         username: user?.username,
-        lobbyId: lobby.id
+        lobbyId: lobby.id,
+        remainingPlayers: lobby.players.length
     });
-
-    // Notify leaving player they're back in queue/menu
-    socket.emit('leftLobby', {});
 
     // Notify remaining players
     lobby.players.forEach(player => {
@@ -139,38 +150,6 @@ function leaveLobby(socket, io) {
             needsMorePlayers: result.needsMorePlayers
         });
     });
-
-    // If someone was pulled from queue to fill the slot
-    if (result.filledFromQueue) {
-        const newPlayer = result.filledFromQueue;
-
-        // Notify the new player they've joined the lobby
-        io.to(newPlayer.socketId).emit('lobbyCreated', {
-            lobbyId: lobby.id,
-            players: lobby.players,
-            messages: lobby.messages
-        });
-
-        // Notify existing players about the new player
-        lobby.players.forEach(player => {
-            if (player.socketId !== newPlayer.socketId) {
-                io.to(player.socketId).emit('lobbyPlayerJoined', {
-                    lobbyId: lobby.id,
-                    players: lobby.players,
-                    newPlayer: {
-                        socketId: newPlayer.socketId,
-                        username: newPlayer.username
-                    }
-                });
-            }
-        });
-
-        socketLogger.info('Filled lobby slot from queue', {
-            lobbyId: lobby.id,
-            newPlayerSocketId: newPlayer.socketId,
-            newPlayerUsername: newPlayer.username
-        });
-    }
 }
 
 module.exports = {

@@ -192,12 +192,9 @@ function team(position){
         return 2;
     }
 }
+// Rotate to next player position (clockwise: 1→4→3→2→1)
 function rotate(num){
-    num = num + 1;
-    if (num > 4){
-        num = 1;
-    }
-    return num;
+    return num === 1 ? 4 : num - 1;
 }
 // Helper function to safely get player username from position
 function getPlayerName(pos) {

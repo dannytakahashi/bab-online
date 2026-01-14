@@ -15,21 +15,41 @@ async function joinQueue(socket, io) {
         return;
     }
 
-    // Broadcast updated queue to all
-    io.emit('queueUpdate', { queuedUsers: result.queuedUsers || gameManager.getQueueStatus().queuedUsers });
+    const lobby = result.lobby;
+    socketLogger.info('Player joined lobby', {
+        socketId: socket.id,
+        lobbyId: lobby.id,
+        playerCount: lobby.players.length,
+        isNewLobby: result.lobbyCreated
+    });
 
-    // If a lobby was created (4 players found), notify all players
     if (result.lobbyCreated) {
-        socketLogger.info('Lobby created', { lobbyId: result.lobby.id, players: result.players });
-        const lobby = result.lobby;
+        // New lobby created - send lobbyCreated to the joining player
+        socket.emit('lobbyCreated', {
+            lobbyId: lobby.id,
+            players: lobby.players,
+            messages: lobby.messages
+        });
+    } else if (result.joinedExisting) {
+        // Joined existing lobby - send lobbyCreated to the new player
+        socket.emit('lobbyCreated', {
+            lobbyId: lobby.id,
+            players: lobby.players,
+            messages: lobby.messages
+        });
 
-        // Notify all 4 players that they're in a lobby
-        result.players.forEach(socketId => {
-            io.to(socketId).emit('lobbyCreated', {
-                lobbyId: lobby.id,
-                players: lobby.players,
-                messages: lobby.messages
-            });
+        // Notify existing players that someone joined
+        lobby.players.forEach(player => {
+            if (player.socketId !== socket.id) {
+                io.to(player.socketId).emit('lobbyPlayerJoined', {
+                    lobbyId: lobby.id,
+                    players: lobby.players,
+                    newPlayer: {
+                        socketId: socket.id,
+                        username: lobby.players.find(p => p.socketId === socket.id)?.username
+                    }
+                });
+            }
         });
     }
 }

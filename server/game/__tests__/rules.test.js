@@ -20,20 +20,20 @@ const {
 } = require('../rules');
 
 describe('rotatePosition', () => {
-    test('rotates 1 to 2', () => {
-        expect(rotatePosition(1)).toBe(2);
+    test('rotates 1 to 4 (clockwise)', () => {
+        expect(rotatePosition(1)).toBe(4);
     });
 
-    test('rotates 2 to 3', () => {
-        expect(rotatePosition(2)).toBe(3);
+    test('rotates 4 to 3 (clockwise)', () => {
+        expect(rotatePosition(4)).toBe(3);
     });
 
-    test('rotates 3 to 4', () => {
-        expect(rotatePosition(3)).toBe(4);
+    test('rotates 3 to 2 (clockwise)', () => {
+        expect(rotatePosition(3)).toBe(2);
     });
 
-    test('rotates 4 to 1 (wrap around)', () => {
-        expect(rotatePosition(4)).toBe(1);
+    test('rotates 2 to 1 (clockwise wrap around)', () => {
+        expect(rotatePosition(2)).toBe(1);
     });
 });
 

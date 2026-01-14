@@ -722,17 +722,29 @@ function showGameLobby(lobbyData) {
 
     const readyBtn = document.createElement("button");
     readyBtn.id = "lobbyReadyBtn";
-    readyBtn.innerText = "Ready";
     readyBtn.style.padding = "15px 40px";
     readyBtn.style.fontSize = "18px";
     readyBtn.style.fontWeight = "bold";
     readyBtn.style.borderRadius = "8px";
     readyBtn.style.border = "none";
-    readyBtn.style.background = "#4ade80";
     readyBtn.style.color = "#000";
-    readyBtn.style.cursor = "pointer";
+
+    // Set initial state based on player count
+    const playerCount = lobbyData.players ? lobbyData.players.length : 0;
+    if (playerCount < 4) {
+        readyBtn.innerText = `Waiting for ${4 - playerCount} more...`;
+        readyBtn.style.background = "#6b7280";
+        readyBtn.style.cursor = "not-allowed";
+        readyBtn.disabled = true;
+    } else {
+        readyBtn.innerText = "Ready";
+        readyBtn.style.background = "#4ade80";
+        readyBtn.style.cursor = "pointer";
+        readyBtn.disabled = false;
+    }
+
     readyBtn.addEventListener("click", () => {
-        if (!isPlayerReady) {
+        if (!isPlayerReady && !readyBtn.disabled) {
             socket.emit("playerReady");
             readyBtn.innerText = "Ready!";
             readyBtn.style.background = "#22c55e";
@@ -767,20 +779,23 @@ function updateLobbyPlayersList(container, players) {
     if (!container) return;
 
     container.innerHTML = "";
+
+    // Header with player count
     const header = document.createElement("div");
-    header.innerText = "Players:";
+    header.innerText = `Players (${players.length}/4):`;
     header.style.fontWeight = "bold";
     header.style.marginBottom = "10px";
     header.style.color = "#9ca3af";
     container.appendChild(header);
 
+    // Show existing players
     players.forEach((player, index) => {
         const playerRow = document.createElement("div");
         playerRow.style.display = "flex";
         playerRow.style.justifyContent = "space-between";
         playerRow.style.alignItems = "center";
         playerRow.style.padding = "8px 0";
-        playerRow.style.borderBottom = index < players.length - 1 ? "1px solid #374151" : "none";
+        playerRow.style.borderBottom = "1px solid #374151";
 
         const nameSpan = document.createElement("span");
         nameSpan.innerText = player.username;
@@ -800,6 +815,41 @@ function updateLobbyPlayersList(container, players) {
 
         container.appendChild(playerRow);
     });
+
+    // Show empty slots
+    for (let i = players.length; i < 4; i++) {
+        const emptyRow = document.createElement("div");
+        emptyRow.style.display = "flex";
+        emptyRow.style.justifyContent = "space-between";
+        emptyRow.style.alignItems = "center";
+        emptyRow.style.padding = "8px 0";
+        emptyRow.style.borderBottom = i < 3 ? "1px solid #374151" : "none";
+
+        const emptySpan = document.createElement("span");
+        emptySpan.innerText = "— Empty Slot —";
+        emptySpan.style.fontSize = "16px";
+        emptySpan.style.color = "#6b7280";
+        emptySpan.style.fontStyle = "italic";
+        emptyRow.appendChild(emptySpan);
+
+        container.appendChild(emptyRow);
+    }
+
+    // Update Ready button state
+    const readyBtn = document.getElementById("lobbyReadyBtn");
+    if (readyBtn && !isPlayerReady) {
+        if (players.length < 4) {
+            readyBtn.disabled = true;
+            readyBtn.style.background = "#6b7280";
+            readyBtn.style.cursor = "not-allowed";
+            readyBtn.innerText = `Waiting for ${4 - players.length} more...`;
+        } else {
+            readyBtn.disabled = false;
+            readyBtn.style.background = "#4ade80";
+            readyBtn.style.cursor = "pointer";
+            readyBtn.innerText = "Ready";
+        }
+    }
 }
 
 function addLobbyChatMessage(username, message) {
