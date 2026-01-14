@@ -199,6 +199,24 @@ function rotate(num){
     }
     return num;
 }
+// Helper function to safely get player username from position
+function getPlayerName(pos) {
+    if (!playerData || !playerData.username || !playerData.position) {
+        console.warn("⚠️ playerData not initialized when getting name for position:", pos);
+        return `Player ${pos}`;
+    }
+    const index = playerData.position.indexOf(pos);
+    if (index === -1) {
+        console.warn("⚠️ Position not found in playerData:", pos);
+        return `Player ${pos}`;
+    }
+    const player = playerData.username[index];
+    if (!player || !player.username) {
+        console.warn("⚠️ No username at index:", index);
+        return `Player ${pos}`;
+    }
+    return player.username;
+}
 let scoreUI = null;
 let me = null;
 let partner = null;
@@ -244,7 +262,8 @@ function create() {
             socket: data.sockets,
             username: data.usernames,
             pics: data.pics
-        }
+        };
+        console.log("✅ playerData initialized:", playerData);
     });
     socket.on("gameStart", (data) => {
         console.log("Game started! Data received:", data);
@@ -1361,7 +1380,7 @@ function displayCards(playerHand) {
         if(data.bid.toUpperCase() === "4B"){
             showImpactEvent("4b");
         }
-        addToGameFeed(playerData.username[playerData.position.indexOf(data.position)].username + " bid "+ data.bid + ".");
+        addToGameFeed(getPlayerName(data.position) + " bid " + data.bid + ".");
         tempBids.push(data.bid.toUpperCase());
 
         // Update bore button states after receiving a bid
@@ -1597,7 +1616,7 @@ function displayCards(playerHand) {
     })
     socket.on("trickComplete", (data) => {
         console.log("🏆 Trick complete. Moving and stacking to the right...");
-        addToGameFeed("Trick won by " + playerData.username[playerData.position.indexOf(data.winner)].username + ".");
+        addToGameFeed("Trick won by " + getPlayerName(data.winner) + ".");
         let screenWidth = this.scale.width;
         let screenHeight = this.scale.height;
         let trickSpacing = 40*scaleFactorX; // ✅ Horizontal spacing between tricks
@@ -1724,7 +1743,7 @@ function displayCards(playerHand) {
         rainbows.forEach((rainbow) => {
             if(rainbow === position){
                 console.log("adding rainbow to me");
-                addToGameFeed(playerData.username[playerData.position.indexOf(position)].username + " has a rainbow!");
+                addToGameFeed(getPlayerName(position) + " has a rainbow!");
                 let myRainbow = this.add.image(screenWidth / 2 + 580*scaleFactorX, screenHeight / 2 + 125*scaleFactorY, "rainbow").setScale(1).setDepth(1000).setAlpha(1);
                 this.tweens.add({
                     targets: myRainbow,
@@ -1746,7 +1765,7 @@ function displayCards(playerHand) {
             }
             if(rainbow === rotate(position)){
                 console.log("adding rainbow to opp1");
-                addToGameFeed(playerData.username[playerData.position.indexOf(rotate(position))].username + " has a rainbow!");
+                addToGameFeed(getPlayerName(rotate(position)) + " has a rainbow!");
                 let opp1Rainbow = this.add.image(screenWidth / 2 - 645*scaleFactorX, screenHeight / 2, "rainbow").setScale(1).setDepth(1000).setAlpha(1);
                 this.tweens.add({
                     targets: opp1Rainbow,
@@ -1768,7 +1787,7 @@ function displayCards(playerHand) {
             }
             if(rainbow === team(position)){
                 console.log("adding rainbow to partner");
-                addToGameFeed(playerData.username[playerData.position.indexOf(team(position))].username + " has a rainbow!");
+                addToGameFeed(getPlayerName(team(position)) + " has a rainbow!");
                 let teamRainbow = this.add.image(screenWidth / 2 + 135*scaleFactorX, screenHeight / 2 - 400*scaleFactorY, "rainbow").setScale(1).setDepth(1000).setAlpha(1);
                 this.tweens.add({
                     targets: teamRainbow,
@@ -1790,7 +1809,7 @@ function displayCards(playerHand) {
             }
             if(rainbow === rotate(rotate(rotate(position)))){
                 console.log("adding rainbow to opp2");
-                addToGameFeed(playerData.username[playerData.position.indexOf(rotate(rotate(rotate(position))))].username + " has a rainbow!");
+                addToGameFeed(getPlayerName(rotate(rotate(rotate(position)))) + " has a rainbow!");
                 let opp2Rainbow = this.add.image(screenWidth / 2 + 630*scaleFactorX, screenHeight / 2, "rainbow").setScale(1).setDepth(1000).setAlpha(1);
                 this.tweens.add({
                     targets: opp2Rainbow,
