@@ -819,8 +819,11 @@ function isLegalMove(card, hand, lead, leadBool, leadPosition){
     }
 
     // Following
+    console.log("lead.suit value:", lead.suit, "typeof:", typeof lead.suit);
+    console.log("lead object:", JSON.stringify(lead));
     const isVoidInLeadSuit = isVoid(hand, lead.suit);
     console.log("isVoid in lead suit:", isVoidInLeadSuit);
+    console.log("sameSuit(card, lead):", sameSuit(card, lead));
 
     if (!sameSuit(card, lead) && !isVoidInLeadSuit){
         console.log("ILLEGAL: not following suit when not void");
