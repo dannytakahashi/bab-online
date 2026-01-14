@@ -74,6 +74,16 @@ function handleDisconnect(socket, io) {
     // Update queue display
     io.emit('queueUpdate', { queuedUsers: gameManager.getQueueStatus().queuedUsers });
 
+    // Leave main room Socket.IO room
+    socket.leave('mainRoom');
+
+    // Notify main room of player leaving and update lobby list
+    if (result.wasInMainRoom || result.wasInLobby) {
+        io.to('mainRoom').emit('lobbiesUpdated', {
+            lobbies: gameManager.getAllLobbies()
+        });
+    }
+
     socketLogger.debug('Player disconnected', { socketId: socket.id });
 
     // If player was in an active game, give them time to reconnect
@@ -94,11 +104,13 @@ function handleDisconnect(socket, io) {
             clearTimeout(pendingAbortTimers.get(result.gameId));
         }
 
-        const timer = setTimeout(() => {
+        const timer = setTimeout(async () => {
             const checkResult = gameManager.checkGameAbort(result.gameId);
             if (checkResult.shouldAbort) {
                 socketLogger.warn('Grace period expired, aborting game', { gameId: result.gameId });
                 checkResult.game.broadcast(io, 'abortGame', { reason: 'Player did not reconnect' });
+                // Clear active game for all players
+                await gameManager.clearActiveGameForAll(result.gameId);
                 checkResult.game.leaveAllFromRoom(io);
                 gameManager.abortGame(result.gameId);
             }

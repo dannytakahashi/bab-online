@@ -98,6 +98,11 @@ async function draw(socket, io, data) {
             pics
         });
 
+        // Set active game for all players (enables cross-browser reconnection)
+        for (const player of orderedUsers) {
+            await gameManager.setActiveGame(player.username, game.gameId);
+        }
+
         // Announce teams (positions 1&3 vs 2&4)
         const team1Player1 = game.getPlayerByPosition(1);
         const team1Player2 = game.getPlayerByPosition(3);
@@ -408,6 +413,8 @@ async function handleHandComplete(game, io) {
         // Game over
         gameLogger.info('Game ended', { gameId: game.gameId, finalScore: game.score });
         game.broadcast(io, 'gameEnd', { score: game.score });
+        // Clear active game for all players
+        await gameManager.clearActiveGameForAll(game.gameId);
         game.leaveAllFromRoom(io);
         game.resetForNewGame();
     } else {

@@ -6,6 +6,7 @@
 const authHandlers = require('./authHandlers');
 const queueHandlers = require('./queueHandlers');
 const lobbyHandlers = require('./lobbyHandlers');
+const mainRoomHandlers = require('./mainRoomHandlers');
 const gameHandlers = require('./gameHandlers');
 const chatHandlers = require('./chatHandlers');
 const reconnectHandlers = require('./reconnectHandlers');
@@ -30,6 +31,23 @@ function setupSocketHandlers(io) {
         );
         socket.on('leaveQueue', () =>
             safeHandler(queueHandlers.leaveQueue)(socket, io, {})
+        );
+
+        // Main room events
+        socket.on('joinMainRoom', () =>
+            safeHandler(mainRoomHandlers.joinMainRoom)(socket, io, {})
+        );
+        socket.on('mainRoomChat', (data) =>
+            syncHandler('chatMessage', mainRoomHandlers.mainRoomChat)(socket, io, data)
+        );
+        socket.on('createLobby', (data) =>
+            safeHandler(mainRoomHandlers.createLobby)(socket, io, data || {})
+        );
+        socket.on('joinLobby', (data) =>
+            safeHandler(mainRoomHandlers.joinLobby)(socket, io, data)
+        );
+        socket.on('getLobbies', () =>
+            safeHandler(mainRoomHandlers.getLobbies)(socket, io, {})
         );
 
         // Lobby events
