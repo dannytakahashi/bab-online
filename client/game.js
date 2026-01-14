@@ -1617,15 +1617,14 @@ function displayCards(playerHand) {
 
     console.log("✅ Button-grid bidding UI created.");
 
-    // Position the bid container in the center of the table
+    // Position the bid container in the center of the play zone (green square)
     function updateBidContainerPosition() {
         let canvasRect = document.querySelector("canvas").getBoundingClientRect();
-        // Center horizontally on the canvas (which is now narrower, leaving room for game log)
         let containerWidth = bidContainer.offsetWidth || 200; // Estimate if not yet rendered
         let containerHeight = bidContainer.offsetHeight || 150;
-        // Center on the canvas area (play area is within the canvas)
+        // Center both horizontally and vertically on the canvas (where the play zone is)
         bidContainer.style.left = `${canvasRect.left + (canvasRect.width - containerWidth) / 2}px`;
-        bidContainer.style.top = `${canvasRect.top + (canvasRect.height * 0.30) - containerHeight / 2}px`;
+        bidContainer.style.top = `${canvasRect.top + (canvasRect.height - containerHeight) / 2}px`;
     }
 
     updateBidContainerPosition();
