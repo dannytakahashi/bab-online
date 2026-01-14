@@ -1497,23 +1497,24 @@ function displayCards(playerHand) {
 
     socket.on("bidReceived", (data) => {
         console.log("bid received: ", data.bid);
-        if(data.bid.toUpperCase() === "B"){
+        const bidStr = String(data.bid).toUpperCase();
+        if(bidStr === "B"){
             showImpactEvent("b");
         }
-        if(data.bid.toUpperCase() === "2B"){
+        if(bidStr === "2B"){
             showImpactEvent("2b");
         }
-        if(data.bid.toUpperCase() === "3B"){
+        if(bidStr === "3B"){
             showImpactEvent("3b");
         }
-        if(data.bid.toUpperCase() === "4B"){
+        if(bidStr === "4B"){
             showImpactEvent("4b");
         }
         const playerName = getPlayerName(data.position);
         const feedMessage = playerName + " bid " + data.bid + ".";
         console.log("📝 Adding to game feed:", feedMessage, "position:", data.position);
         addToGameFeed(feedMessage);
-        tempBids.push(data.bid.toUpperCase());
+        tempBids.push(bidStr);
 
         // Update bore button states after receiving a bid
         if (window.updateBoreButtons) {
