@@ -229,6 +229,12 @@ let queueDelay = false;
 let lastQueueData; 
 function create() {
     gameScene = this; // Store reference to the game scene
+    console.log("🚀 CREATE() RUNNING!");
+    console.log("🚀 gameScene set to:", gameScene);
+    console.log("🚀 gameScene.textures:", gameScene.textures);
+    console.log("🚀 gameScene.add:", gameScene.add);
+    console.log("🚀 pendingPositionData:", pendingPositionData);
+    console.log("🚀 pendingGameStartData:", pendingGameStartData);
     console.log("running create4...");
     console.log("Socket in game.js:", socket);
 
@@ -256,13 +262,16 @@ function create() {
 
     // Process any pending game data that arrived before scene was ready
     if (pendingPositionData) {
+        console.log("🚀 Processing PENDING positionUpdate data from create()");
         processPositionUpdate(pendingPositionData);
         pendingPositionData = null;
     }
     if (pendingGameStartData) {
+        console.log("🚀 Processing PENDING gameStart data from create()");
         processGameStart(pendingGameStartData);
         pendingGameStartData = null;
     }
+    console.log("🚀 CREATE() COMPLETE!");
 }
 
 // Store pending data if events arrive before scene is ready
@@ -292,13 +301,45 @@ function processGameStart(data) {
     console.log("🎮 processGameStart called!");
     console.log("🎮 gameScene:", gameScene);
     console.log("🎮 gameScene.add:", gameScene?.add);
+    console.log("🎮 gameScene.textures:", gameScene?.textures);
+    console.log("🎮 gameScene.scale:", gameScene?.scale);
+    console.log("🎮 gameScene.scale.width:", gameScene?.scale?.width);
+    console.log("🎮 gameScene.scene:", gameScene?.scene);
+    console.log("🎮 gameScene.sys:", gameScene?.sys);
+    console.log("🎮 gameScene.sys.isActive():", gameScene?.sys?.isActive());
     console.log("Game started! Data received:", data);
     // Debug: Check if playerId is set correctly
     console.log("playerId:", playerId);
+    // Debug: Check critical global variables
+    console.log("🎮 position:", position);
+    console.log("🎮 playerData:", playerData);
     // Debug: Check if player has received cards
     console.log("Hands data:", data.hand);
     console.log("scores:", data.score1, data.score2);
     console.log("Player's hand:", data.hand);
+
+    // Check for race condition: position might not be set yet due to setTimeout in socketManager
+    if (position === undefined) {
+        console.error("🚨 RACE CONDITION: position is undefined! playerAssigned event hasn't fired yet.");
+        console.log("⏳ Waiting 100ms for playerAssigned to process...");
+        setTimeout(() => {
+            console.log("🔄 Retrying processGameStart after delay, position now:", position);
+            processGameStart(data);
+        }, 100);
+        return;
+    }
+
+    // Check for playerData not being set
+    if (!playerData) {
+        console.error("🚨 RACE CONDITION: playerData is undefined! positionUpdate hasn't been processed yet.");
+        console.log("⏳ Waiting 100ms for positionUpdate to process...");
+        setTimeout(() => {
+            console.log("🔄 Retrying processGameStart after delay, playerData now:", playerData);
+            processGameStart(data);
+        }, 100);
+        return;
+    }
+
     playerCards = data.hand;
     dealer = data.dealer;
     if (playerCards && playerCards.length > 0) {
@@ -812,6 +853,9 @@ function removeDraw() {
     console.log("✅ All cards removed.");
 }
 function displayTableCard(card) {
+    console.log(`🎴 displayTableCard called!`);
+    console.log(`🎴 this (scene):`, this);
+    console.log(`🎴 card:`, card);
     console.log(`🎴 Displaying table card: ${card.rank} of ${card.suit}`);
     let screenWidth = this.scale.width;
     let screenHeight = this.scale.height;
@@ -820,13 +864,16 @@ function displayTableCard(card) {
     let tableX = screenWidth / 2 + 500*scaleFactorX;
     let tableY = screenHeight / 2 - 300*scaleFactorY;
     let cardKey = getCardImageKey(card);
+    console.log(`🎴 cardKey: ${cardKey}, position: (${tableX}, ${tableY})`);
     if (this.tableCardBackground) this.tableCardBackground.destroy();
     if (this.tableCardSprite) this.tableCardSprite.destroy();
     if (this.tableCardLabel) this.tableCardLabel.destroy();
     this.tableCardBackground = this.add.rectangle(tableX, tableY, 120*scaleFactorX, 160*scaleFactorY, 0x8B4513)
         .setStrokeStyle(4, 0x654321)
         .setDepth(-1); // ✅ Ensure it's behind the card
+    console.log(`🎴 Background rectangle created`);
     tableCardSprite = this.add.image(tableX, tableY, 'cards', cardKey).setScale(1.5);
+    console.log(`🎴 Table card sprite created:`, tableCardSprite);
     this.tableCardLabel = this.add.text(tableX, tableY - 100, "TRUMP", {
         fontSize: "24px",
         fontStyle: "bold",
@@ -1278,6 +1325,31 @@ function sortHand(hand, trumpCard) {
 }
 
 function displayCards(playerHand) {
+    console.log("🃏 displayCards called with hand:", playerHand);
+    console.log("🃏 this (scene) =", this);
+    console.log("🃏 this.textures =", this.textures);
+    console.log("🃏 this.add =", this.add);
+
+    // Check if texture atlas is loaded
+    if (this.textures && this.textures.exists('cards')) {
+        console.log("✅ 'cards' texture atlas is loaded");
+        const frames = this.textures.get('cards').getFrameNames();
+        console.log("🃏 Available frames in atlas:", frames.slice(0, 10), "... (", frames.length, "total)");
+    } else {
+        console.error("🚨 'cards' texture atlas NOT loaded!");
+    }
+
+    // Clear old cards before creating new ones
+    if (myCards && myCards.length > 0) {
+        console.log("🗑️ Clearing", myCards.length, "old card sprites");
+        myCards.forEach(sprite => {
+            if (sprite && sprite.destroy) {
+                sprite.destroy();
+            }
+        });
+        myCards = [];
+    }
+
     // Sort the hand before displaying
     playerHand = sortHand(playerHand, trump);
     let scaleFactorX = this.scale.width / 1920; // Adjust based on your design resolution
@@ -1553,12 +1625,28 @@ function displayCards(playerHand) {
     // Store the update function globally so socket handlers can call it
     window.updateCardLegality = updateCardLegality;
 
+    console.log("🃏 Creating", playerHand.length, "card sprites...");
+    console.log("🃏 visible() =", visible());
+
     playerHand.forEach((card, index) => {
         let cardKey = getCardImageKey(card);
-        console.log(`Using image key: ${cardKey}`);
+        console.log(`🃏 Card ${index}: ${card.rank} of ${card.suit} -> key: ${cardKey}`);
+
+        // Check if frame exists
+        if (this.textures && this.textures.exists('cards')) {
+            const frame = this.textures.get('cards').get(cardKey);
+            console.log(`🃏 Frame '${cardKey}' exists:`, frame && frame.name === cardKey);
+        }
+
         let cardSprite = this.add.image(screenWidth / 2 + 500*scaleFactorX, screenHeight / 2 - 300*scaleFactorY, 'cards', cardKey)
         .setInteractive()
         .setScale(1.5);  // ✅ Increase size
+
+        console.log(`🃏 Card sprite created:`, cardSprite);
+        console.log(`🃏 Sprite dimensions: ${cardSprite.width}x${cardSprite.height}`);
+        console.log(`🃏 Sprite position: (${cardSprite.x}, ${cardSprite.y})`);
+        console.log(`🃏 Sprite visible: ${cardSprite.visible}, alpha: ${cardSprite.alpha}`);
+
         cardSprite.input.hitArea.setTo(cardSprite.width * 0.15, 0, cardSprite.width * 0.7, cardSprite.height);
         if (!cardSprite) {
             console.error(`🚨 ERROR: Failed to create card sprite for ${card.rank} of ${card.suit}`);
@@ -2158,6 +2246,12 @@ function displayCards(playerHand) {
 let buttonHandle;
 let oppUI = [];
 function displayOpponentHands(numCards,dealer) {
+    console.log("🎭 displayOpponentHands called!");
+    console.log("🎭 this (scene):", this);
+    console.log("🎭 numCards:", numCards, "dealer:", dealer);
+    console.log("🎭 playerData:", playerData);
+    console.log("🎭 position:", position);
+
     if (buttonHandle && typeof buttonHandle.destroy === 'function') {
         buttonHandle.destroy();
       }
