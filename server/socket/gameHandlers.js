@@ -77,29 +77,35 @@ async function draw(socket, io, data) {
             io.to(playerId).emit('playerAssigned', { playerId, position });
         }
 
-        // Reorder users for display
-        const orderedUsers = [];
+        // Build all arrays in position order (1, 2, 3, 4) for consistency
+        const orderedPositions = [];
+        const orderedSockets = [];
+        const orderedUsernames = [];
+        const orderedPics = [];
         for (let pos = 1; pos <= 4; pos++) {
             const player = game.getPlayerByPosition(pos);
             if (player) {
-                orderedUsers.push({
+                orderedPositions.push(pos);
+                orderedSockets.push(player.socketId);
+                orderedUsernames.push({
                     username: player.username,
                     socketId: player.socketId
                 });
+                orderedPics.push(player.pic);
             }
         }
 
         await delay(1000);
 
         game.broadcast(io, 'positionUpdate', {
-            positions,
-            sockets: game.drawIDs,
-            usernames: orderedUsers,
-            pics
+            positions: orderedPositions,
+            sockets: orderedSockets,
+            usernames: orderedUsernames,
+            pics: orderedPics
         });
 
         // Set active game for all players (enables cross-browser reconnection)
-        for (const player of orderedUsers) {
+        for (const player of orderedUsernames) {
             await gameManager.setActiveGame(player.username, game.gameId);
         }
 

@@ -185,6 +185,7 @@ function showRegisterScreen(){
     registerVignette.style.height = "100vh";
     registerVignette.style.pointerEvents = "none";
     registerVignette.style.background = "radial-gradient(circle, rgba(34, 139, 34, 1) 30%, rgba(0, 0, 0, 1) 100%)";
+    registerVignette.style.zIndex = "50";
     document.body.appendChild(registerVignette);
 
     let registerContainer = document.createElement("div");
@@ -202,6 +203,7 @@ function showRegisterScreen(){
     registerContainer.style.alignItems = "center";
     registerContainer.style.color = "white";
     registerContainer.style.fontSize = "24px";
+    registerContainer.style.zIndex = "100";
     let logo = document.createElement("img");
     logo.src = "assets/logo.png";
     logo.alt = "Game Logo";
