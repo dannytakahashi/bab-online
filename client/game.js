@@ -55,9 +55,6 @@ function processRejoin(data) {
 
     // Create game UI elements (chat input is now integrated into game feed)
     createGameFeed();
-    if (!scoreUI) {
-        scoreUI = createScorebug();
-    }
 
     // Calculate player names (same as gameStart handler)
     me = playerData.username[playerData.position.indexOf(position)]?.username || 'You';
@@ -65,13 +62,11 @@ function processRejoin(data) {
     opp1 = playerData.username[playerData.position.indexOf(rotate(position))]?.username || 'Opp1';
     opp2 = playerData.username[playerData.position.indexOf(rotate(rotate(rotate(position))))]?.username || 'Opp2';
 
-    // Update score display with team names
+    // Update score display in game log
     if (position % 2 !== 0) {
-        scoreUI.teamScoreLabel.setText(me + "/" + partner + ": -/-       " + score1);
-        scoreUI.oppScoreLabel.setText(opp1 + "/" + opp2 + ": -/-       " + score2);
+        updateGameLogScore(me + "/" + partner, opp1 + "/" + opp2, score1, score2);
     } else {
-        scoreUI.teamScoreLabel.setText(me + "/" + partner + ": -/-       " + score2);
-        scoreUI.oppScoreLabel.setText(opp1 + "/" + opp2 + ": -/-       " + score1);
+        updateGameLogScore(me + "/" + partner, opp1 + "/" + opp2, score2, score1);
     }
 
     // Create player info box
@@ -351,13 +346,12 @@ function processGameStart(data) {
         partner = playerData.username[playerData.position.indexOf(team(position))].username;
         opp1 = playerData.username[playerData.position.indexOf(rotate(position))].username;
         opp2 = playerData.username[playerData.position.indexOf(rotate(rotate(rotate(position))))].username;
+        // Update score in game log instead of old scorebug
         if(position % 2 !== 0){
-            scoreUI.teamScoreLabel.setText(me + "/" + partner  + ": -/-       " +  score1);
-            scoreUI.oppScoreLabel.setText(opp1 + "/" + opp2  + ": -/-       " + score2);
+            updateGameLogScore(me + "/" + partner, opp1 + "/" + opp2, score1, score2);
         }
         else{
-            scoreUI.teamScoreLabel.setText(me + "/" + partner + ": -/-       " + score2);
-            scoreUI.oppScoreLabel.setText(opp1 + "/" + opp2 + ": -/-       " + score1);
+            updateGameLogScore(me + "/" + partner, opp1 + "/" + opp2, score2, score1);
         }
         if(!playerInfo){
             playerInfo = createPlayerInfoBox(); // Store the reference
@@ -399,15 +393,17 @@ socket.on("gameStart", (data) => {
     }
 });
 
+// Reserve 320px on the right for game log (300px width + 20px padding)
+const GAME_LOG_WIDTH = 320;
 const config = {
     type: Phaser.AUTO,
-    width: innerWidth,
+    width: innerWidth - GAME_LOG_WIDTH,
     height: innerHeight,
     //backgroundColor: "transparent",
     parent: "game-container",
     scale: {
         mode: Phaser.Scale.FIT, // ✅ Ensures full coverage
-        autoCenter: Phaser.Scale.CENTER_BOTH
+        autoCenter: Phaser.Scale.NO_CENTER // Align left to leave room for game log
     },
     scene: { preload, create, update }
 };
@@ -480,6 +476,31 @@ function createGameFeed() {
     header.classList.add("chat-header");
     header.innerText = "Game Log";
     feedContainer.appendChild(header);
+
+    // Score display section (inside game log)
+    let scoreSection = document.createElement("div");
+    scoreSection.id = "gameLogScore";
+    scoreSection.style.padding = "10px";
+    scoreSection.style.borderBottom = "1px solid #333";
+    scoreSection.style.display = "flex";
+    scoreSection.style.justifyContent = "space-around";
+    scoreSection.style.background = "rgba(0,0,0,0.3)";
+
+    let teamScoreDiv = document.createElement("div");
+    teamScoreDiv.id = "teamScoreDisplay";
+    teamScoreDiv.style.textAlign = "center";
+    teamScoreDiv.style.color = "#4ade80";
+    teamScoreDiv.innerHTML = '<div style="font-size:12px;color:#888;">Your Team</div><div style="font-size:20px;font-weight:bold;">0</div><div style="font-size:11px;color:#aaa;">Tricks: 0</div>';
+
+    let oppScoreDiv = document.createElement("div");
+    oppScoreDiv.id = "oppScoreDisplay";
+    oppScoreDiv.style.textAlign = "center";
+    oppScoreDiv.style.color = "#f87171";
+    oppScoreDiv.innerHTML = '<div style="font-size:12px;color:#888;">Opponents</div><div style="font-size:20px;font-weight:bold;">0</div><div style="font-size:11px;color:#aaa;">Tricks: 0</div>';
+
+    scoreSection.appendChild(teamScoreDiv);
+    scoreSection.appendChild(oppScoreDiv);
+    feedContainer.appendChild(scoreSection);
 
     // Messages area
     let messagesArea = document.createElement("div");
@@ -574,6 +595,30 @@ function addToGameFeed(message, playerPosition = null) {
     // Scroll to the latest message
     messagesArea.scrollTop = messagesArea.scrollHeight;
 }
+
+/**
+ * Update the score display in the game log
+ * @param {string} teamNames - e.g. "test1/test3"
+ * @param {string} oppNames - e.g. "test2/test4"
+ * @param {number} teamScore - Your team's score
+ * @param {number} oppScore - Opponent's score
+ * @param {string} teamBids - Optional bid info e.g. "2/3"
+ * @param {string} oppBids - Optional bid info e.g. "1/4"
+ * @param {number} teamTricks - Optional tricks won
+ * @param {number} oppTricks - Optional tricks won
+ */
+function updateGameLogScore(teamNames, oppNames, teamScore, oppScore, teamBids = "-/-", oppBids = "-/-", teamTricks = 0, oppTricks = 0) {
+    let teamDiv = document.getElementById("teamScoreDisplay");
+    let oppDiv = document.getElementById("oppScoreDisplay");
+
+    if (teamDiv) {
+        teamDiv.innerHTML = `<div style="font-size:11px;color:#888;">${teamNames}</div><div style="font-size:20px;font-weight:bold;">${teamScore}</div><div style="font-size:11px;color:#aaa;">Bids: ${teamBids} | Tricks: ${teamTricks}</div>`;
+    }
+    if (oppDiv) {
+        oppDiv.innerHTML = `<div style="font-size:11px;color:#888;">${oppNames}</div><div style="font-size:20px;font-weight:bold;">${oppScore}</div><div style="font-size:11px;color:#aaa;">Bids: ${oppBids} | Tricks: ${oppTricks}</div>`;
+    }
+}
+
 let handGlow;
 function addOpponentGlow(scene, relation){
     let glowRadius = 47; // ✅ Adjust the radius as needed
@@ -1189,7 +1234,7 @@ socket.on("createUI", (data) => {
     console.log("🎨 Creating game feed...");
     createGameFeed();
     console.log("🎨 Game feed created, checking DOM:", document.getElementById("gameFeed"));
-    scoreUI = createScorebug();
+    // Score is now displayed in the game log, no separate scorebug needed
     if (!scene.handElements) {
         scene.handElements = [];
     }
@@ -1814,15 +1859,16 @@ function displayCards(playerHand) {
                 chatBubble.destroy(); // ✅ Destroy the chat bubble after 3 seconds
             });
         }
+        // Update score in game log with bid info
+        let teamBids = myBids[position - 1] + "/" + myBids[team(position) - 1];
+        let oppBids = myBids[rotate(position) - 1] + "/" + myBids[rotate(rotate(rotate(position))) - 1];
         if(position % 2 !== 0){
-            console.log("updating my scoreBug");
-            scoreUI.teamScoreLabel.setText(me + "/" + partner + ": " + myBids[position - 1] + "/" + myBids[team(position) - 1] + "       " +  score1);
-            scoreUI.oppScoreLabel.setText(opp1 + "/" + opp2 +  ": " + myBids[rotate(position) - 1] + "/" + myBids[rotate(rotate(rotate(position))) - 1] + "       " + score2);
+            console.log("updating game log score");
+            updateGameLogScore(me + "/" + partner, opp1 + "/" + opp2, score1, score2, teamBids, oppBids);
         }
         else{
-            console.log("updating their scoreBug");
-            scoreUI.teamScoreLabel.setText(me + "/" + partner + ": " + myBids[position - 1] + "/" + myBids[team(position) - 1] + "       " +  score2);
-            scoreUI.oppScoreLabel.setText(opp1 + "/" + opp2 + ": " + myBids[rotate(position) - 1] + "/" + myBids[rotate(rotate(rotate(position))) - 1] + "       " + score1);
+            console.log("updating game log score");
+            updateGameLogScore(me + "/" + partner, opp1 + "/" + opp2, score2, score1, teamBids, oppBids);
         }
     });
     socket.on("updateTurn", (data) => {
