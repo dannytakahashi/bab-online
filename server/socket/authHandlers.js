@@ -53,8 +53,26 @@ async function signIn(socket, io, data) {
         // Register with game manager
         gameManager.registerUser(socket.id, username);
 
-        socket.emit('signInResponse', { success: true, username });
-        authLogger.info('User signed in', { username, socketId: socket.id });
+        // Check if user has an active game they can rejoin
+        const activeGameId = user.activeGameId;
+        const activeGame = activeGameId ? gameManager.getGameById(activeGameId) : null;
+
+        if (activeGame) {
+            // User has an active game - notify client
+            socket.emit('signInResponse', {
+                success: true,
+                username,
+                activeGameId: activeGameId
+            });
+            authLogger.info('User signed in with active game', { username, socketId: socket.id, gameId: activeGameId });
+        } else {
+            // No active game (or game no longer exists) - clear stale activeGameId if present
+            if (activeGameId) {
+                await gameManager.clearActiveGame(username);
+            }
+            socket.emit('signInResponse', { success: true, username });
+            authLogger.info('User signed in', { username, socketId: socket.id });
+        }
 
     } catch (error) {
         authLogger.error('Database error during sign-in', { username, error: error.message });

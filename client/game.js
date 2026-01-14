@@ -53,9 +53,8 @@ function processRejoin(data) {
     removeWaitingScreen();
     removeDraw();
 
-    // Create game UI elements
+    // Create game UI elements (chat input is now integrated into game feed)
     createGameFeed();
-    initGameChat();
     if (!scoreUI) {
         scoreUI = createScorebug();
     }
@@ -111,8 +110,8 @@ document.addEventListener("rejoinSuccess", (event) => {
 // Handle rejoin failure
 document.addEventListener("rejoinFailed", (event) => {
     console.log("Rejoin failed:", event.detail.reason);
-    // Auto-join a new lobby
-    socket.emit("joinQueue");
+    // Return to main room
+    socket.emit("joinMainRoom");
 });
 
 // Handle player reconnection notification
@@ -382,70 +381,99 @@ let opponentCardSprites = {};
 let tableCardSprite;
 function createGameFeed() {
     let feedCheck = document.getElementById("gameFeed");
-    if(feedCheck){ 
+    if(feedCheck){
         console.log("feed already exists.");
         return;
     }
-    console.log("📝 Creating game feed...");
+    console.log("Creating game feed...");
 
-    // ✅ Create a container for the game feed
+    // Create main container using CSS class for full right column
     let feedContainer = document.createElement("div");
     feedContainer.id = "gameFeed";
-    feedContainer.classList.add("ui-element");
-    feedContainer.style.position = "absolute";
-    feedContainer.style.width = "10vw";
-    feedContainer.style.height = "20vh";
-    feedContainer.style.bottom = "20px"; // ✅ Position in lower right
-    feedContainer.style.right = "20px";
-    feedContainer.style.padding = "10px";
-    feedContainer.style.background = "rgba(0, 0, 0, 0.7)"; // ✅ Semi-transparent dark background
-    feedContainer.style.color = "white";
-    feedContainer.style.fontSize = "16px";
-    feedContainer.style.fontFamily = "Arial, sans-serif";
-    feedContainer.style.overflowY = "auto";
-    feedContainer.style.borderRadius = "10px";
-    feedContainer.style.border = "2px solid #FFFFFF";
-    feedContainer.style.maxHeight = "20vh"; // ✅ Limits scrolling area
-    feedContainer.style.textAlign = "left";
-    feedContainer.style.wordWrap = "break-word";
-    feedContainer.style.overflowWrap = "break-word";
-    feedContainer.style.zIndex = "1000"; // Ensure it's above the Phaser canvas
+    feedContainer.classList.add("chat-container", "ui-element");
+
+    // Header
+    let header = document.createElement("div");
+    header.classList.add("chat-header");
+    header.innerText = "Game Log";
+    feedContainer.appendChild(header);
+
+    // Messages area
+    let messagesArea = document.createElement("div");
+    messagesArea.id = "gameFeedMessages";
+    messagesArea.classList.add("chat-messages");
+    feedContainer.appendChild(messagesArea);
+
+    // Chat input container
+    let inputContainer = document.createElement("div");
+    inputContainer.classList.add("chat-input-container");
+
+    let chatInput = document.createElement("input");
+    chatInput.type = "text";
+    chatInput.id = "chatInput";
+    chatInput.classList.add("chat-input");
+    chatInput.placeholder = "Type a message...";
+
+    let sendBtn = document.createElement("button");
+    sendBtn.classList.add("chat-send");
+    sendBtn.innerText = "Send";
+
+    inputContainer.appendChild(chatInput);
+    inputContainer.appendChild(sendBtn);
+    feedContainer.appendChild(inputContainer);
 
     document.body.appendChild(feedContainer);
+
+    // Handle sending messages
+    function sendMessage() {
+        let message = chatInput.value.trim();
+        if (message !== "") {
+            console.log("Sending message:", message);
+            socket.emit("chatMessage", { message });
+            chatInput.value = "";
+        }
+    }
+
+    sendBtn.addEventListener("click", sendMessage);
+    chatInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+            sendMessage();
+        }
+    });
 
     // Add initial message to confirm feed is working
     addToGameFeed("Game started!");
 }
 function addToGameFeed(message, playerPosition = null) {
-    console.log("📋 addToGameFeed called with:", message);
-    let feedContainer = document.getElementById("gameFeed");
+    let messagesArea = document.getElementById("gameFeedMessages");
 
-    if (!feedContainer) {
-        console.warn("⚠️ Game feed container not found!");
+    if (!messagesArea) {
+        console.warn("Game feed messages area not found!");
         return;
     }
-    console.log("📋 Feed container found, adding message");
 
     // Get current time for timestamp
     const now = new Date();
     const timestamp = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-    // Create a new message element
+    // Create a new message element using CSS classes
     let messageElement = document.createElement("div");
-    messageElement.style.marginBottom = "5px";
-    messageElement.style.wordWrap = "break-word";
-    messageElement.style.overflowWrap = "break-word";
-    messageElement.style.maxWidth = "100%";
+    messageElement.classList.add("chat-message");
+    if (playerPosition === null) {
+        messageElement.classList.add("system");
+    }
 
     // Add timestamp
     let timeSpan = document.createElement("span");
     timeSpan.innerText = `[${timestamp}] `;
     timeSpan.style.color = "#888";
-    timeSpan.style.fontSize = "12px";
+    timeSpan.style.fontSize = "11px";
+    timeSpan.style.marginRight = "4px";
     messageElement.appendChild(timeSpan);
 
     // Add message with player color if position provided
     let msgSpan = document.createElement("span");
+    msgSpan.classList.add("text");
     msgSpan.innerText = message;
     if (playerPosition !== null) {
         // Team 1 (positions 1, 3) = blue, Team 2 (positions 2, 4) = red
@@ -458,12 +486,10 @@ function addToGameFeed(message, playerPosition = null) {
     messageElement.appendChild(msgSpan);
 
     // Add the message at the bottom
-    feedContainer.appendChild(messageElement);
+    messagesArea.appendChild(messageElement);
 
     // Scroll to the latest message
-    feedContainer.scrollTop = feedContainer.scrollHeight;
-
-    console.log("📝 Game Feed Updated:", message);
+    messagesArea.scrollTop = messagesArea.scrollHeight;
 }
 let handGlow;
 function addOpponentGlow(scene, relation){
@@ -917,8 +943,8 @@ socket.on("abortGame", (data) => {
     clearUI();
     gameScene.children.removeAll(true);
     gameScene.scene.restart();
-    // Auto-join a new lobby
-    socket.emit("joinQueue");
+    // Return to main room
+    socket.emit("joinMainRoom");
 });
 socket.on("forceLogout", (data) => {
     console.log("someone else signed in as you. Logging out.");
@@ -935,8 +961,8 @@ socket.on("forceLogout", (data) => {
 socket.on("roomFull", (data) => {
     console.log("caught roomFull");
     removeWaitingScreen();
-    // Auto-join a new lobby (this shouldn't happen with lobby system)
-    socket.emit("joinQueue");
+    // Return to main room (this shouldn't happen with lobby system)
+    socket.emit("joinMainRoom");
 });
 socket.on("gameEnd", (data) => {
     console.log("caught gameEnd");
@@ -1014,6 +1040,11 @@ socket.on("teamsAnnounced", (data) => {
 });
 socket.on("chatMessage", (data) => {
     console.log("chatMessage received: ", data.message, " from position: ", data.position, " and I think my pos is ", position);
+
+    // Add to game log
+    let senderName = data.username || getPlayerName(data.position);
+    addToGameFeed(`${senderName}: ${data.message}`, data.position);
+
     let scene = game.scene.scenes[0];
     let screenWidth = scene.scale.width;
     let screenHeight = scene.scale.height;
@@ -1065,7 +1096,6 @@ socket.on("createUI", (data) => {
     removeWaitingScreen();
     removeDraw();
     createGameFeed();
-    initGameChat();
     scoreUI = createScorebug(this);
     if (!scene.handElements) {
         scene.handElements = [];
@@ -1073,10 +1103,33 @@ socket.on("createUI", (data) => {
 });
 // queueUpdate handler removed - now using lobby system instead
 
+// ==================== MAIN ROOM SOCKET HANDLERS ====================
+
+socket.on("mainRoomJoined", (data) => {
+    console.log("Joined main room", data);
+    showMainRoom(data);
+});
+
+socket.on("mainRoomMessage", (data) => {
+    console.log("Main room message", data);
+    addMainRoomChatMessage(data.username, data.message);
+});
+
+socket.on("lobbiesUpdated", (data) => {
+    console.log("Lobbies updated", data);
+    updateLobbyList(data.lobbies);
+});
+
+socket.on("mainRoomPlayerJoined", (data) => {
+    console.log("Player joined main room", data);
+    updateMainRoomOnlineCount(data.onlineCount);
+});
+
 // ==================== LOBBY SOCKET HANDLERS ====================
 
 socket.on("lobbyCreated", (data) => {
-    console.log("🎮 Lobby created!", data);
+    console.log("Lobby created!", data);
+    removeMainRoom();
     showGameLobby(data);
 });
 
@@ -1105,8 +1158,7 @@ socket.on("lobbyPlayerJoined", (data) => {
 socket.on("leftLobby", () => {
     console.log("👋 You left the lobby");
     removeGameLobby();
-    // Auto-join a new lobby
-    socket.emit("joinQueue");
+    // Server will send mainRoomJoined event to show main room
 });
 
 socket.on("allPlayersReady", (data) => {

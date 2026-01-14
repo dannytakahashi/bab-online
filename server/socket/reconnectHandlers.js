@@ -18,6 +18,10 @@ async function rejoinGame(socket, io, data) {
     const game = gameManager.getGameById(gameId);
     if (!game) {
         socketLogger.debug('Rejoin failed: game not found', { gameId });
+        // Clear stale activeGameId from database
+        if (username) {
+            await gameManager.clearActiveGame(username);
+        }
         socket.emit('rejoinFailed', { reason: 'Game no longer exists' });
         return;
     }

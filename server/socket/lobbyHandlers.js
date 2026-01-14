@@ -154,8 +154,22 @@ function leaveLobby(socket, io) {
 
     const user = gameManager.getUserBySocketId(socket.id);
 
-    // Notify leaving player they're back to main menu
+    // Auto-rejoin main room
+    const mainRoomResult = gameManager.joinMainRoom(socket.id);
+    socket.join('mainRoom');
+
+    // Notify leaving player they're back to main room
     socket.emit('leftLobby', {});
+    socket.emit('mainRoomJoined', {
+        messages: mainRoomResult.messages,
+        lobbies: mainRoomResult.lobbies,
+        onlineCount: mainRoomResult.onlineCount
+    });
+
+    // Notify main room of updated lobby list
+    io.to('mainRoom').emit('lobbiesUpdated', {
+        lobbies: gameManager.getAllLobbies()
+    });
 
     // If lobby was deleted (no players left), nothing more to do
     if (result.lobbyDeleted) {

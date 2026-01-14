@@ -5,12 +5,17 @@
 
 const { v4: uuidv4 } = require('uuid');
 const GameState = require('./GameState');
+const { getUsersCollection } = require('../database');
 
 class GameManager {
     constructor() {
         // Queue of players waiting for a game
         this.queue = [];
         this.queuedUsers = [];
+
+        // Main room (global chat + lobby browser)
+        this.mainRoomMessages = [];       // Global chat history (capped at MAX_MAIN_ROOM_MESSAGES)
+        this.mainRoomSocketIds = new Set(); // Players currently in main room
 
         // Lobbies (pre-game waiting rooms)
         this.lobbies = new Map();      // lobbyId → { players: [], readyPlayers: Set, messages: [] }
@@ -23,6 +28,9 @@ class GameManager {
         // Current users (logged in)
         this.currentUsers = [];        // [{ username, socketId }, ...]
     }
+
+    // Constants
+    static MAX_MAIN_ROOM_MESSAGES = 50;
 
     /**
      * Register a logged-in user
@@ -52,6 +60,12 @@ class GameManager {
         // Check if already in game
         if (this.playerGames.has(socketId)) {
             return { success: false, error: 'Already in game' };
+        }
+
+        // Verify user is registered (prevents race condition with auth)
+        const user = this.getUserBySocketId(socketId);
+        if (!user) {
+            return { success: false, error: 'User not registered yet' };
         }
 
         // Find an existing open lobby (less than 4 players)
@@ -117,6 +131,186 @@ class GameManager {
             return { success: true, queuedUsers: this.queuedUsers };
         }
         return { success: false };
+    }
+
+    // ==================== MAIN ROOM METHODS ====================
+
+    /**
+     * Add player to main room
+     */
+    joinMainRoom(socketId) {
+        // Validate user is registered
+        const user = this.getUserBySocketId(socketId);
+        if (!user) {
+            return { success: false, error: 'User not registered yet' };
+        }
+
+        // Remove from lobby if in one
+        if (this.playerLobbies.has(socketId)) {
+            this.leaveLobby(socketId);
+        }
+
+        this.mainRoomSocketIds.add(socketId);
+
+        return {
+            success: true,
+            messages: this.mainRoomMessages,
+            lobbies: this.getAllLobbies(),
+            onlineCount: this.mainRoomSocketIds.size,
+            username: user.username
+        };
+    }
+
+    /**
+     * Remove player from main room
+     */
+    leaveMainRoom(socketId) {
+        this.mainRoomSocketIds.delete(socketId);
+        return { success: true };
+    }
+
+    /**
+     * Check if player is in main room
+     */
+    isInMainRoom(socketId) {
+        return this.mainRoomSocketIds.has(socketId);
+    }
+
+    /**
+     * Add message to main room chat
+     */
+    addMainRoomMessage(socketId, message) {
+        const user = this.getUserBySocketId(socketId);
+        if (!user) return { success: false, error: 'User not found' };
+
+        const chatMessage = {
+            username: user.username,
+            message,
+            timestamp: Date.now()
+        };
+
+        this.mainRoomMessages.push(chatMessage);
+
+        // Cap message history
+        if (this.mainRoomMessages.length > GameManager.MAX_MAIN_ROOM_MESSAGES) {
+            this.mainRoomMessages.shift();
+        }
+
+        return { success: true, chatMessage };
+    }
+
+    /**
+     * Get all socket IDs in main room
+     */
+    getMainRoomSocketIds() {
+        return Array.from(this.mainRoomSocketIds);
+    }
+
+    /**
+     * Get all lobbies for display
+     */
+    getAllLobbies() {
+        const lobbies = [];
+        for (const [lobbyId, lobby] of this.lobbies) {
+            lobbies.push({
+                id: lobbyId,
+                name: lobby.name || `${lobby.players[0]?.username || 'Unknown'}'s Game`,
+                playerCount: lobby.players.length,
+                maxPlayers: 4,
+                players: lobby.players.map(p => ({
+                    username: p.username,
+                    ready: p.ready
+                })),
+                createdAt: lobby.createdAt
+            });
+        }
+        return lobbies;
+    }
+
+    /**
+     * Create a named lobby from main room
+     */
+    createNamedLobby(socketId, name = null) {
+        // Check if already in lobby
+        if (this.playerLobbies.has(socketId)) {
+            return { success: false, error: 'Already in lobby' };
+        }
+
+        // Check if already in game
+        if (this.playerGames.has(socketId)) {
+            return { success: false, error: 'Already in game' };
+        }
+
+        const user = this.getUserBySocketId(socketId);
+        if (!user) {
+            return { success: false, error: 'User not found' };
+        }
+
+        // Leave main room
+        this.leaveMainRoom(socketId);
+
+        const lobbyId = uuidv4();
+        const lobby = {
+            id: lobbyId,
+            name: name || `${user.username}'s Game`,
+            players: [{
+                socketId,
+                username: user.username,
+                ready: false
+            }],
+            readyPlayers: new Set(),
+            messages: [],
+            createdAt: Date.now(),
+            createdBy: user.username
+        };
+
+        this.lobbies.set(lobbyId, lobby);
+        this.playerLobbies.set(socketId, lobbyId);
+
+        return { success: true, lobby };
+    }
+
+    /**
+     * Join a specific lobby by ID
+     */
+    joinSpecificLobby(socketId, lobbyId) {
+        // Check if already in a lobby
+        if (this.playerLobbies.has(socketId)) {
+            return { success: false, error: 'Already in a lobby' };
+        }
+
+        // Check if already in game
+        if (this.playerGames.has(socketId)) {
+            return { success: false, error: 'Already in game' };
+        }
+
+        const lobby = this.lobbies.get(lobbyId);
+        if (!lobby) {
+            return { success: false, error: 'Lobby not found' };
+        }
+
+        if (lobby.players.length >= 4) {
+            return { success: false, error: 'Lobby is full' };
+        }
+
+        const user = this.getUserBySocketId(socketId);
+        if (!user) {
+            return { success: false, error: 'User not found' };
+        }
+
+        // Leave main room
+        this.leaveMainRoom(socketId);
+
+        const newPlayer = {
+            socketId,
+            username: user.username,
+            ready: false
+        };
+
+        lobby.players.push(newPlayer);
+        this.playerLobbies.set(socketId, lobbyId);
+
+        return { success: true, lobby, newPlayer };
     }
 
     // ==================== LOBBY METHODS ====================
@@ -399,6 +593,10 @@ class GameManager {
      * Handle player disconnect - now with grace period for reconnection
      */
     handleDisconnect(socketId) {
+        // Remove from main room (if in main room)
+        const wasInMainRoom = this.mainRoomSocketIds.has(socketId);
+        this.leaveMainRoom(socketId);
+
         // Remove from lobby (if in lobby, not in game)
         const lobbyResult = this.leaveLobby(socketId);
         const wasInLobby = lobbyResult.success;
@@ -416,6 +614,7 @@ class GameManager {
             }
             return {
                 wasInLobby,
+                wasInMainRoom,
                 wasInGame: true,
                 game,
                 gameId,
@@ -427,7 +626,7 @@ class GameManager {
         // Only remove from currentUsers if not in a game
         this.currentUsers = this.currentUsers.filter(u => u.socketId !== socketId);
 
-        return { wasInLobby, wasInGame: false, lobby: lobbyResult.lobby };
+        return { wasInLobby, wasInMainRoom, wasInGame: false, lobby: lobbyResult.lobby };
     }
 
     /**
@@ -487,6 +686,74 @@ class GameManager {
             size: this.queue.length,
             queuedUsers: this.queuedUsers
         };
+    }
+
+    // ==================== ACTIVE GAME TRACKING ====================
+
+    /**
+     * Set active game for a user in the database
+     * Called when a game starts
+     */
+    async setActiveGame(username, gameId) {
+        try {
+            const usersCollection = getUsersCollection();
+            if (!usersCollection) return;
+
+            await usersCollection.updateOne(
+                { username },
+                { $set: { activeGameId: gameId, activeGameStartedAt: new Date() } }
+            );
+        } catch (error) {
+            console.error('Failed to set active game:', error);
+        }
+    }
+
+    /**
+     * Clear active game for a user in the database
+     * Called when a game ends or is aborted
+     */
+    async clearActiveGame(username) {
+        try {
+            const usersCollection = getUsersCollection();
+            if (!usersCollection) return;
+
+            await usersCollection.updateOne(
+                { username },
+                { $unset: { activeGameId: '', activeGameStartedAt: '' } }
+            );
+        } catch (error) {
+            console.error('Failed to clear active game:', error);
+        }
+    }
+
+    /**
+     * Get active game for a user from the database
+     */
+    async getActiveGame(username) {
+        try {
+            const usersCollection = getUsersCollection();
+            if (!usersCollection) return null;
+
+            const user = await usersCollection.findOne({ username });
+            return user?.activeGameId || null;
+        } catch (error) {
+            console.error('Failed to get active game:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Clear active game for all players in a game
+     */
+    async clearActiveGameForAll(gameId) {
+        const game = this.games.get(gameId);
+        if (!game) return;
+
+        for (const [socketId, player] of game.players.entries()) {
+            if (player.username) {
+                await this.clearActiveGame(player.username);
+            }
+        }
     }
 }
 

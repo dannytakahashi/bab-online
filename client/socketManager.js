@@ -115,6 +115,15 @@ function showErrorToast(message, duration = 5000) {
 function handleSocketError(error) {
     let message = 'Something went wrong';
 
+    // Handle race condition where joinMainRoom is called before user is registered
+    if (error.message === 'User not registered yet') {
+        console.log('User not registered yet, retrying joinMainRoom in 100ms...');
+        setTimeout(() => {
+            socket.emit('joinMainRoom');
+        }, 100);
+        return; // Don't show error toast for this
+    }
+
     switch (error.type) {
         case 'VALIDATION_ERROR':
         case 'validation':
