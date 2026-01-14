@@ -168,8 +168,9 @@ async function startHand(game, io) {
         }
     }
 
-    // Send game start to all players (each gets their own hand)
+    // Send game start to all players (each gets their own hand and position)
     for (const socketId of socketIds) {
+        const playerPosition = game.getPositionBySocketId(socketId);
         game.sendToPlayer(io, socketId, 'gameStart', {
             gameId: game.gameId,
             players: socketIds,
@@ -177,7 +178,8 @@ async function startHand(game, io) {
             trump: game.trump,
             score1: game.score.team1,
             score2: game.score.team2,
-            dealer: game.dealer
+            dealer: game.dealer,
+            position: playerPosition  // Include player's position to avoid race condition
         });
     }
 

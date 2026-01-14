@@ -307,16 +307,23 @@ function processGameStart(data) {
     // Debug: Check if playerId is set correctly
     console.log("playerId:", playerId);
     // Debug: Check critical global variables
-    console.log("🎮 position:", position);
+    console.log("🎮 position (global):", position);
+    console.log("🎮 position (from server):", data.position);
     console.log("🎮 playerData:", playerData);
     // Debug: Check if player has received cards
     console.log("Hands data:", data.hand);
     console.log("scores:", data.score1, data.score2);
     console.log("Player's hand:", data.hand);
 
-    // Check for race condition: position might not be set yet due to setTimeout in socketManager
+    // Use position from gameStart data to avoid race condition with playerAssigned event
+    if (data.position) {
+        position = data.position;
+        console.log("✅ Set position from gameStart data:", position);
+    }
+
+    // Check for race condition: position might not be set yet
     if (position === undefined) {
-        console.error("🚨 RACE CONDITION: position is undefined! playerAssigned event hasn't fired yet.");
+        console.error("🚨 RACE CONDITION: position is undefined!");
         console.log("⏳ Waiting 100ms for playerAssigned to process...");
         setTimeout(() => {
             console.log("🔄 Retrying processGameStart after delay, position now:", position);
