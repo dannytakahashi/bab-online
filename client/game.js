@@ -832,9 +832,17 @@ function isLegalMove(card, hand, lead, leadBool, leadPosition){
         console.log("ILLEGAL: not following suit when not void");
         return false;
     }
-    if (lead.rank === "HI" && !highestTrump(card.rank, hand, trump) && (leadPosition % 2 !== position % 2)){
-        console.log("ILLEGAL: HI lead requires highest trump");
-        return false;
+    // HI joker special rule: opponents must play highest trump
+    if (lead.rank === "HI") {
+        console.log("HI joker led! Checking highest trump rule...");
+        console.log("leadPosition:", leadPosition, "position:", position);
+        console.log("Is opponent?", leadPosition % 2 !== position % 2);
+        console.log("Is highest trump in hand?", highestTrump(card.rank, hand, trump));
+
+        if ((leadPosition % 2 !== position % 2) && !highestTrump(card.rank, hand, trump)) {
+            console.log("ILLEGAL: HI lead requires highest trump from opponents");
+            return false;
+        }
     }
     console.log("LEGAL: following rules satisfied");
     return true;
