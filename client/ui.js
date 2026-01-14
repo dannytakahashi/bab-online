@@ -364,81 +364,11 @@ socket.on("signUpResponse", (data) => {
 // ✅ Function to Handle Sign-In Response
 
 function showScore(teamScore, opponentScore, bidArray, team1Tricks, team2Tricks, team1OldScore, team2OldScore) {
-    console.log("📢 Displaying score popup...");
+    console.log("📢 Adding score to game log...");
 
-    // ✅ Create the dimmed background
-    let overlay = document.createElement("div");
-    overlay.id = "popupOverlay";
-    overlay.style.position = "absolute";
-    overlay.style.top = "0";
-    overlay.style.left = "0";
-    overlay.style.width = "100vw";
-    overlay.style.height = "100vh";
-    overlay.style.background = "rgba(0, 0, 0, 0.7)";
-    overlay.style.display = "flex";
-    overlay.style.justifyContent = "center";
-    overlay.style.alignItems = "center";
-    overlay.style.zIndex = "1000";
-
-    // ✅ Create the popup box
-    let popup = document.createElement("div");
-    popup.id = "popupBox";
-    popup.style.width = "34vw"; // ✅ Increased width for 3 sections
-    popup.style.padding = "20px";
-    popup.style.background = "#FFF";
-    popup.style.color = "#000";
-    popup.style.borderRadius = "10px";
-    popup.style.textAlign = "center";
-    popup.style.boxShadow = "0px 0px 15px rgba(255, 255, 255, 0.5)";
-    popup.style.fontSize = "18px";
-
-    // ✅ Title text (Italicized)
-    let title = document.createElement("p");
-    title.innerText = "SCORE UPDATE";
-    title.style.fontWeight = "bold";
-    title.style.fontStyle = "italic";
-    popup.appendChild(title);
-
-    // ✅ Create a container for the 3 text sections
-    let scoreContainer = document.createElement("div");
-    scoreContainer.style.display = "flex";
-    scoreContainer.style.justifyContent = "space-between";
-    scoreContainer.style.marginBottom = "10px";
-    scoreContainer.style.width = "100%";
-
-    // ✅ Third Text Field (Left Side, No Background)
-    let testTextSection = document.createElement("div");
-    testTextSection.style.display = "flex";
-    testTextSection.style.flexDirection = "column"; 
-    testTextSection.style.alignItems = "center";
-    testTextSection.style.width = "30%";
-
-    let testTitle = document.createElement("p");
-    testTitle.innerText = "";
-    testTitle.style.fontWeight = "bold";
-    testTitle.style.marginBottom = "5px";
-
-    let testTextBox = document.createElement("div");
-    testTextBox.innerText = "\n\nCONTRACT\nACTUAL\nOLD SCORE\nTHIS ROUND\nSCORE";
-    testTextBox.style.fontSize = "16px";
-    testTextBox.style.textAlign = "right";
-    testTextBox.style.alignItems = "center";
-    testTextBox.style.fontWeight = "bold";
-
-    testTextSection.appendChild(testTitle);
-    testTextSection.appendChild(testTextBox);
-
-    // ✅ Team Score Section (Middle)
-    let teamScoreSection = document.createElement("div");
-    teamScoreSection.style.display = "flex";
-    teamScoreSection.style.flexDirection = "column";
-    teamScoreSection.style.alignItems = "center";
-    teamScoreSection.style.width = "30%";
-
-    let teamTitle = document.createElement("p");
-    teamTitle.innerText = playerData.username[playerData.position.indexOf(position)].username + "/" + playerData.username[playerData.position.indexOf(team(position))].username;
-    teamTitle.style.fontWeight = "bold";
-    teamTitle.style.marginBottom = "5px";
+    // Get player names
+    let teamName = playerData.username[playerData.position.indexOf(position)].username + "/" + playerData.username[playerData.position.indexOf(team(position))].username;
+    let oppName = playerData.username[playerData.position.indexOf(rotate(position))].username + "/" + playerData.username[playerData.position.indexOf(rotate(rotate(rotate(position))))].username;
 
     // Get bid indices based on player's position (position is 1-indexed, array is 0-indexed)
     let myBidIdx = position - 1;
@@ -446,90 +376,19 @@ function showScore(teamScore, opponentScore, bidArray, team1Tricks, team2Tricks,
     let opp1BidIdx = rotate(position) - 1;
     let opp2BidIdx = rotate(rotate(rotate(position))) - 1;
 
-    let teamScoreBox = document.createElement("div");
-    if(teamScore > team1OldScore){
-        teamScoreBox.innerText = bidArray[myBidIdx] + "/" + bidArray[partnerBidIdx] + "\n" + team1Tricks + "\n" + team1OldScore + "\n" + "+" + (teamScore - team1OldScore) + "\n" + teamScore;
-    }else{
-        teamScoreBox.innerText = bidArray[myBidIdx] + "/" + bidArray[partnerBidIdx] + "\n" + team1Tricks + "\n" + team1OldScore + "\n" + (teamScore - team1OldScore) + "\n" + teamScore;
-    }
-    teamScoreBox.style.width = "100%";
-    teamScoreBox.style.minHeight = "60px";
-    teamScoreBox.style.padding = "10px";
-    teamScoreBox.style.fontSize = "16px";
-    teamScoreBox.style.textAlign = "center";
-    teamScoreBox.style.border = "2px solid #8B4513";
-    teamScoreBox.style.background = "#FFF8DC";
-    teamScoreBox.style.borderRadius = "8px";
-    teamScoreBox.style.fontWeight = "bold";
-    teamScoreBox.style.whiteSpace = "pre-line";
+    // Calculate score changes
+    let teamChange = teamScore - team1OldScore;
+    let oppChange = opponentScore - team2OldScore;
+    let teamChangeStr = teamChange >= 0 ? "+" + teamChange : teamChange.toString();
+    let oppChangeStr = oppChange >= 0 ? "+" + oppChange : oppChange.toString();
 
-    teamScoreSection.appendChild(teamTitle);
-    teamScoreSection.appendChild(teamScoreBox);
+    // Add to game log
+    addToGameFeed("--- HAND COMPLETE ---");
+    addToGameFeed(`${teamName}: Bid ${bidArray[myBidIdx]}/${bidArray[partnerBidIdx]}, Won ${team1Tricks}, ${teamChangeStr} → ${teamScore}`);
+    addToGameFeed(`${oppName}: Bid ${bidArray[opp1BidIdx]}/${bidArray[opp2BidIdx]}, Won ${team2Tricks}, ${oppChangeStr} → ${opponentScore}`);
 
-    // ✅ Opponent Score Section (Right)
-    let opponentScoreSection = document.createElement("div");
-    opponentScoreSection.style.display = "flex";
-    opponentScoreSection.style.flexDirection = "column";
-    opponentScoreSection.style.alignItems = "center";
-    opponentScoreSection.style.width = "30%";
-
-    let opponentTitle = document.createElement("p");
-    opponentTitle.innerText = playerData.username[playerData.position.indexOf(rotate(position))].username + "/" + playerData.username[playerData.position.indexOf(rotate(rotate(rotate(position))))].username;
-    opponentTitle.style.fontWeight = "bold";
-    opponentTitle.style.marginBottom = "5px";
-
-    let opponentScoreBox = document.createElement("div");
-    if(opponentScore > team2OldScore){
-        opponentScoreBox.innerText = bidArray[opp1BidIdx] + "/" + bidArray[opp2BidIdx] + "\n" + team2Tricks + "\n" + team2OldScore + "\n" + "+" + (opponentScore - team2OldScore) + "\n" + opponentScore;
-    }else{
-        opponentScoreBox.innerText = bidArray[opp1BidIdx] + "/" + bidArray[opp2BidIdx] + "\n" + team2Tricks + "\n" + team2OldScore + "\n" + (opponentScore - team2OldScore) + "\n" + opponentScore;
-    }
-    opponentScoreBox.style.width = "100%";
-    opponentScoreBox.style.minHeight = "60px";
-    opponentScoreBox.style.padding = "10px";
-    opponentScoreBox.style.fontSize = "16px";
-    opponentScoreBox.style.textAlign = "center";
-    opponentScoreBox.style.border = "2px solid #8B4513";
-    opponentScoreBox.style.background = "#FFF8DC";
-    opponentScoreBox.style.borderRadius = "8px";
-    opponentScoreBox.style.fontWeight = "bold";
-    opponentScoreBox.style.whiteSpace = "pre-line";
-
-    opponentScoreSection.appendChild(opponentTitle);
-    opponentScoreSection.appendChild(opponentScoreBox);
-
-    // ✅ Append all sections to the container
-    scoreContainer.appendChild(testTextSection);
-    scoreContainer.appendChild(teamScoreSection);
-    scoreContainer.appendChild(opponentScoreSection);
-    popup.appendChild(scoreContainer);
-
-    // ✅ Submit button
-    let closeButton = document.createElement("button");
-    closeButton.innerText = "OK";
-    closeButton.style.marginTop = "10px";
-    closeButton.style.padding = "8px 16px";
-    closeButton.style.background = "#D50505";
-    closeButton.style.color = "#FFF";
-    closeButton.style.border = "none";
-    closeButton.style.borderRadius = "5px";
-    closeButton.style.cursor = "pointer";
-
-    // ✅ Close popup when clicking "OK"
-    closeButton.onclick = hidePopup;
-
-    popup.appendChild(closeButton);
-    overlay.appendChild(popup);
-    document.body.appendChild(overlay);
-}
-
-// ✅ Function to Hide the Popup
-function hidePopup() {
-    let overlay = document.getElementById("popupOverlay");
-    if (overlay) {
-        overlay.remove();
-        console.log("❌ Score popup closed.");
-    }
+    // Update the score display in the game log header
+    updateGameLogScore(teamName, oppName, teamScore, opponentScore);
 }
 function showLobbyScreen() {
     clearUI();
@@ -1394,125 +1253,47 @@ function removeGameLobby() {
 // ==================== END GAME LOBBY ====================
 
 function showFinalScore(teamScore, opponentScore) {
-    console.log("📢 Displaying score popup...");
+    console.log("📢 Adding final score to game log...");
 
-    // ✅ Create the dimmed background
+    // Get player names
+    let teamName = playerData.username[playerData.position.indexOf(position)].username + "/" + playerData.username[playerData.position.indexOf(team(position))].username;
+    let oppName = playerData.username[playerData.position.indexOf(rotate(position))].username + "/" + playerData.username[playerData.position.indexOf(rotate(rotate(rotate(position))))].username;
+
+    // Determine winner
+    let resultMsg = teamScore > opponentScore ? "YOU WIN!" : (teamScore < opponentScore ? "YOU LOSE" : "TIE GAME");
+
+    // Add to game log
+    addToGameFeed("=== GAME OVER ===");
+    addToGameFeed(`${teamName}: ${teamScore}`);
+    addToGameFeed(`${oppName}: ${opponentScore}`);
+    addToGameFeed(resultMsg);
+
+    // Create a simple centered button to return to lobby
     let overlay = document.createElement("div");
     overlay.id = "finalScore";
-    overlay.style.position = "absolute";
+    overlay.style.position = "fixed";
     overlay.style.top = "0";
     overlay.style.left = "0";
     overlay.style.width = "100vw";
     overlay.style.height = "100vh";
-    overlay.style.background = "rgba(0, 0, 0, 0.7)";
+    overlay.style.background = "rgba(0, 0, 0, 0.5)";
     overlay.style.display = "flex";
     overlay.style.justifyContent = "center";
     overlay.style.alignItems = "center";
     overlay.style.zIndex = "1000";
 
-    // ✅ Create the popup box
-    let popup = document.createElement("div");
-    popup.id = "finalPopupBox";
-    popup.style.width = "32vw"; // ✅ Increased width for 3 sections
-    popup.style.padding = "20px";
-    popup.style.background = "#FFF";
-    popup.style.color = "#000";
-    popup.style.borderRadius = "10px";
-    popup.style.textAlign = "center";
-    popup.style.boxShadow = "0px 0px 15px rgba(255, 255, 255, 0.5)";
-    popup.style.fontSize = "18px";
-
-    // ✅ Title text (Italicized)
-    let title = document.createElement("p");
-    title.innerText = "FINAL SCORE";
-    title.style.fontWeight = "bold";
-    title.style.fontStyle = "italic";
-    popup.appendChild(title);
-
-    // ✅ Create a container for the 3 text sections
-    let scoreContainer = document.createElement("div");
-    scoreContainer.style.display = "flex";
-    scoreContainer.style.justifyContent = "space-between";
-    scoreContainer.style.marginBottom = "10px";
-    scoreContainer.style.width = "100%";
-
-    // ✅ Team Score Section (Middle)
-    let teamScoreSection = document.createElement("div");
-    teamScoreSection.style.display = "flex";
-    teamScoreSection.style.flexDirection = "column";
-    teamScoreSection.style.alignItems = "center";
-    teamScoreSection.style.width = "35%";
-
-    let teamTitle = document.createElement("p");
-    teamTitle.innerText = playerData.username[playerData.position.indexOf(position)].username + "/" + playerData.username[playerData.position.indexOf(team(position))].username;;
-    teamTitle.style.fontWeight = "bold";
-    teamTitle.style.marginBottom = "5px";
-
-    let teamScoreBox = document.createElement("div");
-    teamScoreBox.innerText = teamScore;
-    teamScoreBox.style.width = "100%";
-    teamScoreBox.style.minHeight = "7vh";
-    teamScoreBox.style.padding = "10px";
-    teamScoreBox.style.fontSize = "16px";
-    teamScoreBox.style.textAlign = "center";
-    teamScoreBox.style.border = "2px solid #8B4513";
-    teamScoreBox.style.background = "#FFF8DC";
-    teamScoreBox.style.borderRadius = "8px";
-    teamScoreBox.style.fontWeight = "bold";
-    teamScoreBox.style.whiteSpace = "pre-line";
-
-    teamScoreSection.appendChild(teamTitle);
-    teamScoreSection.appendChild(teamScoreBox);
-
-    // ✅ Opponent Score Section (Right)
-    let opponentScoreSection = document.createElement("div");
-    opponentScoreSection.style.display = "flex";
-    opponentScoreSection.style.flexDirection = "column";
-    opponentScoreSection.style.alignItems = "center";
-    opponentScoreSection.style.width = "35%";
-
-    let opponentTitle = document.createElement("p");
-    opponentTitle.innerText = playerData.username[playerData.position.indexOf(rotate(position))].username + "/" + playerData.username[playerData.position.indexOf(rotate(rotate(rotate(position))))].username;
-    opponentTitle.style.fontWeight = "bold";
-    opponentTitle.style.marginBottom = "5px";
-
-    let opponentScoreBox = document.createElement("div");
-    opponentScoreBox.innerText = opponentScore;
-    opponentScoreBox.style.width = "100%";
-    opponentScoreBox.style.minHeight = "7vh";
-    opponentScoreBox.style.padding = "10px";
-    opponentScoreBox.style.fontSize = "16px";
-    opponentScoreBox.style.textAlign = "center";
-    opponentScoreBox.style.border = "2px solid #8B4513";
-    opponentScoreBox.style.background = "#FFF8DC";
-    opponentScoreBox.style.borderRadius = "8px";
-    opponentScoreBox.style.fontWeight = "bold";
-    opponentScoreBox.style.whiteSpace = "pre-line";
-
-    opponentScoreSection.appendChild(opponentTitle);
-    opponentScoreSection.appendChild(opponentScoreBox);
-
-    // ✅ Append all sections to the container
-    scoreContainer.appendChild(teamScoreSection);
-    scoreContainer.appendChild(opponentScoreSection);
-    popup.appendChild(scoreContainer);
-
-    // ✅ Submit button
     let closeButton = document.createElement("button");
     closeButton.innerText = "Return to Lobby";
-    closeButton.style.marginTop = "10px";
-    closeButton.style.padding = "8px 16px";
-    closeButton.style.background = "#D50505";
+    closeButton.style.padding = "16px 32px";
+    closeButton.style.fontSize = "18px";
+    closeButton.style.background = "#dc2626";
     closeButton.style.color = "#FFF";
     closeButton.style.border = "none";
-    closeButton.style.borderRadius = "5px";
+    closeButton.style.borderRadius = "8px";
     closeButton.style.cursor = "pointer";
-
-    // ✅ Close popup when clicking "OK"
     closeButton.onclick = hideFinal;
 
-    popup.appendChild(closeButton);
-    overlay.appendChild(popup);
+    overlay.appendChild(closeButton);
     document.body.appendChild(overlay);
 }
 function hideFinal() {
