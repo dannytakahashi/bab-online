@@ -34,7 +34,21 @@ async function draw(socket, io, data) {
     game.deck.cards.splice(order, 1);
 
     gameLogger.debug('Player drew card', { socketId: socket.id, card: `${card.rank} of ${card.suit}` });
-    socket.emit('youDrew', { card });
+
+    // Get username for this player
+    const user = gameManager.getUserBySocketId(socket.id);
+    const username = user?.username || 'Player';
+
+    // Tell the drawing player their card
+    socket.emit('youDrew', { card, drawOrder: game.drawIndex + 1 });
+
+    // Broadcast to all players that someone drew (so they can see it)
+    game.broadcast(io, 'playerDrew', {
+        username,
+        card,
+        drawOrder: game.drawIndex + 1,
+        socketId: socket.id
+    });
 
     game.drawIndex++;
 
@@ -84,7 +98,21 @@ async function draw(socket, io, data) {
             pics
         });
 
-        await delay(2000);
+        // Announce teams (positions 1&3 vs 2&4)
+        const team1Player1 = game.getPlayerByPosition(1);
+        const team1Player2 = game.getPlayerByPosition(3);
+        const team2Player1 = game.getPlayerByPosition(2);
+        const team2Player2 = game.getPlayerByPosition(4);
+
+        await delay(1000);
+
+        game.broadcast(io, 'teamsAnnounced', {
+            team1: [team1Player1?.username || 'Player 1', team1Player2?.username || 'Player 3'],
+            team2: [team2Player1?.username || 'Player 2', team2Player2?.username || 'Player 4']
+        });
+
+        // Wait for team announcement to be seen (3 seconds)
+        await delay(3000);
 
         // Reset draw state
         game.drawCards = [];

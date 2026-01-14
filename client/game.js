@@ -583,64 +583,125 @@ socket.on("destroyHands", (data) => {
     socket.off("cardPlayed");
     destroyAllCards();
 });
+// Track drawn cards display during draw phase
+let drawnCardDisplays = [];
+let hasDrawn = false;
+
 function draw() {
     clearScreen.call(game.scene.scenes[0]);
     socket.off("youDrew");
+    socket.off("playerDrew");
+    hasDrawn = false;
+    drawnCardDisplays = [];
+
     console.log("🃏 Placing all 54 cards face down...");
+    let scene = this;
     let screenWidth = this.scale.width;
     let screenHeight = this.scale.height;
-    let scaleFactorX = screenWidth / 1920; // Adjust based on your design resolution
-    let scaleFactorY = screenHeight / 953; // Adjust based on your design resolution
-    let startX = 400*scaleFactorX; // ✅ Starting X position for first card
-    let startY = screenHeight / 2; // ✅ Center the row of cards
-    let overlap = 20*scaleFactorX; // ✅ Adjust overlap for better spacing
+    let scaleFactorX = screenWidth / 1920;
+    let scaleFactorY = screenHeight / 953;
+    let startX = 400*scaleFactorX;
+    let startY = screenHeight / 2;
+    let overlap = 20*scaleFactorX;
+
+    // Positions for drawn cards display (4 slots above the deck)
+    const drawDisplayY = screenHeight / 2 - 200*scaleFactorY;
+    const drawDisplayStartX = screenWidth / 2 - 300*scaleFactorX;
+    const drawDisplaySpacing = 200*scaleFactorX;
+
     const bg = this.add.image(0, 0, 'background')
-    .setOrigin(0, 0)
-    .setDisplaySize(this.scale.width, this.scale.height)  // Stretch to fill screen
-    .setScrollFactor(0)
-    .setDepth(-100)  // Make it non-scrollable (fixed to camera)
+        .setOrigin(0, 0)
+        .setDisplaySize(this.scale.width, this.scale.height)
+        .setScrollFactor(0)
+        .setDepth(-100);
+
+    // Add "Draw for Deal" title
+    const titleText = this.add.text(screenWidth / 2, 80*scaleFactorY, "Draw for Deal", {
+        fontSize: `${48*scaleFactorX}px`,
+        fontStyle: "bold",
+        color: "#FFFFFF",
+        stroke: "#000000",
+        strokeThickness: 4
+    }).setOrigin(0.5).setDepth(200);
+    allCards.push(titleText);
+
+    // Create deck cards
     for (let i = 0; i < 54; i++) {
-        let cardSprite = this.add.image(screenWidth/2 + 500*scaleFactorX, startY, "cardBack") // ✅ All cards face down
+        let cardSprite = this.add.image(screenWidth/2 + 500*scaleFactorX, startY, "cardBack")
             .setScale(1.2)
             .setInteractive()
             .setDepth(100);
-        // Click to draw (no dragging needed)
-        if (visible()){
-        this.tweens.add({
-            targets: cardSprite,
-            x: startX + i * overlap,
-            y: startY,
-            duration: 750,
-            ease: "Power2",
-            delay: 0,
-            onComplete: () =>{
-            }
-        });
-        }else{
+
+        if (visible()) {
+            this.tweens.add({
+                targets: cardSprite,
+                x: startX + i * overlap,
+                y: startY,
+                duration: 750,
+                ease: "Power2",
+                delay: 0
+            });
+        } else {
             cardSprite.x = startX + i * overlap;
             cardSprite.y = startY;
         }
+
         cardSprite.on("pointerdown", () => {
+            if (hasDrawn) return; // Prevent multiple draws
+            hasDrawn = true;
+
             console.log(`📦 Clicked card ${i + 1} to draw`);
             socket.emit("draw", {num: Math.floor(Math.random() * 54)});
-            socket.on("youDrew", (data)=>{
-                console.log(`🎴 You drew: ${data.card.rank} of ${data.card.suit}`);
 
-                let textureKey = getCardImageKey(data.card); // ✅ Convert card to asset key
-                if (this.textures.get('cards').has(textureKey)) {
-                    cardSprite.setTexture('cards', textureKey); // ✅ Change the sprite from atlas
-                } else {
-                    console.error(`❌ Texture ${textureKey} not found in cards atlas!`);
-                }
-                allCards.forEach(card => {
-                    card.disableInteractive(); // ✅ Remove interactivity from other cards
-                });
-
-                console.log("🚫 All other cards are now non-interactive.");
+            // Disable all cards immediately
+            allCards.forEach(card => {
+                if (card.disableInteractive) card.disableInteractive();
             });
         });
         allCards.push(cardSprite);
     }
+
+    // Listen for your own draw result
+    socket.on("youDrew", (data) => {
+        console.log(`🎴 You drew: ${data.card.rank} of ${data.card.suit}`);
+        // The playerDrew event will handle the display for all players including self
+    });
+
+    // Listen for any player drawing (including self)
+    socket.on("playerDrew", (data) => {
+        console.log(`🎴 ${data.username} drew: ${data.card.rank} of ${data.card.suit} (order: ${data.drawOrder})`);
+
+        // Calculate position for this drawn card (drawOrder is 1-4)
+        const slotX = drawDisplayStartX + (data.drawOrder - 1) * drawDisplaySpacing;
+
+        // Create card sprite at deck location, then animate to display position
+        let textureKey = getCardImageKey(data.card);
+        let drawnCard = scene.add.image(screenWidth / 2, startY, 'cards', textureKey)
+            .setScale(0.8)
+            .setDepth(300);
+
+        // Create username label
+        let nameLabel = scene.add.text(slotX, drawDisplayY - 80*scaleFactorY, data.username, {
+            fontSize: `${24*scaleFactorX}px`,
+            fontStyle: "bold",
+            color: "#FFFFFF",
+            stroke: "#000000",
+            strokeThickness: 3
+        }).setOrigin(0.5).setDepth(300);
+
+        // Animate card to display position
+        scene.tweens.add({
+            targets: drawnCard,
+            x: slotX,
+            y: drawDisplayY,
+            scale: 1.5,
+            duration: 500,
+            ease: "Power2"
+        });
+
+        drawnCardDisplays.push(drawnCard, nameLabel);
+    });
+
     console.log("✅ All 54 cards placed face down and clickable.");
 }
 function removeDraw() {
@@ -648,11 +709,22 @@ function removeDraw() {
 
     allCards.forEach(card => {
         if (card) {
-            card.destroy(); // ✅ Remove card from the game
+            card.destroy();
         }
     });
+    allCards = [];
 
-    allCards = []; // ✅ Clear the array to free memory
+    // Also clean up drawn card displays
+    drawnCardDisplays.forEach(item => {
+        if (item) {
+            item.destroy();
+        }
+    });
+    drawnCardDisplays = [];
+
+    // Clean up socket listeners
+    socket.off("youDrew");
+    socket.off("playerDrew");
 
     console.log("✅ All cards removed.");
 }
@@ -832,6 +904,64 @@ socket.on("gameEnd", (data) => {
 socket.on("startDraw", (data) => {
     removeWaitingScreen();
     draw.call(game.scene.scenes[0]);
+});
+socket.on("teamsAnnounced", (data) => {
+    console.log("🏆 Teams announced:", data);
+    let scene = game.scene.scenes[0];
+    let screenWidth = scene.scale.width;
+    let screenHeight = scene.scale.height;
+    let scaleFactorX = screenWidth / 1920;
+    let scaleFactorY = screenHeight / 953;
+
+    // Create semi-transparent overlay
+    const overlay = scene.add.rectangle(screenWidth / 2, screenHeight / 2, screenWidth, screenHeight, 0x000000, 0.7)
+        .setDepth(400);
+
+    // Team announcement title
+    const title = scene.add.text(screenWidth / 2, screenHeight / 2 - 120*scaleFactorY, "Teams", {
+        fontSize: `${56*scaleFactorX}px`,
+        fontStyle: "bold",
+        color: "#FFD700",
+        stroke: "#000000",
+        strokeThickness: 4
+    }).setOrigin(0.5).setDepth(401);
+
+    // Team 1 display
+    const team1Label = scene.add.text(screenWidth / 2, screenHeight / 2 - 30*scaleFactorY, "Team 1", {
+        fontSize: `${32*scaleFactorX}px`,
+        fontStyle: "bold",
+        color: "#4ade80"
+    }).setOrigin(0.5).setDepth(401);
+
+    const team1Players = scene.add.text(screenWidth / 2, screenHeight / 2 + 20*scaleFactorY,
+        `${data.team1[0]} & ${data.team1[1]}`, {
+        fontSize: `${28*scaleFactorX}px`,
+        color: "#FFFFFF"
+    }).setOrigin(0.5).setDepth(401);
+
+    // VS text
+    const vsText = scene.add.text(screenWidth / 2, screenHeight / 2 + 70*scaleFactorY, "vs", {
+        fontSize: `${24*scaleFactorX}px`,
+        fontStyle: "italic",
+        color: "#9ca3af"
+    }).setOrigin(0.5).setDepth(401);
+
+    // Team 2 display
+    const team2Label = scene.add.text(screenWidth / 2, screenHeight / 2 + 120*scaleFactorY, "Team 2", {
+        fontSize: `${32*scaleFactorX}px`,
+        fontStyle: "bold",
+        color: "#f87171"
+    }).setOrigin(0.5).setDepth(401);
+
+    const team2Players = scene.add.text(screenWidth / 2, screenHeight / 2 + 170*scaleFactorY,
+        `${data.team2[0]} & ${data.team2[1]}`, {
+        fontSize: `${28*scaleFactorX}px`,
+        color: "#FFFFFF"
+    }).setOrigin(0.5).setDepth(401);
+
+    // Store references for cleanup
+    const teamElements = [overlay, title, team1Label, team1Players, vsText, team2Label, team2Players];
+    drawnCardDisplays.push(...teamElements);
 });
 socket.on("chatMessage", (data) => {
     console.log("chatMessage received: ", data.message, " from position: ", data.position, " and I think my pos is ", position);
