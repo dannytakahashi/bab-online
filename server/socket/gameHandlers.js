@@ -359,18 +359,24 @@ async function handleHandComplete(game, io) {
     let nextDealer = rotatePosition(game.dealer);
     let nextHandSize;
 
+    // Hand progression: 12→10→8→6→4→2→1→3→5→7→9→11→13→[end]
     if (game.currentHand === 2) {
         nextHandSize = 1;
     } else if (game.currentHand === 1) {
-        // Hand progression: after 1, go back up
-        nextHandSize = 13; // Signal game end
+        // After 1-card hand, start going back up through odd numbers
+        nextHandSize = 3;
+    } else if (game.currentHand === 13) {
+        // After 13-card hand, game is over
+        nextHandSize = 0; // Signal game end
     } else if (game.currentHand % 2 === 0) {
+        // Even hands (12,10,8,6,4): go down by 2
         nextHandSize = game.currentHand - 2;
     } else {
+        // Odd hands (3,5,7,9,11): go up by 2
         nextHandSize = game.currentHand + 2;
     }
 
-    if (nextHandSize === 13) {
+    if (nextHandSize === 0) {
         // Game over
         gameLogger.info('Game ended', { gameId: game.gameId, finalScore: game.score });
         game.broadcast(io, 'gameEnd', { score: game.score });

@@ -377,27 +377,55 @@ function createGameFeed() {
     feedContainer.style.borderRadius = "10px";
     feedContainer.style.border = "2px solid #FFFFFF";
     feedContainer.style.maxHeight = "20vh"; // ✅ Limits scrolling area
-    feedContainer.style.textAlign = "right";
+    feedContainer.style.textAlign = "left";
+    feedContainer.style.wordWrap = "break-word";
+    feedContainer.style.overflowWrap = "break-word";
 
     document.body.appendChild(feedContainer);
 }
-function addToGameFeed(message) {
+function addToGameFeed(message, playerPosition = null) {
     let feedContainer = document.getElementById("gameFeed");
-    
+
     if (!feedContainer) {
         console.warn("⚠️ Game feed container not found!");
         return;
     }
 
-    // ✅ Create a new message element
-    let messageElement = document.createElement("div");
-    messageElement.innerText = message;
-    messageElement.style.marginBottom = "5px";
+    // Get current time for timestamp
+    const now = new Date();
+    const timestamp = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-    // ✅ Add the message at the bottom
+    // Create a new message element
+    let messageElement = document.createElement("div");
+    messageElement.style.marginBottom = "5px";
+    messageElement.style.wordWrap = "break-word";
+    messageElement.style.overflowWrap = "break-word";
+    messageElement.style.maxWidth = "100%";
+
+    // Add timestamp
+    let timeSpan = document.createElement("span");
+    timeSpan.innerText = `[${timestamp}] `;
+    timeSpan.style.color = "#888";
+    timeSpan.style.fontSize = "12px";
+    messageElement.appendChild(timeSpan);
+
+    // Add message with player color if position provided
+    let msgSpan = document.createElement("span");
+    msgSpan.innerText = message;
+    if (playerPosition !== null) {
+        // Team 1 (positions 1, 3) = blue, Team 2 (positions 2, 4) = red
+        if (playerPosition === 1 || playerPosition === 3) {
+            msgSpan.style.color = "#63b3ed";
+        } else {
+            msgSpan.style.color = "#fc8181";
+        }
+    }
+    messageElement.appendChild(msgSpan);
+
+    // Add the message at the bottom
     feedContainer.appendChild(messageElement);
 
-    // ✅ Scroll to the latest message
+    // Scroll to the latest message
     feedContainer.scrollTop = feedContainer.scrollHeight;
 
     console.log("📝 Game Feed Updated:", message);
@@ -556,7 +584,7 @@ function draw() {
             .setScale(1.2)
             .setInteractive()
             .setDepth(100);
-        this.input.setDraggable(cardSprite);
+        // Click to draw (no dragging needed)
         if (visible()){
         this.tweens.add({
             targets: cardSprite,
@@ -572,8 +600,8 @@ function draw() {
             cardSprite.x = startX + i * overlap;
             cardSprite.y = startY;
         }
-        cardSprite.on("pointerup", () => {
-            console.log(`📦 Picked up card ${i + 1}`);
+        cardSprite.on("pointerdown", () => {
+            console.log(`📦 Clicked card ${i + 1} to draw`);
             socket.emit("draw", {num: Math.floor(Math.random() * 54)});
             socket.on("youDrew", (data)=>{
                 console.log(`🎴 You drew: ${data.card.rank} of ${data.card.suit}`);
@@ -588,16 +616,12 @@ function draw() {
                     card.disableInteractive(); // ✅ Remove interactivity from other cards
                 });
 
-                console.log("🚫 All other cards are now non-draggable.");
+                console.log("🚫 All other cards are now non-interactive.");
             });
-        });
-        this.input.on("drag", (pointer, gameObject, dragX, dragY) => {
-            gameObject.x = dragX;
-            gameObject.y = dragY;
         });
         allCards.push(cardSprite);
     }
-    console.log("✅ All 54 cards placed face down and draggable.");
+    console.log("✅ All 54 cards placed face down and clickable.");
 }
 function removeDraw() {
     console.log("🔥 Destroying all displayed cards...");
@@ -871,7 +895,57 @@ function clearDisplayCards() {
     console.log("✅ All elements cleared from displayCards.");
 }
 let myCards = [];
+
+/**
+ * Get suit order for sorting - alternating colors with trump rightmost
+ * @param {string} trumpSuit - The trump suit for this hand
+ * @returns {Array} - Ordered array of suits
+ */
+function getSuitOrder(trumpSuit) {
+    // Alternating colors with trump always last (rightmost)
+    const orders = {
+        'spades':   ['hearts', 'clubs', 'diamonds', 'spades'],
+        'hearts':   ['spades', 'diamonds', 'clubs', 'hearts'],
+        'diamonds': ['clubs', 'hearts', 'spades', 'diamonds'],
+        'clubs':    ['diamonds', 'spades', 'hearts', 'clubs']
+    };
+    return orders[trumpSuit] || ['clubs', 'diamonds', 'hearts', 'spades'];
+}
+
+/**
+ * Sort hand by suit (trump rightmost) and rank (low to high)
+ * @param {Array} hand - Array of card objects
+ * @param {Object} trumpCard - Trump card with suit property
+ * @returns {Array} - Sorted hand
+ */
+function sortHand(hand, trumpCard) {
+    if (!hand || hand.length === 0) return hand;
+    if (!trumpCard || !trumpCard.suit) return hand;
+
+    const trumpSuit = trumpCard.suit;
+    const suitOrder = getSuitOrder(trumpSuit);
+    const rankOrder = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
+
+    return [...hand].sort((a, b) => {
+        // Jokers go last (they're trump) - HI joker rightmost
+        if (a.suit === 'joker' && b.suit === 'joker') {
+            return a.rank === 'LO' ? -1 : 1;
+        }
+        if (a.suit === 'joker') return 1;
+        if (b.suit === 'joker') return -1;
+
+        // Sort by suit order (trump rightmost)
+        const suitDiff = suitOrder.indexOf(a.suit) - suitOrder.indexOf(b.suit);
+        if (suitDiff !== 0) return suitDiff;
+
+        // Within suit, sort by rank (low to high)
+        return rankOrder.indexOf(a.rank) - rankOrder.indexOf(b.rank);
+    });
+}
+
 function displayCards(playerHand) {
+    // Sort the hand before displaying
+    playerHand = sortHand(playerHand, trump);
     let scaleFactorX = this.scale.width / 1920; // Adjust based on your design resolution
     let scaleFactorY = this.scale.height / 953; // Adjust based on your design resolution
     bidding = 1;
@@ -922,113 +996,182 @@ function displayCards(playerHand) {
             .setDepth(-1); // ✅ Slightly above background, but below cards
     }
     console.log("🟫 Added background for player hand.");
+    // ✅ Create button-grid bidding UI
     let bidContainer = document.createElement("div");
     bidContainer.id = "bidContainer";
-    bidContainer.classList.add("ui-element");
+    bidContainer.classList.add("ui-element", "bid-grid");
     bidContainer.style.position = "absolute";
-    bidContainer.style.width = "6vw"; // Slightly wider than input box
-    bidContainer.style.height = "10vh"; // Taller than input box
-    bidContainer.style.padding = "1vw";
-    bidContainer.style.background = "#333333"; // Dark grey
-    bidContainer.style.border = "3px solid #444444"; // Slightly lighter grey border
-    bidContainer.style.borderRadius = "10px";
-    bidContainer.style.textAlign = "center"; // Center text inside
+    bidContainer.style.display = "flex";
+    bidContainer.style.flexDirection = "column";
+    bidContainer.style.gap = "8px";
+    bidContainer.style.padding = "12px";
+    bidContainer.style.background = "rgba(0, 0, 0, 0.85)";
+    bidContainer.style.border = "2px solid #444";
+    bidContainer.style.borderRadius = "8px";
     document.body.appendChild(bidContainer);
-    console.log("✅ BID background container created.");
     this.handElements.push(bidContainer);
-    let inputBox = document.createElement("input");
-    inputBox.id = "inputBox";
-    inputBox.type = "text";
-    inputBox.classList.add("ui-element");
-    inputBox.placeholder = "Enter Bid...";
-    inputBox.style.position = "absolute";
-    inputBox.style.fontSize = "20px";
-    inputBox.style.padding = "10px";
-    inputBox.style.width = "5vw";
-    inputBox.style.border = "2px solid #8B4513";
-    inputBox.style.background = "#FFF8DC"; // Light beige color
-    inputBox.style.color = "#000";
-    inputBox.style.borderRadius = "10px";
-    inputBox.style.textAlign = "center";
-    document.body.appendChild(inputBox);
-    this.handElements.push(inputBox);
-    let bidButton = document.createElement("button");
-    bidButton.id = "bidButton";
-    bidButton.classList.add("ui-element");
-    bidButton.innerText = "BID";
-    bidButton.style.position = "absolute";
-    bidButton.style.fontSize = "18px";
-    bidButton.style.padding = "10px 20px";
-    bidButton.style.width = "6vw"; // Same width as input box
-    bidButton.style.border = "2px solid #8B4513";
-    bidButton.style.background = "#D50505";
-    bidButton.style.color = "#FFF";
-    bidButton.style.borderRadius = "10px";
-    bidButton.style.cursor = "pointer";
-    document.body.appendChild(bidButton);
-    this.handElements.push(bidButton);
-    console.log("✅ Enter bid button created.");
-    // ✅ Position the input box relative to the game canvas
-    function updateInputBoxPosition() {
-        let canvasRect = document.querySelector("canvas").getBoundingClientRect();
-        inputBox.style.left = `${canvasRect.left + handAreaWidth - 640*scaleFactorX}px`; // Right of hand area
-        inputBox.style.top = `${canvasRect.top + screenHeight - handAreaHeight / 2 - 20*scaleFactorY}px`;
-        bidButton.style.left = `${canvasRect.left + handAreaWidth - 640*scaleFactorX}px`; // Right of hand area
-        bidButton.style.top = `${canvasRect.top + screenHeight - handAreaHeight / 2 + 35*scaleFactorY}px`;
-        bidContainer.style.left = `${canvasRect.left + handAreaWidth - 660*scaleFactorX}px`; // Right of hand area
-        bidContainer.style.top = `${canvasRect.top + screenHeight - handAreaHeight / 2 - 50*scaleFactorY}px`;
-    }
-    // ✅ Update position initially and on window resize
-    updateInputBoxPosition();
-    window.addEventListener("resize", updateInputBoxPosition);
-    bidButton.addEventListener("click", () => {
-        let bidValue = inputBox.value.trim();
-        if (currentTurn !== position || bidding === 0){
-            console.warn("not your bid.");
-            return;
-        }
-        if (bidValue === "") {
-            console.warn("⚠️ No bid entered.");
-            return;
-        }
-        if ((bidValue < 0 || bidValue > playerCards.length) || ((!Number.isInteger(Number(bidValue))) && bidValue.toUpperCase() !== "B" && bidValue.toUpperCase() !== "2B" && bidValue.toUpperCase() !== "3B" && bidValue.toUpperCase() !== "4B")){
-            console.warn("⚠️ Invalid bid entered.");
-            return;
-        }
-        if(bidValue.toUpperCase() === "2B"){
-            console.log("tempBids: ", tempBids);
-            console.log("indexOf B: ", tempBids.indexOf("B"));
-            if(tempBids.indexOf("B") === -1){
-                console.warn("⚠️ invalid 2B.");
-                return;
-            }
-        }
-        if(bidValue.toUpperCase() === "3B"){
-            console.log("tempBids: ", tempBids);
-            console.log("indexOf 2B: ", tempBids.indexOf("2B"));
-            if(tempBids.indexOf("2B") === -1){
-                console.warn("⚠️ invalid 3B.");
-                return;
-            }
-        }
-        if(bidValue.toUpperCase() === "4B"){
-            if(tempBids.indexOf("3B") === -1){
-                console.warn("⚠️ invalid 4B.");
-                return;
-            }
-        }
-        if(bidValue.toUpperCase() !== "B" && bidValue.toUpperCase() !== "2B" && bidValue.toUpperCase() !== "3B" && bidValue.toUpperCase() !== "4B"){
-            bidValue = Math.round(Number(bidValue)).toString(); // ✅ Round to nearest integer
-        }
-        console.log(`📩 Sending bid: ${bidValue}`);
-        socket.emit("playerBid", { position: position, bid: bidValue });
 
-        // ✅ Clear the input box after submission
-        inputBox.value = "";
+    // Row 1: Numeric bids (0 to hand size)
+    let numericRow = document.createElement("div");
+    numericRow.style.display = "flex";
+    numericRow.style.gap = "4px";
+    numericRow.style.flexWrap = "wrap";
+    numericRow.style.justifyContent = "center";
+
+    for (let i = 0; i <= playerHand.length; i++) {
+        let btn = document.createElement("button");
+        btn.classList.add("bid-button");
+        btn.innerText = i.toString();
+        btn.style.minWidth = "40px";
+        btn.style.minHeight = "40px";
+        btn.style.padding = "8px";
+        btn.style.fontSize = "16px";
+        btn.style.fontWeight = "bold";
+        btn.style.border = "none";
+        btn.style.borderRadius = "4px";
+        btn.style.background = "#4a5568";
+        btn.style.color = "white";
+        btn.style.cursor = "pointer";
+        btn.addEventListener("mouseenter", () => { btn.style.background = "#2d3748"; });
+        btn.addEventListener("mouseleave", () => { btn.style.background = "#4a5568"; });
+        btn.addEventListener("click", () => {
+            if (currentTurn !== position || bidding === 0) {
+                console.warn("Not your turn to bid.");
+                return;
+            }
+            console.log(`📩 Sending bid: ${i}`);
+            socket.emit("playerBid", { position: position, bid: i.toString() });
+        });
+        numericRow.appendChild(btn);
+    }
+    bidContainer.appendChild(numericRow);
+
+    // Row 2: Bore bids (B, 2B, 3B, 4B)
+    let boreRow = document.createElement("div");
+    boreRow.style.display = "flex";
+    boreRow.style.gap = "4px";
+    boreRow.style.justifyContent = "center";
+
+    const boreBids = ['B', '2B', '3B', '4B'];
+    const boreButtons = {};
+
+    boreBids.forEach((bid, index) => {
+        let btn = document.createElement("button");
+        btn.classList.add("bid-button", "bore-button");
+        btn.innerText = bid;
+        btn.dataset.bid = bid;
+        btn.style.minWidth = "50px";
+        btn.style.minHeight = "40px";
+        btn.style.padding = "8px 12px";
+        btn.style.fontSize = "16px";
+        btn.style.fontWeight = "bold";
+        btn.style.border = "none";
+        btn.style.borderRadius = "4px";
+        btn.style.background = "#c53030";
+        btn.style.color = "white";
+        btn.style.cursor = "pointer";
+
+        btn.addEventListener("mouseenter", () => {
+            if (!btn.disabled) btn.style.background = "#9b2c2c";
+        });
+        btn.addEventListener("mouseleave", () => {
+            if (!btn.disabled) btn.style.background = "#c53030";
+        });
+
+        btn.addEventListener("click", () => {
+            if (btn.disabled) return;
+            if (currentTurn !== position || bidding === 0) {
+                console.warn("Not your turn to bid.");
+                return;
+            }
+            console.log(`📩 Sending bore bid: ${bid}`);
+            socket.emit("playerBid", { position: position, bid: bid });
+        });
+
+        boreButtons[bid] = btn;
+        boreRow.appendChild(btn);
     });
+    bidContainer.appendChild(boreRow);
+
+    // Function to update bore button states based on previous bids
+    function updateBoreButtons() {
+        // B is always enabled (unless someone already bid bore)
+        const hasBore = tempBids.indexOf("B") !== -1;
+        const has2B = tempBids.indexOf("2B") !== -1;
+        const has3B = tempBids.indexOf("3B") !== -1;
+        const has4B = tempBids.indexOf("4B") !== -1;
+
+        // Disable all bore buttons if someone already bid 4B
+        boreButtons['B'].disabled = hasBore;
+        boreButtons['2B'].disabled = !hasBore || has2B;
+        boreButtons['3B'].disabled = !has2B || has3B;
+        boreButtons['4B'].disabled = !has3B || has4B;
+
+        // Update visual styles for disabled buttons
+        Object.values(boreButtons).forEach(btn => {
+            if (btn.disabled) {
+                btn.style.opacity = "0.4";
+                btn.style.cursor = "not-allowed";
+                btn.style.background = "#666";
+            } else {
+                btn.style.opacity = "1";
+                btn.style.cursor = "pointer";
+                btn.style.background = "#c53030";
+            }
+        });
+    }
+
+    // Initial update
+    updateBoreButtons();
+
+    // Store the update function globally so bidReceived can call it
+    window.updateBoreButtons = updateBoreButtons;
+
+    console.log("✅ Button-grid bidding UI created.");
+
+    // Position the bid container relative to the game canvas
+    function updateBidContainerPosition() {
+        let canvasRect = document.querySelector("canvas").getBoundingClientRect();
+        bidContainer.style.left = `${canvasRect.left + handAreaWidth - 720*scaleFactorX}px`;
+        bidContainer.style.top = `${canvasRect.top + screenHeight - handAreaHeight / 2 - 60*scaleFactorY}px`;
+    }
+
+    updateBidContainerPosition();
+    window.addEventListener("resize", updateBidContainerPosition);
     console.log(`🖥️ Screen Width: ${screenWidth}, Starting X: ${startX}`);
     console.log("player hand:", playerHand);
     let cardDepth = 200;
+
+    // Function to update card interactivity based on legal moves
+    function updateCardLegality() {
+        myCards.forEach(sprite => {
+            if (!sprite || !sprite.active) return;
+            const card = sprite.getData('card');
+            if (!card) return;
+
+            // During bidding or not our turn, dim all cards
+            if (bidding === 1 || currentTurn !== position || playedCard) {
+                sprite.setTint(0xaaaaaa);
+                sprite.setData('isLegal', false);
+                return;
+            }
+
+            // Check if this card is a legal move
+            const isLegal = isLegalMove(card, playerCards, leadCard, playedCardIndex === 0, position);
+
+            if (isLegal) {
+                sprite.clearTint();
+                sprite.setData('isLegal', true);
+            } else {
+                sprite.setTint(0x666666);
+                sprite.setData('isLegal', false);
+            }
+        });
+    }
+
+    // Store the update function globally so socket handlers can call it
+    window.updateCardLegality = updateCardLegality;
+
     playerHand.forEach((card, index) => {
         let cardKey = getCardImageKey(card);
         console.log(`Using image key: ${cardKey}`);
@@ -1039,6 +1182,9 @@ function displayCards(playerHand) {
         if (!cardSprite) {
             console.error(`🚨 ERROR: Failed to create card sprite for ${card.rank} of ${card.suit}`);
         }
+        // Store card data on sprite for legality checks
+        cardSprite.setData('card', card);
+        cardSprite.setData('isLegal', false);
         myCards.push(cardSprite);
         if (visible()){
             this.tweens.add({
@@ -1055,59 +1201,62 @@ function displayCards(playerHand) {
             cardSprite.x = startX + index * cardSpacing;
             cardSprite.y = startY;
         }
-        this.input.setDraggable(cardSprite);
-        let originalX = startX + index * cardSpacing;
-        let originalY = startY;
-        cardSprite.on("dragstart", (pointer, gameObject) => {
-            cardSprite.setDepth(cardDepth);
-            cardDepth++;
-        });
-        cardSprite.on("dragend", (pointer, gameObject) => {
-            console.log("playzone bounds:", playZone.getBounds());
-            console.log("you dropped at: ", cardSprite.x, ", ", cardSprite.y);
-            if (Phaser.Geom.Rectangle.Contains(playZone.getBounds(), cardSprite.x, cardSprite.y)) {
-                console.log(`✅ Card dropped in play zone: ${card.rank} of ${card.suit}`);
-                if(currentTurn !== position || bidding === 1 || playedCard){
-                    console.log("Not your turn!");
-                    cardSprite.setPosition(originalX, originalY); // Return the card to its original position
-                    return;
-                    }
-                console.log("playedCardIndex: ", playedCardIndex);
-                if(playedCardIndex === 0){
-                    leadCard = card;
-                    leadPosition = position;
-                    leadBool = true;
-                    console.log("leadBool changed to true.");
-                }
-                if (!isLegalMove(card, playerCards, leadCard, leadBool, leadPosition)){
-                    console.log("Illegal move!");
-                    cardSprite.setPosition(originalX, originalY); // Return the card to its original position
-                    return;
-                }
-                socket.emit("playCard", { card, position });
-                playedCard = true;
-                if(card.suit === trump.suit || card.suit === "joker"){
-                    isTrumpBroken = true;
-                }
-                leadBool = false;
-                cardSprite.destroy(); // Remove after playing
-                playerHand = removeCard(playerHand, card);
-                console.log("my hand: ", playerHand);
-            }else if (Phaser.Geom.Rectangle.Contains(handBackground.getBounds(), cardSprite.x, cardSprite.y)) {
-                originalX = cardSprite.x;
-                originalY = cardSprite.y;
-                return;
-            }else {
-                console.warn("🚫 Card dropped outside play zone, returning to original position.");
-                cardSprite.setPosition(originalX, originalY); // Return the card to its original position
+        // Click-based card play (no dragging)
+        cardSprite.on("pointerover", () => {
+            // Only raise card if it's a legal move
+            if (cardSprite.getData('isLegal')) {
+                this.tweens.add({
+                    targets: cardSprite,
+                    y: startY - 30,
+                    duration: 150,
+                    ease: 'Power2'
+                });
             }
         });
 
-        this.input.on("drag", (pointer, gameObject, dragX, dragY) => {
-            gameObject.x = dragX;
-            gameObject.y = dragY;
+        cardSprite.on("pointerout", () => {
+            // Return card to original position
+            this.tweens.add({
+                targets: cardSprite,
+                y: startY,
+                duration: 150,
+                ease: 'Power2'
+            });
+        });
+
+        cardSprite.on("pointerdown", () => {
+            console.log(`🃏 Card clicked: ${card.rank} of ${card.suit}`);
+
+            // Only allow playing if the card is marked as legal
+            if (!cardSprite.getData('isLegal')) {
+                console.log("Illegal move - card is disabled!");
+                return;
+            }
+
+            // Set lead card if first play of trick
+            if (playedCardIndex === 0) {
+                leadCard = card;
+                leadPosition = position;
+                leadBool = true;
+                console.log("leadBool changed to true.");
+            }
+
+            // Play the card
+            socket.emit("playCard", { card, position });
+            playedCard = true;
+            if (card.suit === trump.suit || card.suit === "joker") {
+                isTrumpBroken = true;
+            }
+            leadBool = false;
+            cardSprite.destroy(); // Remove after playing
+            playerHand = removeCard(playerHand, card);
+            console.log("my hand: ", playerHand);
         });
     });
+
+    // Initial update of card legality (cards should be dimmed during bidding)
+    updateCardLegality();
+
     socket.on("bidReceived", (data) => {
         console.log("bid received: ", data.bid);
         if(data.bid.toUpperCase() === "B"){
@@ -1124,6 +1273,12 @@ function displayCards(playerHand) {
         }
         addToGameFeed(playerData.username[playerData.position.indexOf(data.position)].username + " bid "+ data.bid + ".");
         tempBids.push(data.bid.toUpperCase());
+
+        // Update bore button states after receiving a bid
+        if (window.updateBoreButtons) {
+            window.updateBoreButtons();
+        }
+
         let scene = game.scene.scenes[0];
         let screenWidth = scene.scale.width;
         let screenHeight = scene.scale.height;
@@ -1205,7 +1360,11 @@ function displayCards(playerHand) {
         }
         else if (currentTurn === rotate(rotate(rotate(position)))){
             addOpponentGlow(this, "opp2");
+        }
 
+        // Update card legality when turn changes
+        if (window.updateCardLegality) {
+            window.updateCardLegality();
         }
     })
     socket.on("cardPlayed", (data) => {
@@ -1214,6 +1373,11 @@ function displayCards(playerHand) {
             leadCard = data.card;
             leadPosition = data.position;
             console.log("leadCard: ", leadCard);
+
+            // Update card legality when lead card is set
+            if (window.updateCardLegality) {
+                window.updateCardLegality();
+            }
         }
         isTrumpBroken = data.trump;
         console.log("is trump broken? ", isTrumpBroken, "server thinks its ", data.trump);
@@ -1452,22 +1616,19 @@ function displayCards(playerHand) {
     });
     socket.on("doneBidding", (data) => {
         let bidContainer = document.getElementById("bidContainer");
-        let inputBox = document.getElementById("inputBox");
-        let bidButton = document.getElementById("bidButton");
         if (bidContainer) {
             bidContainer.remove();
             console.log("✅ Bid container removed.");
         }
-        if (inputBox) {
-            inputBox.remove();
-            console.log("✅ Bid input removed.");
-        }
-        if (bidButton) {
-            bidButton.remove();
-            console.log("✅ Bid button removed.");
-        }
+        // Clear the updateBoreButtons reference
+        window.updateBoreButtons = null;
         tempBids = [];
         bidding = 0;
+
+        // Update card legality now that bidding is over
+        if (window.updateCardLegality) {
+            window.updateCardLegality();
+        }
         playerBids = data;
         console.log("bids: ", playerBids);
         rainbows.forEach((rainbow) => {
