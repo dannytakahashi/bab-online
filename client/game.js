@@ -304,14 +304,14 @@ function create() {
             if (data.trump) {
                 trump = data.trump;
             }
-            displayCards.call(this, playerCards);
-            //createVignette.call(this);
+            displayCards.call(gameScene, playerCards);
+            //createVignette.call(gameScene);
         } else {
             console.error("🚨 ERROR: playerCards is undefined! GameState may not be initializing correctly.");
         }
-        displayOpponentHands.call(this, playerCards.length, dealer);
+        displayOpponentHands.call(gameScene, playerCards.length, dealer);
         if (data.trump) {
-            displayTableCard.call(this, data.trump);
+            displayTableCard.call(gameScene, data.trump);
         }
     });
 }
