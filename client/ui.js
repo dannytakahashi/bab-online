@@ -42,6 +42,7 @@ function showSignInScreen() {
     signInVignette.style.height = "100vh";
     signInVignette.style.pointerEvents = "none"; // ✅ Allows interaction with UI elements underneath
     signInVignette.style.background = "radial-gradient(circle, rgba(34, 139, 34, 1) 30%, rgba(0, 0, 0, 1) 100%)";
+    signInVignette.style.zIndex = "50";
     document.body.appendChild(signInVignette); 
 
     let signInContainer = document.createElement("div");
@@ -52,13 +53,14 @@ function showSignInScreen() {
     signInContainer.style.width = "100vw";
     signInContainer.style.height = "100vh";
     signInContainer.style.background = "none";
-    signInContainer.style.border = "none"; 
+    signInContainer.style.border = "none";
     signInContainer.style.display = "flex";
     signInContainer.style.flexDirection = "column";
     signInContainer.style.justifyContent = "center";
     signInContainer.style.alignItems = "center";
     signInContainer.style.color = "white";
     signInContainer.style.fontSize = "24px";
+    signInContainer.style.zIndex = "100";
     let logo = document.createElement("img");
     logo.src = "assets/logo.png"; // ✅ Path to your logo image
     logo.alt = "Game Logo";
