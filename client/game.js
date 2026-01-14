@@ -1169,8 +1169,7 @@ function displayCards(playerHand) {
     let team1_y = screenHeight / 2 - 150*scaleFactorY;
     let handAreaWidth = screenWidth * 0.5; // ✅ Width of the background area
     let handAreaHeight = 250*scaleFactorY; // ✅ Height of the background area
-    let bottomClearance = 30*scaleFactorY; // Add clearance so table doesn't touch bottom
-    let handY = screenHeight - handAreaHeight / 2 - bottomClearance;
+    let handY = screenHeight - handAreaHeight / 2 - bottomClearance; // reuses bottomClearance from above
     if (!playZone) {
         let playZoneWidth = 600*scaleFactorX;
         let playZoneHeight = 400*scaleFactorY;
