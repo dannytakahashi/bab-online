@@ -93,8 +93,11 @@ bab-online/
 │   ├── socket/
 │   │   ├── index.js            # Socket event routing
 │   │   ├── authHandlers.js     # Auth events
+│   │   ├── mainRoomHandlers.js # Main room & lobby browser
 │   │   ├── queueHandlers.js    # Matchmaking events
+│   │   ├── lobbyHandlers.js    # Game lobby events
 │   │   ├── gameHandlers.js     # Game events
+│   │   ├── reconnectHandlers.js # Reconnection logic
 │   │   ├── chatHandlers.js     # Chat events
 │   │   ├── validators.js       # Joi validation schemas
 │   │   ├── errorHandler.js     # Handler wrappers
@@ -113,14 +116,14 @@ bab-online/
 ## Development
 
 ```bash
-# Start with hot reload (new modular server)
+# Start with hot reload
 npm run dev
-
-# Start with legacy server
-npm run dev:old
 
 # Start production server
 npm start
+
+# Run tests
+npm test
 ```
 
 The server runs on `http://localhost:3000` by default.
@@ -128,11 +131,12 @@ The server runs on `http://localhost:3000` by default.
 ## How to Play
 
 1. **Sign up/Sign in** - Create an account (auto-logs in) or log in
-2. **Lobby** - Wait for 4 players, chat, and click "Ready" when prepared
-3. **Draw Phase** - Draw cards from deck to determine seating positions; teams announced
-4. **Bidding** - Bid on how many tricks your team will take
-5. **Play** - Take turns playing cards, following suit when possible
-6. **Score** - Points awarded based on bids vs tricks taken
+2. **Main Room** - Chat globally, browse game lobbies, or create a new game
+3. **Game Lobby** - Wait for 4 players, chat, and click "Ready" when prepared
+4. **Draw Phase** - Draw cards from deck to determine seating positions; teams announced
+5. **Bidding** - Bid on how many tricks your team will take
+6. **Play** - Take turns playing cards, following suit when possible
+7. **Score** - Points awarded based on bids vs tricks taken (shown in game log)
 
 ### Card Rankings
 - High Joker (highest)
@@ -296,6 +300,26 @@ The `docs/todos/` directory contains detailed improvement plans:
 - Fixed HI joker rule: opponents must play highest trump when HI joker leads
 - Fixed follow-suit validation for void hands
 - Improved card table styling with bottom clearance
+
+### Multi-Lobby System
+- Added main room with global chat and lobby browser
+- Players can create named game lobbies or join existing ones
+- Multiple concurrent games supported
+- Lobbies are ephemeral (deleted when empty)
+- Recent chat history (last 50 messages) shown when joining main room
+
+### Cross-Browser Reconnection
+- Players can rejoin games from different browsers/devices
+- Server stores `activeGameId` in MongoDB user document
+- On sign-in, server checks for active game and prompts rejoin
+- Full game state restored on successful rejoin
+
+### UI Simplification
+- Score updates now displayed in game log instead of popup dialogs
+- Game log expanded to full-height right column
+- Bid UI centered over play area
+- Transparent canvas with CSS gradient background
+- Removed legacy server code
 
 ## Docker
 

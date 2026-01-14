@@ -5,9 +5,7 @@
     "main": "server/index.js",
     "scripts": {
         "start": "node server/index.js",
-        "start:old": "node server/server.js",
         "dev": "nodemon server/index.js",
-        "dev:old": "nodemon server/server.js",
         "test": "jest",
         "test:watch": "jest --watch",
         "test:coverage": "jest --coverage",

@@ -31,8 +31,9 @@ bab-online/
 │   │       └── UIManager.js        # DOM lifecycle management
 │   ├── styles/
 │   │   └── components.css          # All UI component styles
-│   ├── game.js                     # Legacy: Phaser scene (preserved)
-│   ├── ui.js                       # Legacy: DOM UI (preserved)
+│   ├── game.js                     # Phaser scene (active)
+│   ├── ui.js                       # DOM UI (active)
+│   ├── socketManager.js            # Socket connection manager
 │   ├── index.html                  # Entry point
 │   └── assets/                     # Card images, backgrounds
 ├── server/
@@ -42,11 +43,12 @@ bab-online/
 │   ├── game/
 │   │   ├── Deck.js                 # Card deck with shuffle
 │   │   ├── GameState.js            # Per-game state + room management
-│   │   ├── GameManager.js          # Queue and game coordination
+│   │   ├── GameManager.js          # Queue, lobby, and game coordination
 │   │   └── rules.js                # Pure game logic functions
 │   ├── socket/
 │   │   ├── index.js                # Socket event routing
 │   │   ├── authHandlers.js         # signIn, signUp (with auto-login)
+│   │   ├── mainRoomHandlers.js     # Main room chat and lobby browsing
 │   │   ├── queueHandlers.js        # joinQueue (creates/joins lobby)
 │   │   ├── lobbyHandlers.js        # playerReady, lobbyChat, leaveLobby
 │   │   ├── gameHandlers.js         # playCard, playerBid, draw
@@ -59,7 +61,6 @@ bab-online/
 │   │   └── index.js                # Express routes, /health endpoint
 │   ├── utils/
 │   │   └── timing.js               # Async delay utilities
-│   ├── server.js                   # Legacy: monolithic server (preserved)
 │   └── database.js                 # MongoDB connection
 ├── docs/
 │   ├── RULES.md                    # Complete game rules
@@ -70,24 +71,26 @@ bab-online/
 
 ## Key Files
 
-### Server (Modular)
+### Server
 - `server/index.js` - Entry point, Express/Socket.IO setup
 - `server/game/rules.js` - Pure functions: `determineWinner()`, `isLegalMove()`, `calculateScore()`, `isRainbow()`
 - `server/game/GameState.js` - Encapsulated game state class
-- `server/game/GameManager.js` - Singleton managing queue and active games
+- `server/game/GameManager.js` - Singleton managing queue, lobbies, and active games
 - `server/socket/gameHandlers.js` - Game event handlers
+- `server/socket/mainRoomHandlers.js` - Main room and lobby browser handlers
 
-### Client (Modular)
+### Client (Active)
+- `client/game.js` - Phaser scene, card rendering, game flow
+- `client/ui.js` - DOM UI (auth, lobbies, main room, game log)
+- `client/socketManager.js` - Socket connection with event forwarding
+- `client/styles/components.css` - UI component styles
+
+### Client (Modular - Reference)
 - `client/js/main.js` - Entry point, auth/lobby flow
-- `client/js/game/GameState.js` - Client state (replaces globals)
+- `client/js/game/GameState.js` - Client state class
 - `client/js/game/CardManager.js` - Card sprites and animations
 - `client/js/socket/SocketManager.js` - Socket with listener tracking
 - `client/js/scenes/GameScene.js` - Phaser scene with lifecycle
-
-### Legacy (Preserved)
-- `server/server.js` - Original monolithic server
-- `client/game.js` - Original Phaser scene
-- `client/ui.js` - Original DOM UI
 
 ## Architecture Patterns
 
@@ -109,25 +112,26 @@ bab-online/
 ## Game Flow
 
 1. Authentication (signIn/signUp) → MongoDB users collection; auto-login after registration
-2. Lobby phase → Players auto-join lobby, can chat, click "Ready" when prepared
-3. All 4 ready → Transition to draw phase
-4. Draw phase → Players draw cards to determine positions; teams announced (1&3 vs 2&4)
-5. Hand progression (12→10→8→6→4→2→1→3→5→7→9→11→13) with bidding then playing phases
-6. Trick evaluation, scoring with rainbow bonuses (4-card hand only)
+2. Main Room → Global chat, browse/create game lobbies
+3. Game Lobby → 4 players chat and click "Ready" when prepared
+4. All 4 ready → Transition to draw phase
+5. Draw phase → Players draw cards to determine positions; teams announced (1&3 vs 2&4)
+6. Hand progression (12→10→8→6→4→2→1→3→5→7→9→11→13) with bidding then playing phases
+7. Trick evaluation, scoring displayed in game log; rainbow bonuses (4-card hand only)
+8. Game end → Final scores in game log, return to main room
 
 ## Key Socket Events
 
-**Client → Server**: `signIn`, `signUp`, `joinQueue`, `playerReady`, `lobbyChat`, `leaveLobby`, `draw`, `playerBid`, `playCard`, `chatMessage`, `rejoinGame`
+**Client → Server**: `signIn`, `signUp`, `joinMainRoom`, `mainRoomChat`, `createLobby`, `joinLobby`, `playerReady`, `lobbyChat`, `leaveLobby`, `draw`, `playerBid`, `playCard`, `chatMessage`, `rejoinGame`
 
-**Server → Client**: `lobbyCreated`, `playerReadyUpdate`, `lobbyMessage`, `lobbyPlayerLeft`, `allPlayersReady`, `startDraw`, `playerDrew`, `youDrew`, `teamsAnnounced`, `positionUpdate`, `createUI`, `gameStart`, `bidReceived`, `doneBidding`, `cardPlayed`, `updateTurn`, `trickComplete`, `handComplete`, `gameEnd`, `rainbow`, `rejoinSuccess`, `rejoinFailed`, `playerDisconnected`, `playerReconnected`
+**Server → Client**: `mainRoomJoined`, `mainRoomMessage`, `lobbiesUpdated`, `lobbyCreated`, `lobbyJoined`, `playerReadyUpdate`, `lobbyMessage`, `lobbyPlayerLeft`, `allPlayersReady`, `startDraw`, `playerDrew`, `youDrew`, `teamsAnnounced`, `positionUpdate`, `createUI`, `gameStart`, `bidReceived`, `doneBidding`, `cardPlayed`, `updateTurn`, `trickComplete`, `handComplete`, `gameEnd`, `rainbow`, `rejoinSuccess`, `rejoinFailed`, `playerDisconnected`, `playerReconnected`, `activeGameFound`
 
 ## Development Commands
 
 ```bash
-npm run dev      # Development: nodemon server/index.js (modular)
-npm run dev:old  # Development: nodemon server/server.js (legacy)
-npm start        # Production: node server/index.js
-npm start:old    # Production: node server/server.js (legacy)
+npm run dev      # Development with hot reload
+npm start        # Production server
+npm test         # Run tests
 ```
 
 Server runs on port 3000.
@@ -243,6 +247,13 @@ When a player disconnects mid-game:
    - Client receives `rejoinSuccess` with full game state (hand, trump, scores, etc.)
    - Client waits for Phaser scene to be ready, then rebuilds UI
 4. If grace period expires, game is aborted for all players
+
+### Cross-Browser Reconnection
+Players can rejoin from a different browser/device:
+1. Server stores `activeGameId` in MongoDB user document when game starts
+2. On sign-in, server checks if user has an active game
+3. If found, emits `activeGameFound` event with gameId
+4. Client prompts user to rejoin or shows auto-rejoin flow
 
 ### SocketManager (client)
 Singleton for socket connection with listener tracking. Methods: `connect()`, `on()`, `off()`, `offAll()`, `emit()`, `cleanupGameListeners()`
