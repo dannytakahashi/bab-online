@@ -111,7 +111,8 @@ document.addEventListener("rejoinSuccess", (event) => {
 // Handle rejoin failure
 document.addEventListener("rejoinFailed", (event) => {
     console.log("Rejoin failed:", event.detail.reason);
-    showLobbyScreen();
+    // Auto-join a new lobby
+    socket.emit("joinQueue");
 });
 
 // Handle player reconnection notification
@@ -801,9 +802,10 @@ socket.on("abortGame", (data) => {
     handBackground = null;
     console.log("caught abortGame");
     clearUI();
-    showLobbyScreen();
     gameScene.children.removeAll(true);
     gameScene.scene.restart();
+    // Auto-join a new lobby
+    socket.emit("joinQueue");
 });
 socket.on("forceLogout", (data) => {
     console.log("someone else signed in as you. Logging out.");
@@ -820,8 +822,8 @@ socket.on("forceLogout", (data) => {
 socket.on("roomFull", (data) => {
     console.log("caught roomFull");
     removeWaitingScreen();
-    showLobbyScreen();
-    alert("Queue is full. Please try again later.");
+    // Auto-join a new lobby (this shouldn't happen with lobby system)
+    socket.emit("joinQueue");
 });
 socket.on("gameEnd", (data) => {
     console.log("caught gameEnd");
@@ -934,7 +936,8 @@ socket.on("lobbyPlayerJoined", (data) => {
 socket.on("leftLobby", () => {
     console.log("👋 You left the lobby");
     removeGameLobby();
-    showLobbyScreen();
+    // Auto-join a new lobby
+    socket.emit("joinQueue");
 });
 
 socket.on("allPlayersReady", (data) => {

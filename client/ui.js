@@ -239,7 +239,13 @@ socket.on("signInResponse", (data) => {
     if (data.success) {
         console.log(`✅ Sign-in successful: ${username}`);
         sessionStorage.setItem("username", username);
-        showLobbyScreen(); // ✅ Move to lobby if sign-in is successful
+        // Clear sign-in UI and auto-join lobby
+        clearUI();
+        let signInContainer = document.getElementById("signInContainer");
+        if (signInContainer) signInContainer.remove();
+        let signInVignette = document.getElementById("SignInVignette");
+        if (signInVignette) signInVignette.remove();
+        socket.emit("joinQueue"); // Auto-join lobby
     } else {
         alert("❌ Sign-in failed! Incorrect username or password.");
     }
@@ -252,7 +258,13 @@ socket.on("signUpResponse", (data) => {
             console.log(`✅ Registration & auto-login successful: ${data.username}`);
             username = data.username;  // Update global username
             sessionStorage.setItem("username", data.username);
-            showLobbyScreen();
+            // Clear sign-in UI and auto-join lobby
+            clearUI();
+            let signInContainer = document.getElementById("signInContainer");
+            if (signInContainer) signInContainer.remove();
+            let signInVignette = document.getElementById("SignInVignette");
+            if (signInVignette) signInVignette.remove();
+            socket.emit("joinQueue"); // Auto-join lobby
         } else {
             alert("✅ Registration successful! Please sign in.");
         }
@@ -1015,7 +1027,8 @@ function hideFinal() {
         socket.off("gameStart");
         playZone = null;
         handBackground = null;
-        showLobbyScreen();
+        // Auto-join a new lobby
+        socket.emit("joinQueue");
     }
 }
 function initGameChat(){
@@ -1273,6 +1286,7 @@ window.onload = () => {
         // Was in a game - socketManager will attempt rejoin
         // The rejoinSuccess/rejoinFailed handlers in game.js will handle the UI
     } else {
-        showLobbyScreen();
+        // Auto-join a lobby
+        socket.emit("joinQueue");
     }
 };
