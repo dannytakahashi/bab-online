@@ -772,12 +772,15 @@ function sameSuit(card1, card2){
     }
 }
 function isVoid(hand, ledsuit){
+    console.log("isVoid check - ledsuit:", ledsuit, "hand:", hand.map(c => c.rank + " of " + c.suit));
     let proto = {rank: 1, suit : ledsuit}
     for(let card of hand){
         if(sameSuit(card,proto)){
+            console.log("Found matching card:", card.rank, "of", card.suit);
             return false;
         }
     }
+    console.log("No matching cards - player is void");
     return true;
 }
 function isTrumpTight(hand, trump){
