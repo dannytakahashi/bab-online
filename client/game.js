@@ -400,8 +400,12 @@ function createGameFeed() {
     feedContainer.style.textAlign = "left";
     feedContainer.style.wordWrap = "break-word";
     feedContainer.style.overflowWrap = "break-word";
+    feedContainer.style.zIndex = "1000"; // Ensure it's above the Phaser canvas
 
     document.body.appendChild(feedContainer);
+
+    // Add initial message to confirm feed is working
+    addToGameFeed("Game started!");
 }
 function addToGameFeed(message, playerPosition = null) {
     let feedContainer = document.getElementById("gameFeed");
@@ -519,9 +523,10 @@ function addTurnGlow(scene) {
     let scaleFactorY = screenHeight / 953; // Adjust based on your design resolution
     let handAreaHeight = 257*scaleFactorY;
     let handAreaWidth = screenWidth * 0.51;
+    let bottomClearance = 30*scaleFactorY; // Add clearance so table doesn't touch bottom
 
     let handX = screenWidth / 2;
-    let handY = screenHeight - handAreaHeight / 2;
+    let handY = screenHeight - handAreaHeight / 2 - bottomClearance;
 
     // ✅ Create a pulsing glow effect behind the hand
     scene.handGlow = scene.add.rectangle(handX, handY, handAreaWidth, handAreaHeight, 0xFFD700)
@@ -1154,7 +1159,8 @@ function displayCards(playerHand) {
     let cardSpacing = 50*scaleFactorX; // Spacing between cards
     let totalWidth = (playerHand.length - 1) * cardSpacing; // Width of all cards together
     let startX = (screenWidth - totalWidth) / 2; // ✅ Centered starting position
-    let startY = this.scale.height - 200*scaleFactorY; // ✅ Adjust vertical position lower
+    let bottomClearance = 30*scaleFactorY; // Match table clearance
+    let startY = this.scale.height - 200*scaleFactorY - bottomClearance; // ✅ Adjust vertical position
     let opponent1_x = screenWidth / 2 - 200*scaleFactorX;
     let opponent1_y = screenHeight / 2;
     let opponent2_x = screenWidth / 2 + 200*scaleFactorX;
@@ -1163,6 +1169,8 @@ function displayCards(playerHand) {
     let team1_y = screenHeight / 2 - 150*scaleFactorY;
     let handAreaWidth = screenWidth * 0.5; // ✅ Width of the background area
     let handAreaHeight = 250*scaleFactorY; // ✅ Height of the background area
+    let bottomClearance = 30*scaleFactorY; // Add clearance so table doesn't touch bottom
+    let handY = screenHeight - handAreaHeight / 2 - bottomClearance;
     if (!playZone) {
         let playZoneWidth = 600*scaleFactorX;
         let playZoneHeight = 400*scaleFactorY;
@@ -1175,11 +1183,11 @@ function displayCards(playerHand) {
         console.log("📍 Play zone created at:", playZoneX, playZoneY);
     }
     if (!handBackground){
-            handBackground = this.add.rectangle(screenWidth / 2, screenHeight - handAreaHeight / 2,
+            handBackground = this.add.rectangle(screenWidth / 2, handY,
             screenWidth * 0.5, handAreaHeight, 0x1a3328)  // Dark green felt
             .setAlpha(0.85)
             .setDepth(-2);
-            border = this.add.rectangle(screenWidth / 2, screenHeight - handAreaHeight / 2,
+            border = this.add.rectangle(screenWidth / 2, handY,
             screenWidth * 0.5, handAreaHeight)
             .setStrokeStyle(2, 0x2d5a40) // Subtle green border
             .setDepth(-1);
