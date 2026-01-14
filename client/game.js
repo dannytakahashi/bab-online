@@ -1133,11 +1133,15 @@ socket.on("chatMessage", (data) => {
 });
 socket.on("createUI", (data) => {
     let scene = game.scene.scenes[0];
-    console.log("caught createUI");
+    console.log("🎨 caught createUI");
     removeWaitingScreen();
     removeDraw();
+    removeMainRoom(); // Ensure main room is removed
+    removeGameLobby(); // Ensure game lobby is removed
+    console.log("🎨 Creating game feed...");
     createGameFeed();
-    scoreUI = createScorebug(this);
+    console.log("🎨 Game feed created, checking DOM:", document.getElementById("gameFeed"));
+    scoreUI = createScorebug();
     if (!scene.handElements) {
         scene.handElements = [];
     }

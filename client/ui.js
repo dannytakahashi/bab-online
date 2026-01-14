@@ -767,7 +767,7 @@ function showMainRoom(data) {
 
     // Left panel - Global Chat (60%)
     const chatPanel = document.createElement("div");
-    chatPanel.style.flex = "0 0 58%";
+    chatPanel.style.flex = "1.4";
     chatPanel.style.display = "flex";
     chatPanel.style.flexDirection = "column";
     chatPanel.style.background = "rgba(0, 0, 0, 0.3)";
@@ -850,7 +850,7 @@ function showMainRoom(data) {
 
     // Right panel - Lobby Browser (40%)
     const lobbyPanel = document.createElement("div");
-    lobbyPanel.style.flex = "0 0 38%";
+    lobbyPanel.style.flex = "1";
     lobbyPanel.style.display = "flex";
     lobbyPanel.style.flexDirection = "column";
     lobbyPanel.style.background = "rgba(0, 0, 0, 0.3)";

@@ -434,7 +434,7 @@
     border-radius: 8px;
     display: flex;
     flex-direction: column;
-    z-index: 100;
+    z-index: 500;
 }
 
 /* Responsive chat sizing */
