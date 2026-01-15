@@ -880,38 +880,27 @@ function createGameFeed() {
 
     // Restrict game container width to make room for game log
     document.getElementById('game-container').classList.add('in-game');
-
-    // CRITICAL: Properly reinitialize Phaser's scale manager after container resize
-    // The container was 100% width when Phaser was created, now it's smaller.
-    // This mismatch causes WebGL rendering issues until page refresh.
+    // Trigger resize so Phaser recalculates canvas size
+    // Do it immediately AND after a delay to ensure CSS is applied
+    if (game && game.scale) {
+        game.scale.refresh();
+    }
+    window.dispatchEvent(new Event('resize'));
+    // Also do it after a short delay as backup - use actual container dimensions
+    // and force Phaser to resize to fix cases where scale manager doesn't update
     setTimeout(() => {
         const container = document.getElementById('game-container');
         if (container && game && game.scale) {
             const newWidth = container.clientWidth;
             const newHeight = container.clientHeight;
-            console.log(`📐 Reinitializing Phaser for new container size: ${newWidth}x${newHeight}`);
-
-            // Update the parent size tracking
-            game.scale.setParentSize(newWidth, newHeight);
-
-            // Resize the game canvas
+            console.log(`📐 Forcing Phaser resize to container: ${newWidth}x${newHeight}`);
             game.scale.resize(newWidth, newHeight);
-
-            // Force the renderer to resize its WebGL context
-            if (game.renderer && game.renderer.resize) {
-                game.renderer.resize(newWidth, newHeight);
-            }
-
-            // Refresh scale calculations
-            game.scale.refresh();
-
-            // Reposition game elements
             if (gameScene) {
                 repositionGameElements.call(gameScene, newWidth, newHeight);
             }
         }
         window.dispatchEvent(new Event('resize'));
-    }, 50); // Shorter delay since CSS should apply quickly
+    }, 100);
 
     // Add backup window resize listener in case Phaser's scale events don't fire
     // This ensures elements get repositioned even when Phaser's scale manager isn't working
