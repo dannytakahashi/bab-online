@@ -75,9 +75,9 @@ function processRejoin(data) {
         playerInfo = createPlayerInfoBox();
     }
 
-    // Display cards
+    // Display cards (skip animation on rejoin - just place them directly)
     if (playerCards && playerCards.length > 0) {
-        displayCards.call(gameScene, playerCards);
+        displayCards.call(gameScene, playerCards, true);
     }
 
     // Display opponent hands (card backs)
@@ -1604,8 +1604,8 @@ function sortHand(hand, trumpCard) {
     });
 }
 
-function displayCards(playerHand) {
-    console.log("🃏 displayCards called with hand:", playerHand);
+function displayCards(playerHand, skipAnimation = false) {
+    console.log("🃏 displayCards called with hand:", playerHand, "skipAnimation:", skipAnimation);
     console.log("🃏 this (scene) =", this);
     console.log("🃏 this.textures =", this.textures);
     console.log("🃏 this.add =", this.add);
@@ -1964,7 +1964,7 @@ function displayCards(playerHand) {
         cardSprite.setData('isLegal', false);
         cardSprite.setData('baseY', startY); // Store base Y for hover effects
         myCards.push(cardSprite);
-        if (visible()){
+        if (visible() && !skipAnimation){
             this.tweens.add({
                 targets: cardSprite,
                 x: startX + index * cardSpacing,
