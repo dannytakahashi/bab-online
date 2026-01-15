@@ -1,5 +1,5 @@
 html,body {
-    background: #0a0a0f; /* Dark background for game log area */
+    background: radial-gradient(ellipse at center, #228B22 0%, #0d1a0d 100%); /* Green poker table gradient */
     font-family: Arial, sans-serif;
     text-align: center;
     margin: 0;
@@ -9,7 +9,6 @@ html,body {
 
 canvas {
     display: block;
-    margin: auto;
     position: relative;
     z-index: 1;
 }
@@ -18,12 +17,8 @@ canvas {
     position: absolute;
     left: 0;
     top: 0;
-    /* Width set dynamically in game.js to match canvas (viewport - game log width) */
-    width: calc(100vw - 320px);
-    height: 100vh;
-    background: radial-gradient(ellipse at center, #228B22 0%, #0d1a0d 100%); /* Green poker table gradient */
     z-index: 1;
-    overflow: hidden; /* Prevent UI elements from overlapping game log */
+    overflow: hidden;
 }
 
 h1 {
@@ -80,31 +75,6 @@ h1 {
 }
 
 /* ==================== RESPONSIVE DESIGN ==================== */
-
-/* Game container width must match game log responsive widths */
-@media (max-width: 1400px) {
-    #game-container {
-        width: calc(100vw - 280px); /* 260px game log + 20px padding */
-    }
-}
-
-@media (max-width: 1200px) {
-    #game-container {
-        width: calc(100vw - 240px); /* 220px game log + 20px padding */
-    }
-}
-
-@media (max-width: 1000px) {
-    #game-container {
-        width: calc(100vw - 200px); /* 180px game log + 20px padding */
-    }
-}
-
-@media (max-width: 800px) {
-    #game-container {
-        width: calc(100vw - 170px); /* 150px game log + 20px padding */
-    }
-}
 
 /* Ensure minimum touch target sizes for all interactive elements */
 button, input[type="button"], input[type="submit"], .bid-button {
