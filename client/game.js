@@ -242,9 +242,21 @@ function create() {
     // Background is now handled by CSS gradient on body - canvas is transparent
 
     // Check if there's pending rejoin data from before scene was ready
+    // Handle window resize - reposition all game elements (must be set up for ALL flows including rejoin)
+    this.scale.on('resize', (gameSize) => {
+        console.log(`📐 Phaser resize event: ${gameSize.width}x${gameSize.height}`);
+        try {
+            repositionGameElements.call(this, gameSize.width, gameSize.height);
+        } catch (e) {
+            console.error('❌ Error in repositionGameElements:', e);
+        }
+    });
+
     if (pendingRejoinData) {
+        console.log("🚀 Processing PENDING rejoin data from create()");
         processRejoin(pendingRejoinData);
         pendingRejoinData = null;
+        console.log("🚀 CREATE() COMPLETE! (rejoin path)");
         return; // Skip normal create flow since we're rejoining
     }
 
@@ -259,15 +271,6 @@ function create() {
         processGameStart(pendingGameStartData);
         pendingGameStartData = null;
     }
-    // Handle window resize - reposition all game elements
-    this.scale.on('resize', (gameSize) => {
-        console.log(`📐 Phaser resize event: ${gameSize.width}x${gameSize.height}`);
-        try {
-            repositionGameElements.call(this, gameSize.width, gameSize.height);
-        } catch (e) {
-            console.error('❌ Error in repositionGameElements:', e);
-        }
-    });
 
     console.log("🚀 CREATE() COMPLETE!");
 }
