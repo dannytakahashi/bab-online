@@ -2588,17 +2588,13 @@ function displayCards(playerHand, skipAnimation = false) {
                 if (game && game.scale) {
                     game.scale.refresh();
                 }
-                // Strategy 2: Force each sprite to re-render by toggling visibility
+                // Strategy 2: Force each sprite to re-render by nudging position
+                // (Don't toggle visibility or setFrame as it breaks hover interactivity)
                 myCards.forEach(sprite => {
                     if (sprite && sprite.active) {
-                        // Toggle visibility to force redraw
-                        sprite.setVisible(false);
-                        sprite.setVisible(true);
-                        // Also refresh the texture frame to force WebGL state update
-                        const frame = sprite.frame;
-                        if (frame) {
-                            sprite.setFrame(frame.name);
-                        }
+                        // Nudge position slightly to mark sprite as dirty
+                        sprite.x += 0.001;
+                        sprite.x -= 0.001;
                     }
                 });
                 // Strategy 3: Force game step if available
