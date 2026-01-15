@@ -217,6 +217,8 @@ let opp1 = null;
 let opp2 = null;
 let score1 = 0;
 let score2 = 0;
+let currentTeamBids = "-/-";
+let currentOppBids = "-/-";
 let playedCard = false;
 let playerInfo = null;
 let gameListenersRegistered = false; // Track if socket listeners are already registered
@@ -1863,6 +1865,9 @@ function displayCards(playerHand) {
         // Update score in game log with bid info
         let teamBids = myBids[position - 1] + "/" + myBids[team(position) - 1];
         let oppBids = myBids[rotate(position) - 1] + "/" + myBids[rotate(rotate(rotate(position))) - 1];
+        // Store bids globally for use in trickComplete
+        currentTeamBids = teamBids;
+        currentOppBids = oppBids;
         if(position % 2 !== 0){
             console.log("updating game log score");
             updateGameLogScore(me + "/" + partner, opp1 + "/" + opp2, score1, score2, teamBids, oppBids);
@@ -2069,7 +2074,14 @@ function displayCards(playerHand) {
             // ✅ Stack tricks in the bottom-left, moving **right** as more tricks are played
             winningPosition = { x: 20 + teamTricks * trickSpacing, y: screenHeight - 100 };
         }
-    
+
+        // Update game log with trick counts
+        if(position % 2 !== 0){
+            updateGameLogScore(me + "/" + partner, opp1 + "/" + opp2, score1, score2, currentTeamBids, currentOppBids, teamTricks, oppTricks);
+        } else {
+            updateGameLogScore(me + "/" + partner, opp1 + "/" + opp2, score2, score1, currentTeamBids, currentOppBids, teamTricks, oppTricks);
+        }
+
         let trickCards = [...currentTrick]; // ✅ Store the completed trick
         currentTrick = [];
         thisTrick = []; // ✅ Clear the reference to avoid moving previous tricks

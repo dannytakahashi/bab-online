@@ -1262,6 +1262,9 @@ function showFinalScore(teamScore, opponentScore) {
     // Determine winner
     let resultMsg = teamScore > opponentScore ? "YOU WIN!" : (teamScore < opponentScore ? "YOU LOSE" : "TIE GAME");
 
+    // Update the score display in the game log header
+    updateGameLogScore(teamName, oppName, teamScore, opponentScore);
+
     // Add to game log
     addToGameFeed("=== GAME OVER ===");
     addToGameFeed(`${teamName}: ${teamScore}`);
