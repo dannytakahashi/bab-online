@@ -2580,17 +2580,30 @@ function displayCards(playerHand, skipAnimation = false) {
             console.log("🎯 Calling window.updateCardLegality()");
             window.updateCardLegality();
 
-            // Force Phaser to re-render by refreshing scale manager and forcing sprite updates
+            // Force Phaser to re-render - use multiple strategies to ensure visual update
             // This fixes a bug where visual updates don't show until page refresh
-            if (game && game.scale) {
-                game.scale.refresh();
-            }
-            // Force sprites to redraw by triggering a tiny alpha change
-            myCards.forEach(sprite => {
-                if (sprite && sprite.active) {
-                    const currentAlpha = sprite.alpha;
-                    sprite.setAlpha(currentAlpha - 0.001);
-                    sprite.setAlpha(currentAlpha);
+            requestAnimationFrame(() => {
+                console.log("🎯 Force render in requestAnimationFrame");
+                // Strategy 1: Refresh scale manager
+                if (game && game.scale) {
+                    game.scale.refresh();
+                }
+                // Strategy 2: Force each sprite to re-render by toggling visibility
+                myCards.forEach(sprite => {
+                    if (sprite && sprite.active) {
+                        // Toggle visibility to force redraw
+                        sprite.setVisible(false);
+                        sprite.setVisible(true);
+                        // Also refresh the texture frame to force WebGL state update
+                        const frame = sprite.frame;
+                        if (frame) {
+                            sprite.setFrame(frame.name);
+                        }
+                    }
+                });
+                // Strategy 3: Force game step if available
+                if (game && game.loop) {
+                    game.loop.tick();
                 }
             });
         } else {
