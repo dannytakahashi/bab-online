@@ -325,8 +325,14 @@ function repositionHandCards(screenWidth, screenHeight, scaleFactorX, scaleFacto
     const cardSpacing = 50 * scaleFactorX;
     const totalWidth = (myCards.length - 1) * cardSpacing;
     const startX = (screenWidth - totalWidth) / 2;
-    const bottomClearance = 30 * scaleFactorY;
-    const startY = screenHeight - 200 * scaleFactorY - bottomClearance;
+
+    // Calculate hand area (must match positionDomBackgrounds and displayCards)
+    const bottomClearance = 20 * scaleFactorY;
+    const cardHeight = 140 * 1.5 * scaleFactorY;
+    const cardPadding = 10 * scaleFactorY;
+    const handAreaHeight = cardHeight + cardPadding * 2;
+    const handAreaTop = screenHeight - handAreaHeight - bottomClearance;
+    const startY = handAreaTop + handAreaHeight / 2; // Vertically centered on table
 
     myCards.forEach((card, index) => {
         if (card && card.active) {
@@ -357,9 +363,9 @@ function positionDomBackgrounds(screenWidth, screenHeight) {
     const borderDom = document.getElementById('handBorderDom');
     if (handBgDom) {
         const bottomClearance = 20 * scaleFactorY;
-        // Card height at scale 1.5 is ~210px, add padding for snug fit
+        // Card height at scale 1.5 is ~210px, add minimal padding for snug fit
         const cardHeight = 140 * 1.5 * scaleFactorY;
-        const cardPadding = 25 * scaleFactorY;
+        const cardPadding = 10 * scaleFactorY;
         const handAreaHeight = cardHeight + cardPadding * 2;
         const handAreaWidth = screenWidth * 0.4;
         const handY = screenHeight - handAreaHeight - bottomClearance;
@@ -1614,7 +1620,7 @@ function displayCards(playerHand) {
     // Calculate hand area dimensions (must match positionDomBackgrounds)
     let bottomClearance = 20*scaleFactorY;
     let cardHeight = 140 * 1.5 * scaleFactorY;
-    let cardPadding = 25 * scaleFactorY;
+    let cardPadding = 10 * scaleFactorY;
     let handAreaHeight = cardHeight + cardPadding * 2;
     let handAreaWidth = screenWidth * 0.4;
 
