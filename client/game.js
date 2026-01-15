@@ -1865,6 +1865,7 @@ function displayCards(playerHand) {
 
     // Function to update card interactivity based on legal moves
     function updateCardLegality() {
+        console.log(`🎯 updateCardLegality called: bidding=${bidding}, currentTurn=${currentTurn}, position=${position}, playedCard=${playedCard}, myCards.length=${myCards.length}`);
         myCards.forEach(sprite => {
             if (!sprite || !sprite.active) return;
             const card = sprite.getData('card');
@@ -2103,6 +2104,7 @@ function displayCards(playerHand) {
         }
     });
     socket.on("updateTurn", (data) => {
+        console.log(`📍 updateTurn received: data.currentTurn=${data.currentTurn}, my position=${position}`);
         currentTurn = data.currentTurn;
         playedCard = false;
         console.log("Current turn:", currentTurn);
@@ -2398,6 +2400,7 @@ function displayCards(playerHand) {
         }
     });
     socket.on("doneBidding", (data) => {
+        console.log(`📣 doneBidding received: data=${JSON.stringify(data)}, bidding was=${bidding}`);
         let bidContainer = document.getElementById("bidContainer");
         if (bidContainer) {
             bidContainer.remove();
@@ -2407,8 +2410,10 @@ function displayCards(playerHand) {
         window.updateBoreButtons = null;
         tempBids = [];
         bidding = 0;
+        console.log(`📣 doneBidding: set bidding to 0, currentTurn=${currentTurn}, position=${position}`);
 
         // Update card legality now that bidding is over
+        console.log(`📣 doneBidding: window.updateCardLegality exists=${!!window.updateCardLegality}`);
         if (window.updateCardLegality) {
             window.updateCardLegality();
         }
