@@ -1,4 +1,8 @@
-html,body {
+html {
+    background: #0d1a0d; /* Dark green to match gradient edge */
+}
+
+body {
     background: radial-gradient(ellipse at center, #228B22 0%, #0d1a0d 100%); /* Green poker table gradient */
     font-family: Arial, sans-serif;
     text-align: center;
