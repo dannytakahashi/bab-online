@@ -424,6 +424,8 @@ async function handleHandComplete(game, io) {
         // Clear active game for all players
         await gameManager.clearActiveGameForAll(game.gameId);
         game.leaveAllFromRoom(io);
+        // Clear playerGames Map entries so players can create new lobbies
+        gameManager.endGame(game.gameId);
         game.resetForNewGame();
     } else {
         gameLogger.debug('Starting next hand', { dealer: nextDealer, handSize: nextHandSize, gameId: game.gameId });
