@@ -338,6 +338,7 @@ function repositionHandCards(screenWidth, screenHeight, scaleFactorX, scaleFacto
         if (card && card.active) {
             card.x = startX + index * cardSpacing;
             card.y = startY;
+            card.setData('baseY', startY); // Update baseY for hover effects
         }
     });
 }
@@ -1922,6 +1923,7 @@ function displayCards(playerHand) {
         // Store card data on sprite for legality checks
         cardSprite.setData('card', card);
         cardSprite.setData('isLegal', false);
+        cardSprite.setData('baseY', startY); // Store base Y for hover effects
         myCards.push(cardSprite);
         if (visible()){
             this.tweens.add({
@@ -1942,9 +1944,10 @@ function displayCards(playerHand) {
         cardSprite.on("pointerover", () => {
             // Only raise card if it's a legal move
             if (cardSprite.getData('isLegal')) {
+                const baseY = cardSprite.getData('baseY');
                 this.tweens.add({
                     targets: cardSprite,
-                    y: startY - 30,
+                    y: baseY - 30,
                     duration: 150,
                     ease: 'Power2'
                 });
@@ -1952,13 +1955,16 @@ function displayCards(playerHand) {
         });
 
         cardSprite.on("pointerout", () => {
-            // Return card to original position
-            this.tweens.add({
-                targets: cardSprite,
-                y: startY,
-                duration: 150,
-                ease: 'Power2'
-            });
+            // Only return card if it was raised (isLegal)
+            if (cardSprite.getData('isLegal')) {
+                const baseY = cardSprite.getData('baseY');
+                this.tweens.add({
+                    targets: cardSprite,
+                    y: baseY,
+                    duration: 150,
+                    ease: 'Power2'
+                });
+            }
         });
 
         cardSprite.on("pointerdown", () => {
@@ -2267,7 +2273,7 @@ function displayCards(playerHand) {
             }
         }
         else if (data.position === position){
-            currentTrick.push(this.add.image(selfPlay_x, selfPlay_y, 'cards', cardKey).setScale(1.5));
+            currentTrick.push(this.add.image(selfPlay_x, selfPlay_y, 'cards', cardKey).setScale(1.5).setDepth(200));
         }
     })
     socket.on("trickComplete", (data) => {
