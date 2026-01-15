@@ -600,6 +600,43 @@
 }
 
 /* ==========================================================================
+   Opponent Avatars (DOM-based)
+   ========================================================================== */
+
+.opponent-avatar-container {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    pointer-events: none;
+    z-index: 50;
+    transform: translate(-50%, -50%);
+}
+
+.opponent-avatar-img {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    border: 3px solid #333;
+    object-fit: cover;
+    background-color: #1a1a1a;
+}
+
+.opponent-avatar-name {
+    color: #ffffff;
+    font-size: 18px;
+    font-weight: bold;
+    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+}
+
+/* Turn glow for opponent avatars - reuses pulse-glow animation */
+.opponent-avatar-container.turn-glow .opponent-avatar-img {
+    box-shadow: 0 0 30px 15px rgba(255, 215, 0, 0.5);
+    animation: pulse-glow 1s ease-in-out infinite alternate;
+}
+
+/* ==========================================================================
    Hand Info
    ========================================================================== */
 
