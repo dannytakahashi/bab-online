@@ -1873,6 +1873,7 @@ function displayCards(playerHand) {
 
             // During bidding or not our turn, dim all cards
             if (bidding === 1 || currentTurn !== position || playedCard) {
+                console.log(`🔒 Dimming ${card.rank} of ${card.suit}: bidding=${bidding}, currentTurn=${currentTurn}, position=${position}, playedCard=${playedCard}`);
                 sprite.setTint(0xaaaaaa);
                 sprite.setData('isLegal', false);
                 return;
