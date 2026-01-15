@@ -780,7 +780,14 @@ function createGameFeed() {
     // Restrict game container width to make room for game log
     document.getElementById('game-container').classList.add('in-game');
     // Trigger resize so Phaser recalculates canvas size
-    window.dispatchEvent(new Event('resize'));
+    // Use setTimeout to ensure CSS has been applied before resize
+    setTimeout(() => {
+        window.dispatchEvent(new Event('resize'));
+        // Also explicitly refresh Phaser's scale manager
+        if (game && game.scale) {
+            game.scale.refresh();
+        }
+    }, 50);
 }
 function addToGameFeed(message, playerPosition = null) {
     let messagesArea = document.getElementById("gameFeedMessages");
