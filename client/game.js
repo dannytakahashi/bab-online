@@ -2518,6 +2518,9 @@ function displayCards(playerHand, skipAnimation = false) {
         }
     });
     socket.on("doneBidding", (data) => {
+        console.log("🎯 doneBidding received:", data);
+        console.log("🎯 data.lead:", data.lead, "position:", position);
+
         let bidContainer = document.getElementById("bidContainer");
         if (bidContainer) {
             bidContainer.remove();
@@ -2534,9 +2537,16 @@ function displayCards(playerHand, skipAnimation = false) {
             currentTurn = data.lead;
         }
 
+        console.log("🎯 After setting: bidding=", bidding, "currentTurn=", currentTurn, "position=", position, "playedCard=", playedCard);
+        console.log("🎯 currentTurn === position?", currentTurn === position);
+        console.log("🎯 myCards.length:", myCards.length);
+
         // Update card legality now that bidding is over
         if (window.updateCardLegality) {
+            console.log("🎯 Calling window.updateCardLegality()");
             window.updateCardLegality();
+        } else {
+            console.log("🚨 window.updateCardLegality is not defined!");
         }
         playerBids = data;
         console.log("bids: ", playerBids);
