@@ -2,6 +2,9 @@
 let username = ""; // ✅ Stores the player's username
 let password = ""; // ✅ Stores the player's password
 
+let lobbyUserColors = {}; // Maps username -> assigned color for lobby session
+let mainRoomUserColors = {}; // Maps username -> assigned color for main room session
+
 // ✅ Function to Show the Sign-In Screen
 function clearUI() {
     let uiElements = document.querySelectorAll(".ui-element"); // ✅ Select all UI elements
@@ -574,6 +577,9 @@ function showMainRoom(data) {
     removePlayerQueue();
     removeGameLobby();
 
+    // Fresh color assignments for new main room session
+    mainRoomUserColors = {};
+
     // Create main container
     const container = document.createElement("div");
     container.id = "mainRoomContainer";
@@ -794,6 +800,11 @@ function createChatMessageElement(username, message) {
 function addMainRoomChatMessage(username, message) {
     const chatMessages = document.getElementById("mainRoomChatMessages");
     if (!chatMessages) return;
+
+    // Assign distinct color if new user
+    if (!mainRoomUserColors[username]) {
+        mainRoomUserColors[username] = generateDistinctColor(username, Object.values(mainRoomUserColors));
+    }
 
     const msgDiv = createChatMessageElement(username, message);
     chatMessages.appendChild(msgDiv);
@@ -1115,6 +1126,13 @@ function updateLobbyPlayersList(container, players) {
 
     container.innerHTML = "";
 
+    // Assign colors to new players - existing players keep their color for the session
+    players.forEach((player) => {
+        if (!lobbyUserColors[player.username]) {
+            lobbyUserColors[player.username] = generateDistinctColor(player.username, Object.values(lobbyUserColors));
+        }
+    });
+
     // Header with player count
     const header = document.createElement("div");
     header.innerText = `Players (${players.length}/4):`;
@@ -1201,23 +1219,53 @@ function updateLobbyPlayersList(container, players) {
     }
 }
 
-// Generate a consistent color from a username using a hash
-function getUsernameColor(username) {
-    // Better hash function (djb2 variant) for more distribution
+// Generate a hash-based hue from username
+function hashToHue(username) {
     let hash = 5381;
     for (let i = 0; i < username.length; i++) {
         hash = ((hash << 5) + hash) ^ username.charCodeAt(i);
     }
-    // Add username length as additional entropy
-    hash = ((hash << 5) + hash) ^ (username.length * 7);
-    // Mix the bits more
-    hash = Math.abs(hash ^ (hash >> 16));
+    return Math.abs(hash) % 360;
+}
 
-    // Use golden ratio to spread hues more evenly
-    // This ensures even sequential/similar usernames get different colors
-    const goldenRatio = 0.618033988749895;
-    const hue = ((hash * goldenRatio) % 1) * 360;
+// Generate a color that's visually distinct from existing colors
+function generateDistinctColor(username, existingColors) {
+    let hue = hashToHue(username);
+
+    // Extract hues from existing colors
+    const existingHues = existingColors
+        .map(color => {
+            const match = color.match(/hsl\((\d+)/);
+            return match ? parseInt(match[1]) : null;
+        })
+        .filter(h => h !== null);
+
+    // Adjust hue if too close to existing ones (within 50 degrees)
+    const minDistance = 50;
+    let attempts = 0;
+    while (attempts < 360 && existingHues.length > 0) {
+        const tooClose = existingHues.some(existingHue => {
+            const diff = Math.abs(hue - existingHue);
+            return Math.min(diff, 360 - diff) < minDistance;
+        });
+        if (!tooClose) break;
+        hue = (hue + 67) % 360; // Prime number for better distribution
+        attempts++;
+    }
+
     return `hsl(${hue}, 70%, 60%)`;
+}
+
+// Get color for a username - uses stored color if available
+function getUsernameColor(username) {
+    if (lobbyUserColors[username]) {
+        return lobbyUserColors[username];
+    }
+    if (mainRoomUserColors[username]) {
+        return mainRoomUserColors[username];
+    }
+    // Fallback for System messages or other contexts
+    return `hsl(${hashToHue(username)}, 70%, 60%)`;
 }
 
 function addLobbyChatMessage(username, message) {
@@ -1248,6 +1296,7 @@ function removeGameLobby() {
     if (gameLobby) gameLobby.remove();
     currentLobbyId = null;
     isPlayerReady = false;
+    lobbyUserColors = {};
 }
 
 // ==================== END GAME LOBBY ====================
