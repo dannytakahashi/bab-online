@@ -587,6 +587,8 @@ function processGameStart(data) {
         if (data.trump) {
             trump = data.trump;
         }
+        // Set bidding to 1 for new game start (not in displayCards, which is also called on rejoin)
+        bidding = 1;
         console.log("🎮 Calling displayCards.call(gameScene, playerCards)");
         displayCards.call(gameScene, playerCards);
         //createVignette.call(gameScene);
@@ -1599,7 +1601,7 @@ function displayCards(playerHand) {
     playerHand = sortHand(playerHand, trump);
     let scaleFactorX = this.scale.width / 1920; // Adjust based on your design resolution
     let scaleFactorY = this.scale.height / 953; // Adjust based on your design resolution
-    bidding = 1;
+    // Note: bidding state is set by callers (gameStart sets to 1, rejoin restores from server)
     console.log("🧠 Scene children:", this.children.list.length);
     console.log("🎯 Active tweens:", this.tweens._active.length);
     console.log("📨 cardPlayed listeners:", socket.listeners("cardPlayed").length);
@@ -1865,7 +1867,6 @@ function displayCards(playerHand) {
 
     // Function to update card interactivity based on legal moves
     function updateCardLegality() {
-        console.log(`🎯 updateCardLegality called: bidding=${bidding}, currentTurn=${currentTurn}, position=${position}, playedCard=${playedCard}, myCards.length=${myCards.length}`);
         myCards.forEach(sprite => {
             if (!sprite || !sprite.active) return;
             const card = sprite.getData('card');
@@ -1873,7 +1874,6 @@ function displayCards(playerHand) {
 
             // During bidding or not our turn, dim all cards
             if (bidding === 1 || currentTurn !== position || playedCard) {
-                console.log(`🔒 Dimming ${card.rank} of ${card.suit}: bidding=${bidding}, currentTurn=${currentTurn}, position=${position}, playedCard=${playedCard}`);
                 sprite.setTint(0xaaaaaa);
                 sprite.setData('isLegal', false);
                 return;
@@ -1884,9 +1884,7 @@ function displayCards(playerHand) {
             const isLegal = isLegalMove(card, playerCards, leadCard, playedCardIndex === 0, leadPosition);
 
             if (isLegal) {
-                console.log(`✅ Clearing tint for ${card.rank} of ${card.suit}, sprite.tintTopLeft before:`, sprite.tintTopLeft);
                 sprite.clearTint();
-                console.log(`✅ After clearTint, sprite.tintTopLeft:`, sprite.tintTopLeft);
                 sprite.setData('isLegal', true);
             } else {
                 sprite.setTint(0x666666);
@@ -2107,10 +2105,8 @@ function displayCards(playerHand) {
         }
     });
     socket.on("updateTurn", (data) => {
-        console.log(`📍 updateTurn received: data.currentTurn=${data.currentTurn}, my position=${position}`);
         currentTurn = data.currentTurn;
         playedCard = false;
-        console.log("Current turn:", currentTurn);
         removeOpponentGlow(this);
         if(currentTurn === position){
             addTurnGlow(this);
@@ -2403,20 +2399,16 @@ function displayCards(playerHand) {
         }
     });
     socket.on("doneBidding", (data) => {
-        console.log(`📣 doneBidding received: data=${JSON.stringify(data)}, bidding was=${bidding}`);
         let bidContainer = document.getElementById("bidContainer");
         if (bidContainer) {
             bidContainer.remove();
-            console.log("✅ Bid container removed.");
         }
         // Clear the updateBoreButtons reference
         window.updateBoreButtons = null;
         tempBids = [];
         bidding = 0;
-        console.log(`📣 doneBidding: set bidding to 0, currentTurn=${currentTurn}, position=${position}`);
 
         // Update card legality now that bidding is over
-        console.log(`📣 doneBidding: window.updateCardLegality exists=${!!window.updateCardLegality}`);
         if (window.updateCardLegality) {
             window.updateCardLegality();
         }
