@@ -128,9 +128,8 @@ document.addEventListener("reconnectFailed", () => {
     if(gameScene){
         gameScene.scene.restart();
         socket.off("gameStart");
-        playZone = null;
-        handBackground = null;
     }
+    cleanupDomBackgrounds();
     removeWaitingScreen();
     clearUI();
     showSignInScreen();
@@ -271,26 +270,8 @@ function repositionGameElements(newWidth, newHeight) {
     const scaleFactorX = newWidth / 1920;
     const scaleFactorY = newHeight / 953;
 
-    // Reposition play zone (center of screen)
-    if (playZone && playZone.active) {
-        const playZoneWidth = 600 * scaleFactorX;
-        const playZoneHeight = 400 * scaleFactorY;
-        playZone.setPosition(newWidth / 2, newHeight / 2);
-        playZone.setSize(playZoneWidth, playZoneHeight);
-    }
-
-    // Reposition hand background and border
-    if (handBackground && handBackground.active) {
-        const bottomClearance = 30 * scaleFactorY;
-        const handAreaHeight = 250 * scaleFactorY;
-        const handY = newHeight - handAreaHeight / 2 - bottomClearance;
-        handBackground.setPosition(newWidth / 2, handY);
-        handBackground.setSize(newWidth * 0.5, handAreaHeight);
-        if (border && border.active) {
-            border.setPosition(newWidth / 2, handY);
-            border.setSize(newWidth * 0.5, handAreaHeight);
-        }
-    }
+    // Position DOM background elements (play zone, hand background, border)
+    positionDomBackgrounds(newWidth, newHeight);
 
     // Reposition cards in player's hand
     repositionHandCards(newWidth, newHeight, scaleFactorX, scaleFactorY);
@@ -332,6 +313,56 @@ function repositionHandCards(screenWidth, screenHeight, scaleFactorX, scaleFacto
             card.y = startY;
         }
     });
+}
+
+// Position DOM background elements (play zone, hand background, border)
+function positionDomBackgrounds(screenWidth, screenHeight) {
+    const scaleFactorX = screenWidth / 1920;
+    const scaleFactorY = screenHeight / 953;
+
+    // Position play zone (center)
+    const playZoneDom = document.getElementById('playZoneDom');
+    if (playZoneDom) {
+        const playZoneWidth = 600 * scaleFactorX;
+        const playZoneHeight = 400 * scaleFactorY;
+        playZoneDom.style.width = `${playZoneWidth}px`;
+        playZoneDom.style.height = `${playZoneHeight}px`;
+        playZoneDom.style.left = `${(screenWidth - playZoneWidth) / 2}px`;
+        playZoneDom.style.top = `${(screenHeight - playZoneHeight) / 2}px`;
+    }
+
+    // Position hand background (bottom center)
+    const handBgDom = document.getElementById('handBackgroundDom');
+    const borderDom = document.getElementById('handBorderDom');
+    if (handBgDom) {
+        const bottomClearance = 30 * scaleFactorY;
+        const handAreaHeight = 250 * scaleFactorY;
+        const handAreaWidth = screenWidth * 0.5;
+        const handY = screenHeight - handAreaHeight - bottomClearance;
+        const handX = (screenWidth - handAreaWidth) / 2;
+
+        handBgDom.style.width = `${handAreaWidth}px`;
+        handBgDom.style.height = `${handAreaHeight}px`;
+        handBgDom.style.left = `${handX}px`;
+        handBgDom.style.top = `${handY}px`;
+
+        if (borderDom) {
+            borderDom.style.width = `${handAreaWidth}px`;
+            borderDom.style.height = `${handAreaHeight}px`;
+            borderDom.style.left = `${handX}px`;
+            borderDom.style.top = `${handY}px`;
+        }
+    }
+}
+
+// Cleanup DOM background elements
+function cleanupDomBackgrounds() {
+    const playZoneDom = document.getElementById('playZoneDom');
+    const handBgDom = document.getElementById('handBackgroundDom');
+    const borderDom = document.getElementById('handBorderDom');
+    if (playZoneDom) playZoneDom.remove();
+    if (handBgDom) handBgDom.remove();
+    if (borderDom) borderDom.remove();
 }
 
 // Store pending data if events arrive before scene is ready
@@ -1091,7 +1122,7 @@ function isLegalMove(card, hand, lead, leadBool, leadPosition){
     return true;
 }
 let waitingText;
-let playZone;
+// Note: playZone is now a DOM element with id 'playZoneDom'
 function removeCard(hand, card) {
     hand.forEach((c) => {
         if (c.rank === card.rank && c.suit === card.suit) {
@@ -1111,8 +1142,7 @@ let leadBool = false;
 let tempBids = [];
 let currentTrick = [];
 let thisTrick = [];
-let handBackground;
-let border;
+// Note: handBackground and border are now DOM elements with ids 'handBackgroundDom' and 'handBorderDom'
 function clearAllTricks() {
     console.log("🗑️ Clearing all tricks...");
 
@@ -1144,10 +1174,9 @@ socket.on("disconnect", () => {
 });
 socket.on("abortGame", (data) => {
     playedCard = false;
-    playZone = null;
     playerInfo = null;
-    handBackground = null;
     console.log("caught abortGame");
+    cleanupDomBackgrounds();
     clearUI();
     gameScene.children.removeAll(true);
     gameScene.scene.restart();
@@ -1159,9 +1188,8 @@ socket.on("forceLogout", (data) => {
     if(gameScene){
         gameScene.scene.restart();
         socket.off("gameStart");
-        playZone = null;
-        handBackground = null;
     }
+    cleanupDomBackgrounds();
     removeWaitingScreen();
     clearUI();
     showSignInScreen();
@@ -1503,28 +1531,42 @@ function displayCards(playerHand) {
     let handAreaWidth = screenWidth * 0.5; // ✅ Width of the background area
     let handAreaHeight = 250*scaleFactorY; // ✅ Height of the background area
     let handY = screenHeight - handAreaHeight / 2 - bottomClearance; // reuses bottomClearance from above
-    if (!playZone) {
-        let playZoneWidth = 600*scaleFactorX;
-        let playZoneHeight = 400*scaleFactorY;
-        let playZoneX = (screenWidth - playZoneWidth) / 2;
-        let playZoneY = (this.scale.height - playZoneHeight) / 2;
-        playZone = this.add.rectangle(playZoneX + playZoneWidth / 2, playZoneY + playZoneHeight / 2,
-                                      playZoneWidth, playZoneHeight, 0x32CD32)
-                        .setStrokeStyle(4, 0xffffff)
-                        .setAlpha(0.6);
-        console.log("📍 Play zone created at:", playZoneX, playZoneY);
+    // Create play zone as DOM element (replaces Phaser rectangle)
+    if (!document.getElementById('playZoneDom')) {
+        const playZoneDom = document.createElement('div');
+        playZoneDom.id = 'playZoneDom';
+        playZoneDom.style.position = 'absolute';
+        playZoneDom.style.backgroundColor = 'rgba(50, 205, 50, 0.6)'; // 0x32CD32 at 60% opacity
+        playZoneDom.style.border = '4px solid white';
+        playZoneDom.style.borderRadius = '8px';
+        playZoneDom.style.pointerEvents = 'none'; // Don't interfere with card clicks
+        playZoneDom.style.zIndex = '5';
+        document.getElementById('game-container').appendChild(playZoneDom);
+        console.log("📍 Play zone DOM element created");
     }
-    if (!handBackground){
-            handBackground = this.add.rectangle(screenWidth / 2, handY,
-            screenWidth * 0.5, handAreaHeight, 0x1a3328)  // Dark green felt
-            .setAlpha(0.85)
-            .setDepth(-2);
-            border = this.add.rectangle(screenWidth / 2, handY,
-            screenWidth * 0.5, handAreaHeight)
-            .setStrokeStyle(2, 0x2d5a40) // Subtle green border
-            .setDepth(-1);
+
+    // Create hand background as DOM element
+    if (!document.getElementById('handBackgroundDom')) {
+        const handBgDom = document.createElement('div');
+        handBgDom.id = 'handBackgroundDom';
+        handBgDom.style.position = 'absolute';
+        handBgDom.style.backgroundColor = 'rgba(26, 51, 40, 0.85)'; // 0x1a3328 at 85% opacity
+        handBgDom.style.pointerEvents = 'none';
+        handBgDom.style.zIndex = '2';
+        document.getElementById('game-container').appendChild(handBgDom);
+
+        // Border element
+        const borderDom = document.createElement('div');
+        borderDom.id = 'handBorderDom';
+        borderDom.style.position = 'absolute';
+        borderDom.style.border = '2px solid #2d5a40';
+        borderDom.style.pointerEvents = 'none';
+        borderDom.style.zIndex = '3';
+        document.getElementById('game-container').appendChild(borderDom);
     }
-    console.log("🟫 Added background for player hand.");
+    // Position the DOM background elements
+    positionDomBackgrounds(screenWidth, screenHeight);
+    console.log("🟫 Added DOM background elements for player hand.");
     // ✅ Create button-grid bidding UI (hidden initially, shown only when it's your turn)
     let bidContainer = document.createElement("div");
     bidContainer.id = "bidContainer";
