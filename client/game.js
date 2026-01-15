@@ -102,26 +102,31 @@ function processRejoin(data) {
 
             const cardPosition = index + 1; // Convert to 1-4 position
             const cardKey = getCardImageKey(card);
-            let x, y;
+            let x, y, playPosition;
 
             // Map card position to screen position relative to player
             if (cardPosition === position) {
                 x = playPositions.self.x;
                 y = playPositions.self.y;
+                playPosition = 'self';
             } else if (cardPosition === position + 1 || cardPosition === position - 3) {
                 x = playPositions.opponent1.x;
                 y = playPositions.opponent1.y;
+                playPosition = 'opponent1';
             } else if (cardPosition === position + 2 || cardPosition === position - 2) {
                 x = playPositions.partner.x;
                 y = playPositions.partner.y;
+                playPosition = 'partner';
             } else {
                 x = playPositions.opponent2.x;
                 y = playPositions.opponent2.y;
+                playPosition = 'opponent2';
             }
 
             const sprite = gameScene.add.image(x, y, 'cards', cardKey)
                 .setScale(1.5)
                 .setDepth(200);
+            sprite.setData('playPosition', playPosition); // Store position for resize
             currentTrick.push(sprite);
         });
 
@@ -368,6 +373,9 @@ function repositionGameElements(newWidth, newHeight) {
 
     // Update play area positions for card animations (Bug 3 fix)
     updatePlayPositions(newWidth, newHeight);
+
+    // Reposition cards in the current trick to match new play area positions
+    repositionCurrentTrick();
 }
 
 // Reposition cards in the player's hand during resize
@@ -553,6 +561,21 @@ function updatePlayPositions(screenWidth, screenHeight) {
     playPositions.opponent2 = { x: screenWidth / 2 + playOffsetX, y: screenHeight / 2 };
     playPositions.partner = { x: screenWidth / 2, y: screenHeight / 2 - playOffsetY };
     playPositions.self = { x: screenWidth / 2, y: screenHeight / 2 + playOffsetY };
+}
+
+// Reposition cards in current trick during resize
+function repositionCurrentTrick() {
+    if (!currentTrick || currentTrick.length === 0) return;
+
+    currentTrick.forEach(card => {
+        if (!card || !card.active) return;
+
+        const playPosition = card.getData('playPosition');
+        if (!playPosition || !playPositions[playPosition]) return;
+
+        card.x = playPositions[playPosition].x;
+        card.y = playPositions[playPosition].y;
+    });
 }
 
 // Store pending data if events arrive before scene is ready
@@ -2268,6 +2291,7 @@ function displayCards(playerHand, skipAnimation = false) {
         if(data.position === position + 1 || data.position === position - 3){
             if (opponentCardSprites["opp1"] && opponentCardSprites["opp1"].length > 0) {
                 let removedCard = opponentCardSprites["opp1"].pop();
+                removedCard.setData('playPosition', 'opponent1'); // Store position for resize
                 currentTrick.push(removedCard); // Add the removed card to the current trick
                 if(visible()){
                     this.tweens.add({
@@ -2301,6 +2325,7 @@ function displayCards(playerHand, skipAnimation = false) {
         else if(data.position === position + 2 || data.position === position - 2){
             if (opponentCardSprites["partner"] && opponentCardSprites["partner"].length > 0) {
                 let removedCard = opponentCardSprites["partner"].pop();
+                removedCard.setData('playPosition', 'partner'); // Store position for resize
                 currentTrick.push(removedCard); // Add the removed card to the current trick
                 if(visible()){
                     this.tweens.add({
@@ -2334,6 +2359,7 @@ function displayCards(playerHand, skipAnimation = false) {
         else if (data.position === position + 3 || data.position === position - 1){
             if (opponentCardSprites["opp2"] && opponentCardSprites["opp2"].length > 0) {
                 let removedCard = opponentCardSprites["opp2"].pop();
+                removedCard.setData('playPosition', 'opponent2'); // Store position for resize
                 currentTrick.push(removedCard); // Add the removed card to the current trick
                 if(visible()){
                     this.tweens.add({
@@ -2365,7 +2391,9 @@ function displayCards(playerHand, skipAnimation = false) {
             }
         }
         else if (data.position === position){
-            currentTrick.push(this.add.image(playPositions.self.x, playPositions.self.y, 'cards', cardKey).setScale(1.5).setDepth(200));
+            let selfCard = this.add.image(playPositions.self.x, playPositions.self.y, 'cards', cardKey).setScale(1.5).setDepth(200);
+            selfCard.setData('playPosition', 'self'); // Store position for resize
+            currentTrick.push(selfCard);
         }
     })
     socket.on("trickComplete", (data) => {
@@ -2499,6 +2527,12 @@ function displayCards(playerHand, skipAnimation = false) {
         tempBids = [];
         bidding = 0;
         playedCard = false;  // Bug 1 fix: Reset from previous hand before updating card legality
+
+        // Set currentTurn from lead player data before updating card legality
+        // (server sends { bids, lead } where lead is the first player to play)
+        if (data.lead !== undefined) {
+            currentTurn = data.lead;
+        }
 
         // Update card legality now that bidding is over
         if (window.updateCardLegality) {
