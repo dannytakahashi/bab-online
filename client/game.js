@@ -262,7 +262,11 @@ function create() {
     // Handle window resize - reposition all game elements
     this.scale.on('resize', (gameSize) => {
         console.log(`📐 Phaser resize event: ${gameSize.width}x${gameSize.height}`);
-        repositionGameElements.call(this, gameSize.width, gameSize.height);
+        try {
+            repositionGameElements.call(this, gameSize.width, gameSize.height);
+        } catch (e) {
+            console.error('❌ Error in repositionGameElements:', e);
+        }
     });
 
     console.log("🚀 CREATE() COMPLETE!");
@@ -695,12 +699,17 @@ function createGameFeed() {
         console.log("feed already exists, ensuring layout is correct...");
         // Still need to ensure .in-game class and resize even if feed exists
         document.getElementById('game-container').classList.add('in-game');
+        // Trigger resize immediately and after delay
+        if (game && game.scale) {
+            game.scale.refresh();
+        }
+        window.dispatchEvent(new Event('resize'));
         setTimeout(() => {
             window.dispatchEvent(new Event('resize'));
             if (game && game.scale) {
                 game.scale.refresh();
             }
-        }, 50);
+        }, 100);
         return;
     }
     console.log("Creating game feed...");
@@ -790,14 +799,18 @@ function createGameFeed() {
     // Restrict game container width to make room for game log
     document.getElementById('game-container').classList.add('in-game');
     // Trigger resize so Phaser recalculates canvas size
-    // Use setTimeout to ensure CSS has been applied before resize
+    // Do it immediately AND after a delay to ensure CSS is applied
+    if (game && game.scale) {
+        game.scale.refresh();
+    }
+    window.dispatchEvent(new Event('resize'));
+    // Also do it after a short delay as backup
     setTimeout(() => {
         window.dispatchEvent(new Event('resize'));
-        // Also explicitly refresh Phaser's scale manager
         if (game && game.scale) {
             game.scale.refresh();
         }
-    }, 50);
+    }, 100);
 }
 function addToGameFeed(message, playerPosition = null) {
     let messagesArea = document.getElementById("gameFeedMessages");
