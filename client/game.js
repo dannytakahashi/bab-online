@@ -1883,7 +1883,9 @@ function displayCards(playerHand) {
             const isLegal = isLegalMove(card, playerCards, leadCard, playedCardIndex === 0, leadPosition);
 
             if (isLegal) {
+                console.log(`✅ Clearing tint for ${card.rank} of ${card.suit}, sprite.tintTopLeft before:`, sprite.tintTopLeft);
                 sprite.clearTint();
+                console.log(`✅ After clearTint, sprite.tintTopLeft:`, sprite.tintTopLeft);
                 sprite.setData('isLegal', true);
             } else {
                 sprite.setTint(0x666666);
