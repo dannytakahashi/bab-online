@@ -258,7 +258,80 @@ function create() {
         processGameStart(pendingGameStartData);
         pendingGameStartData = null;
     }
+    // Handle window resize - reposition all game elements
+    this.scale.on('resize', (gameSize) => {
+        repositionGameElements.call(this, gameSize.width, gameSize.height);
+    });
+
     console.log("🚀 CREATE() COMPLETE!");
+}
+
+// Reposition all game elements when window is resized
+function repositionGameElements(newWidth, newHeight) {
+    const scaleFactorX = newWidth / 1920;
+    const scaleFactorY = newHeight / 953;
+
+    // Reposition play zone (center of screen)
+    if (playZone && playZone.active) {
+        const playZoneWidth = 600 * scaleFactorX;
+        const playZoneHeight = 400 * scaleFactorY;
+        playZone.setPosition(newWidth / 2, newHeight / 2);
+        playZone.setSize(playZoneWidth, playZoneHeight);
+    }
+
+    // Reposition hand background and border
+    if (handBackground && handBackground.active) {
+        const bottomClearance = 30 * scaleFactorY;
+        const handAreaHeight = 250 * scaleFactorY;
+        const handY = newHeight - handAreaHeight / 2 - bottomClearance;
+        handBackground.setPosition(newWidth / 2, handY);
+        handBackground.setSize(newWidth * 0.5, handAreaHeight);
+        if (border && border.active) {
+            border.setPosition(newWidth / 2, handY);
+            border.setSize(newWidth * 0.5, handAreaHeight);
+        }
+    }
+
+    // Reposition cards in player's hand
+    repositionHandCards(newWidth, newHeight, scaleFactorX, scaleFactorY);
+
+    // Reposition trump card display (top right area)
+    const trumpX = newWidth / 2 + 500 * scaleFactorX;
+    const trumpY = newHeight / 2 - 300 * scaleFactorY;
+    if (tableCardSprite && tableCardSprite.active) {
+        tableCardSprite.setPosition(trumpX, trumpY);
+    }
+    if (gameScene && gameScene.tableCardBackground && gameScene.tableCardBackground.active) {
+        gameScene.tableCardBackground.setPosition(trumpX, trumpY);
+    }
+    if (gameScene && gameScene.tableCardLabel && gameScene.tableCardLabel.active) {
+        gameScene.tableCardLabel.setPosition(trumpX, trumpY - 100);
+    }
+
+    // Update bid container position (DOM element)
+    const bidContainer = document.getElementById("bidContainer");
+    if (bidContainer && gameScene && gameScene.scale) {
+        bidContainer.style.left = `${newWidth / 2}px`;
+        bidContainer.style.top = `${newHeight / 2}px`;
+    }
+}
+
+// Reposition cards in the player's hand during resize
+function repositionHandCards(screenWidth, screenHeight, scaleFactorX, scaleFactorY) {
+    if (!myCards || myCards.length === 0) return;
+
+    const cardSpacing = 50 * scaleFactorX;
+    const totalWidth = (myCards.length - 1) * cardSpacing;
+    const startX = (screenWidth - totalWidth) / 2;
+    const bottomClearance = 30 * scaleFactorY;
+    const startY = screenHeight - 200 * scaleFactorY - bottomClearance;
+
+    myCards.forEach((card, index) => {
+        if (card && card.active) {
+            card.x = startX + index * cardSpacing;
+            card.y = startY;
+        }
+    });
 }
 
 // Store pending data if events arrive before scene is ready
@@ -400,7 +473,7 @@ const config = {
     transparent: true, // Make canvas transparent so CSS background shows through
     parent: "game-container",
     scale: {
-        mode: Phaser.Scale.FIT, // ✅ Ensures full coverage
+        mode: Phaser.Scale.RESIZE, // Dynamic resizing for window resize handling
         autoCenter: Phaser.Scale.NO_CENTER // Align left to leave room for game log
     },
     scene: { preload, create, update }
@@ -1466,10 +1539,9 @@ function displayCards(playerHand) {
     bidContainer.style.background = "rgba(0, 0, 0, 0.85)";
     bidContainer.style.border = "2px solid #444";
     bidContainer.style.borderRadius = "8px";
-    // Set initial position centered on game area (left of game log)
-    let gameAreaWidth = window.innerWidth - GAME_LOG_WIDTH;
-    bidContainer.style.left = `${gameAreaWidth / 2}px`;
-    bidContainer.style.top = "50%";
+    // Set initial position centered on Phaser game area
+    bidContainer.style.left = `${this.scale.width / 2}px`;
+    bidContainer.style.top = `${this.scale.height / 2}px`;
     bidContainer.style.transform = "translate(-50%, -50%)";
     document.body.appendChild(bidContainer);
     this.handElements.push(bidContainer);
@@ -1633,19 +1705,7 @@ function displayCards(playerHand) {
 
     // Position the bid container in the center of the play zone (green square)
     // Use CSS transform for centering - doesn't require measuring element dimensions
-    function updateBidContainerPosition() {
-        // The game area is window.innerWidth - GAME_LOG_WIDTH (same as Phaser config)
-        let gameAreaWidth = window.innerWidth - GAME_LOG_WIDTH;
-        let gameAreaHeight = window.innerHeight;
-
-        // Position at center of game area, then use transform to shift by half its own size
-        bidContainer.style.left = `${gameAreaWidth / 2}px`;
-        bidContainer.style.top = `${gameAreaHeight / 2}px`;
-        bidContainer.style.transform = "translate(-50%, -50%)";
-    }
-
-    updateBidContainerPosition();
-    window.addEventListener("resize", updateBidContainerPosition);
+    // Note: Resize is handled by Phaser's scale event in create(), not window resize
     console.log(`🖥️ Screen Width: ${screenWidth}, Starting X: ${startX}`);
     console.log("player hand:", playerHand);
     let cardDepth = 200;
