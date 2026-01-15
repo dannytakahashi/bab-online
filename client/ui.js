@@ -1301,6 +1301,13 @@ function hideFinal() {
     if (overlay) {
         overlay.remove();
         console.log(" Final score popup closed.");
+
+        // Remove game feed/log
+        let gameFeed = document.getElementById("gameFeed");
+        if (gameFeed) {
+            gameFeed.remove();
+        }
+
         gameScene.scene.restart();
         socket.off("gameStart");
         playZone = null;
