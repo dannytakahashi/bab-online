@@ -276,6 +276,9 @@ function repositionGameElements(newWidth, newHeight) {
     // Reposition cards in player's hand
     repositionHandCards(newWidth, newHeight, scaleFactorX, scaleFactorY);
 
+    // Reposition opponent UI elements (avatars, names, card backs)
+    repositionOpponentElements(newWidth, newHeight, scaleFactorX, scaleFactorY);
+
     // Reposition trump card display (top right area)
     const trumpX = newWidth / 2 + 500 * scaleFactorX;
     const trumpY = newHeight / 2 - 300 * scaleFactorY;
@@ -295,6 +298,9 @@ function repositionGameElements(newWidth, newHeight) {
         bidContainer.style.left = `${newWidth / 2}px`;
         bidContainer.style.top = `${newHeight / 2}px`;
     }
+
+    // Reposition turn glow indicators
+    repositionTurnGlow(newWidth, newHeight, scaleFactorX, scaleFactorY);
 }
 
 // Reposition cards in the player's hand during resize
@@ -363,6 +369,137 @@ function cleanupDomBackgrounds() {
     if (playZoneDom) playZoneDom.remove();
     if (handBgDom) handBgDom.remove();
     if (borderDom) borderDom.remove();
+}
+
+// Reposition opponent UI elements (avatars, names, card backs) during resize
+function repositionOpponentElements(screenWidth, screenHeight, scaleFactorX, scaleFactorY) {
+    const centerX = screenWidth / 2;
+    const centerY = screenHeight / 2;
+
+    // Calculate opponent positions (matching displayOpponentHands logic)
+    const positions = {
+        partner: {
+            cardX: centerX,
+            cardY: centerY - 275 * scaleFactorY,
+            avatarX: centerX,
+            avatarY: centerY - 400 * scaleFactorY
+        },
+        opp1: {
+            cardX: centerX - 425 * scaleFactorX,
+            cardY: centerY,
+            avatarX: centerX - 550 * scaleFactorX,
+            avatarY: centerY
+        },
+        opp2: {
+            cardX: centerX + 425 * scaleFactorX,
+            cardY: centerY,
+            avatarX: centerX + 550 * scaleFactorX,
+            avatarY: centerY
+        }
+    };
+
+    // Reposition opponent card sprites
+    if (typeof opponentCardSprites !== 'undefined') {
+        const cardSpacing = 10 * scaleFactorX;
+        Object.keys(positions).forEach(opponentId => {
+            if (opponentCardSprites[opponentId]) {
+                const pos = positions[opponentId];
+                const isHorizontal = opponentId === 'partner';
+                const numCards = opponentCardSprites[opponentId].length;
+
+                opponentCardSprites[opponentId].forEach((card, index) => {
+                    if (card && card.active) {
+                        if (isHorizontal) {
+                            const totalWidth = (numCards - 1) * cardSpacing;
+                            card.x = pos.cardX - totalWidth / 2 + index * cardSpacing;
+                            card.y = pos.cardY;
+                        } else {
+                            const totalHeight = (numCards - 1) * cardSpacing;
+                            card.x = pos.cardX;
+                            card.y = pos.cardY - totalHeight / 2 + index * cardSpacing;
+                        }
+                    }
+                });
+            }
+        });
+    }
+
+    // Reposition opponent UI (avatars and text labels)
+    // oppUI array structure: [partnerAvatar, partnerText, opp1Avatar, opp1Text, opp2Avatar, opp2Text]
+    if (typeof oppUI !== 'undefined' && oppUI.length > 0) {
+        const uiMapping = [
+            { pos: positions.partner, textOffsetY: 60 * scaleFactorY },
+            { pos: positions.opp1, textOffsetY: 60 * scaleFactorY },
+            { pos: positions.opp2, textOffsetY: 60 * scaleFactorY }
+        ];
+
+        uiMapping.forEach((mapping, i) => {
+            const avatarIndex = i * 2;
+            const textIndex = i * 2 + 1;
+
+            if (oppUI[avatarIndex] && oppUI[avatarIndex].active) {
+                oppUI[avatarIndex].setPosition(mapping.pos.avatarX, mapping.pos.avatarY);
+            }
+            if (oppUI[textIndex] && oppUI[textIndex].active) {
+                oppUI[textIndex].setPosition(mapping.pos.avatarX, mapping.pos.avatarY + mapping.textOffsetY);
+            }
+        });
+    }
+
+    // Reposition dealer button if it exists
+    if (typeof buttonHandle !== 'undefined' && buttonHandle && buttonHandle.active) {
+        // Find which position has the dealer and reposition accordingly
+        if (typeof dealer !== 'undefined' && typeof position !== 'undefined' && typeof team === 'function' && typeof rotate === 'function') {
+            if (team(position) === dealer) {
+                buttonHandle.setPosition(positions.partner.avatarX + 75 * scaleFactorX, positions.partner.avatarY);
+            } else if (rotate(position) === dealer) {
+                buttonHandle.setPosition(positions.opp1.avatarX - 75 * scaleFactorX, positions.opp1.avatarY);
+            } else if (rotate(rotate(rotate(position))) === dealer) {
+                buttonHandle.setPosition(positions.opp2.avatarX + 75 * scaleFactorX, positions.opp2.avatarY);
+            }
+        }
+    }
+}
+
+// Reposition turn glow indicators during resize
+function repositionTurnGlow(screenWidth, screenHeight, scaleFactorX, scaleFactorY) {
+    const centerX = screenWidth / 2;
+    const centerY = screenHeight / 2;
+
+    // Reposition player's hand glow
+    if (gameScene && gameScene.handGlow && gameScene.handGlow.active) {
+        const handAreaHeight = 257 * scaleFactorY;
+        const handAreaWidth = screenWidth * 0.51;
+        const bottomClearance = 30 * scaleFactorY;
+        const handY = screenHeight - handAreaHeight / 2 - bottomClearance;
+
+        gameScene.handGlow.setPosition(centerX, handY);
+        gameScene.handGlow.setSize(handAreaWidth, handAreaHeight);
+    }
+
+    // Reposition opponent glow (circle near their avatar)
+    if (gameScene && gameScene.opponentGlow && gameScene.opponentGlow.active) {
+        // Determine which opponent has the glow based on current turn
+        if (typeof currentTurn !== 'undefined' && typeof position !== 'undefined') {
+            let glowX, glowY;
+            if (currentTurn === team(position)) {
+                // Partner's turn
+                glowX = centerX;
+                glowY = centerY - 400 * scaleFactorY;
+            } else if (currentTurn === rotate(position)) {
+                // Opp1's turn
+                glowX = centerX - 550 * scaleFactorX;
+                glowY = centerY;
+            } else if (currentTurn === rotate(rotate(rotate(position)))) {
+                // Opp2's turn
+                glowX = centerX + 550 * scaleFactorX;
+                glowY = centerY;
+            }
+            if (glowX !== undefined && glowY !== undefined) {
+                gameScene.opponentGlow.setPosition(glowX, glowY);
+            }
+        }
+    }
 }
 
 // Store pending data if events arrive before scene is ready
