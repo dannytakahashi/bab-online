@@ -1565,38 +1565,32 @@ function createPlayerInfoBox() {
     let scaleFactorX = screenWidth / 1920; // Adjust based on your design resolution
     let scaleFactorY = screenHeight / 953; // Adjust based on your design resolution
 
-    let boxWidth = 180*scaleFactorX;;
-    let boxHeight = 200*scaleFactorY;
     let boxX = screenWidth - 380*scaleFactorX; // Position it where the bid UI used to be
     let boxY = screenHeight - 150*scaleFactorY; // Near the hand area
 
-    // ✅ Create the dark background for player info
-    let playerBox = gameScene.add.rectangle(boxX, boxY, boxWidth, boxHeight, 0x222222)
-        .setOrigin(0.5)
-        .setAlpha(0.8) // Semi-transparent
-        .setStrokeStyle(3, 0xffffff); // White border
+    // Player Avatar
+    let playerAvatar = gameScene.add.image(boxX, boxY - 60*scaleFactorY, "profile" + playerData.pics[positionIndex])
+        .setScale(0.2)
+        .setOrigin(0.5);
 
-    // ✅ Player Name Text
-    let playerAvatar = gameScene.add.image(boxX, boxY - 110*scaleFactorY, "profile" + playerData.pics[positionIndex]) // Load texture from assets
-        .setScale(0.2) // Adjust size
-        .setOrigin(0.5)
-    let playerNameText = gameScene.add.text(boxX, boxY - 40*scaleFactorY, playerData.username[positionIndex].username, {
+    // Player Name Text
+    let playerNameText = gameScene.add.text(boxX, boxY + 10*scaleFactorY, playerData.username[positionIndex].username, {
         fontSize: "18px",
         fontFamily: "Arial",
         color: "#ffffff"
     }).setOrigin(0.5);
 
-    // ✅ Score Text
-    let playerPositionText = gameScene.add.text(boxX, boxY, "POSITION: " + position, {
+    // Position Text
+    let playerPositionText = gameScene.add.text(boxX, boxY + 35*scaleFactorY, "", {
         fontSize: "16px",
         fontFamily: "Arial",
         color: "#ffffff"
     }).setOrigin(0.5);
 
-    // ✅ Group all elements into a container
-    let playerInfoContainer = gameScene.add.container(0, 0, [playerBox, playerAvatar, playerNameText, playerPositionText]);
+    // Group all elements into a container
+    let playerInfoContainer = gameScene.add.container(0, 0, [playerAvatar, playerNameText, playerPositionText]);
 
-    return {playerBox, playerAvatar, playerNameText, playerPositionText, playerInfoContainer};
+    return {playerAvatar, playerNameText, playerPositionText, playerInfoContainer};
 }
 function createScorebug(){
     const screenWidth = gameScene.scale.width;

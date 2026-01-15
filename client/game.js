@@ -299,23 +299,17 @@ function repositionGameElements(newWidth, newHeight) {
         bidContainer.style.top = `${newHeight / 2}px`;
     }
 
-    // Reposition player info box (bottom right)
-    if (playerInfo && playerInfo.playerBox) {
+    // Reposition player info (bottom right)
+    if (playerInfo && playerInfo.playerAvatar) {
         const boxX = newWidth - 380 * scaleFactorX;
         const boxY = newHeight - 150 * scaleFactorY;
-        const boxWidth = 180 * scaleFactorX;
-        const boxHeight = 200 * scaleFactorY;
 
-        playerInfo.playerBox.setPosition(boxX, boxY);
-        playerInfo.playerBox.setSize(boxWidth, boxHeight);
-        if (playerInfo.playerAvatar) {
-            playerInfo.playerAvatar.setPosition(boxX, boxY - 110 * scaleFactorY);
-        }
+        playerInfo.playerAvatar.setPosition(boxX, boxY - 60 * scaleFactorY);
         if (playerInfo.playerNameText) {
-            playerInfo.playerNameText.setPosition(boxX, boxY - 40 * scaleFactorY);
+            playerInfo.playerNameText.setPosition(boxX, boxY + 10 * scaleFactorY);
         }
         if (playerInfo.playerPositionText) {
-            playerInfo.playerPositionText.setPosition(boxX, boxY);
+            playerInfo.playerPositionText.setPosition(boxX, boxY + 35 * scaleFactorY);
         }
     }
 
