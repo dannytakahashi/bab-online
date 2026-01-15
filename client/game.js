@@ -750,6 +750,13 @@ socket.on("destroyHands", (data) => {
     socket.off("bidReceived");
     socket.off("cardPlayed");
     destroyAllCards();
+    // Reset flag so listeners are re-registered on redeal
+    gameListenersRegistered = false;
+    // Reset bid and trick state for redeal
+    currentTeamBids = "-/-";
+    currentOppBids = "-/-";
+    teamTricks = 0;
+    oppTricks = 0;
 });
 // Track drawn cards display during draw phase
 let drawnCardDisplays = [];
