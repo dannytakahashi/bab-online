@@ -1867,6 +1867,7 @@ function displayCards(playerHand) {
 
     // Function to update card interactivity based on legal moves
     function updateCardLegality() {
+        console.log(`updateCardLegality: bidding=${bidding}, currentTurn=${currentTurn}, position=${position}, myCards.length=${myCards.length}`);
         myCards.forEach(sprite => {
             if (!sprite || !sprite.active) return;
             const card = sprite.getData('card');
@@ -1875,6 +1876,7 @@ function displayCards(playerHand) {
             // During bidding or not our turn, dim all cards
             if (bidding === 1 || currentTurn !== position || playedCard) {
                 sprite.setTint(0xaaaaaa);
+                console.log(`Dimmed ${card.rank} of ${card.suit}, tint after: ${sprite.tintTopLeft}`);
                 sprite.setData('isLegal', false);
                 return;
             }
@@ -1884,7 +1886,9 @@ function displayCards(playerHand) {
             const isLegal = isLegalMove(card, playerCards, leadCard, playedCardIndex === 0, leadPosition);
 
             if (isLegal) {
+                console.log(`Enabling ${card.rank} of ${card.suit}, tint before: ${sprite.tintTopLeft}`);
                 sprite.clearTint();
+                console.log(`After clearTint: ${sprite.tintTopLeft}`);
                 sprite.setData('isLegal', true);
             } else {
                 sprite.setTint(0x666666);
