@@ -88,6 +88,46 @@ function processRejoin(data) {
         displayTableCard.call(gameScene, trump);
     }
 
+    // Bug 2 fix: Restore played cards in current trick
+    if (data.playedCards && data.playedCards.length > 0) {
+        const screenWidth = gameScene.scale.width;
+        const screenHeight = gameScene.scale.height;
+
+        // Ensure play positions are calculated
+        updatePlayPositions(screenWidth, screenHeight);
+
+        // playedCards array is indexed by position-1 (index 0 = position 1, etc.)
+        data.playedCards.forEach((card, index) => {
+            if (!card) return; // No card played at this position yet
+
+            const cardPosition = index + 1; // Convert to 1-4 position
+            const cardKey = getCardImageKey(card);
+            let x, y;
+
+            // Map card position to screen position relative to player
+            if (cardPosition === position) {
+                x = playPositions.self.x;
+                y = playPositions.self.y;
+            } else if (cardPosition === position + 1 || cardPosition === position - 3) {
+                x = playPositions.opponent1.x;
+                y = playPositions.opponent1.y;
+            } else if (cardPosition === position + 2 || cardPosition === position - 2) {
+                x = playPositions.partner.x;
+                y = playPositions.partner.y;
+            } else {
+                x = playPositions.opponent2.x;
+                y = playPositions.opponent2.y;
+            }
+
+            const sprite = gameScene.add.image(x, y, 'cards', cardKey)
+                .setScale(1.5)
+                .setDepth(200);
+            currentTrick.push(sprite);
+        });
+
+        console.log(`🔄 Restored ${currentTrick.length} played cards from current trick`);
+    }
+
     addToGameFeed("Reconnected to game!");
 }
 
@@ -325,6 +365,9 @@ function repositionGameElements(newWidth, newHeight) {
 
     // Reposition turn glow indicators
     repositionTurnGlow(newWidth, newHeight, scaleFactorX, scaleFactorY);
+
+    // Update play area positions for card animations (Bug 3 fix)
+    updatePlayPositions(newWidth, newHeight);
 }
 
 // Reposition cards in the player's hand during resize
@@ -497,6 +540,19 @@ function repositionTurnGlow(screenWidth, screenHeight, scaleFactorX, scaleFactor
     // so it automatically stays aligned with the hand border element.
     // Opponent glow is also CSS-based on DOM avatar elements, which are
     // repositioned by repositionOpponentElements, so no action needed here.
+}
+
+// Update play area positions for card animations (Bug 3 fix)
+function updatePlayPositions(screenWidth, screenHeight) {
+    const scaleFactorX = screenWidth / 1920;
+    const scaleFactorY = screenHeight / 953;
+    const playOffsetX = 80 * scaleFactorX;
+    const playOffsetY = 80 * scaleFactorY;
+
+    playPositions.opponent1 = { x: screenWidth / 2 - playOffsetX, y: screenHeight / 2 };
+    playPositions.opponent2 = { x: screenWidth / 2 + playOffsetX, y: screenHeight / 2 };
+    playPositions.partner = { x: screenWidth / 2, y: screenHeight / 2 - playOffsetY };
+    playPositions.self = { x: screenWidth / 2, y: screenHeight / 2 + playOffsetY };
 }
 
 // Store pending data if events arrive before scene is ready
@@ -1274,6 +1330,13 @@ let leadBool = false;
 let tempBids = [];
 let currentTrick = [];
 let thisTrick = [];
+// Play area positions - updated on resize (Bug 3 fix)
+let playPositions = {
+    opponent1: { x: 0, y: 0 },
+    opponent2: { x: 0, y: 0 },
+    partner: { x: 0, y: 0 },
+    self: { x: 0, y: 0 }
+};
 // Note: handBackground and border are now DOM elements with ids 'handBackgroundDom' and 'handBorderDom'
 function clearAllTricks() {
     console.log("🗑️ Clearing all tricks...");
@@ -1664,17 +1727,8 @@ function displayCards(playerHand, skipAnimation = false) {
     let handAreaTop = screenHeight - handAreaHeight - bottomClearance;
     let startY = handAreaTop + handAreaHeight / 2; // ✅ Vertically centered on table
 
-    // Play positions - inside the green play zone with smaller offsets
-    let playOffsetX = 80 * scaleFactorX;
-    let playOffsetY = 80 * scaleFactorY;
-    let opponent1_x = screenWidth / 2 - playOffsetX;
-    let opponent1_y = screenHeight / 2;
-    let opponent2_x = screenWidth / 2 + playOffsetX;
-    let opponent2_y = screenHeight / 2;
-    let team1_x = screenWidth / 2;
-    let team1_y = screenHeight / 2 - playOffsetY;
-    let selfPlay_x = screenWidth / 2;
-    let selfPlay_y = screenHeight / 2 + playOffsetY;
+    // Initialize play positions (Bug 3 fix - use module-level positions updated on resize)
+    updatePlayPositions(screenWidth, screenHeight);
 
     let handY = screenHeight - handAreaHeight / 2 - bottomClearance; // reuses bottomClearance from above
     // Create play zone as DOM element (replaces Phaser rectangle)
@@ -2218,8 +2272,8 @@ function displayCards(playerHand, skipAnimation = false) {
                 if(visible()){
                     this.tweens.add({
                         targets: removedCard,
-                        x: opponent1_x,
-                        y: opponent1_y,
+                        x: playPositions.opponent1.x,
+                        y: playPositions.opponent1.y,
                         duration: 500,
                         ease: "Power2",
                         rotation: 0,
@@ -2228,11 +2282,11 @@ function displayCards(playerHand, skipAnimation = false) {
                             removedCard.setTexture('cards', cardKey);
                             removedCard.setDepth(200);
                             console.log("card texture changed to: ", cardKey);
-                        } 
+                        }
                     });
                 }else{
-                    removedCard.x = opponent1_x;
-                    removedCard.y = opponent1_y;
+                    removedCard.x = playPositions.opponent1.x;
+                    removedCard.y = playPositions.opponent1.y;
                     removedCard.setTexture('cards', cardKey);
                     removedCard.setDepth(200);
                     removedCard.setScale(1.5);
@@ -2251,8 +2305,8 @@ function displayCards(playerHand, skipAnimation = false) {
                 if(visible()){
                     this.tweens.add({
                         targets: removedCard,
-                        x: team1_x,
-                        y: team1_y,
+                        x: playPositions.partner.x,
+                        y: playPositions.partner.y,
                         duration: 500,
                         ease: "Power2",
                         rotation: 0,
@@ -2261,11 +2315,11 @@ function displayCards(playerHand, skipAnimation = false) {
                             removedCard.setTexture('cards', cardKey);
                             removedCard.setDepth(200);
                             console.log("card texture changed to: ", cardKey);
-                        } 
+                        }
                     });
                 }else{
-                    removedCard.x = team1_x;
-                    removedCard.y = team1_y;
+                    removedCard.x = playPositions.partner.x;
+                    removedCard.y = playPositions.partner.y;
                     removedCard.setTexture('cards', cardKey);
                     removedCard.setDepth(200);
                     removedCard.setScale(1.5);
@@ -2281,11 +2335,11 @@ function displayCards(playerHand, skipAnimation = false) {
             if (opponentCardSprites["opp2"] && opponentCardSprites["opp2"].length > 0) {
                 let removedCard = opponentCardSprites["opp2"].pop();
                 currentTrick.push(removedCard); // Add the removed card to the current trick
-                if(visible()){  
+                if(visible()){
                     this.tweens.add({
                         targets: removedCard,
-                        x: opponent2_x,
-                        y: opponent2_y,
+                        x: playPositions.opponent2.x,
+                        y: playPositions.opponent2.y,
                         duration: 500,
                         ease: "Power2",
                         rotation: 0,
@@ -2294,11 +2348,11 @@ function displayCards(playerHand, skipAnimation = false) {
                             removedCard.setTexture('cards', cardKey);
                             removedCard.setDepth(200);
                             console.log("card texture changed to: ", cardKey);
-                        } 
+                        }
                     });
                 }else{
-                    removedCard.x = opponent2_x;
-                    removedCard.y = opponent2_y;
+                    removedCard.x = playPositions.opponent2.x;
+                    removedCard.y = playPositions.opponent2.y;
                     removedCard.setTexture('cards', cardKey);
                     removedCard.setDepth(200);
                     removedCard.setScale(1.5);
@@ -2311,7 +2365,7 @@ function displayCards(playerHand, skipAnimation = false) {
             }
         }
         else if (data.position === position){
-            currentTrick.push(this.add.image(selfPlay_x, selfPlay_y, 'cards', cardKey).setScale(1.5).setDepth(200));
+            currentTrick.push(this.add.image(playPositions.self.x, playPositions.self.y, 'cards', cardKey).setScale(1.5).setDepth(200));
         }
     })
     socket.on("trickComplete", (data) => {
@@ -2444,6 +2498,7 @@ function displayCards(playerHand, skipAnimation = false) {
         window.updateBoreButtons = null;
         tempBids = [];
         bidding = 0;
+        playedCard = false;  // Bug 1 fix: Reset from previous hand before updating card legality
 
         // Update card legality now that bidding is over
         if (window.updateCardLegality) {
