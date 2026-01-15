@@ -886,13 +886,47 @@ function createGameFeed() {
         game.scale.refresh();
     }
     window.dispatchEvent(new Event('resize'));
-    // Also do it after a short delay as backup
+    // Also do it after a short delay as backup - use actual container dimensions
+    // and force Phaser to resize to fix cases where scale manager doesn't update
     setTimeout(() => {
-        window.dispatchEvent(new Event('resize'));
-        if (game && game.scale) {
-            game.scale.refresh();
+        const container = document.getElementById('game-container');
+        if (container && game && game.scale) {
+            const newWidth = container.clientWidth;
+            const newHeight = container.clientHeight;
+            console.log(`📐 Forcing Phaser resize to container: ${newWidth}x${newHeight}`);
+            game.scale.resize(newWidth, newHeight);
+            if (gameScene) {
+                repositionGameElements.call(gameScene, newWidth, newHeight);
+            }
         }
+        window.dispatchEvent(new Event('resize'));
     }, 100);
+
+    // Add backup window resize listener in case Phaser's scale events don't fire
+    // This ensures elements get repositioned even when Phaser's scale manager isn't working
+    if (!window._gameResizeListenerAdded) {
+        window._gameResizeListenerAdded = true;
+        window.addEventListener('resize', () => {
+            if (gameScene && game) {
+                // Use actual container dimensions instead of Phaser's scale (which might be stale)
+                const container = document.getElementById('game-container');
+                if (container) {
+                    const newWidth = container.clientWidth;
+                    const newHeight = container.clientHeight;
+                    console.log(`🔄 Backup resize handler: ${newWidth}x${newHeight}`);
+                    // Also refresh Phaser's scale manager to sync it with the new size
+                    if (game.scale) {
+                        game.scale.resize(newWidth, newHeight);
+                    }
+                    try {
+                        repositionGameElements.call(gameScene, newWidth, newHeight);
+                    } catch (e) {
+                        console.error('❌ Error in backup resize handler:', e);
+                    }
+                }
+            }
+        });
+    }
 }
 function addToGameFeed(message, playerPosition = null) {
     let messagesArea = document.getElementById("gameFeedMessages");
@@ -2545,6 +2579,20 @@ function displayCards(playerHand, skipAnimation = false) {
         if (window.updateCardLegality) {
             console.log("🎯 Calling window.updateCardLegality()");
             window.updateCardLegality();
+
+            // Force Phaser to re-render by refreshing scale manager and forcing sprite updates
+            // This fixes a bug where visual updates don't show until page refresh
+            if (game && game.scale) {
+                game.scale.refresh();
+            }
+            // Force sprites to redraw by triggering a tiny alpha change
+            myCards.forEach(sprite => {
+                if (sprite && sprite.active) {
+                    const currentAlpha = sprite.alpha;
+                    sprite.setAlpha(currentAlpha - 0.001);
+                    sprite.setAlpha(currentAlpha);
+                }
+            });
         } else {
             console.log("🚨 window.updateCardLegality is not defined!");
         }
