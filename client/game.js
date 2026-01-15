@@ -80,8 +80,8 @@ function processRejoin(data) {
         displayCards.call(gameScene, playerCards, true);
     }
 
-    // Display opponent hands (card backs)
-    displayOpponentHands.call(gameScene, playerCards ? playerCards.length : 0, dealer);
+    // Display opponent hands (card backs) - skip animation on rejoin
+    displayOpponentHands.call(gameScene, playerCards ? playerCards.length : 0, dealer, true);
 
     // Display trump card
     if (trump) {
@@ -2606,8 +2606,8 @@ function cleanupOpponentAvatars() {
     });
 }
 
-function displayOpponentHands(numCards,dealer) {
-    console.log("🎭 displayOpponentHands called!");
+function displayOpponentHands(numCards, dealer, skipAnimation = false) {
+    console.log("🎭 displayOpponentHands called! skipAnimation:", skipAnimation);
     console.log("🎭 this (scene):", this);
     console.log("🎭 numCards:", numCards, "dealer:", dealer);
     console.log("🎭 playerData:", playerData);
@@ -2705,7 +2705,7 @@ function displayOpponentHands(numCards,dealer) {
             // Ensure opponent cards are visually below player cards
             cardBack.setDepth(200);
             opponentCardSprites[opponentId].push(cardBack);
-            if(visible()){
+            if(visible() && !skipAnimation){
                 this.tweens.add({
                     targets: cardBack,
                     x: x + offsetX,
