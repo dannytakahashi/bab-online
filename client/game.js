@@ -787,6 +787,9 @@ function createGameFeed() {
 
     // Add initial message to confirm feed is working
     addToGameFeed("Game started!");
+
+    // Apply width restriction to game container to prevent overlap with game log
+    document.getElementById('game-container').classList.add('in-game');
 }
 function addToGameFeed(message, playerPosition = null) {
     let messagesArea = document.getElementById("gameFeedMessages");
