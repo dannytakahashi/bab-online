@@ -787,6 +787,11 @@ function createGameFeed() {
 
     // Add initial message to confirm feed is working
     addToGameFeed("Game started!");
+
+    // Restrict game container width to make room for game log
+    document.getElementById('game-container').classList.add('in-game');
+    // Trigger resize so Phaser recalculates canvas size
+    window.dispatchEvent(new Event('resize'));
 }
 function addToGameFeed(message, playerPosition = null) {
     let messagesArea = document.getElementById("gameFeedMessages");

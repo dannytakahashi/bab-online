@@ -17,11 +17,16 @@ canvas {
     position: absolute;
     left: 0;
     top: 0;
-    width: calc(100vw - 320px);
+    width: 100%;
     height: 100vh;
     background: radial-gradient(ellipse at center, #228B22 0%, #0d1a0d 100%); /* Green poker table gradient */
     z-index: 1;
     overflow: hidden;
+}
+
+/* Applied when in active game to make room for game log */
+#game-container.in-game {
+    width: calc(100vw - 320px);
 }
 
 h1 {
@@ -79,27 +84,27 @@ h1 {
 
 /* ==================== RESPONSIVE DESIGN ==================== */
 
-/* Game container width must match game log responsive widths */
+/* Game container width must match game log responsive widths (only when in-game) */
 @media (max-width: 1400px) {
-    #game-container {
+    #game-container.in-game {
         width: calc(100vw - 280px);
     }
 }
 
 @media (max-width: 1200px) {
-    #game-container {
+    #game-container.in-game {
         width: calc(100vw - 240px);
     }
 }
 
 @media (max-width: 1000px) {
-    #game-container {
+    #game-container.in-game {
         width: calc(100vw - 200px);
     }
 }
 
 @media (max-width: 800px) {
-    #game-container {
+    #game-container.in-game {
         width: calc(100vw - 170px);
     }
 }
