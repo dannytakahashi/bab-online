@@ -223,7 +223,8 @@ let playerInfo = null;
 let gameListenersRegistered = false; // Track if socket listeners are already registered
 let waitBool = false;
 let queueDelay = false;
-let lastQueueData; 
+let lastQueueData;
+let opponentAvatarDoms = { partner: null, opp1: null, opp2: null }; // DOM-based opponent avatars for CSS glow support
 function create() {
     gameScene = this; // Store reference to the game scene
     console.log("🚀 CREATE() RUNNING!");
@@ -351,13 +352,16 @@ function positionDomBackgrounds(screenWidth, screenHeight) {
         playZoneDom.style.top = `${(screenHeight - playZoneHeight) / 2}px`;
     }
 
-    // Position hand background (bottom center)
+    // Position hand background (bottom center) - snug fit around cards
     const handBgDom = document.getElementById('handBackgroundDom');
     const borderDom = document.getElementById('handBorderDom');
     if (handBgDom) {
-        const bottomClearance = 30 * scaleFactorY;
-        const handAreaHeight = 250 * scaleFactorY;
-        const handAreaWidth = screenWidth * 0.5;
+        const bottomClearance = 20 * scaleFactorY;
+        // Card height at scale 1.5 is ~210px, add padding for snug fit
+        const cardHeight = 140 * 1.5 * scaleFactorY;
+        const cardPadding = 25 * scaleFactorY;
+        const handAreaHeight = cardHeight + cardPadding * 2;
+        const handAreaWidth = screenWidth * 0.4;
         const handY = screenHeight - handAreaHeight - bottomClearance;
         const handX = (screenWidth - handAreaWidth) / 2;
 
@@ -383,6 +387,8 @@ function cleanupDomBackgrounds() {
     if (playZoneDom) playZoneDom.remove();
     if (handBgDom) handBgDom.remove();
     if (borderDom) borderDom.remove();
+    // Clean up opponent avatar DOM elements
+    cleanupOpponentAvatars();
 }
 
 // Reposition opponent UI elements (avatars, names, card backs) during resize
@@ -443,24 +449,13 @@ function repositionOpponentElements(screenWidth, screenHeight, scaleFactorX, sca
         });
     }
 
-    // Reposition opponent UI (avatars and text labels)
-    // oppUI array structure: [partnerAvatar, partnerText, opp1Avatar, opp1Text, opp2Avatar, opp2Text]
-    if (typeof oppUI !== 'undefined' && oppUI.length > 0) {
-        const uiMapping = [
-            { pos: positions.partner, textOffsetY: 60 * scaleFactorY },
-            { pos: positions.opp1, textOffsetY: 60 * scaleFactorY },
-            { pos: positions.opp2, textOffsetY: 60 * scaleFactorY }
-        ];
-
-        uiMapping.forEach((mapping, i) => {
-            const avatarIndex = i * 2;
-            const textIndex = i * 2 + 1;
-
-            if (oppUI[avatarIndex] && oppUI[avatarIndex].active) {
-                oppUI[avatarIndex].setPosition(mapping.pos.avatarX, mapping.pos.avatarY);
-            }
-            if (oppUI[textIndex] && oppUI[textIndex].active) {
-                oppUI[textIndex].setPosition(mapping.pos.avatarX, mapping.pos.avatarY + mapping.textOffsetY);
+    // Reposition opponent DOM avatars
+    if (typeof opponentAvatarDoms !== 'undefined') {
+        Object.keys(positions).forEach(opponentId => {
+            const dom = opponentAvatarDoms[opponentId];
+            if (dom) {
+                dom.style.left = `${positions[opponentId].avatarX}px`;
+                dom.style.top = `${positions[opponentId].avatarY}px`;
             }
         });
     }
@@ -482,39 +477,10 @@ function repositionOpponentElements(screenWidth, screenHeight, scaleFactorX, sca
 
 // Reposition turn glow indicators during resize
 function repositionTurnGlow(screenWidth, screenHeight, scaleFactorX, scaleFactorY) {
-    const centerX = screenWidth / 2;
-    const centerY = screenHeight / 2;
-
-    // Player's hand glow is now CSS-based (turn-glow class on handBorderDom)
-    // so it automatically stays aligned with the hand border element
-
-    // Reposition opponent glow (circle near their avatar)
-    if (gameScene && gameScene.opponentGlow && gameScene.opponentGlow.active) {
-        // Determine which opponent has the glow based on current turn
-        if (typeof currentTurn !== 'undefined' && typeof position !== 'undefined') {
-            // Clamp positions to stay within canvas bounds (match repositionOpponentElements)
-            const minX = 80;
-            const maxX = screenWidth - 120;
-
-            let glowX, glowY;
-            if (currentTurn === team(position)) {
-                // Partner's turn
-                glowX = centerX;
-                glowY = centerY - 400 * scaleFactorY;
-            } else if (currentTurn === rotate(position)) {
-                // Opp1's turn - clamp to left edge
-                glowX = Math.max(minX, centerX - 550 * scaleFactorX);
-                glowY = centerY;
-            } else if (currentTurn === rotate(rotate(rotate(position)))) {
-                // Opp2's turn - clamp to right edge
-                glowX = Math.min(maxX, centerX + 550 * scaleFactorX);
-                glowY = centerY;
-            }
-            if (glowX !== undefined && glowY !== undefined) {
-                gameScene.opponentGlow.setPosition(glowX, glowY);
-            }
-        }
-    }
+    // Player's hand glow is CSS-based (turn-glow class on handBorderDom)
+    // so it automatically stays aligned with the hand border element.
+    // Opponent glow is also CSS-based on DOM avatar elements, which are
+    // repositioned by repositionOpponentElements, so no action needed here.
 }
 
 // Store pending data if events arrive before scene is ready
@@ -880,61 +846,22 @@ function updateGameLogScore(teamNames, oppNames, teamScore, oppScore, teamBids =
 
 let handGlow;
 function addOpponentGlow(scene, relation){
-    let glowRadius = 47; // ✅ Adjust the radius as needed
-    if (!scene) {
-        console.error("🚨 ERROR: Scene is undefined in addOpponentGlow!");
-        return;
+    // Use CSS class on DOM avatar element for consistent glow effect
+    removeOpponentGlow(scene);
+
+    const avatarDom = opponentAvatarDoms[relation];
+    if (avatarDom) {
+        avatarDom.classList.add('turn-glow');
+        console.log(`🟫 Added CSS turn glow to ${relation} avatar.`);
     }
-    if (scene.opponentGlow) {
-        scene.opponentGlow.destroy(); // ✅ Remove from the game
-        scene.opponentGlow = null; // ✅ Clear reference
-    }
-    let screenWidth = scene.scale.width;
-    let screenHeight = scene.scale.height;
-    let scaleFactorX = screenWidth / 1920; // Adjust based on your design resolution
-    let scaleFactorY = screenHeight / 953; // Adjust based on your design resolution
-    let centerPlayAreaX = screenWidth / 2;
-    let centerPlayAreaY = screenHeight / 2;
-    // Clamp positions to stay within canvas bounds (match repositionOpponentElements)
-    const minX = 80;
-    const maxX = screenWidth - 120;
-    let glowX, glowY;
-    if (relation === "opp1"){
-        glowX = Math.max(minX, centerPlayAreaX - 550*scaleFactorX);
-        glowY = centerPlayAreaY;
-    }
-    else if (relation === "partner"){
-        glowX = centerPlayAreaX;
-        glowY = centerPlayAreaY - 400*scaleFactorY;
-    }
-    else if (relation === "opp2"){
-        glowX = Math.min(maxX, centerPlayAreaX + 550*scaleFactorX);
-        glowY = centerPlayAreaY;
-    }
-    scene.opponentGlow = scene.add.circle(glowX, glowY, glowRadius, 0xFFD700)
-        .setAlpha(0.3)
-        .setDepth(-3);
-    console.log("🟫 Added solid background & pulsing glow for opponent hand.");
-    scene.tweens.add({
-        targets: scene.opponentGlow,
-        alpha: { from: 0.1, to: 0.5 },
-        duration: 1000,
-        yoyo: true,
-        repeat: -1,
-        ease: "Sine.easeInOut"
-    });
 }
 function removeOpponentGlow(scene){
-    if (!scene) {
-        console.error("🚨 ERROR: Scene is undefined in removeTurnGlow!");
-        return;
-    }
-
-    if (scene.opponentGlow) {
-        console.log("🚫 Removing turn glow...");
-        scene.opponentGlow.destroy(); // ✅ Remove from the game
-        scene.opponentGlow = null; // ✅ Clear reference
-    }
+    // Remove glow class from all opponent avatars
+    Object.values(opponentAvatarDoms).forEach(dom => {
+        if (dom) {
+            dom.classList.remove('turn-glow');
+        }
+    });
 }
 function addTurnGlow(scene) {
     // Use CSS class on hand border DOM element for perfect alignment on resize
@@ -993,6 +920,7 @@ socket.on("destroyHands", (data) => {
 // Track drawn cards display during draw phase
 let drawnCardDisplays = [];
 let hasDrawn = false;
+let clickedCardPosition = null; // Store position of clicked card for draw animation
 
 function draw() {
     clearScreen.call(game.scene.scenes[0]);
@@ -1053,7 +981,10 @@ function draw() {
             if (hasDrawn) return; // Prevent multiple draws
             hasDrawn = true;
 
-            console.log(`📦 Clicked card ${i + 1} to draw`);
+            // Store clicked card position for flip animation
+            clickedCardPosition = { x: cardSprite.x, y: cardSprite.y };
+
+            console.log(`📦 Clicked card ${i + 1} to draw at (${cardSprite.x}, ${cardSprite.y})`);
             socket.emit("draw", {num: Math.floor(Math.random() * 54)});
 
             // Disable all cards immediately
@@ -1076,10 +1007,16 @@ function draw() {
 
         // Calculate position for this drawn card (drawOrder is 1-4)
         const slotX = drawDisplayStartX + (data.drawOrder - 1) * drawDisplaySpacing;
-
-        // Create card sprite at deck location, then animate to display position
         let textureKey = getCardImageKey(data.card);
-        let drawnCard = scene.add.image(screenWidth / 2, startY, 'cards', textureKey)
+
+        // Determine start position: clicked position for local player, deck center for others
+        let isLocalPlayer = clickedCardPosition !== null;
+        let startPos = isLocalPlayer
+            ? { x: clickedCardPosition.x, y: clickedCardPosition.y }
+            : { x: screenWidth / 2, y: startY };
+
+        // Create card with BACK texture initially at start position
+        let drawnCard = scene.add.image(startPos.x, startPos.y, 'cardBack')
             .setScale(0.8)
             .setDepth(300);
 
@@ -1092,15 +1029,40 @@ function draw() {
             strokeThickness: 3
         }).setOrigin(0.5).setDepth(300);
 
-        // Animate card to display position
+        // Calculate midpoint for flip animation
+        const midX = (startPos.x + slotX) / 2;
+        const midY = (startPos.y + drawDisplayY) / 2;
+
+        // Phase 1: Move toward midpoint and scale X to 0 (flip start)
         scene.tweens.add({
             targets: drawnCard,
-            x: slotX,
-            y: drawDisplayY,
-            scale: 1.5,
-            duration: 500,
-            ease: "Power2"
+            x: midX,
+            y: midY,
+            scaleX: 0,
+            scaleY: 1.1,
+            duration: 250,
+            ease: "Power2",
+            onComplete: () => {
+                // Change texture to revealed card at the flip midpoint
+                drawnCard.setTexture('cards', textureKey);
+
+                // Phase 2: Scale X back and complete movement to display slot
+                scene.tweens.add({
+                    targets: drawnCard,
+                    x: slotX,
+                    y: drawDisplayY,
+                    scaleX: 1.5,
+                    scaleY: 1.5,
+                    duration: 250,
+                    ease: "Power2"
+                });
+            }
         });
+
+        // Clear clicked position after local player's card is processed
+        if (isLocalPlayer) {
+            clickedCardPosition = null;
+        }
 
         drawnCardDisplays.push(drawnCard, nameLabel);
     });
@@ -1648,16 +1610,30 @@ function displayCards(playerHand) {
     let cardSpacing = 50*scaleFactorX; // Spacing between cards
     let totalWidth = (playerHand.length - 1) * cardSpacing; // Width of all cards together
     let startX = (screenWidth - totalWidth) / 2; // ✅ Centered starting position
-    let bottomClearance = 30*scaleFactorY; // Match table clearance
-    let startY = this.scale.height - 200*scaleFactorY - bottomClearance; // ✅ Adjust vertical position
-    let opponent1_x = screenWidth / 2 - 200*scaleFactorX;
+
+    // Calculate hand area dimensions (must match positionDomBackgrounds)
+    let bottomClearance = 20*scaleFactorY;
+    let cardHeight = 140 * 1.5 * scaleFactorY;
+    let cardPadding = 25 * scaleFactorY;
+    let handAreaHeight = cardHeight + cardPadding * 2;
+    let handAreaWidth = screenWidth * 0.4;
+
+    // Center cards vertically within the hand area
+    let handAreaTop = screenHeight - handAreaHeight - bottomClearance;
+    let startY = handAreaTop + handAreaHeight / 2; // ✅ Vertically centered on table
+
+    // Play positions - inside the green play zone with smaller offsets
+    let playOffsetX = 80 * scaleFactorX;
+    let playOffsetY = 80 * scaleFactorY;
+    let opponent1_x = screenWidth / 2 - playOffsetX;
     let opponent1_y = screenHeight / 2;
-    let opponent2_x = screenWidth / 2 + 200*scaleFactorX;
+    let opponent2_x = screenWidth / 2 + playOffsetX;
     let opponent2_y = screenHeight / 2;
     let team1_x = screenWidth / 2;
-    let team1_y = screenHeight / 2 - 150*scaleFactorY;
-    let handAreaWidth = screenWidth * 0.5; // ✅ Width of the background area
-    let handAreaHeight = 250*scaleFactorY; // ✅ Height of the background area
+    let team1_y = screenHeight / 2 - playOffsetY;
+    let selfPlay_x = screenWidth / 2;
+    let selfPlay_y = screenHeight / 2 + playOffsetY;
+
     let handY = screenHeight - handAreaHeight / 2 - bottomClearance; // reuses bottomClearance from above
     // Create play zone as DOM element (replaces Phaser rectangle)
     if (!document.getElementById('playZoneDom')) {
@@ -2285,7 +2261,7 @@ function displayCards(playerHand) {
             }
         }
         else if (data.position === position){
-            currentTrick.push(this.add.image(screenWidth / 2, screenHeight / 2 + 150, 'cards', cardKey).setScale(1.5));
+            currentTrick.push(this.add.image(selfPlay_x, selfPlay_y, 'cards', cardKey).setScale(1.5));
         }
     })
     socket.on("trickComplete", (data) => {
@@ -2542,6 +2518,45 @@ function displayCards(playerHand) {
 }
 let buttonHandle;
 let oppUI = [];
+
+// Create DOM-based opponent avatar with CSS glow support
+function createOpponentAvatarDom(opponentId, pic, username) {
+    // Remove existing if any
+    if (opponentAvatarDoms[opponentId]) {
+        opponentAvatarDoms[opponentId].remove();
+    }
+
+    const container = document.createElement('div');
+    container.id = `opponent-avatar-${opponentId}`;
+    container.className = `opponent-avatar-container ${opponentId}`;
+
+    const img = document.createElement('img');
+    img.className = 'opponent-avatar-img';
+    img.src = `assets/profile${pic}.png`;
+    img.alt = username;
+
+    const nameLabel = document.createElement('div');
+    nameLabel.className = 'opponent-avatar-name';
+    nameLabel.textContent = username;
+
+    container.appendChild(img);
+    container.appendChild(nameLabel);
+    document.getElementById('game-container').appendChild(container);
+
+    opponentAvatarDoms[opponentId] = container;
+    return container;
+}
+
+// Clean up opponent avatar DOM elements
+function cleanupOpponentAvatars() {
+    Object.keys(opponentAvatarDoms).forEach(key => {
+        if (opponentAvatarDoms[key]) {
+            opponentAvatarDoms[key].remove();
+            opponentAvatarDoms[key] = null;
+        }
+    });
+}
+
 function displayOpponentHands(numCards,dealer) {
     console.log("🎭 displayOpponentHands called!");
     console.log("🎭 this (scene):", this);
@@ -2574,71 +2589,49 @@ function displayOpponentHands(numCards,dealer) {
     opponentCardSprites = {}; // ✅ Reset storage
     Object.keys(opponentPositions).forEach((opponentId) => {
         let { x, y, rotation, horizontal, avatarX, avatarY } = opponentPositions[opponentId];
+
+        // Create DOM-based avatars with CSS glow support
         if(opponentId === "partner"){
-            let partnerAvi = this.add.image(avatarX, avatarY, "profile" + playerData.pics[playerData.position.indexOf(team(position))])
-            .setScale(0.2) // Adjust size
-            .setDepth(250) // Ensure it's above the cards
-            .setAlpha(1);
-            oppUI.push(partnerAvi);
-            let partnerText = this.add.text(avatarX, avatarY + 60*scaleFactorY, playerData.username[playerData.position.indexOf(team(position))].username, {
-                fontSize: "18px",
-                fontFamily: "Arial",
-                color: "#ffffff",
-                fontStyle: "bold"
-            })
-            .setOrigin(0.5)  // Center the text horizontally
-            .setDepth(250);
-            oppUI.push(partnerText);
+            const pic = playerData.pics[playerData.position.indexOf(team(position))];
+            const username = playerData.username[playerData.position.indexOf(team(position))].username;
+            const avatarDom = createOpponentAvatarDom("partner", pic, username);
+            avatarDom.style.left = `${avatarX}px`;
+            avatarDom.style.top = `${avatarY}px`;
+
             if(team(position) === dealer){
                 buttonHandle = this.add.image(avatarX + 75*scaleFactorX, avatarY, "dealer")
-                .setScale(0.03) // Adjust size
-                .setDepth(250) // Ensure it's above the cards
+                .setScale(0.03)
+                .setDepth(250)
                 .setAlpha(1);
                 playerInfo.playerPositionText.setText("MP");
             }
         }
         if(opponentId === "opp1"){
-            let opp1Avi = this.add.image(avatarX, avatarY, "profile" + playerData.pics[playerData.position.indexOf(rotate(position))])
-            .setScale(0.2) // Adjust size
-            .setDepth(250) // Ensure it's above the cards
-            .setAlpha(1);
-            oppUI.push(opp1Avi);
-            let opp1Text = this.add.text(avatarX, avatarY + 60*scaleFactorY, playerData.username[playerData.position.indexOf(rotate(position))].username, {
-                fontSize: "18px",
-                fontFamily: "Arial",
-                color: "#ffffff",
-                fontStyle: "bold"
-            })
-            .setOrigin(0.5)  // Center the text horizontally
-            .setDepth(250);
-            oppUI.push(opp1Text);
+            const pic = playerData.pics[playerData.position.indexOf(rotate(position))];
+            const username = playerData.username[playerData.position.indexOf(rotate(position))].username;
+            const avatarDom = createOpponentAvatarDom("opp1", pic, username);
+            avatarDom.style.left = `${avatarX}px`;
+            avatarDom.style.top = `${avatarY}px`;
+
             if(rotate(position) === dealer){
                 buttonHandle = this.add.image(avatarX - 75*scaleFactorX, avatarY, "dealer")
-                .setScale(0.03) // Adjust size
-                .setDepth(250) // Ensure it's above the cards
+                .setScale(0.03)
+                .setDepth(250)
                 .setAlpha(1);
                 playerInfo.playerPositionText.setText("CO");
             }
         }
         if(opponentId === "opp2"){
-            let opp2Avi = this.add.image(avatarX, avatarY, "profile" + playerData.pics[playerData.position.indexOf(rotate(rotate(rotate(position))))])
-            .setScale(0.2) // Adjust size
-            .setDepth(250) // Ensure it's above the cards
-            .setAlpha(1);
-            oppUI.push(opp2Avi);
-            let opp2Text = this.add.text(avatarX, avatarY + 60*scaleFactorY, playerData.username[playerData.position.indexOf(rotate(rotate(rotate(position))))].username, {
-                fontSize: "18px",
-                fontFamily: "Arial",
-                color: "#ffffff",
-                fontStyle: "bold"
-            })
-            .setOrigin(0.5)  // Center the text horizontally
-            .setDepth(250);
-            oppUI.push(opp2Text);
+            const pic = playerData.pics[playerData.position.indexOf(rotate(rotate(rotate(position))))];
+            const username = playerData.username[playerData.position.indexOf(rotate(rotate(rotate(position))))].username;
+            const avatarDom = createOpponentAvatarDom("opp2", pic, username);
+            avatarDom.style.left = `${avatarX}px`;
+            avatarDom.style.top = `${avatarY}px`;
+
             if(rotate(rotate(rotate(position))) === dealer){
                 buttonHandle = this.add.image(avatarX + 75*scaleFactorX, avatarY, "dealer")
-                .setScale(0.03) // Adjust size
-                .setDepth(250) // Ensure it's above the cards
+                .setScale(0.03)
+                .setDepth(250)
                 .setAlpha(1);
                 playerInfo.playerPositionText.setText("UTG");
             }
