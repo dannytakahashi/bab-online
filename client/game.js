@@ -2584,23 +2584,31 @@ function displayCards(playerHand, skipAnimation = false) {
             // This fixes a bug where visual updates don't show until page refresh
             requestAnimationFrame(() => {
                 console.log("🎯 Force render in requestAnimationFrame");
-                // Strategy 1: Refresh scale manager
-                if (game && game.scale) {
-                    game.scale.refresh();
-                }
-                // Strategy 2: Force each sprite to re-render by toggling visibility
-                // Then re-enable interactivity to preserve hover behavior
+
+                // Strategy 1: Force WebGL pipeline flush by toggling blend mode
                 myCards.forEach(sprite => {
                     if (sprite && sprite.active) {
+                        const currentBlend = sprite.blendMode;
+                        sprite.setBlendMode(Phaser.BlendModes.ADD);
+                        sprite.setBlendMode(currentBlend);
+                        // Also toggle visibility as backup
                         sprite.setVisible(false);
                         sprite.setVisible(true);
-                        // Re-enable interactivity in case visibility toggle disabled it
                         sprite.setInteractive();
                     }
                 });
-                // Strategy 3: Force game step if available
-                if (game && game.loop) {
-                    game.loop.tick();
+
+                // Strategy 2: Refresh scale manager
+                if (game && game.scale) {
+                    game.scale.refresh();
+                }
+
+                // Strategy 3: Force renderer to actually render
+                if (game && game.renderer) {
+                    const scene = game.scene.scenes[0];
+                    if (scene) {
+                        game.renderer.render(scene, scene.cameras.main);
+                    }
                 }
             });
         } else {
