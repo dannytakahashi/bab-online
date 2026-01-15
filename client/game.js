@@ -376,7 +376,12 @@ function repositionOpponentElements(screenWidth, screenHeight, scaleFactorX, sca
     const centerX = screenWidth / 2;
     const centerY = screenHeight / 2;
 
+    // Clamp positions to stay within canvas bounds (leave margin for avatars)
+    const minX = 80;
+    const maxX = screenWidth - 80;
+
     // Calculate opponent positions (matching displayOpponentHands logic)
+    // Clamp opp1 and opp2 to prevent overlap with edges/game log
     const positions = {
         partner: {
             cardX: centerX,
@@ -385,15 +390,15 @@ function repositionOpponentElements(screenWidth, screenHeight, scaleFactorX, sca
             avatarY: centerY - 400 * scaleFactorY
         },
         opp1: {
-            cardX: centerX - 425 * scaleFactorX,
+            cardX: Math.max(minX + 50, centerX - 425 * scaleFactorX),
             cardY: centerY,
-            avatarX: centerX - 550 * scaleFactorX,
+            avatarX: Math.max(minX, centerX - 550 * scaleFactorX),
             avatarY: centerY
         },
         opp2: {
-            cardX: centerX + 425 * scaleFactorX,
+            cardX: Math.min(maxX - 50, centerX + 425 * scaleFactorX),
             cardY: centerY,
-            avatarX: centerX + 550 * scaleFactorX,
+            avatarX: Math.min(maxX, centerX + 550 * scaleFactorX),
             avatarY: centerY
         }
     };
@@ -466,10 +471,10 @@ function repositionTurnGlow(screenWidth, screenHeight, scaleFactorX, scaleFactor
     const centerX = screenWidth / 2;
     const centerY = screenHeight / 2;
 
-    // Reposition player's hand glow
+    // Reposition player's hand glow (must match hand background dimensions)
     if (gameScene && gameScene.handGlow && gameScene.handGlow.active) {
-        const handAreaHeight = 257 * scaleFactorY;
-        const handAreaWidth = screenWidth * 0.51;
+        const handAreaHeight = 250 * scaleFactorY;
+        const handAreaWidth = screenWidth * 0.5;
         const bottomClearance = 30 * scaleFactorY;
         const handY = screenHeight - handAreaHeight / 2 - bottomClearance;
 
@@ -481,18 +486,22 @@ function repositionTurnGlow(screenWidth, screenHeight, scaleFactorX, scaleFactor
     if (gameScene && gameScene.opponentGlow && gameScene.opponentGlow.active) {
         // Determine which opponent has the glow based on current turn
         if (typeof currentTurn !== 'undefined' && typeof position !== 'undefined') {
+            // Clamp positions to stay within canvas bounds
+            const minX = 80;
+            const maxX = screenWidth - 80;
+
             let glowX, glowY;
             if (currentTurn === team(position)) {
                 // Partner's turn
                 glowX = centerX;
                 glowY = centerY - 400 * scaleFactorY;
             } else if (currentTurn === rotate(position)) {
-                // Opp1's turn
-                glowX = centerX - 550 * scaleFactorX;
+                // Opp1's turn - clamp to left edge
+                glowX = Math.max(minX, centerX - 550 * scaleFactorX);
                 glowY = centerY;
             } else if (currentTurn === rotate(rotate(rotate(position)))) {
-                // Opp2's turn
-                glowX = centerX + 550 * scaleFactorX;
+                // Opp2's turn - clamp to right edge
+                glowX = Math.min(maxX, centerX + 550 * scaleFactorX);
                 glowY = centerY;
             }
             if (glowX !== undefined && glowY !== undefined) {
@@ -1677,7 +1686,7 @@ function displayCards(playerHand) {
         playZoneDom.style.border = '4px solid white';
         playZoneDom.style.borderRadius = '8px';
         playZoneDom.style.pointerEvents = 'none'; // Don't interfere with card clicks
-        playZoneDom.style.zIndex = '5';
+        playZoneDom.style.zIndex = '-1'; // Behind canvas so cards show on top
         document.getElementById('game-container').appendChild(playZoneDom);
         console.log("📍 Play zone DOM element created");
     }
@@ -1689,7 +1698,7 @@ function displayCards(playerHand) {
         handBgDom.style.position = 'absolute';
         handBgDom.style.backgroundColor = 'rgba(26, 51, 40, 0.85)'; // 0x1a3328 at 85% opacity
         handBgDom.style.pointerEvents = 'none';
-        handBgDom.style.zIndex = '2';
+        handBgDom.style.zIndex = '-2'; // Behind canvas so cards show on top
         document.getElementById('game-container').appendChild(handBgDom);
 
         // Border element
@@ -1698,7 +1707,7 @@ function displayCards(playerHand) {
         borderDom.style.position = 'absolute';
         borderDom.style.border = '2px solid #2d5a40';
         borderDom.style.pointerEvents = 'none';
-        borderDom.style.zIndex = '3';
+        borderDom.style.zIndex = '-1'; // Behind canvas so cards show on top
         document.getElementById('game-container').appendChild(borderDom);
     }
     // Position the DOM background elements
