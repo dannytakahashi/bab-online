@@ -618,9 +618,7 @@
     width: 80px;
     height: 80px;
     border-radius: 50%;
-    border: 3px solid #333;
     object-fit: cover;
-    background-color: #1a1a1a;
 }
 
 .opponent-avatar-name {
