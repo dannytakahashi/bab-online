@@ -1360,9 +1360,6 @@ function hideFinal() {
             gameFeed.remove();
         }
 
-        // Remove width restriction from game container
-        document.getElementById('game-container').classList.remove('in-game');
-
         gameScene.scene.restart();
         socket.off("gameStart");
         playZone = null;
