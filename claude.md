@@ -108,6 +108,8 @@ bab-online/
 - **UI**: Phaser for game canvas, `UIManager` for DOM lifecycle
 - **Animations**: Phaser tweens (Power2 easing, 200-500ms durations)
 - **Game Logic**: Pure functions in `rules.js` for testability
+- **Responsive Layout**: Dynamic game container width (full in lobby, restricted during game for game log)
+- **Turn Indicator**: CSS-based glow effect (`.turn-glow` class) for proper resize handling
 
 ## Game Flow
 
