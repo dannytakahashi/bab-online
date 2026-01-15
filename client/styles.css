@@ -21,6 +21,12 @@ canvas {
     overflow: hidden;
 }
 
+/* Applied dynamically when in a game to prevent overlap with game log */
+#game-container.in-game {
+    width: calc(100vw - 320px);
+    height: 100vh;
+}
+
 h1 {
     color: white;
 }
@@ -75,6 +81,31 @@ h1 {
 }
 
 /* ==================== RESPONSIVE DESIGN ==================== */
+
+/* Game container width must match game log responsive widths (only when in-game) */
+@media (max-width: 1400px) {
+    #game-container.in-game {
+        width: calc(100vw - 280px);
+    }
+}
+
+@media (max-width: 1200px) {
+    #game-container.in-game {
+        width: calc(100vw - 240px);
+    }
+}
+
+@media (max-width: 1000px) {
+    #game-container.in-game {
+        width: calc(100vw - 200px);
+    }
+}
+
+@media (max-width: 800px) {
+    #game-container.in-game {
+        width: calc(100vw - 170px);
+    }
+}
 
 /* Ensure minimum touch target sizes for all interactive elements */
 button, input[type="button"], input[type="submit"], .bid-button {
