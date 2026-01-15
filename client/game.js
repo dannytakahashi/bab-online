@@ -18,6 +18,7 @@ let pendingRejoinData = null;
 
 function processRejoin(data) {
     console.log("🔄 Processing rejoin with data:", data);
+    console.log("🔄 gameScene exists:", !!gameScene, "game exists:", !!game);
 
     // Clear any sign-in/lobby screens first
     removeAllVignettes();
@@ -260,6 +261,7 @@ function create() {
     }
     // Handle window resize - reposition all game elements
     this.scale.on('resize', (gameSize) => {
+        console.log(`📐 Phaser resize event: ${gameSize.width}x${gameSize.height}`);
         repositionGameElements.call(this, gameSize.width, gameSize.height);
     });
 
@@ -690,7 +692,15 @@ let tableCardSprite;
 function createGameFeed() {
     let feedCheck = document.getElementById("gameFeed");
     if(feedCheck){
-        console.log("feed already exists.");
+        console.log("feed already exists, ensuring layout is correct...");
+        // Still need to ensure .in-game class and resize even if feed exists
+        document.getElementById('game-container').classList.add('in-game');
+        setTimeout(() => {
+            window.dispatchEvent(new Event('resize'));
+            if (game && game.scale) {
+                game.scale.refresh();
+            }
+        }, 50);
         return;
     }
     console.log("Creating game feed...");
