@@ -2151,6 +2151,37 @@ function displayCards(playerHand, skipAnimation = false) {
     // Initial update of card legality (cards should be dimmed during bidding)
     updateCardLegality();
 
+    // Helper function to force Phaser to re-render sprites
+    // This fixes a bug where visual updates don't show until page refresh
+    function forceRenderUpdate() {
+        requestAnimationFrame(() => {
+            // Strategy 1: Force WebGL pipeline flush by toggling blend mode
+            myCards.forEach(sprite => {
+                if (sprite && sprite.active) {
+                    const currentBlend = sprite.blendMode;
+                    sprite.setBlendMode(Phaser.BlendModes.ADD);
+                    sprite.setBlendMode(currentBlend);
+                    sprite.setVisible(false);
+                    sprite.setVisible(true);
+                    sprite.setInteractive();
+                }
+            });
+
+            // Strategy 2: Refresh scale manager
+            if (game && game.scale) {
+                game.scale.refresh();
+            }
+
+            // Strategy 3: Force renderer to actually render
+            if (game && game.renderer) {
+                const scene = game.scene.scenes[0];
+                if (scene) {
+                    game.renderer.render(scene, scene.cameras.main);
+                }
+            }
+        });
+    }
+
     // Only register socket listeners once to prevent duplicates across hands
     if (gameListenersRegistered) {
         console.log("⏭️ Socket listeners already registered, skipping...");
@@ -2275,6 +2306,7 @@ function displayCards(playerHand, skipAnimation = false) {
         // Update card legality when turn changes
         if (window.updateCardLegality) {
             window.updateCardLegality();
+            forceRenderUpdate();
         }
 
         // Show/hide bid container based on whose turn it is during bidding
@@ -2297,6 +2329,7 @@ function displayCards(playerHand, skipAnimation = false) {
             // Update card legality when lead card is set
             if (window.updateCardLegality) {
                 window.updateCardLegality();
+                forceRenderUpdate();
             }
         }
         isTrumpBroken = data.trump;
@@ -2429,6 +2462,8 @@ function displayCards(playerHand, skipAnimation = false) {
             selfCard.setData('playPosition', 'self'); // Store position for resize
             currentTrick.push(selfCard);
         }
+        // Force render update to ensure played cards show up
+        forceRenderUpdate();
     })
     socket.on("trickComplete", (data) => {
         console.log("🏆 Trick complete. Moving and stacking to the right...");
@@ -2579,38 +2614,7 @@ function displayCards(playerHand, skipAnimation = false) {
         if (window.updateCardLegality) {
             console.log("🎯 Calling window.updateCardLegality()");
             window.updateCardLegality();
-
-            // Force Phaser to re-render - use multiple strategies to ensure visual update
-            // This fixes a bug where visual updates don't show until page refresh
-            requestAnimationFrame(() => {
-                console.log("🎯 Force render in requestAnimationFrame");
-
-                // Strategy 1: Force WebGL pipeline flush by toggling blend mode
-                myCards.forEach(sprite => {
-                    if (sprite && sprite.active) {
-                        const currentBlend = sprite.blendMode;
-                        sprite.setBlendMode(Phaser.BlendModes.ADD);
-                        sprite.setBlendMode(currentBlend);
-                        // Also toggle visibility as backup
-                        sprite.setVisible(false);
-                        sprite.setVisible(true);
-                        sprite.setInteractive();
-                    }
-                });
-
-                // Strategy 2: Refresh scale manager
-                if (game && game.scale) {
-                    game.scale.refresh();
-                }
-
-                // Strategy 3: Force renderer to actually render
-                if (game && game.renderer) {
-                    const scene = game.scene.scenes[0];
-                    if (scene) {
-                        game.renderer.render(scene, scene.cameras.main);
-                    }
-                }
-            });
+            forceRenderUpdate();
         } else {
             console.log("🚨 window.updateCardLegality is not defined!");
         }
