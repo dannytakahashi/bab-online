@@ -298,6 +298,9 @@ function repositionGameElements(newWidth, newHeight) {
         bidContainer.style.left = `${newWidth / 2}px`;
         bidContainer.style.top = `${newHeight / 2}px`;
     }
+
+    // Reposition turn glow indicators
+    repositionTurnGlow(newWidth, newHeight, scaleFactorX, scaleFactorY);
 }
 
 // Reposition cards in the player's hand during resize
@@ -453,6 +456,47 @@ function repositionOpponentElements(screenWidth, screenHeight, scaleFactorX, sca
                 buttonHandle.setPosition(positions.opp1.avatarX - 75 * scaleFactorX, positions.opp1.avatarY);
             } else if (rotate(rotate(rotate(position))) === dealer) {
                 buttonHandle.setPosition(positions.opp2.avatarX + 75 * scaleFactorX, positions.opp2.avatarY);
+            }
+        }
+    }
+}
+
+// Reposition turn glow indicators during resize
+function repositionTurnGlow(screenWidth, screenHeight, scaleFactorX, scaleFactorY) {
+    const centerX = screenWidth / 2;
+    const centerY = screenHeight / 2;
+
+    // Reposition player's hand glow
+    if (gameScene && gameScene.handGlow && gameScene.handGlow.active) {
+        const handAreaHeight = 257 * scaleFactorY;
+        const handAreaWidth = screenWidth * 0.51;
+        const bottomClearance = 30 * scaleFactorY;
+        const handY = screenHeight - handAreaHeight / 2 - bottomClearance;
+
+        gameScene.handGlow.setPosition(centerX, handY);
+        gameScene.handGlow.setSize(handAreaWidth, handAreaHeight);
+    }
+
+    // Reposition opponent glow (circle near their avatar)
+    if (gameScene && gameScene.opponentGlow && gameScene.opponentGlow.active) {
+        // Determine which opponent has the glow based on current turn
+        if (typeof currentTurn !== 'undefined' && typeof position !== 'undefined') {
+            let glowX, glowY;
+            if (currentTurn === team(position)) {
+                // Partner's turn
+                glowX = centerX;
+                glowY = centerY - 400 * scaleFactorY;
+            } else if (currentTurn === rotate(position)) {
+                // Opp1's turn
+                glowX = centerX - 550 * scaleFactorX;
+                glowY = centerY;
+            } else if (currentTurn === rotate(rotate(rotate(position)))) {
+                // Opp2's turn
+                glowX = centerX + 550 * scaleFactorX;
+                glowY = centerY;
+            }
+            if (glowX !== undefined && glowY !== undefined) {
+                gameScene.opponentGlow.setPosition(glowX, glowY);
             }
         }
     }
