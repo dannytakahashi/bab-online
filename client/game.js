@@ -376,9 +376,9 @@ function repositionOpponentElements(screenWidth, screenHeight, scaleFactorX, sca
     const centerX = screenWidth / 2;
     const centerY = screenHeight / 2;
 
-    // Clamp positions to stay within canvas bounds (leave margin for avatars)
+    // Clamp positions to stay within canvas bounds (leave margin for avatars and game log)
     const minX = 80;
-    const maxX = screenWidth - 80;
+    const maxX = screenWidth - 120;
 
     // Calculate opponent positions (matching displayOpponentHands logic)
     // Clamp opp1 and opp2 to prevent overlap with edges/game log
@@ -471,24 +471,16 @@ function repositionTurnGlow(screenWidth, screenHeight, scaleFactorX, scaleFactor
     const centerX = screenWidth / 2;
     const centerY = screenHeight / 2;
 
-    // Reposition player's hand glow (must match hand background dimensions)
-    if (gameScene && gameScene.handGlow && gameScene.handGlow.active) {
-        const handAreaHeight = 250 * scaleFactorY;
-        const handAreaWidth = screenWidth * 0.5;
-        const bottomClearance = 30 * scaleFactorY;
-        const handY = screenHeight - handAreaHeight / 2 - bottomClearance;
-
-        gameScene.handGlow.setPosition(centerX, handY);
-        gameScene.handGlow.setSize(handAreaWidth, handAreaHeight);
-    }
+    // Player's hand glow is now CSS-based (turn-glow class on handBorderDom)
+    // so it automatically stays aligned with the hand border element
 
     // Reposition opponent glow (circle near their avatar)
     if (gameScene && gameScene.opponentGlow && gameScene.opponentGlow.active) {
         // Determine which opponent has the glow based on current turn
         if (typeof currentTurn !== 'undefined' && typeof position !== 'undefined') {
-            // Clamp positions to stay within canvas bounds
+            // Clamp positions to stay within canvas bounds (match repositionOpponentElements)
             const minX = 80;
-            const maxX = screenWidth - 80;
+            const maxX = screenWidth - 120;
 
             let glowX, glowY;
             if (currentTurn === team(position)) {
@@ -884,8 +876,12 @@ function addOpponentGlow(scene, relation){
     let scaleFactorY = screenHeight / 953; // Adjust based on your design resolution
     let centerPlayAreaX = screenWidth / 2;
     let centerPlayAreaY = screenHeight / 2;
+    // Clamp positions to stay within canvas bounds (match repositionOpponentElements)
+    const minX = 80;
+    const maxX = screenWidth - 120;
+    let glowX, glowY;
     if (relation === "opp1"){
-        glowX = centerPlayAreaX - 550*scaleFactorX;
+        glowX = Math.max(minX, centerPlayAreaX - 550*scaleFactorX);
         glowY = centerPlayAreaY;
     }
     else if (relation === "partner"){
@@ -893,7 +889,7 @@ function addOpponentGlow(scene, relation){
         glowY = centerPlayAreaY - 400*scaleFactorY;
     }
     else if (relation === "opp2"){
-        glowX = centerPlayAreaX + 550*scaleFactorX;
+        glowX = Math.min(maxX, centerPlayAreaX + 550*scaleFactorX);
         glowY = centerPlayAreaY;
     }
     scene.opponentGlow = scene.add.circle(glowX, glowY, glowRadius, 0xFFD700)
@@ -922,52 +918,19 @@ function removeOpponentGlow(scene){
     }
 }
 function addTurnGlow(scene) {
-    if (!scene) {
-        console.error("🚨 ERROR: Scene is undefined in addTurnGlow!");
-        return;
+    // Use CSS class on hand border DOM element for perfect alignment on resize
+    const borderDom = document.getElementById('handBorderDom');
+    if (borderDom) {
+        borderDom.classList.add('turn-glow');
+        console.log("🟫 Added CSS turn glow to hand border.");
     }
-    if (scene.handGlow) {
-        scene.handGlow.destroy(); // ✅ Remove from the game
-        scene.handGlow = null; // ✅ Clear reference
-    }
-    let screenWidth = scene.scale.width;
-    let screenHeight = scene.scale.height;
-    let scaleFactorX = screenWidth / 1920; // Adjust based on your design resolution
-    let scaleFactorY = screenHeight / 953; // Adjust based on your design resolution
-    let handAreaHeight = 257*scaleFactorY;
-    let handAreaWidth = screenWidth * 0.51;
-    let bottomClearance = 30*scaleFactorY; // Add clearance so table doesn't touch bottom
-
-    let handX = screenWidth / 2;
-    let handY = screenHeight - handAreaHeight / 2 - bottomClearance;
-
-    // ✅ Create a pulsing glow effect behind the hand
-    scene.handGlow = scene.add.rectangle(handX, handY, handAreaWidth, handAreaHeight, 0xFFD700)
-        .setAlpha(0.3)
-        .setDepth(-3);
-
-    console.log("🟫 Added solid background & pulsing glow for player hand.");
-
-    // ✅ Animate the pulsing glow effect
-    scene.tweens.add({
-        targets: scene.handGlow,
-        alpha: { from: 0.1, to: 0.5 },
-        duration: 1000,
-        yoyo: true,
-        repeat: -1,
-        ease: "Sine.easeInOut"
-    });
 }
 function removeTurnGlow(scene) {
-    if (!scene) {
-        console.error("🚨 ERROR: Scene is undefined in removeTurnGlow!");
-        return;
-    }
-
-    if (scene.handGlow) {
-        console.log("🚫 Removing turn glow...");
-        scene.handGlow.destroy(); // ✅ Remove from the game
-        scene.handGlow = null; // ✅ Clear reference
+    // Remove CSS class from hand border DOM element
+    const borderDom = document.getElementById('handBorderDom');
+    if (borderDom) {
+        borderDom.classList.remove('turn-glow');
+        console.log("🚫 Removed CSS turn glow from hand border.");
     }
 }
 let allCards = [];
