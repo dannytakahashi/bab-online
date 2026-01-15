@@ -93,7 +93,6 @@ button, input[type="button"], input[type="submit"], .bid-button {
 
     /* Game feed on mobile */
     #gameFeed {
-        width: 40vw !important;
         font-size: 12px !important;
         padding: 6px !important;
     }
@@ -119,11 +118,6 @@ button, input[type="button"], input[type="submit"], .bid-button {
 
 /* Tablet styles */
 @media (min-width: 769px) and (max-width: 1024px) {
-    #gameFeed {
-        width: 15vw !important;
-        font-size: 14px !important;
-    }
-
     .bid-button {
         min-width: 36px !important;
         min-height: 38px !important;
@@ -133,7 +127,6 @@ button, input[type="button"], input[type="submit"], .bid-button {
 /* Large screens */
 @media (min-width: 1920px) {
     #gameFeed {
-        width: 12vw !important;
         font-size: 16px !important;
     }
 }
