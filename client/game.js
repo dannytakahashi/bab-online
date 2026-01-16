@@ -714,7 +714,9 @@ socket.on("gameStart", (data) => {
 const GAME_LOG_WIDTH = 320;
 const config = {
     type: Phaser.AUTO,
-    width: innerWidth - GAME_LOG_WIDTH,
+    // Start with full width to match container (which is 100% initially)
+    // Will resize when game starts and .in-game class is added
+    width: innerWidth,
     height: innerHeight,
     transparent: true, // Make canvas transparent so CSS background shows through
     parent: "game-container",
@@ -881,36 +883,16 @@ function createGameFeed() {
     // Restrict game container width to make room for game log
     document.getElementById('game-container').classList.add('in-game');
 
-    // Force Phaser to recalculate canvas size after container resize
-    // Use a function so we can call it multiple times to ensure it takes effect
-    // (background tabs may throttle timers, so we use multiple strategies)
-    function forceContainerResize() {
-        const container = document.getElementById('game-container');
-        if (container && game && game.scale) {
-            const newWidth = container.clientWidth;
-            const newHeight = container.clientHeight;
-            console.log(`📐 Forcing Phaser resize to container: ${newWidth}x${newHeight}`);
-            game.scale.resize(newWidth, newHeight);
-            game.scale.refresh();
-            if (gameScene) {
-                repositionGameElements.call(gameScene, newWidth, newHeight);
-            }
-        }
-    }
-
-    // Call immediately
-    if (game && game.scale) {
+    // Force Phaser to properly resize after container width change
+    // The container was 100% width when Phaser was created, now it's smaller
+    const container = document.getElementById('game-container');
+    if (container && game && game.scale) {
+        const newWidth = container.clientWidth;
+        const newHeight = container.clientHeight;
+        console.log(`📐 Resizing Phaser to container: ${newWidth}x${newHeight}`);
+        game.scale.resize(newWidth, newHeight);
         game.scale.refresh();
     }
-    forceContainerResize();
-
-    // Call again on next animation frame (works in background tabs)
-    requestAnimationFrame(() => {
-        forceContainerResize();
-        // And once more after a short delay as final backup
-        requestAnimationFrame(forceContainerResize);
-    });
-
     window.dispatchEvent(new Event('resize'));
 
     // Add backup window resize listener in case Phaser's scale events don't fire
