@@ -2619,7 +2619,8 @@ function displayCards(playerHand, skipAnimation = false) {
             }
         });
         myCards = [];
-        displayCards.call(gameScene, hand, true); // true = skip animation
+        displayCards.call(gameScene, playerCards, true); // true = skip animation
+        forceRenderUpdate();  // Force WebGL to render card tinting
         playerBids = data;
         console.log("bids: ", playerBids);
         rainbows.forEach((rainbow) => {
