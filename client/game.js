@@ -2183,13 +2183,8 @@ function displayCards(playerHand, skipAnimation = false) {
                 game.scale.refresh();
             }
 
-            // Strategy 3: Force renderer to actually render
-            if (game && game.renderer) {
-                const scene = game.scene.scenes[0];
-                if (scene) {
-                    game.renderer.render(scene, scene.cameras.main);
-                }
-            }
+            // Note: Removed game.renderer.render() call - it was causing
+            // "undefined is not an object (evaluating 'e.zoom')" errors
         });
     }
 
