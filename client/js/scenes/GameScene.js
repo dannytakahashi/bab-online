@@ -3,6 +3,9 @@ import socketManager from '../socket/SocketManager.js';
 import gameState from '../game/GameState.js';
 import CardManager from '../game/CardManager.js';
 import uiManager from '../ui/UIManager.js';
+import GameFeed from '../ui/components/GameFeed.js';
+import BidUI from '../ui/components/BidUI.js';
+import PlayerAvatars from '../ui/components/PlayerAvatars.js';
 
 /**
  * Main game scene handling card play and game flow
@@ -14,6 +17,9 @@ export default class GameScene extends Phaser.Scene {
 
         // Component managers
         this.cardManager = null;
+        this.gameFeed = null;
+        this.bidUI = null;
+        this.playerAvatars = null;
 
         // Cleanup functions for socket listeners
         this.cleanupFunctions = [];
@@ -62,8 +68,12 @@ export default class GameScene extends Phaser.Scene {
         // Load background
         this.load.image('background', 'assets/background.png');
         this.load.image('cardBack', 'assets/card_back.png');
+        this.load.image('dealer', 'assets/frog.png');
 
-        // Load all card images
+        // Try to load card atlas first
+        this.load.atlas('cards', 'assets/sprites/cards.png', 'assets/sprites/cards.json');
+
+        // Load all card images as fallback
         const suits = ['spades', 'hearts', 'diamonds', 'clubs'];
         const ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
 
@@ -83,11 +93,16 @@ export default class GameScene extends Phaser.Scene {
         const { width, height } = this.scale;
 
         // Setup background
-        this.add.image(width / 2, height / 2, 'background')
-            .setDisplaySize(width, height);
+        if (this.textures.exists('background')) {
+            this.add.image(width / 2, height / 2, 'background')
+                .setDisplaySize(width, height);
+        }
 
-        // Initialize card manager
+        // Initialize component managers
         this.cardManager = new CardManager(this);
+        this.gameFeed = new GameFeed();
+        this.bidUI = new BidUI();
+        this.playerAvatars = new PlayerAvatars();
 
         // Setup socket event listeners
         this.setupSocketListeners();
@@ -95,8 +110,8 @@ export default class GameScene extends Phaser.Scene {
         // Setup scene event listeners
         this.setupSceneEvents();
 
-        // Create static UI elements
-        this.createScoreDisplay();
+        // Show game feed (creates the sidebar)
+        this.gameFeed.show(this.game);
 
         console.log('GameScene created');
     }
@@ -113,7 +128,8 @@ export default class GameScene extends Phaser.Scene {
             socketManager.on('trickComplete', this.handleTrickComplete.bind(this)),
             socketManager.on('handComplete', this.handleHandComplete.bind(this)),
             socketManager.on('gameEnd', this.handleGameEnd.bind(this)),
-            socketManager.on('rainbow', this.handleRainbow.bind(this))
+            socketManager.on('rainbow', this.handleRainbow.bind(this)),
+            socketManager.on('createUI', this.handleCreateUI.bind(this))
         );
     }
 
@@ -122,44 +138,67 @@ export default class GameScene extends Phaser.Scene {
         this.events.on('cardClicked', this.onCardClicked, this);
     }
 
-    createScoreDisplay() {
-        const scoreContainer = uiManager.createWithClass('score-display', 'div', 'score-container');
+    // ========================================
+    // UI Creation
+    // ========================================
 
-        const myTeamLabel = gameState.isTeam1() ? 'Your Team' : 'Your Team';
-        const oppTeamLabel = gameState.isTeam1() ? 'Opponents' : 'Opponents';
+    /**
+     * Handle createUI event - called when game is ready to start
+     */
+    handleCreateUI(data) {
+        console.log('Creating game UI:', data);
 
-        scoreContainer.innerHTML = `
-            <div class="score-team my-team">
-                <div class="score-label">${myTeamLabel}</div>
-                <div class="score-value" id="my-team-score">0</div>
-                <div class="score-tricks" id="my-team-tricks">Tricks: 0</div>
-            </div>
-            <div class="score-team opp-team">
-                <div class="score-label">${oppTeamLabel}</div>
-                <div class="score-value" id="opp-team-score">0</div>
-                <div class="score-tricks" id="opp-team-tricks">Tricks: 0</div>
-            </div>
-        `;
+        // Update game state
+        if (data.players) gameState.players = data.players;
+        if (data.dealer) gameState.dealer = data.dealer;
+        if (data.currentHand) gameState.currentHand = data.currentHand;
+
+        // Create player avatars
+        this.playerAvatars.show({
+            players: gameState.players,
+            dealer: gameState.dealer,
+            phaserScene: this
+        });
+
+        // Update game feed
+        this.gameFeed.updateScore();
     }
 
-    updateScoreDisplay() {
-        const myScore = document.getElementById('my-team-score');
-        const oppScore = document.getElementById('opp-team-score');
-        const myTricks = document.getElementById('my-team-tricks');
-        const oppTricks = document.getElementById('opp-team-tricks');
+    /**
+     * Show bid UI when it's our turn to bid
+     */
+    showBidUI() {
+        this.bidUI.show({
+            handSize: gameState.currentHand,
+            position: gameState.position
+        });
 
-        if (myScore) myScore.textContent = gameState.teamScore;
-        if (oppScore) oppScore.textContent = gameState.oppScore;
-        if (myTricks) myTricks.textContent = `Tricks: ${gameState.teamTricks}`;
-        if (oppTricks) oppTricks.textContent = `Tricks: ${gameState.oppTricks}`;
+        // Position in center of game area
+        const { width, height } = this.scale;
+        this.bidUI.setPosition(width / 2, height / 2);
     }
 
+    /**
+     * Hide bid UI
+     */
+    hideBidUI() {
+        this.bidUI.hide();
+    }
+
+    // ========================================
     // Socket Event Handlers
+    // ========================================
 
     handleYourHand(data) {
         console.log('Received hand:', data.hand.length, 'cards');
         gameState.myCards = [...data.hand];
+        gameState.currentHand = data.hand.length;
         this.cardManager.displayHand(gameState.myCards);
+
+        // Show bid UI if bidding phase and our turn
+        if (gameState.isBidding && gameState.isMyTurn()) {
+            this.showBidUI();
+        }
 
         // Enable interaction if it's our turn and not bidding
         if (gameState.isMyTurn() && !gameState.isBidding) {
@@ -195,6 +234,12 @@ export default class GameScene extends Phaser.Scene {
         gameState.playedCards[position - 1] = card;
         gameState.cardsPlayedThisTrick++;
 
+        // Set lead card if first card of trick
+        if (gameState.cardsPlayedThisTrick === 1) {
+            gameState.leadCard = card;
+            gameState.leadPosition = position;
+        }
+
         // Check if trump is broken
         if (card.suit === gameState.trump?.suit || card.suit === 'joker') {
             gameState.trumpBroken = true;
@@ -207,31 +252,35 @@ export default class GameScene extends Phaser.Scene {
             // Animate opponent card
             this.cardManager.animateOpponentCard(relativePos, card);
         }
+
+        // Log to game feed
+        const playerName = gameState.players[position]?.username || `Player ${position}`;
+        this.gameFeed.addMessage(`${playerName} played ${card.rank} of ${card.suit}`, position);
     }
 
     handleUpdateTurn(data) {
         gameState.currentTurn = data.turn;
         console.log('Turn updated to position:', data.turn);
 
-        // Update turn indicator
-        this.updateTurnIndicator(data.turn);
+        // Update turn indicator via avatars
+        this.playerAvatars.updateTurnGlow(data.turn);
 
-        // Enable/disable card interaction
-        if (gameState.isMyTurn() && !gameState.isBidding) {
-            this.cardManager.enableInteraction();
-            this.cardManager.highlightLegalMoves();
+        if (gameState.isBidding) {
+            // Show/hide bid UI based on turn
+            if (gameState.isMyTurn()) {
+                this.showBidUI();
+            } else {
+                this.hideBidUI();
+            }
         } else {
-            this.cardManager.disableInteraction();
+            // Enable/disable card interaction
+            if (gameState.isMyTurn()) {
+                this.cardManager.enableInteraction();
+                this.cardManager.highlightLegalMoves();
+            } else {
+                this.cardManager.disableInteraction();
+            }
         }
-    }
-
-    updateTurnIndicator(position) {
-        // Remove existing indicator
-        uiManager.remove('turn-indicator');
-
-        // Create new indicator at correct position
-        const relativePos = gameState.getRelativePosition(position);
-        const indicator = uiManager.createWithClass('turn-indicator', 'div', `turn-indicator ${relativePos}`);
     }
 
     handleBidReceived(data) {
@@ -239,7 +288,16 @@ export default class GameScene extends Phaser.Scene {
         console.log(`Position ${position} bid:`, bid);
 
         gameState.recordBid(position, bid);
+
+        // Update bid UI bore buttons
+        this.bidUI.recordBid(bid);
+
+        // Show bid bubble
         this.showBidBubble(position, bid);
+
+        // Log to game feed
+        const playerName = gameState.players[position]?.username || `Player ${position}`;
+        this.gameFeed.addBidMessage(playerName, bid, position);
     }
 
     showBidBubble(position, bid) {
@@ -277,11 +335,15 @@ export default class GameScene extends Phaser.Scene {
         gameState.team2Mult = data.team2Mult || 1;
 
         // Hide bid UI
-        uiManager.remove('bid-container');
+        this.bidUI.hide();
+
+        // Log to game feed
+        this.gameFeed.addSystemMessage('Bidding complete - playing phase started');
 
         // Enable card interaction if it's our turn
         if (gameState.isMyTurn()) {
             this.cardManager.enableInteraction();
+            this.cardManager.highlightLegalMoves();
         }
     }
 
@@ -299,10 +361,19 @@ export default class GameScene extends Phaser.Scene {
         }
 
         // Update score display
-        this.updateScoreDisplay();
+        this.gameFeed.updateScore();
+
+        // Log to game feed
+        const winnerName = gameState.players[winner]?.username || `Player ${winner}`;
+        this.gameFeed.addTrickMessage(winnerName, winner);
 
         // Animate trick collection
         this.cardManager.collectTrick(winner);
+
+        // Clear trick state after animation
+        setTimeout(() => {
+            gameState.clearTrick();
+        }, 600);
     }
 
     handleHandComplete(data) {
@@ -318,7 +389,13 @@ export default class GameScene extends Phaser.Scene {
         }
 
         // Update display
-        this.updateScoreDisplay();
+        this.gameFeed.updateScore();
+
+        // Log to game feed
+        this.gameFeed.addSystemMessage(`Hand ${gameState.currentHand} complete`);
+
+        // Reset bid UI for next hand
+        this.bidUI.reset(data.nextHandSize || 12);
 
         // Show hand summary modal
         this.showHandSummary(data);
@@ -346,6 +423,9 @@ export default class GameScene extends Phaser.Scene {
         const won = (gameState.isTeam1() && data.winner === 1) ||
                     (!gameState.isTeam1() && data.winner === 2);
 
+        // Log to game feed
+        this.gameFeed.addSystemMessage(won ? 'Victory!' : 'Defeat');
+
         const container = uiManager.createWithClass('game-end', 'div', 'game-end-container');
         container.innerHTML = `
             <div class="game-end-content">
@@ -364,9 +444,8 @@ export default class GameScene extends Phaser.Scene {
             'click',
             () => {
                 uiManager.remove('game-end');
-                gameState.reset();
-                // Emit join queue or return to lobby
-                socketManager.emit('joinQueue');
+                this.cleanupGame();
+                socketManager.emit('joinMainRoom');
             }
         );
     }
@@ -392,13 +471,19 @@ export default class GameScene extends Phaser.Scene {
         indicator.style.top = `${pos.y}px`;
         indicator.style.transform = 'translate(-50%, -50%)';
 
+        // Log to game feed
+        const playerName = gameState.players[data.position]?.username || `Player ${data.position}`;
+        this.gameFeed.addSystemMessage(`${playerName} has a RAINBOW!`);
+
         // Remove after delay
         setTimeout(() => {
             uiManager.remove(`rainbow-${data.position}`);
         }, 3000);
     }
 
+    // ========================================
     // User Actions
+    // ========================================
 
     onCardClicked(card) {
         if (!gameState.isMyTurn() || gameState.isBidding) {
@@ -414,6 +499,13 @@ export default class GameScene extends Phaser.Scene {
         // Update local state
         gameState.removeCard(card);
         gameState.playedCards[gameState.position - 1] = card;
+        gameState.cardsPlayedThisTrick++;
+
+        // Set lead if first card
+        if (gameState.cardsPlayedThisTrick === 1) {
+            gameState.leadCard = card;
+            gameState.leadPosition = gameState.position;
+        }
 
         // Send to server
         socketManager.emit('playCard', {
@@ -428,8 +520,94 @@ export default class GameScene extends Phaser.Scene {
         this.cardManager.disableInteraction();
     }
 
-    // Lifecycle
+    // ========================================
+    // Reconnection
+    // ========================================
 
+    /**
+     * Handle rejoin - restore game state after reconnection
+     * @param {Object} data - Full game state from server
+     */
+    handleRejoin(data) {
+        console.log('Handling rejoin in GameScene:', data);
+
+        // Show game feed
+        this.gameFeed.show(this.game);
+
+        // Create player avatars
+        this.playerAvatars.show({
+            players: data.players,
+            dealer: data.dealer,
+            phaserScene: this
+        });
+
+        // Display trump
+        if (data.trump) {
+            this.displayTrumpCard(data.trump);
+        }
+
+        // Display hand (skip animation for rejoin)
+        if (data.hand && data.hand.length > 0) {
+            gameState.myCards = [...data.hand];
+            this.cardManager.displayHand(gameState.myCards, true); // skipAnimation = true
+        }
+
+        // Display current trick if mid-trick
+        if (data.currentTrick && data.currentTrick.length > 0) {
+            data.currentTrick.forEach((cardData, index) => {
+                if (cardData && cardData.card) {
+                    const position = index + 1;
+                    const relativePos = gameState.getRelativePosition(position);
+                    if (relativePos !== 'self') {
+                        this.cardManager.animateOpponentCard(relativePos, cardData.card, true); // skipAnimation
+                    }
+                }
+            });
+        }
+
+        // Update turn indicator
+        if (data.currentTurn) {
+            this.playerAvatars.updateTurnGlow(data.currentTurn);
+        }
+
+        // Update scores
+        this.gameFeed.updateScore();
+
+        // Show bid UI if in bidding phase and our turn
+        if (data.bidding === 1 && gameState.isMyTurn()) {
+            this.showBidUI();
+        }
+
+        // Enable interaction if our turn and playing phase
+        if (gameState.isMyTurn() && !gameState.isBidding) {
+            this.cardManager.enableInteraction();
+            this.cardManager.highlightLegalMoves();
+        }
+
+        // Add rejoin message
+        this.gameFeed.addSystemMessage('Reconnected to game');
+    }
+
+    // ========================================
+    // Cleanup
+    // ========================================
+
+    /**
+     * Clean up game-specific state (for returning to main room)
+     */
+    cleanupGame() {
+        gameState.reset();
+        this.bidUI.cleanup();
+        this.playerAvatars.cleanup();
+        this.gameFeed.hide();
+        this.cardManager?.clearHand();
+        this.cardManager?.clearTable();
+        uiManager.cleanupGameUI();
+    }
+
+    /**
+     * Full scene shutdown
+     */
     shutdown() {
         console.log('GameScene shutting down');
 
@@ -440,9 +618,18 @@ export default class GameScene extends Phaser.Scene {
         // Clean up scene events
         this.events.off('cardClicked', this.onCardClicked, this);
 
-        // Destroy card manager
+        // Destroy component managers
         this.cardManager?.destroy();
         this.cardManager = null;
+
+        this.gameFeed?.cleanup();
+        this.gameFeed = null;
+
+        this.bidUI?.cleanup();
+        this.bidUI = null;
+
+        this.playerAvatars?.cleanup();
+        this.playerAvatars = null;
 
         // Clean up UI elements
         uiManager.cleanupGameUI();

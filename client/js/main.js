@@ -1,13 +1,20 @@
 /**
  * BAB Online - Main Entry Point
- * Initializes Phaser game and socket connection
+ * Orchestrates screen flow and initializes core modules
  */
 
 import GameConfig from './config.js';
 import socketManager from './socket/SocketManager.js';
 import gameState from './game/GameState.js';
+import appState from './state/AppState.js';
 import uiManager from './ui/UIManager.js';
+import mainRoomScreen from './ui/screens/MainRoomScreen.js';
+import gameLobbyScreen from './ui/screens/GameLobbyScreen.js';
+import drawPhaseScreen from './ui/screens/DrawPhaseScreen.js';
 import GameScene from './scenes/GameScene.js';
+
+// Store Phaser game reference
+let game = null;
 
 /**
  * Initialize the application
@@ -20,8 +27,12 @@ async function init() {
         await socketManager.connect();
         console.log('Socket connected');
 
-        // Setup auth handlers
+        // Setup all socket handlers
         setupAuthHandlers();
+        setupMainRoomHandlers();
+        setupLobbyHandlers();
+        setupGameHandlers();
+        setupReconnectionHandlers();
 
         // Show auth screen
         showAuthScreen();
@@ -32,16 +43,17 @@ async function init() {
     }
 }
 
+// ========================================
+// Socket Handlers Setup
+// ========================================
+
 /**
  * Setup socket handlers for authentication
  */
 function setupAuthHandlers() {
     socketManager.on('signInSuccess', (data) => {
         console.log('Sign in successful:', data.username);
-        gameState.username = data.username;
-        gameState.pic = data.pic || 1;
-        hideAuthScreen();
-        showLobby();
+        handleAuthSuccess(data);
     });
 
     socketManager.on('signInFailed', (data) => {
@@ -50,25 +62,123 @@ function setupAuthHandlers() {
 
     socketManager.on('signUpSuccess', (data) => {
         console.log('Sign up successful:', data.username);
-        gameState.username = data.username;
-        gameState.pic = data.pic || 1;
-        hideAuthScreen();
-        showLobby();
+        handleAuthSuccess(data);
     });
 
     socketManager.on('signUpFailed', (data) => {
         uiManager.showError(data.message || 'Sign up failed');
     });
+}
 
-    socketManager.on('queueUpdate', (data) => {
-        updateQueueStatus(data);
+/**
+ * Setup socket handlers for main room
+ */
+function setupMainRoomHandlers() {
+    socketManager.on('mainRoomJoined', (data) => {
+        console.log('Joined main room:', data);
+        hideAuthScreen();
+        mainRoomScreen.show(data);
     });
 
-    socketManager.on('gameStart', (data) => {
-        console.log('Game starting:', data);
-        handleGameStart(data);
+    socketManager.on('lobbyCreated', (data) => {
+        console.log('Lobby created:', data);
+        mainRoomScreen.hide();
+        gameLobbyScreen.show(data);
+    });
+
+    socketManager.on('lobbyJoined', (data) => {
+        console.log('Joined lobby:', data);
+        mainRoomScreen.hide();
+        gameLobbyScreen.show(data);
     });
 }
+
+/**
+ * Setup socket handlers for game lobby
+ */
+function setupLobbyHandlers() {
+    socketManager.on('leftLobby', () => {
+        console.log('Left lobby');
+        gameLobbyScreen.hide();
+        socketManager.emit('joinMainRoom');
+    });
+
+    socketManager.on('allPlayersReady', (data) => {
+        console.log('All players ready, starting draw phase...');
+        gameLobbyScreen.hide();
+        startDrawPhase(data);
+    });
+}
+
+/**
+ * Setup socket handlers for game events
+ */
+function setupGameHandlers() {
+    socketManager.on('gameStart', (data) => {
+        console.log('Game starting:', data);
+        if (data.gameId) {
+            socketManager.setGameId(data.gameId);
+        }
+    });
+
+    socketManager.on('gameEnd', (data) => {
+        console.log('Game ended:', data);
+        socketManager.clearGameId();
+    });
+
+    socketManager.on('positionUpdate', (data) => {
+        console.log('Position update:', data);
+        gameState.position = data.position;
+        gameState.players = data.players;
+    });
+
+    socketManager.on('teamsAnnounced', (data) => {
+        console.log('Teams announced:', data);
+        // Draw phase screen handles this and transitions to game
+    });
+}
+
+/**
+ * Setup socket handlers for reconnection
+ */
+function setupReconnectionHandlers() {
+    // Active game found on sign in
+    socketManager.on('activeGameFound', (data) => {
+        console.log('Active game found:', data);
+        showRejoinPrompt(data);
+    });
+
+    // Rejoin success
+    socketManager.on('rejoinSuccess', (data) => {
+        console.log('Rejoin successful:', data);
+        hideAuthScreen();
+        handleRejoinSuccess(data);
+    });
+
+    // Rejoin failed
+    socketManager.on('rejoinFailed', (data) => {
+        console.log('Rejoin failed:', data.reason);
+        socketManager.clearGameId();
+        // Continue to main room
+        socketManager.emit('joinMainRoom');
+    });
+
+    // Player disconnected notification
+    socketManager.on('playerDisconnected', (data) => {
+        console.log('Player disconnected:', data);
+        showDisconnectedMessage(data);
+    });
+
+    // Player reconnected notification
+    socketManager.on('playerReconnected', (data) => {
+        console.log('Player reconnected:', data);
+        hideDisconnectedMessage(data);
+    });
+}
+
+// ========================================
+// Auth Screen
+// ========================================
 
 /**
  * Show authentication screen
@@ -116,7 +226,7 @@ function showAuthScreen() {
         toggleAuth.textContent = isSignUp ? 'Have an account? Sign In' : 'Need an account? Sign Up';
     });
 
-    // Enter key to submit (on both username and password fields)
+    // Enter key to submit
     const handleEnterKey = (e) => {
         if (e.key === 'Enter') {
             signinBtn.click();
@@ -134,86 +244,183 @@ function hideAuthScreen() {
 }
 
 /**
- * Show lobby/queue screen
+ * Handle successful authentication
  */
-function showLobby() {
-    const container = uiManager.createWithClass('lobby', 'div', 'lobby-container');
+function handleAuthSuccess(data) {
+    // Update game state
+    gameState.username = data.username;
+    gameState.pic = data.pic || 1;
 
-    container.innerHTML = `
-        <h2 class="lobby-title">Welcome, ${gameState.username}!</h2>
-        <button id="join-queue-btn" class="queue-button">Find Game</button>
-        <div id="queue-status" class="queue-status" style="display: none;">
-            <p>Waiting for players... <span id="queue-count" class="queue-count">0</span>/4</p>
-            <button id="leave-queue-btn" class="auth-button" style="margin-top: 10px; background: #dc2626;">Leave Queue</button>
-        </div>
-    `;
+    // Update app state
+    appState.setUser(data.username, data.pic || 1);
 
-    const joinBtn = document.getElementById('join-queue-btn');
-    const leaveBtn = document.getElementById('leave-queue-btn');
-    const queueStatus = document.getElementById('queue-status');
-
-    uiManager.addEventListener(joinBtn, 'click', () => {
-        socketManager.emit('joinQueue');
-        joinBtn.style.display = 'none';
-        queueStatus.style.display = 'block';
-    });
-
-    uiManager.addEventListener(leaveBtn, 'click', () => {
-        socketManager.emit('leaveQueue');
-        joinBtn.style.display = 'block';
-        queueStatus.style.display = 'none';
-    });
+    // Join main room
+    socketManager.emit('joinMainRoom');
 }
 
+// ========================================
+// Draw Phase & Game
+// ========================================
+
 /**
- * Update queue status display
+ * Start the draw phase
+ * @param {Object} data - Initial data
  */
-function updateQueueStatus(data) {
-    const queueCount = document.getElementById('queue-count');
-    if (queueCount) {
-        queueCount.textContent = data.count || data.queueSize || 0;
+function startDrawPhase(data) {
+    console.log('Starting draw phase...');
+
+    // Initialize Phaser if not already done
+    if (!game) {
+        initPhaserGame();
     }
-}
 
-/**
- * Handle game start
- */
-function handleGameStart(data) {
-    console.log('Starting game with data:', data);
-
-    // Hide lobby
-    uiManager.remove('lobby');
-
-    // Update game state with initial data
-    if (data.position) gameState.position = data.position;
-    if (data.players) gameState.players = data.players;
-
-    // Initialize Phaser game
-    initPhaserGame();
+    // Wait for Phaser scene to be ready, then start draw phase
+    const checkScene = setInterval(() => {
+        const scene = game.scene.getScene('GameScene');
+        if (scene && scene.scene.isActive()) {
+            clearInterval(checkScene);
+            drawPhaseScreen.show(scene, () => {
+                console.log('Draw phase complete, starting main game...');
+                appState.setScreen('game');
+            });
+        }
+    }, 100);
 }
 
 /**
  * Initialize Phaser game instance
  */
 function initPhaserGame() {
+    // Create game container if it doesn't exist
+    let container = document.getElementById('game-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'game-container';
+        document.body.appendChild(container);
+    }
+
     const config = {
         type: Phaser.AUTO,
         width: GameConfig.DESIGN_WIDTH,
         height: GameConfig.DESIGN_HEIGHT,
         parent: 'game-container',
         backgroundColor: '#1a472a',
+        transparent: true,
         scale: {
-            mode: Phaser.Scale.FIT,
+            mode: Phaser.Scale.RESIZE,
             autoCenter: Phaser.Scale.CENTER_BOTH
         },
         scene: [GameScene]
     };
 
-    // Store game instance globally for debugging
-    window.game = new Phaser.Game(config);
+    game = new Phaser.Game(config);
+    window.game = game; // Store for debugging
 
     console.log('Phaser game initialized');
 }
+
+// ========================================
+// Reconnection
+// ========================================
+
+/**
+ * Show rejoin prompt for active game
+ * @param {Object} data - { gameId }
+ */
+function showRejoinPrompt(data) {
+    const overlay = uiManager.createWithClass('rejoin-prompt', 'div', 'rejoin-prompt-overlay');
+
+    overlay.innerHTML = `
+        <div class="rejoin-prompt-content">
+            <h2>Active Game Found</h2>
+            <p>You have an active game in progress. Would you like to rejoin?</p>
+            <div class="rejoin-prompt-buttons">
+                <button id="rejoin-yes" class="rejoin-btn yes">Rejoin Game</button>
+                <button id="rejoin-no" class="rejoin-btn no">Start Fresh</button>
+            </div>
+        </div>
+    `;
+
+    uiManager.addEventListener(document.getElementById('rejoin-yes'), 'click', () => {
+        uiManager.remove('rejoin-prompt');
+        socketManager.emit('rejoinGame', {
+            gameId: data.gameId,
+            username: appState.username
+        });
+    });
+
+    uiManager.addEventListener(document.getElementById('rejoin-no'), 'click', () => {
+        uiManager.remove('rejoin-prompt');
+        socketManager.clearGameId();
+        socketManager.emit('joinMainRoom');
+    });
+}
+
+/**
+ * Handle successful rejoin
+ * @param {Object} data - Full game state from server
+ */
+function handleRejoinSuccess(data) {
+    console.log('Handling rejoin with data:', data);
+
+    // Update game state from server data
+    gameState.position = data.position;
+    gameState.myCards = data.hand || [];
+    gameState.trump = data.trump;
+    gameState.currentTurn = data.currentTurn;
+    gameState.isBidding = data.bidding === 1;
+    gameState.teamScore = data.teamScore || 0;
+    gameState.oppScore = data.oppScore || 0;
+    gameState.teamTricks = data.teamTricks || 0;
+    gameState.oppTricks = data.oppTricks || 0;
+    gameState.players = data.players;
+    gameState.dealer = data.dealer;
+    gameState.currentHand = data.currentHand;
+
+    // Store game ID
+    if (data.gameId) {
+        socketManager.setGameId(data.gameId);
+    }
+
+    // Initialize Phaser and restore game
+    appState.setScreen('game');
+    initPhaserGame();
+
+    // Wait for scene to be ready, then restore state
+    const checkScene = setInterval(() => {
+        const scene = game.scene.getScene('GameScene');
+        if (scene && scene.scene.isActive()) {
+            clearInterval(checkScene);
+            scene.handleRejoin(data);
+        }
+    }, 100);
+}
+
+/**
+ * Show player disconnected message
+ * @param {Object} data - { position, username }
+ */
+function showDisconnectedMessage(data) {
+    const msgId = `disconnected-${data.position}`;
+    let msg = document.getElementById(msgId);
+
+    if (!msg) {
+        msg = uiManager.createWithClass(msgId, 'div', 'player-disconnected-message');
+        msg.textContent = `${data.username} disconnected - waiting for reconnection...`;
+    }
+}
+
+/**
+ * Hide player disconnected message
+ * @param {Object} data - { position, username }
+ */
+function hideDisconnectedMessage(data) {
+    uiManager.remove(`disconnected-${data.position}`);
+}
+
+// ========================================
+// Start Application
+// ========================================
 
 // Start the application when DOM is ready
 if (document.readyState === 'loading') {
@@ -223,4 +430,4 @@ if (document.readyState === 'loading') {
 }
 
 // Export for debugging
-export { socketManager, gameState, uiManager };
+export { socketManager, gameState, appState, uiManager, game };

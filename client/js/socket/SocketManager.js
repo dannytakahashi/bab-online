@@ -1,6 +1,7 @@
 /**
  * Centralized socket connection management with lifecycle handling
  * Fixes memory leaks by tracking and cleaning up event listeners
+ * Supports game reconnection via sessionStorage
  */
 class SocketManager {
     constructor() {
@@ -9,6 +10,7 @@ class SocketManager {
         this.connectionState = 'disconnected';
         this.reconnectAttempts = 0;
         this.maxReconnectAttempts = 5;
+        this._currentGameId = null;
     }
 
     /**
@@ -24,13 +26,18 @@ class SocketManager {
             this.socket = io({
                 reconnection: true,
                 reconnectionAttempts: this.maxReconnectAttempts,
-                reconnectionDelay: 1000
+                reconnectionDelay: 1000,
+                reconnectionDelayMax: 5000
             });
 
             this.socket.on('connect', () => {
                 this.connectionState = 'connected';
                 this.reconnectAttempts = 0;
                 console.log('Socket connected:', this.socket.id);
+
+                // Attempt to rejoin game if we were in one
+                this.attemptRejoin();
+
                 resolve();
             });
 
@@ -47,7 +54,135 @@ class SocketManager {
                     reject(error);
                 }
             });
+
+            this.socket.on('reconnect_attempt', (attemptNumber) => {
+                console.log(`Reconnection attempt ${attemptNumber}/${this.maxReconnectAttempts}`);
+            });
+
+            this.socket.on('reconnect_failed', () => {
+                console.log('Reconnection failed after all attempts');
+                this.clearGameId();
+            });
+
+            // Server error handler
+            this.socket.on('error', (error) => {
+                console.error('Server error:', error);
+                this.handleServerError(error);
+            });
         });
+    }
+
+    // ========================================
+    // Game ID Management for Reconnection
+    // ========================================
+
+    /**
+     * Store game ID for reconnection
+     * @param {string} gameId
+     */
+    setGameId(gameId) {
+        this._currentGameId = gameId;
+        sessionStorage.setItem('gameId', gameId);
+        console.log('Game ID stored:', gameId);
+    }
+
+    /**
+     * Clear game ID (call when game ends)
+     */
+    clearGameId() {
+        this._currentGameId = null;
+        sessionStorage.removeItem('gameId');
+        console.log('Game ID cleared');
+    }
+
+    /**
+     * Get stored game ID
+     * @returns {string|null}
+     */
+    getGameId() {
+        if (!this._currentGameId) {
+            this._currentGameId = sessionStorage.getItem('gameId');
+        }
+        return this._currentGameId;
+    }
+
+    /**
+     * Get stored username
+     * @returns {string|null}
+     */
+    getUsername() {
+        return sessionStorage.getItem('username');
+    }
+
+    /**
+     * Attempt to rejoin a game after reconnection
+     */
+    attemptRejoin() {
+        const gameId = this.getGameId();
+        const username = this.getUsername();
+
+        if (gameId && username) {
+            console.log(`Attempting to rejoin game ${gameId} as ${username}`);
+            this.emit('rejoinGame', { gameId, username });
+        }
+    }
+
+    /**
+     * Handle server errors
+     * @param {Object} error
+     */
+    handleServerError(error) {
+        // Handle race condition where joinMainRoom is called before user is registered
+        if (error.message === 'User not registered yet') {
+            console.log('User not registered yet, retrying joinMainRoom in 100ms...');
+            setTimeout(() => {
+                this.emit('joinMainRoom');
+            }, 100);
+            return;
+        }
+
+        let message = 'Something went wrong';
+        switch (error.type) {
+            case 'VALIDATION_ERROR':
+            case 'validation':
+                message = error.message || 'Invalid input';
+                break;
+            case 'AUTH_ERROR':
+                message = 'Please sign in again';
+                break;
+            case 'RATE_LIMIT_ERROR':
+            case 'rateLimit':
+                message = 'Too many requests. Please slow down.';
+                break;
+            case 'GAME_STATE_ERROR':
+                message = error.message || 'Game error occurred';
+                break;
+            default:
+                message = 'Server error. Please try again.';
+                break;
+        }
+
+        this.showError(message);
+    }
+
+    /**
+     * Show error toast notification
+     * @param {string} message
+     * @param {number} duration - Duration in ms
+     */
+    showError(message, duration = 5000) {
+        const existing = document.querySelector('.error-toast');
+        if (existing) existing.remove();
+
+        const toast = document.createElement('div');
+        toast.className = 'error-toast';
+        toast.textContent = message;
+        document.body.appendChild(toast);
+
+        setTimeout(() => {
+            toast.classList.add('fade-out');
+            setTimeout(() => toast.remove(), 300);
+        }, duration);
     }
 
     /**
