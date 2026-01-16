@@ -625,6 +625,10 @@ function processPositionUpdate(data) {
 
 function processGameStart(data) {
     console.log("🎮 processGameStart called!");
+
+    // Clear any remaining tricks from previous hand (safeguard for race conditions)
+    clearAllTricks();
+
     console.log("🎮 gameScene:", gameScene);
     console.log("🎮 gameScene.add:", gameScene?.add);
     console.log("🎮 gameScene.textures:", gameScene?.textures);
