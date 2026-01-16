@@ -1695,12 +1695,25 @@ socket.on("allPlayersReady", (data) => {
 function clearDisplayCards() {
     console.log("🗑️ Clearing all elements from displayCards...");
 
-    if (this.handElements) {
-        this.handElements.forEach(element => {
-            if (element) element.destroy(); // ✅ Destroy each tracked element
-        });
+    // Explicitly remove bidContainer (DOM element) - belt-and-suspenders approach
+    const bidContainer = document.getElementById("bidContainer");
+    if (bidContainer) {
+        bidContainer.remove();
+    }
 
-        this.handElements = []; // ✅ Reset array
+    // Use gameScene for handElements since this function may be called without proper binding
+    if (gameScene && gameScene.handElements) {
+        gameScene.handElements.forEach(element => {
+            if (element) {
+                // Check if it's a DOM node or Phaser object
+                if (element.nodeType) {
+                    element.remove();  // DOM element
+                } else if (element.destroy) {
+                    element.destroy(); // Phaser object
+                }
+            }
+        });
+        gameScene.handElements = [];
     }
     console.log("✅ All elements cleared from displayCards.");
 }
@@ -1855,6 +1868,12 @@ function displayCards(playerHand, skipAnimation = false) {
     // Position the DOM background elements
     positionDomBackgrounds(screenWidth, screenHeight);
     console.log("🟫 Added DOM background elements for player hand.");
+    // Remove any existing bidContainer before creating new one
+    const existingBidContainer = document.getElementById("bidContainer");
+    if (existingBidContainer) {
+        console.log("🗑️ Removing existing bidContainer before creating new one");
+        existingBidContainer.remove();
+    }
     // ✅ Create button-grid bidding UI (hidden initially, shown only when it's your turn)
     let bidContainer = document.createElement("div");
     bidContainer.id = "bidContainer";
