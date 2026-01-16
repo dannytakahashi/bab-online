@@ -466,8 +466,9 @@ async function cleanupNextHand(game, io, dealer, handSize) {
         }
     }
 
-    // Send new hand to all players (each gets their own hand)
+    // Send new hand to all players (each gets their own hand and position)
     for (const socketId of socketIds) {
+        const playerPosition = game.getPositionBySocketId(socketId);
         game.sendToPlayer(io, socketId, 'gameStart', {
             gameId: game.gameId,
             players: socketIds,
@@ -475,7 +476,8 @@ async function cleanupNextHand(game, io, dealer, handSize) {
             trump: game.trump,
             score1: game.score.team1,
             score2: game.score.team2,
-            dealer: game.dealer
+            dealer: game.dealer,
+            position: playerPosition  // Include player's position to fix bid UI bug
         });
     }
 
