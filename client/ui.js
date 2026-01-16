@@ -666,6 +666,12 @@ function showMainRoom(data) {
 
     // Add existing messages
     if (data.messages && data.messages.length > 0) {
+        // Pre-populate colors for historical message authors
+        data.messages.forEach(msg => {
+            if (!mainRoomUserColors[msg.username]) {
+                mainRoomUserColors[msg.username] = generateDistinctColor(msg.username, Object.values(mainRoomUserColors));
+            }
+        });
         data.messages.forEach(msg => {
             const msgDiv = createChatMessageElement(msg.username, msg.message);
             chatMessages.appendChild(msgDiv);
@@ -989,6 +995,12 @@ function showGameLobby(lobbyData) {
     chatArea.style.overflowWrap = "break-word";
     // Add any existing messages directly to chatArea element
     if (lobbyData.messages) {
+        // Pre-populate colors for historical message authors
+        lobbyData.messages.forEach(msg => {
+            if (!lobbyUserColors[msg.username]) {
+                lobbyUserColors[msg.username] = generateDistinctColor(msg.username, Object.values(lobbyUserColors));
+            }
+        });
         lobbyData.messages.forEach(msg => {
             const msgDiv = document.createElement("div");
             msgDiv.style.marginBottom = "8px";
@@ -997,7 +1009,7 @@ function showGameLobby(lobbyData) {
             const nameSpan = document.createElement("span");
             nameSpan.innerText = msg.username + ": ";
             nameSpan.style.fontWeight = "bold";
-            nameSpan.style.color = "#60a5fa";
+            nameSpan.style.color = getUsernameColor(msg.username);
             msgDiv.appendChild(nameSpan);
 
             const textSpan = document.createElement("span");
