@@ -96,6 +96,23 @@ function processRejoin(data) {
         // Ensure play positions are calculated
         updatePlayPositions(screenWidth, screenHeight);
 
+        // Bug 3 fix: Restore leadCard, leadPosition, playedCardIndex from playedCards
+        // Find the first non-null card (the lead) and count played cards
+        let foundLead = false;
+        playedCardIndex = 0;
+        data.playedCards.forEach((card, index) => {
+            if (card) {
+                playedCardIndex++;
+                if (!foundLead) {
+                    leadCard = card;
+                    leadPosition = index + 1; // Convert to 1-4 position
+                    foundLead = true;
+                    console.log(`🔄 Restored leadCard: ${card.rank} of ${card.suit}, leadPosition: ${leadPosition}`);
+                }
+            }
+        });
+        console.log(`🔄 Restored playedCardIndex: ${playedCardIndex}`);
+
         // playedCards array is indexed by position-1 (index 0 = position 1, etc.)
         data.playedCards.forEach((card, index) => {
             if (!card) return; // No card played at this position yet
@@ -131,6 +148,11 @@ function processRejoin(data) {
         });
 
         console.log(`🔄 Restored ${currentTrick.length} played cards from current trick`);
+
+        // Update card legality now that we've restored leadCard/playedCardIndex
+        if (window.updateCardLegality) {
+            window.updateCardLegality();
+        }
     }
 
     addToGameFeed("Reconnected to game!");
