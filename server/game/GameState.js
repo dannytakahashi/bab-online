@@ -53,6 +53,10 @@ class GameState {
 
         // Disconnection tracking: position → { disconnectedAt, socketId }
         this.disconnectedPlayers = {};
+
+        // Game log for reconnection restoration
+        this.gameLog = [];
+        this.maxLogEntries = 500;
     }
 
     addPlayer(socketId, username, position, pic) {
@@ -209,7 +213,8 @@ class GameState {
             score: this.score,
             playedCards: this.playedCards,
             isTrumpBroken: this.isTrumpBroken,
-            players: playerInfo
+            players: playerInfo,
+            gameLog: this.getGameLog()
         };
     }
 
@@ -283,10 +288,54 @@ class GameState {
         this.drawCards = [];
         this.drawIDs = [];
         this.drawIndex = 0;
+        this.clearGameLog();
     }
 
     getSocketIds() {
         return Array.from(this.players.keys());
+    }
+
+    // ========================================
+    // Game Log Methods
+    // ========================================
+
+    /**
+     * Add an entry to the game log
+     * @param {string} message - The log message
+     * @param {number|null} playerPosition - Player position (1-4) or null for system
+     * @param {string} type - Message type: 'system', 'chat', 'bid', 'trick', 'score', 'rainbow'
+     */
+    addLogEntry(message, playerPosition = null, type = 'system') {
+        const entry = {
+            message,
+            playerPosition,
+            type,
+            timestamp: Date.now()
+        };
+
+        this.gameLog.push(entry);
+
+        // Enforce max entries limit
+        if (this.gameLog.length > this.maxLogEntries) {
+            this.gameLog.shift();
+        }
+
+        this.logAction('addLogEntry', { message: message.slice(0, 50), type });
+    }
+
+    /**
+     * Get the game log for client
+     * @returns {Array} - Array of log entries
+     */
+    getGameLog() {
+        return [...this.gameLog];
+    }
+
+    /**
+     * Clear the game log
+     */
+    clearGameLog() {
+        this.gameLog = [];
     }
 
     // ========================================

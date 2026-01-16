@@ -21,6 +21,13 @@ function chatMessage(socket, io, data) {
         return;
     }
 
+    // Get player info for username
+    const player = game.getPlayerByPosition(position);
+    const username = player ? player.username : 'Unknown';
+
+    // Add to game log for reconnection persistence
+    game.addLogEntry(`${username}: ${data.message}`, position, 'chat');
+
     // Broadcast to players in the same game only
     game.broadcast(io, 'chatMessage', {
         position,
