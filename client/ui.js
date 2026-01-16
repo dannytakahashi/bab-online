@@ -1489,14 +1489,14 @@ function clearScreen() {
 
     console.log("✅ All elements removed from the screen.");
 }
-function createSpeechBubble(scene, x, bottomY, width, height, text, color) {
+function createSpeechBubble(scene, x, y, width, height, text, color, tailDirection = 'down') {
     let scaleFactorX = scene.scale.width / 1920; // Adjust based on your design resolution
     let scaleFactorY = scene.scale.height / 953; // Adjust based on your design resolution
     const PADDING   = 10;
     const TAIL_SIZE = 20*scaleFactorX;
     const MAX_W     = 350*scaleFactorX;  // Increased for longer messages
     const MAX_H     = 200*scaleFactorY;  // Increased for longer messages
-  
+
     // 1) style & measure the text off-screen
     const style = {
       fontSize:  "16px",
@@ -1505,46 +1505,61 @@ function createSpeechBubble(scene, x, bottomY, width, height, text, color) {
       wordWrap:  { width: MAX_W - 2*PADDING }
     };
     const textObj = scene.add.text(0, 0, text, style);
-  
+
     // 2) clamp its measured size
     const txtW = Math.min(textObj.width,  MAX_W - 2*PADDING);
     const txtH = Math.min(textObj.height, MAX_H - 2*PADDING);
-  
+
     // final bubble dims
     const bW = txtW + 2*PADDING;
     const bH = txtH + 2*PADDING;
-  
-    // 3) compute the top‐left Y so the bottom edge sits at bottomY
-    const topY = bottomY - bH;
-  
-    // 4) position the text inside the bubble
-    textObj.setPosition(x + PADDING, topY + PADDING);
-  
-    // 5) draw the bubble background at (x, topY)
+
     const bubble = scene.add.graphics();
     bubble.fillStyle(0xffffff, 1);
-    bubble.fillRoundedRect(x, topY, bW, bH, 16);
-  
-    // 6) draw the tail so it “points” down at bottomY
-    //    (adjust its triangle coords accordingly)
-    bubble.fillTriangle(
-      x + 20,      topY + bH,       // left corner of bottom edge
-      x - TAIL_SIZE, topY + bH,     // tail tip farther left
-      x + 10,      topY + bH - TAIL_SIZE
-    );
-  
-    // 7) mask off any overflow below the rect
-    const maskShape = scene.make.graphics();
-    maskShape.fillStyle(0xffffff);
-    maskShape.fillRect(x, topY, bW, bH);
-    const mask = maskShape.createGeometryMask();
-  
-    // 8) group & apply mask
+
+    let bubbleX, bubbleY;
+
+    if (tailDirection === 'left') {
+      // Bubble positioned to the right of x, vertically centered on y
+      bubbleX = x + TAIL_SIZE;
+      bubbleY = y - bH / 2;
+
+      // Draw bubble background
+      bubble.fillRoundedRect(bubbleX, bubbleY, bW, bH, 16);
+
+      // Draw tail pointing left toward the avatar
+      bubble.fillTriangle(
+        x,                    y,                    // tail tip (pointing at avatar)
+        bubbleX,              y - TAIL_SIZE / 2,    // top corner on bubble edge
+        bubbleX,              y + TAIL_SIZE / 2     // bottom corner on bubble edge
+      );
+
+      // Position text inside bubble
+      textObj.setPosition(bubbleX + PADDING, bubbleY + PADDING);
+    } else {
+      // Original 'down' behavior: bubble above y, tail pointing down
+      bubbleX = x;
+      bubbleY = y - bH;
+
+      // Draw bubble background
+      bubble.fillRoundedRect(bubbleX, bubbleY, bW, bH, 16);
+
+      // Draw tail pointing down
+      bubble.fillTriangle(
+        bubbleX + 20,         bubbleY + bH,           // left corner of bottom edge
+        bubbleX - TAIL_SIZE,  bubbleY + bH,           // tail tip farther left
+        bubbleX + 10,         bubbleY + bH - TAIL_SIZE
+      );
+
+      // Position text inside bubble
+      textObj.setPosition(bubbleX + PADDING, bubbleY + PADDING);
+    }
+
+    // Group elements (no mask needed - word wrap handles text overflow)
     const container = scene.add.container(0, 0, [bubble, textObj]);
-    container.setMask(mask);
     container.setDepth(500);
     container.setAlpha(1);
-  
+
     return container;
   }
 function createPlayerInfoBox() {

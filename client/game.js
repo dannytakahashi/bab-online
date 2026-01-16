@@ -2282,17 +2282,20 @@ function displayCards(playerHand, skipAnimation = false) {
         let scene = game.scene.scenes[0];
         let screenWidth = scene.scale.width;
         let screenHeight = scene.scale.height;
+        let scaleFactorX = screenWidth / 1920;
+        let scaleFactorY = screenHeight / 953;
         let centerPlayAreaX = screenWidth / 2;
         let centerPlayAreaY = screenHeight / 2;
+
+        // Use same positioning as chat bubbles (bubble appears above player)
         let opp1_x = centerPlayAreaX - 480*scaleFactorX;
-        let opp1_y = centerPlayAreaY - 60*scaleFactorY;
+        let opp1_y = centerPlayAreaY;
         let opp2_x = centerPlayAreaX + 620*scaleFactorX;
-        let opp2_y = centerPlayAreaY - 60*scaleFactorY;
+        let opp2_y = centerPlayAreaY;
         let team1_x = centerPlayAreaX + 80*scaleFactorX;
-        // Reduce offset and ensure minimum Y of 80 to keep bubble visible
-        let team1_y = Math.max(80, centerPlayAreaY - 280*scaleFactorY);
+        let team1_y = centerPlayAreaY - 380*scaleFactorY;
         let me_x = screenWidth - 310*scaleFactorX;
-        let me_y = screenHeight - 330*scaleFactorY;
+        let me_y = screenHeight - 270*scaleFactorY;
         let myBids = ["-","-","-","-"];
         console.log("got bidArray: ", data.bidArray);
         console.log("myBids before: ", myBids);
@@ -2307,28 +2310,28 @@ function displayCards(playerHand, skipAnimation = false) {
             console.log("placing chat on opp1");
             let chatBubble = createSpeechBubble(scene, opp1_x, opp1_y, 50, 50, data.bid, "#FF0000");
             scene.time.delayedCall(5000, () => {
-                chatBubble.destroy(); // ✅ Destroy the chat bubble after 3 seconds
+                chatBubble.destroy();
             });
         }
         if (data.position === position - 1 || data.position === position + 3) {
             console.log("placing chat on opp2");
             let chatBubble = createSpeechBubble(scene, opp2_x, opp2_y, 50, 50, data.bid, "#FF0000");
             scene.time.delayedCall(5000, () => {
-                chatBubble.destroy(); // ✅ Destroy the chat bubble after 3 seconds
+                chatBubble.destroy();
             });
         }
         if (data.position === position + 2 || data.position === position - 2) {
             console.log("placing chat on team1");
             let chatBubble = createSpeechBubble(scene, team1_x, team1_y, 50, 50, data.bid, "#FF0000");
             scene.time.delayedCall(5000, () => {
-                chatBubble.destroy(); // ✅ Destroy the chat bubble after 3 seconds
+                chatBubble.destroy();
             });
         }
         if (data.position === position) {
             console.log("placing chat on me");
             let chatBubble = createSpeechBubble(scene, me_x, me_y, 50, 50, data.bid, "#FF0000");
             scene.time.delayedCall(5000, () => {
-                chatBubble.destroy(); // ✅ Destroy the chat bubble after 3 seconds
+                chatBubble.destroy();
             });
         }
         // Update score in game log with bid info
