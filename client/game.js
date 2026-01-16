@@ -2598,14 +2598,16 @@ function displayCards(playerHand, skipAnimation = false) {
         console.log("🎯 currentTurn === position?", currentTurn === position);
         console.log("🎯 myCards.length:", myCards.length);
 
-        // Update card legality now that bidding is over
-        if (window.updateCardLegality) {
-            console.log("🎯 Calling window.updateCardLegality()");
-            window.updateCardLegality();
-            forceRenderUpdate();
-        } else {
-            console.log("🚨 window.updateCardLegality is not defined!");
-        }
+        // Recreate card sprites to ensure correct WebGL state after container resize
+        // This is more reliable than trying to force re-render of existing sprites
+        console.log("🎯 Recreating card sprites after bidding...");
+        myCards.forEach(sprite => {
+            if (sprite && sprite.active) {
+                sprite.destroy();
+            }
+        });
+        myCards = [];
+        displayCards.call(gameScene, hand, true); // true = skip animation
         playerBids = data;
         console.log("bids: ", playerBids);
         rainbows.forEach((rainbow) => {
