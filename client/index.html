@@ -16,13 +16,18 @@
     <script src="https://cdn.socket.io/4.0.1/socket.io.min.js"></script>
     <link rel="stylesheet" href="styles.css">
     <link rel="stylesheet" href="styles/components.css">
+    <link rel="stylesheet" href="styles/cards.css">
     <link rel="icon" type="image/x-icon" href="favicon.ico">
 
 </head>
 <body>
-    <div id="game-container"></div>
-    <script src="socketManager.js?v=20260113g"></script>
-    <script src="ui.js?v=20260113g"></script>
-    <script src="game.js?v=20260113k"></script>
+    <div id="game-container">
+        <!-- Card layer for DOM-based card rendering (replaces Phaser canvas for cards) -->
+        <div id="card-layer"></div>
+    </div>
+    <script src="socketManager.js?v=20260115b"></script>
+    <script src="js/dom/DOMCardRenderer.js?v=20260115b"></script>
+    <script src="ui.js?v=20260115b"></script>
+    <script src="game.js?v=20260115b"></script>
 </body>
 </html>

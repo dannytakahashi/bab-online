@@ -267,20 +267,22 @@ function showRegisterScreen(){
         let username = usernameInput.value.trim();
         let password = passwordInput.value.trim();
         let confirmPassword = confirmPasswordInput.value.trim();
-    
+
         if (username === "" || password === "" || confirmPassword === "") {
             alert("❌ Please fill out all fields.");
             return;
         }
-    
+
         if (password !== confirmPassword) {
             alert("❌ Passwords do not match!");
             return;
         }
-    
+
         console.log(`📡 Registering user: ${username}`);
         socket.emit("signUp", { username, password });
-        showSignInScreen();
+        // Don't show sign-in screen here - wait for signUpResponse
+        // If auto-login is enabled, we'll go straight to main room
+        // If not, signUpResponse handler will show sign-in screen
     }
     registerContainer.appendChild(registerButton);
 
@@ -350,15 +352,25 @@ socket.on("signUpResponse", (data) => {
             console.log(`Registration & auto-login successful: ${data.username}`);
             username = data.username;  // Update global username
             sessionStorage.setItem("username", data.username);
-            // Clear sign-in UI
+            // Clear all auth UI (registration and sign-in screens)
             clearUI();
+            let registerContainer = document.getElementById("registerContainer");
+            if (registerContainer) registerContainer.remove();
+            let registerVignette = document.getElementById("RegisterVignette");
+            if (registerVignette) registerVignette.remove();
             let signInContainer = document.getElementById("signInContainer");
             if (signInContainer) signInContainer.remove();
             let signInVignette = document.getElementById("SignInVignette");
             if (signInVignette) signInVignette.remove();
             socket.emit("joinMainRoom"); // Go to main room
         } else {
+            // Remove registration screen and show sign-in
+            let registerContainer = document.getElementById("registerContainer");
+            if (registerContainer) registerContainer.remove();
+            let registerVignette = document.getElementById("RegisterVignette");
+            if (registerVignette) registerVignette.remove();
             alert("Registration successful! Please sign in.");
+            showSignInScreen();
         }
     } else {
         alert(`Registration failed: ${data.message}`);
@@ -572,10 +584,16 @@ function removeWaitingScreen() {
 function showMainRoom(data) {
     console.log("🏠 Showing main room...", data);
 
-    // Remove any existing UI
+    // Remove any existing UI including sign-in screen
     removeMainRoom();
     removePlayerQueue();
     removeGameLobby();
+
+    // Remove sign-in screen if it exists
+    let signInContainer = document.getElementById("signInContainer");
+    if (signInContainer) signInContainer.remove();
+    let signInVignette = document.getElementById("SignInVignette");
+    if (signInVignette) signInVignette.remove();
 
     // Fresh color assignments for new main room session
     mainRoomUserColors = {};
@@ -1686,10 +1704,42 @@ window.onload = () => {
     if (!username) {
         showSignInScreen();
     } else if (gameId) {
-        // Was in a game - socketManager will attempt rejoin
+        // Was in a game - socketManager will attempt rejoin on connect
+        // Show sign-in vignette (green background) while waiting for rejoin
+        let vignette = document.createElement("div");
+        vignette.id = "SignInVignette";
+        vignette.classList.add("vignette");
+        vignette.style.position = "fixed";
+        vignette.style.top = "0";
+        vignette.style.left = "0";
+        vignette.style.width = "100vw";
+        vignette.style.height = "100vh";
+        vignette.style.background = "radial-gradient(circle, rgba(34, 139, 34, 1) 30%, rgba(0, 0, 0, 1) 100%)";
+        vignette.style.zIndex = "50";
+        document.body.appendChild(vignette);
         // The rejoinSuccess/rejoinFailed handlers in game.js will handle the UI
     } else {
-        // Go to main room
-        socket.emit("joinMainRoom");
+        // Go to main room - wait for socket to be connected
+        if (socket.connected) {
+            socket.emit("joinMainRoom");
+        } else {
+            // Show vignette while waiting for connection
+            let vignette = document.createElement("div");
+            vignette.id = "SignInVignette";
+            vignette.classList.add("vignette");
+            vignette.style.position = "fixed";
+            vignette.style.top = "0";
+            vignette.style.left = "0";
+            vignette.style.width = "100vw";
+            vignette.style.height = "100vh";
+            vignette.style.background = "radial-gradient(circle, rgba(34, 139, 34, 1) 30%, rgba(0, 0, 0, 1) 100%)";
+            vignette.style.zIndex = "50";
+            document.body.appendChild(vignette);
+
+            socket.on("connect", function onConnect() {
+                socket.off("connect", onConnect); // Remove listener after first connect
+                socket.emit("joinMainRoom");
+            });
+        }
     }
 };

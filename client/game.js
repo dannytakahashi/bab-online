@@ -293,6 +293,8 @@ let waitBool = false;
 let queueDelay = false;
 let lastQueueData;
 let opponentAvatarDoms = { partner: null, opp1: null, opp2: null }; // DOM-based opponent avatars for CSS glow support
+let domCardRenderer = null; // DOM-based card renderer (replaces Phaser sprites for player hand)
+
 function create() {
     gameScene = this; // Store reference to the game scene
     console.log("🚀 CREATE() RUNNING!");
@@ -346,6 +348,11 @@ function create() {
 function repositionGameElements(newWidth, newHeight) {
     const scaleFactorX = newWidth / 1920;
     const scaleFactorY = newHeight / 953;
+
+    // Update DOM card renderer scale
+    if (domCardRenderer) {
+        domCardRenderer.updateScale(newWidth, newHeight);
+    }
 
     // Position DOM background elements (play zone, hand background, border)
     positionDomBackgrounds(newWidth, newHeight);
@@ -402,11 +409,8 @@ function repositionGameElements(newWidth, newHeight) {
 
 // Reposition cards in the player's hand during resize
 function repositionHandCards(screenWidth, screenHeight, scaleFactorX, scaleFactorY) {
-    if (!myCards || myCards.length === 0) return;
-
     const cardSpacing = 50 * scaleFactorX;
-    const totalWidth = (myCards.length - 1) * cardSpacing;
-    const startX = (screenWidth - totalWidth) / 2;
+    const cardWidth = 100 * 1.5 * scaleFactorX;
 
     // Calculate hand area (must match positionDomBackgrounds and displayCards)
     const bottomClearance = 20 * scaleFactorY;
@@ -415,6 +419,25 @@ function repositionHandCards(screenWidth, screenHeight, scaleFactorX, scaleFacto
     const handAreaHeight = cardHeight + cardPadding * 2;
     const handAreaTop = screenHeight - handAreaHeight - bottomClearance;
     const startY = handAreaTop + handAreaHeight / 2; // Vertically centered on table
+
+    // Reposition DOM cards
+    if (domCardRenderer && domCardRenderer.handCards && domCardRenderer.handCards.length > 0) {
+        const domTotalWidth = (domCardRenderer.handCards.length - 1) * cardSpacing + cardWidth;
+        const domStartX = (screenWidth - domTotalWidth) / 2;
+
+        domCardRenderer.handCards.forEach((cardEl, index) => {
+            if (cardEl) {
+                cardEl.style.left = `${domStartX + index * cardSpacing}px`;
+                cardEl.style.top = `${screenHeight - 180 * scaleFactorY}px`;
+            }
+        });
+    }
+
+    // Reposition Phaser sprites (backwards compatibility)
+    if (!myCards || myCards.length === 0) return;
+
+    const totalWidth = (myCards.length - 1) * cardSpacing;
+    const startX = (screenWidth - totalWidth) / 2;
 
     myCards.forEach((card, index) => {
         if (card && card.active) {
@@ -536,6 +559,11 @@ function repositionOpponentElements(screenWidth, screenHeight, scaleFactorX, sca
                 });
             }
         });
+    }
+
+    // Reposition DOM opponent cards
+    if (domCardRenderer) {
+        domCardRenderer.repositionOpponentHands();
     }
 
     // Reposition opponent DOM avatars
@@ -1258,20 +1286,26 @@ function draw() {
 function removeDraw() {
     console.log("🔥 Destroying all displayed cards...");
 
+    // Clean up Phaser elements
     allCards.forEach(card => {
-        if (card) {
+        if (card && card.destroy) {
             card.destroy();
         }
     });
     allCards = [];
 
-    // Also clean up drawn card displays
+    // Also clean up drawn card displays (Phaser)
     drawnCardDisplays.forEach(item => {
-        if (item) {
+        if (item && item.destroy) {
             item.destroy();
         }
     });
     drawnCardDisplays = [];
+
+    // Clean up DOM elements
+    if (domCardRenderer) {
+        domCardRenderer.clearDrawPhase();
+    }
 
     // Clean up socket listeners
     socket.off("youDrew");
@@ -1497,65 +1531,101 @@ socket.on("gameEnd", (data) => {
 });
 socket.on("startDraw", (data) => {
     removeWaitingScreen();
-    draw.call(game.scene.scenes[0]);
+
+    // Initialize DOMCardRenderer if not already done
+    if (!domCardRenderer) {
+        const cardLayer = document.getElementById('card-layer');
+        if (cardLayer) {
+            domCardRenderer = new DOMCardRenderer(cardLayer);
+            console.log("✅ DOMCardRenderer initialized for draw phase");
+        }
+    }
+
+    // Update scale factors
+    if (domCardRenderer && game && game.scene && game.scene.scenes[0]) {
+        const scene = game.scene.scenes[0];
+        domCardRenderer.updateScale(scene.scale.width, scene.scale.height);
+    }
+
+    // Use DOM-based draw phase
+    if (domCardRenderer) {
+        hasDrawn = false;
+        drawnCardDisplays = [];
+
+        domCardRenderer.displayDrawDeck((cardIndex) => {
+            console.log(`📦 Clicked card ${cardIndex + 1} to draw`);
+            socket.emit("draw", { num: cardIndex });
+        });
+
+        // Set up draw handlers
+        socket.off("youDrew");
+        socket.off("playerDrew");
+
+        socket.on("youDrew", (data) => {
+            console.log(`🎴 You drew: ${data.card.rank} of ${data.card.suit}`);
+            // The playerDrew event will handle the display for all players including self
+        });
+
+        socket.on("playerDrew", (data) => {
+            console.log(`🎴 ${data.username} drew: ${data.card.rank} of ${data.card.suit} (order: ${data.drawOrder})`);
+            const isLocalPlayer = domCardRenderer.clickedCardPosition !== null;
+            domCardRenderer.handlePlayerDrew(data.username, data.card, data.drawOrder, isLocalPlayer);
+        });
+    } else {
+        // Fallback to Phaser if DOM renderer not available
+        draw.call(game.scene.scenes[0]);
+    }
 });
 socket.on("teamsAnnounced", (data) => {
     console.log("🏆 Teams announced:", data);
-    let scene = game.scene.scenes[0];
-    let screenWidth = scene.scale.width;
-    let screenHeight = scene.scale.height;
-    let scaleFactorX = screenWidth / 1920;
-    let scaleFactorY = screenHeight / 953;
 
-    // Create semi-transparent overlay
-    const overlay = scene.add.rectangle(screenWidth / 2, screenHeight / 2, screenWidth, screenHeight, 0x000000, 0.7)
-        .setDepth(400);
+    // Use DOM-based teams announcement
+    if (domCardRenderer) {
+        domCardRenderer.showTeamsAnnouncement(data.team1, data.team2);
+    } else {
+        // Fallback to Phaser
+        let scene = game.scene.scenes[0];
+        let screenWidth = scene.scale.width;
+        let screenHeight = scene.scale.height;
+        let scaleFactorX = screenWidth / 1920;
+        let scaleFactorY = screenHeight / 953;
 
-    // Team announcement title
-    const title = scene.add.text(screenWidth / 2, screenHeight / 2 - 120*scaleFactorY, "Teams", {
-        fontSize: `${56*scaleFactorX}px`,
-        fontStyle: "bold",
-        color: "#FFD700",
-        stroke: "#000000",
-        strokeThickness: 4
-    }).setOrigin(0.5).setDepth(401);
-
-    // Team 1 display
-    const team1Label = scene.add.text(screenWidth / 2, screenHeight / 2 - 30*scaleFactorY, "Team 1", {
-        fontSize: `${32*scaleFactorX}px`,
-        fontStyle: "bold",
-        color: "#4ade80"
-    }).setOrigin(0.5).setDepth(401);
-
-    const team1Players = scene.add.text(screenWidth / 2, screenHeight / 2 + 20*scaleFactorY,
-        `${data.team1[0]} & ${data.team1[1]}`, {
-        fontSize: `${28*scaleFactorX}px`,
-        color: "#FFFFFF"
-    }).setOrigin(0.5).setDepth(401);
-
-    // VS text
-    const vsText = scene.add.text(screenWidth / 2, screenHeight / 2 + 70*scaleFactorY, "vs", {
-        fontSize: `${24*scaleFactorX}px`,
-        fontStyle: "italic",
-        color: "#9ca3af"
-    }).setOrigin(0.5).setDepth(401);
-
-    // Team 2 display
-    const team2Label = scene.add.text(screenWidth / 2, screenHeight / 2 + 120*scaleFactorY, "Team 2", {
-        fontSize: `${32*scaleFactorX}px`,
-        fontStyle: "bold",
-        color: "#f87171"
-    }).setOrigin(0.5).setDepth(401);
-
-    const team2Players = scene.add.text(screenWidth / 2, screenHeight / 2 + 170*scaleFactorY,
-        `${data.team2[0]} & ${data.team2[1]}`, {
-        fontSize: `${28*scaleFactorX}px`,
-        color: "#FFFFFF"
-    }).setOrigin(0.5).setDepth(401);
-
-    // Store references for cleanup
-    const teamElements = [overlay, title, team1Label, team1Players, vsText, team2Label, team2Players];
-    drawnCardDisplays.push(...teamElements);
+        const overlay = scene.add.rectangle(screenWidth / 2, screenHeight / 2, screenWidth, screenHeight, 0x000000, 0.7)
+            .setDepth(400);
+        const title = scene.add.text(screenWidth / 2, screenHeight / 2 - 120*scaleFactorY, "Teams", {
+            fontSize: `${56*scaleFactorX}px`,
+            fontStyle: "bold",
+            color: "#FFD700",
+            stroke: "#000000",
+            strokeThickness: 4
+        }).setOrigin(0.5).setDepth(401);
+        const team1Label = scene.add.text(screenWidth / 2, screenHeight / 2 - 30*scaleFactorY, "Team 1", {
+            fontSize: `${32*scaleFactorX}px`,
+            fontStyle: "bold",
+            color: "#4ade80"
+        }).setOrigin(0.5).setDepth(401);
+        const team1Players = scene.add.text(screenWidth / 2, screenHeight / 2 + 20*scaleFactorY,
+            `${data.team1[0]} & ${data.team1[1]}`, {
+            fontSize: `${28*scaleFactorX}px`,
+            color: "#FFFFFF"
+        }).setOrigin(0.5).setDepth(401);
+        const vsText = scene.add.text(screenWidth / 2, screenHeight / 2 + 70*scaleFactorY, "vs", {
+            fontSize: `${24*scaleFactorX}px`,
+            fontStyle: "italic",
+            color: "#9ca3af"
+        }).setOrigin(0.5).setDepth(401);
+        const team2Label = scene.add.text(screenWidth / 2, screenHeight / 2 + 120*scaleFactorY, "Team 2", {
+            fontSize: `${32*scaleFactorX}px`,
+            fontStyle: "bold",
+            color: "#f87171"
+        }).setOrigin(0.5).setDepth(401);
+        const team2Players = scene.add.text(screenWidth / 2, screenHeight / 2 + 170*scaleFactorY,
+            `${data.team2[0]} & ${data.team2[1]}`, {
+            fontSize: `${28*scaleFactorX}px`,
+            color: "#FFFFFF"
+        }).setOrigin(0.5).setDepth(401);
+        drawnCardDisplays.push(overlay, title, team1Label, team1Players, vsText, team2Label, team2Players);
+    }
 });
 socket.on("chatMessage", (data) => {
     console.log("chatMessage received: ", data.message, " from position: ", data.position, " and I think my pos is ", position);
@@ -1564,50 +1634,45 @@ socket.on("chatMessage", (data) => {
     let senderName = data.username || getPlayerName(data.position);
     addToGameFeed(`${senderName}: ${data.message}`, data.position);
 
-    let scene = game.scene.scenes[0];
-    let screenWidth = scene.scale.width;
-    let screenHeight = scene.scale.height;
-    let scaleFactorX = screenWidth / 1920; // Adjust based on your design resolution
-    let scaleFactorY = screenHeight / 953; // Adjust based on your design resolution
-    let centerPlayAreaX = screenWidth / 2;
-    let centerPlayAreaY = screenHeight / 2;
-    let opp1_x = centerPlayAreaX - 480*scaleFactorX;
-    let opp1_y = centerPlayAreaY;
-    let opp2_x = centerPlayAreaX + 620*scaleFactorX;
-    let opp2_y = centerPlayAreaY;
-    let team1_x = centerPlayAreaX + 80*scaleFactorX;
-    let team1_y = centerPlayAreaY - 380*scaleFactorY;
-    let me_x = screenWidth - 310*scaleFactorX;
-    let me_y = screenHeight - 270*scaleFactorY;
+    // Determine relative position
+    let relativePos = null;
     if (data.position === position + 1 || data.position === position - 3) {
-        console.log("placing chat on opp1");
-        let chatBubble = createSpeechBubble(scene, opp1_x, opp1_y, 150, 50, data.message);
+        relativePos = 'left';
+    } else if (data.position === position - 1 || data.position === position + 3) {
+        relativePos = 'right';
+    } else if (data.position === position + 2 || data.position === position - 2) {
+        relativePos = 'partner';
+    } else if (data.position === position) {
+        relativePos = 'self';
+    }
+
+    // Show speech bubble using DOM renderer
+    if (relativePos && domCardRenderer) {
+        console.log(`placing chat on ${relativePos}`);
+        domCardRenderer.showSpeechBubble(relativePos, data.message, { duration: 6000 });
+    } else if (relativePos) {
+        // Fallback to Phaser
+        let scene = game.scene.scenes[0];
+        let screenWidth = scene.scale.width;
+        let screenHeight = scene.scale.height;
+        let scaleFactorX = screenWidth / 1920;
+        let scaleFactorY = screenHeight / 953;
+        let centerPlayAreaX = screenWidth / 2;
+        let centerPlayAreaY = screenHeight / 2;
+
+        const positions = {
+            'left': { x: centerPlayAreaX - 480*scaleFactorX, y: centerPlayAreaY },
+            'right': { x: centerPlayAreaX + 620*scaleFactorX, y: centerPlayAreaY },
+            'partner': { x: centerPlayAreaX + 80*scaleFactorX, y: centerPlayAreaY - 380*scaleFactorY },
+            'self': { x: screenWidth - 310*scaleFactorX, y: screenHeight - 270*scaleFactorY }
+        };
+
+        const pos = positions[relativePos];
+        let chatBubble = createSpeechBubble(scene, pos.x, pos.y, 150, 50, data.message);
         scene.time.delayedCall(6000, () => {
-            chatBubble.destroy(); // ✅ Destroy the chat bubble after 3 seconds
+            chatBubble.destroy();
         });
     }
-    if (data.position === position - 1 || data.position === position + 3) {
-        console.log("placing chat on opp2");
-        let chatBubble = createSpeechBubble(scene, opp2_x, opp2_y, 150, 50, data.message);
-        scene.time.delayedCall(6000, () => {
-            chatBubble.destroy(); // ✅ Destroy the chat bubble after 3 seconds
-        });
-    }
-    if (data.position === position + 2 || data.position === position - 2) {
-        console.log("placing chat on team1");
-        let chatBubble = createSpeechBubble(scene, team1_x, team1_y, 150, 50, data.message);
-        scene.time.delayedCall(6000, () => {
-            chatBubble.destroy(); // ✅ Destroy the chat bubble after 3 seconds
-        });
-    }
-    if (data.position === position) {
-        console.log("placing chat on me");
-        let chatBubble = createSpeechBubble(scene, me_x, me_y, 150, 50, data.message);
-        scene.time.delayedCall(6000, () => {
-            chatBubble.destroy(); // ✅ Destroy the chat bubble after 3 seconds
-        });
-    }
-    
 });
 socket.on("createUI", (data) => {
     let scene = game.scene.scenes[0];
@@ -1779,6 +1844,12 @@ function displayCards(playerHand, skipAnimation = false) {
             }
         });
         myCards = [];
+    }
+
+    // Also clear DOM-based cards
+    if (domCardRenderer) {
+        domCardRenderer.clearHand();
+        domCardRenderer.clearTable();
     }
 
     // Sort the hand before displaying
@@ -2040,9 +2111,38 @@ function displayCards(playerHand, skipAnimation = false) {
     console.log("player hand:", playerHand);
     let cardDepth = 200;
 
-    // Function to update card interactivity based on legal moves
+    // Function to update card interactivity based on legal moves (DOM version)
     function updateCardLegality() {
-        console.log(`updateCardLegality: bidding=${bidding}, currentTurn=${currentTurn}, position=${position}, myCards.length=${myCards.length}`);
+        console.log(`updateCardLegality: bidding=${bidding}, currentTurn=${currentTurn}, position=${position}`);
+
+        // Update DOM-based cards via DOMCardRenderer
+        if (domCardRenderer && domCardRenderer.handCards) {
+            // Calculate which cards are legal
+            const legalCards = [];
+            playerCards.forEach(card => {
+                // During bidding or not our turn, no cards are legal
+                if (bidding === 1 || currentTurn !== position || playedCard) {
+                    return;
+                }
+                // Check if this card is a legal move
+                const isLegal = isLegalMove(card, playerCards, leadCard, playedCardIndex === 0, leadPosition);
+                if (isLegal) {
+                    legalCards.push(card);
+                }
+            });
+
+            // Update interaction state
+            if (bidding === 0 && currentTurn === position && !playedCard) {
+                domCardRenderer.enableInteraction();
+                domCardRenderer.highlightLegalMoves(legalCards);
+            } else {
+                domCardRenderer.disableInteraction();
+                // Dim all cards when not our turn
+                domCardRenderer.highlightLegalMoves([]);
+            }
+        }
+
+        // Also update Phaser sprites if they exist (for backwards compatibility during migration)
         myCards.forEach(sprite => {
             if (!sprite || !sprite.active) return;
             const card = sprite.getData('card');
@@ -2051,19 +2151,15 @@ function displayCards(playerHand, skipAnimation = false) {
             // During bidding or not our turn, dim all cards
             if (bidding === 1 || currentTurn !== position || playedCard) {
                 sprite.setTint(0xaaaaaa);
-                console.log(`Dimmed ${card.rank} of ${card.suit}, tint after: ${sprite.tintTopLeft}`);
                 sprite.setData('isLegal', false);
                 return;
             }
 
             // Check if this card is a legal move
-            // Pass leadPosition (who led the trick) for HI joker rule, not player's position
             const isLegal = isLegalMove(card, playerCards, leadCard, playedCardIndex === 0, leadPosition);
 
             if (isLegal) {
-                console.log(`Enabling ${card.rank} of ${card.suit}, tint before: ${sprite.tintTopLeft}`);
                 sprite.clearTint();
-                console.log(`After clearTint: ${sprite.tintTopLeft}`);
                 sprite.setData('isLegal', true);
             } else {
                 sprite.setTint(0x666666);
@@ -2075,87 +2171,26 @@ function displayCards(playerHand, skipAnimation = false) {
     // Store the update function globally so socket handlers can call it
     window.updateCardLegality = updateCardLegality;
 
-    console.log("🃏 Creating", playerHand.length, "card sprites...");
-    console.log("🃏 visible() =", visible());
+    console.log("🃏 Creating", playerHand.length, "cards using DOMCardRenderer...");
 
-    playerHand.forEach((card, index) => {
-        let cardKey = getCardImageKey(card);
-        console.log(`🃏 Card ${index}: ${card.rank} of ${card.suit} -> key: ${cardKey}`);
-
-        // Check if frame exists
-        if (this.textures && this.textures.exists('cards')) {
-            const frame = this.textures.get('cards').get(cardKey);
-            console.log(`🃏 Frame '${cardKey}' exists:`, frame && frame.name === cardKey);
+    // Initialize DOMCardRenderer if not already done
+    if (!domCardRenderer) {
+        const cardLayer = document.getElementById('card-layer');
+        if (cardLayer) {
+            domCardRenderer = new DOMCardRenderer(cardLayer);
+            console.log("✅ DOMCardRenderer initialized");
+        } else {
+            console.error("🚨 ERROR: #card-layer not found in DOM!");
         }
+    }
 
-        let cardSprite = this.add.image(screenWidth / 2 + 500*scaleFactorX, screenHeight / 2 - 300*scaleFactorY, 'cards', cardKey)
-        .setInteractive()
-        .setScale(1.5);  // ✅ Increase size
+    // Update scale factors for responsive layout
+    if (domCardRenderer) {
+        domCardRenderer.updateScale(screenWidth, screenHeight);
 
-        console.log(`🃏 Card sprite created:`, cardSprite);
-        console.log(`🃏 Sprite dimensions: ${cardSprite.width}x${cardSprite.height}`);
-        console.log(`🃏 Sprite position: (${cardSprite.x}, ${cardSprite.y})`);
-        console.log(`🃏 Sprite visible: ${cardSprite.visible}, alpha: ${cardSprite.alpha}`);
-
-        cardSprite.input.hitArea.setTo(cardSprite.width * 0.15, 0, cardSprite.width * 0.7, cardSprite.height);
-        if (!cardSprite) {
-            console.error(`🚨 ERROR: Failed to create card sprite for ${card.rank} of ${card.suit}`);
-        }
-        // Store card data on sprite for legality checks
-        cardSprite.setData('card', card);
-        cardSprite.setData('isLegal', false);
-        cardSprite.setData('baseY', startY); // Store base Y for hover effects
-        myCards.push(cardSprite);
-        if (visible() && !skipAnimation){
-            this.tweens.add({
-                targets: cardSprite,
-                x: startX + index * cardSpacing,
-                y: startY,
-                duration: 750,
-                ease: "Power2",
-                delay: index * 30,
-                onComplete: () =>{
-                }
-            });
-        }else{
-            cardSprite.x = startX + index * cardSpacing;
-            cardSprite.y = startY;
-        }
-        // Click-based card play (no dragging)
-        cardSprite.on("pointerover", () => {
-            // Only raise card if it's a legal move
-            if (cardSprite.getData('isLegal')) {
-                const baseY = cardSprite.getData('baseY');
-                this.tweens.add({
-                    targets: cardSprite,
-                    y: baseY - 30,
-                    duration: 150,
-                    ease: 'Power2'
-                });
-            }
-        });
-
-        cardSprite.on("pointerout", () => {
-            // Only return card if it was raised (isLegal)
-            if (cardSprite.getData('isLegal')) {
-                const baseY = cardSprite.getData('baseY');
-                this.tweens.add({
-                    targets: cardSprite,
-                    y: baseY,
-                    duration: 150,
-                    ease: 'Power2'
-                });
-            }
-        });
-
-        cardSprite.on("pointerdown", () => {
-            console.log(`🃏 Card clicked: ${card.rank} of ${card.suit}`);
-
-            // Only allow playing if the card is marked as legal
-            if (!cardSprite.getData('isLegal')) {
-                console.log("Illegal move - card is disabled!");
-                return;
-            }
+        // Set up click handler for playing cards
+        domCardRenderer.onCardClick = (card, cardElement) => {
+            console.log(`🃏 DOM Card clicked: ${card.rank} of ${card.suit}`);
 
             // Set lead card if first play of trick
             if (playedCardIndex === 0) {
@@ -2165,18 +2200,47 @@ function displayCards(playerHand, skipAnimation = false) {
                 console.log("leadBool changed to true.");
             }
 
-            // Play the card
+            // Play the card via socket
             socket.emit("playCard", { card, position });
             playedCard = true;
+
             if (card.suit === trump.suit || card.suit === "joker") {
                 isTrumpBroken = true;
             }
             leadBool = false;
-            cardSprite.destroy(); // Remove after playing
+
+            // Animate card to center play area
+            domCardRenderer.playCard(card, 'self');
+
+            // Update hand tracking
             playerHand = removeCard(playerHand, card);
-            playerCards = removeCard(playerCards, card); // Also update global playerCards for legality checks
-            console.log("my hand: ", playerHand);
-        });
+            playerCards = removeCard(playerCards, card);
+            console.log("my hand after play:", playerHand);
+        };
+
+        // Display hand using DOM renderer
+        domCardRenderer.displayHand(playerHand, skipAnimation);
+    }
+
+    // Also create Phaser sprites for backwards compatibility (will be removed in Phase 7)
+    // This ensures opponent card animations and other Phaser features still work
+    playerHand.forEach((card, index) => {
+        let cardKey = getCardImageKey(card);
+
+        let cardSprite = this.add.image(screenWidth / 2 + 500*scaleFactorX, screenHeight / 2 - 300*scaleFactorY, 'cards', cardKey)
+        .setInteractive()
+        .setScale(1.5)
+        .setAlpha(0); // Hidden - DOM cards are visible instead
+
+        cardSprite.input.hitArea.setTo(cardSprite.width * 0.15, 0, cardSprite.width * 0.7, cardSprite.height);
+        cardSprite.setData('card', card);
+        cardSprite.setData('isLegal', false);
+        cardSprite.setData('baseY', startY);
+        myCards.push(cardSprite);
+
+        // Position immediately (no animation - DOM handles that)
+        cardSprite.x = startX + index * cardSpacing;
+        cardSprite.y = startY;
     });
 
     // Initial update of card legality (cards should be dimmed during bidding)
@@ -2242,56 +2306,52 @@ function displayCards(playerHand, skipAnimation = false) {
             window.updateBoreButtons();
         }
 
-        let scene = game.scene.scenes[0];
-        let screenWidth = scene.scale.width;
-        let screenHeight = scene.scale.height;
-        let centerPlayAreaX = screenWidth / 2;
-        let centerPlayAreaY = screenHeight / 2;
-        let opp1_x = centerPlayAreaX - 480*scaleFactorX;
-        let opp1_y = centerPlayAreaY - 60*scaleFactorY;
-        let opp2_x = centerPlayAreaX + 620*scaleFactorX;
-        let opp2_y = centerPlayAreaY - 60*scaleFactorY;
-        let team1_x = centerPlayAreaX + 80*scaleFactorX;
-        // Reduce offset and ensure minimum Y of 80 to keep bubble visible
-        let team1_y = Math.max(80, centerPlayAreaY - 280*scaleFactorY);
-        let me_x = screenWidth - 310*scaleFactorX;
-        let me_y = screenHeight - 330*scaleFactorY;
         let myBids = ["-","-","-","-"];
         console.log("got bidArray: ", data.bidArray);
         console.log("myBids before: ", myBids);
-        for(i = 0; i < data.bidArray.length; i++){
+        for(let i = 0; i < data.bidArray.length; i++){
             if(data.bidArray[i] !== undefined && data.bidArray[i] !== null){
                 myBids[i] = data.bidArray[i];
                 console.log("changed myBids at index ", i, " to ", myBids[i]);
             }
         }
         console.log("myBids: ", myBids);
+
+        // Determine relative position
+        let relativePos = null;
         if (data.position === position + 1 || data.position === position - 3) {
-            console.log("placing chat on opp1");
-            let chatBubble = createSpeechBubble(scene, opp1_x, opp1_y, 50, 50, data.bid, "#FF0000");
-            scene.time.delayedCall(5000, () => {
-                chatBubble.destroy(); // ✅ Destroy the chat bubble after 3 seconds
-            });
+            relativePos = 'left';
+        } else if (data.position === position - 1 || data.position === position + 3) {
+            relativePos = 'right';
+        } else if (data.position === position + 2 || data.position === position - 2) {
+            relativePos = 'partner';
+        } else if (data.position === position) {
+            relativePos = 'self';
         }
-        if (data.position === position - 1 || data.position === position + 3) {
-            console.log("placing chat on opp2");
-            let chatBubble = createSpeechBubble(scene, opp2_x, opp2_y, 50, 50, data.bid, "#FF0000");
+
+        // Show bid bubble using DOM renderer
+        if (relativePos && domCardRenderer) {
+            console.log(`placing bid on ${relativePos}`);
+            domCardRenderer.showSpeechBubble(relativePos, String(data.bid), { color: '#FF0000', duration: 5000 });
+        } else if (relativePos) {
+            // Fallback to Phaser
+            let scene = game.scene.scenes[0];
+            let screenWidth = scene.scale.width;
+            let screenHeight = scene.scale.height;
+            let centerPlayAreaX = screenWidth / 2;
+            let centerPlayAreaY = screenHeight / 2;
+
+            const positions = {
+                'left': { x: centerPlayAreaX - 480*scaleFactorX, y: centerPlayAreaY - 60*scaleFactorY },
+                'right': { x: centerPlayAreaX + 620*scaleFactorX, y: centerPlayAreaY - 60*scaleFactorY },
+                'partner': { x: centerPlayAreaX + 80*scaleFactorX, y: Math.max(80, centerPlayAreaY - 280*scaleFactorY) },
+                'self': { x: screenWidth - 310*scaleFactorX, y: screenHeight - 330*scaleFactorY }
+            };
+
+            const pos = positions[relativePos];
+            let chatBubble = createSpeechBubble(scene, pos.x, pos.y, 50, 50, data.bid, "#FF0000");
             scene.time.delayedCall(5000, () => {
-                chatBubble.destroy(); // ✅ Destroy the chat bubble after 3 seconds
-            });
-        }
-        if (data.position === position + 2 || data.position === position - 2) {
-            console.log("placing chat on team1");
-            let chatBubble = createSpeechBubble(scene, team1_x, team1_y, 50, 50, data.bid, "#FF0000");
-            scene.time.delayedCall(5000, () => {
-                chatBubble.destroy(); // ✅ Destroy the chat bubble after 3 seconds
-            });
-        }
-        if (data.position === position) {
-            console.log("placing chat on me");
-            let chatBubble = createSpeechBubble(scene, me_x, me_y, 50, 50, data.bid, "#FF0000");
-            scene.time.delayedCall(5000, () => {
-                chatBubble.destroy(); // ✅ Destroy the chat bubble after 3 seconds
+                chatBubble.destroy();
             });
         }
         // Update score in game log with bid info
@@ -2382,11 +2442,19 @@ function displayCards(playerHand, skipAnimation = false) {
         let cardKey = getCardImageKey(data.card);
         console.log(`Using image key: ${cardKey}`);
         if(data.position === position + 1 || data.position === position - 3){
+            // DOM card animation (left opponent)
+            if (domCardRenderer) {
+                domCardRenderer.animateOpponentCard('left', data.card, 'left');
+            }
+            // Phaser fallback
             if (opponentCardSprites["opp1"] && opponentCardSprites["opp1"].length > 0) {
                 let removedCard = opponentCardSprites["opp1"].pop();
                 removedCard.setData('playPosition', 'opponent1'); // Store position for resize
                 currentTrick.push(removedCard); // Add the removed card to the current trick
-                if(visible()){
+                // Hide Phaser sprite when using DOM renderer
+                if (domCardRenderer) {
+                    removedCard.setAlpha(0);
+                } else if(visible()){
                     this.tweens.add({
                         targets: removedCard,
                         x: playPositions.opponent1.x,
@@ -2416,11 +2484,19 @@ function displayCards(playerHand, skipAnimation = false) {
             }
         }
         else if(data.position === position + 2 || data.position === position - 2){
+            // DOM card animation (partner)
+            if (domCardRenderer) {
+                domCardRenderer.animateOpponentCard('partner', data.card, 'partner');
+            }
+            // Phaser fallback
             if (opponentCardSprites["partner"] && opponentCardSprites["partner"].length > 0) {
                 let removedCard = opponentCardSprites["partner"].pop();
                 removedCard.setData('playPosition', 'partner'); // Store position for resize
                 currentTrick.push(removedCard); // Add the removed card to the current trick
-                if(visible()){
+                // Hide Phaser sprite when using DOM renderer
+                if (domCardRenderer) {
+                    removedCard.setAlpha(0);
+                } else if(visible()){
                     this.tweens.add({
                         targets: removedCard,
                         x: playPositions.partner.x,
@@ -2450,11 +2526,19 @@ function displayCards(playerHand, skipAnimation = false) {
             }
         }
         else if (data.position === position + 3 || data.position === position - 1){
+            // DOM card animation (right opponent)
+            if (domCardRenderer) {
+                domCardRenderer.animateOpponentCard('right', data.card, 'right');
+            }
+            // Phaser fallback
             if (opponentCardSprites["opp2"] && opponentCardSprites["opp2"].length > 0) {
                 let removedCard = opponentCardSprites["opp2"].pop();
                 removedCard.setData('playPosition', 'opponent2'); // Store position for resize
                 currentTrick.push(removedCard); // Add the removed card to the current trick
-                if(visible()){
+                // Hide Phaser sprite when using DOM renderer
+                if (domCardRenderer) {
+                    removedCard.setAlpha(0);
+                } else if(visible()){
                     this.tweens.add({
                         targets: removedCard,
                         x: playPositions.opponent2.x,
@@ -2484,8 +2568,13 @@ function displayCards(playerHand, skipAnimation = false) {
             }
         }
         else if (data.position === position){
+            // DOM card was already animated via click handler, but create Phaser sprite for backwards compatibility
             let selfCard = this.add.image(playPositions.self.x, playPositions.self.y, 'cards', cardKey).setScale(1.5).setDepth(200);
             selfCard.setData('playPosition', 'self'); // Store position for resize
+            // Hide Phaser sprite when using DOM renderer
+            if (domCardRenderer) {
+                selfCard.setAlpha(0);
+            }
             currentTrick.push(selfCard);
         }
         // Force render update to ensure played cards show up
@@ -2494,6 +2583,14 @@ function displayCards(playerHand, skipAnimation = false) {
     socket.on("trickComplete", (data) => {
         console.log("🏆 Trick complete. Moving and stacking to the right...");
         addToGameFeed("Trick won by " + getPlayerName(data.winner) + ".");
+
+        // Collect DOM cards to winner's pile
+        if (domCardRenderer) {
+            // Determine relative position: 'self'/'partner' for team wins, 'left'/'right' for opponents
+            const isTeamWin = (data.winner % 2 === position % 2);
+            const relativePos = isTeamWin ? 'self' : 'left';
+            domCardRenderer.collectTrick(relativePos);
+        }
 
         // Reset lead card and position for next trick
         leadCard = null;
@@ -2902,6 +2999,10 @@ function displayOpponentHands(numCards, dealer, skipAnimation = false) {
                 .setScale(1.5)
             // Ensure opponent cards are visually below player cards
             cardBack.setDepth(200);
+            // Hide Phaser sprite when using DOM renderer
+            if (domCardRenderer) {
+                cardBack.setAlpha(0);
+            }
             opponentCardSprites[opponentId].push(cardBack);
             if(visible() && !skipAnimation){
                 this.tweens.add({
@@ -2926,6 +3027,12 @@ function displayOpponentHands(numCards, dealer, skipAnimation = false) {
             }
         }
     });
+
+    // Also render opponent hands with DOMCardRenderer for CSS-based animations
+    if (domCardRenderer) {
+        domCardRenderer.updateScale(screenWidth, screenHeight);
+        domCardRenderer.displayOpponentHands(numCards, ['partner', 'left', 'right'], skipAnimation);
+    }
 
     console.log("🎭 Opponent hands displayed correctly.");
 }

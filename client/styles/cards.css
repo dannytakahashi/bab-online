@@ -1,0 +1,312 @@
+/**
+ * Card Styles for DOM-based card rendering
+ * Replaces Phaser sprite rendering with CSS-based cards
+ */
+
+/* ==========================================================================
+   Card Container Layer
+   ========================================================================== */
+
+#card-layer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 50;  /* Below UI elements (sign-in is 100, chat is 500) */
+    overflow: hidden;
+}
+
+/* ==========================================================================
+   Base Card Styles
+   ========================================================================== */
+
+.game-card {
+    position: absolute;
+    /* Card images are 64x64 squares, scaled 1.5x = 96x96 */
+    width: 96px;
+    height: 96px;
+    background-color: transparent;
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+    pointer-events: auto;
+    transform-origin: center center;
+    border: none;
+    outline: none;
+    box-shadow: none;
+
+    /* Smooth transitions for hover and movement */
+    transition:
+        transform 0.15s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+        filter 0.15s ease;
+}
+
+/* Card back */
+.game-card.card-back {
+    background-image: url('../assets/card_back.png');
+}
+
+/* ==========================================================================
+   Hand Card States
+   ========================================================================== */
+
+.game-card.in-hand {
+    cursor: pointer;
+}
+
+/* Hover effect - raise card 30px */
+.game-card.in-hand.interactive:not(.disabled):hover {
+    transform: translateY(-30px);
+    z-index: 999 !important;
+}
+
+/* Disabled/illegal cards */
+.game-card.disabled {
+    filter: brightness(0.5);
+    cursor: not-allowed;
+}
+
+/* Card being played animation */
+.game-card.playing {
+    pointer-events: none;
+    transition: none;  /* Use Web Animations API instead */
+}
+
+/* Card on table */
+.game-card.played {
+    pointer-events: none;
+    cursor: default;
+}
+
+/* ==========================================================================
+   Opponent Card Styles
+   ========================================================================== */
+
+.game-card.opponent-card {
+    pointer-events: none;
+    cursor: default;
+}
+
+/* Partner (top) - horizontal fan */
+.game-card.opponent-card.partner {
+    transform: scale(1.2);
+}
+
+/* Left opponent - rotated vertical */
+.game-card.opponent-card.left {
+    transform: scale(1.2) rotate(90deg);
+}
+
+/* Right opponent - rotated vertical */
+.game-card.opponent-card.right {
+    transform: scale(1.2) rotate(-90deg);
+}
+
+/* ==========================================================================
+   Trump Card Display
+   ========================================================================== */
+
+.trump-card-dom {
+    position: absolute;
+    pointer-events: none;
+}
+
+.trump-card-dom .trump-label {
+    color: #888;
+    font-size: 14px;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+    text-align: center;
+}
+
+.trump-card-dom .game-card {
+    transform: scale(1);  /* Smaller than hand cards */
+}
+
+/* ==========================================================================
+   Trick Pile Styles
+   ========================================================================== */
+
+.trick-pile {
+    position: absolute;
+    pointer-events: auto;
+}
+
+.trick-pile .game-card {
+    transform: scale(0.75);
+    transition: transform 0.2s ease, left 0.2s ease, top 0.2s ease;
+}
+
+/* Fan out on hover */
+.trick-pile:hover .game-card {
+    /* Individual cards positioned via JS on hover */
+}
+
+/* ==========================================================================
+   Draw Phase Cards
+   ========================================================================== */
+
+.draw-card {
+    cursor: pointer;
+}
+
+.draw-card:hover {
+    transform: scale(1.5) translateY(-10px);
+    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.4);
+}
+
+/* ==========================================================================
+   Animation Keyframes
+   ========================================================================== */
+
+@keyframes cardDeal {
+    from {
+        opacity: 0;
+        transform: scale(1.5) translateY(-100px);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1.5) translateY(0);
+    }
+}
+
+@keyframes cardFlip {
+    0% {
+        transform: scale(1.5) rotateY(0deg);
+    }
+    50% {
+        transform: scale(1.5) rotateY(90deg);
+    }
+    100% {
+        transform: scale(1.5) rotateY(0deg);
+    }
+}
+
+@keyframes cardCollect {
+    from {
+        opacity: 1;
+        transform: scale(1.5);
+    }
+    to {
+        opacity: 0.5;
+        transform: scale(0.75);
+    }
+}
+
+/* ==========================================================================
+   Speech Bubble (Pure CSS)
+   ========================================================================== */
+
+.speech-bubble-dom {
+    position: absolute;
+    padding: 8px 16px;
+    background: rgba(0, 0, 0, 0.85);
+    color: #fff;
+    border-radius: 20px;
+    font-size: 18px;
+    font-weight: bold;
+    z-index: 300;
+    pointer-events: none;
+    animation: bubblePop 0.3s ease;
+    white-space: nowrap;
+}
+
+/* Bubble pointer - adjustable via data attribute or class */
+.speech-bubble-dom::after {
+    content: '';
+    position: absolute;
+    width: 0;
+    height: 0;
+    border: 8px solid transparent;
+}
+
+/* Bottom pointer (for partner) */
+.speech-bubble-dom.pointer-bottom::after {
+    bottom: -16px;
+    left: 50%;
+    transform: translateX(-50%);
+    border-top-color: rgba(0, 0, 0, 0.85);
+}
+
+/* Top pointer (for self) */
+.speech-bubble-dom.pointer-top::after {
+    top: -16px;
+    left: 50%;
+    transform: translateX(-50%);
+    border-bottom-color: rgba(0, 0, 0, 0.85);
+}
+
+/* Left pointer (for right opponent) */
+.speech-bubble-dom.pointer-left::after {
+    left: -16px;
+    top: 50%;
+    transform: translateY(-50%);
+    border-right-color: rgba(0, 0, 0, 0.85);
+}
+
+/* Right pointer (for left opponent) */
+.speech-bubble-dom.pointer-right::after {
+    right: -16px;
+    top: 50%;
+    transform: translateY(-50%);
+    border-left-color: rgba(0, 0, 0, 0.85);
+}
+
+/* ==========================================================================
+   Impact Events (Bore, Rainbow)
+   ========================================================================== */
+
+.impact-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    pointer-events: none;
+    z-index: 400;
+}
+
+.impact-image {
+    max-width: 400px;
+    max-height: 400px;
+    animation: impactPop 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+@keyframes impactPop {
+    0% {
+        transform: scale(0);
+        opacity: 0;
+    }
+    70% {
+        transform: scale(1.2);
+    }
+    100% {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+@keyframes bubblePop {
+    0% {
+        transform: scale(0);
+        opacity: 0;
+    }
+    50% {
+        transform: scale(1.1);
+    }
+    100% {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+/* ==========================================================================
+   Responsive Scaling
+   ========================================================================== */
+
+/* Responsive scaling is handled via JS scaleX/scaleY factors for now */
