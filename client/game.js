@@ -557,11 +557,11 @@ function repositionOpponentElements(screenWidth, screenHeight, scaleFactorX, sca
                 // Player is the dealer - position near player info box
                 buttonHandle.setPosition(screenWidth - 380 * scaleFactorX + 100 * scaleFactorX, screenHeight - 150 * scaleFactorY - 60 * scaleFactorY);
             } else if (team(position) === dealer) {
-                buttonHandle.setPosition(positions.partner.avatarX + 75 * scaleFactorX, positions.partner.avatarY);
+                buttonHandle.setPosition(positions.partner.avatarX + 70, positions.partner.avatarY);
             } else if (rotate(position) === dealer) {
-                buttonHandle.setPosition(positions.opp1.avatarX - 75 * scaleFactorX, positions.opp1.avatarY);
+                buttonHandle.setPosition(positions.opp1.avatarX - 70, positions.opp1.avatarY);
             } else if (rotate(rotate(rotate(position))) === dealer) {
-                buttonHandle.setPosition(positions.opp2.avatarX + 75 * scaleFactorX, positions.opp2.avatarY);
+                buttonHandle.setPosition(positions.opp2.avatarX + 70, positions.opp2.avatarY);
             }
         }
     }
@@ -2883,8 +2883,8 @@ function displayOpponentHands(numCards, dealer, skipAnimation = false) {
             avatarDom.style.top = `${avatarY}px`;
 
             if(team(position) === dealer){
-                buttonHandle = this.add.image(avatarX + 75*scaleFactorX, avatarY, "dealer")
-                .setScale(0.03)
+                buttonHandle = this.add.image(avatarX + 70, avatarY, "dealer")
+                .setScale(0.02)
                 .setDepth(250)
                 .setAlpha(1);
                 playerInfo.playerPositionText.setText("MP");
@@ -2898,8 +2898,8 @@ function displayOpponentHands(numCards, dealer, skipAnimation = false) {
             avatarDom.style.top = `${avatarY}px`;
 
             if(rotate(position) === dealer){
-                buttonHandle = this.add.image(avatarX - 75*scaleFactorX, avatarY, "dealer")
-                .setScale(0.03)
+                buttonHandle = this.add.image(avatarX - 70, avatarY, "dealer")
+                .setScale(0.02)
                 .setDepth(250)
                 .setAlpha(1);
                 playerInfo.playerPositionText.setText("CO");
@@ -2913,8 +2913,8 @@ function displayOpponentHands(numCards, dealer, skipAnimation = false) {
             avatarDom.style.top = `${avatarY}px`;
 
             if(rotate(rotate(rotate(position))) === dealer){
-                buttonHandle = this.add.image(avatarX + 75*scaleFactorX, avatarY, "dealer")
-                .setScale(0.03)
+                buttonHandle = this.add.image(avatarX + 70, avatarY, "dealer")
+                .setScale(0.02)
                 .setDepth(250)
                 .setAlpha(1);
                 playerInfo.playerPositionText.setText("UTG");
@@ -2962,7 +2962,7 @@ function displayOpponentHands(numCards, dealer, skipAnimation = false) {
         playerInfo.playerPositionText.setText("BTN");
         // Position near player info box (bottom right)
         buttonHandle = this.add.image(screenWidth - 280*scaleFactorX, screenHeight - 210*scaleFactorY, "dealer")
-            .setScale(0.03)
+            .setScale(0.02)
             .setDepth(250)
             .setAlpha(1);
     }
