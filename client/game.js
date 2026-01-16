@@ -553,7 +553,10 @@ function repositionOpponentElements(screenWidth, screenHeight, scaleFactorX, sca
     if (typeof buttonHandle !== 'undefined' && buttonHandle && buttonHandle.active) {
         // Find which position has the dealer and reposition accordingly
         if (typeof dealer !== 'undefined' && typeof position !== 'undefined' && typeof team === 'function' && typeof rotate === 'function') {
-            if (team(position) === dealer) {
+            if (dealer === position) {
+                // Player is the dealer - position near player info box
+                buttonHandle.setPosition(screenWidth - 380 * scaleFactorX + 100 * scaleFactorX, screenHeight - 150 * scaleFactorY - 60 * scaleFactorY);
+            } else if (team(position) === dealer) {
                 buttonHandle.setPosition(positions.partner.avatarX + 75 * scaleFactorX, positions.partner.avatarY);
             } else if (rotate(position) === dealer) {
                 buttonHandle.setPosition(positions.opp1.avatarX - 75 * scaleFactorX, positions.opp1.avatarY);
@@ -2917,16 +2920,6 @@ function displayOpponentHands(numCards, dealer, skipAnimation = false) {
                 playerInfo.playerPositionText.setText("UTG");
             }
         }
-        if(dealer === position){
-            if (buttonHandle && typeof buttonHandle.destroy === 'function') {
-                buttonHandle.destroy();
-            }
-            playerInfo.playerPositionText.setText("BTN");
-            buttonHandle = this.add.image(centerPlayAreaX + 580*scaleFactorX, centerPlayAreaY + 365*scaleFactorY, "dealer")
-            .setScale(0.03) // Adjust size
-            .setDepth(250) // Ensure it's above the cards
-            .setAlpha(1);
-        }
         opponentCardSprites[opponentId] = [];
         for (let i = 0; i < numCards; i++) {
             let offsetX = horizontal ? (i - numCards / 2) * cardSpacing : 0; // ✅ Left/Right: No horizontal movement
@@ -2960,6 +2953,19 @@ function displayOpponentHands(numCards, dealer, skipAnimation = false) {
             }
         }
     });
+
+    // Create dealer button for current player (outside the opponent loop)
+    if(dealer === position){
+        if (buttonHandle && typeof buttonHandle.destroy === 'function') {
+            buttonHandle.destroy();
+        }
+        playerInfo.playerPositionText.setText("BTN");
+        // Position near player info box (bottom right)
+        buttonHandle = this.add.image(screenWidth - 280*scaleFactorX, screenHeight - 210*scaleFactorY, "dealer")
+            .setScale(0.03)
+            .setDepth(250)
+            .setAlpha(1);
+    }
 
     console.log("🎭 Opponent hands displayed correctly.");
 }
