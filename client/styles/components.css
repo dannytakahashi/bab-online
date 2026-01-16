@@ -619,6 +619,8 @@
     height: 80px;
     border-radius: 50%;
     object-fit: cover;
+    background-color: #1a1a2e;
+    border: none;
 }
 
 .opponent-avatar-name {
@@ -628,7 +630,12 @@
     text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
 }
 
-/* Turn glow for opponent avatars - reuses pulse-glow animation */
+/* Turn glow for opponent avatars - only apply glow to img, not container */
+.opponent-avatar-container.turn-glow {
+    box-shadow: none;
+    animation: none;
+}
+
 .opponent-avatar-container.turn-glow .opponent-avatar-img {
     box-shadow: 0 0 30px 15px rgba(255, 215, 0, 0.5);
     animation: pulse-glow 1s ease-in-out infinite alternate;
