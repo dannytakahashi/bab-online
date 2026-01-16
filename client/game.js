@@ -54,8 +54,16 @@ function processRejoin(data) {
     removeWaitingScreen();
     removeDraw();
 
-    // Create game UI elements (chat input is now integrated into game feed)
-    createGameFeed();
+    // Create game UI elements (pass true to indicate reconnection)
+    createGameFeed(true);
+
+    // Restore game log history from server
+    if (data.gameLog && data.gameLog.length > 0) {
+        console.log(`🔄 Restoring ${data.gameLog.length} game log entries`);
+        data.gameLog.forEach(entry => {
+            addToGameFeed(entry.message, entry.playerPosition, entry.timestamp);
+        });
+    }
 
     // Calculate player names (same as gameStart handler)
     me = playerData.username[playerData.position.indexOf(position)]?.username || 'You';
@@ -807,7 +815,7 @@ let ranks = {
 }
 let opponentCardSprites = {};
 let tableCardSprite;
-function createGameFeed() {
+function createGameFeed(isReconnection = false) {
     let feedCheck = document.getElementById("gameFeed");
     if(feedCheck){
         console.log("feed already exists, ensuring layout is correct...");
@@ -907,8 +915,10 @@ function createGameFeed() {
         }
     });
 
-    // Add initial message to confirm feed is working
-    addToGameFeed("Game started!");
+    // Add initial message only for fresh games, not reconnections
+    if (!isReconnection) {
+        addToGameFeed("Game started!");
+    }
 
     // Restrict game container width to make room for game log
     document.getElementById('game-container').classList.add('in-game');
@@ -963,7 +973,7 @@ function createGameFeed() {
         });
     }
 }
-function addToGameFeed(message, playerPosition = null) {
+function addToGameFeed(message, playerPosition = null, serverTimestamp = null) {
     let messagesArea = document.getElementById("gameFeedMessages");
 
     if (!messagesArea) {
@@ -971,8 +981,8 @@ function addToGameFeed(message, playerPosition = null) {
         return;
     }
 
-    // Get current time for timestamp
-    const now = new Date();
+    // Use server timestamp if provided, otherwise current time
+    const now = serverTimestamp ? new Date(serverTimestamp) : new Date();
     const timestamp = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
     // Create a new message element using CSS classes
@@ -1646,7 +1656,7 @@ socket.on("createUI", (data) => {
     removeMainRoom(); // Ensure main room is removed
     removeGameLobby(); // Ensure game lobby is removed
     console.log("🎨 Creating game feed...");
-    createGameFeed();
+    createGameFeed(false); // Not a reconnection, show "Game started!"
     console.log("🎨 Game feed created, checking DOM:", document.getElementById("gameFeed"));
     // Score is now displayed in the game log, no separate scorebug needed
     if (!scene.handElements) {

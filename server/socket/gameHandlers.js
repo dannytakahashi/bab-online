@@ -134,6 +134,9 @@ async function draw(socket, io, data) {
         // createUI must come BEFORE gameStart (client expects this order)
         game.broadcast(io, 'createUI', {});
 
+        // Add game start message to log
+        game.addLogEntry('Game started!', null, 'system');
+
         await delay(1000);
 
         // Start the actual game (emits gameStart to each player)
@@ -162,8 +165,10 @@ async function startHand(game, io) {
             const hand = game.getHand(socketId);
             if (isRainbow(hand, game.trump)) {
                 const position = game.getPositionBySocketId(socketId);
+                const player = game.getPlayerByPosition(position);
                 gameLogger.info('Rainbow hand detected', { socketId, position, gameId: game.gameId });
                 game.broadcast(io, 'rainbow', { position });
+                game.addLogEntry(`${player.username} has a rainbow!`, position, 'rainbow');
 
                 if (position === 1 || position === 3) {
                     game.rainbows.team1 += 1;
@@ -212,6 +217,10 @@ async function playerBid(socket, io, data) {
 
     const bid = String(data.bid).toUpperCase();
     game.recordBid(position, bid);
+
+    // Add bid to game log
+    const player = game.getPlayerByPosition(position);
+    game.addLogEntry(`${player.username} bid ${bid}.`, position, 'bid');
 
     gameLogger.debug('Bid received', { position, bid, gameId: game.gameId });
     game.broadcast(io, 'bidReceived', {
@@ -337,6 +346,10 @@ async function playCard(socket, io, data) {
             game.tricks.team2++;
         }
 
+        // Add trick winner to game log
+        const winnerPlayer = game.getPlayerByPosition(winner);
+        game.addLogEntry(`Trick won by ${winnerPlayer.username}.`, winner, 'trick');
+
         gameLogger.debug('Trick complete', { winner, team1Tricks: game.tricks.team1, team2Tricks: game.tricks.team2, gameId: game.gameId });
 
         game.currentTurn = winner;
@@ -388,6 +401,22 @@ async function handleHandComplete(game, io) {
         gameId: game.gameId
     });
 
+    // Add hand complete messages to game log
+    const team1P1 = game.getPlayerByPosition(1);
+    const team1P2 = game.getPlayerByPosition(3);
+    const team2P1 = game.getPlayerByPosition(2);
+    const team2P2 = game.getPlayerByPosition(4);
+    const team1Name = `${team1P1.username}/${team1P2.username}`;
+    const team2Name = `${team2P1.username}/${team2P2.username}`;
+    const team1Change = game.score.team1 - team1OldScore;
+    const team2Change = game.score.team2 - team2OldScore;
+    const team1ChangeStr = team1Change >= 0 ? `+${team1Change}` : `${team1Change}`;
+    const team2ChangeStr = team2Change >= 0 ? `+${team2Change}` : `${team2Change}`;
+
+    game.addLogEntry('--- HAND COMPLETE ---', null, 'score');
+    game.addLogEntry(`${team1Name}: Bid ${game.playerBids[0]}/${game.playerBids[2]}, Won ${game.tricks.team1}, ${team1ChangeStr} → ${game.score.team1}`, null, 'score');
+    game.addLogEntry(`${team2Name}: Bid ${game.playerBids[1]}/${game.playerBids[3]}, Won ${game.tricks.team2}, ${team2ChangeStr} → ${game.score.team2}`, null, 'score');
+
     game.broadcast(io, 'handComplete', {
         score: game.score,
         team1Tricks: game.tricks.team1,
@@ -418,7 +447,11 @@ async function handleHandComplete(game, io) {
     }
 
     if (nextHandSize === 0) {
-        // Game over
+        // Game over - add final score to log
+        game.addLogEntry('=== GAME OVER ===', null, 'score');
+        game.addLogEntry(`${team1Name}: ${game.score.team1}`, null, 'score');
+        game.addLogEntry(`${team2Name}: ${game.score.team2}`, null, 'score');
+
         gameLogger.info('Game ended', { gameId: game.gameId, finalScore: game.score });
         game.broadcast(io, 'gameEnd', { score: game.score });
         // Clear active game for all players
@@ -454,8 +487,10 @@ async function cleanupNextHand(game, io, dealer, handSize) {
             const hand = game.getHand(socketId);
             if (isRainbow(hand, game.trump)) {
                 const position = game.getPositionBySocketId(socketId);
+                const player = game.getPlayerByPosition(position);
                 gameLogger.info('Rainbow hand detected', { socketId, position, gameId: game.gameId });
                 game.broadcast(io, 'rainbow', { position });
+                game.addLogEntry(`${player.username} has a rainbow!`, position, 'rainbow');
 
                 if (position === 1 || position === 3) {
                     game.rainbows.team1 += 1;
