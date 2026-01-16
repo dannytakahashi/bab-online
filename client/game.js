@@ -1142,11 +1142,10 @@ function draw() {
     }).setOrigin(0.5).setDepth(200);
     allCards.push(titleText);
 
-    // Create deck cards
+    // Create deck cards (visual only, not individually interactive)
     for (let i = 0; i < 54; i++) {
         let cardSprite = this.add.image(screenWidth/2 + 500*scaleFactorX, startY, "cardBack")
             .setScale(1.2)
-            .setInteractive()
             .setDepth(100);
 
         if (visible()) {
@@ -1162,24 +1161,40 @@ function draw() {
             cardSprite.x = startX + i * overlap;
             cardSprite.y = startY;
         }
-
-        cardSprite.on("pointerdown", () => {
-            if (hasDrawn) return; // Prevent multiple draws
-            hasDrawn = true;
-
-            // Store clicked card position for flip animation
-            clickedCardPosition = { x: cardSprite.x, y: cardSprite.y };
-
-            console.log(`📦 Clicked card ${i + 1} to draw at (${cardSprite.x}, ${cardSprite.y})`);
-            socket.emit("draw", {num: Math.floor(Math.random() * 54)});
-
-            // Disable all cards immediately
-            allCards.forEach(card => {
-                if (card.disableInteractive) card.disableInteractive();
-            });
-        });
         allCards.push(cardSprite);
     }
+
+    // Create invisible hit zone for position-based click detection
+    const cardHeight = 190 * scaleFactorY;
+    const hitZoneWidth = 53 * overlap + 140 * scaleFactorX;
+    const hitZoneX = startX + hitZoneWidth / 2;
+
+    let hitZone = this.add.rectangle(hitZoneX, startY, hitZoneWidth, cardHeight, 0x000000, 0)
+        .setInteractive()
+        .setDepth(150);
+
+    hitZone.on("pointerdown", (pointer) => {
+        if (hasDrawn) return;
+        hasDrawn = true;
+
+        // Calculate which card was clicked based on x position
+        const clickX = pointer.x;
+        const clickedIndex = Math.min(53, Math.max(0, Math.floor((clickX - startX) / overlap)));
+
+        // Get the card sprite at that index (cards start at index 1, after titleText)
+        const clickedCard = allCards[clickedIndex + 1];
+
+        // Store clicked card position for flip animation
+        clickedCardPosition = { x: clickedCard.x, y: clickedCard.y };
+
+        console.log(`📦 Clicked card ${clickedIndex + 1} to draw at (${clickedCard.x}, ${clickedCard.y})`);
+        socket.emit("draw", {num: Math.floor(Math.random() * 54)});
+
+        // Disable hit zone
+        hitZone.disableInteractive();
+    });
+
+    allCards.push(hitZone);
 
     // Listen for your own draw result
     socket.on("youDrew", (data) => {
