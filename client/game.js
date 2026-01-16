@@ -291,6 +291,7 @@ let playerInfo = null;
 let gameListenersRegistered = false; // Track if socket listeners are already registered
 let waitBool = false;
 let queueDelay = false;
+let activeChatBubbles = {}; // Track active chat bubbles by position key to prevent overlap
 let lastQueueData;
 let opponentAvatarDoms = { partner: null, opp1: null, opp2: null }; // DOM-based opponent avatars for CSS glow support
 function create() {
@@ -1575,6 +1576,29 @@ socket.on("teamsAnnounced", (data) => {
     const teamElements = [overlay, title, team1Label, team1Players, vsText, team2Label, team2Players];
     drawnCardDisplays.push(...teamElements);
 });
+
+// Helper to show chat bubble, replacing any existing bubble for the same position
+function showChatBubble(scene, positionKey, x, y, message) {
+    // Destroy existing bubble for this position if present
+    if (activeChatBubbles[positionKey]) {
+        if (activeChatBubbles[positionKey].timer) {
+            activeChatBubbles[positionKey].timer.remove();
+        }
+        if (activeChatBubbles[positionKey].bubble) {
+            activeChatBubbles[positionKey].bubble.destroy();
+        }
+    }
+
+    // Create new bubble
+    let bubble = createSpeechBubble(scene, x, y, 150, 50, message);
+    let timer = scene.time.delayedCall(6000, () => {
+        bubble.destroy();
+        delete activeChatBubbles[positionKey];
+    });
+
+    activeChatBubbles[positionKey] = { bubble, timer };
+}
+
 socket.on("chatMessage", (data) => {
     console.log("chatMessage received: ", data.message, " from position: ", data.position, " and I think my pos is ", position);
 
@@ -1599,33 +1623,20 @@ socket.on("chatMessage", (data) => {
     let me_y = screenHeight - 270*scaleFactorY;
     if (data.position === position + 1 || data.position === position - 3) {
         console.log("placing chat on opp1");
-        let chatBubble = createSpeechBubble(scene, opp1_x, opp1_y, 150, 50, data.message);
-        scene.time.delayedCall(6000, () => {
-            chatBubble.destroy(); // ✅ Destroy the chat bubble after 3 seconds
-        });
+        showChatBubble(scene, 'opp1', opp1_x, opp1_y, data.message);
     }
     if (data.position === position - 1 || data.position === position + 3) {
         console.log("placing chat on opp2");
-        let chatBubble = createSpeechBubble(scene, opp2_x, opp2_y, 150, 50, data.message);
-        scene.time.delayedCall(6000, () => {
-            chatBubble.destroy(); // ✅ Destroy the chat bubble after 3 seconds
-        });
+        showChatBubble(scene, 'opp2', opp2_x, opp2_y, data.message);
     }
     if (data.position === position + 2 || data.position === position - 2) {
         console.log("placing chat on team1");
-        let chatBubble = createSpeechBubble(scene, team1_x, team1_y, 150, 50, data.message);
-        scene.time.delayedCall(6000, () => {
-            chatBubble.destroy(); // ✅ Destroy the chat bubble after 3 seconds
-        });
+        showChatBubble(scene, 'team1', team1_x, team1_y, data.message);
     }
     if (data.position === position) {
         console.log("placing chat on me");
-        let chatBubble = createSpeechBubble(scene, me_x, me_y, 150, 50, data.message);
-        scene.time.delayedCall(6000, () => {
-            chatBubble.destroy(); // ✅ Destroy the chat bubble after 3 seconds
-        });
+        showChatBubble(scene, 'me', me_x, me_y, data.message);
     }
-    
 });
 socket.on("createUI", (data) => {
     let scene = game.scene.scenes[0];
