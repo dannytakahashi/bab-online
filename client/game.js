@@ -884,16 +884,28 @@ function createGameFeed() {
     document.getElementById('game-container').classList.add('in-game');
 
     // Force Phaser to properly resize after container width change
-    // The container was 100% width when Phaser was created, now it's smaller
-    const container = document.getElementById('game-container');
-    if (container && game && game.scale) {
-        const newWidth = container.clientWidth;
-        const newHeight = container.clientHeight;
-        console.log(`📐 Resizing Phaser to container: ${newWidth}x${newHeight}`);
-        game.scale.resize(newWidth, newHeight);
-        game.scale.refresh();
-    }
-    window.dispatchEvent(new Event('resize'));
+    // Use requestAnimationFrame to ensure DOM has repainted with new layout
+    requestAnimationFrame(() => {
+        const container = document.getElementById('game-container');
+        if (container && game && game.scale) {
+            const newWidth = container.clientWidth;
+            const newHeight = container.clientHeight;
+            console.log(`📐 Resizing Phaser to container: ${newWidth}x${newHeight}`);
+
+            // Resize both the scale manager AND the WebGL renderer
+            game.scale.resize(newWidth, newHeight);
+            if (game.renderer && game.renderer.resize) {
+                game.renderer.resize(newWidth, newHeight);
+            }
+            game.scale.refresh();
+
+            // Reposition elements after resize
+            if (gameScene) {
+                repositionGameElements.call(gameScene, newWidth, newHeight);
+            }
+        }
+        window.dispatchEvent(new Event('resize'));
+    });
 
     // Add backup window resize listener in case Phaser's scale events don't fire
     // This ensures elements get repositioned even when Phaser's scale manager isn't working
