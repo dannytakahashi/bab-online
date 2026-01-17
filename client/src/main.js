@@ -58,6 +58,7 @@ import { createBidUI, showBidUI, createBidBubble } from './ui/components/BidUI.j
 import { createGameLog, showGameLog } from './ui/components/GameLog.js';
 import { createSpeechBubble, showChatBubble, clearChatBubbles, getBubblePosition, getActiveChatBubbles } from './ui/components/ChatBubble.js';
 import { showPlayerQueue, updatePlayerQueue, removePlayerQueue, isPlayerQueueVisible } from './ui/components/PlayerQueue.js';
+import { getTeamNames, formatHandCompleteMessages, formatGameEndMessages, showFinalScoreOverlay, removeFinalScoreOverlay } from './ui/components/ScoreModal.js';
 
 // Bridge module - exposes new modules to legacy code
 window.ModernUtils = {
@@ -180,6 +181,554 @@ window.ModernUtils = {
   updatePlayerQueue,
   removePlayerQueue,
   isPlayerQueueVisible,
+
+  // Score Modal
+  getTeamNames,
+  formatHandCompleteMessages,
+  formatGameEndMessages,
+  showFinalScoreOverlay,
+  removeFinalScoreOverlay,
 };
 
 console.log('Modular client initialized - All utilities available via window.ModernUtils');
+
+// ============================================
+// Application Initialization
+// ============================================
+
+/**
+ * Initialize the socket connection.
+ * Creates socket with same settings as legacy socketManager.js
+ */
+function createSocket() {
+  const serverUrl =
+    location.hostname === 'localhost'
+      ? 'http://localhost:3000'
+      : 'https://bab-online-production.up.railway.app';
+
+  const socket = io(serverUrl, {
+    transports: ['websocket'],
+    reconnection: true,
+    reconnectionAttempts: 5,
+    reconnectionDelay: 1000,
+    reconnectionDelayMax: 5000,
+  });
+
+  return socket;
+}
+
+// Create socket IMMEDIATELY (before game.js and ui.js load)
+// This ensures window.socket is available for legacy code that calls socket.on() at top level
+const socket = createSocket();
+window.socket = socket;
+console.log('Socket created and set as window.socket');
+
+// ==================== RECONNECTION LOGIC ====================
+// (Previously in socketManager.js, needed for game.js to work)
+
+// Track if we've already attempted rejoin this session
+let rejoinAttempted = false;
+// Track if rejoin was successful (to ignore mainRoomJoined during game)
+let rejoinSucceeded = false;
+
+socket.on('connect', () => {
+  console.log('Connected to server:', socket.id);
+
+  // Check if we were in a game and should try to rejoin
+  const gameId = sessionStorage.getItem('gameId');
+  const username = sessionStorage.getItem('username');
+
+  console.log(`Session state: gameId=${gameId}, username=${username}, rejoinAttempted=${rejoinAttempted}`);
+
+  if (gameId && username && !rejoinAttempted) {
+    rejoinAttempted = true;
+    console.log(`Attempting to rejoin game ${gameId} as ${username}`);
+    socket.emit('rejoinGame', { gameId, username });
+  } else if (!gameId && !username) {
+    console.log('No stored session, will show sign-in screen');
+  } else if (!gameId && username) {
+    console.log('No active game, will join main room');
+  }
+});
+
+socket.on('disconnect', (reason) => {
+  console.log('Disconnected from server:', reason);
+  document.dispatchEvent(new CustomEvent('connectionLost', { detail: { reason } }));
+});
+
+socket.on('reconnect_attempt', (attemptNumber) => {
+  console.log(`Reconnection attempt ${attemptNumber}/5`);
+  document.dispatchEvent(new CustomEvent('reconnecting', { detail: { attempt: attemptNumber } }));
+});
+
+socket.on('reconnect_failed', () => {
+  console.log('Reconnection failed after all attempts');
+  document.dispatchEvent(new CustomEvent('reconnectFailed'));
+  sessionStorage.removeItem('gameId');
+});
+
+// Forward rejoin events to document for game.js
+socket.on('rejoinSuccess', (data) => {
+  console.log('Rejoin successful:', data);
+  rejoinSucceeded = true;
+
+  // Remove any auth screens that might be showing
+  const signInContainer = document.getElementById('sign-in-container');
+  if (signInContainer) signInContainer.remove();
+  const signInVignette = document.getElementById('sign-in-vignette');
+  if (signInVignette) signInVignette.remove();
+  const legacySignIn = document.getElementById('signInContainer');
+  if (legacySignIn) legacySignIn.remove();
+  const legacyVignette = document.getElementById('SignInVignette');
+  if (legacyVignette) legacyVignette.remove();
+  const registerContainer = document.getElementById('register-container');
+  if (registerContainer) registerContainer.remove();
+  const registerVignette = document.getElementById('register-vignette');
+  if (registerVignette) registerVignette.remove();
+
+  // Also remove main room and lobby if present
+  removeMainRoom();
+  removeGameLobby();
+
+  document.dispatchEvent(new CustomEvent('rejoinSuccess', { detail: data }));
+});
+
+socket.on('rejoinFailed', (data) => {
+  console.log('Rejoin failed:', data?.reason || data);
+  // Only clear gameId if it's a real failure, not "Already connected"
+  // "Already connected" means a previous rejoin attempt succeeded
+  const reason = typeof data === 'string' ? data : data?.reason;
+  if (reason !== 'Already connected') {
+    sessionStorage.removeItem('gameId');
+    // Show sign-in screen if rejoin truly failed
+    console.log('Rejoin truly failed, showing sign-in screen');
+    // Use setTimeout to ensure DOM is ready
+    setTimeout(() => {
+      // Only show sign-in if we don't already have one visible
+      if (!document.getElementById('sign-in-container') && !document.getElementById('signInContainer')) {
+        displaySignInScreen();
+      }
+    }, 100);
+  }
+  document.dispatchEvent(new CustomEvent('rejoinFailed', { detail: data }));
+});
+
+socket.on('playerReconnected', (data) => {
+  console.log(`Player at position ${data.position} (${data.username}) reconnected`);
+  document.dispatchEvent(new CustomEvent('playerReconnected', { detail: data }));
+});
+
+socket.on('playerAssigned', (data) => {
+  console.log('📡 Received playerAssigned:', data);
+  document.dispatchEvent(new CustomEvent('playerAssigned', { detail: data }));
+});
+
+socket.on('gameStart', (data) => {
+  console.log('Game Started', data);
+  if (data.gameId) {
+    sessionStorage.setItem('gameId', data.gameId);
+  }
+});
+
+socket.on('gameEnd', (data) => {
+  console.log('Game ended:', data);
+  sessionStorage.removeItem('gameId');
+  // Reset rejoin flags so future rejoins work
+  rejoinAttempted = false;
+  rejoinSucceeded = false;
+});
+
+// ==================== END RECONNECTION LOGIC ====================
+
+// Also create a socketManager shim for legacy compatibility
+window.socketManager = {
+  setGameId: (id) => {
+    sessionStorage.setItem('gameId', id);
+  },
+  clearGameId: () => {
+    sessionStorage.removeItem('gameId');
+  },
+  getGameId: () => sessionStorage.getItem('gameId'),
+  getUsername: () => sessionStorage.getItem('username'),
+  showErrorToast: (message, duration) => {
+    const existing = document.querySelector('.error-toast');
+    if (existing) existing.remove();
+    const toast = document.createElement('div');
+    toast.className = 'error-toast';
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    setTimeout(() => {
+      toast.classList.add('fade-out');
+      setTimeout(() => toast.remove(), 300);
+    }, duration || 5000);
+  },
+};
+
+/**
+ * Show error toast notification (same as legacy socketManager.js).
+ */
+function showErrorToast(message, duration = 5000) {
+  // Remove existing toast
+  const existing = document.querySelector('.error-toast');
+  if (existing) existing.remove();
+
+  const toast = document.createElement('div');
+  toast.className = 'error-toast';
+  toast.textContent = message;
+  document.body.appendChild(toast);
+
+  setTimeout(() => {
+    toast.classList.add('fade-out');
+    setTimeout(() => toast.remove(), 300);
+  }, duration);
+}
+
+// Track retry attempts for joinMainRoom
+let joinMainRoomRetries = 0;
+const MAX_JOIN_RETRIES = 5;
+
+/**
+ * Handle socket error based on type.
+ */
+function handleSocketError(error, socket) {
+  let message = 'Something went wrong';
+
+  // Handle race condition where joinMainRoom is called before user is registered
+  if (error.message === 'User not registered yet') {
+    // Don't retry if we're in a game (have a gameId)
+    if (sessionStorage.getItem('gameId')) {
+      console.log('User not registered yet, but have gameId - waiting for rejoin instead');
+      return;
+    }
+
+    joinMainRoomRetries++;
+    if (joinMainRoomRetries <= MAX_JOIN_RETRIES) {
+      console.log(`User not registered yet, retrying joinMainRoom (${joinMainRoomRetries}/${MAX_JOIN_RETRIES})...`);
+      setTimeout(() => {
+        socket.emit('joinMainRoom');
+      }, 100);
+      return; // Don't show error toast for this
+    } else {
+      console.log('Max joinMainRoom retries reached, showing sign-in screen');
+      joinMainRoomRetries = 0;
+      displaySignInScreen();
+      return;
+    }
+  }
+
+  switch (error.type) {
+    case 'VALIDATION_ERROR':
+    case 'validation':
+      message = error.message || 'Invalid input';
+      break;
+    case 'AUTH_ERROR':
+      message = 'Please sign in again';
+      break;
+    case 'RATE_LIMIT_ERROR':
+    case 'rateLimit':
+      message = 'Too many requests. Please slow down.';
+      break;
+    case 'GAME_STATE_ERROR':
+      message = error.message || 'Game error occurred';
+      break;
+    case 'server':
+    default:
+      message = 'Server error. Please try again.';
+      break;
+  }
+
+  showErrorToast(message);
+}
+
+/**
+ * Initialize the application.
+ * This is the main entry point that wires everything together.
+ * Note: socket is already created at module load time (see above)
+ */
+function initializeApp() {
+  console.log('Initializing BAB Online...');
+
+  // Socket already created at module level as window.socket
+  // Initialize socket manager with the existing socket
+  const socketMgr = initializeSocketManager(socket);
+
+  // Initialize UI manager
+  const uiManager = initializeUIManager(socket);
+
+  // Get game state singleton
+  const gameState = getGameState();
+
+  // Set up error handler
+  socket.on('error', (error) => {
+    console.error('Server error:', error);
+    handleSocketError(error, socket);
+  });
+
+  // Register all handlers with UI callbacks
+  registerAllHandlers(socketMgr, {
+    // Auth callbacks
+    onSignInSuccess: (data) => {
+      console.log('Sign in success, going to main room');
+      gameState.username = data.username;
+      uiManager.setUsername(data.username);
+      // Reset rejoin flags for fresh session
+      rejoinAttempted = false;
+      rejoinSucceeded = false;
+
+      // Check if user has an active game to rejoin
+      if (data.activeGameId) {
+        console.log(`Active game found: ${data.activeGameId}, attempting to rejoin...`);
+        sessionStorage.setItem('gameId', data.activeGameId);
+        socket.emit('rejoinGame', { gameId: data.activeGameId, username: data.username });
+      } else {
+        // Go to main room
+        socket.emit('joinMainRoom');
+      }
+    },
+    onSignInError: (message) => {
+      showError(message || 'Sign-in failed! Incorrect username or password.');
+    },
+    onSignUpSuccess: (data) => {
+      if (data.autoLoggedIn) {
+        // Auto-login: go straight to main room
+        console.log(`Registration & auto-login successful: ${data.username}`);
+        gameState.username = data.username;
+        uiManager.setUsername(data.username);
+        socket.emit('joinMainRoom');
+      } else {
+        showSuccess('Registration successful! Please sign in.');
+      }
+    },
+    onSignUpError: (message) => {
+      showError(`Registration failed: ${message}`);
+    },
+    onForceLogout: (data) => {
+      console.warn('Force logout:', data?.reason || 'Unknown reason');
+      sessionStorage.removeItem('username');
+      sessionStorage.removeItem('gameId');
+      gameState.reset();
+      // Show sign-in screen (game.js just does cleanup)
+      displaySignInScreen();
+    },
+    onActiveGameFound: (data) => {
+      console.log('Active game found:', data.gameId);
+      // The rejoin will be handled by the server's sign-in response
+    },
+
+    // Main Room callbacks
+    onMainRoomJoined: (data) => {
+      // Reset retry counter on success
+      joinMainRoomRetries = 0;
+
+      // Don't show main room if we're in a game or rejoin succeeded
+      if (sessionStorage.getItem('gameId') || rejoinSucceeded) {
+        console.log('Main room joined event ignored - in game (gameId:', sessionStorage.getItem('gameId'), 'rejoinSucceeded:', rejoinSucceeded, ')');
+        return;
+      }
+      console.log('Joined main room, showing UI');
+      // Clear modular sign-in/register screens (with dashes)
+      const signInContainer = document.getElementById('sign-in-container');
+      if (signInContainer) signInContainer.remove();
+      const signInVignette = document.getElementById('sign-in-vignette');
+      if (signInVignette) signInVignette.remove();
+      const registerContainer = document.getElementById('register-container');
+      if (registerContainer) registerContainer.remove();
+      const registerVignette = document.getElementById('register-vignette');
+      if (registerVignette) registerVignette.remove();
+      // Also clear legacy screens (camelCase) just in case
+      const legacySignIn = document.getElementById('signInContainer');
+      if (legacySignIn) legacySignIn.remove();
+      const legacySignInVignette = document.getElementById('SignInVignette');
+      if (legacySignInVignette) legacySignInVignette.remove();
+
+      showMainRoom(data, socket);
+    },
+    onMainRoomMessage: (data) => {
+      addMainRoomChatMessage(data.username, data.message);
+    },
+    onLobbiesUpdated: (data) => {
+      updateLobbyList(data.lobbies, socket);
+    },
+    onMainRoomPlayerJoined: (data) => {
+      updateMainRoomOnlineCount(data.onlineCount);
+    },
+
+    // Lobby callbacks
+    onLobbyCreated: (data) => {
+      // Don't show lobby if we're in a game (e.g., during rejoin)
+      if (sessionStorage.getItem('gameId')) {
+        console.log('Lobby created event ignored - in game');
+        return;
+      }
+      console.log('Lobby created, showing lobby UI');
+      removeMainRoom();
+      showGameLobby(
+        { lobbyId: data.lobbyId, players: data.players, messages: [] },
+        socket,
+        gameState.username
+      );
+    },
+    onLobbyJoined: (data) => {
+      // Don't show lobby if we're in a game (e.g., during rejoin)
+      if (sessionStorage.getItem('gameId')) {
+        console.log('Lobby joined event ignored - in game');
+        return;
+      }
+      console.log('Joined lobby, showing lobby UI');
+      removeMainRoom();
+      showGameLobby(
+        { lobbyId: data.lobbyId, players: data.players, messages: data.messages || [] },
+        socket,
+        gameState.username
+      );
+    },
+    onPlayerReadyUpdate: (data) => {
+      updateLobbyPlayersList(null, data.players, gameState.username);
+    },
+    onLobbyMessage: (data) => {
+      addLobbyChatMessage(data.username, data.message);
+    },
+    onLobbyPlayerLeft: (data) => {
+      updateLobbyPlayersList(null, data.players, gameState.username);
+    },
+    onLobbyPlayerJoined: (data) => {
+      updateLobbyPlayersList(null, data.players, gameState.username);
+    },
+    onLeftLobby: () => {
+      console.log('Left lobby, returning to main room');
+      removeGameLobby();
+      socket.emit('joinMainRoom');
+    },
+    onAllPlayersReady: (data) => {
+      console.log('All players ready, game starting soon...');
+      // The game will start via positionUpdate/gameStart events
+    },
+
+    // Game callbacks - these will be handled by game.js for now
+    // since Phaser scene management is complex
+    onPositionUpdate: null,
+    onGameStart: null,
+    onStartDraw: null,
+    onYouDrew: null,
+    onPlayerDrew: null,
+    onTeamsAnnounced: null,
+    onCreateUI: null,
+    onBidReceived: null,
+    onDoneBidding: null,
+    onUpdateTurn: null,
+    onCardPlayed: null,
+    onTrickComplete: null,
+    onHandComplete: null,
+    onGameEnd: null,
+    onRainbow: null,
+    onDestroyHands: null,
+    onAbortGame: null,
+    onRoomFull: null,
+    onPlayerDisconnected: null,
+    onPlayerReconnected: null,
+    onRejoinSuccess: null,
+    onRejoinFailed: null,
+
+    // Chat callback
+    onChatMessage: null,
+  });
+
+  // Note: window.socket and window.socketManager are already set at module level above
+
+  console.log('App initialization complete');
+}
+
+/**
+ * Show the sign-in screen with proper callbacks.
+ */
+function displaySignInScreen() {
+  // Pre-fill username if we have it stored (e.g., after failed rejoin)
+  const storedUsername = sessionStorage.getItem('username') || '';
+
+  showSignInScreen({
+    onSignIn: ({ username, password }) => {
+      console.log('Signing in as:', username);
+      socket.emit('signIn', { username, password });
+    },
+    onCreateAccount: ({ username, password }) => {
+      console.log('Creating account, showing register screen');
+      // Remove sign-in screen
+      const signInContainer = document.getElementById('sign-in-container');
+      if (signInContainer) signInContainer.remove();
+      const signInVignette = document.getElementById('sign-in-vignette');
+      if (signInVignette) signInVignette.remove();
+      // Show register screen
+      displayRegisterScreen(username, password);
+    },
+    prefill: {
+      username: storedUsername,
+    },
+  });
+}
+
+/**
+ * Show the register screen with proper callbacks.
+ */
+function displayRegisterScreen(prefillUsername = '', prefillPassword = '') {
+  showRegisterScreen({
+    onRegister: ({ username, password }) => {
+      console.log('Registering as:', username);
+      socket.emit('signUp', { username, password });
+    },
+    onBackToSignIn: () => {
+      // Remove register screen
+      const registerContainer = document.getElementById('register-container');
+      if (registerContainer) registerContainer.remove();
+      const registerVignette = document.getElementById('register-vignette');
+      if (registerVignette) registerVignette.remove();
+      // Show sign-in screen
+      displaySignInScreen();
+    },
+    prefill: {
+      username: prefillUsername,
+      password: prefillPassword,
+    },
+  });
+}
+
+/**
+ * Handle window load - show sign-in or attempt rejoin.
+ */
+window.addEventListener('load', () => {
+  // Initialize the app
+  initializeApp();
+
+  // Check if user is logged in and was in a game
+  const username = sessionStorage.getItem('username');
+  const gameId = sessionStorage.getItem('gameId');
+
+  console.log(`Window load: username=${username}, gameId=${gameId}`);
+
+  if (!username) {
+    // Not logged in - show sign-in screen
+    console.log('No username, showing sign-in screen');
+    displaySignInScreen();
+  } else if (gameId) {
+    // Was in a game - the module-level connect handler will attempt rejoin
+    // The rejoinSuccess/rejoinFailed handlers will handle the UI
+    console.log(`User ${username} has pending game ${gameId}, waiting for rejoin...`);
+  } else {
+    // Logged in but not in a game - go to main room
+    console.log('User logged in but no game, joining main room');
+
+    // Check if socket is already connected
+    if (window.socket.connected) {
+      console.log('Socket already connected, emitting joinMainRoom');
+      window.socket.emit('joinMainRoom');
+    } else {
+      // Wait for socket to connect, then join main room
+      console.log('Socket not connected, waiting for connect event');
+      window.socket.once('connect', () => {
+        if (!sessionStorage.getItem('gameId')) {
+          console.log('Connected, emitting joinMainRoom');
+          window.socket.emit('joinMainRoom');
+        }
+      });
+    }
+  }
+});

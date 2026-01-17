@@ -10,6 +10,7 @@ import { showRegisterScreen } from './screens/Register.js';
 import { showMainRoom, removeMainRoom } from './screens/MainRoom.js';
 import { showGameLobby, removeGameLobby } from './screens/GameLobby.js';
 import { removePlayerQueue } from './components/PlayerQueue.js';
+import { removeFinalScoreOverlay } from './components/ScoreModal.js';
 
 /**
  * Available screen types.
@@ -207,9 +208,65 @@ class UIManager {
     removeMainRoom();
     removeGameLobby();
     removePlayerQueue();
+    removeFinalScoreOverlay();
 
     // Remove vignettes
     document.querySelectorAll('.vignette').forEach((el) => el.remove());
+  }
+
+  /**
+   * Remove waiting screen elements.
+   * This cleans up all pre-game UI to prepare for game start.
+   */
+  removeWaitingScreen() {
+    // Remove waiting container
+    const waitingContainer = document.getElementById('waitingContainer');
+    if (waitingContainer) waitingContainer.remove();
+
+    // Remove waiting vignette
+    const waitingVignette = document.getElementById('waitingVignette');
+    if (waitingVignette) waitingVignette.remove();
+
+    // Remove lobby container
+    const lobbyContainer = document.getElementById('lobbyContainer');
+    if (lobbyContainer) lobbyContainer.remove();
+
+    // Remove all vignettes
+    this.removeAllVignettes();
+
+    // Clear UI elements
+    this.clearUI();
+
+    // Remove player queue
+    removePlayerQueue();
+
+    // Remove game lobby
+    removeGameLobby();
+
+    console.log('UIManager: Waiting screen removed, game starting...');
+  }
+
+  /**
+   * Clean up all pre-game UI when entering a game.
+   */
+  cleanupForGame() {
+    this.removeWaitingScreen();
+
+    // Also clean up auth screens in case they're lingering
+    this._cleanupSignIn();
+    this._cleanupRegister();
+
+    // Cleanup modular screens (with dashes)
+    const signInContainer = document.getElementById('sign-in-container');
+    if (signInContainer) signInContainer.remove();
+    const signInVignette = document.getElementById('sign-in-vignette');
+    if (signInVignette) signInVignette.remove();
+    const registerContainer = document.getElementById('register-container');
+    if (registerContainer) registerContainer.remove();
+    const registerVignette = document.getElementById('register-vignette');
+    if (registerVignette) registerVignette.remove();
+
+    this._currentScreen = SCREENS.GAME;
   }
 
   /**
