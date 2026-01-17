@@ -39,7 +39,7 @@ export function registerAuthHandlers(socketManager, callbacks = {}) {
 
       // Update state
       state.username = data.username;
-      state.playerId = socketManager.getId();
+      state.playerId = socketManager.id; // Use getter, not method
 
       console.log(`✅ Signed in as: ${data.username}`);
       onSignInSuccess?.(data);

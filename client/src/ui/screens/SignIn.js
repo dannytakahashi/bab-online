@@ -189,11 +189,30 @@ export function createSignInScreen({ onSignIn, onCreateAccount }) {
 
 /**
  * Show the sign-in screen (convenience function).
+ *
+ * @param {Object} options - Screen options
+ * @param {Function} options.onSignIn - Called with { username, password }
+ * @param {Function} options.onCreateAccount - Called to show registration
+ * @param {Object} [options.prefill] - Optional prefill values
+ * @param {string} [options.prefill.username] - Username to prefill
+ * @param {string} [options.prefill.password] - Password to prefill
  */
 export function showSignInScreen(options) {
   const screen = createSignInScreen(options);
   document.body.appendChild(screen.vignette);
   document.body.appendChild(screen.container);
-  screen.usernameInput.focus();
+
+  // Prefill values if provided
+  if (options.prefill) {
+    screen.setValues(options.prefill);
+  }
+
+  // Focus username if empty, otherwise focus password
+  if (screen.usernameInput.value) {
+    screen.passwordInput.focus();
+  } else {
+    screen.usernameInput.focus();
+  }
+
   return screen;
 }
