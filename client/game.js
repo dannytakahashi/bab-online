@@ -481,7 +481,7 @@ let playerInfo = null;
 let gameListenersRegistered = false; // Track if socket listeners are already registered
 let waitBool = false;
 let queueDelay = false;
-let activeChatBubbles = {}; // Track active chat bubbles by position key to prevent overlap
+let gameActiveChatBubbles = {}; // Track active chat bubbles by position key to prevent overlap
 let lastQueueData;
 let opponentAvatarDoms = { partner: null, opp1: null, opp2: null }; // DOM-based opponent avatars for CSS glow support
 function create() {
@@ -1734,12 +1734,12 @@ socket.on("teamsAnnounced", (data) => {
 // Helper to show chat/bid bubble, replacing any existing bubble for the same position
 function showChatBubble(scene, positionKey, x, y, message, color = null, duration = 6000) {
     // Destroy existing bubble for this position if present
-    if (activeChatBubbles[positionKey]) {
-        if (activeChatBubbles[positionKey].timer) {
-            activeChatBubbles[positionKey].timer.remove();
+    if (gameActiveChatBubbles[positionKey]) {
+        if (gameActiveChatBubbles[positionKey].timer) {
+            gameActiveChatBubbles[positionKey].timer.remove();
         }
-        if (activeChatBubbles[positionKey].bubble) {
-            activeChatBubbles[positionKey].bubble.destroy();
+        if (gameActiveChatBubbles[positionKey].bubble) {
+            gameActiveChatBubbles[positionKey].bubble.destroy();
         }
     }
 
@@ -1747,10 +1747,10 @@ function showChatBubble(scene, positionKey, x, y, message, color = null, duratio
     let bubble = createSpeechBubble(scene, x, y, 150, 50, message, color);
     let timer = scene.time.delayedCall(duration, () => {
         bubble.destroy();
-        delete activeChatBubbles[positionKey];
+        delete gameActiveChatBubbles[positionKey];
     });
 
-    activeChatBubbles[positionKey] = { bubble, timer };
+    gameActiveChatBubbles[positionKey] = { bubble, timer };
 }
 
 socket.on("chatMessage", (data) => {
