@@ -66,16 +66,16 @@ function processRejoin(data) {
     }
 
     // Calculate player names (same as gameStart handler)
-    me = playerData.username[playerData.position.indexOf(position)]?.username || 'You';
+    myUsername = playerData.username[playerData.position.indexOf(position)]?.username || 'You';
     partner = playerData.username[playerData.position.indexOf(team(position))]?.username || 'Partner';
     opp1 = playerData.username[playerData.position.indexOf(rotate(position))]?.username || 'Opp1';
     opp2 = playerData.username[playerData.position.indexOf(rotate(rotate(rotate(position))))]?.username || 'Opp2';
 
     // Update score display in game log
     if (position % 2 !== 0) {
-        updateGameLogScore(me + "/" + partner, opp1 + "/" + opp2, score1, score2);
+        updateGameLogScore(myUsername + "/" + partner, opp1 + "/" + opp2, score1, score2);
     } else {
-        updateGameLogScore(me + "/" + partner, opp1 + "/" + opp2, score2, score1);
+        updateGameLogScore(myUsername + "/" + partner, opp1 + "/" + opp2, score2, score1);
     }
 
     // Create player info box
@@ -249,44 +249,22 @@ function createVignette() {
 let gameScene;
 let playerData;
 let currentTurn;
-function team(position){
-    if(position === 1){
-        return 3;
-    }
-    if (position === 2){
-        return 4;
-    }
-    if (position === 3){
-        return 1;
-    }
-    if (position === 4){
-        return 2;
-    }
+
+// Position utilities - delegating to ModernUtils
+function team(pos) {
+    return window.ModernUtils.team(pos);
 }
-// Rotate to next player position (clockwise: 1→2→3→4→1)
-function rotate(num){
-    return (num % 4) + 1;
+
+function rotate(num) {
+    return window.ModernUtils.rotate(num);
 }
-// Helper function to safely get player username from position
+
+// Wrapper that passes global playerData to ModernUtils
 function getPlayerName(pos) {
-    if (!playerData || !playerData.username || !playerData.position) {
-        console.warn("⚠️ playerData not initialized when getting name for position:", pos);
-        return `Player ${pos}`;
-    }
-    const index = playerData.position.indexOf(pos);
-    if (index === -1) {
-        console.warn("⚠️ Position not found in playerData:", pos);
-        return `Player ${pos}`;
-    }
-    const player = playerData.username[index];
-    if (!player || !player.username) {
-        console.warn("⚠️ No username at index:", index);
-        return `Player ${pos}`;
-    }
-    return player.username;
+    return window.ModernUtils.getPlayerName(pos, playerData);
 }
 let scoreUI = null;
-let me = null;
+let myUsername = null;  // Renamed from 'me' to avoid shadowing window.me
 let partner = null;
 let opp1 = null;
 let opp2 = null;
@@ -695,16 +673,16 @@ function processGameStart(data) {
         console.log("🎮 playerCards has", playerCards.length, "cards, running display cards...");
         score1 = data.score1;
         score2 = data.score2;
-        me = playerData.username[playerData.position.indexOf(position)].username;
+        myUsername = playerData.username[playerData.position.indexOf(position)].username;
         partner = playerData.username[playerData.position.indexOf(team(position))].username;
         opp1 = playerData.username[playerData.position.indexOf(rotate(position))].username;
         opp2 = playerData.username[playerData.position.indexOf(rotate(rotate(rotate(position))))].username;
         // Update score in game log instead of old scorebug
         if(position % 2 !== 0){
-            updateGameLogScore(me + "/" + partner, opp1 + "/" + opp2, score1, score2);
+            updateGameLogScore(myUsername + "/" + partner, opp1 + "/" + opp2, score1, score2);
         }
         else{
-            updateGameLogScore(me + "/" + partner, opp1 + "/" + opp2, score2, score1);
+            updateGameLogScore(myUsername + "/" + partner, opp1 + "/" + opp2, score2, score1);
         }
         if(!playerInfo){
             playerInfo = createPlayerInfoBox(); // Store the reference
@@ -766,11 +744,10 @@ const config = {
 };
 const game = new Phaser.Game(config);// ✅ Small delay to ensure the game is loaded
 let playerId, playerCards, trump = [];
-function getCardImageKey(card) {
-    let rank = card.rank.toLowerCase(); // Example: "A" → "a", "10" → "10"
-    let suit = card.suit.toLowerCase(); // Example: "Spades" → "spades"
 
-    return `${rank}_${suit}`;  // Example: "ace_spades"
+// Card utility - delegating to ModernUtils
+function getCardImageKey(card) {
+    return window.ModernUtils.getCardImageKey(card);
 }
 function preload() {
     console.log("running preload...");
@@ -796,23 +773,8 @@ function preload() {
         this.load.image(`profile${i}`, `assets/profile${i}.png`);
     }
 }
-let ranks = {
-    "HI": 16,
-    "LO": 15,
-    "A": 14,
-    "K": 13,
-    "Q": 12,
-    "J": 11,
-    "10": 10,
-    "9": 9,
-    "8": 8,
-    "7": 7,
-    "6": 6,
-    "5": 5,
-    "4": 4,
-    "3": 3,
-    "2": 2
-}
+// Rank values from ModernUtils
+let ranks = window.ModernUtils.RANK_VALUES;
 let opponentCardSprites = {};
 let tableCardSprite;
 function createGameFeed(isReconnection = false) {
@@ -1339,92 +1301,33 @@ function displayTableCard(card) {
         align: "center"
     }).setOrigin(0.5);
 }
-function sameSuit(card1, card2){
-    if(card1.suit === card2.suit){
-        return true;
-    }
-    else if((card1.suit === "joker" && card2.suit === trump.suit) || (card2.suit === "joker" && card1.suit === trump.suit)){
-        return true;
-    }
-    else{
-        return false;
-    }
+
+// Rule utilities - delegating to ModernUtils
+// These wrappers pass the global trump state to the modular functions
+function sameSuit(card1, card2) {
+    return window.ModernUtils.sameSuit(card1, card2, trump);
 }
-function isVoid(hand, ledsuit){
-    console.log("isVoid check - ledsuit:", ledsuit, "hand:", hand.map(c => c.rank + " of " + c.suit));
-    let proto = {rank: 1, suit : ledsuit}
-    for(let card of hand){
-        if(sameSuit(card,proto)){
-            console.log("Found matching card:", card.rank, "of", card.suit);
-            return false;
-        }
-    }
-    console.log("No matching cards - player is void");
-    return true;
+
+function isVoid(hand, ledsuit) {
+    return window.ModernUtils.isVoid(hand, ledsuit, trump);
 }
-function isTrumpTight(hand, trump){
-    for(let card of hand){
-        if(card.suit !== trump.suit && card.suit !== "joker"){
-            return false;
-        }
-    }
-    return true;
+
+function isTrumpTight(hand, trumpCard) {
+    return window.ModernUtils.isTrumpTight(hand, trumpCard || trump);
 }
-function highestTrump(rank, hand, trump){
-    for(let card of hand){
-        if((sameSuit(card,trump)) && (ranks[card.rank] > ranks[rank])){
-            return false;
-        }
-    }
-    return true;
+
+function highestTrump(rank, hand, trumpCard) {
+    return window.ModernUtils.isHighestTrump(rank, hand, trumpCard || trump);
 }
+
 let isTrumpBroken = false;
 let teamTricks = 0;
 let oppTricks = 0;
-function isLegalMove(card, hand, lead, leadBool, leadPosition){
-    console.log("=== isLegalMove check ===");
-    console.log("card:", card.rank, "of", card.suit);
-    console.log("lead:", lead?.rank, "of", lead?.suit);
-    console.log("leadBool (is leading?):", leadBool);
-    console.log("hand suits:", hand.map(c => c.suit));
-    console.log("trump:", trump?.suit);
 
-    // Skip following-suit check if we're leading
-    if (leadBool) {
-        // Leading: can't lead trump unless broken (or trump tight)
-        if (sameSuit(card,trump) && !isTrumpBroken && !isTrumpTight(hand, trump)){
-            console.log("ILLEGAL: trump not broken and not trump tight");
-            return false;
-        }
-        console.log("LEGAL: leading");
-        return true;
-    }
-
-    // Following
-    console.log("lead.suit value:", lead.suit, "typeof:", typeof lead.suit);
-    console.log("lead object:", JSON.stringify(lead));
-    const isVoidInLeadSuit = isVoid(hand, lead.suit);
-    console.log("isVoid in lead suit:", isVoidInLeadSuit);
-    console.log("sameSuit(card, lead):", sameSuit(card, lead));
-
-    if (!sameSuit(card, lead) && !isVoidInLeadSuit){
-        console.log("ILLEGAL: not following suit when not void");
-        return false;
-    }
-    // HI joker special rule: opponents must play highest trump
-    if (lead.rank === "HI") {
-        console.log("HI joker led! Checking highest trump rule...");
-        console.log("leadPosition:", leadPosition, "position:", position);
-        console.log("Is opponent?", leadPosition % 2 !== position % 2);
-        console.log("Is highest trump in hand?", highestTrump(card.rank, hand, trump));
-
-        if ((leadPosition % 2 !== position % 2) && !highestTrump(card.rank, hand, trump)) {
-            console.log("ILLEGAL: HI lead requires highest trump from opponents");
-            return false;
-        }
-    }
-    console.log("LEGAL: following rules satisfied");
-    return true;
+function isLegalMove(card, hand, lead, leadBool, leadPos) {
+    // ModernUtils.isLegalMove returns { legal: boolean, reason?: string }
+    const result = window.ModernUtils.isLegalMove(card, hand, lead, leadBool, trump, isTrumpBroken, leadPos, position);
+    return result.legal;
 }
 let waitingText;
 // Note: playZone is now a DOM element with id 'playZoneDom'
@@ -1441,8 +1344,8 @@ let oppTrickHistory = [];
 let bidding = 1;
 let playerBids = [];
 let playedCardIndex = 0;
-let leadCard = [];
-let leadPosition = [];
+let leadCard = null;
+let leadPosition = null;
 let leadBool = false;
 let tempBids = [];
 let currentTrick = [];
@@ -1758,53 +1661,13 @@ function clearDisplayCards() {
 }
 let myCards = [];
 
-/**
- * Get suit order for sorting - alternating colors with trump rightmost
- * @param {string} trumpSuit - The trump suit for this hand
- * @returns {Array} - Ordered array of suits
- */
+// Card sorting utilities - delegating to ModernUtils
 function getSuitOrder(trumpSuit) {
-    // Alternating colors with trump always last (rightmost)
-    // If trump is joker (no trump), use default alternating order
-    const orders = {
-        'spades':   ['hearts', 'clubs', 'diamonds', 'spades'],
-        'hearts':   ['spades', 'diamonds', 'clubs', 'hearts'],
-        'diamonds': ['clubs', 'hearts', 'spades', 'diamonds'],
-        'clubs':    ['diamonds', 'spades', 'hearts', 'clubs'],
-        'joker':    ['clubs', 'diamonds', 'hearts', 'spades']  // No trump - just alternate colors
-    };
-    return orders[trumpSuit] || ['clubs', 'diamonds', 'hearts', 'spades'];
+    return window.ModernUtils.getSuitOrder(trumpSuit);
 }
 
-/**
- * Sort hand by suit (trump rightmost) and rank (low to high)
- * @param {Array} hand - Array of card objects
- * @param {Object} trumpCard - Trump card with suit property
- * @returns {Array} - Sorted hand
- */
 function sortHand(hand, trumpCard) {
-    if (!hand || hand.length === 0) return hand;
-    if (!trumpCard || !trumpCard.suit) return hand;
-
-    const trumpSuit = trumpCard.suit;
-    const suitOrder = getSuitOrder(trumpSuit);
-    const rankOrder = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
-
-    return [...hand].sort((a, b) => {
-        // Jokers go last (they're trump) - HI joker rightmost
-        if (a.suit === 'joker' && b.suit === 'joker') {
-            return a.rank === 'LO' ? -1 : 1;
-        }
-        if (a.suit === 'joker') return 1;
-        if (b.suit === 'joker') return -1;
-
-        // Sort by suit order (trump rightmost)
-        const suitDiff = suitOrder.indexOf(a.suit) - suitOrder.indexOf(b.suit);
-        if (suitDiff !== 0) return suitDiff;
-
-        // Within suit, sort by rank (low to high)
-        return rankOrder.indexOf(a.rank) - rankOrder.indexOf(b.rank);
-    });
+    return window.ModernUtils.sortHand(hand, trumpCard);
 }
 
 function displayCards(playerHand, skipAnimation = false) {
@@ -2351,11 +2214,11 @@ function displayCards(playerHand, skipAnimation = false) {
         currentOppBids = oppBids;
         if(position % 2 !== 0){
             console.log("updating game log score");
-            updateGameLogScore(me + "/" + partner, opp1 + "/" + opp2, score1, score2, teamBids, oppBids);
+            updateGameLogScore(myUsername + "/" + partner, opp1 + "/" + opp2, score1, score2, teamBids, oppBids);
         }
         else{
             console.log("updating game log score");
-            updateGameLogScore(me + "/" + partner, opp1 + "/" + opp2, score2, score1, teamBids, oppBids);
+            updateGameLogScore(myUsername + "/" + partner, opp1 + "/" + opp2, score2, score1, teamBids, oppBids);
         }
     });
     socket.on("updateTurn", (data) => {
@@ -2566,9 +2429,9 @@ function displayCards(playerHand, skipAnimation = false) {
 
         // Update game log with trick counts
         if(position % 2 !== 0){
-            updateGameLogScore(me + "/" + partner, opp1 + "/" + opp2, score1, score2, currentTeamBids, currentOppBids, teamTricks, oppTricks);
+            updateGameLogScore(myUsername + "/" + partner, opp1 + "/" + opp2, score1, score2, currentTeamBids, currentOppBids, teamTricks, oppTricks);
         } else {
-            updateGameLogScore(me + "/" + partner, opp1 + "/" + opp2, score2, score1, currentTeamBids, currentOppBids, teamTricks, oppTricks);
+            updateGameLogScore(myUsername + "/" + partner, opp1 + "/" + opp2, score2, score1, currentTeamBids, currentOppBids, teamTricks, oppTricks);
         }
 
         let trickCards = [...currentTrick]; // ✅ Store the completed trick
@@ -2674,6 +2537,13 @@ function displayCards(playerHand, skipAnimation = false) {
         tempBids = [];
         bidding = 0;
         playedCard = false;  // Bug 1 fix: Reset from previous hand before updating card legality
+
+        // Reset play state for new hand - critical for isLegalMove checks
+        playedCardIndex = 0;
+        leadCard = null;
+        leadPosition = null;
+        isTrumpBroken = false;
+        thisTrick = [];
 
         // Set currentTurn from lead player data before updating card legality
         // (server sends { bids, lead } where lead is the first player to play)

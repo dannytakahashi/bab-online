@@ -112,7 +112,7 @@ function showSignInScreen() {
         password = passwordInput.value.trim();
 
         if (username.length === 0 || password.length === 0) {
-            alert("Please enter both a username and a password.");
+            window.ModernUtils.showWarning("Please enter both a username and a password.");
             return;
         }
 
@@ -269,12 +269,12 @@ function showRegisterScreen(){
         let confirmPassword = confirmPasswordInput.value.trim();
     
         if (username === "" || password === "" || confirmPassword === "") {
-            alert("❌ Please fill out all fields.");
+            window.ModernUtils.showWarning("Please fill out all fields.");
             return;
         }
-    
+
         if (password !== confirmPassword) {
-            alert("❌ Passwords do not match!");
+            window.ModernUtils.showError("Passwords do not match!");
             return;
         }
     
@@ -339,7 +339,7 @@ socket.on("signInResponse", (data) => {
             socket.emit("joinMainRoom");
         }
     } else {
-        alert("Sign-in failed! Incorrect username or password.");
+        window.ModernUtils.showError("Sign-in failed! Incorrect username or password.");
     }
 });
 // Listen for Sign-Up Response
@@ -358,10 +358,10 @@ socket.on("signUpResponse", (data) => {
             if (signInVignette) signInVignette.remove();
             socket.emit("joinMainRoom"); // Go to main room
         } else {
-            alert("Registration successful! Please sign in.");
+            window.ModernUtils.showSuccess("Registration successful! Please sign in.");
         }
     } else {
-        alert(`Registration failed: ${data.message}`);
+        window.ModernUtils.showError(`Registration failed: ${data.message}`);
     }
 });
 // ✅ Function to Handle Sign-In Response
@@ -669,7 +669,7 @@ function showMainRoom(data) {
         // Pre-populate colors for historical message authors
         data.messages.forEach(msg => {
             if (!mainRoomUserColors[msg.username]) {
-                mainRoomUserColors[msg.username] = generateDistinctColor(msg.username, Object.values(mainRoomUserColors));
+                mainRoomUserColors[msg.username] = window.ModernUtils.generateDistinctColor(msg.username, Object.values(mainRoomUserColors));
             }
         });
         data.messages.forEach(msg => {
@@ -792,7 +792,7 @@ function createChatMessageElement(username, message) {
     const nameSpan = document.createElement("span");
     nameSpan.innerText = username + ": ";
     nameSpan.style.fontWeight = "bold";
-    nameSpan.style.color = getUsernameColor(username);
+    nameSpan.style.color = lobbyUserColors[username] || mainRoomUserColors[username] || window.ModernUtils.getUsernameColor(username);
     msgDiv.appendChild(nameSpan);
 
     const textSpan = document.createElement("span");
@@ -809,7 +809,7 @@ function addMainRoomChatMessage(username, message) {
 
     // Assign distinct color if new user
     if (!mainRoomUserColors[username]) {
-        mainRoomUserColors[username] = generateDistinctColor(username, Object.values(mainRoomUserColors));
+        mainRoomUserColors[username] = window.ModernUtils.generateDistinctColor(username, Object.values(mainRoomUserColors));
     }
 
     const msgDiv = createChatMessageElement(username, message);
@@ -998,7 +998,7 @@ function showGameLobby(lobbyData) {
         // Pre-populate colors for historical message authors
         lobbyData.messages.forEach(msg => {
             if (!lobbyUserColors[msg.username]) {
-                lobbyUserColors[msg.username] = generateDistinctColor(msg.username, Object.values(lobbyUserColors));
+                lobbyUserColors[msg.username] = window.ModernUtils.generateDistinctColor(msg.username, Object.values(lobbyUserColors));
             }
         });
         lobbyData.messages.forEach(msg => {
@@ -1009,7 +1009,7 @@ function showGameLobby(lobbyData) {
             const nameSpan = document.createElement("span");
             nameSpan.innerText = msg.username + ": ";
             nameSpan.style.fontWeight = "bold";
-            nameSpan.style.color = getUsernameColor(msg.username);
+            nameSpan.style.color = lobbyUserColors[msg.username] || mainRoomUserColors[msg.username] || window.ModernUtils.getUsernameColor(msg.username);
             msgDiv.appendChild(nameSpan);
 
             const textSpan = document.createElement("span");
@@ -1141,7 +1141,7 @@ function updateLobbyPlayersList(container, players) {
     // Assign colors to new players - existing players keep their color for the session
     players.forEach((player) => {
         if (!lobbyUserColors[player.username]) {
-            lobbyUserColors[player.username] = generateDistinctColor(player.username, Object.values(lobbyUserColors));
+            lobbyUserColors[player.username] = window.ModernUtils.generateDistinctColor(player.username, Object.values(lobbyUserColors));
         }
     });
 
@@ -1231,54 +1231,8 @@ function updateLobbyPlayersList(container, players) {
     }
 }
 
-// Generate a hash-based hue from username
-function hashToHue(username) {
-    let hash = 5381;
-    for (let i = 0; i < username.length; i++) {
-        hash = ((hash << 5) + hash) ^ username.charCodeAt(i);
-    }
-    return Math.abs(hash) % 360;
-}
-
-// Generate a color that's visually distinct from existing colors
-function generateDistinctColor(username, existingColors) {
-    let hue = hashToHue(username);
-
-    // Extract hues from existing colors
-    const existingHues = existingColors
-        .map(color => {
-            const match = color.match(/hsl\((\d+)/);
-            return match ? parseInt(match[1]) : null;
-        })
-        .filter(h => h !== null);
-
-    // Adjust hue if too close to existing ones (within 50 degrees)
-    const minDistance = 50;
-    let attempts = 0;
-    while (attempts < 360 && existingHues.length > 0) {
-        const tooClose = existingHues.some(existingHue => {
-            const diff = Math.abs(hue - existingHue);
-            return Math.min(diff, 360 - diff) < minDistance;
-        });
-        if (!tooClose) break;
-        hue = (hue + 67) % 360; // Prime number for better distribution
-        attempts++;
-    }
-
-    return `hsl(${hue}, 70%, 60%)`;
-}
-
-// Get color for a username - uses stored color if available
-function getUsernameColor(username) {
-    if (lobbyUserColors[username]) {
-        return lobbyUserColors[username];
-    }
-    if (mainRoomUserColors[username]) {
-        return mainRoomUserColors[username];
-    }
-    // Fallback for System messages or other contexts
-    return `hsl(${hashToHue(username)}, 70%, 60%)`;
-}
+// Color utilities now provided by window.ModernUtils
+// - hashToHue, generateDistinctColor, getUsernameColor
 
 function addLobbyChatMessage(username, message) {
     const chatArea = document.getElementById("lobbyChatArea");
@@ -1291,7 +1245,7 @@ function addLobbyChatMessage(username, message) {
     const nameSpan = document.createElement("span");
     nameSpan.innerText = username + ": ";
     nameSpan.style.fontWeight = "bold";
-    nameSpan.style.color = getUsernameColor(username);
+    nameSpan.style.color = lobbyUserColors[username] || mainRoomUserColors[username] || window.ModernUtils.getUsernameColor(username);
     msgDiv.appendChild(nameSpan);
 
     const textSpan = document.createElement("span");
