@@ -21,7 +21,7 @@ function processRejoin(data) {
     console.log("🔄 gameScene exists:", !!gameScene, "game exists:", !!game);
 
     // Clear any sign-in/lobby screens first
-    removeAllVignettes();
+    window.ModernUtils.getUIManager().removeAllVignettes();
     let signInContainer = document.getElementById("signInContainer");
     if (signInContainer) signInContainer.remove();
     let lobbyContainer = document.getElementById("lobbyContainer");
@@ -51,7 +51,7 @@ function processRejoin(data) {
     console.log("🔄 Rebuilding game UI after rejoin");
 
     // Remove any overlays
-    removeWaitingScreen();
+    window.ModernUtils.getUIManager().removeWaitingScreen();
     removeDraw();
 
     // Create game UI elements (pass true to indicate reconnection)
@@ -66,16 +66,16 @@ function processRejoin(data) {
     }
 
     // Calculate player names (same as gameStart handler)
-    me = playerData.username[playerData.position.indexOf(position)]?.username || 'You';
+    myUsername = playerData.username[playerData.position.indexOf(position)]?.username || 'You';
     partner = playerData.username[playerData.position.indexOf(team(position))]?.username || 'Partner';
     opp1 = playerData.username[playerData.position.indexOf(rotate(position))]?.username || 'Opp1';
     opp2 = playerData.username[playerData.position.indexOf(rotate(rotate(rotate(position))))]?.username || 'Opp2';
 
     // Update score display in game log
     if (position % 2 !== 0) {
-        updateGameLogScore(me + "/" + partner, opp1 + "/" + opp2, score1, score2);
+        updateGameLogScore(myUsername + "/" + partner, opp1 + "/" + opp2, score1, score2);
     } else {
-        updateGameLogScore(me + "/" + partner, opp1 + "/" + opp2, score2, score1);
+        updateGameLogScore(myUsername + "/" + partner, opp1 + "/" + opp2, score2, score1);
     }
 
     // Create player info box
@@ -206,9 +206,21 @@ document.addEventListener("reconnectFailed", () => {
         socket.off("gameStart");
     }
     cleanupDomBackgrounds();
-    removeWaitingScreen();
-    clearUI();
-    showSignInScreen();
+    window.ModernUtils.getUIManager().removeWaitingScreen();
+    window.ModernUtils.getUIManager().clearUI();
+    // Show sign-in screen using modular code
+    window.ModernUtils.showSignInScreen({
+        onSignIn: ({ username, password }) => {
+            socket.emit('signIn', { username, password });
+        },
+        onCreateAccount: () => {
+            // User wants to register - show register screen
+            const signInContainer = document.getElementById('sign-in-container');
+            if (signInContainer) signInContainer.remove();
+            const signInVignette = document.getElementById('sign-in-vignette');
+            if (signInVignette) signInVignette.remove();
+        }
+    });
     alert("Connection lost. Please sign in again.");
 });
 function visible(){
@@ -219,6 +231,198 @@ function visible(){
         return false;
     }
 }
+
+// ============================================
+// Phaser UI Helper Functions (moved from ui.js)
+// ============================================
+
+function clearScreen() {
+    console.log("🔥 Clearing all elements from the screen...");
+
+    // Loop through all scene children and destroy them
+    this.children.list.forEach(child => {
+        if (child && child.destroy) {
+            child.destroy();
+        }
+    });
+    if (this.playZone) {
+        this.playZone.destroy();
+        this.playZone = null;
+        console.log("🛑 Play zone removed.");
+    }
+
+    if (this.border) {
+        this.border.destroy();
+        this.border = null;
+        console.log("🛑 Hand area background removed.");
+    }
+
+    if (this.tableCardLabel) {
+        this.tableCardLabel.destroy();
+        this.tableCardLabel = null;
+        console.log("🛑 Table card label removed.");
+    }
+    // Remove all interactive events to prevent conflicts
+    this.input.removeAllListeners();
+
+    console.log("✅ All elements removed from the screen.");
+}
+
+function createSpeechBubble(scene, x, y, width, height, text, color, tailDirection = 'down') {
+    let scaleFactorX = scene.scale.width / 1920;
+    let scaleFactorY = scene.scale.height / 953;
+    const PADDING   = 10;
+    const TAIL_SIZE = 20*scaleFactorX;
+    const MAX_W     = 350*scaleFactorX;
+    const MAX_H     = 200*scaleFactorY;
+
+    // Style & measure the text off-screen
+    const style = {
+      fontSize:  "16px",
+      fontFamily:"Arial",
+      color:     (color === "#FF0000" ? "#FF0000" : "#000000"),
+      wordWrap:  { width: MAX_W - 2*PADDING }
+    };
+    const textObj = scene.add.text(0, 0, text, style);
+
+    // Clamp its measured size
+    const txtW = Math.min(textObj.width,  MAX_W - 2*PADDING);
+    const txtH = Math.min(textObj.height, MAX_H - 2*PADDING);
+
+    // Final bubble dims
+    const bW = txtW + 2*PADDING;
+    const bH = txtH + 2*PADDING;
+
+    const bubble = scene.add.graphics();
+    bubble.fillStyle(0xffffff, 1);
+
+    let bubbleX, bubbleY;
+
+    if (tailDirection === 'left') {
+      // Bubble positioned to the right of x, vertically centered on y
+      bubbleX = x + TAIL_SIZE;
+      bubbleY = y - bH / 2;
+
+      // Draw bubble background
+      bubble.fillRoundedRect(bubbleX, bubbleY, bW, bH, 16);
+
+      // Draw tail pointing left toward the avatar
+      bubble.fillTriangle(
+        x,                    y,
+        bubbleX,              y - TAIL_SIZE / 2,
+        bubbleX,              y + TAIL_SIZE / 2
+      );
+
+      // Position text inside bubble
+      textObj.setPosition(bubbleX + PADDING, bubbleY + PADDING);
+    } else {
+      // Original 'down' behavior: bubble above y, tail pointing down
+      bubbleX = x;
+      bubbleY = y - bH;
+
+      // Draw bubble background
+      bubble.fillRoundedRect(bubbleX, bubbleY, bW, bH, 16);
+
+      // Draw tail pointing down
+      bubble.fillTriangle(
+        bubbleX + 20,         bubbleY + bH,
+        bubbleX - TAIL_SIZE,  bubbleY + bH,
+        bubbleX + 10,         bubbleY + bH - TAIL_SIZE
+      );
+
+      // Position text inside bubble
+      textObj.setPosition(bubbleX + PADDING, bubbleY + PADDING);
+    }
+
+    // Group elements
+    const container = scene.add.container(0, 0, [bubble, textObj]);
+    container.setDepth(500);
+    container.setAlpha(1);
+
+    return container;
+}
+
+function createPlayerInfoBox() {
+    // Safety check: ensure playerData is fully populated
+    if (!playerData || !playerData.username || !playerData.position || !playerData.pics) {
+        console.warn("⚠️ createPlayerInfoBox called before playerData is ready, deferring...");
+        return null;
+    }
+
+    let positionIndex = playerData.position.indexOf(position);
+    if (positionIndex === -1 || !playerData.username[positionIndex]) {
+        console.warn("⚠️ createPlayerInfoBox: position not found in playerData, deferring...");
+        return null;
+    }
+
+    let screenWidth = gameScene.scale.width;
+    let screenHeight = gameScene.scale.height;
+    let scaleFactorX = screenWidth / 1920;
+    let scaleFactorY = screenHeight / 953;
+
+    let boxX = screenWidth - 380*scaleFactorX;
+    let boxY = screenHeight - 150*scaleFactorY;
+
+    // Player Avatar
+    let playerAvatar = gameScene.add.image(boxX, boxY - 60*scaleFactorY, "profile" + playerData.pics[positionIndex])
+        .setScale(0.2)
+        .setOrigin(0.5);
+
+    // Player Name Text
+    let playerNameText = gameScene.add.text(boxX, boxY + 10*scaleFactorY, playerData.username[positionIndex].username, {
+        fontSize: "18px",
+        fontFamily: "Arial",
+        color: "#ffffff"
+    }).setOrigin(0.5);
+
+    // Position Text
+    let playerPositionText = gameScene.add.text(boxX, boxY + 35*scaleFactorY, "", {
+        fontSize: "16px",
+        fontFamily: "Arial",
+        color: "#ffffff"
+    }).setOrigin(0.5);
+
+    // Group all elements into a container
+    let playerInfoContainer = gameScene.add.container(0, 0, [playerAvatar, playerNameText, playerPositionText]);
+
+    return {playerAvatar, playerNameText, playerPositionText, playerInfoContainer};
+}
+
+function showImpactEvent(event){
+    let scene = game.scene.scenes[0];
+    const screenWidth = scene.scale.width;
+    const screenHeight = scene.scale.height;
+    const impactImage = scene.add.image(screenWidth / 2, screenHeight / 2, event)
+        .setScale(0)
+        .setAlpha(1)
+        .setDepth(999);
+
+    // Tween for impact effect (scale up + bounce)
+    scene.tweens.add({
+        targets: impactImage,
+        scale: { from: 0, to: 1.2 },
+        ease: 'Back.Out',
+        duration: 500
+    });
+
+    // Remove the image after 1.5 seconds
+    scene.time.delayedCall(1500, () => {
+        scene.tweens.add({
+            targets: impactImage,
+            alpha: { from: 1, to: 0 },
+            duration: 1000,
+            ease: 'Power1',
+            onComplete: () => {
+                impactImage.destroy();
+            }
+        });
+    });
+}
+
+// ============================================
+// End Phaser UI Helper Functions
+// ============================================
+
 function createVignette() {
     let screenWidth = this.scale.width;
     let screenHeight = this.scale.height;
@@ -249,44 +453,22 @@ function createVignette() {
 let gameScene;
 let playerData;
 let currentTurn;
-function team(position){
-    if(position === 1){
-        return 3;
-    }
-    if (position === 2){
-        return 4;
-    }
-    if (position === 3){
-        return 1;
-    }
-    if (position === 4){
-        return 2;
-    }
+
+// Position utilities - delegating to ModernUtils
+function team(pos) {
+    return window.ModernUtils.team(pos);
 }
-// Rotate to next player position (clockwise: 1→2→3→4→1)
-function rotate(num){
-    return (num % 4) + 1;
+
+function rotate(num) {
+    return window.ModernUtils.rotate(num);
 }
-// Helper function to safely get player username from position
+
+// Wrapper that passes global playerData to ModernUtils
 function getPlayerName(pos) {
-    if (!playerData || !playerData.username || !playerData.position) {
-        console.warn("⚠️ playerData not initialized when getting name for position:", pos);
-        return `Player ${pos}`;
-    }
-    const index = playerData.position.indexOf(pos);
-    if (index === -1) {
-        console.warn("⚠️ Position not found in playerData:", pos);
-        return `Player ${pos}`;
-    }
-    const player = playerData.username[index];
-    if (!player || !player.username) {
-        console.warn("⚠️ No username at index:", index);
-        return `Player ${pos}`;
-    }
-    return player.username;
+    return window.ModernUtils.getPlayerName(pos, playerData);
 }
 let scoreUI = null;
-let me = null;
+let myUsername = null;  // Renamed from 'me' to avoid shadowing window.me
 let partner = null;
 let opp1 = null;
 let opp2 = null;
@@ -299,7 +481,7 @@ let playerInfo = null;
 let gameListenersRegistered = false; // Track if socket listeners are already registered
 let waitBool = false;
 let queueDelay = false;
-let activeChatBubbles = {}; // Track active chat bubbles by position key to prevent overlap
+let gameActiveChatBubbles = {}; // Track active chat bubbles by position key to prevent overlap
 let lastQueueData;
 let opponentAvatarDoms = { partner: null, opp1: null, opp2: null }; // DOM-based opponent avatars for CSS glow support
 function create() {
@@ -695,16 +877,16 @@ function processGameStart(data) {
         console.log("🎮 playerCards has", playerCards.length, "cards, running display cards...");
         score1 = data.score1;
         score2 = data.score2;
-        me = playerData.username[playerData.position.indexOf(position)].username;
+        myUsername = playerData.username[playerData.position.indexOf(position)].username;
         partner = playerData.username[playerData.position.indexOf(team(position))].username;
         opp1 = playerData.username[playerData.position.indexOf(rotate(position))].username;
         opp2 = playerData.username[playerData.position.indexOf(rotate(rotate(rotate(position))))].username;
         // Update score in game log instead of old scorebug
         if(position % 2 !== 0){
-            updateGameLogScore(me + "/" + partner, opp1 + "/" + opp2, score1, score2);
+            updateGameLogScore(myUsername + "/" + partner, opp1 + "/" + opp2, score1, score2);
         }
         else{
-            updateGameLogScore(me + "/" + partner, opp1 + "/" + opp2, score2, score1);
+            updateGameLogScore(myUsername + "/" + partner, opp1 + "/" + opp2, score2, score1);
         }
         if(!playerInfo){
             playerInfo = createPlayerInfoBox(); // Store the reference
@@ -765,12 +947,11 @@ const config = {
     scene: { preload, create, update }
 };
 const game = new Phaser.Game(config);// ✅ Small delay to ensure the game is loaded
-let playerId, playerCards, trump = [];
-function getCardImageKey(card) {
-    let rank = card.rank.toLowerCase(); // Example: "A" → "a", "10" → "10"
-    let suit = card.suit.toLowerCase(); // Example: "Spades" → "spades"
+let playerId, position, playerCards, trump = [];
 
-    return `${rank}_${suit}`;  // Example: "ace_spades"
+// Card utility - delegating to ModernUtils
+function getCardImageKey(card) {
+    return window.ModernUtils.getCardImageKey(card);
 }
 function preload() {
     console.log("running preload...");
@@ -796,23 +977,8 @@ function preload() {
         this.load.image(`profile${i}`, `assets/profile${i}.png`);
     }
 }
-let ranks = {
-    "HI": 16,
-    "LO": 15,
-    "A": 14,
-    "K": 13,
-    "Q": 12,
-    "J": 11,
-    "10": 10,
-    "9": 9,
-    "8": 8,
-    "7": 7,
-    "6": 6,
-    "5": 5,
-    "4": 4,
-    "3": 3,
-    "2": 2
-}
+// Rank values from ModernUtils
+let ranks = window.ModernUtils.RANK_VALUES;
 let opponentCardSprites = {};
 let tableCardSprite;
 function createGameFeed(isReconnection = false) {
@@ -1339,92 +1505,33 @@ function displayTableCard(card) {
         align: "center"
     }).setOrigin(0.5);
 }
-function sameSuit(card1, card2){
-    if(card1.suit === card2.suit){
-        return true;
-    }
-    else if((card1.suit === "joker" && card2.suit === trump.suit) || (card2.suit === "joker" && card1.suit === trump.suit)){
-        return true;
-    }
-    else{
-        return false;
-    }
+
+// Rule utilities - delegating to ModernUtils
+// These wrappers pass the global trump state to the modular functions
+function sameSuit(card1, card2) {
+    return window.ModernUtils.sameSuit(card1, card2, trump);
 }
-function isVoid(hand, ledsuit){
-    console.log("isVoid check - ledsuit:", ledsuit, "hand:", hand.map(c => c.rank + " of " + c.suit));
-    let proto = {rank: 1, suit : ledsuit}
-    for(let card of hand){
-        if(sameSuit(card,proto)){
-            console.log("Found matching card:", card.rank, "of", card.suit);
-            return false;
-        }
-    }
-    console.log("No matching cards - player is void");
-    return true;
+
+function isVoid(hand, ledsuit) {
+    return window.ModernUtils.isVoid(hand, ledsuit, trump);
 }
-function isTrumpTight(hand, trump){
-    for(let card of hand){
-        if(card.suit !== trump.suit && card.suit !== "joker"){
-            return false;
-        }
-    }
-    return true;
+
+function isTrumpTight(hand, trumpCard) {
+    return window.ModernUtils.isTrumpTight(hand, trumpCard || trump);
 }
-function highestTrump(rank, hand, trump){
-    for(let card of hand){
-        if((sameSuit(card,trump)) && (ranks[card.rank] > ranks[rank])){
-            return false;
-        }
-    }
-    return true;
+
+function highestTrump(rank, hand, trumpCard) {
+    return window.ModernUtils.isHighestTrump(rank, hand, trumpCard || trump);
 }
+
 let isTrumpBroken = false;
 let teamTricks = 0;
 let oppTricks = 0;
-function isLegalMove(card, hand, lead, leadBool, leadPosition){
-    console.log("=== isLegalMove check ===");
-    console.log("card:", card.rank, "of", card.suit);
-    console.log("lead:", lead?.rank, "of", lead?.suit);
-    console.log("leadBool (is leading?):", leadBool);
-    console.log("hand suits:", hand.map(c => c.suit));
-    console.log("trump:", trump?.suit);
 
-    // Skip following-suit check if we're leading
-    if (leadBool) {
-        // Leading: can't lead trump unless broken (or trump tight)
-        if (sameSuit(card,trump) && !isTrumpBroken && !isTrumpTight(hand, trump)){
-            console.log("ILLEGAL: trump not broken and not trump tight");
-            return false;
-        }
-        console.log("LEGAL: leading");
-        return true;
-    }
-
-    // Following
-    console.log("lead.suit value:", lead.suit, "typeof:", typeof lead.suit);
-    console.log("lead object:", JSON.stringify(lead));
-    const isVoidInLeadSuit = isVoid(hand, lead.suit);
-    console.log("isVoid in lead suit:", isVoidInLeadSuit);
-    console.log("sameSuit(card, lead):", sameSuit(card, lead));
-
-    if (!sameSuit(card, lead) && !isVoidInLeadSuit){
-        console.log("ILLEGAL: not following suit when not void");
-        return false;
-    }
-    // HI joker special rule: opponents must play highest trump
-    if (lead.rank === "HI") {
-        console.log("HI joker led! Checking highest trump rule...");
-        console.log("leadPosition:", leadPosition, "position:", position);
-        console.log("Is opponent?", leadPosition % 2 !== position % 2);
-        console.log("Is highest trump in hand?", highestTrump(card.rank, hand, trump));
-
-        if ((leadPosition % 2 !== position % 2) && !highestTrump(card.rank, hand, trump)) {
-            console.log("ILLEGAL: HI lead requires highest trump from opponents");
-            return false;
-        }
-    }
-    console.log("LEGAL: following rules satisfied");
-    return true;
+function isLegalMove(card, hand, lead, leadBool, leadPos) {
+    // ModernUtils.isLegalMove returns { legal: boolean, reason?: string }
+    const result = window.ModernUtils.isLegalMove(card, hand, lead, leadBool, trump, isTrumpBroken, leadPos, position);
+    return result.legal;
 }
 let waitingText;
 // Note: playZone is now a DOM element with id 'playZoneDom'
@@ -1441,8 +1548,8 @@ let oppTrickHistory = [];
 let bidding = 1;
 let playerBids = [];
 let playedCardIndex = 0;
-let leadCard = [];
-let leadPosition = [];
+let leadCard = null;
+let leadPosition = null;
 let leadBool = false;
 let tempBids = [];
 let currentTrick = [];
@@ -1489,7 +1596,7 @@ socket.on("abortGame", (data) => {
     playerInfo = null;
     console.log("caught abortGame");
     cleanupDomBackgrounds();
-    clearUI();
+    window.ModernUtils.getUIManager().clearUI();
     gameScene.children.removeAll(true);
     gameScene.scene.restart();
     // Return to main room
@@ -1502,13 +1609,13 @@ socket.on("forceLogout", (data) => {
         socket.off("gameStart");
     }
     cleanupDomBackgrounds();
-    removeWaitingScreen();
-    clearUI();
-    showSignInScreen();
+    window.ModernUtils.getUIManager().removeWaitingScreen();
+    window.ModernUtils.getUIManager().clearUI();
+    // Sign-in screen now handled by modular code in main.js authHandlers
 });
 socket.on("roomFull", (data) => {
     console.log("caught roomFull");
-    removeWaitingScreen();
+    window.ModernUtils.getUIManager().removeWaitingScreen();
     // Return to main room (this shouldn't happen with lobby system)
     socket.emit("joinMainRoom");
 });
@@ -1516,16 +1623,53 @@ socket.on("gameEnd", (data) => {
     console.log("caught gameEnd");
     // Determine which team the player is on (positions 1,3 = Team 1, positions 2,4 = Team 2)
     // and show scores accordingly
+    let teamScore, oppScore;
     if (position % 2 !== 0) {
         // Player is on Team 1 (odd positions 1, 3)
-        showFinalScore(data.score.team1, data.score.team2);
+        teamScore = data.score.team1;
+        oppScore = data.score.team2;
     } else {
         // Player is on Team 2 (even positions 2, 4)
-        showFinalScore(data.score.team2, data.score.team1);
+        teamScore = data.score.team2;
+        oppScore = data.score.team1;
     }
+
+    // Add game end messages to game log
+    const messages = window.ModernUtils.formatGameEndMessages({
+        myPosition: position,
+        playerData: playerData,
+        teamScore: teamScore,
+        oppScore: oppScore,
+    });
+    messages.forEach(msg => addToGameFeed(msg));
+
+    // Update game log score display
+    const { teamName, oppName } = window.ModernUtils.getTeamNames(position, playerData);
+    updateGameLogScore(teamName, oppName, teamScore, oppScore);
+
+    // Show final score overlay
+    window.ModernUtils.showFinalScoreOverlay({
+        teamScore: teamScore,
+        oppScore: oppScore,
+        onReturnToLobby: () => {
+            // Remove game feed/log
+            let gameFeed = document.getElementById("gameFeed");
+            if (gameFeed) gameFeed.remove();
+
+            // Remove width restriction from game container
+            document.getElementById('game-container').classList.remove('in-game');
+
+            gameScene.scene.restart();
+            socket.off("gameStart");
+            playZone = null;
+            handBackground = null;
+            // Return to main room
+            socket.emit("joinMainRoom");
+        }
+    });
 });
 socket.on("startDraw", (data) => {
-    removeWaitingScreen();
+    window.ModernUtils.getUIManager().removeWaitingScreen();
     draw.call(game.scene.scenes[0]);
 });
 socket.on("teamsAnnounced", (data) => {
@@ -1590,12 +1734,12 @@ socket.on("teamsAnnounced", (data) => {
 // Helper to show chat/bid bubble, replacing any existing bubble for the same position
 function showChatBubble(scene, positionKey, x, y, message, color = null, duration = 6000) {
     // Destroy existing bubble for this position if present
-    if (activeChatBubbles[positionKey]) {
-        if (activeChatBubbles[positionKey].timer) {
-            activeChatBubbles[positionKey].timer.remove();
+    if (gameActiveChatBubbles[positionKey]) {
+        if (gameActiveChatBubbles[positionKey].timer) {
+            gameActiveChatBubbles[positionKey].timer.remove();
         }
-        if (activeChatBubbles[positionKey].bubble) {
-            activeChatBubbles[positionKey].bubble.destroy();
+        if (gameActiveChatBubbles[positionKey].bubble) {
+            gameActiveChatBubbles[positionKey].bubble.destroy();
         }
     }
 
@@ -1603,10 +1747,10 @@ function showChatBubble(scene, positionKey, x, y, message, color = null, duratio
     let bubble = createSpeechBubble(scene, x, y, 150, 50, message, color);
     let timer = scene.time.delayedCall(duration, () => {
         bubble.destroy();
-        delete activeChatBubbles[positionKey];
+        delete gameActiveChatBubbles[positionKey];
     });
 
-    activeChatBubbles[positionKey] = { bubble, timer };
+    gameActiveChatBubbles[positionKey] = { bubble, timer };
 }
 
 socket.on("chatMessage", (data) => {
@@ -1651,10 +1795,10 @@ socket.on("chatMessage", (data) => {
 socket.on("createUI", (data) => {
     let scene = game.scene.scenes[0];
     console.log("🎨 caught createUI");
-    removeWaitingScreen();
+    window.ModernUtils.getUIManager().removeWaitingScreen();
     removeDraw();
-    removeMainRoom(); // Ensure main room is removed
-    removeGameLobby(); // Ensure game lobby is removed
+    window.ModernUtils.removeMainRoom(); // Ensure main room is removed
+    window.ModernUtils.removeGameLobby(); // Ensure game lobby is removed
     console.log("🎨 Creating game feed...");
     createGameFeed(false); // Not a reconnection, show "Game started!"
     console.log("🎨 Game feed created, checking DOM:", document.getElementById("gameFeed"));
@@ -1666,68 +1810,71 @@ socket.on("createUI", (data) => {
 // queueUpdate handler removed - now using lobby system instead
 
 // ==================== MAIN ROOM SOCKET HANDLERS ====================
+// NOTE: These handlers are now in modular code (main.js -> lobbyHandlers.js)
+// Commented out to prevent duplicate handling
 
-socket.on("mainRoomJoined", (data) => {
-    console.log("Joined main room", data);
-    showMainRoom(data);
-});
+// socket.on("mainRoomJoined", (data) => {
+//     console.log("Joined main room", data);
+//     showMainRoom(data);
+// });
 
-socket.on("mainRoomMessage", (data) => {
-    console.log("Main room message", data);
-    addMainRoomChatMessage(data.username, data.message);
-});
+// socket.on("mainRoomMessage", (data) => {
+//     console.log("Main room message", data);
+//     addMainRoomChatMessage(data.username, data.message);
+// });
 
-socket.on("lobbiesUpdated", (data) => {
-    console.log("Lobbies updated", data);
-    updateLobbyList(data.lobbies);
-});
+// socket.on("lobbiesUpdated", (data) => {
+//     console.log("Lobbies updated", data);
+//     updateLobbyList(data.lobbies);
+// });
 
-socket.on("mainRoomPlayerJoined", (data) => {
-    console.log("Player joined main room", data);
-    updateMainRoomOnlineCount(data.onlineCount);
-});
+// socket.on("mainRoomPlayerJoined", (data) => {
+//     console.log("Player joined main room", data);
+//     updateMainRoomOnlineCount(data.onlineCount);
+// });
 
 // ==================== LOBBY SOCKET HANDLERS ====================
+// NOTE: These handlers are now in modular code (main.js -> lobbyHandlers.js)
 
-socket.on("lobbyCreated", (data) => {
-    console.log("Lobby created!", data);
-    removeMainRoom();
-    showGameLobby(data);
-});
+// socket.on("lobbyCreated", (data) => {
+//     console.log("Lobby created!", data);
+//     removeMainRoom();
+//     showGameLobby(data);
+// });
 
-socket.on("playerReadyUpdate", (data) => {
-    console.log("👤 Player ready update", data);
-    updateLobbyPlayersList(null, data.players);
-});
+// socket.on("playerReadyUpdate", (data) => {
+//     console.log("👤 Player ready update", data);
+//     updateLobbyPlayersList(null, data.players);
+// });
 
-socket.on("lobbyMessage", (data) => {
-    console.log("💬 Lobby message", data);
-    addLobbyChatMessage(data.username, data.message);
-});
+// socket.on("lobbyMessage", (data) => {
+//     console.log("💬 Lobby message", data);
+//     addLobbyChatMessage(data.username, data.message);
+// });
 
-socket.on("lobbyPlayerLeft", (data) => {
-    console.log("👋 Player left lobby", data);
-    updateLobbyPlayersList(null, data.players);
-    addLobbyChatMessage("System", `${data.leftUsername} left the lobby`);
-});
+// socket.on("lobbyPlayerLeft", (data) => {
+//     console.log("👋 Player left lobby", data);
+//     updateLobbyPlayersList(null, data.players);
+//     addLobbyChatMessage("System", `${data.leftUsername} left the lobby`);
+// });
 
-socket.on("lobbyPlayerJoined", (data) => {
-    console.log("👋 Player joined lobby", data);
-    updateLobbyPlayersList(null, data.players);
-    addLobbyChatMessage("System", `${data.newPlayer.username} joined the lobby`);
-});
+// socket.on("lobbyPlayerJoined", (data) => {
+//     console.log("👋 Player joined lobby", data);
+//     updateLobbyPlayersList(null, data.players);
+//     addLobbyChatMessage("System", `${data.newPlayer.username} joined the lobby`);
+// });
 
-socket.on("leftLobby", () => {
-    console.log("👋 You left the lobby");
-    removeGameLobby();
-    // Server will send mainRoomJoined event to show main room
-});
+// socket.on("leftLobby", () => {
+//     console.log("👋 You left the lobby");
+//     removeGameLobby();
+//     // Server will send mainRoomJoined event to show main room
+// });
 
-socket.on("allPlayersReady", (data) => {
-    console.log("✅ All players ready! Starting game...", data);
-    removeGameLobby();
-    // The draw phase will be triggered by startDraw event
-});
+// socket.on("allPlayersReady", (data) => {
+//     console.log("✅ All players ready! Starting game...", data);
+//     removeGameLobby();
+//     // The draw phase will be triggered by startDraw event
+// });
 
 // ==================== END LOBBY SOCKET HANDLERS ====================
 
@@ -1758,53 +1905,13 @@ function clearDisplayCards() {
 }
 let myCards = [];
 
-/**
- * Get suit order for sorting - alternating colors with trump rightmost
- * @param {string} trumpSuit - The trump suit for this hand
- * @returns {Array} - Ordered array of suits
- */
+// Card sorting utilities - delegating to ModernUtils
 function getSuitOrder(trumpSuit) {
-    // Alternating colors with trump always last (rightmost)
-    // If trump is joker (no trump), use default alternating order
-    const orders = {
-        'spades':   ['hearts', 'clubs', 'diamonds', 'spades'],
-        'hearts':   ['spades', 'diamonds', 'clubs', 'hearts'],
-        'diamonds': ['clubs', 'hearts', 'spades', 'diamonds'],
-        'clubs':    ['diamonds', 'spades', 'hearts', 'clubs'],
-        'joker':    ['clubs', 'diamonds', 'hearts', 'spades']  // No trump - just alternate colors
-    };
-    return orders[trumpSuit] || ['clubs', 'diamonds', 'hearts', 'spades'];
+    return window.ModernUtils.getSuitOrder(trumpSuit);
 }
 
-/**
- * Sort hand by suit (trump rightmost) and rank (low to high)
- * @param {Array} hand - Array of card objects
- * @param {Object} trumpCard - Trump card with suit property
- * @returns {Array} - Sorted hand
- */
 function sortHand(hand, trumpCard) {
-    if (!hand || hand.length === 0) return hand;
-    if (!trumpCard || !trumpCard.suit) return hand;
-
-    const trumpSuit = trumpCard.suit;
-    const suitOrder = getSuitOrder(trumpSuit);
-    const rankOrder = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
-
-    return [...hand].sort((a, b) => {
-        // Jokers go last (they're trump) - HI joker rightmost
-        if (a.suit === 'joker' && b.suit === 'joker') {
-            return a.rank === 'LO' ? -1 : 1;
-        }
-        if (a.suit === 'joker') return 1;
-        if (b.suit === 'joker') return -1;
-
-        // Sort by suit order (trump rightmost)
-        const suitDiff = suitOrder.indexOf(a.suit) - suitOrder.indexOf(b.suit);
-        if (suitDiff !== 0) return suitDiff;
-
-        // Within suit, sort by rank (low to high)
-        return rankOrder.indexOf(a.rank) - rankOrder.indexOf(b.rank);
-    });
+    return window.ModernUtils.sortHand(hand, trumpCard);
 }
 
 function displayCards(playerHand, skipAnimation = false) {
@@ -2351,11 +2458,11 @@ function displayCards(playerHand, skipAnimation = false) {
         currentOppBids = oppBids;
         if(position % 2 !== 0){
             console.log("updating game log score");
-            updateGameLogScore(me + "/" + partner, opp1 + "/" + opp2, score1, score2, teamBids, oppBids);
+            updateGameLogScore(myUsername + "/" + partner, opp1 + "/" + opp2, score1, score2, teamBids, oppBids);
         }
         else{
             console.log("updating game log score");
-            updateGameLogScore(me + "/" + partner, opp1 + "/" + opp2, score2, score1, teamBids, oppBids);
+            updateGameLogScore(myUsername + "/" + partner, opp1 + "/" + opp2, score2, score1, teamBids, oppBids);
         }
     });
     socket.on("updateTurn", (data) => {
@@ -2566,9 +2673,9 @@ function displayCards(playerHand, skipAnimation = false) {
 
         // Update game log with trick counts
         if(position % 2 !== 0){
-            updateGameLogScore(me + "/" + partner, opp1 + "/" + opp2, score1, score2, currentTeamBids, currentOppBids, teamTricks, oppTricks);
+            updateGameLogScore(myUsername + "/" + partner, opp1 + "/" + opp2, score1, score2, currentTeamBids, currentOppBids, teamTricks, oppTricks);
         } else {
-            updateGameLogScore(me + "/" + partner, opp1 + "/" + opp2, score2, score1, currentTeamBids, currentOppBids, teamTricks, oppTricks);
+            updateGameLogScore(myUsername + "/" + partner, opp1 + "/" + opp2, score2, score1, currentTeamBids, currentOppBids, teamTricks, oppTricks);
         }
 
         let trickCards = [...currentTrick]; // ✅ Store the completed trick
@@ -2674,6 +2781,13 @@ function displayCards(playerHand, skipAnimation = false) {
         tempBids = [];
         bidding = 0;
         playedCard = false;  // Bug 1 fix: Reset from previous hand before updating card legality
+
+        // Reset play state for new hand - critical for isLegalMove checks
+        playedCardIndex = 0;
+        leadCard = null;
+        leadPosition = null;
+        isTrumpBroken = false;
+        thisTrick = [];
 
         // Set currentTurn from lead player data before updating card legality
         // (server sends { bids, lead } where lead is the first player to play)
@@ -2793,13 +2907,42 @@ function displayCards(playerHand, skipAnimation = false) {
     socket.on("handComplete", (data) => {
         if(data.team1Tricks + data.team2Tricks !== 13){
             // Swap team1/team2 data based on player's team (positions 1,3 = Team 1, positions 2,4 = Team 2)
+            let teamScore, oppScore, teamTricksWon, oppTricksWon, teamOldScore, oppOldScore;
             if (position % 2 !== 0) {
                 // Player is on Team 1
-                showScore(data.score.team1, data.score.team2, playerBids.bids, data.team1Tricks, data.team2Tricks, data.team1OldScore, data.team2OldScore);
+                teamScore = data.score.team1;
+                oppScore = data.score.team2;
+                teamTricksWon = data.team1Tricks;
+                oppTricksWon = data.team2Tricks;
+                teamOldScore = data.team1OldScore;
+                oppOldScore = data.team2OldScore;
             } else {
                 // Player is on Team 2 - swap all team1/team2 values
-                showScore(data.score.team2, data.score.team1, playerBids.bids, data.team2Tricks, data.team1Tricks, data.team2OldScore, data.team1OldScore);
+                teamScore = data.score.team2;
+                oppScore = data.score.team1;
+                teamTricksWon = data.team2Tricks;
+                oppTricksWon = data.team1Tricks;
+                teamOldScore = data.team2OldScore;
+                oppOldScore = data.team1OldScore;
             }
+
+            // Add hand complete messages to game log
+            const messages = window.ModernUtils.formatHandCompleteMessages({
+                myPosition: position,
+                playerData: playerData,
+                bids: playerBids.bids,
+                teamScore: teamScore,
+                oppScore: oppScore,
+                teamOldScore: teamOldScore,
+                oppOldScore: oppOldScore,
+                teamTricks: teamTricksWon,
+                oppTricks: oppTricksWon,
+            });
+            messages.forEach(msg => addToGameFeed(msg));
+
+            // Update game log score display
+            const { teamName, oppName } = window.ModernUtils.getTeamNames(position, playerData);
+            updateGameLogScore(teamName, oppName, teamScore, oppScore);
         }
         console.log("🏁 Hand complete. Clearing all tricks...");
         addToGameFeed("Hand complete. Clearing all tricks...");

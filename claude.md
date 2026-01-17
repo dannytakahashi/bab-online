@@ -6,10 +6,11 @@ A 4-player online multiplayer trick-taking card game (Back Alley Bridge). Player
 
 ## Technology Stack
 
-- **Frontend**: Phaser 3.55.2 (game engine), ES6 Modules, Socket.io 4.0.1
-- **Backend**: Node.js, Express.js 4.21.2, Socket.IO 4.8.1
+- **Frontend**: Phaser 3.55.2 (game engine), ES6 Modules, Socket.io 4.0.1, Vite (build)
+- **Backend**: Node.js 18+, Express.js 4.21.2, Socket.IO 4.8.1
 - **Database**: MongoDB with Mongoose 8.12.1
 - **Security**: Helmet, bcryptjs for password hashing
+- **Testing**: Vitest (client), Jest (server)
 - **Deployment**: Railway.app
 
 ## Project Structure
@@ -17,23 +18,34 @@ A 4-player online multiplayer trick-taking card game (Back Alley Bridge). Player
 ```
 bab-online/
 ├── client/
-│   ├── js/                         # Modular ES6 client code
-│   │   ├── main.js                 # Entry point, auth flow
-│   │   ├── config.js               # Centralized constants
+│   ├── src/                        # Modular ES6 client code (Vite)
+│   │   ├── main.js                 # Entry point, bridge to legacy code
+│   │   ├── constants/
+│   │   │   ├── events.js           # Socket event name constants
+│   │   │   └── ranks.js            # RANK_VALUES, suit orders, hand progression
+│   │   ├── utils/
+│   │   │   ├── positions.js        # team(), rotate(), getPlayerName()
+│   │   │   ├── cards.js            # getCardImageKey(), sortHand(), getSuitOrder()
+│   │   │   └── colors.js           # hashToHue(), generateDistinctColor()
+│   │   ├── rules/
+│   │   │   └── legality.js         # isLegalMove(), sameSuit(), isTrumpTight()
+│   │   ├── state/
+│   │   │   └── GameState.js        # Client state singleton with events
 │   │   ├── socket/
-│   │   │   └── SocketManager.js    # Connection with listener cleanup
-│   │   ├── scenes/
-│   │   │   └── GameScene.js        # Phaser game scene
-│   │   ├── game/
-│   │   │   ├── CardManager.js      # Card sprites and animations
-│   │   │   └── GameState.js        # Client state container
-│   │   └── ui/
-│   │       └── UIManager.js        # DOM lifecycle management
+│   │   │   └── SocketManager.js    # Connection with listener tracking
+│   │   ├── ui/
+│   │   │   ├── components/         # Modal, Toast, BidUI, GameLog
+│   │   │   └── screens/            # SignIn, Register
+│   │   ├── phaser/
+│   │   │   ├── config.js           # Phaser game configuration
+│   │   │   └── managers/
+│   │   │       └── CardManager.js  # Card sprite management
+│   │   └── handlers/
+│   │       └── index.js            # Socket event handler registration
 │   ├── styles/
 │   │   └── components.css          # All UI component styles
-│   ├── game.js                     # Phaser scene (active)
-│   ├── ui.js                       # DOM UI (active)
-│   ├── socketManager.js            # Socket connection manager
+│   ├── game.js                     # Phaser scene (legacy, 3k lines - migration planned)
+│   ├── vite.config.js              # Vite build configuration
 │   ├── index.html                  # Entry point
 │   └── assets/                     # Card images, backgrounds
 ├── server/
@@ -79,18 +91,18 @@ bab-online/
 - `server/socket/gameHandlers.js` - Game event handlers
 - `server/socket/mainRoomHandlers.js` - Main room and lobby browser handlers
 
-### Client (Active)
-- `client/game.js` - Phaser scene, card rendering, game flow
-- `client/ui.js` - DOM UI (auth, lobbies, main room, game log)
-- `client/socketManager.js` - Socket connection with event forwarding
+### Client (Legacy - Remaining)
+- `client/game.js` - Phaser scene, card rendering, game flow (3k lines, migration planned)
 - `client/styles/components.css` - UI component styles
 
-### Client (Modular - Reference)
-- `client/js/main.js` - Entry point, auth/lobby flow
-- `client/js/game/GameState.js` - Client state class
-- `client/js/game/CardManager.js` - Card sprites and animations
-- `client/js/socket/SocketManager.js` - Socket with listener tracking
-- `client/js/scenes/GameScene.js` - Phaser scene with lifecycle
+### Client (Modular - src/)
+- `client/src/main.js` - Entry point, exposes all modules via window.ModernUtils bridge
+- `client/src/state/GameState.js` - Client state singleton with event emitter
+- `client/src/socket/SocketManager.js` - Socket with listener tracking for cleanup
+- `client/src/rules/legality.js` - Card play legality checking (isLegalMove)
+- `client/src/phaser/managers/CardManager.js` - Card sprite management
+- `client/src/ui/components/` - Modal, Toast, BidUI, GameLog components
+- `client/src/handlers/index.js` - Socket event handler registration
 
 ## Architecture Patterns
 
@@ -131,12 +143,15 @@ bab-online/
 ## Development Commands
 
 ```bash
-npm run dev      # Development with hot reload
-npm start        # Production server
-npm test         # Run tests
+npm run dev           # Development server with hot reload (port 3000)
+npm start             # Production server
+npm test              # Run server tests (Jest)
+npm run test:client   # Run client tests (Vitest)
+npm run build:client  # Build client modules (Vite)
+npm run dev:client    # Vite dev server (port 5173, proxies to :3000)
 ```
 
-Server runs on port 3000.
+Server runs on port 3000. Requires Node.js 18+.
 
 ## Common Tasks
 
@@ -147,15 +162,16 @@ Server runs on port 3000.
 
 ### UI Changes
 - **Styles**: `client/styles/components.css` - CSS classes for all UI
-- **DOM**: `client/js/ui/UIManager.js` - element lifecycle
-- **Game Canvas**: `client/js/scenes/GameScene.js` - Phaser scene
-- **Cards**: `client/js/game/CardManager.js` - card sprites
+- **Components**: `client/src/ui/components/` - Modal, Toast, BidUI, GameLog
+- **Screens**: `client/src/ui/screens/` - SignIn, Register
+- **Cards**: `client/src/phaser/managers/CardManager.js` - card sprites
+- **Legacy**: `client/game.js` still active (migration planned), uses window.ModernUtils
 
 ### Adding Socket Events
 1. Add handler in `server/socket/gameHandlers.js` (or appropriate handler file)
 2. Register in `server/socket/index.js`
-3. Add listener in `client/js/scenes/GameScene.js` via `socketManager.on()`
-4. Remember to add cleanup in `shutdown()` method
+3. Add listener in `client/src/handlers/index.js` or legacy `client/game.js`
+4. Add cleanup in `cleanupGameListeners()` for game-specific events
 
 ### Adding Card Assets
 1. Place PNG in `client/assets/`
@@ -201,7 +217,7 @@ class GameState {
 }
 ```
 
-### Client (`client/js/game/GameState.js`)
+### Client (`client/src/state/GameState.js`)
 ```javascript
 class GameState {
     // Core state
@@ -257,14 +273,17 @@ Players can rejoin from a different browser/device:
 3. If found, emits `activeGameFound` event with gameId
 4. Client prompts user to rejoin or shows auto-rejoin flow
 
-### SocketManager (client)
-Singleton for socket connection with listener tracking. Methods: `connect()`, `on()`, `off()`, `offAll()`, `emit()`, `cleanupGameListeners()`
+### SocketManager (`client/src/socket/SocketManager.js`)
+Singleton for socket connection with listener tracking. Methods: `connect()`, `on()`, `onGame()`, `off()`, `offAll()`, `emit()`, `cleanupGameListeners()`. Game listeners registered via `onGame()` are automatically cleaned up between games.
 
-### CardManager (client)
-Manages card sprites in Phaser. Methods: `displayHand()`, `playCard()`, `animateOpponentCard()`, `collectTrick()`, `isLegalMove()`
+### CardManager (`client/src/phaser/managers/CardManager.js`)
+Manages card sprites in Phaser. Methods: `setScene()`, `createCard()`, `displayHand()`, `playCard()`, `updatePositions()`, `collectTrick()`, `clear()`. Handles card positioning, animations, and trick collection.
 
-### UIManager (client)
-DOM element lifecycle management. Methods: `getOrCreate()`, `remove()`, `show()`, `hide()`, `showModal()`, `showError()`, `cleanup()`
+### UI Components (`client/src/ui/components/`)
+- **Modal.js** - `createModal()`, `confirm()`, `alert()` - promise-based modal dialogs
+- **Toast.js** - `showToast()`, `showError()`, `showSuccess()` - notification toasts
+- **BidUI.js** - `createBidUI()`, `showBidUI()`, `createBidBubble()` - bidding interface
+- **GameLog.js** - `createGameLog()`, `showGameLog()` - game feed and chat
 
 ### Socket Infrastructure (server)
 
