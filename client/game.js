@@ -1,4 +1,23 @@
 
+// Variable declarations moved to top to avoid temporal dead zone errors
+// These are used throughout the file and must be declared before any code that uses them
+var hasDrawn = false;
+var clickedCardPosition = null;
+var drawnCardDisplays = [];
+var myCards = [];
+var allCards = []; // Draw phase card sprites
+var ranks = null; // Will be set from ModernUtils when available
+
+// Helper to get RANK_VALUES lazily (ModernUtils may not be loaded yet)
+function getRankValues() {
+    if (ranks) return ranks;
+    if (window.ModernUtils && window.ModernUtils.RANK_VALUES) {
+        ranks = window.ModernUtils.RANK_VALUES;
+        return ranks;
+    }
+    // Fallback values if ModernUtils not available yet
+    return { HI: 16, LO: 15, A: 14, K: 13, Q: 12, J: 11, 10: 10, 9: 9, 8: 8, 7: 7, 6: 6, 5: 5, 4: 4, 3: 3, 2: 2 };
+}
 
 document.addEventListener("playerAssigned", (event) => {
     let data = event.detail;
@@ -486,6 +505,10 @@ let lastQueueData;
 let opponentAvatarDoms = { partner: null, opp1: null, opp2: null }; // DOM-based opponent avatars for CSS glow support
 function create() {
     gameScene = this; // Store reference to the game scene
+    // Also set the reference in the modular code
+    if (window.ModernUtils && window.ModernUtils.setGameScene) {
+        window.ModernUtils.setGameScene(this);
+    }
     console.log("🚀 CREATE() RUNNING!");
     console.log("🚀 gameScene set to:", gameScene);
     console.log("🚀 gameScene.textures:", gameScene.textures);
@@ -911,24 +934,59 @@ function processGameStart(data) {
     }
 }
 
-// Register socket handlers globally (outside create) so they're ready immediately
-socket.on("positionUpdate", (data) => {
+// NOTE: positionUpdate and gameStart are now handled by modular code (gameHandlers.js)
+// The modular callbacks call the processing functions below
+
+// Expose processing functions for modular code to call
+window.processPositionUpdateFromLegacy = function(data) {
     if (gameScene && gameScene.scale) {
         processPositionUpdate(data);
     } else {
         console.log("⏳ Scene not ready, queuing positionUpdate data");
         pendingPositionData = data;
     }
-});
+};
 
-socket.on("gameStart", (data) => {
+window.processGameStartFromLegacy = function(data) {
     if (gameScene && gameScene.scale) {
         processGameStart(data);
     } else {
         console.log("⏳ Scene not ready, queuing gameStart data");
         pendingGameStartData = data;
     }
-});
+};
+
+window.startDrawFromLegacy = function(data) {
+    if (gameScene && gameScene.scale) {
+        draw.call(gameScene);
+    } else {
+        console.log("⏳ Scene not ready for draw phase");
+    }
+};
+
+window.removeDrawFromLegacy = function() {
+    console.log("🔥 removeDrawFromLegacy called");
+    removeDraw();
+};
+
+// Original socket handlers commented out (now handled by gameHandlers.js + callbacks)
+// socket.on("positionUpdate", (data) => {
+//     if (gameScene && gameScene.scale) {
+//         processPositionUpdate(data);
+//     } else {
+//         console.log("⏳ Scene not ready, queuing positionUpdate data");
+//         pendingPositionData = data;
+//     }
+// });
+
+// socket.on("gameStart", (data) => {
+//     if (gameScene && gameScene.scale) {
+//         processGameStart(data);
+//     } else {
+//         console.log("⏳ Scene not ready, queuing gameStart data");
+//         pendingGameStartData = data;
+//     }
+// });
 
 // Reserve 320px on the right for game log (300px width + 20px padding)
 const GAME_LOG_WIDTH = 320;
@@ -977,10 +1035,10 @@ function preload() {
         this.load.image(`profile${i}`, `assets/profile${i}.png`);
     }
 }
-// Rank values from ModernUtils
-let ranks = window.ModernUtils.RANK_VALUES;
-let opponentCardSprites = {};
-let tableCardSprite;
+// Rank values - use getRankValues() function defined at top of file
+// (ranks variable already declared at top, will be populated lazily)
+var opponentCardSprites = {};
+var tableCardSprite;
 function createGameFeed(isReconnection = false) {
     let feedCheck = document.getElementById("gameFeed");
     if(feedCheck){
@@ -1245,8 +1303,8 @@ function removeTurnGlow(scene) {
         console.log("🚫 Removed CSS turn glow from hand border.");
     }
 }
-let allCards = [];
-let rainbows = [];
+// allCards and rainbows declared at top of file
+var rainbows = [];
 socket.on("rainbow", (data) => {
     console.log("caught rainbow");
     rainbows.push(data.position);
@@ -1284,9 +1342,7 @@ socket.on("destroyHands", (data) => {
     oppTricks = 0;
 });
 // Track drawn cards display during draw phase
-let drawnCardDisplays = [];
-let hasDrawn = false;
-let clickedCardPosition = null; // Store position of clicked card for draw animation
+// (variables declared at top of file to avoid temporal dead zone)
 
 function draw() {
     clearScreen.call(game.scene.scenes[0]);
@@ -1597,6 +1653,10 @@ socket.on("abortGame", (data) => {
     console.log("caught abortGame");
     cleanupDomBackgrounds();
     window.ModernUtils.getUIManager().clearUI();
+    // Clear scene reference in modular code
+    if (window.ModernUtils && window.ModernUtils.clearGameScene) {
+        window.ModernUtils.clearGameScene();
+    }
     gameScene.children.removeAll(true);
     gameScene.scene.restart();
     // Return to main room
@@ -1611,6 +1671,10 @@ socket.on("forceLogout", (data) => {
     cleanupDomBackgrounds();
     window.ModernUtils.getUIManager().removeWaitingScreen();
     window.ModernUtils.getUIManager().clearUI();
+    // Clear scene reference in modular code
+    if (window.ModernUtils && window.ModernUtils.clearGameScene) {
+        window.ModernUtils.clearGameScene();
+    }
     // Sign-in screen now handled by modular code in main.js authHandlers
 });
 socket.on("roomFull", (data) => {
@@ -1668,68 +1732,70 @@ socket.on("gameEnd", (data) => {
         }
     });
 });
-socket.on("startDraw", (data) => {
-    window.ModernUtils.getUIManager().removeWaitingScreen();
-    draw.call(game.scene.scenes[0]);
-});
-socket.on("teamsAnnounced", (data) => {
-    console.log("🏆 Teams announced:", data);
-    let scene = game.scene.scenes[0];
-    let screenWidth = scene.scale.width;
-    let screenHeight = scene.scale.height;
-    let scaleFactorX = screenWidth / 1920;
-    let scaleFactorY = screenHeight / 953;
-
-    // Create semi-transparent overlay
-    const overlay = scene.add.rectangle(screenWidth / 2, screenHeight / 2, screenWidth, screenHeight, 0x000000, 0.7)
-        .setDepth(400);
-
-    // Team announcement title
-    const title = scene.add.text(screenWidth / 2, screenHeight / 2 - 120*scaleFactorY, "Teams", {
-        fontSize: `${56*scaleFactorX}px`,
-        fontStyle: "bold",
-        color: "#FFD700",
-        stroke: "#000000",
-        strokeThickness: 4
-    }).setOrigin(0.5).setDepth(401);
-
-    // Team 1 display
-    const team1Label = scene.add.text(screenWidth / 2, screenHeight / 2 - 30*scaleFactorY, "Team 1", {
-        fontSize: `${32*scaleFactorX}px`,
-        fontStyle: "bold",
-        color: "#4ade80"
-    }).setOrigin(0.5).setDepth(401);
-
-    const team1Players = scene.add.text(screenWidth / 2, screenHeight / 2 + 20*scaleFactorY,
-        `${data.team1[0]} & ${data.team1[1]}`, {
-        fontSize: `${28*scaleFactorX}px`,
-        color: "#FFFFFF"
-    }).setOrigin(0.5).setDepth(401);
-
-    // VS text
-    const vsText = scene.add.text(screenWidth / 2, screenHeight / 2 + 70*scaleFactorY, "vs", {
-        fontSize: `${24*scaleFactorX}px`,
-        fontStyle: "italic",
-        color: "#9ca3af"
-    }).setOrigin(0.5).setDepth(401);
-
-    // Team 2 display
-    const team2Label = scene.add.text(screenWidth / 2, screenHeight / 2 + 120*scaleFactorY, "Team 2", {
-        fontSize: `${32*scaleFactorX}px`,
-        fontStyle: "bold",
-        color: "#f87171"
-    }).setOrigin(0.5).setDepth(401);
-
-    const team2Players = scene.add.text(screenWidth / 2, screenHeight / 2 + 170*scaleFactorY,
-        `${data.team2[0]} & ${data.team2[1]}`, {
-        fontSize: `${28*scaleFactorX}px`,
-        color: "#FFFFFF"
-    }).setOrigin(0.5).setDepth(401);
-
-    // Store references for cleanup
-    const teamElements = [overlay, title, team1Label, team1Players, vsText, team2Label, team2Players];
-    drawnCardDisplays.push(...teamElements);
-});
+// NOTE: startDraw is now handled by modular code (GameScene.handleStartDraw via DrawManager)
+// socket.on("startDraw", (data) => {
+//     window.ModernUtils.getUIManager().removeWaitingScreen();
+//     draw.call(game.scene.scenes[0]);
+// });
+// NOTE: teamsAnnounced is now handled by modular code (GameScene.handleTeamsAnnounced via DrawManager)
+// socket.on("teamsAnnounced", (data) => {
+//     console.log("🏆 Teams announced:", data);
+//     let scene = game.scene.scenes[0];
+//     let screenWidth = scene.scale.width;
+//     let screenHeight = scene.scale.height;
+//     let scaleFactorX = screenWidth / 1920;
+//     let scaleFactorY = screenHeight / 953;
+//
+//     // Create semi-transparent overlay
+//     const overlay = scene.add.rectangle(screenWidth / 2, screenHeight / 2, screenWidth, screenHeight, 0x000000, 0.7)
+//         .setDepth(400);
+//
+//     // Team announcement title
+//     const title = scene.add.text(screenWidth / 2, screenHeight / 2 - 120*scaleFactorY, "Teams", {
+//         fontSize: `${56*scaleFactorX}px`,
+//         fontStyle: "bold",
+//         color: "#FFD700",
+//         stroke: "#000000",
+//         strokeThickness: 4
+//     }).setOrigin(0.5).setDepth(401);
+//
+//     // Team 1 display
+//     const team1Label = scene.add.text(screenWidth / 2, screenHeight / 2 - 30*scaleFactorY, "Team 1", {
+//         fontSize: `${32*scaleFactorX}px`,
+//         fontStyle: "bold",
+//         color: "#4ade80"
+//     }).setOrigin(0.5).setDepth(401);
+//
+//     const team1Players = scene.add.text(screenWidth / 2, screenHeight / 2 + 20*scaleFactorY,
+//         `${data.team1[0]} & ${data.team1[1]}`, {
+//         fontSize: `${28*scaleFactorX}px`,
+//         color: "#FFFFFF"
+//     }).setOrigin(0.5).setDepth(401);
+//
+//     // VS text
+//     const vsText = scene.add.text(screenWidth / 2, screenHeight / 2 + 70*scaleFactorY, "vs", {
+//         fontSize: `${24*scaleFactorX}px`,
+//         fontStyle: "italic",
+//         color: "#9ca3af"
+//     }).setOrigin(0.5).setDepth(401);
+//
+//     // Team 2 display
+//     const team2Label = scene.add.text(screenWidth / 2, screenHeight / 2 + 120*scaleFactorY, "Team 2", {
+//         fontSize: `${32*scaleFactorX}px`,
+//         fontStyle: "bold",
+//         color: "#f87171"
+//     }).setOrigin(0.5).setDepth(401);
+//
+//     const team2Players = scene.add.text(screenWidth / 2, screenHeight / 2 + 170*scaleFactorY,
+//         `${data.team2[0]} & ${data.team2[1]}`, {
+//         fontSize: `${28*scaleFactorX}px`,
+//         color: "#FFFFFF"
+//     }).setOrigin(0.5).setDepth(401);
+//
+//     // Store references for cleanup
+//     const teamElements = [overlay, title, team1Label, team1Players, vsText, team2Label, team2Players];
+//     drawnCardDisplays.push(...teamElements);
+// });
 
 // Helper to show chat/bid bubble, replacing any existing bubble for the same position
 function showChatBubble(scene, positionKey, x, y, message, color = null, duration = 6000) {
@@ -1792,21 +1858,28 @@ socket.on("chatMessage", (data) => {
         showChatBubble(scene, 'me', me_x, me_y, data.message);
     }
 });
-socket.on("createUI", (data) => {
-    let scene = game.scene.scenes[0];
-    console.log("🎨 caught createUI");
-    window.ModernUtils.getUIManager().removeWaitingScreen();
-    removeDraw();
-    window.ModernUtils.removeMainRoom(); // Ensure main room is removed
-    window.ModernUtils.removeGameLobby(); // Ensure game lobby is removed
-    console.log("🎨 Creating game feed...");
-    createGameFeed(false); // Not a reconnection, show "Game started!"
-    console.log("🎨 Game feed created, checking DOM:", document.getElementById("gameFeed"));
-    // Score is now displayed in the game log, no separate scorebug needed
-    if (!scene.handElements) {
-        scene.handElements = [];
-    }
-});
+// NOTE: createUI is now handled by modular code (GameScene.handleCreateUI)
+// The modular handler calls createGameFeedFromLegacy() below for game feed creation
+// socket.on("createUI", (data) => {
+//     let scene = game.scene.scenes[0];
+//     console.log("🎨 caught createUI");
+//     window.ModernUtils.getUIManager().removeWaitingScreen();
+//     removeDraw();
+//     window.ModernUtils.removeMainRoom(); // Ensure main room is removed
+//     window.ModernUtils.removeGameLobby(); // Ensure game lobby is removed
+//     console.log("🎨 Creating game feed...");
+//     createGameFeed(false); // Not a reconnection, show "Game started!"
+//     console.log("🎨 Game feed created, checking DOM:", document.getElementById("gameFeed"));
+//     // Score is now displayed in the game log, no separate scorebug needed
+//     if (!scene.handElements) {
+//         scene.handElements = [];
+//     }
+// });
+
+// Expose createGameFeed for modular code to call
+window.createGameFeedFromLegacy = function(isReconnection = false) {
+    createGameFeed(isReconnection);
+};
 // queueUpdate handler removed - now using lobby system instead
 
 // ==================== MAIN ROOM SOCKET HANDLERS ====================
@@ -1903,7 +1976,7 @@ function clearDisplayCards() {
     }
     console.log("✅ All elements cleared from displayCards.");
 }
-let myCards = [];
+// myCards declared at top of file
 
 // Card sorting utilities - delegating to ModernUtils
 function getSuitOrder(trumpSuit) {
@@ -2524,9 +2597,9 @@ function displayCards(playerHand, skipAnimation = false) {
             console.log("trump suit:", trump.suit);
             console.log("played card suit:", thisTrick[thisTrick.length - 1].suit);
             console.log("previous card suit:", thisTrick[thisTrick.length - 2].suit);
-            console.log("played card rank:", ranks[thisTrick[thisTrick.length - 1].rank]);
-            console.log("previous card rank:", ranks[thisTrick[thisTrick.length - 2].rank]);
-            if((thisTrick[thisTrick.length - 1].suit === trump.suit || thisTrick[thisTrick.length - 1].suit === "joker") && (thisTrick[thisTrick.length - 2].suit === trump.suit || thisTrick[thisTrick.length - 2].suit === "joker" ) && (ranks[thisTrick[thisTrick.length - 1].rank] > ranks[thisTrick[thisTrick.length - 2].rank]) && leadCard.suit !== trump.suit && leadCard.suit !== "joker"){
+            console.log("played card rank:", getRankValues()[thisTrick[thisTrick.length - 1].rank]);
+            console.log("previous card rank:", getRankValues()[thisTrick[thisTrick.length - 2].rank]);
+            if((thisTrick[thisTrick.length - 1].suit === trump.suit || thisTrick[thisTrick.length - 1].suit === "joker") && (thisTrick[thisTrick.length - 2].suit === trump.suit || thisTrick[thisTrick.length - 2].suit === "joker" ) && (getRankValues()[thisTrick[thisTrick.length - 1].rank] > getRankValues()[thisTrick[thisTrick.length - 2].rank]) && leadCard.suit !== trump.suit && leadCard.suit !== "joker"){
                 console.log("showing ot");
                 showImpactEvent("ot");
             }

@@ -53,6 +53,38 @@ import {
   cleanupGameHandlers,
 } from './handlers/index.js';
 
+// ============================================
+// Game Scene Access
+// ============================================
+
+// Reference to the active Phaser game scene
+let gameSceneRef = null;
+
+/**
+ * Set the game scene reference (called from game.js when scene is created).
+ * @param {Phaser.Scene} scene - The active game scene
+ */
+export function setGameScene(scene) {
+  gameSceneRef = scene;
+  console.log('🎮 Game scene reference set');
+}
+
+/**
+ * Get the current game scene (for use in callbacks).
+ * @returns {Phaser.Scene|null} The active game scene or null
+ */
+export function getGameScene() {
+  return gameSceneRef;
+}
+
+/**
+ * Clear the game scene reference (called on game cleanup).
+ */
+export function clearGameScene() {
+  gameSceneRef = null;
+  console.log('🎮 Game scene reference cleared');
+}
+
 // UI Components - Bid & Game Log
 import { createBidUI, showBidUI, createBidBubble } from './ui/components/BidUI.js';
 import { createGameLog, showGameLog } from './ui/components/GameLog.js';
@@ -62,6 +94,11 @@ import { getTeamNames, formatHandCompleteMessages, formatGameEndMessages, showFi
 
 // Bridge module - exposes new modules to legacy code
 window.ModernUtils = {
+  // Scene Access
+  setGameScene,
+  getGameScene,
+  clearGameScene,
+
   // Constants
   CLIENT_EVENTS,
   SERVER_EVENTS,
@@ -197,10 +234,17 @@ console.log('Modular client initialized - All utilities available via window.Mod
 // ============================================
 
 /**
- * Initialize the socket connection.
- * Creates socket with same settings as legacy socketManager.js
+ * Get the socket connection.
+ * Socket is created in inline script in index.html before game.js loads.
+ * This ensures window.socket is available for legacy code that calls socket.on() at top level.
  */
-function createSocket() {
+function getSocket() {
+  // Socket is created in index.html inline script
+  if (window.socket) {
+    return window.socket;
+  }
+  // Fallback: create socket if not already created (shouldn't happen)
+  console.warn('Socket not found on window, creating new socket');
   const serverUrl =
     location.hostname === 'localhost'
       ? 'http://localhost:3000'
@@ -213,15 +257,13 @@ function createSocket() {
     reconnectionDelay: 1000,
     reconnectionDelayMax: 5000,
   });
-
+  window.socket = socket;
   return socket;
 }
 
-// Create socket IMMEDIATELY (before game.js and ui.js load)
-// This ensures window.socket is available for legacy code that calls socket.on() at top level
-const socket = createSocket();
-window.socket = socket;
-console.log('Socket created and set as window.socket');
+// Get socket (created in index.html inline script before game.js loads)
+const socket = getSocket();
+console.log('Using socket from window.socket');
 
 // ==================== RECONNECTION LOGIC ====================
 // (Previously in socketManager.js, needed for game.js to work)
@@ -563,7 +605,7 @@ function initializeApp() {
       console.log('Lobby created, showing lobby UI');
       removeMainRoom();
       showGameLobby(
-        { lobbyId: data.lobbyId, players: data.players, messages: [] },
+        { lobbyId: data.lobbyId, players: data.players, messages: data.messages || [] },
         socket,
         gameState.username
       );
@@ -604,32 +646,175 @@ function initializeApp() {
       // The game will start via positionUpdate/gameStart events
     },
 
-    // Game callbacks - these will be handled by game.js for now
-    // since Phaser scene management is complex
-    onPositionUpdate: null,
-    onGameStart: null,
-    onStartDraw: null,
-    onYouDrew: null,
-    onPlayerDrew: null,
-    onTeamsAnnounced: null,
-    onCreateUI: null,
-    onBidReceived: null,
-    onDoneBidding: null,
-    onUpdateTurn: null,
-    onCardPlayed: null,
-    onTrickComplete: null,
-    onHandComplete: null,
-    onGameEnd: null,
-    onRainbow: null,
-    onDestroyHands: null,
-    onAbortGame: null,
-    onRoomFull: null,
-    onPlayerDisconnected: null,
-    onPlayerReconnected: null,
-    onRejoinSuccess: null,
-    onRejoinFailed: null,
+    // Game callbacks - gradually migrating from game.js
+    // Position and game setup - call legacy processing functions
+    onPositionUpdate: (data) => {
+      console.log('📍 onPositionUpdate callback');
+      if (window.processPositionUpdateFromLegacy) {
+        window.processPositionUpdateFromLegacy(data);
+      }
+    },
+    onGameStart: (data) => {
+      console.log('🎮 onGameStart callback');
+      if (window.processGameStartFromLegacy) {
+        window.processGameStartFromLegacy(data);
+      }
+    },
+    // Draw phase - handled by legacy game.js for now
+    onStartDraw: (data) => {
+      console.log('🎴 onStartDraw callback');
+      // Remove waiting screen
+      uiManager.removeWaitingScreen();
 
-    // Chat callback
+      // Call legacy draw function
+      if (window.startDrawFromLegacy) {
+        window.startDrawFromLegacy(data);
+      }
+    },
+    onYouDrew: (data) => {
+      const scene = getGameScene();
+      if (scene && scene.handleYouDrew) {
+        scene.handleYouDrew(data);
+      }
+    },
+    onPlayerDrew: (data) => {
+      const scene = getGameScene();
+      if (scene && scene.handlePlayerDrew) {
+        scene.handlePlayerDrew(data);
+      }
+    },
+    onTeamsAnnounced: (data) => {
+      const scene = getGameScene();
+      if (scene && scene.handleTeamsAnnounced) {
+        scene.handleTeamsAnnounced(data);
+      }
+    },
+    onCreateUI: (data) => {
+      console.log('🎨 onCreateUI callback');
+      // Remove waiting screen and lobby/main room UI
+      uiManager.removeWaitingScreen();
+      removeMainRoom();
+      removeGameLobby();
+
+      // Clean up legacy draw phase elements (allCards array)
+      if (window.removeDrawFromLegacy) {
+        window.removeDrawFromLegacy();
+      }
+
+      // Clean up draw phase via GameScene (for modular DrawManager)
+      const scene = getGameScene();
+      if (scene && scene.handleCreateUI) {
+        scene.handleCreateUI(data);
+      }
+
+      // Create game feed (via legacy function)
+      if (window.createGameFeedFromLegacy) {
+        window.createGameFeedFromLegacy(false);
+      }
+
+      // Initialize scene handElements if needed
+      if (scene && !scene.handElements) {
+        scene.handElements = [];
+      }
+    },
+    // Bidding phase - call GameScene handlers plus legacy code
+    onBidReceived: (data) => {
+      const scene = getGameScene();
+      if (scene && scene.handleBidReceived) {
+        scene.handleBidReceived(data);
+      }
+      // Note: Legacy code in displayCards() also handles bidReceived for bubbles/impact events
+    },
+    onDoneBidding: (data) => {
+      const scene = getGameScene();
+      if (scene && scene.handleDoneBidding) {
+        scene.handleDoneBidding(data);
+      }
+      // Note: Legacy code in displayCards() also handles doneBidding
+    },
+    onUpdateTurn: (data) => {
+      const scene = getGameScene();
+      if (scene && scene.handleUpdateTurn) {
+        scene.handleUpdateTurn(data);
+      }
+      // Note: Legacy code in displayCards() also handles updateTurn for glow effects
+    },
+    // Card play & tricks - call GameScene handlers (legacy still runs in displayCards)
+    onCardPlayed: (data) => {
+      const scene = getGameScene();
+      if (scene && scene.handleCardPlayed) {
+        scene.handleCardPlayed(data);
+      }
+    },
+    onTrickComplete: (data) => {
+      const scene = getGameScene();
+      if (scene && scene.handleTrickComplete) {
+        scene.handleTrickComplete(data);
+      }
+    },
+    // Hand & game end - call GameScene handlers
+    onHandComplete: (data) => {
+      const scene = getGameScene();
+      if (scene && scene.handleHandComplete) {
+        scene.handleHandComplete(data);
+      }
+    },
+    onGameEnd: (data) => {
+      const scene = getGameScene();
+      if (scene && scene.handleGameEnd) {
+        scene.handleGameEnd(data);
+      }
+    },
+    onRainbow: (data) => {
+      const scene = getGameScene();
+      if (scene && scene.handleRainbow) {
+        scene.handleRainbow(data);
+      }
+    },
+    onDestroyHands: (data) => {
+      const scene = getGameScene();
+      if (scene && scene.handleDestroyHands) {
+        scene.handleDestroyHands(data);
+      }
+    },
+    // Error & connection handlers
+    onAbortGame: (data) => {
+      const scene = getGameScene();
+      if (scene && scene.handleAbortGame) {
+        scene.handleAbortGame(data);
+      }
+    },
+    onRoomFull: (data) => {
+      console.log('Room full:', data);
+      uiManager.removeWaitingScreen();
+    },
+    // Reconnection handlers
+    onPlayerDisconnected: (data) => {
+      const scene = getGameScene();
+      if (scene && scene.handlePlayerDisconnected) {
+        scene.handlePlayerDisconnected(data);
+      }
+    },
+    onPlayerReconnected: (data) => {
+      const scene = getGameScene();
+      if (scene && scene.handlePlayerReconnected) {
+        scene.handlePlayerReconnected(data);
+      }
+    },
+    onRejoinSuccess: (data) => {
+      const scene = getGameScene();
+      if (scene && scene.handleRejoinSuccess) {
+        scene.handleRejoinSuccess(data);
+      }
+    },
+    onRejoinFailed: (data) => {
+      const scene = getGameScene();
+      if (scene && scene.handleRejoinFailed) {
+        scene.handleRejoinFailed(data);
+      }
+    },
+
+    // Chat callback - still handled by game.js
     onChatMessage: null,
   });
 
