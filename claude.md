@@ -44,9 +44,7 @@ bab-online/
 │   │       └── index.js            # Socket event handler registration
 │   ├── styles/
 │   │   └── components.css          # All UI component styles
-│   ├── game.js                     # Phaser scene (legacy, uses window.ModernUtils)
-│   ├── ui.js                       # DOM UI (legacy, uses window.ModernUtils)
-│   ├── socketManager.js            # Socket connection manager (legacy)
+│   ├── game.js                     # Phaser scene (legacy, 3k lines - migration planned)
 │   ├── vite.config.js              # Vite build configuration
 │   ├── index.html                  # Entry point
 │   └── assets/                     # Card images, backgrounds
@@ -93,10 +91,8 @@ bab-online/
 - `server/socket/gameHandlers.js` - Game event handlers
 - `server/socket/mainRoomHandlers.js` - Main room and lobby browser handlers
 
-### Client (Legacy - Active)
-- `client/game.js` - Phaser scene, card rendering, game flow (uses window.ModernUtils)
-- `client/ui.js` - DOM UI (auth, lobbies, main room, game log)
-- `client/socketManager.js` - Socket connection with event forwarding
+### Client (Legacy - Remaining)
+- `client/game.js` - Phaser scene, card rendering, game flow (3k lines, migration planned)
 - `client/styles/components.css` - UI component styles
 
 ### Client (Modular - src/)
@@ -169,7 +165,7 @@ Server runs on port 3000. Requires Node.js 18+.
 - **Components**: `client/src/ui/components/` - Modal, Toast, BidUI, GameLog
 - **Screens**: `client/src/ui/screens/` - SignIn, Register
 - **Cards**: `client/src/phaser/managers/CardManager.js` - card sprites
-- **Legacy**: `client/game.js` and `client/ui.js` still active, use window.ModernUtils
+- **Legacy**: `client/game.js` still active (migration planned), uses window.ModernUtils
 
 ### Adding Socket Events
 1. Add handler in `server/socket/gameHandlers.js` (or appropriate handler file)
