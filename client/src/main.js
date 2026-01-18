@@ -77,6 +77,18 @@ export function setGameScene(scene) {
     console.log('🎮 DrawManager attached to scene');
   }
 
+  // Attach CardManager to the scene if not already present
+  if (!scene.cardManager) {
+    scene.cardManager = new CardManager(scene);
+    console.log('🎮 CardManager attached to scene');
+  }
+
+  // Attach OpponentManager to the scene if not already present
+  if (!scene.opponentManager) {
+    scene.opponentManager = new OpponentManager(scene);
+    console.log('🎮 OpponentManager attached to scene');
+  }
+
   // Add handler methods to the scene for draw phase
   if (!scene.handleStartDraw) {
     scene.handleStartDraw = function(data) {
@@ -314,6 +326,47 @@ export function setGameScene(scene) {
           const playPos = this.layoutManager.getPlayPositions();
           this.trickManager.playPositions = playPos;
         }
+        // Update CardManager hand positions from LayoutManager
+        if (this.cardManager) {
+          this.cardManager.repositionHand();
+        }
+      }
+    };
+  }
+
+  // Add card display handlers
+  if (!scene.handleClearHand) {
+    scene.handleClearHand = function() {
+      console.log('🎮 Legacy scene handleClearHand');
+      if (this.cardManager) {
+        this.cardManager.clearHand();
+      }
+    };
+  }
+
+  if (!scene.handleUpdateCardLegality) {
+    scene.handleUpdateCardLegality = function(legalityChecker, canPlay) {
+      console.log('🎮 Legacy scene handleUpdateCardLegality');
+      if (this.cardManager) {
+        this.cardManager.updateCardLegality(legalityChecker, canPlay);
+      }
+    };
+  }
+
+  if (!scene.handlePlayCard) {
+    scene.handlePlayCard = function(card, position, targetX, targetY) {
+      console.log('🎮 Legacy scene handlePlayCard');
+      if (this.cardManager) {
+        this.cardManager.playCard(card, position, targetX, targetY);
+      }
+    };
+  }
+
+  if (!scene.handleCollectTrick) {
+    scene.handleCollectTrick = function(winnerPosition) {
+      console.log('🎮 Legacy scene handleCollectTrick');
+      if (this.cardManager) {
+        this.cardManager.collectTrick(winnerPosition);
       }
     };
   }
