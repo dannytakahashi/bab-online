@@ -102,13 +102,11 @@ function processRejoin(data) {
         playerInfo = createPlayerInfoBox();
     }
 
-    // Display cards (skip animation on rejoin - just place them directly)
-    if (playerCards && playerCards.length > 0) {
-        displayCards.call(gameScene, playerCards, true);
-    }
-
-    // Display opponent hands (card backs) - skip animation on rejoin
-    displayOpponentHands.call(gameScene, playerCards ? playerCards.length : 0, dealer, true);
+    // NOTE: displayCards and displayOpponentHands now handled by modular code
+    // - handleDisplayHand via CardManager (in main.js onRejoinSuccess)
+    // - handleDisplayOpponentHands via OpponentManager (in main.js onRejoinSuccess)
+    // - DOM backgrounds via LayoutManager.createDomBackgrounds()
+    // - Bid UI via BidManager.showBidUI() (if still in bidding phase)
 
     // Display trump card
     if (trump) {
@@ -177,7 +175,27 @@ function processRejoin(data) {
         console.log(`🔄 Restored ${currentTrick.length} played cards from current trick`);
 
         // Update card legality now that we've restored leadCard/playedCardIndex
-        if (window.updateCardLegality) {
+        // Use modular CardManager if available, otherwise fall back to legacy
+        if (gameScene && gameScene.cardManager) {
+            const gameState = window.ModernUtils.getGameState();
+            const canPlay = !gameState.isBidding &&
+                            gameState.currentTurn === gameState.position &&
+                            !gameState.hasPlayedCard;
+            const legalityChecker = (card) => {
+                const result = window.ModernUtils.isLegalMove(
+                    card,
+                    gameState.myCards,
+                    gameState.leadCard,
+                    gameState.playedCardIndex === 0,
+                    gameState.trump,
+                    gameState.trumpBroken,
+                    gameState.position,
+                    gameState.leadPosition
+                );
+                return result.legal;
+            };
+            gameScene.cardManager.updateCardLegality(legalityChecker, canPlay);
+        } else if (window.updateCardLegality) {
             window.updateCardLegality();
         }
     }
@@ -804,20 +822,21 @@ function processGameStart(data) {
         if(!playerInfo){
             playerInfo = createPlayerInfoBox(); // Store the reference
         }
-        // Set trump BEFORE displayCards so sorting works correctly
+        // Set trump for legacy code (modular code handles via gameState.setTrump)
         if (data.trump) {
             trump = data.trump;
         }
-        // Set bidding to 1 for new game start (not in displayCards, which is also called on rejoin)
+        // Set bidding state for legacy code (modular code handles via gameState.isBidding)
         bidding = 1;
-        console.log("🎮 Calling displayCards.call(gameScene, playerCards)");
-        displayCards.call(gameScene, playerCards);
-        //createVignette.call(gameScene);
+        // NOTE: displayCards and displayOpponentHands now handled by modular code
+        // - handleDisplayHand via CardManager
+        // - handleDisplayOpponentHands via OpponentManager
+        // - DOM backgrounds via LayoutManager.createDomBackgrounds()
+        // - Bid UI via BidManager.showBidUI()
     } else {
         console.error("🚨 ERROR: playerCards is undefined or empty!", playerCards);
     }
-    console.log("🎮 Calling displayOpponentHands");
-    displayOpponentHands.call(gameScene, playerCards?.length || 0, dealer);
+    // NOTE: displayOpponentHands now handled by modular code (OpponentManager)
     if (data.trump) {
         console.log("🎮 Calling displayTableCard");
         displayTableCard.call(gameScene, data.trump);
@@ -1200,415 +1219,12 @@ socket.on("chatMessage", (data) => {
 
 // NOTE: window.*FromLegacy bridges now provided by main.js using modular GameLog
 
-function clearDisplayCards() {
-    console.log("🗑️ Clearing all elements from displayCards...");
-
-    // Explicitly remove bidContainer (DOM element) - belt-and-suspenders approach
-    const bidContainer = document.getElementById("bidContainer");
-    if (bidContainer) {
-        bidContainer.remove();
-    }
-
-    // Use gameScene for handElements since this function may be called without proper binding
-    if (gameScene && gameScene.handElements) {
-        gameScene.handElements.forEach(element => {
-            if (element) {
-                // Check if it's a DOM node or Phaser object
-                if (element.nodeType) {
-                    element.remove();  // DOM element
-                } else if (element.destroy) {
-                    element.destroy(); // Phaser object
-                }
-            }
-        });
-        gameScene.handElements = [];
-    }
-    console.log("✅ All elements cleared from displayCards.");
-}
+// NOTE: clearDisplayCards, getSuitOrder, sortHand, displayCards removed - now handled by modular code:
+// - CardManager.displayHand() for card sprites
+// - BidManager.showBidUI() for bidding interface
+// - LayoutManager.createDomBackgrounds() for play zone and hand backgrounds
 // myCards declared at top of file
 
-// Card sorting utilities - delegating to ModernUtils
-function getSuitOrder(trumpSuit) {
-    return window.ModernUtils.getSuitOrder(trumpSuit);
-}
-
-function sortHand(hand, trumpCard) {
-    return window.ModernUtils.sortHand(hand, trumpCard);
-}
-
-function displayCards(playerHand, skipAnimation = false) {
-    console.log("🃏 displayCards called with hand:", playerHand, "skipAnimation:", skipAnimation);
-    console.log("🃏 this (scene) =", this);
-    console.log("🃏 this.textures =", this.textures);
-    console.log("🃏 this.add =", this.add);
-
-    // Check if texture atlas is loaded
-    if (this.textures && this.textures.exists('cards')) {
-        console.log("✅ 'cards' texture atlas is loaded");
-        const frames = this.textures.get('cards').getFrameNames();
-        console.log("🃏 Available frames in atlas:", frames.slice(0, 10), "... (", frames.length, "total)");
-    } else {
-        console.error("🚨 'cards' texture atlas NOT loaded!");
-    }
-
-    // Clear old cards before creating new ones
-    if (myCards && myCards.length > 0) {
-        console.log("🗑️ Clearing", myCards.length, "old card sprites");
-        myCards.forEach(sprite => {
-            if (sprite && sprite.destroy) {
-                sprite.destroy();
-            }
-        });
-        myCards = [];
-    }
-
-    // Sort the hand before displaying
-    playerHand = sortHand(playerHand, trump);
-    let scaleFactorX = this.scale.width / 1920; // Adjust based on your design resolution
-    let scaleFactorY = this.scale.height / 953; // Adjust based on your design resolution
-    // Note: bidding state is set by callers (gameStart sets to 1, rejoin restores from server)
-    console.log("🧠 Scene children:", this.children.list.length);
-    console.log("🎯 Active tweens:", this.tweens._active.length);
-    console.log("📨 cardPlayed listeners:", socket.listeners("cardPlayed").length);
-    console.log("🧱 DOM elements:", document.querySelectorAll("*").length);
-    if (!this.handElements) {
-        this.handElements = [];
-    };
-    console.log("running card display...");
-    let screenWidth = this.scale.width;
-    let screenHeight = this.scale.height;
-    console.log("🖥️ Screen dimensions: ", screenWidth, "x", screenHeight, "y");
-    console.log("screenWidth: ", screenWidth);
-    console.log("screenHeight: ", screenHeight);
-    let cardWidth = 100*scaleFactorX; // Approximate width of each card
-    let cardSpacing = 50*scaleFactorX; // Spacing between cards
-    let totalWidth = (playerHand.length - 1) * cardSpacing; // Width of all cards together
-    let startX = (screenWidth - totalWidth) / 2; // ✅ Centered starting position
-
-    // Calculate hand area dimensions (must match positionDomBackgrounds)
-    let bottomClearance = 20*scaleFactorY;
-    let cardHeight = 140 * 1.5 * scaleFactorY;
-    let cardPadding = 10 * scaleFactorY;
-    let handAreaHeight = cardHeight + cardPadding * 2;
-    let handAreaWidth = screenWidth * 0.4;
-
-    // Center cards vertically within the hand area
-    let handAreaTop = screenHeight - handAreaHeight - bottomClearance;
-    let startY = handAreaTop + handAreaHeight / 2; // ✅ Vertically centered on table
-
-    // Initialize play positions (Bug 3 fix - use module-level positions updated on resize)
-    updatePlayPositions(screenWidth, screenHeight);
-
-    let handY = screenHeight - handAreaHeight / 2 - bottomClearance; // reuses bottomClearance from above
-    // Create play zone as DOM element (replaces Phaser rectangle)
-    if (!document.getElementById('playZoneDom')) {
-        const playZoneDom = document.createElement('div');
-        playZoneDom.id = 'playZoneDom';
-        playZoneDom.style.position = 'absolute';
-        playZoneDom.style.backgroundColor = 'rgba(50, 205, 50, 0.6)'; // 0x32CD32 at 60% opacity
-        playZoneDom.style.border = '4px solid white';
-        playZoneDom.style.borderRadius = '8px';
-        playZoneDom.style.pointerEvents = 'none'; // Don't interfere with card clicks
-        playZoneDom.style.zIndex = '-1'; // Behind canvas so cards show on top
-        document.getElementById('game-container').appendChild(playZoneDom);
-        console.log("📍 Play zone DOM element created");
-    }
-
-    // Create hand background as DOM element
-    if (!document.getElementById('handBackgroundDom')) {
-        const handBgDom = document.createElement('div');
-        handBgDom.id = 'handBackgroundDom';
-        handBgDom.style.position = 'absolute';
-        handBgDom.style.backgroundColor = 'rgba(26, 51, 40, 0.85)'; // 0x1a3328 at 85% opacity
-        handBgDom.style.pointerEvents = 'none';
-        handBgDom.style.zIndex = '-2'; // Behind canvas so cards show on top
-        document.getElementById('game-container').appendChild(handBgDom);
-
-        // Border element
-        const borderDom = document.createElement('div');
-        borderDom.id = 'handBorderDom';
-        borderDom.style.position = 'absolute';
-        borderDom.style.border = '2px solid #2d5a40';
-        borderDom.style.pointerEvents = 'none';
-        borderDom.style.zIndex = '-1'; // Behind canvas so cards show on top
-        document.getElementById('game-container').appendChild(borderDom);
-    }
-    // Position the DOM background elements
-    positionDomBackgrounds(screenWidth, screenHeight);
-    console.log("🟫 Added DOM background elements for player hand.");
-    // Remove any existing bidContainer before creating new one
-    const existingBidContainer = document.getElementById("bidContainer");
-    if (existingBidContainer) {
-        console.log("🗑️ Removing existing bidContainer before creating new one");
-        existingBidContainer.remove();
-    }
-    // ✅ Create button-grid bidding UI (hidden initially, shown only when it's your turn)
-    let bidContainer = document.createElement("div");
-    bidContainer.id = "bidContainer";
-    bidContainer.classList.add("ui-element", "bid-grid");
-    bidContainer.style.position = "fixed";
-    bidContainer.style.zIndex = "1000";
-    bidContainer.style.display = (bidding === 1 && currentTurn === position) ? "flex" : "none";
-    bidContainer.style.flexDirection = "column";
-    bidContainer.style.alignItems = "center"; // Center the rows within the container
-    bidContainer.style.gap = "8px";
-    bidContainer.style.padding = "12px";
-    bidContainer.style.background = "rgba(0, 0, 0, 0.85)";
-    bidContainer.style.border = "2px solid #444";
-    bidContainer.style.borderRadius = "8px";
-    // Set initial position centered on Phaser game area
-    bidContainer.style.left = `${this.scale.width / 2}px`;
-    bidContainer.style.top = `${this.scale.height / 2}px`;
-    bidContainer.style.transform = "translate(-50%, -50%)";
-    document.body.appendChild(bidContainer);
-    this.handElements.push(bidContainer);
-
-    // Header label
-    let bidHeader = document.createElement("div");
-    bidHeader.style.color = "#ffd700";
-    bidHeader.style.fontSize = "18px";
-    bidHeader.style.fontWeight = "bold";
-    bidHeader.style.textAlign = "center";
-    bidHeader.style.marginBottom = "4px";
-    bidHeader.innerText = "Your Bid:";
-    bidContainer.appendChild(bidHeader);
-
-    // Track all bid buttons for selection highlighting
-    let allBidButtons = [];
-    let selectedBid = null;
-
-    // Function to highlight selected button
-    function selectBidButton(btn, bidValue) {
-        // Remove highlight from previously selected button
-        allBidButtons.forEach(b => {
-            if (b.classList.contains('bore-button')) {
-                b.style.background = b.disabled ? "#666" : "#c53030";
-                b.style.border = "none";
-            } else {
-                b.style.background = "#4a5568";
-                b.style.border = "none";
-            }
-        });
-        // Highlight selected button
-        btn.style.background = "#38a169";
-        btn.style.border = "2px solid #68d391";
-        selectedBid = bidValue;
-    }
-
-    // Row 1: Numeric bids (0 to hand size) - 4 per row using CSS grid
-    let numericRow = document.createElement("div");
-    numericRow.style.display = "grid";
-    numericRow.style.gridTemplateColumns = "repeat(4, 1fr)";
-    numericRow.style.gap = "4px";
-
-    for (let i = 0; i <= playerHand.length; i++) {
-        let btn = document.createElement("button");
-        btn.classList.add("bid-button");
-        btn.innerText = i.toString();
-        btn.style.minWidth = "40px";
-        btn.style.minHeight = "40px";
-        btn.style.padding = "8px";
-        btn.style.fontSize = "16px";
-        btn.style.fontWeight = "bold";
-        btn.style.border = "none";
-        btn.style.borderRadius = "4px";
-        btn.style.background = "#4a5568";
-        btn.style.color = "white";
-        btn.style.cursor = "pointer";
-        allBidButtons.push(btn);
-        btn.addEventListener("mouseenter", () => {
-            if (selectedBid !== i.toString()) btn.style.background = "#2d3748";
-        });
-        btn.addEventListener("mouseleave", () => {
-            if (selectedBid !== i.toString()) btn.style.background = "#4a5568";
-        });
-        btn.addEventListener("click", () => {
-            if (currentTurn !== position || bidding === 0) {
-                console.warn("Not your turn to bid.");
-                return;
-            }
-            selectBidButton(btn, i.toString());
-            console.log(`📩 Sending bid: ${i}`);
-            socket.emit("playerBid", { position: position, bid: i.toString() });
-        });
-        numericRow.appendChild(btn);
-    }
-    bidContainer.appendChild(numericRow);
-
-    // Row 2: Bore bids (B, 2B, 3B, 4B)
-    let boreRow = document.createElement("div");
-    boreRow.style.display = "flex";
-    boreRow.style.gap = "4px";
-    boreRow.style.justifyContent = "center";
-
-    const boreBids = ['B', '2B', '3B', '4B'];
-    const boreButtons = {};
-
-    boreBids.forEach((bid, index) => {
-        let btn = document.createElement("button");
-        btn.classList.add("bid-button", "bore-button");
-        btn.innerText = bid;
-        btn.dataset.bid = bid;
-        btn.style.minWidth = "50px";
-        btn.style.minHeight = "40px";
-        btn.style.padding = "8px 12px";
-        btn.style.fontSize = "16px";
-        btn.style.fontWeight = "bold";
-        btn.style.border = "none";
-        btn.style.borderRadius = "4px";
-        btn.style.background = "#c53030";
-        btn.style.color = "white";
-        btn.style.cursor = "pointer";
-        allBidButtons.push(btn);
-
-        btn.addEventListener("mouseenter", () => {
-            if (!btn.disabled && selectedBid !== bid) btn.style.background = "#9b2c2c";
-        });
-        btn.addEventListener("mouseleave", () => {
-            if (!btn.disabled && selectedBid !== bid) btn.style.background = "#c53030";
-        });
-
-        btn.addEventListener("click", () => {
-            if (btn.disabled) return;
-            if (currentTurn !== position || bidding === 0) {
-                console.warn("Not your turn to bid.");
-                return;
-            }
-            selectBidButton(btn, bid);
-            console.log(`📩 Sending bore bid: ${bid}`);
-            socket.emit("playerBid", { position: position, bid: bid });
-        });
-
-        boreButtons[bid] = btn;
-        boreRow.appendChild(btn);
-    });
-    bidContainer.appendChild(boreRow);
-
-    // Function to update bore button states based on previous bids
-    function updateBoreButtons() {
-        // B is always enabled (unless someone already bid bore)
-        const hasBore = tempBids.indexOf("B") !== -1;
-        const has2B = tempBids.indexOf("2B") !== -1;
-        const has3B = tempBids.indexOf("3B") !== -1;
-        const has4B = tempBids.indexOf("4B") !== -1;
-
-        // Disable all bore buttons if someone already bid 4B
-        boreButtons['B'].disabled = hasBore;
-        boreButtons['2B'].disabled = !hasBore || has2B;
-        boreButtons['3B'].disabled = !has2B || has3B;
-        boreButtons['4B'].disabled = !has3B || has4B;
-
-        // Update visual styles for disabled buttons
-        Object.values(boreButtons).forEach(btn => {
-            if (btn.disabled) {
-                btn.style.opacity = "0.4";
-                btn.style.cursor = "not-allowed";
-                btn.style.background = "#666";
-            } else {
-                btn.style.opacity = "1";
-                btn.style.cursor = "pointer";
-                btn.style.background = "#c53030";
-            }
-        });
-    }
-
-    // Initial update
-    updateBoreButtons();
-
-    // Store the update function globally so bidReceived can call it
-    window.updateBoreButtons = updateBoreButtons;
-
-    console.log("✅ Button-grid bidding UI created.");
-
-    // Position the bid container in the center of the play zone (green square)
-    // Use CSS transform for centering - doesn't require measuring element dimensions
-    // Note: Resize is handled by Phaser's scale event in create(), not window resize
-    console.log(`🖥️ Screen Width: ${screenWidth}, Starting X: ${startX}`);
-    console.log("player hand:", playerHand);
-    let cardDepth = 200;
-
-    // Function to update card interactivity based on legal moves
-    function updateCardLegality() {
-        console.log(`updateCardLegality: bidding=${bidding}, currentTurn=${currentTurn}, position=${position}, myCards.length=${myCards.length}`);
-        myCards.forEach(sprite => {
-            if (!sprite || !sprite.active) return;
-            const card = sprite.getData('card');
-            if (!card) return;
-
-            // During bidding or not our turn, dim all cards
-            if (bidding === 1 || currentTurn !== position || playedCard) {
-                sprite.setTint(0xaaaaaa);
-                console.log(`Dimmed ${card.rank} of ${card.suit}, tint after: ${sprite.tintTopLeft}`);
-                sprite.setData('isLegal', false);
-                return;
-            }
-
-            // Check if this card is a legal move
-            // Pass leadPosition (who led the trick) for HI joker rule, not player's position
-            const isLegal = isLegalMove(card, playerCards, leadCard, playedCardIndex === 0, leadPosition);
-
-            if (isLegal) {
-                console.log(`Enabling ${card.rank} of ${card.suit}, tint before: ${sprite.tintTopLeft}`);
-                sprite.clearTint();
-                console.log(`After clearTint: ${sprite.tintTopLeft}`);
-                sprite.setData('isLegal', true);
-            } else {
-                sprite.setTint(0x666666);
-                sprite.setData('isLegal', false);
-            }
-        });
-    }
-
-    // Store the update function globally so socket handlers can call it
-    window.updateCardLegality = updateCardLegality;
-
-    // PHASE 5 MIGRATION: Card sprite creation is now handled by CardManager via handleDisplayHand in main.js
-    // The card sprites, hover effects, click handlers, and legality updates are all managed by CardManager.
-    // This section is kept for reference but the card creation loop has been removed.
-    console.log("🃏 Card sprites now handled by CardManager (", playerHand.length, "cards)");
-
-    // Note: updateCardLegality() is kept for legacy handlers but will operate on empty myCards array
-    // The actual card legality is now managed by CardManager.updateCardLegality() via handleUpdateTurn
-
-    // Helper function to force Phaser to re-render sprites
-    // This fixes a bug where visual updates don't show until page refresh
-    function forceRenderUpdate() {
-        requestAnimationFrame(() => {
-            // Strategy 1: Force WebGL pipeline flush by toggling blend mode
-            myCards.forEach(sprite => {
-                if (sprite && sprite.active) {
-                    const currentBlend = sprite.blendMode;
-                    sprite.setBlendMode(Phaser.BlendModes.ADD);
-                    sprite.setBlendMode(currentBlend);
-                    sprite.setVisible(false);
-                    sprite.setVisible(true);
-                    sprite.setInteractive();
-                }
-            });
-
-            // Note: Removed scale.refresh() and game.renderer.render() calls
-            // as they can trigger resize event loops
-        });
-    }
-
-    // Only register socket listeners once to prevent duplicates across hands
-    if (gameListenersRegistered) {
-        console.log("⏭️ Socket listeners already registered, skipping...");
-        return;
-    }
-    gameListenersRegistered = true;
-    console.log("📡 Registering game socket listeners...");
-
-    // NOTE: bidReceived handler migrated to GameScene.handleBidReceived()
-
-    // NOTE: updateTurn handler migrated to GameScene.handleUpdateTurn()
-
-    // NOTE: cardPlayed handler migrated to GameScene.handleCardPlayed()
-
-    // NOTE: trickComplete handler migrated to GameScene.handleTrickComplete()
-    // NOTE: doneBidding handler migrated to GameScene.handleDoneBidding()
-    // NOTE: handComplete handler migrated to GameScene.handleHandComplete()
-}
 let buttonHandle;
 let oppUI = [];
 

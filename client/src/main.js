@@ -1477,6 +1477,22 @@ function initializeApp() {
             true // skip animation - resize events interfere with tweens
           );
         }
+
+        // Create DOM backgrounds via LayoutManager
+        if (scene.layoutManager) {
+          scene.layoutManager.update();
+          scene.layoutManager.createDomBackgrounds();
+        }
+
+        // Create bid UI via BidManager
+        if (scene.bidManager && data.hand) {
+          scene.bidManager.showBidUI(data.hand.length, (bid) => {
+            console.log(`📩 Sending bid: ${bid}`);
+            if (window.socket) {
+              window.socket.emit('playerBid', { position: gameState.position, bid });
+            }
+          });
+        }
       }
 
       // Call legacy processing for rendering
@@ -1727,6 +1743,22 @@ function initializeApp() {
             gameState.playerData,
             true // skip animation on rejoin
           );
+        }
+
+        // Create DOM backgrounds via LayoutManager
+        if (scene.layoutManager) {
+          scene.layoutManager.update();
+          scene.layoutManager.createDomBackgrounds();
+        }
+
+        // Create bid UI via BidManager (only if still in bidding phase)
+        if (scene.bidManager && data.hand && gameState.isBidding) {
+          scene.bidManager.showBidUI(data.hand.length, (bid) => {
+            console.log(`📩 Sending bid: ${bid}`);
+            if (window.socket) {
+              window.socket.emit('playerBid', { position: gameState.position, bid });
+            }
+          });
         }
       }
 
