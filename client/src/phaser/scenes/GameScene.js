@@ -242,12 +242,10 @@ export class GameScene extends Phaser.Scene {
       // Update layout calculations
       if (this.layoutManager) {
         this.layoutManager.update();
-      }
-
-      // Call legacy repositionGameElements from game.js for full repositioning
-      // This handles DOM backgrounds, trump display, player info, etc.
-      if (window.repositionGameElements) {
-        window.repositionGameElements(newWidth, newHeight);
+        // Position DOM backgrounds (play zone, hand area)
+        this.layoutManager.positionDomBackgrounds();
+        // Position bid container
+        this.layoutManager.positionBidContainer();
       }
 
       // Reposition manager-controlled elements
@@ -256,6 +254,15 @@ export class GameScene extends Phaser.Scene {
       }
       if (this.opponentManager) {
         this.opponentManager.reposition();
+      }
+      if (this.trickManager) {
+        this.trickManager.repositionCurrentTrick();
+      }
+
+      // Call legacy repositionGameElements for remaining elements
+      // (trump display, player info, etc.)
+      if (window.repositionGameElements) {
+        window.repositionGameElements(newWidth, newHeight);
       }
 
       this.callbacks.onResize?.(newWidth, newHeight);

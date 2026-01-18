@@ -247,7 +247,9 @@ document.addEventListener("reconnectFailed", () => {
         gameScene.scene.restart();
         socket.off("gameStart");
     }
-    cleanupDomBackgrounds();
+    if (gameScene && gameScene.layoutManager) {
+        gameScene.layoutManager.cleanupDomBackgrounds();
+    }
     window.ModernUtils.getUIManager().removeWaitingScreen();
     window.ModernUtils.getUIManager().clearUI();
     // Show sign-in screen using modular code
@@ -464,19 +466,15 @@ let opponentAvatarDoms = { partner: null, opp1: null, opp2: null }; // DOM-based
 // PHASE 7: create() function moved to GameScene.js
 // Scene lifecycle is now handled by the modular GameScene class
 
-// Reposition all game elements when window is resized
+// Reposition remaining game elements when window is resized
+// NOTE: Most repositioning is now handled by modular managers:
+// - LayoutManager: DOM backgrounds, bid container
+// - CardManager: player hand cards
+// - OpponentManager: opponent avatars and cards
+// - TrickManager: current trick cards
 function repositionGameElements(newWidth, newHeight) {
     const scaleFactorX = newWidth / 1920;
     const scaleFactorY = newHeight / 953;
-
-    // Position DOM background elements (play zone, hand background, border)
-    positionDomBackgrounds(newWidth, newHeight);
-
-    // Reposition cards in player's hand (LEGACY - myCards is now empty, CardManager handles this)
-    repositionHandCards(newWidth, newHeight, scaleFactorX, scaleFactorY);
-
-    // Reposition opponent UI elements (LEGACY - mostly empty now, OpponentManager handles this)
-    repositionOpponentElements(newWidth, newHeight, scaleFactorX, scaleFactorY);
 
     // Reposition trump card display (top right area)
     const trumpX = newWidth / 2 + 500 * scaleFactorX;
@@ -489,13 +487,6 @@ function repositionGameElements(newWidth, newHeight) {
     }
     if (gameScene && gameScene.tableCardLabel && gameScene.tableCardLabel.active) {
         gameScene.tableCardLabel.setPosition(trumpX, trumpY - 100);
-    }
-
-    // Update bid container position (DOM element)
-    const bidContainer = document.getElementById("bidContainer");
-    if (bidContainer && gameScene && gameScene.scale) {
-        bidContainer.style.left = `${newWidth / 2}px`;
-        bidContainer.style.top = `${newHeight / 2}px`;
     }
 
     // Reposition player info (bottom right)
@@ -512,190 +503,17 @@ function repositionGameElements(newWidth, newHeight) {
         }
     }
 
-    // Reposition turn glow indicators
-    repositionTurnGlow(newWidth, newHeight, scaleFactorX, scaleFactorY);
-
-    // Update play area positions for card animations (Bug 3 fix)
+    // Update play area positions for card animations
     updatePlayPositions(newWidth, newHeight);
-
-    // Reposition cards in the current trick to match new play area positions
-    repositionCurrentTrick();
 }
 
-// Reposition cards in the player's hand during resize
-function repositionHandCards(screenWidth, screenHeight, scaleFactorX, scaleFactorY) {
-    if (!myCards || myCards.length === 0) return;
-
-    const cardSpacing = 50 * scaleFactorX;
-    const totalWidth = (myCards.length - 1) * cardSpacing;
-    const startX = (screenWidth - totalWidth) / 2;
-
-    // Calculate hand area (must match positionDomBackgrounds and displayCards)
-    const bottomClearance = 20 * scaleFactorY;
-    const cardHeight = 140 * 1.5 * scaleFactorY;
-    const cardPadding = 10 * scaleFactorY;
-    const handAreaHeight = cardHeight + cardPadding * 2;
-    const handAreaTop = screenHeight - handAreaHeight - bottomClearance;
-    const startY = handAreaTop + handAreaHeight / 2; // Vertically centered on table
-
-    myCards.forEach((card, index) => {
-        if (card && card.active) {
-            card.x = startX + index * cardSpacing;
-            card.y = startY;
-            card.setData('baseY', startY); // Update baseY for hover effects
-        }
-    });
-}
-
-// Position DOM background elements (play zone, hand background, border)
-function positionDomBackgrounds(screenWidth, screenHeight) {
-    const scaleFactorX = screenWidth / 1920;
-    const scaleFactorY = screenHeight / 953;
-
-    // Position play zone (center)
-    const playZoneDom = document.getElementById('playZoneDom');
-    if (playZoneDom) {
-        const playZoneWidth = 600 * scaleFactorX;
-        const playZoneHeight = 400 * scaleFactorY;
-        playZoneDom.style.width = `${playZoneWidth}px`;
-        playZoneDom.style.height = `${playZoneHeight}px`;
-        playZoneDom.style.left = `${(screenWidth - playZoneWidth) / 2}px`;
-        playZoneDom.style.top = `${(screenHeight - playZoneHeight) / 2}px`;
-    }
-
-    // Position hand background (bottom center) - snug fit around cards
-    const handBgDom = document.getElementById('handBackgroundDom');
-    const borderDom = document.getElementById('handBorderDom');
-    if (handBgDom) {
-        const bottomClearance = 20 * scaleFactorY;
-        // Card height at scale 1.5 is ~210px, add minimal padding for snug fit
-        const cardHeight = 140 * 1.5 * scaleFactorY;
-        const cardPadding = 10 * scaleFactorY;
-        const handAreaHeight = cardHeight + cardPadding * 2;
-        const handAreaWidth = screenWidth * 0.4;
-        const handY = screenHeight - handAreaHeight - bottomClearance;
-        const handX = (screenWidth - handAreaWidth) / 2;
-
-        handBgDom.style.width = `${handAreaWidth}px`;
-        handBgDom.style.height = `${handAreaHeight}px`;
-        handBgDom.style.left = `${handX}px`;
-        handBgDom.style.top = `${handY}px`;
-
-        if (borderDom) {
-            borderDom.style.width = `${handAreaWidth}px`;
-            borderDom.style.height = `${handAreaHeight}px`;
-            borderDom.style.left = `${handX}px`;
-            borderDom.style.top = `${handY}px`;
-        }
-    }
-}
-
-// Cleanup DOM background elements
-function cleanupDomBackgrounds() {
-    const playZoneDom = document.getElementById('playZoneDom');
-    const handBgDom = document.getElementById('handBackgroundDom');
-    const borderDom = document.getElementById('handBorderDom');
-    if (playZoneDom) playZoneDom.remove();
-    if (handBgDom) handBgDom.remove();
-    if (borderDom) borderDom.remove();
-    // Clean up opponent avatar DOM elements
-    cleanupOpponentAvatars();
-}
-
-// Reposition opponent UI elements (avatars, names, card backs) during resize
-function repositionOpponentElements(screenWidth, screenHeight, scaleFactorX, scaleFactorY) {
-    const centerX = screenWidth / 2;
-    const centerY = screenHeight / 2;
-
-    // Clamp positions to stay within canvas bounds (leave margin for avatars and game log)
-    const minX = 80;
-    const maxX = screenWidth - 120;
-
-    // Calculate opponent positions (matching displayOpponentHands logic)
-    // Clamp opp1 and opp2 to prevent overlap with edges/game log
-    const positions = {
-        partner: {
-            cardX: centerX,
-            cardY: centerY - 275 * scaleFactorY,
-            avatarX: centerX,
-            avatarY: centerY - 400 * scaleFactorY
-        },
-        opp1: {
-            cardX: Math.max(minX + 50, centerX - 425 * scaleFactorX),
-            cardY: centerY,
-            avatarX: Math.max(minX, centerX - 550 * scaleFactorX),
-            avatarY: centerY
-        },
-        opp2: {
-            cardX: Math.min(maxX - 50, centerX + 425 * scaleFactorX),
-            cardY: centerY,
-            avatarX: Math.min(maxX, centerX + 550 * scaleFactorX),
-            avatarY: centerY
-        }
-    };
-
-    // Reposition opponent card sprites
-    if (typeof opponentCardSprites !== 'undefined') {
-        const cardSpacing = 10 * scaleFactorX;
-        Object.keys(positions).forEach(opponentId => {
-            if (opponentCardSprites[opponentId]) {
-                const pos = positions[opponentId];
-                const isHorizontal = opponentId === 'partner';
-                const numCards = opponentCardSprites[opponentId].length;
-
-                opponentCardSprites[opponentId].forEach((card, index) => {
-                    if (card && card.active) {
-                        if (isHorizontal) {
-                            const totalWidth = (numCards - 1) * cardSpacing;
-                            card.x = pos.cardX - totalWidth / 2 + index * cardSpacing;
-                            card.y = pos.cardY;
-                        } else {
-                            const totalHeight = (numCards - 1) * cardSpacing;
-                            card.x = pos.cardX;
-                            card.y = pos.cardY - totalHeight / 2 + index * cardSpacing;
-                        }
-                    }
-                });
-            }
-        });
-    }
-
-    // Reposition opponent DOM avatars
-    if (typeof opponentAvatarDoms !== 'undefined') {
-        Object.keys(positions).forEach(opponentId => {
-            const dom = opponentAvatarDoms[opponentId];
-            if (dom) {
-                dom.style.left = `${positions[opponentId].avatarX}px`;
-                dom.style.top = `${positions[opponentId].avatarY}px`;
-            }
-        });
-    }
-
-    // Reposition dealer button if it exists
-    if (typeof buttonHandle !== 'undefined' && buttonHandle && buttonHandle.active) {
-        // Find which position has the dealer and reposition accordingly
-        if (typeof dealer !== 'undefined' && typeof position !== 'undefined' && typeof team === 'function' && typeof rotate === 'function') {
-            if (dealer === position) {
-                // Player is the dealer - position near player info box
-                buttonHandle.setPosition(screenWidth - 380 * scaleFactorX + 100 * scaleFactorX, screenHeight - 150 * scaleFactorY - 60 * scaleFactorY);
-            } else if (team(position) === dealer) {
-                buttonHandle.setPosition(positions.partner.avatarX + 70, positions.partner.avatarY);
-            } else if (rotate(position) === dealer) {
-                buttonHandle.setPosition(positions.opp1.avatarX - 70, positions.opp1.avatarY);
-            } else if (rotate(rotate(rotate(position))) === dealer) {
-                buttonHandle.setPosition(positions.opp2.avatarX + 70, positions.opp2.avatarY);
-            }
-        }
-    }
-}
-
-// Reposition turn glow indicators during resize
-function repositionTurnGlow(screenWidth, screenHeight, scaleFactorX, scaleFactorY) {
-    // Player's hand glow is CSS-based (turn-glow class on handBorderDom)
-    // so it automatically stays aligned with the hand border element.
-    // Opponent glow is also CSS-based on DOM avatar elements, which are
-    // repositioned by repositionOpponentElements, so no action needed here.
-}
+// NOTE: The following resize functions have been removed as they're now handled by modular managers:
+// - repositionHandCards -> CardManager.repositionHand()
+// - positionDomBackgrounds -> LayoutManager.positionDomBackgrounds()
+// - cleanupDomBackgrounds -> LayoutManager.cleanupDomBackgrounds()
+// - repositionOpponentElements -> OpponentManager.reposition()
+// - repositionTurnGlow -> CSS-based, no action needed
+// - repositionCurrentTrick -> TrickManager.repositionCurrentTrick()
 
 // Update play area positions for card animations (Bug 3 fix)
 function updatePlayPositions(screenWidth, screenHeight) {
@@ -708,21 +526,6 @@ function updatePlayPositions(screenWidth, screenHeight) {
     playPositions.opponent2 = { x: screenWidth / 2 + playOffsetX, y: screenHeight / 2 };
     playPositions.partner = { x: screenWidth / 2, y: screenHeight / 2 - playOffsetY };
     playPositions.self = { x: screenWidth / 2, y: screenHeight / 2 + playOffsetY };
-}
-
-// Reposition cards in current trick during resize
-function repositionCurrentTrick() {
-    if (!currentTrick || currentTrick.length === 0) return;
-
-    currentTrick.forEach(card => {
-        if (!card || !card.active) return;
-
-        const playPosition = card.getData('playPosition');
-        if (!playPosition || !playPositions[playPosition]) return;
-
-        card.x = playPositions[playPosition].x;
-        card.y = playPositions[playPosition].y;
-    });
 }
 
 // Store pending data if events arrive before scene is ready
@@ -1065,7 +868,9 @@ socket.on("abortGame", (data) => {
     if (gameScene && gameScene.handleAbortGame) {
         gameScene.handleAbortGame(data);
     }
-    cleanupDomBackgrounds();
+    if (gameScene && gameScene.layoutManager) {
+        gameScene.layoutManager.cleanupDomBackgrounds();
+    }
     window.ModernUtils.getUIManager().clearUI();
     // Clear scene reference in modular code
     if (window.ModernUtils && window.ModernUtils.clearGameScene) {
@@ -1084,7 +889,9 @@ socket.on("forceLogout", (data) => {
         gameScene.scene.restart();
         socket.off("gameStart");
     }
-    cleanupDomBackgrounds();
+    if (gameScene && gameScene.layoutManager) {
+        gameScene.layoutManager.cleanupDomBackgrounds();
+    }
     window.ModernUtils.getUIManager().removeWaitingScreen();
     window.ModernUtils.getUIManager().clearUI();
     // Clear scene reference in modular code
