@@ -606,8 +606,37 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ============================================
+  // Game Feed Methods
+  // ============================================
+
+  /**
+   * Add a message to the game feed/log.
+   * @param {string} message - The message to add
+   * @param {number|null} playerPosition - Player position for color coding (optional)
+   */
+  handleAddToGameFeed(message, playerPosition = null) {
+    if (window.addToGameFeedFromLegacy) {
+      window.addToGameFeedFromLegacy(message, playerPosition);
+    }
+  }
+
+  // ============================================
   // Chat Bubble Methods
   // ============================================
+
+  /**
+   * Handle showing a chat bubble from a chat message event.
+   * @param {number} myPosition - The local player's position
+   * @param {number} senderPosition - The position of the message sender
+   * @param {string} message - The chat message text
+   */
+  handleShowChatBubble(myPosition, senderPosition, message) {
+    // Determine which position key the sender maps to relative to the player
+    const positionKey = this.getPositionKey(senderPosition);
+    if (positionKey) {
+      this.showChatBubble(positionKey, message, null, 6000);
+    }
+  }
 
   /**
    * Show a chat/bid bubble at a position.

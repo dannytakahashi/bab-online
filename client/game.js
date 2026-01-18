@@ -108,9 +108,9 @@ function processRejoin(data) {
     // - DOM backgrounds via LayoutManager.createDomBackgrounds()
     // - Bid UI via BidManager.showBidUI() (if still in bidding phase)
 
-    // Display trump card
-    if (trump) {
-        displayTableCard.call(gameScene, trump);
+    // Display trump card via modular GameScene
+    if (trump && gameScene) {
+        gameScene.displayTrumpCard(trump);
     }
 
     // Bug 2 fix: Restore played cards in current trick
@@ -476,17 +476,9 @@ function repositionGameElements(newWidth, newHeight) {
     const scaleFactorX = newWidth / 1920;
     const scaleFactorY = newHeight / 953;
 
-    // Reposition trump card display (top right area)
-    const trumpX = newWidth / 2 + 500 * scaleFactorX;
-    const trumpY = newHeight / 2 - 300 * scaleFactorY;
-    if (tableCardSprite && tableCardSprite.active) {
-        tableCardSprite.setPosition(trumpX, trumpY);
-    }
-    if (gameScene && gameScene.tableCardBackground && gameScene.tableCardBackground.active) {
-        gameScene.tableCardBackground.setPosition(trumpX, trumpY);
-    }
-    if (gameScene && gameScene.tableCardLabel && gameScene.tableCardLabel.active) {
-        gameScene.tableCardLabel.setPosition(trumpX, trumpY - 100);
+    // Reposition trump card display (top right area) via GameScene
+    if (gameScene) {
+        gameScene.repositionTrumpDisplay();
     }
 
     // Reposition player info (bottom right)
@@ -640,9 +632,10 @@ function processGameStart(data) {
         console.error("🚨 ERROR: playerCards is undefined or empty!", playerCards);
     }
     // NOTE: displayOpponentHands now handled by modular code (OpponentManager)
-    if (data.trump) {
-        console.log("🎮 Calling displayTableCard");
-        displayTableCard.call(gameScene, data.trump);
+    // Display trump card via modular GameScene
+    if (data.trump && gameScene) {
+        console.log("🎮 Calling displayTrumpCard");
+        gameScene.displayTrumpCard(data.trump);
     }
 }
 
@@ -682,7 +675,7 @@ function getCardImageKey(card) {
 // Rank values - use getRankValues() function defined at top of file
 // (ranks variable already declared at top, will be populated lazily)
 var opponentCardSprites = {};
-var tableCardSprite;
+// NOTE: tableCardSprite removed - now managed by GameScene.tableCardSprite
 // NOTE: createGameFeed, addToGameFeed, updateGameLogScore moved to modular GameLog.js
 // Now provided via window.*FromLegacy bridges from main.js
 
@@ -720,15 +713,11 @@ function removeTurnGlow(scene) {
         console.log("🚫 Removed CSS turn glow from hand border.");
     }
 }
-// rainbows declared below (allCards moved to DrawManager.js)
-var rainbows = [];
-socket.on("rainbow", (data) => {
-    console.log("caught rainbow");
-    // Store rainbow position for doneBidding handler to display at end of bidding
-    // Note: scene.handleRainbow is called by modular handler (gameHandlers.js → main.js callback)
-    // so we don't need to call it here - that would cause duplicate rainbow effects
-    rainbows.push(data.position);
-});
+// NOTE: Rainbow handling migrated to modular code
+// - gameHandlers.js registers socket listener and calls onRainbow callback
+// - main.js onRainbow callback calls scene.handleRainbow
+// - EffectsManager.showRainbow displays the rainbow effect
+// - Legacy rainbows array and handler removed - no longer needed
 function destroyAllCards(){
     myCards.forEach((card) => {
         card.destroy(); // ✅ Remove card from the game
@@ -770,37 +759,7 @@ socket.on("destroyHands", (data) => {
 // Draw phase functions (draw, removeDraw) moved to DrawManager.js
 // See client/src/phaser/managers/DrawManager.js
 
-function displayTableCard(card) {
-    console.log(`🎴 displayTableCard called!`);
-    console.log(`🎴 this (scene):`, this);
-    console.log(`🎴 card:`, card);
-    console.log(`🎴 Displaying table card: ${card.rank} of ${card.suit}`);
-    let screenWidth = this.scale.width;
-    let screenHeight = this.scale.height;
-    let scaleFactorX = screenWidth / 1920; // Adjust based on your design resolution
-    let scaleFactorY = screenHeight / 953; // Adjust based on your design resolution
-    let tableX = screenWidth / 2 + 500*scaleFactorX;
-    let tableY = screenHeight / 2 - 300*scaleFactorY;
-    let cardKey = getCardImageKey(card);
-    console.log(`🎴 cardKey: ${cardKey}, position: (${tableX}, ${tableY})`);
-    if (this.tableCardBackground) this.tableCardBackground.destroy();
-    if (this.tableCardSprite) this.tableCardSprite.destroy();
-    if (this.tableCardLabel) this.tableCardLabel.destroy();
-    this.tableCardBackground = this.add.rectangle(tableX, tableY, 120*scaleFactorX, 160*scaleFactorY, 0x8B4513)
-        .setStrokeStyle(4, 0x654321)
-        .setDepth(-1); // ✅ Ensure it's behind the card
-    console.log(`🎴 Background rectangle created`);
-    tableCardSprite = this.add.image(tableX, tableY, 'cards', cardKey).setScale(1.5);
-    console.log(`🎴 Table card sprite created:`, tableCardSprite);
-    this.tableCardLabel = this.add.text(tableX, tableY - 100, "TRUMP", {
-        fontSize: "24px",
-        fontStyle: "bold",
-        color: "#FFFFFF",
-        backgroundColor: "#000000AA",
-        padding: { x: 10, y: 5 },
-        align: "center"
-    }).setOrigin(0.5);
-}
+// NOTE: displayTableCard removed - now handled by GameScene.displayTrumpCard()
 
 let isTrumpBroken = false;
 let teamTricks = 0;
