@@ -21,8 +21,9 @@
 </head>
 <body>
     <div id="game-container"></div>
-    <script src="dist/main.js"></script>
-    <!-- socketManager.js and ui.js removed - functionality moved to main.js and game.js -->
-    <script src="game.js?v=20260116c"></script>
+    <!-- Create socket BEFORE game.js loads (game.js has top-level socket.on calls) -->
+    <script src="socket-init.js"></script>
+    <script src="game.js?v=20260117c"></script>
+    <script type="module" src="dist/main.js"></script>
 </body>
 </html>

@@ -8,6 +8,13 @@
 import { getGameState } from '../../state/GameState.js';
 import { getCardImageKey } from '../../utils/cards.js';
 import { team, rotate } from '../../utils/positions.js';
+import { CardManager } from '../managers/CardManager.js';
+import { OpponentManager } from '../managers/OpponentManager.js';
+import { TrickManager } from '../managers/TrickManager.js';
+import { EffectsManager } from '../managers/EffectsManager.js';
+import { DrawManager } from '../managers/DrawManager.js';
+import { BidManager } from '../managers/BidManager.js';
+import { LayoutManager } from '../managers/LayoutManager.js';
 
 /**
  * Base design dimensions for scaling calculations.
@@ -27,6 +34,15 @@ export class GameScene extends Phaser.Scene {
 
     // Scene ready flag
     this.isReady = false;
+
+    // Managers (instantiated in create())
+    this.cardManager = null;
+    this.opponentManager = null;
+    this.trickManager = null;
+    this.effectsManager = null;
+    this.drawManager = null;
+    this.bidManager = null;
+    this.layoutManager = null;
 
     // Card sprites
     this.myCards = [];
@@ -126,6 +142,20 @@ export class GameScene extends Phaser.Scene {
     // Get state reference
     this.state = getGameState();
 
+    // Instantiate managers
+    this.layoutManager = new LayoutManager(this);
+    this.cardManager = new CardManager(this);
+    this.opponentManager = new OpponentManager(this);
+    this.trickManager = new TrickManager(this);
+    this.effectsManager = new EffectsManager(this);
+    this.drawManager = new DrawManager(this);
+    this.bidManager = new BidManager(this);
+
+    // Initialize layout
+    this.layoutManager.update();
+
+    console.log('🎮 Managers instantiated');
+
     // Set up resize handler
     this.scale.on('resize', (gameSize) => {
       console.log(`📐 Phaser resize: ${gameSize.width}x${gameSize.height}`);
@@ -199,6 +229,11 @@ export class GameScene extends Phaser.Scene {
    */
   handleResize(newWidth, newHeight) {
     try {
+      // Update layout calculations
+      if (this.layoutManager) {
+        this.layoutManager.update();
+      }
+
       this.updatePlayPositions();
       this.repositionHandCards();
       this.repositionOpponentElements();
@@ -619,6 +654,289 @@ export class GameScene extends Phaser.Scene {
     container.add(content);
 
     return container;
+  }
+
+  // ============================================
+  // Draw Phase Handlers
+  // ============================================
+
+  /**
+   * Handle startDraw event - show the draw UI.
+   * @param {Object} data - Event data from server
+   */
+  handleStartDraw(data) {
+    console.log('🎮 GameScene.handleStartDraw()');
+    this.drawManager.showDrawUI();
+  }
+
+  /**
+   * Handle youDrew event - player drew a card.
+   * @param {Object} data - { card }
+   */
+  handleYouDrew(data) {
+    console.log('🎮 GameScene.handleYouDrew()');
+    this.drawManager.handleYouDrew(data);
+  }
+
+  /**
+   * Handle playerDrew event - any player drew a card.
+   * @param {Object} data - { username, card, drawOrder, position }
+   */
+  handlePlayerDrew(data) {
+    console.log('🎮 GameScene.handlePlayerDrew()');
+    this.drawManager.handlePlayerDrew(data);
+  }
+
+  /**
+   * Handle teamsAnnounced event - show teams overlay.
+   * @param {Object} data - { team1: [], team2: [] }
+   */
+  handleTeamsAnnounced(data) {
+    console.log('🎮 GameScene.handleTeamsAnnounced()');
+    this.drawManager.handleTeamsAnnounced(data);
+  }
+
+  /**
+   * Handle createUI event - transition from draw to game.
+   * @param {Object} data - Event data from server
+   */
+  handleCreateUI(data) {
+    console.log('🎮 GameScene.handleCreateUI()');
+    // Clean up draw phase
+    this.drawManager.cleanup();
+    // Delegate to callback for legacy code
+    this.callbacks.onCreateUI?.(data);
+  }
+
+  // ============================================
+  // Bidding Phase Handlers
+  // ============================================
+
+  /**
+   * Handle bidReceived event - show bid bubble.
+   * @param {Object} data - { position, bid, bidArray }
+   */
+  handleBidReceived(data) {
+    console.log('🎮 GameScene.handleBidReceived()');
+
+    // Add bid to state history for bore button updates
+    this.state.addTempBid(data.bid);
+
+    // Update bore button states
+    if (this.bidManager) {
+      this.bidManager.updateBoreButtonStates();
+    }
+
+    // Show bid bubble at the appropriate position
+    const positionKey = this.getPositionKey(data.position);
+    if (positionKey && this.bidManager) {
+      this.bidManager.showBidBubble(positionKey, data.bid);
+    }
+
+    // Delegate to callback for additional handling
+    this.callbacks.onBidReceived?.(data);
+  }
+
+  /**
+   * Handle doneBidding event - transition to playing phase.
+   * @param {Object} data - { bids, lead }
+   */
+  handleDoneBidding(data) {
+    console.log('🎮 GameScene.handleDoneBidding()');
+
+    // Hide bid UI
+    if (this.bidManager) {
+      this.bidManager.hideBidUI();
+    }
+
+    // Clear temp bids
+    this.state.clearTempBids();
+
+    // Delegate to callback for additional handling
+    this.callbacks.onDoneBidding?.(data);
+  }
+
+  /**
+   * Handle updateTurn event - update turn glow and bid UI visibility.
+   * @param {Object} data - { currentTurn }
+   */
+  handleUpdateTurn(data) {
+    console.log('🎮 GameScene.handleUpdateTurn()');
+
+    // Update bid UI visibility (only during bidding)
+    if (this.bidManager && this.state.isBidding) {
+      this.bidManager.updateVisibility();
+    }
+
+    // Delegate to callback for additional handling (turn glow, etc.)
+    this.callbacks.onUpdateTurn?.(data);
+  }
+
+  /**
+   * Get position key ('opp1', 'opp2', 'partner', 'me') from game position.
+   * @param {number} gamePosition - Position 1-4
+   * @returns {string|null} Position key or null
+   */
+  getPositionKey(gamePosition) {
+    const myPosition = this.state.position;
+    if (!myPosition) return null;
+
+    if (gamePosition === myPosition) return 'me';
+    if (gamePosition === team(myPosition)) return 'partner';
+    if (gamePosition === rotate(myPosition)) return 'opp1';
+    if (gamePosition === rotate(rotate(rotate(myPosition)))) return 'opp2';
+
+    return null;
+  }
+
+  // ============================================
+  // Card Play & Trick Handlers
+  // ============================================
+
+  /**
+   * Handle cardPlayed event.
+   * @param {Object} data - { card, position, trumpBroken }
+   */
+  handleCardPlayed(data) {
+    console.log('🎮 GameScene.handleCardPlayed()');
+
+    // Initialize TrickManager player position if needed
+    if (this.trickManager && this.state.position) {
+      this.trickManager.setPlayerPosition(this.state.position);
+      this.trickManager.updatePlayPositions();
+    }
+
+    // Delegate to callback for legacy handling
+    this.callbacks.onCardPlayed?.(data);
+  }
+
+  /**
+   * Handle trickComplete event.
+   * @param {Object} data - { winner }
+   */
+  handleTrickComplete(data) {
+    console.log('🎮 GameScene.handleTrickComplete()');
+
+    // Delegate to callback for legacy handling
+    this.callbacks.onTrickComplete?.(data);
+  }
+
+  // ============================================
+  // Hand & Game End Handlers
+  // ============================================
+
+  /**
+   * Handle handComplete event.
+   * @param {Object} data - Scoring and hand completion data
+   */
+  handleHandComplete(data) {
+    console.log('🎮 GameScene.handleHandComplete()');
+
+    // Clear trick history for new hand
+    if (this.trickManager) {
+      this.trickManager.resetForNewHand();
+    }
+
+    // Delegate to callback
+    this.callbacks.onHandComplete?.(data);
+  }
+
+  /**
+   * Handle gameEnd event.
+   * @param {Object} data - Final game scores
+   */
+  handleGameEnd(data) {
+    console.log('🎮 GameScene.handleGameEnd()');
+
+    // Delegate to callback
+    this.callbacks.onGameEnd?.(data);
+  }
+
+  /**
+   * Handle rainbow event.
+   * @param {Object} data - { position }
+   */
+  handleRainbow(data) {
+    console.log('🎮 GameScene.handleRainbow()');
+
+    // Show rainbow effect
+    if (this.effectsManager && this.effectsManager.showRainbow) {
+      this.effectsManager.showRainbow(data.position);
+    }
+
+    // Delegate to callback
+    this.callbacks.onRainbow?.(data);
+  }
+
+  /**
+   * Handle destroyHands event.
+   * @param {Object} data - Event data
+   */
+  handleDestroyHands(data) {
+    console.log('🎮 GameScene.handleDestroyHands()');
+
+    // Clear hand and trick displays
+    this.clearHand();
+    if (this.trickManager) {
+      this.trickManager.clearAll();
+    }
+
+    // Delegate to callback
+    this.callbacks.onDestroyHands?.(data);
+  }
+
+  // ============================================
+  // Reconnection & Error Handlers
+  // ============================================
+
+  /**
+   * Handle playerDisconnected event.
+   * @param {Object} data - { username, position }
+   */
+  handlePlayerDisconnected(data) {
+    console.log('🎮 GameScene.handlePlayerDisconnected()');
+    this.callbacks.onPlayerDisconnected?.(data);
+  }
+
+  /**
+   * Handle playerReconnected event.
+   * @param {Object} data - { username, position }
+   */
+  handlePlayerReconnected(data) {
+    console.log('🎮 GameScene.handlePlayerReconnected()');
+    this.callbacks.onPlayerReconnected?.(data);
+  }
+
+  /**
+   * Handle rejoinSuccess event.
+   * @param {Object} data - Full game state for rejoin
+   */
+  handleRejoinSuccess(data) {
+    console.log('🎮 GameScene.handleRejoinSuccess()');
+    this.callbacks.onRejoinSuccess?.(data);
+  }
+
+  /**
+   * Handle rejoinFailed event.
+   * @param {Object} data - { reason }
+   */
+  handleRejoinFailed(data) {
+    console.log('🎮 GameScene.handleRejoinFailed()');
+    this.callbacks.onRejoinFailed?.(data);
+  }
+
+  /**
+   * Handle abortGame event.
+   * @param {Object} data - Abort reason
+   */
+  handleAbortGame(data) {
+    console.log('🎮 GameScene.handleAbortGame()');
+
+    // Full cleanup
+    this.cleanup();
+
+    // Delegate to callback
+    this.callbacks.onAbortGame?.(data);
   }
 
   // ============================================

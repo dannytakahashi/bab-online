@@ -45,11 +45,11 @@ export const CARD_CONFIG = {
   BASE_WIDTH: 100,
   BASE_HEIGHT: 145,
 
-  // Scale factor for display
-  SCALE: 0.7,
+  // Scale factor for display (matches legacy displayCards setScale(1.5))
+  SCALE: 1.5,
 
-  // Spacing between cards in hand
-  HAND_SPACING: 30,
+  // Spacing between cards in hand (matches legacy 50px base spacing)
+  HAND_SPACING: 50,
 
   // Z-ordering
   Z_INDEX: {

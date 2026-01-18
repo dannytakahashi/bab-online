@@ -211,11 +211,12 @@ export function getBubblePosition(scene, playerPosition, messagePosition) {
   const centerX = screenWidth / 2;
   const centerY = screenHeight / 2;
 
+  // Match legacy game.js positions for chat bubbles
   const positions = {
-    opp1: { x: centerX - 340 * scaleX, y: centerY - 70 * scaleY },
-    opp2: { x: centerX + 260 * scaleX, y: centerY - 70 * scaleY },
-    partner: { x: centerX - 50 * scaleX, y: centerY - 340 * scaleY },
-    me: { x: centerX - 50 * scaleX, y: screenHeight - 270 * scaleY },
+    opp1: { x: centerX - 480 * scaleX, y: centerY },
+    opp2: { x: centerX + 620 * scaleX, y: centerY },
+    partner: { x: centerX + 20 * scaleX, y: centerY - 380 * scaleY },
+    me: { x: screenWidth - 310 * scaleX, y: screenHeight - 270 * scaleY },
   };
 
   // Determine relative position
