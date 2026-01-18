@@ -71,6 +71,26 @@ let gameSceneRef = null;
 export function setGameScene(scene) {
   gameSceneRef = scene;
 
+  // Handle tab visibility change - reposition elements when tab becomes visible
+  // This fixes card positioning issues on background tabs during game start
+  if (!scene._visibilityHandlerAdded) {
+    scene._visibilityHandlerAdded = true;
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && gameSceneRef) {
+        console.log('🎮 Tab became visible, repositioning game elements');
+        // Use requestAnimationFrame to ensure dimensions are updated
+        requestAnimationFrame(() => {
+          if (gameSceneRef.cardManager) {
+            gameSceneRef.cardManager.repositionHand();
+          }
+          if (gameSceneRef.opponentManager) {
+            gameSceneRef.opponentManager.reposition();
+          }
+        });
+      }
+    });
+  }
+
   // Attach DrawManager to the scene if not already present
   if (!scene.drawManager) {
     scene.drawManager = new DrawManager(scene);

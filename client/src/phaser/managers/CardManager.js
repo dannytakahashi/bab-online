@@ -111,6 +111,7 @@ export class CardManager {
       sprite.setData('card', card);
       sprite.setData('index', index);
       sprite.setData('baseY', pos.y); // Store target Y for hover effects
+      sprite.setData('isLegal', true); // Default to legal, updateCardLegality will correct this
 
       // Set index-based depth so rightmost cards are on top
       sprite.setDepth(CARD_CONFIG.Z_INDEX.HAND + index);
