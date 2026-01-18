@@ -250,6 +250,52 @@ export function setGameScene(scene) {
     };
   }
 
+  // Add handler methods for reconnection/error events
+  if (!scene.handlePlayerDisconnected) {
+    scene.handlePlayerDisconnected = function(data) {
+      console.log('🎮 Legacy scene handlePlayerDisconnected');
+      // Game.js handles this via socket.on listener for now
+    };
+  }
+
+  if (!scene.handlePlayerReconnected) {
+    scene.handlePlayerReconnected = function(data) {
+      console.log('🎮 Legacy scene handlePlayerReconnected');
+      // Game.js handles this via CustomEvent listener for now
+    };
+  }
+
+  if (!scene.handleRejoinSuccess) {
+    scene.handleRejoinSuccess = function(data) {
+      console.log('🎮 Legacy scene handleRejoinSuccess');
+      // Game.js handles this via CustomEvent listener calling processRejoin()
+    };
+  }
+
+  if (!scene.handleRejoinFailed) {
+    scene.handleRejoinFailed = function(data) {
+      console.log('🎮 Legacy scene handleRejoinFailed');
+      // Game.js handles this via CustomEvent listener for now
+    };
+  }
+
+  if (!scene.handleAbortGame) {
+    scene.handleAbortGame = function(data) {
+      console.log('🎮 Legacy scene handleAbortGame');
+      // Clear all managers
+      if (this.effectsManager) {
+        this.effectsManager.clearAll();
+      }
+      if (this.trickManager) {
+        this.trickManager.clearAll();
+      }
+      if (this.drawManager) {
+        this.drawManager.cleanup();
+      }
+      // Game.js socket.on handler does the rest (restart scene, return to main room)
+    };
+  }
+
   console.log('🎮 Game scene reference set with all handlers');
 }
 
