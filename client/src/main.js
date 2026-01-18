@@ -196,7 +196,61 @@ export function setGameScene(scene) {
     };
   }
 
-  console.log('🎮 Game scene reference set with draw, bid, and trick handlers');
+  // Attach EffectsManager to the scene if not already present
+  if (!scene.effectsManager) {
+    scene.effectsManager = new EffectsManager(scene);
+    console.log('🎮 EffectsManager attached to scene');
+  }
+
+  // Add handler methods for hand/game end events
+  if (!scene.handleHandComplete) {
+    scene.handleHandComplete = function(data) {
+      console.log('🎮 Legacy scene handleHandComplete');
+      const gameState = getGameState();
+      // Reset effects for new hand
+      if (this.effectsManager) {
+        this.effectsManager.resetForNewHand();
+      }
+      // Reset trick manager for new hand
+      if (this.trickManager) {
+        this.trickManager.resetForNewHand();
+      }
+    };
+  }
+
+  if (!scene.handleGameEnd) {
+    scene.handleGameEnd = function(data) {
+      console.log('🎮 Legacy scene handleGameEnd');
+      // Clear effects
+      if (this.effectsManager) {
+        this.effectsManager.clearAll();
+      }
+    };
+  }
+
+  if (!scene.handleRainbow) {
+    scene.handleRainbow = function(data) {
+      console.log('🎮 Legacy scene handleRainbow');
+      const gameState = getGameState();
+      // Set player position in effects manager if needed
+      if (this.effectsManager && gameState.position) {
+        this.effectsManager.setPlayerPosition(gameState.position);
+        this.effectsManager.showRainbow(data.position);
+      }
+    };
+  }
+
+  if (!scene.handleDestroyHands) {
+    scene.handleDestroyHands = function(data) {
+      console.log('🎮 Legacy scene handleDestroyHands');
+      // Clear trick displays
+      if (this.trickManager) {
+        this.trickManager.clearAll();
+      }
+    };
+  }
+
+  console.log('🎮 Game scene reference set with all handlers');
 }
 
 /**
