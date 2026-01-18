@@ -170,7 +170,33 @@ export function setGameScene(scene) {
     };
   }
 
-  console.log('🎮 Game scene reference set with draw and bid handlers');
+  // Attach TrickManager to the scene if not already present
+  if (!scene.trickManager) {
+    scene.trickManager = new TrickManager(scene);
+    console.log('🎮 TrickManager attached to scene');
+  }
+
+  // Add handler methods to the scene for card play
+  if (!scene.handleCardPlayed) {
+    scene.handleCardPlayed = function(data) {
+      console.log('🎮 Legacy scene handleCardPlayed');
+      const gameState = getGameState();
+      // Initialize TrickManager position if needed
+      if (this.trickManager && gameState.position) {
+        this.trickManager.setPlayerPosition(gameState.position);
+        this.trickManager.updatePlayPositions();
+      }
+    };
+  }
+
+  if (!scene.handleTrickComplete) {
+    scene.handleTrickComplete = function(data) {
+      console.log('🎮 Legacy scene handleTrickComplete');
+      // Note: Legacy code handles trick collection animation
+    };
+  }
+
+  console.log('🎮 Game scene reference set with draw, bid, and trick handlers');
 }
 
 /**
