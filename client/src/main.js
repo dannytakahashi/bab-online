@@ -45,6 +45,7 @@ import { DrawManager } from './phaser/managers/DrawManager.js';
 import { BidManager } from './phaser/managers/BidManager.js';
 import { LayoutManager } from './phaser/managers/LayoutManager.js';
 import { GameScene } from './phaser/scenes/GameScene.js';
+import { createPhaserGame, getPhaserGame, destroyPhaserGame } from './phaser/PhaserGame.js';
 
 // Handlers
 import {
@@ -70,6 +71,9 @@ let gameSceneRef = null;
  */
 export function setGameScene(scene) {
   gameSceneRef = scene;
+
+  // Also set window.gameScene for legacy game.js compatibility
+  window.gameScene = scene;
 
   // Handle tab visibility change - reposition elements when tab becomes visible
   // This fixes card positioning issues on background tabs during game start
@@ -890,6 +894,9 @@ window.ModernUtils = {
   BidManager,
   LayoutManager,
   GameScene,
+  createPhaserGame,
+  getPhaserGame,
+  destroyPhaserGame,
 
   // Handlers
   registerAllHandlers,
@@ -1452,6 +1459,7 @@ function initializeApp() {
       }
 
       // Create game feed (via legacy function)
+      // This adds .in-game class and triggers initial repositioning
       if (window.createGameFeedFromLegacy) {
         window.createGameFeedFromLegacy(false);
       }
@@ -1460,6 +1468,7 @@ function initializeApp() {
       if (scene && !scene.handElements) {
         scene.handElements = [];
       }
+      // Note: Resize is handled by createGameFeed via scale.resize()
     },
     // Bidding phase - call GameScene handlers plus legacy code
     onBidReceived: (data) => {
@@ -1708,6 +1717,9 @@ function displayRegisterScreen(prefillUsername = '', prefillPassword = '') {
 window.addEventListener('load', () => {
   // Initialize the app
   initializeApp();
+
+  // Create the Phaser game - GameScene.create() will call setGameScene
+  createPhaserGame('game-container');
 
   // Check if user is logged in and was in a game
   const username = sessionStorage.getItem('username');
