@@ -463,6 +463,67 @@ export function setGameScene(scene) {
     };
   }
 
+  // Add game log handlers
+  if (!scene.handleShowGameLog) {
+    scene.handleShowGameLog = function(options = {}) {
+      console.log('🎮 Legacy scene handleShowGameLog');
+      // Store log instance on scene for later use
+      if (!this._gameLog) {
+        this._gameLog = showGameLog({
+          onChatSubmit: options.onChatSubmit || ((msg) => {
+            if (window.socket) {
+              window.socket.emit('chatMessage', { message: msg });
+            }
+          }),
+        });
+      }
+      return this._gameLog;
+    };
+  }
+
+  if (!scene.handleAddToGameFeed) {
+    scene.handleAddToGameFeed = function(message, isSystem = true) {
+      console.log('🎮 Legacy scene handleAddToGameFeed');
+      if (this._gameLog) {
+        if (isSystem) {
+          this._gameLog.addSystemMessage(message);
+        } else {
+          this._gameLog.addMessage('Game', message);
+        }
+      }
+    };
+  }
+
+  if (!scene.handleUpdateGameLogScores) {
+    scene.handleUpdateGameLogScores = function(teamScore, oppScore) {
+      console.log('🎮 Legacy scene handleUpdateGameLogScores');
+      if (this._gameLog) {
+        this._gameLog.updateScores(teamScore, oppScore);
+      }
+    };
+  }
+
+  if (!scene.handleHideGameLog) {
+    scene.handleHideGameLog = function() {
+      console.log('🎮 Legacy scene handleHideGameLog');
+      if (this._gameLog) {
+        this._gameLog.destroy();
+        this._gameLog = null;
+      }
+    };
+  }
+
+  // Add chat bubble handler
+  if (!scene.handleShowChatBubble) {
+    scene.handleShowChatBubble = function(positionKey, message, color, duration) {
+      console.log('🎮 Legacy scene handleShowChatBubble');
+      const bubblePos = getBubblePosition(positionKey, this.scale.width, this.scale.height);
+      if (bubblePos) {
+        showChatBubble(this, positionKey, bubblePos.x, bubblePos.y, message, color, duration);
+      }
+    };
+  }
+
   console.log('🎮 Game scene reference set with all handlers');
 }
 
