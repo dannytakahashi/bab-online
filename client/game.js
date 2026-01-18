@@ -74,13 +74,13 @@ function processRejoin(data) {
     }
 
     // Create game UI elements (pass true to indicate reconnection)
-    createGameFeed(true);
+    window.createGameFeedFromLegacy(true);
 
     // Restore game log history from server
     if (data.gameLog && data.gameLog.length > 0) {
         console.log(`🔄 Restoring ${data.gameLog.length} game log entries`);
         data.gameLog.forEach(entry => {
-            addToGameFeed(entry.message, entry.playerPosition, entry.timestamp);
+            window.addToGameFeedFromLegacy(entry.message, entry.playerPosition, entry.timestamp);
         });
     }
 
@@ -92,9 +92,9 @@ function processRejoin(data) {
 
     // Update score display in game log
     if (position % 2 !== 0) {
-        updateGameLogScore(myUsername + "/" + partner, opp1 + "/" + opp2, score1, score2);
+        window.updateGameLogScoreFromLegacy(myUsername + "/" + partner, opp1 + "/" + opp2, score1, score2);
     } else {
-        updateGameLogScore(myUsername + "/" + partner, opp1 + "/" + opp2, score2, score1);
+        window.updateGameLogScoreFromLegacy(myUsername + "/" + partner, opp1 + "/" + opp2, score2, score1);
     }
 
     // Create player info box
@@ -182,7 +182,7 @@ function processRejoin(data) {
         }
     }
 
-    addToGameFeed("Reconnected to game!");
+    window.addToGameFeedFromLegacy("Reconnected to game!");
 }
 
 document.addEventListener("rejoinSuccess", (event) => {
@@ -208,7 +208,7 @@ document.addEventListener("rejoinFailed", (event) => {
 document.addEventListener("playerReconnected", (event) => {
     let data = event.detail;
     console.log(`🔄 Player ${data.username} at position ${data.position} reconnected`);
-    addToGameFeed(`${data.username} reconnected`);
+    window.addToGameFeedFromLegacy(`${data.username} reconnected`);
 });
 
 // Handle player disconnect notification (from server)
@@ -218,7 +218,7 @@ socket.on("playerDisconnected", (data) => {
     if (gameScene && gameScene.handleAddToGameFeed) {
         gameScene.handleAddToGameFeed(`${data.username} disconnected - waiting for reconnection...`);
     } else {
-        addToGameFeed(`${data.username} disconnected - waiting for reconnection...`);
+        window.addToGameFeedFromLegacy(`${data.username} disconnected - waiting for reconnection...`);
     }
 });
 
@@ -796,10 +796,10 @@ function processGameStart(data) {
         opp2 = playerData.username[playerData.position.indexOf(rotate(rotate(rotate(position))))].username;
         // Update score in game log instead of old scorebug
         if(position % 2 !== 0){
-            updateGameLogScore(myUsername + "/" + partner, opp1 + "/" + opp2, score1, score2);
+            window.updateGameLogScoreFromLegacy(myUsername + "/" + partner, opp1 + "/" + opp2, score1, score2);
         }
         else{
-            updateGameLogScore(myUsername + "/" + partner, opp1 + "/" + opp2, score2, score1);
+            window.updateGameLogScoreFromLegacy(myUsername + "/" + partner, opp1 + "/" + opp2, score2, score1);
         }
         if(!playerInfo){
             playerInfo = createPlayerInfoBox(); // Store the reference
@@ -861,192 +861,8 @@ function getCardImageKey(card) {
 // (ranks variable already declared at top, will be populated lazily)
 var opponentCardSprites = {};
 var tableCardSprite;
-function createGameFeed(isReconnection = false) {
-    let feedCheck = document.getElementById("gameFeed");
-    if(feedCheck){
-        console.log("feed already exists, ensuring layout is correct...");
-        // Still need to ensure .in-game class even if feed exists
-        document.getElementById('game-container').classList.add('in-game');
-        // Phaser's RESIZE mode handles container changes automatically
-        return;
-    }
-    console.log("Creating game feed...");
-
-    // Create main container using CSS class for full right column
-    let feedContainer = document.createElement("div");
-    feedContainer.id = "gameFeed";
-    feedContainer.classList.add("chat-container", "ui-element");
-
-    // Header
-    let header = document.createElement("div");
-    header.classList.add("chat-header");
-    header.innerText = "Game Log";
-    feedContainer.appendChild(header);
-
-    // Score display section (inside game log)
-    let scoreSection = document.createElement("div");
-    scoreSection.id = "gameLogScore";
-    scoreSection.style.padding = "10px";
-    scoreSection.style.borderBottom = "1px solid #333";
-    scoreSection.style.display = "flex";
-    scoreSection.style.justifyContent = "space-around";
-    scoreSection.style.background = "rgba(0,0,0,0.3)";
-
-    let teamScoreDiv = document.createElement("div");
-    teamScoreDiv.id = "teamScoreDisplay";
-    teamScoreDiv.style.textAlign = "center";
-    teamScoreDiv.style.color = "#4ade80";
-    teamScoreDiv.innerHTML = '<div style="font-size:12px;color:#888;">Your Team</div><div style="font-size:20px;font-weight:bold;">0</div><div style="font-size:11px;color:#aaa;">Tricks: 0</div>';
-
-    let oppScoreDiv = document.createElement("div");
-    oppScoreDiv.id = "oppScoreDisplay";
-    oppScoreDiv.style.textAlign = "center";
-    oppScoreDiv.style.color = "#f87171";
-    oppScoreDiv.innerHTML = '<div style="font-size:12px;color:#888;">Opponents</div><div style="font-size:20px;font-weight:bold;">0</div><div style="font-size:11px;color:#aaa;">Tricks: 0</div>';
-
-    scoreSection.appendChild(teamScoreDiv);
-    scoreSection.appendChild(oppScoreDiv);
-    feedContainer.appendChild(scoreSection);
-
-    // Messages area
-    let messagesArea = document.createElement("div");
-    messagesArea.id = "gameFeedMessages";
-    messagesArea.classList.add("chat-messages");
-    feedContainer.appendChild(messagesArea);
-
-    // Chat input container
-    let inputContainer = document.createElement("div");
-    inputContainer.classList.add("chat-input-container");
-
-    let chatInput = document.createElement("input");
-    chatInput.type = "text";
-    chatInput.id = "chatInput";
-    chatInput.classList.add("chat-input");
-    chatInput.placeholder = "Type a message...";
-
-    let sendBtn = document.createElement("button");
-    sendBtn.classList.add("chat-send");
-    sendBtn.innerText = "Send";
-
-    inputContainer.appendChild(chatInput);
-    inputContainer.appendChild(sendBtn);
-    feedContainer.appendChild(inputContainer);
-
-    document.body.appendChild(feedContainer);
-
-    // Handle sending messages
-    function sendMessage() {
-        let message = chatInput.value.trim();
-        if (message !== "") {
-            console.log("Sending message:", message);
-            socket.emit("chatMessage", { message });
-            chatInput.value = "";
-        }
-    }
-
-    sendBtn.addEventListener("click", sendMessage);
-    chatInput.addEventListener("keydown", (event) => {
-        if (event.key === "Enter") {
-            sendMessage();
-        }
-    });
-
-    // Add initial message only for fresh games, not reconnections
-    if (!isReconnection) {
-        addToGameFeed("Game started!");
-    }
-
-    // Restrict game container width to make room for game log
-    document.getElementById('game-container').classList.add('in-game');
-
-    // Force Phaser to resize after container width change
-    // Use requestAnimationFrame to ensure DOM has repainted with new layout
-    requestAnimationFrame(() => {
-        const container = document.getElementById('game-container');
-        if (container && gameScene?.game?.scale) {
-            const newWidth = container.clientWidth;
-            const newHeight = container.clientHeight;
-            // Resize the scale manager - this triggers GameScene.handleResize
-            gameScene.game.scale.resize(newWidth, newHeight);
-            if (gameScene.game.renderer?.resize) {
-                gameScene.game.renderer.resize(newWidth, newHeight);
-            }
-        }
-    });
-
-    // Backup resize listener removed - Phaser's scale manager handles resize via GameScene.handleResize
-    // The old backup handler was causing infinite recursion by calling scale.resize()
-}
-function addToGameFeed(message, playerPosition = null, serverTimestamp = null) {
-    let messagesArea = document.getElementById("gameFeedMessages");
-
-    if (!messagesArea) {
-        console.warn("Game feed messages area not found!");
-        return;
-    }
-
-    // Use server timestamp if provided, otherwise current time
-    const now = serverTimestamp ? new Date(serverTimestamp) : new Date();
-    const timestamp = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-    // Create a new message element using CSS classes
-    let messageElement = document.createElement("div");
-    messageElement.classList.add("chat-message");
-    if (playerPosition === null) {
-        messageElement.classList.add("system");
-    }
-
-    // Add timestamp
-    let timeSpan = document.createElement("span");
-    timeSpan.innerText = `[${timestamp}] `;
-    timeSpan.style.color = "#888";
-    timeSpan.style.fontSize = "11px";
-    timeSpan.style.marginRight = "4px";
-    messageElement.appendChild(timeSpan);
-
-    // Add message with player color if position provided
-    let msgSpan = document.createElement("span");
-    msgSpan.classList.add("text");
-    msgSpan.innerText = message;
-    if (playerPosition !== null) {
-        // Team 1 (positions 1, 3) = blue, Team 2 (positions 2, 4) = red
-        if (playerPosition === 1 || playerPosition === 3) {
-            msgSpan.style.color = "#63b3ed";
-        } else {
-            msgSpan.style.color = "#fc8181";
-        }
-    }
-    messageElement.appendChild(msgSpan);
-
-    // Add the message at the bottom
-    messagesArea.appendChild(messageElement);
-
-    // Scroll to the latest message
-    messagesArea.scrollTop = messagesArea.scrollHeight;
-}
-
-/**
- * Update the score display in the game log
- * @param {string} teamNames - e.g. "test1/test3"
- * @param {string} oppNames - e.g. "test2/test4"
- * @param {number} teamScore - Your team's score
- * @param {number} oppScore - Opponent's score
- * @param {string} teamBids - Optional bid info e.g. "2/3"
- * @param {string} oppBids - Optional bid info e.g. "1/4"
- * @param {number} teamTricks - Optional tricks won
- * @param {number} oppTricks - Optional tricks won
- */
-function updateGameLogScore(teamNames, oppNames, teamScore, oppScore, teamBids = "-/-", oppBids = "-/-", teamTricks = 0, oppTricks = 0) {
-    let teamDiv = document.getElementById("teamScoreDisplay");
-    let oppDiv = document.getElementById("oppScoreDisplay");
-
-    if (teamDiv) {
-        teamDiv.innerHTML = `<div style="font-size:11px;color:#888;">${teamNames}</div><div style="font-size:20px;font-weight:bold;">${teamScore}</div><div style="font-size:11px;color:#aaa;">Bids: ${teamBids} | Tricks: ${teamTricks}</div>`;
-    }
-    if (oppDiv) {
-        oppDiv.innerHTML = `<div style="font-size:11px;color:#888;">${oppNames}</div><div style="font-size:20px;font-weight:bold;">${oppScore}</div><div style="font-size:11px;color:#aaa;">Bids: ${oppBids} | Tricks: ${oppTricks}</div>`;
-    }
-}
+// NOTE: createGameFeed, addToGameFeed, updateGameLogScore moved to modular GameLog.js
+// Now provided via window.*FromLegacy bridges from main.js
 
 function addOpponentGlow(scene, relation){
     // Use CSS class on DOM avatar element for consistent glow effect
@@ -1286,11 +1102,11 @@ socket.on("gameEnd", (data) => {
         teamScore: teamScore,
         oppScore: oppScore,
     });
-    messages.forEach(msg => addToGameFeed(msg));
+    messages.forEach(msg => window.addToGameFeedFromLegacy(msg));
 
     // Update game log score display
     const { teamName, oppName } = window.ModernUtils.getTeamNames(position, playerData);
-    updateGameLogScore(teamName, oppName, teamScore, oppScore);
+    window.updateGameLogScoreFromLegacy(teamName, oppName, teamScore, oppScore);
 
     // Show final score overlay
     window.ModernUtils.showFinalScoreOverlay({
@@ -1344,7 +1160,7 @@ socket.on("chatMessage", (data) => {
     if (gameScene && gameScene.handleAddToGameFeed) {
         gameScene.handleAddToGameFeed(`${senderName}: ${data.message}`, data.position);
     } else {
-        addToGameFeed(`${senderName}: ${data.message}`, data.position);
+        window.addToGameFeedFromLegacy(`${senderName}: ${data.message}`, data.position);
     }
 
     // Show chat bubble at appropriate position using modular handler
@@ -1382,20 +1198,7 @@ socket.on("chatMessage", (data) => {
     }
 });
 
-// Expose createGameFeed for modular code to call
-window.createGameFeedFromLegacy = function(isReconnection = false) {
-    createGameFeed(isReconnection);
-};
-
-// Expose addToGameFeed for modular code to call
-window.addToGameFeedFromLegacy = function(message, playerPosition = null) {
-    addToGameFeed(message, playerPosition);
-};
-
-// Expose updateGameLogScore for modular code to call
-window.updateGameLogScoreFromLegacy = function(teamNames, oppNames, teamScore, oppScore, teamBids, oppBids, teamTricks, oppTricks) {
-    updateGameLogScore(teamNames, oppNames, teamScore, oppScore, teamBids, oppBids, teamTricks, oppTricks);
-};
+// NOTE: window.*FromLegacy bridges now provided by main.js using modular GameLog
 
 function clearDisplayCards() {
     console.log("🗑️ Clearing all elements from displayCards...");

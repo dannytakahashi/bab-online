@@ -64,6 +64,9 @@ import {
 // Reference to the active Phaser game scene
 let gameSceneRef = null;
 
+// Reference to the modular game log instance
+let gameLogInstance = null;
+
 /**
  * Set the game scene reference (called from game.js when scene is created).
  * Also attaches DrawManager to the scene for draw phase handling.
@@ -933,6 +936,72 @@ window.ModernUtils = {
 console.log('Modular client initialized - All utilities available via window.ModernUtils');
 
 // ============================================
+// Game Log Bridges (override legacy game.js functions)
+// ============================================
+
+// Bridge for creating game feed - now uses modular GameLog
+window.createGameFeedFromLegacy = function(isReconnection = false) {
+  if (!gameLogInstance) {
+    gameLogInstance = showGameLog({
+      onChatSubmit: (message) => {
+        if (window.socket) {
+          window.socket.emit('chatMessage', { message });
+        }
+      },
+    });
+
+    // Add .in-game class to restrict game container width
+    document.getElementById('game-container')?.classList.add('in-game');
+
+    // Force Phaser resize
+    requestAnimationFrame(() => {
+      const container = document.getElementById('game-container');
+      if (container && gameSceneRef?.game?.scale) {
+        const newWidth = container.clientWidth;
+        const newHeight = container.clientHeight;
+        gameSceneRef.game.scale.resize(newWidth, newHeight);
+      }
+    });
+
+    if (!isReconnection) {
+      gameLogInstance.addGameMessage('Game started!');
+    }
+  }
+};
+
+// Bridge for adding messages to game feed
+window.addToGameFeedFromLegacy = function(message, playerPosition = null) {
+  if (gameLogInstance && gameLogInstance.addGameMessage) {
+    gameLogInstance.addGameMessage(message, playerPosition);
+  } else {
+    console.warn('Game log not initialized, message dropped:', message);
+  }
+};
+
+// Bridge for updating game log score display
+window.updateGameLogScoreFromLegacy = function(teamNames, oppNames, teamScore, oppScore, teamBids = '-/-', oppBids = '-/-', teamTricks = 0, oppTricks = 0) {
+  if (gameLogInstance && gameLogInstance.updateFullScore) {
+    gameLogInstance.updateFullScore(teamNames, oppNames, teamScore, oppScore, teamBids, oppBids, teamTricks, oppTricks);
+  } else {
+    console.warn('Game log not initialized, score update dropped');
+  }
+};
+
+// Export getter for game log instance
+export function getGameLogInstance() {
+  return gameLogInstance;
+}
+
+// Export function to destroy game log (for cleanup)
+export function destroyGameLog() {
+  if (gameLogInstance) {
+    gameLogInstance.destroy();
+    gameLogInstance = null;
+  }
+  document.getElementById('game-container')?.classList.remove('in-game');
+}
+
+// ============================================
 // Application Initialization
 // ============================================
 
@@ -1458,17 +1527,41 @@ function initializeApp() {
         scene.handleCreateUI(data);
       }
 
-      // Create game feed (via legacy function)
-      // This adds .in-game class and triggers initial repositioning
-      if (window.createGameFeedFromLegacy) {
-        window.createGameFeedFromLegacy(false);
+      // Create game feed using modular GameLog
+      if (!gameLogInstance) {
+        gameLogInstance = showGameLog({
+          onChatSubmit: (message) => {
+            const socket = getSocketManager()?.getSocket();
+            if (socket) {
+              socket.emit('chatMessage', { message });
+            }
+          },
+        });
+
+        // Add .in-game class to restrict game container width for game log
+        document.getElementById('game-container')?.classList.add('in-game');
+
+        // Force Phaser to resize after container width change
+        requestAnimationFrame(() => {
+          const container = document.getElementById('game-container');
+          if (container && scene?.game?.scale) {
+            const newWidth = container.clientWidth;
+            const newHeight = container.clientHeight;
+            scene.game.scale.resize(newWidth, newHeight);
+            if (scene.game.renderer?.resize) {
+              scene.game.renderer.resize(newWidth, newHeight);
+            }
+          }
+        });
+
+        // Add initial message
+        gameLogInstance.addGameMessage('Game started!');
       }
 
       // Initialize scene handElements if needed
       if (scene && !scene.handElements) {
         scene.handElements = [];
       }
-      // Note: Resize is handled by createGameFeed via scale.resize()
     },
     // Bidding phase - call GameScene handlers plus legacy code
     onBidReceived: (data) => {
