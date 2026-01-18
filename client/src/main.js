@@ -176,9 +176,46 @@ export function setGameScene(scene) {
     scene.handleUpdateTurn = function(data) {
       console.log('🎮 Legacy scene handleUpdateTurn');
       const gameState = getGameState();
+      const currentTurn = data.currentTurn || data.turn;
+
+      // Update player turn glow via CardManager
+      if (this.cardManager && gameState.position) {
+        this.cardManager.updatePlayerTurnGlow(currentTurn, gameState.position);
+      }
+
+      // Update opponent turn glow via OpponentManager
+      if (this.opponentManager && gameState.position) {
+        this.opponentManager.setPlayerPosition(gameState.position);
+        this.opponentManager.updateTurnGlow(currentTurn);
+      }
+
       // Update bid UI visibility during bidding phase
       if (this.bidManager && gameState.isBidding) {
         this.bidManager.updateVisibility();
+      }
+
+      // Update card legality via CardManager
+      if (this.cardManager && gameState.position) {
+        const canPlay = !gameState.isBidding &&
+                        currentTurn === gameState.position &&
+                        !gameState.hasPlayedCard;
+
+        // Create legality checker using game state
+        const legalityChecker = (card) => {
+          const result = isLegalMove(
+            card,
+            gameState.myCards,
+            gameState.leadCard,
+            gameState.playedCardIndex === 0,
+            gameState.trump,
+            gameState.trumpBroken,
+            gameState.position,
+            gameState.leadPosition
+          );
+          return result.legal;
+        };
+
+        this.cardManager.updateCardLegality(legalityChecker, canPlay);
       }
     };
   }
@@ -194,10 +231,80 @@ export function setGameScene(scene) {
     scene.handleCardPlayed = function(data) {
       console.log('🎮 Legacy scene handleCardPlayed');
       const gameState = getGameState();
+
       // Initialize TrickManager position if needed
       if (this.trickManager && gameState.position) {
         this.trickManager.setPlayerPosition(gameState.position);
         this.trickManager.updatePlayPositions();
+      }
+
+      // Handle card animation via TrickManager
+      if (this.trickManager && this.opponentManager && gameState.position) {
+        const cardKey = getCardImageKey(data.card);
+        const relativeKey = this.trickManager.getRelativePositionKey(data.position);
+
+        if (relativeKey === 'self') {
+          // Self play - just add card at play position (card already removed from hand)
+          this.trickManager.addPlayedCard(data.card, data.position, null, true);
+        } else if (relativeKey) {
+          // Opponent play - get sprite from OpponentManager, animate to center, reveal card
+          const opponentId = relativeKey === 'opponent1' ? 'opp1' :
+                             relativeKey === 'opponent2' ? 'opp2' : 'partner';
+          const sprite = this.opponentManager.removeCard(opponentId);
+
+          if (sprite) {
+            const playPos = this.trickManager.getPlayPosition(relativeKey);
+
+            // Animate card back to play position, then reveal card
+            if (this.trickManager.isVisible()) {
+              this.tweens.add({
+                targets: sprite,
+                x: playPos.x,
+                y: playPos.y,
+                duration: 500,
+                ease: 'Power2',
+                rotation: 0,
+                scale: 1.5,
+                onComplete: () => {
+                  sprite.setTexture('cards', cardKey);
+                  sprite.setDepth(200);
+                },
+              });
+            } else {
+              sprite.x = playPos.x;
+              sprite.y = playPos.y;
+              sprite.setTexture('cards', cardKey);
+              sprite.setDepth(200);
+              sprite.setScale(1.5);
+              sprite.setRotation(0);
+            }
+
+            sprite.setData('playPosition', relativeKey);
+            this.trickManager._currentTrick.push(sprite);
+          }
+        }
+      }
+
+      // Update card legality when lead card is set (first card of trick)
+      if (this.cardManager && gameState.position && gameState.playedCardIndex === 1) {
+        // Lead card was just played, update legality for following cards
+        const canPlay = gameState.currentTurn === gameState.position && !gameState.hasPlayedCard;
+
+        const legalityChecker = (card) => {
+          const result = isLegalMove(
+            card,
+            gameState.myCards,
+            gameState.leadCard,
+            false, // Not leading since lead was just played
+            gameState.trump,
+            gameState.trumpBroken,
+            gameState.position,
+            gameState.leadPosition
+          );
+          return result.legal;
+        };
+
+        this.cardManager.updateCardLegality(legalityChecker, canPlay);
       }
     };
   }
@@ -205,7 +312,23 @@ export function setGameScene(scene) {
   if (!scene.handleTrickComplete) {
     scene.handleTrickComplete = function(data) {
       console.log('🎮 Legacy scene handleTrickComplete');
-      // Note: Legacy code handles trick collection animation
+      const gameState = getGameState();
+
+      // Use TrickManager for trick collection animation
+      if (this.trickManager && gameState.position) {
+        const isMyTeam = data.winner % 2 === gameState.position % 2;
+        this.trickManager.completeTrick(data.winner, isMyTeam);
+      }
+
+      // Add to game feed
+      if (this.handleAddToGameFeed) {
+        this.handleAddToGameFeed(`Trick won by ${getPlayerName(data.winner)}.`);
+      }
+
+      // Update game log scores (trick counts)
+      if (this.handleUpdateGameLogTricks) {
+        this.handleUpdateGameLogTricks(gameState.teamTricks, gameState.oppTricks);
+      }
     };
   }
 
@@ -371,6 +494,89 @@ export function setGameScene(scene) {
     };
   }
 
+  // Add hand display handler that wires CardManager with game logic
+  if (!scene.handleDisplayHand) {
+    scene.handleDisplayHand = function(cards, skipAnimation = false) {
+      console.log('🎮 Legacy scene handleDisplayHand', cards?.length, 'cards, skipAnimation:', skipAnimation);
+      if (!this.cardManager || !cards || cards.length === 0) return;
+
+      const gameState = getGameState();
+      const socket = window.socket;
+
+      // Sort cards by trump before displaying
+      const sortedCards = sortHand([...cards], gameState.trump);
+
+      // Set up click handler for playing cards
+      this.cardManager.setCardClickHandler((card, sprite) => {
+        console.log(`🃏 Card clicked: ${card.rank} of ${card.suit}`);
+
+        // Only allow playing if the card is marked as legal
+        if (!sprite.getData('isLegal')) {
+          console.log('Illegal move - card is disabled!');
+          return;
+        }
+
+        // Set lead card if first play of trick
+        if (gameState.playedCardIndex === 0) {
+          gameState.leadCard = card;
+          gameState.leadPosition = gameState.position;
+        }
+
+        // Play the card via socket
+        if (socket) {
+          socket.emit('playCard', { card, position: gameState.position });
+        }
+
+        // Mark that we've played a card (for legality checks)
+        gameState.hasPlayedCard = true;
+
+        // Update trump broken status
+        if (card.suit === gameState.trump?.suit || card.suit === 'joker') {
+          gameState.trumpBroken = true;
+        }
+
+        // Remove card from hand display
+        this.cardManager.removeCard(card);
+
+        // Also remove from gameState using optimistic update
+        gameState.optimisticPlayCard(card);
+      });
+
+      // Display the sorted hand
+      this.cardManager.displayHand(sortedCards, { animate: !skipAnimation });
+
+      // Update card legality based on current game state
+      const canPlay = !gameState.isBidding &&
+                      gameState.currentTurn === gameState.position &&
+                      !gameState.hasPlayedCard;
+
+      console.log('🎮 handleDisplayHand legality check:', {
+        isBidding: gameState.isBidding,
+        currentTurn: gameState.currentTurn,
+        position: gameState.position,
+        hasPlayedCard: gameState.hasPlayedCard,
+        canPlay,
+        scaleWidth: this._scene?.scale?.width,
+      });
+
+      const legalityChecker = (card) => {
+        const result = isLegalMove(
+          card,
+          gameState.myCards,
+          gameState.leadCard,
+          gameState.playedCardIndex === 0,
+          gameState.trump,
+          gameState.trumpBroken,
+          gameState.position,
+          gameState.leadPosition
+        );
+        return result.legal;
+      };
+
+      this.cardManager.updateCardLegality(legalityChecker, canPlay);
+    };
+  }
+
   // Add trump card display handler
   if (!scene.handleDisplayTrump) {
     scene.handleDisplayTrump = function(card) {
@@ -482,14 +688,14 @@ export function setGameScene(scene) {
   }
 
   if (!scene.handleAddToGameFeed) {
-    scene.handleAddToGameFeed = function(message, isSystem = true) {
+    scene.handleAddToGameFeed = function(message, playerPosition = null) {
       console.log('🎮 Legacy scene handleAddToGameFeed');
-      if (this._gameLog) {
-        if (isSystem) {
-          this._gameLog.addSystemMessage(message);
-        } else {
-          this._gameLog.addMessage('Game', message);
-        }
+      // Use modular GameLog if available
+      if (this._gameLog && this._gameLog.addGameMessage) {
+        this._gameLog.addGameMessage(message, playerPosition);
+      } else if (window.addToGameFeedFromLegacy) {
+        // Fall back to legacy function
+        window.addToGameFeedFromLegacy(message, playerPosition);
       }
     };
   }
@@ -499,6 +705,15 @@ export function setGameScene(scene) {
       console.log('🎮 Legacy scene handleUpdateGameLogScores');
       if (this._gameLog) {
         this._gameLog.updateScores(teamScore, oppScore);
+      }
+    };
+  }
+
+  if (!scene.handleUpdateGameLogTricks) {
+    scene.handleUpdateGameLogTricks = function(teamTricks, oppTricks) {
+      console.log('🎮 Legacy scene handleUpdateGameLogTricks');
+      if (this._gameLog && this._gameLog.updateTricks) {
+        this._gameLog.updateTricks(teamTricks, oppTricks);
       }
     };
   }
@@ -515,11 +730,11 @@ export function setGameScene(scene) {
 
   // Add chat bubble handler
   if (!scene.handleShowChatBubble) {
-    scene.handleShowChatBubble = function(positionKey, message, color, duration) {
-      console.log('🎮 Legacy scene handleShowChatBubble');
-      const bubblePos = getBubblePosition(positionKey, this.scale.width, this.scale.height);
+    scene.handleShowChatBubble = function(playerPosition, messagePosition, message, color, duration) {
+      console.log('🎮 Legacy scene handleShowChatBubble', { playerPosition, messagePosition, message });
+      const bubblePos = getBubblePosition(this, playerPosition, messagePosition);
       if (bubblePos) {
-        showChatBubble(this, positionKey, bubblePos.x, bubblePos.y, message, color, duration);
+        showChatBubble(this, bubblePos.positionKey, bubblePos.x, bubblePos.y, message, color, duration);
       }
     };
   }
@@ -1136,6 +1351,38 @@ function initializeApp() {
       }
       gameState.phase = PHASE.BIDDING;
       gameState.isBidding = true;
+
+      // Initialize all managers with player position
+      const scene = getGameScene();
+      if (scene && data.position) {
+        if (scene.trickManager) {
+          scene.trickManager.setPlayerPosition(data.position);
+          scene.trickManager.updatePlayPositions();
+        }
+        if (scene.opponentManager) {
+          scene.opponentManager.setPlayerPosition(data.position);
+        }
+        if (scene.effectsManager) {
+          scene.effectsManager.setPlayerPosition(data.position);
+        }
+
+        // Display player hand via CardManager
+        if (scene.handleDisplayHand && data.hand) {
+          scene.handleDisplayHand(data.hand, false);
+        }
+
+        // Display opponent hands via OpponentManager
+        // Note: skip animation to avoid conflicts with resize events during game start
+        if (scene.handleDisplayOpponentHands && data.hand) {
+          scene.handleDisplayOpponentHands(
+            data.hand.length,
+            data.dealer,
+            gameState.playerData,
+            true // skip animation - resize events interfere with tweens
+          );
+        }
+      }
+
       // Call legacy processing for rendering
       if (window.processGameStartFromLegacy) {
         window.processGameStartFromLegacy(data);
@@ -1294,7 +1541,74 @@ function initializeApp() {
       }
     },
     onRejoinSuccess: (data) => {
+      // Update GameState from rejoin data first
+      if (data.position) gameState.position = data.position;
+      if (data.hand) gameState.setCards(data.hand);
+      if (data.trump) gameState.setTrump(data.trump);
+      if (data.dealer !== undefined) gameState.dealer = data.dealer;
+      if (data.currentTurn !== undefined) gameState.setCurrentTurn(data.currentTurn);
+      // Server sends 'bidding', client uses 'isBidding'
+      const bidding = data.isBidding !== undefined ? data.isBidding : data.bidding;
+      if (bidding !== undefined) {
+        gameState.isBidding = bidding;
+        gameState.phase = bidding ? PHASE.BIDDING : PHASE.PLAYING;
+      }
+      // Extract lead card and played count from playedCards array
+      if (data.playedCards && Array.isArray(data.playedCards)) {
+        let foundLead = false;
+        let playedCount = 0;
+        data.playedCards.forEach((card, index) => {
+          if (card) {
+            playedCount++;
+            if (!foundLead) {
+              gameState.leadCard = card;
+              gameState.leadPosition = index + 1; // positions are 1-indexed
+              foundLead = true;
+            }
+          }
+        });
+        gameState.playedCardIndex = playedCount;
+      } else {
+        if (data.leadCard) gameState.leadCard = data.leadCard;
+        if (data.leadPosition !== undefined) gameState.leadPosition = data.leadPosition;
+        if (data.playedCardIndex !== undefined) gameState.playedCardIndex = data.playedCardIndex;
+      }
+      // Server uses isTrumpBroken, client uses trumpBroken
+      const trumpBroken = data.trumpBroken !== undefined ? data.trumpBroken : data.isTrumpBroken;
+      if (trumpBroken !== undefined) gameState.trumpBroken = trumpBroken;
+      gameState.hasPlayedCard = false; // Reset for current trick
+
+      // Initialize managers with player position for reconnection
       const scene = getGameScene();
+      if (scene && data.position) {
+        if (scene.trickManager) {
+          scene.trickManager.setPlayerPosition(data.position);
+          scene.trickManager.updatePlayPositions();
+        }
+        if (scene.opponentManager) {
+          scene.opponentManager.setPlayerPosition(data.position);
+        }
+        if (scene.effectsManager) {
+          scene.effectsManager.setPlayerPosition(data.position);
+        }
+
+        // Display player hand via CardManager (skip animation on rejoin)
+        if (scene.handleDisplayHand && data.hand) {
+          scene.handleDisplayHand(data.hand, true);
+        }
+
+        // Display opponent hands via OpponentManager (skip animation on rejoin)
+        if (scene.handleDisplayOpponentHands && data.hand) {
+          scene.handleDisplayOpponentHands(
+            data.hand.length,
+            data.dealer,
+            gameState.playerData,
+            true // skip animation on rejoin
+          );
+        }
+      }
+
+      // Call scene handler for any additional rejoin logic
       if (scene && scene.handleRejoinSuccess) {
         scene.handleRejoinSuccess(data);
       }

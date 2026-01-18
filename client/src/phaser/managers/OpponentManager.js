@@ -139,25 +139,29 @@ export class OpponentManager {
           rotation = opponentId === 'opp1' ? -Math.PI / 2 : Math.PI / 2;
         }
 
-        // Create card back sprite
+        // Create card back sprite (scale 1.2 matches legacy final scale)
         const sprite = scene.add.image(x, y, 'cardBack');
-        sprite.setScale(0.5);
+        sprite.setScale(1.2);
         sprite.setRotation(rotation);
         sprite.setDepth(100 + i);
 
         if (!skipAnimation) {
-          // Animate from center
-          sprite.setPosition(scene.scale.width / 2, scene.scale.height / 2);
-          sprite.setScale(0);
-          sprite.setAlpha(0);
+          // Animate from upper right (matches legacy starting position)
+          const startX = scene.scale.width / 2 + 500 * scaleX;
+          const startY = scene.scale.height / 2 - 300 * scaleY;
+          sprite.setPosition(startX, startY);
+          sprite.setScale(1.5); // Start larger, animate to 1.2
+          sprite.setAlpha(1);
+          sprite.setRotation(0);
 
           scene.tweens.add({
             targets: sprite,
             x,
             y,
-            scale: 0.5,
-            alpha: 1,
-            duration: 200,
+            scaleX: 1.2,
+            scaleY: 1.2,
+            rotation,
+            duration: 750,
             ease: 'Power2',
             delay: i * 30,
           });
@@ -212,7 +216,7 @@ export class OpponentManager {
     }
 
     this._dealerButton = scene.add.image(buttonX, buttonY, 'dealer');
-    this._dealerButton.setScale(0.15 * scaleX);
+    this._dealerButton.setScale(0.02); // Match legacy scale
     this._dealerButton.setDepth(150);
   }
 
@@ -280,6 +284,7 @@ export class OpponentManager {
 
     // Avatar image
     const img = document.createElement('img');
+    img.className = 'opponent-avatar-img';
     img.src = pic ? `assets/profile${pic}.png` : 'assets/profile1.png';
     img.alt = username;
     img.style.cssText = `
@@ -326,6 +331,34 @@ export class OpponentManager {
         dom.classList.remove('turn-glow');
       }
     });
+  }
+
+  /**
+   * Update turn glow based on current turn position.
+   * Adds glow to the appropriate opponent avatar.
+   *
+   * @param {number} currentTurn - The position (1-4) of the current turn
+   */
+  updateTurnGlow(currentTurn) {
+    this.removeTurnGlow();
+
+    if (!this._playerPosition || currentTurn === this._playerPosition) {
+      // It's the player's turn, no opponent glow needed
+      return;
+    }
+
+    // Determine which opponent has the turn
+    const partnerPos = team(this._playerPosition);
+    const opp1Pos = rotate(this._playerPosition);
+    const opp2Pos = rotate(rotate(rotate(this._playerPosition)));
+
+    if (currentTurn === partnerPos) {
+      this.addTurnGlow('partner');
+    } else if (currentTurn === opp1Pos) {
+      this.addTurnGlow('opp1');
+    } else if (currentTurn === opp2Pos) {
+      this.addTurnGlow('opp2');
+    }
   }
 
   /**

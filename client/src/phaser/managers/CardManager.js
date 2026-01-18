@@ -40,25 +40,34 @@ export class CardManager {
 
   /**
    * Calculate hand card positions.
+   * Uses same positioning logic as legacy displayCards for compatibility.
    *
    * @param {number} cardCount - Number of cards
-   * @param {number} centerX - Center X position
-   * @param {number} centerY - Center Y position
+   * @param {number} screenWidth - Screen width for scaling
    * @returns {Array} Array of { x, y } positions
    */
-  calculateHandPositions(cardCount, centerX, centerY) {
+  calculateHandPositions(cardCount, screenWidth) {
     const positions = [];
-    const { HAND_SPACING, BASE_WIDTH, SCALE } = CARD_CONFIG;
-    const cardWidth = BASE_WIDTH * SCALE;
+    const scaleFactorX = screenWidth / 1920;
 
-    // Total width of all cards with overlap
-    const totalWidth = cardWidth + (cardCount - 1) * HAND_SPACING;
-    const startX = centerX - totalWidth / 2 + cardWidth / 2;
+    // Match legacy: cardSpacing = 50 * scaleFactorX
+    const cardSpacing = 50 * scaleFactorX;
+
+    // Match legacy: totalWidth = (cardCount - 1) * cardSpacing
+    const totalWidth = (cardCount - 1) * cardSpacing;
+
+    // Match legacy: startX = (screenWidth - totalWidth) / 2
+    const startX = (screenWidth - totalWidth) / 2;
+
+    // Get Y position from scene
+    const scene = this._scene;
+    const scaleY = scene.scale.height / 953;
+    const bottomY = scene.scale.height - (135 * scaleY);
 
     for (let i = 0; i < cardCount; i++) {
       positions.push({
-        x: startX + i * HAND_SPACING,
-        y: centerY,
+        x: startX + i * cardSpacing,
+        y: bottomY,
       });
     }
 
@@ -80,22 +89,36 @@ export class CardManager {
 
     const scene = this._scene;
     const { scale } = scene;
-    const centerX = scale.width / 2;
-    const bottomY = scale.height - 100;
 
-    const positions = this.calculateHandPositions(cards.length, centerX, bottomY);
+    console.log('🃏 CardManager.displayHand dimensions:', {
+      scaleWidth: scale.width,
+      scaleHeight: scale.height,
+      cardCount: cards.length,
+    });
+
+    const positions = this.calculateHandPositions(cards.length, scale.width);
 
     cards.forEach((card, index) => {
       const pos = positions[index];
       const sprite = this._createCardSprite(card, pos.x, pos.y, animate);
       sprite.setData('card', card);
       sprite.setData('index', index);
+      sprite.setData('baseY', pos.y); // Store target Y for hover effects
+
+      // Set index-based depth so rightmost cards are on top
+      sprite.setDepth(CARD_CONFIG.Z_INDEX.HAND + index);
 
       // Make interactive
       sprite.setInteractive({ useHandCursor: true });
       this._setupCardInteraction(sprite);
 
       this._handSprites.push(sprite);
+    });
+
+    // Schedule a reposition for next frame to handle container resize timing
+    // This ensures cards are positioned correctly even if container width changes
+    scene.time.delayedCall(50, () => {
+      this.repositionHand();
     });
   }
 
@@ -136,12 +159,16 @@ export class CardManager {
    */
   _setupCardInteraction(sprite) {
     const scene = this._scene;
-    const originalY = sprite.y;
 
     sprite.on('pointerover', () => {
+      // Only apply hover effect to legal cards
+      if (!sprite.getData('isLegal')) return;
+
+      // Use stored baseY which is set after positioning is complete
+      const baseY = sprite.getData('baseY') || sprite.y;
       scene.tweens.add({
         targets: sprite,
-        y: originalY - 20,
+        y: baseY - 20,
         duration: ANIMATION_CONFIG.CARD_HOVER,
         ease: 'Power2',
       });
@@ -149,13 +176,20 @@ export class CardManager {
     });
 
     sprite.on('pointerout', () => {
+      // Only apply hover effect to legal cards
+      if (!sprite.getData('isLegal')) return;
+
+      // Use stored baseY which is set after positioning is complete
+      const baseY = sprite.getData('baseY') || sprite.y;
       scene.tweens.add({
         targets: sprite,
-        y: originalY,
+        y: baseY,
         duration: ANIMATION_CONFIG.CARD_HOVER,
         ease: 'Power2',
       });
-      sprite.setDepth(CARD_CONFIG.Z_INDEX.HAND);
+      // Use index-based depth so rightmost cards stay on top
+      const index = sprite.getData('index') || 0;
+      sprite.setDepth(CARD_CONFIG.Z_INDEX.HAND + index);
     });
 
     sprite.on('pointerdown', () => {
@@ -315,10 +349,20 @@ export class CardManager {
       const card = sprite.getData('card');
       if (!card) return;
 
+      const wasLegal = sprite.getData('isLegal');
+
       // If player can't play, dim all cards
       if (!canPlay) {
         sprite.setTint(0xaaaaaa);
         sprite.setData('isLegal', false);
+        // Reset position if card was hovered when becoming illegal
+        if (wasLegal) {
+          const baseY = sprite.getData('baseY');
+          if (baseY !== undefined) {
+            sprite.y = baseY;
+            sprite.setDepth(CARD_CONFIG.Z_INDEX.HAND);
+          }
+        }
         return;
       }
 
@@ -331,6 +375,14 @@ export class CardManager {
       } else {
         sprite.setTint(0xaaaaaa);
         sprite.setData('isLegal', false);
+        // Reset position if card was hovered when becoming illegal
+        if (wasLegal) {
+          const baseY = sprite.getData('baseY');
+          if (baseY !== undefined) {
+            sprite.y = baseY;
+            sprite.setDepth(CARD_CONFIG.Z_INDEX.HAND);
+          }
+        }
       }
     });
   }
@@ -367,21 +419,20 @@ export class CardManager {
 
     const scene = this._scene;
     const { scale } = scene;
-    const centerX = scale.width / 2;
-    const bottomY = scale.height - 100;
 
     const positions = this.calculateHandPositions(
       this._handSprites.length,
-      centerX,
-      bottomY
+      scale.width
     );
 
     this._handSprites.forEach((sprite, index) => {
       if (sprite && sprite.active) {
         sprite.x = positions[index].x;
         sprite.y = positions[index].y;
-        // Update original Y for hover effect
-        sprite.setData('originalY', positions[index].y);
+        // Update baseY for hover effect
+        sprite.setData('baseY', positions[index].y);
+        // Maintain index-based depth
+        sprite.setDepth(CARD_CONFIG.Z_INDEX.HAND + index);
       }
     });
   }
@@ -403,5 +454,42 @@ export class CardManager {
       return true;
     }
     return false;
+  }
+
+  /**
+   * Add turn glow to the player's hand border.
+   * Uses CSS class on the handBorderDom element for resize-safe glow.
+   */
+  addTurnGlow() {
+    const borderDom = document.getElementById('handBorderDom');
+    if (borderDom) {
+      borderDom.classList.add('turn-glow');
+      console.log('🟫 Added CSS turn glow to hand border.');
+    }
+  }
+
+  /**
+   * Remove turn glow from the player's hand border.
+   */
+  removeTurnGlow() {
+    const borderDom = document.getElementById('handBorderDom');
+    if (borderDom) {
+      borderDom.classList.remove('turn-glow');
+      console.log('🚫 Removed CSS turn glow from hand border.');
+    }
+  }
+
+  /**
+   * Update player turn glow based on current turn.
+   *
+   * @param {number} currentTurn - The position (1-4) of the current turn
+   * @param {number} playerPosition - The player's position (1-4)
+   */
+  updatePlayerTurnGlow(currentTurn, playerPosition) {
+    if (currentTurn === playerPosition) {
+      this.addTurnGlow();
+    } else {
+      this.removeTurnGlow();
+    }
   }
 }

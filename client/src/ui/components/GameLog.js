@@ -30,25 +30,38 @@ export function createGameLog({ onChatSubmit } = {}) {
     border-left: 1px solid rgba(255, 255, 255, 0.1);
   `;
 
-  // Score section
+  // Score section (matches legacy game feed structure)
   const scoreSection = document.createElement('div');
   scoreSection.id = 'score-section';
   scoreSection.style.cssText = `
-    padding: 16px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 10px;
+    border-bottom: 1px solid #333;
+    display: flex;
+    justify-content: space-around;
+    background: rgba(0, 0, 0, 0.3);
     color: white;
   `;
-  scoreSection.innerHTML = `
-    <div style="font-size: 14px; font-weight: bold; margin-bottom: 8px;">SCORES</div>
-    <div id="team-score" style="display: flex; justify-content: space-between; margin-bottom: 4px;">
-      <span>Your Team:</span>
-      <span id="team-score-value">0</span>
-    </div>
-    <div id="opp-score" style="display: flex; justify-content: space-between;">
-      <span>Opponents:</span>
-      <span id="opp-score-value">0</span>
-    </div>
+
+  const teamScoreDiv = document.createElement('div');
+  teamScoreDiv.id = 'teamScoreDisplay';
+  teamScoreDiv.style.cssText = `text-align: center; color: #4ade80;`;
+  teamScoreDiv.innerHTML = `
+    <div style="font-size: 12px; color: #888;">Your Team</div>
+    <div id="team-score-value" style="font-size: 20px; font-weight: bold;">0</div>
+    <div id="team-tricks-value" style="font-size: 11px; color: #aaa;">Tricks: 0</div>
   `;
+
+  const oppScoreDiv = document.createElement('div');
+  oppScoreDiv.id = 'oppScoreDisplay';
+  oppScoreDiv.style.cssText = `text-align: center; color: #f87171;`;
+  oppScoreDiv.innerHTML = `
+    <div style="font-size: 12px; color: #888;">Opponents</div>
+    <div id="opp-score-value" style="font-size: 20px; font-weight: bold;">0</div>
+    <div id="opp-tricks-value" style="font-size: 11px; color: #aaa;">Tricks: 0</div>
+  `;
+
+  scoreSection.appendChild(teamScoreDiv);
+  scoreSection.appendChild(oppScoreDiv);
   container.appendChild(scoreSection);
 
   // Message area
@@ -116,22 +129,47 @@ export function createGameLog({ onChatSubmit } = {}) {
   container.appendChild(chatSection);
 
   // Helper functions
-  const addMessage = (username, message) => {
+  const addMessage = (username, message, playerPosition = null) => {
     const msgDiv = document.createElement('div');
     msgDiv.style.cssText = `
       margin-bottom: 8px;
       word-wrap: break-word;
     `;
 
+    // Add timestamp
+    const now = new Date();
+    const timestamp = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const timeSpan = document.createElement('span');
+    timeSpan.textContent = `[${timestamp}] `;
+    timeSpan.style.cssText = `
+      color: #888;
+      font-size: 11px;
+      margin-right: 4px;
+    `;
+    msgDiv.appendChild(timeSpan);
+
     const nameSpan = document.createElement('span');
     nameSpan.textContent = `${username}: `;
+
+    // Use team-based colors if position provided, otherwise use username color
+    let nameColor = getUsernameColor(username);
+    if (playerPosition !== null) {
+      // Team 1 (positions 1, 3) = blue, Team 2 (positions 2, 4) = red
+      nameColor = (playerPosition === 1 || playerPosition === 3) ? '#63b3ed' : '#fc8181';
+    }
+
     nameSpan.style.cssText = `
       font-weight: bold;
-      color: ${getUsernameColor(username)};
+      color: ${nameColor};
     `;
 
     const textSpan = document.createElement('span');
     textSpan.textContent = message;
+
+    // Color the message text based on team if position provided
+    if (playerPosition !== null) {
+      textSpan.style.color = (playerPosition === 1 || playerPosition === 3) ? '#63b3ed' : '#fc8181';
+    }
 
     msgDiv.appendChild(nameSpan);
     msgDiv.appendChild(textSpan);
@@ -143,10 +181,26 @@ export function createGameLog({ onChatSubmit } = {}) {
     const msgDiv = document.createElement('div');
     msgDiv.style.cssText = `
       margin-bottom: 8px;
-      color: ${color};
       font-style: italic;
     `;
-    msgDiv.textContent = message;
+
+    // Add timestamp
+    const now = new Date();
+    const timestamp = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const timeSpan = document.createElement('span');
+    timeSpan.textContent = `[${timestamp}] `;
+    timeSpan.style.cssText = `
+      color: #888;
+      font-size: 11px;
+      margin-right: 4px;
+    `;
+    msgDiv.appendChild(timeSpan);
+
+    const textSpan = document.createElement('span');
+    textSpan.textContent = message;
+    textSpan.style.color = color;
+    msgDiv.appendChild(textSpan);
+
     messageArea.appendChild(msgDiv);
     messageArea.scrollTop = messageArea.scrollHeight;
   };
@@ -173,7 +227,10 @@ export function createGameLog({ onChatSubmit } = {}) {
   };
 
   const updateTricks = (teamTricks, oppTricks) => {
-    // Could add a tricks display if needed
+    const teamEl = container.querySelector('#team-tricks-value');
+    const oppEl = container.querySelector('#opp-tricks-value');
+    if (teamEl) teamEl.textContent = `Tricks: ${teamTricks}`;
+    if (oppEl) oppEl.textContent = `Tricks: ${oppTricks}`;
   };
 
   const clearMessages = () => {
@@ -184,10 +241,53 @@ export function createGameLog({ onChatSubmit } = {}) {
     container.remove();
   };
 
+  /**
+   * Add a game message with player position color coding.
+   * This matches the legacy addToGameFeed API.
+   *
+   * @param {string} message - The full message (may include "username: text" format)
+   * @param {number|null} playerPosition - Player position (1-4) for color coding, or null for system messages
+   */
+  const addGameMessage = (message, playerPosition = null) => {
+    if (playerPosition === null) {
+      addSystemMessage(message);
+    } else {
+      // Message is already formatted, add it with position coloring
+      const msgDiv = document.createElement('div');
+      msgDiv.style.cssText = `
+        margin-bottom: 8px;
+        word-wrap: break-word;
+      `;
+
+      // Add timestamp
+      const now = new Date();
+      const timestamp = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const timeSpan = document.createElement('span');
+      timeSpan.textContent = `[${timestamp}] `;
+      timeSpan.style.cssText = `
+        color: #888;
+        font-size: 11px;
+        margin-right: 4px;
+      `;
+      msgDiv.appendChild(timeSpan);
+
+      // Message text with team coloring
+      const textSpan = document.createElement('span');
+      textSpan.textContent = message;
+      // Team 1 (positions 1, 3) = blue, Team 2 (positions 2, 4) = red
+      textSpan.style.color = (playerPosition === 1 || playerPosition === 3) ? '#63b3ed' : '#fc8181';
+      msgDiv.appendChild(textSpan);
+
+      messageArea.appendChild(msgDiv);
+      messageArea.scrollTop = messageArea.scrollHeight;
+    }
+  };
+
   return {
     container,
     addMessage,
     addSystemMessage,
+    addGameMessage,
     addTrickResult,
     updateScores,
     updateTricks,

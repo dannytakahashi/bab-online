@@ -214,7 +214,12 @@ document.addEventListener("playerReconnected", (event) => {
 // Handle player disconnect notification (from server)
 socket.on("playerDisconnected", (data) => {
     console.log(`⚠️ Player ${data.username} at position ${data.position} disconnected`);
-    addToGameFeed(`${data.username} disconnected - waiting for reconnection...`);
+    // Use scene handler if available, fallback to legacy
+    if (gameScene && gameScene.handleAddToGameFeed) {
+        gameScene.handleAddToGameFeed(`${data.username} disconnected - waiting for reconnection...`);
+    } else {
+        addToGameFeed(`${data.username} disconnected - waiting for reconnection...`);
+    }
 });
 
 // Handle complete reconnection failure (all attempts exhausted)
@@ -527,7 +532,19 @@ function create() {
     this.scale.on('resize', (gameSize) => {
         console.log(`📐 Phaser resize event: ${gameSize.width}x${gameSize.height}`);
         try {
+            // Update LayoutManager first so managers have correct positions
+            if (this.layoutManager) {
+                this.layoutManager.update();
+            }
             repositionGameElements.call(this, gameSize.width, gameSize.height);
+            // PHASE 5: Also reposition CardManager sprites
+            if (this.cardManager) {
+                this.cardManager.repositionHand();
+            }
+            // PHASE 6: Also reposition OpponentManager sprites
+            if (this.opponentManager) {
+                this.opponentManager.reposition();
+            }
         } catch (e) {
             console.error('❌ Error in repositionGameElements:', e);
         }
@@ -1296,6 +1313,9 @@ function removeTurnGlow(scene) {
 var rainbows = [];
 socket.on("rainbow", (data) => {
     console.log("caught rainbow");
+    // Store rainbow position for doneBidding handler to display at end of bidding
+    // Note: scene.handleRainbow is called by modular handler (gameHandlers.js → main.js callback)
+    // so we don't need to call it here - that would cause duplicate rainbow effects
     rainbows.push(data.position);
 });
 function destroyAllCards(){
@@ -1314,14 +1334,20 @@ function destroyAllCards(){
 }
 socket.on("destroyHands", (data) => {
     console.log("caught destroyHands");
+    // Remove socket listeners registered in displayCards()
     socket.off("handComplete");
     socket.off("doneBidding");
     socket.off("trickComplete");
     socket.off("cardPlayed");
     socket.off("updateTurn");
     socket.off("bidReceived");
-    socket.off("cardPlayed");
+
+    // Destroy all card sprites
     destroyAllCards();
+
+    // Note: scene.handleDestroyHands, handleClearHand, handleClearOpponents
+    // are called by modular handler (gameHandlers.js → main.js callback)
+
     // Reset flag so listeners are re-registered on redeal
     gameListenersRegistered = false;
     // Reset bid and trick state for redeal
@@ -1454,14 +1480,20 @@ socket.on("abortGame", (data) => {
     playedCard = false;
     playerInfo = null;
     console.log("caught abortGame");
+    // Use scene handler if available
+    if (gameScene && gameScene.handleAbortGame) {
+        gameScene.handleAbortGame(data);
+    }
     cleanupDomBackgrounds();
     window.ModernUtils.getUIManager().clearUI();
     // Clear scene reference in modular code
     if (window.ModernUtils && window.ModernUtils.clearGameScene) {
         window.ModernUtils.clearGameScene();
     }
-    gameScene.children.removeAll(true);
-    gameScene.scene.restart();
+    if (gameScene) {
+        gameScene.children.removeAll(true);
+        gameScene.scene.restart();
+    }
     // Return to main room
     socket.emit("joinMainRoom");
 });
@@ -1625,40 +1657,46 @@ function showChatBubble(scene, positionKey, x, y, message, color = null, duratio
 socket.on("chatMessage", (data) => {
     console.log("chatMessage received: ", data.message, " from position: ", data.position, " and I think my pos is ", position);
 
-    // Add to game log
+    // Add to game log with player position for color coding
     let senderName = data.username || getPlayerName(data.position);
-    addToGameFeed(`${senderName}: ${data.message}`, data.position);
+    if (gameScene && gameScene.handleAddToGameFeed) {
+        gameScene.handleAddToGameFeed(`${senderName}: ${data.message}`, data.position);
+    } else {
+        addToGameFeed(`${senderName}: ${data.message}`, data.position);
+    }
 
-    let scene = game.scene.scenes[0];
-    let screenWidth = scene.scale.width;
-    let screenHeight = scene.scale.height;
-    let scaleFactorX = screenWidth / 1920; // Adjust based on your design resolution
-    let scaleFactorY = screenHeight / 953; // Adjust based on your design resolution
-    let centerPlayAreaX = screenWidth / 2;
-    let centerPlayAreaY = screenHeight / 2;
-    let opp1_x = centerPlayAreaX - 480*scaleFactorX;
-    let opp1_y = centerPlayAreaY;
-    let opp2_x = centerPlayAreaX + 620*scaleFactorX;
-    let opp2_y = centerPlayAreaY;
-    let partner_x = centerPlayAreaX + 20*scaleFactorX;
-    let partner_y = centerPlayAreaY - 380*scaleFactorY;
-    let me_x = screenWidth - 310*scaleFactorX;
-    let me_y = screenHeight - 270*scaleFactorY;
-    if (data.position === position + 1 || data.position === position - 3) {
-        console.log("placing chat on opp1");
-        showChatBubble(scene, 'opp1', opp1_x, opp1_y, data.message);
-    }
-    if (data.position === position - 1 || data.position === position + 3) {
-        console.log("placing chat on opp2");
-        showChatBubble(scene, 'opp2', opp2_x, opp2_y, data.message);
-    }
-    if (data.position === position + 2 || data.position === position - 2) {
-        console.log("placing chat on partner");
-        showChatBubble(scene, 'partner', partner_x, partner_y, data.message);
-    }
-    if (data.position === position) {
-        console.log("placing chat on me");
-        showChatBubble(scene, 'me', me_x, me_y, data.message);
+    // Show chat bubble at appropriate position using modular handler
+    if (gameScene && gameScene.handleShowChatBubble) {
+        gameScene.handleShowChatBubble(position, data.position, data.message);
+    } else {
+        // Legacy fallback
+        let scene = game.scene.scenes[0];
+        let screenWidth = scene.scale.width;
+        let screenHeight = scene.scale.height;
+        let scaleFactorX = screenWidth / 1920;
+        let scaleFactorY = screenHeight / 953;
+        let centerPlayAreaX = screenWidth / 2;
+        let centerPlayAreaY = screenHeight / 2;
+        let opp1_x = centerPlayAreaX - 480*scaleFactorX;
+        let opp1_y = centerPlayAreaY;
+        let opp2_x = centerPlayAreaX + 620*scaleFactorX;
+        let opp2_y = centerPlayAreaY;
+        let partner_x = centerPlayAreaX + 20*scaleFactorX;
+        let partner_y = centerPlayAreaY - 380*scaleFactorY;
+        let me_x = screenWidth - 310*scaleFactorX;
+        let me_y = screenHeight - 270*scaleFactorY;
+        if (data.position === position + 1 || data.position === position - 3) {
+            showChatBubble(scene, 'opp1', opp1_x, opp1_y, data.message);
+        }
+        if (data.position === position - 1 || data.position === position + 3) {
+            showChatBubble(scene, 'opp2', opp2_x, opp2_y, data.message);
+        }
+        if (data.position === position + 2 || data.position === position - 2) {
+            showChatBubble(scene, 'partner', partner_x, partner_y, data.message);
+        }
+        if (data.position === position) {
+            showChatBubble(scene, 'me', me_x, me_y, data.message);
+        }
     }
 });
 // NOTE: createUI is now handled by modular code (GameScene.handleCreateUI)
@@ -1682,6 +1720,10 @@ socket.on("chatMessage", (data) => {
 // Expose createGameFeed for modular code to call
 window.createGameFeedFromLegacy = function(isReconnection = false) {
     createGameFeed(isReconnection);
+};
+// Expose addToGameFeed for modular code to call
+window.addToGameFeedFromLegacy = function(message, playerPosition = null) {
+    addToGameFeed(message, playerPosition);
 };
 // queueUpdate handler removed - now using lobby system instead
 
@@ -2116,112 +2158,13 @@ function displayCards(playerHand, skipAnimation = false) {
     // Store the update function globally so socket handlers can call it
     window.updateCardLegality = updateCardLegality;
 
-    console.log("🃏 Creating", playerHand.length, "card sprites...");
-    console.log("🃏 visible() =", visible());
+    // PHASE 5 MIGRATION: Card sprite creation is now handled by CardManager via handleDisplayHand in main.js
+    // The card sprites, hover effects, click handlers, and legality updates are all managed by CardManager.
+    // This section is kept for reference but the card creation loop has been removed.
+    console.log("🃏 Card sprites now handled by CardManager (", playerHand.length, "cards)");
 
-    playerHand.forEach((card, index) => {
-        let cardKey = getCardImageKey(card);
-        console.log(`🃏 Card ${index}: ${card.rank} of ${card.suit} -> key: ${cardKey}`);
-
-        // Check if frame exists
-        if (this.textures && this.textures.exists('cards')) {
-            const frame = this.textures.get('cards').get(cardKey);
-            console.log(`🃏 Frame '${cardKey}' exists:`, frame && frame.name === cardKey);
-        }
-
-        let cardSprite = this.add.image(screenWidth / 2 + 500*scaleFactorX, screenHeight / 2 - 300*scaleFactorY, 'cards', cardKey)
-        .setInteractive()
-        .setScale(1.5);  // ✅ Increase size
-
-        console.log(`🃏 Card sprite created:`, cardSprite);
-        console.log(`🃏 Sprite dimensions: ${cardSprite.width}x${cardSprite.height}`);
-        console.log(`🃏 Sprite position: (${cardSprite.x}, ${cardSprite.y})`);
-        console.log(`🃏 Sprite visible: ${cardSprite.visible}, alpha: ${cardSprite.alpha}`);
-
-        cardSprite.input.hitArea.setTo(cardSprite.width * 0.15, 0, cardSprite.width * 0.7, cardSprite.height);
-        if (!cardSprite) {
-            console.error(`🚨 ERROR: Failed to create card sprite for ${card.rank} of ${card.suit}`);
-        }
-        // Store card data on sprite for legality checks
-        cardSprite.setData('card', card);
-        cardSprite.setData('isLegal', false);
-        cardSprite.setData('baseY', startY); // Store base Y for hover effects
-        myCards.push(cardSprite);
-        if (visible() && !skipAnimation){
-            this.tweens.add({
-                targets: cardSprite,
-                x: startX + index * cardSpacing,
-                y: startY,
-                duration: 750,
-                ease: "Power2",
-                delay: index * 30,
-                onComplete: () =>{
-                }
-            });
-        }else{
-            cardSprite.x = startX + index * cardSpacing;
-            cardSprite.y = startY;
-        }
-        // Click-based card play (no dragging)
-        cardSprite.on("pointerover", () => {
-            // Only raise card if it's a legal move
-            if (cardSprite.getData('isLegal')) {
-                const baseY = cardSprite.getData('baseY');
-                this.tweens.add({
-                    targets: cardSprite,
-                    y: baseY - 30,
-                    duration: 150,
-                    ease: 'Power2'
-                });
-            }
-        });
-
-        cardSprite.on("pointerout", () => {
-            // Only return card if it was raised (isLegal)
-            if (cardSprite.getData('isLegal')) {
-                const baseY = cardSprite.getData('baseY');
-                this.tweens.add({
-                    targets: cardSprite,
-                    y: baseY,
-                    duration: 150,
-                    ease: 'Power2'
-                });
-            }
-        });
-
-        cardSprite.on("pointerdown", () => {
-            console.log(`🃏 Card clicked: ${card.rank} of ${card.suit}`);
-
-            // Only allow playing if the card is marked as legal
-            if (!cardSprite.getData('isLegal')) {
-                console.log("Illegal move - card is disabled!");
-                return;
-            }
-
-            // Set lead card if first play of trick
-            if (playedCardIndex === 0) {
-                leadCard = card;
-                leadPosition = position;
-                leadBool = true;
-                console.log("leadBool changed to true.");
-            }
-
-            // Play the card
-            socket.emit("playCard", { card, position });
-            playedCard = true;
-            if (card.suit === trump.suit || card.suit === "joker") {
-                isTrumpBroken = true;
-            }
-            leadBool = false;
-            cardSprite.destroy(); // Remove after playing
-            playerHand = removeCard(playerHand, card);
-            playerCards = removeCard(playerCards, card); // Also update global playerCards for legality checks
-            console.log("my hand: ", playerHand);
-        });
-    });
-
-    // Initial update of card legality (cards should be dimmed during bidding)
-    updateCardLegality();
+    // Note: updateCardLegality() is kept for legacy handlers but will operate on empty myCards array
+    // The actual card legality is now managed by CardManager.updateCardLegality() via handleUpdateTurn
 
     // Helper function to force Phaser to re-render sprites
     // This fixes a bug where visual updates don't show until page refresh
@@ -2675,17 +2618,9 @@ function displayCards(playerHand, skipAnimation = false) {
         console.log("🎯 currentTurn === position?", currentTurn === position);
         console.log("🎯 myCards.length:", myCards.length);
 
-        // Recreate card sprites to ensure correct WebGL state after container resize
-        // This is more reliable than trying to force re-render of existing sprites
-        console.log("🎯 Recreating card sprites after bidding...");
-        myCards.forEach(sprite => {
-            if (sprite && sprite.active) {
-                sprite.destroy();
-            }
-        });
-        myCards = [];
-        displayCards.call(gameScene, playerCards, true); // true = skip animation
-        forceRenderUpdate();  // Force WebGL to render card tinting
+        // PHASE 5 MIGRATION: Card sprite recreation is now handled by CardManager
+        // The modular handleUpdateTurn will update card legality after bidding ends
+        console.log("🎯 Card sprites managed by CardManager, skipping legacy sprite recreation");
         playerBids = data;
         console.log("bids: ", playerBids);
         rainbows.forEach((rainbow) => {
@@ -2874,131 +2809,35 @@ function cleanupOpponentAvatars() {
 
 function displayOpponentHands(numCards, dealer, skipAnimation = false) {
     console.log("🎭 displayOpponentHands called! skipAnimation:", skipAnimation);
-    console.log("🎭 this (scene):", this);
     console.log("🎭 numCards:", numCards, "dealer:", dealer);
-    console.log("🎭 playerData:", playerData);
     console.log("🎭 position:", position);
 
+    // PHASE 6 MIGRATION: Card sprites and avatars are now handled by OpponentManager
+    // via handleDisplayOpponentHands in main.js. This function now only handles
+    // the player position text (BTN, MP, CO, UTG) which OpponentManager doesn't manage.
+
+    // Clean up old UI elements
     if (buttonHandle && typeof buttonHandle.destroy === 'function') {
         buttonHandle.destroy();
-      }
+        buttonHandle = null;
+    }
     oppUI.forEach((element) => element.destroy());
     oppUI = [];
-    console.log("🎭 Displaying opponent hands...");
-    console.log("dealer: ", dealer);
-    let screenWidth = this.scale.width;
-    let screenHeight = this.scale.height;
-    let scaleFactorX = this.scale.width / 1920;
-    let scaleFactorY = this.scale.height / 953;
-    let cardSpacing = 10*scaleFactorX; // Spacing between cards
-    let centerPlayAreaX = screenWidth / 2;
-    let centerPlayAreaY = screenHeight / 2;
-    let opponentPositions = {
-        "partner": { x: centerPlayAreaX, y: centerPlayAreaY - 275*scaleFactorY, rotation: 0, horizontal: true, avatarX: centerPlayAreaX, avatarY: centerPlayAreaY - 400*scaleFactorY },  // ✅ Top (horizontal)
-        "opp1": { x: centerPlayAreaX - 425*scaleFactorX, y: centerPlayAreaY, rotation: Math.PI / 2, horizontal: false, avatarX: centerPlayAreaX - 550*scaleFactorX, avatarY: centerPlayAreaY},  // ✅ Left (closer)
-        "opp2": { x: centerPlayAreaX + 425*scaleFactorX, y: centerPlayAreaY, rotation: -Math.PI / 2, horizontal: false, avatarX: centerPlayAreaX + 550*scaleFactorX, avatarY: centerPlayAreaY} // ✅ Right (closer)
-    };
-    Object.keys(opponentCardSprites).forEach((opponentId) => {
-        opponentCardSprites[opponentId].forEach(card => card.destroy());
-    });
-    opponentCardSprites = {}; // ✅ Reset storage
-    Object.keys(opponentPositions).forEach((opponentId) => {
-        let { x, y, rotation, horizontal, avatarX, avatarY } = opponentPositions[opponentId];
 
-        // Create DOM-based avatars with CSS glow support
-        if(opponentId === "partner"){
-            const pic = playerData.pics[playerData.position.indexOf(team(position))];
-            const username = playerData.username[playerData.position.indexOf(team(position))].username;
-            const avatarDom = createOpponentAvatarDom("partner", pic, username);
-            avatarDom.style.left = `${avatarX}px`;
-            avatarDom.style.top = `${avatarY}px`;
-
-            if(team(position) === dealer){
-                buttonHandle = this.add.image(avatarX + 70, avatarY, "dealer")
-                .setScale(0.02)
-                .setDepth(250)
-                .setAlpha(1);
-                playerInfo.playerPositionText.setText("MP");
-            }
+    // Set player position text based on dealer position
+    if (playerInfo && playerInfo.playerPositionText) {
+        if (dealer === position) {
+            playerInfo.playerPositionText.setText("BTN");
+        } else if (team(position) === dealer) {
+            playerInfo.playerPositionText.setText("MP");
+        } else if (rotate(position) === dealer) {
+            playerInfo.playerPositionText.setText("CO");
+        } else if (rotate(rotate(rotate(position))) === dealer) {
+            playerInfo.playerPositionText.setText("UTG");
         }
-        if(opponentId === "opp1"){
-            const pic = playerData.pics[playerData.position.indexOf(rotate(position))];
-            const username = playerData.username[playerData.position.indexOf(rotate(position))].username;
-            const avatarDom = createOpponentAvatarDom("opp1", pic, username);
-            avatarDom.style.left = `${avatarX}px`;
-            avatarDom.style.top = `${avatarY}px`;
-
-            if(rotate(position) === dealer){
-                buttonHandle = this.add.image(avatarX - 70, avatarY, "dealer")
-                .setScale(0.02)
-                .setDepth(250)
-                .setAlpha(1);
-                playerInfo.playerPositionText.setText("CO");
-            }
-        }
-        if(opponentId === "opp2"){
-            const pic = playerData.pics[playerData.position.indexOf(rotate(rotate(rotate(position))))];
-            const username = playerData.username[playerData.position.indexOf(rotate(rotate(rotate(position))))].username;
-            const avatarDom = createOpponentAvatarDom("opp2", pic, username);
-            avatarDom.style.left = `${avatarX}px`;
-            avatarDom.style.top = `${avatarY}px`;
-
-            if(rotate(rotate(rotate(position))) === dealer){
-                buttonHandle = this.add.image(avatarX + 70, avatarY, "dealer")
-                .setScale(0.02)
-                .setDepth(250)
-                .setAlpha(1);
-                playerInfo.playerPositionText.setText("UTG");
-            }
-        }
-        opponentCardSprites[opponentId] = [];
-        for (let i = 0; i < numCards; i++) {
-            let offsetX = horizontal ? (i - numCards / 2) * cardSpacing : 0; // ✅ Left/Right: No horizontal movement
-            let offsetY = horizontal ? 0 : (i - numCards / 2) * cardSpacing; // ✅ Top: No vertical movement
-
-            let cardBack = this.add.image(screenWidth / 2 + 500*scaleFactorX, screenHeight / 2 - 300*scaleFactorY, "cardBack")
-                .setScale(1.5)
-            // Ensure opponent cards are visually below player cards
-            cardBack.setDepth(200);
-            opponentCardSprites[opponentId].push(cardBack);
-            if(visible() && !skipAnimation){
-                this.tweens.add({
-                    targets: cardBack,
-                    x: x + offsetX,
-                    y: y + offsetY,
-                    duration: 750,
-                    ease: "Power2",
-                    scaleX: 1.2,
-                    scaleY: 1.2,
-                    rotation: rotation,
-                    delay: i*30,
-                    onComplete: () => {
-                    //cardBack.setRotation(rotation);
-                    }
-                });
-            }else{
-                cardBack.x = x + offsetX;
-                cardBack.y = y + offsetY;
-                cardBack.rotation = rotation;
-                cardBack.setScale(1.2);
-            }
-        }
-    });
-
-    // Create dealer button for current player (outside the opponent loop)
-    if(dealer === position){
-        if (buttonHandle && typeof buttonHandle.destroy === 'function') {
-            buttonHandle.destroy();
-        }
-        playerInfo.playerPositionText.setText("BTN");
-        // Position near player info box (bottom right)
-        buttonHandle = this.add.image(screenWidth - 280*scaleFactorX, screenHeight - 210*scaleFactorY, "dealer")
-            .setScale(0.02)
-            .setDepth(250)
-            .setAlpha(1);
     }
 
-    console.log("🎭 Opponent hands displayed correctly.");
+    console.log("🎭 displayOpponentHands: position text updated, sprites handled by OpponentManager");
 }
 
 function update() {}
