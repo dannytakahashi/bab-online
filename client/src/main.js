@@ -42,6 +42,7 @@ import { OpponentManager } from './phaser/managers/OpponentManager.js';
 import { TrickManager } from './phaser/managers/TrickManager.js';
 import { EffectsManager } from './phaser/managers/EffectsManager.js';
 import { DrawManager } from './phaser/managers/DrawManager.js';
+import { BidManager } from './phaser/managers/BidManager.js';
 import { GameScene } from './phaser/scenes/GameScene.js';
 
 // Handlers
@@ -121,7 +122,55 @@ export function setGameScene(scene) {
     };
   }
 
-  console.log('🎮 Game scene reference set with draw handlers');
+  // Attach BidManager to the scene if not already present
+  if (!scene.bidManager) {
+    scene.bidManager = new BidManager(scene);
+    console.log('🎮 BidManager attached to scene');
+  }
+
+  // Add handler methods to the scene for bidding phase
+  if (!scene.handleBidReceived) {
+    scene.handleBidReceived = function(data) {
+      console.log('🎮 Legacy scene handleBidReceived');
+      // Add to temp bids for bore button state
+      const gameState = getGameState();
+      gameState.addTempBid(data.bid);
+      // Update bore button states
+      if (this.bidManager) {
+        this.bidManager.updateBoreButtonStates();
+      }
+      // Also update legacy bore buttons if they exist
+      if (window.updateBoreButtons) {
+        window.updateBoreButtons();
+      }
+    };
+  }
+
+  if (!scene.handleDoneBidding) {
+    scene.handleDoneBidding = function(data) {
+      console.log('🎮 Legacy scene handleDoneBidding');
+      // Clear temp bids
+      const gameState = getGameState();
+      gameState.clearTempBids();
+      // Hide bid UI
+      if (this.bidManager) {
+        this.bidManager.hideBidUI();
+      }
+    };
+  }
+
+  if (!scene.handleUpdateTurn) {
+    scene.handleUpdateTurn = function(data) {
+      console.log('🎮 Legacy scene handleUpdateTurn');
+      const gameState = getGameState();
+      // Update bid UI visibility during bidding phase
+      if (this.bidManager && gameState.isBidding) {
+        this.bidManager.updateVisibility();
+      }
+    };
+  }
+
+  console.log('🎮 Game scene reference set with draw and bid handlers');
 }
 
 /**
@@ -249,6 +298,7 @@ window.ModernUtils = {
   TrickManager,
   EffectsManager,
   DrawManager,
+  BidManager,
   GameScene,
 
   // Handlers
