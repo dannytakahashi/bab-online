@@ -10,6 +10,7 @@ const mainRoomHandlers = require('./mainRoomHandlers');
 const gameHandlers = require('./gameHandlers');
 const chatHandlers = require('./chatHandlers');
 const reconnectHandlers = require('./reconnectHandlers');
+const profileHandlers = require('./profileHandlers');
 const { asyncHandler, syncHandler, safeHandler, rateLimiter } = require('./errorHandler');
 const { socketLogger } = require('../utils/logger');
 
@@ -83,6 +84,14 @@ function setupSocketHandlers(io) {
         // Reconnection events
         socket.on('rejoinGame', (data) =>
             asyncHandler('rejoinGame', reconnectHandlers.rejoinGame)(socket, io, data)
+        );
+
+        // Profile events
+        socket.on('getProfile', () =>
+            safeHandler(profileHandlers.getProfile)(socket, io, {})
+        );
+        socket.on('updateProfilePic', (data) =>
+            asyncHandler('updateProfilePic', profileHandlers.updateProfilePic)(socket, io, data)
         );
 
         // Disconnect - cleanup rate limiter and handle game state

@@ -110,10 +110,21 @@ async function signUp(socket, io, data) {
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
+        // Generate random profile pic (1-82)
+        const profilePic = Math.floor(Math.random() * 82) + 1;
         await usersCollection.insertOne({
             username,
             password: hashedPassword,
-            socketId: socket.id  // Set socketId immediately for auto-login
+            socketId: socket.id,  // Set socketId immediately for auto-login
+            profilePic,
+            stats: {
+                wins: 0,
+                losses: 0,
+                gamesPlayed: 0,
+                totalPoints: 0,
+                totalTricksBid: 0,
+                totalTricksTaken: 0
+            }
         });
 
         // Auto-login: register with game manager (same as signIn)

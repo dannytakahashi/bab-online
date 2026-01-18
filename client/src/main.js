@@ -33,6 +33,7 @@ import { createSignInScreen, showSignInScreen } from './ui/screens/SignIn.js';
 import { createRegisterScreen, showRegisterScreen } from './ui/screens/Register.js';
 import { showMainRoom, addMainRoomChatMessage, updateLobbyList, removeMainRoom, updateMainRoomOnlineCount, getMainRoomUserColors } from './ui/screens/MainRoom.js';
 import { showGameLobby, updateLobbyPlayersList, addLobbyChatMessage, removeGameLobby, getCurrentLobbyId, getIsPlayerReady, getLobbyUserColors } from './ui/screens/GameLobby.js';
+import { showProfilePage, updateProfilePicDisplay, removeProfilePage, isProfilePageVisible } from './ui/screens/ProfilePage.js';
 import { UIManager, SCREENS, getUIManager, initializeUIManager, resetUIManager } from './ui/UIManager.js';
 
 // Phaser
@@ -53,6 +54,7 @@ import {
   registerLobbyHandlers,
   registerGameHandlers,
   registerChatHandlers,
+  registerProfileHandlers,
   cleanupGameHandlers,
 } from './handlers/index.js';
 
@@ -851,6 +853,10 @@ window.ModernUtils = {
   getCurrentLobbyId,
   getIsPlayerReady,
   getLobbyUserColors,
+  showProfilePage,
+  updateProfilePicDisplay,
+  removeProfilePage,
+  isProfilePageVisible,
   UIManager,
   SCREENS,
   getUIManager,
@@ -877,6 +883,7 @@ window.ModernUtils = {
   registerLobbyHandlers,
   registerGameHandlers,
   registerChatHandlers,
+  registerProfileHandlers,
   cleanupGameHandlers,
 
   // UI Components - Bid & Game Log
@@ -1622,6 +1629,21 @@ function initializeApp() {
 
     // Chat callback - still handled by game.js
     onChatMessage: null,
+
+    // Profile callbacks
+    onProfileReceived: (profile) => {
+      showProfilePage(profile, socket);
+    },
+    onProfileError: (message) => {
+      showError(message || 'Failed to load profile');
+    },
+    onProfilePicUpdated: (newPic) => {
+      updateProfilePicDisplay(newPic);
+      showSuccess('Profile picture updated!');
+    },
+    onProfilePicUpdateError: (message) => {
+      showError(message || 'Failed to update profile picture');
+    },
   });
 
   // Note: window.socket and window.socketManager are already set at module level above

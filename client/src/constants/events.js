@@ -28,6 +28,10 @@ export const CLIENT_EVENTS = {
   PLAY_CARD: 'playCard',
   CHAT_MESSAGE: 'chatMessage',
   REJOIN_GAME: 'rejoinGame',
+
+  // Profile
+  GET_PROFILE: 'getProfile',
+  UPDATE_PROFILE_PIC: 'updateProfilePic',
 };
 
 // Server -> Client Events
@@ -92,4 +96,8 @@ export const SERVER_EVENTS = {
   RECONNECT_ATTEMPT: 'reconnect_attempt',
   RECONNECT_FAILED: 'reconnect_failed',
   ERROR: 'error',
+
+  // Profile
+  PROFILE_RESPONSE: 'profileResponse',
+  PROFILE_PIC_UPDATE_RESPONSE: 'profilePicUpdateResponse',
 };

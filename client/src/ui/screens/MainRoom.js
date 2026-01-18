@@ -180,13 +180,42 @@ export function showMainRoom(data, socket) {
   header.style.color = '#4ade80';
   headerRow.appendChild(header);
 
+  // Right side container for profile button and online count
+  const rightContainer = document.createElement('div');
+  rightContainer.style.display = 'flex';
+  rightContainer.style.alignItems = 'center';
+  rightContainer.style.gap = '15px';
+
+  // Profile button
+  const profileBtn = document.createElement('button');
+  profileBtn.innerText = 'Profile';
+  profileBtn.style.padding = '8px 16px';
+  profileBtn.style.borderRadius = '6px';
+  profileBtn.style.border = 'none';
+  profileBtn.style.background = '#6366f1';
+  profileBtn.style.color = '#fff';
+  profileBtn.style.fontSize = '14px';
+  profileBtn.style.fontWeight = 'bold';
+  profileBtn.style.cursor = 'pointer';
+  profileBtn.addEventListener('click', () => {
+    socket.emit('getProfile');
+  });
+  profileBtn.addEventListener('mouseenter', () => {
+    profileBtn.style.background = '#4f46e5';
+  });
+  profileBtn.addEventListener('mouseleave', () => {
+    profileBtn.style.background = '#6366f1';
+  });
+  rightContainer.appendChild(profileBtn);
+
   const onlineCount = document.createElement('div');
   onlineCount.id = 'mainRoomOnlineCount';
   onlineCount.innerText = `${data.onlineCount || 0} players online`;
   onlineCount.style.fontSize = '14px';
   onlineCount.style.color = '#9ca3af';
-  headerRow.appendChild(onlineCount);
+  rightContainer.appendChild(onlineCount);
 
+  headerRow.appendChild(rightContainer);
   container.appendChild(headerRow);
 
   // Main content area (two panels)

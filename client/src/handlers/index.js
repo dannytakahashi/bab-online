@@ -9,6 +9,7 @@ import { registerAuthHandlers } from './authHandlers.js';
 import { registerLobbyHandlers } from './lobbyHandlers.js';
 import { registerGameHandlers, cleanupGameHandlers as cleanupGame } from './gameHandlers.js';
 import { registerChatHandlers } from './chatHandlers.js';
+import { registerProfileHandlers } from './profileHandlers.js';
 
 /**
  * Register all socket event handlers.
@@ -63,6 +64,11 @@ export function registerAllHandlers(socketManager, callbacks = {}) {
     onRejoinFailed,
     // Chat callbacks
     onChatMessage,
+    // Profile callbacks
+    onProfileReceived,
+    onProfileError,
+    onProfilePicUpdated,
+    onProfilePicUpdateError,
   } = callbacks;
 
   // Register auth handlers
@@ -121,6 +127,14 @@ export function registerAllHandlers(socketManager, callbacks = {}) {
   registerChatHandlers(socketManager, {
     onChatMessage,
   });
+
+  // Register profile handlers
+  registerProfileHandlers(socketManager, {
+    onProfileReceived,
+    onProfileError,
+    onProfilePicUpdated,
+    onProfilePicUpdateError,
+  });
 }
 
 /**
@@ -135,3 +149,4 @@ export { registerAuthHandlers } from './authHandlers.js';
 export { registerLobbyHandlers } from './lobbyHandlers.js';
 export { registerGameHandlers } from './gameHandlers.js';
 export { registerChatHandlers } from './chatHandlers.js';
+export { registerProfileHandlers } from './profileHandlers.js';

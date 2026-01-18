@@ -4,6 +4,7 @@
 
 const gameManager = require('../game/GameManager');
 const Deck = require('../game/Deck');
+const { recordGameStats, getUserProfilePic } = require('./profileHandlers');
 const {
     rotatePosition,
     isRainbow,
@@ -54,14 +55,19 @@ async function draw(socket, io, data) {
 
     // All players have drawn
     if (game.drawIndex === 4) {
-        // Generate random profile pics
+        // Fetch saved profile pics for all players
         const pics = [];
-        for (let i = 0; i < 4; i++) {
-            let picInt;
-            do {
-                picInt = Math.floor(Math.random() * 83) + 1;
-            } while (pics.includes(picInt));
-            pics.push(picInt);
+        const usedPics = new Set();
+        for (let i = 0; i < game.drawIDs.length; i++) {
+            const playerId = game.drawIDs[i];
+            const user = gameManager.getUserBySocketId(playerId);
+            let pic = await getUserProfilePic(user?.username);
+            // Ensure no duplicate pics
+            while (usedPics.has(pic)) {
+                pic = Math.floor(Math.random() * 82) + 1;
+            }
+            usedPics.add(pic);
+            pics.push(pic);
         }
 
         // Assign positions based on cards drawn
@@ -453,6 +459,10 @@ async function handleHandComplete(game, io) {
         game.addLogEntry(`${team2Name}: ${game.score.team2}`, null, 'score');
 
         gameLogger.info('Game ended', { gameId: game.gameId, finalScore: game.score });
+
+        // Record game stats for all players
+        await recordGameStats(game);
+
         game.broadcast(io, 'gameEnd', { score: game.score });
         // Clear active game for all players
         await gameManager.clearActiveGameForAll(game.gameId);
