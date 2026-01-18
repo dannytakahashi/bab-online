@@ -1,11 +1,8 @@
 
 // Variable declarations moved to top to avoid temporal dead zone errors
 // These are used throughout the file and must be declared before any code that uses them
-var hasDrawn = false;
-var clickedCardPosition = null;
-var drawnCardDisplays = [];
+// Note: hasDrawn, clickedCardPosition, drawnCardDisplays, allCards moved to DrawManager.js
 var myCards = [];
-var allCards = []; // Draw phase card sprites
 var ranks = null; // Will be set from ModernUtils when available
 
 // Helper to get RANK_VALUES lazily (ModernUtils may not be loaded yet)
@@ -71,7 +68,10 @@ function processRejoin(data) {
 
     // Remove any overlays
     window.ModernUtils.getUIManager().removeWaitingScreen();
-    removeDraw();
+    // Clean up draw phase via DrawManager (if present)
+    if (gameScene && gameScene.drawManager) {
+        gameScene.drawManager.cleanup();
+    }
 
     // Create game UI elements (pass true to indicate reconnection)
     createGameFeed(true);
@@ -956,18 +956,7 @@ window.processGameStartFromLegacy = function(data) {
     }
 };
 
-window.startDrawFromLegacy = function(data) {
-    if (gameScene && gameScene.scale) {
-        draw.call(gameScene);
-    } else {
-        console.log("⏳ Scene not ready for draw phase");
-    }
-};
-
-window.removeDrawFromLegacy = function() {
-    console.log("🔥 removeDrawFromLegacy called");
-    removeDraw();
-};
+// Legacy bridge functions removed - draw phase now handled by DrawManager
 
 // Original socket handlers commented out (now handled by gameHandlers.js + callbacks)
 // socket.on("positionUpdate", (data) => {
@@ -1303,7 +1292,7 @@ function removeTurnGlow(scene) {
         console.log("🚫 Removed CSS turn glow from hand border.");
     }
 }
-// allCards and rainbows declared at top of file
+// rainbows declared below (allCards moved to DrawManager.js)
 var rainbows = [];
 socket.on("rainbow", (data) => {
     console.log("caught rainbow");
@@ -1341,195 +1330,9 @@ socket.on("destroyHands", (data) => {
     teamTricks = 0;
     oppTricks = 0;
 });
-// Track drawn cards display during draw phase
-// (variables declared at top of file to avoid temporal dead zone)
+// Draw phase functions (draw, removeDraw) moved to DrawManager.js
+// See client/src/phaser/managers/DrawManager.js
 
-function draw() {
-    clearScreen.call(game.scene.scenes[0]);
-    socket.off("youDrew");
-    socket.off("playerDrew");
-    hasDrawn = false;
-    drawnCardDisplays = [];
-
-    console.log("🃏 Placing all 54 cards face down...");
-    let scene = this;
-    let screenWidth = this.scale.width;
-    let screenHeight = this.scale.height;
-    let scaleFactorX = screenWidth / 1920;
-    let scaleFactorY = screenHeight / 953;
-    let startX = 400*scaleFactorX;
-    let startY = screenHeight / 2;
-    let overlap = 20*scaleFactorX;
-
-    // Positions for drawn cards display (4 slots above the deck)
-    const drawDisplayY = screenHeight / 2 - 200*scaleFactorY;
-    const drawDisplayStartX = screenWidth / 2 - 300*scaleFactorX;
-    const drawDisplaySpacing = 200*scaleFactorX;
-
-    // Background is now handled by CSS gradient on body - canvas is transparent
-
-    // Add "Draw for Deal" title
-    const titleText = this.add.text(screenWidth / 2, 80*scaleFactorY, "Draw for Deal", {
-        fontSize: `${48*scaleFactorX}px`,
-        fontStyle: "bold",
-        color: "#FFFFFF",
-        stroke: "#000000",
-        strokeThickness: 4
-    }).setOrigin(0.5).setDepth(200);
-    allCards.push(titleText);
-
-    // Create deck cards (visual only, not individually interactive)
-    for (let i = 0; i < 54; i++) {
-        let cardSprite = this.add.image(screenWidth/2 + 500*scaleFactorX, startY, "cardBack")
-            .setScale(1.2)
-            .setDepth(100);
-
-        if (visible()) {
-            this.tweens.add({
-                targets: cardSprite,
-                x: startX + i * overlap,
-                y: startY,
-                duration: 750,
-                ease: "Power2",
-                delay: 0
-            });
-        } else {
-            cardSprite.x = startX + i * overlap;
-            cardSprite.y = startY;
-        }
-        allCards.push(cardSprite);
-    }
-
-    // Create invisible hit zone for position-based click detection
-    const cardHeight = 190 * scaleFactorY;
-    const hitZoneWidth = 53 * overlap + 140 * scaleFactorX;
-    const hitZoneX = startX + hitZoneWidth / 2;
-
-    let hitZone = this.add.rectangle(hitZoneX, startY, hitZoneWidth, cardHeight, 0x000000, 0)
-        .setInteractive()
-        .setDepth(150);
-
-    hitZone.on("pointerdown", (pointer) => {
-        if (hasDrawn) return;
-        hasDrawn = true;
-
-        // Calculate which card was clicked based on x position
-        const clickX = pointer.x;
-        const clickedIndex = Math.min(53, Math.max(0, Math.floor((clickX - startX) / overlap)));
-
-        // Get the card sprite at that index (cards start at index 1, after titleText)
-        const clickedCard = allCards[clickedIndex + 1];
-
-        // Store clicked card position for flip animation
-        clickedCardPosition = { x: clickedCard.x, y: clickedCard.y };
-
-        console.log(`📦 Clicked card ${clickedIndex + 1} to draw at (${clickedCard.x}, ${clickedCard.y})`);
-        socket.emit("draw", {num: Math.floor(Math.random() * 54)});
-
-        // Disable hit zone
-        hitZone.disableInteractive();
-    });
-
-    allCards.push(hitZone);
-
-    // Listen for your own draw result
-    socket.on("youDrew", (data) => {
-        console.log(`🎴 You drew: ${data.card.rank} of ${data.card.suit}`);
-        // The playerDrew event will handle the display for all players including self
-    });
-
-    // Listen for any player drawing (including self)
-    socket.on("playerDrew", (data) => {
-        console.log(`🎴 ${data.username} drew: ${data.card.rank} of ${data.card.suit} (order: ${data.drawOrder})`);
-
-        // Calculate position for this drawn card (drawOrder is 1-4)
-        const slotX = drawDisplayStartX + (data.drawOrder - 1) * drawDisplaySpacing;
-        let textureKey = getCardImageKey(data.card);
-
-        // Determine start position: clicked position for local player, deck center for others
-        let isLocalPlayer = clickedCardPosition !== null;
-        let startPos = isLocalPlayer
-            ? { x: clickedCardPosition.x, y: clickedCardPosition.y }
-            : { x: screenWidth / 2, y: startY };
-
-        // Create card with BACK texture initially at start position
-        let drawnCard = scene.add.image(startPos.x, startPos.y, 'cardBack')
-            .setScale(0.8)
-            .setDepth(300);
-
-        // Create username label
-        let nameLabel = scene.add.text(slotX, drawDisplayY - 80*scaleFactorY, data.username, {
-            fontSize: `${24*scaleFactorX}px`,
-            fontStyle: "bold",
-            color: "#FFFFFF",
-            stroke: "#000000",
-            strokeThickness: 3
-        }).setOrigin(0.5).setDepth(300);
-
-        // Calculate midpoint for flip animation
-        const midX = (startPos.x + slotX) / 2;
-        const midY = (startPos.y + drawDisplayY) / 2;
-
-        // Phase 1: Move toward midpoint and scale X to 0 (flip start)
-        scene.tweens.add({
-            targets: drawnCard,
-            x: midX,
-            y: midY,
-            scaleX: 0,
-            scaleY: 1.1,
-            duration: 250,
-            ease: "Power2",
-            onComplete: () => {
-                // Change texture to revealed card at the flip midpoint
-                drawnCard.setTexture('cards', textureKey);
-
-                // Phase 2: Scale X back and complete movement to display slot
-                scene.tweens.add({
-                    targets: drawnCard,
-                    x: slotX,
-                    y: drawDisplayY,
-                    scaleX: 1.5,
-                    scaleY: 1.5,
-                    duration: 250,
-                    ease: "Power2"
-                });
-            }
-        });
-
-        // Clear clicked position after local player's card is processed
-        if (isLocalPlayer) {
-            clickedCardPosition = null;
-        }
-
-        drawnCardDisplays.push(drawnCard, nameLabel);
-    });
-
-    console.log("✅ All 54 cards placed face down and clickable.");
-}
-function removeDraw() {
-    console.log("🔥 Destroying all displayed cards...");
-
-    allCards.forEach(card => {
-        if (card) {
-            card.destroy();
-        }
-    });
-    allCards = [];
-
-    // Also clean up drawn card displays
-    drawnCardDisplays.forEach(item => {
-        if (item) {
-            item.destroy();
-        }
-    });
-    drawnCardDisplays = [];
-
-    // Clean up socket listeners
-    socket.off("youDrew");
-    socket.off("playerDrew");
-
-    console.log("✅ All cards removed.");
-}
 function displayTableCard(card) {
     console.log(`🎴 displayTableCard called!`);
     console.log(`🎴 this (scene):`, this);

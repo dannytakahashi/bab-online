@@ -41,6 +41,7 @@ import { CardManager } from './phaser/managers/CardManager.js';
 import { OpponentManager } from './phaser/managers/OpponentManager.js';
 import { TrickManager } from './phaser/managers/TrickManager.js';
 import { EffectsManager } from './phaser/managers/EffectsManager.js';
+import { DrawManager } from './phaser/managers/DrawManager.js';
 import { GameScene } from './phaser/scenes/GameScene.js';
 
 // Handlers
@@ -62,11 +63,65 @@ let gameSceneRef = null;
 
 /**
  * Set the game scene reference (called from game.js when scene is created).
+ * Also attaches DrawManager to the scene for draw phase handling.
  * @param {Phaser.Scene} scene - The active game scene
  */
 export function setGameScene(scene) {
   gameSceneRef = scene;
-  console.log('🎮 Game scene reference set');
+
+  // Attach DrawManager to the scene if not already present
+  if (!scene.drawManager) {
+    scene.drawManager = new DrawManager(scene);
+    console.log('🎮 DrawManager attached to scene');
+  }
+
+  // Add handler methods to the scene for draw phase
+  if (!scene.handleStartDraw) {
+    scene.handleStartDraw = function(data) {
+      console.log('🎮 Legacy scene handleStartDraw');
+      if (this.drawManager) {
+        this.drawManager.showDrawUI();
+      }
+    };
+  }
+
+  if (!scene.handleYouDrew) {
+    scene.handleYouDrew = function(data) {
+      console.log('🎮 Legacy scene handleYouDrew');
+      if (this.drawManager) {
+        this.drawManager.handleYouDrew(data);
+      }
+    };
+  }
+
+  if (!scene.handlePlayerDrew) {
+    scene.handlePlayerDrew = function(data) {
+      console.log('🎮 Legacy scene handlePlayerDrew');
+      if (this.drawManager) {
+        this.drawManager.handlePlayerDrew(data);
+      }
+    };
+  }
+
+  if (!scene.handleTeamsAnnounced) {
+    scene.handleTeamsAnnounced = function(data) {
+      console.log('🎮 Legacy scene handleTeamsAnnounced');
+      if (this.drawManager) {
+        this.drawManager.handleTeamsAnnounced(data);
+      }
+    };
+  }
+
+  if (!scene.handleCreateUI) {
+    scene.handleCreateUI = function(data) {
+      console.log('🎮 Legacy scene handleCreateUI');
+      if (this.drawManager) {
+        this.drawManager.cleanup();
+      }
+    };
+  }
+
+  console.log('🎮 Game scene reference set with draw handlers');
 }
 
 /**
@@ -193,6 +248,7 @@ window.ModernUtils = {
   OpponentManager,
   TrickManager,
   EffectsManager,
+  DrawManager,
   GameScene,
 
   // Handlers
@@ -660,15 +716,16 @@ function initializeApp() {
         window.processGameStartFromLegacy(data);
       }
     },
-    // Draw phase - handled by legacy game.js for now
+    // Draw phase - handled by DrawManager
     onStartDraw: (data) => {
       console.log('🎴 onStartDraw callback');
       // Remove waiting screen
       uiManager.removeWaitingScreen();
 
-      // Call legacy draw function
-      if (window.startDrawFromLegacy) {
-        window.startDrawFromLegacy(data);
+      // Use DrawManager via scene handler
+      const scene = getGameScene();
+      if (scene && scene.handleStartDraw) {
+        scene.handleStartDraw(data);
       }
     },
     onYouDrew: (data) => {
@@ -696,12 +753,7 @@ function initializeApp() {
       removeMainRoom();
       removeGameLobby();
 
-      // Clean up legacy draw phase elements (allCards array)
-      if (window.removeDrawFromLegacy) {
-        window.removeDrawFromLegacy();
-      }
-
-      // Clean up draw phase via GameScene (for modular DrawManager)
+      // Clean up draw phase via DrawManager
       const scene = getGameScene();
       if (scene && scene.handleCreateUI) {
         scene.handleCreateUI(data);
