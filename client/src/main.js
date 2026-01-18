@@ -419,6 +419,50 @@ export function setGameScene(scene) {
     };
   }
 
+  // Add opponent display handlers
+  if (!scene.handleDisplayOpponentHands) {
+    scene.handleDisplayOpponentHands = function(cardCount, dealerPosition, playerData, skipAnimation) {
+      console.log('🎮 Legacy scene handleDisplayOpponentHands');
+      if (this.opponentManager) {
+        const gameState = getGameState();
+        if (gameState.position) {
+          this.opponentManager.setPlayerPosition(gameState.position);
+        }
+        this.opponentManager.displayOpponentHands(cardCount, dealerPosition, playerData, skipAnimation);
+      }
+    };
+  }
+
+  if (!scene.handleOpponentTurnGlow) {
+    scene.handleOpponentTurnGlow = function(opponentId) {
+      console.log('🎮 Legacy scene handleOpponentTurnGlow');
+      if (this.opponentManager) {
+        this.opponentManager.removeTurnGlow();
+        if (opponentId) {
+          this.opponentManager.addTurnGlow(opponentId);
+        }
+      }
+    };
+  }
+
+  if (!scene.handleClearOpponents) {
+    scene.handleClearOpponents = function() {
+      console.log('🎮 Legacy scene handleClearOpponents');
+      if (this.opponentManager) {
+        this.opponentManager.clearAll();
+      }
+    };
+  }
+
+  if (!scene.handleRepositionOpponents) {
+    scene.handleRepositionOpponents = function() {
+      console.log('🎮 Legacy scene handleRepositionOpponents');
+      if (this.opponentManager) {
+        this.opponentManager.reposition();
+      }
+    };
+  }
+
   console.log('🎮 Game scene reference set with all handlers');
 }
 
