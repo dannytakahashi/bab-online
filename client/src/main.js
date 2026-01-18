@@ -371,6 +371,54 @@ export function setGameScene(scene) {
     };
   }
 
+  // Add trump card display handler
+  if (!scene.handleDisplayTrump) {
+    scene.handleDisplayTrump = function(card) {
+      console.log('🎮 Legacy scene handleDisplayTrump');
+      // Get position from LayoutManager
+      let trumpX, trumpY;
+      if (this.layoutManager) {
+        this.layoutManager.update();
+        const trumpPos = this.layoutManager.getTrumpPosition();
+        trumpX = trumpPos.x;
+        trumpY = trumpPos.y;
+      } else {
+        // Fallback positioning
+        const scaleX = this.scale.width / 1920;
+        const scaleY = this.scale.height / 953;
+        trumpX = this.scale.width / 2 + 500 * scaleX;
+        trumpY = this.scale.height / 2 - 300 * scaleY;
+      }
+
+      // Clean up existing trump display
+      if (this.tableCardBackground) this.tableCardBackground.destroy();
+      if (this.tableCardSprite) this.tableCardSprite.destroy();
+      if (this.tableCardLabel) this.tableCardLabel.destroy();
+
+      const scaleX = this.scale.width / 1920;
+      const scaleY = this.scale.height / 953;
+
+      // Create background
+      this.tableCardBackground = this.add.rectangle(trumpX, trumpY, 120 * scaleX, 160 * scaleY, 0x8B4513)
+        .setStrokeStyle(4, 0x654321)
+        .setDepth(-1);
+
+      // Create card sprite
+      const cardKey = getCardImageKey(card);
+      this.tableCardSprite = this.add.image(trumpX, trumpY, 'cards', cardKey).setScale(1.5);
+
+      // Create label
+      this.tableCardLabel = this.add.text(trumpX, trumpY - 100, 'TRUMP', {
+        fontSize: '24px',
+        fontStyle: 'bold',
+        color: '#FFFFFF',
+        backgroundColor: '#000000AA',
+        padding: { x: 10, y: 5 },
+        align: 'center'
+      }).setOrigin(0.5);
+    };
+  }
+
   console.log('🎮 Game scene reference set with all handlers');
 }
 
