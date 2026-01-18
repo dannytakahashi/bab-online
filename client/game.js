@@ -1,4 +1,20 @@
 
+// Variable declarations moved to top to avoid temporal dead zone errors
+// These are used throughout the file and must be declared before any code that uses them
+// Note: hasDrawn, clickedCardPosition, drawnCardDisplays, allCards moved to DrawManager.js
+var myCards = [];
+var ranks = null; // Will be set from ModernUtils when available
+
+// Helper to get RANK_VALUES lazily (ModernUtils may not be loaded yet)
+function getRankValues() {
+    if (ranks) return ranks;
+    if (window.ModernUtils && window.ModernUtils.RANK_VALUES) {
+        ranks = window.ModernUtils.RANK_VALUES;
+        return ranks;
+    }
+    // Fallback values if ModernUtils not available yet
+    return { HI: 16, LO: 15, A: 14, K: 13, Q: 12, J: 11, 10: 10, 9: 9, 8: 8, 7: 7, 6: 6, 5: 5, 4: 4, 3: 3, 2: 2 };
+}
 
 document.addEventListener("playerAssigned", (event) => {
     let data = event.detail;
@@ -52,7 +68,10 @@ function processRejoin(data) {
 
     // Remove any overlays
     window.ModernUtils.getUIManager().removeWaitingScreen();
-    removeDraw();
+    // Clean up draw phase via DrawManager (if present)
+    if (gameScene && gameScene.drawManager) {
+        gameScene.drawManager.cleanup();
+    }
 
     // Create game UI elements (pass true to indicate reconnection)
     createGameFeed(true);
@@ -486,6 +505,10 @@ let lastQueueData;
 let opponentAvatarDoms = { partner: null, opp1: null, opp2: null }; // DOM-based opponent avatars for CSS glow support
 function create() {
     gameScene = this; // Store reference to the game scene
+    // Also set the reference in the modular code
+    if (window.ModernUtils && window.ModernUtils.setGameScene) {
+        window.ModernUtils.setGameScene(this);
+    }
     console.log("🚀 CREATE() RUNNING!");
     console.log("🚀 gameScene set to:", gameScene);
     console.log("🚀 gameScene.textures:", gameScene.textures);
@@ -911,24 +934,48 @@ function processGameStart(data) {
     }
 }
 
-// Register socket handlers globally (outside create) so they're ready immediately
-socket.on("positionUpdate", (data) => {
+// NOTE: positionUpdate and gameStart are now handled by modular code (gameHandlers.js)
+// The modular callbacks call the processing functions below
+
+// Expose processing functions for modular code to call
+window.processPositionUpdateFromLegacy = function(data) {
     if (gameScene && gameScene.scale) {
         processPositionUpdate(data);
     } else {
         console.log("⏳ Scene not ready, queuing positionUpdate data");
         pendingPositionData = data;
     }
-});
+};
 
-socket.on("gameStart", (data) => {
+window.processGameStartFromLegacy = function(data) {
     if (gameScene && gameScene.scale) {
         processGameStart(data);
     } else {
         console.log("⏳ Scene not ready, queuing gameStart data");
         pendingGameStartData = data;
     }
-});
+};
+
+// Legacy bridge functions removed - draw phase now handled by DrawManager
+
+// Original socket handlers commented out (now handled by gameHandlers.js + callbacks)
+// socket.on("positionUpdate", (data) => {
+//     if (gameScene && gameScene.scale) {
+//         processPositionUpdate(data);
+//     } else {
+//         console.log("⏳ Scene not ready, queuing positionUpdate data");
+//         pendingPositionData = data;
+//     }
+// });
+
+// socket.on("gameStart", (data) => {
+//     if (gameScene && gameScene.scale) {
+//         processGameStart(data);
+//     } else {
+//         console.log("⏳ Scene not ready, queuing gameStart data");
+//         pendingGameStartData = data;
+//     }
+// });
 
 // Reserve 320px on the right for game log (300px width + 20px padding)
 const GAME_LOG_WIDTH = 320;
@@ -977,10 +1024,10 @@ function preload() {
         this.load.image(`profile${i}`, `assets/profile${i}.png`);
     }
 }
-// Rank values from ModernUtils
-let ranks = window.ModernUtils.RANK_VALUES;
-let opponentCardSprites = {};
-let tableCardSprite;
+// Rank values - use getRankValues() function defined at top of file
+// (ranks variable already declared at top, will be populated lazily)
+var opponentCardSprites = {};
+var tableCardSprite;
 function createGameFeed(isReconnection = false) {
     let feedCheck = document.getElementById("gameFeed");
     if(feedCheck){
@@ -1245,8 +1292,8 @@ function removeTurnGlow(scene) {
         console.log("🚫 Removed CSS turn glow from hand border.");
     }
 }
-let allCards = [];
-let rainbows = [];
+// rainbows declared below (allCards moved to DrawManager.js)
+var rainbows = [];
 socket.on("rainbow", (data) => {
     console.log("caught rainbow");
     rainbows.push(data.position);
@@ -1283,197 +1330,9 @@ socket.on("destroyHands", (data) => {
     teamTricks = 0;
     oppTricks = 0;
 });
-// Track drawn cards display during draw phase
-let drawnCardDisplays = [];
-let hasDrawn = false;
-let clickedCardPosition = null; // Store position of clicked card for draw animation
+// Draw phase functions (draw, removeDraw) moved to DrawManager.js
+// See client/src/phaser/managers/DrawManager.js
 
-function draw() {
-    clearScreen.call(game.scene.scenes[0]);
-    socket.off("youDrew");
-    socket.off("playerDrew");
-    hasDrawn = false;
-    drawnCardDisplays = [];
-
-    console.log("🃏 Placing all 54 cards face down...");
-    let scene = this;
-    let screenWidth = this.scale.width;
-    let screenHeight = this.scale.height;
-    let scaleFactorX = screenWidth / 1920;
-    let scaleFactorY = screenHeight / 953;
-    let startX = 400*scaleFactorX;
-    let startY = screenHeight / 2;
-    let overlap = 20*scaleFactorX;
-
-    // Positions for drawn cards display (4 slots above the deck)
-    const drawDisplayY = screenHeight / 2 - 200*scaleFactorY;
-    const drawDisplayStartX = screenWidth / 2 - 300*scaleFactorX;
-    const drawDisplaySpacing = 200*scaleFactorX;
-
-    // Background is now handled by CSS gradient on body - canvas is transparent
-
-    // Add "Draw for Deal" title
-    const titleText = this.add.text(screenWidth / 2, 80*scaleFactorY, "Draw for Deal", {
-        fontSize: `${48*scaleFactorX}px`,
-        fontStyle: "bold",
-        color: "#FFFFFF",
-        stroke: "#000000",
-        strokeThickness: 4
-    }).setOrigin(0.5).setDepth(200);
-    allCards.push(titleText);
-
-    // Create deck cards (visual only, not individually interactive)
-    for (let i = 0; i < 54; i++) {
-        let cardSprite = this.add.image(screenWidth/2 + 500*scaleFactorX, startY, "cardBack")
-            .setScale(1.2)
-            .setDepth(100);
-
-        if (visible()) {
-            this.tweens.add({
-                targets: cardSprite,
-                x: startX + i * overlap,
-                y: startY,
-                duration: 750,
-                ease: "Power2",
-                delay: 0
-            });
-        } else {
-            cardSprite.x = startX + i * overlap;
-            cardSprite.y = startY;
-        }
-        allCards.push(cardSprite);
-    }
-
-    // Create invisible hit zone for position-based click detection
-    const cardHeight = 190 * scaleFactorY;
-    const hitZoneWidth = 53 * overlap + 140 * scaleFactorX;
-    const hitZoneX = startX + hitZoneWidth / 2;
-
-    let hitZone = this.add.rectangle(hitZoneX, startY, hitZoneWidth, cardHeight, 0x000000, 0)
-        .setInteractive()
-        .setDepth(150);
-
-    hitZone.on("pointerdown", (pointer) => {
-        if (hasDrawn) return;
-        hasDrawn = true;
-
-        // Calculate which card was clicked based on x position
-        const clickX = pointer.x;
-        const clickedIndex = Math.min(53, Math.max(0, Math.floor((clickX - startX) / overlap)));
-
-        // Get the card sprite at that index (cards start at index 1, after titleText)
-        const clickedCard = allCards[clickedIndex + 1];
-
-        // Store clicked card position for flip animation
-        clickedCardPosition = { x: clickedCard.x, y: clickedCard.y };
-
-        console.log(`📦 Clicked card ${clickedIndex + 1} to draw at (${clickedCard.x}, ${clickedCard.y})`);
-        socket.emit("draw", {num: Math.floor(Math.random() * 54)});
-
-        // Disable hit zone
-        hitZone.disableInteractive();
-    });
-
-    allCards.push(hitZone);
-
-    // Listen for your own draw result
-    socket.on("youDrew", (data) => {
-        console.log(`🎴 You drew: ${data.card.rank} of ${data.card.suit}`);
-        // The playerDrew event will handle the display for all players including self
-    });
-
-    // Listen for any player drawing (including self)
-    socket.on("playerDrew", (data) => {
-        console.log(`🎴 ${data.username} drew: ${data.card.rank} of ${data.card.suit} (order: ${data.drawOrder})`);
-
-        // Calculate position for this drawn card (drawOrder is 1-4)
-        const slotX = drawDisplayStartX + (data.drawOrder - 1) * drawDisplaySpacing;
-        let textureKey = getCardImageKey(data.card);
-
-        // Determine start position: clicked position for local player, deck center for others
-        let isLocalPlayer = clickedCardPosition !== null;
-        let startPos = isLocalPlayer
-            ? { x: clickedCardPosition.x, y: clickedCardPosition.y }
-            : { x: screenWidth / 2, y: startY };
-
-        // Create card with BACK texture initially at start position
-        let drawnCard = scene.add.image(startPos.x, startPos.y, 'cardBack')
-            .setScale(0.8)
-            .setDepth(300);
-
-        // Create username label
-        let nameLabel = scene.add.text(slotX, drawDisplayY - 80*scaleFactorY, data.username, {
-            fontSize: `${24*scaleFactorX}px`,
-            fontStyle: "bold",
-            color: "#FFFFFF",
-            stroke: "#000000",
-            strokeThickness: 3
-        }).setOrigin(0.5).setDepth(300);
-
-        // Calculate midpoint for flip animation
-        const midX = (startPos.x + slotX) / 2;
-        const midY = (startPos.y + drawDisplayY) / 2;
-
-        // Phase 1: Move toward midpoint and scale X to 0 (flip start)
-        scene.tweens.add({
-            targets: drawnCard,
-            x: midX,
-            y: midY,
-            scaleX: 0,
-            scaleY: 1.1,
-            duration: 250,
-            ease: "Power2",
-            onComplete: () => {
-                // Change texture to revealed card at the flip midpoint
-                drawnCard.setTexture('cards', textureKey);
-
-                // Phase 2: Scale X back and complete movement to display slot
-                scene.tweens.add({
-                    targets: drawnCard,
-                    x: slotX,
-                    y: drawDisplayY,
-                    scaleX: 1.5,
-                    scaleY: 1.5,
-                    duration: 250,
-                    ease: "Power2"
-                });
-            }
-        });
-
-        // Clear clicked position after local player's card is processed
-        if (isLocalPlayer) {
-            clickedCardPosition = null;
-        }
-
-        drawnCardDisplays.push(drawnCard, nameLabel);
-    });
-
-    console.log("✅ All 54 cards placed face down and clickable.");
-}
-function removeDraw() {
-    console.log("🔥 Destroying all displayed cards...");
-
-    allCards.forEach(card => {
-        if (card) {
-            card.destroy();
-        }
-    });
-    allCards = [];
-
-    // Also clean up drawn card displays
-    drawnCardDisplays.forEach(item => {
-        if (item) {
-            item.destroy();
-        }
-    });
-    drawnCardDisplays = [];
-
-    // Clean up socket listeners
-    socket.off("youDrew");
-    socket.off("playerDrew");
-
-    console.log("✅ All cards removed.");
-}
 function displayTableCard(card) {
     console.log(`🎴 displayTableCard called!`);
     console.log(`🎴 this (scene):`, this);
@@ -1597,6 +1456,10 @@ socket.on("abortGame", (data) => {
     console.log("caught abortGame");
     cleanupDomBackgrounds();
     window.ModernUtils.getUIManager().clearUI();
+    // Clear scene reference in modular code
+    if (window.ModernUtils && window.ModernUtils.clearGameScene) {
+        window.ModernUtils.clearGameScene();
+    }
     gameScene.children.removeAll(true);
     gameScene.scene.restart();
     // Return to main room
@@ -1611,6 +1474,10 @@ socket.on("forceLogout", (data) => {
     cleanupDomBackgrounds();
     window.ModernUtils.getUIManager().removeWaitingScreen();
     window.ModernUtils.getUIManager().clearUI();
+    // Clear scene reference in modular code
+    if (window.ModernUtils && window.ModernUtils.clearGameScene) {
+        window.ModernUtils.clearGameScene();
+    }
     // Sign-in screen now handled by modular code in main.js authHandlers
 });
 socket.on("roomFull", (data) => {
@@ -1668,68 +1535,70 @@ socket.on("gameEnd", (data) => {
         }
     });
 });
-socket.on("startDraw", (data) => {
-    window.ModernUtils.getUIManager().removeWaitingScreen();
-    draw.call(game.scene.scenes[0]);
-});
-socket.on("teamsAnnounced", (data) => {
-    console.log("🏆 Teams announced:", data);
-    let scene = game.scene.scenes[0];
-    let screenWidth = scene.scale.width;
-    let screenHeight = scene.scale.height;
-    let scaleFactorX = screenWidth / 1920;
-    let scaleFactorY = screenHeight / 953;
-
-    // Create semi-transparent overlay
-    const overlay = scene.add.rectangle(screenWidth / 2, screenHeight / 2, screenWidth, screenHeight, 0x000000, 0.7)
-        .setDepth(400);
-
-    // Team announcement title
-    const title = scene.add.text(screenWidth / 2, screenHeight / 2 - 120*scaleFactorY, "Teams", {
-        fontSize: `${56*scaleFactorX}px`,
-        fontStyle: "bold",
-        color: "#FFD700",
-        stroke: "#000000",
-        strokeThickness: 4
-    }).setOrigin(0.5).setDepth(401);
-
-    // Team 1 display
-    const team1Label = scene.add.text(screenWidth / 2, screenHeight / 2 - 30*scaleFactorY, "Team 1", {
-        fontSize: `${32*scaleFactorX}px`,
-        fontStyle: "bold",
-        color: "#4ade80"
-    }).setOrigin(0.5).setDepth(401);
-
-    const team1Players = scene.add.text(screenWidth / 2, screenHeight / 2 + 20*scaleFactorY,
-        `${data.team1[0]} & ${data.team1[1]}`, {
-        fontSize: `${28*scaleFactorX}px`,
-        color: "#FFFFFF"
-    }).setOrigin(0.5).setDepth(401);
-
-    // VS text
-    const vsText = scene.add.text(screenWidth / 2, screenHeight / 2 + 70*scaleFactorY, "vs", {
-        fontSize: `${24*scaleFactorX}px`,
-        fontStyle: "italic",
-        color: "#9ca3af"
-    }).setOrigin(0.5).setDepth(401);
-
-    // Team 2 display
-    const team2Label = scene.add.text(screenWidth / 2, screenHeight / 2 + 120*scaleFactorY, "Team 2", {
-        fontSize: `${32*scaleFactorX}px`,
-        fontStyle: "bold",
-        color: "#f87171"
-    }).setOrigin(0.5).setDepth(401);
-
-    const team2Players = scene.add.text(screenWidth / 2, screenHeight / 2 + 170*scaleFactorY,
-        `${data.team2[0]} & ${data.team2[1]}`, {
-        fontSize: `${28*scaleFactorX}px`,
-        color: "#FFFFFF"
-    }).setOrigin(0.5).setDepth(401);
-
-    // Store references for cleanup
-    const teamElements = [overlay, title, team1Label, team1Players, vsText, team2Label, team2Players];
-    drawnCardDisplays.push(...teamElements);
-});
+// NOTE: startDraw is now handled by modular code (GameScene.handleStartDraw via DrawManager)
+// socket.on("startDraw", (data) => {
+//     window.ModernUtils.getUIManager().removeWaitingScreen();
+//     draw.call(game.scene.scenes[0]);
+// });
+// NOTE: teamsAnnounced is now handled by modular code (GameScene.handleTeamsAnnounced via DrawManager)
+// socket.on("teamsAnnounced", (data) => {
+//     console.log("🏆 Teams announced:", data);
+//     let scene = game.scene.scenes[0];
+//     let screenWidth = scene.scale.width;
+//     let screenHeight = scene.scale.height;
+//     let scaleFactorX = screenWidth / 1920;
+//     let scaleFactorY = screenHeight / 953;
+//
+//     // Create semi-transparent overlay
+//     const overlay = scene.add.rectangle(screenWidth / 2, screenHeight / 2, screenWidth, screenHeight, 0x000000, 0.7)
+//         .setDepth(400);
+//
+//     // Team announcement title
+//     const title = scene.add.text(screenWidth / 2, screenHeight / 2 - 120*scaleFactorY, "Teams", {
+//         fontSize: `${56*scaleFactorX}px`,
+//         fontStyle: "bold",
+//         color: "#FFD700",
+//         stroke: "#000000",
+//         strokeThickness: 4
+//     }).setOrigin(0.5).setDepth(401);
+//
+//     // Team 1 display
+//     const team1Label = scene.add.text(screenWidth / 2, screenHeight / 2 - 30*scaleFactorY, "Team 1", {
+//         fontSize: `${32*scaleFactorX}px`,
+//         fontStyle: "bold",
+//         color: "#4ade80"
+//     }).setOrigin(0.5).setDepth(401);
+//
+//     const team1Players = scene.add.text(screenWidth / 2, screenHeight / 2 + 20*scaleFactorY,
+//         `${data.team1[0]} & ${data.team1[1]}`, {
+//         fontSize: `${28*scaleFactorX}px`,
+//         color: "#FFFFFF"
+//     }).setOrigin(0.5).setDepth(401);
+//
+//     // VS text
+//     const vsText = scene.add.text(screenWidth / 2, screenHeight / 2 + 70*scaleFactorY, "vs", {
+//         fontSize: `${24*scaleFactorX}px`,
+//         fontStyle: "italic",
+//         color: "#9ca3af"
+//     }).setOrigin(0.5).setDepth(401);
+//
+//     // Team 2 display
+//     const team2Label = scene.add.text(screenWidth / 2, screenHeight / 2 + 120*scaleFactorY, "Team 2", {
+//         fontSize: `${32*scaleFactorX}px`,
+//         fontStyle: "bold",
+//         color: "#f87171"
+//     }).setOrigin(0.5).setDepth(401);
+//
+//     const team2Players = scene.add.text(screenWidth / 2, screenHeight / 2 + 170*scaleFactorY,
+//         `${data.team2[0]} & ${data.team2[1]}`, {
+//         fontSize: `${28*scaleFactorX}px`,
+//         color: "#FFFFFF"
+//     }).setOrigin(0.5).setDepth(401);
+//
+//     // Store references for cleanup
+//     const teamElements = [overlay, title, team1Label, team1Players, vsText, team2Label, team2Players];
+//     drawnCardDisplays.push(...teamElements);
+// });
 
 // Helper to show chat/bid bubble, replacing any existing bubble for the same position
 function showChatBubble(scene, positionKey, x, y, message, color = null, duration = 6000) {
@@ -1792,21 +1661,28 @@ socket.on("chatMessage", (data) => {
         showChatBubble(scene, 'me', me_x, me_y, data.message);
     }
 });
-socket.on("createUI", (data) => {
-    let scene = game.scene.scenes[0];
-    console.log("🎨 caught createUI");
-    window.ModernUtils.getUIManager().removeWaitingScreen();
-    removeDraw();
-    window.ModernUtils.removeMainRoom(); // Ensure main room is removed
-    window.ModernUtils.removeGameLobby(); // Ensure game lobby is removed
-    console.log("🎨 Creating game feed...");
-    createGameFeed(false); // Not a reconnection, show "Game started!"
-    console.log("🎨 Game feed created, checking DOM:", document.getElementById("gameFeed"));
-    // Score is now displayed in the game log, no separate scorebug needed
-    if (!scene.handElements) {
-        scene.handElements = [];
-    }
-});
+// NOTE: createUI is now handled by modular code (GameScene.handleCreateUI)
+// The modular handler calls createGameFeedFromLegacy() below for game feed creation
+// socket.on("createUI", (data) => {
+//     let scene = game.scene.scenes[0];
+//     console.log("🎨 caught createUI");
+//     window.ModernUtils.getUIManager().removeWaitingScreen();
+//     removeDraw();
+//     window.ModernUtils.removeMainRoom(); // Ensure main room is removed
+//     window.ModernUtils.removeGameLobby(); // Ensure game lobby is removed
+//     console.log("🎨 Creating game feed...");
+//     createGameFeed(false); // Not a reconnection, show "Game started!"
+//     console.log("🎨 Game feed created, checking DOM:", document.getElementById("gameFeed"));
+//     // Score is now displayed in the game log, no separate scorebug needed
+//     if (!scene.handElements) {
+//         scene.handElements = [];
+//     }
+// });
+
+// Expose createGameFeed for modular code to call
+window.createGameFeedFromLegacy = function(isReconnection = false) {
+    createGameFeed(isReconnection);
+};
 // queueUpdate handler removed - now using lobby system instead
 
 // ==================== MAIN ROOM SOCKET HANDLERS ====================
@@ -1903,7 +1779,7 @@ function clearDisplayCards() {
     }
     console.log("✅ All elements cleared from displayCards.");
 }
-let myCards = [];
+// myCards declared at top of file
 
 // Card sorting utilities - delegating to ModernUtils
 function getSuitOrder(trumpSuit) {
@@ -2524,9 +2400,9 @@ function displayCards(playerHand, skipAnimation = false) {
             console.log("trump suit:", trump.suit);
             console.log("played card suit:", thisTrick[thisTrick.length - 1].suit);
             console.log("previous card suit:", thisTrick[thisTrick.length - 2].suit);
-            console.log("played card rank:", ranks[thisTrick[thisTrick.length - 1].rank]);
-            console.log("previous card rank:", ranks[thisTrick[thisTrick.length - 2].rank]);
-            if((thisTrick[thisTrick.length - 1].suit === trump.suit || thisTrick[thisTrick.length - 1].suit === "joker") && (thisTrick[thisTrick.length - 2].suit === trump.suit || thisTrick[thisTrick.length - 2].suit === "joker" ) && (ranks[thisTrick[thisTrick.length - 1].rank] > ranks[thisTrick[thisTrick.length - 2].rank]) && leadCard.suit !== trump.suit && leadCard.suit !== "joker"){
+            console.log("played card rank:", getRankValues()[thisTrick[thisTrick.length - 1].rank]);
+            console.log("previous card rank:", getRankValues()[thisTrick[thisTrick.length - 2].rank]);
+            if((thisTrick[thisTrick.length - 1].suit === trump.suit || thisTrick[thisTrick.length - 1].suit === "joker") && (thisTrick[thisTrick.length - 2].suit === trump.suit || thisTrick[thisTrick.length - 2].suit === "joker" ) && (getRankValues()[thisTrick[thisTrick.length - 1].rank] > getRankValues()[thisTrick[thisTrick.length - 2].rank]) && leadCard.suit !== trump.suit && leadCard.suit !== "joker"){
                 console.log("showing ot");
                 showImpactEvent("ot");
             }

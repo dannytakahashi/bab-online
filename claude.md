@@ -38,8 +38,16 @@ bab-online/
 │   │   │   └── screens/            # SignIn, Register
 │   │   ├── phaser/
 │   │   │   ├── config.js           # Phaser game configuration
+│   │   │   ├── scenes/
+│   │   │   │   └── GameScene.js    # Main game scene with handler methods
 │   │   │   └── managers/
-│   │   │       └── CardManager.js  # Card sprite management
+│   │   │       ├── CardManager.js  # Card sprite management
+│   │   │       ├── TrickManager.js # Trick display and animations
+│   │   │       ├── OpponentManager.js # Opponent avatars and cards
+│   │   │       ├── EffectsManager.js  # Visual effects (rainbow, etc.)
+│   │   │       ├── DrawManager.js  # Draw phase UI and animations
+│   │   │       ├── BidManager.js   # Bidding UI and bubbles
+│   │   │       └── LayoutManager.js # Positioning and resize logic
 │   │   └── handlers/
 │   │       └── index.js            # Socket event handler registration
 │   ├── styles/
@@ -96,11 +104,18 @@ bab-online/
 - `client/styles/components.css` - UI component styles
 
 ### Client (Modular - src/)
-- `client/src/main.js` - Entry point, exposes all modules via window.ModernUtils bridge
+- `client/src/main.js` - Entry point, exposes all modules via window.ModernUtils bridge, wires callbacks to GameScene
 - `client/src/state/GameState.js` - Client state singleton with event emitter
 - `client/src/socket/SocketManager.js` - Socket with listener tracking for cleanup
 - `client/src/rules/legality.js` - Card play legality checking (isLegalMove)
+- `client/src/phaser/scenes/GameScene.js` - Main game scene, instantiates managers, handles events
 - `client/src/phaser/managers/CardManager.js` - Card sprite management
+- `client/src/phaser/managers/TrickManager.js` - Trick display, play positions, trick history
+- `client/src/phaser/managers/OpponentManager.js` - Opponent avatars and card backs
+- `client/src/phaser/managers/EffectsManager.js` - Visual effects (rainbow animation)
+- `client/src/phaser/managers/DrawManager.js` - Draw phase deck and card selection
+- `client/src/phaser/managers/BidManager.js` - Bid UI, bore buttons, bid bubbles
+- `client/src/phaser/managers/LayoutManager.js` - Centralized positioning and resize calculations
 - `client/src/ui/components/` - Modal, Toast, BidUI, GameLog components
 - `client/src/handlers/index.js` - Socket event handler registration
 
@@ -109,6 +124,7 @@ bab-online/
 - **Communication**: Socket.io bidirectional WebSocket
 - **State**: Server-authoritative, `GameState` class per game instance
 - **Client State**: `GameState` singleton replaces 50+ globals
+- **Event Callbacks**: Socket events flow through `gameHandlers.js` → main.js callbacks → `GameScene.handleX()` → Phaser managers
 - **State Validation**: Server validates all actions (`validateTurn`, `validateCardPlay`, `validateBid`)
 - **Input Validation**: Joi schemas validate all socket event data (`validators.js`)
 - **Error Handling**: All handlers wrapped with try/catch, validation errors sent to client (`errorHandler.js`)
@@ -276,8 +292,19 @@ Players can rejoin from a different browser/device:
 ### SocketManager (`client/src/socket/SocketManager.js`)
 Singleton for socket connection with listener tracking. Methods: `connect()`, `on()`, `onGame()`, `off()`, `offAll()`, `emit()`, `cleanupGameListeners()`. Game listeners registered via `onGame()` are automatically cleaned up between games.
 
+### GameScene (`client/src/phaser/scenes/GameScene.js`)
+Main Phaser scene that coordinates all game visuals. Instantiates and manages all Phaser managers (CardManager, TrickManager, OpponentManager, EffectsManager, DrawManager, BidManager, LayoutManager). Has handler methods for each socket event (e.g., `handleStartDraw()`, `handleBidReceived()`, `handleCardPlayed()`). These are called from main.js callbacks via `getGameScene()`.
+
 ### CardManager (`client/src/phaser/managers/CardManager.js`)
 Manages card sprites in Phaser. Methods: `setScene()`, `createCard()`, `displayHand()`, `playCard()`, `updatePositions()`, `collectTrick()`, `clear()`. Handles card positioning, animations, and trick collection.
+
+### Phaser Managers
+- **DrawManager** - Deck display, card click handling, draw animations, teams announcement overlay
+- **BidManager** - Bid button grid (0-N + B/2B/3B/4B), bore button state management, bid bubbles
+- **TrickManager** - Play positions, card-to-center animations, trick collection stacks, hover fan-out
+- **OpponentManager** - DOM-based avatars with CSS glow, opponent card back displays
+- **EffectsManager** - Rainbow animation effect
+- **LayoutManager** - Centralized positioning calculations, resize handling, scale factors
 
 ### UI Components (`client/src/ui/components/`)
 - **Modal.js** - `createModal()`, `confirm()`, `alert()` - promise-based modal dialogs

@@ -41,6 +41,9 @@ import { CardManager } from './phaser/managers/CardManager.js';
 import { OpponentManager } from './phaser/managers/OpponentManager.js';
 import { TrickManager } from './phaser/managers/TrickManager.js';
 import { EffectsManager } from './phaser/managers/EffectsManager.js';
+import { DrawManager } from './phaser/managers/DrawManager.js';
+import { BidManager } from './phaser/managers/BidManager.js';
+import { LayoutManager } from './phaser/managers/LayoutManager.js';
 import { GameScene } from './phaser/scenes/GameScene.js';
 
 // Handlers
@@ -53,6 +56,493 @@ import {
   cleanupGameHandlers,
 } from './handlers/index.js';
 
+// ============================================
+// Game Scene Access
+// ============================================
+
+// Reference to the active Phaser game scene
+let gameSceneRef = null;
+
+/**
+ * Set the game scene reference (called from game.js when scene is created).
+ * Also attaches DrawManager to the scene for draw phase handling.
+ * @param {Phaser.Scene} scene - The active game scene
+ */
+export function setGameScene(scene) {
+  gameSceneRef = scene;
+
+  // Attach DrawManager to the scene if not already present
+  if (!scene.drawManager) {
+    scene.drawManager = new DrawManager(scene);
+    console.log('🎮 DrawManager attached to scene');
+  }
+
+  // Attach CardManager to the scene if not already present
+  if (!scene.cardManager) {
+    scene.cardManager = new CardManager(scene);
+    console.log('🎮 CardManager attached to scene');
+  }
+
+  // Attach OpponentManager to the scene if not already present
+  if (!scene.opponentManager) {
+    scene.opponentManager = new OpponentManager(scene);
+    console.log('🎮 OpponentManager attached to scene');
+  }
+
+  // Add handler methods to the scene for draw phase
+  if (!scene.handleStartDraw) {
+    scene.handleStartDraw = function(data) {
+      console.log('🎮 Legacy scene handleStartDraw');
+      if (this.drawManager) {
+        this.drawManager.showDrawUI();
+      }
+    };
+  }
+
+  if (!scene.handleYouDrew) {
+    scene.handleYouDrew = function(data) {
+      console.log('🎮 Legacy scene handleYouDrew');
+      if (this.drawManager) {
+        this.drawManager.handleYouDrew(data);
+      }
+    };
+  }
+
+  if (!scene.handlePlayerDrew) {
+    scene.handlePlayerDrew = function(data) {
+      console.log('🎮 Legacy scene handlePlayerDrew');
+      if (this.drawManager) {
+        this.drawManager.handlePlayerDrew(data);
+      }
+    };
+  }
+
+  if (!scene.handleTeamsAnnounced) {
+    scene.handleTeamsAnnounced = function(data) {
+      console.log('🎮 Legacy scene handleTeamsAnnounced');
+      if (this.drawManager) {
+        this.drawManager.handleTeamsAnnounced(data);
+      }
+    };
+  }
+
+  if (!scene.handleCreateUI) {
+    scene.handleCreateUI = function(data) {
+      console.log('🎮 Legacy scene handleCreateUI');
+      if (this.drawManager) {
+        this.drawManager.cleanup();
+      }
+    };
+  }
+
+  // Attach BidManager to the scene if not already present
+  if (!scene.bidManager) {
+    scene.bidManager = new BidManager(scene);
+    console.log('🎮 BidManager attached to scene');
+  }
+
+  // Add handler methods to the scene for bidding phase
+  if (!scene.handleBidReceived) {
+    scene.handleBidReceived = function(data) {
+      console.log('🎮 Legacy scene handleBidReceived');
+      // Add to temp bids for bore button state
+      const gameState = getGameState();
+      gameState.addTempBid(data.bid);
+      // Update bore button states
+      if (this.bidManager) {
+        this.bidManager.updateBoreButtonStates();
+      }
+      // Also update legacy bore buttons if they exist
+      if (window.updateBoreButtons) {
+        window.updateBoreButtons();
+      }
+    };
+  }
+
+  if (!scene.handleDoneBidding) {
+    scene.handleDoneBidding = function(data) {
+      console.log('🎮 Legacy scene handleDoneBidding');
+      // Clear temp bids
+      const gameState = getGameState();
+      gameState.clearTempBids();
+      // Hide bid UI
+      if (this.bidManager) {
+        this.bidManager.hideBidUI();
+      }
+    };
+  }
+
+  if (!scene.handleUpdateTurn) {
+    scene.handleUpdateTurn = function(data) {
+      console.log('🎮 Legacy scene handleUpdateTurn');
+      const gameState = getGameState();
+      // Update bid UI visibility during bidding phase
+      if (this.bidManager && gameState.isBidding) {
+        this.bidManager.updateVisibility();
+      }
+    };
+  }
+
+  // Attach TrickManager to the scene if not already present
+  if (!scene.trickManager) {
+    scene.trickManager = new TrickManager(scene);
+    console.log('🎮 TrickManager attached to scene');
+  }
+
+  // Add handler methods to the scene for card play
+  if (!scene.handleCardPlayed) {
+    scene.handleCardPlayed = function(data) {
+      console.log('🎮 Legacy scene handleCardPlayed');
+      const gameState = getGameState();
+      // Initialize TrickManager position if needed
+      if (this.trickManager && gameState.position) {
+        this.trickManager.setPlayerPosition(gameState.position);
+        this.trickManager.updatePlayPositions();
+      }
+    };
+  }
+
+  if (!scene.handleTrickComplete) {
+    scene.handleTrickComplete = function(data) {
+      console.log('🎮 Legacy scene handleTrickComplete');
+      // Note: Legacy code handles trick collection animation
+    };
+  }
+
+  // Attach EffectsManager to the scene if not already present
+  if (!scene.effectsManager) {
+    scene.effectsManager = new EffectsManager(scene);
+    console.log('🎮 EffectsManager attached to scene');
+  }
+
+  // Add handler methods for hand/game end events
+  if (!scene.handleHandComplete) {
+    scene.handleHandComplete = function(data) {
+      console.log('🎮 Legacy scene handleHandComplete');
+      const gameState = getGameState();
+      // Reset effects for new hand
+      if (this.effectsManager) {
+        this.effectsManager.resetForNewHand();
+      }
+      // Reset trick manager for new hand
+      if (this.trickManager) {
+        this.trickManager.resetForNewHand();
+      }
+    };
+  }
+
+  if (!scene.handleGameEnd) {
+    scene.handleGameEnd = function(data) {
+      console.log('🎮 Legacy scene handleGameEnd');
+      // Clear effects
+      if (this.effectsManager) {
+        this.effectsManager.clearAll();
+      }
+    };
+  }
+
+  if (!scene.handleRainbow) {
+    scene.handleRainbow = function(data) {
+      console.log('🎮 Legacy scene handleRainbow');
+      const gameState = getGameState();
+      // Set player position in effects manager if needed
+      if (this.effectsManager && gameState.position) {
+        this.effectsManager.setPlayerPosition(gameState.position);
+        this.effectsManager.showRainbow(data.position);
+      }
+    };
+  }
+
+  if (!scene.handleDestroyHands) {
+    scene.handleDestroyHands = function(data) {
+      console.log('🎮 Legacy scene handleDestroyHands');
+      // Clear trick displays
+      if (this.trickManager) {
+        this.trickManager.clearAll();
+      }
+    };
+  }
+
+  // Add handler methods for reconnection/error events
+  if (!scene.handlePlayerDisconnected) {
+    scene.handlePlayerDisconnected = function(data) {
+      console.log('🎮 Legacy scene handlePlayerDisconnected');
+      // Game.js handles this via socket.on listener for now
+    };
+  }
+
+  if (!scene.handlePlayerReconnected) {
+    scene.handlePlayerReconnected = function(data) {
+      console.log('🎮 Legacy scene handlePlayerReconnected');
+      // Game.js handles this via CustomEvent listener for now
+    };
+  }
+
+  if (!scene.handleRejoinSuccess) {
+    scene.handleRejoinSuccess = function(data) {
+      console.log('🎮 Legacy scene handleRejoinSuccess');
+      // Game.js handles this via CustomEvent listener calling processRejoin()
+    };
+  }
+
+  if (!scene.handleRejoinFailed) {
+    scene.handleRejoinFailed = function(data) {
+      console.log('🎮 Legacy scene handleRejoinFailed');
+      // Game.js handles this via CustomEvent listener for now
+    };
+  }
+
+  if (!scene.handleAbortGame) {
+    scene.handleAbortGame = function(data) {
+      console.log('🎮 Legacy scene handleAbortGame');
+      // Clear all managers
+      if (this.effectsManager) {
+        this.effectsManager.clearAll();
+      }
+      if (this.trickManager) {
+        this.trickManager.clearAll();
+      }
+      if (this.drawManager) {
+        this.drawManager.cleanup();
+      }
+      // Game.js socket.on handler does the rest (restart scene, return to main room)
+    };
+  }
+
+  // Attach LayoutManager to the scene if not already present
+  if (!scene.layoutManager) {
+    scene.layoutManager = new LayoutManager(scene);
+    console.log('🎮 LayoutManager attached to scene');
+  }
+
+  // Add resize handler that updates LayoutManager
+  if (!scene.handleResize) {
+    scene.handleResize = function(width, height) {
+      console.log('🎮 Legacy scene handleResize');
+      if (this.layoutManager) {
+        this.layoutManager.update();
+        // Update TrickManager play positions from LayoutManager
+        if (this.trickManager) {
+          const playPos = this.layoutManager.getPlayPositions();
+          this.trickManager.playPositions = playPos;
+        }
+        // Update CardManager hand positions from LayoutManager
+        if (this.cardManager) {
+          this.cardManager.repositionHand();
+        }
+      }
+    };
+  }
+
+  // Add card display handlers
+  if (!scene.handleClearHand) {
+    scene.handleClearHand = function() {
+      console.log('🎮 Legacy scene handleClearHand');
+      if (this.cardManager) {
+        this.cardManager.clearHand();
+      }
+    };
+  }
+
+  if (!scene.handleUpdateCardLegality) {
+    scene.handleUpdateCardLegality = function(legalityChecker, canPlay) {
+      console.log('🎮 Legacy scene handleUpdateCardLegality');
+      if (this.cardManager) {
+        this.cardManager.updateCardLegality(legalityChecker, canPlay);
+      }
+    };
+  }
+
+  if (!scene.handlePlayCard) {
+    scene.handlePlayCard = function(card, position, targetX, targetY) {
+      console.log('🎮 Legacy scene handlePlayCard');
+      if (this.cardManager) {
+        this.cardManager.playCard(card, position, targetX, targetY);
+      }
+    };
+  }
+
+  if (!scene.handleCollectTrick) {
+    scene.handleCollectTrick = function(winnerPosition) {
+      console.log('🎮 Legacy scene handleCollectTrick');
+      if (this.cardManager) {
+        this.cardManager.collectTrick(winnerPosition);
+      }
+    };
+  }
+
+  // Add trump card display handler
+  if (!scene.handleDisplayTrump) {
+    scene.handleDisplayTrump = function(card) {
+      console.log('🎮 Legacy scene handleDisplayTrump');
+      // Get position from LayoutManager
+      let trumpX, trumpY;
+      if (this.layoutManager) {
+        this.layoutManager.update();
+        const trumpPos = this.layoutManager.getTrumpPosition();
+        trumpX = trumpPos.x;
+        trumpY = trumpPos.y;
+      } else {
+        // Fallback positioning
+        const scaleX = this.scale.width / 1920;
+        const scaleY = this.scale.height / 953;
+        trumpX = this.scale.width / 2 + 500 * scaleX;
+        trumpY = this.scale.height / 2 - 300 * scaleY;
+      }
+
+      // Clean up existing trump display
+      if (this.tableCardBackground) this.tableCardBackground.destroy();
+      if (this.tableCardSprite) this.tableCardSprite.destroy();
+      if (this.tableCardLabel) this.tableCardLabel.destroy();
+
+      const scaleX = this.scale.width / 1920;
+      const scaleY = this.scale.height / 953;
+
+      // Create background
+      this.tableCardBackground = this.add.rectangle(trumpX, trumpY, 120 * scaleX, 160 * scaleY, 0x8B4513)
+        .setStrokeStyle(4, 0x654321)
+        .setDepth(-1);
+
+      // Create card sprite
+      const cardKey = getCardImageKey(card);
+      this.tableCardSprite = this.add.image(trumpX, trumpY, 'cards', cardKey).setScale(1.5);
+
+      // Create label
+      this.tableCardLabel = this.add.text(trumpX, trumpY - 100, 'TRUMP', {
+        fontSize: '24px',
+        fontStyle: 'bold',
+        color: '#FFFFFF',
+        backgroundColor: '#000000AA',
+        padding: { x: 10, y: 5 },
+        align: 'center'
+      }).setOrigin(0.5);
+    };
+  }
+
+  // Add opponent display handlers
+  if (!scene.handleDisplayOpponentHands) {
+    scene.handleDisplayOpponentHands = function(cardCount, dealerPosition, playerData, skipAnimation) {
+      console.log('🎮 Legacy scene handleDisplayOpponentHands');
+      if (this.opponentManager) {
+        const gameState = getGameState();
+        if (gameState.position) {
+          this.opponentManager.setPlayerPosition(gameState.position);
+        }
+        this.opponentManager.displayOpponentHands(cardCount, dealerPosition, playerData, skipAnimation);
+      }
+    };
+  }
+
+  if (!scene.handleOpponentTurnGlow) {
+    scene.handleOpponentTurnGlow = function(opponentId) {
+      console.log('🎮 Legacy scene handleOpponentTurnGlow');
+      if (this.opponentManager) {
+        this.opponentManager.removeTurnGlow();
+        if (opponentId) {
+          this.opponentManager.addTurnGlow(opponentId);
+        }
+      }
+    };
+  }
+
+  if (!scene.handleClearOpponents) {
+    scene.handleClearOpponents = function() {
+      console.log('🎮 Legacy scene handleClearOpponents');
+      if (this.opponentManager) {
+        this.opponentManager.clearAll();
+      }
+    };
+  }
+
+  if (!scene.handleRepositionOpponents) {
+    scene.handleRepositionOpponents = function() {
+      console.log('🎮 Legacy scene handleRepositionOpponents');
+      if (this.opponentManager) {
+        this.opponentManager.reposition();
+      }
+    };
+  }
+
+  // Add game log handlers
+  if (!scene.handleShowGameLog) {
+    scene.handleShowGameLog = function(options = {}) {
+      console.log('🎮 Legacy scene handleShowGameLog');
+      // Store log instance on scene for later use
+      if (!this._gameLog) {
+        this._gameLog = showGameLog({
+          onChatSubmit: options.onChatSubmit || ((msg) => {
+            if (window.socket) {
+              window.socket.emit('chatMessage', { message: msg });
+            }
+          }),
+        });
+      }
+      return this._gameLog;
+    };
+  }
+
+  if (!scene.handleAddToGameFeed) {
+    scene.handleAddToGameFeed = function(message, isSystem = true) {
+      console.log('🎮 Legacy scene handleAddToGameFeed');
+      if (this._gameLog) {
+        if (isSystem) {
+          this._gameLog.addSystemMessage(message);
+        } else {
+          this._gameLog.addMessage('Game', message);
+        }
+      }
+    };
+  }
+
+  if (!scene.handleUpdateGameLogScores) {
+    scene.handleUpdateGameLogScores = function(teamScore, oppScore) {
+      console.log('🎮 Legacy scene handleUpdateGameLogScores');
+      if (this._gameLog) {
+        this._gameLog.updateScores(teamScore, oppScore);
+      }
+    };
+  }
+
+  if (!scene.handleHideGameLog) {
+    scene.handleHideGameLog = function() {
+      console.log('🎮 Legacy scene handleHideGameLog');
+      if (this._gameLog) {
+        this._gameLog.destroy();
+        this._gameLog = null;
+      }
+    };
+  }
+
+  // Add chat bubble handler
+  if (!scene.handleShowChatBubble) {
+    scene.handleShowChatBubble = function(positionKey, message, color, duration) {
+      console.log('🎮 Legacy scene handleShowChatBubble');
+      const bubblePos = getBubblePosition(positionKey, this.scale.width, this.scale.height);
+      if (bubblePos) {
+        showChatBubble(this, positionKey, bubblePos.x, bubblePos.y, message, color, duration);
+      }
+    };
+  }
+
+  console.log('🎮 Game scene reference set with all handlers');
+}
+
+/**
+ * Get the current game scene (for use in callbacks).
+ * @returns {Phaser.Scene|null} The active game scene or null
+ */
+export function getGameScene() {
+  return gameSceneRef;
+}
+
+/**
+ * Clear the game scene reference (called on game cleanup).
+ */
+export function clearGameScene() {
+  gameSceneRef = null;
+  console.log('🎮 Game scene reference cleared');
+}
+
 // UI Components - Bid & Game Log
 import { createBidUI, showBidUI, createBidBubble } from './ui/components/BidUI.js';
 import { createGameLog, showGameLog } from './ui/components/GameLog.js';
@@ -62,6 +552,11 @@ import { getTeamNames, formatHandCompleteMessages, formatGameEndMessages, showFi
 
 // Bridge module - exposes new modules to legacy code
 window.ModernUtils = {
+  // Scene Access
+  setGameScene,
+  getGameScene,
+  clearGameScene,
+
   // Constants
   CLIENT_EVENTS,
   SERVER_EVENTS,
@@ -156,6 +651,9 @@ window.ModernUtils = {
   OpponentManager,
   TrickManager,
   EffectsManager,
+  DrawManager,
+  BidManager,
+  LayoutManager,
   GameScene,
 
   // Handlers
@@ -197,10 +695,17 @@ console.log('Modular client initialized - All utilities available via window.Mod
 // ============================================
 
 /**
- * Initialize the socket connection.
- * Creates socket with same settings as legacy socketManager.js
+ * Get the socket connection.
+ * Socket is created in inline script in index.html before game.js loads.
+ * This ensures window.socket is available for legacy code that calls socket.on() at top level.
  */
-function createSocket() {
+function getSocket() {
+  // Socket is created in index.html inline script
+  if (window.socket) {
+    return window.socket;
+  }
+  // Fallback: create socket if not already created (shouldn't happen)
+  console.warn('Socket not found on window, creating new socket');
   const serverUrl =
     location.hostname === 'localhost'
       ? 'http://localhost:3000'
@@ -213,15 +718,13 @@ function createSocket() {
     reconnectionDelay: 1000,
     reconnectionDelayMax: 5000,
   });
-
+  window.socket = socket;
   return socket;
 }
 
-// Create socket IMMEDIATELY (before game.js and ui.js load)
-// This ensures window.socket is available for legacy code that calls socket.on() at top level
-const socket = createSocket();
-window.socket = socket;
-console.log('Socket created and set as window.socket');
+// Get socket (created in index.html inline script before game.js loads)
+const socket = getSocket();
+console.log('Using socket from window.socket');
 
 // ==================== RECONNECTION LOGIC ====================
 // (Previously in socketManager.js, needed for game.js to work)
@@ -563,7 +1066,7 @@ function initializeApp() {
       console.log('Lobby created, showing lobby UI');
       removeMainRoom();
       showGameLobby(
-        { lobbyId: data.lobbyId, players: data.players, messages: [] },
+        { lobbyId: data.lobbyId, players: data.players, messages: data.messages || [] },
         socket,
         gameState.username
       );
@@ -604,32 +1107,206 @@ function initializeApp() {
       // The game will start via positionUpdate/gameStart events
     },
 
-    // Game callbacks - these will be handled by game.js for now
-    // since Phaser scene management is complex
-    onPositionUpdate: null,
-    onGameStart: null,
-    onStartDraw: null,
-    onYouDrew: null,
-    onPlayerDrew: null,
-    onTeamsAnnounced: null,
-    onCreateUI: null,
-    onBidReceived: null,
-    onDoneBidding: null,
-    onUpdateTurn: null,
-    onCardPlayed: null,
-    onTrickComplete: null,
-    onHandComplete: null,
-    onGameEnd: null,
-    onRainbow: null,
-    onDestroyHands: null,
-    onAbortGame: null,
-    onRoomFull: null,
-    onPlayerDisconnected: null,
-    onPlayerReconnected: null,
-    onRejoinSuccess: null,
-    onRejoinFailed: null,
+    // Game callbacks - gradually migrating from game.js
+    // Position and game setup - update GameState and call legacy processing
+    onPositionUpdate: (data) => {
+      console.log('📍 onPositionUpdate callback');
+      // Update modular GameState with player data
+      gameState.setPlayerData(data);
+      // Call legacy processing for rendering
+      if (window.processPositionUpdateFromLegacy) {
+        window.processPositionUpdateFromLegacy(data);
+      }
+    },
+    onGameStart: (data) => {
+      console.log('🎮 onGameStart callback');
+      // Update modular GameState
+      if (data.position) {
+        gameState.position = data.position;
+        gameState._updatePlayerNames();
+      }
+      if (data.hand) {
+        gameState.setCards(data.hand);
+      }
+      if (data.trump) {
+        gameState.setTrump(data.trump);
+      }
+      if (data.dealer !== undefined) {
+        gameState.dealer = data.dealer;
+      }
+      gameState.phase = PHASE.BIDDING;
+      gameState.isBidding = true;
+      // Call legacy processing for rendering
+      if (window.processGameStartFromLegacy) {
+        window.processGameStartFromLegacy(data);
+      }
+    },
+    // Draw phase - handled by DrawManager
+    onStartDraw: (data) => {
+      console.log('🎴 onStartDraw callback');
+      // Remove waiting screen
+      uiManager.removeWaitingScreen();
 
-    // Chat callback
+      // Use DrawManager via scene handler
+      const scene = getGameScene();
+      if (scene && scene.handleStartDraw) {
+        scene.handleStartDraw(data);
+      }
+    },
+    onYouDrew: (data) => {
+      const scene = getGameScene();
+      if (scene && scene.handleYouDrew) {
+        scene.handleYouDrew(data);
+      }
+    },
+    onPlayerDrew: (data) => {
+      const scene = getGameScene();
+      if (scene && scene.handlePlayerDrew) {
+        scene.handlePlayerDrew(data);
+      }
+    },
+    onTeamsAnnounced: (data) => {
+      const scene = getGameScene();
+      if (scene && scene.handleTeamsAnnounced) {
+        scene.handleTeamsAnnounced(data);
+      }
+    },
+    onCreateUI: (data) => {
+      console.log('🎨 onCreateUI callback');
+      // Remove waiting screen and lobby/main room UI
+      uiManager.removeWaitingScreen();
+      removeMainRoom();
+      removeGameLobby();
+
+      // Clean up draw phase via DrawManager
+      const scene = getGameScene();
+      if (scene && scene.handleCreateUI) {
+        scene.handleCreateUI(data);
+      }
+
+      // Create game feed (via legacy function)
+      if (window.createGameFeedFromLegacy) {
+        window.createGameFeedFromLegacy(false);
+      }
+
+      // Initialize scene handElements if needed
+      if (scene && !scene.handElements) {
+        scene.handElements = [];
+      }
+    },
+    // Bidding phase - call GameScene handlers plus legacy code
+    onBidReceived: (data) => {
+      // Update GameState with bid
+      if (data.position !== undefined && data.bid !== undefined) {
+        gameState.recordBid(data.position, data.bid);
+      }
+      const scene = getGameScene();
+      if (scene && scene.handleBidReceived) {
+        scene.handleBidReceived(data);
+      }
+      // Note: Legacy code in displayCards() also handles bidReceived for bubbles/impact events
+    },
+    onDoneBidding: (data) => {
+      // Update GameState - transition from bidding to playing
+      gameState.phase = PHASE.PLAYING;
+      gameState.isBidding = false;
+      const scene = getGameScene();
+      if (scene && scene.handleDoneBidding) {
+        scene.handleDoneBidding(data);
+      }
+      // Note: Legacy code in displayCards() also handles doneBidding
+    },
+    onUpdateTurn: (data) => {
+      // Update GameState with current turn
+      if (data.currentTurn !== undefined) {
+        gameState.setCurrentTurn(data.currentTurn);
+      }
+      const scene = getGameScene();
+      if (scene && scene.handleUpdateTurn) {
+        scene.handleUpdateTurn(data);
+      }
+      // Note: Legacy code in displayCards() also handles updateTurn for glow effects
+    },
+    // Card play & tricks - call GameScene handlers (legacy still runs in displayCards)
+    onCardPlayed: (data) => {
+      // Update GameState
+      if (data.trumpBroken) {
+        gameState.breakTrump();
+      }
+      const scene = getGameScene();
+      if (scene && scene.handleCardPlayed) {
+        scene.handleCardPlayed(data);
+      }
+    },
+    onTrickComplete: (data) => {
+      const scene = getGameScene();
+      if (scene && scene.handleTrickComplete) {
+        scene.handleTrickComplete(data);
+      }
+    },
+    // Hand & game end - call GameScene handlers
+    onHandComplete: (data) => {
+      const scene = getGameScene();
+      if (scene && scene.handleHandComplete) {
+        scene.handleHandComplete(data);
+      }
+    },
+    onGameEnd: (data) => {
+      const scene = getGameScene();
+      if (scene && scene.handleGameEnd) {
+        scene.handleGameEnd(data);
+      }
+    },
+    onRainbow: (data) => {
+      const scene = getGameScene();
+      if (scene && scene.handleRainbow) {
+        scene.handleRainbow(data);
+      }
+    },
+    onDestroyHands: (data) => {
+      const scene = getGameScene();
+      if (scene && scene.handleDestroyHands) {
+        scene.handleDestroyHands(data);
+      }
+    },
+    // Error & connection handlers
+    onAbortGame: (data) => {
+      const scene = getGameScene();
+      if (scene && scene.handleAbortGame) {
+        scene.handleAbortGame(data);
+      }
+    },
+    onRoomFull: (data) => {
+      console.log('Room full:', data);
+      uiManager.removeWaitingScreen();
+    },
+    // Reconnection handlers
+    onPlayerDisconnected: (data) => {
+      const scene = getGameScene();
+      if (scene && scene.handlePlayerDisconnected) {
+        scene.handlePlayerDisconnected(data);
+      }
+    },
+    onPlayerReconnected: (data) => {
+      const scene = getGameScene();
+      if (scene && scene.handlePlayerReconnected) {
+        scene.handlePlayerReconnected(data);
+      }
+    },
+    onRejoinSuccess: (data) => {
+      const scene = getGameScene();
+      if (scene && scene.handleRejoinSuccess) {
+        scene.handleRejoinSuccess(data);
+      }
+    },
+    onRejoinFailed: (data) => {
+      const scene = getGameScene();
+      if (scene && scene.handleRejoinFailed) {
+        scene.handleRejoinFailed(data);
+      }
+    },
+
+    // Chat callback - still handled by game.js
     onChatMessage: null,
   });
 

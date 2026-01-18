@@ -96,6 +96,28 @@ export class GameState {
 
     // Draw phase state
     this.hasDrawn = false;
+    this.clickedCardPosition = null; // Store position of clicked card for draw animation
+
+    // Bid state
+    this.tempBids = []; // Bid history for bore button state
+
+    // Play positions for trick card coordinates (updated on resize)
+    this.playPositions = {
+      opponent1: { x: 0, y: 0 },
+      opponent2: { x: 0, y: 0 },
+      partner: { x: 0, y: 0 },
+      self: { x: 0, y: 0 },
+    };
+
+    // Sprite references (for external access during resize)
+    this.opponentCardSprites = { partner: [], opp1: [], opp2: [] };
+    this.tableCardSprite = null;
+
+    // Active chat bubbles by position key
+    this.activeChatBubbles = {};
+
+    // Rainbow positions received during bidding
+    this.rainbows = [];
 
     // Pending data (for when events arrive before scene is ready)
     this._pendingRejoinData = null;
@@ -427,6 +449,71 @@ export class GameState {
   }
 
   /**
+   * Set clicked card position for draw animation.
+   */
+  setClickedCardPosition(position) {
+    this.clickedCardPosition = position;
+  }
+
+  /**
+   * Update play positions for trick card animations.
+   */
+  updatePlayPositions(screenWidth, screenHeight) {
+    const scaleFactorX = screenWidth / 1920;
+    const scaleFactorY = screenHeight / 953;
+    const playOffsetX = 80 * scaleFactorX;
+    const playOffsetY = 80 * scaleFactorY;
+
+    this.playPositions = {
+      opponent1: { x: screenWidth / 2 - playOffsetX, y: screenHeight / 2 },
+      opponent2: { x: screenWidth / 2 + playOffsetX, y: screenHeight / 2 },
+      partner: { x: screenWidth / 2, y: screenHeight / 2 - playOffsetY },
+      self: { x: screenWidth / 2, y: screenHeight / 2 + playOffsetY },
+    };
+    this._emit('playPositionsUpdated', this.playPositions);
+  }
+
+  /**
+   * Add a bid to tempBids history (for bore button state).
+   */
+  addTempBid(bid) {
+    this.tempBids.push(String(bid).toUpperCase());
+    this._emit('tempBidsChanged', this.tempBids);
+  }
+
+  /**
+   * Clear tempBids (on new hand).
+   */
+  clearTempBids() {
+    this.tempBids = [];
+    this._emit('tempBidsChanged', this.tempBids);
+  }
+
+  /**
+   * Add a rainbow position.
+   */
+  addRainbow(position) {
+    this.rainbows.push(position);
+    this._emit('rainbowAdded', position);
+  }
+
+  /**
+   * Clear rainbows (after processing).
+   */
+  clearRainbows() {
+    this.rainbows = [];
+  }
+
+  /**
+   * Get rainbows and clear them.
+   */
+  consumeRainbows() {
+    const rainbows = [...this.rainbows];
+    this.rainbows = [];
+    return rainbows;
+  }
+
+  /**
    * Set pending rejoin data (when scene isn't ready yet).
    */
   setPendingRejoinData(data) {
@@ -498,6 +585,7 @@ export class GameState {
     this.teamBids = null;
     this.oppBids = null;
     this.isBidding = true;
+    this.tempBids = [];
 
     // Clear trick counts
     this.teamTricks = 0;
@@ -507,6 +595,11 @@ export class GameState {
 
     // Clear UI flags
     this.hasPlayedCard = false;
+    this.hasDrawn = false;
+    this.clickedCardPosition = null;
+
+    // Clear rainbows
+    this.rainbows = [];
 
     this._emit('newHandReset');
   }
