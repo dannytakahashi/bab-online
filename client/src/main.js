@@ -703,15 +703,35 @@ function initializeApp() {
     },
 
     // Game callbacks - gradually migrating from game.js
-    // Position and game setup - call legacy processing functions
+    // Position and game setup - update GameState and call legacy processing
     onPositionUpdate: (data) => {
       console.log('📍 onPositionUpdate callback');
+      // Update modular GameState with player data
+      gameState.setPlayerData(data);
+      // Call legacy processing for rendering
       if (window.processPositionUpdateFromLegacy) {
         window.processPositionUpdateFromLegacy(data);
       }
     },
     onGameStart: (data) => {
       console.log('🎮 onGameStart callback');
+      // Update modular GameState
+      if (data.position) {
+        gameState.position = data.position;
+        gameState._updatePlayerNames();
+      }
+      if (data.hand) {
+        gameState.setCards(data.hand);
+      }
+      if (data.trump) {
+        gameState.setTrump(data.trump);
+      }
+      if (data.dealer !== undefined) {
+        gameState.dealer = data.dealer;
+      }
+      gameState.phase = PHASE.BIDDING;
+      gameState.isBidding = true;
+      // Call legacy processing for rendering
       if (window.processGameStartFromLegacy) {
         window.processGameStartFromLegacy(data);
       }
@@ -771,6 +791,10 @@ function initializeApp() {
     },
     // Bidding phase - call GameScene handlers plus legacy code
     onBidReceived: (data) => {
+      // Update GameState with bid
+      if (data.position !== undefined && data.bid !== undefined) {
+        gameState.recordBid(data.position, data.bid);
+      }
       const scene = getGameScene();
       if (scene && scene.handleBidReceived) {
         scene.handleBidReceived(data);
@@ -778,6 +802,9 @@ function initializeApp() {
       // Note: Legacy code in displayCards() also handles bidReceived for bubbles/impact events
     },
     onDoneBidding: (data) => {
+      // Update GameState - transition from bidding to playing
+      gameState.phase = PHASE.PLAYING;
+      gameState.isBidding = false;
       const scene = getGameScene();
       if (scene && scene.handleDoneBidding) {
         scene.handleDoneBidding(data);
@@ -785,6 +812,10 @@ function initializeApp() {
       // Note: Legacy code in displayCards() also handles doneBidding
     },
     onUpdateTurn: (data) => {
+      // Update GameState with current turn
+      if (data.currentTurn !== undefined) {
+        gameState.setCurrentTurn(data.currentTurn);
+      }
       const scene = getGameScene();
       if (scene && scene.handleUpdateTurn) {
         scene.handleUpdateTurn(data);
@@ -793,6 +824,10 @@ function initializeApp() {
     },
     // Card play & tricks - call GameScene handlers (legacy still runs in displayCards)
     onCardPlayed: (data) => {
+      // Update GameState
+      if (data.trumpBroken) {
+        gameState.breakTrump();
+      }
       const scene = getGameScene();
       if (scene && scene.handleCardPlayed) {
         scene.handleCardPlayed(data);
