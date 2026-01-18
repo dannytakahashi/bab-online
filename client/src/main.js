@@ -43,6 +43,7 @@ import { TrickManager } from './phaser/managers/TrickManager.js';
 import { EffectsManager } from './phaser/managers/EffectsManager.js';
 import { DrawManager } from './phaser/managers/DrawManager.js';
 import { BidManager } from './phaser/managers/BidManager.js';
+import { LayoutManager } from './phaser/managers/LayoutManager.js';
 import { GameScene } from './phaser/scenes/GameScene.js';
 
 // Handlers
@@ -296,6 +297,27 @@ export function setGameScene(scene) {
     };
   }
 
+  // Attach LayoutManager to the scene if not already present
+  if (!scene.layoutManager) {
+    scene.layoutManager = new LayoutManager(scene);
+    console.log('🎮 LayoutManager attached to scene');
+  }
+
+  // Add resize handler that updates LayoutManager
+  if (!scene.handleResize) {
+    scene.handleResize = function(width, height) {
+      console.log('🎮 Legacy scene handleResize');
+      if (this.layoutManager) {
+        this.layoutManager.update();
+        // Update TrickManager play positions from LayoutManager
+        if (this.trickManager) {
+          const playPos = this.layoutManager.getPlayPositions();
+          this.trickManager.playPositions = playPos;
+        }
+      }
+    };
+  }
+
   console.log('🎮 Game scene reference set with all handlers');
 }
 
@@ -425,6 +447,7 @@ window.ModernUtils = {
   EffectsManager,
   DrawManager,
   BidManager,
+  LayoutManager,
   GameScene,
 
   // Handlers
