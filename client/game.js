@@ -267,9 +267,7 @@ document.addEventListener("reconnectFailed", () => {
     });
     alert("Connection lost. Please sign in again.");
 });
-function visible(){
-    return document.visibilityState === "visible";
-}
+// NOTE: visible() removed - not used anywhere
 
 // ============================================
 // Phaser UI Helper Functions
@@ -395,36 +393,7 @@ function createPlayerInfoBox() {
     return {playerAvatar, playerNameText, playerPositionText, playerInfoContainer};
 }
 
-function showImpactEvent(event){
-    let scene = gameScene; // Use the scene reference from window.gameScene
-    const screenWidth = scene.scale.width;
-    const screenHeight = scene.scale.height;
-    const impactImage = scene.add.image(screenWidth / 2, screenHeight / 2, event)
-        .setScale(0)
-        .setAlpha(1)
-        .setDepth(999);
-
-    // Tween for impact effect (scale up + bounce)
-    scene.tweens.add({
-        targets: impactImage,
-        scale: { from: 0, to: 1.2 },
-        ease: 'Back.Out',
-        duration: 500
-    });
-
-    // Remove the image after 1.5 seconds
-    scene.time.delayedCall(1500, () => {
-        scene.tweens.add({
-            targets: impactImage,
-            alpha: { from: 1, to: 0 },
-            duration: 1000,
-            ease: 'Power1',
-            onComplete: () => {
-                impactImage.destroy();
-            }
-        });
-    });
-}
+// NOTE: showImpactEvent removed - now handled by EffectsManager.showImpactEvent()
 
 // ============================================
 // End Phaser UI Helper Functions
@@ -663,7 +632,7 @@ window.processGameStartFromLegacy = function(data) {
 
 // PHASE 7: Phaser initialization moved to main.js via PhaserGame.js
 // The Phaser game is now created with GameScene as the scene class
-const GAME_LOG_WIDTH = 320; // Still used for layout calculations
+// NOTE: GAME_LOG_WIDTH removed - now in LayoutManager
 let playerId, position, playerCards, trump = [];
 
 // Card utility - delegating to ModernUtils
@@ -679,40 +648,9 @@ var opponentCardSprites = {};
 // NOTE: createGameFeed, addToGameFeed, updateGameLogScore moved to modular GameLog.js
 // Now provided via window.*FromLegacy bridges from main.js
 
-function addOpponentGlow(scene, relation){
-    // Use CSS class on DOM avatar element for consistent glow effect
-    removeOpponentGlow(scene);
-
-    const avatarDom = opponentAvatarDoms[relation];
-    if (avatarDom) {
-        avatarDom.classList.add('turn-glow');
-        console.log(`🟫 Added CSS turn glow to ${relation} avatar.`);
-    }
-}
-function removeOpponentGlow(scene){
-    // Remove glow class from all opponent avatars
-    Object.values(opponentAvatarDoms).forEach(dom => {
-        if (dom) {
-            dom.classList.remove('turn-glow');
-        }
-    });
-}
-function addTurnGlow(scene) {
-    // Use CSS class on hand border DOM element for perfect alignment on resize
-    const borderDom = document.getElementById('handBorderDom');
-    if (borderDom) {
-        borderDom.classList.add('turn-glow');
-        console.log("🟫 Added CSS turn glow to hand border.");
-    }
-}
-function removeTurnGlow(scene) {
-    // Remove CSS class from hand border DOM element
-    const borderDom = document.getElementById('handBorderDom');
-    if (borderDom) {
-        borderDom.classList.remove('turn-glow');
-        console.log("🚫 Removed CSS turn glow from hand border.");
-    }
-}
+// NOTE: Glow functions removed - now handled by modular managers:
+// - addOpponentGlow/removeOpponentGlow -> OpponentManager.addTurnGlow/removeTurnGlow
+// - addTurnGlow/removeTurnGlow -> CardManager.addTurnGlow/removeTurnGlow
 // NOTE: Rainbow handling migrated to modular code
 // - gameHandlers.js registers socket listener and calls onRainbow callback
 // - main.js onRainbow callback calls scene.handleRainbow
@@ -765,12 +703,7 @@ let isTrumpBroken = false;
 let teamTricks = 0;
 let oppTricks = 0;
 
-// Rule utilities - delegating to ModernUtils
-function isLegalMove(card, hand, lead, leadBool, leadPos) {
-    // ModernUtils.isLegalMove returns { legal: boolean, reason?: string }
-    const result = window.ModernUtils.isLegalMove(card, hand, lead, leadBool, trump, isTrumpBroken, leadPos, position);
-    return result.legal;
-}
+// NOTE: isLegalMove wrapper removed - use window.ModernUtils.isLegalMove() directly
 
 let teamTrickHistory = [];
 let oppTrickHistory = [];
@@ -994,43 +927,8 @@ socket.on("chatMessage", (data) => {
 let buttonHandle;
 let oppUI = [];
 
-// Create DOM-based opponent avatar with CSS glow support
-function createOpponentAvatarDom(opponentId, pic, username) {
-    // Remove existing if any
-    if (opponentAvatarDoms[opponentId]) {
-        opponentAvatarDoms[opponentId].remove();
-    }
-
-    const container = document.createElement('div');
-    container.id = `opponent-avatar-${opponentId}`;
-    container.className = `opponent-avatar-container ${opponentId}`;
-
-    const img = document.createElement('img');
-    img.className = 'opponent-avatar-img';
-    img.src = `assets/profile${pic}.png`;
-    img.alt = username;
-
-    const nameLabel = document.createElement('div');
-    nameLabel.className = 'opponent-avatar-name';
-    nameLabel.textContent = username;
-
-    container.appendChild(img);
-    container.appendChild(nameLabel);
-    document.getElementById('game-container').appendChild(container);
-
-    opponentAvatarDoms[opponentId] = container;
-    return container;
-}
-
-// Clean up opponent avatar DOM elements
-function cleanupOpponentAvatars() {
-    Object.keys(opponentAvatarDoms).forEach(key => {
-        if (opponentAvatarDoms[key]) {
-            opponentAvatarDoms[key].remove();
-            opponentAvatarDoms[key] = null;
-        }
-    });
-}
+// NOTE: createOpponentAvatarDom and cleanupOpponentAvatars removed
+// - Now handled by OpponentManager.createOpponentAvatar() and OpponentManager.cleanupOpponentAvatars()
 
 function displayOpponentHands(numCards, dealer, skipAnimation = false) {
     console.log("🎭 displayOpponentHands called! skipAnimation:", skipAnimation);
