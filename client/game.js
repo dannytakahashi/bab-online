@@ -339,9 +339,8 @@ let opp1 = null;
 let opp2 = null;
 let score1 = 0;
 let score2 = 0;
-// NOTE: currentTeamBids, currentOppBids, playedCard, opponentAvatarDoms removed - not used
+// NOTE: currentTeamBids, currentOppBids, playedCard, opponentAvatarDoms, gameListenersRegistered removed - not used
 let playerInfo = null;
-let gameListenersRegistered = false; // Track if socket listeners are already registered
 
 // PHASE 7: create() function moved to GameScene.js
 // Scene lifecycle is now handled by the modular GameScene class
@@ -424,62 +423,30 @@ function processPositionUpdate(data) {
 }
 
 function processGameStart(data) {
-    console.log("🎮 processGameStart called!");
-
-    // Note: Tricks are now cleared by TrickManager.clearAll() in handleHandComplete
-
-    console.log("🎮 gameScene:", gameScene);
-    console.log("🎮 gameScene.add:", gameScene?.add);
-    console.log("🎮 gameScene.textures:", gameScene?.textures);
-    console.log("🎮 gameScene.scale:", gameScene?.scale);
-    console.log("🎮 gameScene.scale.width:", gameScene?.scale?.width);
-    console.log("🎮 gameScene.scene:", gameScene?.scene);
-    console.log("🎮 gameScene.sys:", gameScene?.sys);
-    console.log("🎮 gameScene.sys.isActive():", gameScene?.sys?.isActive());
-    console.log("Game started! Data received:", data);
-    // Debug: Check if playerId is set correctly
-    console.log("playerId:", playerId);
-    // Debug: Check critical global variables
-    console.log("🎮 position (global):", position);
-    console.log("🎮 position (from server):", data.position);
-    console.log("🎮 playerData:", playerData);
-    // Debug: Check if player has received cards
-    console.log("Hands data:", data.hand);
-    console.log("scores:", data.score1, data.score2);
-    console.log("Player's hand:", data.hand);
+    console.log("🎮 processGameStart called with position:", data.position);
 
     // Use position from gameStart data to avoid race condition with playerAssigned event
     if (data.position) {
         position = data.position;
-        console.log("✅ Set position from gameStart data:", position);
     }
 
     // Check for race condition: position might not be set yet
     if (position === undefined) {
-        console.error("🚨 RACE CONDITION: position is undefined!");
-        console.log("⏳ Waiting 100ms for playerAssigned to process...");
-        setTimeout(() => {
-            console.log("🔄 Retrying processGameStart after delay, position now:", position);
-            processGameStart(data);
-        }, 100);
+        console.warn("⏳ Position not set, waiting for playerAssigned...");
+        setTimeout(() => processGameStart(data), 100);
         return;
     }
 
     // Check for playerData not being set
     if (!playerData) {
-        console.error("🚨 RACE CONDITION: playerData is undefined! positionUpdate hasn't been processed yet.");
-        console.log("⏳ Waiting 100ms for positionUpdate to process...");
-        setTimeout(() => {
-            console.log("🔄 Retrying processGameStart after delay, playerData now:", playerData);
-            processGameStart(data);
-        }, 100);
+        console.warn("⏳ playerData not set, waiting for positionUpdate...");
+        setTimeout(() => processGameStart(data), 100);
         return;
     }
 
     playerCards = data.hand;
     dealer = data.dealer;
     if (playerCards && playerCards.length > 0) {
-        console.log("🎮 playerCards has", playerCards.length, "cards, running display cards...");
         score1 = data.score1;
         score2 = data.score2;
         myUsername = playerData.username[playerData.position.indexOf(position)].username;
@@ -503,17 +470,10 @@ function processGameStart(data) {
         // Set bidding state for legacy code (modular code handles via gameState.isBidding)
         bidding = 1;
         // NOTE: displayCards and displayOpponentHands now handled by modular code
-        // - handleDisplayHand via CardManager
-        // - handleDisplayOpponentHands via OpponentManager
-        // - DOM backgrounds via LayoutManager.createDomBackgrounds()
-        // - Bid UI via BidManager.showBidUI()
-    } else {
-        console.error("🚨 ERROR: playerCards is undefined or empty!", playerCards);
+        // via CardManager, OpponentManager, LayoutManager, and BidManager
     }
-    // NOTE: displayOpponentHands now handled by modular code (OpponentManager)
     // Display trump card via modular GameScene
     if (data.trump && gameScene) {
-        console.log("🎮 Calling displayTrumpCard");
         gameScene.displayTrumpCard(data.trump);
     }
 }
@@ -568,22 +528,12 @@ socket.on("destroyHands", (data) => {
     // Note: Card sprite destruction now handled by modular handler:
     // gameHandlers.js → main.js onDestroyHands → scene.handleDestroyHands
     // which calls CardManager.clearHand() + OpponentManager.clearAll()
-
-    // Reset flag so listeners are re-registered on redeal
-    gameListenersRegistered = false;
-    // Reset trick counts for redeal
-    teamTricks = 0;
-    oppTricks = 0;
 });
 // Draw phase functions (draw, removeDraw) moved to DrawManager.js
 // See client/src/phaser/managers/DrawManager.js
 
 // NOTE: displayTableCard removed - now handled by GameScene.displayTrumpCard()
-
-let isTrumpBroken = false;
-let teamTricks = 0;
-let oppTricks = 0;
-
+// NOTE: isTrumpBroken, teamTricks, oppTricks removed - never read, state managed by GameState
 // NOTE: isLegalMove wrapper removed - use window.ModernUtils.isLegalMove() directly
 
 // NOTE: teamTrickHistory, oppTrickHistory, playerBids, tempBids, thisTrick removed - never used
