@@ -55,10 +55,28 @@ export function updateLobbyPlayersList(container, players, currentUsername) {
     playerRow.style.padding = '8px 0';
     playerRow.style.borderBottom = '1px solid #374151';
 
+    const nameContainer = document.createElement('span');
+    nameContainer.style.display = 'flex';
+    nameContainer.style.alignItems = 'center';
+    nameContainer.style.gap = '6px';
+
+    // Add bot indicator if player is a bot
+    if (player.isBot) {
+      const botIcon = document.createElement('span');
+      botIcon.innerText = '\u{1F916}'; // Robot emoji
+      botIcon.style.fontSize = '14px';
+      botIcon.title = 'Bot Player';
+      nameContainer.appendChild(botIcon);
+    }
+
     const nameSpan = document.createElement('span');
     nameSpan.innerText = player.username;
     nameSpan.style.fontSize = '16px';
-    playerRow.appendChild(nameSpan);
+    if (player.isBot) {
+      nameSpan.style.color = '#a78bfa'; // Purple for bots
+    }
+    nameContainer.appendChild(nameSpan);
+    playerRow.appendChild(nameContainer);
 
     const statusSpan = document.createElement('span');
     if (player.ready) {
@@ -120,6 +138,16 @@ export function updateLobbyPlayersList(container, players, currentUsername) {
       readyBtn.style.background = '#4ade80';
       readyBtn.style.cursor = 'pointer';
       readyBtn.innerText = 'Ready';
+    }
+  }
+
+  // Update Add Bot button visibility
+  const addBotBtn = document.getElementById('lobbyAddBotBtn');
+  if (addBotBtn) {
+    if (players.length >= 4) {
+      addBotBtn.style.display = 'none';
+    } else {
+      addBotBtn.style.display = 'inline-block';
     }
   }
 }
@@ -317,6 +345,29 @@ export function showGameLobby(lobbyData, socket, username) {
     }
   });
   buttonRow.appendChild(readyBtn);
+
+  // Add Bot button
+  const addBotBtn = document.createElement('button');
+  addBotBtn.id = 'lobbyAddBotBtn';
+  addBotBtn.innerText = '+ Add Bot';
+  addBotBtn.style.padding = '15px 25px';
+  addBotBtn.style.fontSize = '16px';
+  addBotBtn.style.borderRadius = '8px';
+  addBotBtn.style.border = 'none';
+  addBotBtn.style.background = '#6366f1';
+  addBotBtn.style.color = '#fff';
+  addBotBtn.style.cursor = 'pointer';
+  addBotBtn.style.fontWeight = 'bold';
+
+  // Hide if lobby is full
+  if (playerCount >= 4) {
+    addBotBtn.style.display = 'none';
+  }
+
+  addBotBtn.addEventListener('click', () => {
+    socket.emit('addBot');
+  });
+  buttonRow.appendChild(addBotBtn);
 
   const leaveBtn = document.createElement('button');
   leaveBtn.innerText = 'Leave';

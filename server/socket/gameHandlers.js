@@ -17,6 +17,133 @@ const {
 } = require('../game/rules');
 const { delay } = require('../utils/timing');
 const { gameLogger } = require('../utils/logger');
+const { botController } = require('../game/bot');
+
+/**
+ * Check if the current turn is a bot and schedule their action
+ * @param {Object} io - Socket.IO server
+ * @param {Object} game - GameState
+ * @param {string} actionType - 'bid' or 'play'
+ */
+function triggerBotIfNeeded(io, game, actionType) {
+    const currentPlayer = game.getPlayerByPosition(game.currentTurn);
+    if (!currentPlayer || !game.isBot(currentPlayer.socketId)) {
+        return;
+    }
+
+    if (actionType === 'bid') {
+        botController.scheduleBotAction(io, game, 'bid', (io, game, bot) => {
+            botController.processBotBid(io, game, bot);
+            // After bot bids, advance turn and check for more bots or end bidding
+            game.currentTurn = rotatePosition(game.currentTurn);
+            handlePostBid(io, game);
+        });
+    } else if (actionType === 'play') {
+        botController.scheduleBotAction(io, game, 'play', (io, game, bot) => {
+            botController.processBotPlay(io, game, bot);
+            // After bot plays, advance turn and check for trick complete
+            game.currentTurn = rotatePosition(game.currentTurn);
+            handlePostPlay(io, game);
+        });
+    }
+}
+
+/**
+ * Handle logic after a bid is made (check if all bids done, trigger next bot)
+ */
+async function handlePostBid(io, game) {
+    // Check if all bids are in
+    if (game.getBidCount() === 4) {
+        game.bidding = false;
+
+        // Calculate team bids
+        const bids = game.playerBids;
+        game.bids = {
+            team1: (BID_RANKS[bids[0]] || 0) + (BID_RANKS[bids[2]] || 0),
+            team2: (BID_RANKS[bids[1]] || 0) + (BID_RANKS[bids[3]] || 0)
+        };
+
+        // Cap bids at hand size and calculate multipliers
+        if (game.bids.team1 > game.currentHand) {
+            game.bids.team1 = game.currentHand;
+            game.team1Mult = calculateMultiplier(bids[0], bids[2]);
+        }
+        if (game.bids.team2 > game.currentHand) {
+            game.bids.team2 = game.currentHand;
+            game.team2Mult = calculateMultiplier(bids[1], bids[3]);
+        }
+
+        gameLogger.debug('Bidding complete', { team1: game.bids.team1, team2: game.bids.team2, gameId: game.gameId });
+
+        const lead = findHighestBidder(game.bidder, bids) + 1;
+
+        game.broadcast(io, 'doneBidding', { bids, lead });
+
+        // Check for zero bids (redeal)
+        if (game.bids.team1 === 0 && game.bids.team2 === 0) {
+            gameLogger.info('Zero bids, redealing', { gameId: game.gameId });
+            game.broadcast(io, 'destroyHands', {});
+            await cleanupNextHand(game, io, game.dealer, game.currentHand);
+            return;
+        }
+
+        game.currentTurn = lead;
+        game.leadPosition = lead;
+    }
+
+    game.broadcast(io, 'updateTurn', { currentTurn: game.currentTurn });
+
+    // Trigger next bot if needed
+    if (game.bidding) {
+        triggerBotIfNeeded(io, game, 'bid');
+    } else {
+        // Bidding done, start play phase - trigger bot if lead is a bot
+        triggerBotIfNeeded(io, game, 'play');
+    }
+}
+
+/**
+ * Handle logic after a card is played (check for trick complete, trigger next bot)
+ */
+async function handlePostPlay(io, game) {
+    // Check if trick is complete
+    if (game.playedCardsIndex === 4) {
+        await delay(2000);
+
+        const winner = determineWinner(game.playedCards, game.leadPosition, game.trump);
+
+        if (winner === 1 || winner === 3) {
+            game.tricks.team1++;
+        } else {
+            game.tricks.team2++;
+        }
+
+        // Add trick winner to game log
+        const winnerPlayer = game.getPlayerByPosition(winner);
+        game.addLogEntry(`Trick won by ${winnerPlayer.username}.`, winner, 'trick');
+
+        gameLogger.debug('Trick complete', { winner, team1Tricks: game.tricks.team1, team2Tricks: game.tricks.team2, gameId: game.gameId });
+
+        game.currentTurn = winner;
+
+        game.broadcast(io, 'trickComplete', { winner });
+
+        game.playedCards = [];
+        game.playedCardsIndex = 0;
+
+        // Check if hand is complete
+        if (game.cardIndex === game.currentHand * 4) {
+            await delay(4000);
+            await handleHandComplete(game, io);
+            return;
+        }
+    }
+
+    game.broadcast(io, 'updateTurn', { currentTurn: game.currentTurn });
+
+    // Trigger next bot if needed
+    triggerBotIfNeeded(io, game, 'play');
+}
 
 async function draw(socket, io, data) {
     const game = gameManager.getPlayerGame(socket.id);
@@ -71,10 +198,33 @@ async function draw(socket, io, data) {
             const position = determineDrawPosition(game.drawCards[i], game.drawCards);
             positions.push(position);
 
-            const user = gameManager.getUserBySocketId(playerId);
-            game.addPlayer(playerId, user?.username || 'Player', position, pics[i]);
+            // Get username - check if bot first, then user lookup
+            const isBot = gameManager.isBot(playerId);
+            let username = 'Player';
+            if (isBot) {
+                // Extract bot name from socket ID (format: bot:name:uuid)
+                const parts = playerId.split(':');
+                username = parts[1] ? parts[1].charAt(0).toUpperCase() + parts[1].slice(1) : 'Bot';
+            } else {
+                const user = gameManager.getUserBySocketId(playerId);
+                username = user?.username || 'Player';
+            }
 
-            io.to(playerId).emit('playerAssigned', { playerId, position });
+            game.addPlayer(playerId, username, position, pics[i], isBot);
+
+            // Update bot position in controller
+            if (isBot) {
+                const bot = botController.getBot(game.gameId, playerId);
+                if (bot) {
+                    bot.position = position;
+                    bot.pic = pics[i];
+                }
+            }
+
+            // Only emit to human players
+            if (!isBot) {
+                io.to(playerId).emit('playerAssigned', { playerId, position });
+            }
         }
 
         // Build all arrays in position order (1, 2, 3, 4) for consistency
@@ -201,6 +351,9 @@ async function startHand(game, io) {
     await delay(1000);
 
     game.broadcast(io, 'updateTurn', { currentTurn: game.currentTurn });
+
+    // Trigger bot if first bidder is a bot
+    triggerBotIfNeeded(io, game, 'bid');
 }
 
 async function playerBid(socket, io, data) {
@@ -232,46 +385,8 @@ async function playerBid(socket, io, data) {
     // Advance turn
     game.currentTurn = rotatePosition(game.currentTurn);
 
-    // Check if all bids are in
-    if (game.getBidCount() === 4) {
-        game.bidding = false;
-
-        // Calculate team bids
-        const bids = game.playerBids;
-        game.bids = {
-            team1: (BID_RANKS[bids[0]] || 0) + (BID_RANKS[bids[2]] || 0),
-            team2: (BID_RANKS[bids[1]] || 0) + (BID_RANKS[bids[3]] || 0)
-        };
-
-        // Cap bids at hand size and calculate multipliers
-        if (game.bids.team1 > game.currentHand) {
-            game.bids.team1 = game.currentHand;
-            game.team1Mult = calculateMultiplier(bids[0], bids[2]);
-        }
-        if (game.bids.team2 > game.currentHand) {
-            game.bids.team2 = game.currentHand;
-            game.team2Mult = calculateMultiplier(bids[1], bids[3]);
-        }
-
-        gameLogger.debug('Bidding complete', { team1: game.bids.team1, team2: game.bids.team2, gameId: game.gameId });
-
-        const lead = findHighestBidder(game.bidder, bids) + 1;
-
-        game.broadcast(io, 'doneBidding', { bids, lead });
-
-        // Check for zero bids (redeal)
-        if (game.bids.team1 === 0 && game.bids.team2 === 0) {
-            gameLogger.info('Zero bids, redealing', { gameId: game.gameId });
-            game.broadcast(io, 'destroyHands', {});
-            await cleanupNextHand(game, io, game.dealer, game.currentHand);
-            return;
-        }
-
-        game.currentTurn = lead;
-        game.leadPosition = lead;
-    }
-
-    game.broadcast(io, 'updateTurn', { currentTurn: game.currentTurn });
+    // Handle post-bid logic (check if all bids done, trigger next bot, etc.)
+    await handlePostBid(io, game);
 }
 
 async function playCard(socket, io, data) {
@@ -334,39 +449,8 @@ async function playCard(socket, io, data) {
     // Advance turn
     game.currentTurn = rotatePosition(game.currentTurn);
 
-    // Check if trick is complete
-    if (game.playedCardsIndex === 4) {
-        await delay(2000);
-
-        const winner = determineWinner(game.playedCards, game.leadPosition, game.trump);
-
-        if (winner === 1 || winner === 3) {
-            game.tricks.team1++;
-        } else {
-            game.tricks.team2++;
-        }
-
-        // Add trick winner to game log
-        const winnerPlayer = game.getPlayerByPosition(winner);
-        game.addLogEntry(`Trick won by ${winnerPlayer.username}.`, winner, 'trick');
-
-        gameLogger.debug('Trick complete', { winner, team1Tricks: game.tricks.team1, team2Tricks: game.tricks.team2, gameId: game.gameId });
-
-        game.currentTurn = winner;
-
-        game.broadcast(io, 'trickComplete', { winner });
-
-        game.playedCards = [];
-        game.playedCardsIndex = 0;
-
-        // Check if hand is complete
-        if (game.cardIndex === game.currentHand * 4) {
-            await delay(4000);
-            await handleHandComplete(game, io);
-        }
-    }
-
-    game.broadcast(io, 'updateTurn', { currentTurn: game.currentTurn });
+    // Handle post-play logic (check for trick complete, trigger next bot, etc.)
+    await handlePostPlay(io, game);
 }
 
 async function handleHandComplete(game, io) {
@@ -456,6 +540,8 @@ async function handleHandComplete(game, io) {
         game.broadcast(io, 'gameEnd', { score: game.score });
         // Clear active game for all players
         await gameManager.clearActiveGameForAll(game.gameId);
+        // Cleanup bots
+        botController.cleanupGame(game.gameId);
         game.leaveAllFromRoom(io);
         // Clear playerGames Map entries so players can create new lobbies
         gameManager.endGame(game.gameId);
@@ -518,6 +604,9 @@ async function cleanupNextHand(game, io, dealer, handSize) {
 
     game.currentTurn = game.bidder;
     game.broadcast(io, 'updateTurn', { currentTurn: game.currentTurn });
+
+    // Trigger bot if first bidder is a bot
+    triggerBotIfNeeded(io, game, 'bid');
 }
 
 module.exports = {

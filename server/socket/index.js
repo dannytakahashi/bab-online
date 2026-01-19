@@ -66,6 +66,12 @@ function setupSocketHandlers(io) {
         socket.on('leaveLobby', () =>
             safeHandler(lobbyHandlers.leaveLobby)(socket, io, {})
         );
+        socket.on('addBot', () =>
+            safeHandler(lobbyHandlers.addBot)(socket, io, {})
+        );
+        socket.on('removeBot', (data) =>
+            safeHandler(lobbyHandlers.removeBot)(socket, io, data)
+        );
 
         // Game events - with validation
         socket.on('draw', (data) =>

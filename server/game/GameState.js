@@ -59,9 +59,33 @@ class GameState {
         this.maxLogEntries = 500;
     }
 
-    addPlayer(socketId, username, position, pic) {
-        this.players.set(socketId, { username, position, pic });
+    addPlayer(socketId, username, position, pic, isBot = false) {
+        this.players.set(socketId, { username, position, pic, isBot });
         this.positions[position] = socketId;
+    }
+
+    /**
+     * Check if a player is a bot
+     * @param {string} socketId - Socket ID to check
+     * @returns {boolean}
+     */
+    isBot(socketId) {
+        const player = this.players.get(socketId);
+        return player?.isBot === true;
+    }
+
+    /**
+     * Get all bot players in the game
+     * @returns {Array} - Array of { socketId, username, position, pic, isBot }
+     */
+    getBotPlayers() {
+        const bots = [];
+        for (const [socketId, player] of this.players.entries()) {
+            if (player.isBot) {
+                bots.push({ socketId, ...player });
+            }
+        }
+        return bots;
     }
 
     removePlayer(socketId) {
@@ -344,10 +368,13 @@ class GameState {
 
     /**
      * Join all current players to the game room
+     * Skips bots as they don't have real socket connections
      * @param {Server} io - Socket.IO server instance
      */
     joinAllToRoom(io) {
         for (const socketId of this.players.keys()) {
+            // Skip bots
+            if (this.isBot(socketId)) continue;
             const socket = io.sockets.sockets.get(socketId);
             if (socket) {
                 socket.join(this.roomName);
@@ -358,10 +385,13 @@ class GameState {
 
     /**
      * Join a single player to the game room
+     * Skips bots as they don't have real socket connections
      * @param {Server} io - Socket.IO server instance
      * @param {string} socketId - Socket ID to join
      */
     joinToRoom(io, socketId) {
+        // Skip bots
+        if (this.isBot(socketId)) return;
         const socket = io.sockets.sockets.get(socketId);
         if (socket) {
             socket.join(this.roomName);
@@ -371,10 +401,13 @@ class GameState {
 
     /**
      * Remove a player from the game room
+     * Skips bots as they don't have real socket connections
      * @param {Server} io - Socket.IO server instance
      * @param {string} socketId - Socket ID to remove
      */
     leaveRoom(io, socketId) {
+        // Skip bots
+        if (this.isBot(socketId)) return;
         const socket = io.sockets.sockets.get(socketId);
         if (socket) {
             socket.leave(this.roomName);
@@ -384,10 +417,13 @@ class GameState {
 
     /**
      * Remove all players from the game room
+     * Skips bots as they don't have real socket connections
      * @param {Server} io - Socket.IO server instance
      */
     leaveAllFromRoom(io) {
         for (const socketId of this.players.keys()) {
+            // Skip bots
+            if (this.isBot(socketId)) continue;
             const socket = io.sockets.sockets.get(socketId);
             if (socket) {
                 socket.leave(this.roomName);
@@ -408,12 +444,15 @@ class GameState {
 
     /**
      * Send an event to a specific player in the game
+     * Skips bots as they don't have real socket connections
      * @param {Server} io - Socket.IO server instance
      * @param {string} socketId - Target socket ID
      * @param {string} event - Event name
      * @param {Object} data - Event data
      */
     sendToPlayer(io, socketId, event, data) {
+        // Skip bots - they don't have real socket connections
+        if (this.isBot(socketId)) return;
         io.to(socketId).emit(event, data);
     }
 
