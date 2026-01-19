@@ -259,11 +259,14 @@ export class GameScene extends Phaser.Scene {
         this.trickManager.repositionCurrentTrick();
       }
 
-      // Call legacy repositionGameElements for remaining elements
-      // (trump display, player info, etc.)
-      if (window.repositionGameElements) {
-        window.repositionGameElements(newWidth, newHeight);
+      // Reposition trump display and player info
+      this.repositionTrumpDisplay();
+      if (this.repositionPlayerInfo) {
+        this.repositionPlayerInfo();
       }
+
+      // Update play positions for card animations
+      this.updatePlayPositions();
 
       this.callbacks.onResize?.(newWidth, newHeight);
     } catch (e) {

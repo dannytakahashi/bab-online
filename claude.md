@@ -52,7 +52,6 @@ bab-online/
 │   │       └── index.js            # Socket event handler registration
 │   ├── styles/
 │   │   └── components.css          # All UI component styles
-│   ├── game.js                     # Phaser scene (legacy, 3k lines - migration planned)
 │   ├── vite.config.js              # Vite build configuration
 │   ├── index.html                  # Entry point
 │   └── assets/                     # Card images, backgrounds
@@ -99,11 +98,7 @@ bab-online/
 - `server/socket/gameHandlers.js` - Game event handlers
 - `server/socket/mainRoomHandlers.js` - Main room and lobby browser handlers
 
-### Client (Legacy - Remaining)
-- `client/game.js` - Phaser scene, card rendering, game flow (3k lines, migration planned)
-- `client/styles/components.css` - UI component styles
-
-### Client (Modular - src/)
+### Client
 - `client/src/main.js` - Entry point, exposes all modules via window.ModernUtils bridge, wires callbacks to GameScene
 - `client/src/state/GameState.js` - Client state singleton with event emitter
 - `client/src/socket/SocketManager.js` - Socket with listener tracking for cleanup
@@ -181,12 +176,11 @@ Server runs on port 3000. Requires Node.js 18+.
 - **Components**: `client/src/ui/components/` - Modal, Toast, BidUI, GameLog
 - **Screens**: `client/src/ui/screens/` - SignIn, Register
 - **Cards**: `client/src/phaser/managers/CardManager.js` - card sprites
-- **Legacy**: `client/game.js` still active (migration planned), uses window.ModernUtils
 
 ### Adding Socket Events
 1. Add handler in `server/socket/gameHandlers.js` (or appropriate handler file)
 2. Register in `server/socket/index.js`
-3. Add listener in `client/src/handlers/index.js` or legacy `client/game.js`
+3. Add listener in `client/src/handlers/index.js`
 4. Add cleanup in `cleanupGameListeners()` for game-specific events
 
 ### Adding Card Assets

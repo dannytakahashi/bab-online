@@ -1,5 +1,5 @@
-// Socket initialization - must load before game.js
-// Creates global socket variable for legacy code compatibility
+// Socket initialization - must load before main.js module
+// Creates global socket variable for modular code compatibility
 var socket = io(location.hostname === 'localhost'
     ? 'http://localhost:3000'
     : 'https://bab-online-production.up.railway.app', {
