@@ -3,18 +3,7 @@
 // These are used throughout the file and must be declared before any code that uses them
 // Note: hasDrawn, clickedCardPosition, drawnCardDisplays, allCards moved to DrawManager.js
 var myCards = [];
-var ranks = null; // Will be set from ModernUtils when available
-
-// Helper to get RANK_VALUES lazily (ModernUtils may not be loaded yet)
-function getRankValues() {
-    if (ranks) return ranks;
-    if (window.ModernUtils && window.ModernUtils.RANK_VALUES) {
-        ranks = window.ModernUtils.RANK_VALUES;
-        return ranks;
-    }
-    // Fallback values if ModernUtils not available yet
-    return { HI: 16, LO: 15, A: 14, K: 13, Q: 12, J: 11, 10: 10, 9: 9, 8: 8, 7: 7, 6: 6, 5: 5, 4: 4, 3: 3, 2: 2 };
-}
+// NOTE: ranks and getRankValues() removed - use window.ModernUtils.RANK_VALUES directly
 
 document.addEventListener("playerAssigned", (event) => {
     let data = event.detail;
@@ -273,79 +262,7 @@ document.addEventListener("reconnectFailed", () => {
 // Phaser UI Helper Functions
 // ============================================
 
-function createSpeechBubble(scene, x, y, width, height, text, color, tailDirection = 'down') {
-    let scaleFactorX = scene.scale.width / 1920;
-    let scaleFactorY = scene.scale.height / 953;
-    const PADDING   = 10;
-    const TAIL_SIZE = 20*scaleFactorX;
-    const MAX_W     = 350*scaleFactorX;
-    const MAX_H     = 200*scaleFactorY;
-
-    // Style & measure the text off-screen
-    const style = {
-      fontSize:  "16px",
-      fontFamily:"Arial",
-      color:     (color === "#FF0000" ? "#FF0000" : "#000000"),
-      wordWrap:  { width: MAX_W - 2*PADDING }
-    };
-    const textObj = scene.add.text(0, 0, text, style);
-
-    // Clamp its measured size
-    const txtW = Math.min(textObj.width,  MAX_W - 2*PADDING);
-    const txtH = Math.min(textObj.height, MAX_H - 2*PADDING);
-
-    // Final bubble dims
-    const bW = txtW + 2*PADDING;
-    const bH = txtH + 2*PADDING;
-
-    const bubble = scene.add.graphics();
-    bubble.fillStyle(0xffffff, 1);
-
-    let bubbleX, bubbleY;
-
-    if (tailDirection === 'left') {
-      // Bubble positioned to the right of x, vertically centered on y
-      bubbleX = x + TAIL_SIZE;
-      bubbleY = y - bH / 2;
-
-      // Draw bubble background
-      bubble.fillRoundedRect(bubbleX, bubbleY, bW, bH, 16);
-
-      // Draw tail pointing left toward the avatar
-      bubble.fillTriangle(
-        x,                    y,
-        bubbleX,              y - TAIL_SIZE / 2,
-        bubbleX,              y + TAIL_SIZE / 2
-      );
-
-      // Position text inside bubble
-      textObj.setPosition(bubbleX + PADDING, bubbleY + PADDING);
-    } else {
-      // Original 'down' behavior: bubble above y, tail pointing down
-      bubbleX = x;
-      bubbleY = y - bH;
-
-      // Draw bubble background
-      bubble.fillRoundedRect(bubbleX, bubbleY, bW, bH, 16);
-
-      // Draw tail pointing down
-      bubble.fillTriangle(
-        bubbleX + 20,         bubbleY + bH,
-        bubbleX - TAIL_SIZE,  bubbleY + bH,
-        bubbleX + 10,         bubbleY + bH - TAIL_SIZE
-      );
-
-      // Position text inside bubble
-      textObj.setPosition(bubbleX + PADDING, bubbleY + PADDING);
-    }
-
-    // Group elements
-    const container = scene.add.container(0, 0, [bubble, textObj]);
-    container.setDepth(500);
-    container.setAlpha(1);
-
-    return container;
-}
+// NOTE: createSpeechBubble removed - now handled by ChatBubble.createSpeechBubble()
 
 function createPlayerInfoBox() {
     // Safety check: ensure playerData is fully populated
@@ -424,13 +341,9 @@ let opp1 = null;
 let opp2 = null;
 let score1 = 0;
 let score2 = 0;
-let currentTeamBids = "-/-";
-let currentOppBids = "-/-";
-let playedCard = false;
+// NOTE: currentTeamBids, currentOppBids, playedCard, opponentAvatarDoms removed - not used
 let playerInfo = null;
 let gameListenersRegistered = false; // Track if socket listeners are already registered
-let gameActiveChatBubbles = {}; // Track active chat bubbles by position key to prevent overlap
-let opponentAvatarDoms = { partner: null, opp1: null, opp2: null }; // DOM-based opponent avatars for CSS glow support
 
 // PHASE 7: create() function moved to GameScene.js
 // Scene lifecycle is now handled by the modular GameScene class
@@ -641,8 +554,7 @@ function getCardImageKey(card) {
 }
 // PHASE 7: preload() moved to GameScene.js
 
-// Rank values - use getRankValues() function defined at top of file
-// (ranks variable already declared at top, will be populated lazily)
+// NOTE: Rank values now use window.ModernUtils.RANK_VALUES directly
 var opponentCardSprites = {};
 // NOTE: tableCardSprite removed - now managed by GameScene.tableCardSprite
 // NOTE: createGameFeed, addToGameFeed, updateGameLogScore moved to modular GameLog.js
@@ -688,9 +600,7 @@ socket.on("destroyHands", (data) => {
 
     // Reset flag so listeners are re-registered on redeal
     gameListenersRegistered = false;
-    // Reset bid and trick state for redeal
-    currentTeamBids = "-/-";
-    currentOppBids = "-/-";
+    // Reset trick counts for redeal
     teamTricks = 0;
     oppTricks = 0;
 });
@@ -753,7 +663,6 @@ socket.on("disconnect", () => {
     // The socketManager will attempt to rejoin the game on reconnect
 });
 socket.on("abortGame", (data) => {
-    playedCard = false;
     playerInfo = null;
     console.log("caught abortGame");
     // Use scene handler if available
@@ -848,73 +757,9 @@ socket.on("gameEnd", (data) => {
     });
 });
 
-// Helper to show chat/bid bubble, replacing any existing bubble for the same position
-function showChatBubble(scene, positionKey, x, y, message, color = null, duration = 6000) {
-    // Destroy existing bubble for this position if present
-    if (gameActiveChatBubbles[positionKey]) {
-        if (gameActiveChatBubbles[positionKey].timer) {
-            gameActiveChatBubbles[positionKey].timer.remove();
-        }
-        if (gameActiveChatBubbles[positionKey].bubble) {
-            gameActiveChatBubbles[positionKey].bubble.destroy();
-        }
-    }
-
-    // Create new bubble
-    let bubble = createSpeechBubble(scene, x, y, 150, 50, message, color);
-    let timer = scene.time.delayedCall(duration, () => {
-        bubble.destroy();
-        delete gameActiveChatBubbles[positionKey];
-    });
-
-    gameActiveChatBubbles[positionKey] = { bubble, timer };
-}
-
-socket.on("chatMessage", (data) => {
-    console.log("chatMessage received: ", data.message, " from position: ", data.position, " and I think my pos is ", position);
-
-    // Add to game log with player position for color coding
-    let senderName = data.username || getPlayerName(data.position);
-    if (gameScene && gameScene.handleAddToGameFeed) {
-        gameScene.handleAddToGameFeed(`${senderName}: ${data.message}`, data.position);
-    } else {
-        window.addToGameFeedFromLegacy(`${senderName}: ${data.message}`, data.position);
-    }
-
-    // Show chat bubble at appropriate position using modular handler
-    if (gameScene && gameScene.handleShowChatBubble) {
-        gameScene.handleShowChatBubble(position, data.position, data.message);
-    } else {
-        // Legacy fallback
-        let scene = game.scene.scenes[0];
-        let screenWidth = scene.scale.width;
-        let screenHeight = scene.scale.height;
-        let scaleFactorX = screenWidth / 1920;
-        let scaleFactorY = screenHeight / 953;
-        let centerPlayAreaX = screenWidth / 2;
-        let centerPlayAreaY = screenHeight / 2;
-        let opp1_x = centerPlayAreaX - 480*scaleFactorX;
-        let opp1_y = centerPlayAreaY;
-        let opp2_x = centerPlayAreaX + 620*scaleFactorX;
-        let opp2_y = centerPlayAreaY;
-        let partner_x = centerPlayAreaX + 20*scaleFactorX;
-        let partner_y = centerPlayAreaY - 380*scaleFactorY;
-        let me_x = screenWidth - 310*scaleFactorX;
-        let me_y = screenHeight - 270*scaleFactorY;
-        if (data.position === position + 1 || data.position === position - 3) {
-            showChatBubble(scene, 'opp1', opp1_x, opp1_y, data.message);
-        }
-        if (data.position === position - 1 || data.position === position + 3) {
-            showChatBubble(scene, 'opp2', opp2_x, opp2_y, data.message);
-        }
-        if (data.position === position + 2 || data.position === position - 2) {
-            showChatBubble(scene, 'partner', partner_x, partner_y, data.message);
-        }
-        if (data.position === position) {
-            showChatBubble(scene, 'me', me_x, me_y, data.message);
-        }
-    }
-});
+// NOTE: showChatBubble and chatMessage handler removed
+// - Now handled by modular ChatBubble.js and main.js onChatMessage callback
+// - GameScene.handleShowChatBubble uses ChatBubble.showChatBubble
 
 // NOTE: window.*FromLegacy bridges now provided by main.js using modular GameLog
 

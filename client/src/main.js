@@ -1774,8 +1774,26 @@ function initializeApp() {
       }
     },
 
-    // Chat callback - still handled by game.js
-    onChatMessage: null,
+    // Chat callback - add to game feed and show bubble
+    onChatMessage: (data) => {
+      const scene = getGameScene();
+      const state = getGameState();
+
+      // Get sender name from player data or fall back to username in data
+      const senderName = data.username || getPlayerName(data.position, state.playerData);
+
+      // Add to game feed with player position for color coding
+      if (scene && scene.handleAddToGameFeed) {
+        scene.handleAddToGameFeed(`${senderName}: ${data.message}`, data.position);
+      } else if (window.addToGameFeedFromLegacy) {
+        window.addToGameFeedFromLegacy(`${senderName}: ${data.message}`, data.position);
+      }
+
+      // Show chat bubble at appropriate position
+      if (scene && scene.handleShowChatBubble && state.position) {
+        scene.handleShowChatBubble(state.position, data.position, data.message);
+      }
+    },
   });
 
   // Note: window.socket and window.socketManager are already set at module level above
