@@ -36,6 +36,9 @@ export function registerAuthHandlers(socketManager, callbacks = {}) {
     if (data.success) {
       // Store in sessionStorage for reconnection
       sessionStorage.setItem('username', data.username);
+      if (data.sessionToken) {
+        sessionStorage.setItem('sessionToken', data.sessionToken);
+      }
 
       // Update state
       state.username = data.username;
@@ -54,6 +57,9 @@ export function registerAuthHandlers(socketManager, callbacks = {}) {
     if (data.success) {
       // Store in sessionStorage
       sessionStorage.setItem('username', data.username);
+      if (data.sessionToken) {
+        sessionStorage.setItem('sessionToken', data.sessionToken);
+      }
 
       // Update state
       state.username = data.username;
@@ -72,6 +78,7 @@ export function registerAuthHandlers(socketManager, callbacks = {}) {
 
     // Clear stored credentials
     sessionStorage.removeItem('username');
+    sessionStorage.removeItem('sessionToken');
     sessionStorage.removeItem('gameId');
 
     // Reset state

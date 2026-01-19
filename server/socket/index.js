@@ -24,6 +24,9 @@ function setupSocketHandlers(io) {
         socket.on('signUp', (data) =>
             asyncHandler('signUp', authHandlers.signUp)(socket, io, data)
         );
+        socket.on('restoreSession', (data) =>
+            asyncHandler('restoreSession', authHandlers.restoreSession)(socket, io, data)
+        );
 
         // Queue events - no data to validate
         socket.on('joinQueue', () =>

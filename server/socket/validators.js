@@ -27,6 +27,11 @@ const schemas = {
         password: Joi.string().min(1).max(100).required()
     }),
 
+    restoreSession: Joi.object({
+        username: Joi.string().min(1).max(50).required(),
+        sessionToken: Joi.string().uuid().required()
+    }),
+
     // Game actions
     playCard: Joi.object({
         card: cardSchema.required(),
