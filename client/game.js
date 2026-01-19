@@ -89,8 +89,10 @@ function processRejoin(data) {
         window.updateGameLogScoreFromLegacy(myUsername + "/" + partner, opp1 + "/" + opp2, score2, score1);
     }
 
-    // Create player info box
-    if (!playerInfo) {
+    // Create player info via scene method (preferred) or legacy
+    if (gameScene && gameScene.createPlayerInfoBox && !gameScene._playerInfo) {
+        gameScene.createPlayerInfoBox(playerData, position);
+    } else if (!playerInfo) {
         playerInfo = createPlayerInfoBox();
     }
 
@@ -322,8 +324,10 @@ function repositionGameElements(newWidth, newHeight) {
         gameScene.repositionTrumpDisplay();
     }
 
-    // Reposition player info (bottom right)
-    if (playerInfo && playerInfo.playerAvatar) {
+    // Reposition player info (bottom right) via scene method or legacy
+    if (gameScene && gameScene.repositionPlayerInfo) {
+        gameScene.repositionPlayerInfo();
+    } else if (playerInfo && playerInfo.playerAvatar) {
         const boxX = newWidth - 380 * scaleFactorX;
         const boxY = newHeight - 150 * scaleFactorY;
 
@@ -362,11 +366,16 @@ function processPositionUpdate(data) {
     };
     console.log("✅ playerData initialized:", playerData);
 
-    // If playerInfo was deferred because playerData wasn't ready, create it now
-    if (!playerInfo && position && gameScene) {
-        playerInfo = createPlayerInfoBox();
-        if (playerInfo) {
-            console.log("✅ playerInfo created after positionUpdate");
+    // Create player info if deferred - use scene method (preferred) or legacy
+    if (position && gameScene) {
+        if (gameScene.createPlayerInfoBox && !gameScene._playerInfo) {
+            gameScene.createPlayerInfoBox(playerData, position);
+            console.log("✅ playerInfo created via scene after positionUpdate");
+        } else if (!playerInfo) {
+            playerInfo = createPlayerInfoBox();
+            if (playerInfo) {
+                console.log("✅ playerInfo created after positionUpdate");
+            }
         }
     }
 }
@@ -409,8 +418,11 @@ function processGameStart(data) {
         else{
             window.updateGameLogScoreFromLegacy(myUsername + "/" + partner, opp1 + "/" + opp2, score2, score1);
         }
-        if(!playerInfo){
-            playerInfo = createPlayerInfoBox(); // Store the reference
+        // Create player info via scene method (preferred) or legacy
+        if (gameScene && gameScene.createPlayerInfoBox && !gameScene._playerInfo) {
+            gameScene.createPlayerInfoBox(playerData, position);
+        } else if (!playerInfo) {
+            playerInfo = createPlayerInfoBox();
         }
         // Set trump for legacy code (modular code handles via gameState.setTrump)
         if (data.trump) {
@@ -467,6 +479,10 @@ let playPositions = {
 socket.on("abortGame", (data) => {
     playerInfo = null;
     console.log("caught abortGame");
+    // Clear scene player info
+    if (gameScene && gameScene.clearPlayerInfo) {
+        gameScene.clearPlayerInfo();
+    }
     // Use scene handler if available
     if (gameScene && gameScene.handleAbortGame) {
         gameScene.handleAbortGame(data);
@@ -558,7 +574,10 @@ socket.on("gameEnd", (data) => {
 });
 
 window.updatePlayerPositionTextFromLegacy = function(dealer) {
-    if (playerInfo && playerInfo.playerPositionText) {
+    // Use scene method (preferred) or legacy playerInfo
+    if (gameScene && gameScene.updatePlayerPositionText) {
+        gameScene.updatePlayerPositionText(dealer, position);
+    } else if (playerInfo && playerInfo.playerPositionText) {
         if (dealer === position) {
             playerInfo.playerPositionText.setText("BTN");
         } else if (team(position) === dealer) {

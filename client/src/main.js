@@ -497,6 +497,10 @@ export function setGameScene(scene) {
           this.cardManager.repositionHand();
         }
       }
+      // Update player info position
+      if (this.repositionPlayerInfo) {
+        this.repositionPlayerInfo();
+      }
     };
   }
 
@@ -779,6 +783,107 @@ export function setGameScene(scene) {
       if (bubblePos) {
         showChatBubble(this, bubblePos.positionKey, bubblePos.x, bubblePos.y, message, color, duration);
       }
+    };
+  }
+
+  // Player info box (avatar, name, position text)
+  if (!scene._playerInfo) {
+    scene._playerInfo = null;
+  }
+
+  if (!scene.createPlayerInfoBox) {
+    scene.createPlayerInfoBox = function(playerData, myPosition) {
+      // Safety check
+      if (!playerData?.username || !playerData?.position || !playerData?.pics) {
+        console.warn('⚠️ createPlayerInfoBox: playerData not ready');
+        return null;
+      }
+
+      const positionIndex = playerData.position.indexOf(myPosition);
+      if (positionIndex === -1 || !playerData.username[positionIndex]) {
+        console.warn('⚠️ createPlayerInfoBox: position not found in playerData');
+        return null;
+      }
+
+      const screenWidth = this.scale.width;
+      const screenHeight = this.scale.height;
+      const scaleX = screenWidth / 1920;
+      const scaleY = screenHeight / 953;
+
+      const boxX = screenWidth - 380 * scaleX;
+      const boxY = screenHeight - 150 * scaleY;
+
+      // Player Avatar
+      const playerAvatar = this.add.image(boxX, boxY - 60 * scaleY, 'profile' + playerData.pics[positionIndex])
+        .setScale(0.2)
+        .setOrigin(0.5);
+
+      // Player Name Text
+      const playerNameText = this.add.text(boxX, boxY + 10 * scaleY, playerData.username[positionIndex].username, {
+        fontSize: '18px',
+        fontFamily: 'Arial',
+        color: '#ffffff'
+      }).setOrigin(0.5);
+
+      // Position Text (BTN, MP, CO, UTG)
+      const playerPositionText = this.add.text(boxX, boxY + 35 * scaleY, '', {
+        fontSize: '16px',
+        fontFamily: 'Arial',
+        color: '#ffffff'
+      }).setOrigin(0.5);
+
+      // Group all elements
+      const playerInfoContainer = this.add.container(0, 0, [playerAvatar, playerNameText, playerPositionText]);
+
+      this._playerInfo = { playerAvatar, playerNameText, playerPositionText, playerInfoContainer };
+      return this._playerInfo;
+    };
+  }
+
+  if (!scene.updatePlayerPositionText) {
+    scene.updatePlayerPositionText = function(dealer, myPosition) {
+      if (!this._playerInfo?.playerPositionText) return;
+
+      if (dealer === myPosition) {
+        this._playerInfo.playerPositionText.setText('BTN');
+      } else if (team(myPosition) === dealer) {
+        this._playerInfo.playerPositionText.setText('MP');
+      } else if (rotate(myPosition) === dealer) {
+        this._playerInfo.playerPositionText.setText('CO');
+      } else if (rotate(rotate(rotate(myPosition))) === dealer) {
+        this._playerInfo.playerPositionText.setText('UTG');
+      }
+    };
+  }
+
+  if (!scene.repositionPlayerInfo) {
+    scene.repositionPlayerInfo = function() {
+      if (!this._playerInfo?.playerAvatar) return;
+
+      const screenWidth = this.scale.width;
+      const screenHeight = this.scale.height;
+      const scaleX = screenWidth / 1920;
+      const scaleY = screenHeight / 953;
+
+      const boxX = screenWidth - 380 * scaleX;
+      const boxY = screenHeight - 150 * scaleY;
+
+      this._playerInfo.playerAvatar.setPosition(boxX, boxY - 60 * scaleY);
+      if (this._playerInfo.playerNameText) {
+        this._playerInfo.playerNameText.setPosition(boxX, boxY + 10 * scaleY);
+      }
+      if (this._playerInfo.playerPositionText) {
+        this._playerInfo.playerPositionText.setPosition(boxX, boxY + 35 * scaleY);
+      }
+    };
+  }
+
+  if (!scene.clearPlayerInfo) {
+    scene.clearPlayerInfo = function() {
+      if (this._playerInfo?.playerInfoContainer) {
+        this._playerInfo.playerInfoContainer.destroy();
+      }
+      this._playerInfo = null;
     };
   }
 
@@ -1494,9 +1599,14 @@ function initializeApp() {
           );
         }
 
-        // Update player position text (BTN, MP, CO, UTG) via legacy bridge
-        if (window.updatePlayerPositionTextFromLegacy && data.dealer !== undefined) {
-          window.updatePlayerPositionTextFromLegacy(data.dealer);
+        // Create player info box (avatar, name, position text) via scene method
+        if (scene.createPlayerInfoBox && !scene._playerInfo) {
+          scene.createPlayerInfoBox(gameState.playerData, data.position);
+        }
+
+        // Update player position text (BTN, MP, CO, UTG)
+        if (scene.updatePlayerPositionText && data.dealer !== undefined) {
+          scene.updatePlayerPositionText(data.dealer, data.position);
         }
 
         // Create DOM backgrounds via LayoutManager
@@ -1766,9 +1876,14 @@ function initializeApp() {
           );
         }
 
-        // Update player position text (BTN, MP, CO, UTG) via legacy bridge
-        if (window.updatePlayerPositionTextFromLegacy && data.dealer !== undefined) {
-          window.updatePlayerPositionTextFromLegacy(data.dealer);
+        // Create player info box (avatar, name, position text) via scene method
+        if (scene.createPlayerInfoBox && !scene._playerInfo) {
+          scene.createPlayerInfoBox(gameState.playerData, data.position);
+        }
+
+        // Update player position text (BTN, MP, CO, UTG)
+        if (scene.updatePlayerPositionText && data.dealer !== undefined) {
+          scene.updatePlayerPositionText(data.dealer, data.position);
         }
 
         // Create DOM backgrounds via LayoutManager
