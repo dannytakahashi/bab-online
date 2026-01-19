@@ -98,13 +98,6 @@ export class CardManager {
 
     const positions = this.calculateHandPositions(cards.length, scale.width);
 
-    // Calculate hit area width in LOCAL (unscaled) coordinates
-    // The visible portion of each card is cardSpacing wide (in screen coords)
-    // Convert to local coords by dividing by scale
-    const scaleFactorX = scale.width / 1920;
-    const cardSpacing = 50 * scaleFactorX;
-    const localHitWidth = cardSpacing / CARD_CONFIG.SCALE;
-
     cards.forEach((card, index) => {
       const pos = positions[index];
       const sprite = this._createCardSprite(card, pos.x, pos.y, animate);
@@ -114,21 +107,12 @@ export class CardManager {
       sprite.setData('isLegal', true); // Default to legal, updateCardLegality will correct this
 
       // Set index-based depth so rightmost cards are on top
+      // Higher depth = checked first for input, so overlapping cards work correctly
       sprite.setDepth(CARD_CONFIG.Z_INDEX.HAND + index);
 
-      // Set hit area to only cover the visible (left) portion of each card
-      // Hit area is in LOCAL coordinates (texture space, before scaling)
-      const isLastCard = index === cards.length - 1;
-      const hitWidth = isLastCard ? CARD_CONFIG.BASE_WIDTH : localHitWidth;
-
-      // Hit area starts at left edge of texture
-      const hitArea = new Phaser.Geom.Rectangle(
-        0,                          // Start at left edge (local coords)
-        0,                          // Start at top edge
-        hitWidth,                   // Visible width only
-        CARD_CONFIG.BASE_HEIGHT     // Full height
-      );
-      sprite.setInteractive(hitArea, Phaser.Geom.Rectangle.Contains);
+      // Use full card hit area - depth-based input handling ensures
+      // overlapping cards (higher depth) intercept input first
+      sprite.setInteractive();
       this._setupCardInteraction(sprite);
 
       this._handSprites.push(sprite);
@@ -445,12 +429,6 @@ export class CardManager {
       scale.width
     );
 
-    // Recalculate hit area for new scale
-    const scaleFactorX = scale.width / 1920;
-    const cardSpacing = 50 * scaleFactorX;
-    const localHitWidth = cardSpacing / CARD_CONFIG.SCALE;
-    const cardCount = this._handSprites.length;
-
     this._handSprites.forEach((sprite, index) => {
       if (sprite && sprite.active) {
         sprite.x = positions[index].x;
@@ -459,13 +437,6 @@ export class CardManager {
         sprite.setData('baseY', positions[index].y);
         // Maintain index-based depth
         sprite.setDepth(CARD_CONFIG.Z_INDEX.HAND + index);
-
-        // Update hit area for new spacing
-        const isLastCard = index === cardCount - 1;
-        const hitWidth = isLastCard ? CARD_CONFIG.BASE_WIDTH : localHitWidth;
-        if (sprite.input) {
-          sprite.input.hitArea.width = hitWidth;
-        }
       }
     });
   }
