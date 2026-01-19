@@ -1,9 +1,7 @@
 
 // Variable declarations moved to top to avoid temporal dead zone errors
-// These are used throughout the file and must be declared before any code that uses them
 // Note: hasDrawn, clickedCardPosition, drawnCardDisplays, allCards moved to DrawManager.js
-var myCards = [];
-// NOTE: ranks and getRankValues() removed - use window.ModernUtils.RANK_VALUES directly
+// NOTE: myCards, ranks, getRankValues() removed - card sprites now in CardManager
 
 document.addEventListener("playerAssigned", (event) => {
     let data = event.detail;
@@ -555,36 +553,12 @@ function getCardImageKey(card) {
 // PHASE 7: preload() moved to GameScene.js
 
 // NOTE: Rank values now use window.ModernUtils.RANK_VALUES directly
-var opponentCardSprites = {};
-// NOTE: tableCardSprite removed - now managed by GameScene.tableCardSprite
-// NOTE: createGameFeed, addToGameFeed, updateGameLogScore moved to modular GameLog.js
-// Now provided via window.*FromLegacy bridges from main.js
-
-// NOTE: Glow functions removed - now handled by modular managers:
-// - addOpponentGlow/removeOpponentGlow -> OpponentManager.addTurnGlow/removeTurnGlow
-// - addTurnGlow/removeTurnGlow -> CardManager.addTurnGlow/removeTurnGlow
-// NOTE: Rainbow handling migrated to modular code
-// - gameHandlers.js registers socket listener and calls onRainbow callback
-// - main.js onRainbow callback calls scene.handleRainbow
-// - EffectsManager.showRainbow displays the rainbow effect
-// - Legacy rainbows array and handler removed - no longer needed
-function destroyAllCards(){
-    myCards.forEach((card) => {
-        card.destroy(); // ✅ Remove card from the game
-    });
-    opponentCardSprites["opp1"].forEach((card) => {
-        card.destroy(); // ✅ Remove card from the game
-    });
-    opponentCardSprites["opp2"].forEach((card) => {
-        card.destroy(); // ✅ Remove card from the game
-    });
-    opponentCardSprites["partner"].forEach((card) => {
-        card.destroy(); // ✅ Remove card from the game
-    });
-}
+// NOTE: opponentCardSprites, myCards, destroyAllCards removed
+// - Card sprites now managed by CardManager and OpponentManager
+// - Cleanup done via handleDestroyHands -> CardManager.clearHand() + OpponentManager.clearAll()
 socket.on("destroyHands", (data) => {
     console.log("caught destroyHands");
-    // Remove socket listeners registered in displayCards()
+    // Remove socket listeners registered in legacy code
     socket.off("handComplete");
     socket.off("doneBidding");
     socket.off("trickComplete");
@@ -592,11 +566,9 @@ socket.on("destroyHands", (data) => {
     socket.off("updateTurn");
     socket.off("bidReceived");
 
-    // Destroy all card sprites
-    destroyAllCards();
-
-    // Note: scene.handleDestroyHands, handleClearHand, handleClearOpponents
-    // are called by modular handler (gameHandlers.js → main.js callback)
+    // Note: Card sprite destruction now handled by modular handler:
+    // gameHandlers.js → main.js onDestroyHands → scene.handleDestroyHands
+    // which calls CardManager.clearHand() + OpponentManager.clearAll()
 
     // Reset flag so listeners are re-registered on redeal
     gameListenersRegistered = false;

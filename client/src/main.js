@@ -406,6 +406,14 @@ export function setGameScene(scene) {
   if (!scene.handleDestroyHands) {
     scene.handleDestroyHands = function(data) {
       console.log('🎮 Legacy scene handleDestroyHands');
+      // Clear player hand
+      if (this.cardManager) {
+        this.cardManager.clearHand();
+      }
+      // Clear opponent displays
+      if (this.opponentManager) {
+        this.opponentManager.clearAll();
+      }
       // Clear trick displays
       if (this.trickManager) {
         this.trickManager.clearAll();
