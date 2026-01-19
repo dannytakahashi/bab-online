@@ -13,9 +13,11 @@ For complete game rules including bidding, scoring, and special mechanics, see [
 | Layer | Technology |
 |-------|------------|
 | Frontend | Phaser 3.55.2, ES6 Modules, Socket.IO Client 4.0.1 |
-| Backend | Node.js, Express.js 4.21.2, Socket.IO 4.8.1 |
+| Build | Vite |
+| Backend | Node.js 18+, Express.js 4.21.2, Socket.IO 4.8.1 |
 | Database | MongoDB with Mongoose 8.12.1 |
 | Security | Helmet, bcryptjs |
+| Testing | Vitest (client), Jest (server) |
 | Deployment | Railway.app |
 
 ## Getting Started
@@ -55,65 +57,94 @@ MONGO_URI=mongodb://localhost:27017/bab-online
 ```
 bab-online/
 ├── client/
-│   ├── js/                     # Modular ES6 client code
-│   │   ├── main.js             # Entry point
-│   │   ├── config.js           # Centralized constants
-│   │   ├── socket/
-│   │   │   └── SocketManager.js    # Connection management
-│   │   ├── scenes/
-│   │   │   └── GameScene.js        # Phaser game scene
-│   │   ├── game/
-│   │   │   ├── CardManager.js      # Card sprites & logic
-│   │   │   └── GameState.js        # Client state container
+│   ├── src/                        # Modular ES6 client code (Vite)
+│   │   ├── main.js                 # Entry point
+│   │   ├── constants/              # events.js, ranks.js
+│   │   ├── utils/                  # positions.js, cards.js, colors.js
+│   │   ├── rules/                  # legality.js - card play validation
+│   │   ├── state/                  # GameState.js - client state singleton
+│   │   ├── socket/                 # SocketManager.js - connection management
+│   │   ├── handlers/               # Socket event handler registration
+│   │   ├── phaser/
+│   │   │   ├── config.js           # Phaser game configuration
+│   │   │   ├── PhaserGame.js       # Game instance wrapper
+│   │   │   ├── scenes/             # GameScene.js
+│   │   │   └── managers/           # CardManager, TrickManager, BidManager, etc.
 │   │   └── ui/
-│   │       └── UIManager.js        # DOM lifecycle management
+│   │       ├── UIManager.js        # DOM lifecycle management
+│   │       ├── components/         # Modal, Toast, BidUI, GameLog
+│   │       └── screens/            # SignIn, Register, MainRoom, GameLobby
 │   ├── styles/
-│   │   └── components.css      # UI component styles
-│   ├── index.html              # Entry point
-│   └── assets/                 # Card images, backgrounds
+│   │   └── components.css          # UI component styles
+│   ├── assets/                     # Card images, backgrounds
+│   ├── vite.config.js              # Vite build configuration
+│   └── index.html                  # Entry point
 ├── server/
-│   ├── index.js                # Entry point
+│   ├── index.js                    # Entry point
 │   ├── config/
-│   │   └── index.js            # Server configuration
+│   │   └── index.js                # Server configuration
 │   ├── game/
-│   │   ├── Deck.js             # Card deck management
-│   │   ├── GameState.js        # Game state + room management
-│   │   ├── GameManager.js      # Multi-game coordination
-│   │   └── rules.js            # Pure game logic functions
+│   │   ├── Deck.js                 # Card deck management
+│   │   ├── GameState.js            # Game state + room management
+│   │   ├── GameManager.js          # Multi-game coordination
+│   │   └── rules.js                # Pure game logic functions
 │   ├── socket/
-│   │   ├── index.js            # Socket event routing
-│   │   ├── authHandlers.js     # Auth events
-│   │   ├── mainRoomHandlers.js # Main room & lobby browser
-│   │   ├── queueHandlers.js    # Matchmaking events
-│   │   ├── lobbyHandlers.js    # Game lobby events
-│   │   ├── gameHandlers.js     # Game events
-│   │   ├── reconnectHandlers.js # Reconnection logic
-│   │   ├── chatHandlers.js     # Chat events
-│   │   ├── validators.js       # Joi validation schemas
-│   │   ├── errorHandler.js     # Handler wrappers
-│   │   └── rateLimiter.js      # Per-socket rate limiting
+│   │   ├── index.js                # Socket event routing
+│   │   ├── authHandlers.js         # Auth events
+│   │   ├── mainRoomHandlers.js     # Main room & lobby browser
+│   │   ├── queueHandlers.js        # Matchmaking events
+│   │   ├── lobbyHandlers.js        # Game lobby events
+│   │   ├── gameHandlers.js         # Game events
+│   │   ├── reconnectHandlers.js    # Reconnection logic
+│   │   ├── chatHandlers.js         # Chat events
+│   │   ├── validators.js           # Joi validation schemas
+│   │   ├── errorHandler.js         # Handler wrappers
+│   │   └── rateLimiter.js          # Per-socket rate limiting
 │   ├── routes/
-│   │   └── index.js            # Express routes
+│   │   └── index.js                # Express routes
+│   ├── middleware/
+│   │   └── requestLogger.js        # Request logging
 │   ├── utils/
-│   │   └── timing.js           # Async timing utilities
-│   └── database.js             # MongoDB connection
+│   │   ├── timing.js               # Async timing utilities
+│   │   ├── logger.js               # Winston logger
+│   │   ├── errors.js               # Custom error classes
+│   │   └── shutdown.js             # Graceful shutdown
+│   └── database.js                 # MongoDB connection
 ├── docs/
-│   └── todos/                  # Improvement roadmap
+│   ├── RULES.md                    # Complete game rules
+│   └── todos/                      # Improvement roadmap
+├── scripts/
+│   └── build-atlas.js              # Sprite atlas builder
+├── .github/
+│   └── workflows/ci.yml            # GitHub Actions CI
 ├── package.json
+├── docker-compose.yml
 └── .env.example
 ```
 
 ## Development
 
 ```bash
-# Start with hot reload
+# Start with hot reload (server + client)
 npm run dev
 
 # Start production server
 npm start
 
-# Run tests
+# Run server tests (Jest)
 npm test
+
+# Run client tests (Vitest)
+npm run test:client
+
+# Vite dev server only (port 5173, proxies to :3000)
+npm run dev:client
+
+# Build client
+npm run build:client
+
+# Build sprite atlas
+npm run build:atlas
 ```
 
 The server runs on `http://localhost:3000` by default.
@@ -154,13 +185,16 @@ The server uses a modular architecture with clear separation of concerns:
 
 ### Client Architecture
 
-The client uses ES6 modules with proper lifecycle management:
+The client uses ES6 modules with Vite bundling and proper lifecycle management:
 
 - **SocketManager** - Tracks listeners for cleanup (prevents memory leaks)
 - **GameState** - Single source of truth (replaces 50+ globals)
-- **CardManager** - Phaser sprite management
+- **GameScene** - Main Phaser scene coordinating all game visuals
+- **Phaser Managers** - Specialized managers for different game aspects:
+  - CardManager, TrickManager, BidManager, DrawManager
+  - OpponentManager, EffectsManager, LayoutManager
 - **UIManager** - DOM element lifecycle management
-- **GameScene** - Proper Phaser scene with shutdown cleanup
+- **Handler Modules** - Socket event handlers (auth, game, chat, lobby)
 
 ### Key Socket Events
 
