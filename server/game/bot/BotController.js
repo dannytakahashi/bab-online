@@ -169,7 +169,12 @@ class BotController {
 
         game.drawIndex++;
 
-        // Check if all players have drawn - let gameHandlers handle position assignment
+        // Check if all players have drawn - trigger draw completion
+        if (game.drawIndex === 4) {
+            // Use lazy require to avoid circular dependency
+            const { handleDrawComplete } = require('../../socket/gameHandlers');
+            handleDrawComplete(io, game);
+        }
     }
 
     /**

@@ -179,119 +179,127 @@ async function draw(socket, io, data) {
 
     game.drawIndex++;
 
-    // All players have drawn
+    // Check if all players have drawn
     if (game.drawIndex === 4) {
-        // Generate random profile pics
-        const pics = [];
-        for (let i = 0; i < 4; i++) {
-            let picInt;
-            do {
-                picInt = Math.floor(Math.random() * 83) + 1;
-            } while (pics.includes(picInt));
-            pics.push(picInt);
-        }
-
-        // Assign positions based on cards drawn
-        const positions = [];
-        for (let i = 0; i < game.drawIDs.length; i++) {
-            const playerId = game.drawIDs[i];
-            const position = determineDrawPosition(game.drawCards[i], game.drawCards);
-            positions.push(position);
-
-            // Get username - check if bot first, then user lookup
-            const isBot = gameManager.isBot(playerId);
-            let username = 'Player';
-            if (isBot) {
-                // Extract bot name from socket ID (format: bot:name:uuid)
-                const parts = playerId.split(':');
-                username = parts[1] ? parts[1].charAt(0).toUpperCase() + parts[1].slice(1) : 'Bot';
-            } else {
-                const user = gameManager.getUserBySocketId(playerId);
-                username = user?.username || 'Player';
-            }
-
-            game.addPlayer(playerId, username, position, pics[i], isBot);
-
-            // Update bot position in controller
-            if (isBot) {
-                const bot = botController.getBot(game.gameId, playerId);
-                if (bot) {
-                    bot.position = position;
-                    bot.pic = pics[i];
-                }
-            }
-
-            // Only emit to human players
-            if (!isBot) {
-                io.to(playerId).emit('playerAssigned', { playerId, position });
-            }
-        }
-
-        // Build all arrays in position order (1, 2, 3, 4) for consistency
-        const orderedPositions = [];
-        const orderedSockets = [];
-        const orderedUsernames = [];
-        const orderedPics = [];
-        for (let pos = 1; pos <= 4; pos++) {
-            const player = game.getPlayerByPosition(pos);
-            if (player) {
-                orderedPositions.push(pos);
-                orderedSockets.push(player.socketId);
-                orderedUsernames.push({
-                    username: player.username,
-                    socketId: player.socketId
-                });
-                orderedPics.push(player.pic);
-            }
-        }
-
-        await delay(1000);
-
-        game.broadcast(io, 'positionUpdate', {
-            positions: orderedPositions,
-            sockets: orderedSockets,
-            usernames: orderedUsernames,
-            pics: orderedPics
-        });
-
-        // Set active game for all players (enables cross-browser reconnection)
-        for (const player of orderedUsernames) {
-            await gameManager.setActiveGame(player.username, game.gameId);
-        }
-
-        // Announce teams (positions 1&3 vs 2&4)
-        const team1Player1 = game.getPlayerByPosition(1);
-        const team1Player2 = game.getPlayerByPosition(3);
-        const team2Player1 = game.getPlayerByPosition(2);
-        const team2Player2 = game.getPlayerByPosition(4);
-
-        await delay(1000);
-
-        game.broadcast(io, 'teamsAnnounced', {
-            team1: [team1Player1?.username || 'Player 1', team1Player2?.username || 'Player 3'],
-            team2: [team2Player1?.username || 'Player 2', team2Player2?.username || 'Player 4']
-        });
-
-        // Wait for team announcement to be seen (3 seconds)
-        await delay(3000);
-
-        // Reset draw state
-        game.drawCards = [];
-        game.drawIndex = 0;
-        game.drawIDs = [];
-        game.phase = 'bidding';
-
-        // createUI must come BEFORE gameStart (client expects this order)
-        game.broadcast(io, 'createUI', {});
-
-        // Add game start message to log
-        game.addLogEntry('Game started!', null, 'system');
-
-        await delay(1000);
-
-        // Start the actual game (emits gameStart to each player)
-        await startHand(game, io);
+        await handleDrawComplete(io, game);
     }
+}
+
+/**
+ * Handle draw phase completion - assign positions and start game
+ * Called when all 4 players (human or bot) have drawn
+ */
+async function handleDrawComplete(io, game) {
+    // Generate random profile pics
+    const pics = [];
+    for (let i = 0; i < 4; i++) {
+        let picInt;
+        do {
+            picInt = Math.floor(Math.random() * 83) + 1;
+        } while (pics.includes(picInt));
+        pics.push(picInt);
+    }
+
+    // Assign positions based on cards drawn
+    const positions = [];
+    for (let i = 0; i < game.drawIDs.length; i++) {
+        const playerId = game.drawIDs[i];
+        const position = determineDrawPosition(game.drawCards[i], game.drawCards);
+        positions.push(position);
+
+        // Get username - check if bot first, then user lookup
+        const isBot = gameManager.isBot(playerId);
+        let username = 'Player';
+        if (isBot) {
+            // Extract bot name from socket ID (format: bot:name:uuid)
+            const parts = playerId.split(':');
+            username = parts[1] ? parts[1].charAt(0).toUpperCase() + parts[1].slice(1) : 'Bot';
+        } else {
+            const user = gameManager.getUserBySocketId(playerId);
+            username = user?.username || 'Player';
+        }
+
+        game.addPlayer(playerId, username, position, pics[i], isBot);
+
+        // Update bot position in controller
+        if (isBot) {
+            const bot = botController.getBot(game.gameId, playerId);
+            if (bot) {
+                bot.position = position;
+                bot.pic = pics[i];
+            }
+        }
+
+        // Only emit to human players
+        if (!isBot) {
+            io.to(playerId).emit('playerAssigned', { playerId, position });
+        }
+    }
+
+    // Build all arrays in position order (1, 2, 3, 4) for consistency
+    const orderedPositions = [];
+    const orderedSockets = [];
+    const orderedUsernames = [];
+    const orderedPics = [];
+    for (let pos = 1; pos <= 4; pos++) {
+        const player = game.getPlayerByPosition(pos);
+        if (player) {
+            orderedPositions.push(pos);
+            orderedSockets.push(player.socketId);
+            orderedUsernames.push({
+                username: player.username,
+                socketId: player.socketId
+            });
+            orderedPics.push(player.pic);
+        }
+    }
+
+    await delay(1000);
+
+    game.broadcast(io, 'positionUpdate', {
+        positions: orderedPositions,
+        sockets: orderedSockets,
+        usernames: orderedUsernames,
+        pics: orderedPics
+    });
+
+    // Set active game for all players (enables cross-browser reconnection)
+    for (const player of orderedUsernames) {
+        await gameManager.setActiveGame(player.username, game.gameId);
+    }
+
+    // Announce teams (positions 1&3 vs 2&4)
+    const team1Player1 = game.getPlayerByPosition(1);
+    const team1Player2 = game.getPlayerByPosition(3);
+    const team2Player1 = game.getPlayerByPosition(2);
+    const team2Player2 = game.getPlayerByPosition(4);
+
+    await delay(1000);
+
+    game.broadcast(io, 'teamsAnnounced', {
+        team1: [team1Player1?.username || 'Player 1', team1Player2?.username || 'Player 3'],
+        team2: [team2Player1?.username || 'Player 2', team2Player2?.username || 'Player 4']
+    });
+
+    // Wait for team announcement to be seen (3 seconds)
+    await delay(3000);
+
+    // Reset draw state
+    game.drawCards = [];
+    game.drawIndex = 0;
+    game.drawIDs = [];
+    game.phase = 'bidding';
+
+    // createUI must come BEFORE gameStart (client expects this order)
+    game.broadcast(io, 'createUI', {});
+
+    // Add game start message to log
+    game.addLogEntry('Game started!', null, 'system');
+
+    await delay(1000);
+
+    // Start the actual game (emits gameStart to each player)
+    await startHand(game, io);
 }
 
 async function startHand(game, io) {
@@ -612,5 +620,6 @@ async function cleanupNextHand(game, io, dealer, handSize) {
 module.exports = {
     draw,
     playerBid,
-    playCard
+    playCard,
+    handleDrawComplete
 };
