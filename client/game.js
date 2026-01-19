@@ -16,9 +16,6 @@ document.addEventListener("playerAssigned", (event) => {
 });
 
 // Handle rejoin after reconnection
-// Store rejoin data to process when scene is ready
-let pendingRejoinData = null;
-
 function processRejoin(data) {
     console.log("🔄 Processing rejoin with data:", data);
     console.log("🔄 gameScene exists:", !!gameScene, "game exists:", !!gameScene?.game);
@@ -197,8 +194,8 @@ document.addEventListener("rejoinSuccess", (event) => {
     if (gameScene && gameScene.scale && gameScene.scale.width) {
         processRejoin(data);
     } else {
-        // Scene not ready, store data and wait for create()
-        pendingRejoinData = data;
+        // Scene not ready - modular code in main.js onRejoinSuccess handles deferred setup
+        console.log("⏳ processRejoin deferred - scene not ready, modular code will handle");
     }
 });
 
@@ -209,23 +206,9 @@ document.addEventListener("rejoinFailed", (event) => {
     socket.emit("joinMainRoom");
 });
 
-// Handle player reconnection notification
-document.addEventListener("playerReconnected", (event) => {
-    let data = event.detail;
-    console.log(`🔄 Player ${data.username} at position ${data.position} reconnected`);
-    window.addToGameFeedFromLegacy(`${data.username} reconnected`);
-});
-
-// Handle player disconnect notification (from server)
-socket.on("playerDisconnected", (data) => {
-    console.log(`⚠️ Player ${data.username} at position ${data.position} disconnected`);
-    // Use scene handler if available, fallback to legacy
-    if (gameScene && gameScene.handleAddToGameFeed) {
-        gameScene.handleAddToGameFeed(`${data.username} disconnected - waiting for reconnection...`);
-    } else {
-        window.addToGameFeedFromLegacy(`${data.username} disconnected - waiting for reconnection...`);
-    }
-});
+// NOTE: playerReconnected and playerDisconnected handlers removed
+// - Now handled by modular gameHandlers.js → main.js callbacks → scene handlers
+// - handlePlayerReconnected and handlePlayerDisconnected in setGameScene()
 
 // Handle complete reconnection failure (all attempts exhausted)
 document.addEventListener("reconnectFailed", () => {
@@ -399,10 +382,6 @@ function updatePlayPositions(screenWidth, screenHeight) {
     playPositions.self = { x: screenWidth / 2, y: screenHeight / 2 + playOffsetY };
 }
 
-// Store pending data if events arrive before scene is ready
-let pendingPositionData = null;
-let pendingGameStartData = null;
-
 function processPositionUpdate(data) {
     console.log("Position update received:", data);
     playerData = {
@@ -486,8 +465,8 @@ window.processPositionUpdateFromLegacy = function(data) {
     if (gameScene && gameScene.scale) {
         processPositionUpdate(data);
     } else {
-        console.log("⏳ Scene not ready, queuing positionUpdate data");
-        pendingPositionData = data;
+        // Scene not ready - modular code in main.js onPositionUpdate handles deferred setup
+        console.log("⏳ processPositionUpdate deferred - scene not ready");
     }
 };
 
@@ -495,15 +474,15 @@ window.processGameStartFromLegacy = function(data) {
     if (gameScene && gameScene.scale) {
         processGameStart(data);
     } else {
-        console.log("⏳ Scene not ready, queuing gameStart data");
-        pendingGameStartData = data;
+        // Scene not ready - modular code in main.js onGameStart handles deferred setup
+        console.log("⏳ processGameStart deferred - scene not ready");
     }
 };
 
 // PHASE 7: Phaser initialization moved to main.js via PhaserGame.js
 // The Phaser game is now created with GameScene as the scene class
 // NOTE: GAME_LOG_WIDTH removed - now in LayoutManager
-let playerId, position, playerCards, trump = [];
+let playerId, position, playerCards, trump = [], dealer;
 
 // Card utility - delegating to ModernUtils
 function getCardImageKey(card) {
@@ -513,22 +492,9 @@ function getCardImageKey(card) {
 
 // NOTE: Rank values now use window.ModernUtils.RANK_VALUES directly
 // NOTE: opponentCardSprites, myCards, destroyAllCards removed
-// - Card sprites now managed by CardManager and OpponentManager
-// - Cleanup done via handleDestroyHands -> CardManager.clearHand() + OpponentManager.clearAll()
-socket.on("destroyHands", (data) => {
-    console.log("caught destroyHands");
-    // Remove socket listeners registered in legacy code
-    socket.off("handComplete");
-    socket.off("doneBidding");
-    socket.off("trickComplete");
-    socket.off("cardPlayed");
-    socket.off("updateTurn");
-    socket.off("bidReceived");
-
-    // Note: Card sprite destruction now handled by modular handler:
-    // gameHandlers.js → main.js onDestroyHands → scene.handleDestroyHands
-    // which calls CardManager.clearHand() + OpponentManager.clearAll()
-});
+// NOTE: destroyHands socket handler removed - fully handled by modular code:
+// - gameHandlers.js → main.js onDestroyHands → scene.handleDestroyHands
+// - CardManager.clearHand() + OpponentManager.clearAll() + TrickManager.clearAll()
 // Draw phase functions (draw, removeDraw) moved to DrawManager.js
 // See client/src/phaser/managers/DrawManager.js
 
@@ -553,11 +519,7 @@ let playPositions = {
 // Note: handBackground and border are now DOM elements with ids 'handBackgroundDom' and 'handBorderDom'
 // NOTE: clearAllTricks removed - trick history now managed by TrickManager
 // TrickManager.clearAll() is called by handleHandComplete when a new hand starts
-socket.on("disconnect", () => {
-    console.log("⚠️ Disconnected from server. Auto-reconnecting...");
-    // Don't show sign-in screen - let Socket.IO handle reconnection
-    // The socketManager will attempt to rejoin the game on reconnect
-});
+// NOTE: disconnect handler removed - now in main.js with CustomEvent dispatch
 socket.on("abortGame", (data) => {
     playerInfo = null;
     console.log("caught abortGame");
@@ -667,16 +629,11 @@ socket.on("gameEnd", (data) => {
 // NOTE: createOpponentAvatarDom and cleanupOpponentAvatars removed
 // - Now handled by OpponentManager.createOpponentAvatar() and OpponentManager.cleanupOpponentAvatars()
 
-function displayOpponentHands(numCards, dealer, skipAnimation = false) {
-    console.log("🎭 displayOpponentHands called! skipAnimation:", skipAnimation);
-    console.log("🎭 numCards:", numCards, "dealer:", dealer);
-    console.log("🎭 position:", position);
+// NOTE: displayOpponentHands removed - card sprites handled by OpponentManager
+// Position text (BTN, MP, CO, UTG) now updated via window.updatePlayerPositionTextFromLegacy
 
-    // PHASE 6 MIGRATION: Card sprites and avatars are now handled by OpponentManager
-    // via handleDisplayOpponentHands in main.js. This function now only handles
-    // the player position text (BTN, MP, CO, UTG) which OpponentManager doesn't manage.
-
-    // Set player position text based on dealer position
+// Update player position text based on dealer position (called from main.js)
+window.updatePlayerPositionTextFromLegacy = function(dealer) {
     if (playerInfo && playerInfo.playerPositionText) {
         if (dealer === position) {
             playerInfo.playerPositionText.setText("BTN");
@@ -688,9 +645,7 @@ function displayOpponentHands(numCards, dealer, skipAnimation = false) {
             playerInfo.playerPositionText.setText("UTG");
         }
     }
-
-    console.log("🎭 displayOpponentHands: position text updated, sprites handled by OpponentManager");
-}
+};
 
 // PHASE 7: update() moved to GameScene.js (empty - no per-frame updates needed)
 

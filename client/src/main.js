@@ -424,15 +424,23 @@ export function setGameScene(scene) {
   // Add handler methods for reconnection/error events
   if (!scene.handlePlayerDisconnected) {
     scene.handlePlayerDisconnected = function(data) {
-      console.log('🎮 Legacy scene handlePlayerDisconnected');
-      // Game.js handles this via socket.on listener for now
+      console.log('🎮 handlePlayerDisconnected:', data.username);
+      // Add message to game feed
+      if (this.handleAddToGameFeed) {
+        this.handleAddToGameFeed(`${data.username} disconnected - waiting for reconnection...`);
+      } else if (window.addToGameFeedFromLegacy) {
+        window.addToGameFeedFromLegacy(`${data.username} disconnected - waiting for reconnection...`);
+      }
     };
   }
 
   if (!scene.handlePlayerReconnected) {
     scene.handlePlayerReconnected = function(data) {
-      console.log('🎮 Legacy scene handlePlayerReconnected');
-      // Game.js handles this via CustomEvent listener for now
+      console.log('🎮 handlePlayerReconnected:', data.username);
+      // Add message to game feed
+      if (window.addToGameFeedFromLegacy) {
+        window.addToGameFeedFromLegacy(`${data.username} reconnected`);
+      }
     };
   }
 
@@ -1486,6 +1494,11 @@ function initializeApp() {
           );
         }
 
+        // Update player position text (BTN, MP, CO, UTG) via legacy bridge
+        if (window.updatePlayerPositionTextFromLegacy && data.dealer !== undefined) {
+          window.updatePlayerPositionTextFromLegacy(data.dealer);
+        }
+
         // Create DOM backgrounds via LayoutManager
         if (scene.layoutManager) {
           scene.layoutManager.update();
@@ -1751,6 +1764,11 @@ function initializeApp() {
             gameState.playerData,
             true // skip animation on rejoin
           );
+        }
+
+        // Update player position text (BTN, MP, CO, UTG) via legacy bridge
+        if (window.updatePlayerPositionTextFromLegacy && data.dealer !== undefined) {
+          window.updatePlayerPositionTextFromLegacy(data.dealer);
         }
 
         // Create DOM backgrounds via LayoutManager
