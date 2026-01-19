@@ -285,14 +285,26 @@ export class OpponentManager {
     // Avatar image
     const img = document.createElement('img');
     img.className = 'opponent-avatar-img';
-    img.src = pic ? `assets/profile${pic}.png` : 'assets/profile1.png';
+    // Handle both numbered pics (1-82) and custom base64 pics
+    if (pic && typeof pic === 'string' && pic.startsWith('data:image')) {
+      img.src = pic; // Custom base64 image
+    } else if (pic && typeof pic === 'number') {
+      img.src = `assets/profile${pic}.png`; // Numbered profile pic
+    } else {
+      img.src = 'assets/profile1.png'; // Default fallback
+    }
     img.alt = username;
     img.style.cssText = `
-      width: 60px;
-      height: 60px;
-      border-radius: 50%;
-      border: 3px solid #333;
-      background: #1a1a1a;
+      width: 80px !important;
+      height: 80px !important;
+      min-width: 80px !important;
+      min-height: 80px !important;
+      max-width: 80px !important;
+      max-height: 80px !important;
+      object-fit: cover !important;
+      border-radius: 50% !important;
+      border: 3px solid #333 !important;
+      background: #1a1a1a !important;
     `;
     container.appendChild(img);
 

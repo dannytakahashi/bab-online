@@ -509,6 +509,15 @@ async function handleHandComplete(game, io) {
             game.rainbows.team2 * 10;
     }
 
+    // Track hand stats for player profiles
+    game.handStats.totalHands++;
+    if (game.tricks.team1 < game.bids.team1) {
+        game.handStats.team1Sets++;
+    }
+    if (game.tricks.team2 < game.bids.team2) {
+        game.handStats.team2Sets++;
+    }
+
     gameLogger.debug('Score update', {
         team1: { score: game.score.team1, bids: [game.playerBids[0], game.playerBids[2]], tricks: game.tricks.team1 },
         team2: { score: game.score.team2, bids: [game.playerBids[1], game.playerBids[3]], tricks: game.tricks.team2 },

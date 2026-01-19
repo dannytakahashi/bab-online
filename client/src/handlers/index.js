@@ -69,6 +69,8 @@ export function registerAllHandlers(socketManager, callbacks = {}) {
     onProfileError,
     onProfilePicUpdated,
     onProfilePicUpdateError,
+    onCustomProfilePicUploaded,
+    onCustomProfilePicUploadError,
   } = callbacks;
 
   // Register auth handlers
@@ -134,6 +136,8 @@ export function registerAllHandlers(socketManager, callbacks = {}) {
     onProfileError,
     onProfilePicUpdated,
     onProfilePicUpdateError,
+    onCustomProfilePicUploaded,
+    onCustomProfilePicUploadError,
   });
 }
 

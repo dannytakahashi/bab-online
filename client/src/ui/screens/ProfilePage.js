@@ -9,6 +9,111 @@
  */
 let currentProfile = null;
 let isPictureSelectorOpen = false;
+let currentSocket = null;
+
+/**
+ * Get the appropriate profile picture source.
+ *
+ * @param {Object} profile - Profile data
+ * @returns {string} Image source (base64 or URL)
+ */
+function getProfilePicSrc(profile) {
+  if (profile.customProfilePic) {
+    return profile.customProfilePic;
+  }
+  if (profile.profilePic) {
+    return `assets/profile${profile.profilePic}.png`;
+  }
+  return 'assets/default_avatar.png';
+}
+
+/**
+ * Resize, crop to square, and apply circular mask to an image file.
+ * Output matches default profile pic dimensions with padding for border effect.
+ *
+ * @param {File} file - Image file to process
+ * @param {number} targetSize - Target width/height in pixels
+ * @returns {Promise<string>} Base64 encoded circular image (PNG with transparency)
+ */
+function resizeImage(file, targetSize = 612) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const { width, height } = img;
+
+        // Calculate center crop for square output
+        const cropSize = Math.min(width, height);
+        const cropX = (width - cropSize) / 2;
+        const cropY = (height - cropSize) / 2;
+
+        // Set canvas to target size (square)
+        canvas.width = targetSize;
+        canvas.height = targetSize;
+
+        const ctx = canvas.getContext('2d');
+
+        // Add padding to match default profile pics (which have transparent border area)
+        const padding = targetSize * 0.16; // 16% padding on each side
+        const innerSize = targetSize - (padding * 2);
+        const centerX = targetSize / 2;
+        const centerY = targetSize / 2;
+
+        // Create circular clipping path with padding
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, innerSize / 2, 0, Math.PI * 2);
+        ctx.closePath();
+        ctx.clip();
+
+        // Draw the center-cropped square, scaled to inner size (with padding)
+        ctx.drawImage(
+          img,
+          cropX, cropY, cropSize, cropSize,  // Source: center square
+          padding, padding, innerSize, innerSize  // Dest: centered with padding
+        );
+
+        // Convert to base64 PNG (for transparency)
+        const base64 = canvas.toDataURL('image/png');
+        resolve(base64);
+      };
+      img.onerror = reject;
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * Handle file upload for custom profile picture.
+ *
+ * @param {Event} event - File input change event
+ * @param {Object} socket - Socket instance
+ */
+async function handleFileUpload(event, socket) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+
+  // Validate file type
+  const validTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp'];
+  if (!validTypes.includes(file.type)) {
+    alert('Invalid file type. Please use PNG, JPEG, GIF, or WebP.');
+    return;
+  }
+
+  try {
+    // Resize and compress image
+    const resizedImage = await resizeImage(file, 200, 0.8);
+
+    // Send to server
+    socket.emit('uploadProfilePic', { imageData: resizedImage });
+  } catch (error) {
+    console.error('Error processing image:', error);
+    alert('Failed to process image. Please try again.');
+  }
+}
 
 /**
  * Format a stat value for display.
@@ -143,7 +248,7 @@ function createPictureSelector(socket, currentPic) {
     picBtn.style.transition = 'transform 0.2s, border-color 0.2s';
 
     const img = document.createElement('img');
-    img.src = `assets/profile/${i}.png`;
+    img.src = `assets/profile${i}.png`;
     img.style.width = '100%';
     img.style.height = '100%';
     img.style.objectFit = 'cover';
@@ -195,6 +300,7 @@ export function showProfilePage(profile, socket) {
   removeProfilePage();
 
   currentProfile = profile;
+  currentSocket = socket;
 
   // Create overlay
   const overlay = document.createElement('div');
@@ -284,7 +390,7 @@ export function showProfilePage(profile, socket) {
 
   const picImg = document.createElement('img');
   picImg.id = 'profilePicImage';
-  picImg.src = `assets/profile/${profile.profilePic}.png`;
+  picImg.src = getProfilePicSrc(profile);
   picImg.style.width = '100%';
   picImg.style.height = '100%';
   picImg.style.objectFit = 'cover';
@@ -303,8 +409,46 @@ export function showProfilePage(profile, socket) {
   picLabel.style.marginBottom = '10px';
   picInfo.appendChild(picLabel);
 
+  // Button container for both buttons
+  const buttonContainer = document.createElement('div');
+  buttonContainer.style.display = 'flex';
+  buttonContainer.style.gap = '10px';
+  buttonContainer.style.flexWrap = 'wrap';
+
+  // Upload custom picture button
+  const uploadBtn = document.createElement('button');
+  uploadBtn.innerText = 'Upload Picture';
+  uploadBtn.style.padding = '10px 20px';
+  uploadBtn.style.borderRadius = '6px';
+  uploadBtn.style.border = 'none';
+  uploadBtn.style.background = '#4ade80';
+  uploadBtn.style.color = '#000';
+  uploadBtn.style.fontSize = '14px';
+  uploadBtn.style.cursor = 'pointer';
+  uploadBtn.style.fontWeight = 'bold';
+
+  // Hidden file input
+  const fileInput = document.createElement('input');
+  fileInput.type = 'file';
+  fileInput.accept = 'image/png,image/jpeg,image/jpg,image/gif,image/webp';
+  fileInput.style.display = 'none';
+  fileInput.addEventListener('change', (e) => handleFileUpload(e, socket));
+
+  uploadBtn.addEventListener('click', () => {
+    fileInput.click();
+  });
+  uploadBtn.addEventListener('mouseenter', () => {
+    uploadBtn.style.background = '#22c55e';
+  });
+  uploadBtn.addEventListener('mouseleave', () => {
+    uploadBtn.style.background = '#4ade80';
+  });
+  buttonContainer.appendChild(uploadBtn);
+  buttonContainer.appendChild(fileInput);
+
+  // Choose from gallery button
   const changePicBtn = document.createElement('button');
-  changePicBtn.innerText = 'Change Picture';
+  changePicBtn.innerText = 'Choose Avatar';
   changePicBtn.style.padding = '10px 20px';
   changePicBtn.style.borderRadius = '6px';
   changePicBtn.style.border = 'none';
@@ -326,8 +470,9 @@ export function showProfilePage(profile, socket) {
   changePicBtn.addEventListener('mouseleave', () => {
     changePicBtn.style.background = '#3b82f6';
   });
-  picInfo.appendChild(changePicBtn);
+  buttonContainer.appendChild(changePicBtn);
 
+  picInfo.appendChild(buttonContainer);
   picSection.appendChild(picInfo);
   modal.appendChild(picSection);
 
@@ -363,10 +508,16 @@ export function showProfilePage(profile, socket) {
   statsGrid.appendChild(createStatItem('Points/Game', pointsPerGame));
   statsGrid.appendChild(createStatItem('Bids/Game', bidPerGame));
 
-  // Row 3: Tricks Taken/Game (spans full row would look odd, so add more stats)
+  // Row 3: Tricks/Game, Tricks per Bid, Set Rate
   statsGrid.appendChild(createStatItem('Tricks/Game', tricksPerGame));
-  statsGrid.appendChild(createStatItem('Total Points', String(stats.totalPoints || 0)));
-  statsGrid.appendChild(createStatItem('Total Tricks', String(stats.totalTricksTaken || 0)));
+  const tricksPerBid = stats.totalTricksBid > 0
+    ? (stats.totalTricksTaken / stats.totalTricksBid).toFixed(2)
+    : '0';
+  statsGrid.appendChild(createStatItem('Tricks/Bid', tricksPerBid));
+  const setRate = stats.totalHands > 0
+    ? ((stats.totalSets / stats.totalHands) * 100).toFixed(1) + '%'
+    : '0%';
+  statsGrid.appendChild(createStatItem('Set Rate', setRate));
 
   modal.appendChild(statsGrid);
 
@@ -390,11 +541,28 @@ export function showProfilePage(profile, socket) {
 export function updateProfilePicDisplay(newPic) {
   if (currentProfile) {
     currentProfile.profilePic = newPic;
+    currentProfile.customProfilePic = null; // Clear custom pic when choosing avatar
   }
 
   const picImg = document.getElementById('profilePicImage');
   if (picImg) {
-    picImg.src = `assets/profile/${newPic}.png`;
+    picImg.src = `assets/profile${newPic}.png`;
+  }
+}
+
+/**
+ * Update the profile picture display after a successful custom upload.
+ *
+ * @param {string} customPic - Base64 encoded custom profile picture
+ */
+export function updateCustomProfilePicDisplay(customPic) {
+  if (currentProfile) {
+    currentProfile.customProfilePic = customPic;
+  }
+
+  const picImg = document.getElementById('profilePicImage');
+  if (picImg) {
+    picImg.src = customPic;
   }
 }
 

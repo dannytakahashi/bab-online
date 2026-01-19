@@ -46,6 +46,9 @@ class GameState {
         this.score = { team1: 0, team2: 0 };
         this.rainbows = { team1: 0, team2: 0 };
 
+        // Hand stats (for player profiles)
+        this.handStats = { totalHands: 0, team1Sets: 0, team2Sets: 0 };
+
         // Draw phase
         this.drawCards = [];
         this.drawIDs = [];
@@ -306,6 +309,7 @@ class GameState {
         this.currentHand = 12;
         this.dealer = 1;
         this.score = { team1: 0, team2: 0 };
+        this.handStats = { totalHands: 0, team1Sets: 0, team2Sets: 0 };
         this.resetForNewHand(1, 12);
 
         this.phase = 'waiting';
