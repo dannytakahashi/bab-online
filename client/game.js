@@ -51,8 +51,6 @@ function processRejoin(data) {
     playerCards = data.hand;
     trump = data.trump;
     dealer = data.dealer;
-    currentTurn = data.currentTurn;
-    bidding = data.bidding ? 1 : 0;
     score1 = data.score.team1;
     score2 = data.score.team2;
 
@@ -291,7 +289,6 @@ function createPlayerInfoBox() {
 }
 
 let playerData;
-let currentTurn;
 
 // Position utilities - delegating to ModernUtils
 function team(pos) {
@@ -428,8 +425,6 @@ function processGameStart(data) {
         if (data.trump) {
             trump = data.trump;
         }
-        // Set bidding state for legacy code (modular code handles via gameState.isBidding)
-        bidding = 1;
         // NOTE: displayCards and displayOpponentHands now handled by modular code
         // via CardManager, OpponentManager, LayoutManager, and BidManager
     }
@@ -464,7 +459,6 @@ function getCardImageKey(card) {
     return window.ModernUtils.getCardImageKey(card);
 }
 
-let bidding = 1;
 let playedCardIndex = 0;
 let leadCard = null;
 let leadPosition = null;
