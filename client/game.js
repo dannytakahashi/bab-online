@@ -1,7 +1,15 @@
-
-// Variable declarations moved to top to avoid temporal dead zone errors
-// Note: hasDrawn, clickedCardPosition, drawnCardDisplays, allCards moved to DrawManager.js
-// NOTE: myCards, ranks, getRankValues() removed - card sprites now in CardManager
+/**
+ * Legacy game.js - Minimal bridge for client modularization
+ *
+ * MIGRATION STATUS: Most functionality has been migrated to modular code in src/
+ * This file contains remaining functions needed during the transition:
+ * - processRejoin: Game reconnection handling (partial overlap with main.js onRejoinSuccess)
+ * - createPlayerInfoBox: Player avatar/name display
+ * - Socket handlers: abortGame, forceLogout, roomFull, gameEnd
+ * - Window bridges: processPositionUpdateFromLegacy, processGameStartFromLegacy, etc.
+ *
+ * See src/main.js and src/phaser/ for the modular implementations.
+ */
 
 document.addEventListener("playerAssigned", (event) => {
     let data = event.detail;
@@ -206,10 +214,6 @@ document.addEventListener("rejoinFailed", (event) => {
     socket.emit("joinMainRoom");
 });
 
-// NOTE: playerReconnected and playerDisconnected handlers removed
-// - Now handled by modular gameHandlers.js → main.js callbacks → scene handlers
-// - handlePlayerReconnected and handlePlayerDisconnected in setGameScene()
-
 // Handle complete reconnection failure (all attempts exhausted)
 document.addEventListener("reconnectFailed", () => {
     console.log("❌ All reconnection attempts failed");
@@ -237,13 +241,6 @@ document.addEventListener("reconnectFailed", () => {
     });
     alert("Connection lost. Please sign in again.");
 });
-// NOTE: visible() removed - not used anywhere
-
-// ============================================
-// Phaser UI Helper Functions
-// ============================================
-
-// NOTE: createSpeechBubble removed - now handled by ChatBubble.createSpeechBubble()
 
 function createPlayerInfoBox() {
     // Safety check: ensure playerData is fully populated
@@ -291,14 +288,6 @@ function createPlayerInfoBox() {
     return {playerAvatar, playerNameText, playerPositionText, playerInfoContainer};
 }
 
-// NOTE: showImpactEvent removed - now handled by EffectsManager.showImpactEvent()
-
-// ============================================
-// End Phaser UI Helper Functions
-// ============================================
-
-// gameScene is now provided by main.js via window.gameScene when GameScene.create() runs
-// No local declaration - uses window.gameScene implicitly
 let playerData;
 let currentTurn;
 
@@ -322,18 +311,8 @@ let opp1 = null;
 let opp2 = null;
 let score1 = 0;
 let score2 = 0;
-// NOTE: currentTeamBids, currentOppBids, playedCard, opponentAvatarDoms, gameListenersRegistered removed - not used
 let playerInfo = null;
 
-// PHASE 7: create() function moved to GameScene.js
-// Scene lifecycle is now handled by the modular GameScene class
-
-// Reposition remaining game elements when window is resized
-// NOTE: Most repositioning is now handled by modular managers:
-// - LayoutManager: DOM backgrounds, bid container
-// - CardManager: player hand cards
-// - OpponentManager: opponent avatars and cards
-// - TrickManager: current trick cards
 function repositionGameElements(newWidth, newHeight) {
     const scaleFactorX = newWidth / 1920;
     const scaleFactorY = newHeight / 953;
@@ -361,15 +340,6 @@ function repositionGameElements(newWidth, newHeight) {
     updatePlayPositions(newWidth, newHeight);
 }
 
-// NOTE: The following resize functions have been removed as they're now handled by modular managers:
-// - repositionHandCards -> CardManager.repositionHand()
-// - positionDomBackgrounds -> LayoutManager.positionDomBackgrounds()
-// - cleanupDomBackgrounds -> LayoutManager.cleanupDomBackgrounds()
-// - repositionOpponentElements -> OpponentManager.reposition()
-// - repositionTurnGlow -> CSS-based, no action needed
-// - repositionCurrentTrick -> TrickManager.repositionCurrentTrick()
-
-// Update play area positions for card animations (Bug 3 fix)
 function updatePlayPositions(screenWidth, screenHeight) {
     const scaleFactorX = screenWidth / 1920;
     const scaleFactorY = screenHeight / 953;
@@ -457,9 +427,6 @@ function processGameStart(data) {
     }
 }
 
-// NOTE: positionUpdate and gameStart are now handled by modular code (gameHandlers.js)
-// The modular callbacks call the processing functions below
-
 // Expose processing functions for modular code to call
 window.processPositionUpdateFromLegacy = function(data) {
     if (gameScene && gameScene.scale) {
@@ -479,47 +446,24 @@ window.processGameStartFromLegacy = function(data) {
     }
 };
 
-// PHASE 7: Phaser initialization moved to main.js via PhaserGame.js
-// The Phaser game is now created with GameScene as the scene class
-// NOTE: GAME_LOG_WIDTH removed - now in LayoutManager
 let playerId, position, playerCards, trump = [], dealer;
 
-// Card utility - delegating to ModernUtils
 function getCardImageKey(card) {
     return window.ModernUtils.getCardImageKey(card);
 }
-// PHASE 7: preload() moved to GameScene.js
 
-// NOTE: Rank values now use window.ModernUtils.RANK_VALUES directly
-// NOTE: opponentCardSprites, myCards, destroyAllCards removed
-// NOTE: destroyHands socket handler removed - fully handled by modular code:
-// - gameHandlers.js → main.js onDestroyHands → scene.handleDestroyHands
-// - CardManager.clearHand() + OpponentManager.clearAll() + TrickManager.clearAll()
-// Draw phase functions (draw, removeDraw) moved to DrawManager.js
-// See client/src/phaser/managers/DrawManager.js
-
-// NOTE: displayTableCard removed - now handled by GameScene.displayTrumpCard()
-// NOTE: isTrumpBroken, teamTricks, oppTricks removed - never read, state managed by GameState
-// NOTE: isLegalMove wrapper removed - use window.ModernUtils.isLegalMove() directly
-
-// NOTE: teamTrickHistory, oppTrickHistory, playerBids, tempBids, thisTrick removed - never used
-// Trick history now managed by TrickManager
 let bidding = 1;
 let playedCardIndex = 0;
 let leadCard = null;
 let leadPosition = null;
-let currentTrick = []; // Still used by processRejoin for restoring played cards
-// Play area positions - updated on resize (Bug 3 fix)
+let currentTrick = [];
 let playPositions = {
     opponent1: { x: 0, y: 0 },
     opponent2: { x: 0, y: 0 },
     partner: { x: 0, y: 0 },
     self: { x: 0, y: 0 }
 };
-// Note: handBackground and border are now DOM elements with ids 'handBackgroundDom' and 'handBorderDom'
-// NOTE: clearAllTricks removed - trick history now managed by TrickManager
-// TrickManager.clearAll() is called by handleHandComplete when a new hand starts
-// NOTE: disconnect handler removed - now in main.js with CustomEvent dispatch
+
 socket.on("abortGame", (data) => {
     playerInfo = null;
     console.log("caught abortGame");
@@ -613,26 +557,6 @@ socket.on("gameEnd", (data) => {
     });
 });
 
-// NOTE: showChatBubble and chatMessage handler removed
-// - Now handled by modular ChatBubble.js and main.js onChatMessage callback
-// - GameScene.handleShowChatBubble uses ChatBubble.showChatBubble
-
-// NOTE: window.*FromLegacy bridges now provided by main.js using modular GameLog
-
-// NOTE: clearDisplayCards, getSuitOrder, sortHand, displayCards removed - now handled by modular code:
-// - CardManager.displayHand() for card sprites
-// - BidManager.showBidUI() for bidding interface
-// - LayoutManager.createDomBackgrounds() for play zone and hand backgrounds
-// myCards declared at top of file
-
-// NOTE: buttonHandle and oppUI removed - never populated
-// NOTE: createOpponentAvatarDom and cleanupOpponentAvatars removed
-// - Now handled by OpponentManager.createOpponentAvatar() and OpponentManager.cleanupOpponentAvatars()
-
-// NOTE: displayOpponentHands removed - card sprites handled by OpponentManager
-// Position text (BTN, MP, CO, UTG) now updated via window.updatePlayerPositionTextFromLegacy
-
-// Update player position text based on dealer position (called from main.js)
 window.updatePlayerPositionTextFromLegacy = function(dealer) {
     if (playerInfo && playerInfo.playerPositionText) {
         if (dealer === position) {
@@ -647,9 +571,6 @@ window.updatePlayerPositionTextFromLegacy = function(dealer) {
     }
 };
 
-// PHASE 7: update() moved to GameScene.js (empty - no per-frame updates needed)
-
-// Expose repositionGameElements for GameScene.handleResize() to call
 window.repositionGameElements = function(newWidth, newHeight) {
     const scene = window.gameScene;
     if (!scene) return;
