@@ -104,12 +104,15 @@ export class CardManager {
       sprite.setData('card', card);
       sprite.setData('index', index);
       sprite.setData('baseY', pos.y); // Store target Y for hover effects
+      sprite.setData('isLegal', true); // Default to legal, updateCardLegality will correct this
 
       // Set index-based depth so rightmost cards are on top
+      // Higher depth = checked first for input, so overlapping cards work correctly
       sprite.setDepth(CARD_CONFIG.Z_INDEX.HAND + index);
 
-      // Make interactive
-      sprite.setInteractive({ useHandCursor: true });
+      // Use full card hit area - depth-based input handling ensures
+      // overlapping cards (higher depth) intercept input first
+      sprite.setInteractive();
       this._setupCardInteraction(sprite);
 
       this._handSprites.push(sprite);
@@ -161,6 +164,9 @@ export class CardManager {
     const scene = this._scene;
 
     sprite.on('pointerover', () => {
+      // Set hand cursor on hover
+      scene.input.setDefaultCursor('pointer');
+
       // Only apply hover effect to legal cards
       if (!sprite.getData('isLegal')) return;
 
@@ -172,10 +178,13 @@ export class CardManager {
         duration: ANIMATION_CONFIG.CARD_HOVER,
         ease: 'Power2',
       });
-      sprite.setDepth(CARD_CONFIG.Z_INDEX.ACTIVE_CARD);
+      // Keep index-based depth - card stays partially behind cards to its right
     });
 
     sprite.on('pointerout', () => {
+      // Reset cursor
+      scene.input.setDefaultCursor('default');
+
       // Only apply hover effect to legal cards
       if (!sprite.getData('isLegal')) return;
 
@@ -187,9 +196,6 @@ export class CardManager {
         duration: ANIMATION_CONFIG.CARD_HOVER,
         ease: 'Power2',
       });
-      // Use index-based depth so rightmost cards stay on top
-      const index = sprite.getData('index') || 0;
-      sprite.setDepth(CARD_CONFIG.Z_INDEX.HAND + index);
     });
 
     sprite.on('pointerdown', () => {
@@ -360,7 +366,6 @@ export class CardManager {
           const baseY = sprite.getData('baseY');
           if (baseY !== undefined) {
             sprite.y = baseY;
-            sprite.setDepth(CARD_CONFIG.Z_INDEX.HAND);
           }
         }
         return;
@@ -380,7 +385,6 @@ export class CardManager {
           const baseY = sprite.getData('baseY');
           if (baseY !== undefined) {
             sprite.y = baseY;
-            sprite.setDepth(CARD_CONFIG.Z_INDEX.HAND);
           }
         }
       }

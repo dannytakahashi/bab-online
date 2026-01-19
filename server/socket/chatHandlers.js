@@ -31,7 +31,8 @@ function chatMessage(socket, io, data) {
     // Broadcast to players in the same game only
     game.broadcast(io, 'chatMessage', {
         position,
-        message: data.message
+        message: data.message,
+        username
     });
 }
 

@@ -6,6 +6,7 @@
 const { v4: uuidv4 } = require('uuid');
 const GameState = require('./GameState');
 const { getUsersCollection } = require('../database');
+const { botController, BotPlayer } = require('./bot');
 
 class GameManager {
     constructor() {
@@ -520,6 +521,103 @@ class GameManager {
 
         return { success: true, game, players: playerSocketIds };
     }
+
+    // ==================== BOT METHODS ====================
+
+    /**
+     * Check if a socketId belongs to a bot
+     * @param {string} socketId
+     * @returns {boolean}
+     */
+    isBot(socketId) {
+        return BotPlayer.isBot(socketId);
+    }
+
+    /**
+     * Add a bot to a lobby
+     * @param {string} lobbyId - Lobby to add bot to
+     * @param {string} botName - Bot username (default: "Mary")
+     * @returns {Object} - { success, botPlayer, lobby, error? }
+     */
+    addBotToLobby(lobbyId, botName = 'Mary') {
+        const lobby = this.lobbies.get(lobbyId);
+        if (!lobby) {
+            return { success: false, error: 'Lobby not found' };
+        }
+
+        if (lobby.players.length >= 4) {
+            return { success: false, error: 'Lobby is full' };
+        }
+
+        // Count existing bots with same base name to add numbering
+        const existingBots = lobby.players.filter(p =>
+            p.isBot && p.username.startsWith(botName)
+        );
+        const botNumber = existingBots.length + 1;
+        const finalBotName = botNumber > 1 ? `${botName} ${botNumber}` : botName;
+
+        // Create a new bot with unique name
+        const bot = botController.createBot(finalBotName);
+
+        // Add bot to lobby as a player
+        const botPlayer = {
+            socketId: bot.socketId,
+            username: bot.username,
+            ready: false,
+            isBot: true
+        };
+
+        lobby.players.push(botPlayer);
+        // Don't add to playerLobbies since bots don't have real sockets
+
+        return { success: true, botPlayer, lobby, bot };
+    }
+
+    /**
+     * Remove a bot from a lobby
+     * @param {string} lobbyId - Lobby ID
+     * @param {string} botSocketId - Bot's socket ID
+     * @returns {Object} - { success, lobby, error? }
+     */
+    removeBotFromLobby(lobbyId, botSocketId) {
+        const lobby = this.lobbies.get(lobbyId);
+        if (!lobby) {
+            return { success: false, error: 'Lobby not found' };
+        }
+
+        const botIndex = lobby.players.findIndex(p => p.socketId === botSocketId);
+        if (botIndex === -1) {
+            return { success: false, error: 'Bot not found in lobby' };
+        }
+
+        // Remove bot
+        lobby.players.splice(botIndex, 1);
+        lobby.readyPlayers.delete(botSocketId);
+
+        // Reset all ready states when someone leaves
+        lobby.readyPlayers.clear();
+        lobby.players.forEach(p => p.ready = false);
+
+        return { success: true, lobby };
+    }
+
+    /**
+     * Set all bots in a lobby as ready
+     * @param {string} lobbyId - Lobby ID
+     */
+    setBotsReady(lobbyId) {
+        const lobby = this.lobbies.get(lobbyId);
+        if (!lobby) return;
+
+        for (const player of lobby.players) {
+            if (player.isBot && !player.ready) {
+                player.ready = true;
+                lobby.readyPlayers.add(player.socketId);
+            }
+        }
+    }
+
+    // ==================== END BOT METHODS ====================
 
     // ==================== END LOBBY METHODS ====================
 

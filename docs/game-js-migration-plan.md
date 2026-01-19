@@ -1,6 +1,18 @@
 # game.js Migration Plan
 
-## Overview
+## Status: COMPLETE ✓
+
+**Migration completed January 2026.**
+
+game.js (originally 3,127 lines) has been fully migrated to the modular structure in `client/src/` and deleted.
+
+index.html now loads only:
+- `socket-init.js` - Socket initialization
+- `dist/main.js` - Bundled modular client
+
+---
+
+## Original Overview
 
 Migrate `client/game.js` (3,127 lines) to the modular structure in `client/src/`.
 

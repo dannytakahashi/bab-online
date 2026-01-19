@@ -21,9 +21,8 @@
 </head>
 <body>
     <div id="game-container"></div>
-    <!-- Create socket BEFORE game.js loads (game.js has top-level socket.on calls) -->
+    <!-- Create socket before modular code loads -->
     <script src="socket-init.js"></script>
-    <script src="game.js?v=20260117c"></script>
     <script type="module" src="dist/main.js"></script>
 </body>
 </html>

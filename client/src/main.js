@@ -1,11 +1,8 @@
 /**
  * Main entry point for the modular client.
  *
- * This stub will be expanded as modules are extracted from the monolithic
- * game.js and ui.js files.
- *
- * During the transition, we use a bridge pattern to expose new modules
- * to the existing code via window.ModernUtils.
+ * All game logic is now in the modular codebase in src/.
+ * The window.ModernUtils bridge provides utilities for external access.
  */
 
 // Constants
@@ -46,6 +43,7 @@ import { DrawManager } from './phaser/managers/DrawManager.js';
 import { BidManager } from './phaser/managers/BidManager.js';
 import { LayoutManager } from './phaser/managers/LayoutManager.js';
 import { GameScene } from './phaser/scenes/GameScene.js';
+import { createPhaserGame, getPhaserGame, destroyPhaserGame } from './phaser/PhaserGame.js';
 
 // Handlers
 import {
@@ -65,13 +63,39 @@ import {
 // Reference to the active Phaser game scene
 let gameSceneRef = null;
 
+// Reference to the modular game log instance
+let gameLogInstance = null;
+
 /**
- * Set the game scene reference (called from game.js when scene is created).
+ * Set the game scene reference (called when scene is created).
  * Also attaches DrawManager to the scene for draw phase handling.
  * @param {Phaser.Scene} scene - The active game scene
  */
 export function setGameScene(scene) {
   gameSceneRef = scene;
+
+  // Also set window.gameScene for global access
+  window.gameScene = scene;
+
+  // Handle tab visibility change - reposition elements when tab becomes visible
+  // This fixes card positioning issues on background tabs during game start
+  if (!scene._visibilityHandlerAdded) {
+    scene._visibilityHandlerAdded = true;
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && gameSceneRef) {
+        console.log('🎮 Tab became visible, repositioning game elements');
+        // Use requestAnimationFrame to ensure dimensions are updated
+        requestAnimationFrame(() => {
+          if (gameSceneRef.cardManager) {
+            gameSceneRef.cardManager.repositionHand();
+          }
+          if (gameSceneRef.opponentManager) {
+            gameSceneRef.opponentManager.reposition();
+          }
+        });
+      }
+    });
+  }
 
   // Attach DrawManager to the scene if not already present
   if (!scene.drawManager) {
@@ -268,6 +292,8 @@ export function setGameScene(scene) {
                 rotation: 0,
                 scale: 1.5,
                 onComplete: () => {
+                  // Guard against destroyed sprite
+                  if (!sprite || !sprite.scene) return;
                   sprite.setTexture('cards', cardKey);
                   sprite.setDepth(200);
                 },
@@ -381,6 +407,14 @@ export function setGameScene(scene) {
   if (!scene.handleDestroyHands) {
     scene.handleDestroyHands = function(data) {
       console.log('🎮 Legacy scene handleDestroyHands');
+      // Clear player hand
+      if (this.cardManager) {
+        this.cardManager.clearHand();
+      }
+      // Clear opponent displays
+      if (this.opponentManager) {
+        this.opponentManager.clearAll();
+      }
       // Clear trick displays
       if (this.trickManager) {
         this.trickManager.clearAll();
@@ -391,15 +425,23 @@ export function setGameScene(scene) {
   // Add handler methods for reconnection/error events
   if (!scene.handlePlayerDisconnected) {
     scene.handlePlayerDisconnected = function(data) {
-      console.log('🎮 Legacy scene handlePlayerDisconnected');
-      // Game.js handles this via socket.on listener for now
+      console.log('🎮 handlePlayerDisconnected:', data.username);
+      // Add message to game feed
+      if (this.handleAddToGameFeed) {
+        this.handleAddToGameFeed(`${data.username} disconnected - waiting for reconnection...`);
+      } else if (window.addToGameFeedFromLegacy) {
+        window.addToGameFeedFromLegacy(`${data.username} disconnected - waiting for reconnection...`);
+      }
     };
   }
 
   if (!scene.handlePlayerReconnected) {
     scene.handlePlayerReconnected = function(data) {
-      console.log('🎮 Legacy scene handlePlayerReconnected');
-      // Game.js handles this via CustomEvent listener for now
+      console.log('🎮 handlePlayerReconnected:', data.username);
+      // Add message to game feed
+      if (window.addToGameFeedFromLegacy) {
+        window.addToGameFeedFromLegacy(`${data.username} reconnected`);
+      }
     };
   }
 
@@ -455,6 +497,10 @@ export function setGameScene(scene) {
         if (this.cardManager) {
           this.cardManager.repositionHand();
         }
+      }
+      // Update player info position
+      if (this.repositionPlayerInfo) {
+        this.repositionPlayerInfo();
       }
     };
   }
@@ -741,6 +787,107 @@ export function setGameScene(scene) {
     };
   }
 
+  // Player info box (avatar, name, position text)
+  if (!scene._playerInfo) {
+    scene._playerInfo = null;
+  }
+
+  if (!scene.createPlayerInfoBox) {
+    scene.createPlayerInfoBox = function(playerData, myPosition) {
+      // Safety check
+      if (!playerData?.username || !playerData?.position || !playerData?.pics) {
+        console.warn('⚠️ createPlayerInfoBox: playerData not ready');
+        return null;
+      }
+
+      const positionIndex = playerData.position.indexOf(myPosition);
+      if (positionIndex === -1 || !playerData.username[positionIndex]) {
+        console.warn('⚠️ createPlayerInfoBox: position not found in playerData');
+        return null;
+      }
+
+      const screenWidth = this.scale.width;
+      const screenHeight = this.scale.height;
+      const scaleX = screenWidth / 1920;
+      const scaleY = screenHeight / 953;
+
+      const boxX = screenWidth - 380 * scaleX;
+      const boxY = screenHeight - 150 * scaleY;
+
+      // Player Avatar
+      const playerAvatar = this.add.image(boxX, boxY - 60 * scaleY, 'profile' + playerData.pics[positionIndex])
+        .setScale(0.2)
+        .setOrigin(0.5);
+
+      // Player Name Text
+      const playerNameText = this.add.text(boxX, boxY + 10 * scaleY, playerData.username[positionIndex].username, {
+        fontSize: '18px',
+        fontFamily: 'Arial',
+        color: '#ffffff'
+      }).setOrigin(0.5);
+
+      // Position Text (BTN, MP, CO, UTG)
+      const playerPositionText = this.add.text(boxX, boxY + 35 * scaleY, '', {
+        fontSize: '16px',
+        fontFamily: 'Arial',
+        color: '#ffffff'
+      }).setOrigin(0.5);
+
+      // Group all elements
+      const playerInfoContainer = this.add.container(0, 0, [playerAvatar, playerNameText, playerPositionText]);
+
+      this._playerInfo = { playerAvatar, playerNameText, playerPositionText, playerInfoContainer };
+      return this._playerInfo;
+    };
+  }
+
+  if (!scene.updatePlayerPositionText) {
+    scene.updatePlayerPositionText = function(dealer, myPosition) {
+      if (!this._playerInfo?.playerPositionText) return;
+
+      if (dealer === myPosition) {
+        this._playerInfo.playerPositionText.setText('BTN');
+      } else if (team(myPosition) === dealer) {
+        this._playerInfo.playerPositionText.setText('MP');
+      } else if (rotate(myPosition) === dealer) {
+        this._playerInfo.playerPositionText.setText('CO');
+      } else if (rotate(rotate(rotate(myPosition))) === dealer) {
+        this._playerInfo.playerPositionText.setText('UTG');
+      }
+    };
+  }
+
+  if (!scene.repositionPlayerInfo) {
+    scene.repositionPlayerInfo = function() {
+      if (!this._playerInfo?.playerAvatar) return;
+
+      const screenWidth = this.scale.width;
+      const screenHeight = this.scale.height;
+      const scaleX = screenWidth / 1920;
+      const scaleY = screenHeight / 953;
+
+      const boxX = screenWidth - 380 * scaleX;
+      const boxY = screenHeight - 150 * scaleY;
+
+      this._playerInfo.playerAvatar.setPosition(boxX, boxY - 60 * scaleY);
+      if (this._playerInfo.playerNameText) {
+        this._playerInfo.playerNameText.setPosition(boxX, boxY + 10 * scaleY);
+      }
+      if (this._playerInfo.playerPositionText) {
+        this._playerInfo.playerPositionText.setPosition(boxX, boxY + 35 * scaleY);
+      }
+    };
+  }
+
+  if (!scene.clearPlayerInfo) {
+    scene.clearPlayerInfo = function() {
+      if (this._playerInfo?.playerInfoContainer) {
+        this._playerInfo.playerInfoContainer.destroy();
+      }
+      this._playerInfo = null;
+    };
+  }
+
   console.log('🎮 Game scene reference set with all handlers');
 }
 
@@ -876,6 +1023,9 @@ window.ModernUtils = {
   BidManager,
   LayoutManager,
   GameScene,
+  createPhaserGame,
+  getPhaserGame,
+  destroyPhaserGame,
 
   // Handlers
   registerAllHandlers,
@@ -913,13 +1063,78 @@ window.ModernUtils = {
 console.log('Modular client initialized - All utilities available via window.ModernUtils');
 
 // ============================================
+// Game Log Bridges (window functions for external access)
+// ============================================
+
+// Bridge for creating game feed - now uses modular GameLog
+window.createGameFeedFromLegacy = function(isReconnection = false) {
+  if (!gameLogInstance) {
+    gameLogInstance = showGameLog({
+      onChatSubmit: (message) => {
+        if (window.socket) {
+          window.socket.emit('chatMessage', { message });
+        }
+      },
+    });
+
+    // Add .in-game class to restrict game container width
+    document.getElementById('game-container')?.classList.add('in-game');
+
+    // Force Phaser resize
+    requestAnimationFrame(() => {
+      const container = document.getElementById('game-container');
+      if (container && gameSceneRef?.game?.scale) {
+        const newWidth = container.clientWidth;
+        const newHeight = container.clientHeight;
+        gameSceneRef.game.scale.resize(newWidth, newHeight);
+      }
+    });
+
+    if (!isReconnection) {
+      gameLogInstance.addGameMessage('Game started!');
+    }
+  }
+};
+
+// Bridge for adding messages to game feed
+window.addToGameFeedFromLegacy = function(message, playerPosition = null) {
+  if (gameLogInstance && gameLogInstance.addGameMessage) {
+    gameLogInstance.addGameMessage(message, playerPosition);
+  } else {
+    console.warn('Game log not initialized, message dropped:', message);
+  }
+};
+
+// Bridge for updating game log score display
+window.updateGameLogScoreFromLegacy = function(teamNames, oppNames, teamScore, oppScore, teamBids = '-/-', oppBids = '-/-', teamTricks = 0, oppTricks = 0) {
+  if (gameLogInstance && gameLogInstance.updateFullScore) {
+    gameLogInstance.updateFullScore(teamNames, oppNames, teamScore, oppScore, teamBids, oppBids, teamTricks, oppTricks);
+  } else {
+    console.warn('Game log not initialized, score update dropped');
+  }
+};
+
+// Export getter for game log instance
+export function getGameLogInstance() {
+  return gameLogInstance;
+}
+
+// Export function to destroy game log (for cleanup)
+export function destroyGameLog() {
+  if (gameLogInstance) {
+    gameLogInstance.destroy();
+    gameLogInstance = null;
+  }
+  document.getElementById('game-container')?.classList.remove('in-game');
+}
+
+// ============================================
 // Application Initialization
 // ============================================
 
 /**
  * Get the socket connection.
- * Socket is created in inline script in index.html before game.js loads.
- * This ensures window.socket is available for legacy code that calls socket.on() at top level.
+ * Socket is created in socket-init.js which loads before this module.
  */
 function getSocket() {
   // Socket is created in index.html inline script
@@ -944,12 +1159,11 @@ function getSocket() {
   return socket;
 }
 
-// Get socket (created in index.html inline script before game.js loads)
+// Get socket (created in socket-init.js)
 const socket = getSocket();
 console.log('Using socket from window.socket');
 
 // ==================== RECONNECTION LOGIC ====================
-// (Previously in socketManager.js, needed for game.js to work)
 
 // Track if we've already attempted rejoin this session
 let rejoinAttempted = false;
@@ -988,11 +1202,39 @@ socket.on('reconnect_attempt', (attemptNumber) => {
 
 socket.on('reconnect_failed', () => {
   console.log('Reconnection failed after all attempts');
-  document.dispatchEvent(new CustomEvent('reconnectFailed'));
+
+  // Full cleanup on reconnect failure
+  const scene = getGameScene();
+  if (scene) {
+    scene.scene.restart();
+    socket.off("gameStart");
+  }
+  if (scene && scene.layoutManager) {
+    scene.layoutManager.cleanupDomBackgrounds();
+  }
+  uiManager.removeWaitingScreen();
+  uiManager.clearUI();
+
+  // Clear game log
+  let gameFeed = document.getElementById("gameFeed");
+  if (gameFeed) gameFeed.remove();
+  gameLogInstance = null;
+
+  // Remove width restriction from game container
+  document.getElementById('game-container')?.classList.remove('in-game');
+
+  // Clear session and state
+  sessionStorage.removeItem('username');
+  sessionStorage.removeItem('sessionToken');
   sessionStorage.removeItem('gameId');
+  getGameState().reset();
+
+  // Show sign-in screen
+  displaySignInScreen();
+  alert("Connection lost. Please sign in again.");
 });
 
-// Forward rejoin events to document for game.js
+// Handle rejoinSuccess cleanup (main state restoration via gameHandlers onRejoinSuccess)
 socket.on('rejoinSuccess', (data) => {
   console.log('Rejoin successful:', data);
   rejoinSucceeded = true;
@@ -1014,8 +1256,7 @@ socket.on('rejoinSuccess', (data) => {
   // Also remove main room and lobby if present
   removeMainRoom();
   removeGameLobby();
-
-  document.dispatchEvent(new CustomEvent('rejoinSuccess', { detail: data }));
+  // Note: State restoration and UI rebuild handled by gameHandlers onRejoinSuccess callback
 });
 
 socket.on('rejoinFailed', (data) => {
@@ -1025,17 +1266,10 @@ socket.on('rejoinFailed', (data) => {
   const reason = typeof data === 'string' ? data : data?.reason;
   if (reason !== 'Already connected') {
     sessionStorage.removeItem('gameId');
-    // Show sign-in screen if rejoin truly failed
-    console.log('Rejoin truly failed, showing sign-in screen');
-    // Use setTimeout to ensure DOM is ready
-    setTimeout(() => {
-      // Only show sign-in if we don't already have one visible
-      if (!document.getElementById('sign-in-container') && !document.getElementById('signInContainer')) {
-        displaySignInScreen();
-      }
-    }, 100);
+    // Return to main room
+    socket.emit("joinMainRoom");
   }
-  document.dispatchEvent(new CustomEvent('rejoinFailed', { detail: data }));
+  // Note: Additional handling in gameHandlers onRejoinFailed callback
 });
 
 socket.on('playerReconnected', (data) => {
@@ -1045,7 +1279,13 @@ socket.on('playerReconnected', (data) => {
 
 socket.on('playerAssigned', (data) => {
   console.log('📡 Received playerAssigned:', data);
-  document.dispatchEvent(new CustomEvent('playerAssigned', { detail: data }));
+  const state = getGameState();
+  if (data.playerId) {
+    state.playerId = data.playerId;
+  }
+  if (data.position) {
+    state.position = data.position;
+  }
 });
 
 socket.on('gameStart', (data) => {
@@ -1229,10 +1469,42 @@ function initializeApp() {
     },
     onForceLogout: (data) => {
       console.warn('Force logout:', data?.reason || 'Unknown reason');
+
+      const scene = getGameScene();
+
+      // Restart scene
+      if (scene) {
+        scene.scene.restart();
+        socket.off("gameStart");
+      }
+
+      // Clean up DOM backgrounds
+      if (scene && scene.layoutManager) {
+        scene.layoutManager.cleanupDomBackgrounds();
+      }
+
+      // Remove UI elements
+      uiManager.removeWaitingScreen();
+      uiManager.clearUI();
+
+      // Remove game log
+      let gameFeed = document.getElementById("gameFeed");
+      if (gameFeed) gameFeed.remove();
+      gameLogInstance = null;
+
+      // Remove width restriction from game container
+      document.getElementById('game-container')?.classList.remove('in-game');
+
+      // Clear scene reference
+      clearGameScene();
+
+      // Clear session storage and state
       sessionStorage.removeItem('username');
+      sessionStorage.removeItem('sessionToken');
       sessionStorage.removeItem('gameId');
       gameState.reset();
-      // Show sign-in screen (game.js just does cleanup)
+
+      // Show sign-in screen
       displaySignInScreen();
     },
     onActiveGameFound: (data) => {
@@ -1329,15 +1601,17 @@ function initializeApp() {
       // The game will start via positionUpdate/gameStart events
     },
 
-    // Game callbacks - gradually migrating from game.js
-    // Position and game setup - update GameState and call legacy processing
+    // Game callbacks - update GameState and trigger scene handlers
     onPositionUpdate: (data) => {
       console.log('📍 onPositionUpdate callback');
       // Update modular GameState with player data
       gameState.setPlayerData(data);
-      // Call legacy processing for rendering
-      if (window.processPositionUpdateFromLegacy) {
-        window.processPositionUpdateFromLegacy(data);
+
+      // Create player info if deferred (scene ready but waiting for position data)
+      const scene = getGameScene();
+      if (gameState.position && scene && scene.createPlayerInfoBox && !scene._playerInfo) {
+        scene.createPlayerInfoBox(gameState.playerData, gameState.position);
+        console.log("✅ playerInfo created via scene after positionUpdate");
       }
     },
     onGameStart: (data) => {
@@ -1388,11 +1662,50 @@ function initializeApp() {
             true // skip animation - resize events interfere with tweens
           );
         }
+
+        // Create player info box (avatar, name, position text) via scene method
+        if (scene.createPlayerInfoBox && !scene._playerInfo) {
+          scene.createPlayerInfoBox(gameState.playerData, data.position);
+        }
+
+        // Update player position text (BTN, MP, CO, UTG)
+        if (scene.updatePlayerPositionText && data.dealer !== undefined) {
+          scene.updatePlayerPositionText(data.dealer, data.position);
+        }
+
+        // Create DOM backgrounds via LayoutManager
+        if (scene.layoutManager) {
+          scene.layoutManager.update();
+          scene.layoutManager.createDomBackgrounds();
+        }
+
+        // Display trump card via scene method
+        if (data.trump && scene.displayTrumpCard) {
+          scene.displayTrumpCard(data.trump);
+        }
+
+        // Create bid UI via BidManager
+        if (scene.bidManager && data.hand) {
+          scene.bidManager.showBidUI(data.hand.length, (bid) => {
+            console.log(`📩 Sending bid: ${bid}`);
+            if (window.socket) {
+              window.socket.emit('playerBid', { position: gameState.position, bid });
+            }
+          });
+        }
       }
 
-      // Call legacy processing for rendering
-      if (window.processGameStartFromLegacy) {
-        window.processGameStartFromLegacy(data);
+      // Update game log score display
+      if (data.hand && data.hand.length > 0) {
+        const position = gameState.position;
+        const playerData = gameState.playerData;
+        if (playerData && position) {
+          const { teamName, oppName } = getTeamNames(position, playerData);
+          // Get scores from data, adjusted for player's team
+          const teamScore = position % 2 !== 0 ? (data.score1 || 0) : (data.score2 || 0);
+          const oppScore = position % 2 !== 0 ? (data.score2 || 0) : (data.score1 || 0);
+          window.updateGameLogScoreFromLegacy(teamName, oppName, teamScore, oppScore);
+        }
       }
     },
     // Draw phase - handled by DrawManager
@@ -1438,9 +1751,35 @@ function initializeApp() {
         scene.handleCreateUI(data);
       }
 
-      // Create game feed (via legacy function)
-      if (window.createGameFeedFromLegacy) {
-        window.createGameFeedFromLegacy(false);
+      // Create game feed using modular GameLog
+      if (!gameLogInstance) {
+        gameLogInstance = showGameLog({
+          onChatSubmit: (message) => {
+            const socket = getSocketManager()?.socket;
+            if (socket) {
+              socket.emit('chatMessage', { message });
+            }
+          },
+        });
+
+        // Add .in-game class to restrict game container width for game log
+        document.getElementById('game-container')?.classList.add('in-game');
+
+        // Force Phaser to resize after container width change
+        requestAnimationFrame(() => {
+          const container = document.getElementById('game-container');
+          if (container && scene?.game?.scale) {
+            const newWidth = container.clientWidth;
+            const newHeight = container.clientHeight;
+            scene.game.scale.resize(newWidth, newHeight);
+            if (scene.game.renderer?.resize) {
+              scene.game.renderer.resize(newWidth, newHeight);
+            }
+          }
+        });
+
+        // Add initial message
+        gameLogInstance.addGameMessage('Game started!');
       }
 
       // Initialize scene handElements if needed
@@ -1507,6 +1846,57 @@ function initializeApp() {
     },
     onGameEnd: (data) => {
       const scene = getGameScene();
+
+      // Determine which team the player is on (positions 1,3 = Team 1, positions 2,4 = Team 2)
+      const position = gameState.position;
+      let teamScore, oppScore;
+      if (position % 2 !== 0) {
+        // Player is on Team 1 (odd positions 1, 3)
+        teamScore = data.score.team1;
+        oppScore = data.score.team2;
+      } else {
+        // Player is on Team 2 (even positions 2, 4)
+        teamScore = data.score.team2;
+        oppScore = data.score.team1;
+      }
+
+      // Add game end messages to game log
+      const playerData = gameState.playerData;
+      const messages = formatGameEndMessages({
+        myPosition: position,
+        playerData: playerData,
+        teamScore: teamScore,
+        oppScore: oppScore,
+      });
+      messages.forEach(msg => window.addToGameFeedFromLegacy(msg));
+
+      // Update game log score display
+      const { teamName, oppName } = getTeamNames(position, playerData);
+      window.updateGameLogScoreFromLegacy(teamName, oppName, teamScore, oppScore);
+
+      // Show final score overlay
+      showFinalScoreOverlay({
+        teamScore: teamScore,
+        oppScore: oppScore,
+        onReturnToLobby: () => {
+          // Remove game feed/log
+          let gameFeed = document.getElementById("gameFeed");
+          if (gameFeed) gameFeed.remove();
+          gameLogInstance = null;
+
+          // Remove width restriction from game container
+          document.getElementById('game-container')?.classList.remove('in-game');
+
+          // Restart scene and return to main room
+          if (scene) {
+            scene.scene.restart();
+          }
+          socket.off("gameStart");
+          socket.emit("joinMainRoom");
+        }
+      });
+
+      // Also call scene handler if it exists
       if (scene && scene.handleGameEnd) {
         scene.handleGameEnd(data);
       }
@@ -1525,14 +1915,50 @@ function initializeApp() {
     },
     // Error & connection handlers
     onAbortGame: (data) => {
+      console.log("Handling abortGame");
       const scene = getGameScene();
+
+      // Clear scene player info
+      if (scene && scene.clearPlayerInfo) {
+        scene.clearPlayerInfo();
+      }
+
+      // Use scene handler if available
       if (scene && scene.handleAbortGame) {
         scene.handleAbortGame(data);
       }
+
+      // Clean up DOM backgrounds
+      if (scene && scene.layoutManager) {
+        scene.layoutManager.cleanupDomBackgrounds();
+      }
+
+      // Clear all UI
+      uiManager.clearUI();
+
+      // Remove game log
+      let gameFeed = document.getElementById("gameFeed");
+      if (gameFeed) gameFeed.remove();
+      gameLogInstance = null;
+
+      // Remove width restriction from game container
+      document.getElementById('game-container')?.classList.remove('in-game');
+
+      // Clear scene reference in modular code
+      clearGameScene();
+
+      // Restart scene and return to main room
+      if (scene) {
+        scene.children.removeAll(true);
+        scene.scene.restart();
+      }
+      socket.emit("joinMainRoom");
     },
     onRoomFull: (data) => {
       console.log('Room full:', data);
       uiManager.removeWaitingScreen();
+      // Return to main room (this shouldn't happen with lobby system)
+      socket.emit("joinMainRoom");
     },
     // Reconnection handlers
     onPlayerDisconnected: (data) => {
@@ -1548,18 +1974,172 @@ function initializeApp() {
       }
     },
     onRejoinSuccess: (data) => {
-      // Update GameState from rejoin data first
+      console.log("🔄 Processing rejoin with data:", data);
+
+      // Clear any sign-in/lobby screens first
+      uiManager.removeAllVignettes();
+      const signInContainer = document.getElementById("signInContainer");
+      if (signInContainer) signInContainer.remove();
+      const lobbyContainer = document.getElementById("lobbyContainer");
+      if (lobbyContainer) lobbyContainer.remove();
+      const signInContainer2 = document.getElementById("sign-in-container");
+      if (signInContainer2) signInContainer2.remove();
+
+      // Remove any overlays
+      uiManager.removeWaitingScreen();
+
+      // Helper function to process rejoin after scene is ready
+      const processRejoinData = () => {
+        console.log("🔄 Scene ready, processing rejoin UI...");
+        const scene = getGameScene();
+
+        // Clean up draw phase via DrawManager (if present)
+        if (scene && scene.drawManager) {
+          scene.drawManager.cleanup();
+        }
+
+        // Create game UI elements (pass true to indicate reconnection)
+        window.createGameFeedFromLegacy(true);
+
+        // Restore game log history from server
+        if (data.gameLog && data.gameLog.length > 0) {
+          console.log(`🔄 Restoring ${data.gameLog.length} game log entries`);
+          data.gameLog.forEach(entry => {
+            window.addToGameFeedFromLegacy(entry.message, entry.playerPosition, entry.timestamp);
+          });
+        }
+
+        // Calculate player names and update game log score
+        const position = gameState.position;
+        const playerData = gameState.playerData;
+        if (playerData && position) {
+          const { teamName, oppName } = getTeamNames(position, playerData);
+          const teamScore = gameState.teamScore;
+          const oppScore = gameState.oppScore;
+          window.updateGameLogScoreFromLegacy(teamName, oppName, teamScore, oppScore);
+        }
+
+        // Initialize managers with player position for reconnection
+        if (scene && data.position) {
+          if (scene.trickManager) {
+            scene.trickManager.setPlayerPosition(data.position);
+            scene.trickManager.updatePlayPositions();
+          }
+          if (scene.opponentManager) {
+            scene.opponentManager.setPlayerPosition(data.position);
+          }
+          if (scene.effectsManager) {
+            scene.effectsManager.setPlayerPosition(data.position);
+          }
+
+          // Display trump card
+          if (data.trump && scene.displayTrumpCard) {
+            scene.displayTrumpCard(data.trump);
+          }
+
+          // Display player hand via CardManager (skip animation on rejoin)
+          if (scene.handleDisplayHand && data.hand) {
+            scene.handleDisplayHand(data.hand, true);
+          }
+
+          // Display opponent hands via OpponentManager (skip animation on rejoin)
+          if (scene.handleDisplayOpponentHands && data.hand) {
+            scene.handleDisplayOpponentHands(
+              data.hand.length,
+              data.dealer,
+              gameState.playerData,
+              true // skip animation on rejoin
+            );
+          }
+
+          // Create player info box (avatar, name, position text) via scene method
+          if (scene.createPlayerInfoBox && !scene._playerInfo) {
+            scene.createPlayerInfoBox(gameState.playerData, data.position);
+          }
+
+          // Update player position text (BTN, MP, CO, UTG)
+          if (scene.updatePlayerPositionText && data.dealer !== undefined) {
+            scene.updatePlayerPositionText(data.dealer, data.position);
+          }
+
+          // Create DOM backgrounds via LayoutManager
+          if (scene.layoutManager) {
+            scene.layoutManager.update();
+            scene.layoutManager.createDomBackgrounds();
+          }
+
+          // Restore played cards in current trick via TrickManager
+          if (data.playedCards && data.playedCards.length > 0 && scene.trickManager) {
+            scene.trickManager.restorePlayedCards(data.playedCards);
+            console.log(`🔄 Restored played cards from current trick via TrickManager`);
+          }
+
+          // Update card legality after restoring state
+          if (scene.cardManager) {
+            const canPlay = !gameState.isBidding &&
+                            gameState.currentTurn === gameState.position &&
+                            !gameState.hasPlayedCard;
+            const legalityChecker = (card) => {
+              const result = isLegalMove(
+                card,
+                gameState.myCards,
+                gameState.leadCard,
+                gameState.playedCardIndex === 0,
+                gameState.trump,
+                gameState.trumpBroken,
+                gameState.position,
+                gameState.leadPosition
+              );
+              return result.legal;
+            };
+            scene.cardManager.updateCardLegality(legalityChecker, canPlay);
+          }
+
+          // Create bid UI via BidManager (only if still in bidding phase)
+          if (scene.bidManager && data.hand && gameState.isBidding) {
+            scene.bidManager.showBidUI(data.hand.length, (bid) => {
+              console.log(`📩 Sending bid: ${bid}`);
+              if (window.socket) {
+                window.socket.emit('playerBid', { position: gameState.position, bid });
+              }
+            });
+          }
+        }
+
+        // Add reconnected message to game feed
+        window.addToGameFeedFromLegacy("Reconnected to game!");
+
+        // Call scene handler for any additional rejoin logic
+        if (scene && scene.handleRejoinSuccess) {
+          scene.handleRejoinSuccess(data);
+        }
+      };
+
+      // Wait for scene to be ready before processing UI
+      const waitForScene = () => {
+        const scene = getGameScene();
+        if (scene && scene.cardManager) {
+          processRejoinData();
+        } else {
+          console.log("🔄 Waiting for scene to be ready...");
+          setTimeout(waitForScene, 100);
+        }
+      };
+
+      // Update GameState from rejoin data first (synchronously)
       if (data.position) gameState.position = data.position;
       if (data.hand) gameState.setCards(data.hand);
       if (data.trump) gameState.setTrump(data.trump);
       if (data.dealer !== undefined) gameState.dealer = data.dealer;
       if (data.currentTurn !== undefined) gameState.setCurrentTurn(data.currentTurn);
+
       // Server sends 'bidding', client uses 'isBidding'
       const bidding = data.isBidding !== undefined ? data.isBidding : data.bidding;
       if (bidding !== undefined) {
         gameState.isBidding = bidding;
         gameState.phase = bidding ? PHASE.BIDDING : PHASE.PLAYING;
       }
+
       // Extract lead card and played count from playedCards array
       if (data.playedCards && Array.isArray(data.playedCards)) {
         let foundLead = false;
@@ -1580,45 +2160,24 @@ function initializeApp() {
         if (data.leadPosition !== undefined) gameState.leadPosition = data.leadPosition;
         if (data.playedCardIndex !== undefined) gameState.playedCardIndex = data.playedCardIndex;
       }
+
       // Server uses isTrumpBroken, client uses trumpBroken
       const trumpBroken = data.trumpBroken !== undefined ? data.trumpBroken : data.isTrumpBroken;
       if (trumpBroken !== undefined) gameState.trumpBroken = trumpBroken;
       gameState.hasPlayedCard = false; // Reset for current trick
 
-      // Initialize managers with player position for reconnection
-      const scene = getGameScene();
-      if (scene && data.position) {
-        if (scene.trickManager) {
-          scene.trickManager.setPlayerPosition(data.position);
-          scene.trickManager.updatePlayPositions();
-        }
-        if (scene.opponentManager) {
-          scene.opponentManager.setPlayerPosition(data.position);
-        }
-        if (scene.effectsManager) {
-          scene.effectsManager.setPlayerPosition(data.position);
-        }
-
-        // Display player hand via CardManager (skip animation on rejoin)
-        if (scene.handleDisplayHand && data.hand) {
-          scene.handleDisplayHand(data.hand, true);
-        }
-
-        // Display opponent hands via OpponentManager (skip animation on rejoin)
-        if (scene.handleDisplayOpponentHands && data.hand) {
-          scene.handleDisplayOpponentHands(
-            data.hand.length,
-            data.dealer,
-            gameState.playerData,
-            true // skip animation on rejoin
-          );
+      // Update scores from rejoin data
+      if (data.score) {
+        const position = gameState.position;
+        if (position % 2 !== 0) {
+          gameState.setGameScores(data.score.team1, data.score.team2);
+        } else {
+          gameState.setGameScores(data.score.team2, data.score.team1);
         }
       }
 
-      // Call scene handler for any additional rejoin logic
-      if (scene && scene.handleRejoinSuccess) {
-        scene.handleRejoinSuccess(data);
-      }
+      // Now wait for scene to be ready before processing UI
+      waitForScene();
     },
     onRejoinFailed: (data) => {
       const scene = getGameScene();
@@ -1627,8 +2186,26 @@ function initializeApp() {
       }
     },
 
-    // Chat callback - still handled by game.js
-    onChatMessage: null,
+    // Chat callback - add to game feed and show bubble
+    onChatMessage: (data) => {
+      const scene = getGameScene();
+      const state = getGameState();
+
+      // Get sender name from player data or fall back to username in data
+      const senderName = data.username || getPlayerName(data.position, state.playerData);
+
+      // Add to game feed with player position for color coding
+      if (scene && scene.handleAddToGameFeed) {
+        scene.handleAddToGameFeed(`${senderName}: ${data.message}`, data.position);
+      } else if (window.addToGameFeedFromLegacy) {
+        window.addToGameFeedFromLegacy(`${senderName}: ${data.message}`, data.position);
+      }
+
+      // Show chat bubble at appropriate position
+      if (scene && scene.handleShowChatBubble && state.position) {
+        scene.handleShowChatBubble(state.position, data.position, data.message);
+      }
+    },
 
     // Profile callbacks
     onProfileReceived: (profile) => {
@@ -1705,17 +2282,66 @@ function displayRegisterScreen(prefillUsername = '', prefillPassword = '') {
 }
 
 /**
+ * Attempt to restore session using stored token.
+ * Called when we have username and sessionToken in sessionStorage.
+ */
+function attemptSessionRestore() {
+  const username = sessionStorage.getItem('username');
+  const sessionToken = sessionStorage.getItem('sessionToken');
+
+  if (!username || !sessionToken) {
+    console.log('No session to restore, showing sign-in');
+    displaySignInScreen();
+    return;
+  }
+
+  console.log(`Attempting to restore session for ${username}`);
+  window.socket.emit('restoreSession', { username, sessionToken });
+}
+
+// Handle restoreSessionResponse
+socket.on('restoreSessionResponse', (data) => {
+  if (data.success) {
+    console.log('Session restored successfully');
+    const gameState = getGameState();
+    gameState.username = data.username;
+
+    // Check if user has an active game to rejoin
+    if (data.activeGameId) {
+      console.log(`Active game found: ${data.activeGameId}, attempting to rejoin...`);
+      sessionStorage.setItem('gameId', data.activeGameId);
+      socket.emit('rejoinGame', { gameId: data.activeGameId, username: data.username });
+    } else {
+      // Go to main room
+      console.log('Session restored, joining main room');
+      socket.emit('joinMainRoom');
+    }
+  } else {
+    console.log('Session restore failed:', data.message);
+    // Clear invalid session data
+    sessionStorage.removeItem('username');
+    sessionStorage.removeItem('sessionToken');
+    sessionStorage.removeItem('gameId');
+    displaySignInScreen();
+  }
+});
+
+/**
  * Handle window load - show sign-in or attempt rejoin.
  */
 window.addEventListener('load', () => {
   // Initialize the app
   initializeApp();
 
+  // Create the Phaser game - GameScene.create() will call setGameScene
+  createPhaserGame('game-container');
+
   // Check if user is logged in and was in a game
   const username = sessionStorage.getItem('username');
+  const sessionToken = sessionStorage.getItem('sessionToken');
   const gameId = sessionStorage.getItem('gameId');
 
-  console.log(`Window load: username=${username}, gameId=${gameId}`);
+  console.log(`Window load: username=${username}, sessionToken=${sessionToken ? 'present' : 'none'}, gameId=${gameId}`);
 
   if (!username) {
     // Not logged in - show sign-in screen
@@ -1725,23 +2351,24 @@ window.addEventListener('load', () => {
     // Was in a game - the module-level connect handler will attempt rejoin
     // The rejoinSuccess/rejoinFailed handlers will handle the UI
     console.log(`User ${username} has pending game ${gameId}, waiting for rejoin...`);
-  } else {
-    // Logged in but not in a game - go to main room
-    console.log('User logged in but no game, joining main room');
+  } else if (sessionToken) {
+    // Have stored session - try to restore it
+    console.log('Session token found, attempting to restore session');
 
     // Check if socket is already connected
     if (window.socket.connected) {
-      console.log('Socket already connected, emitting joinMainRoom');
-      window.socket.emit('joinMainRoom');
+      attemptSessionRestore();
     } else {
-      // Wait for socket to connect, then join main room
-      console.log('Socket not connected, waiting for connect event');
+      // Wait for socket to connect, then restore session
       window.socket.once('connect', () => {
         if (!sessionStorage.getItem('gameId')) {
-          console.log('Connected, emitting joinMainRoom');
-          window.socket.emit('joinMainRoom');
+          attemptSessionRestore();
         }
       });
     }
+  } else {
+    // Have username but no session token (legacy) - show sign-in
+    console.log('No session token, showing sign-in screen');
+    displaySignInScreen();
   }
 });

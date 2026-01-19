@@ -3,6 +3,7 @@
  */
 
 const bcrypt = require('bcryptjs');
+const { v4: uuidv4 } = require('uuid');
 const { getUsersCollection } = require('../database');
 const gameManager = require('../game/GameManager');
 const { authLogger } = require('../utils/logger');
@@ -44,10 +45,13 @@ async function signIn(socket, io, data) {
             }
         }
 
-        // Update MongoDB with the new socket ID
+        // Generate a session token for reconnection
+        const sessionToken = uuidv4();
+
+        // Update MongoDB with the new socket ID and session token
         await usersCollection.updateOne(
             { username },
-            { $set: { socketId: socket.id } }
+            { $set: { socketId: socket.id, sessionToken } }
         );
 
         // Register with game manager
@@ -62,6 +66,7 @@ async function signIn(socket, io, data) {
             socket.emit('signInResponse', {
                 success: true,
                 username,
+                sessionToken,
                 activeGameId: activeGameId
             });
             authLogger.info('User signed in with active game', { username, socketId: socket.id, gameId: activeGameId });
@@ -70,7 +75,7 @@ async function signIn(socket, io, data) {
             if (activeGameId) {
                 await gameManager.clearActiveGame(username);
             }
-            socket.emit('signInResponse', { success: true, username });
+            socket.emit('signInResponse', { success: true, username, sessionToken });
             authLogger.info('User signed in', { username, socketId: socket.id });
         }
 
@@ -109,6 +114,9 @@ async function signUp(socket, io, data) {
             return;
         }
 
+        // Generate a session token for reconnection
+        const sessionToken = uuidv4();
+
         const hashedPassword = await bcrypt.hash(password, 10);
         // Generate random profile pic (1-82)
         const profilePic = Math.floor(Math.random() * 82) + 1;
@@ -116,6 +124,7 @@ async function signUp(socket, io, data) {
             username,
             password: hashedPassword,
             socketId: socket.id,  // Set socketId immediately for auto-login
+            sessionToken,
             profilePic,
             stats: {
                 wins: 0,
@@ -130,7 +139,7 @@ async function signUp(socket, io, data) {
         // Auto-login: register with game manager (same as signIn)
         gameManager.registerUser(socket.id, username);
 
-        socket.emit('signUpResponse', { success: true, username, autoLoggedIn: true });
+        socket.emit('signUpResponse', { success: true, username, sessionToken, autoLoggedIn: true });
         authLogger.info('New user registered and auto-logged in', { username, socketId: socket.id });
 
     } catch (error) {
@@ -142,7 +151,75 @@ async function signUp(socket, io, data) {
     }
 }
 
+/**
+ * Restore session after page refresh using session token
+ */
+async function restoreSession(socket, io, data) {
+    const usersCollection = getUsersCollection();
+    const { username, sessionToken } = data;
+
+    try {
+        // Find user and validate session token
+        const user = await usersCollection.findOne({ username });
+
+        if (!user) {
+            socket.emit('restoreSessionResponse', {
+                success: false,
+                message: 'User not found'
+            });
+            authLogger.warn('Session restore failed: user not found', { username });
+            return;
+        }
+
+        if (!user.sessionToken || user.sessionToken !== sessionToken) {
+            socket.emit('restoreSessionResponse', {
+                success: false,
+                message: 'Invalid session token'
+            });
+            authLogger.warn('Session restore failed: invalid token', { username });
+            return;
+        }
+
+        // Session token is valid - update socket ID
+        await usersCollection.updateOne(
+            { username },
+            { $set: { socketId: socket.id } }
+        );
+
+        // Register with game manager
+        gameManager.registerUser(socket.id, username);
+
+        // Check if user has an active game they can rejoin
+        const activeGameId = user.activeGameId;
+        const activeGame = activeGameId ? gameManager.getGameById(activeGameId) : null;
+
+        if (activeGame) {
+            socket.emit('restoreSessionResponse', {
+                success: true,
+                username,
+                activeGameId: activeGameId
+            });
+            authLogger.info('Session restored with active game', { username, socketId: socket.id, gameId: activeGameId });
+        } else {
+            // Clear stale activeGameId if present
+            if (activeGameId) {
+                await gameManager.clearActiveGame(username);
+            }
+            socket.emit('restoreSessionResponse', { success: true, username });
+            authLogger.info('Session restored', { username, socketId: socket.id });
+        }
+
+    } catch (error) {
+        authLogger.error('Database error during session restore', { username, error: error.message });
+        socket.emit('restoreSessionResponse', {
+            success: false,
+            message: 'Database error. Try again.'
+        });
+    }
+}
+
 module.exports = {
     signIn,
-    signUp
+    signUp,
+    restoreSession
 };

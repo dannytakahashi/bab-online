@@ -34,10 +34,12 @@ bab-online/
 │   │   ├── socket/
 │   │   │   └── SocketManager.js    # Connection with listener tracking
 │   │   ├── ui/
-│   │   │   ├── components/         # Modal, Toast, BidUI, GameLog
-│   │   │   └── screens/            # SignIn, Register
+│   │   │   ├── UIManager.js        # Main UI lifecycle manager
+│   │   │   ├── components/         # Modal, Toast, BidUI, GameLog, ChatBubble, ScoreModal, PlayerQueue
+│   │   │   └── screens/            # SignIn, Register, MainRoom, GameLobby
 │   │   ├── phaser/
 │   │   │   ├── config.js           # Phaser game configuration
+│   │   │   ├── PhaserGame.js       # Game instance wrapper
 │   │   │   ├── scenes/
 │   │   │   │   └── GameScene.js    # Main game scene with handler methods
 │   │   │   └── managers/
@@ -49,10 +51,13 @@ bab-online/
 │   │   │       ├── BidManager.js   # Bidding UI and bubbles
 │   │   │       └── LayoutManager.js # Positioning and resize logic
 │   │   └── handlers/
-│   │       └── index.js            # Socket event handler registration
+│   │       ├── index.js            # Socket event handler registration
+│   │       ├── authHandlers.js     # Authentication event handlers
+│   │       ├── gameHandlers.js     # Game event handlers
+│   │       ├── chatHandlers.js     # Chat event handlers
+│   │       └── lobbyHandlers.js    # Lobby event handlers
 │   ├── styles/
 │   │   └── components.css          # All UI component styles
-│   ├── game.js                     # Phaser scene (legacy, 3k lines - migration planned)
 │   ├── vite.config.js              # Vite build configuration
 │   ├── index.html                  # Entry point
 │   └── assets/                     # Card images, backgrounds
@@ -64,7 +69,12 @@ bab-online/
 │   │   ├── Deck.js                 # Card deck with shuffle
 │   │   ├── GameState.js            # Per-game state + room management
 │   │   ├── GameManager.js          # Queue, lobby, and game coordination
-│   │   └── rules.js                # Pure game logic functions
+│   │   ├── rules.js                # Pure game logic functions
+│   │   └── bot/                    # Bot player system
+│   │       ├── index.js            # Module exports
+│   │       ├── BotPlayer.js        # Bot player class
+│   │       ├── BotController.js    # Singleton managing all bots
+│   │       └── BotStrategy.js      # Pure strategy functions
 │   ├── socket/
 │   │   ├── index.js                # Socket event routing
 │   │   ├── authHandlers.js         # signIn, signUp (with auto-login)
@@ -79,13 +89,27 @@ bab-online/
 │   │   └── rateLimiter.js          # Per-socket rate limiting
 │   ├── routes/
 │   │   └── index.js                # Express routes, /health endpoint
+│   ├── middleware/
+│   │   └── requestLogger.js        # Request logging middleware
 │   ├── utils/
-│   │   └── timing.js               # Async delay utilities
+│   │   ├── timing.js               # Async delay utilities
+│   │   ├── logger.js               # Winston logger setup
+│   │   ├── errors.js               # Custom error classes
+│   │   └── shutdown.js             # Graceful shutdown handlers
 │   └── database.js                 # MongoDB connection
 ├── docs/
 │   ├── RULES.md                    # Complete game rules
 │   └── todos/                      # Improvement roadmap
+├── scripts/
+│   └── build-atlas.js              # Sprite atlas builder
+├── .github/
+│   └── workflows/
+│       └── ci.yml                  # GitHub Actions CI pipeline
 ├── package.json
+├── docker-compose.yml              # Docker Compose configuration
+├── Dockerfile.local                # Local Docker configuration
+├── railway.toml                    # Railway deployment config
+├── .nvmrc                          # Node version (18+)
 └── .env
 ```
 
@@ -96,18 +120,19 @@ bab-online/
 - `server/game/rules.js` - Pure functions: `determineWinner()`, `isLegalMove()`, `calculateScore()`, `isRainbow()`
 - `server/game/GameState.js` - Encapsulated game state class
 - `server/game/GameManager.js` - Singleton managing queue, lobbies, and active games
+- `server/game/bot/BotController.js` - Singleton managing bot lifecycle and actions
+- `server/game/bot/BotPlayer.js` - Bot player class with decision methods
+- `server/game/bot/BotStrategy.js` - Pure strategy functions for bidding and card play
 - `server/socket/gameHandlers.js` - Game event handlers
+- `server/socket/lobbyHandlers.js` - Lobby handlers including bot management
 - `server/socket/mainRoomHandlers.js` - Main room and lobby browser handlers
 
-### Client (Legacy - Remaining)
-- `client/game.js` - Phaser scene, card rendering, game flow (3k lines, migration planned)
-- `client/styles/components.css` - UI component styles
-
-### Client (Modular - src/)
+### Client
 - `client/src/main.js` - Entry point, exposes all modules via window.ModernUtils bridge, wires callbacks to GameScene
 - `client/src/state/GameState.js` - Client state singleton with event emitter
 - `client/src/socket/SocketManager.js` - Socket with listener tracking for cleanup
 - `client/src/rules/legality.js` - Card play legality checking (isLegalMove)
+- `client/src/phaser/PhaserGame.js` - Game instance wrapper
 - `client/src/phaser/scenes/GameScene.js` - Main game scene, instantiates managers, handles events
 - `client/src/phaser/managers/CardManager.js` - Card sprite management
 - `client/src/phaser/managers/TrickManager.js` - Trick display, play positions, trick history
@@ -116,8 +141,10 @@ bab-online/
 - `client/src/phaser/managers/DrawManager.js` - Draw phase deck and card selection
 - `client/src/phaser/managers/BidManager.js` - Bid UI, bore buttons, bid bubbles
 - `client/src/phaser/managers/LayoutManager.js` - Centralized positioning and resize calculations
-- `client/src/ui/components/` - Modal, Toast, BidUI, GameLog components
-- `client/src/handlers/index.js` - Socket event handler registration
+- `client/src/ui/UIManager.js` - UI lifecycle management
+- `client/src/ui/components/` - Modal, Toast, BidUI, GameLog, ChatBubble, ScoreModal, PlayerQueue
+- `client/src/ui/screens/` - SignIn, Register, MainRoom, GameLobby
+- `client/src/handlers/` - Socket event handlers (index, auth, game, chat, lobby)
 
 ## Architecture Patterns
 
@@ -143,8 +170,8 @@ bab-online/
 
 1. Authentication (signIn/signUp) → MongoDB users collection; auto-login after registration
 2. Main Room → Global chat, browse/create game lobbies
-3. Game Lobby → 4 players chat and click "Ready" when prepared
-4. All 4 ready → Transition to draw phase
+3. Game Lobby → 4 players chat and click "Ready" when prepared; can add bot players via "+ Add Bot" button
+4. All 4 ready → Transition to draw phase (bots auto-ready when lobby is full)
 5. Draw phase → Players draw cards to determine positions; teams announced (1&3 vs 2&4)
 6. Hand progression (12→10→8→6→4→2→1→3→5→7→9→11→13) with bidding then playing phases
 7. Trick evaluation, scoring displayed in game log; rainbow bonuses (4-card hand only)
@@ -152,7 +179,7 @@ bab-online/
 
 ## Key Socket Events
 
-**Client → Server**: `signIn`, `signUp`, `joinMainRoom`, `mainRoomChat`, `createLobby`, `joinLobby`, `playerReady`, `lobbyChat`, `leaveLobby`, `draw`, `playerBid`, `playCard`, `chatMessage`, `rejoinGame`
+**Client → Server**: `signIn`, `signUp`, `joinMainRoom`, `mainRoomChat`, `createLobby`, `joinLobby`, `playerReady`, `lobbyChat`, `leaveLobby`, `addBot`, `removeBot`, `draw`, `playerBid`, `playCard`, `chatMessage`, `rejoinGame`
 
 **Server → Client**: `mainRoomJoined`, `mainRoomMessage`, `lobbiesUpdated`, `lobbyCreated`, `lobbyJoined`, `playerReadyUpdate`, `lobbyMessage`, `lobbyPlayerLeft`, `allPlayersReady`, `startDraw`, `playerDrew`, `youDrew`, `teamsAnnounced`, `positionUpdate`, `createUI`, `gameStart`, `bidReceived`, `doneBidding`, `cardPlayed`, `updateTurn`, `trickComplete`, `handComplete`, `gameEnd`, `rainbow`, `rejoinSuccess`, `rejoinFailed`, `playerDisconnected`, `playerReconnected`, `activeGameFound`
 
@@ -162,8 +189,12 @@ bab-online/
 npm run dev           # Development server with hot reload (port 3000)
 npm start             # Production server
 npm test              # Run server tests (Jest)
+npm run test:watch    # Jest watch mode
+npm run test:coverage # Jest with coverage report
 npm run test:client   # Run client tests (Vitest)
+npm run test:client:watch  # Vitest watch mode
 npm run build:client  # Build client modules (Vite)
+npm run build:atlas   # Generate sprite atlas
 npm run dev:client    # Vite dev server (port 5173, proxies to :3000)
 ```
 
@@ -181,12 +212,11 @@ Server runs on port 3000. Requires Node.js 18+.
 - **Components**: `client/src/ui/components/` - Modal, Toast, BidUI, GameLog
 - **Screens**: `client/src/ui/screens/` - SignIn, Register
 - **Cards**: `client/src/phaser/managers/CardManager.js` - card sprites
-- **Legacy**: `client/game.js` still active (migration planned), uses window.ModernUtils
 
 ### Adding Socket Events
 1. Add handler in `server/socket/gameHandlers.js` (or appropriate handler file)
 2. Register in `server/socket/index.js`
-3. Add listener in `client/src/handlers/index.js` or legacy `client/game.js`
+3. Add listener in `client/src/handlers/index.js`
 4. Add cleanup in `cleanupGameListeners()` for game-specific events
 
 ### Adding Card Assets
@@ -269,7 +299,7 @@ Deck: 52 standard cards + 2 jokers (HI and LO)
 ## Key Classes
 
 ### GameManager (server)
-Singleton managing lobbies, queue, and active games. Methods: `joinQueue()` (creates/joins lobby), `createLobby()`, `setPlayerReady()`, `addLobbyMessage()`, `leaveLobby()`, `startGameFromLobby()`, `createGame()`, `getPlayerGame()`, `getPlayerLobby()`, `handleDisconnect()`, `updatePlayerGameMapping()`, `checkGameAbort()`
+Singleton managing lobbies, queue, and active games. Methods: `joinQueue()` (creates/joins lobby), `createLobby()`, `setPlayerReady()`, `addLobbyMessage()`, `leaveLobby()`, `startGameFromLobby()`, `createGame()`, `getPlayerGame()`, `getPlayerLobby()`, `handleDisconnect()`, `updatePlayerGameMapping()`, `checkGameAbort()`, `addBotToLobby()`, `removeBotFromLobby()`, `setBotsReady()`, `isBot()`
 
 ### Reconnection Flow
 When a player disconnects mid-game:
@@ -311,6 +341,50 @@ Manages card sprites in Phaser. Methods: `setScene()`, `createCard()`, `displayH
 - **Toast.js** - `showToast()`, `showError()`, `showSuccess()` - notification toasts
 - **BidUI.js** - `createBidUI()`, `showBidUI()`, `createBidBubble()` - bidding interface
 - **GameLog.js** - `createGameLog()`, `showGameLog()` - game feed and chat
+- **ChatBubble.js** - Individual chat message display
+- **ScoreModal.js** - End-of-game score display
+- **PlayerQueue.js** - Lobby player queue display
+
+### UI Screens (`client/src/ui/screens/`)
+- **SignIn.js** - Sign-in form screen
+- **Register.js** - Registration form screen
+- **MainRoom.js** - Main room with chat and lobby browser
+- **GameLobby.js** - Pre-game lobby with ready state and "+ Add Bot" button
+
+### Bot System (`server/game/bot/`)
+Bot players that can be added to lobbies when human players aren't available.
+
+**BotController** - Singleton managing all active bots:
+- `createBot(name)` - Create new bot instance
+- `registerBot(gameId, bot)` - Register bot for a game
+- `getBot(gameId, socketId)` - Get bot by socket ID
+- `scheduleBotAction(io, game, actionType)` - Schedule bot turn with delay
+- `scheduleBotDraw(io, game, socketId, order)` - Schedule bot draw
+- `processBotBid(io, game, bot)` - Execute bot bid
+- `processBotPlay(io, game, bot)` - Execute bot card play
+- `cleanupGame(gameId)` - Remove bots when game ends
+
+**BotPlayer** - Individual bot instance:
+- Uses virtual socket ID: `bot:name:uuid` (e.g., `bot:mary:abc123`)
+- `decideDraw(remaining)` - Random deck index
+- `decideBid(hand, trump, bids, handSize)` - Optimal bid calculation
+- `decideCard(hand, played, lead, leadPos, trump, broken)` - Optimal card selection
+- `getActionDelay(actionType)` - Random delay (500-1500ms)
+
+**BotStrategy** - Pure strategy functions:
+- `evaluateHand(hand, trump)` - Count high cards, trump length, voids
+- `calculateOptimalBid(strength, position, partnerBid, handSize)` - Bidding logic
+- `selectOptimalCard(hand, played, lead, leadPos, trump, broken, position)` - Card selection
+- `selectLead(hand, trump, broken)` - Leading card selection
+- `selectFollow(hand, played, lead, leadPos, trump, position)` - Following card selection
+
+**Bot Behavior**:
+- Bots use `isBot: true` flag, identified by `socketId.startsWith('bot:')`
+- Auto-ready when lobby fills to 4 players
+- Strategic bidding: jokers (2pts), aces (1pt), kings (0.5pt), trump length bonus
+- Partner-aware play: positions 1&3 and 2&4 are partners
+- Random delays simulate human thinking time
+- Multiple bots get numbered names (Mary, Mary 2, Mary 3)
 
 ### Socket Infrastructure (server)
 

@@ -15,31 +15,24 @@ import { getUsernameColor } from '../../utils/colors.js';
  */
 export function createGameLog({ onChatSubmit } = {}) {
   const container = document.createElement('div');
-  container.id = 'game-log';
-  container.className = 'game-log';
-  container.style.cssText = `
-    position: fixed;
-    right: 0;
-    top: 0;
-    width: 300px;
-    height: 100vh;
-    background: rgba(20, 20, 30, 0.95);
-    display: flex;
-    flex-direction: column;
-    z-index: 100;
-    border-left: 1px solid rgba(255, 255, 255, 0.1);
-  `;
+  container.id = 'gameFeed';  // Legacy ID for compatibility
+  container.classList.add('chat-container', 'ui-element');  // Legacy classes
+
+  // Header
+  const header = document.createElement('div');
+  header.classList.add('chat-header');
+  header.innerText = 'Game Log';
+  container.appendChild(header);
 
   // Score section (matches legacy game feed structure)
   const scoreSection = document.createElement('div');
-  scoreSection.id = 'score-section';
+  scoreSection.id = 'gameLogScore';  // Legacy ID
   scoreSection.style.cssText = `
     padding: 10px;
     border-bottom: 1px solid #333;
     display: flex;
     justify-content: space-around;
     background: rgba(0, 0, 0, 0.3);
-    color: white;
   `;
 
   const teamScoreDiv = document.createElement('div');
@@ -66,50 +59,23 @@ export function createGameLog({ onChatSubmit } = {}) {
 
   // Message area
   const messageArea = document.createElement('div');
-  messageArea.id = 'game-log-messages';
-  messageArea.style.cssText = `
-    flex: 1;
-    overflow-y: auto;
-    padding: 12px;
-    font-size: 13px;
-    color: #ccc;
-  `;
+  messageArea.id = 'gameFeedMessages';  // Legacy ID for compatibility
+  messageArea.classList.add('chat-messages');  // Legacy class
   container.appendChild(messageArea);
 
   // Chat input section
   const chatSection = document.createElement('div');
-  chatSection.style.cssText = `
-    padding: 12px;
-    border-top: 1px solid rgba(255, 255, 255, 0.1);
-    display: flex;
-    gap: 8px;
-  `;
+  chatSection.classList.add('chat-input-container');  // Legacy class
 
   const chatInput = document.createElement('input');
   chatInput.type = 'text';
+  chatInput.id = 'chatInput';  // Legacy ID
+  chatInput.classList.add('chat-input');  // Legacy class
   chatInput.placeholder = 'Type a message...';
-  chatInput.style.cssText = `
-    flex: 1;
-    padding: 8px 12px;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 6px;
-    background: rgba(255, 255, 255, 0.1);
-    color: white;
-    font-size: 13px;
-    outline: none;
-  `;
 
   const sendBtn = document.createElement('button');
+  sendBtn.classList.add('chat-send');  // Legacy class
   sendBtn.textContent = 'Send';
-  sendBtn.style.cssText = `
-    padding: 8px 16px;
-    border: none;
-    border-radius: 6px;
-    background: #23782d;
-    color: white;
-    cursor: pointer;
-    font-size: 13px;
-  `;
 
   const submitChat = () => {
     const message = chatInput.value.trim();
@@ -283,6 +249,38 @@ export function createGameLog({ onChatSubmit } = {}) {
     }
   };
 
+  /**
+   * Update full score display (matches legacy updateGameLogScore signature).
+   * @param {string} teamNames - Team player names (e.g., "Player1/Player2")
+   * @param {string} oppNames - Opponent player names
+   * @param {number} teamScore - Team score
+   * @param {number} oppScore - Opponent score
+   * @param {string} teamBids - Team bids display (e.g., "3/2")
+   * @param {string} oppBids - Opponent bids display
+   * @param {number} teamTricks - Team tricks won
+   * @param {number} oppTricks - Opponent tricks won
+   */
+  const updateFullScore = (teamNames, oppNames, teamScore, oppScore, teamBids = '-/-', oppBids = '-/-', teamTricks = 0, oppTricks = 0) => {
+    const teamDiv = container.querySelector('#teamScoreDisplay');
+    const oppDiv = container.querySelector('#oppScoreDisplay');
+
+    if (teamDiv) {
+      teamDiv.innerHTML = `
+        <div style="font-size:12px;color:#888;">${teamNames}</div>
+        <div style="font-size:20px;font-weight:bold;">${teamScore}</div>
+        <div style="font-size:11px;color:#aaa;">Bids: ${teamBids} | Tricks: ${teamTricks}</div>
+      `;
+    }
+
+    if (oppDiv) {
+      oppDiv.innerHTML = `
+        <div style="font-size:12px;color:#888;">${oppNames}</div>
+        <div style="font-size:20px;font-weight:bold;">${oppScore}</div>
+        <div style="font-size:11px;color:#aaa;">Bids: ${oppBids} | Tricks: ${oppTricks}</div>
+      `;
+    }
+  };
+
   return {
     container,
     addMessage,
@@ -291,6 +289,7 @@ export function createGameLog({ onChatSubmit } = {}) {
     addTrickResult,
     updateScores,
     updateTricks,
+    updateFullScore,
     clearMessages,
     destroy,
     chatInput,
