@@ -87,7 +87,11 @@ bab-online/
 │   │   ├── Deck.js                 # Card deck management
 │   │   ├── GameState.js            # Game state + room management
 │   │   ├── GameManager.js          # Multi-game coordination
-│   │   └── rules.js                # Pure game logic functions
+│   │   ├── rules.js                # Pure game logic functions
+│   │   └── bot/                    # Bot player system
+│   │       ├── BotPlayer.js        # Bot player class
+│   │       ├── BotController.js    # Bot lifecycle management
+│   │       └── BotStrategy.js      # AI strategy functions
 │   ├── socket/
 │   │   ├── index.js                # Socket event routing
 │   │   ├── authHandlers.js         # Auth events
@@ -154,6 +158,8 @@ The server runs on `http://localhost:3000` by default.
 1. **Sign up/Sign in** - Create an account (auto-logs in) or log in
 2. **Main Room** - Chat globally, browse game lobbies, or create a new game
 3. **Game Lobby** - Wait for 4 players, chat, and click "Ready" when prepared
+   - Click "+ Add Bot" to add AI players (up to 3 bots named "Mary")
+   - Bots auto-ready when lobby is full
 4. **Draw Phase** - Draw cards from deck to determine seating positions; teams announced
 5. **Bidding** - Bid on how many tricks your team will take
 6. **Play** - Take turns playing cards, following suit when possible
@@ -205,6 +211,8 @@ The client uses ES6 modules with Vite bundling and proper lifecycle management:
 | `playerReady` | Mark ready in lobby |
 | `lobbyChat` | Send lobby chat message |
 | `leaveLobby` | Leave lobby before game starts |
+| `addBot` | Add bot player to lobby |
+| `removeBot` | Remove bot from lobby |
 | `draw` | Draw card during draw phase |
 | `playerBid` | Submit bid |
 | `playCard` | Play a card |
