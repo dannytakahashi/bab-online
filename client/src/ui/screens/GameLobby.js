@@ -303,6 +303,7 @@ export function showGameLobby(lobbyData, socket, username) {
   buttonRow.style.display = 'flex';
   buttonRow.style.gap = '15px';
   buttonRow.style.justifyContent = 'center';
+  buttonRow.style.flexWrap = 'wrap';
 
   const readyBtn = document.createElement('button');
   readyBtn.id = 'lobbyReadyBtn';
@@ -378,6 +379,8 @@ export function showGameLobby(lobbyData, socket, username) {
   leaveBtn.style.background = '#dc2626';
   leaveBtn.style.color = '#fff';
   leaveBtn.style.cursor = 'pointer';
+  leaveBtn.style.flexShrink = '0';
+  leaveBtn.style.textAlign = 'center';
   leaveBtn.addEventListener('click', () => {
     socket.emit('leaveLobby');
   });

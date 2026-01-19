@@ -549,8 +549,15 @@ class GameManager {
             return { success: false, error: 'Lobby is full' };
         }
 
-        // Create a new bot
-        const bot = botController.createBot(botName);
+        // Count existing bots with same base name to add numbering
+        const existingBots = lobby.players.filter(p =>
+            p.isBot && p.username.startsWith(botName)
+        );
+        const botNumber = existingBots.length + 1;
+        const finalBotName = botNumber > 1 ? `${botName} ${botNumber}` : botName;
+
+        // Create a new bot with unique name
+        const bot = botController.createBot(finalBotName);
 
         // Add bot to lobby as a player
         const botPlayer = {

@@ -62,11 +62,11 @@ export function formatHandCompleteMessages(options) {
 
   const { teamName, oppName } = getTeamNames(myPosition, playerData);
 
-  // Get bid indices based on player's position (position is 1-indexed, array is 0-indexed)
-  const myBidIdx = myPosition - 1;
-  const partnerBidIdx = team(myPosition) - 1;
-  const opp1BidIdx = rotate(myPosition) - 1;
-  const opp2BidIdx = rotate(rotate(rotate(myPosition))) - 1;
+  // Get bid positions - state.bids uses position (1-4) as keys, not 0-indexed
+  const myBidIdx = myPosition;
+  const partnerBidIdx = team(myPosition);
+  const opp1BidIdx = rotate(myPosition);
+  const opp2BidIdx = rotate(rotate(rotate(myPosition)));
 
   // Calculate score changes
   const teamChange = teamScore - teamOldScore;
