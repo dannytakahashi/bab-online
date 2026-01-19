@@ -1223,22 +1223,7 @@ let rejoinSucceeded = false;
 
 socket.on('connect', () => {
   console.log('Connected to server:', socket.id);
-
-  // Check if we were in a game and should try to rejoin
-  const gameId = sessionStorage.getItem('gameId');
-  const username = sessionStorage.getItem('username');
-
-  console.log(`Session state: gameId=${gameId}, username=${username}, rejoinAttempted=${rejoinAttempted}`);
-
-  if (gameId && username && !rejoinAttempted) {
-    rejoinAttempted = true;
-    console.log(`Attempting to rejoin game ${gameId} as ${username}`);
-    socket.emit('rejoinGame', { gameId, username });
-  } else if (!gameId && !username) {
-    console.log('No stored session, will show sign-in screen');
-  } else if (!gameId && username) {
-    console.log('No active game, will join main room');
-  }
+  // Note: Rejoin logic moved to window.load handler to ensure callbacks are registered first
 });
 
 socket.on('disconnect', (reason) => {
@@ -2406,9 +2391,20 @@ window.addEventListener('load', () => {
     console.log('No username, showing sign-in screen');
     displaySignInScreen();
   } else if (gameId) {
-    // Was in a game - the module-level connect handler will attempt rejoin
-    // The rejoinSuccess/rejoinFailed handlers will handle the UI
-    console.log(`User ${username} has pending game ${gameId}, waiting for rejoin...`);
+    // Was in a game - attempt rejoin now that handlers are registered
+    console.log(`User ${username} has pending game ${gameId}, attempting rejoin...`);
+    if (window.socket.connected && !rejoinAttempted) {
+      rejoinAttempted = true;
+      window.socket.emit('rejoinGame', { gameId, username });
+    } else if (!window.socket.connected) {
+      // Socket not connected yet - wait for connect then rejoin
+      window.socket.once('connect', () => {
+        if (!rejoinAttempted) {
+          rejoinAttempted = true;
+          window.socket.emit('rejoinGame', { gameId, username });
+        }
+      });
+    }
   } else if (sessionToken) {
     // Have stored session - try to restore it
     console.log('Session token found, attempting to restore session');
