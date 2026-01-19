@@ -1748,7 +1748,7 @@ function initializeApp() {
       if (!gameLogInstance) {
         gameLogInstance = showGameLog({
           onChatSubmit: (message) => {
-            const socket = getSocketManager()?.getSocket();
+            const socket = getSocketManager()?.socket;
             if (socket) {
               socket.emit('chatMessage', { message });
             }
