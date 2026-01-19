@@ -219,6 +219,9 @@ export class DrawManager {
       duration: 250,
       ease: 'Power2',
       onComplete: () => {
+        // Guard against destroyed sprite (cleanup called during animation)
+        if (!drawnCard || !drawnCard.scene) return;
+
         // Change texture to revealed card
         drawnCard.setTexture('cards', textureKey);
 

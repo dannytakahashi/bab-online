@@ -100,7 +100,7 @@ export class BidManager {
 
     for (let i = 0; i <= handSize; i++) {
       const btn = this.createBidButton(i.toString(), () => {
-        if (currentTurn !== position || !this.state.isBidding) {
+        if (this.state.currentTurn !== this.state.position || !this.state.isBidding) {
           console.warn('Not your turn to bid.');
           return;
         }
@@ -122,7 +122,7 @@ export class BidManager {
     boreBids.forEach((bid) => {
       const btn = this.createBidButton(bid, () => {
         if (btn.disabled) return;
-        if (currentTurn !== position || !this.state.isBidding) {
+        if (this.state.currentTurn !== this.state.position || !this.state.isBidding) {
           console.warn('Not your turn to bid.');
           return;
         }
