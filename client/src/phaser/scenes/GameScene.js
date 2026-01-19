@@ -1019,6 +1019,8 @@ export class GameScene extends Phaser.Scene {
           rotation: 0,
           scale: 1.5,
           onComplete: () => {
+            // Guard against destroyed sprite
+            if (!sprite || !sprite.scene) return;
             sprite.setTexture('cards', cardKey);
             sprite.setDepth(200);
           },

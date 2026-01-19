@@ -290,6 +290,8 @@ export function setGameScene(scene) {
                 rotation: 0,
                 scale: 1.5,
                 onComplete: () => {
+                  // Guard against destroyed sprite
+                  if (!sprite || !sprite.scene) return;
                   sprite.setTexture('cards', cardKey);
                   sprite.setDepth(200);
                 },
@@ -1216,7 +1218,7 @@ socket.on('reconnect_failed', () => {
 
   // Clear session and state
   sessionStorage.removeItem('gameId');
-  gameState.reset();
+  getGameState().reset();
 
   // Show sign-in screen
   displaySignInScreen();
@@ -1268,11 +1270,12 @@ socket.on('playerReconnected', (data) => {
 
 socket.on('playerAssigned', (data) => {
   console.log('📡 Received playerAssigned:', data);
+  const state = getGameState();
   if (data.playerId) {
-    gameState.playerId = data.playerId;
+    state.playerId = data.playerId;
   }
   if (data.position) {
-    gameState.position = data.position;
+    state.position = data.position;
   }
 });
 
