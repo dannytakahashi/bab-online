@@ -426,8 +426,7 @@ function processPositionUpdate(data) {
 function processGameStart(data) {
     console.log("🎮 processGameStart called!");
 
-    // Clear any remaining tricks from previous hand (safeguard for race conditions)
-    clearAllTricks();
+    // Note: Tricks are now cleared by TrickManager.clearAll() in handleHandComplete
 
     console.log("🎮 gameScene:", gameScene);
     console.log("🎮 gameScene.add:", gameScene?.add);
@@ -587,16 +586,13 @@ let oppTricks = 0;
 
 // NOTE: isLegalMove wrapper removed - use window.ModernUtils.isLegalMove() directly
 
-let teamTrickHistory = [];
-let oppTrickHistory = [];
+// NOTE: teamTrickHistory, oppTrickHistory, playerBids, tempBids, thisTrick removed - never used
+// Trick history now managed by TrickManager
 let bidding = 1;
-let playerBids = [];
 let playedCardIndex = 0;
 let leadCard = null;
 let leadPosition = null;
-let tempBids = [];
-let currentTrick = [];
-let thisTrick = [];
+let currentTrick = []; // Still used by processRejoin for restoring played cards
 // Play area positions - updated on resize (Bug 3 fix)
 let playPositions = {
     opponent1: { x: 0, y: 0 },
@@ -605,30 +601,8 @@ let playPositions = {
     self: { x: 0, y: 0 }
 };
 // Note: handBackground and border are now DOM elements with ids 'handBackgroundDom' and 'handBorderDom'
-function clearAllTricks() {
-    console.log("🗑️ Clearing all tricks...");
-
-    // ✅ Loop through each trick in trickHistory and destroy its cards
-    teamTrickHistory.forEach((trick, index) => {
-        trick.forEach((card) => {
-            card.destroy();
-        });
-        console.log(`✅ Trick #${index + 1} removed.`);
-    });
-
-    // ✅ Clear the trick history array
-    teamTrickHistory = [];
-    oppTrickHistory.forEach((trick, index) => {
-        trick.forEach((card) => {
-            card.destroy();
-        });
-        console.log(`✅ Trick #${index + 1} removed.`);
-    });
-
-    // ✅ Clear the trick history array
-    oppTrickHistory = [];
-    console.log("🧹 All tricks have been cleared.");
-}
+// NOTE: clearAllTricks removed - trick history now managed by TrickManager
+// TrickManager.clearAll() is called by handleHandComplete when a new hand starts
 socket.on("disconnect", () => {
     console.log("⚠️ Disconnected from server. Auto-reconnecting...");
     // Don't show sign-in screen - let Socket.IO handle reconnection
@@ -721,8 +695,6 @@ socket.on("gameEnd", (data) => {
 
             gameScene.scene.restart();
             socket.off("gameStart");
-            playZone = null;
-            handBackground = null;
             // Return to main room
             socket.emit("joinMainRoom");
         }
@@ -741,9 +713,7 @@ socket.on("gameEnd", (data) => {
 // - LayoutManager.createDomBackgrounds() for play zone and hand backgrounds
 // myCards declared at top of file
 
-let buttonHandle;
-let oppUI = [];
-
+// NOTE: buttonHandle and oppUI removed - never populated
 // NOTE: createOpponentAvatarDom and cleanupOpponentAvatars removed
 // - Now handled by OpponentManager.createOpponentAvatar() and OpponentManager.cleanupOpponentAvatars()
 
@@ -755,14 +725,6 @@ function displayOpponentHands(numCards, dealer, skipAnimation = false) {
     // PHASE 6 MIGRATION: Card sprites and avatars are now handled by OpponentManager
     // via handleDisplayOpponentHands in main.js. This function now only handles
     // the player position text (BTN, MP, CO, UTG) which OpponentManager doesn't manage.
-
-    // Clean up old UI elements
-    if (buttonHandle && typeof buttonHandle.destroy === 'function') {
-        buttonHandle.destroy();
-        buttonHandle = null;
-    }
-    oppUI.forEach((element) => element.destroy());
-    oppUI = [];
 
     // Set player position text based on dealer position
     if (playerInfo && playerInfo.playerPositionText) {
