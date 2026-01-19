@@ -4,6 +4,7 @@
 
 const gameManager = require('../game/GameManager');
 const Deck = require('../game/Deck');
+const { recordGameStats, getUserProfilePic } = require('./profileHandlers');
 const {
     rotatePosition,
     isRainbow,
@@ -190,14 +191,35 @@ async function draw(socket, io, data) {
  * Called when all 4 players (human or bot) have drawn
  */
 async function handleDrawComplete(io, game) {
-    // Generate random profile pics
+    // Fetch saved profile pics for all players
     const pics = [];
-    for (let i = 0; i < 4; i++) {
-        let picInt;
-        do {
-            picInt = Math.floor(Math.random() * 83) + 1;
-        } while (pics.includes(picInt));
-        pics.push(picInt);
+    const usedPics = new Set();
+    for (let i = 0; i < game.drawIDs.length; i++) {
+        const playerId = game.drawIDs[i];
+        const isBot = gameManager.isBot(playerId);
+        let pic;
+
+        if (isBot) {
+            // Bots get random pics
+            do {
+                pic = Math.floor(Math.random() * 82) + 1;
+            } while (usedPics.has(pic));
+        } else {
+            // Human players - fetch saved profile pic
+            const user = gameManager.getUserBySocketId(playerId);
+            pic = await getUserProfilePic(user?.username);
+            const isCustomPic = typeof pic === 'string' && pic.startsWith('data:image');
+
+            // Only check for duplicates on numbered pics (custom pics are always unique)
+            if (!isCustomPic) {
+                while (usedPics.has(pic)) {
+                    pic = Math.floor(Math.random() * 82) + 1;
+                }
+            }
+        }
+
+        usedPics.add(pic);
+        pics.push(pic);
     }
 
     // Assign positions based on cards drawn
@@ -487,6 +509,15 @@ async function handleHandComplete(game, io) {
             game.rainbows.team2 * 10;
     }
 
+    // Track hand stats for player profiles
+    game.handStats.totalHands++;
+    if (game.tricks.team1 < game.bids.team1) {
+        game.handStats.team1Sets++;
+    }
+    if (game.tricks.team2 < game.bids.team2) {
+        game.handStats.team2Sets++;
+    }
+
     gameLogger.debug('Score update', {
         team1: { score: game.score.team1, bids: [game.playerBids[0], game.playerBids[2]], tricks: game.tricks.team1 },
         team2: { score: game.score.team2, bids: [game.playerBids[1], game.playerBids[3]], tricks: game.tricks.team2 },
@@ -545,6 +576,10 @@ async function handleHandComplete(game, io) {
         game.addLogEntry(`${team2Name}: ${game.score.team2}`, null, 'score');
 
         gameLogger.info('Game ended', { gameId: game.gameId, finalScore: game.score });
+
+        // Record game stats for all players
+        await recordGameStats(game);
+
         game.broadcast(io, 'gameEnd', { score: game.score });
         // Clear active game for all players
         await gameManager.clearActiveGameForAll(game.gameId);

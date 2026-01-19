@@ -63,6 +63,15 @@ const schemas = {
     rejoinGame: Joi.object({
         gameId: Joi.string().uuid().required(),
         username: Joi.string().min(1).max(50).required()
+    }),
+
+    // Profile
+    updateProfilePic: Joi.object({
+        profilePic: Joi.number().integer().min(1).max(82).required()
+    }),
+
+    uploadProfilePic: Joi.object({
+        imageData: Joi.string().required()
     })
 };
 

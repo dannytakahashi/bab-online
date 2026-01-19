@@ -30,6 +30,7 @@ import { createSignInScreen, showSignInScreen } from './ui/screens/SignIn.js';
 import { createRegisterScreen, showRegisterScreen } from './ui/screens/Register.js';
 import { showMainRoom, addMainRoomChatMessage, updateLobbyList, removeMainRoom, updateMainRoomOnlineCount, getMainRoomUserColors } from './ui/screens/MainRoom.js';
 import { showGameLobby, updateLobbyPlayersList, addLobbyChatMessage, removeGameLobby, getCurrentLobbyId, getIsPlayerReady, getLobbyUserColors } from './ui/screens/GameLobby.js';
+import { showProfilePage, updateProfilePicDisplay, updateCustomProfilePicDisplay, removeProfilePage, isProfilePageVisible } from './ui/screens/ProfilePage.js';
 import { UIManager, SCREENS, getUIManager, initializeUIManager, resetUIManager } from './ui/UIManager.js';
 
 // Phaser
@@ -51,6 +52,7 @@ import {
   registerLobbyHandlers,
   registerGameHandlers,
   registerChatHandlers,
+  registerProfileHandlers,
   cleanupGameHandlers,
 } from './handlers/index.js';
 
@@ -812,29 +814,73 @@ export function setGameScene(scene) {
       const boxX = screenWidth - 380 * scaleX;
       const boxY = screenHeight - 150 * scaleY;
 
-      // Player Avatar
-      const playerAvatar = this.add.image(boxX, boxY - 60 * scaleY, 'profile' + playerData.pics[positionIndex])
-        .setScale(0.2)
-        .setOrigin(0.5);
+      // Player Avatar - use DOM for consistent sizing with opponent avatars
+      const pic = playerData.pics[positionIndex];
+      const username = playerData.username[positionIndex].username || playerData.username[positionIndex];
 
-      // Player Name Text
-      const playerNameText = this.add.text(boxX, boxY + 10 * scaleY, playerData.username[positionIndex].username, {
-        fontSize: '18px',
-        fontFamily: 'Arial',
-        color: '#ffffff'
-      }).setOrigin(0.5);
+      // Create DOM-based avatar (same approach as opponent avatars)
+      const avatarContainer = document.createElement('div');
+      avatarContainer.id = 'player-avatar-container';
+      avatarContainer.style.cssText = `
+        position: absolute;
+        left: ${boxX}px;
+        top: ${boxY - 60 * scaleY}px;
+        transform: translate(-50%, -50%);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        pointer-events: none;
+        z-index: 100;
+      `;
 
-      // Position Text (BTN, MP, CO, UTG)
+      const avatarImg = document.createElement('img');
+      avatarImg.className = 'player-avatar-img';
+      // Handle both numbered pics and custom base64 pics
+      if (pic && typeof pic === 'string' && pic.startsWith('data:image')) {
+        avatarImg.src = pic;
+      } else if (pic && typeof pic === 'number') {
+        avatarImg.src = `assets/profile${pic}.png`;
+      } else {
+        avatarImg.src = 'assets/profile1.png';
+      }
+      avatarImg.alt = username;
+      avatarImg.style.cssText = `
+        width: 80px;
+        height: 80px;
+        min-width: 80px;
+        min-height: 80px;
+        max-width: 80px;
+        max-height: 80px;
+        object-fit: cover;
+        border-radius: 50%;
+        border: 3px solid #333;
+        background: #1a1a1a;
+      `;
+      avatarContainer.appendChild(avatarImg);
+
+      // Add username label
+      const nameLabel = document.createElement('div');
+      nameLabel.textContent = username;
+      nameLabel.style.cssText = `
+        margin-top: 5px;
+        font-size: 14px;
+        font-family: Arial, sans-serif;
+        color: #ffffff;
+        text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
+      `;
+      avatarContainer.appendChild(nameLabel);
+
+      // Position Text (BTN, MP, CO, UTG) - still use Phaser for this
       const playerPositionText = this.add.text(boxX, boxY + 35 * scaleY, '', {
         fontSize: '16px',
         fontFamily: 'Arial',
         color: '#ffffff'
       }).setOrigin(0.5);
 
-      // Group all elements
-      const playerInfoContainer = this.add.container(0, 0, [playerAvatar, playerNameText, playerPositionText]);
+      // Add avatar to DOM
+      document.body.appendChild(avatarContainer);
 
-      this._playerInfo = { playerAvatar, playerNameText, playerPositionText, playerInfoContainer };
+      this._playerInfo = { avatarContainer, avatarImg, nameLabel, playerPositionText };
       return this._playerInfo;
     };
   }
@@ -857,7 +903,7 @@ export function setGameScene(scene) {
 
   if (!scene.repositionPlayerInfo) {
     scene.repositionPlayerInfo = function() {
-      if (!this._playerInfo?.playerAvatar) return;
+      if (!this._playerInfo?.avatarContainer) return;
 
       const screenWidth = this.scale.width;
       const screenHeight = this.scale.height;
@@ -867,10 +913,11 @@ export function setGameScene(scene) {
       const boxX = screenWidth - 380 * scaleX;
       const boxY = screenHeight - 150 * scaleY;
 
-      this._playerInfo.playerAvatar.setPosition(boxX, boxY - 60 * scaleY);
-      if (this._playerInfo.playerNameText) {
-        this._playerInfo.playerNameText.setPosition(boxX, boxY + 10 * scaleY);
-      }
+      // Reposition DOM avatar container
+      this._playerInfo.avatarContainer.style.left = `${boxX}px`;
+      this._playerInfo.avatarContainer.style.top = `${boxY - 60 * scaleY}px`;
+
+      // Reposition Phaser position text
       if (this._playerInfo.playerPositionText) {
         this._playerInfo.playerPositionText.setPosition(boxX, boxY + 35 * scaleY);
       }
@@ -879,8 +926,13 @@ export function setGameScene(scene) {
 
   if (!scene.clearPlayerInfo) {
     scene.clearPlayerInfo = function() {
-      if (this._playerInfo?.playerInfoContainer) {
-        this._playerInfo.playerInfoContainer.destroy();
+      // Remove DOM avatar container
+      if (this._playerInfo?.avatarContainer) {
+        this._playerInfo.avatarContainer.remove();
+      }
+      // Destroy Phaser position text
+      if (this._playerInfo?.playerPositionText) {
+        this._playerInfo.playerPositionText.destroy();
       }
       this._playerInfo = null;
     };
@@ -998,6 +1050,11 @@ window.ModernUtils = {
   getCurrentLobbyId,
   getIsPlayerReady,
   getLobbyUserColors,
+  showProfilePage,
+  updateProfilePicDisplay,
+  updateCustomProfilePicDisplay,
+  removeProfilePage,
+  isProfilePageVisible,
   UIManager,
   SCREENS,
   getUIManager,
@@ -1027,6 +1084,7 @@ window.ModernUtils = {
   registerLobbyHandlers,
   registerGameHandlers,
   registerChatHandlers,
+  registerProfileHandlers,
   cleanupGameHandlers,
 
   // UI Components - Bid & Game Log
@@ -1165,22 +1223,7 @@ let rejoinSucceeded = false;
 
 socket.on('connect', () => {
   console.log('Connected to server:', socket.id);
-
-  // Check if we were in a game and should try to rejoin
-  const gameId = sessionStorage.getItem('gameId');
-  const username = sessionStorage.getItem('username');
-
-  console.log(`Session state: gameId=${gameId}, username=${username}, rejoinAttempted=${rejoinAttempted}`);
-
-  if (gameId && username && !rejoinAttempted) {
-    rejoinAttempted = true;
-    console.log(`Attempting to rejoin game ${gameId} as ${username}`);
-    socket.emit('rejoinGame', { gameId, username });
-  } else if (!gameId && !username) {
-    console.log('No stored session, will show sign-in screen');
-  } else if (!gameId && username) {
-    console.log('No active game, will join main room');
-  }
+  // Note: Rejoin logic moved to window.load handler to ensure callbacks are registered first
 });
 
 socket.on('disconnect', (reason) => {
@@ -2199,6 +2242,28 @@ function initializeApp() {
         scene.handleShowChatBubble(state.position, data.position, data.message);
       }
     },
+
+    // Profile callbacks
+    onProfileReceived: (profile) => {
+      showProfilePage(profile, socket);
+    },
+    onProfileError: (message) => {
+      showError(message || 'Failed to load profile');
+    },
+    onProfilePicUpdated: (newPic) => {
+      updateProfilePicDisplay(newPic);
+      showSuccess('Profile picture updated!');
+    },
+    onProfilePicUpdateError: (message) => {
+      showError(message || 'Failed to update profile picture');
+    },
+    onCustomProfilePicUploaded: (customPic) => {
+      updateCustomProfilePicDisplay(customPic);
+      showSuccess('Profile picture uploaded!');
+    },
+    onCustomProfilePicUploadError: (message) => {
+      showError(message || 'Failed to upload profile picture');
+    },
   });
 
   // Note: window.socket and window.socketManager are already set at module level above
@@ -2326,9 +2391,20 @@ window.addEventListener('load', () => {
     console.log('No username, showing sign-in screen');
     displaySignInScreen();
   } else if (gameId) {
-    // Was in a game - the module-level connect handler will attempt rejoin
-    // The rejoinSuccess/rejoinFailed handlers will handle the UI
-    console.log(`User ${username} has pending game ${gameId}, waiting for rejoin...`);
+    // Was in a game - attempt rejoin now that handlers are registered
+    console.log(`User ${username} has pending game ${gameId}, attempting rejoin...`);
+    if (window.socket.connected && !rejoinAttempted) {
+      rejoinAttempted = true;
+      window.socket.emit('rejoinGame', { gameId, username });
+    } else if (!window.socket.connected) {
+      // Socket not connected yet - wait for connect then rejoin
+      window.socket.once('connect', () => {
+        if (!rejoinAttempted) {
+          rejoinAttempted = true;
+          window.socket.emit('rejoinGame', { gameId, username });
+        }
+      });
+    }
   } else if (sessionToken) {
     // Have stored session - try to restore it
     console.log('Session token found, attempting to restore session');
