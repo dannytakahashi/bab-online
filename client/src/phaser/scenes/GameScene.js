@@ -399,7 +399,8 @@ export class GameScene extends Phaser.Scene {
       this.tableCardBackground.setPosition(trumpX, trumpY);
     }
     if (this.tableCardLabel && this.tableCardLabel.active) {
-      this.tableCardLabel.setPosition(trumpX, trumpY - 100);
+      const cardHeight = this.tableCardSprite ? this.tableCardSprite.displayHeight + 10 : 100;
+      this.tableCardLabel.setPosition(trumpX, trumpY - (cardHeight / 2) - 12);
     }
   }
 
@@ -587,21 +588,24 @@ export class GameScene extends Phaser.Scene {
       this.tableCardLabel.destroy();
     }
 
-    // Background
-    this.tableCardBackground = this.add.rectangle(trumpX, trumpY, 120, 180, 0x000000, 0.5);
-    this.tableCardBackground.setDepth(99);
-
     // Card
     const cardKey = getCardImageKey(trumpCard);
     this.tableCardSprite = this.add.image(trumpX, trumpY, 'cards', cardKey);
-    this.tableCardSprite.setScale(1.2);
+    this.tableCardSprite.setScale(1.0);
     this.tableCardSprite.setDepth(100);
 
-    // Label
-    this.tableCardLabel = this.add.text(trumpX, trumpY - 100, 'TRUMP', {
-      fontSize: `${24 * scaleX}px`,
-      fontStyle: 'bold',
-      color: '#FFD700',
+    // Background - subtle box around card
+    const cardWidth = this.tableCardSprite.displayWidth + 10;
+    const cardHeight = this.tableCardSprite.displayHeight + 10;
+    this.tableCardBackground = this.add.rectangle(trumpX, trumpY, cardWidth, cardHeight, 0x000000, 0.3);
+    this.tableCardBackground.setStrokeStyle(1, 0x666666, 0.5);
+    this.tableCardBackground.setDepth(99);
+
+    // Label - smaller and closer to card
+    this.tableCardLabel = this.add.text(trumpX, trumpY - (cardHeight / 2) - 12, 'TRUMP', {
+      fontSize: `${12 * scaleX}px`,
+      fontFamily: 'Arial, sans-serif',
+      color: '#aaaaaa',
     });
     this.tableCardLabel.setOrigin(0.5);
     this.tableCardLabel.setDepth(100);

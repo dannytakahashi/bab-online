@@ -231,15 +231,8 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
   socketManager.onGame(SERVER_EVENTS.TRICK_COMPLETE, (data) => {
     console.log('🏆 Trick complete, winner:', data.winner);
 
-    // Update trick counts based on winner's team
-    const myTeam = state.position % 2; // 0 for even, 1 for odd
-    const winnerTeam = data.winner % 2;
-
-    if (myTeam === winnerTeam) {
-      state.teamTricks++;
-    } else {
-      state.oppTricks++;
-    }
+    // Note: trick counts are updated in GameScene.handleTrickComplete
+    // to avoid double-counting
 
     // Clear trick state
     state.clearTrick();
