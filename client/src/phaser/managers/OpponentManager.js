@@ -37,8 +37,11 @@ export class OpponentManager {
       opp2: null,
     };
 
-    // Dealer button sprite
+    // Dealer button DOM element
     this._dealerButton = null;
+
+    // Track dealer position for repositioning
+    this._dealerPosition = null;
 
     // Player's position (needed to calculate relative positions)
     this._playerPosition = null;
@@ -181,43 +184,62 @@ export class OpponentManager {
   }
 
   /**
-   * Display the dealer button at the correct position.
+   * Display the dealer button at the correct position (DOM-based).
    */
   displayDealerButton(dealerPosition) {
-    if (this._dealerButton) {
-      this._dealerButton.destroy();
-      this._dealerButton = null;
-    }
+    this.clearDealerButton();
 
     if (!dealerPosition || !this._playerPosition) return;
 
-    const scene = this._scene;
-    const { x: scaleX, y: scaleY, screenWidth, screenHeight } = this.getScaleFactors();
+    this._dealerPosition = dealerPosition;
+
+    const { x, y } = this._calculateDealerPosition();
+
+    // Create DOM element
+    const button = document.createElement('div');
+    button.className = 'dealer-button';
+    button.innerHTML = '<img src="assets/frog.png" alt="Dealer">';
+    button.style.left = `${x}px`;
+    button.style.top = `${y}px`;
+
+    document.body.appendChild(button);
+    this._dealerButton = button;
+  }
+
+  /**
+   * Calculate dealer button position based on who is dealer.
+   * Frog position rules:
+   * - Player (me): to the LEFT of avatar
+   * - Opp1 (left): to the LEFT of avatar
+   * - Partner (across/top): to the LEFT of avatar
+   * - Opp2 (right): to the RIGHT of avatar
+   */
+  _calculateDealerPosition() {
+    const { screenWidth, screenHeight } = this.getScaleFactors();
     const positions = this.getOpponentPositions();
 
     let buttonX, buttonY;
 
-    if (dealerPosition === this._playerPosition) {
-      // Player is dealer - position near player info box
-      buttonX = screenWidth - 380 * scaleX + 100 * scaleX;
-      buttonY = screenHeight - 150 * scaleY - 60 * scaleY;
-    } else if (team(this._playerPosition) === dealerPosition) {
-      // Partner is dealer
-      buttonX = positions.partner.avatarX + 70;
+    if (this._dealerPosition === this._playerPosition) {
+      // Player is dealer - to the LEFT of player avatar
+      // Use window coordinates since player info box is outside game container
+      buttonX = window.innerWidth - 475; // Left of avatar at window - 405
+      buttonY = window.innerHeight - 200;
+    } else if (team(this._playerPosition) === this._dealerPosition) {
+      // Partner is dealer - to the LEFT of partner avatar
+      buttonX = positions.partner.avatarX - 60;
       buttonY = positions.partner.avatarY;
-    } else if (rotate(this._playerPosition) === dealerPosition) {
-      // Opp1 is dealer
-      buttonX = positions.opp1.avatarX - 70;
+    } else if (rotate(this._playerPosition) === this._dealerPosition) {
+      // Opp1 is dealer - to the LEFT of opp1 avatar
+      buttonX = positions.opp1.avatarX - 60;
       buttonY = positions.opp1.avatarY;
     } else {
-      // Opp2 is dealer
-      buttonX = positions.opp2.avatarX + 70;
+      // Opp2 is dealer - to the RIGHT of opp2 avatar
+      buttonX = positions.opp2.avatarX + 60;
       buttonY = positions.opp2.avatarY;
     }
 
-    this._dealerButton = scene.add.image(buttonX, buttonY, 'dealer');
-    this._dealerButton.setScale(0.02); // Match legacy scale
-    this._dealerButton.setDepth(150);
+    return { x: buttonX, y: buttonY };
   }
 
   /**
@@ -429,10 +451,10 @@ export class OpponentManager {
     });
 
     // Reposition dealer button
-    if (this._dealerButton && this._dealerButton.active && this._playerPosition) {
-      // Re-display to recalculate position
-      // We need to know the dealer position to do this properly
-      // For now, just update based on current button data
+    if (this._dealerButton && this._dealerPosition) {
+      const { x, y } = this._calculateDealerPosition();
+      this._dealerButton.style.left = `${x}px`;
+      this._dealerButton.style.top = `${y}px`;
     }
   }
 
@@ -467,9 +489,10 @@ export class OpponentManager {
    */
   clearDealerButton() {
     if (this._dealerButton) {
-      this._dealerButton.destroy();
+      this._dealerButton.remove();
       this._dealerButton = null;
     }
+    this._dealerPosition = null;
   }
 
   /**

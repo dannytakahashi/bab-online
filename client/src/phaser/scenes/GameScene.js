@@ -123,7 +123,6 @@ export class GameScene extends Phaser.Scene {
 
     // Load other essential assets
     this.load.image('cardBack', 'assets/card_back.png');
-    this.load.image('dealer', 'assets/frog.png');
     this.load.image('background', 'assets/background.png');
     this.load.image('rainbow', 'assets/rainbow1.png');
     this.load.image('ot', 'assets/ot.png');
@@ -644,25 +643,27 @@ export class GameScene extends Phaser.Scene {
   /**
    * Show a chat/bid bubble at a position.
    * Uses ChatBubble.js for consistent styling (white bg, black/red text).
+   * Positions are avatar centers - ChatBubble handles the offset.
    */
   showChatBubble(positionKey, message, color = null, duration = 6000) {
     const { x: scaleX, y: scaleY, screenWidth, screenHeight } = this.getScaleFactors();
     const centerX = screenWidth / 2;
     const centerY = screenHeight / 2;
 
-    // Calculate position based on key
+    // Avatar center positions
+    // 'me' uses window coordinates since player info box is outside game container
     const positions = {
-      opp1: { x: centerX - 480 * scaleX, y: centerY },
-      opp2: { x: centerX + 620 * scaleX, y: centerY },
-      partner: { x: centerX + 20 * scaleX, y: centerY - 380 * scaleY },
-      me: { x: screenWidth - 310 * scaleX, y: screenHeight - 270 * scaleY },
+      opp1: { x: Math.max(130, centerX - 550 * scaleX), y: centerY - 40 },
+      opp2: { x: Math.min(screenWidth - 130, centerX + 550 * scaleX), y: centerY - 40 },
+      partner: { x: centerX, y: centerY - 400 * scaleY },
+      me: { x: window.innerWidth - 405, y: window.innerHeight - 230 },
     };
 
     const pos = positions[positionKey];
     if (!pos) return;
 
-    // Use the imported ChatBubble.js function for consistent styling
-    showChatBubbleUI(this, positionKey, pos.x, pos.y, message, color, duration);
+    // Use the imported ChatBubble.js function (DOM-based)
+    showChatBubbleUI(positionKey, pos.x, pos.y, message, color, duration);
   }
 
   // ============================================
