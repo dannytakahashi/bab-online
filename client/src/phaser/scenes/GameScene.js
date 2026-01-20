@@ -984,11 +984,8 @@ export class GameScene extends Phaser.Scene {
       this.state.trumpBroken = data.trumpBroken;
     }
 
-    // Track current trick for over-trump detection
-    if (!this.state.currentTrick) {
-      this.state.currentTrick = [];
-    }
-    this.state.currentTrick.push(card);
+    // Note: currentTrick is already updated by gameHandlers.js via addPlayedCard()
+    // Do NOT push here to avoid double-counting
 
     // Detect over-trump and show effect
     this.detectOverTrump();
@@ -1046,11 +1043,14 @@ export class GameScene extends Phaser.Scene {
     const trump = this.state.trump;
     const leadCard = this.state.leadCard;
 
+    // Need at least 3 cards for over-trump: lead, first trump, over-trump
+    // (currentTrick entries are { card, position } from addPlayedCard)
     if (!trick || trick.length < 3 || !trump || !leadCard) return;
 
     const RANK_VALUES = window.ModernUtils?.RANK_VALUES || {};
-    const currentCard = trick[trick.length - 1];
-    const previousCard = trick[trick.length - 2];
+    // currentTrick stores { card, position } objects from addPlayedCard()
+    const currentCard = trick[trick.length - 1].card;
+    const previousCard = trick[trick.length - 2].card;
 
     const isTrumpOrJoker = (c) => c.suit === trump.suit || c.suit === 'joker';
     const leadIsTrump = leadCard.suit === trump.suit || leadCard.suit === 'joker';
