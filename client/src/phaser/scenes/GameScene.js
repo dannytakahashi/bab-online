@@ -993,11 +993,8 @@ export class GameScene extends Phaser.Scene {
     // Detect over-trump and show effect
     this.detectOverTrump();
 
-    // Increment played card index
-    this.state.playedCardIndex++;
-    if (this.state.playedCardIndex >= 4) {
-      this.state.playedCardIndex = 0;
-    }
+    // Note: playedCardIndex is already incremented by gameHandlers.js via addPlayedCard()
+    // Do NOT increment here to avoid double-counting
 
     // Initialize TrickManager if needed
     if (this.trickManager && myPosition) {
