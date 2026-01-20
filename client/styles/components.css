@@ -783,3 +783,90 @@
 .play-again-button:hover {
     background: #357abd;
 }
+
+/* ==========================================================================
+   Chat Bubbles (DOM-based)
+   ========================================================================== */
+
+.chat-bubble {
+    position: absolute;
+    background: #ffffff;
+    color: #000000;
+    padding: 8px 12px;
+    border-radius: 12px;
+    font-size: 14px;
+    font-family: Arial, sans-serif;
+    min-width: 40px;
+    max-width: 200px;
+    word-wrap: break-word;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    z-index: 500;
+    pointer-events: none;
+    opacity: 1;
+    transition: opacity 0.3s ease;
+    text-align: center;
+}
+
+.chat-bubble.fade-out {
+    opacity: 0;
+}
+
+.chat-bubble.bid {
+    color: #FF0000;
+    font-weight: bold;
+}
+
+/* Tail pointing down (centered, points at avatar below) */
+.chat-bubble.tail-down::after {
+    content: '';
+    position: absolute;
+    bottom: -10px;
+    left: 50%;
+    transform: translateX(-50%);
+    border-width: 10px 8px 0 8px;
+    border-style: solid;
+    border-color: #ffffff transparent transparent transparent;
+}
+
+/* Tail pointing left (for opp1 - left side opponent) */
+.chat-bubble.tail-left::after {
+    content: '';
+    position: absolute;
+    left: -10px;
+    top: 50%;
+    transform: translateY(-50%);
+    border-width: 8px 10px 8px 0;
+    border-style: solid;
+    border-color: transparent #ffffff transparent transparent;
+}
+
+/* Tail pointing right (for opp2 - right side opponent) */
+.chat-bubble.tail-right::after {
+    content: '';
+    position: absolute;
+    right: -10px;
+    top: 50%;
+    transform: translateY(-50%);
+    border-width: 8px 0 8px 10px;
+    border-style: solid;
+    border-color: transparent transparent transparent #ffffff;
+}
+
+/* ==========================================================================
+   Dealer Button (DOM-based)
+   ========================================================================== */
+
+.dealer-button {
+    position: absolute;
+    width: 40px;
+    height: 40px;
+    z-index: 150;
+    pointer-events: none;
+    transform: translate(-50%, -50%);
+}
+
+.dealer-button img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}

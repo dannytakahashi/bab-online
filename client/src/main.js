@@ -684,6 +684,13 @@ export function setGameScene(scene) {
         }
         this.opponentManager.displayOpponentHands(cardCount, dealerPosition, playerData, skipAnimation);
       }
+      // Create player info box at the same time as opponent avatars
+      if (this.createPlayerInfoBox && !this._playerInfo) {
+        const gameState = getGameState();
+        if (gameState.position && gameState.playerData) {
+          this.createPlayerInfoBox(gameState.playerData, gameState.position);
+        }
+      }
     };
   }
 
@@ -780,9 +787,9 @@ export function setGameScene(scene) {
   if (!scene.handleShowChatBubble) {
     scene.handleShowChatBubble = function(playerPosition, messagePosition, message, color, duration) {
       console.log('🎮 Legacy scene handleShowChatBubble', { playerPosition, messagePosition, message });
-      const bubblePos = getBubblePosition(this, playerPosition, messagePosition);
+      const bubblePos = getBubblePosition(playerPosition, messagePosition);
       if (bubblePos) {
-        showChatBubble(this, bubblePos.positionKey, bubblePos.x, bubblePos.y, message, color, duration);
+        showChatBubble(bubblePos.positionKey, bubblePos.x, bubblePos.y, message, color, duration);
       }
     };
   }
@@ -811,7 +818,7 @@ export function setGameScene(scene) {
       const scaleX = screenWidth / 1920;
       const scaleY = screenHeight / 953;
 
-      const boxX = screenWidth - 380 * scaleX;
+      const boxX = screenWidth - 420 * scaleX;
       const boxY = screenHeight - 150 * scaleY;
 
       // Player Avatar - use DOM for consistent sizing with opponent avatars
@@ -870,12 +877,16 @@ export function setGameScene(scene) {
       `;
       avatarContainer.appendChild(nameLabel);
 
-      // Position Text (BTN, MP, CO, UTG) - still use Phaser for this
-      const playerPositionText = this.add.text(boxX, boxY + 35 * scaleY, '', {
-        fontSize: '16px',
-        fontFamily: 'Arial',
-        color: '#ffffff'
-      }).setOrigin(0.5);
+      // Position Text (BTN, MP, CO, UTG) - DOM element
+      const playerPositionText = document.createElement('div');
+      playerPositionText.style.cssText = `
+        margin-top: 5px;
+        font-size: 16px;
+        font-family: Arial, sans-serif;
+        color: #ffffff;
+        text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
+      `;
+      avatarContainer.appendChild(playerPositionText);
 
       // Add avatar to DOM
       document.body.appendChild(avatarContainer);
@@ -890,13 +901,13 @@ export function setGameScene(scene) {
       if (!this._playerInfo?.playerPositionText) return;
 
       if (dealer === myPosition) {
-        this._playerInfo.playerPositionText.setText('BTN');
+        this._playerInfo.playerPositionText.textContent = 'BTN';
       } else if (team(myPosition) === dealer) {
-        this._playerInfo.playerPositionText.setText('MP');
+        this._playerInfo.playerPositionText.textContent = 'MP';
       } else if (rotate(myPosition) === dealer) {
-        this._playerInfo.playerPositionText.setText('CO');
+        this._playerInfo.playerPositionText.textContent = 'CO';
       } else if (rotate(rotate(rotate(myPosition))) === dealer) {
-        this._playerInfo.playerPositionText.setText('UTG');
+        this._playerInfo.playerPositionText.textContent = 'UTG';
       }
     };
   }
@@ -910,29 +921,20 @@ export function setGameScene(scene) {
       const scaleX = screenWidth / 1920;
       const scaleY = screenHeight / 953;
 
-      const boxX = screenWidth - 380 * scaleX;
+      const boxX = screenWidth - 420 * scaleX;
       const boxY = screenHeight - 150 * scaleY;
 
-      // Reposition DOM avatar container
+      // Reposition DOM avatar container (position text is inside container)
       this._playerInfo.avatarContainer.style.left = `${boxX}px`;
       this._playerInfo.avatarContainer.style.top = `${boxY - 60 * scaleY}px`;
-
-      // Reposition Phaser position text
-      if (this._playerInfo.playerPositionText) {
-        this._playerInfo.playerPositionText.setPosition(boxX, boxY + 35 * scaleY);
-      }
     };
   }
 
   if (!scene.clearPlayerInfo) {
     scene.clearPlayerInfo = function() {
-      // Remove DOM avatar container
+      // Remove DOM avatar container (includes position text)
       if (this._playerInfo?.avatarContainer) {
         this._playerInfo.avatarContainer.remove();
-      }
-      // Destroy Phaser position text
-      if (this._playerInfo?.playerPositionText) {
-        this._playerInfo.playerPositionText.destroy();
       }
       this._playerInfo = null;
     };
@@ -960,7 +962,7 @@ export function clearGameScene() {
 // UI Components - Bid & Game Log
 import { createBidUI, showBidUI, createBidBubble } from './ui/components/BidUI.js';
 import { createGameLog, showGameLog } from './ui/components/GameLog.js';
-import { createSpeechBubble, showChatBubble, clearChatBubbles, getBubblePosition, getActiveChatBubbles } from './ui/components/ChatBubble.js';
+import { showChatBubble, clearChatBubbles, getBubblePosition, getActiveChatBubbles, repositionBubbles } from './ui/components/ChatBubble.js';
 import { showPlayerQueue, updatePlayerQueue, removePlayerQueue, isPlayerQueueVisible } from './ui/components/PlayerQueue.js';
 import { getTeamNames, formatHandCompleteMessages, formatGameEndMessages, showFinalScoreOverlay, removeFinalScoreOverlay } from './ui/components/ScoreModal.js';
 
@@ -1093,11 +1095,11 @@ window.ModernUtils = {
   createBidBubble,
   createGameLog,
   showGameLog,
-  createSpeechBubble,
   showChatBubble,
   clearChatBubbles,
   getBubblePosition,
   getActiveChatBubbles,
+  repositionBubbles,
   showPlayerQueue,
   updatePlayerQueue,
   removePlayerQueue,
@@ -1248,6 +1250,20 @@ socket.on('reconnect_failed', () => {
   if (scene && scene.layoutManager) {
     scene.layoutManager.cleanupDomBackgrounds();
   }
+
+  // Clear opponent avatars and dealer button
+  if (scene && scene.opponentManager) {
+    scene.opponentManager.clearAll();
+  }
+
+  // Clear player info box
+  if (scene && scene.clearPlayerInfo) {
+    scene.clearPlayerInfo();
+  }
+
+  // Clear chat bubbles
+  clearChatBubbles();
+
   uiManager.removeWaitingScreen();
   uiManager.clearUI();
 
@@ -1642,13 +1658,8 @@ function initializeApp() {
       console.log('📍 onPositionUpdate callback');
       // Update modular GameState with player data
       gameState.setPlayerData(data);
-
-      // Create player info if deferred (scene ready but waiting for position data)
-      const scene = getGameScene();
-      if (gameState.position && scene && scene.createPlayerInfoBox && !scene._playerInfo) {
-        scene.createPlayerInfoBox(gameState.playerData, gameState.position);
-        console.log("✅ playerInfo created via scene after positionUpdate");
-      }
+      // Player info box creation deferred to handleDisplayOpponentHands
+      // so it appears at the same time as other players' avatars
     },
     onGameStart: (data) => {
       console.log('🎮 onGameStart callback');
@@ -1699,10 +1710,7 @@ function initializeApp() {
           );
         }
 
-        // Create player info box (avatar, name, position text) via scene method
-        if (scene.createPlayerInfoBox && !scene._playerInfo) {
-          scene.createPlayerInfoBox(gameState.playerData, data.position);
-        }
+        // Player info box is created inside handleDisplayOpponentHands
 
         // Update player position text (BTN, MP, CO, UTG)
         if (scene.updatePlayerPositionText && data.dealer !== undefined) {
@@ -2088,10 +2096,7 @@ function initializeApp() {
             );
           }
 
-          // Create player info box (avatar, name, position text) via scene method
-          if (scene.createPlayerInfoBox && !scene._playerInfo) {
-            scene.createPlayerInfoBox(gameState.playerData, data.position);
-          }
+          // Player info box is created inside handleDisplayOpponentHands
 
           // Update player position text (BTN, MP, CO, UTG)
           if (scene.updatePlayerPositionText && data.dealer !== undefined) {
@@ -2273,8 +2278,35 @@ function initializeApp() {
 
 /**
  * Show the sign-in screen with proper callbacks.
+ * Also cleans up any game UI elements that may be visible.
  */
 function displaySignInScreen() {
+  // Clean up game UI elements
+  const scene = getGameScene();
+  if (scene && scene.opponentManager) {
+    scene.opponentManager.clearAll();
+  }
+  if (scene && scene.clearPlayerInfo) {
+    scene.clearPlayerInfo();
+  }
+  clearChatBubbles();
+
+  // Clear game log
+  const gameFeed = document.getElementById("gameFeed");
+  if (gameFeed) gameFeed.remove();
+
+  // Clear any remaining DOM elements (fallback if scene not available)
+  document.querySelectorAll('.opponent-avatar-container').forEach(el => el.remove());
+  document.querySelectorAll('.dealer-button').forEach(el => el.remove());
+  document.querySelectorAll('.chat-bubble').forEach(el => el.remove());
+  const playerAvatar = document.getElementById('player-avatar-container');
+  if (playerAvatar) playerAvatar.remove();
+  const bidContainer = document.getElementById('bidContainer');
+  if (bidContainer) bidContainer.remove();
+
+  // Remove width restriction from game container
+  document.getElementById('game-container')?.classList.remove('in-game');
+
   // Pre-fill username if we have it stored (e.g., after failed rejoin)
   const storedUsername = sessionStorage.getItem('username') || '';
 

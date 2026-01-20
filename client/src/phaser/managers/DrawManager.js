@@ -81,7 +81,7 @@ export class DrawManager {
     };
 
     // Add title
-    this.titleText = this.scene.add.text(screenWidth / 2, 80 * scaleY, 'Draw for Deal', {
+    this.titleText = this.scene.add.text(screenWidth / 2, 80 * scaleY, 'Draw for Deal!', {
       fontSize: `${48 * scaleX}px`,
       fontStyle: 'bold',
       color: '#FFFFFF',
@@ -266,24 +266,10 @@ export class DrawManager {
       0.7
     ).setDepth(400);
 
-    // Team announcement title
-    const title = this.scene.add.text(
-      screenWidth / 2,
-      screenHeight / 2 - 120 * scaleY,
-      'Teams',
-      {
-        fontSize: `${56 * scaleX}px`,
-        fontStyle: 'bold',
-        color: '#FFD700',
-        stroke: '#000000',
-        strokeThickness: 4,
-      }
-    ).setOrigin(0.5).setDepth(401);
-
-    // Team 1 display
+    // Team 1 display (centered vertically on screen)
     const team1Label = this.scene.add.text(
       screenWidth / 2,
-      screenHeight / 2 - 30 * scaleY,
+      screenHeight / 2 - 100 * scaleY,
       'Team 1',
       {
         fontSize: `${32 * scaleX}px`,
@@ -294,7 +280,7 @@ export class DrawManager {
 
     const team1Players = this.scene.add.text(
       screenWidth / 2,
-      screenHeight / 2 + 20 * scaleY,
+      screenHeight / 2 - 50 * scaleY,
       `${data.team1[0]} & ${data.team1[1]}`,
       {
         fontSize: `${28 * scaleX}px`,
@@ -305,7 +291,7 @@ export class DrawManager {
     // VS text
     const vsText = this.scene.add.text(
       screenWidth / 2,
-      screenHeight / 2 + 70 * scaleY,
+      screenHeight / 2,
       'vs',
       {
         fontSize: `${24 * scaleX}px`,
@@ -317,7 +303,7 @@ export class DrawManager {
     // Team 2 display
     const team2Label = this.scene.add.text(
       screenWidth / 2,
-      screenHeight / 2 + 120 * scaleY,
+      screenHeight / 2 + 50 * scaleY,
       'Team 2',
       {
         fontSize: `${32 * scaleX}px`,
@@ -328,7 +314,7 @@ export class DrawManager {
 
     const team2Players = this.scene.add.text(
       screenWidth / 2,
-      screenHeight / 2 + 170 * scaleY,
+      screenHeight / 2 + 100 * scaleY,
       `${data.team2[0]} & ${data.team2[1]}`,
       {
         fontSize: `${28 * scaleX}px`,
@@ -337,7 +323,7 @@ export class DrawManager {
     ).setOrigin(0.5).setDepth(401);
 
     // Store for cleanup
-    const teamElements = [overlay, title, team1Label, team1Players, vsText, team2Label, team2Players];
+    const teamElements = [overlay, team1Label, team1Players, vsText, team2Label, team2Players];
     this.drawnCardDisplays.push(...teamElements);
   }
 

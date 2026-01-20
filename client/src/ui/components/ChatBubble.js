@@ -1,7 +1,8 @@
 /**
- * Chat Bubble Component
+ * Chat Bubble Component (DOM-based)
  *
- * Creates speech bubbles for chat messages and bid announcements in Phaser scenes.
+ * Creates speech bubbles for chat messages and bid announcements.
+ * Uses DOM elements for better text rendering and simpler styling.
  */
 
 /**
@@ -17,13 +18,14 @@ const activeChatBubbles = {};
 
 /**
  * Get scale factors based on current screen size.
+ * Uses the game container dimensions if available, otherwise window.
  *
- * @param {Phaser.Scene} scene - The Phaser scene
  * @returns {Object} Scale factors { x, y, screenWidth, screenHeight }
  */
-function getScaleFactors(scene) {
-  const screenWidth = scene.scale.width;
-  const screenHeight = scene.scale.height;
+function getScaleFactors() {
+  const gameContainer = document.getElementById('game-container');
+  const screenWidth = gameContainer ? gameContainer.clientWidth : window.innerWidth;
+  const screenHeight = gameContainer ? gameContainer.clientHeight : window.innerHeight;
   return {
     x: screenWidth / DESIGN_WIDTH,
     y: screenHeight / DESIGN_HEIGHT,
@@ -33,190 +35,132 @@ function getScaleFactors(scene) {
 }
 
 /**
- * Create a speech bubble with text.
+ * Get tail direction based on position key.
+ * - me (player): bubble above, tail pointing down
+ * - opp1 (left): bubble above, tail pointing down
+ * - partner (across/top): bubble to right, tail pointing left
+ * - opp2 (right): bubble above, tail pointing down
  *
- * @param {Phaser.Scene} scene - The Phaser scene
- * @param {number} x - X position
- * @param {number} y - Y position
- * @param {number} width - Initial bubble width (will adjust to content)
- * @param {number} height - Initial bubble height (will adjust to content)
- * @param {string} text - Text content
- * @param {string|null} color - Text color (red for bids, black for chat)
- * @param {string} tailDirection - Direction of bubble tail ('down' or 'left')
- * @returns {Phaser.GameObjects.Container} Container with bubble graphics
+ * @param {string} positionKey - Position identifier
+ * @returns {string} CSS class for tail direction
  */
-export function createSpeechBubble(
-  scene,
-  x,
-  y,
-  width,
-  height,
-  text,
-  color = null,
-  tailDirection = 'down'
-) {
-  const { x: scaleX, y: scaleY } = getScaleFactors(scene);
-  const PADDING = 10;
-  const TAIL_SIZE = 20 * scaleX;
-  const MAX_W = 350 * scaleX;
-  const MAX_H = 200 * scaleY;
-
-  // Style and measure the text
-  const style = {
-    fontSize: '16px',
-    fontFamily: 'Arial',
-    color: color === '#FF0000' ? '#FF0000' : '#000000',
-    wordWrap: { width: MAX_W - 2 * PADDING },
-  };
-  const textObj = scene.add.text(0, 0, text, style);
-
-  // Clamp measured size
-  const txtW = Math.min(textObj.width, MAX_W - 2 * PADDING);
-  const txtH = Math.min(textObj.height, MAX_H - 2 * PADDING);
-
-  // Final bubble dimensions
-  const bW = txtW + 2 * PADDING;
-  const bH = txtH + 2 * PADDING;
-
-  const bubble = scene.add.graphics();
-  bubble.fillStyle(0xffffff, 1);
-
-  let bubbleX, bubbleY;
-
-  if (tailDirection === 'left') {
-    // Bubble positioned to the right of x, vertically centered on y
-    bubbleX = x + TAIL_SIZE;
-    bubbleY = y - bH / 2;
-
-    // Draw bubble background
-    bubble.fillRoundedRect(bubbleX, bubbleY, bW, bH, 16);
-
-    // Draw tail pointing left toward the avatar
-    bubble.fillTriangle(
-      x,
-      y, // tail tip (pointing at avatar)
-      bubbleX,
-      y - TAIL_SIZE / 2, // top corner on bubble edge
-      bubbleX,
-      y + TAIL_SIZE / 2 // bottom corner on bubble edge
-    );
-
-    // Position text inside bubble
-    textObj.setPosition(bubbleX + PADDING, bubbleY + PADDING);
-  } else {
-    // Original 'down' behavior: bubble above y, tail pointing down
-    bubbleX = x;
-    bubbleY = y - bH;
-
-    // Draw bubble background
-    bubble.fillRoundedRect(bubbleX, bubbleY, bW, bH, 16);
-
-    // Draw tail pointing down
-    bubble.fillTriangle(
-      bubbleX + 20,
-      bubbleY + bH, // left corner of bottom edge
-      bubbleX - TAIL_SIZE,
-      bubbleY + bH, // tail tip farther left
-      bubbleX + 10,
-      bubbleY + bH - TAIL_SIZE
-    );
-
-    // Position text inside bubble
-    textObj.setPosition(bubbleX + PADDING, bubbleY + PADDING);
+function getTailClass(positionKey) {
+  switch (positionKey) {
+    case 'partner':
+      return 'tail-left'; // Bubble to the right, tail points left toward avatar
+    case 'opp1':
+    case 'opp2':
+    case 'me':
+    default:
+      return 'tail-down'; // Bubble above, tail points down toward avatar
   }
-
-  // Group elements
-  const container = scene.add.container(0, 0, [bubble, textObj]);
-  container.setDepth(500);
-  container.setAlpha(1);
-
-  return container;
 }
 
 /**
- * Show a chat bubble at a position, replacing any existing bubble.
+ * Create and show a chat bubble at a position.
  *
- * @param {Phaser.Scene} scene - The Phaser scene
  * @param {string} positionKey - Position identifier ('opp1', 'opp2', 'partner', 'me')
- * @param {number} x - X position
- * @param {number} y - Y position
+ * @param {number} x - X position in pixels
+ * @param {number} y - Y position in pixels
  * @param {string} message - Message text
- * @param {string|null} color - Text color
+ * @param {string|null} color - Text color (red for bids, null for chat)
  * @param {number} duration - Display duration in ms (default 6000)
  */
-export function showChatBubble(
-  scene,
-  positionKey,
-  x,
-  y,
-  message,
-  color = null,
-  duration = 6000
-) {
+export function showChatBubble(positionKey, x, y, message, color = null, duration = 6000) {
   // Destroy existing bubble for this position if present
   if (activeChatBubbles[positionKey]) {
-    if (activeChatBubbles[positionKey].timer) {
-      activeChatBubbles[positionKey].timer.remove(false);
-    }
-    if (activeChatBubbles[positionKey].bubble) {
-      activeChatBubbles[positionKey].bubble.destroy();
-    }
-    delete activeChatBubbles[positionKey];
+    clearBubble(positionKey);
   }
 
-  // Determine tail direction based on position
-  const tailDirection = positionKey === 'opp1' ? 'left' : 'down';
+  // Create bubble element
+  const bubble = document.createElement('div');
+  bubble.className = `chat-bubble ${getTailClass(positionKey)}`;
+  if (color === '#FF0000') {
+    bubble.classList.add('bid');
+  }
+  bubble.textContent = message;
 
-  // Create new bubble
-  const bubble = createSpeechBubble(scene, x, y, 150, 50, message, color, tailDirection);
-  const timer = scene.time.delayedCall(duration, () => {
-    bubble.destroy();
-    delete activeChatBubbles[positionKey];
-  });
+  // Position the bubble relative to avatar
+  const tailClass = getTailClass(positionKey);
+  if (tailClass === 'tail-left') {
+    // Partner (across): Bubble appears to the right of avatar
+    bubble.style.left = `${x + 50}px`; // Right of avatar
+    bubble.style.top = `${y}px`;
+    bubble.style.transform = 'translateY(-50%)';
+  } else {
+    // All others (me, opp1, opp2): Bubble appears above avatar
+    bubble.style.left = `${x}px`;
+    bubble.style.top = `${y - 50}px`; // Above avatar
+    bubble.style.transform = 'translate(-50%, -100%)';
+  }
+
+  document.body.appendChild(bubble);
+
+  // Set up fade out and removal
+  const fadeTime = 300;
+  const timer = setTimeout(() => {
+    bubble.classList.add('fade-out');
+    setTimeout(() => {
+      if (bubble.parentNode) {
+        bubble.remove();
+      }
+      delete activeChatBubbles[positionKey];
+    }, fadeTime);
+  }, duration - fadeTime);
 
   // Store reference
   activeChatBubbles[positionKey] = { bubble, timer };
 }
 
 /**
- * Clear all active chat bubbles.
+ * Clear a specific bubble by position key.
  *
- * @param {Phaser.Scene} scene - The Phaser scene (optional, for timer cleanup)
+ * @param {string} positionKey - Position identifier
  */
-export function clearChatBubbles(scene) {
-  Object.keys(activeChatBubbles).forEach((key) => {
-    const bubbleData = activeChatBubbles[key];
+function clearBubble(positionKey) {
+  const bubbleData = activeChatBubbles[positionKey];
+  if (bubbleData) {
     if (bubbleData.timer) {
-      bubbleData.timer.remove(false);
+      clearTimeout(bubbleData.timer);
     }
-    if (bubbleData.bubble) {
-      bubbleData.bubble.destroy();
+    if (bubbleData.bubble && bubbleData.bubble.parentNode) {
+      bubbleData.bubble.remove();
     }
-    delete activeChatBubbles[key];
+    delete activeChatBubbles[positionKey];
+  }
+}
+
+/**
+ * Clear all active chat bubbles.
+ */
+export function clearChatBubbles() {
+  Object.keys(activeChatBubbles).forEach((key) => {
+    clearBubble(key);
   });
 }
 
 /**
  * Get bubble position based on player position relative to current player.
+ * Returns avatar center positions - the bubble offset is handled in showChatBubble.
  *
- * @param {Phaser.Scene} scene - The Phaser scene
  * @param {number} playerPosition - Current player's position (1-4)
  * @param {number} messagePosition - Position of message sender (1-4)
  * @returns {Object|null} Position data { positionKey, x, y } or null if invalid
  */
-export function getBubblePosition(scene, playerPosition, messagePosition) {
-  const { x: scaleX, y: scaleY, screenWidth, screenHeight } = getScaleFactors(scene);
+export function getBubblePosition(playerPosition, messagePosition) {
+  const { x: scaleX, y: scaleY, screenWidth, screenHeight } = getScaleFactors();
 
-  // Calculate positions
   const centerX = screenWidth / 2;
   const centerY = screenHeight / 2;
 
-  // Match legacy game.js positions for chat bubbles
+  // Avatar center positions (matching OpponentManager positions)
+  // opp1/opp2 y is moved up to align bubble above avatar
+  // 'me' uses window coordinates since player info box is outside game container
   const positions = {
-    opp1: { x: centerX - 480 * scaleX, y: centerY },
-    opp2: { x: centerX + 620 * scaleX, y: centerY },
-    partner: { x: centerX + 20 * scaleX, y: centerY - 380 * scaleY },
-    me: { x: screenWidth - 310 * scaleX, y: screenHeight - 270 * scaleY },
+    opp1: { x: Math.max(130, centerX - 550 * scaleX), y: centerY - 40 },
+    opp2: { x: Math.min(screenWidth - 130, centerX + 550 * scaleX), y: centerY - 40 },
+    partner: { x: centerX, y: centerY - 400 * scaleY },
+    me: { x: window.innerWidth - 405, y: window.innerHeight - 230 },
   };
 
   // Determine relative position
@@ -247,4 +191,45 @@ export function getBubblePosition(scene, playerPosition, messagePosition) {
  */
 export function getActiveChatBubbles() {
   return activeChatBubbles;
+}
+
+/**
+ * Reposition all active bubbles (call on window resize).
+ *
+ * @param {number} playerPosition - Current player's position (1-4)
+ */
+export function repositionBubbles(playerPosition) {
+  Object.keys(activeChatBubbles).forEach((positionKey) => {
+    const bubbleData = activeChatBubbles[positionKey];
+    if (!bubbleData || !bubbleData.bubble) return;
+
+    const { x: scaleX, y: scaleY, screenWidth, screenHeight } = getScaleFactors();
+    const centerX = screenWidth / 2;
+    const centerY = screenHeight / 2;
+
+    // Avatar center positions
+    // 'me' uses window coordinates since player info box is outside game container
+    const positions = {
+      opp1: { x: Math.max(130, centerX - 550 * scaleX), y: centerY - 40 },
+      opp2: { x: Math.min(screenWidth - 130, centerX + 550 * scaleX), y: centerY - 40 },
+      partner: { x: centerX, y: centerY - 400 * scaleY },
+      me: { x: window.innerWidth - 405, y: window.innerHeight - 230 },
+    };
+
+    const pos = positions[positionKey];
+    if (!pos) return;
+
+    const tailClass = getTailClass(positionKey);
+    const bubble = bubbleData.bubble;
+
+    if (tailClass === 'tail-left') {
+      // Partner: bubble to the right
+      bubble.style.left = `${pos.x + 50}px`;
+      bubble.style.top = `${pos.y}px`;
+    } else {
+      // Others: bubble above
+      bubble.style.left = `${pos.x}px`;
+      bubble.style.top = `${pos.y - 50}px`;
+    }
+  });
 }
