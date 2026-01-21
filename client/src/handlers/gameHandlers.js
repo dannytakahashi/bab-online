@@ -253,10 +253,11 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
       }
     }
 
-    // Reset for next hand
-    state.resetForNewHand();
-
+    // Call callback BEFORE reset so handlers can access current state (e.g., bids)
     onHandComplete?.(data);
+
+    // Reset for next hand (clears bids, tricks, etc.)
+    state.resetForNewHand();
   });
 
   // ==================== GAME END ====================

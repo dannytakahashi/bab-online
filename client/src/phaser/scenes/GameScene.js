@@ -804,13 +804,12 @@ export class GameScene extends Phaser.Scene {
     this.state.currentOppBids = oppBids;
 
     // Update game log score
+    // state.teamScore and state.oppScore are already adjusted for player's perspective
     if (window.ModernUtils && this.state.playerData) {
       const { teamName, oppName } = window.ModernUtils.getTeamNames(pos, this.state.playerData);
-      const teamScore = pos % 2 !== 0 ? this.state.teamScore : this.state.oppScore;
-      const oppScore = pos % 2 !== 0 ? this.state.oppScore : this.state.teamScore;
 
       if (window.updateGameLogScoreFromLegacy) {
-        window.updateGameLogScoreFromLegacy(teamName, oppName, teamScore, oppScore, teamBids, oppBids);
+        window.updateGameLogScoreFromLegacy(teamName, oppName, this.state.teamScore, this.state.oppScore, teamBids, oppBids);
       }
     }
   }
@@ -845,7 +844,12 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Store bids data in state for game log
-    if (data.bids) {
+    // Server sends bids as 0-indexed array, convert to position-keyed object (1-4)
+    if (data.bids && Array.isArray(data.bids)) {
+      for (let i = 0; i < data.bids.length; i++) {
+        this.state.bids[i + 1] = data.bids[i];
+      }
+    } else if (data.bids) {
       this.state.bids = data.bids;
     }
 
@@ -1155,17 +1159,9 @@ export class GameScene extends Phaser.Scene {
     const myTeamNames = `${state.username}/${state.partnerName}`;
     const oppNames = `${state.opp1Name}/${state.opp2Name}`;
 
-    // Get scores - order depends on player position
-    let teamScore, oppScore;
-    if (state.position % 2 !== 0) {
-      // Odd position (1 or 3) - team1
-      teamScore = state.teamScore;
-      oppScore = state.oppScore;
-    } else {
-      // Even position (2 or 4) - team2
-      teamScore = state.oppScore;
-      oppScore = state.teamScore;
-    }
+    // state.teamScore and state.oppScore are already adjusted for player's perspective
+    const teamScore = state.teamScore;
+    const oppScore = state.oppScore;
 
     // Get bids - use stored values or empty string
     const teamBids = state.teamBids || '';
