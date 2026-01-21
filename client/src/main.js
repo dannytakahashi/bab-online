@@ -1686,6 +1686,10 @@ function initializeApp() {
         if (scene.trickManager) {
           scene.trickManager.setPlayerPosition(data.position);
           scene.trickManager.updatePlayPositions();
+          if (data.hand) {
+            scene.trickManager.setHandSize(data.hand.length);
+          }
+          scene.trickManager.createTrickBackgrounds();
         }
         if (scene.opponentManager) {
           scene.opponentManager.setPlayerPosition(data.position);
@@ -1840,6 +1844,13 @@ function initializeApp() {
       const scene = getGameScene();
       if (scene && scene.handleBidReceived) {
         scene.handleBidReceived(data);
+      }
+      // Update trick slot outlines based on bid
+      if (scene && scene.trickManager && data.position !== undefined && data.bid !== undefined) {
+        // Parse bid value - 'B', '2B', '3B', '4B' are bore bids (0 tricks)
+        const bidStr = String(data.bid);
+        const bidValue = bidStr.includes('B') ? 0 : parseInt(bidStr, 10) || 0;
+        scene.trickManager.addBid(data.position, bidValue);
       }
       // Note: Legacy code in displayCards() also handles bidReceived for bubbles/impact events
     },
