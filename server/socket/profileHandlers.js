@@ -221,7 +221,8 @@ async function recordGameStats(game) {
         const playerStats = game.playerStats?.[position] || { totalBids: 0, totalTricks: 0, setsCaused: 0 };
         const playerBids = playerStats.totalBids;
         const playerTricks = playerStats.totalTricks;
-        const playerSets = playerStats.setsCaused;
+        // Total sets is team-based, not fault-based
+        const teamSets = isTeam1 ? game.handStats.team1Sets : game.handStats.team2Sets;
 
         try {
             await usersCollection.updateOne(
@@ -235,7 +236,7 @@ async function recordGameStats(game) {
                         'stats.totalTricksBid': playerBids,
                         'stats.totalTricksTaken': playerTricks,
                         'stats.totalHands': totalHands,
-                        'stats.totalSets': playerSets
+                        'stats.totalSets': teamSets
                     }
                 }
             );
@@ -247,7 +248,7 @@ async function recordGameStats(game) {
                 tricks: playerTricks,
                 bids: playerBids,
                 hands: totalHands,
-                sets: playerSets
+                sets: teamSets
             });
         } catch (error) {
             authLogger.error('Error recording game stats', {
