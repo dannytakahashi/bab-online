@@ -160,7 +160,7 @@ export function getBubblePosition(playerPosition, messagePosition) {
     opp1: { x: Math.max(130, centerX - 550 * scaleX), y: centerY - 40 },
     opp2: { x: Math.min(screenWidth - 130, centerX + 550 * scaleX), y: centerY - 40 },
     partner: { x: centerX, y: centerY - 400 * scaleY },
-    me: { x: window.innerWidth - 405, y: window.innerHeight - 230 },
+    me: { x: window.innerWidth - 405, y: window.innerHeight - 300 },
   };
 
   // Determine relative position
@@ -213,7 +213,7 @@ export function repositionBubbles(playerPosition) {
       opp1: { x: Math.max(130, centerX - 550 * scaleX), y: centerY - 40 },
       opp2: { x: Math.min(screenWidth - 130, centerX + 550 * scaleX), y: centerY - 40 },
       partner: { x: centerX, y: centerY - 400 * scaleY },
-      me: { x: window.innerWidth - 405, y: window.innerHeight - 230 },
+      me: { x: window.innerWidth - 405, y: window.innerHeight - 300 },
     };
 
     const pos = positions[positionKey];
