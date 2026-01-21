@@ -14,13 +14,22 @@ describe('createGameLog', () => {
   it('creates game log container', () => {
     gameLog = createGameLog();
     expect(gameLog.container).toBeDefined();
-    expect(gameLog.container.id).toBe('game-log');
+    expect(gameLog.container.id).toBe('gameFeed');
   });
 
   it('has score section', () => {
     gameLog = createGameLog();
-    const scoreSection = gameLog.container.querySelector('#score-section');
+    const scoreSection = gameLog.container.querySelector('#gameLogScore');
     expect(scoreSection).toBeTruthy();
+  });
+
+  it('has hand indicator', () => {
+    gameLog = createGameLog();
+    const handIndicator = gameLog.container.querySelector('#handIndicator');
+    expect(handIndicator).toBeTruthy();
+    const handValue = gameLog.container.querySelector('#hand-indicator-value');
+    expect(handValue).toBeTruthy();
+    expect(handValue.textContent).toBe('-');
   });
 
   it('has chat input', () => {
@@ -31,7 +40,7 @@ describe('createGameLog', () => {
 
   it('addMessage adds chat message', () => {
     gameLog = createGameLog();
-    const messageArea = gameLog.container.querySelector('#game-log-messages');
+    const messageArea = gameLog.container.querySelector('#gameFeedMessages');
 
     gameLog.addMessage('Alice', 'Hello!');
 
@@ -41,7 +50,7 @@ describe('createGameLog', () => {
 
   it('addSystemMessage adds system message', () => {
     gameLog = createGameLog();
-    const messageArea = gameLog.container.querySelector('#game-log-messages');
+    const messageArea = gameLog.container.querySelector('#gameFeedMessages');
 
     gameLog.addSystemMessage('Game started');
 
@@ -56,6 +65,24 @@ describe('createGameLog', () => {
 
     expect(gameLog.container.querySelector('#team-score-value').textContent).toBe('50');
     expect(gameLog.container.querySelector('#opp-score-value').textContent).toBe('30');
+  });
+
+  it('updateHandIndicator updates hand display', () => {
+    gameLog = createGameLog();
+    document.body.appendChild(gameLog.container);
+
+    gameLog.updateHandIndicator(12);
+
+    expect(gameLog.container.querySelector('#hand-indicator-value').textContent).toBe('12');
+  });
+
+  it('updateHandIndicator handles single digit hands', () => {
+    gameLog = createGameLog();
+    document.body.appendChild(gameLog.container);
+
+    gameLog.updateHandIndicator(1);
+
+    expect(gameLog.container.querySelector('#hand-indicator-value').textContent).toBe('1');
   });
 
   it('calls onChatSubmit when message sent', () => {
@@ -94,7 +121,7 @@ describe('createGameLog', () => {
 
   it('clearMessages clears message area', () => {
     gameLog = createGameLog();
-    const messageArea = gameLog.container.querySelector('#game-log-messages');
+    const messageArea = gameLog.container.querySelector('#gameFeedMessages');
 
     gameLog.addMessage('Test', 'message');
     expect(messageArea.textContent).toContain('Test');
@@ -107,24 +134,24 @@ describe('createGameLog', () => {
     gameLog = createGameLog();
     document.body.appendChild(gameLog.container);
 
-    expect(document.getElementById('game-log')).toBeTruthy();
+    expect(document.getElementById('gameFeed')).toBeTruthy();
 
     gameLog.destroy();
     gameLog = null;
 
-    expect(document.getElementById('game-log')).toBeFalsy();
+    expect(document.getElementById('gameFeed')).toBeFalsy();
   });
 });
 
 describe('showGameLog', () => {
   afterEach(() => {
-    document.getElementById('game-log')?.remove();
+    document.getElementById('gameFeed')?.remove();
   });
 
   it('appends game log to body', () => {
     const log = showGameLog();
 
-    expect(document.getElementById('game-log')).toBeTruthy();
+    expect(document.getElementById('gameFeed')).toBeTruthy();
 
     log.destroy();
   });

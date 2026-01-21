@@ -53,7 +53,33 @@ export function createGameLog({ onChatSubmit } = {}) {
     <div id="opp-tricks-value" style="font-size: 11px; color: #aaa;">Tricks: 0</div>
   `;
 
+  // Hand indicator (between the two score displays)
+  const handIndicator = document.createElement('div');
+  handIndicator.id = 'handIndicator';
+  handIndicator.style.cssText = `
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  `;
+  handIndicator.innerHTML = `
+    <div style="font-size: 10px; color: #888; margin-bottom: 2px;">Hand</div>
+    <div id="hand-indicator-value" style="
+      background: #1a1a1a;
+      color: #b0b0b0;
+      font-size: 18px;
+      font-weight: bold;
+      width: 36px;
+      height: 36px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 4px;
+    ">-</div>
+  `;
+
   scoreSection.appendChild(teamScoreDiv);
+  scoreSection.appendChild(handIndicator);
   scoreSection.appendChild(oppScoreDiv);
   container.appendChild(scoreSection);
 
@@ -203,6 +229,11 @@ export function createGameLog({ onChatSubmit } = {}) {
     messageArea.innerHTML = '';
   };
 
+  const updateHandIndicator = (handSize) => {
+    const el = container.querySelector('#hand-indicator-value');
+    if (el) el.textContent = handSize.toString();
+  };
+
   const destroy = () => {
     container.remove();
   };
@@ -290,6 +321,7 @@ export function createGameLog({ onChatSubmit } = {}) {
     updateScores,
     updateTricks,
     updateFullScore,
+    updateHandIndicator,
     clearMessages,
     destroy,
     chatInput,

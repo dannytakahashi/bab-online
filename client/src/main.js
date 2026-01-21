@@ -1167,6 +1167,13 @@ window.updateGameLogScoreFromLegacy = function(teamNames, oppNames, teamScore, o
   }
 };
 
+// Bridge for updating game log hand indicator
+window.updateHandIndicatorFromLegacy = function(handSize) {
+  if (gameLogInstance && gameLogInstance.updateHandIndicator) {
+    gameLogInstance.updateHandIndicator(handSize);
+  }
+};
+
 // Export getter for game log instance
 export function getGameLogInstance() {
   return gameLogInstance;
@@ -1755,6 +1762,11 @@ function initializeApp() {
           window.updateGameLogScoreFromLegacy(teamName, oppName, teamScore, oppScore);
         }
       }
+
+      // Update hand indicator
+      if (data.currentHand !== undefined) {
+        window.updateHandIndicatorFromLegacy(data.currentHand);
+      }
     },
     // Draw phase - handled by DrawManager
     onStartDraw: (data) => {
@@ -1828,6 +1840,11 @@ function initializeApp() {
 
         // Add initial message
         gameLogInstance.addGameMessage('Game started!');
+
+        // Update hand indicator from current game state
+        if (gameState.currentHand !== undefined) {
+          window.updateHandIndicatorFromLegacy(gameState.currentHand);
+        }
       }
 
       // Initialize scene handElements if needed
@@ -1933,6 +1950,7 @@ function initializeApp() {
       showFinalScoreOverlay({
         teamScore: teamScore,
         oppScore: oppScore,
+        playerStats: data.playerStats,
         onReturnToLobby: () => {
           // Remove game feed/log
           let gameFeed = document.getElementById("gameFeed");
@@ -1942,8 +1960,20 @@ function initializeApp() {
           // Remove width restriction from game container
           document.getElementById('game-container')?.classList.remove('in-game');
 
-          // Restart scene and return to main room
+          // Clean up scene elements (avatars, cards, chat bubbles)
           if (scene) {
+            if (scene.cleanup) {
+              scene.cleanup();
+            }
+            // Clean up DOM backgrounds (play zone, hand background)
+            if (scene.layoutManager && scene.layoutManager.cleanupDomBackgrounds) {
+              scene.layoutManager.cleanupDomBackgrounds();
+            }
+            // Clean up trick manager
+            if (scene.trickManager && scene.trickManager.clearAll) {
+              scene.trickManager.clearAll();
+            }
+            // Restart scene
             scene.scene.restart();
           }
           socket.off("gameStart");
@@ -2072,6 +2102,11 @@ function initializeApp() {
           const teamScore = gameState.teamScore;
           const oppScore = gameState.oppScore;
           window.updateGameLogScoreFromLegacy(teamName, oppName, teamScore, oppScore);
+        }
+
+        // Update hand indicator
+        if (data.currentHand !== undefined) {
+          window.updateHandIndicatorFromLegacy(data.currentHand);
         }
 
         // Initialize managers with player position for reconnection
