@@ -215,10 +215,13 @@ async function recordGameStats(game) {
         const isTeam1 = position === 1 || position === 3;
         const isWinner = (isTeam1 && team1Won) || (!isTeam1 && !team1Won);
         const teamScore = isTeam1 ? game.score.team1 : game.score.team2;
-        const teamTricks = isTeam1 ? game.tricks.team1 : game.tricks.team2;
-        const teamBids = isTeam1 ? game.bids.team1 : game.bids.team2;
-        const teamSets = isTeam1 ? game.handStats.team1Sets : game.handStats.team2Sets;
         const totalHands = game.handStats.totalHands;
+
+        // Use per-player stats for individual bids/tricks (accumulated across all hands)
+        const playerStats = game.playerStats?.[position] || { totalBids: 0, totalTricks: 0, setsCaused: 0 };
+        const playerBids = playerStats.totalBids;
+        const playerTricks = playerStats.totalTricks;
+        const playerSets = playerStats.setsCaused;
 
         try {
             await usersCollection.updateOne(
@@ -229,10 +232,10 @@ async function recordGameStats(game) {
                         'stats.wins': isWinner ? 1 : 0,
                         'stats.losses': isWinner ? 0 : 1,
                         'stats.totalPoints': teamScore,
-                        'stats.totalTricksBid': teamBids,
-                        'stats.totalTricksTaken': teamTricks,
+                        'stats.totalTricksBid': playerBids,
+                        'stats.totalTricksTaken': playerTricks,
                         'stats.totalHands': totalHands,
-                        'stats.totalSets': teamSets
+                        'stats.totalSets': playerSets
                     }
                 }
             );
@@ -241,10 +244,10 @@ async function recordGameStats(game) {
                 username: player.username,
                 won: isWinner,
                 score: teamScore,
-                tricks: teamTricks,
-                bids: teamBids,
+                tricks: playerTricks,
+                bids: playerBids,
                 hands: totalHands,
-                sets: teamSets
+                sets: playerSets
             });
         } catch (error) {
             authLogger.error('Error recording game stats', {

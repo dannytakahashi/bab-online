@@ -119,6 +119,15 @@ async function handlePostPlay(io, game) {
             game.tricks.team2++;
         }
 
+        // Track tricks for player stats
+        if (game.playerStats && game.playerStats[winner]) {
+            game.playerStats[winner].totalTricks++;
+        }
+        // Track tricks for this hand (used for set responsibility)
+        if (game.handTricks) {
+            game.handTricks[winner]++;
+        }
+
         // Add trick winner to game log
         const winnerPlayer = game.getPlayerByPosition(winner);
         game.addLogEntry(`Trick won by ${winnerPlayer.username}.`, winner, 'trick');
@@ -370,7 +379,8 @@ async function startHand(game, io) {
             score1: game.score.team1,
             score2: game.score.team2,
             dealer: game.dealer,
-            position: playerPosition  // Include player's position to avoid race condition
+            position: playerPosition,  // Include player's position to avoid race condition
+            currentHand: game.currentHand  // Hand index for hand indicator
         });
     }
 
@@ -518,6 +528,45 @@ async function handleHandComplete(game, io) {
         game.handStats.team2Sets++;
     }
 
+    // Track set responsibility per player
+    // A player is responsible for a set if their team was set AND they bid more than they took
+    if (game.playerStats && game.handTricks) {
+        const getBidValue = (bid) => {
+            const bidStr = String(bid);
+            return bidStr.includes('B') ? 0 : parseInt(bidStr, 10) || 0;
+        };
+
+        // Team 1 set check (positions 1 and 3)
+        if (game.tricks.team1 < game.bids.team1) {
+            const p1Bid = getBidValue(game.playerBids[0]); // Position 1
+            const p3Bid = getBidValue(game.playerBids[2]); // Position 3
+            const p1Tricks = game.handTricks[1] || 0;
+            const p3Tricks = game.handTricks[3] || 0;
+
+            if (p1Bid > p1Tricks && game.playerStats[1]) {
+                game.playerStats[1].setsCaused++;
+            }
+            if (p3Bid > p3Tricks && game.playerStats[3]) {
+                game.playerStats[3].setsCaused++;
+            }
+        }
+
+        // Team 2 set check (positions 2 and 4)
+        if (game.tricks.team2 < game.bids.team2) {
+            const p2Bid = getBidValue(game.playerBids[1]); // Position 2
+            const p4Bid = getBidValue(game.playerBids[3]); // Position 4
+            const p2Tricks = game.handTricks[2] || 0;
+            const p4Tricks = game.handTricks[4] || 0;
+
+            if (p2Bid > p2Tricks && game.playerStats[2]) {
+                game.playerStats[2].setsCaused++;
+            }
+            if (p4Bid > p4Tricks && game.playerStats[4]) {
+                game.playerStats[4].setsCaused++;
+            }
+        }
+    }
+
     gameLogger.debug('Score update', {
         team1: { score: game.score.team1, bids: [game.playerBids[0], game.playerBids[2]], tricks: game.tricks.team1 },
         team2: { score: game.score.team2, bids: [game.playerBids[1], game.playerBids[3]], tricks: game.tricks.team2 },
@@ -580,7 +629,20 @@ async function handleHandComplete(game, io) {
         // Record game stats for all players
         await recordGameStats(game);
 
-        game.broadcast(io, 'gameEnd', { score: game.score });
+        // Build player stats with usernames for final score screen
+        const playerStatsWithNames = {};
+        for (let pos = 1; pos <= 4; pos++) {
+            const player = game.getPlayerByPosition(pos);
+            playerStatsWithNames[pos] = {
+                username: player?.username || `P${pos}`,
+                ...game.playerStats[pos]
+            };
+        }
+
+        game.broadcast(io, 'gameEnd', {
+            score: game.score,
+            playerStats: playerStatsWithNames
+        });
         // Clear active game for all players
         await gameManager.clearActiveGameForAll(game.gameId);
         // Cleanup bots
@@ -641,7 +703,8 @@ async function cleanupNextHand(game, io, dealer, handSize) {
             score1: game.score.team1,
             score2: game.score.team2,
             dealer: game.dealer,
-            position: playerPosition  // Include player's position to fix bid UI bug
+            position: playerPosition,  // Include player's position to fix bid UI bug
+            currentHand: game.currentHand  // Hand index for hand indicator
         });
     }
 

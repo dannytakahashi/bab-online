@@ -118,10 +118,11 @@ export function formatGameEndMessages(options) {
  * @param {Object} options - Options
  * @param {number} options.teamScore - Final team score
  * @param {number} options.oppScore - Final opponent score
+ * @param {Object} options.playerStats - Player stats object { position: { username, totalBids, totalTricks, setsCaused } }
  * @param {Function} options.onReturnToLobby - Called when user clicks return button
  * @returns {Object} { overlay, destroy }
  */
-export function showFinalScoreOverlay({ teamScore, oppScore, onReturnToLobby }) {
+export function showFinalScoreOverlay({ teamScore, oppScore, playerStats, onReturnToLobby }) {
   // Determine winner message
   let resultMsg;
   let resultColor;
@@ -145,7 +146,7 @@ export function showFinalScoreOverlay({ teamScore, oppScore, onReturnToLobby }) 
     left: 0;
     width: 100vw;
     height: 100vh;
-    background: rgba(0, 0, 0, 0.7);
+    background: rgba(0, 0, 0, 0.85);
     display: flex;
     flex-direction: column;
     justify-content: center;
@@ -170,10 +171,73 @@ export function showFinalScoreOverlay({ teamScore, oppScore, onReturnToLobby }) 
   scoreDiv.style.cssText = `
     font-size: 24px;
     color: white;
-    margin-bottom: 40px;
+    margin-bottom: 30px;
   `;
   scoreDiv.textContent = `Final Score: ${teamScore} - ${oppScore}`;
   overlay.appendChild(scoreDiv);
+
+  // Player stats grid (if available)
+  if (playerStats) {
+    const statsContainer = document.createElement('div');
+    statsContainer.style.cssText = `
+      background: rgba(30, 30, 30, 0.9);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 30px;
+      min-width: 400px;
+    `;
+
+    // Stats header
+    const statsHeader = document.createElement('div');
+    statsHeader.style.cssText = `
+      display: grid;
+      grid-template-columns: 2fr 1fr 1fr 1fr;
+      gap: 12px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #444;
+      margin-bottom: 12px;
+      color: #888;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    `;
+    statsHeader.innerHTML = `
+      <div>Player</div>
+      <div style="text-align: center;">Bids</div>
+      <div style="text-align: center;">Tricks</div>
+      <div style="text-align: center;">Faults</div>
+    `;
+    statsContainer.appendChild(statsHeader);
+
+    // Player rows - order by position (1, 2, 3, 4)
+    for (let pos = 1; pos <= 4; pos++) {
+      const stats = playerStats[pos];
+      if (!stats) continue;
+
+      // Team color: positions 1,3 = team1 (blue-ish), positions 2,4 = team2 (red-ish)
+      const isTeam1 = pos === 1 || pos === 3;
+      const teamColor = isTeam1 ? '#63b3ed' : '#fc8181';
+
+      const playerRow = document.createElement('div');
+      playerRow.style.cssText = `
+        display: grid;
+        grid-template-columns: 2fr 1fr 1fr 1fr;
+        gap: 12px;
+        padding: 8px 0;
+        color: white;
+        font-size: 14px;
+      `;
+      playerRow.innerHTML = `
+        <div style="color: ${teamColor}; font-weight: 500;">${stats.username}</div>
+        <div style="text-align: center;">${stats.totalBids}</div>
+        <div style="text-align: center;">${stats.totalTricks}</div>
+        <div style="text-align: center; color: ${stats.setsCaused > 0 ? '#ef4444' : 'inherit'};">${stats.setsCaused}</div>
+      `;
+      statsContainer.appendChild(playerRow);
+    }
+
+    overlay.appendChild(statsContainer);
+  }
 
   // Return button
   const returnBtn = document.createElement('button');

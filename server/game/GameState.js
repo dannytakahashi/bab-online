@@ -49,6 +49,18 @@ class GameState {
         // Hand stats (for player profiles)
         this.handStats = { totalHands: 0, team1Sets: 0, team2Sets: 0 };
 
+        // Per-player stats for final score screen
+        // position (1-4) → { totalBids, totalTricks, setsCaused }
+        this.playerStats = {
+            1: { totalBids: 0, totalTricks: 0, setsCaused: 0 },
+            2: { totalBids: 0, totalTricks: 0, setsCaused: 0 },
+            3: { totalBids: 0, totalTricks: 0, setsCaused: 0 },
+            4: { totalBids: 0, totalTricks: 0, setsCaused: 0 },
+        };
+
+        // Per-hand trick tracking (reset each hand) for determining set responsibility
+        this.handTricks = { 1: 0, 2: 0, 3: 0, 4: 0 };
+
         // Draw phase
         this.drawCards = [];
         this.drawIDs = [];
@@ -270,6 +282,14 @@ class GameState {
     recordBid(position, bid) {
         this.bids[position] = bid;
         this.playerBids[position - 1] = bid;
+
+        // Track total bids for player stats
+        // Bore bids (B, 2B, 3B, 4B) count as 0 tricks bid
+        const bidStr = String(bid);
+        const bidValue = bidStr.includes('B') ? 0 : parseInt(bidStr, 10) || 0;
+        if (this.playerStats[position]) {
+            this.playerStats[position].totalBids += bidValue;
+        }
     }
 
     getBidCount() {
@@ -303,6 +323,9 @@ class GameState {
 
         this.tricks = { team1: 0, team2: 0 };
         this.rainbows = { team1: 0, team2: 0 };
+
+        // Reset per-hand trick tracking
+        this.handTricks = { 1: 0, 2: 0, 3: 0, 4: 0 };
     }
 
     resetForNewGame() {
@@ -310,6 +333,12 @@ class GameState {
         this.dealer = 1;
         this.score = { team1: 0, team2: 0 };
         this.handStats = { totalHands: 0, team1Sets: 0, team2Sets: 0 };
+        this.playerStats = {
+            1: { totalBids: 0, totalTricks: 0, setsCaused: 0 },
+            2: { totalBids: 0, totalTricks: 0, setsCaused: 0 },
+            3: { totalBids: 0, totalTricks: 0, setsCaused: 0 },
+            4: { totalBids: 0, totalTricks: 0, setsCaused: 0 },
+        };
         this.resetForNewHand(1, 12);
 
         this.phase = 'waiting';
