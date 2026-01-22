@@ -32,6 +32,9 @@ export const CLIENT_EVENTS = {
   // Profile
   GET_PROFILE: 'getProfile',
   UPDATE_PROFILE_PIC: 'updateProfilePic',
+
+  // Leaderboard
+  GET_LEADERBOARD: 'getLeaderboard',
 };
 
 // Server -> Client Events
@@ -100,4 +103,7 @@ export const SERVER_EVENTS = {
   // Profile
   PROFILE_RESPONSE: 'profileResponse',
   PROFILE_PIC_UPDATE_RESPONSE: 'profilePicUpdateResponse',
+
+  // Leaderboard
+  LEADERBOARD_RESPONSE: 'leaderboardResponse',
 };

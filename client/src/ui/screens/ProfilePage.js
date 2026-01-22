@@ -478,7 +478,7 @@ export function showProfilePage(profile, socket) {
 
   // Stats section
   const statsHeader = document.createElement('div');
-  statsHeader.innerText = 'Game Statistics';
+  statsHeader.innerText = 'Statistics';
   statsHeader.style.fontSize = '18px';
   statsHeader.style.fontWeight = 'bold';
   statsHeader.style.marginBottom = '15px';
@@ -518,6 +518,20 @@ export function showProfilePage(profile, socket) {
     ? ((stats.totalSets / stats.totalHands) * 100).toFixed(1) + '%'
     : '0%';
   statsGrid.appendChild(createStatItem('Set Rate', setRate));
+
+  // Row 4: Drag, Faults/Game, HSI
+  const drag = gamesPlayed > 0
+    ? ((stats.totalSetPoints || 0) / gamesPlayed).toFixed(1)
+    : '0';
+  statsGrid.appendChild(createStatItem('Drag', drag));
+  const faultsPerGame = gamesPlayed > 0
+    ? ((stats.totalFaults || 0) / gamesPlayed).toFixed(2)
+    : '0';
+  statsGrid.appendChild(createStatItem('Faults/Game', faultsPerGame));
+  const avgHSI = (stats.totalHands || 0) > 0
+    ? ((stats.totalHSI || 0) / stats.totalHands).toFixed(1)
+    : '0';
+  statsGrid.appendChild(createStatItem('HSI', avgHSI));
 
   modal.appendChild(statsGrid);
 

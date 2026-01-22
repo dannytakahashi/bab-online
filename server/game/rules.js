@@ -289,6 +289,67 @@ function determineDrawPosition(myCard, allCards) {
     return position;
 }
 
+/**
+ * Card value mapping for HSI calculation
+ * Non-trump: 2=0, 3=1, 4=2, ..., A=12
+ * Trump: 2=14, 3=15, 4=16, ..., A=26
+ * Jokers: LO=27, HI=28
+ */
+const HSI_RANK_VALUES = {
+    '2': 0, '3': 1, '4': 2, '5': 3, '6': 4, '7': 5, '8': 6,
+    '9': 7, '10': 8, 'J': 9, 'Q': 10, 'K': 11, 'A': 12
+};
+const HSI_TRUMP_OFFSET = 14; // Add to non-trump value to get trump value
+const HSI_JOKER_VALUES = { 'LO': 27, 'HI': 28 };
+const HSI_VOID_MULTIPLIER = 1.25;
+
+/**
+ * Calculate Hand Strength Index (HSI) for a hand
+ * @param {Array} hand - Player's hand (array of card objects)
+ * @param {Object} trump - Trump card
+ * @returns {number} - HSI value normalized to 13 cards
+ */
+function calculateHSI(hand, trump) {
+    if (!hand || hand.length === 0) return 0;
+
+    const trumpSuit = trump.suit;
+    const handSize = hand.length;
+    let totalValue = 0;
+
+    // Track which non-trump suits are present
+    const nonTrumpSuits = ['spades', 'hearts', 'diamonds', 'clubs'].filter(s => s !== trumpSuit);
+    const suitsPresent = new Set();
+
+    for (const card of hand) {
+        if (card.suit === 'joker') {
+            // Jokers
+            totalValue += HSI_JOKER_VALUES[card.rank];
+        } else if (card.suit === trumpSuit) {
+            // Trump suit cards
+            totalValue += HSI_RANK_VALUES[card.rank] + HSI_TRUMP_OFFSET;
+            suitsPresent.add(card.suit);
+        } else {
+            // Non-trump suit cards
+            totalValue += HSI_RANK_VALUES[card.rank];
+            suitsPresent.add(card.suit);
+        }
+    }
+
+    // Normalize to 13 cards
+    let hsi = totalValue * (13 / handSize);
+
+    // Apply void multiplier for hands of 9+ cards
+    if (handSize >= 9) {
+        for (const suit of nonTrumpSuits) {
+            if (!suitsPresent.has(suit)) {
+                hsi *= HSI_VOID_MULTIPLIER;
+            }
+        }
+    }
+
+    return hsi;
+}
+
 module.exports = {
     RANK_VALUES,
     BID_RANKS,
@@ -304,5 +365,6 @@ module.exports = {
     calculateScore,
     findHighestBidder,
     calculateMultiplier,
-    determineDrawPosition
+    determineDrawPosition,
+    calculateHSI
 };
