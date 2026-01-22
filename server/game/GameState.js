@@ -50,12 +50,12 @@ class GameState {
         this.handStats = { totalHands: 0, team1Sets: 0, team2Sets: 0 };
 
         // Per-player stats for final score screen
-        // position (1-4) → { totalBids, totalTricks, setsCaused }
+        // position (1-4) → { totalBids, totalTricks, setsCaused, totalHSI }
         this.playerStats = {
-            1: { totalBids: 0, totalTricks: 0, setsCaused: 0 },
-            2: { totalBids: 0, totalTricks: 0, setsCaused: 0 },
-            3: { totalBids: 0, totalTricks: 0, setsCaused: 0 },
-            4: { totalBids: 0, totalTricks: 0, setsCaused: 0 },
+            1: { totalBids: 0, totalTricks: 0, setsCaused: 0, totalHSI: 0 },
+            2: { totalBids: 0, totalTricks: 0, setsCaused: 0, totalHSI: 0 },
+            3: { totalBids: 0, totalTricks: 0, setsCaused: 0, totalHSI: 0 },
+            4: { totalBids: 0, totalTricks: 0, setsCaused: 0, totalHSI: 0 },
         };
 
         // Per-hand trick tracking (reset each hand) for determining set responsibility
@@ -284,11 +284,22 @@ class GameState {
         this.playerBids[position - 1] = bid;
 
         // Track total bids for player stats
-        // Bore bids (B, 2B, 3B, 4B) count as 0 tricks bid
+        // Bore bids (B, 2B, 3B, 4B) count as all tricks in the hand
         const bidStr = String(bid);
-        const bidValue = bidStr.includes('B') ? 0 : parseInt(bidStr, 10) || 0;
+        const bidValue = bidStr.includes('B') ? this.currentHand : parseInt(bidStr, 10) || 0;
         if (this.playerStats[position]) {
             this.playerStats[position].totalBids += bidValue;
+        }
+    }
+
+    /**
+     * Add HSI value to a player's stats
+     * @param {number} position - Player position (1-4)
+     * @param {number} hsi - HSI value to add
+     */
+    addHSI(position, hsi) {
+        if (this.playerStats[position]) {
+            this.playerStats[position].totalHSI += hsi;
         }
     }
 
@@ -334,10 +345,10 @@ class GameState {
         this.score = { team1: 0, team2: 0 };
         this.handStats = { totalHands: 0, team1Sets: 0, team2Sets: 0 };
         this.playerStats = {
-            1: { totalBids: 0, totalTricks: 0, setsCaused: 0 },
-            2: { totalBids: 0, totalTricks: 0, setsCaused: 0 },
-            3: { totalBids: 0, totalTricks: 0, setsCaused: 0 },
-            4: { totalBids: 0, totalTricks: 0, setsCaused: 0 },
+            1: { totalBids: 0, totalTricks: 0, setsCaused: 0, totalHSI: 0 },
+            2: { totalBids: 0, totalTricks: 0, setsCaused: 0, totalHSI: 0 },
+            3: { totalBids: 0, totalTricks: 0, setsCaused: 0, totalHSI: 0 },
+            4: { totalBids: 0, totalTricks: 0, setsCaused: 0, totalHSI: 0 },
         };
         this.resetForNewHand(1, 12);
 

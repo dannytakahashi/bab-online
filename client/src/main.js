@@ -31,6 +31,7 @@ import { createRegisterScreen, showRegisterScreen } from './ui/screens/Register.
 import { showMainRoom, addMainRoomChatMessage, updateLobbyList, removeMainRoom, updateMainRoomOnlineCount, getMainRoomUserColors } from './ui/screens/MainRoom.js';
 import { showGameLobby, updateLobbyPlayersList, addLobbyChatMessage, removeGameLobby, getCurrentLobbyId, getIsPlayerReady, getLobbyUserColors } from './ui/screens/GameLobby.js';
 import { showProfilePage, updateProfilePicDisplay, updateCustomProfilePicDisplay, removeProfilePage, isProfilePageVisible } from './ui/screens/ProfilePage.js';
+import { showLeaderboardPage, removeLeaderboardPage, isLeaderboardPageVisible } from './ui/screens/LeaderboardPage.js';
 import { UIManager, SCREENS, getUIManager, initializeUIManager, resetUIManager } from './ui/UIManager.js';
 
 // Phaser
@@ -1965,6 +1966,10 @@ function initializeApp() {
             if (scene.cleanup) {
               scene.cleanup();
             }
+            // Clean up opponent manager (avatars, dealer button)
+            if (scene.opponentManager && scene.opponentManager.clearAll) {
+              scene.opponentManager.clearAll();
+            }
             // Clean up DOM backgrounds (play zone, hand background)
             if (scene.layoutManager && scene.layoutManager.cleanupDomBackgrounds) {
               scene.layoutManager.cleanupDomBackgrounds();
@@ -2016,6 +2021,11 @@ function initializeApp() {
       // Clean up DOM backgrounds
       if (scene && scene.layoutManager) {
         scene.layoutManager.cleanupDomBackgrounds();
+      }
+
+      // Clean up opponent manager (avatars, dealer button)
+      if (scene && scene.opponentManager && scene.opponentManager.clearAll) {
+        scene.opponentManager.clearAll();
       }
 
       // Clear all UI
@@ -2314,6 +2324,13 @@ function initializeApp() {
     },
     onCustomProfilePicUploadError: (message) => {
       showError(message || 'Failed to upload profile picture');
+    },
+    // Leaderboard callbacks
+    onLeaderboardReceived: (leaderboard) => {
+      showLeaderboardPage(leaderboard, socket);
+    },
+    onLeaderboardError: (message) => {
+      showError(message || 'Failed to load leaderboard');
     },
   });
 

@@ -186,6 +186,28 @@ export function showMainRoom(data, socket) {
   rightContainer.style.alignItems = 'center';
   rightContainer.style.gap = '15px';
 
+  // Leaderboard button
+  const leaderboardBtn = document.createElement('button');
+  leaderboardBtn.innerText = 'Leaderboard';
+  leaderboardBtn.style.padding = '8px 16px';
+  leaderboardBtn.style.borderRadius = '6px';
+  leaderboardBtn.style.border = 'none';
+  leaderboardBtn.style.background = '#6366f1';
+  leaderboardBtn.style.color = '#fff';
+  leaderboardBtn.style.fontSize = '14px';
+  leaderboardBtn.style.fontWeight = 'bold';
+  leaderboardBtn.style.cursor = 'pointer';
+  leaderboardBtn.addEventListener('click', () => {
+    socket.emit('getLeaderboard');
+  });
+  leaderboardBtn.addEventListener('mouseenter', () => {
+    leaderboardBtn.style.background = '#4f46e5';
+  });
+  leaderboardBtn.addEventListener('mouseleave', () => {
+    leaderboardBtn.style.background = '#6366f1';
+  });
+  rightContainer.appendChild(leaderboardBtn);
+
   // Profile button
   const profileBtn = document.createElement('button');
   profileBtn.innerText = 'Profile';

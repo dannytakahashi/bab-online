@@ -10,6 +10,7 @@ import { registerLobbyHandlers } from './lobbyHandlers.js';
 import { registerGameHandlers, cleanupGameHandlers as cleanupGame } from './gameHandlers.js';
 import { registerChatHandlers } from './chatHandlers.js';
 import { registerProfileHandlers } from './profileHandlers.js';
+import { registerLeaderboardHandlers } from './leaderboardHandlers.js';
 
 /**
  * Register all socket event handlers.
@@ -71,6 +72,9 @@ export function registerAllHandlers(socketManager, callbacks = {}) {
     onProfilePicUpdateError,
     onCustomProfilePicUploaded,
     onCustomProfilePicUploadError,
+    // Leaderboard callbacks
+    onLeaderboardReceived,
+    onLeaderboardError,
   } = callbacks;
 
   // Register auth handlers
@@ -139,6 +143,12 @@ export function registerAllHandlers(socketManager, callbacks = {}) {
     onCustomProfilePicUploaded,
     onCustomProfilePicUploadError,
   });
+
+  // Register leaderboard handlers
+  registerLeaderboardHandlers(socketManager, {
+    onLeaderboardReceived,
+    onLeaderboardError,
+  });
 }
 
 /**
@@ -154,3 +164,4 @@ export { registerLobbyHandlers } from './lobbyHandlers.js';
 export { registerGameHandlers } from './gameHandlers.js';
 export { registerChatHandlers } from './chatHandlers.js';
 export { registerProfileHandlers } from './profileHandlers.js';
+export { registerLeaderboardHandlers } from './leaderboardHandlers.js';

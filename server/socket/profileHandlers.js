@@ -52,7 +52,10 @@ async function getProfile(socket, io) {
                     totalTricksBid: 0,
                     totalTricksTaken: 0,
                     totalHands: 0,
-                    totalSets: 0
+                    totalSets: 0,
+                    totalSetPoints: 0,
+                    totalFaults: 0,
+                    totalHSI: 0
                 }
             }
         });
@@ -218,11 +221,15 @@ async function recordGameStats(game) {
         const totalHands = game.handStats.totalHands;
 
         // Use per-player stats for individual bids/tricks (accumulated across all hands)
-        const playerStats = game.playerStats?.[position] || { totalBids: 0, totalTricks: 0, setsCaused: 0 };
+        const playerStats = game.playerStats?.[position] || { totalBids: 0, totalTricks: 0, setsCaused: 0, totalHSI: 0 };
         const playerBids = playerStats.totalBids;
         const playerTricks = playerStats.totalTricks;
+        const playerFaults = playerStats.setsCaused || 0;
+        const playerHSI = playerStats.totalHSI || 0;
         // Total sets is team-based, not fault-based
         const teamSets = isTeam1 ? game.handStats.team1Sets : game.handStats.team2Sets;
+        // Total set points (negative points lost to sets) - for "drag" stat
+        const teamSetPoints = isTeam1 ? (game.handStats.team1SetPoints || 0) : (game.handStats.team2SetPoints || 0);
 
         try {
             await usersCollection.updateOne(
@@ -236,7 +243,10 @@ async function recordGameStats(game) {
                         'stats.totalTricksBid': playerBids,
                         'stats.totalTricksTaken': playerTricks,
                         'stats.totalHands': totalHands,
-                        'stats.totalSets': teamSets
+                        'stats.totalSets': teamSets,
+                        'stats.totalSetPoints': teamSetPoints,
+                        'stats.totalFaults': playerFaults,
+                        'stats.totalHSI': playerHSI
                     }
                 }
             );
@@ -248,7 +258,10 @@ async function recordGameStats(game) {
                 tricks: playerTricks,
                 bids: playerBids,
                 hands: totalHands,
-                sets: teamSets
+                sets: teamSets,
+                setPoints: teamSetPoints,
+                faults: playerFaults,
+                hsi: playerHSI
             });
         } catch (error) {
             authLogger.error('Error recording game stats', {
@@ -299,10 +312,73 @@ async function getUserProfilePic(username) {
     return Math.floor(Math.random() * 82) + 1;
 }
 
+/**
+ * Get leaderboard data with computed stats for all players
+ * @param {Socket} socket - Socket instance
+ * @param {Server} io - Socket.IO server instance
+ */
+async function getLeaderboard(socket, io) {
+    const usersCollection = getUsersCollection();
+
+    try {
+        // Find all users with at least one game played
+        const users = await usersCollection.find(
+            { 'stats.gamesPlayed': { $gt: 0 } }
+        ).toArray();
+
+        // Compute derived stats and format response
+        const leaderboard = users.map(user => {
+            const stats = user.stats || {};
+            const gamesPlayed = stats.gamesPlayed || 0;
+            const wins = stats.wins || 0;
+            const totalPoints = stats.totalPoints || 0;
+            const totalTricksBid = stats.totalTricksBid || 0;
+            const totalTricksTaken = stats.totalTricksTaken || 0;
+            const totalHands = stats.totalHands || 0;
+            const totalSets = stats.totalSets || 0;
+            const totalSetPoints = stats.totalSetPoints || 0;
+            const totalFaults = stats.totalFaults || 0;
+            const totalHSI = stats.totalHSI || 0;
+
+            return {
+                username: user.username,
+                profilePic: user.profilePic || 1,
+                customProfilePic: user.customProfilePic || null,
+                gamesPlayed,
+                winRate: gamesPlayed > 0 ? (wins / gamesPlayed) * 100 : 0,
+                pointsPerGame: gamesPlayed > 0 ? totalPoints / gamesPlayed : 0,
+                bidsPerGame: gamesPlayed > 0 ? totalTricksBid / gamesPlayed : 0,
+                tricksPerBid: totalTricksBid > 0 ? totalTricksTaken / totalTricksBid : 0,
+                setRate: totalHands > 0 ? (totalSets / totalHands) * 100 : 0,
+                drag: gamesPlayed > 0 ? totalSetPoints / gamesPlayed : 0,
+                faultsPerGame: gamesPlayed > 0 ? totalFaults / gamesPlayed : 0,
+                avgHSI: totalHands > 0 ? totalHSI / totalHands : 0
+            };
+        });
+
+        // Sort by win rate descending by default
+        leaderboard.sort((a, b) => b.winRate - a.winRate);
+
+        socket.emit('leaderboardResponse', {
+            success: true,
+            leaderboard
+        });
+
+        authLogger.debug('Leaderboard fetched', { playerCount: leaderboard.length });
+    } catch (error) {
+        authLogger.error('Error fetching leaderboard', { error: error.message });
+        socket.emit('leaderboardResponse', {
+            success: false,
+            message: 'Database error'
+        });
+    }
+}
+
 module.exports = {
     getProfile,
     updateProfilePic,
     uploadProfilePic,
     recordGameStats,
-    getUserProfilePic
+    getUserProfilePic,
+    getLeaderboard
 };

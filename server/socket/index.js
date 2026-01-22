@@ -105,6 +105,9 @@ function setupSocketHandlers(io) {
         socket.on('uploadProfilePic', (data) =>
             asyncHandler('uploadProfilePic', profileHandlers.uploadProfilePic)(socket, io, data)
         );
+        socket.on('getLeaderboard', () =>
+            safeHandler(profileHandlers.getLeaderboard)(socket, io, {})
+        );
 
         // Disconnect - cleanup rate limiter and handle game state
         socket.on('disconnect', () => {

@@ -14,6 +14,7 @@ const {
     findHighestBidder,
     calculateMultiplier,
     determineDrawPosition,
+    calculateHSI,
     BID_RANKS
 } = require('../game/rules');
 const { delay } = require('../utils/timing');
@@ -348,6 +349,14 @@ async function startHand(game, io) {
     // Set trump
     game.trump = deck.drawOne();
 
+    // Calculate HSI for each player's hand and add to their stats
+    for (const socketId of socketIds) {
+        const hand = game.getHand(socketId);
+        const position = game.getPositionBySocketId(socketId);
+        const hsi = calculateHSI(hand, game.trump);
+        game.addHSI(position, hsi);
+    }
+
     // Check for rainbows (only on 4-card hands)
     if (game.currentHand === 4) {
         for (const socketId of socketIds) {
@@ -523,9 +532,15 @@ async function handleHandComplete(game, io) {
     game.handStats.totalHands++;
     if (game.tricks.team1 < game.bids.team1) {
         game.handStats.team1Sets++;
+        // Track the actual points lost to this set (for "drag" stat)
+        const team1SetPoints = game.bids.team1 * 10 * game.team1Mult - game.rainbows.team1 * 10;
+        game.handStats.team1SetPoints = (game.handStats.team1SetPoints || 0) + team1SetPoints;
     }
     if (game.tricks.team2 < game.bids.team2) {
         game.handStats.team2Sets++;
+        // Track the actual points lost to this set (for "drag" stat)
+        const team2SetPoints = game.bids.team2 * 10 * game.team2Mult - game.rainbows.team2 * 10;
+        game.handStats.team2SetPoints = (game.handStats.team2SetPoints || 0) + team2SetPoints;
     }
 
     // Track set responsibility per player
@@ -671,6 +686,14 @@ async function cleanupNextHand(game, io, dealer, handSize) {
     }
 
     game.trump = deck.drawOne();
+
+    // Calculate HSI for each player's hand and add to their stats
+    for (const socketId of socketIds) {
+        const hand = game.getHand(socketId);
+        const position = game.getPositionBySocketId(socketId);
+        const hsi = calculateHSI(hand, game.trump);
+        game.addHSI(position, hsi);
+    }
 
     // Check for rainbows (only on 4-card hands)
     if (game.currentHand === 4) {
