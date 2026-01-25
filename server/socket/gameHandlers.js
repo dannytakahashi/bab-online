@@ -91,6 +91,27 @@ async function handlePostBid(io, game) {
 
         game.currentTurn = lead;
         game.leadPosition = lead;
+
+        // Check for rainbows after bidding (only on 4-card hands)
+        if (game.currentHand === 4) {
+            const socketIds = game.getSocketIds();
+            for (const socketId of socketIds) {
+                const hand = game.getHand(socketId);
+                if (isRainbow(hand, game.trump)) {
+                    const position = game.getPositionBySocketId(socketId);
+                    const player = game.getPlayerByPosition(position);
+                    gameLogger.info('Rainbow hand detected', { socketId, position, gameId: game.gameId });
+                    game.broadcast(io, 'rainbow', { position });
+                    game.addLogEntry(`${player.username} has a rainbow!`, position, 'rainbow');
+
+                    if (position === 1 || position === 3) {
+                        game.rainbows.team1 += 1;
+                    } else {
+                        game.rainbows.team2 += 1;
+                    }
+                }
+            }
+        }
     }
 
     game.broadcast(io, 'updateTurn', { currentTurn: game.currentTurn });
@@ -328,8 +349,6 @@ async function handleDrawComplete(io, game) {
     // Add game start message to log
     game.addLogEntry('Game started!', null, 'system');
 
-    await delay(1000);
-
     // Start the actual game (emits gameStart to each player)
     await startHand(game, io);
 }
@@ -355,26 +374,6 @@ async function startHand(game, io) {
         const position = game.getPositionBySocketId(socketId);
         const hsi = calculateHSI(hand, game.trump);
         game.addHSI(position, hsi);
-    }
-
-    // Check for rainbows (only on 4-card hands)
-    if (game.currentHand === 4) {
-        for (const socketId of socketIds) {
-            const hand = game.getHand(socketId);
-            if (isRainbow(hand, game.trump)) {
-                const position = game.getPositionBySocketId(socketId);
-                const player = game.getPlayerByPosition(position);
-                gameLogger.info('Rainbow hand detected', { socketId, position, gameId: game.gameId });
-                game.broadcast(io, 'rainbow', { position });
-                game.addLogEntry(`${player.username} has a rainbow!`, position, 'rainbow');
-
-                if (position === 1 || position === 3) {
-                    game.rainbows.team1 += 1;
-                } else {
-                    game.rainbows.team2 += 1;
-                }
-            }
-        }
     }
 
     // Send game start to all players (each gets their own hand and position)
@@ -693,26 +692,6 @@ async function cleanupNextHand(game, io, dealer, handSize) {
         const position = game.getPositionBySocketId(socketId);
         const hsi = calculateHSI(hand, game.trump);
         game.addHSI(position, hsi);
-    }
-
-    // Check for rainbows (only on 4-card hands)
-    if (game.currentHand === 4) {
-        for (const socketId of socketIds) {
-            const hand = game.getHand(socketId);
-            if (isRainbow(hand, game.trump)) {
-                const position = game.getPositionBySocketId(socketId);
-                const player = game.getPlayerByPosition(position);
-                gameLogger.info('Rainbow hand detected', { socketId, position, gameId: game.gameId });
-                game.broadcast(io, 'rainbow', { position });
-                game.addLogEntry(`${player.username} has a rainbow!`, position, 'rainbow');
-
-                if (position === 1 || position === 3) {
-                    game.rainbows.team1 += 1;
-                } else {
-                    game.rainbows.team2 += 1;
-                }
-            }
-        }
     }
 
     // Send new hand to all players (each gets their own hand and position)

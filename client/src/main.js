@@ -282,8 +282,9 @@ export function setGameScene(scene) {
           if (sprite) {
             const playPos = this.trickManager.getPlayPosition(relativeKey);
 
-            // Animate card back to play position, then reveal card
+            // Animate card back to play position with flip animation
             if (this.trickManager.isVisible()) {
+              // Move animation
               this.tweens.add({
                 targets: sprite,
                 x: playPos.x,
@@ -295,9 +296,33 @@ export function setGameScene(scene) {
                 onComplete: () => {
                   // Guard against destroyed sprite
                   if (!sprite || !sprite.scene) return;
-                  sprite.setTexture('cards', cardKey);
                   sprite.setDepth(200);
                 },
+              });
+
+              // Flip animation runs in parallel, starting after a short delay
+              this.time.delayedCall(50, () => {
+                if (!sprite || !sprite.scene) return;
+
+                // Scale X to 0
+                this.tweens.add({
+                  targets: sprite,
+                  scaleX: 0,
+                  duration: 200,
+                  ease: 'Power2',
+                  onComplete: () => {
+                    if (!sprite || !sprite.scene) return;
+                    sprite.setTexture('cards', cardKey);
+
+                    // Scale X back to 1.5
+                    this.tweens.add({
+                      targets: sprite,
+                      scaleX: 1.5,
+                      duration: 200,
+                      ease: 'Power2',
+                    });
+                  },
+                });
               });
             } else {
               sprite.x = playPos.x;
@@ -556,11 +581,12 @@ export function setGameScene(scene) {
       const sortedCards = sortHand([...cards], gameState.trump);
 
       // Set up click handler for playing cards
-      this.cardManager.setCardClickHandler((card, sprite) => {
+      const scene = this;
+      this.cardManager.setCardClickHandler((card, clickedSprite) => {
         console.log(`🃏 Card clicked: ${card.rank} of ${card.suit}`);
 
         // Only allow playing if the card is marked as legal
-        if (!sprite.getData('isLegal')) {
+        if (!clickedSprite.getData('isLegal')) {
           console.log('Illegal move - card is disabled!');
           return;
         }
@@ -584,8 +610,48 @@ export function setGameScene(scene) {
           gameState.trumpBroken = true;
         }
 
-        // Remove card from hand display
-        this.cardManager.removeCard(card);
+        // Capture the current (hovered) position before any operations that might reset it
+        const startX = clickedSprite.x;
+        const startY = clickedSprite.y;
+
+        // Extract card sprite for animation (don't destroy it)
+        const sprite = this.cardManager.extractCard(card);
+        if (sprite && this.trickManager) {
+          // Remove event listeners to prevent pointerout from resetting position
+          sprite.removeAllListeners();
+
+          // Restore the hovered position (in case it was reset)
+          sprite.x = startX;
+          sprite.y = startY;
+
+          // Get target position
+          this.trickManager.setPlayerPosition(gameState.position);
+          this.trickManager.updatePlayPositions();
+          const targetPos = this.trickManager._playPositions.self;
+
+          // Disable interactions during animation
+          sprite.disableInteractive();
+
+          // Animate from hovered position to play position
+          // No flip needed since player's cards are already face-up
+          scene.tweens.add({
+            targets: sprite,
+            x: targetPos.x,
+            y: targetPos.y,
+            duration: 500,
+            ease: 'Power2',
+            rotation: 0,
+            scale: 1.5,
+            onComplete: () => {
+              if (!sprite || !sprite.scene) return;
+              sprite.setDepth(200);
+            },
+          });
+
+          // Add to trick manager's current trick
+          sprite.setData('playPosition', 'self');
+          this.trickManager._currentTrick.push(sprite);
+        }
 
         // Also remove from gameState using optimistic update
         gameState.optimisticPlayCard(card);
@@ -878,40 +944,14 @@ export function setGameScene(scene) {
       `;
       avatarContainer.appendChild(nameLabel);
 
-      // Position Text (BTN, MP, CO, UTG) - DOM element
-      const playerPositionText = document.createElement('div');
-      playerPositionText.style.cssText = `
-        margin-top: 5px;
-        font-size: 16px;
-        font-family: Arial, sans-serif;
-        color: #ffffff;
-        text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
-      `;
-      avatarContainer.appendChild(playerPositionText);
-
       // Add avatar to DOM
       document.body.appendChild(avatarContainer);
 
-      this._playerInfo = { avatarContainer, avatarImg, nameLabel, playerPositionText };
+      this._playerInfo = { avatarContainer, avatarImg, nameLabel };
       return this._playerInfo;
     };
   }
 
-  if (!scene.updatePlayerPositionText) {
-    scene.updatePlayerPositionText = function(dealer, myPosition) {
-      if (!this._playerInfo?.playerPositionText) return;
-
-      if (dealer === myPosition) {
-        this._playerInfo.playerPositionText.textContent = 'BTN';
-      } else if (team(myPosition) === dealer) {
-        this._playerInfo.playerPositionText.textContent = 'MP';
-      } else if (rotate(myPosition) === dealer) {
-        this._playerInfo.playerPositionText.textContent = 'CO';
-      } else if (rotate(rotate(rotate(myPosition))) === dealer) {
-        this._playerInfo.playerPositionText.textContent = 'UTG';
-      }
-    };
-  }
 
   if (!scene.repositionPlayerInfo) {
     scene.repositionPlayerInfo = function() {
@@ -1694,10 +1734,7 @@ function initializeApp() {
         if (scene.trickManager) {
           scene.trickManager.setPlayerPosition(data.position);
           scene.trickManager.updatePlayPositions();
-          if (data.hand) {
-            scene.trickManager.setHandSize(data.hand.length);
-          }
-          scene.trickManager.createTrickBackgrounds();
+          // Note: trick backgrounds are created after bidding completes (in onDoneBidding)
         }
         if (scene.opponentManager) {
           scene.opponentManager.setPlayerPosition(data.position);
@@ -1723,11 +1760,6 @@ function initializeApp() {
         }
 
         // Player info box is created inside handleDisplayOpponentHands
-
-        // Update player position text (BTN, MP, CO, UTG)
-        if (scene.updatePlayerPositionText && data.dealer !== undefined) {
-          scene.updatePlayerPositionText(data.dealer, data.position);
-        }
 
         // Create DOM backgrounds via LayoutManager
         if (scene.layoutManager) {
@@ -1863,13 +1895,6 @@ function initializeApp() {
       if (scene && scene.handleBidReceived) {
         scene.handleBidReceived(data);
       }
-      // Update trick slot outlines based on bid
-      if (scene && scene.trickManager && data.position !== undefined && data.bid !== undefined) {
-        // Parse bid value - 'B', '2B', '3B', '4B' are bore bids (0 tricks)
-        const bidStr = String(data.bid);
-        const bidValue = bidStr.includes('B') ? 0 : parseInt(bidStr, 10) || 0;
-        scene.trickManager.addBid(data.position, bidValue);
-      }
       // Note: Legacy code in displayCards() also handles bidReceived for bubbles/impact events
     },
     onDoneBidding: (data) => {
@@ -1879,6 +1904,27 @@ function initializeApp() {
       const scene = getGameScene();
       if (scene && scene.handleDoneBidding) {
         scene.handleDoneBidding(data);
+      }
+
+      // Create trick backgrounds now that bidding is complete
+      if (scene && scene.trickManager && data.bids) {
+        const myPosition = gameState.position;
+        // Bids array is indexed by position-1 (so position 1 is index 0)
+        // Team 1 is positions 1 & 3, Team 2 is positions 2 & 4
+        const parseBid = (bid) => {
+          const bidStr = String(bid);
+          return bidStr.includes('B') ? 0 : parseInt(bidStr, 10) || 0;
+        };
+        const team1Bid = parseBid(data.bids[0]) + parseBid(data.bids[2]); // positions 1 & 3
+        const team2Bid = parseBid(data.bids[1]) + parseBid(data.bids[3]); // positions 2 & 4
+
+        // Determine which team is mine based on position parity
+        const isTeam1 = myPosition === 1 || myPosition === 3;
+        const teamBid = isTeam1 ? team1Bid : team2Bid;
+        const oppBid = isTeam1 ? team2Bid : team1Bid;
+
+        scene.trickManager.setBidTotals(teamBid, oppBid);
+        scene.trickManager.createTrickBackgrounds();
       }
       // Note: Legacy code in displayCards() also handles doneBidding
     },
@@ -2153,11 +2199,6 @@ function initializeApp() {
           }
 
           // Player info box is created inside handleDisplayOpponentHands
-
-          // Update player position text (BTN, MP, CO, UTG)
-          if (scene.updatePlayerPositionText && data.dealer !== undefined) {
-            scene.updatePlayerPositionText(data.dealer, data.position);
-          }
 
           // Create DOM backgrounds via LayoutManager
           if (scene.layoutManager) {

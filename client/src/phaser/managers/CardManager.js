@@ -461,6 +461,25 @@ export class CardManager {
   }
 
   /**
+   * Extract a card sprite from hand without destroying it.
+   * Used for animating the card to the play area.
+   * @param {Object} card - Card data to find
+   * @returns {Phaser.GameObjects.Sprite|null} The sprite, or null if not found
+   */
+  extractCard(card) {
+    const index = this._handSprites.findIndex((s) => {
+      const c = s.getData('card');
+      return c && c.suit === card.suit && c.rank === card.rank;
+    });
+
+    if (index !== -1) {
+      const sprite = this._handSprites.splice(index, 1)[0];
+      return sprite;
+    }
+    return null;
+  }
+
+  /**
    * Add turn glow to the player's hand border.
    * Uses CSS class on the handBorderDom element for resize-safe glow.
    */
