@@ -29,9 +29,9 @@ const SLOT_PADDING = 4; // Tight padding inside container
 const SLOT_ROW_GAP = 10; // Vertical gap between slot rows
 const CONTAINER_COLOR = 0x1a1a1a; // Dark grey container
 const SLOT_COLOR = 0x333333; // Lighter dark grey slots
-const BID_OUTLINE_COLOR = 0xff4444; // Red for bid slots
-const WON_OUTLINE_COLOR = 0x44ff44; // Green for won trick slots
-const OUTLINE_WIDTH = 2; // Outline stroke width
+const BORDER_COLOR_DANGER = 0xff4444; // Red when tricks < bid
+const BORDER_COLOR_SAFE = 0x44ff44; // Green when tricks >= bid
+const BORDER_WIDTH = 2; // Border stroke width
 
 /**
  * TrickManager handles all trick-related sprite operations.
@@ -65,61 +65,22 @@ export class TrickManager {
     this._teamTrickCount = 0;
     this._oppTrickCount = 0;
 
+    // Bid totals (used for initial box size)
+    this._teamBidTotal = 0;
+    this._oppBidTotal = 0;
+
     // Background graphics
     this._backgroundGraphics = null;
-
-    // Current hand size (for marking impossible trick slots)
-    this._handSize = 13;
-
-    // Bid totals for outline colors
-    this._teamBidTotal = 0;
-    this._oppBidTotal = 0;
   }
 
   /**
-   * Set the current hand size (max tricks possible).
-   * @param {number} size - Number of cards in the hand
+   * Set the team bid totals (called after bidding completes).
+   * @param {number} teamBid - Total bid for player's team
+   * @param {number} oppBid - Total bid for opponent team
    */
-  setHandSize(size) {
-    this._handSize = size;
-    // Redraw backgrounds to update X marks
-    if (this._backgroundGraphics) {
-      this._drawBackgrounds();
-    }
-  }
-
-  /**
-   * Add a bid to the appropriate team total.
-   * @param {number} position - Position of the bidder (1-4)
-   * @param {number} bidValue - Numeric bid value
-   */
-  addBid(position, bidValue) {
-    if (!this._playerPosition) return;
-
-    // Check if bidder is on player's team (same parity)
-    const isMyTeam = position % 2 === this._playerPosition % 2;
-
-    if (isMyTeam) {
-      this._teamBidTotal += bidValue;
-    } else {
-      this._oppBidTotal += bidValue;
-    }
-
-    // Redraw backgrounds to update outlines
-    if (this._backgroundGraphics) {
-      this._drawBackgrounds();
-    }
-  }
-
-  /**
-   * Reset bid totals for new hand.
-   */
-  resetBids() {
-    this._teamBidTotal = 0;
-    this._oppBidTotal = 0;
-    if (this._backgroundGraphics) {
-      this._drawBackgrounds();
-    }
+  setBidTotals(teamBid, oppBid) {
+    this._teamBidTotal = teamBid;
+    this._oppBidTotal = oppBid;
   }
 
   /**
@@ -360,7 +321,7 @@ export class TrickManager {
     // Clear current trick
     this._currentTrick = [];
 
-    // Redraw backgrounds to update outline colors
+    // Redraw backgrounds to expand container if needed
     if (this._backgroundGraphics) {
       this._drawBackgrounds();
     }
@@ -425,8 +386,9 @@ export class TrickManager {
   /**
    * Create background graphics for trick display areas.
    * Shows dark containers with lighter slot boxes for all 13 trick positions.
+   * @param {boolean} animate - Whether to animate the appearance (default true)
    */
-  createTrickBackgrounds() {
+  createTrickBackgrounds(animate = true) {
     // Destroy existing graphics if any
     if (this._backgroundGraphics) {
       this._backgroundGraphics.destroy();
@@ -436,15 +398,30 @@ export class TrickManager {
     this._backgroundGraphics.setDepth(50); // Below cards (200+)
 
     this._drawBackgrounds();
+
+    // Animate in with fade and scale
+    if (animate) {
+      this._backgroundGraphics.setAlpha(0);
+      this._backgroundGraphics.setScale(0.9);
+
+      this._scene.tweens.add({
+        targets: this._backgroundGraphics,
+        alpha: 1,
+        scale: 1,
+        duration: 200,
+        ease: 'Power2',
+      });
+    }
   }
 
   /**
    * Draw background containers and slot boxes.
+   * Container starts at team bid size and grows as more tricks are won.
    */
   _drawBackgrounds() {
     if (!this._backgroundGraphics) return;
 
-    const { x: scaleX, y: scaleY, screenHeight } = this.getScaleFactors();
+    const { x: scaleX, y: scaleY } = this.getScaleFactors();
     const graphics = this._backgroundGraphics;
 
     graphics.clear();
@@ -457,16 +434,29 @@ export class TrickManager {
     const rowSpacing = TRICK_ROW_SPACING * scaleY;
     const padding = SLOT_PADDING;
 
-    // Container dimensions - tight fit around slots (scaled width, fixed height for slots)
-    // Width: 6 gaps between 7 slots + 7 slot widths + padding
-    const containerWidth = 6 * spacing + slotW + padding * 2;
-    // Height: 2 rows of slots with scaled gap between
-    const containerHeight = slotH * 2 + rowSpacing - slotH + padding * 2;
-
     // Draw both team and opponent areas
     [true, false].forEach((isTeamTrick) => {
+      // Determine how many slots to show (start at team bid, expand as tricks are won)
+      const tricksWon = isTeamTrick ? this._teamTrickCount : this._oppTrickCount;
+      const bidTotal = isTeamTrick ? this._teamBidTotal : this._oppBidTotal;
+      // Minimum 1 slot if bid is 0, otherwise use bid total
+      const minSlots = Math.max(1, bidTotal);
+      const slotsToShow = Math.max(minSlots, tricksWon);
+
+      // Calculate row counts
+      // Row 0 holds up to 7, row 1 holds the rest (up to 6)
+      const row0Count = Math.min(slotsToShow, TRICKS_ROW_1);
+      const row1Count = Math.max(0, slotsToShow - TRICKS_ROW_1);
+      const needsSecondRow = row1Count > 0;
+
       // Get position of first card (trick 1) to anchor container
       const firstCardPos = this._getTrickPosition(1, isTeamTrick);
+
+      // Container dimensions - tight fit around visible slots
+      const containerWidth = (row0Count - 1) * spacing + slotW + padding * 2;
+      const containerHeight = needsSecondRow
+        ? slotH * 2 + rowSpacing - slotH + padding * 2
+        : slotH + padding * 2;
 
       // Container X: left edge of first slot minus padding
       const containerX = firstCardPos.x - slotW / 2 - padding;
@@ -478,91 +468,32 @@ export class TrickManager {
       graphics.fillStyle(CONTAINER_COLOR, 1);
       graphics.fillRoundedRect(containerX, containerY, containerWidth, containerHeight, 4);
 
-      // Get bid and trick counts for this area
-      const bidTotal = isTeamTrick ? this._teamBidTotal : this._oppBidTotal;
-      const tricksWon = isTeamTrick ? this._teamTrickCount : this._oppTrickCount;
+      // Draw border - red if tricks < bid, green if tricks >= bid
+      const borderColor = tricksWon >= bidTotal ? BORDER_COLOR_SAFE : BORDER_COLOR_DANGER;
+      graphics.lineStyle(BORDER_WIDTH, borderColor, 1);
+      graphics.strokeRoundedRect(containerX, containerY, containerWidth, containerHeight, 4);
 
       // Draw slot boxes with tight vertical spacing
       graphics.fillStyle(SLOT_COLOR, 1);
 
-      // Row 0: 7 slots (tricks 1-7)
-      for (let col = 0; col < 7; col++) {
-        const trickNum = col + 1;
+      // Row 0: up to 7 slots (tricks 1-7)
+      for (let col = 0; col < row0Count; col++) {
         const slotX = firstCardPos.x + col * spacing - slotW / 2;
         const slotY = firstCardPos.y - slotH / 2;
         graphics.fillRoundedRect(slotX, slotY, slotW, slotH, 4);
-
-        // Draw colored outline based on bids and tricks won
-        this._drawSlotOutline(graphics, slotX, slotY, slotW, slotH, trickNum, bidTotal, tricksWon);
-
-        // Draw X if trick is impossible
-        if (trickNum > this._handSize) {
-          this._drawSlotX(graphics, slotX, slotY, slotW, slotH);
-        }
       }
 
-      // Row 1: 6 slots (tricks 8-13, centered under row 0)
-      // Row spacing matches _getTrickPosition calculation
-      const row1Y = firstCardPos.y + rowSpacing - slotH / 2;
-      const row1Offset = spacing / 2; // Center under row of 7
-      for (let col = 0; col < 6; col++) {
-        const trickNum = col + 8;
-        const slotX = firstCardPos.x + col * spacing + row1Offset - slotW / 2;
-        const slotY = row1Y;
-        graphics.fillRoundedRect(slotX, slotY, slotW, slotH, 4);
-
-        // Draw colored outline based on bids and tricks won
-        this._drawSlotOutline(graphics, slotX, slotY, slotW, slotH, trickNum, bidTotal, tricksWon);
-
-        // Draw X if trick is impossible
-        if (trickNum > this._handSize) {
-          this._drawSlotX(graphics, slotX, slotY, slotW, slotH);
+      // Row 1: remaining slots (tricks 8-13, centered under row 0)
+      if (needsSecondRow) {
+        const row1Y = firstCardPos.y + rowSpacing - slotH / 2;
+        const row1Offset = spacing / 2; // Center under row above
+        for (let col = 0; col < row1Count; col++) {
+          const slotX = firstCardPos.x + col * spacing + row1Offset - slotW / 2;
+          const slotY = row1Y;
+          graphics.fillRoundedRect(slotX, slotY, slotW, slotH, 4);
         }
       }
     });
-  }
-
-  /**
-   * Draw a colored outline on a slot based on bid/won status.
-   */
-  _drawSlotOutline(graphics, slotX, slotY, slotW, slotH, trickNum, bidTotal, tricksWon) {
-    let outlineColor = null;
-
-    if (trickNum <= tricksWon && trickNum <= bidTotal) {
-      // Trick was bid AND won - green outline
-      outlineColor = WON_OUTLINE_COLOR;
-    } else if (trickNum <= bidTotal) {
-      // Trick bid but not won yet - red outline
-      outlineColor = BID_OUTLINE_COLOR;
-    }
-    // Overtricks (trickNum > bidTotal) get no outline
-
-    if (outlineColor !== null) {
-      graphics.lineStyle(OUTLINE_WIDTH, outlineColor, 1);
-      graphics.strokeRoundedRect(slotX, slotY, slotW, slotH, 4);
-    }
-  }
-
-  /**
-   * Draw an X mark on an impossible trick slot.
-   */
-  _drawSlotX(graphics, slotX, slotY, slotW, slotH) {
-    const xPadding = 12; // Padding from slot edges
-    const lineWidth = 3;
-
-    graphics.lineStyle(lineWidth, CONTAINER_COLOR, 1);
-
-    // Draw X from top-left to bottom-right
-    graphics.beginPath();
-    graphics.moveTo(slotX + xPadding, slotY + xPadding);
-    graphics.lineTo(slotX + slotW - xPadding, slotY + slotH - xPadding);
-    graphics.strokePath();
-
-    // Draw X from top-right to bottom-left
-    graphics.beginPath();
-    graphics.moveTo(slotX + slotW - xPadding, slotY + xPadding);
-    graphics.lineTo(slotX + xPadding, slotY + slotH - xPadding);
-    graphics.strokePath();
   }
 
   /**

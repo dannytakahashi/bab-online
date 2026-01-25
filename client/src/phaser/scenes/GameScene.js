@@ -971,12 +971,9 @@ export class GameScene extends Phaser.Scene {
     const playedPosition = data.position;
     const card = data.card;
 
-    // Track if this is lead card
-    if (this.state.playedCardIndex === 0) {
-      this.state.leadCard = card;
-      this.state.leadPosition = playedPosition;
-
-      // Update card legality when lead is set
+    // Note: leadCard is already set by gameHandlers.js via addPlayedCard()
+    // Update card legality when lead card is first played
+    if (this.state.currentTrick.length === 1) {
       this.updateCardLegalityAfterPlay();
     }
 
@@ -1012,28 +1009,56 @@ export class GameScene extends Phaser.Scene {
       if (sprite) {
         // Update texture to show the actual card
         const cardKey = getCardImageKey(card);
-        // Animate to play position, then flip
+        const targetPos = this.trickManager._playPositions[this.trickManager.getRelativePositionKey(playedPosition)];
+        const targetX = targetPos?.x || sprite.x;
+        const targetY = targetPos?.y || sprite.y;
+
+        // Animate move and flip simultaneously
+        // Move to play position
         this.tweens.add({
           targets: sprite,
-          x: this.trickManager._playPositions[this.trickManager.getRelativePositionKey(playedPosition)]?.x || sprite.x,
-          y: this.trickManager._playPositions[this.trickManager.getRelativePositionKey(playedPosition)]?.y || sprite.y,
+          x: targetX,
+          y: targetY,
           duration: 500,
           ease: 'Power2',
           rotation: 0,
           scale: 1.5,
           onComplete: () => {
-            // Guard against destroyed sprite
             if (!sprite || !sprite.scene) return;
-            sprite.setTexture('cards', cardKey);
             sprite.setDepth(200);
           },
         });
+
+        // Flip animation runs in parallel, starting after a short delay
+        this.time.delayedCall(50, () => {
+          if (!sprite || !sprite.scene) return;
+
+          // Scale X to 0
+          this.tweens.add({
+            targets: sprite,
+            scaleX: 0,
+            duration: 200,
+            ease: 'Power2',
+            onComplete: () => {
+              if (!sprite || !sprite.scene) return;
+              sprite.setTexture('cards', cardKey);
+
+              // Scale X back to 1.5
+              this.tweens.add({
+                targets: sprite,
+                scaleX: 1.5,
+                duration: 200,
+                ease: 'Power2',
+              });
+            },
+          });
+        });
+
         this.trickManager._currentTrick.push(sprite);
       }
-    } else if (playedPosition === myPosition && this.trickManager) {
-      // Self play - create card at play position
-      this.trickManager.addPlayedCard(card, playedPosition);
     }
+    // Note: Self play animation is handled by the card click handler in main.js
+    // which extracts the sprite and animates it to the play position with a flip effect
 
     // Delegate to callback for additional handling
     this.callbacks.onCardPlayed?.(data);
@@ -1246,11 +1271,6 @@ export class GameScene extends Phaser.Scene {
           window.updateGameLogScoreFromLegacy(teamName, oppName, teamScore, oppScore);
         }
       }
-    }
-
-    // Add hand complete message to game feed
-    if (window.addToGameFeedFromLegacy) {
-      window.addToGameFeedFromLegacy('Hand complete. Clearing all tricks...');
     }
 
     // Reset state for new hand

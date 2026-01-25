@@ -50,8 +50,8 @@ export class BidManager {
    * @param {Function} onBidSelect - Callback when a bid is selected
    */
   showBidUI(handSize, onBidSelect) {
-    // Remove existing if any
-    this.hideBidUI();
+    // Remove existing if any (no animation since we're replacing it)
+    this.hideBidUI(false);
 
     const { screenWidth, screenHeight } = this.getScaleFactors();
     const position = this.state.position;
@@ -63,7 +63,6 @@ export class BidManager {
     this.bidContainer.classList.add('ui-element', 'bid-grid');
     this.bidContainer.style.position = 'fixed';
     this.bidContainer.style.zIndex = '1000';
-    this.bidContainer.style.display = (this.state.isBidding && currentTurn === position) ? 'flex' : 'none';
     this.bidContainer.style.flexDirection = 'column';
     this.bidContainer.style.alignItems = 'center';
     this.bidContainer.style.gap = '8px';
@@ -73,9 +72,23 @@ export class BidManager {
     this.bidContainer.style.borderRadius = '8px';
     this.bidContainer.style.left = `${screenWidth / 2}px`;
     this.bidContainer.style.top = `${screenHeight / 2}px`;
-    this.bidContainer.style.transform = 'translate(-50%, -50%)';
+    this.bidContainer.style.transform = 'translate(-50%, -50%) scale(0.9)';
+    this.bidContainer.style.opacity = '0';
+    this.bidContainer.style.transition = 'opacity 150ms ease-out, transform 150ms ease-out';
+    this.bidContainer.style.display = 'flex';
+    this.bidContainer.style.visibility = 'hidden';
 
     document.body.appendChild(this.bidContainer);
+
+    // Animate in if it's our turn
+    if (this.state.isBidding && currentTurn === position) {
+      // Use requestAnimationFrame to ensure the initial styles are applied first
+      requestAnimationFrame(() => {
+        this.bidContainer.style.visibility = 'visible';
+        this.bidContainer.style.opacity = '1';
+        this.bidContainer.style.transform = 'translate(-50%, -50%) scale(1)';
+      });
+    }
 
     // Header
     const header = document.createElement('div');
@@ -246,18 +259,42 @@ export class BidManager {
     const currentTurn = this.state.currentTurn;
 
     if (this.state.isBidding && currentTurn === position) {
-      this.bidContainer.style.display = 'flex';
+      // Animate in
+      this.bidContainer.style.visibility = 'visible';
+      this.bidContainer.style.opacity = '1';
+      this.bidContainer.style.transform = 'translate(-50%, -50%) scale(1)';
     } else {
-      this.bidContainer.style.display = 'none';
+      // Animate out
+      this.bidContainer.style.opacity = '0';
+      this.bidContainer.style.transform = 'translate(-50%, -50%) scale(0.9)';
+      // Hide after transition completes
+      setTimeout(() => {
+        if (this.bidContainer && this.bidContainer.style.opacity === '0') {
+          this.bidContainer.style.visibility = 'hidden';
+        }
+      }, 150);
     }
   }
 
   /**
    * Hide and remove the bid UI.
+   * @param {boolean} animate - Whether to animate out (default true)
    */
-  hideBidUI() {
+  hideBidUI(animate = true) {
     if (this.bidContainer) {
-      this.bidContainer.remove();
+      if (animate) {
+        // Animate out, then remove
+        this.bidContainer.style.opacity = '0';
+        this.bidContainer.style.transform = 'translate(-50%, -50%) scale(0.9)';
+        const container = this.bidContainer;
+        setTimeout(() => {
+          if (container && container.parentNode) {
+            container.remove();
+          }
+        }, 150);
+      } else {
+        this.bidContainer.remove();
+      }
       this.bidContainer = null;
     }
     this.boreButtons = {};

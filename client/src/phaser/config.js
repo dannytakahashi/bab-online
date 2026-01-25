@@ -66,7 +66,7 @@ export const CARD_CONFIG = {
  * Animation durations in milliseconds.
  */
 export const ANIMATION_CONFIG = {
-  CARD_DEAL: 200,
+  CARD_DEAL: 500,
   CARD_PLAY: 300,
   CARD_COLLECT: 500,
   CARD_HOVER: 100,
