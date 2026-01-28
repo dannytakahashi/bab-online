@@ -49,6 +49,7 @@ describe('GameManager', () => {
 
     describe('joinQueue', () => {
         test('creates lobby immediately for first player', () => {
+            gameManager.registerUser('socket1', 'player1');
             const result = gameManager.joinQueue('socket1');
             expect(result.success).toBe(true);
             expect(result.lobbyCreated).toBe(true);
@@ -57,6 +58,8 @@ describe('GameManager', () => {
         });
 
         test('subsequent players join existing lobby', () => {
+            gameManager.registerUser('socket1', 'player1');
+            gameManager.registerUser('socket2', 'player2');
             gameManager.joinQueue('socket1');
             const result = gameManager.joinQueue('socket2');
             expect(result.success).toBe(true);
@@ -65,6 +68,7 @@ describe('GameManager', () => {
         });
 
         test('prevents duplicate joins', () => {
+            gameManager.registerUser('socket1', 'player1');
             gameManager.joinQueue('socket1');
             const result = gameManager.joinQueue('socket1');
             expect(result.success).toBe(false);
@@ -72,6 +76,10 @@ describe('GameManager', () => {
         });
 
         test('lobby fills with 4 players', () => {
+            gameManager.registerUser('socket1', 'player1');
+            gameManager.registerUser('socket2', 'player2');
+            gameManager.registerUser('socket3', 'player3');
+            gameManager.registerUser('socket4', 'player4');
             gameManager.joinQueue('socket1');
             gameManager.joinQueue('socket2');
             gameManager.joinQueue('socket3');
@@ -82,7 +90,11 @@ describe('GameManager', () => {
         });
 
         test('prevents joining if already in game', () => {
-            // Create lobby with 4 players
+            // Register and create lobby with 4 players
+            gameManager.registerUser('socket1', 'player1');
+            gameManager.registerUser('socket2', 'player2');
+            gameManager.registerUser('socket3', 'player3');
+            gameManager.registerUser('socket4', 'player4');
             gameManager.joinQueue('socket1');
             gameManager.joinQueue('socket2');
             gameManager.joinQueue('socket3');
@@ -100,7 +112,12 @@ describe('GameManager', () => {
         });
 
         test('5th player creates new lobby', () => {
-            // Fill first lobby
+            // Register and fill first lobby
+            gameManager.registerUser('socket1', 'player1');
+            gameManager.registerUser('socket2', 'player2');
+            gameManager.registerUser('socket3', 'player3');
+            gameManager.registerUser('socket4', 'player4');
+            gameManager.registerUser('socket5', 'player5');
             gameManager.joinQueue('socket1');
             gameManager.joinQueue('socket2');
             gameManager.joinQueue('socket3');
@@ -116,6 +133,7 @@ describe('GameManager', () => {
 
     describe('leaveLobby', () => {
         test('removes player from lobby', () => {
+            gameManager.registerUser('socket1', 'player1');
             gameManager.joinQueue('socket1');
             const result = gameManager.leaveLobby('socket1');
             expect(result.success).toBe(true);
@@ -128,6 +146,8 @@ describe('GameManager', () => {
         });
 
         test('lobby remains when other players exist', () => {
+            gameManager.registerUser('socket1', 'player1');
+            gameManager.registerUser('socket2', 'player2');
             gameManager.joinQueue('socket1');
             gameManager.joinQueue('socket2');
             const result = gameManager.leaveLobby('socket1');
@@ -139,6 +159,10 @@ describe('GameManager', () => {
 
     // Helper to create a game through lobby system
     function createGameFromLobby() {
+        gameManager.registerUser('socket1', 'player1');
+        gameManager.registerUser('socket2', 'player2');
+        gameManager.registerUser('socket3', 'player3');
+        gameManager.registerUser('socket4', 'player4');
         gameManager.joinQueue('socket1');
         gameManager.joinQueue('socket2');
         gameManager.joinQueue('socket3');
@@ -179,6 +203,7 @@ describe('GameManager', () => {
 
     describe('handleDisconnect', () => {
         test('removes from lobby on disconnect', () => {
+            gameManager.registerUser('socket1', 'player1');
             gameManager.joinQueue('socket1');
             const result = gameManager.handleDisconnect('socket1');
 
