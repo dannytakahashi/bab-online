@@ -59,7 +59,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Build Docker image
-        run: docker build -t bab-online:${{ github.sha }} .
+        run: docker build -f Dockerfile.local -t bab-online:${{ github.sha }} .
 
       - name: Test Docker image starts
         run: |
