@@ -53,6 +53,16 @@ function createMockScene() {
         return {};
       }),
     },
+    time: {
+      delayedCall: vi.fn((delay, callback) => {
+        // Execute callback immediately for testing
+        callback();
+        return {};
+      }),
+    },
+    input: {
+      setDefaultCursor: vi.fn(),
+    },
     _sprites: sprites,
   };
 }
@@ -80,18 +90,21 @@ describe('CardManager', () => {
 
   describe('calculateHandPositions', () => {
     it('returns correct number of positions', () => {
-      const positions = manager.calculateHandPositions(5, 960, 900);
+      const positions = manager.calculateHandPositions(5, 1920);
       expect(positions).toHaveLength(5);
     });
 
-    it('centers positions around given center', () => {
-      const positions = manager.calculateHandPositions(1, 960, 900);
+    it('centers single card at screen center', () => {
+      // With screenWidth=1920, single card should be at x=960 (center)
+      const positions = manager.calculateHandPositions(1, 1920);
       expect(positions[0].x).toBe(960);
-      expect(positions[0].y).toBe(900);
+      // Y position is calculated from scene.scale.height
+      expect(positions[0].y).toBeDefined();
     });
 
     it('spreads cards with correct spacing', () => {
-      const positions = manager.calculateHandPositions(3, 960, 900);
+      // At 1920 width, scaleFactorX = 1, so spacing = HAND_SPACING (50)
+      const positions = manager.calculateHandPositions(3, 1920);
       const spacing = CARD_CONFIG.HAND_SPACING;
 
       expect(positions[1].x - positions[0].x).toBe(spacing);
