@@ -1743,44 +1743,87 @@ function initializeApp() {
           scene.effectsManager.setPlayerPosition(data.position);
         }
 
-        // Display player hand via CardManager
-        if (scene.handleDisplayHand && data.hand) {
-          scene.handleDisplayHand(data.hand, false);
+        // Display avatars and dealer button immediately (not cards)
+        if (scene.opponentManager && data.hand) {
+          scene.opponentManager.displayDealerButton(data.dealer);
+          if (gameState.playerData) {
+            scene.opponentManager.displayAvatars(gameState.playerData);
+          }
         }
 
-        // Display opponent hands via OpponentManager
-        // Note: skip animation to avoid conflicts with resize events during game start
-        if (scene.handleDisplayOpponentHands && data.hand) {
-          scene.handleDisplayOpponentHands(
-            data.hand.length,
-            data.dealer,
-            gameState.playerData,
-            true // skip animation - resize events interfere with tweens
-          );
+        // Create player info box (own avatar) immediately
+        if (scene.createPlayerInfoBox && !scene._playerInfo) {
+          if (gameState.position && gameState.playerData) {
+            scene.createPlayerInfoBox(gameState.playerData, gameState.position);
+          }
         }
 
-        // Player info box is created inside handleDisplayOpponentHands
-
-        // Create DOM backgrounds via LayoutManager
+        // Create DOM backgrounds via LayoutManager (show immediately)
         if (scene.layoutManager) {
           scene.layoutManager.update();
           scene.layoutManager.createDomBackgrounds();
         }
 
-        // Display trump card via scene method
+        // Display trump card via scene method (show immediately)
         if (data.trump && scene.displayTrumpCard) {
           scene.displayTrumpCard(data.trump);
         }
 
-        // Create bid UI via BidManager
-        if (scene.bidManager && data.hand) {
-          scene.bidManager.showBidUI(data.hand.length, (bid) => {
-            console.log(`📩 Sending bid: ${bid}`);
-            if (window.socket) {
-              window.socket.emit('playerBid', { position: gameState.position, bid });
-            }
-          });
+        // Function to display cards (delayed until fade complete)
+        const showCards = () => {
+          // Display player hand via CardManager
+          if (scene.handleDisplayHand && data.hand) {
+            scene.handleDisplayHand(data.hand, false);
+          }
+
+          // Display opponent card backs (skip avatars since already shown)
+          if (scene.opponentManager && data.hand) {
+            scene.opponentManager.displayOpponentCards(data.hand.length);
+          }
+        };
+
+        // Function to show bid UI (delayed until trump flip complete)
+        const showBidUIAfterFlip = () => {
+          if (scene.bidManager && data.hand) {
+            scene.bidManager.showBidUI(data.hand.length, (bid) => {
+              console.log(`📩 Sending bid: ${bid}`);
+              if (window.socket) {
+                window.socket.emit('playerBid', { position: gameState.position, bid });
+              }
+            });
+          }
+        };
+
+        // Wait for transition to complete before showing cards
+        // If no transition overlay exists, wait for tricks to clear (subsequent hands)
+        const hasTransition = window._transitionOverlay || document.getElementById('transition-overlay');
+        if (hasTransition) {
+          // First hand - wait for fade transition
+          if (window._readyForGameUI) {
+            showCards();
+          } else {
+            window.addEventListener('gameUIReady', function onReady() {
+              window.removeEventListener('gameUIReady', onReady);
+              showCards();
+            });
+          }
+        } else {
+          // Subsequent hands - wait for tricks to clear first
+          if (window._tricksAnimating) {
+            window.addEventListener('tricksCleared', function onCleared() {
+              window.removeEventListener('tricksCleared', onCleared);
+              showCards();
+            });
+          } else {
+            showCards();
+          }
         }
+
+        // Wait for trump flip to complete before showing bid UI
+        window.addEventListener('trumpFlipComplete', function onFlip() {
+          window.removeEventListener('trumpFlipComplete', onFlip);
+          showBidUIAfterFlip();
+        });
       }
 
       // Update game log score display
@@ -1838,51 +1881,52 @@ function initializeApp() {
       removeMainRoom();
       removeGameLobby();
 
-      // Clean up draw phase via DrawManager
+      // Clean up draw phase via DrawManager with fade transition
       const scene = getGameScene();
       if (scene && scene.handleCreateUI) {
-        scene.handleCreateUI(data);
-      }
+        // Pass UI creation as callback - it will be called after fade to black
+        scene.handleCreateUI(data, () => {
+          // Create game feed using modular GameLog
+          if (!gameLogInstance) {
+            gameLogInstance = showGameLog({
+              onChatSubmit: (message) => {
+                const socket = getSocketManager()?.socket;
+                if (socket) {
+                  socket.emit('chatMessage', { message });
+                }
+              },
+            });
 
-      // Create game feed using modular GameLog
-      if (!gameLogInstance) {
-        gameLogInstance = showGameLog({
-          onChatSubmit: (message) => {
-            const socket = getSocketManager()?.socket;
-            if (socket) {
-              socket.emit('chatMessage', { message });
-            }
-          },
-        });
+            // Add .in-game class to restrict game container width for game log
+            document.getElementById('game-container')?.classList.add('in-game');
 
-        // Add .in-game class to restrict game container width for game log
-        document.getElementById('game-container')?.classList.add('in-game');
+            // Force Phaser to resize after container width change
+            requestAnimationFrame(() => {
+              const container = document.getElementById('game-container');
+              if (container && scene?.game?.scale) {
+                const newWidth = container.clientWidth;
+                const newHeight = container.clientHeight;
+                scene.game.scale.resize(newWidth, newHeight);
+                if (scene.game.renderer?.resize) {
+                  scene.game.renderer.resize(newWidth, newHeight);
+                }
+              }
+            });
 
-        // Force Phaser to resize after container width change
-        requestAnimationFrame(() => {
-          const container = document.getElementById('game-container');
-          if (container && scene?.game?.scale) {
-            const newWidth = container.clientWidth;
-            const newHeight = container.clientHeight;
-            scene.game.scale.resize(newWidth, newHeight);
-            if (scene.game.renderer?.resize) {
-              scene.game.renderer.resize(newWidth, newHeight);
+            // Add initial message
+            gameLogInstance.addGameMessage('Game started!');
+
+            // Update hand indicator from current game state
+            if (gameState.currentHand !== undefined) {
+              window.updateHandIndicatorFromLegacy(gameState.currentHand);
             }
           }
+
+          // Initialize scene handElements if needed
+          if (scene && !scene.handElements) {
+            scene.handElements = [];
+          }
         });
-
-        // Add initial message
-        gameLogInstance.addGameMessage('Game started!');
-
-        // Update hand indicator from current game state
-        if (gameState.currentHand !== undefined) {
-          window.updateHandIndicatorFromLegacy(gameState.currentHand);
-        }
-      }
-
-      // Initialize scene handElements if needed
-      if (scene && !scene.handElements) {
-        scene.handElements = [];
       }
     },
     // Bidding phase - call GameScene handlers plus legacy code

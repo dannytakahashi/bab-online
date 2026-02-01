@@ -635,6 +635,91 @@ export class TrickManager {
   }
 
   /**
+   * Animate all trick history cards to a target position, then destroy them.
+   * Used at end of hand to whisk tricks back to trump card location.
+   *
+   * @param {number} targetX - Target X position
+   * @param {number} targetY - Target Y position
+   * @param {Function} onComplete - Callback when animation finishes
+   */
+  animateTricksAway(targetX, targetY, onComplete) {
+    const scene = this._scene;
+
+    // Group cards by trick number so both teams' same-numbered tricks animate together
+    const cardsByTrickNumber = {};
+
+    this._teamTrickHistory.forEach((trick) => {
+      const num = trick.trickNumber;
+      if (!cardsByTrickNumber[num]) cardsByTrickNumber[num] = [];
+      trick.cards.forEach((card) => {
+        if (card && card.active) {
+          cardsByTrickNumber[num].push(card);
+        }
+      });
+    });
+
+    this._oppTrickHistory.forEach((trick) => {
+      const num = trick.trickNumber;
+      if (!cardsByTrickNumber[num]) cardsByTrickNumber[num] = [];
+      trick.cards.forEach((card) => {
+        if (card && card.active) {
+          cardsByTrickNumber[num].push(card);
+        }
+      });
+    });
+
+    // Count total cards
+    let totalCards = 0;
+    Object.values(cardsByTrickNumber).forEach((cards) => {
+      totalCards += cards.length;
+    });
+
+    if (totalCards === 0) {
+      // No cards to animate, just clear and callback
+      this.clearTrickHistory();
+      this.clearBackgrounds();
+      if (onComplete) onComplete();
+      return;
+    }
+
+    // Clear backgrounds immediately
+    this.clearBackgrounds();
+
+    // Animate cards staggered by trick number (both teams' trick N go together)
+    let completedCount = 0;
+    const trickNumbers = Object.keys(cardsByTrickNumber).map(Number).sort((a, b) => a - b);
+
+    trickNumbers.forEach((trickNum, trickIndex) => {
+      const cards = cardsByTrickNumber[trickNum];
+      cards.forEach((card) => {
+        scene.tweens.add({
+          targets: card,
+          x: targetX,
+          y: targetY,
+          alpha: 0,
+          scale: 0.5,
+          duration: 400,
+          ease: 'Power2',
+          delay: trickIndex * 30, // Stagger by trick number
+          onComplete: () => {
+            card.destroy();
+            completedCount++;
+
+            // When all cards are done, clear history and callback
+            if (completedCount === totalCards) {
+              this._teamTrickHistory = [];
+              this._oppTrickHistory = [];
+              this._teamTrickCount = 0;
+              this._oppTrickCount = 0;
+              if (onComplete) onComplete();
+            }
+          },
+        });
+      });
+    });
+  }
+
+  /**
    * Get current trick sprite count.
    */
   getCurrentTrickCount() {

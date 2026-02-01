@@ -165,7 +165,7 @@ async function handlePostPlay(io, game) {
 
         // Check if hand is complete
         if (game.cardIndex === game.currentHand * 4) {
-            await delay(4000);
+            await delay(2000); // Brief pause after last trick stacks
             await handleHandComplete(game, io);
             return;
         }
