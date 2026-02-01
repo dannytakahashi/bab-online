@@ -110,9 +110,16 @@ export class CardManager {
       // Higher depth = checked first for input, so overlapping cards work correctly
       sprite.setDepth(CARD_CONFIG.Z_INDEX.HAND + index);
 
-      // Use full card hit area - depth-based input handling ensures
-      // overlapping cards (higher depth) intercept input first
-      sprite.setInteractive();
+      // Use explicit hit area matching visible card bounds within the 64x64 frame
+      // (cards have transparent padding in the atlas that shouldn't be clickable)
+      const { CARD_BOUNDS } = CARD_CONFIG;
+      const hitArea = new Phaser.Geom.Rectangle(
+        CARD_BOUNDS.x,
+        CARD_BOUNDS.y,
+        CARD_BOUNDS.width,
+        CARD_BOUNDS.height
+      );
+      sprite.setInteractive(hitArea, Phaser.Geom.Rectangle.Contains);
       this._setupCardInteraction(sprite);
 
       this._handSprites.push(sprite);

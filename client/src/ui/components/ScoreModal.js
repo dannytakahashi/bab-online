@@ -102,9 +102,9 @@ export function formatGameEndMessages(options) {
   // Determine winner
   let resultMsg;
   if (teamScore > oppScore) {
-    resultMsg = 'YOU WIN!';
+    resultMsg = 'VICTORY';
   } else if (teamScore < oppScore) {
-    resultMsg = 'YOU LOSE';
+    resultMsg = 'DEFEAT';
   } else {
     resultMsg = 'TIE GAME';
   }
@@ -127,10 +127,10 @@ export function showFinalScoreOverlay({ teamScore, oppScore, playerStats, onRetu
   let resultMsg;
   let resultColor;
   if (teamScore > oppScore) {
-    resultMsg = 'YOU WIN!';
+    resultMsg = 'VICTORY';
     resultColor = '#4ade80';
   } else if (teamScore < oppScore) {
-    resultMsg = 'YOU LOSE';
+    resultMsg = 'DEFEAT';
     resultColor = '#ef4444';
   } else {
     resultMsg = 'TIE GAME';

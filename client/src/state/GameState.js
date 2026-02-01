@@ -101,6 +101,9 @@ export class GameState {
     // Bid state
     this.tempBids = []; // Bid history for bore button state
 
+    // HSI values for all players at hand start (position → HSI)
+    this.hsiValues = {};
+
     // Play positions for trick card coordinates (updated on resize)
     this.playPositions = {
       opponent1: { x: 0, y: 0 },
@@ -228,6 +231,15 @@ export class GameState {
   setTrump(trump) {
     this.trump = trump;
     this._emit('trumpSet', trump);
+  }
+
+  /**
+   * Set HSI values for all players at hand start.
+   * @param {Object} hsiValues - { position: hsi } mapping
+   */
+  setHsiValues(hsiValues) {
+    this.hsiValues = { ...hsiValues };
+    this._emit('hsiValuesSet', this.hsiValues);
   }
 
   /**

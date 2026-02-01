@@ -45,6 +45,19 @@ export const CARD_CONFIG = {
   BASE_WIDTH: 100,
   BASE_HEIGHT: 145,
 
+  // Atlas frame dimensions (64x64 squares contain the card images)
+  FRAME_WIDTH: 64,
+  FRAME_HEIGHT: 64,
+
+  // Visible card bounds within the 64x64 frame (cards have padding in the atlas)
+  // These define where the actual card image sits within each frame
+  CARD_BOUNDS: {
+    x: 10,      // Left padding in frame
+    y: 1,       // Top padding in frame
+    width: 44,  // Actual card width
+    height: 62, // Actual card height
+  },
+
   // Scale factor for display (matches legacy displayCards setScale(1.5))
   SCALE: 1.5,
 

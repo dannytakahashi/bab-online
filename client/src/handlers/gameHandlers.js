@@ -84,6 +84,11 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
     state.setBidding(true);
     state.setPhase(PHASE.BIDDING);
 
+    // Store HSI values for all players
+    if (data.hsiValues) {
+      state.setHsiValues(data.hsiValues);
+    }
+
     // Store in sessionStorage for reconnection
     if (data.gameId) {
       sessionStorage.setItem('gameId', data.gameId);
