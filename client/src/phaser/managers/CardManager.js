@@ -19,6 +19,7 @@ export class CardManager {
     this._handSprites = [];
     this._playedSprites = {};
     this._onCardClick = null;
+    this._isDealing = false; // Flag to prevent repositionHand during deal animation
   }
 
   /**
@@ -90,17 +91,16 @@ export class CardManager {
     const scene = this._scene;
     const { scale } = scene;
 
-    console.log('🃏 CardManager.displayHand dimensions:', {
-      scaleWidth: scale.width,
-      scaleHeight: scale.height,
-      cardCount: cards.length,
-    });
+    // Set dealing flag to prevent repositionHand from interrupting animation
+    if (animate) {
+      this._isDealing = true;
+    }
 
     const positions = this.calculateHandPositions(cards.length, scale.width);
 
     cards.forEach((card, index) => {
       const pos = positions[index];
-      const sprite = this._createCardSprite(card, pos.x, pos.y, animate);
+      const sprite = this._createCardSprite(card, pos.x, pos.y, animate, index);
       sprite.setData('card', card);
       sprite.setData('index', index);
       sprite.setData('baseY', pos.y); // Store target Y for hover effects
@@ -118,9 +118,12 @@ export class CardManager {
       this._handSprites.push(sprite);
     });
 
-    // Schedule a reposition for next frame to handle container resize timing
+    // Schedule a reposition after deal animation completes to handle container resize timing
     // This ensures cards are positioned correctly even if container width changes
-    scene.time.delayedCall(50, () => {
+    // Delay must be longer than base delay (200ms) + deal animation (750ms) + stagger (cards * 50ms)
+    const animationDelay = animate ? 200 + 750 + (cards.length * 50) + 100 : 50;
+    scene.time.delayedCall(animationDelay, () => {
+      this._isDealing = false; // Clear dealing flag so resize can work again
       this.repositionHand();
     });
   }
@@ -128,25 +131,45 @@ export class CardManager {
   /**
    * Create a card sprite.
    */
-  _createCardSprite(card, x, y, animate = false) {
+  _createCardSprite(card, x, y, animate = false, index = 0) {
     const scene = this._scene;
     const textureKey = this.getTextureKey(card);
     const { SCALE, Z_INDEX } = CARD_CONFIG;
 
     let sprite;
     if (animate) {
-      // Start from off-screen
-      sprite = scene.add.sprite(scene.scale.width / 2, -100, 'cards', textureKey);
-      sprite.setScale(SCALE);
-      sprite.setDepth(Z_INDEX.HAND);
+      // Start from trump card's actual position (if it exists)
+      // This ensures we use the same position regardless of container resize timing
+      let startX, startY;
+      if (scene.tableCardSprite) {
+        startX = scene.tableCardSprite.x;
+        startY = scene.tableCardSprite.y;
+      } else {
+        // Fallback to calculated position
+        const DESIGN_WIDTH = 1920;
+        const DESIGN_HEIGHT = 953;
+        const scaleX = scene.scale.width / DESIGN_WIDTH;
+        const scaleY = scene.scale.height / DESIGN_HEIGHT;
+        startX = scene.scale.width / 2 + 500 * scaleX;
+        startY = scene.scale.height / 2 - 300 * scaleY;
+      }
 
-      // Animate to position
+      sprite = scene.add.sprite(startX, startY, 'cards', textureKey);
+      sprite.setScale(SCALE);
+      sprite.setDepth(Z_INDEX.HAND + index);
+      sprite.setAlpha(0); // Start invisible to avoid position glitch during delay
+
+      // Animate to position with staggered delay (750ms to match opponents)
+      // Add base delay so cards are visible at trump position first
+      // Use explicit from/to values to ensure starting position is correct
       scene.tweens.add({
         targets: sprite,
-        x,
-        y,
-        duration: ANIMATION_CONFIG.CARD_DEAL,
+        x: { from: startX, to: x },
+        y: { from: startY, to: y },
+        alpha: { from: 1, to: 1 }, // Reveal card when tween starts
+        duration: 750,
         ease: 'Power2',
+        delay: 200 + (index * 50),
       });
     } else {
       sprite = scene.add.sprite(x, y, 'cards', textureKey);
@@ -419,6 +442,8 @@ export class CardManager {
    * Reposition hand cards (for resize handling).
    */
   repositionHand() {
+    // Skip repositioning during deal animation to prevent snapping cards to final position
+    if (this._isDealing) return;
     if (!this._handSprites.length) return;
 
     const scene = this._scene;

@@ -588,27 +588,62 @@ export class GameScene extends Phaser.Scene {
       this.tableCardLabel.destroy();
     }
 
-    // Card
+    // Card - start face down, same scale as player hand cards (1.5)
     const cardKey = getCardImageKey(trumpCard);
-    this.tableCardSprite = this.add.image(trumpX, trumpY, 'cards', cardKey);
-    this.tableCardSprite.setScale(1.0);
+    this.tableCardSprite = this.add.image(trumpX, trumpY, 'cardBack');
+    this.tableCardSprite.setScale(1.5);
     this.tableCardSprite.setDepth(100);
 
-    // Background - subtle box around card
-    const cardWidth = this.tableCardSprite.displayWidth + 10;
-    const cardHeight = this.tableCardSprite.displayHeight + 10;
+    // Background - box around card with padding
+    const cardWidth = this.tableCardSprite.displayWidth + 20;
+    const cardHeight = this.tableCardSprite.displayHeight + 20;
     this.tableCardBackground = this.add.rectangle(trumpX, trumpY, cardWidth, cardHeight, 0x000000, 0.3);
     this.tableCardBackground.setStrokeStyle(1, 0x666666, 0.5);
     this.tableCardBackground.setDepth(99);
 
-    // Label - smaller and closer to card
-    this.tableCardLabel = this.add.text(trumpX, trumpY - (cardHeight / 2) - 12, 'TRUMP', {
-      fontSize: `${12 * scaleX}px`,
+    // Label - above the card
+    this.tableCardLabel = this.add.text(trumpX, trumpY - (cardHeight / 2) - 15, 'TRUMP', {
+      fontSize: `${14 * scaleX}px`,
       fontFamily: 'Arial, sans-serif',
       color: '#aaaaaa',
     });
     this.tableCardLabel.setOrigin(0.5);
     this.tableCardLabel.setDepth(100);
+
+    // Flip the trump card face up after all players receive their cards
+    // Card deal: 200ms delay + 750ms duration + stagger (~550ms for 12 cards) = ~1500ms
+    // First hand has fade transition, so add extra delay to compensate
+    // This keeps the flip timing consistent relative to when cards finish dealing
+    const hasTransition = window._transitionOverlay || document.getElementById('transition-overlay');
+    const flipDelay = hasTransition ? 3500 : 2000;
+    const flipDuration = 300;
+    const sprite = this.tableCardSprite;
+
+    this.time.delayedCall(flipDelay, () => {
+      // Phase 1: Scale X to 0 (flip start)
+      this.tweens.add({
+        targets: sprite,
+        scaleX: 0,
+        duration: flipDuration / 2,
+        ease: 'Power2',
+        onComplete: () => {
+          if (!sprite || !sprite.scene) return;
+          // Change to face up texture
+          sprite.setTexture('cards', cardKey);
+          // Phase 2: Scale X back (flip complete)
+          this.tweens.add({
+            targets: sprite,
+            scaleX: 1.5,
+            duration: flipDuration / 2,
+            ease: 'Power2',
+            onComplete: () => {
+              // Signal that trump flip is complete for bid UI timing
+              window.dispatchEvent(new Event('trumpFlipComplete'));
+            },
+          });
+        },
+      });
+    });
   }
 
   // ============================================
@@ -713,13 +748,88 @@ export class GameScene extends Phaser.Scene {
   /**
    * Handle createUI event - transition from draw to game.
    * @param {Object} data - Event data from server
+   * @param {Function} onUIReady - Callback to create UI elements (called after fade to black)
    */
-  handleCreateUI(data) {
+  handleCreateUI(data, onUIReady) {
     console.log('🎮 GameScene.handleCreateUI()');
-    // Clean up draw phase
-    this.drawManager.cleanup();
-    // Delegate to callback for legacy code
-    this.callbacks.onCreateUI?.(data);
+
+    const fadeDuration = 1200;
+    const scene = this;
+
+    // Reset the ready flag for this new game
+    window._readyForGameUI = false;
+
+    // Check if overlay already exists (created by teamsAnnounced fade)
+    let overlay = window._transitionOverlay || document.getElementById('transition-overlay');
+
+    if (!overlay) {
+      // Create overlay if it doesn't exist (fallback)
+      overlay = document.createElement('div');
+      overlay.id = 'transition-overlay';
+      overlay.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background: black;
+        opacity: 1;
+        z-index: 99999;
+        pointer-events: all;
+      `;
+      document.body.appendChild(overlay);
+      window._transitionOverlay = overlay;
+
+      // Overlay is already opaque, proceed immediately
+      proceedWithTransition();
+    } else {
+      // Overlay exists - wait for it to become fully opaque
+      // Force it to full opacity immediately to ensure nothing shows through
+      overlay.style.transition = 'none';
+      overlay.style.opacity = '1';
+      overlay.style.pointerEvents = 'all';
+
+      // Proceed after a frame to ensure opacity is applied
+      requestAnimationFrame(() => {
+        proceedWithTransition();
+      });
+    }
+
+    function proceedWithTransition() {
+      // Clean up draw phase (hidden behind black overlay)
+      scene.drawManager.cleanup();
+
+      // Create the play UI (hidden behind the overlay)
+      onUIReady?.();
+
+      // Wait for next frame to ensure UI is rendered, then fade out
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          // Add transition and fade out
+          overlay.style.transition = `opacity ${fadeDuration}ms ease-out`;
+          overlay.style.pointerEvents = 'none';
+
+          // Force reflow
+          overlay.offsetHeight;
+
+          // Listen for fade to complete
+          overlay.addEventListener('transitionend', function onFadeComplete() {
+            overlay.removeEventListener('transitionend', onFadeComplete);
+            overlay.remove();
+            window._transitionOverlay = null;
+
+            // Signal that UI can now be shown (after a short delay)
+            setTimeout(() => {
+              window._readyForGameUI = true;
+              window.dispatchEvent(new Event('gameUIReady'));
+            }, 500);
+          });
+
+          // Fade out to reveal play screen
+          overlay.style.opacity = '0';
+        });
+      });
+    }
   }
 
   // ============================================
@@ -1215,6 +1325,9 @@ export class GameScene extends Phaser.Scene {
   handleHandComplete(data) {
     console.log('🎮 GameScene.handleHandComplete()', data);
 
+    // Start trick animation immediately (before score processing)
+    this._animateTricksAndTrumpAway();
+
     const state = this.state;
     const myPosition = state.position;
 
@@ -1278,11 +1391,6 @@ export class GameScene extends Phaser.Scene {
     state.oppTricks = 0;
     state.trumpBroken = false;
 
-    // Clear trick history for new hand
-    if (this.trickManager) {
-      this.trickManager.resetForNewHand();
-    }
-
     // Clear hand cards
     if (this.cardManager) {
       this.cardManager.clearHand();
@@ -1290,6 +1398,54 @@ export class GameScene extends Phaser.Scene {
 
     // Delegate to callback for any remaining legacy handling
     this.callbacks.onHandComplete?.(data);
+  }
+
+  /**
+   * Animate tricks back to trump card and flip trump face down.
+   * Extracted to run immediately at start of handleHandComplete.
+   */
+  _animateTricksAndTrumpAway() {
+    if (this.trickManager && this.tableCardSprite) {
+      const trumpX = this.tableCardSprite.x;
+      const trumpY = this.tableCardSprite.y;
+
+      // Set flag to delay next hand's card dealing
+      window._tricksAnimating = true;
+
+      // Flip trump card face down while tricks are whisked
+      const trumpSprite = this.tableCardSprite;
+      const flipDuration = 150;
+      this.tweens.add({
+        targets: trumpSprite,
+        scaleX: 0,
+        duration: flipDuration,
+        ease: 'Power2',
+        onComplete: () => {
+          if (trumpSprite && trumpSprite.scene) {
+            trumpSprite.setTexture('cardBack');
+            this.tweens.add({
+              targets: trumpSprite,
+              scaleX: 1.5,
+              duration: flipDuration,
+              ease: 'Power2',
+            });
+          }
+        },
+      });
+
+      this.trickManager.animateTricksAway(trumpX, trumpY, () => {
+        // Reset bid totals after animation
+        this.trickManager._teamBidTotal = 0;
+        this.trickManager._oppBidTotal = 0;
+
+        // Signal that tricks are done animating
+        window._tricksAnimating = false;
+        window.dispatchEvent(new Event('tricksCleared'));
+      });
+    } else if (this.trickManager) {
+      // Fallback if no trump card - just reset immediately
+      this.trickManager.resetForNewHand();
+    }
   }
 
   /**

@@ -184,6 +184,79 @@ export class OpponentManager {
   }
 
   /**
+   * Display only opponent card backs (no avatars or dealer button).
+   * @param {number} cardCount - Number of cards each opponent has
+   * @param {boolean} skipAnimation - Skip deal animation
+   */
+  displayOpponentCards(cardCount, skipAnimation = false) {
+    this.clearCards();
+
+    if (cardCount === 0) return;
+
+    const scene = this._scene;
+    const positions = this.getOpponentPositions();
+    const { x: scaleX, y: scaleY } = this.getScaleFactors();
+    const cardSpacing = 10 * scaleX;
+
+    // Display card backs for each opponent position
+    ['partner', 'opp1', 'opp2'].forEach((opponentId) => {
+      const pos = positions[opponentId];
+      const isHorizontal = opponentId === 'partner';
+
+      for (let i = 0; i < cardCount; i++) {
+        let x, y, rotation;
+
+        if (isHorizontal) {
+          const totalWidth = (cardCount - 1) * cardSpacing;
+          x = pos.cardX - totalWidth / 2 + i * cardSpacing;
+          y = pos.cardY;
+          rotation = 0;
+        } else {
+          const totalHeight = (cardCount - 1) * cardSpacing;
+          x = pos.cardX;
+          y = pos.cardY - totalHeight / 2 + i * cardSpacing;
+          rotation = opponentId === 'opp1' ? -Math.PI / 2 : Math.PI / 2;
+        }
+
+        const sprite = scene.add.image(x, y, 'cardBack');
+        sprite.setScale(1.2);
+        sprite.setRotation(rotation);
+        sprite.setDepth(100 + i);
+
+        if (!skipAnimation) {
+          // Start from trump card's actual position (if it exists)
+          let startX, startY;
+          if (scene.tableCardSprite) {
+            startX = scene.tableCardSprite.x;
+            startY = scene.tableCardSprite.y;
+          } else {
+            startX = scene.scale.width / 2 + 500 * scaleX;
+            startY = scene.scale.height / 2 - 300 * scaleY;
+          }
+          sprite.setPosition(startX, startY);
+          sprite.setScale(1.5);
+          sprite.setAlpha(1);
+          sprite.setRotation(0);
+
+          scene.tweens.add({
+            targets: sprite,
+            x,
+            y,
+            scaleX: 1.2,
+            scaleY: 1.2,
+            rotation,
+            duration: 750,
+            ease: 'Power2',
+            delay: i * 30,
+          });
+        }
+
+        this._cardSprites[opponentId].push(sprite);
+      }
+    });
+  }
+
+  /**
    * Display the dealer button at the correct position (DOM-based).
    */
   displayDealerButton(dealerPosition) {

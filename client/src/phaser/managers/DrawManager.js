@@ -23,6 +23,10 @@ export class DrawManager {
     this.drawnCardDisplays = [];
     this.hitZone = null;
     this.titleText = null;
+
+    // Track clicked card for local player draw
+    this.clickedCardSprite = null;
+    this.clickedCardIndex = null;
   }
 
   /**
@@ -139,8 +143,9 @@ export class DrawManager {
       // Get the clicked card sprite (cards start at index 1, after titleText)
       const clickedCard = this.allCards[clickedIndex + 1];
 
-      // Store clicked position for flip animation
-      this.state.setClickedCardPosition({ x: clickedCard.x, y: clickedCard.y });
+      // Store clicked card sprite and index for the draw animation
+      this.clickedCardSprite = clickedCard;
+      this.clickedCardIndex = clickedIndex + 1;
 
       console.log(`📦 DrawManager: Clicked card ${clickedIndex + 1}`);
 
@@ -174,22 +179,55 @@ export class DrawManager {
   handlePlayerDrew(data) {
     console.log(`🎴 DrawManager: ${data.username} drew: ${data.card.rank} of ${data.card.suit} (order: ${data.drawOrder})`);
 
-    const { x: scaleX, y: scaleY, screenWidth, screenHeight } = this.getScaleFactors();
+    const { x: scaleX, y: scaleY } = this.getScaleFactors();
 
     // Calculate position for this drawn card
     const slotX = this.drawDisplayConfig.startX + (data.drawOrder - 1) * this.drawDisplayConfig.spacing;
     const textureKey = getCardImageKey(data.card);
 
-    // Determine start position
-    const isLocalPlayer = this.state.clickedCardPosition !== null;
-    const startPos = isLocalPlayer
-      ? { x: this.state.clickedCardPosition.x, y: this.state.clickedCardPosition.y }
-      : { x: screenWidth / 2, y: this.deckConfig.startY };
+    // Determine if this is the local player's draw
+    const isLocalPlayer = this.clickedCardSprite !== null;
 
-    // Create card with back texture initially
-    const drawnCard = this.scene.add.image(startPos.x, startPos.y, 'cardBack')
-      .setScale(0.8)
-      .setDepth(300);
+    let drawnCard;
+    let cardIndexToRemove;
+
+    if (isLocalPlayer) {
+      // Use the actual clicked card sprite
+      drawnCard = this.clickedCardSprite;
+      cardIndexToRemove = this.clickedCardIndex;
+      drawnCard.setDepth(300);
+
+      // Clear the stored references
+      this.clickedCardSprite = null;
+      this.clickedCardIndex = null;
+    } else {
+      // For remote players, pick a random card from the remaining deck
+      // Cards start at index 1 (index 0 is title text)
+      const availableIndices = [];
+      for (let i = 1; i < this.allCards.length; i++) {
+        if (this.allCards[i] && this.allCards[i].type === 'Image') {
+          availableIndices.push(i);
+        }
+      }
+
+      if (availableIndices.length > 0) {
+        // Pick a random card from the deck
+        const randomIdx = Math.floor(Math.random() * availableIndices.length);
+        cardIndexToRemove = availableIndices[randomIdx];
+        drawnCard = this.allCards[cardIndexToRemove];
+        drawnCard.setDepth(300);
+      } else {
+        // Fallback: create a new card if somehow no cards left
+        drawnCard = this.scene.add.image(this.deckConfig.startX, this.deckConfig.startY, 'cardBack')
+          .setScale(0.8)
+          .setDepth(300);
+      }
+    }
+
+    // Remove the card from allCards array (don't reposition others)
+    if (cardIndexToRemove !== undefined) {
+      this.allCards[cardIndexToRemove] = null;
+    }
 
     // Create username label
     const nameLabel = this.scene.add.text(
@@ -205,9 +243,11 @@ export class DrawManager {
       }
     ).setOrigin(0.5).setDepth(300);
 
-    // Flip animation
+    // Flip animation (slowed down)
+    const startPos = { x: drawnCard.x, y: drawnCard.y };
     const midX = (startPos.x + slotX) / 2;
     const midY = (startPos.y + this.drawDisplayConfig.y) / 2;
+    const flipDuration = 250;
 
     // Phase 1: Move toward midpoint and scale X to 0 (flip start)
     this.scene.tweens.add({
@@ -216,7 +256,7 @@ export class DrawManager {
       y: midY,
       scaleX: 0,
       scaleY: 1.1,
-      duration: 250,
+      duration: flipDuration,
       ease: 'Power2',
       onComplete: () => {
         // Guard against destroyed sprite (cleanup called during animation)
@@ -232,16 +272,11 @@ export class DrawManager {
           y: this.drawDisplayConfig.y,
           scaleX: 1.5,
           scaleY: 1.5,
-          duration: 250,
+          duration: flipDuration,
           ease: 'Power2',
         });
       },
     });
-
-    // Clear clicked position after local player's card is processed
-    if (isLocalPlayer) {
-      this.state.setClickedCardPosition(null);
-    }
 
     this.drawnCardDisplays.push(drawnCard, nameLabel);
   }
@@ -254,6 +289,107 @@ export class DrawManager {
   handleTeamsAnnounced(data) {
     console.log('🏆 DrawManager: Teams announced:', data);
 
+    const { x: scaleX, y: scaleY, screenWidth, screenHeight } = this.getScaleFactors();
+
+    // Target position: off-screen top right
+    const targetX = screenWidth + 150;
+    const targetY = -150;
+    const animationDuration = 800;
+    const flipDuration = 250;
+    const flipDelay = flipDuration * 2; // Wait for drawn cards to flip before whisking
+
+    // Animate all deck cards off-screen (skip title text at index 0 and null entries)
+    // Delay until drawn cards have flipped face down
+    this.allCards.forEach((card, index) => {
+      if (index === 0 || !card || card.type !== 'Image') return; // Skip title, null, and non-sprite elements
+
+      this.scene.tweens.add({
+        targets: card,
+        x: targetX,
+        y: targetY,
+        scaleX: 0.6,
+        scaleY: 0.6,
+        duration: animationDuration,
+        ease: 'Power2',
+        delay: flipDelay + index * 5, // Wait for flip, then stagger
+      });
+    });
+
+    // Animate drawn cards: flip face down while moving back to deck row, then whisk away
+    // Name labels fade out
+    const deckY = this.deckConfig.startY;
+    this.drawnCardDisplays.forEach((item) => {
+      if (!item || !item.scene) return;
+
+      // Check if it's a card sprite (Image type) vs a text label
+      if (item.type === 'Image') {
+        // Phase 1: Move toward deck row and scale X to 0 (flip start)
+        this.scene.tweens.add({
+          targets: item,
+          y: deckY,
+          scaleX: 0,
+          scaleY: 1.2,
+          duration: flipDuration,
+          ease: 'Power2',
+          onComplete: () => {
+            if (!item || !item.scene) return;
+
+            // Change texture to card back
+            item.setTexture('cardBack');
+
+            // Phase 2: Complete flip (scale X back)
+            this.scene.tweens.add({
+              targets: item,
+              scaleX: 1.2,
+              duration: flipDuration,
+              ease: 'Power2',
+              onComplete: () => {
+                if (!item || !item.scene) return;
+
+                // Phase 3: Whisk off-screen with the rest
+                this.scene.tweens.add({
+                  targets: item,
+                  x: targetX,
+                  y: targetY,
+                  scaleX: 0.6,
+                  scaleY: 0.6,
+                  duration: animationDuration,
+                  ease: 'Power2',
+                });
+              },
+            });
+          },
+        });
+      } else if (item.type === 'Text') {
+        // This is a text label - fade it out
+        this.scene.tweens.add({
+          targets: item,
+          alpha: 0,
+          duration: flipDuration * 2,
+          ease: 'Power2',
+        });
+      }
+    });
+
+    // Hide the title text
+    if (this.titleText) {
+      this.scene.tweens.add({
+        targets: this.titleText,
+        alpha: 0,
+        duration: animationDuration / 2,
+        ease: 'Power2',
+      });
+    }
+
+    // Show team announcement immediately while cards animate away
+    this._showTeamAnnouncement(data);
+  }
+
+  /**
+   * Display the team announcement overlay.
+   * @param {Object} data - { team1: [username1, username2], team2: [username1, username2] }
+   */
+  _showTeamAnnouncement(data) {
     const { x: scaleX, y: scaleY, screenWidth, screenHeight } = this.getScaleFactors();
 
     // Create semi-transparent overlay
@@ -325,6 +461,76 @@ export class DrawManager {
     // Store for cleanup
     const teamElements = [overlay, team1Label, team1Players, vsText, team2Label, team2Players];
     this.drawnCardDisplays.push(...teamElements);
+
+    // After showing teams for a moment, start fading to black
+    const fadeDelay = 2000; // Show teams for 2 seconds
+    const fadeDuration = 1200;
+
+    this.scene.time.delayedCall(fadeDelay, () => {
+      // Create DOM overlay for fade to black (covers everything including DOM elements)
+      const domOverlay = document.createElement('div');
+      domOverlay.id = 'transition-overlay';
+      domOverlay.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background: black;
+        opacity: 0;
+        z-index: 99999;
+        pointer-events: none;
+        transition: opacity ${fadeDuration}ms ease-out;
+      `;
+      document.body.appendChild(domOverlay);
+
+      // Store globally for handleCreateUI to find
+      window._transitionOverlay = domOverlay;
+
+      // Force reflow and start fade
+      domOverlay.offsetHeight;
+      domOverlay.style.opacity = '1';
+    });
+  }
+
+  /**
+   * Fade out the team overlay and then clean up.
+   * @param {Function} onComplete - Callback when fade and cleanup are done
+   */
+  fadeOutAndCleanup(onComplete) {
+    console.log('🔥 DrawManager: Fading out and cleaning up...');
+
+    const fadeDuration = 1200;
+    let fadeComplete = false;
+
+    // Fade out all remaining elements
+    const allElements = [...this.drawnCardDisplays, ...this.allCards];
+    const visibleElements = allElements.filter(item => item && item.scene && item.alpha > 0);
+
+    if (visibleElements.length === 0) {
+      // Nothing to fade, just cleanup
+      this.cleanup();
+      onComplete?.();
+      return;
+    }
+
+    // Fade all visible elements
+    visibleElements.forEach((item, index) => {
+      this.scene.tweens.add({
+        targets: item,
+        alpha: 0,
+        duration: fadeDuration,
+        ease: 'Power2',
+        onComplete: () => {
+          // Only call cleanup once, after the last fade
+          if (!fadeComplete && index === visibleElements.length - 1) {
+            fadeComplete = true;
+            this.cleanup();
+            onComplete?.();
+          }
+        },
+      });
+    });
   }
 
   /**
@@ -352,6 +558,8 @@ export class DrawManager {
 
     this.hitZone = null;
     this.titleText = null;
+    this.clickedCardSprite = null;
+    this.clickedCardIndex = null;
 
     console.log('✅ DrawManager: Cleanup complete');
   }
