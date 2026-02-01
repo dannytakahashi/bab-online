@@ -60,10 +60,18 @@ export class EffectsManager {
    */
   showImpactEvent(event) {
     const scene = this._scene;
-    const { screenWidth, screenHeight } = this.getScaleFactors();
+    const { x: scaleX, y: scaleY, screenWidth, screenHeight } = this.getScaleFactors();
+
+    // OT uses different position (top-left corner of play area) and smaller size
+    const isOT = event === 'ot';
+    const otOffsetX = 180; // Offset from center toward top-left
+    const otOffsetY = 150;
+    const x = isOT ? screenWidth / 2 - otOffsetX * scaleX : screenWidth / 2;
+    const y = isOT ? screenHeight / 2 - otOffsetY * scaleY : screenHeight / 2;
+    const targetScale = isOT ? 0.9 : 1.2;
 
     const impactImage = scene.add
-      .image(screenWidth / 2, screenHeight / 2, event)
+      .image(x, y, event)
       .setScale(0)
       .setAlpha(1)
       .setDepth(999);
@@ -73,7 +81,7 @@ export class EffectsManager {
     // Tween for impact effect (scale up + bounce)
     scene.tweens.add({
       targets: impactImage,
-      scale: { from: 0, to: 1.2 },
+      scale: { from: 0, to: targetScale },
       ease: 'Back.Out',
       duration: 500,
     });

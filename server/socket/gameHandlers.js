@@ -369,11 +369,13 @@ async function startHand(game, io) {
     game.trump = deck.drawOne();
 
     // Calculate HSI for each player's hand and add to their stats
+    const hsiValues = {};
     for (const socketId of socketIds) {
         const hand = game.getHand(socketId);
         const position = game.getPositionBySocketId(socketId);
         const hsi = calculateHSI(hand, game.trump);
         game.addHSI(position, hsi);
+        hsiValues[position] = hsi;
     }
 
     // Send game start to all players (each gets their own hand and position)
@@ -388,7 +390,8 @@ async function startHand(game, io) {
             score2: game.score.team2,
             dealer: game.dealer,
             position: playerPosition,  // Include player's position to avoid race condition
-            currentHand: game.currentHand  // Hand index for hand indicator
+            currentHand: game.currentHand,  // Hand index for hand indicator
+            hsiValues  // HSI for all players to display under avatars
         });
     }
 
@@ -687,11 +690,13 @@ async function cleanupNextHand(game, io, dealer, handSize) {
     game.trump = deck.drawOne();
 
     // Calculate HSI for each player's hand and add to their stats
+    const hsiValues = {};
     for (const socketId of socketIds) {
         const hand = game.getHand(socketId);
         const position = game.getPositionBySocketId(socketId);
         const hsi = calculateHSI(hand, game.trump);
         game.addHSI(position, hsi);
+        hsiValues[position] = hsi;
     }
 
     // Send new hand to all players (each gets their own hand and position)
@@ -706,7 +711,8 @@ async function cleanupNextHand(game, io, dealer, handSize) {
             score2: game.score.team2,
             dealer: game.dealer,
             position: playerPosition,  // Include player's position to fix bid UI bug
-            currentHand: game.currentHand  // Hand index for hand indicator
+            currentHand: game.currentHand,  // Hand index for hand indicator
+            hsiValues  // HSI for all players to display under avatars
         });
     }
 

@@ -655,6 +655,9 @@ export function setGameScene(scene) {
 
         // Also remove from gameState using optimistic update
         gameState.optimisticPlayCard(card);
+
+        // Immediately dim all remaining cards since player can't play again this trick
+        this.cardManager.updateCardLegality(() => true, false);
       });
 
       // Display the sorted hand
@@ -944,10 +947,26 @@ export function setGameScene(scene) {
       `;
       avatarContainer.appendChild(nameLabel);
 
+      // Add HSI display box
+      const hsiBox = document.createElement('div');
+      hsiBox.id = 'player-hsi-box';
+      hsiBox.style.cssText = `
+        margin-top: 4px;
+        padding: 2px 8px;
+        background: rgba(0, 0, 0, 0.7);
+        border: 1px solid #666;
+        border-radius: 4px;
+        font-size: 12px;
+        color: #aaa;
+        white-space: nowrap;
+      `;
+      hsiBox.textContent = 'HSI: --';
+      avatarContainer.appendChild(hsiBox);
+
       // Add avatar to DOM
       document.body.appendChild(avatarContainer);
 
-      this._playerInfo = { avatarContainer, avatarImg, nameLabel };
+      this._playerInfo = { avatarContainer, avatarImg, nameLabel, hsiBox };
       return this._playerInfo;
     };
   }
@@ -978,6 +997,14 @@ export function setGameScene(scene) {
         this._playerInfo.avatarContainer.remove();
       }
       this._playerInfo = null;
+    };
+  }
+
+  if (!scene.updatePlayerHsi) {
+    scene.updatePlayerHsi = function(hsi) {
+      if (this._playerInfo?.hsiBox && hsi !== undefined) {
+        this._playerInfo.hsiBox.textContent = `HSI: ${hsi.toFixed(1)}`;
+      }
     };
   }
 
@@ -1758,6 +1785,11 @@ function initializeApp() {
           }
         }
 
+        // Update player's HSI display (only shown for self, not opponents)
+        if (data.hsiValues && scene.updatePlayerHsi && data.position) {
+          scene.updatePlayerHsi(data.hsiValues[data.position]);
+        }
+
         // Create DOM backgrounds via LayoutManager (show immediately)
         if (scene.layoutManager) {
           scene.layoutManager.update();
@@ -2059,6 +2091,10 @@ function initializeApp() {
             // Clean up opponent manager (avatars, dealer button)
             if (scene.opponentManager && scene.opponentManager.clearAll) {
               scene.opponentManager.clearAll();
+            }
+            // Clean up player info box (own avatar)
+            if (scene.clearPlayerInfo) {
+              scene.clearPlayerInfo();
             }
             // Clean up DOM backgrounds (play zone, hand background)
             if (scene.layoutManager && scene.layoutManager.cleanupDomBackgrounds) {
