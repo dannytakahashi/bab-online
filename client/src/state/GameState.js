@@ -30,6 +30,9 @@ export class GameState {
    * Reset all state to initial values.
    */
   reset() {
+    // Clear all event listeners to prevent stale callbacks
+    this._listeners.clear();
+
     // Player identity
     this.playerId = null;
     this.username = null;

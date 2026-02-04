@@ -1320,7 +1320,6 @@ socket.on('reconnect_failed', () => {
   const scene = getGameScene();
   if (scene) {
     scene.scene.restart();
-    socket.off("gameStart");
   }
   if (scene && scene.layoutManager) {
     scene.layoutManager.cleanupDomBackgrounds();
@@ -1602,7 +1601,6 @@ function initializeApp() {
       // Restart scene
       if (scene) {
         scene.scene.restart();
-        socket.off("gameStart");
       }
 
       // Clean up DOM backgrounds
@@ -2107,7 +2105,8 @@ function initializeApp() {
             // Restart scene
             scene.scene.restart();
           }
-          socket.off("gameStart");
+          // Reset game state for next game
+          resetGameState();
           socket.emit("joinMainRoom");
         }
       });
@@ -2173,6 +2172,8 @@ function initializeApp() {
         scene.children.removeAll(true);
         scene.scene.restart();
       }
+      // Reset game state for next game
+      resetGameState();
       socket.emit("joinMainRoom");
     },
     onRoomFull: (data) => {

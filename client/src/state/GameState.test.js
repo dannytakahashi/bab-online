@@ -273,11 +273,13 @@ describe('GameState', () => {
       expect(state.phase).toBe(PHASE.NONE);
     });
 
-    it('emits reset event', () => {
+    it('clears all listeners on reset', () => {
       const handler = vi.fn();
-      state.on('reset', handler);
+      state.on('turnChanged', handler);
       state.reset();
-      expect(handler).toHaveBeenCalled();
+      // Listener should be cleared, so this should not trigger handler
+      state.setCurrentTurn(2);
+      expect(handler).not.toHaveBeenCalled();
     });
   });
 
