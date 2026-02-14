@@ -187,7 +187,12 @@ class BotController {
         if (!game.bidding || game.currentTurn !== bot.position) return;
 
         const hand = game.getHand(bot.socketId);
-        const bid = bot.decideBid(hand, game.trump, game.playerBids, game.currentHand);
+        const gameContext = {
+            teamScore: (bot.position === 1 || bot.position === 3) ? game.score.team1 : game.score.team2,
+            oppScore: (bot.position === 1 || bot.position === 3) ? game.score.team2 : game.score.team1,
+            currentHandSize: game.currentHand
+        };
+        const bid = bot.decideBid(hand, game.trump, game.playerBids, game.currentHand, gameContext);
 
         gameLogger.debug('Bot bidding', {
             botName: bot.username,
@@ -227,7 +232,8 @@ class BotController {
             game.leadCard,
             game.leadPosition,
             game.trump,
-            game.isTrumpBroken
+            game.isTrumpBroken,
+            game.currentHand
         );
 
         gameLogger.debug('Bot playing card', {
@@ -264,7 +270,54 @@ class BotController {
             trump: game.isTrumpBroken
         });
 
+        // Notify all bots about this card play
+        this.notifyCardPlayed(game.gameId, card, bot.position, game.trump);
+
         // Let the caller handle post-play logic (turn advancement, trick completion, etc.)
+    }
+
+    /**
+     * Reset all bot memory for a new hand
+     * @param {string} gameId
+     * @param {number} handSize - Cards per player
+     * @param {Object} trump - Trump card
+     */
+    resetBotMemory(gameId, handSize, trump) {
+        const gameBots = this.gamesBots.get(gameId);
+        if (!gameBots) return;
+
+        for (const bot of gameBots.values()) {
+            bot.resetCardMemory(handSize, trump);
+        }
+    }
+
+    /**
+     * Notify all bots in a game that a card was played
+     * @param {string} gameId
+     * @param {Object} card - Card played
+     * @param {number} position - Position of player who played
+     * @param {Object} trump - Trump card
+     */
+    notifyCardPlayed(gameId, card, position, trump) {
+        const gameBots = this.gamesBots.get(gameId);
+        if (!gameBots) return;
+
+        for (const bot of gameBots.values()) {
+            bot.recordCardPlayed(card, position, trump);
+        }
+    }
+
+    /**
+     * Notify all bots in a game that a trick is complete
+     * @param {string} gameId
+     */
+    notifyTrickComplete(gameId) {
+        const gameBots = this.gamesBots.get(gameId);
+        if (!gameBots) return;
+
+        for (const bot of gameBots.values()) {
+            bot.advanceTrick();
+        }
     }
 
     /**
