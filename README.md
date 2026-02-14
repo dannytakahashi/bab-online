@@ -90,8 +90,9 @@ bab-online/
 │   │   ├── rules.js                # Pure game logic functions
 │   │   └── bot/                    # Bot player system
 │   │       ├── BotPlayer.js        # Bot player class with card memory
-│   │       ├── BotController.js    # Bot lifecycle management
+│   │       ├── BotController.js    # Bot lifecycle and personality hooks
 │   │       ├── BotStrategy.js      # AI strategy functions
+│   │       ├── personalities.js    # Bot personality definitions
 │   │       └── __tests__/          # Bot strategy tests
 │   ├── socket/
 │   │   ├── index.js                # Socket event routing
@@ -161,7 +162,9 @@ The server runs on `http://localhost:3000` by default.
 1. **Sign up/Sign in** - Create an account (auto-logs in) or log in
 2. **Main Room** - Chat globally, browse game lobbies, or create a new game
 3. **Game Lobby** - Wait for 4 players, chat, and click "Ready" when prepared
-   - Click "+ Add Bot" to add AI players (up to 3 bots named "🤖 Mary")
+   - Click "+ Add Bot" to add AI players (up to 3 bots with unique personalities)
+   - Bot names are hidden in lobby and revealed at game start
+   - Personalities: Mary (balanced), Sharon (conservative), Danny (calculated risk-taker), Mike (overconfident), Zach (adaptive)
    - Click "✕" next to a bot to remove it before readying up
    - Bots auto-ready when lobby is full
 4. **Draw Phase** - Draw cards from deck to determine seating positions; teams announced
@@ -191,7 +194,7 @@ The server uses a modular architecture with clear separation of concerns:
 - **GameState** - Encapsulated state for each game instance
 - **Deck** - Card deck with Fisher-Yates shuffle
 - **rules.js** - Pure functions for game logic (testable)
-- **BotController / BotStrategy** - AI bot system with hand-size-aware bidding and card memory
+- **BotController / BotStrategy** - AI bot system with 5 personalities, hand-size-aware bidding, card memory, and in-game chat
 - **Socket handlers** - Organized by domain (auth, queue, game, chat, profile)
 
 ### Client Architecture
