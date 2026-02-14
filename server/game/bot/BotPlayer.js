@@ -14,7 +14,7 @@ class BotPlayer {
      * Create a new bot player
      * @param {string} username - Bot's display name (e.g., "Mary")
      */
-    constructor(username = 'Mary') {
+    constructor(username = '🤖 Mary') {
         this.socketId = `bot:${username.toLowerCase()}:${uuidv4()}`;
         this.username = username;
         this.gameId = null;

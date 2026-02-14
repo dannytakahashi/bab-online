@@ -60,15 +60,6 @@ export function updateLobbyPlayersList(container, players, currentUsername) {
     nameContainer.style.alignItems = 'center';
     nameContainer.style.gap = '6px';
 
-    // Add bot indicator if player is a bot
-    if (player.isBot) {
-      const botIcon = document.createElement('span');
-      botIcon.innerText = '\u{1F916}'; // Robot emoji
-      botIcon.style.fontSize = '14px';
-      botIcon.title = 'Bot Player';
-      nameContainer.appendChild(botIcon);
-    }
-
     const nameSpan = document.createElement('span');
     nameSpan.innerText = player.username;
     nameSpan.style.fontSize = '16px';
@@ -77,6 +68,11 @@ export function updateLobbyPlayersList(container, players, currentUsername) {
     }
     nameContainer.appendChild(nameSpan);
     playerRow.appendChild(nameContainer);
+
+    const rightSide = document.createElement('span');
+    rightSide.style.display = 'flex';
+    rightSide.style.alignItems = 'center';
+    rightSide.style.gap = '8px';
 
     const statusSpan = document.createElement('span');
     if (player.ready) {
@@ -87,7 +83,26 @@ export function updateLobbyPlayersList(container, players, currentUsername) {
       statusSpan.style.color = '#9ca3af';
     }
     statusSpan.style.fontSize = '14px';
-    playerRow.appendChild(statusSpan);
+    rightSide.appendChild(statusSpan);
+
+    // Add remove button for bot players (hide once ready)
+    if (player.isBot && !player.ready) {
+      const removeBtn = document.createElement('button');
+      removeBtn.innerText = '✕';
+      removeBtn.title = 'Remove bot';
+      removeBtn.style.background = 'none';
+      removeBtn.style.border = 'none';
+      removeBtn.style.color = '#ef4444';
+      removeBtn.style.cursor = 'pointer';
+      removeBtn.style.fontSize = '16px';
+      removeBtn.style.fontWeight = 'bold';
+      removeBtn.style.padding = '0 4px';
+      removeBtn.style.lineHeight = '1';
+      removeBtn.dataset.botSocketId = player.socketId;
+      rightSide.appendChild(removeBtn);
+    }
+
+    playerRow.appendChild(rightSide);
 
     container.appendChild(playerRow);
   });
@@ -207,6 +222,13 @@ export function showGameLobby(lobbyData, socket, username) {
   playersDiv.style.background = 'rgba(0, 0, 0, 0.3)';
   playersDiv.style.borderRadius = '8px';
   updateLobbyPlayersList(playersDiv, lobbyData.players, username);
+  // Delegated click handler for bot remove buttons
+  playersDiv.addEventListener('click', (e) => {
+    const removeBtn = e.target.closest('[data-bot-socket-id]');
+    if (removeBtn) {
+      socket.emit('removeBot', { botSocketId: removeBtn.dataset.botSocketId });
+    }
+  });
   container.appendChild(playersDiv);
 
   // Chat area
