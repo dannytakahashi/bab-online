@@ -267,9 +267,9 @@ async function handleDrawComplete(io, game) {
         const isBot = gameManager.isBot(playerId);
         let username = 'Player';
         if (isBot) {
-            // Extract bot name from socket ID (format: bot:name:uuid)
-            const parts = playerId.split(':');
-            username = parts[1] ? parts[1].charAt(0).toUpperCase() + parts[1].slice(1) : 'Bot';
+            // Look up real personality name from BotController
+            const bot = botController.getBot(game.gameId, playerId);
+            username = bot?.username || 'Bot';
         } else {
             const user = gameManager.getUserBySocketId(playerId);
             username = user?.username || 'Player';
@@ -371,8 +371,9 @@ async function startHand(game, io) {
     // Set trump
     game.trump = deck.drawOne();
 
-    // Reset bot memory for new hand
+    // Reset bot memory for new hand and trigger personality reactions to trump
     botController.resetBotMemory(game.gameId, game.currentHand, game.trump);
+    botController.handleTrumpRevealed(io, game);
 
     // Calculate HSI for each player's hand and add to their stats
     const hsiValues = {};
@@ -623,6 +624,10 @@ async function handleHandComplete(game, io) {
         team2OldScore
     });
 
+    // Bot personality hooks: update Zach's partner tracking, trigger chat reactions
+    botController.updatePartnerHistory(game);
+    botController.handleHandCompleteChat(io, game);
+
     // Determine next hand
     let nextDealer = rotatePosition(game.dealer);
     let nextHandSize;
@@ -698,8 +703,9 @@ async function cleanupNextHand(game, io, dealer, handSize) {
 
     game.trump = deck.drawOne();
 
-    // Reset bot memory for new hand
+    // Reset bot memory for new hand and trigger personality reactions to trump
     botController.resetBotMemory(game.gameId, game.currentHand, game.trump);
+    botController.handleTrumpRevealed(io, game);
 
     // Calculate HSI for each player's hand and add to their stats
     const hsiValues = {};

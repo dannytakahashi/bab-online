@@ -20,8 +20,8 @@ class BotController {
      * @param {string} username - Bot name (default: "Mary")
      * @returns {BotPlayer}
      */
-    createBot(username = '🤖 Mary') {
-        return new BotPlayer(username);
+    createBot(username = '🤖 Mary', personality = 'mary') {
+        return new BotPlayer(username, personality);
     }
 
     /**
@@ -317,6 +317,118 @@ class BotController {
 
         for (const bot of gameBots.values()) {
             bot.advanceTrick();
+        }
+    }
+
+    // ==================== PERSONALITY HOOKS ====================
+
+    /**
+     * Send a chat message from a bot with a natural delay
+     * @param {Object} io - Socket.IO server
+     * @param {Object} game - GameState
+     * @param {BotPlayer} bot - Bot sending the message
+     * @param {string} message - Chat message text
+     */
+    sendBotChat(io, game, bot, message, delayMs = null) {
+        const delay = delayMs !== null ? delayMs : 500 + Math.random() * 500; // default 500-1000ms
+        const actionKey = `${game.gameId}:${bot.socketId}:chat`;
+
+        const timeoutId = setTimeout(() => {
+            this.pendingActions.delete(actionKey);
+            game.addLogEntry(`${bot.username}: ${message}`, bot.position, 'chat');
+            game.broadcast(io, 'chatMessage', {
+                position: bot.position,
+                message,
+                username: bot.username
+            });
+        }, delay);
+
+        this.pendingActions.set(actionKey, timeoutId);
+    }
+
+    /**
+     * Called after trump is revealed at the start of each hand.
+     * Sharon reacts to clubs and diamonds trump.
+     * @param {Object} io - Socket.IO server
+     * @param {Object} game - GameState
+     */
+    handleTrumpRevealed(io, game) {
+        const bots = this.getGameBots(game.gameId);
+        for (const bot of bots) {
+            if (bot.personality === 'sharon') {
+                if (game.trump.suit === 'clubs') {
+                    this.sendBotChat(io, game, bot, "puppy's feet", 5000);
+                } else if (game.trump.suit === 'diamonds') {
+                    this.sendBotChat(io, game, bot, "diamonds are a girl's best friend", 5000);
+                }
+            }
+        }
+    }
+
+    /**
+     * Called after hand scoring is calculated.
+     * Mike reacts when his team gets set. Zach reacts when set but he made his bid.
+     * @param {Object} io - Socket.IO server
+     * @param {Object} game - GameState
+     */
+    handleHandCompleteChat(io, game) {
+        const bots = this.getGameBots(game.gameId);
+
+        // Helper: get numeric bid value, treating bore bids as 0
+        const getNumericBid = (bidStr) => {
+            const s = String(bidStr);
+            return s.includes('B') ? 0 : parseInt(s, 10) || 0;
+        };
+
+        for (const bot of bots) {
+            const isTeam1 = bot.position === 1 || bot.position === 3;
+            const teamTricks = isTeam1 ? game.tricks.team1 : game.tricks.team2;
+            const teamBid = isTeam1 ? game.bids.team1 : game.bids.team2;
+            const teamWasSet = teamTricks < teamBid;
+
+            if (!teamWasSet) continue;
+
+            const partnerPosition = bot.position === 1 ? 3 : bot.position === 3 ? 1 : bot.position === 2 ? 4 : 2;
+            const botBidStr = game.playerBids[bot.position - 1];
+            const partnerBidStr = game.playerBids[partnerPosition - 1];
+            const hasBore = String(botBidStr).includes('B') || String(partnerBidStr).includes('B');
+
+            if (bot.personality === 'mike' && !hasBore) {
+                // Mike says "I thought I bid X" where X would have avoided the set
+                const partnerBidValue = getNumericBid(partnerBidStr);
+                const safeBid = Math.max(0, teamTricks - partnerBidValue);
+                this.sendBotChat(io, game, bot, `I thought I bid ${safeBid}`);
+            }
+
+            if (bot.personality === 'zach' && !hasBore) {
+                // Zach says "well at least I got my X" if he personally made his bid
+                const zachBidValue = getNumericBid(botBidStr);
+                const zachTricks = game.handTricks[bot.position] || 0;
+                if (zachTricks >= zachBidValue && zachBidValue > 0) {
+                    this.sendBotChat(io, game, bot, `well at least I got my ${zachBidValue}`);
+                }
+            }
+        }
+    }
+
+    /**
+     * Update Zach's partner history after a hand completes.
+     * @param {Object} game - GameState
+     */
+    updatePartnerHistory(game) {
+        const bots = this.getGameBots(game.gameId);
+
+        for (const bot of bots) {
+            if (bot.personality !== 'zach') continue;
+
+            const partnerPosition = bot.position === 1 ? 3 : bot.position === 3 ? 1 : bot.position === 2 ? 4 : 2;
+            const partnerBidStr = game.playerBids[partnerPosition - 1];
+            // Treat bore bids as 0 for tracking purposes (bore hands are special)
+            const bidStr = String(partnerBidStr);
+            const partnerBidValue = bidStr.includes('B') ? 0 : parseInt(bidStr, 10) || 0;
+            const partnerTricks = game.handTricks[partnerPosition] || 0;
+
+            bot.recordPartnerHand(partnerBidValue, partnerTricks);
         }
     }
 

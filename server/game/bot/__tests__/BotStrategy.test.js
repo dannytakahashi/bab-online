@@ -14,7 +14,8 @@ const {
     getOpponentPositions,
     getOpponentVoidSuits,
     getPartnerVoidSuits,
-    getGameProgress
+    getGameProgress,
+    applyBidModifier
 } = require('../BotStrategy');
 
 const BotPlayer = require('../BotPlayer');
@@ -625,5 +626,135 @@ describe('opponent void detection', () => {
         const voids = getPartnerVoidSuits(memory, 1, heartsTrump);
         // Partner (position 3) played hearts on a spades lead -> void in spades
         expect(voids.has('spades')).toBe(true);
+    });
+});
+
+// --- applyBidModifier tests ---
+
+describe('applyBidModifier', () => {
+    // Helper to create a mock evaluation
+    const makeEval = (points, trumpCount = 2) => ({
+        points,
+        trumpCount,
+        voids: 0,
+        suitCounts: { spades: 3, hearts: 3, diamonds: 3, clubs: 3 },
+        hasHighJoker: false,
+        hasLowJoker: false,
+        hasTrumpAce: false
+    });
+
+    describe('mary (neutral)', () => {
+        test('returns unmodified bid', () => {
+            expect(applyBidModifier(3, 'mary', makeEval(3.5), 12, [])).toBe(3);
+        });
+
+        test('returns unmodified bid for strong hand', () => {
+            expect(applyBidModifier(5, 'mary', makeEval(8.0), 12, [])).toBe(5);
+        });
+    });
+
+    describe('sharon (conservative)', () => {
+        test('underbids strong hand by 1 (points >= handSize * 0.5)', () => {
+            // handSize=12, 0.5*12=6, points=6.5 >= 6
+            expect(applyBidModifier(6, 'sharon', makeEval(6.5), 12, [])).toBe(5);
+        });
+
+        test('underbids very strong hand by 2 (points >= handSize * 0.7)', () => {
+            // handSize=12, 0.7*12=8.4, points=9.0 >= 8.4
+            expect(applyBidModifier(8, 'sharon', makeEval(9.0), 12, [])).toBe(6);
+        });
+
+        test('does not modify weak hand bid', () => {
+            // handSize=12, 0.5*12=6, points=2.0 < 6
+            expect(applyBidModifier(2, 'sharon', makeEval(2.0), 12, [])).toBe(2);
+        });
+
+        test('does not go below 0', () => {
+            // handSize=4, 0.5*4=2, points=2.5 >= 2, bid 1 - 1 = 0
+            expect(applyBidModifier(1, 'sharon', makeEval(2.5), 4, [])).toBe(0);
+        });
+    });
+
+    describe('danny (calculated aggressive)', () => {
+        test('rounds up when points close to next integer (0.25+ over)', () => {
+            // baseBid=2 (from floor(2.7)), points=2.7, diff=0.7 >= 0.25
+            expect(applyBidModifier(2, 'danny', makeEval(2.7), 12, [])).toBe(3);
+        });
+
+        test('does not round up when well below next integer', () => {
+            // baseBid=2, points=2.1, diff=0.1 < 0.25
+            expect(applyBidModifier(2, 'danny', makeEval(2.1), 12, [])).toBe(2);
+        });
+
+        test('does not exceed hand size', () => {
+            expect(applyBidModifier(4, 'danny', makeEval(4.5), 4, [])).toBe(4);
+        });
+    });
+
+    describe('mike (overconfident)', () => {
+        test('sometimes overbids by 1 (random)', () => {
+            // Run multiple times to verify randomness
+            const results = new Set();
+            for (let i = 0; i < 100; i++) {
+                results.add(applyBidModifier(3, 'mike', makeEval(3.0), 12, []));
+            }
+            // Should see both 3 and 4 in results
+            expect(results.has(3)).toBe(true);
+            expect(results.has(4)).toBe(true);
+        });
+
+        test('does not exceed hand size', () => {
+            const results = new Set();
+            for (let i = 0; i < 100; i++) {
+                results.add(applyBidModifier(4, 'mike', makeEval(4.0), 4, []));
+            }
+            // All results should be 4 (capped at handSize)
+            expect(results.has(4)).toBe(true);
+            expect(results.size).toBe(1);
+        });
+    });
+
+    describe('zach (adaptive)', () => {
+        test('does not modify bid with insufficient history (< 2 hands)', () => {
+            const history = [{ bid: 3, tricks: 5 }]; // only 1 hand
+            expect(applyBidModifier(3, 'zach', makeEval(3.5), 12, history)).toBe(3);
+        });
+
+        test('bids down when partner is aggressive (overbids)', () => {
+            // Partner bids more than they win: avg error = (2-3 + 1-3) / 2 = -1.5
+            const history = [
+                { bid: 3, tricks: 2 },
+                { bid: 3, tricks: 1 }
+            ];
+            expect(applyBidModifier(3, 'zach', makeEval(3.5), 12, history)).toBe(2);
+        });
+
+        test('cautiously bids up when partner is conservative and hand supports it', () => {
+            // Partner wins more than they bid: avg error = (5-2 + 4-2) / 2 = 2.5
+            const history = [
+                { bid: 2, tricks: 5 },
+                { bid: 2, tricks: 4 }
+            ];
+            // evaluation.points - baseBid = 3.5 - 3 = 0.5 >= 0.3 -> bid up
+            expect(applyBidModifier(3, 'zach', makeEval(3.5), 12, history)).toBe(4);
+        });
+
+        test('does not bid up when hand does not support it', () => {
+            // Partner is conservative but hand evaluation barely supports current bid
+            const history = [
+                { bid: 2, tricks: 5 },
+                { bid: 2, tricks: 4 }
+            ];
+            // evaluation.points - baseBid = 3.1 - 3 = 0.1 < 0.3 -> stay
+            expect(applyBidModifier(3, 'zach', makeEval(3.1), 12, history)).toBe(3);
+        });
+
+        test('does not go below 0', () => {
+            const history = [
+                { bid: 3, tricks: 0 },
+                { bid: 3, tricks: 0 }
+            ];
+            expect(applyBidModifier(0, 'zach', makeEval(0.5), 4, history)).toBe(0);
+        });
     });
 });
