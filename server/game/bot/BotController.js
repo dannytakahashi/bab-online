@@ -20,7 +20,7 @@ class BotController {
      * @param {string} username - Bot name (default: "Mary")
      * @returns {BotPlayer}
      */
-    createBot(username = 'Mary') {
+    createBot(username = '🤖 Mary') {
         return new BotPlayer(username);
     }
 

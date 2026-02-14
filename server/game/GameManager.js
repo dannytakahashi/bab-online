@@ -539,7 +539,7 @@ class GameManager {
      * @param {string} botName - Bot username (default: "Mary")
      * @returns {Object} - { success, botPlayer, lobby, error? }
      */
-    addBotToLobby(lobbyId, botName = 'Mary') {
+    addBotToLobby(lobbyId, botName = '🤖 Mary') {
         const lobby = this.lobbies.get(lobbyId);
         if (!lobby) {
             return { success: false, error: 'Lobby not found' };
