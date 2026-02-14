@@ -184,7 +184,7 @@ class BotPlayer {
             case 'draw':
                 return 500 + Math.random() * 500; // 500-1000ms
             case 'bid':
-                return 300 + Math.random() * 500; // 300-800ms
+                return 1000 + Math.random() * 1000; // 1000-2000ms
             case 'play':
                 return 800 + Math.random() * 700; // 800-1500ms
             default:
