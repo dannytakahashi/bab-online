@@ -30,7 +30,7 @@ For complete game rules including bidding, scoring, and special mechanics, see [
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/bab-online.git
+git clone https://github.com/dannytakahashi/bab-online.git
 cd bab-online
 
 # Install dependencies
@@ -64,7 +64,7 @@ bab-online/
 │   │   ├── rules/                  # legality.js - card play validation
 │   │   ├── state/                  # GameState.js - client state singleton
 │   │   ├── socket/                 # SocketManager.js - connection management
-│   │   ├── handlers/               # Socket event handler registration
+│   │   ├── handlers/               # Socket event handlers (auth, game, chat, lobby, profile, leaderboard)
 │   │   ├── phaser/
 │   │   │   ├── config.js           # Phaser game configuration
 │   │   │   ├── PhaserGame.js       # Game instance wrapper
@@ -73,7 +73,7 @@ bab-online/
 │   │   └── ui/
 │   │       ├── UIManager.js        # DOM lifecycle management
 │   │       ├── components/         # Modal, Toast, BidUI, GameLog
-│   │       └── screens/            # SignIn, Register, MainRoom, GameLobby
+│   │       └── screens/            # SignIn, Register, MainRoom, GameLobby, ProfilePage, LeaderboardPage
 │   ├── styles/
 │   │   └── components.css          # UI component styles
 │   ├── assets/                     # Card images, backgrounds
@@ -89,9 +89,10 @@ bab-online/
 │   │   ├── GameManager.js          # Multi-game coordination
 │   │   ├── rules.js                # Pure game logic functions
 │   │   └── bot/                    # Bot player system
-│   │       ├── BotPlayer.js        # Bot player class
+│   │       ├── BotPlayer.js        # Bot player class with card memory
 │   │       ├── BotController.js    # Bot lifecycle management
-│   │       └── BotStrategy.js      # AI strategy functions
+│   │       ├── BotStrategy.js      # AI strategy functions
+│   │       └── __tests__/          # Bot strategy tests
 │   ├── socket/
 │   │   ├── index.js                # Socket event routing
 │   │   ├── authHandlers.js         # Auth events
@@ -101,6 +102,7 @@ bab-online/
 │   │   ├── gameHandlers.js         # Game events
 │   │   ├── reconnectHandlers.js    # Reconnection logic
 │   │   ├── chatHandlers.js         # Chat events
+│   │   ├── profileHandlers.js      # Profile and leaderboard events
 │   │   ├── validators.js           # Joi validation schemas
 │   │   ├── errorHandler.js         # Handler wrappers
 │   │   └── rateLimiter.js          # Per-socket rate limiting
@@ -116,6 +118,7 @@ bab-online/
 │   └── database.js                 # MongoDB connection
 ├── docs/
 │   ├── RULES.md                    # Complete game rules
+│   ├── bot-strategy-guide.md       # Bot strategy reference
 │   └── todos/                      # Improvement roadmap
 ├── scripts/
 │   └── build-atlas.js              # Sprite atlas builder
@@ -158,7 +161,8 @@ The server runs on `http://localhost:3000` by default.
 1. **Sign up/Sign in** - Create an account (auto-logs in) or log in
 2. **Main Room** - Chat globally, browse game lobbies, or create a new game
 3. **Game Lobby** - Wait for 4 players, chat, and click "Ready" when prepared
-   - Click "+ Add Bot" to add AI players (up to 3 bots named "Mary")
+   - Click "+ Add Bot" to add AI players (up to 3 bots named "🤖 Mary")
+   - Click "✕" next to a bot to remove it before readying up
    - Bots auto-ready when lobby is full
 4. **Draw Phase** - Draw cards from deck to determine seating positions; teams announced
 5. **Bidding** - Bid on how many tricks your team will take
@@ -187,7 +191,8 @@ The server uses a modular architecture with clear separation of concerns:
 - **GameState** - Encapsulated state for each game instance
 - **Deck** - Card deck with Fisher-Yates shuffle
 - **rules.js** - Pure functions for game logic (testable)
-- **Socket handlers** - Organized by domain (auth, queue, game, chat)
+- **BotController / BotStrategy** - AI bot system with hand-size-aware bidding and card memory
+- **Socket handlers** - Organized by domain (auth, queue, game, chat, profile)
 
 ### Client Architecture
 
@@ -217,6 +222,10 @@ The client uses ES6 modules with Vite bundling and proper lifecycle management:
 | `playerBid` | Submit bid |
 | `playCard` | Play a card |
 | `chatMessage` | Send in-game chat message |
+| `rejoinGame` | Reconnect to game after disconnect |
+| `getProfile` | Fetch user profile and stats |
+| `updateProfilePic` | Change profile picture |
+| `getLeaderboard` | Fetch leaderboard data |
 
 | Server → Client | Description |
 |-----------------|-------------|
@@ -233,6 +242,11 @@ The client uses ES6 modules with Vite bundling and proper lifecycle management:
 | `trickComplete` | Trick finished |
 | `handComplete` | Hand finished |
 | `updateTurn` | Turn changed |
+| `gameEnd` | Game finished with final scores |
+| `rejoinSuccess` | Successfully reconnected to game |
+| `activeGameFound` | Active game found on sign-in |
+| `profileResponse` | User profile data |
+| `leaderboardResponse` | Leaderboard data |
 
 ## Docker
 
