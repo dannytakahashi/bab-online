@@ -160,6 +160,9 @@ async function handlePostPlay(io, game) {
 
         game.broadcast(io, 'trickComplete', { winner });
 
+        // Notify bots that the trick is complete
+        botController.notifyTrickComplete(game.gameId);
+
         game.playedCards = [];
         game.playedCardsIndex = 0;
 
@@ -368,6 +371,9 @@ async function startHand(game, io) {
     // Set trump
     game.trump = deck.drawOne();
 
+    // Reset bot memory for new hand
+    botController.resetBotMemory(game.gameId, game.currentHand, game.trump);
+
     // Calculate HSI for each player's hand and add to their stats
     const hsiValues = {};
     for (const socketId of socketIds) {
@@ -496,6 +502,9 @@ async function playCard(socket, io, data) {
         position,
         trump: game.isTrumpBroken
     });
+
+    // Notify bots about this card play
+    botController.notifyCardPlayed(game.gameId, card, position, game.trump);
 
     // Advance turn
     game.currentTurn = rotatePosition(game.currentTurn);
@@ -688,6 +697,9 @@ async function cleanupNextHand(game, io, dealer, handSize) {
     }
 
     game.trump = deck.drawOne();
+
+    // Reset bot memory for new hand
+    botController.resetBotMemory(game.gameId, game.currentHand, game.trump);
 
     // Calculate HSI for each player's hand and add to their stats
     const hsiValues = {};

@@ -20,6 +20,7 @@ class BotPlayer {
         this.gameId = null;
         this.position = null;
         this.pic = null;
+        this.cardMemory = null;
     }
 
     /**
@@ -44,6 +45,77 @@ class BotPlayer {
     }
 
     /**
+     * Reset card memory at the start of each hand
+     * @param {number} handSize - Cards per player this hand
+     * @param {Object} trump - Trump card (also removed from deck)
+     */
+    resetCardMemory(handSize, trump) {
+        this.cardMemory = {
+            playedCards: [],
+            trumpPlayed: [],
+            acesPlayed: {
+                spades: false,
+                hearts: false,
+                diamonds: false,
+                clubs: false
+            },
+            trickIndex: 0
+        };
+    }
+
+    /**
+     * Record a card that was played in the current trick
+     * @param {Object} card - { suit, rank }
+     * @param {number} position - Position of player who played it (1-4)
+     * @param {Object} trump - Trump card for determining trump status
+     */
+    recordCardPlayed(card, position, trump) {
+        if (!this.cardMemory) return;
+
+        this.cardMemory.playedCards.push({
+            suit: card.suit,
+            rank: card.rank,
+            position,
+            trickIndex: this.cardMemory.trickIndex
+        });
+
+        // Track aces
+        if (card.rank === 'A' && card.suit !== 'joker') {
+            this.cardMemory.acesPlayed[card.suit] = true;
+        }
+
+        // Track trump cards played
+        const isTrump = card.suit === 'joker' ||
+            (trump.suit !== 'joker' && card.suit === trump.suit);
+        if (isTrump) {
+            this.cardMemory.trumpPlayed.push({ rank: card.rank, position });
+        }
+    }
+
+    /**
+     * Advance to next trick
+     */
+    advanceTrick() {
+        if (!this.cardMemory) return;
+        this.cardMemory.trickIndex++;
+    }
+
+    /**
+     * Get a snapshot of memory for strategy functions (keeps them pure)
+     * @returns {Object|null} - Copy of card memory, or null if not initialized
+     */
+    getMemorySnapshot() {
+        if (!this.cardMemory) return null;
+        return {
+            playedCards: [...this.cardMemory.playedCards],
+            trumpPlayed: [...this.cardMemory.trumpPlayed],
+            acesPlayed: { ...this.cardMemory.acesPlayed },
+            trickIndex: this.cardMemory.trickIndex,
+            totalCardsPlayed: this.cardMemory.playedCards.length
+        };
+    }
+
+    /**
      * Decide which card position to draw from deck
      * @param {number} remaining - Number of cards remaining in deck
      * @returns {number} - Index to draw from (0 to remaining-1)
@@ -61,8 +133,8 @@ class BotPlayer {
      * @param {number} handSize - Number of cards in hand
      * @returns {string} - Bid value
      */
-    decideBid(hand, trump, existingBids, handSize) {
-        return calculateOptimalBid(hand, trump, this.position, existingBids, handSize);
+    decideBid(hand, trump, existingBids, handSize, gameContext) {
+        return calculateOptimalBid(hand, trump, this.position, existingBids, handSize, this.getMemorySnapshot(), gameContext);
     }
 
     /**
@@ -75,7 +147,7 @@ class BotPlayer {
      * @param {boolean} trumpBroken - Whether trump has been broken
      * @returns {Object} - Card to play
      */
-    decideCard(hand, playedCards, leadCard, leadPosition, trump, trumpBroken) {
+    decideCard(hand, playedCards, leadCard, leadPosition, trump, trumpBroken, handSize) {
         return selectOptimalCard(
             hand,
             playedCards,
@@ -83,7 +155,9 @@ class BotPlayer {
             leadPosition,
             trump,
             trumpBroken,
-            this.position
+            this.position,
+            this.getMemorySnapshot(),
+            handSize
         );
     }
 
