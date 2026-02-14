@@ -6,7 +6,8 @@
 const { v4: uuidv4 } = require('uuid');
 const GameState = require('./GameState');
 const { getUsersCollection } = require('../database');
-const { botController, BotPlayer } = require('./bot');
+const { botController, BotPlayer, personalities } = require('./bot');
+const { PERSONALITY_LIST } = personalities;
 
 class GameManager {
     constructor() {
@@ -539,7 +540,7 @@ class GameManager {
      * @param {string} botName - Bot username (default: "Mary")
      * @returns {Object} - { success, botPlayer, lobby, error? }
      */
-    addBotToLobby(lobbyId, botName = '🤖 Mary') {
+    addBotToLobby(lobbyId) {
         const lobby = this.lobbies.get(lobbyId);
         if (!lobby) {
             return { success: false, error: 'Lobby not found' };
@@ -549,22 +550,28 @@ class GameManager {
             return { success: false, error: 'Lobby is full' };
         }
 
-        // Count existing bots with same base name to add numbering
-        const existingBots = lobby.players.filter(p =>
-            p.isBot && p.username.startsWith(botName)
-        );
+        // Pick a random personality not already in this lobby
+        const usedPersonalities = lobby.players
+            .filter(p => p.isBot && p.personality)
+            .map(p => p.personality);
+        const available = PERSONALITY_LIST.filter(p => !usedPersonalities.includes(p));
+        const personality = available[Math.floor(Math.random() * available.length)];
+
+        // Generic lobby name (hidden until game starts)
+        const existingBots = lobby.players.filter(p => p.isBot);
         const botNumber = existingBots.length + 1;
-        const finalBotName = botNumber > 1 ? `${botName} ${botNumber}` : botName;
+        const lobbyName = botNumber > 1 ? `🤖 Bot ${botNumber}` : '🤖 Bot';
 
-        // Create a new bot with unique name
-        const bot = botController.createBot(finalBotName);
+        // Create bot with generic lobby name
+        const bot = botController.createBot(lobbyName, personality);
 
-        // Add bot to lobby as a player
+        // Add bot to lobby as a player (personality stored for name reveal at game start)
         const botPlayer = {
             socketId: bot.socketId,
             username: bot.username,
             ready: false,
-            isBot: true
+            isBot: true,
+            personality
         };
 
         lobby.players.push(botPlayer);

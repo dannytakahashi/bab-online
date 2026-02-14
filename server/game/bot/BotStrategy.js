@@ -248,9 +248,11 @@ function evaluateHand(hand, trump, handSize) {
  * @param {number} handSize - Cards per player
  * @param {Object|null} memory - Card memory snapshot
  * @param {Object|null} gameContext - { teamScore, oppScore, currentHandSize }
+ * @param {string} personality - Bot personality key (default: 'mary')
+ * @param {Array} partnerHistory - Zach's partner tracking data
  * @returns {string} - Bid value
  */
-function calculateOptimalBid(hand, trump, position, existingBids, handSize, memory, gameContext) {
+function calculateOptimalBid(hand, trump, position, existingBids, handSize, memory, gameContext, personality = 'mary', partnerHistory = []) {
     const evaluation = evaluateHand(hand, trump, handSize);
     const noTrump = isNoTrump(trump);
 
@@ -442,7 +444,73 @@ function calculateOptimalBid(hand, trump, position, existingBids, handSize, memo
     }
 
     bid = Math.max(0, bid);
+
+    // Apply personality-specific bid modifier
+    bid = applyBidModifier(bid, personality, evaluation, handSize, partnerHistory);
+
     return String(bid);
+}
+
+/**
+ * Apply personality-specific bid modification after base (Mary) calculation.
+ * @param {number} baseBid - Mary's calculated bid
+ * @param {string} personality - Bot personality key
+ * @param {Object} evaluation - Hand evaluation from evaluateHand()
+ * @param {number} handSize - Cards per player
+ * @param {Array} partnerHistory - Zach's partner tracking [{ bid, tricks }]
+ * @returns {number} - Modified bid
+ */
+function applyBidModifier(baseBid, personality, evaluation, handSize, partnerHistory) {
+    let bid = baseBid;
+
+    switch (personality) {
+        case 'sharon':
+            // Sharon underbids strong hands
+            if (handSize > 0 && evaluation.points >= handSize * 0.7) {
+                bid = Math.max(0, bid - 2);
+            } else if (handSize > 0 && evaluation.points >= handSize * 0.5) {
+                bid = Math.max(0, bid - 1);
+            }
+            break;
+
+        case 'danny':
+            // Danny rounds up on close calls - calculated risk-taking
+            if (evaluation.points - baseBid >= 0.25) {
+                bid = Math.min(baseBid + 1, handSize);
+            }
+            break;
+
+        case 'mike':
+            // Mike randomly overbids ~25% of the time - he misjudges hands
+            if (Math.random() < 0.25) {
+                bid = Math.min(baseBid + 1, handSize);
+            }
+            break;
+
+        case 'zach': {
+            // Zach compensates for partner's tendencies with conservative lean
+            if (partnerHistory.length >= 2) {
+                const totalError = partnerHistory.reduce((sum, h) => sum + (h.tricks - h.bid), 0);
+                const avgError = totalError / partnerHistory.length;
+
+                if (avgError < -0.5) {
+                    // Partner overbids (aggressive) - fully compensate down
+                    bid = Math.max(0, bid - 1);
+                } else if (avgError > 0.5) {
+                    // Partner underbids (conservative) - cautious half-measure up
+                    // Only bid up if hand evaluation supports it
+                    if (evaluation.points - baseBid >= 0.3) {
+                        bid = Math.min(bid + 1, handSize);
+                    }
+                }
+            }
+            break;
+        }
+
+        // 'mary' and default: no modification
+    }
+
+    return bid;
 }
 
 /**
@@ -733,5 +801,6 @@ module.exports = {
     getOpponentPositions,
     getOpponentVoidSuits,
     getPartnerVoidSuits,
-    getGameProgress
+    getGameProgress,
+    applyBidModifier
 };

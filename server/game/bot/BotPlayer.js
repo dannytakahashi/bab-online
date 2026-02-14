@@ -12,15 +12,19 @@ const {
 class BotPlayer {
     /**
      * Create a new bot player
-     * @param {string} username - Bot's display name (e.g., "Mary")
+     * @param {string} username - Bot's display name (e.g., "🤖 Mary")
+     * @param {string} personality - Personality key (e.g., 'sharon')
      */
-    constructor(username = '🤖 Mary') {
+    constructor(username = '🤖 Mary', personality = 'mary') {
         this.socketId = `bot:${username.toLowerCase()}:${uuidv4()}`;
         this.username = username;
+        this.personality = personality;
         this.gameId = null;
         this.position = null;
         this.pic = null;
         this.cardMemory = null;
+        // Zach's partner tracking: array of { bid, tricks } per completed hand
+        this.partnerHistory = [];
     }
 
     /**
@@ -134,7 +138,16 @@ class BotPlayer {
      * @returns {string} - Bid value
      */
     decideBid(hand, trump, existingBids, handSize, gameContext) {
-        return calculateOptimalBid(hand, trump, this.position, existingBids, handSize, this.getMemorySnapshot(), gameContext);
+        return calculateOptimalBid(hand, trump, this.position, existingBids, handSize, this.getMemorySnapshot(), gameContext, this.personality, this.partnerHistory);
+    }
+
+    /**
+     * Record partner's bid and tricks for a completed hand (used by Zach's adaptive strategy)
+     * @param {number} bid - Partner's bid value for the hand
+     * @param {number} tricks - Partner's tricks won for the hand
+     */
+    recordPartnerHand(bid, tricks) {
+        this.partnerHistory.push({ bid, tricks });
     }
 
     /**

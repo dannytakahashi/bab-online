@@ -7,7 +7,8 @@ const gameManager = require('../game/GameManager');
 const Deck = require('../game/Deck');
 const { socketLogger } = require('../utils/logger');
 const { delay } = require('../utils/timing');
-const { botController } = require('../game/bot');
+const { botController, personalities } = require('../game/bot');
+const { getDisplayName } = personalities;
 
 /**
  * Handle player marking themselves as ready
@@ -59,10 +60,11 @@ async function playerReady(socket, io) {
         if (startResult.success) {
             const game = startResult.game;
 
-            // Register bots with bot controller
+            // Register bots with bot controller (reveal real personality names)
             for (const player of lobby.players) {
                 if (player.isBot) {
-                    const bot = botController.createBot(player.username);
+                    const realName = `🤖 ${getDisplayName(player.personality)}`;
+                    const bot = botController.createBot(realName, player.personality);
                     bot.socketId = player.socketId; // Use existing socket ID
                     botController.registerBot(game.gameId, bot);
                 }
