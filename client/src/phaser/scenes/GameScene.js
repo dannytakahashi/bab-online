@@ -966,7 +966,7 @@ export class GameScene extends Phaser.Scene {
     // Update card legality now that bidding is over
     // The lead player can play any card, others are dimmed
     if (this.cardManager) {
-      const canPlay = this.state.currentTurn === this.state.position;
+      const canPlay = this.state.currentTurn === this.state.position && !this.state.isLazy;
       // No lead card yet, so all cards are legal for the lead player
       this.cardManager.updateCardLegality(() => true, canPlay);
     }
@@ -1017,7 +1017,7 @@ export class GameScene extends Phaser.Scene {
 
     // Update card legality
     if (this.cardManager && !this.state.isBidding) {
-      const canPlay = currentTurn === myPosition && !this.state.hasPlayedCard;
+      const canPlay = currentTurn === myPosition && !this.state.hasPlayedCard && !this.state.isLazy;
       const gameState = this.state;
 
       const legalityChecker = (card) => {
@@ -1167,7 +1167,43 @@ export class GameScene extends Phaser.Scene {
         this.trickManager._currentTrick.push(sprite);
       }
     }
-    // Note: Self play animation is handled by the card click handler in main.js
+    // Handle lazy mode: bot played a card at our position, animate it
+    else if (playedPosition === myPosition && this.state.isLazy && this.trickManager) {
+      // Remove card from state
+      this.state.optimisticPlayCard(card);
+      this.state.confirmCardPlay();
+
+      // Extract sprite from hand
+      let sprite = this.cardManager?.extractCard(card);
+      if (sprite) {
+        sprite.removeAllListeners();
+        sprite.disableInteractive();
+
+        // Animate to self play position
+        this.trickManager.setPlayerPosition(myPosition);
+        this.trickManager.updatePlayPositions();
+        const targetPos = this.trickManager._playPositions.self;
+        this.tweens.add({
+          targets: sprite,
+          x: targetPos.x,
+          y: targetPos.y,
+          duration: 500,
+          ease: 'Power2',
+          rotation: 0,
+          scale: 1.5,
+          onComplete: () => {
+            if (sprite?.scene) sprite.setDepth(200);
+          },
+        });
+        sprite.setData('playPosition', 'self');
+        this.trickManager._currentTrick.push(sprite);
+      }
+
+      // Reposition remaining cards
+      this.cardManager?.repositionHand();
+      this.state.hasPlayedCard = true;
+    }
+    // Note: Normal self play animation is handled by the card click handler in main.js
     // which extracts the sprite and animates it to the play position with a flip effect
 
     // Delegate to callback for additional handling
@@ -1565,7 +1601,18 @@ export class GameScene extends Phaser.Scene {
    */
   handlePlayerLazyMode(data) {
     console.log('🎮 GameScene.handlePlayerLazyMode()');
-    if (this.opponentManager) {
+    if (data.position === this.state.position) {
+      // Update local player's avatar to show bot info
+      if (this._playerInfo) {
+        const pic = data.botPic;
+        if (pic && typeof pic === 'string' && pic.startsWith('data:image')) {
+          this._playerInfo.avatarImg.src = pic;
+        } else if (pic && typeof pic === 'number') {
+          this._playerInfo.avatarImg.src = `assets/profile${pic}.png`;
+        }
+        this._playerInfo.nameLabel.textContent = data.botUsername;
+      }
+    } else if (this.opponentManager) {
       this.opponentManager.updatePlayerInfo(data.position, {
         username: data.botUsername,
         pic: data.botPic
@@ -1581,7 +1628,18 @@ export class GameScene extends Phaser.Scene {
    */
   handlePlayerActiveMode(data) {
     console.log('🎮 GameScene.handlePlayerActiveMode()');
-    if (this.opponentManager) {
+    if (data.position === this.state.position) {
+      // Restore local player's avatar
+      if (this._playerInfo) {
+        const pic = data.pic;
+        if (pic && typeof pic === 'string' && pic.startsWith('data:image')) {
+          this._playerInfo.avatarImg.src = pic;
+        } else if (pic && typeof pic === 'number') {
+          this._playerInfo.avatarImg.src = `assets/profile${pic}.png`;
+        }
+        this._playerInfo.nameLabel.textContent = data.username;
+      }
+    } else if (this.opponentManager) {
       this.opponentManager.updatePlayerInfo(data.position, {
         username: data.username,
         pic: data.pic

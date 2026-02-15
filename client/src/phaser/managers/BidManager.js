@@ -258,7 +258,7 @@ export class BidManager {
     const position = this.state.position;
     const currentTurn = this.state.currentTurn;
 
-    if (this.state.isBidding && currentTurn === position) {
+    if (this.state.isBidding && currentTurn === position && !this.state.isLazy) {
       // Animate in
       this.bidContainer.style.visibility = 'visible';
       this.bidContainer.style.opacity = '1';

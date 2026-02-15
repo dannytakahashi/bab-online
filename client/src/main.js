@@ -2130,6 +2130,11 @@ function initializeApp() {
             scene.handleDisplayHand(data.hand, false);
           }
 
+          // In lazy mode, disable card interaction after dealing
+          if (gameState.isLazy && scene.cardManager) {
+            scene.cardManager.setInteractive(false);
+          }
+
           // Display opponent card backs (skip avatars since already shown)
           if (scene.opponentManager && data.hand) {
             scene.opponentManager.displayOpponentCards(data.hand.length);
@@ -2138,6 +2143,7 @@ function initializeApp() {
 
         // Function to show bid UI (delayed until trump flip complete)
         const showBidUIAfterFlip = () => {
+          if (gameState.isLazy) return;
           if (scene.bidManager && data.hand) {
             scene.bidManager.showBidUI(data.hand.length, (bid) => {
               console.log(`📩 Sending bid: ${bid}`);
@@ -2593,8 +2599,13 @@ function initializeApp() {
 
       // If it's the local player entering lazy mode, disable card interaction
       if (data.position === gameState.position) {
+        gameState.isLazy = true;
         if (scene && scene.cardManager) {
           scene.cardManager.setInteractive(false);
+        }
+        // Hide bid UI if it's showing
+        if (scene && scene.bidManager) {
+          scene.bidManager.hideBidUI();
         }
         // Show spectating indicator
         let indicator = document.getElementById('spectating-indicator');
@@ -2633,6 +2644,7 @@ function initializeApp() {
 
       // If it's the local player returning to active mode, re-enable card interaction
       if (data.position === gameState.position) {
+        gameState.isLazy = false;
         if (scene && scene.cardManager) {
           scene.cardManager.setInteractive(true);
         }
