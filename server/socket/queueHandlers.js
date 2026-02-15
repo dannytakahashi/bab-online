@@ -99,6 +99,14 @@ function handleDisconnect(socket, io) {
         // Notify other players that someone disconnected
         result.game.broadcast(io, 'playerDisconnected', { position, username });
 
+        // Add game log entry so players see it in the feed
+        const dcMessage = `${username} disconnected. Waiting for reconnection...`;
+        result.game.addLogEntry(dcMessage, null, 'system');
+        result.game.broadcast(io, 'gameLogEntry', {
+            message: dcMessage,
+            type: 'system'
+        });
+
         // Start a timer to abort if they don't reconnect
         // Clear any existing timer for this game (in case multiple disconnects)
         if (pendingAbortTimers.has(result.gameId)) {
@@ -133,6 +141,10 @@ function handleDisconnect(socket, io) {
                             position: pos,
                             username: dcUsername
                         });
+
+                        const expiredMsg = `${dcUsername} failed to reconnect. You may replace them with a bot.`;
+                        checkResult.game.addLogEntry(expiredMsg, null, 'system');
+                        checkResult.game.broadcast(io, 'gameLogEntry', { message: expiredMsg, type: 'system' });
                     }
                 }
             }

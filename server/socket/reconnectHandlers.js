@@ -82,6 +82,10 @@ async function rejoinGame(socket, io, data) {
 
         // Notify other players
         game.broadcast(io, 'playerReconnected', { position, username });
+
+        const rcMessage = `${username} reconnected.`;
+        game.addLogEntry(rcMessage, null, 'system');
+        game.broadcast(io, 'gameLogEntry', { message: rcMessage, type: 'system' });
         return;
     }
 
@@ -112,6 +116,10 @@ async function rejoinGame(socket, io, data) {
         position: existingPlayer.position,
         username
     });
+
+    const rcMessage = `${username} reconnected.`;
+    game.addLogEntry(rcMessage, null, 'system');
+    game.broadcast(io, 'gameLogEntry', { message: rcMessage, type: 'system' });
 }
 
 module.exports = {
