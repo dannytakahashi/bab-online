@@ -2662,6 +2662,8 @@ function initializeApp() {
         scene.scene.restart();
       }
       resetGameState();
+      // Clear gameId so mainRoomJoined handler doesn't ignore the transition
+      sessionStorage.removeItem('gameId');
       socket.emit("joinMainRoom");
     },
     onGameLogEntry: (data) => {
