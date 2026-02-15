@@ -7,6 +7,7 @@ const {
     calculateOptimalBid,
     selectLead,
     selectFollow,
+    selectDiscard,
     selectOptimalCard,
     isNoTrump,
     getNonTrumpScale,
@@ -54,18 +55,15 @@ describe('evaluateHand', () => {
             const hand = [card('spades', 'A'), card('spades', 'K')];
             const result = evaluateHand(hand, heartsTrump, 2);
             // Ace: 0.8 * 0.1 = 0.08, King: 0.4 * 0.1 = 0.04
-            // Plus voids (hearts=trump, diamonds=0, clubs=0) = 2 voids
-            // voidBonus = min(0.3 + 0*0.15, 1.5) = 0.3 per void = 0.6
-            expect(result.points).toBeCloseTo(0.08 + 0.04 + 0.6, 1);
+            // Voids: 2 (diamonds=0, clubs=0) but trumpCount=0, so void bonus = 0
+            expect(result.points).toBeCloseTo(0.08 + 0.04, 1);
         });
 
         test('non-trump Ace worth 0 at hand size 1', () => {
             const hand = [card('spades', 'A')];
             const result = evaluateHand(hand, heartsTrump, 1);
-            // 0.8 * 0.0 = 0, plus voids
-            // voids: diamonds=0, clubs=0 (spades has 1) = 2 voids
-            // voidBonus = min(0.3 + 0*0.15, 1.5) = 0.3 per void = 0.6
-            expect(result.points).toBeCloseTo(0.6, 1);
+            // 0.8 * 0.0 = 0, trumpCount=0 so void bonus = 0
+            expect(result.points).toBeCloseTo(0, 1);
         });
 
         test('HI joker always worth ~1.9 regardless of hand size', () => {
@@ -157,6 +155,15 @@ describe('evaluateHand', () => {
             // voidBonus(1 trump) = min(0.3 + 1*0.15, 1.5) = 0.45
             expect(result5.voids).toBeGreaterThan(0);
             // The 5-trump hand should get more total points from void+trump
+        });
+
+        test('void worth nothing with 0 trump', () => {
+            const hand = [card('spades', 'A'), card('spades', 'K')];
+            const result = evaluateHand(hand, heartsTrump, 4);
+            // trumpCount = 0, so void bonus = 0 regardless of void count
+            // Ace: 0.8 * 0.3 = 0.24, King: 0.4 * 0.3 = 0.12
+            expect(result.voids).toBe(2); // diamonds=0, clubs=0
+            expect(result.points).toBeCloseTo(0.24 + 0.12, 1);
         });
 
         test('void worth minimal in no-trump hand', () => {
@@ -296,6 +303,22 @@ describe('calculateOptimalBid', () => {
             const bidDealer = calculateOptimalBid(hand, heartsTrump, 4, ['0', '0', '0', undefined], 8, null, null);
 
             expect(parseInt(bidFirst)).toBeLessThanOrEqual(parseInt(bidDealer));
+        });
+    });
+
+    describe('Danny small hand overbid fix', () => {
+        test('Danny does not bid 1 on worthless 1-card non-trump hand', () => {
+            const hand = [card('spades', 'J')];
+            const bids = ['B', undefined, '0', '0'];
+            const bid = calculateOptimalBid(hand, heartsTrump, 2, bids, 1, null, null, 'danny');
+            expect(bid).toBe('0');
+        });
+
+        test('Danny does not bid 1 on worthless 2-card non-trump hand', () => {
+            const hand = [card('spades', 'J'), card('diamonds', '5')];
+            const bids = ['0', undefined, '0', '0'];
+            const bid = calculateOptimalBid(hand, heartsTrump, 2, bids, 2, null, null, 'danny');
+            expect(bid).toBe('0');
         });
     });
 
@@ -689,6 +712,16 @@ describe('applyBidModifier', () => {
         test('does not exceed hand size', () => {
             expect(applyBidModifier(4, 'danny', makeEval(4.5), 4, [])).toBe(4);
         });
+
+        test('does not bump 0 to 1 on small hands (<=4 cards)', () => {
+            expect(applyBidModifier(0, 'danny', makeEval(0.5), 1, [])).toBe(0);
+            expect(applyBidModifier(0, 'danny', makeEval(0.5), 2, [])).toBe(0);
+            expect(applyBidModifier(0, 'danny', makeEval(0.5), 4, [])).toBe(0);
+        });
+
+        test('still bumps 0 to 1 on large hands when close', () => {
+            expect(applyBidModifier(0, 'danny', makeEval(0.5), 8, [])).toBe(1);
+        });
     });
 
     describe('mike (overconfident)', () => {
@@ -756,5 +789,58 @@ describe('applyBidModifier', () => {
             ];
             expect(applyBidModifier(0, 'zach', makeEval(0.5), 4, history)).toBe(0);
         });
+    });
+});
+
+// --- selectDiscard tests ---
+
+describe('selectDiscard', () => {
+    test('with trump: voids shortest non-trump suit', () => {
+        const cards = [
+            card('spades', '3'),
+            card('diamonds', '5'), card('diamonds', '7')
+        ];
+        const result = selectDiscard(cards, heartsTrump, true);
+        expect(result.suit).toBe('spades');
+        expect(result.rank).toBe('3');
+    });
+
+    test('without trump: dumps lowest card overall regardless of suit length', () => {
+        const cards = [
+            card('spades', 'K'),
+            card('diamonds', '3'), card('diamonds', '7')
+        ];
+        const result = selectDiscard(cards, heartsTrump, false);
+        expect(result.suit).toBe('diamonds');
+        expect(result.rank).toBe('3');
+    });
+
+    test('with trump: protects Ace when voiding', () => {
+        const cards = [
+            card('spades', 'A'),
+            card('diamonds', '3'), card('diamonds', '7')
+        ];
+        const result = selectDiscard(cards, heartsTrump, true);
+        expect(result.rank).not.toBe('A');
+        expect(result.rank).toBe('3');
+    });
+
+    test('with trump: protects King when voiding', () => {
+        const cards = [
+            card('spades', 'K'),
+            card('diamonds', '4'), card('diamonds', '8')
+        ];
+        const result = selectDiscard(cards, heartsTrump, true);
+        expect(result.rank).not.toBe('K');
+        expect(result.rank).toBe('4');
+    });
+
+    test('with trump: discards King if no lower cards available', () => {
+        const cards = [
+            card('spades', 'A'),
+            card('diamonds', 'K')
+        ];
+        const result = selectDiscard(cards, heartsTrump, true);
+        expect(result.rank).toBe('K');
     });
 });
