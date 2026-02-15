@@ -1728,12 +1728,9 @@ function initializeApp() {
 
     // Spectator callback
     onSpectatorJoined: (data) => {
-      console.log('👁️ Spectator joined game:', data);
-
       // If this is the full game state (not just a notification about another spectator)
       if (data.players && data.trump) {
         try {
-        console.log('👁️ Full spectator state received, setting up view...');
         // Remove main room UI
         removeMainRoom();
 
@@ -1746,8 +1743,6 @@ function initializeApp() {
         const sockets = data.players.map(p => p.socketId);
         const usernames = data.players.map(p => ({ username: p.username, socketId: p.socketId }));
         const pics = data.players.map(p => p.pic);
-
-        console.log('👁️ Player data:', { positions, sockets, usernames, pics });
 
         gameState.setPlayerData({
           position: positions,
@@ -1762,11 +1757,9 @@ function initializeApp() {
         // Set up the game scene for spectating
         const waitForScene = () => {
           const scene = getGameScene();
-          console.log('👁️ waitForScene: scene=', !!scene, 'cardManager=', !!(scene && scene.cardManager));
           if (scene && scene.cardManager) {
             try {
               // Create game UI (game log panel)
-              console.log('👁️ Creating game feed...');
               window.createGameFeedFromLegacy(false);
 
               // Restore game log
@@ -1797,13 +1790,11 @@ function initializeApp() {
 
               // Display trump card
               if (data.trump && scene.displayTrumpCard) {
-                console.log('👁️ Displaying trump card:', data.trump);
                 scene.displayTrumpCard(data.trump);
               }
 
               // Display opponent hands (no player hand for spectators)
               if (scene.handleDisplayOpponentHands) {
-                console.log('👁️ Displaying opponent hands, playerData:', gameState.playerData);
                 scene.handleDisplayOpponentHands(
                   data.currentHand, // approximate card count
                   data.dealer,
@@ -1847,7 +1838,6 @@ function initializeApp() {
               // Add game container in-game class
               document.getElementById('game-container')?.classList.add('in-game');
 
-              console.log('👁️ Spectator view setup complete!');
               window.addToGameFeedFromLegacy?.("Joined as spectator!");
             } catch (err) {
               console.error('👁️ Error setting up spectator view:', err);
