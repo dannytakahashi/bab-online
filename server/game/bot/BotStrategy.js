@@ -213,9 +213,12 @@ function evaluateHand(hand, trump, handSize) {
     }
 
     // Void + trump synergy: scales with trump count
+    // Voids are worthless without trump - can't trump in
     if (!noTrump) {
-        const voidBonus = Math.min(0.3 + trumpCount * 0.15, 1.5);
-        points += voids * voidBonus;
+        if (trumpCount > 0) {
+            const voidBonus = Math.min(0.3 + trumpCount * 0.15, 1.5);
+            points += voids * voidBonus;
+        }
     } else {
         // In no-trump, voids are nearly worthless
         points += voids * 0.1;
@@ -475,7 +478,10 @@ function applyBidModifier(baseBid, personality, evaluation, handSize, partnerHis
 
         case 'danny':
             // Danny rounds up on close calls - calculated risk-taking
+            // But don't override small-hand special logic: a 0 bid on ≤4 cards
+            // means the hand genuinely lacks trick-taking power
             if (evaluation.points - baseBid >= 0.25) {
+                if (baseBid === 0 && handSize <= 4) break;
                 bid = Math.min(baseBid + 1, handSize);
             }
             break;
@@ -710,7 +716,7 @@ function selectFollow(hand, playedCards, leadCard, leadPosition, trump, trumpBro
     if (partnerIsWinning && partnerHasPlayed) {
         // Partner winning - don't trump, just discard
         if (nonTrumpCards.length > 0) {
-            return selectDiscard(nonTrumpCards, trump);
+            return selectDiscard(nonTrumpCards, trump, trumpCards.length > 0);
         }
         return trumpCards.sort((a, b) => RANK_VALUES[a.rank] - RANK_VALUES[b.rank])[0];
     }
@@ -727,7 +733,7 @@ function selectFollow(hand, playedCards, leadCard, leadPosition, trump, trumpBro
             }
             // Can't overtrump - discard
             if (nonTrumpCards.length > 0) {
-                return selectDiscard(nonTrumpCards, trump);
+                return selectDiscard(nonTrumpCards, trump, true);
             }
             return trumpCards.sort((a, b) => RANK_VALUES[a.rank] - RANK_VALUES[b.rank])[0];
         }
@@ -737,38 +743,58 @@ function selectFollow(hand, playedCards, leadCard, leadPosition, trump, trumpBro
     }
 
     // No trump available - discard
-    return selectDiscard(legalCards, trump);
+    return selectDiscard(legalCards, trump, false);
 }
 
 /**
  * Select a card to discard (when we can't win)
+ * @param {Array} cards - Available cards to discard from
+ * @param {Object} trump - Trump card
+ * @param {boolean} hasTrumpInHand - Whether bot holds any trump cards
  */
-function selectDiscard(cards, trump) {
+function selectDiscard(cards, trump, hasTrumpInHand) {
     const nonTrump = cards.filter(c => c.suit !== trump.suit && c.suit !== 'joker');
+    const pool = nonTrump.length > 0 ? nonTrump : cards;
 
-    if (nonTrump.length > 0) {
-        // Group by suit and find shortest
-        const bySuit = {};
-        for (const card of nonTrump) {
-            if (!bySuit[card.suit]) bySuit[card.suit] = [];
-            bySuit[card.suit].push(card);
-        }
+    if (!hasTrumpInHand) {
+        // No trump = voiding is pointless. Keep suit coverage, dump lowest card overall.
+        return pool.sort((a, b) => RANK_VALUES[a.rank] - RANK_VALUES[b.rank])[0];
+    }
 
-        let shortestSuit = null;
-        let shortestLength = Infinity;
-        for (const [suit, suitCards] of Object.entries(bySuit)) {
-            if (suitCards.length < shortestLength) {
-                shortestLength = suitCards.length;
-                shortestSuit = suit;
-            }
-        }
+    // Has trump - try to void shortest suit, but protect high cards
+    const bySuit = {};
+    for (const card of pool) {
+        if (!bySuit[card.suit]) bySuit[card.suit] = [];
+        bySuit[card.suit].push(card);
+    }
 
-        if (shortestSuit) {
-            return bySuit[shortestSuit].sort((a, b) => RANK_VALUES[a.rank] - RANK_VALUES[b.rank])[0];
+    let shortestSuit = null;
+    let shortestLength = Infinity;
+    for (const [suit, suitCards] of Object.entries(bySuit)) {
+        if (suitCards.length < shortestLength) {
+            shortestLength = suitCards.length;
+            shortestSuit = suit;
         }
     }
 
-    return cards.sort((a, b) => RANK_VALUES[a.rank] - RANK_VALUES[b.rank])[0];
+    if (shortestSuit) {
+        const candidate = bySuit[shortestSuit]
+            .sort((a, b) => RANK_VALUES[a.rank] - RANK_VALUES[b.rank])[0];
+
+        // Don't slough an Ace or King to complete a void - find a lower card elsewhere
+        if (candidate.rank === 'A' || candidate.rank === 'K') {
+            const allSorted = pool
+                .sort((a, b) => RANK_VALUES[a.rank] - RANK_VALUES[b.rank]);
+            const lowerCard = allSorted.find(c => c.rank !== 'A' && c.rank !== 'K');
+            if (lowerCard) return lowerCard;
+            // All cards are high - discard the lowest-ranked one
+            return allSorted[0];
+        }
+
+        return candidate;
+    }
+
+    return pool.sort((a, b) => RANK_VALUES[a.rank] - RANK_VALUES[b.rank])[0];
 }
 
 /**
