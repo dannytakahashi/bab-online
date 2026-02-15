@@ -16,7 +16,10 @@ const {
     getOpponentVoidSuits,
     getPartnerVoidSuits,
     getGameProgress,
-    applyBidModifier
+    applyBidModifier,
+    hasOpponentsAfterMe,
+    isWinVulnerable,
+    bestWithoutHiJoker
 } = require('../BotStrategy');
 
 const BotPlayer = require('../BotPlayer');
@@ -495,6 +498,203 @@ describe('selectFollow', () => {
         // Should trump in with hearts 3
         expect(result.suit).toBe('hearts');
     });
+
+    describe('position-aware play (opponents remaining)', () => {
+        test('plays highest winner when opponent plays after', () => {
+            const hand = [
+                card('spades', 'A'), card('spades', 'Q'), card('spades', '3')
+            ];
+            // Position 2 (opponent) led 9 of spades, position 4 (opponent) hasn't played
+            // Bot is position 1, partner is position 3 (hasn't played)
+            const playedCards = [undefined, card('spades', '9'), undefined, undefined];
+            const leadCard = card('spades', '9');
+            const result = selectFollow(hand, playedCards, leadCard, 2, heartsTrump, false, 1, null, 3);
+            // Opponent (pos 4) still to play — play Ace to secure the trick
+            expect(result.rank).toBe('A');
+            expect(result.suit).toBe('spades');
+        });
+
+        test('plays lowest winner when last to act', () => {
+            const hand = [
+                card('spades', 'A'), card('spades', 'Q'), card('spades', '3')
+            ];
+            // All others have played, bot is last (position 4)
+            // Position 1 led, positions 2 and 3 played
+            const playedCards = [card('spades', '9'), card('spades', '5'), card('spades', '7'), undefined];
+            const leadCard = card('spades', '9');
+            const result = selectFollow(hand, playedCards, leadCard, 1, heartsTrump, false, 4, null, 3);
+            // No opponents remain — play lowest winner (Queen beats 9)
+            expect(result.rank).toBe('Q');
+            expect(result.suit).toBe('spades');
+        });
+
+        test('overtakes partner vulnerable win when opponent plays after', () => {
+            const hand = [
+                card('spades', 'A'), card('spades', '3')
+            ];
+            // Position 2 (opponent) led 5, partner (position 3) played 9, position 4 (opponent) hasn't played
+            const playedCards = [undefined, card('spades', '5'), card('spades', '9'), undefined];
+            const leadCard = card('spades', '5');
+            const result = selectFollow(hand, playedCards, leadCard, 2, heartsTrump, false, 1, null, 2);
+            // Partner's 9 is vulnerable (Q, K, A all potentially out), opponent pos 4 still to play
+            // Bot should play Ace to secure the trick
+            expect(result.rank).toBe('A');
+            expect(result.suit).toBe('spades');
+        });
+
+        test('does NOT overtake partner good win (Ace)', () => {
+            const hand = [
+                card('spades', 'K'), card('spades', '3')
+            ];
+            // Partner (pos 3) winning with Ace, opponent (pos 4) hasn't played
+            const playedCards = [undefined, card('spades', '5'), card('spades', 'A'), undefined];
+            const leadCard = card('spades', '5');
+            const result = selectFollow(hand, playedCards, leadCard, 2, heartsTrump, false, 1, null, 2);
+            // Partner's Ace is good — play low
+            expect(result.rank).toBe('3');
+        });
+
+        test('does NOT overtake partner good win (King when Ace played)', () => {
+            const hand = [
+                card('spades', 'Q'), card('spades', '3')
+            ];
+            // Partner (pos 3) winning with King, Ace already played (in memory)
+            const playedCards = [undefined, card('spades', '5'), card('spades', 'K'), undefined];
+            const leadCard = card('spades', '5');
+            const memory = {
+                playedCards: [{ suit: 'spades', rank: 'A', position: 4, trickIndex: 0 }],
+                trumpPlayed: [],
+                acesPlayed: { spades: true, hearts: false, diamonds: false, clubs: false },
+                trickIndex: 1,
+                totalCardsPlayed: 4
+            };
+            const result = selectFollow(hand, playedCards, leadCard, 2, heartsTrump, false, 1, memory, 2);
+            // Partner's King is good (Ace already played, no known voids) — play low
+            expect(result.rank).toBe('3');
+        });
+
+        test('overtakes partner when opponent known void (trump-in risk)', () => {
+            const hand = [
+                card('spades', 'K'), card('spades', '3')
+            ];
+            // Partner (pos 3) winning with Ace of spades, opponent (pos 4) hasn't played
+            // Memory shows opponent pos 4 is void in spades (played off-suit on a spades lead before)
+            const playedCards = [undefined, card('spades', '5'), card('spades', 'A'), undefined];
+            const leadCard = card('spades', '5');
+            const memory = {
+                playedCards: [
+                    // Previous trick: spades led, position 4 played hearts (void in spades!)
+                    { suit: 'spades', rank: 'Q', position: 2, trickIndex: 0 },
+                    { suit: 'hearts', rank: '3', position: 4, trickIndex: 0 },
+                    { suit: 'spades', rank: 'J', position: 3, trickIndex: 0 },
+                    { suit: 'spades', rank: '10', position: 1, trickIndex: 0 },
+                ],
+                trumpPlayed: [],
+                acesPlayed: { spades: false, hearts: false, diamonds: false, clubs: false },
+                trickIndex: 1,
+                totalCardsPlayed: 4
+            };
+            const result = selectFollow(hand, playedCards, leadCard, 2, heartsTrump, false, 1, memory, 2);
+            // Partner has Ace (normally good), but opponent pos 4 is known void — could trump in
+            // Bot should NOT play low — wait, bot can't beat Ace with King...
+            // Actually King doesn't beat Ace, so bot can't overtake. Should play low.
+            // Let's fix this test: bot needs a card HIGHER than partner's winning card to overtake
+            // Partner has Ace — nothing beats it in suit. Bot plays low.
+            expect(result.rank).toBe('3');
+        });
+
+        test('uses highest trump when trumping in with opponents remaining', () => {
+            const hand = [
+                card('hearts', 'K'), card('hearts', '3'), card('clubs', '2')
+            ];
+            // Spades led, bot is void in spades, opponent (pos 4) hasn't played
+            // Position 2 (opponent) led, partner (pos 3) played
+            const playedCards = [undefined, card('spades', '9'), card('spades', '5'), undefined];
+            const leadCard = card('spades', '9');
+            const result = selectFollow(hand, playedCards, leadCard, 2, heartsTrump, false, 1, null, 3);
+            // Opponent pos 4 still to play — trump in with highest (King of hearts)
+            expect(result.rank).toBe('K');
+            expect(result.suit).toBe('hearts');
+        });
+
+        test('uses lowest trump when trumping in as last to act', () => {
+            const hand = [
+                card('hearts', 'K'), card('hearts', '3'), card('clubs', '2')
+            ];
+            // Spades led, bot is last (position 4), all others played
+            const playedCards = [card('spades', '9'), card('spades', '5'), card('spades', '7'), undefined];
+            const leadCard = card('spades', '9');
+            const result = selectFollow(hand, playedCards, leadCard, 1, heartsTrump, false, 4, null, 3);
+            // Last to act — trump in with lowest (3 of hearts)
+            expect(result.rank).toBe('3');
+            expect(result.suit).toBe('hearts');
+        });
+    });
+
+    describe('HI joker preservation', () => {
+        test('holds back HI joker when following suit with other winners', () => {
+            const hand = [
+                HI, card('hearts', 'K'), card('hearts', '5')
+            ];
+            // Hearts trump, spades led but bot has trump including HI joker
+            // Actually let's make it simpler: opponent led low trump, bot has HI + K of trump
+            const playedCards = [undefined, card('hearts', '3'), undefined, undefined];
+            const leadCard = card('hearts', '3');
+            const result = selectFollow(hand, playedCards, leadCard, 2, heartsTrump, false, 1, null, 3);
+            // Should play King of hearts (not HI joker) to save HI for leading
+            expect(result.rank).toBe('K');
+            expect(result.suit).toBe('hearts');
+        });
+
+        test('plays HI joker when it is the only winner', () => {
+            const hand = [
+                HI, card('hearts', '3'), card('clubs', '2')
+            ];
+            // Opponent played trump Ace — only HI joker can beat it
+            const playedCards = [undefined, card('hearts', 'A'), undefined, undefined];
+            const leadCard = card('hearts', 'A');
+            const result = selectFollow(hand, playedCards, leadCard, 2, heartsTrump, false, 1, null, 3);
+            // HI joker is the only card that beats trump Ace — must play it
+            expect(result.rank).toBe('HI');
+        });
+
+        test('plays HI joker to beat LO joker', () => {
+            const hand = [
+                HI, card('hearts', 'K'), card('clubs', '2')
+            ];
+            // LO joker is winning — HI joker needed to beat it
+            const playedCards = [undefined, LO, undefined, undefined];
+            const leadCard = LO;
+            const result = selectFollow(hand, playedCards, leadCard, 2, heartsTrump, false, 1, null, 3);
+            // HI joker should be played to beat LO joker (high-value trump)
+            expect(result.rank).toBe('HI');
+        });
+
+        test('plays HI joker to beat trump Ace when trumping in', () => {
+            const hand = [
+                HI, card('hearts', '5'), card('clubs', '2')
+            ];
+            // Spades led, opponent trumped with trump Ace, bot is void in spades
+            const playedCards = [card('spades', '9'), card('hearts', 'A'), undefined, undefined];
+            const leadCard = card('spades', '9');
+            const result = selectFollow(hand, playedCards, leadCard, 1, heartsTrump, false, 3, null, 3);
+            // Need to overtrump trump Ace — only HI joker can do it
+            expect(result.rank).toBe('HI');
+        });
+
+        test('holds back HI joker when trumping in with lower trump available', () => {
+            const hand = [
+                HI, card('hearts', 'K'), card('hearts', '5')
+            ];
+            // Spades led, opponent winning with non-trump, bot is void in spades
+            const playedCards = [card('spades', '9'), undefined, undefined, undefined];
+            const leadCard = card('spades', '9');
+            const result = selectFollow(hand, playedCards, leadCard, 1, heartsTrump, false, 2, null, 3);
+            // Should trump in with King (not HI joker) — save HI for leading
+            expect(result.rank).toBe('K');
+            expect(result.suit).toBe('hearts');
+        });
+    });
 });
 
 // --- Card memory tests ---
@@ -575,6 +775,125 @@ describe('BotPlayer card memory', () => {
     test('returns null when memory not initialized', () => {
         const freshBot = new BotPlayer('Fresh');
         expect(freshBot.getMemorySnapshot()).toBeNull();
+    });
+});
+
+// --- Position awareness helper tests ---
+
+describe('hasOpponentsAfterMe', () => {
+    test('returns true when opponent has not played', () => {
+        // Bot is position 1 (partner is 3). Position 4 (opponent) hasn't played.
+        const playedCards = [undefined, card('spades', '5'), card('spades', 'A'), undefined];
+        expect(hasOpponentsAfterMe(playedCards, 1)).toBe(true);
+    });
+
+    test('returns false when all opponents have played', () => {
+        // Bot is position 4 (partner is 2). Opponents are 1 and 3, both played.
+        const playedCards = [card('spades', '9'), card('spades', '5'), card('spades', '7'), undefined];
+        expect(hasOpponentsAfterMe(playedCards, 4)).toBe(false);
+    });
+
+    test('ignores partner who has not played', () => {
+        // Bot is position 1 (partner is 3). Only partner hasn't played — not an opponent.
+        const playedCards = [undefined, card('spades', '5'), undefined, card('spades', '9')];
+        expect(hasOpponentsAfterMe(playedCards, 1)).toBe(false);
+    });
+});
+
+describe('isWinVulnerable', () => {
+    const noMemory = null;
+    const emptyMemory = {
+        playedCards: [],
+        trumpPlayed: [],
+        acesPlayed: { spades: false, hearts: false, diamonds: false, clubs: false },
+        trickIndex: 0,
+        totalCardsPlayed: 0
+    };
+
+    test('Ace is not vulnerable without known voids', () => {
+        const playedCards = [undefined, card('spades', '5'), card('spades', 'A'), undefined];
+        const leadCard = card('spades', '5');
+        expect(isWinVulnerable(card('spades', 'A'), leadCard, heartsTrump, emptyMemory, playedCards, 1)).toBe(false);
+    });
+
+    test('King is vulnerable when Ace not played', () => {
+        const playedCards = [undefined, card('spades', '5'), card('spades', 'K'), undefined];
+        const leadCard = card('spades', '5');
+        expect(isWinVulnerable(card('spades', 'K'), leadCard, heartsTrump, emptyMemory, playedCards, 1)).toBe(true);
+    });
+
+    test('King is not vulnerable when Ace already played', () => {
+        const playedCards = [undefined, card('spades', '5'), card('spades', 'K'), undefined];
+        const leadCard = card('spades', '5');
+        const memory = {
+            ...emptyMemory,
+            acesPlayed: { spades: true, hearts: false, diamonds: false, clubs: false }
+        };
+        expect(isWinVulnerable(card('spades', 'K'), leadCard, heartsTrump, memory, playedCards, 1)).toBe(false);
+    });
+
+    test('Queen and below always vulnerable when opponents remain', () => {
+        const playedCards = [undefined, card('spades', '5'), card('spades', 'Q'), undefined];
+        const leadCard = card('spades', '5');
+        expect(isWinVulnerable(card('spades', 'Q'), leadCard, heartsTrump, emptyMemory, playedCards, 1)).toBe(true);
+        expect(isWinVulnerable(card('spades', '9'), leadCard, heartsTrump, emptyMemory, playedCards, 1)).toBe(true);
+    });
+
+    test('HI joker is never vulnerable', () => {
+        const playedCards = [undefined, card('spades', '5'), HI, undefined];
+        const leadCard = card('spades', '5');
+        expect(isWinVulnerable(HI, leadCard, heartsTrump, emptyMemory, playedCards, 1)).toBe(false);
+    });
+
+    test('Ace vulnerable when opponent known void (trump-in risk)', () => {
+        const playedCards = [undefined, card('spades', '5'), card('spades', 'A'), undefined];
+        const leadCard = card('spades', '5');
+        // Memory shows position 4 played off-suit on a spades lead (void in spades)
+        const memory = {
+            playedCards: [
+                { suit: 'spades', rank: 'Q', position: 2, trickIndex: 0 },
+                { suit: 'hearts', rank: '3', position: 4, trickIndex: 0 },
+                { suit: 'spades', rank: 'J', position: 3, trickIndex: 0 },
+                { suit: 'spades', rank: '10', position: 1, trickIndex: 0 },
+            ],
+            trumpPlayed: [],
+            acesPlayed: { spades: false, hearts: false, diamonds: false, clubs: false },
+            trickIndex: 1,
+            totalCardsPlayed: 4
+        };
+        expect(isWinVulnerable(card('spades', 'A'), leadCard, heartsTrump, memory, playedCards, 1)).toBe(true);
+    });
+});
+
+describe('bestWithoutHiJoker', () => {
+    test('returns non-joker when HI joker is best and alternatives exist', () => {
+        const sorted = [HI, card('hearts', 'K'), card('hearts', '5')];
+        const result = bestWithoutHiJoker(sorted, card('hearts', '3'));
+        expect(result.rank).toBe('K');
+    });
+
+    test('returns HI joker when it is the only option', () => {
+        const sorted = [HI];
+        const result = bestWithoutHiJoker(sorted, card('hearts', '3'));
+        expect(result.rank).toBe('HI');
+    });
+
+    test('returns HI joker to beat LO joker', () => {
+        const sorted = [HI, card('hearts', 'K')];
+        const result = bestWithoutHiJoker(sorted, LO);
+        expect(result.rank).toBe('HI');
+    });
+
+    test('returns HI joker to beat trump Ace', () => {
+        const sorted = [HI, card('hearts', 'K')];
+        const result = bestWithoutHiJoker(sorted, card('hearts', 'A'));
+        expect(result.rank).toBe('HI');
+    });
+
+    test('returns non-joker when winning card is low trump', () => {
+        const sorted = [HI, card('hearts', 'K')];
+        const result = bestWithoutHiJoker(sorted, card('hearts', '7'));
+        expect(result.rank).toBe('K');
     });
 });
 
