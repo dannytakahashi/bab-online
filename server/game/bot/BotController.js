@@ -368,6 +368,7 @@ class BotController {
     /**
      * Called after hand scoring is calculated.
      * Mike reacts when his team gets set. Zach reacts when set but he made his bid.
+     * Danny reacts when opponents sandbag (win 2+ tricks over their bid).
      * @param {Object} io - Socket.IO server
      * @param {Object} game - GameState
      */
@@ -407,6 +408,19 @@ class BotController {
                 if (zachTricks >= zachBidValue && zachBidValue > 0) {
                     this.sendBotChat(io, game, bot, `well at least I got my ${zachBidValue}`);
                 }
+            }
+        }
+
+        // Danny reacts when opponents sandbag (win 2+ tricks over their bid)
+        for (const bot of bots) {
+            if (bot.personality !== 'danny') continue;
+
+            const isTeam1 = bot.position === 1 || bot.position === 3;
+            const oppTricks = isTeam1 ? game.tricks.team2 : game.tricks.team1;
+            const oppBid = isTeam1 ? game.bids.team2 : game.bids.team1;
+
+            if (oppTricks >= oppBid + 2) {
+                this.sendBotChat(io, game, bot, 'you sandbaggers');
             }
         }
     }
