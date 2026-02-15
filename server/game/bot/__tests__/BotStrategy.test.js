@@ -18,7 +18,8 @@ const {
     getGameProgress,
     applyBidModifier,
     hasOpponentsAfterMe,
-    isWinVulnerable
+    isWinVulnerable,
+    bestWithoutHiJoker
 } = require('../BotStrategy');
 
 const BotPlayer = require('../BotPlayer');
@@ -629,6 +630,71 @@ describe('selectFollow', () => {
             expect(result.suit).toBe('hearts');
         });
     });
+
+    describe('HI joker preservation', () => {
+        test('holds back HI joker when following suit with other winners', () => {
+            const hand = [
+                HI, card('hearts', 'K'), card('hearts', '5')
+            ];
+            // Hearts trump, spades led but bot has trump including HI joker
+            // Actually let's make it simpler: opponent led low trump, bot has HI + K of trump
+            const playedCards = [undefined, card('hearts', '3'), undefined, undefined];
+            const leadCard = card('hearts', '3');
+            const result = selectFollow(hand, playedCards, leadCard, 2, heartsTrump, false, 1, null, 3);
+            // Should play King of hearts (not HI joker) to save HI for leading
+            expect(result.rank).toBe('K');
+            expect(result.suit).toBe('hearts');
+        });
+
+        test('plays HI joker when it is the only winner', () => {
+            const hand = [
+                HI, card('hearts', '3'), card('clubs', '2')
+            ];
+            // Opponent played trump Ace — only HI joker can beat it
+            const playedCards = [undefined, card('hearts', 'A'), undefined, undefined];
+            const leadCard = card('hearts', 'A');
+            const result = selectFollow(hand, playedCards, leadCard, 2, heartsTrump, false, 1, null, 3);
+            // HI joker is the only card that beats trump Ace — must play it
+            expect(result.rank).toBe('HI');
+        });
+
+        test('plays HI joker to beat LO joker', () => {
+            const hand = [
+                HI, card('hearts', 'K'), card('clubs', '2')
+            ];
+            // LO joker is winning — HI joker needed to beat it
+            const playedCards = [undefined, LO, undefined, undefined];
+            const leadCard = LO;
+            const result = selectFollow(hand, playedCards, leadCard, 2, heartsTrump, false, 1, null, 3);
+            // HI joker should be played to beat LO joker (high-value trump)
+            expect(result.rank).toBe('HI');
+        });
+
+        test('plays HI joker to beat trump Ace when trumping in', () => {
+            const hand = [
+                HI, card('hearts', '5'), card('clubs', '2')
+            ];
+            // Spades led, opponent trumped with trump Ace, bot is void in spades
+            const playedCards = [card('spades', '9'), card('hearts', 'A'), undefined, undefined];
+            const leadCard = card('spades', '9');
+            const result = selectFollow(hand, playedCards, leadCard, 1, heartsTrump, false, 3, null, 3);
+            // Need to overtrump trump Ace — only HI joker can do it
+            expect(result.rank).toBe('HI');
+        });
+
+        test('holds back HI joker when trumping in with lower trump available', () => {
+            const hand = [
+                HI, card('hearts', 'K'), card('hearts', '5')
+            ];
+            // Spades led, opponent winning with non-trump, bot is void in spades
+            const playedCards = [card('spades', '9'), undefined, undefined, undefined];
+            const leadCard = card('spades', '9');
+            const result = selectFollow(hand, playedCards, leadCard, 1, heartsTrump, false, 2, null, 3);
+            // Should trump in with King (not HI joker) — save HI for leading
+            expect(result.rank).toBe('K');
+            expect(result.suit).toBe('hearts');
+        });
+    });
 });
 
 // --- Card memory tests ---
@@ -796,6 +862,38 @@ describe('isWinVulnerable', () => {
             totalCardsPlayed: 4
         };
         expect(isWinVulnerable(card('spades', 'A'), leadCard, heartsTrump, memory, playedCards, 1)).toBe(true);
+    });
+});
+
+describe('bestWithoutHiJoker', () => {
+    test('returns non-joker when HI joker is best and alternatives exist', () => {
+        const sorted = [HI, card('hearts', 'K'), card('hearts', '5')];
+        const result = bestWithoutHiJoker(sorted, card('hearts', '3'));
+        expect(result.rank).toBe('K');
+    });
+
+    test('returns HI joker when it is the only option', () => {
+        const sorted = [HI];
+        const result = bestWithoutHiJoker(sorted, card('hearts', '3'));
+        expect(result.rank).toBe('HI');
+    });
+
+    test('returns HI joker to beat LO joker', () => {
+        const sorted = [HI, card('hearts', 'K')];
+        const result = bestWithoutHiJoker(sorted, LO);
+        expect(result.rank).toBe('HI');
+    });
+
+    test('returns HI joker to beat trump Ace', () => {
+        const sorted = [HI, card('hearts', 'K')];
+        const result = bestWithoutHiJoker(sorted, card('hearts', 'A'));
+        expect(result.rank).toBe('HI');
+    });
+
+    test('returns non-joker when winning card is low trump', () => {
+        const sorted = [HI, card('hearts', 'K')];
+        const result = bestWithoutHiJoker(sorted, card('hearts', '7'));
+        expect(result.rank).toBe('K');
     });
 });
 

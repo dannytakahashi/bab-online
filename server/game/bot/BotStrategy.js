@@ -73,6 +73,34 @@ function hasOpponentsAfterMe(playedCards, position) {
 }
 
 /**
+ * Select the best card from a sorted-highest-first list, preserving HI joker for leading.
+ * HI joker's forcing ability (opponents must play highest trump) is too valuable to waste
+ * on a follow. Only play it when it's the sole winner or needed to beat LO joker / trump Ace.
+ */
+function bestWithoutHiJoker(sortedCards, winningCard) {
+    if (sortedCards.length === 0) return null;
+    const best = sortedCards[0];
+
+    // If best card isn't HI joker, no issue
+    if (best.rank !== 'HI' || best.suit !== 'joker') return best;
+
+    // HI joker is our best card — should we play it?
+    // Yes if it's our only option
+    if (sortedCards.length === 1) return best;
+
+    // Yes if we need it to beat LO joker or trump Ace (high-value trump only HI can reliably beat)
+    if (winningCard && (
+        (winningCard.rank === 'LO' && winningCard.suit === 'joker') ||
+        (winningCard.rank === 'A' && winningCard.suit !== 'joker')
+    )) {
+        return best;
+    }
+
+    // Otherwise hold HI joker for leading — use next best card
+    return sortedCards[1];
+}
+
+/**
  * Determine if the current winning card is vulnerable to being beaten by an opponent still to play.
  * A win is "good" (not vulnerable) if it's the highest remaining card in suit AND no remaining
  * opponent is known void in the led suit. A win is "vulnerable" if higher cards could exist
@@ -756,8 +784,9 @@ function selectFollow(hand, playedCards, leadCard, leadPosition, trump, trumpBro
             if (opponentsRemain && isWinVulnerable(winningCard, leadCard, trump, memory, playedCards, position)) {
                 const higherCards = followCards.filter(c => canBeatCard(c, winningCard, leadCard, trump));
                 if (higherCards.length > 0) {
-                    // Play highest to secure the trick
-                    return higherCards.sort((a, b) => RANK_VALUES[b.rank] - RANK_VALUES[a.rank])[0];
+                    // Play highest to secure the trick (but preserve HI joker for leading)
+                    const sorted = higherCards.sort((a, b) => RANK_VALUES[b.rank] - RANK_VALUES[a.rank]);
+                    return bestWithoutHiJoker(sorted, winningCard);
                 }
             }
             // Partner's win is good, or we can't beat it — play low
@@ -769,7 +798,9 @@ function selectFollow(hand, playedCards, leadCard, leadPosition, trump, trumpBro
         if (winners.length > 0) {
             if (opponentsRemain) {
                 // Opponents still to play — play highest winner to secure the trick
-                return winners.sort((a, b) => RANK_VALUES[b.rank] - RANK_VALUES[a.rank])[0];
+                // (but preserve HI joker for leading)
+                const sorted = winners.sort((a, b) => RANK_VALUES[b.rank] - RANK_VALUES[a.rank]);
+                return bestWithoutHiJoker(sorted, winningCard);
             }
 
             // No opponents remain — play lowest winner (conserve cards)
@@ -817,7 +848,8 @@ function selectFollow(hand, playedCards, leadCard, leadPosition, trump, trumpBro
             // Need to overtrump
             const overtrumps = trumpCards.filter(c => RANK_VALUES[c.rank] > RANK_VALUES[winningCard.rank]);
             if (overtrumps.length > 0) {
-                return overtrumps.sort(trumpSortOrder)[0];
+                const sorted = overtrumps.sort(trumpSortOrder);
+                return opponentsRemain ? bestWithoutHiJoker(sorted, winningCard) : sorted[0];
             }
             // Can't overtrump - discard
             if (nonTrumpCards.length > 0) {
@@ -826,8 +858,9 @@ function selectFollow(hand, playedCards, leadCard, leadPosition, trump, trumpBro
             return trumpCards.sort((a, b) => RANK_VALUES[a.rank] - RANK_VALUES[b.rank])[0];
         }
 
-        // Trump in
-        return trumpCards.sort(trumpSortOrder)[0];
+        // Trump in (preserve HI joker for leading when possible)
+        const sorted = trumpCards.sort(trumpSortOrder);
+        return opponentsRemain ? bestWithoutHiJoker(sorted, winningCard) : sorted[0];
     }
 
     // No trump available - discard
@@ -918,5 +951,6 @@ module.exports = {
     getGameProgress,
     applyBidModifier,
     hasOpponentsAfterMe,
-    isWinVulnerable
+    isWinVulnerable,
+    bestWithoutHiJoker
 };
