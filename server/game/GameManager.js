@@ -728,6 +728,14 @@ class GameManager {
             };
         }
 
+        // Handle spectator disconnect — remove from any game they're spectating
+        for (const [, game] of this.games) {
+            if (game.isSpectator(socketId)) {
+                game.removeSpectator(socketId);
+                break;
+            }
+        }
+
         // Only remove from currentUsers if not in a game
         this.currentUsers = this.currentUsers.filter(u => u.socketId !== socketId);
 
@@ -781,6 +789,34 @@ class GameManager {
         this.games.delete(gameId);
 
         return socketIds;
+    }
+
+    /**
+     * Get list of in-progress games for spectating
+     * @returns {Array} - Array of { gameId, players, currentHand, score, spectatorCount }
+     */
+    getInProgressGames() {
+        const games = [];
+        for (const [gameId, game] of this.games) {
+            if (game.phase === 'waiting' || game.phase === 'drawing') continue;
+
+            const players = [];
+            for (let pos = 1; pos <= 4; pos++) {
+                const player = game.getPlayerByPosition(pos);
+                if (player) {
+                    players.push({ position: pos, username: player.username });
+                }
+            }
+
+            games.push({
+                gameId,
+                players,
+                currentHand: game.currentHand,
+                score: game.score,
+                spectatorCount: game.getSpectators().length
+            });
+        }
+        return games;
     }
 
     /**

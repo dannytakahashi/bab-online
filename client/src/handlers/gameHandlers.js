@@ -46,6 +46,14 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
     onPlayerReconnected,
     onRejoinSuccess,
     onRejoinFailed,
+    // Resignation & Lazy Mode
+    onResignationAvailable,
+    onPlayerResigned,
+    onPlayerLazyMode,
+    onPlayerActiveMode,
+    onGameLogEntry,
+    onLeftGame,
+    onRestorePlayerState,
   } = callbacks;
 
   const state = getGameState();
@@ -356,6 +364,49 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
     socketManager.clearGameId();
 
     onRejoinFailed?.(data);
+  });
+
+  // ==================== RESIGNATION & LAZY MODE ====================
+
+  // Resignation available (disconnected player's grace period expired)
+  socketManager.onGame(SERVER_EVENTS.RESIGNATION_AVAILABLE, (data) => {
+    console.log(`⏰ Resignation available for P${data.position} (${data.username})`);
+    onResignationAvailable?.(data);
+  });
+
+  // Player resigned (bot taking over)
+  socketManager.onGame(SERVER_EVENTS.PLAYER_RESIGNED, (data) => {
+    console.log(`🔄 Player resigned: P${data.position} ${data.oldUsername} → ${data.botUsername}`);
+    onPlayerResigned?.(data);
+  });
+
+  // Player entered lazy mode
+  socketManager.onGame(SERVER_EVENTS.PLAYER_LAZY_MODE, (data) => {
+    console.log(`😴 Player entered lazy mode: P${data.position}`);
+    onPlayerLazyMode?.(data);
+  });
+
+  // Player returned to active mode
+  socketManager.onGame(SERVER_EVENTS.PLAYER_ACTIVE_MODE, (data) => {
+    console.log(`🎮 Player returned to active: P${data.position}`);
+    onPlayerActiveMode?.(data);
+  });
+
+  // Game log entry (system message broadcast)
+  socketManager.onGame(SERVER_EVENTS.GAME_LOG_ENTRY, (data) => {
+    onGameLogEntry?.(data);
+  });
+
+  // Player left game (via /leave command)
+  socketManager.onGame(SERVER_EVENTS.LEFT_GAME, (data) => {
+    console.log('🚪 Left game (lazy leave)');
+    onLeftGame?.(data);
+  });
+
+  // Restore player state (spectator → active player transition)
+  socketManager.onGame(SERVER_EVENTS.RESTORE_PLAYER_STATE, (data) => {
+    console.log('🔄 Restoring player state from spectator mode');
+    onRestorePlayerState?.(data);
   });
 }
 

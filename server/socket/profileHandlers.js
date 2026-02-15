@@ -204,16 +204,20 @@ async function recordGameStats(game) {
     // Determine winner based on final scores
     const team1Won = game.score.team1 > game.score.team2;
 
-    // Get all players
+    // Get all players — use original human player info for resigned positions
     const players = [
-        { position: 1, player: game.getPlayerByPosition(1) },
-        { position: 2, player: game.getPlayerByPosition(2) },
-        { position: 3, player: game.getPlayerByPosition(3) },
-        { position: 4, player: game.getPlayerByPosition(4) }
+        { position: 1, player: game.getOriginalPlayer(1) },
+        { position: 2, player: game.getOriginalPlayer(2) },
+        { position: 3, player: game.getOriginalPlayer(3) },
+        { position: 4, player: game.getOriginalPlayer(4) }
     ];
 
     for (const { position, player } of players) {
         if (!player || !player.username) continue;
+
+        // Skip bots (they don't have DB records)
+        // But don't skip resigned positions — those have original human usernames
+        if (!game.isResigned(position) && game.isBot(game.positions[position])) continue;
 
         const isTeam1 = position === 1 || position === 3;
         const isWinner = (isTeam1 && team1Won) || (!isTeam1 && !team1Won);

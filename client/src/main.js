@@ -1555,6 +1555,199 @@ function initializeApp() {
     handleSocketError(error, socket);
   });
 
+  // Shared rejoin/restore logic — used by both onRejoinSuccess and onRestorePlayerState
+  function processRejoinOrRestore(data) {
+    console.log("🔄 Processing rejoin/restore with data:", data);
+
+    // Clear any sign-in/lobby screens first
+    uiManager.removeAllVignettes();
+    const signInContainer = document.getElementById("signInContainer");
+    if (signInContainer) signInContainer.remove();
+    const lobbyContainer = document.getElementById("lobbyContainer");
+    if (lobbyContainer) lobbyContainer.remove();
+    const signInContainer2 = document.getElementById("sign-in-container");
+    if (signInContainer2) signInContainer2.remove();
+
+    // Remove any overlays
+    uiManager.removeWaitingScreen();
+
+    // Helper function to process rejoin after scene is ready
+    const processRejoinData = () => {
+      console.log("🔄 Scene ready, processing rejoin UI...");
+      const scene = getGameScene();
+
+      // Clean up draw phase via DrawManager (if present)
+      if (scene && scene.drawManager) {
+        scene.drawManager.cleanup();
+      }
+
+      // Create game UI elements (pass true to indicate reconnection)
+      window.createGameFeedFromLegacy(true);
+
+      // Restore game log history from server
+      if (data.gameLog && data.gameLog.length > 0) {
+        data.gameLog.forEach(entry => {
+          window.addToGameFeedFromLegacy(entry.message, entry.playerPosition, entry.timestamp);
+        });
+      }
+
+      // Calculate player names and update game log score
+      const position = gameState.position;
+      const playerData = gameState.playerData;
+      if (playerData && position) {
+        const { teamName, oppName } = getTeamNames(position, playerData);
+        window.updateGameLogScoreFromLegacy(teamName, oppName, gameState.teamScore, gameState.oppScore);
+      }
+
+      // Update hand indicator
+      if (data.currentHand !== undefined) {
+        window.updateHandIndicatorFromLegacy(data.currentHand);
+      }
+
+      // Initialize managers with player position for reconnection
+      if (scene && data.position) {
+        if (scene.trickManager) {
+          scene.trickManager.setPlayerPosition(data.position);
+          scene.trickManager.updatePlayPositions();
+        }
+        if (scene.opponentManager) {
+          scene.opponentManager.setPlayerPosition(data.position);
+        }
+        if (scene.effectsManager) {
+          scene.effectsManager.setPlayerPosition(data.position);
+        }
+
+        // Display trump card
+        if (data.trump && scene.displayTrumpCard) {
+          scene.displayTrumpCard(data.trump);
+        }
+
+        // Display player hand via CardManager (skip animation on rejoin)
+        if (scene.handleDisplayHand && data.hand) {
+          scene.handleDisplayHand(data.hand, true);
+        }
+
+        // Display opponent hands via OpponentManager (skip animation on rejoin)
+        if (scene.handleDisplayOpponentHands && data.hand) {
+          scene.handleDisplayOpponentHands(
+            data.hand.length,
+            data.dealer,
+            gameState.playerData,
+            true
+          );
+        }
+
+        // Create DOM backgrounds via LayoutManager
+        if (scene.layoutManager) {
+          scene.layoutManager.update();
+          scene.layoutManager.createDomBackgrounds();
+        }
+
+        // Restore played cards in current trick via TrickManager
+        if (data.playedCards && data.playedCards.length > 0 && scene.trickManager) {
+          scene.trickManager.restorePlayedCards(data.playedCards);
+        }
+
+        // Update card legality after restoring state
+        if (scene.cardManager) {
+          const canPlay = !gameState.isBidding &&
+                          gameState.currentTurn === gameState.position &&
+                          !gameState.hasPlayedCard;
+          const legalityChecker = (card) => {
+            const result = isLegalMove(
+              card,
+              gameState.myCards,
+              gameState.leadCard,
+              gameState.playedCardIndex === 0,
+              gameState.trump,
+              gameState.trumpBroken,
+              gameState.position,
+              gameState.leadPosition
+            );
+            return result.legal;
+          };
+          scene.cardManager.updateCardLegality(legalityChecker, canPlay);
+        }
+
+        // Create bid UI via BidManager (only if still in bidding phase)
+        if (scene.bidManager && data.hand && gameState.isBidding) {
+          scene.bidManager.showBidUI(data.hand.length, (bid) => {
+            if (window.socket) {
+              window.socket.emit('playerBid', { position: gameState.position, bid });
+            }
+          });
+        }
+      }
+
+      // Add reconnected message to game feed
+      window.addToGameFeedFromLegacy("Reconnected to game!");
+
+      // Call scene handler for any additional rejoin logic
+      if (scene && scene.handleRejoinSuccess) {
+        scene.handleRejoinSuccess(data);
+      }
+    };
+
+    // Wait for scene to be ready before processing UI
+    const waitForScene = () => {
+      const scene = getGameScene();
+      if (scene && scene.cardManager) {
+        processRejoinData();
+      } else {
+        setTimeout(waitForScene, 100);
+      }
+    };
+
+    // Update GameState from rejoin data first (synchronously)
+    if (data.position) gameState.position = data.position;
+    if (data.hand) gameState.setCards(data.hand);
+    if (data.trump) gameState.setTrump(data.trump);
+    if (data.dealer !== undefined) gameState.dealer = data.dealer;
+    if (data.currentTurn !== undefined) gameState.setCurrentTurn(data.currentTurn);
+
+    const bidding = data.isBidding !== undefined ? data.isBidding : data.bidding;
+    if (bidding !== undefined) {
+      gameState.isBidding = bidding;
+      gameState.phase = bidding ? PHASE.BIDDING : PHASE.PLAYING;
+    }
+
+    if (data.playedCards && Array.isArray(data.playedCards)) {
+      let foundLead = false;
+      let playedCount = 0;
+      data.playedCards.forEach((card, index) => {
+        if (card) {
+          playedCount++;
+          if (!foundLead) {
+            gameState.leadCard = card;
+            gameState.leadPosition = index + 1;
+            foundLead = true;
+          }
+        }
+      });
+      gameState.playedCardIndex = playedCount;
+    } else {
+      if (data.leadCard) gameState.leadCard = data.leadCard;
+      if (data.leadPosition !== undefined) gameState.leadPosition = data.leadPosition;
+      if (data.playedCardIndex !== undefined) gameState.playedCardIndex = data.playedCardIndex;
+    }
+
+    const trumpBroken = data.trumpBroken !== undefined ? data.trumpBroken : data.isTrumpBroken;
+    if (trumpBroken !== undefined) gameState.trumpBroken = trumpBroken;
+    gameState.hasPlayedCard = false;
+
+    if (data.score) {
+      const position = gameState.position;
+      if (position % 2 !== 0) {
+        gameState.setGameScores(data.score.team1, data.score.team2);
+      } else {
+        gameState.setGameScores(data.score.team2, data.score.team1);
+      }
+    }
+
+    // Wait for scene to be ready before processing UI
+    waitForScene();
+  }
+
   // Register all handlers with UI callbacks
   registerAllHandlers(socketMgr, {
     // Auth callbacks
@@ -1669,7 +1862,7 @@ function initializeApp() {
       addMainRoomChatMessage(data.username, data.message);
     },
     onLobbiesUpdated: (data) => {
-      updateLobbyList(data.lobbies, socket);
+      updateLobbyList(data.lobbies, socket, data.inProgressGames);
     },
     onMainRoomPlayerJoined: (data) => {
       updateMainRoomOnlineCount(data.onlineCount);
@@ -1724,6 +1917,137 @@ function initializeApp() {
     onAllPlayersReady: (data) => {
       console.log('All players ready, game starting soon...');
       // The game will start via positionUpdate/gameStart events
+    },
+
+    // Spectator callback
+    onSpectatorJoined: (data) => {
+      // If this is the full game state (not just a notification about another spectator)
+      if (data.players && data.trump) {
+        try {
+        // Remove main room UI
+        removeMainRoom();
+
+        // Mark as spectator in game state
+        gameState.isSpectator = true;
+        gameState.phase = PHASE.PLAYING;
+
+        // Build player data structure from spectator data
+        const positions = data.players.map(p => p.position);
+        const sockets = data.players.map(p => p.socketId);
+        const usernames = data.players.map(p => ({ username: p.username, socketId: p.socketId }));
+        const pics = data.players.map(p => p.pic);
+
+        gameState.setPlayerData({
+          position: positions,
+          sockets: sockets,
+          username: usernames,
+          pics: pics
+        });
+
+        // Use position 1 as the spectator's "view position" (they see from P1's perspective)
+        gameState.position = 1;
+
+        // Set up the game scene for spectating
+        const waitForScene = () => {
+          const scene = getGameScene();
+          if (scene && scene.cardManager) {
+            try {
+              // Create game UI (game log panel)
+              window.createGameFeedFromLegacy(false);
+
+              // Restore game log
+              if (data.gameLog && data.gameLog.length > 0) {
+                data.gameLog.forEach(entry => {
+                  window.addToGameFeedFromLegacy(entry.message, entry.playerPosition, entry.timestamp);
+                });
+              }
+
+              // Update scores
+              gameState.setGameScores(data.score.team1, data.score.team2);
+              const { teamName, oppName } = getTeamNames(1, gameState.playerData);
+              window.updateGameLogScoreFromLegacy(teamName, oppName, data.score.team1, data.score.team2);
+
+              // Update hand indicator
+              if (data.currentHand !== undefined) {
+                window.updateHandIndicatorFromLegacy(data.currentHand);
+              }
+
+              // Set up managers
+              if (scene.trickManager) {
+                scene.trickManager.setPlayerPosition(1);
+                scene.trickManager.updatePlayPositions();
+              }
+              if (scene.opponentManager) {
+                scene.opponentManager.setPlayerPosition(1);
+              }
+
+              // Display trump card
+              if (data.trump && scene.displayTrumpCard) {
+                scene.displayTrumpCard(data.trump);
+              }
+
+              // Display opponent hands (no player hand for spectators)
+              if (scene.handleDisplayOpponentHands) {
+                scene.handleDisplayOpponentHands(
+                  data.currentHand, // approximate card count
+                  data.dealer,
+                  gameState.playerData,
+                  true // skip animation
+                );
+              }
+
+              if (scene.layoutManager) {
+                scene.layoutManager.update();
+                scene.layoutManager.createDomBackgrounds();
+              }
+
+              // Restore played cards
+              if (data.playedCards && data.playedCards.length > 0 && scene.trickManager) {
+                scene.trickManager.restorePlayedCards(data.playedCards);
+              }
+
+              // Show spectating indicator
+              let indicator = document.getElementById('spectating-indicator');
+              if (!indicator) {
+                indicator = document.createElement('div');
+                indicator.id = 'spectating-indicator';
+                indicator.style.cssText = `
+                  position: fixed;
+                  top: 10px;
+                  left: 50%;
+                  transform: translateX(-50%);
+                  background: rgba(0, 0, 0, 0.8);
+                  color: #60a5fa;
+                  padding: 8px 20px;
+                  border-radius: 20px;
+                  font-size: 14px;
+                  z-index: 500;
+                  border: 1px solid #60a5fa;
+                `;
+                indicator.textContent = 'Spectating — type /leave to exit';
+                document.body.appendChild(indicator);
+              }
+
+              // Add game container in-game class
+              document.getElementById('game-container')?.classList.add('in-game');
+
+              window.addToGameFeedFromLegacy?.("Joined as spectator!");
+            } catch (err) {
+              console.error('👁️ Error setting up spectator view:', err);
+            }
+          } else {
+            setTimeout(waitForScene, 100);
+          }
+        };
+
+        waitForScene();
+        } catch (outerErr) {
+          console.error('👁️ Error in spectator setup (outer):', outerErr);
+        }
+      } else if (data.username) {
+        // Notification that another spectator joined — show in game log
+        window.addToGameFeedFromLegacy?.(`${data.username} joined as a spectator.`, null);
+      }
     },
 
     // Game callbacks - update GameState and trigger scene handlers
@@ -2196,212 +2520,209 @@ function initializeApp() {
       }
     },
     onRejoinSuccess: (data) => {
-      console.log("🔄 Processing rejoin with data:", data);
-
-      // Clear any sign-in/lobby screens first
-      uiManager.removeAllVignettes();
-      const signInContainer = document.getElementById("signInContainer");
-      if (signInContainer) signInContainer.remove();
-      const lobbyContainer = document.getElementById("lobbyContainer");
-      if (lobbyContainer) lobbyContainer.remove();
-      const signInContainer2 = document.getElementById("sign-in-container");
-      if (signInContainer2) signInContainer2.remove();
-
-      // Remove any overlays
-      uiManager.removeWaitingScreen();
-
-      // Helper function to process rejoin after scene is ready
-      const processRejoinData = () => {
-        console.log("🔄 Scene ready, processing rejoin UI...");
-        const scene = getGameScene();
-
-        // Clean up draw phase via DrawManager (if present)
-        if (scene && scene.drawManager) {
-          scene.drawManager.cleanup();
-        }
-
-        // Create game UI elements (pass true to indicate reconnection)
-        window.createGameFeedFromLegacy(true);
-
-        // Restore game log history from server
-        if (data.gameLog && data.gameLog.length > 0) {
-          console.log(`🔄 Restoring ${data.gameLog.length} game log entries`);
-          data.gameLog.forEach(entry => {
-            window.addToGameFeedFromLegacy(entry.message, entry.playerPosition, entry.timestamp);
-          });
-        }
-
-        // Calculate player names and update game log score
-        const position = gameState.position;
-        const playerData = gameState.playerData;
-        if (playerData && position) {
-          const { teamName, oppName } = getTeamNames(position, playerData);
-          const teamScore = gameState.teamScore;
-          const oppScore = gameState.oppScore;
-          window.updateGameLogScoreFromLegacy(teamName, oppName, teamScore, oppScore);
-        }
-
-        // Update hand indicator
-        if (data.currentHand !== undefined) {
-          window.updateHandIndicatorFromLegacy(data.currentHand);
-        }
-
-        // Initialize managers with player position for reconnection
-        if (scene && data.position) {
-          if (scene.trickManager) {
-            scene.trickManager.setPlayerPosition(data.position);
-            scene.trickManager.updatePlayPositions();
-          }
-          if (scene.opponentManager) {
-            scene.opponentManager.setPlayerPosition(data.position);
-          }
-          if (scene.effectsManager) {
-            scene.effectsManager.setPlayerPosition(data.position);
-          }
-
-          // Display trump card
-          if (data.trump && scene.displayTrumpCard) {
-            scene.displayTrumpCard(data.trump);
-          }
-
-          // Display player hand via CardManager (skip animation on rejoin)
-          if (scene.handleDisplayHand && data.hand) {
-            scene.handleDisplayHand(data.hand, true);
-          }
-
-          // Display opponent hands via OpponentManager (skip animation on rejoin)
-          if (scene.handleDisplayOpponentHands && data.hand) {
-            scene.handleDisplayOpponentHands(
-              data.hand.length,
-              data.dealer,
-              gameState.playerData,
-              true // skip animation on rejoin
-            );
-          }
-
-          // Player info box is created inside handleDisplayOpponentHands
-
-          // Create DOM backgrounds via LayoutManager
-          if (scene.layoutManager) {
-            scene.layoutManager.update();
-            scene.layoutManager.createDomBackgrounds();
-          }
-
-          // Restore played cards in current trick via TrickManager
-          if (data.playedCards && data.playedCards.length > 0 && scene.trickManager) {
-            scene.trickManager.restorePlayedCards(data.playedCards);
-            console.log(`🔄 Restored played cards from current trick via TrickManager`);
-          }
-
-          // Update card legality after restoring state
-          if (scene.cardManager) {
-            const canPlay = !gameState.isBidding &&
-                            gameState.currentTurn === gameState.position &&
-                            !gameState.hasPlayedCard;
-            const legalityChecker = (card) => {
-              const result = isLegalMove(
-                card,
-                gameState.myCards,
-                gameState.leadCard,
-                gameState.playedCardIndex === 0,
-                gameState.trump,
-                gameState.trumpBroken,
-                gameState.position,
-                gameState.leadPosition
-              );
-              return result.legal;
-            };
-            scene.cardManager.updateCardLegality(legalityChecker, canPlay);
-          }
-
-          // Create bid UI via BidManager (only if still in bidding phase)
-          if (scene.bidManager && data.hand && gameState.isBidding) {
-            scene.bidManager.showBidUI(data.hand.length, (bid) => {
-              console.log(`📩 Sending bid: ${bid}`);
-              if (window.socket) {
-                window.socket.emit('playerBid', { position: gameState.position, bid });
-              }
-            });
-          }
-        }
-
-        // Add reconnected message to game feed
-        window.addToGameFeedFromLegacy("Reconnected to game!");
-
-        // Call scene handler for any additional rejoin logic
-        if (scene && scene.handleRejoinSuccess) {
-          scene.handleRejoinSuccess(data);
-        }
-      };
-
-      // Wait for scene to be ready before processing UI
-      const waitForScene = () => {
-        const scene = getGameScene();
-        if (scene && scene.cardManager) {
-          processRejoinData();
-        } else {
-          console.log("🔄 Waiting for scene to be ready...");
-          setTimeout(waitForScene, 100);
-        }
-      };
-
-      // Update GameState from rejoin data first (synchronously)
-      if (data.position) gameState.position = data.position;
-      if (data.hand) gameState.setCards(data.hand);
-      if (data.trump) gameState.setTrump(data.trump);
-      if (data.dealer !== undefined) gameState.dealer = data.dealer;
-      if (data.currentTurn !== undefined) gameState.setCurrentTurn(data.currentTurn);
-
-      // Server sends 'bidding', client uses 'isBidding'
-      const bidding = data.isBidding !== undefined ? data.isBidding : data.bidding;
-      if (bidding !== undefined) {
-        gameState.isBidding = bidding;
-        gameState.phase = bidding ? PHASE.BIDDING : PHASE.PLAYING;
-      }
-
-      // Extract lead card and played count from playedCards array
-      if (data.playedCards && Array.isArray(data.playedCards)) {
-        let foundLead = false;
-        let playedCount = 0;
-        data.playedCards.forEach((card, index) => {
-          if (card) {
-            playedCount++;
-            if (!foundLead) {
-              gameState.leadCard = card;
-              gameState.leadPosition = index + 1; // positions are 1-indexed
-              foundLead = true;
-            }
-          }
-        });
-        gameState.playedCardIndex = playedCount;
-      } else {
-        if (data.leadCard) gameState.leadCard = data.leadCard;
-        if (data.leadPosition !== undefined) gameState.leadPosition = data.leadPosition;
-        if (data.playedCardIndex !== undefined) gameState.playedCardIndex = data.playedCardIndex;
-      }
-
-      // Server uses isTrumpBroken, client uses trumpBroken
-      const trumpBroken = data.trumpBroken !== undefined ? data.trumpBroken : data.isTrumpBroken;
-      if (trumpBroken !== undefined) gameState.trumpBroken = trumpBroken;
-      gameState.hasPlayedCard = false; // Reset for current trick
-
-      // Update scores from rejoin data
-      if (data.score) {
-        const position = gameState.position;
-        if (position % 2 !== 0) {
-          gameState.setGameScores(data.score.team1, data.score.team2);
-        } else {
-          gameState.setGameScores(data.score.team2, data.score.team1);
-        }
-      }
-
-      // Now wait for scene to be ready before processing UI
-      waitForScene();
+      processRejoinOrRestore(data);
     },
     onRejoinFailed: (data) => {
       const scene = getGameScene();
       if (scene && scene.handleRejoinFailed) {
         scene.handleRejoinFailed(data);
+      }
+    },
+
+    // Resignation & Lazy Mode callbacks
+    onResignationAvailable: (data) => {
+      // Remove any existing resignation dialog
+      const existing = document.getElementById('resignation-dialog');
+      if (existing) existing.remove();
+
+      // Build inline confirmation dialog (same pattern as bid UI)
+      const backdrop = document.createElement('div');
+      backdrop.id = 'resignation-dialog';
+      backdrop.style.cssText = `
+        position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+        background: rgba(0, 0, 0, 0.7); display: flex;
+        justify-content: center; align-items: center; z-index: 1000;
+      `;
+
+      const dialog = document.createElement('div');
+      dialog.style.cssText = `
+        background: #1a1a2e; border-radius: 12px; padding: 24px;
+        min-width: 300px; max-width: 90vw;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+      `;
+      dialog.innerHTML = `
+        <h3 style="margin: 0 0 16px 0; color: #fff;">Player Disconnected</h3>
+        <p style="margin: 0 0 24px 0; color: #ccc;">${data.username} did not reconnect. Replace with a bot?</p>
+        <div style="display: flex; gap: 12px; justify-content: flex-end;">
+          <button id="resign-cancel-btn" style="padding: 8px 16px; border: none; border-radius: 6px; background: #444; color: #fff; cursor: pointer;">Wait</button>
+          <button id="resign-confirm-btn" style="padding: 8px 16px; border: none; border-radius: 6px; background: #23782d; color: #fff; cursor: pointer;">Replace with Bot</button>
+        </div>
+      `;
+      backdrop.appendChild(dialog);
+      document.body.appendChild(backdrop);
+
+      dialog.querySelector('#resign-cancel-btn').onclick = () => backdrop.remove();
+      dialog.querySelector('#resign-confirm-btn').onclick = () => {
+        backdrop.remove();
+        socket.emit('forceResign', { position: data.position });
+      };
+
+      window._resignationModal = backdrop;
+    },
+    onPlayerResigned: (data) => {
+      // Dismiss any open resignation modal (another player may have already clicked resign)
+      if (window._resignationModal) {
+        window._resignationModal.remove();
+        window._resignationModal = null;
+      }
+
+      // Update opponent avatar via scene
+      const scene = getGameScene();
+      if (scene && scene.handlePlayerResigned) {
+        scene.handlePlayerResigned(data);
+      }
+
+      // Add system message to game log
+      window.addToGameFeedFromLegacy?.(`${data.oldUsername} has been resigned. ${data.botUsername} is taking over.`, null);
+    },
+    onPlayerLazyMode: (data) => {
+      const scene = getGameScene();
+      if (scene && scene.handlePlayerLazyMode) {
+        scene.handlePlayerLazyMode(data);
+      }
+
+      // If it's the local player entering lazy mode, disable card interaction
+      if (data.position === gameState.position) {
+        if (scene && scene.cardManager) {
+          scene.cardManager.setInteractive(false);
+        }
+        // Show spectating indicator
+        let indicator = document.getElementById('spectating-indicator');
+        if (!indicator) {
+          indicator = document.createElement('div');
+          indicator.id = 'spectating-indicator';
+          indicator.style.cssText = `
+            position: fixed;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.8);
+            color: #4ade80;
+            padding: 8px 20px;
+            border-radius: 20px;
+            font-size: 14px;
+            z-index: 500;
+            border: 1px solid #4ade80;
+          `;
+          indicator.textContent = 'Spectating — type /active to take back control';
+          document.body.appendChild(indicator);
+        }
+      }
+
+      // Add system message to game log
+      window.addToGameFeedFromLegacy?.(
+        `${data.originalUsername || 'Player'} entered lazy mode. ${data.botUsername} is playing.`,
+        null
+      );
+    },
+    onPlayerActiveMode: (data) => {
+      const scene = getGameScene();
+      if (scene && scene.handlePlayerActiveMode) {
+        scene.handlePlayerActiveMode(data);
+      }
+
+      // If it's the local player returning to active mode, re-enable card interaction
+      if (data.position === gameState.position) {
+        if (scene && scene.cardManager) {
+          scene.cardManager.setInteractive(true);
+        }
+        // Remove spectating indicator
+        const indicator = document.getElementById('spectating-indicator');
+        if (indicator) indicator.remove();
+      }
+
+      // Add system message to game log
+      window.addToGameFeedFromLegacy?.(`${data.username} is back in control.`, null);
+    },
+    onLeftGame: (data) => {
+      // Player used /leave — clean up game UI and return to main room
+      const scene = getGameScene();
+
+      if (scene && scene.clearPlayerInfo) {
+        scene.clearPlayerInfo();
+      }
+      if (scene && scene.layoutManager) {
+        scene.layoutManager.cleanupDomBackgrounds();
+      }
+      if (scene && scene.opponentManager && scene.opponentManager.clearAll) {
+        scene.opponentManager.clearAll();
+      }
+
+      // Remove spectating indicator
+      const indicator = document.getElementById('spectating-indicator');
+      if (indicator) indicator.remove();
+
+      uiManager.clearUI();
+
+      let gameFeed = document.getElementById("gameFeed");
+      if (gameFeed) gameFeed.remove();
+      gameLogInstance = null;
+
+      document.getElementById('game-container')?.classList.remove('in-game');
+      clearGameScene();
+
+      if (scene) {
+        scene.children.removeAll(true);
+        scene.scene.restart();
+      }
+      resetGameState();
+      // Clear gameId so mainRoomJoined handler doesn't ignore the transition
+      sessionStorage.removeItem('gameId');
+      socket.emit("joinMainRoom");
+    },
+    onRestorePlayerState: (data) => {
+      // Spectator → active player transition
+      // Clean up spectator view, restart scene, then reuse the rejoin path
+      gameState.isSpectator = false;
+
+      // Remove spectating indicator
+      const indicator = document.getElementById('spectating-indicator');
+      if (indicator) indicator.remove();
+
+      // Store gameId
+      if (data.gameId) sessionStorage.setItem('gameId', data.gameId);
+
+      // Rebuild playerData from server's players array
+      if (data.players && data.players.length > 0) {
+        const positions = data.players.map(p => p.position);
+        const sockets = data.players.map(p => p.socketId);
+        const usernames = data.players.map(p => ({ username: p.username, socketId: p.socketId }));
+        const pics = data.players.map(p => p.pic);
+        gameState.setPlayerData({ position: positions, sockets, username: usernames, pics });
+      }
+
+      // Clean up current scene and restart fresh
+      const scene = getGameScene();
+      if (scene) {
+        if (scene.opponentManager) scene.opponentManager.clearAll();
+        if (scene.clearPlayerInfo) scene.clearPlayerInfo();
+        if (scene.layoutManager) scene.layoutManager.cleanupDomBackgrounds();
+        scene.children.removeAll(true);
+        scene.scene.restart();
+      }
+
+      let gameFeed = document.getElementById("gameFeed");
+      if (gameFeed) gameFeed.remove();
+      gameLogInstance = null;
+
+      // Reuse the proven rejoin path — same data format (getClientState)
+      processRejoinOrRestore(data);
+    },
+    onGameLogEntry: (data) => {
+      if (data.type === 'system') {
+        window.addToGameFeedFromLegacy?.(data.message, null);
+      } else if (data.playerPosition !== undefined) {
+        window.addToGameFeedFromLegacy?.(data.message, data.playerPosition);
       }
     },
 

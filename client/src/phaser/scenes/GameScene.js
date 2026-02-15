@@ -1533,6 +1533,64 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
+   * Handle resignationAvailable event.
+   * Shows a modal asking if the player wants to replace the disconnected player with a bot.
+   * @param {Object} data - { position, username }
+   */
+  handleResignationAvailable(data) {
+    console.log('🎮 GameScene.handleResignationAvailable()');
+    this.callbacks.onResignationAvailable?.(data);
+  }
+
+  /**
+   * Handle playerResigned event.
+   * Updates opponent avatar when a bot takes over.
+   * @param {Object} data - { position, oldUsername, botUsername, botPic }
+   */
+  handlePlayerResigned(data) {
+    console.log('🎮 GameScene.handlePlayerResigned()');
+    if (this.opponentManager) {
+      this.opponentManager.updatePlayerInfo(data.position, {
+        username: data.botUsername,
+        pic: data.botPic
+      });
+    }
+    this.callbacks.onPlayerResigned?.(data);
+  }
+
+  /**
+   * Handle playerLazyMode event.
+   * Updates opponent avatar when a bot takes over in lazy mode.
+   * @param {Object} data - { position, botUsername, botPic }
+   */
+  handlePlayerLazyMode(data) {
+    console.log('🎮 GameScene.handlePlayerLazyMode()');
+    if (this.opponentManager) {
+      this.opponentManager.updatePlayerInfo(data.position, {
+        username: data.botUsername,
+        pic: data.botPic
+      });
+    }
+    this.callbacks.onPlayerLazyMode?.(data);
+  }
+
+  /**
+   * Handle playerActiveMode event.
+   * Restores player avatar when they take back control.
+   * @param {Object} data - { position, username, pic }
+   */
+  handlePlayerActiveMode(data) {
+    console.log('🎮 GameScene.handlePlayerActiveMode()');
+    if (this.opponentManager) {
+      this.opponentManager.updatePlayerInfo(data.position, {
+        username: data.username,
+        pic: data.pic
+      });
+    }
+    this.callbacks.onPlayerActiveMode?.(data);
+  }
+
+  /**
    * Handle abortGame event.
    * @param {Object} data - Abort reason
    */

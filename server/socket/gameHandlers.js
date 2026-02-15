@@ -19,7 +19,9 @@ const {
 } = require('../game/rules');
 const { delay } = require('../utils/timing');
 const { gameLogger } = require('../utils/logger');
-const { botController } = require('../game/bot');
+const { botController, personalities } = require('../game/bot');
+const { PERSONALITY_LIST } = personalities;
+const { cancelAbortTimer } = require('./queueHandlers');
 
 /**
  * Check if the current turn is a bot and schedule their action
@@ -29,10 +31,67 @@ const { botController } = require('../game/bot');
  */
 function triggerBotIfNeeded(io, game, actionType) {
     const currentPlayer = game.getPlayerByPosition(game.currentTurn);
-    if (!currentPlayer || !game.isBot(currentPlayer.socketId)) {
+    if (!currentPlayer) return;
+
+    const isBot = game.isBot(currentPlayer.socketId);
+    const isLazy = game.isLazy(game.currentTurn);
+
+    if (!isBot && !isLazy) {
         return;
     }
 
+    if (isLazy && !isBot) {
+        // Lazy mode: find the substitute bot and use it to play
+        const lazyInfo = game.getLazyBot(game.currentTurn);
+        if (!lazyInfo) return;
+        const bot = botController.getBot(game.gameId, lazyInfo.botSocketId);
+        if (!bot) return;
+
+        // The bot needs to use the player's hand (still keyed by player's socketId)
+        const playerSocketId = currentPlayer.socketId;
+        const delayMs = bot.getActionDelay(actionType);
+
+        setTimeout(() => {
+            if (actionType === 'bid') {
+                // Use player's hand for bot decision
+                const hand = game.getHand(playerSocketId);
+                const gameContext = {
+                    teamScore: (bot.position === 1 || bot.position === 3) ? game.score.team1 : game.score.team2,
+                    oppScore: (bot.position === 1 || bot.position === 3) ? game.score.team2 : game.score.team1,
+                    currentHandSize: game.currentHand
+                };
+                const bid = bot.decideBid(hand, game.trump, game.playerBids, game.currentHand, gameContext);
+                game.recordBid(bot.position, bid);
+                game.addLogEntry(`${currentPlayer.username} bid ${bid}.`, bot.position, 'bid');
+                game.broadcast(io, 'bidReceived', { bid, position: bot.position, bidArray: game.playerBids });
+                game.currentTurn = rotatePosition(game.currentTurn);
+                handlePostBid(io, game);
+            } else if (actionType === 'play') {
+                const hand = game.getHand(playerSocketId);
+                if (!hand || hand.length === 0) return;
+                const card = bot.decideCard(hand, game.playedCards, game.leadCard, game.leadPosition, game.trump, game.isTrumpBroken, game.currentHand);
+                game.removeCardFromHand(playerSocketId, card);
+                const isLeading = game.playedCardsIndex === 0;
+                if (isLeading) {
+                    game.leadCard = card;
+                    game.leadPosition = bot.position;
+                }
+                game.playedCards[bot.position - 1] = card;
+                game.playedCardsIndex++;
+                game.cardIndex++;
+                if (card.suit === game.trump.suit || card.suit === 'joker') {
+                    game.isTrumpBroken = true;
+                }
+                game.broadcast(io, 'cardPlayed', { playerId: playerSocketId, card, position: bot.position, trump: game.isTrumpBroken });
+                botController.notifyCardPlayed(game.gameId, card, bot.position, game.trump);
+                game.currentTurn = rotatePosition(game.currentTurn);
+                handlePostPlay(io, game);
+            }
+        }, delayMs);
+        return;
+    }
+
+    // Normal bot action
     if (actionType === 'bid') {
         botController.scheduleBotAction(io, game, 'bid', (io, game, bot) => {
             botController.processBotBid(io, game, bot);
@@ -741,9 +800,107 @@ async function cleanupNextHand(game, io, dealer, handSize) {
     triggerBotIfNeeded(io, game, 'bid');
 }
 
+/**
+ * Force-resign a disconnected player, replacing them with a bot
+ */
+async function forceResign(socket, io, data) {
+    const game = gameManager.getPlayerGame(socket.id);
+    if (!game) {
+        socket.emit('error', { message: 'Not in a game' });
+        return;
+    }
+
+    const { position } = data;
+
+    // Validate: requesting player is in the same game
+    const requestingPosition = game.getPositionBySocketId(socket.id);
+    if (!requestingPosition) {
+        socket.emit('error', { message: 'Not a player in this game' });
+        return;
+    }
+
+    // Validate: target position is actually disconnected
+    if (!game.isPlayerDisconnected(position)) {
+        socket.emit('error', { message: 'Player is not disconnected' });
+        return;
+    }
+
+    // Get the disconnected player's info before replacement
+    const oldPlayer = game.getPlayerByPosition(position);
+    const oldUsername = oldPlayer?.username || `Player ${position}`;
+
+    // Pick a random personality
+    const personality = PERSONALITY_LIST[Math.floor(Math.random() * PERSONALITY_LIST.length)];
+    const displayName = personalities.getDisplayName(personality);
+    const botUsername = `🤖 ${displayName}`;
+
+    // Create bot instance
+    const bot = botController.createBot(botUsername, personality);
+
+    // Assign random pic for bot
+    const botPic = Math.floor(Math.random() * 82) + 1;
+    bot.position = position;
+    bot.pic = botPic;
+
+    // Resign the player (transfers hand, replaces player entry)
+    game.resignPlayer(position, bot.socketId, bot.username, botPic);
+
+    // Register bot with controller
+    botController.registerBot(game.gameId, bot);
+
+    // Initialize bot card memory
+    bot.resetCardMemory(game.currentHand, game.trump);
+
+    // Update playerGames mapping: remove old socket, add bot
+    const oldSocketId = game.resignedPlayers[position]?.originalSocketId;
+    if (oldSocketId) {
+        gameManager.playerGames.delete(oldSocketId);
+    }
+    gameManager.playerGames.set(bot.socketId, game.gameId);
+
+    // Clear disconnected status
+    game.clearPlayerDisconnected(position);
+
+    // Cancel abort timer if no more disconnected players
+    if (game.getDisconnectedPlayers().length === 0) {
+        cancelAbortTimer(game.gameId);
+    }
+
+    // Broadcast playerResigned event
+    game.broadcast(io, 'playerResigned', {
+        position,
+        oldUsername,
+        botUsername: bot.username,
+        botPic
+    });
+
+    // Add game log entry
+    game.addLogEntry(`${oldUsername} has been resigned. ${bot.username} is taking over.`, null, 'system');
+    game.broadcast(io, 'gameLogEntry', {
+        message: `${oldUsername} has been resigned. ${bot.username} is taking over.`,
+        type: 'system'
+    });
+
+    gameLogger.info('Player force-resigned', {
+        gameId: game.gameId,
+        position,
+        oldUsername,
+        botUsername: bot.username,
+        requestedBy: requestingPosition
+    });
+
+    // If it's the resigned player's turn, trigger bot action
+    if (game.currentTurn === position) {
+        const actionType = game.bidding ? 'bid' : 'play';
+        triggerBotIfNeeded(io, game, actionType);
+    }
+}
+
 module.exports = {
     draw,
     playerBid,
     playCard,
-    handleDrawComplete
+    handleDrawComplete,
+    forceResign,
+    triggerBotIfNeeded
 };

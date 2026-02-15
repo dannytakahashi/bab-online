@@ -26,8 +26,20 @@ async function rejoinGame(socket, io, data) {
         return;
     }
 
-    // Find player by username
-    const existingPlayer = game.getPlayerByUsername(username);
+    // Find player by username — check current players first, then lazy/resigned
+    let existingPlayer = game.getPlayerByUsername(username);
+    let isLazyRejoin = false;
+
+    if (!existingPlayer) {
+        // Check if this user is in lazy mode or was resigned (their name was replaced by bot)
+        const lazyPosition = game.getOriginalPlayerPosition(username);
+        if (lazyPosition) {
+            // This user has a lazy/resigned position — they're rejoining
+            isLazyRejoin = true;
+            existingPlayer = game.getPlayerByPosition(lazyPosition);
+        }
+    }
+
     if (!existingPlayer) {
         const playersInGame = Array.from(game.players.values()).map(p => p.username);
         socketLogger.debug('Rejoin failed: player not in game', { username, playersInGame });
@@ -45,6 +57,61 @@ async function rejoinGame(socket, io, data) {
         return;
     }
 
+    // For lazy/resigned rejoins, player re-enters as spectator while bot keeps playing
+    if (isLazyRejoin) {
+        const position = existingPlayer.position;
+
+        if (game.isLazy(position)) {
+            // Already in lazy mode — just update the original socket ID
+            const lazyInfo = game.lazyPlayers[position];
+            lazyInfo.originalSocketId = socket.id;
+        } else if (game.isResigned(position)) {
+            // Resigned player reconnecting — convert resignation into lazy mode
+            // so the bot keeps playing and the human can spectate / /active back
+            const resignedInfo = game.resignedPlayers[position];
+            const botSocketId = game.positions[position];
+            const botPlayer = game.players.get(botSocketId);
+
+            game.lazyPlayers[position] = {
+                botSocketId,
+                botUsername: botPlayer.username,
+                botPic: botPlayer.pic,
+                originalUsername: resignedInfo.username,
+                originalPic: resignedInfo.pic,
+                originalSocketId: socket.id,
+                personality: game.assignedPersonality[position] || 'mary'
+            };
+        }
+
+        // Register user with new socket
+        gameManager.registerUser(socket.id, username);
+
+        // Add as spectator so they can chat and use /active through the spectator path
+        game.addSpectator(socket.id, username, null);
+        socket.join(game.roomName);
+
+        // Map the human's new socket to the game
+        gameManager.updatePlayerGameMapping(null, socket.id, gameId);
+
+        socketLogger.info('Player rejoined game in lazy mode', { username, gameId, position });
+
+        // Send current game state (they'll be in lazy/spectator mode)
+        // Use bot's socket ID to get correct position/hand, since the human isn't in the players map
+        const currentBotSocketId = game.positions[position];
+        const rejoinState = game.getClientState(currentBotSocketId);
+        rejoinState.isLazy = true;
+        socket.emit('rejoinSuccess', rejoinState);
+
+        // Notify other players
+        game.broadcast(io, 'playerReconnected', { position, username });
+
+        const rcMessage = `${username} reconnected.`;
+        game.addLogEntry(rcMessage, null, 'system');
+        game.broadcast(io, 'gameLogEntry', { message: rcMessage, type: 'system' });
+        return;
+    }
+
+    // Normal reconnection (not lazy)
     // Update socket ID mapping
     const oldSocketId = game.updatePlayerSocket(existingPlayer.position, socket.id, io);
     gameManager.updatePlayerGameMapping(oldSocketId, socket.id, gameId);
@@ -71,6 +138,10 @@ async function rejoinGame(socket, io, data) {
         position: existingPlayer.position,
         username
     });
+
+    const rcMessage = `${username} reconnected.`;
+    game.addLogEntry(rcMessage, null, 'system');
+    game.broadcast(io, 'gameLogEntry', { message: rcMessage, type: 'system' });
 }
 
 module.exports = {

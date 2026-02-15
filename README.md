@@ -172,6 +172,24 @@ The server runs on `http://localhost:3000` by default.
 6. **Play** - Take turns playing cards, following suit when possible
 7. **Score** - Points awarded based on bids vs tricks taken (shown in game log)
 
+### Mid-Game Commands
+
+Type these in the game log chat input (autocomplete appears when you type `/`):
+
+| Command | Effect |
+|---------|--------|
+| `/lazy` | A bot takes over for you temporarily. You stay in the game as a spectator. |
+| `/active` | Take back control from the bot. |
+| `/leave` | Bot takes over and you exit to the main lobby. You can rejoin later. |
+
+### Spectating
+
+Browse in-progress games in the main room lobby panel and click **Spectate** to watch. Spectators can see tricks, bids, scores, and chat — but not player hands. Type `/leave` to exit back to the lobby.
+
+### Disconnection & Resignation
+
+If a player disconnects, a 60-second grace period starts. If they don't return, any remaining player can click to replace them with a bot. The game only aborts if all human players disconnect.
+
 ### Card Rankings
 - High Joker (highest)
 - Low Joker
@@ -190,12 +208,12 @@ Client (Phaser/ES6) ←→ Socket.IO ←→ Server (Node/Express) ←→ MongoDB
 
 The server uses a modular architecture with clear separation of concerns:
 
-- **GameManager** - Singleton managing queue and active games
-- **GameState** - Encapsulated state for each game instance
+- **GameManager** - Singleton managing queue, active games, and in-progress game listing
+- **GameState** - Encapsulated state for each game instance (includes resignation, lazy mode, and spectator tracking)
 - **Deck** - Card deck with Fisher-Yates shuffle
 - **rules.js** - Pure functions for game logic (testable)
 - **BotController / BotStrategy** - AI bot system with 5 personalities, hand-size-aware bidding, card memory, and in-game chat
-- **Socket handlers** - Organized by domain (auth, queue, game, chat, profile)
+- **Socket handlers** - Organized by domain (auth, queue, game, chat, profile, reconnect)
 
 ### Client Architecture
 
@@ -224,8 +242,10 @@ The client uses ES6 modules with Vite bundling and proper lifecycle management:
 | `draw` | Draw card during draw phase |
 | `playerBid` | Submit bid |
 | `playCard` | Play a card |
-| `chatMessage` | Send in-game chat message |
+| `chatMessage` | Send in-game chat (also handles `/lazy`, `/active`, `/leave`) |
 | `rejoinGame` | Reconnect to game after disconnect |
+| `forceResign` | Replace disconnected player with a bot |
+| `joinAsSpectator` | Join an in-progress game as spectator |
 | `getProfile` | Fetch user profile and stats |
 | `updateProfilePic` | Change profile picture |
 | `getLeaderboard` | Fetch leaderboard data |
@@ -248,6 +268,11 @@ The client uses ES6 modules with Vite bundling and proper lifecycle management:
 | `gameEnd` | Game finished with final scores |
 | `rejoinSuccess` | Successfully reconnected to game |
 | `activeGameFound` | Active game found on sign-in |
+| `resignationAvailable` | Disconnected player's grace period expired |
+| `playerResigned` | Player replaced by bot |
+| `playerLazyMode` | Player entered lazy mode (bot playing) |
+| `playerActiveMode` | Player took back control from bot |
+| `spectatorJoined` | Spectator joined the game |
 | `profileResponse` | User profile data |
 | `leaderboardResponse` | Leaderboard data |
 

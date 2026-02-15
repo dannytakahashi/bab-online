@@ -469,6 +469,51 @@ export class OpponentManager {
   }
 
   /**
+   * Update player info (name + pic) for a given position.
+   * Used when a bot takes over (resignation, lazy mode) or player resumes (active mode).
+   *
+   * @param {number} position - Game position (1-4)
+   * @param {Object} info - { username, pic }
+   */
+  updatePlayerInfo(position, { username, pic }) {
+    if (!this._playerPosition) return;
+
+    // Determine which opponent slot this position maps to
+    const partnerPos = team(this._playerPosition);
+    const opp1Pos = rotate(this._playerPosition);
+    const opp2Pos = rotate(rotate(rotate(this._playerPosition)));
+
+    let opponentId = null;
+    if (position === partnerPos) opponentId = 'partner';
+    else if (position === opp1Pos) opponentId = 'opp1';
+    else if (position === opp2Pos) opponentId = 'opp2';
+
+    if (!opponentId) return; // This is the local player's own position
+
+    const dom = this._avatarDoms[opponentId];
+    if (!dom) return;
+
+    // Update the image
+    const img = dom.querySelector('.opponent-avatar-img');
+    if (img) {
+      if (pic && typeof pic === 'string' && pic.startsWith('data:image')) {
+        img.src = pic;
+      } else if (pic && typeof pic === 'number') {
+        img.src = `assets/profile${pic}.png`;
+      } else {
+        img.src = 'assets/profile1.png';
+      }
+      img.alt = username;
+    }
+
+    // Update the label
+    const label = dom.querySelector('div:last-child');
+    if (label) {
+      label.textContent = username;
+    }
+  }
+
+  /**
    * Remove a card from an opponent's hand (when they play).
    *
    * @param {string} opponentId - 'partner', 'opp1', or 'opp2'

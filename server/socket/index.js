@@ -53,6 +53,9 @@ function setupSocketHandlers(io) {
         socket.on('getLobbies', () =>
             safeHandler(mainRoomHandlers.getLobbies)(socket, io, {})
         );
+        socket.on('joinAsSpectator', (data) =>
+            asyncHandler('joinAsSpectator', mainRoomHandlers.joinAsSpectator)(socket, io, data)
+        );
 
         // Lobby events
         socket.on('playerReady', () =>
@@ -83,6 +86,9 @@ function setupSocketHandlers(io) {
         );
         socket.on('playCard', (data) =>
             asyncHandler('playCard', gameHandlers.playCard)(socket, io, data)
+        );
+        socket.on('forceResign', (data) =>
+            asyncHandler('forceResign', gameHandlers.forceResign)(socket, io, data)
         );
 
         // Chat events - with validation

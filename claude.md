@@ -18,275 +18,133 @@ A 4-player online multiplayer trick-taking card game (Back Alley Bridge). Player
 ```
 bab-online/
 ├── client/
-│   ├── src/                        # Modular ES6 client code (Vite)
-│   │   ├── main.js                 # Entry point, bridge to legacy code
-│   │   ├── constants/
-│   │   │   ├── events.js           # Socket event name constants
-│   │   │   └── ranks.js            # RANK_VALUES, suit orders, hand progression
-│   │   ├── utils/
-│   │   │   ├── positions.js        # team(), rotate(), getPlayerName()
-│   │   │   ├── cards.js            # getCardImageKey(), sortHand(), getSuitOrder()
-│   │   │   └── colors.js           # hashToHue(), generateDistinctColor()
-│   │   ├── rules/
-│   │   │   └── legality.js         # isLegalMove(), sameSuit(), isTrumpTight()
-│   │   ├── state/
-│   │   │   └── GameState.js        # Client state singleton with events
-│   │   ├── socket/
-│   │   │   └── SocketManager.js    # Connection with listener tracking
-│   │   ├── ui/
-│   │   │   ├── UIManager.js        # Main UI lifecycle manager
-│   │   │   ├── components/         # Modal, Toast, BidUI, GameLog, ChatBubble, ScoreModal, PlayerQueue
-│   │   │   └── screens/            # SignIn, Register, MainRoom, GameLobby
+│   ├── src/
+│   │   ├── main.js                 # Entry point, wires callbacks to GameScene
+│   │   ├── constants/              # events.js, ranks.js
+│   │   ├── utils/                  # positions.js, cards.js, colors.js
+│   │   ├── rules/                  # legality.js - card play validation
+│   │   ├── state/                  # GameState.js - client state singleton
+│   │   ├── socket/                 # SocketManager.js - connection management
+│   │   ├── handlers/               # Socket event handlers (auth, game, chat, lobby)
 │   │   ├── phaser/
-│   │   │   ├── config.js           # Phaser game configuration
 │   │   │   ├── PhaserGame.js       # Game instance wrapper
-│   │   │   ├── scenes/
-│   │   │   │   └── GameScene.js    # Main game scene with handler methods
-│   │   │   └── managers/
-│   │   │       ├── CardManager.js  # Card sprite management
-│   │   │       ├── TrickManager.js # Trick display and animations
-│   │   │       ├── OpponentManager.js # Opponent avatars and cards
-│   │   │       ├── EffectsManager.js  # Visual effects (rainbow, etc.)
-│   │   │       ├── DrawManager.js  # Draw phase UI and animations
-│   │   │       ├── BidManager.js   # Bidding UI and bubbles
-│   │   │       └── LayoutManager.js # Positioning and resize logic
-│   │   └── handlers/
-│   │       ├── index.js            # Socket event handler registration
-│   │       ├── authHandlers.js     # Authentication event handlers
-│   │       ├── gameHandlers.js     # Game event handlers
-│   │       ├── chatHandlers.js     # Chat event handlers
-│   │       └── lobbyHandlers.js    # Lobby event handlers
-│   ├── styles/
-│   │   └── components.css          # All UI component styles
-│   ├── vite.config.js              # Vite build configuration
-│   ├── index.html                  # Entry point
+│   │   │   ├── scenes/GameScene.js # Main game scene
+│   │   │   └── managers/           # Card, Trick, Opponent, Effects, Draw, Bid, Layout
+│   │   └── ui/
+│   │       ├── UIManager.js        # DOM lifecycle management
+│   │       ├── components/         # Modal, Toast, BidUI, GameLog, ChatBubble, ScoreModal
+│   │       └── screens/            # SignIn, Register, MainRoom, GameLobby
+│   ├── styles/components.css       # All UI styles
 │   └── assets/                     # Card images, backgrounds
 ├── server/
 │   ├── index.js                    # Entry point
-│   ├── config/
-│   │   └── index.js                # Server configuration
 │   ├── game/
 │   │   ├── Deck.js                 # Card deck with shuffle
 │   │   ├── GameState.js            # Per-game state + room management
-│   │   ├── GameManager.js          # Queue, lobby, and game coordination
+│   │   ├── GameManager.js          # Queue, lobby, game coordination, in-progress listing
 │   │   ├── rules.js                # Pure game logic functions
 │   │   └── bot/                    # Bot player system
-│   │       ├── index.js            # Module exports
-│   │       ├── BotPlayer.js        # Bot player class
-│   │       ├── BotController.js    # Singleton managing all bots
-│   │       └── BotStrategy.js      # Pure strategy functions
+│   │       ├── BotPlayer.js        # Bot player class with card memory
+│   │       ├── BotController.js    # Singleton managing bot lifecycle
+│   │       ├── BotStrategy.js      # Pure strategy functions
+│   │       └── personalities.js    # Bot personality definitions
 │   ├── socket/
 │   │   ├── index.js                # Socket event routing
-│   │   ├── authHandlers.js         # signIn, signUp (with auto-login)
-│   │   ├── mainRoomHandlers.js     # Main room chat and lobby browsing
-│   │   ├── queueHandlers.js        # joinQueue (creates/joins lobby)
+│   │   ├── authHandlers.js         # signIn, signUp
+│   │   ├── mainRoomHandlers.js     # Main room, lobby browser, spectator join
+│   │   ├── queueHandlers.js        # joinQueue, disconnect grace period
 │   │   ├── lobbyHandlers.js        # playerReady, lobbyChat, leaveLobby
-│   │   ├── gameHandlers.js         # playCard, playerBid, draw
+│   │   ├── gameHandlers.js         # playCard, playerBid, draw, forceResign
 │   │   ├── reconnectHandlers.js    # rejoinGame for mid-game reconnection
-│   │   ├── chatHandlers.js         # chatMessage (in-game)
+│   │   ├── chatHandlers.js         # chatMessage, slash commands (/lazy, /active, /leave)
+│   │   ├── profileHandlers.js      # Profile and leaderboard events
 │   │   ├── validators.js           # Joi validation schemas
 │   │   ├── errorHandler.js         # Handler wrappers with rate limiting
 │   │   └── rateLimiter.js          # Per-socket rate limiting
-│   ├── routes/
-│   │   └── index.js                # Express routes, /health endpoint
-│   ├── middleware/
-│   │   └── requestLogger.js        # Request logging middleware
-│   ├── utils/
-│   │   ├── timing.js               # Async delay utilities
-│   │   ├── logger.js               # Winston logger setup
-│   │   ├── errors.js               # Custom error classes
-│   │   └── shutdown.js             # Graceful shutdown handlers
+│   ├── routes/index.js             # Express routes, /health
+│   ├── utils/                      # timing.js, logger.js, errors.js, shutdown.js
 │   └── database.js                 # MongoDB connection
 ├── docs/
 │   ├── RULES.md                    # Complete game rules
 │   └── todos/                      # Improvement roadmap
-├── scripts/
-│   └── build-atlas.js              # Sprite atlas builder
-├── .github/
-│   └── workflows/
-│       └── ci.yml                  # GitHub Actions CI pipeline
-├── package.json
-├── docker-compose.yml              # Docker Compose configuration
-├── Dockerfile.local                # Local Docker configuration
-├── railway.toml                    # Railway deployment config
-├── .nvmrc                          # Node version (18+)
-└── .env
+└── scripts/build-atlas.js          # Sprite atlas builder
 ```
-
-## Key Files
-
-### Server
-- `server/index.js` - Entry point, Express/Socket.IO setup
-- `server/game/rules.js` - Pure functions: `determineWinner()`, `isLegalMove()`, `calculateScore()`, `isRainbow()`
-- `server/game/GameState.js` - Encapsulated game state class
-- `server/game/GameManager.js` - Singleton managing queue, lobbies, and active games
-- `server/game/bot/BotController.js` - Singleton managing bot lifecycle and actions
-- `server/game/bot/BotPlayer.js` - Bot player class with decision methods
-- `server/game/bot/BotStrategy.js` - Pure strategy functions for bidding and card play
-- `server/socket/gameHandlers.js` - Game event handlers
-- `server/socket/lobbyHandlers.js` - Lobby handlers including bot management
-- `server/socket/mainRoomHandlers.js` - Main room and lobby browser handlers
-
-### Client
-- `client/src/main.js` - Entry point, exposes all modules via window.ModernUtils bridge, wires callbacks to GameScene
-- `client/src/state/GameState.js` - Client state singleton with event emitter
-- `client/src/socket/SocketManager.js` - Socket with listener tracking for cleanup
-- `client/src/rules/legality.js` - Card play legality checking (isLegalMove)
-- `client/src/phaser/PhaserGame.js` - Game instance wrapper
-- `client/src/phaser/scenes/GameScene.js` - Main game scene, instantiates managers, handles events
-- `client/src/phaser/managers/CardManager.js` - Card sprite management
-- `client/src/phaser/managers/TrickManager.js` - Trick display, play positions, trick history
-- `client/src/phaser/managers/OpponentManager.js` - Opponent avatars and card backs
-- `client/src/phaser/managers/EffectsManager.js` - Visual effects (rainbow animation)
-- `client/src/phaser/managers/DrawManager.js` - Draw phase deck and card selection
-- `client/src/phaser/managers/BidManager.js` - Bid UI, bore buttons, bid bubbles
-- `client/src/phaser/managers/LayoutManager.js` - Centralized positioning and resize calculations
-- `client/src/ui/UIManager.js` - UI lifecycle management
-- `client/src/ui/components/` - Modal, Toast, BidUI, GameLog, ChatBubble, ScoreModal, PlayerQueue
-- `client/src/ui/screens/` - SignIn, Register, MainRoom, GameLobby
-- `client/src/handlers/` - Socket event handlers (index, auth, game, chat, lobby)
 
 ## Architecture Patterns
 
 - **Communication**: Socket.io bidirectional WebSocket
 - **State**: Server-authoritative, `GameState` class per game instance
-- **Client State**: `GameState` singleton replaces 50+ globals
-- **Event Callbacks**: Socket events flow through `gameHandlers.js` → main.js callbacks → `GameScene.handleX()` → Phaser managers
-- **State Validation**: Server validates all actions (`validateTurn`, `validateCardPlay`, `validateBid`)
-- **Input Validation**: Joi schemas validate all socket event data (`validators.js`)
-- **Error Handling**: All handlers wrapped with try/catch, validation errors sent to client (`errorHandler.js`)
-- **Rate Limiting**: Per-socket limits prevent spam/abuse (`rateLimiter.js`)
-- **Socket Rooms**: Game events broadcast only to game participants via `game.broadcast()`
+- **Client State**: `GameState` singleton with event emitter (`handChanged`, `bidChanged`)
+- **Event Callbacks**: Socket events → `handlers/*.js` → `main.js` callbacks → `GameScene.handleX()` → Phaser managers
+- **Validation**: Server validates all actions; Joi schemas validate all socket event data
+- **Socket Rooms**: Game events broadcast only to game participants + spectators via `game.broadcast()`
 - **Optimistic Updates**: Client updates UI immediately, rolls back on server rejection
-- **Socket Cleanup**: `SocketManager` tracks listeners, prevents memory leaks
-- **Reconnection**: 30-second grace period for disconnected players to rejoin via `rejoinGame` event
+- **Socket Cleanup**: `SocketManager` tracks listeners via `onGame()`, cleaned up between games
 - **UI**: Phaser for game canvas, `UIManager` for DOM lifecycle
-- **Animations**: Phaser tweens (Power2 easing, 200-500ms durations)
 - **Game Logic**: Pure functions in `rules.js` for testability
-- **Responsive Layout**: Dynamic game container width (full in lobby, restricted during game for game log)
-- **Turn Indicator**: CSS-based glow effect (`.turn-glow` class) for proper resize handling
 
 ## Game Flow
 
-1. Authentication (signIn/signUp) → MongoDB users collection; auto-login after registration
-2. Main Room → Global chat, browse/create game lobbies
-3. Game Lobby → 4 players chat and click "Ready" when prepared; can add bot players via "+ Add Bot" button
-4. All 4 ready → Transition to draw phase (bots auto-ready when lobby is full)
-5. Draw phase → Players draw cards to determine positions; teams announced (1&3 vs 2&4)
-6. Hand progression (12→10→8→6→4→2→1→3→5→7→9→11→13) with bidding then playing phases
-7. Trick evaluation, scoring displayed in game log; rainbow bonuses (4-card hand only)
-8. Game end → Final scores in game log, return to main room
+1. Authentication (signIn/signUp) → MongoDB users collection
+2. Main Room → Global chat, browse game lobbies, spectate in-progress games
+3. Game Lobby → 4 players chat and ready up; can add bot players (5 personalities)
+4. Draw phase → Players draw cards to determine positions; teams announced (1&3 vs 2&4)
+5. Hand progression (12→10→8→6→4→2→1→3→5→7→9→11→13) with bidding then playing
+6. Game end → Final scores, return to main room
 
 ## Key Socket Events
 
-**Client → Server**: `signIn`, `signUp`, `joinMainRoom`, `mainRoomChat`, `createLobby`, `joinLobby`, `playerReady`, `lobbyChat`, `leaveLobby`, `addBot`, `removeBot`, `draw`, `playerBid`, `playCard`, `chatMessage`, `rejoinGame`
+**Client → Server**: `signIn`, `signUp`, `joinMainRoom`, `mainRoomChat`, `createLobby`, `joinLobby`, `playerReady`, `lobbyChat`, `leaveLobby`, `addBot`, `removeBot`, `draw`, `playerBid`, `playCard`, `chatMessage`, `rejoinGame`, `forceResign`, `joinAsSpectator`
 
-**Server → Client**: `mainRoomJoined`, `mainRoomMessage`, `lobbiesUpdated`, `lobbyCreated`, `lobbyJoined`, `playerReadyUpdate`, `lobbyMessage`, `lobbyPlayerLeft`, `allPlayersReady`, `startDraw`, `playerDrew`, `youDrew`, `teamsAnnounced`, `positionUpdate`, `createUI`, `gameStart`, `bidReceived`, `doneBidding`, `cardPlayed`, `updateTurn`, `trickComplete`, `handComplete`, `gameEnd`, `rainbow`, `rejoinSuccess`, `rejoinFailed`, `playerDisconnected`, `playerReconnected`, `activeGameFound`
+**Server → Client**: `mainRoomJoined`, `mainRoomMessage`, `lobbiesUpdated`, `lobbyCreated`, `lobbyJoined`, `playerReadyUpdate`, `lobbyMessage`, `lobbyPlayerLeft`, `allPlayersReady`, `startDraw`, `playerDrew`, `youDrew`, `teamsAnnounced`, `positionUpdate`, `createUI`, `gameStart`, `bidReceived`, `doneBidding`, `cardPlayed`, `updateTurn`, `trickComplete`, `handComplete`, `gameEnd`, `rainbow`, `rejoinSuccess`, `rejoinFailed`, `playerDisconnected`, `playerReconnected`, `activeGameFound`, `resignationAvailable`, `playerResigned`, `playerLazyMode`, `playerActiveMode`, `gameLogEntry`, `leftGame`, `spectatorJoined`
 
-## Development Commands
+## Disconnection, Resignation & Bot Takeover
 
-```bash
-npm run dev           # Development server with hot reload (port 3000)
-npm start             # Production server
-npm test              # Run server tests (Jest)
-npm run test:watch    # Jest watch mode
-npm run test:coverage # Jest with coverage report
-npm run test:client   # Run client tests (Vitest)
-npm run test:client:watch  # Vitest watch mode
-npm run build:client  # Build client modules (Vite)
-npm run build:atlas   # Generate sprite atlas
-npm run dev:client    # Vite dev server (port 5173, proxies to :3000)
-```
+When a player disconnects mid-game:
+1. Server marks player as disconnected, starts **60-second** grace period
+2. Other players see "[username] disconnected - waiting for reconnection..."
+3. If player reconnects within 60 seconds: normal rejoin via `rejoinGame`
+4. If grace period expires: remaining players see a prompt to replace with a bot (`resignationAvailable`)
+5. Any player clicks "Replace with bot" → `forceResign` → bot takes over the hand
+6. Game stats are attributed to the original human player, not the bot
+7. Game only aborts if ALL human players disconnect
 
-Server runs on port 3000. Requires Node.js 18+.
+### Cross-Browser Reconnection
+Server stores `activeGameId` in MongoDB user document. On sign-in, checks for active game and emits `activeGameFound`.
 
-## Common Tasks
+## Slash Commands (In-Game)
 
-### Game Logic Changes
-- **Rules**: `server/game/rules.js` - `determineWinner()`, `isLegalMove()`, `calculateScore()`
-- **State**: `server/game/GameState.js` - game state management
-- **Flow**: `server/socket/gameHandlers.js` - `playCard()`, `playerBid()`
+Players type these in the game log chat input (autocomplete appears when typing `/`):
 
-### UI Changes
-- **Styles**: `client/styles/components.css` - CSS classes for all UI
-- **Components**: `client/src/ui/components/` - Modal, Toast, BidUI, GameLog
-- **Screens**: `client/src/ui/screens/` - SignIn, Register
-- **Cards**: `client/src/phaser/managers/CardManager.js` - card sprites
+| Command | Behavior |
+|---------|----------|
+| `/lazy` | Bot takes over temporarily. Player stays as spectator (can see hand/chat, bot plays). Avatar switches to bot. |
+| `/active` | Take back control from bot. Avatar switches back. Only works for original players, not spectators. |
+| `/leave` | Bot takes over + player exits to main lobby. Can rejoin later and `/active` to resume. |
 
-### Adding Socket Events
-1. Add handler in `server/socket/gameHandlers.js` (or appropriate handler file)
-2. Register in `server/socket/index.js`
-3. Add listener in `client/src/handlers/index.js`
-4. Add cleanup in `cleanupGameListeners()` for game-specific events
+Slash commands are intercepted in `chatHandlers.js` on the server. The `GameLog.js` component provides autocomplete with single-match auto-submit on Enter.
 
-### Adding Card Assets
-1. Place PNG in `client/assets/`
-2. Add to `loadCardAssets()` in `GameScene.js`
-3. Update `getCardTextureKey()` in `CardManager.js` if needed
+### Lazy Mode State
+- `GameState.lazyPlayers`: tracks `position → { botSocketId, botUsername, originalUsername, ... }`
+- `triggerBotIfNeeded()` checks both `isBot()` and `isLazy()` to schedule bot actions
+- Same bot personality persists across lazy/active cycles per position
 
-## Scoring Rules
+## Spectator System
 
-- Made bid: `+(bid × 10 × multiplier) + (tricks - bid) + (rainbows × 10)`
-- Missed bid: `-(bid × 10 × multiplier) + (rainbows × 10)`
-- Rainbow = 4-card hand containing all 4 suits (+10 points bonus)
-- Bore multipliers: B (2x), 2B (4x), 3B (8x), 4B (16x)
+Players can join in-progress games from the main room lobby panel:
+- `MainRoom.js` shows in-progress games (from `gameManager.getInProgressGames()`) with "Spectate" button
+- `joinAsSpectator` event → server sends full game state (no hand data) → client sets up read-only view
+- Spectators see tricks, bids, scores, game log; can chat (marked as spectator)
+- `/leave` exits spectator to main lobby; `/lazy` and `/active` are blocked for spectators
+- All `lobbiesUpdated` emissions include `inProgressGames` for the main room display
 
-## Game State
+## Server Game State (`server/game/GameState.js`)
 
-### Server (`server/game/GameState.js`)
-```javascript
-class GameState {
-    // Core state
-    gameId, roomName, players, positions, hands, currentHand, dealer,
-    bidding, bids, team1Mult, team2Mult, currentTurn, leadPosition,
-    currentTrick, trump, trumpBroken, team1Tricks, team2Tricks,
-    team1Score, team2Score, team1Rainbows, team2Rainbows
-
-    // Validation methods
-    validateTurn(socketId)           // Returns { valid, error? }
-    validateCardPlay(socketId, card) // Validates turn, phase, card ownership, trick state
-    validateBid(socketId, bid)       // Validates turn, phase, bid value
-    validateGameState()              // Full consistency check, returns { valid, errors[] }
-
-    // Room management (Socket.IO rooms for targeted broadcasts)
-    joinToRoom(io, socketId)         // Add player to game room
-    leaveRoom(io, socketId)          // Remove player from room
-    joinAllToRoom(io)                // Add all players to room
-    leaveAllFromRoom(io)             // Remove all (on game end)
-    broadcast(io, event, data)       // Send to all players in game
-    sendToPlayer(io, socketId, event, data) // Send to specific player
-
-    // Debug logging (development mode only)
-    logAction(action, details)       // Log state changes
-    logState()                       // Log current state summary
-    logValidation(action, result)    // Log failed validations
-}
-```
-
-### Client (`client/src/state/GameState.js`)
-```javascript
-class GameState {
-    // Core state
-    playerId, username, position, pic, myCards, currentHand,
-    trump, dealer, phase, currentTurn, isBidding, leadCard,
-    playedCards, trumpBroken, bids, teamTricks, oppTricks,
-    teamScore, oppScore, players
-
-    // Optimistic updates (instant UI feedback before server confirms)
-    optimisticPlayCard(card)   // Remove card locally, returns boolean
-    confirmCardPlay()          // Clear pending state on success
-    rollbackCardPlay()         // Restore card on server rejection
-    optimisticBid(bid)         // Record bid locally
-    confirmBid() / rollbackBid()
-    hasPendingAction()         // Check if waiting for server
-
-    // Event system (for reactive UI updates)
-    on(event, callback)        // Subscribe, returns unsubscribe function
-    off(event, callback)       // Unsubscribe
-    _emit(event, data)         // Notify listeners
-    // Events: 'handChanged', 'bidChanged'
-}
-```
+Key fields beyond core game state:
+- `resignedPlayers`: `position → { username, pic, resignedAt }` — original human info for stats
+- `lazyPlayers`: `position → { botSocketId, botUsername, originalUsername, originalSocketId, ... }`
+- `spectators`: Map of `socketId → { username, pic }`
+- Key methods: `resignPlayer()`, `enableLazyMode()`, `disableLazyMode()`, `addSpectator()`, `removeSpectator()`, `isLazy()`, `isSpectator()`, `getOriginalPlayer()`
 
 ## Card Data Structure
 
@@ -296,111 +154,54 @@ class GameState {
 
 Deck: 52 standard cards + 2 jokers (HI and LO)
 
-## Key Classes
+## Scoring Rules
 
-### GameManager (server)
-Singleton managing lobbies, queue, and active games. Methods: `joinQueue()` (creates/joins lobby), `createLobby()`, `setPlayerReady()`, `addLobbyMessage()`, `leaveLobby()`, `startGameFromLobby()`, `createGame()`, `getPlayerGame()`, `getPlayerLobby()`, `handleDisconnect()`, `updatePlayerGameMapping()`, `checkGameAbort()`, `addBotToLobby()`, `removeBotFromLobby()`, `setBotsReady()`, `isBot()`
+- Made bid: `+(bid × 10 × multiplier) + (tricks - bid) + (rainbows × 10)`
+- Missed bid: `-(bid × 10 × multiplier) + (rainbows × 10)`
+- Rainbow = 4-card hand containing all 4 suits (+10 points bonus)
+- Bore multipliers: B (2x), 2B (4x), 3B (8x), 4B (16x)
 
-### Reconnection Flow
-When a player disconnects mid-game:
-1. Server marks player as disconnected, starts 30-second grace period timer
-2. Other players see "[username] disconnected - waiting for reconnection..."
-3. If player refreshes/reconnects within 30 seconds:
-   - Client sends `rejoinGame` with stored `gameId` and `username` from sessionStorage
-   - Server finds game, validates player, updates socket mapping
-   - Client receives `rejoinSuccess` with full game state (hand, trump, scores, etc.)
-   - Client waits for Phaser scene to be ready, then rebuilds UI
-4. If grace period expires, game is aborted for all players
+## Bot System
 
-### Cross-Browser Reconnection
-Players can rejoin from a different browser/device:
-1. Server stores `activeGameId` in MongoDB user document when game starts
-2. On sign-in, server checks if user has an active game
-3. If found, emits `activeGameFound` event with gameId
-4. Client prompts user to rejoin or shows auto-rejoin flow
+5 personalities: Mary (balanced), Sharon (conservative), Danny (calculated risk-taker), Mike (overconfident), Zach (adaptive). Defined in `server/game/bot/personalities.js`.
 
-### SocketManager (`client/src/socket/SocketManager.js`)
-Singleton for socket connection with listener tracking. Methods: `connect()`, `on()`, `onGame()`, `off()`, `offAll()`, `emit()`, `cleanupGameListeners()`. Game listeners registered via `onGame()` are automatically cleaned up between games.
-
-### GameScene (`client/src/phaser/scenes/GameScene.js`)
-Main Phaser scene that coordinates all game visuals. Instantiates and manages all Phaser managers (CardManager, TrickManager, OpponentManager, EffectsManager, DrawManager, BidManager, LayoutManager). Has handler methods for each socket event (e.g., `handleStartDraw()`, `handleBidReceived()`, `handleCardPlayed()`). These are called from main.js callbacks via `getGameScene()`.
-
-### CardManager (`client/src/phaser/managers/CardManager.js`)
-Manages card sprites in Phaser. Methods: `setScene()`, `createCard()`, `displayHand()`, `playCard()`, `updatePositions()`, `collectTrick()`, `clear()`. Handles card positioning, animations, and trick collection.
-
-### Phaser Managers
-- **DrawManager** - Deck display, card click handling, draw animations, teams announcement overlay
-- **BidManager** - Bid button grid (0-N + B/2B/3B/4B), bore button state management, bid bubbles
-- **TrickManager** - Play positions, card-to-center animations, trick collection stacks, hover fan-out
-- **OpponentManager** - DOM-based avatars with CSS glow, opponent card back displays
-- **EffectsManager** - Rainbow animation effect
-- **LayoutManager** - Centralized positioning calculations, resize handling, scale factors
-
-### UI Components (`client/src/ui/components/`)
-- **Modal.js** - `createModal()`, `confirm()`, `alert()` - promise-based modal dialogs
-- **Toast.js** - `showToast()`, `showError()`, `showSuccess()` - notification toasts
-- **BidUI.js** - `createBidUI()`, `showBidUI()`, `createBidBubble()` - bidding interface
-- **GameLog.js** - `createGameLog()`, `showGameLog()` - game feed and chat
-- **ChatBubble.js** - Individual chat message display
-- **ScoreModal.js** - End-of-game score display
-- **PlayerQueue.js** - Lobby player queue display
-
-### UI Screens (`client/src/ui/screens/`)
-- **SignIn.js** - Sign-in form screen
-- **Register.js** - Registration form screen
-- **MainRoom.js** - Main room with chat and lobby browser
-- **GameLobby.js** - Pre-game lobby with ready state and "+ Add Bot" button
-
-### Bot System (`server/game/bot/`)
-Bot players that can be added to lobbies when human players aren't available.
-
-**BotController** - Singleton managing all active bots:
-- `createBot(name)` - Create new bot instance
-- `registerBot(gameId, bot)` - Register bot for a game
-- `getBot(gameId, socketId)` - Get bot by socket ID
-- `scheduleBotAction(io, game, actionType)` - Schedule bot turn with delay
-- `scheduleBotDraw(io, game, socketId, order)` - Schedule bot draw
-- `processBotBid(io, game, bot)` - Execute bot bid
-- `processBotPlay(io, game, bot)` - Execute bot card play
-- `cleanupGame(gameId)` - Remove bots when game ends
-
-**BotPlayer** - Individual bot instance:
-- Uses virtual socket ID: `bot:name:uuid` (e.g., `bot:mary:abc123`)
-- `decideDraw(remaining)` - Random deck index
-- `decideBid(hand, trump, bids, handSize)` - Optimal bid calculation
-- `decideCard(hand, played, lead, leadPos, trump, broken)` - Optimal card selection
-- `getActionDelay(actionType)` - Random delay (500-1500ms)
-
-**BotStrategy** - Pure strategy functions:
-- `evaluateHand(hand, trump)` - Count high cards, trump length, voids
-- `calculateOptimalBid(strength, position, partnerBid, handSize)` - Bidding logic
-- `selectOptimalCard(hand, played, lead, leadPos, trump, broken, position)` - Card selection
-- `selectLead(hand, trump, broken)` - Leading card selection
-- `selectFollow(hand, played, lead, leadPos, trump, position)` - Following card selection
-
-**Bot Behavior**:
 - Bots use `isBot: true` flag, identified by `socketId.startsWith('bot:')`
 - Auto-ready when lobby fills to 4 players
-- Strategic bidding: jokers (2pts), aces (1pt), kings (0.5pt), trump length bonus
 - Partner-aware play: positions 1&3 and 2&4 are partners
-- Random delays simulate human thinking time
-- Multiple bots get numbered names (Mary, Mary 2, Mary 3)
+- Card memory tracking for strategic play
+- Random delays simulate human thinking time (500-1500ms)
+- Used for lobby fill, resignation replacement, and lazy mode
 
-### Socket Infrastructure (server)
+## Development Commands
 
-**validators.js** - Joi validation schemas for socket events:
-- `signIn`, `signUp` - Auth validation
-- `lobbyChat` - Lobby chat validation
-- `playCard`, `playerBid`, `draw` - Game action validation
-- `chatMessage` - In-game chat validation
-- Usage: `validate('playCard', data)` returns validated data or throws `ValidationError`
+```bash
+npm run dev           # Development server with hot reload (port 3000)
+npm start             # Production server
+npm test              # Run server tests (Jest)
+npm run test:client   # Run client tests (Vitest)
+npm run build:client  # Build client modules (Vite)
+npm run build:atlas   # Generate sprite atlas
+npm run dev:client    # Vite dev server (port 5173, proxies to :3000)
+```
 
-**errorHandler.js** - Handler wrappers:
-- `asyncHandler(schemaName, handler)` - Wraps async handlers with validation, rate limiting, error handling
-- `syncHandler(schemaName, handler)` - Same for sync handlers
-- `safeHandler(handler)` - Simple wrapper without validation/rate limiting
+Server runs on port 3000. Requires Node.js 18+.
 
-**rateLimiter.js** - Per-socket rate limiting:
-- Configurable limits per event type (e.g., `signIn: 5/min`, `chatMessage: 10/10s`)
-- `check(socketId, event)` - Returns true if allowed
-- `clearSocket(socketId)` - Cleanup on disconnect
+## Common Tasks
+
+### Adding Socket Events
+1. Add handler in appropriate `server/socket/*.js` file
+2. Register in `server/socket/index.js`
+3. Add client listener in `client/src/handlers/*.js`
+4. **Critical**: Wire callback through `client/src/handlers/index.js` — destructure from callbacks object AND pass to the correct `register*Handlers()` call
+5. Add cleanup in `cleanupGameListeners()` for game-specific events
+
+### Game Logic Changes
+- **Rules**: `server/game/rules.js` — pure functions
+- **State**: `server/game/GameState.js` — game state management
+- **Flow**: `server/socket/gameHandlers.js` — `playCard()`, `playerBid()`
+
+### UI Changes
+- **Styles**: `client/styles/components.css`
+- **Components**: `client/src/ui/components/`
+- **Screens**: `client/src/ui/screens/`
+- **Cards**: `client/src/phaser/managers/CardManager.js`
