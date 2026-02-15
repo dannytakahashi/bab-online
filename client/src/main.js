@@ -2531,22 +2531,43 @@ function initializeApp() {
 
     // Resignation & Lazy Mode callbacks
     onResignationAvailable: (data) => {
-      // Show confirmation modal to replace disconnected player with a bot
-      // Store modal DOM reference so we can dismiss it programmatically
-      const modalContainer = document.getElementById('confirm-modal');
-      if (modalContainer) modalContainer.remove(); // Remove any existing
+      // Remove any existing resignation dialog
+      const existing = document.getElementById('resignation-dialog');
+      if (existing) existing.remove();
 
-      confirmDialog(
-        `${data.username} did not reconnect. Replace with a bot?`,
-        { title: 'Player Disconnected', confirmText: 'Replace with Bot', cancelText: 'Wait' }
-      ).then((confirmed) => {
-        if (confirmed) {
-          socket.emit('forceResign', { position: data.position });
-        }
-      });
+      // Build inline confirmation dialog (same pattern as bid UI)
+      const backdrop = document.createElement('div');
+      backdrop.id = 'resignation-dialog';
+      backdrop.style.cssText = `
+        position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+        background: rgba(0, 0, 0, 0.7); display: flex;
+        justify-content: center; align-items: center; z-index: 1000;
+      `;
 
-      // Store reference to the modal DOM element for programmatic dismissal
-      window._resignationModal = document.getElementById('confirm-modal');
+      const dialog = document.createElement('div');
+      dialog.style.cssText = `
+        background: #1a1a2e; border-radius: 12px; padding: 24px;
+        min-width: 300px; max-width: 90vw;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+      `;
+      dialog.innerHTML = `
+        <h3 style="margin: 0 0 16px 0; color: #fff;">Player Disconnected</h3>
+        <p style="margin: 0 0 24px 0; color: #ccc;">${data.username} did not reconnect. Replace with a bot?</p>
+        <div style="display: flex; gap: 12px; justify-content: flex-end;">
+          <button id="resign-cancel-btn" style="padding: 8px 16px; border: none; border-radius: 6px; background: #444; color: #fff; cursor: pointer;">Wait</button>
+          <button id="resign-confirm-btn" style="padding: 8px 16px; border: none; border-radius: 6px; background: #23782d; color: #fff; cursor: pointer;">Replace with Bot</button>
+        </div>
+      `;
+      backdrop.appendChild(dialog);
+      document.body.appendChild(backdrop);
+
+      dialog.querySelector('#resign-cancel-btn').onclick = () => backdrop.remove();
+      dialog.querySelector('#resign-confirm-btn').onclick = () => {
+        backdrop.remove();
+        socket.emit('forceResign', { position: data.position });
+      };
+
+      window._resignationModal = backdrop;
     },
     onPlayerResigned: (data) => {
       // Dismiss any open resignation modal (another player may have already clicked resign)
