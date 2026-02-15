@@ -35,6 +35,9 @@ function getProfilePicSrc(player) {
  * @returns {string} Formatted stat string
  */
 function formatStatValue(value, type) {
+  if (type === 'integer') {
+    return String(value);
+  }
   if (type === 'percent') {
     return value.toFixed(1) + '%';
   }
@@ -67,6 +70,7 @@ function sortLeaderboard(data) {
 const COLUMNS = [
   { key: 'rank', label: '#', width: '40px', sortable: false },
   { key: 'player', label: 'Player', width: '140px', sortable: false },
+  { key: 'gamesPlayed', label: 'Games', width: '60px', sortable: true, type: 'integer', defaultAscending: false },
   { key: 'winRate', label: 'Win %', width: '65px', sortable: true, type: 'percent', defaultAscending: false },
   { key: 'pointsPerGame', label: 'Pts/Game', width: '75px', sortable: true, type: 'decimal', defaultAscending: false },
   { key: 'bidsPerGame', label: 'Bids/Game', width: '80px', sortable: true, type: 'decimal', defaultAscending: false },
@@ -220,6 +224,7 @@ function renderTableBody(tbody, data) {
     tr.appendChild(createDataCell(createPlayerCell(player), 'left'));
 
     // Stats columns
+    tr.appendChild(createDataCell(formatStatValue(player.gamesPlayed, 'integer')));
     tr.appendChild(createDataCell(formatStatValue(player.winRate, 'percent')));
     tr.appendChild(createDataCell(formatStatValue(player.pointsPerGame, 'decimal')));
     tr.appendChild(createDataCell(formatStatValue(player.bidsPerGame, 'decimal')));
