@@ -57,27 +57,49 @@ async function rejoinGame(socket, io, data) {
         return;
     }
 
-    // For lazy rejoins, update the socket mapping (keep bot playing, player re-enters as spectator)
+    // For lazy/resigned rejoins, player re-enters as spectator while bot keeps playing
     if (isLazyRejoin) {
         const position = existingPlayer.position;
 
-        // Update socket ID mapping for the position
-        const oldSocketId = game.updatePlayerSocket(position, socket.id, io);
-        gameManager.updatePlayerGameMapping(oldSocketId, socket.id, gameId);
-
-        // Re-register the lazy mode with the new socket ID
         if (game.isLazy(position)) {
+            // Already in lazy mode — just update the original socket ID
             const lazyInfo = game.lazyPlayers[position];
             lazyInfo.originalSocketId = socket.id;
+        } else if (game.isResigned(position)) {
+            // Resigned player reconnecting — convert resignation into lazy mode
+            // so the bot keeps playing and the human can spectate / /active back
+            const resignedInfo = game.resignedPlayers[position];
+            const botSocketId = game.positions[position];
+            const botPlayer = game.players.get(botSocketId);
+
+            game.lazyPlayers[position] = {
+                botSocketId,
+                botUsername: botPlayer.username,
+                botPic: botPlayer.pic,
+                originalUsername: resignedInfo.username,
+                originalPic: resignedInfo.pic,
+                originalSocketId: socket.id,
+                personality: game.assignedPersonality[position] || 'mary'
+            };
         }
 
         // Register user with new socket
         gameManager.registerUser(socket.id, username);
 
+        // Add as spectator so they can chat and use /active through the spectator path
+        game.addSpectator(socket.id, username, null);
+        socket.join(game.roomName);
+
+        // Map the human's new socket to the game
+        gameManager.updatePlayerGameMapping(null, socket.id, gameId);
+
         socketLogger.info('Player rejoined game in lazy mode', { username, gameId, position });
 
         // Send current game state (they'll be in lazy/spectator mode)
-        const rejoinState = game.getClientState(socket.id);
+        // Use bot's socket ID to get correct position/hand, since the human isn't in the players map
+        const currentBotSocketId = game.positions[position];
+        const rejoinState = game.getClientState(currentBotSocketId);
+        rejoinState.isLazy = true;
         socket.emit('rejoinSuccess', rejoinState);
 
         // Notify other players
