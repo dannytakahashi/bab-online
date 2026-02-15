@@ -59,6 +59,75 @@ function getOpponentPositions(position) {
 }
 
 /**
+ * Check if any opponent has not yet played in the current trick.
+ * Since the bot is the current player, any unplayed position (other than itself) plays after it.
+ */
+function hasOpponentsAfterMe(playedCards, position) {
+    const partnerPosition = getPartnerPosition(position);
+    for (let i = 0; i < 4; i++) {
+        const pos = i + 1;
+        if (pos === position || pos === partnerPosition) continue;
+        if (playedCards[i] === undefined || playedCards[i] === null) return true;
+    }
+    return false;
+}
+
+/**
+ * Determine if the current winning card is vulnerable to being beaten by an opponent still to play.
+ * A win is "good" (not vulnerable) if it's the highest remaining card in suit AND no remaining
+ * opponent is known void in the led suit. A win is "vulnerable" if higher cards could exist
+ * or an opponent could trump in.
+ */
+function isWinVulnerable(winningCard, leadCard, trump, memory, playedCards, position) {
+    const noTrump = isNoTrump(trump);
+    const winningSuit = winningCard.suit === 'joker'
+        ? (noTrump ? 'joker' : trump.suit)
+        : winningCard.suit;
+    const winningIsTrump = winningCard.suit === 'joker' || (!noTrump && winningCard.suit === trump.suit);
+
+    // Check if any remaining opponent is known void in the led suit (trump-in risk)
+    const opponentVoids = getOpponentVoidSuits(memory, position, trump);
+    const opponents = getOpponentPositions(position);
+    let opponentKnownVoid = false;
+    for (const opp of opponents) {
+        // Only check opponents who haven't played yet
+        if (playedCards[opp - 1] !== undefined && playedCards[opp - 1] !== null) continue;
+        const leadSuit = leadCard.suit === 'joker' ? (noTrump ? 'joker' : trump.suit) : leadCard.suit;
+        if (opponentVoids.has(`${opp}:${leadSuit}`)) {
+            opponentKnownVoid = true;
+            break;
+        }
+    }
+
+    // HI joker: only vulnerable if it's somehow not winning (shouldn't happen) — treat as good
+    if (winningCard.rank === 'HI' && winningCard.suit === 'joker') return false;
+
+    // If winning card is trump, check for higher trump threats
+    if (winningIsTrump) {
+        // LO joker: only HI joker beats it — hard to assess, treat as mostly good
+        if (winningCard.rank === 'LO' && winningCard.suit === 'joker') return false;
+        // Trump Ace: only jokers beat it
+        if (winningCard.rank === 'A') return false;
+        // Other trump: vulnerable (higher trump could exist)
+        return true;
+    }
+
+    // Non-trump winning card
+    // Ace of led suit: only vulnerable if opponent could trump in
+    if (winningCard.rank === 'A') return opponentKnownVoid;
+
+    // King: vulnerable if Ace hasn't been played OR opponent known void
+    if (winningCard.rank === 'K') {
+        if (opponentKnownVoid) return true;
+        if (!memory) return true; // No memory, assume vulnerable
+        return !memory.acesPlayed[winningSuit];
+    }
+
+    // Queen and below: vulnerable by default when opponents remain
+    return true;
+}
+
+/**
  * Analyze memory to find suits opponents have shown voids in.
  * Returns a Set of strings like "2:hearts" meaning position 2 is void in hearts.
  */
@@ -678,15 +747,32 @@ function selectFollow(hand, playedCards, leadCard, leadPosition, trump, trumpBro
 
     const canFollow = followCards.length > 0;
 
+    const opponentsRemain = hasOpponentsAfterMe(playedCards, position);
+
     if (canFollow) {
         // We can follow suit
         if (partnerIsWinning && partnerHasPlayed) {
+            // If opponents still play after us and partner's win is vulnerable, overtake it
+            if (opponentsRemain && isWinVulnerable(winningCard, leadCard, trump, memory, playedCards, position)) {
+                const higherCards = followCards.filter(c => canBeatCard(c, winningCard, leadCard, trump));
+                if (higherCards.length > 0) {
+                    // Play highest to secure the trick
+                    return higherCards.sort((a, b) => RANK_VALUES[b.rank] - RANK_VALUES[a.rank])[0];
+                }
+            }
+            // Partner's win is good, or we can't beat it — play low
             return followCards.sort((a, b) => RANK_VALUES[a.rank] - RANK_VALUES[b.rank])[0];
         }
 
-        // Try to win with minimum card
+        // Try to win
         const winners = followCards.filter(c => canBeatCard(c, winningCard, leadCard, trump));
         if (winners.length > 0) {
+            if (opponentsRemain) {
+                // Opponents still to play — play highest winner to secure the trick
+                return winners.sort((a, b) => RANK_VALUES[b.rank] - RANK_VALUES[a.rank])[0];
+            }
+
+            // No opponents remain — play lowest winner (conserve cards)
             const sortedWinners = winners.sort((a, b) => RANK_VALUES[a.rank] - RANK_VALUES[b.rank]);
             const lowestWinner = sortedWinners[0];
 
@@ -694,9 +780,7 @@ function selectFollow(hand, playedCards, leadCard, leadPosition, trump, trumpBro
             if (lowestWinner.rank === 'K' && handSize >= 8 && memory) {
                 const kingSuit = lowestWinner.suit;
                 if (kingSuit !== 'joker' && !memory.acesPlayed[kingSuit]) {
-                    // How many players still to act after us?
-                    const playersAfterUs = 4 - playedCards.filter(c => c !== undefined && c !== null).length - 1;
-                    if (playersAfterUs > 0 && sortedWinners.length > 1) {
+                    if (sortedWinners.length > 1) {
                         return sortedWinners[1]; // Play next lowest winner instead
                     }
                 }
@@ -724,12 +808,16 @@ function selectFollow(hand, playedCards, leadCard, leadPosition, trump, trumpBro
     // Opponent winning - try to trump
     if (trumpCards.length > 0) {
         const winningIsTrump = winningCard.suit === trump.suit || winningCard.suit === 'joker';
+        // Play high trump when opponents remain to secure the trick, low when last to act
+        const trumpSortOrder = opponentsRemain
+            ? (a, b) => RANK_VALUES[b.rank] - RANK_VALUES[a.rank]   // highest first
+            : (a, b) => RANK_VALUES[a.rank] - RANK_VALUES[b.rank];  // lowest first
 
         if (winningIsTrump) {
             // Need to overtrump
             const overtrumps = trumpCards.filter(c => RANK_VALUES[c.rank] > RANK_VALUES[winningCard.rank]);
             if (overtrumps.length > 0) {
-                return overtrumps.sort((a, b) => RANK_VALUES[a.rank] - RANK_VALUES[b.rank])[0];
+                return overtrumps.sort(trumpSortOrder)[0];
             }
             // Can't overtrump - discard
             if (nonTrumpCards.length > 0) {
@@ -738,8 +826,8 @@ function selectFollow(hand, playedCards, leadCard, leadPosition, trump, trumpBro
             return trumpCards.sort((a, b) => RANK_VALUES[a.rank] - RANK_VALUES[b.rank])[0];
         }
 
-        // Trump in with lowest trump
-        return trumpCards.sort((a, b) => RANK_VALUES[a.rank] - RANK_VALUES[b.rank])[0];
+        // Trump in
+        return trumpCards.sort(trumpSortOrder)[0];
     }
 
     // No trump available - discard
@@ -828,5 +916,7 @@ module.exports = {
     getOpponentVoidSuits,
     getPartnerVoidSuits,
     getGameProgress,
-    applyBidModifier
+    applyBidModifier,
+    hasOpponentsAfterMe,
+    isWinVulnerable
 };
