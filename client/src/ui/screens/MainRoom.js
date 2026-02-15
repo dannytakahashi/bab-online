@@ -43,11 +43,14 @@ function createChatMessageElement(username, message) {
  * @param {HTMLElement} container - Container element
  * @param {Array} lobbies - Array of lobby data
  * @param {Object} socket - Socket instance for join events
+ * @param {Array} inProgressGames - Array of in-progress game data for spectating
  */
-function updateLobbyListContent(container, lobbies, socket) {
+function updateLobbyListContent(container, lobbies, socket, inProgressGames = []) {
   container.innerHTML = '';
 
-  if (!lobbies || lobbies.length === 0) {
+  const hasContent = (lobbies && lobbies.length > 0) || (inProgressGames && inProgressGames.length > 0);
+
+  if (!hasContent) {
     const emptyMsg = document.createElement('div');
     emptyMsg.innerText = 'No active lobbies. Create one!';
     emptyMsg.style.color = '#9ca3af';
@@ -58,74 +61,161 @@ function updateLobbyListContent(container, lobbies, socket) {
     return;
   }
 
-  lobbies.forEach((lobby) => {
-    const lobbyCard = document.createElement('div');
-    lobbyCard.style.background = 'rgba(0, 0, 0, 0.4)';
-    lobbyCard.style.borderRadius = '6px';
-    lobbyCard.style.padding = '12px';
-    lobbyCard.style.border = '1px solid #4a5568';
+  // Render lobbies (waiting for players)
+  if (lobbies && lobbies.length > 0) {
+    lobbies.forEach((lobby) => {
+      const lobbyCard = document.createElement('div');
+      lobbyCard.style.background = 'rgba(0, 0, 0, 0.4)';
+      lobbyCard.style.borderRadius = '6px';
+      lobbyCard.style.padding = '12px';
+      lobbyCard.style.border = '1px solid #4a5568';
 
-    // Lobby info row
-    const infoRow = document.createElement('div');
-    infoRow.style.display = 'flex';
-    infoRow.style.justifyContent = 'space-between';
-    infoRow.style.alignItems = 'center';
-    infoRow.style.marginBottom = '8px';
+      // Lobby info row
+      const infoRow = document.createElement('div');
+      infoRow.style.display = 'flex';
+      infoRow.style.justifyContent = 'space-between';
+      infoRow.style.alignItems = 'center';
+      infoRow.style.marginBottom = '8px';
 
-    const lobbyName = document.createElement('span');
-    lobbyName.innerText = lobby.name || `Lobby ${lobby.id.slice(0, 6)}`;
-    lobbyName.style.fontWeight = 'bold';
-    lobbyName.style.color = '#fff';
-    infoRow.appendChild(lobbyName);
+      const lobbyName = document.createElement('span');
+      lobbyName.innerText = lobby.name || `Lobby ${lobby.id.slice(0, 6)}`;
+      lobbyName.style.fontWeight = 'bold';
+      lobbyName.style.color = '#fff';
+      infoRow.appendChild(lobbyName);
 
-    const playerCount = document.createElement('span');
-    playerCount.innerText = `${lobby.playerCount}/4`;
-    playerCount.style.color = lobby.playerCount >= 4 ? '#f87171' : '#4ade80';
-    playerCount.style.fontSize = '14px';
-    infoRow.appendChild(playerCount);
+      const playerCount = document.createElement('span');
+      playerCount.innerText = `${lobby.playerCount}/4`;
+      playerCount.style.color = lobby.playerCount >= 4 ? '#f87171' : '#4ade80';
+      playerCount.style.fontSize = '14px';
+      infoRow.appendChild(playerCount);
 
-    lobbyCard.appendChild(infoRow);
+      lobbyCard.appendChild(infoRow);
 
-    // Player names
-    const playerNames = document.createElement('div');
-    playerNames.style.fontSize = '12px';
-    playerNames.style.color = '#9ca3af';
-    playerNames.style.marginBottom = '8px';
-    playerNames.innerText = lobby.players.map((p) => p.username).join(', ');
-    lobbyCard.appendChild(playerNames);
+      // Player names
+      const playerNames = document.createElement('div');
+      playerNames.style.fontSize = '12px';
+      playerNames.style.color = '#9ca3af';
+      playerNames.style.marginBottom = '8px';
+      playerNames.innerText = lobby.players.map((p) => p.username).join(', ');
+      lobbyCard.appendChild(playerNames);
 
-    // Join button
-    const joinBtn = document.createElement('button');
-    if (lobby.playerCount >= 4) {
-      joinBtn.innerText = 'Full';
-      joinBtn.disabled = true;
-      joinBtn.style.background = '#6b7280';
-      joinBtn.style.cursor = 'not-allowed';
-    } else {
-      joinBtn.innerText = 'Join';
-      joinBtn.style.background = '#3b82f6';
-      joinBtn.style.cursor = 'pointer';
-      joinBtn.addEventListener('click', () => {
-        socket.emit('joinLobby', { lobbyId: lobby.id });
+      // Join button
+      const joinBtn = document.createElement('button');
+      if (lobby.playerCount >= 4) {
+        joinBtn.innerText = 'Full';
+        joinBtn.disabled = true;
+        joinBtn.style.background = '#6b7280';
+        joinBtn.style.cursor = 'not-allowed';
+      } else {
+        joinBtn.innerText = 'Join';
+        joinBtn.style.background = '#3b82f6';
+        joinBtn.style.cursor = 'pointer';
+        joinBtn.addEventListener('click', () => {
+          socket.emit('joinLobby', { lobbyId: lobby.id });
+        });
+        joinBtn.addEventListener('mouseenter', () => {
+          if (!joinBtn.disabled) joinBtn.style.background = '#2563eb';
+        });
+        joinBtn.addEventListener('mouseleave', () => {
+          if (!joinBtn.disabled) joinBtn.style.background = '#3b82f6';
+        });
+      }
+      joinBtn.style.width = '100%';
+      joinBtn.style.padding = '8px';
+      joinBtn.style.borderRadius = '4px';
+      joinBtn.style.border = 'none';
+      joinBtn.style.color = '#fff';
+      joinBtn.style.fontSize = '14px';
+      joinBtn.style.fontWeight = 'bold';
+      lobbyCard.appendChild(joinBtn);
+
+      container.appendChild(lobbyCard);
+    });
+  }
+
+  // Render in-progress games (spectatable)
+  if (inProgressGames && inProgressGames.length > 0) {
+    const separator = document.createElement('div');
+    separator.style.cssText = `
+      font-size: 14px;
+      font-weight: bold;
+      color: #60a5fa;
+      margin-top: 10px;
+      margin-bottom: 5px;
+      padding-bottom: 5px;
+      border-bottom: 1px solid #4a5568;
+    `;
+    separator.innerText = 'In-Progress Games';
+    container.appendChild(separator);
+
+    inProgressGames.forEach((game) => {
+      const gameCard = document.createElement('div');
+      gameCard.style.background = 'rgba(0, 0, 0, 0.4)';
+      gameCard.style.borderRadius = '6px';
+      gameCard.style.padding = '12px';
+      gameCard.style.border = '1px solid #60a5fa44';
+
+      // Game info row
+      const infoRow = document.createElement('div');
+      infoRow.style.display = 'flex';
+      infoRow.style.justifyContent = 'space-between';
+      infoRow.style.alignItems = 'center';
+      infoRow.style.marginBottom = '8px';
+
+      const gameName = document.createElement('span');
+      gameName.innerText = game.players.map(p => p.username).slice(0, 2).join(' vs ');
+      gameName.style.fontWeight = 'bold';
+      gameName.style.color = '#fff';
+      gameName.style.fontSize = '13px';
+      infoRow.appendChild(gameName);
+
+      const handInfo = document.createElement('span');
+      handInfo.innerText = `Hand: ${game.currentHand}`;
+      handInfo.style.color = '#9ca3af';
+      handInfo.style.fontSize = '12px';
+      infoRow.appendChild(handInfo);
+
+      gameCard.appendChild(infoRow);
+
+      // Score + player names
+      const detailRow = document.createElement('div');
+      detailRow.style.fontSize = '12px';
+      detailRow.style.color = '#9ca3af';
+      detailRow.style.marginBottom = '8px';
+      const t1Players = game.players.filter(p => p.position === 1 || p.position === 3).map(p => p.username).join('/');
+      const t2Players = game.players.filter(p => p.position === 2 || p.position === 4).map(p => p.username).join('/');
+      detailRow.innerText = `${t1Players}: ${game.score.team1} | ${t2Players}: ${game.score.team2}`;
+      if (game.spectatorCount > 0) {
+        detailRow.innerText += ` | ${game.spectatorCount} watching`;
+      }
+      gameCard.appendChild(detailRow);
+
+      // Spectate button
+      const spectateBtn = document.createElement('button');
+      spectateBtn.innerText = 'Spectate';
+      spectateBtn.style.width = '100%';
+      spectateBtn.style.padding = '8px';
+      spectateBtn.style.borderRadius = '4px';
+      spectateBtn.style.border = 'none';
+      spectateBtn.style.background = '#60a5fa';
+      spectateBtn.style.color = '#fff';
+      spectateBtn.style.fontSize = '14px';
+      spectateBtn.style.fontWeight = 'bold';
+      spectateBtn.style.cursor = 'pointer';
+      spectateBtn.addEventListener('click', () => {
+        socket.emit('joinAsSpectator', { gameId: game.gameId });
       });
-      joinBtn.addEventListener('mouseenter', () => {
-        if (!joinBtn.disabled) joinBtn.style.background = '#2563eb';
+      spectateBtn.addEventListener('mouseenter', () => {
+        spectateBtn.style.background = '#3b82f6';
       });
-      joinBtn.addEventListener('mouseleave', () => {
-        if (!joinBtn.disabled) joinBtn.style.background = '#3b82f6';
+      spectateBtn.addEventListener('mouseleave', () => {
+        spectateBtn.style.background = '#60a5fa';
       });
-    }
-    joinBtn.style.width = '100%';
-    joinBtn.style.padding = '8px';
-    joinBtn.style.borderRadius = '4px';
-    joinBtn.style.border = 'none';
-    joinBtn.style.color = '#fff';
-    joinBtn.style.fontSize = '14px';
-    joinBtn.style.fontWeight = 'bold';
-    lobbyCard.appendChild(joinBtn);
+      gameCard.appendChild(spectateBtn);
 
-    container.appendChild(lobbyCard);
-  });
+      container.appendChild(gameCard);
+    });
+  }
 }
 
 /**
@@ -393,8 +483,8 @@ export function showMainRoom(data, socket) {
   lobbyList.style.flexDirection = 'column';
   lobbyList.style.gap = '10px';
 
-  // Populate with existing lobbies
-  updateLobbyListContent(lobbyList, data.lobbies || [], socket);
+  // Populate with existing lobbies and in-progress games
+  updateLobbyListContent(lobbyList, data.lobbies || [], socket, data.inProgressGames || []);
 
   lobbyPanel.appendChild(lobbyList);
   contentArea.appendChild(lobbyPanel);
@@ -431,12 +521,13 @@ export function addMainRoomChatMessage(username, message) {
  *
  * @param {Array} lobbies - Array of lobby data
  * @param {Object} socket - Socket instance
+ * @param {Array} inProgressGames - Array of in-progress game data
  */
-export function updateLobbyList(lobbies, socket) {
+export function updateLobbyList(lobbies, socket, inProgressGames = []) {
   const lobbyList = document.getElementById('mainRoomLobbyList');
   if (!lobbyList) return;
 
-  updateLobbyListContent(lobbyList, lobbies, socket);
+  updateLobbyListContent(lobbyList, lobbies, socket, inProgressGames);
 }
 
 /**

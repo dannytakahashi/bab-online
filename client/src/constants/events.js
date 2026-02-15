@@ -28,6 +28,8 @@ export const CLIENT_EVENTS = {
   PLAY_CARD: 'playCard',
   CHAT_MESSAGE: 'chatMessage',
   REJOIN_GAME: 'rejoinGame',
+  FORCE_RESIGN: 'forceResign',
+  JOIN_AS_SPECTATOR: 'joinAsSpectator',
 
   // Profile
   GET_PROFILE: 'getProfile',
@@ -92,6 +94,15 @@ export const SERVER_EVENTS = {
   PLAYER_ASSIGNED: 'playerAssigned',
   ABORT_GAME: 'abortGame',
   ROOM_FULL: 'roomFull',
+
+  // Resignation & Lazy Mode
+  RESIGNATION_AVAILABLE: 'resignationAvailable',
+  PLAYER_RESIGNED: 'playerResigned',
+  PLAYER_LAZY_MODE: 'playerLazyMode',
+  PLAYER_ACTIVE_MODE: 'playerActiveMode',
+  GAME_LOG_ENTRY: 'gameLogEntry',
+  LEFT_GAME: 'leftGame',
+  SPECTATOR_JOINED: 'spectatorJoined',
 
   // Connection
   CONNECT: 'connect',

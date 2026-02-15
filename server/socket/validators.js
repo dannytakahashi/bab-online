@@ -65,6 +65,16 @@ const schemas = {
         username: Joi.string().min(1).max(50).required()
     }),
 
+    // Resignation
+    forceResign: Joi.object({
+        position: Joi.number().integer().min(1).max(4).required()
+    }),
+
+    // Spectator
+    joinAsSpectator: Joi.object({
+        gameId: Joi.string().uuid().required()
+    }),
+
     // Profile
     updateProfilePic: Joi.object({
         profilePic: Joi.number().integer().min(1).max(82).required()

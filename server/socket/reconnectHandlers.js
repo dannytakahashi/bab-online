@@ -26,8 +26,20 @@ async function rejoinGame(socket, io, data) {
         return;
     }
 
-    // Find player by username
-    const existingPlayer = game.getPlayerByUsername(username);
+    // Find player by username — check current players first, then lazy/resigned
+    let existingPlayer = game.getPlayerByUsername(username);
+    let isLazyRejoin = false;
+
+    if (!existingPlayer) {
+        // Check if this user is in lazy mode or was resigned (their name was replaced by bot)
+        const lazyPosition = game.getOriginalPlayerPosition(username);
+        if (lazyPosition) {
+            // This user has a lazy/resigned position — they're rejoining
+            isLazyRejoin = true;
+            existingPlayer = game.getPlayerByPosition(lazyPosition);
+        }
+    }
+
     if (!existingPlayer) {
         const playersInGame = Array.from(game.players.values()).map(p => p.username);
         socketLogger.debug('Rejoin failed: player not in game', { username, playersInGame });
@@ -45,6 +57,35 @@ async function rejoinGame(socket, io, data) {
         return;
     }
 
+    // For lazy rejoins, update the socket mapping (keep bot playing, player re-enters as spectator)
+    if (isLazyRejoin) {
+        const position = existingPlayer.position;
+
+        // Update socket ID mapping for the position
+        const oldSocketId = game.updatePlayerSocket(position, socket.id, io);
+        gameManager.updatePlayerGameMapping(oldSocketId, socket.id, gameId);
+
+        // Re-register the lazy mode with the new socket ID
+        if (game.isLazy(position)) {
+            const lazyInfo = game.lazyPlayers[position];
+            lazyInfo.originalSocketId = socket.id;
+        }
+
+        // Register user with new socket
+        gameManager.registerUser(socket.id, username);
+
+        socketLogger.info('Player rejoined game in lazy mode', { username, gameId, position });
+
+        // Send current game state (they'll be in lazy/spectator mode)
+        const rejoinState = game.getClientState(socket.id);
+        socket.emit('rejoinSuccess', rejoinState);
+
+        // Notify other players
+        game.broadcast(io, 'playerReconnected', { position, username });
+        return;
+    }
+
+    // Normal reconnection (not lazy)
     // Update socket ID mapping
     const oldSocketId = game.updatePlayerSocket(existingPlayer.position, socket.id, io);
     gameManager.updatePlayerGameMapping(oldSocketId, socket.id, gameId);

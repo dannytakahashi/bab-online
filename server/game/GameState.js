@@ -69,6 +69,18 @@ class GameState {
         // Disconnection tracking: position → { disconnectedAt, socketId }
         this.disconnectedPlayers = {};
 
+        // Resignation tracking: position → { username, pic, resignedAt }
+        this.resignedPlayers = {};
+
+        // Lazy mode tracking: position → { botSocketId, botUsername, botPic, originalUsername, originalPic, originalSocketId, personality }
+        this.lazyPlayers = {};
+
+        // Assigned bot personality per position (persists across lazy/active cycles)
+        this.assignedPersonality = {};
+
+        // Spectators: socketId → { username, pic }
+        this.spectators = new Map();
+
         // Game log for reconnection restoration
         this.gameLog = [];
         this.maxLogEntries = 500;
@@ -253,7 +265,10 @@ class GameState {
             playedCards: this.playedCards,
             isTrumpBroken: this.isTrumpBroken,
             players: playerInfo,
-            gameLog: this.getGameLog()
+            gameLog: this.getGameLog(),
+            resignedPositions: Object.keys(this.resignedPlayers).map(Number),
+            lazyPositions: Object.keys(this.lazyPlayers).map(Number),
+            isLazy: this.isLazy(position)
         };
     }
 
@@ -361,6 +376,212 @@ class GameState {
 
     getSocketIds() {
         return Array.from(this.players.keys());
+    }
+
+    // ========================================
+    // Resignation Methods
+    // ========================================
+
+    /**
+     * Resign a player and replace them with a bot
+     * @param {number} position - Player's position (1-4)
+     * @param {string} botSocketId - Bot's socket ID
+     * @param {string} botUsername - Bot's display name
+     * @param {number} botPic - Bot's profile pic number
+     */
+    resignPlayer(position, botSocketId, botUsername, botPic) {
+        const oldSocketId = this.positions[position];
+        const oldPlayer = this.players.get(oldSocketId);
+        if (!oldPlayer) return;
+
+        // Store original player info for stat attribution
+        this.resignedPlayers[position] = {
+            username: oldPlayer.username,
+            pic: oldPlayer.pic,
+            resignedAt: Date.now(),
+            originalSocketId: oldSocketId
+        };
+
+        // Replace player entry with bot data
+        this.players.delete(oldSocketId);
+        this.players.set(botSocketId, {
+            username: botUsername,
+            position,
+            pic: botPic,
+            isBot: true
+        });
+        this.positions[position] = botSocketId;
+
+        // Transfer hand from old socketId to bot socketId
+        if (this.hands[oldSocketId]) {
+            this.hands[botSocketId] = this.hands[oldSocketId];
+            delete this.hands[oldSocketId];
+        }
+
+        this.logAction('resignPlayer', { position, oldUsername: oldPlayer.username, botUsername });
+    }
+
+    /**
+     * Get original player info for a position (for stat attribution)
+     * @param {number} position - Player position (1-4)
+     * @returns {Object} - { username, pic } of original human player
+     */
+    getOriginalPlayer(position) {
+        if (this.resignedPlayers[position]) {
+            return this.resignedPlayers[position];
+        }
+        return this.getPlayerByPosition(position);
+    }
+
+    /**
+     * Check if a position has been resigned
+     * @param {number} position - Player position (1-4)
+     * @returns {boolean}
+     */
+    isResigned(position) {
+        return position in this.resignedPlayers;
+    }
+
+    // ========================================
+    // Lazy Mode Methods
+    // ========================================
+
+    /**
+     * Enable lazy mode for a position (bot takes over temporarily)
+     * @param {number} position - Player's position (1-4)
+     * @param {string} botSocketId - Bot's virtual socket ID
+     * @param {string} botUsername - Bot's display name
+     * @param {number} botPic - Bot's profile pic number
+     * @param {string} personality - Bot personality key
+     */
+    enableLazyMode(position, botSocketId, botUsername, botPic, personality) {
+        const socketId = this.positions[position];
+        const player = this.players.get(socketId);
+        if (!player) return;
+
+        this.lazyPlayers[position] = {
+            botSocketId,
+            botUsername,
+            botPic,
+            originalUsername: player.username,
+            originalPic: player.pic,
+            originalSocketId: socketId,
+            personality
+        };
+
+        // Update the player entry to show bot name/pic
+        player.username = botUsername;
+        player.pic = botPic;
+
+        // Store personality for reuse
+        this.assignedPersonality[position] = personality;
+
+        this.logAction('enableLazyMode', { position, botUsername });
+    }
+
+    /**
+     * Disable lazy mode for a position (player takes back control)
+     * @param {number} position - Player's position (1-4)
+     */
+    disableLazyMode(position) {
+        const lazyInfo = this.lazyPlayers[position];
+        if (!lazyInfo) return;
+
+        // Restore original player info
+        const socketId = this.positions[position];
+        const player = this.players.get(socketId);
+        if (player) {
+            player.username = lazyInfo.originalUsername;
+            player.pic = lazyInfo.originalPic;
+        }
+
+        delete this.lazyPlayers[position];
+
+        this.logAction('disableLazyMode', { position, restoredUsername: lazyInfo.originalUsername });
+    }
+
+    /**
+     * Check if a position is in lazy mode
+     * @param {number} position - Player position (1-4)
+     * @returns {boolean}
+     */
+    isLazy(position) {
+        return position in this.lazyPlayers;
+    }
+
+    /**
+     * Get the substitute bot info for a lazy position
+     * @param {number} position - Player position (1-4)
+     * @returns {Object|null} - { botSocketId, botUsername, botPic, personality } or null
+     */
+    getLazyBot(position) {
+        return this.lazyPlayers[position] || null;
+    }
+
+    /**
+     * Check if a socket belongs to an original player (for rejoin after /leave)
+     * @param {string} username - Username to check
+     * @returns {number|null} - Position if found in lazy/resigned players, null otherwise
+     */
+    getOriginalPlayerPosition(username) {
+        // Check lazy players
+        for (const [pos, info] of Object.entries(this.lazyPlayers)) {
+            if (info.originalUsername === username) {
+                return Number(pos);
+            }
+        }
+        // Check resigned players
+        for (const [pos, info] of Object.entries(this.resignedPlayers)) {
+            if (info.username === username) {
+                return Number(pos);
+            }
+        }
+        return null;
+    }
+
+    // ========================================
+    // Spectator Methods
+    // ========================================
+
+    /**
+     * Add a spectator to the game
+     * @param {string} socketId - Spectator's socket ID
+     * @param {string} username - Spectator's username
+     * @param {number|string} pic - Spectator's profile pic
+     */
+    addSpectator(socketId, username, pic) {
+        this.spectators.set(socketId, { username, pic });
+        this.logAction('addSpectator', { socketId, username });
+    }
+
+    /**
+     * Remove a spectator from the game
+     * @param {string} socketId - Spectator's socket ID
+     */
+    removeSpectator(socketId) {
+        this.spectators.delete(socketId);
+        this.logAction('removeSpectator', { socketId });
+    }
+
+    /**
+     * Get all spectators
+     * @returns {Array} - Array of { socketId, username, pic }
+     */
+    getSpectators() {
+        const list = [];
+        for (const [socketId, info] of this.spectators.entries()) {
+            list.push({ socketId, ...info });
+        }
+        return list;
+    }
+
+    /**
+     * Check if a socket is a spectator
+     * @param {string} socketId - Socket ID to check
+     * @returns {boolean}
+     */
+    isSpectator(socketId) {
+        return this.spectators.has(socketId);
     }
 
     // ========================================

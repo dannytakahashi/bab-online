@@ -24,7 +24,8 @@ function joinMainRoom(socket, io) {
     socket.emit('mainRoomJoined', {
         messages: result.messages,
         lobbies: result.lobbies,
-        onlineCount: result.onlineCount
+        onlineCount: result.onlineCount,
+        inProgressGames: gameManager.getInProgressGames()
     });
 
     // Notify others of new player
@@ -100,7 +101,8 @@ function createLobby(socket, io, data) {
 
     // Notify main room of new lobby
     io.to('mainRoom').emit('lobbiesUpdated', {
-        lobbies: gameManager.getAllLobbies()
+        lobbies: gameManager.getAllLobbies(),
+        inProgressGames: gameManager.getInProgressGames()
     });
 
     socketLogger.info('Player created lobby', {
@@ -154,7 +156,8 @@ function joinLobby(socket, io, data) {
 
     // Notify main room of updated lobbies
     io.to('mainRoom').emit('lobbiesUpdated', {
-        lobbies: gameManager.getAllLobbies()
+        lobbies: gameManager.getAllLobbies(),
+        inProgressGames: gameManager.getInProgressGames()
     });
 
     socketLogger.info('Player joined lobby', {
@@ -169,7 +172,83 @@ function joinLobby(socket, io, data) {
  */
 function getLobbies(socket, io) {
     const lobbies = gameManager.getAllLobbies();
-    socket.emit('lobbiesUpdated', { lobbies });
+    const inProgressGames = gameManager.getInProgressGames();
+    socket.emit('lobbiesUpdated', { lobbies, inProgressGames });
+}
+
+/**
+ * Handle player joining a game as a spectator
+ */
+function joinAsSpectator(socket, io, data) {
+    const { gameId } = data;
+
+    const game = gameManager.getGameById(gameId);
+    if (!game) {
+        socket.emit('error', { message: 'Game not found' });
+        return;
+    }
+
+    const user = gameManager.getUserBySocketId(socket.id);
+    if (!user) {
+        socket.emit('error', { message: 'User not found' });
+        return;
+    }
+
+    // Leave main room
+    socket.leave('mainRoom');
+    gameManager.leaveMainRoom(socket.id);
+
+    // Add as spectator
+    game.addSpectator(socket.id, user.username, null);
+
+    // Join the game's socket room (so they receive broadcasts)
+    game.joinToRoom(io, socket.id);
+
+    // Build player info for the spectator
+    const playerInfo = [];
+    for (let pos = 1; pos <= 4; pos++) {
+        const player = game.getPlayerByPosition(pos);
+        if (player) {
+            playerInfo.push({
+                position: pos,
+                username: player.username,
+                pic: player.pic,
+                socketId: player.socketId
+            });
+        }
+    }
+
+    // Send spectator join success with game state (but no hand!)
+    socket.emit('spectatorJoined', {
+        gameId: game.gameId,
+        players: playerInfo,
+        trump: game.trump,
+        currentHand: game.currentHand,
+        dealer: game.dealer,
+        phase: game.phase,
+        bidding: game.bidding,
+        currentTurn: game.currentTurn,
+        bids: game.bids,
+        playerBids: game.playerBids,
+        tricks: game.tricks,
+        score: game.score,
+        playedCards: game.playedCards,
+        isTrumpBroken: game.isTrumpBroken,
+        gameLog: game.getGameLog(),
+        spectatorCount: game.getSpectators().length
+    });
+
+    // Notify other players
+    game.broadcast(io, 'spectatorJoined', {
+        username: user.username,
+        spectatorCount: game.getSpectators().length
+    });
+
+    socketLogger.info('Player joined as spectator', {
+        socketId: socket.id,
+        username: user.username,
+        gameId
+    });
 }
 
 module.exports = {
@@ -177,5 +256,6 @@ module.exports = {
     mainRoomChat,
     createLobby,
     joinLobby,
-    getLobbies
+    getLobbies,
+    joinAsSpectator
 };

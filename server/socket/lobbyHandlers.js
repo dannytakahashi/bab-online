@@ -198,12 +198,14 @@ function leaveLobby(socket, io) {
     socket.emit('mainRoomJoined', {
         messages: mainRoomResult.messages,
         lobbies: mainRoomResult.lobbies,
-        onlineCount: mainRoomResult.onlineCount
+        onlineCount: mainRoomResult.onlineCount,
+        inProgressGames: gameManager.getInProgressGames()
     });
 
     // Notify main room of updated lobby list
     io.to('mainRoom').emit('lobbiesUpdated', {
-        lobbies: gameManager.getAllLobbies()
+        lobbies: gameManager.getAllLobbies(),
+        inProgressGames: gameManager.getInProgressGames()
     });
 
     // If lobby was deleted (no players left), nothing more to do
@@ -276,7 +278,8 @@ function addBot(socket, io) {
 
     // Also update main room lobby list
     io.to('mainRoom').emit('lobbiesUpdated', {
-        lobbies: gameManager.getAllLobbies()
+        lobbies: gameManager.getAllLobbies(),
+        inProgressGames: gameManager.getInProgressGames()
     });
 }
 
@@ -318,7 +321,8 @@ function removeBot(socket, io, data) {
 
     // Also update main room lobby list
     io.to('mainRoom').emit('lobbiesUpdated', {
-        lobbies: gameManager.getAllLobbies()
+        lobbies: gameManager.getAllLobbies(),
+        inProgressGames: gameManager.getInProgressGames()
     });
 }
 

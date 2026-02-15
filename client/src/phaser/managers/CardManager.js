@@ -446,6 +446,24 @@ export class CardManager {
   }
 
   /**
+   * Enable or disable all card interaction (for spectator/lazy mode).
+   * @param {boolean} enabled - Whether cards should be interactive
+   */
+  setInteractive(enabled) {
+    this._interactionDisabled = !enabled;
+    this._handSprites.forEach((sprite) => {
+      if (!sprite || !sprite.active) return;
+      if (enabled) {
+        sprite.setInteractive();
+      } else {
+        sprite.disableInteractive();
+        sprite.setTint(0xaaaaaa);
+        sprite.setData('isLegal', false);
+      }
+    });
+  }
+
+  /**
    * Reposition hand cards (for resize handling).
    */
   repositionHand() {

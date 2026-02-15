@@ -1669,7 +1669,7 @@ function initializeApp() {
       addMainRoomChatMessage(data.username, data.message);
     },
     onLobbiesUpdated: (data) => {
-      updateLobbyList(data.lobbies, socket);
+      updateLobbyList(data.lobbies, socket, data.inProgressGames);
     },
     onMainRoomPlayerJoined: (data) => {
       updateMainRoomOnlineCount(data.onlineCount);
@@ -1724,6 +1724,147 @@ function initializeApp() {
     onAllPlayersReady: (data) => {
       console.log('All players ready, game starting soon...');
       // The game will start via positionUpdate/gameStart events
+    },
+
+    // Spectator callback
+    onSpectatorJoined: (data) => {
+      console.log('👁️ Spectator joined game:', data);
+
+      // If this is the full game state (not just a notification about another spectator)
+      if (data.players && data.trump) {
+        try {
+        console.log('👁️ Full spectator state received, setting up view...');
+        // Remove main room UI
+        removeMainRoom();
+
+        // Mark as spectator in game state
+        gameState.isSpectator = true;
+        gameState.phase = PHASE.PLAYING;
+
+        // Build player data structure from spectator data
+        const positions = data.players.map(p => p.position);
+        const sockets = data.players.map(p => p.socketId);
+        const usernames = data.players.map(p => ({ username: p.username, socketId: p.socketId }));
+        const pics = data.players.map(p => p.pic);
+
+        console.log('👁️ Player data:', { positions, sockets, usernames, pics });
+
+        gameState.setPlayerData({
+          position: positions,
+          sockets: sockets,
+          username: usernames,
+          pics: pics
+        });
+
+        // Use position 1 as the spectator's "view position" (they see from P1's perspective)
+        gameState.position = 1;
+
+        // Set up the game scene for spectating
+        const waitForScene = () => {
+          const scene = getGameScene();
+          console.log('👁️ waitForScene: scene=', !!scene, 'cardManager=', !!(scene && scene.cardManager));
+          if (scene && scene.cardManager) {
+            try {
+              // Create game UI (game log panel)
+              console.log('👁️ Creating game feed...');
+              window.createGameFeedFromLegacy(false);
+
+              // Restore game log
+              if (data.gameLog && data.gameLog.length > 0) {
+                data.gameLog.forEach(entry => {
+                  window.addToGameFeedFromLegacy(entry.message, entry.playerPosition, entry.timestamp);
+                });
+              }
+
+              // Update scores
+              gameState.setGameScores(data.score.team1, data.score.team2);
+              const { teamName, oppName } = getTeamNames(1, gameState.playerData);
+              window.updateGameLogScoreFromLegacy(teamName, oppName, data.score.team1, data.score.team2);
+
+              // Update hand indicator
+              if (data.currentHand !== undefined) {
+                window.updateHandIndicatorFromLegacy(data.currentHand);
+              }
+
+              // Set up managers
+              if (scene.trickManager) {
+                scene.trickManager.setPlayerPosition(1);
+                scene.trickManager.updatePlayPositions();
+              }
+              if (scene.opponentManager) {
+                scene.opponentManager.setPlayerPosition(1);
+              }
+
+              // Display trump card
+              if (data.trump && scene.displayTrumpCard) {
+                console.log('👁️ Displaying trump card:', data.trump);
+                scene.displayTrumpCard(data.trump);
+              }
+
+              // Display opponent hands (no player hand for spectators)
+              if (scene.handleDisplayOpponentHands) {
+                console.log('👁️ Displaying opponent hands, playerData:', gameState.playerData);
+                scene.handleDisplayOpponentHands(
+                  data.currentHand, // approximate card count
+                  data.dealer,
+                  gameState.playerData,
+                  true // skip animation
+                );
+              }
+
+              if (scene.layoutManager) {
+                scene.layoutManager.update();
+                scene.layoutManager.createDomBackgrounds();
+              }
+
+              // Restore played cards
+              if (data.playedCards && data.playedCards.length > 0 && scene.trickManager) {
+                scene.trickManager.restorePlayedCards(data.playedCards);
+              }
+
+              // Show spectating indicator
+              let indicator = document.getElementById('spectating-indicator');
+              if (!indicator) {
+                indicator = document.createElement('div');
+                indicator.id = 'spectating-indicator';
+                indicator.style.cssText = `
+                  position: fixed;
+                  top: 10px;
+                  left: 50%;
+                  transform: translateX(-50%);
+                  background: rgba(0, 0, 0, 0.8);
+                  color: #60a5fa;
+                  padding: 8px 20px;
+                  border-radius: 20px;
+                  font-size: 14px;
+                  z-index: 500;
+                  border: 1px solid #60a5fa;
+                `;
+                indicator.textContent = 'Spectating — type /leave to exit';
+                document.body.appendChild(indicator);
+              }
+
+              // Add game container in-game class
+              document.getElementById('game-container')?.classList.add('in-game');
+
+              console.log('👁️ Spectator view setup complete!');
+              window.addToGameFeedFromLegacy?.("Joined as spectator!");
+            } catch (err) {
+              console.error('👁️ Error setting up spectator view:', err);
+            }
+          } else {
+            setTimeout(waitForScene, 100);
+          }
+        };
+
+        waitForScene();
+        } catch (outerErr) {
+          console.error('👁️ Error in spectator setup (outer):', outerErr);
+        }
+      } else if (data.username) {
+        // Notification that another spectator joined — show in game log
+        window.addToGameFeedFromLegacy?.(`${data.username} joined as a spectator.`, null);
+      }
     },
 
     // Game callbacks - update GameState and trigger scene handlers
@@ -2402,6 +2543,142 @@ function initializeApp() {
       const scene = getGameScene();
       if (scene && scene.handleRejoinFailed) {
         scene.handleRejoinFailed(data);
+      }
+    },
+
+    // Resignation & Lazy Mode callbacks
+    onResignationAvailable: (data) => {
+      // Show confirmation modal to replace disconnected player with a bot
+      // Store modal DOM reference so we can dismiss it programmatically
+      const modalContainer = document.getElementById('confirm-modal');
+      if (modalContainer) modalContainer.remove(); // Remove any existing
+
+      confirmDialog(
+        `${data.username} did not reconnect. Replace with a bot?`,
+        { title: 'Player Disconnected', confirmText: 'Replace with Bot', cancelText: 'Wait' }
+      ).then((confirmed) => {
+        if (confirmed) {
+          socket.emit('forceResign', { position: data.position });
+        }
+      });
+
+      // Store reference to the modal DOM element for programmatic dismissal
+      window._resignationModal = document.getElementById('confirm-modal');
+    },
+    onPlayerResigned: (data) => {
+      // Dismiss any open resignation modal (another player may have already clicked resign)
+      if (window._resignationModal) {
+        window._resignationModal.remove();
+        window._resignationModal = null;
+      }
+
+      // Update opponent avatar via scene
+      const scene = getGameScene();
+      if (scene && scene.handlePlayerResigned) {
+        scene.handlePlayerResigned(data);
+      }
+
+      // Add system message to game log
+      window.addToGameFeedFromLegacy?.(`${data.oldUsername} has been resigned. ${data.botUsername} is taking over.`, null);
+    },
+    onPlayerLazyMode: (data) => {
+      const scene = getGameScene();
+      if (scene && scene.handlePlayerLazyMode) {
+        scene.handlePlayerLazyMode(data);
+      }
+
+      // If it's the local player entering lazy mode, disable card interaction
+      if (data.position === gameState.position) {
+        if (scene && scene.cardManager) {
+          scene.cardManager.setInteractive(false);
+        }
+        // Show spectating indicator
+        let indicator = document.getElementById('spectating-indicator');
+        if (!indicator) {
+          indicator = document.createElement('div');
+          indicator.id = 'spectating-indicator';
+          indicator.style.cssText = `
+            position: fixed;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.8);
+            color: #4ade80;
+            padding: 8px 20px;
+            border-radius: 20px;
+            font-size: 14px;
+            z-index: 500;
+            border: 1px solid #4ade80;
+          `;
+          indicator.textContent = 'Spectating — type /active to take back control';
+          document.body.appendChild(indicator);
+        }
+      }
+
+      // Add system message to game log
+      window.addToGameFeedFromLegacy?.(
+        `${data.originalUsername || 'Player'} entered lazy mode. ${data.botUsername} is playing.`,
+        null
+      );
+    },
+    onPlayerActiveMode: (data) => {
+      const scene = getGameScene();
+      if (scene && scene.handlePlayerActiveMode) {
+        scene.handlePlayerActiveMode(data);
+      }
+
+      // If it's the local player returning to active mode, re-enable card interaction
+      if (data.position === gameState.position) {
+        if (scene && scene.cardManager) {
+          scene.cardManager.setInteractive(true);
+        }
+        // Remove spectating indicator
+        const indicator = document.getElementById('spectating-indicator');
+        if (indicator) indicator.remove();
+      }
+
+      // Add system message to game log
+      window.addToGameFeedFromLegacy?.(`${data.username} is back in control.`, null);
+    },
+    onLeftGame: (data) => {
+      // Player used /leave — clean up game UI and return to main room
+      const scene = getGameScene();
+
+      if (scene && scene.clearPlayerInfo) {
+        scene.clearPlayerInfo();
+      }
+      if (scene && scene.layoutManager) {
+        scene.layoutManager.cleanupDomBackgrounds();
+      }
+      if (scene && scene.opponentManager && scene.opponentManager.clearAll) {
+        scene.opponentManager.clearAll();
+      }
+
+      // Remove spectating indicator
+      const indicator = document.getElementById('spectating-indicator');
+      if (indicator) indicator.remove();
+
+      uiManager.clearUI();
+
+      let gameFeed = document.getElementById("gameFeed");
+      if (gameFeed) gameFeed.remove();
+      gameLogInstance = null;
+
+      document.getElementById('game-container')?.classList.remove('in-game');
+      clearGameScene();
+
+      if (scene) {
+        scene.children.removeAll(true);
+        scene.scene.restart();
+      }
+      resetGameState();
+      socket.emit("joinMainRoom");
+    },
+    onGameLogEntry: (data) => {
+      if (data.type === 'system') {
+        window.addToGameFeedFromLegacy?.(data.message, null);
+      } else if (data.playerPosition !== undefined) {
+        window.addToGameFeedFromLegacy?.(data.message, data.playerPosition);
       }
     },
 

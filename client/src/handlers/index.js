@@ -40,6 +40,8 @@ export function registerAllHandlers(socketManager, callbacks = {}) {
     onLobbyPlayerJoined,
     onLeftLobby,
     onAllPlayersReady,
+    // Spectator callbacks
+    onSpectatorJoined,
     // Game callbacks
     onPositionUpdate,
     onGameStart,
@@ -63,6 +65,13 @@ export function registerAllHandlers(socketManager, callbacks = {}) {
     onPlayerReconnected,
     onRejoinSuccess,
     onRejoinFailed,
+    // Resignation & Lazy Mode callbacks
+    onResignationAvailable,
+    onPlayerResigned,
+    onPlayerLazyMode,
+    onPlayerActiveMode,
+    onGameLogEntry,
+    onLeftGame,
     // Chat callbacks
     onChatMessage,
     // Profile callbacks
@@ -101,6 +110,7 @@ export function registerAllHandlers(socketManager, callbacks = {}) {
     onLobbyPlayerJoined,
     onLeftLobby,
     onAllPlayersReady,
+    onSpectatorJoined,
   });
 
   // Register game handlers
@@ -127,6 +137,12 @@ export function registerAllHandlers(socketManager, callbacks = {}) {
     onPlayerReconnected,
     onRejoinSuccess,
     onRejoinFailed,
+    onResignationAvailable,
+    onPlayerResigned,
+    onPlayerLazyMode,
+    onPlayerActiveMode,
+    onGameLogEntry,
+    onLeftGame,
   });
 
   // Register chat handlers

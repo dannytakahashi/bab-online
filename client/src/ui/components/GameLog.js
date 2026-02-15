@@ -103,11 +103,89 @@ export function createGameLog({ onChatSubmit } = {}) {
   sendBtn.classList.add('chat-send');  // Legacy class
   sendBtn.textContent = 'Send';
 
+  // Slash command autocomplete
+  const SLASH_COMMANDS = [
+    { command: '/lazy', description: 'Have a bot play for you' },
+    { command: '/active', description: 'Take back control from bot' },
+    { command: '/leave', description: 'Exit to lobby (bot plays, rejoin anytime)' },
+  ];
+
+  const autocompleteDropdown = document.createElement('div');
+  autocompleteDropdown.className = 'slash-autocomplete';
+  autocompleteDropdown.style.cssText = `
+    display: none;
+    position: absolute;
+    bottom: 100%;
+    left: 0;
+    right: 0;
+    background: #1a1a2e;
+    border: 1px solid #333;
+    border-radius: 6px;
+    margin-bottom: 4px;
+    overflow: hidden;
+    z-index: 200;
+  `;
+
+  const updateAutocomplete = (text) => {
+    if (!text.startsWith('/')) {
+      autocompleteDropdown.style.display = 'none';
+      return;
+    }
+
+    const query = text.toLowerCase();
+    const matches = SLASH_COMMANDS.filter(cmd => cmd.command.startsWith(query));
+
+    if (matches.length === 0 || text === matches[0]?.command) {
+      autocompleteDropdown.style.display = 'none';
+      return;
+    }
+
+    autocompleteDropdown.innerHTML = '';
+    matches.forEach(cmd => {
+      const item = document.createElement('div');
+      item.style.cssText = `
+        padding: 8px 12px;
+        cursor: pointer;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      `;
+      item.innerHTML = `
+        <span style="color: #4ade80; font-weight: bold;">${cmd.command}</span>
+        <span style="color: #888; font-size: 12px; margin-left: 12px;">${cmd.description}</span>
+      `;
+      item.addEventListener('mouseenter', () => {
+        item.style.background = 'rgba(74, 222, 128, 0.1)';
+      });
+      item.addEventListener('mouseleave', () => {
+        item.style.background = 'transparent';
+      });
+      item.addEventListener('mousedown', (e) => {
+        e.preventDefault(); // Prevent blur from firing
+        chatInput.value = cmd.command;
+        autocompleteDropdown.style.display = 'none';
+        submitChat();
+      });
+      autocompleteDropdown.appendChild(item);
+    });
+
+    autocompleteDropdown.style.display = 'block';
+  };
+
   const submitChat = () => {
-    const message = chatInput.value.trim();
+    let message = chatInput.value.trim();
     if (message && onChatSubmit) {
+      // If typing a partial slash command with a single match, submit the full command
+      if (message.startsWith('/') && message !== '/') {
+        const query = message.toLowerCase();
+        const matches = SLASH_COMMANDS.filter(cmd => cmd.command.startsWith(query));
+        if (matches.length === 1) {
+          message = matches[0].command;
+        }
+      }
       onChatSubmit(message);
       chatInput.value = '';
+      autocompleteDropdown.style.display = 'none';
     }
   };
 
@@ -115,7 +193,18 @@ export function createGameLog({ onChatSubmit } = {}) {
   chatInput.onkeypress = (e) => {
     if (e.key === 'Enter') submitChat();
   };
+  chatInput.addEventListener('input', () => {
+    updateAutocomplete(chatInput.value);
+  });
+  chatInput.addEventListener('blur', () => {
+    // Small delay so click events on autocomplete items fire first
+    setTimeout(() => {
+      autocompleteDropdown.style.display = 'none';
+    }, 150);
+  });
 
+  chatSection.style.position = 'relative';
+  chatSection.appendChild(autocompleteDropdown);
   chatSection.appendChild(chatInput);
   chatSection.appendChild(sendBtn);
   container.appendChild(chatSection);

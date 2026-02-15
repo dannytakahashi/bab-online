@@ -31,6 +31,8 @@ export function registerLobbyHandlers(socketManager, callbacks = {}) {
     onLobbyPlayerJoined,
     onLeftLobby,
     onAllPlayersReady,
+    // Spectator callbacks
+    onSpectatorJoined,
   } = callbacks;
 
   const state = getGameState();
@@ -104,5 +106,12 @@ export function registerLobbyHandlers(socketManager, callbacks = {}) {
   socketManager.on(SERVER_EVENTS.ALL_PLAYERS_READY, (data) => {
     console.log('🎉 All players ready:', data);
     onAllPlayersReady?.(data);
+  });
+
+  // ==================== SPECTATOR HANDLERS ====================
+
+  socketManager.on(SERVER_EVENTS.SPECTATOR_JOINED, (data) => {
+    console.log('👁️ Spectator joined game:', data);
+    onSpectatorJoined?.(data);
   });
 }

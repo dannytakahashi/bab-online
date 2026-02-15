@@ -65,8 +65,8 @@ function leaveQueue(socket, io) {
 // Track pending abort timers by gameId
 const pendingAbortTimers = new Map();
 
-// Grace period for reconnection (30 seconds)
-const RECONNECT_GRACE_PERIOD = 30000;
+// Grace period for reconnection (60 seconds)
+const RECONNECT_GRACE_PERIOD = 60000;
 
 function handleDisconnect(socket, io) {
     const result = gameManager.handleDisconnect(socket.id);
@@ -80,7 +80,8 @@ function handleDisconnect(socket, io) {
     // Notify main room of player leaving and update lobby list
     if (result.wasInMainRoom || result.wasInLobby) {
         io.to('mainRoom').emit('lobbiesUpdated', {
-            lobbies: gameManager.getAllLobbies()
+            lobbies: gameManager.getAllLobbies(),
+            inProgressGames: gameManager.getInProgressGames()
         });
     }
 
@@ -107,12 +108,33 @@ function handleDisconnect(socket, io) {
         const timer = setTimeout(async () => {
             const checkResult = gameManager.checkGameAbort(result.gameId);
             if (checkResult.shouldAbort) {
-                socketLogger.warn('Grace period expired, aborting game', { gameId: result.gameId });
-                checkResult.game.broadcast(io, 'abortGame', { reason: 'Player did not reconnect' });
-                // Clear active game for all players
-                await gameManager.clearActiveGameForAll(result.gameId);
-                checkResult.game.leaveAllFromRoom(io);
-                gameManager.abortGame(result.gameId);
+                // Check if ALL human players are disconnected — if so, abort
+                const disconnectedPositions = checkResult.game.getDisconnectedPlayers();
+                const allHumansDisconnected = disconnectedPositions.length > 0 &&
+                    Array.from(checkResult.game.players.values()).every(
+                        p => p.isBot || disconnectedPositions.includes(p.position)
+                    );
+
+                if (allHumansDisconnected) {
+                    socketLogger.warn('All humans disconnected, aborting game', { gameId: result.gameId });
+                    checkResult.game.broadcast(io, 'abortGame', { reason: 'All players disconnected' });
+                    await gameManager.clearActiveGameForAll(result.gameId);
+                    checkResult.game.leaveAllFromRoom(io);
+                    gameManager.abortGame(result.gameId);
+                } else {
+                    // Broadcast resignationAvailable to remaining connected players
+                    for (const pos of disconnectedPositions) {
+                        const disconnectedPlayer = checkResult.game.getPlayerByPosition(pos);
+                        const dcUsername = disconnectedPlayer?.username || `Player ${pos}`;
+                        socketLogger.info('Grace period expired, resignation available', {
+                            gameId: result.gameId, position: pos, username: dcUsername
+                        });
+                        checkResult.game.broadcast(io, 'resignationAvailable', {
+                            position: pos,
+                            username: dcUsername
+                        });
+                    }
+                }
             }
             pendingAbortTimers.delete(result.gameId);
         }, RECONNECT_GRACE_PERIOD);
