@@ -102,6 +102,7 @@ export const SERVER_EVENTS = {
   PLAYER_ACTIVE_MODE: 'playerActiveMode',
   GAME_LOG_ENTRY: 'gameLogEntry',
   LEFT_GAME: 'leftGame',
+  RESTORE_PLAYER_STATE: 'restorePlayerState',
   SPECTATOR_JOINED: 'spectatorJoined',
 
   // Connection

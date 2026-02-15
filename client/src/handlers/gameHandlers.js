@@ -53,6 +53,7 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
     onPlayerActiveMode,
     onGameLogEntry,
     onLeftGame,
+    onRestorePlayerState,
   } = callbacks;
 
   const state = getGameState();
@@ -400,6 +401,12 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
   socketManager.onGame(SERVER_EVENTS.LEFT_GAME, (data) => {
     console.log('🚪 Left game (lazy leave)');
     onLeftGame?.(data);
+  });
+
+  // Restore player state (spectator → active player transition)
+  socketManager.onGame(SERVER_EVENTS.RESTORE_PLAYER_STATE, (data) => {
+    console.log('🔄 Restoring player state from spectator mode');
+    onRestorePlayerState?.(data);
   });
 }
 

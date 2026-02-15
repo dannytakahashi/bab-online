@@ -224,9 +224,8 @@ function chatMessage(socket, io, data) {
                     gameManager.updatePlayerGameMapping(null, socket.id, activeGame.gameId);
                     // Now run normal active command (disables lazy, broadcasts playerActiveMode)
                     handleActiveCommand(socket, io, activeGame, position);
-                    // Send full game state so client can rebuild with hand
-                    const clientState = activeGame.getClientState(socket.id);
-                    socket.emit('rejoinSuccess', clientState);
+                    // Send full game state so client can transition from spectator to player
+                    socket.emit('restorePlayerState', activeGame.getClientState(socket.id));
                 } else {
                     activeGame.sendToPlayer(io, socket.id, 'error', { message: "Spectators can't use /active" });
                 }
