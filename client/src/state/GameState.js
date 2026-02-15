@@ -96,6 +96,7 @@ export class GameState {
 
     // UI interaction flags
     this.hasPlayedCard = false; // Prevent double-play in a trick
+    this.isLazy = false; // Whether bot is playing for us (lazy mode)
 
     // Draw phase state
     this.hasDrawn = false;
