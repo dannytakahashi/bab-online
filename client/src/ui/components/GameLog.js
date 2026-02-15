@@ -135,7 +135,7 @@ export function createGameLog({ onChatSubmit } = {}) {
     const query = text.toLowerCase();
     const matches = SLASH_COMMANDS.filter(cmd => cmd.command.startsWith(query));
 
-    if (matches.length === 0 || text === matches[0]?.command) {
+    if (matches.length === 0) {
       autocompleteDropdown.style.display = 'none';
       return;
     }

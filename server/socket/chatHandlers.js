@@ -203,13 +203,35 @@ function chatMessage(socket, io, data) {
     // Handle slash commands
     if (data.message.startsWith('/')) {
         const position = activeGame.getPositionBySocketId(socket.id);
-        // Spectators can only use /leave
+        // Spectators: /leave always works, /active works if they were an original player
         if (activeGame.isSpectator(socket.id)) {
             const command = data.message.trim().toLowerCase();
             if (command === '/leave') {
                 handleLeaveCommand(socket, io, activeGame, null);
-            } else if (command === '/lazy' || command === '/active') {
-                activeGame.sendToPlayer(io, socket.id, 'error', { message: `Spectators can't use ${command}` });
+            } else if (command === '/active') {
+                // Check if this spectator was an original player in lazy mode
+                const spectator = activeGame.spectators.get(socket.id);
+                const username = spectator?.username;
+                const position = username ? activeGame.getOriginalPlayerPosition(username) : null;
+                if (position && activeGame.isLazy(position)) {
+                    // Re-associate socket with the player position
+                    activeGame.updatePlayerSocket(position, socket.id, io);
+                    // Update lazyPlayers to track new socket
+                    activeGame.lazyPlayers[position].originalSocketId = socket.id;
+                    // Remove from spectators
+                    activeGame.removeSpectator(socket.id);
+                    // Update game-player mapping
+                    gameManager.updatePlayerGameMapping(null, socket.id, activeGame.gameId);
+                    // Now run normal active command (disables lazy, broadcasts playerActiveMode)
+                    handleActiveCommand(socket, io, activeGame, position);
+                    // Send full game state so client can rebuild with hand
+                    const clientState = activeGame.getClientState(socket.id);
+                    socket.emit('rejoinSuccess', clientState);
+                } else {
+                    activeGame.sendToPlayer(io, socket.id, 'error', { message: "Spectators can't use /active" });
+                }
+            } else if (command === '/lazy') {
+                activeGame.sendToPlayer(io, socket.id, 'error', { message: "Spectators can't use /lazy" });
             } else {
                 activeGame.sendToPlayer(io, socket.id, 'error', { message: `Unknown command: ${data.message.trim().split(' ')[0]}` });
             }
