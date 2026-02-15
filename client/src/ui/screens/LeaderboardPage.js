@@ -289,7 +289,7 @@ export function showLeaderboardPage(leaderboard, socket) {
   modal.style.padding = '25px';
   modal.style.borderRadius = '12px';
   modal.style.border = '2px solid #4a5568';
-  modal.style.width = '900px';
+  modal.style.width = '960px';
   modal.style.maxWidth = '95vw';
   modal.style.maxHeight = '90vh';
   modal.style.boxSizing = 'border-box';
