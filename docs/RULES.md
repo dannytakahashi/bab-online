@@ -196,12 +196,9 @@ After all 13 hands are completed:
 
 ## Strategy Tips
 
-1. **Bid conservatively** - Being set costs more than overtricks gain
-2. **Count trump** - Track which trump cards have been played
-3. **Communicate with partner** - Your plays signal information
-4. **Save HI joker** - It can clear opponents' trump at a critical moment
-5. **Consider bore carefully** - High risk, high reward on small hands
-6. **Watch the 4-hand** - Rainbow bonus can swing close games
+The most important thing to know: **the set penalty is devastating**. Bidding 3 and winning 4 gives you +31, but bidding 4 and winning 3 costs you -40. When in doubt, bid one fewer than you think you can win.
+
+For comprehensive strategy covering bidding by hand size, bore decisions, card play, and more, see the [Strategy Guide](bot-strategy-guide.md).
 
 ---
 
