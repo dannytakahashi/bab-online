@@ -92,6 +92,25 @@ function handleDisconnect(socket, io) {
         const position = result.game.getPositionBySocketId(socket.id);
         const player = result.game.getPlayerByPosition(position);
         const username = player?.username || `Player ${position}`;
+
+        // If player is in lazy mode, bot is already playing — skip grace period
+        if (result.wasLazy) {
+            const lazyInfo = result.game.getLazyBot(position);
+            const originalUsername = lazyInfo?.originalUsername || username;
+            socketLogger.info('Lazy player disconnected, bot continues playing', {
+                originalUsername, position, gameId: result.gameId
+            });
+
+            // Notify other players, but don't say "waiting for reconnection"
+            const dcMessage = `${originalUsername} disconnected. Bot continues playing.`;
+            result.game.addLogEntry(dcMessage, null, 'system');
+            result.game.broadcast(io, 'gameLogEntry', {
+                message: dcMessage,
+                type: 'system'
+            });
+            return;
+        }
+
         socketLogger.info('Player disconnected from game, waiting for reconnection', {
             username, position, gameId: result.gameId, gracePeriod: RECONNECT_GRACE_PERIOD / 1000
         });

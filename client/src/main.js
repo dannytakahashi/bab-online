@@ -2675,11 +2675,6 @@ function initializeApp() {
         }
       }
 
-      // Add system message to game log
-      window.addToGameFeedFromLegacy?.(
-        `${data.originalUsername || 'Player'} entered lazy mode. ${data.botUsername} is playing.`,
-        null
-      );
     },
     onPlayerActiveMode: (data) => {
       const scene = getGameScene();
@@ -2698,8 +2693,6 @@ function initializeApp() {
         if (indicator) indicator.remove();
       }
 
-      // Add system message to game log
-      window.addToGameFeedFromLegacy?.(`${data.username} is back in control.`, null);
     },
     onLeftGame: (data) => {
       // Player used /leave — clean up game UI and return to main room
