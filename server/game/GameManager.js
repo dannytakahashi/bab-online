@@ -710,10 +710,12 @@ class GameManager {
         const gameId = this.playerGames.get(socketId);
         if (gameId) {
             const game = this.games.get(gameId);
+            let wasLazy = false;
             if (game) {
                 // Mark player as disconnected but keep their spot
                 const position = game.getPositionBySocketId(socketId);
-                if (position) {
+                wasLazy = position ? game.isLazy(position) : false;
+                if (position && !wasLazy) {
                     game.markPlayerDisconnected(position);
                 }
             }
@@ -721,6 +723,7 @@ class GameManager {
                 wasInLobby,
                 wasInMainRoom,
                 wasInGame: true,
+                wasLazy,
                 game,
                 gameId,
                 // Don't abort immediately - give time to reconnect
