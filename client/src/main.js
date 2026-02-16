@@ -1596,7 +1596,12 @@ function initializeApp() {
       const playerData = gameState.playerData;
       if (playerData && position) {
         const { teamName, oppName } = getTeamNames(position, playerData);
-        window.updateGameLogScoreFromLegacy(teamName, oppName, gameState.teamScore, gameState.oppScore);
+        window.updateGameLogScoreFromLegacy(
+          teamName, oppName,
+          gameState.teamScore, gameState.oppScore,
+          gameState.teamBids || '-/-', gameState.oppBids || '-/-',
+          gameState.teamTricks, gameState.oppTricks
+        );
       }
 
       // Update hand indicator
@@ -1649,6 +1654,29 @@ function initializeApp() {
         // Create player info box (own avatar)
         if (scene.createPlayerInfoBox && !scene._playerInfo && gameState.playerData && gameState.position) {
           scene.createPlayerInfoBox(gameState.playerData, gameState.position);
+        }
+
+        // Restore HSI display
+        if (data.hsiValues && scene.updatePlayerHsi && gameState.position) {
+          scene.updatePlayerHsi(data.hsiValues[gameState.position]);
+        }
+
+        // Restore trick backgrounds if bidding is complete
+        if (scene.trickManager && data.playerBids && data.playerBids.length > 0 && !gameState.isBidding) {
+          const parseBid = (bid) => {
+            const bidStr = String(bid);
+            return bidStr.includes('B') ? 0 : parseInt(bidStr, 10) || 0;
+          };
+          const team1Bid = parseBid(data.playerBids[0]) + parseBid(data.playerBids[2]);
+          const team2Bid = parseBid(data.playerBids[1]) + parseBid(data.playerBids[3]);
+          const isTeam1 = gameState.position === 1 || gameState.position === 3;
+          const teamBid = isTeam1 ? team1Bid : team2Bid;
+          const oppBid = isTeam1 ? team2Bid : team1Bid;
+
+          scene.trickManager.setBidTotals(teamBid, oppBid);
+          scene.trickManager._teamTrickCount = gameState.teamTricks || 0;
+          scene.trickManager._oppTrickCount = gameState.oppTricks || 0;
+          scene.trickManager.createTrickBackgrounds(false);
         }
 
         // Restore played cards in current trick via TrickManager
@@ -1787,6 +1815,28 @@ function initializeApp() {
       } else {
         gameState.setGameScores(data.score.team2, data.score.team1);
       }
+    }
+
+    // Restore trick counts from server format (team1/team2 → team/opp)
+    if (data.tricks) {
+      if (gameState.position % 2 !== 0) {
+        gameState.teamTricks = data.tricks.team1;
+        gameState.oppTricks = data.tricks.team2;
+      } else {
+        gameState.teamTricks = data.tricks.team2;
+        gameState.oppTricks = data.tricks.team1;
+      }
+    }
+
+    // Restore position-keyed bids from playerBids array
+    // (data.bids is {team1, team2} after bidding completes, but _updateTeamBids needs position keys)
+    if (data.playerBids && data.playerBids.length > 0) {
+      for (let i = 0; i < data.playerBids.length; i++) {
+        if (data.playerBids[i] !== undefined && data.playerBids[i] !== null) {
+          gameState.bids[i + 1] = data.playerBids[i];
+        }
+      }
+      gameState._updateTeamBids();
     }
 
     // Wait for scene to be ready before processing UI

@@ -78,6 +78,9 @@ class GameState {
         // Assigned bot personality per position (persists across lazy/active cycles)
         this.assignedPersonality = {};
 
+        // HSI values for current hand (position → hsi), stored for reconnection
+        this.hsiValues = {};
+
         // Spectators: socketId → { username, pic }
         this.spectators = new Map();
 
@@ -269,6 +272,7 @@ class GameState {
             isTrumpBroken: this.isTrumpBroken,
             players: playerInfo,
             gameLog: this.getGameLog(),
+            hsiValues: this.hsiValues,
             resignedPositions: Object.keys(this.resignedPlayers).map(Number),
             lazyPositions: Object.keys(this.lazyPlayers).map(Number),
             isLazy: this.isLazy(position)

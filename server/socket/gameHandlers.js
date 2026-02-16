@@ -444,6 +444,9 @@ async function startHand(game, io) {
         hsiValues[position] = hsi;
     }
 
+    // Store HSI values on game state for reconnection
+    game.hsiValues = hsiValues;
+
     // Build current player info (reflects bot takeovers via lazy/resign)
     const playerInfo = [];
     for (let pos = 1; pos <= 4; pos++) {
@@ -785,6 +788,9 @@ async function cleanupNextHand(game, io, dealer, handSize) {
         game.addHSI(position, hsi);
         hsiValues[position] = hsi;
     }
+
+    // Store HSI values on game state for reconnection
+    game.hsiValues = hsiValues;
 
     // Build current player info (reflects bot takeovers via lazy/resign)
     const playerInfo = [];
