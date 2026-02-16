@@ -28,6 +28,7 @@ export class OpponentManager {
       partner: [],
       opp1: [],
       opp2: [],
+      bottom: [],
     };
 
     // DOM-based avatars (for CSS glow support)
@@ -35,6 +36,7 @@ export class OpponentManager {
       partner: null,
       opp1: null,
       opp2: null,
+      bottom: null,
     };
 
     // Dealer button DOM element
@@ -45,6 +47,9 @@ export class OpponentManager {
 
     // Player's position (needed to calculate relative positions)
     this._playerPosition = null;
+
+    // Spectator mode flag (shows all 4 players as opponents)
+    this._isSpectatorMode = false;
   }
 
   /**
@@ -52,6 +57,22 @@ export class OpponentManager {
    */
   setPlayerPosition(position) {
     this._playerPosition = position;
+  }
+
+  /**
+   * Enable or disable spectator mode (shows all 4 players as opponents).
+   */
+  setSpectatorMode(enabled) {
+    this._isSpectatorMode = enabled;
+  }
+
+  /**
+   * Get the slot keys to iterate over based on mode.
+   */
+  _getSlotKeys() {
+    return this._isSpectatorMode
+      ? ['partner', 'opp1', 'opp2', 'bottom']
+      : ['partner', 'opp1', 'opp2'];
   }
 
   /**
@@ -80,7 +101,7 @@ export class OpponentManager {
     const minX = 80;
     const maxX = screenWidth - 120;
 
-    return {
+    const positions = {
       partner: {
         cardX: centerX,
         cardY: centerY - 275 * scaleY,
@@ -100,6 +121,17 @@ export class OpponentManager {
         avatarY: centerY,
       },
     };
+
+    if (this._isSpectatorMode) {
+      positions.bottom = {
+        cardX: centerX,
+        cardY: centerY + 275 * scaleY,
+        avatarX: centerX,
+        avatarY: centerY + 400 * scaleY,
+      };
+    }
+
+    return positions;
   }
 
   /**
@@ -121,15 +153,16 @@ export class OpponentManager {
     const cardSpacing = 10 * scaleX;
 
     // Display card backs for each opponent position
-    ['partner', 'opp1', 'opp2'].forEach((opponentId) => {
+    this._getSlotKeys().forEach((opponentId) => {
       const pos = positions[opponentId];
-      const isHorizontal = opponentId === 'partner';
+      if (!pos) return;
+      const isHorizontal = opponentId === 'partner' || opponentId === 'bottom';
 
       for (let i = 0; i < cardCount; i++) {
         let x, y, rotation;
 
         if (isHorizontal) {
-          // Partner - horizontal spread
+          // Partner/Bottom - horizontal spread
           const totalWidth = (cardCount - 1) * cardSpacing;
           x = pos.cardX - totalWidth / 2 + i * cardSpacing;
           y = pos.cardY;
@@ -199,9 +232,10 @@ export class OpponentManager {
     const cardSpacing = 10 * scaleX;
 
     // Display card backs for each opponent position
-    ['partner', 'opp1', 'opp2'].forEach((opponentId) => {
+    this._getSlotKeys().forEach((opponentId) => {
       const pos = positions[opponentId];
-      const isHorizontal = opponentId === 'partner';
+      if (!pos) return;
+      const isHorizontal = opponentId === 'partner' || opponentId === 'bottom';
 
       for (let i = 0; i < cardCount; i++) {
         let x, y, rotation;
@@ -294,10 +328,16 @@ export class OpponentManager {
     let buttonX, buttonY;
 
     if (this._dealerPosition === this._playerPosition) {
-      // Player is dealer - to the LEFT of player avatar
-      // Use window coordinates since player info box is outside game container
-      buttonX = window.innerWidth - 475; // Left of avatar at window - 405
-      buttonY = window.innerHeight - 200;
+      if (this._isSpectatorMode && positions.bottom) {
+        // Spectator mode: use bottom avatar position
+        buttonX = positions.bottom.avatarX - 60;
+        buttonY = positions.bottom.avatarY;
+      } else {
+        // Player is dealer - to the LEFT of player avatar
+        // Use window coordinates since player info box is outside game container
+        buttonX = window.innerWidth - 475; // Left of avatar at window - 405
+        buttonY = window.innerHeight - 200;
+      }
     } else if (team(this._playerPosition) === this._dealerPosition) {
       // Partner is dealer - to the LEFT of partner avatar
       buttonX = positions.partner.avatarX - 60;
@@ -336,7 +376,11 @@ export class OpponentManager {
       opp2: opp2Pos,
     };
 
-    ['partner', 'opp1', 'opp2'].forEach((opponentId) => {
+    if (this._isSpectatorMode) {
+      opponentMap.bottom = this._playerPosition;
+    }
+
+    this._getSlotKeys().forEach((opponentId) => {
       const pos = opponentMap[opponentId];
       const screenPos = positions[opponentId];
 
@@ -449,8 +493,13 @@ export class OpponentManager {
   updateTurnGlow(currentTurn) {
     this.removeTurnGlow();
 
-    if (!this._playerPosition || currentTurn === this._playerPosition) {
-      // It's the player's turn, no opponent glow needed
+    if (!this._playerPosition) return;
+
+    if (currentTurn === this._playerPosition) {
+      if (this._isSpectatorMode) {
+        // In spectator mode, glow the bottom avatar
+        this.addTurnGlow('bottom');
+      }
       return;
     }
 
@@ -487,6 +536,7 @@ export class OpponentManager {
     if (position === partnerPos) opponentId = 'partner';
     else if (position === opp1Pos) opponentId = 'opp1';
     else if (position === opp2Pos) opponentId = 'opp2';
+    else if (position === this._playerPosition && this._isSpectatorMode) opponentId = 'bottom';
 
     if (!opponentId) return; // This is the local player's own position
 
@@ -536,12 +586,13 @@ export class OpponentManager {
     const cardSpacing = 10 * scaleX;
 
     // Reposition card sprites
-    ['partner', 'opp1', 'opp2'].forEach((opponentId) => {
+    this._getSlotKeys().forEach((opponentId) => {
       const sprites = this._cardSprites[opponentId];
       if (!sprites || sprites.length === 0) return;
 
       const pos = positions[opponentId];
-      const isHorizontal = opponentId === 'partner';
+      if (!pos) return;
+      const isHorizontal = opponentId === 'partner' || opponentId === 'bottom';
       const numCards = sprites.length;
 
       sprites.forEach((sprite, index) => {
@@ -580,13 +631,15 @@ export class OpponentManager {
    * Clear all card sprites.
    */
   clearCards() {
-    ['partner', 'opp1', 'opp2'].forEach((opponentId) => {
-      this._cardSprites[opponentId].forEach((sprite) => {
-        if (sprite && sprite.destroy) {
-          sprite.destroy();
-        }
-      });
-      this._cardSprites[opponentId] = [];
+    this._getSlotKeys().forEach((opponentId) => {
+      if (this._cardSprites[opponentId]) {
+        this._cardSprites[opponentId].forEach((sprite) => {
+          if (sprite && sprite.destroy) {
+            sprite.destroy();
+          }
+        });
+        this._cardSprites[opponentId] = [];
+      }
     });
   }
 

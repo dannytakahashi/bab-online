@@ -755,10 +755,12 @@ export function setGameScene(scene) {
         this.opponentManager.displayOpponentHands(cardCount, dealerPosition, playerData, skipAnimation);
       }
       // Create player info box at the same time as opponent avatars
-      if (this.createPlayerInfoBox && !this._playerInfo) {
-        const gameState = getGameState();
-        if (gameState.position && gameState.playerData) {
-          this.createPlayerInfoBox(gameState.playerData, gameState.position);
+      // Skip for pure spectators — they see all 4 players as opponent avatars
+      const gameState2 = getGameState();
+      const isPureSpectator = gameState2.isSpectator && !gameState2.isLazy;
+      if (this.createPlayerInfoBox && !this._playerInfo && !isPureSpectator) {
+        if (gameState2.position && gameState2.playerData) {
+          this.createPlayerInfoBox(gameState2.playerData, gameState2.position);
         }
       }
     };
@@ -2059,8 +2061,31 @@ function initializeApp() {
 
               // Update scores
               gameState.setGameScores(data.score.team1, data.score.team2);
+
+              // Restore trick counts
+              if (data.tricks) {
+                gameState.teamTricks = data.tricks.team1;
+                gameState.oppTricks = data.tricks.team2;
+              }
+
+              // Restore bids from playerBids array
+              if (data.playerBids && data.playerBids.length > 0) {
+                for (let i = 0; i < data.playerBids.length; i++) {
+                  if (data.playerBids[i] !== undefined && data.playerBids[i] !== null) {
+                    gameState.bids[i + 1] = data.playerBids[i];
+                  }
+                }
+                gameState._updateTeamBids();
+              }
+
+              // Update game log score with bids
               const { teamName, oppName } = getTeamNames(1, gameState.playerData);
-              window.updateGameLogScoreFromLegacy(teamName, oppName, data.score.team1, data.score.team2);
+              window.updateGameLogScoreFromLegacy(
+                teamName, oppName,
+                data.score.team1, data.score.team2,
+                gameState.teamBids || '-/-', gameState.oppBids || '-/-',
+                gameState.teamTricks || 0, gameState.oppTricks || 0
+              );
 
               // Update hand indicator
               if (data.currentHand !== undefined) {
@@ -2074,6 +2099,23 @@ function initializeApp() {
               }
               if (scene.opponentManager) {
                 scene.opponentManager.setPlayerPosition(1);
+                scene.opponentManager.setSpectatorMode(true);
+              }
+
+              // Restore trick backgrounds if bidding is complete
+              const isBidding = data.bidding !== undefined ? data.bidding : false;
+              if (scene.trickManager && data.playerBids && data.playerBids.length > 0 && !isBidding) {
+                const parseBid = (bid) => {
+                  const bidStr = String(bid);
+                  return bidStr.includes('B') ? 0 : parseInt(bidStr, 10) || 0;
+                };
+                const team1Bid = parseBid(data.playerBids[0]) + parseBid(data.playerBids[2]);
+                const team2Bid = parseBid(data.playerBids[1]) + parseBid(data.playerBids[3]);
+                // Spectator views from position 1 (team 1)
+                scene.trickManager.setBidTotals(team1Bid, team2Bid);
+                scene.trickManager._teamTrickCount = gameState.teamTricks || 0;
+                scene.trickManager._oppTrickCount = gameState.oppTricks || 0;
+                scene.trickManager.createTrickBackgrounds(false);
               }
 
               // Display trump card
@@ -2093,7 +2135,7 @@ function initializeApp() {
 
               if (scene.layoutManager) {
                 scene.layoutManager.update();
-                scene.layoutManager.createDomBackgrounds();
+                scene.layoutManager.createDomBackgrounds({ skipHandArea: true });
               }
 
               // Restore played cards

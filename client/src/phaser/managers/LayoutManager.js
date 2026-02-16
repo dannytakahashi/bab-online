@@ -229,7 +229,7 @@ export class LayoutManager {
    * Create DOM background elements (play zone, hand background, border).
    * Only creates if they don't exist.
    */
-  createDomBackgrounds() {
+  createDomBackgrounds({ skipHandArea = false } = {}) {
     const container = document.getElementById('game-container');
     if (!container) return;
 
@@ -247,8 +247,8 @@ export class LayoutManager {
       console.log('📍 LayoutManager: Play zone DOM created');
     }
 
-    // Create hand background DOM element
-    if (!document.getElementById('handBackgroundDom')) {
+    // Create hand background DOM element (skip for spectators)
+    if (!skipHandArea && !document.getElementById('handBackgroundDom')) {
       const handBgDom = document.createElement('div');
       handBgDom.id = 'handBackgroundDom';
       handBgDom.style.position = 'absolute';
