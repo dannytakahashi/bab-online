@@ -5,6 +5,7 @@
  */
 
 import { getUsernameColor } from '../../utils/colors.js';
+import { getGameState } from '../../state/GameState.js';
 
 /**
  * Create game log component.
@@ -104,11 +105,21 @@ export function createGameLog({ onChatSubmit } = {}) {
   sendBtn.textContent = 'Send';
 
   // Slash command autocomplete
-  const SLASH_COMMANDS = [
+  const ALL_SLASH_COMMANDS = [
     { command: '/lazy', description: 'Have a bot play for you' },
     { command: '/active', description: 'Take back control from bot' },
     { command: '/leave', description: 'Exit to lobby (bot plays, rejoin anytime)' },
   ];
+  const SPECTATOR_SLASH_COMMANDS = [
+    { command: '/leave', description: 'Exit spectating' },
+  ];
+  const getSlashCommands = () => {
+    const gameState = getGameState();
+    if (gameState.isSpectator && !gameState.isLazy) {
+      return SPECTATOR_SLASH_COMMANDS;
+    }
+    return ALL_SLASH_COMMANDS;
+  };
 
   const autocompleteDropdown = document.createElement('div');
   autocompleteDropdown.className = 'slash-autocomplete';
@@ -133,7 +144,7 @@ export function createGameLog({ onChatSubmit } = {}) {
     }
 
     const query = text.toLowerCase();
-    const matches = SLASH_COMMANDS.filter(cmd => cmd.command.startsWith(query));
+    const matches = getSlashCommands().filter(cmd => cmd.command.startsWith(query));
 
     if (matches.length === 0) {
       autocompleteDropdown.style.display = 'none';
@@ -178,7 +189,7 @@ export function createGameLog({ onChatSubmit } = {}) {
       // If typing a partial slash command with a single match, submit the full command
       if (message.startsWith('/') && message !== '/') {
         const query = message.toLowerCase();
-        const matches = SLASH_COMMANDS.filter(cmd => cmd.command.startsWith(query));
+        const matches = getSlashCommands().filter(cmd => cmd.command.startsWith(query));
         if (matches.length === 1) {
           message = matches[0].command;
         }
