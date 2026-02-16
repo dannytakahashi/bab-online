@@ -227,12 +227,10 @@ function chatMessage(socket, io, data) {
                     // Send full game state so client can transition from spectator to player
                     socket.emit('restorePlayerState', activeGame.getClientState(socket.id));
                 } else {
-                    activeGame.sendToPlayer(io, socket.id, 'error', { message: "Spectators can't use /active" });
+                    return; // Pure spectator can't use /active, silently ignore
                 }
-            } else if (command === '/lazy') {
-                activeGame.sendToPlayer(io, socket.id, 'error', { message: "Spectators can't use /lazy" });
             } else {
-                activeGame.sendToPlayer(io, socket.id, 'error', { message: `Unknown command: ${data.message.trim().split(' ')[0]}` });
+                return; // Silently ignore /lazy, unknown commands for pure spectators
             }
             return;
         }

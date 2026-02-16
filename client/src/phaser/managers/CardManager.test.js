@@ -2,6 +2,18 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { CardManager } from './CardManager.js';
 import { CARD_CONFIG } from '../config.js';
 
+// Mock global Phaser (loaded via script tag in production, not available in test)
+globalThis.Phaser = {
+  Geom: {
+    Rectangle: class Rectangle {
+      constructor(x, y, width, height) {
+        this.x = x; this.y = y; this.width = width; this.height = height;
+      }
+      static Contains() { return true; }
+    },
+  },
+};
+
 // Mock Phaser scene
 function createMockScene() {
   const sprites = [];
