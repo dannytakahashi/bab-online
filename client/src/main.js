@@ -2137,6 +2137,16 @@ function initializeApp() {
           scene.effectsManager.setPlayerPosition(data.position);
         }
 
+        // Update player data if included (reflects bot takeovers)
+        if (data.playerInfo) {
+          gameState.setPlayerData({
+            positions: data.playerInfo.map(p => p.position),
+            sockets: data.players,
+            usernames: data.playerInfo.map(p => ({ username: p.username })),
+            pics: data.playerInfo.map(p => p.pic),
+          });
+        }
+
         // Display avatars and dealer button immediately (not cards)
         if (scene.opponentManager && data.hand) {
           scene.opponentManager.displayDealerButton(data.dealer);
