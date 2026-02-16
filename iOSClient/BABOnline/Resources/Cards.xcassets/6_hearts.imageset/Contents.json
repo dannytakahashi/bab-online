@@ -1,0 +1,13 @@
+{
+  "images" : [
+    {
+      "filename" : "6_hearts.png",
+      "idiom" : "universal",
+      "scale" : "1x"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}
