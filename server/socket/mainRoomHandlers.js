@@ -194,6 +194,47 @@ function joinAsSpectator(socket, io, data) {
         return;
     }
 
+    // Check if this user is actually a lazy player for this game
+    const lazyPosition = game.getOriginalPlayerPosition(user.username);
+    if (lazyPosition && game.isLazy(lazyPosition)) {
+        // Update originalSocketId so /active will recognize this socket
+        game.lazyPlayers[lazyPosition].originalSocketId = socket.id;
+
+        // Leave main room
+        socket.leave('mainRoom');
+        gameManager.leaveMainRoom(socket.id);
+
+        // Register user with new socket
+        gameManager.registerUser(socket.id, user.username);
+
+        // Add as spectator (so they can chat and use /active)
+        game.addSpectator(socket.id, user.username, null);
+        game.joinToRoom(io, socket.id);
+
+        // Map socket to game
+        gameManager.updatePlayerGameMapping(null, socket.id, gameId);
+
+        // Send full game state with isLazy flag (same as reconnectHandlers lazy rejoin)
+        const currentBotSocketId = game.positions[lazyPosition];
+        const rejoinState = game.getClientState(currentBotSocketId);
+        rejoinState.isLazy = true;
+        socket.emit('rejoinSuccess', rejoinState);
+
+        // Notify other players
+        game.broadcast(io, 'spectatorJoined', {
+            username: user.username,
+            spectatorCount: game.getSpectators().length
+        });
+
+        socketLogger.info('Lazy player rejoined via spectate', {
+            socketId: socket.id,
+            username: user.username,
+            gameId,
+            position: lazyPosition
+        });
+        return;
+    }
+
     // Leave main room
     socket.leave('mainRoom');
     gameManager.leaveMainRoom(socket.id);

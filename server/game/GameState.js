@@ -198,6 +198,9 @@ class GameState {
         const oldSocketId = this.positions[position];
         if (!oldSocketId) return null;
 
+        // Already at this socket — nothing to transfer
+        if (oldSocketId === newSocketId) return oldSocketId;
+
         const player = this.players.get(oldSocketId);
         if (!player) return null;
 
