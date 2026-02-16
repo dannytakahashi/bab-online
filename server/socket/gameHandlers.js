@@ -444,6 +444,15 @@ async function startHand(game, io) {
         hsiValues[position] = hsi;
     }
 
+    // Build current player info (reflects bot takeovers via lazy/resign)
+    const playerInfo = [];
+    for (let pos = 1; pos <= 4; pos++) {
+        const p = game.getPlayerByPosition(pos);
+        if (p) {
+            playerInfo.push({ position: pos, username: p.username, pic: p.pic });
+        }
+    }
+
     // Send game start to all players (each gets their own hand and position)
     for (const socketId of socketIds) {
         const playerPosition = game.getPositionBySocketId(socketId);
@@ -457,7 +466,8 @@ async function startHand(game, io) {
             dealer: game.dealer,
             position: playerPosition,  // Include player's position to avoid race condition
             currentHand: game.currentHand,  // Hand index for hand indicator
-            hsiValues  // HSI for all players to display under avatars
+            hsiValues,  // HSI for all players to display under avatars
+            playerInfo  // Current player info for avatar updates
         });
     }
 
@@ -776,6 +786,15 @@ async function cleanupNextHand(game, io, dealer, handSize) {
         hsiValues[position] = hsi;
     }
 
+    // Build current player info (reflects bot takeovers via lazy/resign)
+    const playerInfo = [];
+    for (let pos = 1; pos <= 4; pos++) {
+        const p = game.getPlayerByPosition(pos);
+        if (p) {
+            playerInfo.push({ position: pos, username: p.username, pic: p.pic });
+        }
+    }
+
     // Send new hand to all players (each gets their own hand and position)
     for (const socketId of socketIds) {
         const playerPosition = game.getPositionBySocketId(socketId);
@@ -789,7 +808,8 @@ async function cleanupNextHand(game, io, dealer, handSize) {
             dealer: game.dealer,
             position: playerPosition,  // Include player's position to fix bid UI bug
             currentHand: game.currentHand,  // Hand index for hand indicator
-            hsiValues  // HSI for all players to display under avatars
+            hsiValues,  // HSI for all players to display under avatars
+            playerInfo  // Current player info for avatar updates
         });
     }
 
