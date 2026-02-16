@@ -68,7 +68,7 @@ const pendingAbortTimers = new Map();
 // Grace period for reconnection (60 seconds)
 const RECONNECT_GRACE_PERIOD = 60000;
 
-function handleDisconnect(socket, io) {
+async function handleDisconnect(socket, io) {
     const result = gameManager.handleDisconnect(socket.id);
 
     // Update queue display
@@ -108,6 +108,22 @@ function handleDisconnect(socket, io) {
                 message: dcMessage,
                 type: 'system'
             });
+
+            // Check if all remaining humans are gone (bots, lazy, or disconnected)
+            const disconnectedPositions = result.game.getDisconnectedPlayers();
+            const hasConnectedHuman = Array.from(result.game.players.values()).some(
+                p => !p.isBot &&
+                     !result.game.isLazy(p.position) &&
+                     !disconnectedPositions.includes(p.position)
+            );
+
+            if (!hasConnectedHuman) {
+                socketLogger.warn('No connected humans remain, aborting game', { gameId: result.gameId });
+                result.game.broadcast(io, 'abortGame', { reason: 'All players disconnected' });
+                await gameManager.clearActiveGameForAll(result.gameId);
+                result.game.leaveAllFromRoom(io);
+                gameManager.abortGame(result.gameId);
+            }
             return;
         }
 
