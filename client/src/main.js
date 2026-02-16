@@ -1643,6 +1643,14 @@ function initializeApp() {
           scene.layoutManager.createDomBackgrounds();
         }
 
+        // Add .in-game class for game log layout
+        document.getElementById('game-container')?.classList.add('in-game');
+
+        // Create player info box (own avatar)
+        if (scene.createPlayerInfoBox && !scene._playerInfo && gameState.playerData && gameState.position) {
+          scene.createPlayerInfoBox(gameState.playerData, gameState.position);
+        }
+
         // Restore played cards in current trick via TrickManager
         if (data.playedCards && data.playedCards.length > 0 && scene.trickManager) {
           scene.trickManager.restorePlayedCards(data.playedCards);
@@ -1685,6 +1693,43 @@ function initializeApp() {
       // Call scene handler for any additional rejoin logic
       if (scene && scene.handleRejoinSuccess) {
         scene.handleRejoinSuccess(data);
+      }
+
+      // Handle lazy mode — player is spectating while bot plays their hand
+      if (data.isLazy) {
+        gameState.isLazy = true;
+
+        // Disable card interaction
+        if (scene.cardManager) {
+          scene.cardManager.setInteractive(false);
+        }
+
+        // Hide bid UI if it was shown
+        if (scene.bidManager) {
+          scene.bidManager.hideBidUI();
+        }
+
+        // Show spectating indicator
+        let indicator = document.getElementById('spectating-indicator');
+        if (!indicator) {
+          indicator = document.createElement('div');
+          indicator.id = 'spectating-indicator';
+          indicator.style.cssText = `
+            position: fixed;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.8);
+            color: #4ade80;
+            padding: 8px 20px;
+            border-radius: 20px;
+            font-size: 14px;
+            z-index: 500;
+            border: 1px solid #4ade80;
+          `;
+          indicator.textContent = 'Spectating — type /active to take back control';
+          document.body.appendChild(indicator);
+        }
       }
     };
 
@@ -2696,6 +2741,7 @@ function initializeApp() {
       // Spectator → active player transition
       // Clean up spectator view, restart scene, then reuse the rejoin path
       gameState.isSpectator = false;
+      gameState.isLazy = false;
 
       // Remove spectating indicator
       const indicator = document.getElementById('spectating-indicator');
@@ -2720,6 +2766,8 @@ function initializeApp() {
         if (scene.clearPlayerInfo) scene.clearPlayerInfo();
         if (scene.layoutManager) scene.layoutManager.cleanupDomBackgrounds();
         scene.children.removeAll(true);
+        // Null out cardManager so waitForScene won't resolve until create() re-runs
+        scene.cardManager = null;
         scene.scene.restart();
       }
 
