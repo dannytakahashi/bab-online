@@ -696,6 +696,7 @@ export class GameScene extends Phaser.Scene {
       opp2: { x: Math.min(screenWidth - 130, centerX + 550 * scaleX), y: centerY - 40 },
       partner: { x: centerX, y: centerY - 400 * scaleY },
       me: { x: window.innerWidth - 405, y: window.innerHeight - 230 },
+      bottom: { x: centerX, y: centerY + 400 * scaleY },
     };
 
     const pos = positions[positionKey];
@@ -972,17 +973,12 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Update turn glow
-    if (this.cardManager) {
+    const isPureSpectator = this.state.isSpectator && !this.state.isLazy;
+    if (this.cardManager && !isPureSpectator) {
       this.cardManager.updatePlayerTurnGlow(this.state.currentTurn, this.state.position);
     }
     if (this.opponentManager) {
-      this.opponentManager.removeTurnGlow();
-      if (this.state.currentTurn !== this.state.position) {
-        const opponentKey = this.getPositionKey(this.state.currentTurn);
-        if (opponentKey && opponentKey !== 'me') {
-          this.opponentManager.addTurnGlow(opponentKey);
-        }
-      }
+      this.opponentManager.updateTurnGlow(this.state.currentTurn);
     }
 
     // Delegate to callback for additional handling
@@ -998,21 +994,16 @@ export class GameScene extends Phaser.Scene {
 
     const currentTurn = data.currentTurn;
     const myPosition = this.state.position;
+    const isPureSpectator = this.state.isSpectator && !this.state.isLazy;
 
-    // Update turn glow for player's hand
-    if (this.cardManager) {
+    // Update turn glow for player's hand (skip for pure spectators — no hand area)
+    if (this.cardManager && !isPureSpectator) {
       this.cardManager.updatePlayerTurnGlow(currentTurn, myPosition);
     }
 
-    // Update turn glow for opponents
+    // Update turn glow for opponents (OpponentManager handles 'bottom' for spectators)
     if (this.opponentManager) {
-      this.opponentManager.removeTurnGlow();
-      if (currentTurn !== myPosition) {
-        const opponentKey = this.getPositionKey(currentTurn);
-        if (opponentKey && opponentKey !== 'me') {
-          this.opponentManager.addTurnGlow(opponentKey);
-        }
-      }
+      this.opponentManager.updateTurnGlow(currentTurn);
     }
 
     // Update card legality
@@ -1058,7 +1049,11 @@ export class GameScene extends Phaser.Scene {
     const myPosition = this.state.position;
     if (!myPosition) return null;
 
-    if (gamePosition === myPosition) return 'me';
+    if (gamePosition === myPosition) {
+      // Pure spectators see position 1 as 'bottom' opponent slot
+      if (this.state.isSpectator && !this.state.isLazy) return 'bottom';
+      return 'me';
+    }
     if (gamePosition === team(myPosition)) return 'partner';
     if (gamePosition === rotate(myPosition)) return 'opp1';
     if (gamePosition === rotate(rotate(rotate(myPosition)))) return 'opp2';
@@ -1113,8 +1108,10 @@ export class GameScene extends Phaser.Scene {
     // Get position key for the player who played
     const positionKey = this.getPositionKey(playedPosition);
 
-    // Handle opponent card animation
-    if (playedPosition !== myPosition && this.opponentManager && this.trickManager) {
+    // Handle opponent card animation (includes spectator's view of position 1)
+    const isPureSpectator = this.state.isSpectator && !this.state.isLazy;
+    const isOpponentPlay = playedPosition !== myPosition || isPureSpectator;
+    if (isOpponentPlay && this.opponentManager && this.trickManager) {
       const sprite = this.opponentManager.removeCard(positionKey);
       if (sprite) {
         // Update texture to show the actual card

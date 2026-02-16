@@ -5,6 +5,8 @@
  * Uses DOM elements for better text rendering and simpler styling.
  */
 
+import { getGameState } from '../../state/GameState.js';
+
 /**
  * Base design dimensions for scaling.
  */
@@ -48,6 +50,8 @@ function getTailClass(positionKey) {
   switch (positionKey) {
     case 'partner':
       return 'tail-left'; // Bubble to the right, tail points left toward avatar
+    case 'bottom':
+      return 'tail-down'; // Bubble above, tail points down toward avatar
     case 'opp1':
     case 'opp2':
     case 'me':
@@ -161,6 +165,7 @@ export function getBubblePosition(playerPosition, messagePosition) {
     opp2: { x: Math.min(screenWidth - 130, centerX + 550 * scaleX), y: centerY - 40 },
     partner: { x: centerX, y: centerY - 400 * scaleY },
     me: { x: window.innerWidth - 405, y: window.innerHeight - 300 },
+    bottom: { x: centerX, y: centerY + 400 * scaleY },
   };
 
   // Determine relative position
@@ -172,7 +177,9 @@ export function getBubblePosition(playerPosition, messagePosition) {
   } else if (messagePosition === playerPosition + 2 || messagePosition === playerPosition - 2) {
     positionKey = 'partner';
   } else if (messagePosition === playerPosition) {
-    positionKey = 'me';
+    // Pure spectators see their view position as 'bottom'
+    const state = getGameState();
+    positionKey = (state.isSpectator && !state.isLazy) ? 'bottom' : 'me';
   }
 
   if (!positionKey) return null;
@@ -214,6 +221,7 @@ export function repositionBubbles(playerPosition) {
       opp2: { x: Math.min(screenWidth - 130, centerX + 550 * scaleX), y: centerY - 40 },
       partner: { x: centerX, y: centerY - 400 * scaleY },
       me: { x: window.innerWidth - 405, y: window.innerHeight - 300 },
+      bottom: { x: centerX, y: centerY + 400 * scaleY },
     };
 
     const pos = positions[positionKey];
