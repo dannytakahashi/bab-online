@@ -25,15 +25,15 @@ bab-online/
 │   │   ├── rules/                  # legality.js - card play validation
 │   │   ├── state/                  # GameState.js - client state singleton
 │   │   ├── socket/                 # SocketManager.js - connection management
-│   │   ├── handlers/               # Socket event handlers (auth, game, chat, lobby)
+│   │   ├── handlers/               # Socket event handlers (auth, game, chat, lobby, profile, leaderboard)
 │   │   ├── phaser/
 │   │   │   ├── PhaserGame.js       # Game instance wrapper
 │   │   │   ├── scenes/GameScene.js # Main game scene
 │   │   │   └── managers/           # Card, Trick, Opponent, Effects, Draw, Bid, Layout
 │   │   └── ui/
 │   │       ├── UIManager.js        # DOM lifecycle management
-│   │       ├── components/         # Modal, Toast, BidUI, GameLog, ChatBubble, ScoreModal
-│   │       └── screens/            # SignIn, Register, MainRoom, GameLobby
+│   │       ├── components/         # Modal, Toast, BidUI, GameLog, ChatBubble, ScoreModal, PlayerQueue
+│   │       └── screens/            # SignIn, Register, MainRoom, GameLobby, ProfilePage, LeaderboardPage
 │   ├── styles/components.css       # All UI styles
 │   └── assets/                     # Card images, backgrounds
 ├── server/
@@ -66,6 +66,7 @@ bab-online/
 │   └── database.js                 # MongoDB connection
 ├── docs/
 │   ├── RULES.md                    # Complete game rules
+│   ├── bot-strategy-guide.md       # Bot strategy reference
 │   └── todos/                      # Improvement roadmap
 └── scripts/build-atlas.js          # Sprite atlas builder
 ```
@@ -94,9 +95,9 @@ bab-online/
 
 ## Key Socket Events
 
-**Client → Server**: `signIn`, `signUp`, `joinMainRoom`, `mainRoomChat`, `createLobby`, `joinLobby`, `playerReady`, `lobbyChat`, `leaveLobby`, `addBot`, `removeBot`, `draw`, `playerBid`, `playCard`, `chatMessage`, `rejoinGame`, `forceResign`, `joinAsSpectator`
+**Client → Server**: `signIn`, `signUp`, `joinMainRoom`, `mainRoomChat`, `createLobby`, `joinLobby`, `playerReady`, `lobbyChat`, `leaveLobby`, `addBot`, `removeBot`, `draw`, `playerBid`, `playCard`, `chatMessage`, `rejoinGame`, `forceResign`, `joinAsSpectator`, `getProfile`, `updateProfilePic`, `getLeaderboard`
 
-**Server → Client**: `mainRoomJoined`, `mainRoomMessage`, `lobbiesUpdated`, `lobbyCreated`, `lobbyJoined`, `playerReadyUpdate`, `lobbyMessage`, `lobbyPlayerLeft`, `allPlayersReady`, `startDraw`, `playerDrew`, `youDrew`, `teamsAnnounced`, `positionUpdate`, `createUI`, `gameStart`, `bidReceived`, `doneBidding`, `cardPlayed`, `updateTurn`, `trickComplete`, `handComplete`, `gameEnd`, `rainbow`, `rejoinSuccess`, `rejoinFailed`, `playerDisconnected`, `playerReconnected`, `activeGameFound`, `resignationAvailable`, `playerResigned`, `playerLazyMode`, `playerActiveMode`, `gameLogEntry`, `leftGame`, `spectatorJoined`
+**Server → Client**: `mainRoomJoined`, `mainRoomMessage`, `lobbiesUpdated`, `lobbyCreated`, `lobbyJoined`, `playerReadyUpdate`, `lobbyMessage`, `lobbyPlayerLeft`, `allPlayersReady`, `startDraw`, `playerDrew`, `youDrew`, `teamsAnnounced`, `positionUpdate`, `createUI`, `gameStart`, `bidReceived`, `doneBidding`, `cardPlayed`, `updateTurn`, `trickComplete`, `handComplete`, `gameEnd`, `rainbow`, `rejoinSuccess`, `rejoinFailed`, `playerDisconnected`, `playerReconnected`, `activeGameFound`, `resignationAvailable`, `playerResigned`, `playerLazyMode`, `playerActiveMode`, `gameLogEntry`, `leftGame`, `spectatorJoined`, `profileResponse`, `leaderboardResponse`, `restorePlayerState`
 
 ## Disconnection, Resignation & Bot Takeover
 
@@ -135,7 +136,8 @@ Players can join in-progress games from the main room lobby panel:
 - `MainRoom.js` shows in-progress games (from `gameManager.getInProgressGames()`) with "Spectate" button
 - `joinAsSpectator` event → server sends full game state (no hand data) → client sets up read-only view
 - Spectators see tricks, bids, scores, game log; can chat (marked as spectator)
-- `/leave` exits spectator to main lobby; `/lazy` and `/active` are blocked for spectators
+- Pure spectators only see `/leave` in autocomplete; `/lazy` and `/active` are silently ignored
+- Lazy-mode players who used `/leave` and rejoined as spectators still see `/active` and `/leave`
 - All `lobbiesUpdated` emissions include `inProgressGames` for the main room display
 
 ## Server Game State (`server/game/GameState.js`)

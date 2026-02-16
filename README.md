@@ -184,7 +184,7 @@ Type these in the game log chat input (autocomplete appears when you type `/`):
 
 ### Spectating
 
-Browse in-progress games in the main room lobby panel and click **Spectate** to watch. Spectators can see tricks, bids, scores, and chat — but not player hands. Type `/leave` to exit back to the lobby.
+Browse in-progress games in the main room lobby panel and click **Spectate** to watch. Spectators can see tricks, bids, scores, and chat — but not player hands. Spectators only see `/leave` in autocomplete; `/lazy` and `/active` are silently ignored.
 
 ### Disconnection & Resignation
 
