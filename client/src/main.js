@@ -2027,8 +2027,9 @@ function initializeApp() {
       // If this is the full game state (not just a notification about another spectator)
       if (data.players && data.trump) {
         try {
-        // Remove main room UI
+        // Remove main room and tournament lobby UI
         removeMainRoom();
+        removeTournamentLobby();
 
         // Mark as spectator in game state
         gameState.isSpectator = true;
