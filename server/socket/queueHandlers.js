@@ -78,10 +78,22 @@ async function handleDisconnect(socket, io) {
     socket.leave('mainRoom');
 
     // Notify main room of player leaving and update lobby list
-    if (result.wasInMainRoom || result.wasInLobby) {
+    if (result.wasInMainRoom || result.wasInLobby || result.wasInTournament) {
         io.to('mainRoom').emit('lobbiesUpdated', {
             lobbies: gameManager.getAllLobbies(),
-            inProgressGames: gameManager.getInProgressGames()
+            inProgressGames: gameManager.getInProgressGames(),
+            tournaments: gameManager.getAllTournaments()
+        });
+    }
+
+    // If player was in a tournament lobby, notify remaining players
+    if (result.wasInTournament && result.tournamentResult && !result.tournamentResult.deleted) {
+        const tournament = result.tournamentResult.tournament;
+        const user = gameManager.getUserBySocketId(socket.id);
+        tournament.broadcast(io, 'tournamentPlayerLeft', {
+            username: user?.username || 'Unknown',
+            players: tournament.getClientState().players,
+            newCreator: result.tournamentResult.newCreator ? result.tournamentResult.newCreator.username : null
         });
     }
 

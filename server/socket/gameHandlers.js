@@ -742,16 +742,83 @@ async function handleHandComplete(game, io) {
             };
         }
 
+        // Check for tournament context
+        const tournamentId = gameManager.tournamentGames.get(game.gameId);
+
         game.broadcast(io, 'gameEnd', {
             score: game.score,
-            playerStats: playerStatsWithNames
+            playerStats: playerStatsWithNames,
+            tournamentId: tournamentId || null
         });
+
         // Clear active game for all players
         await gameManager.clearActiveGameForAll(game.gameId);
+
+        // Tournament-specific: record scores and check round completion
+        if (tournamentId) {
+            const tournament = gameManager.getTournamentById(tournamentId);
+            if (tournament) {
+                // Record each human tournament player's team score
+                for (let pos = 1; pos <= 4; pos++) {
+                    const player = game.getOriginalPlayer(pos);
+                    if (!player || !player.username) continue;
+
+                    // Only record scores for players in the tournament (not filler bots)
+                    const tournamentPlayer = tournament.getPlayerByUsername(player.username);
+                    if (!tournamentPlayer) continue;
+
+                    const isTeam1 = (pos === 1 || pos === 3);
+                    const teamScore = isTeam1 ? game.score.team1 : game.score.team2;
+                    const oppScore = isTeam1 ? game.score.team2 : game.score.team1;
+                    const partnerPos = pos <= 2 ? pos + 2 : pos - 2;
+                    const partner = game.getOriginalPlayer(partnerPos);
+
+                    tournament.recordPlayerRoundScore(player.username, {
+                        roundNumber: tournament.currentRound,
+                        gameId: game.gameId,
+                        position: pos,
+                        teamScore,
+                        oppScore,
+                        partner: partner?.username || 'Bot'
+                    });
+                }
+
+                // Handle tournament game end (mark complete, check round)
+                const result = gameManager.handleTournamentGameEnd(game.gameId);
+
+                // Broadcast game complete to tournament room
+                tournament.broadcast(io, 'tournamentGameComplete', {
+                    gameId: game.gameId,
+                    score: game.score,
+                    activeGames: tournament.getActiveGames(),
+                    scoreboard: tournament.getScoreboard(),
+                    currentRound: tournament.currentRound,
+                    totalRounds: tournament.totalRounds
+                });
+
+                if (result && result.roundComplete) {
+                    if (tournament.isTournamentComplete()) {
+                        // Tournament is complete
+                        tournament.broadcast(io, 'tournamentComplete', {
+                            scoreboard: tournament.getScoreboard()
+                        });
+                        await gameManager.clearActiveTournamentForAll(tournament.tournamentId);
+                    } else {
+                        // Round complete, waiting for next round
+                        tournament.broadcast(io, 'tournamentRoundComplete', {
+                            scoreboard: tournament.getScoreboard(),
+                            currentRound: tournament.currentRound,
+                            totalRounds: tournament.totalRounds
+                        });
+                    }
+                }
+            }
+        }
+
         // Cleanup bots
         botController.cleanupGame(game.gameId);
         game.leaveAllFromRoom(io);
-        // Clear playerGames Map entries so players can create new lobbies
+        // Clear playerGames Map entries so players can create new lobbies/return to tournament
         gameManager.endGame(game.gameId);
         game.resetForNewGame();
     } else {

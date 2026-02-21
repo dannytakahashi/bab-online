@@ -9,8 +9,10 @@ import { showSignInScreen } from './screens/SignIn.js';
 import { showRegisterScreen } from './screens/Register.js';
 import { showMainRoom, removeMainRoom } from './screens/MainRoom.js';
 import { showGameLobby, removeGameLobby } from './screens/GameLobby.js';
+import { showTournamentLobby, removeTournamentLobby } from './screens/TournamentLobby.js';
 import { removePlayerQueue } from './components/PlayerQueue.js';
 import { removeFinalScoreOverlay } from './components/ScoreModal.js';
+import { removeTournamentResultsOverlay } from './components/TournamentScoreboard.js';
 
 /**
  * Available screen types.
@@ -21,6 +23,7 @@ export const SCREENS = {
   REGISTER: 'register',
   MAIN_ROOM: 'mainRoom',
   GAME_LOBBY: 'gameLobby',
+  TOURNAMENT_LOBBY: 'tournamentLobby',
   GAME: 'game',
 };
 
@@ -39,6 +42,7 @@ class UIManager {
       [SCREENS.REGISTER]: this._cleanupRegister.bind(this),
       [SCREENS.MAIN_ROOM]: this._cleanupMainRoom.bind(this),
       [SCREENS.GAME_LOBBY]: this._cleanupGameLobby.bind(this),
+      [SCREENS.TOURNAMENT_LOBBY]: this._cleanupTournamentLobby.bind(this),
       [SCREENS.GAME]: this._cleanupGame.bind(this),
     };
   }
@@ -100,6 +104,9 @@ class UIManager {
       case SCREENS.GAME_LOBBY:
         this._showGameLobby(data);
         break;
+      case SCREENS.TOURNAMENT_LOBBY:
+        this._showTournamentLobby(data);
+        break;
       case SCREENS.GAME:
         this._showGame(data);
         break;
@@ -149,6 +156,14 @@ class UIManager {
     showGameLobby(data, this._socket, this._username);
   }
 
+  _showTournamentLobby(data) {
+    if (!this._socket) {
+      console.warn('UIManager: Socket not initialized');
+      return;
+    }
+    showTournamentLobby(data, this._socket, this._username);
+  }
+
   _showGame(data) {
     // Game screen is managed by Phaser, just clean up other UI
     this._cleanupAllOverlays();
@@ -182,6 +197,10 @@ class UIManager {
     removeGameLobby();
   }
 
+  _cleanupTournamentLobby() {
+    removeTournamentLobby();
+  }
+
   _cleanupGame() {
     // Remove game-specific UI elements
     const gameFeed = document.getElementById('gameFeed');
@@ -207,8 +226,10 @@ class UIManager {
   _cleanupAllOverlays() {
     removeMainRoom();
     removeGameLobby();
+    removeTournamentLobby();
     removePlayerQueue();
     removeFinalScoreOverlay();
+    removeTournamentResultsOverlay();
 
     // Remove vignettes
     document.querySelectorAll('.vignette').forEach((el) => el.remove());

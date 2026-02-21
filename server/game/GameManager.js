@@ -5,6 +5,7 @@
 
 const { v4: uuidv4 } = require('uuid');
 const GameState = require('./GameState');
+const TournamentState = require('./TournamentState');
 const { getUsersCollection } = require('../database');
 const { botController, BotPlayer, personalities } = require('./bot');
 const { PERSONALITY_LIST } = personalities;
@@ -29,6 +30,11 @@ class GameManager {
 
         // Current users (logged in)
         this.currentUsers = [];        // [{ username, socketId }, ...]
+
+        // Tournaments
+        this.tournaments = new Map();       // tournamentId → TournamentState
+        this.playerTournaments = new Map();  // socketId → tournamentId
+        this.tournamentGames = new Map();    // gameId → tournamentId
     }
 
     // Constants
@@ -731,6 +737,18 @@ class GameManager {
             };
         }
 
+        // Handle tournament lobby disconnect (not in a game)
+        let wasInTournament = false;
+        let tournamentResult = null;
+        const tournamentId = this.playerTournaments.get(socketId);
+        if (tournamentId) {
+            const tournament = this.tournaments.get(tournamentId);
+            if (tournament && (tournament.phase === 'lobby' || tournament.phase === 'between_rounds')) {
+                tournamentResult = this.leaveTournament(socketId);
+                wasInTournament = true;
+            }
+        }
+
         // Handle spectator disconnect — remove from any game they're spectating
         for (const [, game] of this.games) {
             if (game.isSpectator(socketId)) {
@@ -739,10 +757,22 @@ class GameManager {
             }
         }
 
+        // Handle tournament spectator disconnect
+        for (const [, tournament] of this.tournaments) {
+            if (tournament.isSpectator(socketId)) {
+                tournament.removeSpectator(socketId);
+                break;
+            }
+        }
+
         // Only remove from currentUsers if not in a game
         this.currentUsers = this.currentUsers.filter(u => u.socketId !== socketId);
 
-        return { wasInLobby, wasInMainRoom, wasInGame: false, lobby: lobbyResult.lobby };
+        return {
+            wasInLobby, wasInMainRoom, wasInGame: false,
+            wasInTournament, tournamentResult,
+            lobby: lobbyResult.lobby
+        };
     }
 
     /**
@@ -896,6 +926,199 @@ class GameManager {
         for (const [socketId, player] of game.players.entries()) {
             if (player.username) {
                 await this.clearActiveGame(player.username);
+            }
+        }
+    }
+
+    // ==================== TOURNAMENT METHODS ====================
+
+    /**
+     * Create a new tournament
+     */
+    createTournament(socketId, name) {
+        const user = this.getUserBySocketId(socketId);
+        if (!user) return { success: false, error: 'User not found' };
+
+        // Check if already in a tournament
+        if (this.playerTournaments.has(socketId)) {
+            return { success: false, error: 'Already in a tournament' };
+        }
+
+        const tournamentId = uuidv4();
+        const tournament = new TournamentState(tournamentId, name, socketId, user.username);
+        tournament.addPlayer(socketId, user.username, null);
+
+        this.tournaments.set(tournamentId, tournament);
+        this.playerTournaments.set(socketId, tournamentId);
+
+        // Leave main room
+        this.leaveMainRoom(socketId);
+
+        return { success: true, tournament };
+    }
+
+    /**
+     * Join an existing tournament
+     */
+    joinTournament(socketId, tournamentId) {
+        const user = this.getUserBySocketId(socketId);
+        if (!user) return { success: false, error: 'User not found' };
+
+        if (this.playerTournaments.has(socketId)) {
+            return { success: false, error: 'Already in a tournament' };
+        }
+
+        const tournament = this.tournaments.get(tournamentId);
+        if (!tournament) return { success: false, error: 'Tournament not found' };
+
+        if (tournament.phase !== 'lobby' && tournament.phase !== 'between_rounds') {
+            return { success: false, error: 'Tournament is not accepting players' };
+        }
+
+        tournament.addPlayer(socketId, user.username, null);
+        this.playerTournaments.set(socketId, tournamentId);
+
+        // Leave main room
+        this.leaveMainRoom(socketId);
+
+        return { success: true, tournament };
+    }
+
+    /**
+     * Remove player from tournament
+     * @returns {{ success: boolean, tournament?: TournamentState, deleted?: boolean, newCreator?: Object }}
+     */
+    leaveTournament(socketId) {
+        const tournamentId = this.playerTournaments.get(socketId);
+        if (!tournamentId) return { success: false, error: 'Not in a tournament' };
+
+        const tournament = this.tournaments.get(tournamentId);
+        if (!tournament) {
+            this.playerTournaments.delete(socketId);
+            return { success: false, error: 'Tournament not found' };
+        }
+
+        const wasCreator = tournament.createdBy === socketId;
+        tournament.removePlayer(socketId);
+        this.playerTournaments.delete(socketId);
+
+        // If no players left, delete tournament
+        if (tournament.players.size === 0) {
+            this.tournaments.delete(tournamentId);
+            return { success: true, deleted: true, tournament };
+        }
+
+        // Transfer creator if needed
+        let newCreator = null;
+        if (wasCreator) {
+            newCreator = tournament.transferCreator();
+        }
+
+        return { success: true, tournament, newCreator };
+    }
+
+    /**
+     * Get the tournament a player is in
+     */
+    getPlayerTournament(socketId) {
+        const tournamentId = this.playerTournaments.get(socketId);
+        return tournamentId ? this.tournaments.get(tournamentId) : null;
+    }
+
+    /**
+     * Get tournament by ID
+     */
+    getTournamentById(tournamentId) {
+        return this.tournaments.get(tournamentId) || null;
+    }
+
+    /**
+     * Get all tournaments for main room display
+     */
+    getAllTournaments() {
+        const result = [];
+        for (const [tournamentId, t] of this.tournaments) {
+            result.push({
+                id: tournamentId,
+                name: t.name,
+                playerCount: t.players.size,
+                phase: t.phase,
+                currentRound: t.currentRound,
+                totalRounds: t.totalRounds,
+                creatorUsername: t.creatorUsername
+            });
+        }
+        return result;
+    }
+
+    /**
+     * Handle tournament game end — record scores, check round completion
+     * @returns {{ roundComplete: boolean, tournament: TournamentState } | null}
+     */
+    handleTournamentGameEnd(gameId) {
+        const tournamentId = this.tournamentGames.get(gameId);
+        if (!tournamentId) return null;
+
+        const tournament = this.tournaments.get(tournamentId);
+        if (!tournament) return null;
+
+        tournament.markGameComplete(gameId);
+
+        // Clean up game→tournament mapping
+        this.tournamentGames.delete(gameId);
+
+        const roundComplete = tournament.isRoundComplete();
+        if (roundComplete) {
+            tournament.completeRound();
+        }
+
+        return { roundComplete, tournament };
+    }
+
+    /**
+     * Set active tournament for a user in the database
+     */
+    async setActiveTournament(username, tournamentId) {
+        try {
+            const usersCollection = getUsersCollection();
+            if (!usersCollection) return;
+
+            await usersCollection.updateOne(
+                { username },
+                { $set: { activeTournamentId: tournamentId } }
+            );
+        } catch (error) {
+            console.error('Failed to set active tournament:', error);
+        }
+    }
+
+    /**
+     * Clear active tournament for a user in the database
+     */
+    async clearActiveTournament(username) {
+        try {
+            const usersCollection = getUsersCollection();
+            if (!usersCollection) return;
+
+            await usersCollection.updateOne(
+                { username },
+                { $unset: { activeTournamentId: '' } }
+            );
+        } catch (error) {
+            console.error('Failed to clear active tournament:', error);
+        }
+    }
+
+    /**
+     * Clear active tournament for all players in a tournament
+     */
+    async clearActiveTournamentForAll(tournamentId) {
+        const tournament = this.tournaments.get(tournamentId);
+        if (!tournament) return;
+
+        for (const [, player] of tournament.players) {
+            if (player.username) {
+                await this.clearActiveTournament(player.username);
             }
         }
     }

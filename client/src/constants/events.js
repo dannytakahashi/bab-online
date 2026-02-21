@@ -31,6 +31,19 @@ export const CLIENT_EVENTS = {
   FORCE_RESIGN: 'forceResign',
   JOIN_AS_SPECTATOR: 'joinAsSpectator',
 
+  // Tournament
+  CREATE_TOURNAMENT: 'createTournament',
+  JOIN_TOURNAMENT: 'joinTournament',
+  LEAVE_TOURNAMENT: 'leaveTournament',
+  TOURNAMENT_READY: 'tournamentReady',
+  TOURNAMENT_UNREADY: 'tournamentUnready',
+  BEGIN_TOURNAMENT: 'beginTournament',
+  BEGIN_NEXT_ROUND: 'beginNextRound',
+  TOURNAMENT_CHAT: 'tournamentChat',
+  SPECTATE_TOURNAMENT: 'spectateTournament',
+  SPECTATE_TOURNAMENT_GAME: 'spectateTournamentGame',
+  RETURN_TO_TOURNAMENT: 'returnToTournament',
+
   // Profile
   GET_PROFILE: 'getProfile',
   UPDATE_PROFILE_PIC: 'updateProfilePic',
@@ -118,4 +131,19 @@ export const SERVER_EVENTS = {
 
   // Leaderboard
   LEADERBOARD_RESPONSE: 'leaderboardResponse',
+
+  // Tournament
+  TOURNAMENT_CREATED: 'tournamentCreated',
+  TOURNAMENT_JOINED: 'tournamentJoined',
+  TOURNAMENT_PLAYER_JOINED: 'tournamentPlayerJoined',
+  TOURNAMENT_PLAYER_LEFT: 'tournamentPlayerLeft',
+  TOURNAMENT_READY_UPDATE: 'tournamentReadyUpdate',
+  TOURNAMENT_MESSAGE: 'tournamentMessage',
+  TOURNAMENT_ROUND_START: 'tournamentRoundStart',
+  TOURNAMENT_GAME_ASSIGNMENT: 'tournamentGameAssignment',
+  TOURNAMENT_GAME_COMPLETE: 'tournamentGameComplete',
+  TOURNAMENT_ROUND_COMPLETE: 'tournamentRoundComplete',
+  TOURNAMENT_COMPLETE: 'tournamentComplete',
+  TOURNAMENT_LEFT: 'tournamentLeft',
+  ACTIVE_TOURNAMENT_FOUND: 'activeTournamentFound',
 };

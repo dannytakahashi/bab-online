@@ -32,6 +32,8 @@ import { showMainRoom, addMainRoomChatMessage, updateLobbyList, removeMainRoom, 
 import { showGameLobby, updateLobbyPlayersList, addLobbyChatMessage, removeGameLobby, getCurrentLobbyId, getIsPlayerReady, getLobbyUserColors } from './ui/screens/GameLobby.js';
 import { showProfilePage, updateProfilePicDisplay, updateCustomProfilePicDisplay, removeProfilePage, isProfilePageVisible } from './ui/screens/ProfilePage.js';
 import { showLeaderboardPage, removeLeaderboardPage, isLeaderboardPageVisible } from './ui/screens/LeaderboardPage.js';
+import { showTournamentLobby, removeTournamentLobby, addTournamentChatMessage, updateTournamentPlayers, updateTournamentScoreboardUI, updateTournamentRoundIndicator, updateTournamentActiveGames, setTournamentPhase } from './ui/screens/TournamentLobby.js';
+import { showTournamentResultsOverlay, removeTournamentResultsOverlay } from './ui/components/TournamentScoreboard.js';
 import { UIManager, SCREENS, getUIManager, initializeUIManager, resetUIManager } from './ui/UIManager.js';
 
 // Phaser
@@ -1861,6 +1863,10 @@ function initializeApp() {
         console.log(`Active game found: ${data.activeGameId}, attempting to rejoin...`);
         sessionStorage.setItem('gameId', data.activeGameId);
         socket.emit('rejoinGame', { gameId: data.activeGameId, username: data.username });
+      } else if (data.activeTournamentId) {
+        console.log(`Active tournament found: ${data.activeTournamentId}, rejoining...`);
+        gameState.tournamentId = data.activeTournamentId;
+        socket.emit('joinTournament', { tournamentId: data.activeTournamentId });
       } else {
         // Go to main room
         socket.emit('joinMainRoom');
@@ -1959,7 +1965,7 @@ function initializeApp() {
       addMainRoomChatMessage(data.username, data.message);
     },
     onLobbiesUpdated: (data) => {
-      updateLobbyList(data.lobbies, socket, data.inProgressGames);
+      updateLobbyList(data.lobbies, socket, data.inProgressGames, data.tournaments);
     },
     onMainRoomPlayerJoined: (data) => {
       updateMainRoomOnlineCount(data.onlineCount);
@@ -2021,8 +2027,9 @@ function initializeApp() {
       // If this is the full game state (not just a notification about another spectator)
       if (data.players && data.trump) {
         try {
-        // Remove main room UI
+        // Remove main room and tournament lobby UI
         removeMainRoom();
+        removeTournamentLobby();
 
         // Mark as spectator in game state
         gameState.isSpectator = true;
@@ -2354,8 +2361,9 @@ function initializeApp() {
     // Draw phase - handled by DrawManager
     onStartDraw: (data) => {
       console.log('🎴 onStartDraw callback');
-      // Remove waiting screen
+      // Remove waiting screen and tournament lobby
       uiManager.removeWaitingScreen();
+      removeTournamentLobby();
 
       // Use DrawManager via scene handler
       const scene = getGameScene();
@@ -2383,10 +2391,11 @@ function initializeApp() {
     },
     onCreateUI: (data) => {
       console.log('🎨 onCreateUI callback');
-      // Remove waiting screen and lobby/main room UI
+      // Remove waiting screen and lobby/main room/tournament UI
       uiManager.removeWaitingScreen();
       removeMainRoom();
       removeGameLobby();
+      removeTournamentLobby();
 
       // Clean up draw phase via DrawManager with fade transition
       const scene = getGameScene();
@@ -2544,11 +2553,16 @@ function initializeApp() {
       const { teamName, oppName } = getTeamNames(position, playerData);
       window.updateGameLogScoreFromLegacy(teamName, oppName, teamScore, oppScore);
 
+      // Determine return flow: tournament game returns to tournament, normal game to main room
+      const isTournamentGame = !!data.tournamentId || !!gameState.tournamentId;
+      const savedTournamentId = data.tournamentId || gameState.tournamentId;
+
       // Show final score overlay
       showFinalScoreOverlay({
         teamScore: teamScore,
         oppScore: oppScore,
         playerStats: data.playerStats,
+        buttonText: isTournamentGame ? 'Return to Tournament' : undefined,
         onReturnToLobby: () => {
           // Remove game feed/log
           let gameFeed = document.getElementById("gameFeed");
@@ -2583,8 +2597,15 @@ function initializeApp() {
             scene.scene.restart();
           }
           // Reset game state for next game
+          const tournamentId = savedTournamentId;
           resetGameState();
-          socket.emit("joinMainRoom");
+
+          if (isTournamentGame && tournamentId) {
+            gameState.tournamentId = tournamentId;
+            socket.emit("returnToTournament");
+          } else {
+            socket.emit("joinMainRoom");
+          }
         }
       });
 
@@ -2930,6 +2951,91 @@ function initializeApp() {
     onLeaderboardError: (message) => {
       showError(message || 'Failed to load leaderboard');
     },
+
+    // Tournament callbacks
+    onTournamentCreated: (data) => {
+      gameState.tournamentId = data.tournamentId;
+      removeMainRoom();
+      uiManager.showScreen(SCREENS.TOURNAMENT_LOBBY, data);
+    },
+
+    onTournamentJoined: (data) => {
+      gameState.tournamentId = data.tournamentId;
+      removeMainRoom();
+      uiManager.showScreen(SCREENS.TOURNAMENT_LOBBY, data);
+    },
+
+    onTournamentPlayerJoined: (data) => {
+      updateTournamentPlayers(data.players, gameState.username);
+    },
+
+    onTournamentPlayerLeft: (data) => {
+      updateTournamentPlayers(data.players, gameState.username);
+      if (data.newCreator) {
+        showInfo(`${data.newCreator} is now the tournament host`);
+      }
+    },
+
+    onTournamentReadyUpdate: (data) => {
+      updateTournamentPlayers(data.players, gameState.username);
+    },
+
+    onTournamentMessage: (data) => {
+      addTournamentChatMessage(data.username, data.message, data.isSpectator);
+    },
+
+    onTournamentRoundStart: (data) => {
+      updateTournamentRoundIndicator(data.roundNumber, data.totalRounds);
+      setTournamentPhase('round_active');
+    },
+
+    onTournamentGameAssignment: (data) => {
+      // Store tournament context for game end flow
+      gameState.tournamentId = data.tournamentId;
+      console.log(`Assigned to tournament game: ${data.gameId} (round ${data.roundNumber})`);
+    },
+
+    onTournamentGameComplete: (data) => {
+      // Update active games in tournament lobby (if visible)
+      if (data.activeGames) {
+        updateTournamentActiveGames(data.activeGames, socket);
+      }
+      if (data.scoreboard) {
+        updateTournamentScoreboardUI(data.scoreboard, data.currentRound, data.totalRounds);
+      }
+    },
+
+    onTournamentRoundComplete: (data) => {
+      setTournamentPhase('between_rounds');
+      if (data.scoreboard) {
+        updateTournamentScoreboardUI(data.scoreboard, data.currentRound, data.totalRounds);
+      }
+      updateTournamentRoundIndicator(data.currentRound, data.totalRounds);
+    },
+
+    onTournamentComplete: (data) => {
+      const winner = data.scoreboard && data.scoreboard.length > 0
+        ? data.scoreboard[0].username : null;
+      showTournamentResultsOverlay({
+        scoreboard: data.scoreboard,
+        winner,
+        onReturn: () => {
+          gameState.tournamentId = null;
+          removeTournamentLobby();
+          socket.emit('joinMainRoom');
+        }
+      });
+    },
+
+    onTournamentLeft: () => {
+      gameState.tournamentId = null;
+      removeTournamentLobby();
+    },
+
+    onActiveTournamentFound: (data) => {
+      gameState.tournamentId = data.tournamentId;
+      uiManager.showScreen(SCREENS.TOURNAMENT_LOBBY, data);
+    },
   });
 
   // Note: window.socket and window.socketManager are already set at module level above
@@ -3047,6 +3153,10 @@ socket.on('restoreSessionResponse', (data) => {
       console.log(`Active game found: ${data.activeGameId}, attempting to rejoin...`);
       sessionStorage.setItem('gameId', data.activeGameId);
       socket.emit('rejoinGame', { gameId: data.activeGameId, username: data.username });
+    } else if (data.activeTournamentId) {
+      console.log(`Active tournament found: ${data.activeTournamentId}, rejoining...`);
+      gameState.tournamentId = data.activeTournamentId;
+      socket.emit('joinTournament', { tournamentId: data.activeTournamentId });
     } else {
       // Go to main room
       console.log('Session restored, joining main room');

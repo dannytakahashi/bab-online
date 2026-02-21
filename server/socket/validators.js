@@ -82,6 +82,19 @@ const schemas = {
 
     uploadProfilePic: Joi.object({
         imageData: Joi.string().required()
+    }),
+
+    // Tournament
+    joinTournament: Joi.object({
+        tournamentId: Joi.string().uuid().required()
+    }),
+
+    spectateTournament: Joi.object({
+        tournamentId: Joi.string().uuid().required()
+    }),
+
+    spectateTournamentGame: Joi.object({
+        gameId: Joi.string().uuid().required()
     })
 };
 
