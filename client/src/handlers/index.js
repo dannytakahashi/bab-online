@@ -11,6 +11,7 @@ import { registerGameHandlers, cleanupGameHandlers as cleanupGame } from './game
 import { registerChatHandlers } from './chatHandlers.js';
 import { registerProfileHandlers } from './profileHandlers.js';
 import { registerLeaderboardHandlers } from './leaderboardHandlers.js';
+import { registerTournamentHandlers } from './tournamentHandlers.js';
 
 /**
  * Register all socket event handlers.
@@ -85,6 +86,20 @@ export function registerAllHandlers(socketManager, callbacks = {}) {
     // Leaderboard callbacks
     onLeaderboardReceived,
     onLeaderboardError,
+    // Tournament callbacks
+    onTournamentCreated,
+    onTournamentJoined,
+    onTournamentPlayerJoined,
+    onTournamentPlayerLeft,
+    onTournamentReadyUpdate,
+    onTournamentMessage,
+    onTournamentRoundStart,
+    onTournamentGameAssignment,
+    onTournamentGameComplete,
+    onTournamentRoundComplete,
+    onTournamentComplete,
+    onTournamentLeft,
+    onActiveTournamentFound,
   } = callbacks;
 
   // Register auth handlers
@@ -167,6 +182,23 @@ export function registerAllHandlers(socketManager, callbacks = {}) {
     onLeaderboardReceived,
     onLeaderboardError,
   });
+
+  // Register tournament handlers
+  registerTournamentHandlers(socketManager, {
+    onTournamentCreated,
+    onTournamentJoined,
+    onTournamentPlayerJoined,
+    onTournamentPlayerLeft,
+    onTournamentReadyUpdate,
+    onTournamentMessage,
+    onTournamentRoundStart,
+    onTournamentGameAssignment,
+    onTournamentGameComplete,
+    onTournamentRoundComplete,
+    onTournamentComplete,
+    onTournamentLeft,
+    onActiveTournamentFound,
+  });
 }
 
 /**
@@ -183,3 +215,4 @@ export { registerGameHandlers } from './gameHandlers.js';
 export { registerChatHandlers } from './chatHandlers.js';
 export { registerProfileHandlers } from './profileHandlers.js';
 export { registerLeaderboardHandlers } from './leaderboardHandlers.js';
+export { registerTournamentHandlers } from './tournamentHandlers.js';

@@ -25,7 +25,8 @@ function joinMainRoom(socket, io) {
         messages: result.messages,
         lobbies: result.lobbies,
         onlineCount: result.onlineCount,
-        inProgressGames: gameManager.getInProgressGames()
+        inProgressGames: gameManager.getInProgressGames(),
+        tournaments: gameManager.getAllTournaments()
     });
 
     // Notify others of new player
@@ -102,7 +103,8 @@ function createLobby(socket, io, data) {
     // Notify main room of new lobby
     io.to('mainRoom').emit('lobbiesUpdated', {
         lobbies: gameManager.getAllLobbies(),
-        inProgressGames: gameManager.getInProgressGames()
+        inProgressGames: gameManager.getInProgressGames(),
+        tournaments: gameManager.getAllTournaments()
     });
 
     socketLogger.info('Player created lobby', {
@@ -157,7 +159,8 @@ function joinLobby(socket, io, data) {
     // Notify main room of updated lobbies
     io.to('mainRoom').emit('lobbiesUpdated', {
         lobbies: gameManager.getAllLobbies(),
-        inProgressGames: gameManager.getInProgressGames()
+        inProgressGames: gameManager.getInProgressGames(),
+        tournaments: gameManager.getAllTournaments()
     });
 
     socketLogger.info('Player joined lobby', {
@@ -173,7 +176,7 @@ function joinLobby(socket, io, data) {
 function getLobbies(socket, io) {
     const lobbies = gameManager.getAllLobbies();
     const inProgressGames = gameManager.getInProgressGames();
-    socket.emit('lobbiesUpdated', { lobbies, inProgressGames });
+    socket.emit('lobbiesUpdated', { lobbies, inProgressGames, tournaments: gameManager.getAllTournaments() });
 }
 
 /**

@@ -41,6 +41,7 @@ export class GameState {
 
     // Game info
     this.gameId = null;
+    this.tournamentId = null;
     this.phase = PHASE.NONE;
     this.currentHand = 0;
     this.dealer = null;

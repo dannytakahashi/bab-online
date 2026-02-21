@@ -11,6 +11,7 @@ const gameHandlers = require('./gameHandlers');
 const chatHandlers = require('./chatHandlers');
 const reconnectHandlers = require('./reconnectHandlers');
 const profileHandlers = require('./profileHandlers');
+const tournamentHandlers = require('./tournamentHandlers');
 const { asyncHandler, syncHandler, safeHandler, rateLimiter } = require('./errorHandler');
 const { socketLogger } = require('../utils/logger');
 
@@ -113,6 +114,41 @@ function setupSocketHandlers(io) {
         );
         socket.on('getLeaderboard', () =>
             safeHandler(profileHandlers.getLeaderboard)(socket, io, {})
+        );
+
+        // Tournament events
+        socket.on('createTournament', () =>
+            safeHandler(tournamentHandlers.createTournament)(socket, io, {})
+        );
+        socket.on('joinTournament', (data) =>
+            asyncHandler('joinTournament', tournamentHandlers.joinTournament)(socket, io, data)
+        );
+        socket.on('leaveTournament', () =>
+            safeHandler(tournamentHandlers.leaveTournament)(socket, io, {})
+        );
+        socket.on('tournamentReady', () =>
+            safeHandler(tournamentHandlers.tournamentReady)(socket, io, {})
+        );
+        socket.on('tournamentUnready', () =>
+            safeHandler(tournamentHandlers.tournamentUnready)(socket, io, {})
+        );
+        socket.on('beginTournament', () =>
+            safeHandler(tournamentHandlers.beginTournament)(socket, io, {})
+        );
+        socket.on('beginNextRound', () =>
+            safeHandler(tournamentHandlers.beginNextRound)(socket, io, {})
+        );
+        socket.on('tournamentChat', (data) =>
+            syncHandler('chatMessage', tournamentHandlers.tournamentChat)(socket, io, data)
+        );
+        socket.on('spectateTournament', (data) =>
+            asyncHandler('spectateTournament', tournamentHandlers.spectateTournament)(socket, io, data)
+        );
+        socket.on('spectateTournamentGame', (data) =>
+            asyncHandler('spectateTournamentGame', tournamentHandlers.spectateTournamentGame)(socket, io, data)
+        );
+        socket.on('returnToTournament', () =>
+            safeHandler(tournamentHandlers.returnToTournament)(socket, io, {})
         );
 
         // Disconnect - cleanup rate limiter and handle game state

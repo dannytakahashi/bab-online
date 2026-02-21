@@ -122,7 +122,7 @@ export function formatGameEndMessages(options) {
  * @param {Function} options.onReturnToLobby - Called when user clicks return button
  * @returns {Object} { overlay, destroy }
  */
-export function showFinalScoreOverlay({ teamScore, oppScore, playerStats, onReturnToLobby }) {
+export function showFinalScoreOverlay({ teamScore, oppScore, playerStats, onReturnToLobby, buttonText }) {
   // Determine winner message
   let resultMsg;
   let resultColor;
@@ -241,7 +241,7 @@ export function showFinalScoreOverlay({ teamScore, oppScore, playerStats, onRetu
 
   // Return button
   const returnBtn = document.createElement('button');
-  returnBtn.textContent = 'Return to Lobby';
+  returnBtn.textContent = buttonText || 'Return to Lobby';
   returnBtn.style.cssText = `
     padding: 16px 32px;
     font-size: 18px;

@@ -75,8 +75,26 @@ async function signIn(socket, io, data) {
             if (activeGameId) {
                 await gameManager.clearActiveGame(username);
             }
-            socket.emit('signInResponse', { success: true, username, sessionToken });
-            authLogger.info('User signed in', { username, socketId: socket.id });
+
+            // Check for active tournament
+            const activeTournamentId = user.activeTournamentId;
+            const activeTournament = activeTournamentId ? gameManager.getTournamentById(activeTournamentId) : null;
+
+            if (activeTournament) {
+                socket.emit('signInResponse', {
+                    success: true,
+                    username,
+                    sessionToken,
+                    activeTournamentId
+                });
+                authLogger.info('User signed in with active tournament', { username, socketId: socket.id, tournamentId: activeTournamentId });
+            } else {
+                if (activeTournamentId) {
+                    await gameManager.clearActiveTournament(username);
+                }
+                socket.emit('signInResponse', { success: true, username, sessionToken });
+                authLogger.info('User signed in', { username, socketId: socket.id });
+            }
         }
 
     } catch (error) {
@@ -205,8 +223,25 @@ async function restoreSession(socket, io, data) {
             if (activeGameId) {
                 await gameManager.clearActiveGame(username);
             }
-            socket.emit('restoreSessionResponse', { success: true, username });
-            authLogger.info('Session restored', { username, socketId: socket.id });
+
+            // Check for active tournament
+            const activeTournamentId = user.activeTournamentId;
+            const activeTournament = activeTournamentId ? gameManager.getTournamentById(activeTournamentId) : null;
+
+            if (activeTournament) {
+                socket.emit('restoreSessionResponse', {
+                    success: true,
+                    username,
+                    activeTournamentId
+                });
+                authLogger.info('Session restored with active tournament', { username, socketId: socket.id, tournamentId: activeTournamentId });
+            } else {
+                if (activeTournamentId) {
+                    await gameManager.clearActiveTournament(username);
+                }
+                socket.emit('restoreSessionResponse', { success: true, username });
+                authLogger.info('Session restored', { username, socketId: socket.id });
+            }
         }
 
     } catch (error) {

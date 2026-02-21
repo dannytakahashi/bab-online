@@ -45,10 +45,10 @@ function createChatMessageElement(username, message) {
  * @param {Object} socket - Socket instance for join events
  * @param {Array} inProgressGames - Array of in-progress game data for spectating
  */
-function updateLobbyListContent(container, lobbies, socket, inProgressGames = []) {
+function updateLobbyListContent(container, lobbies, socket, inProgressGames = [], tournaments = []) {
   container.innerHTML = '';
 
-  const hasContent = (lobbies && lobbies.length > 0) || (inProgressGames && inProgressGames.length > 0);
+  const hasContent = (lobbies && lobbies.length > 0) || (inProgressGames && inProgressGames.length > 0) || (tournaments && tournaments.length > 0);
 
   if (!hasContent) {
     const emptyMsg = document.createElement('div');
@@ -214,6 +214,103 @@ function updateLobbyListContent(container, lobbies, socket, inProgressGames = []
       gameCard.appendChild(spectateBtn);
 
       container.appendChild(gameCard);
+    });
+  }
+
+  // Render tournaments
+  if (tournaments && tournaments.length > 0) {
+    const separator = document.createElement('div');
+    separator.style.cssText = `
+      font-size: 14px;
+      font-weight: bold;
+      color: #fbbf24;
+      margin-top: 10px;
+      margin-bottom: 5px;
+      padding-bottom: 5px;
+      border-bottom: 1px solid #4a5568;
+    `;
+    separator.innerText = 'Tournaments';
+    container.appendChild(separator);
+
+    tournaments.forEach((tournament) => {
+      const card = document.createElement('div');
+      card.style.background = 'rgba(0, 0, 0, 0.4)';
+      card.style.borderRadius = '6px';
+      card.style.padding = '12px';
+      card.style.border = '1px solid #fbbf2444';
+
+      const infoRow = document.createElement('div');
+      infoRow.style.display = 'flex';
+      infoRow.style.justifyContent = 'space-between';
+      infoRow.style.alignItems = 'center';
+      infoRow.style.marginBottom = '8px';
+
+      const name = document.createElement('span');
+      name.innerText = tournament.name || 'Tournament';
+      name.style.fontWeight = 'bold';
+      name.style.color = '#fbbf24';
+      name.style.fontSize = '13px';
+      infoRow.appendChild(name);
+
+      const count = document.createElement('span');
+      count.innerText = `${tournament.playerCount} players`;
+      count.style.color = '#9ca3af';
+      count.style.fontSize = '12px';
+      infoRow.appendChild(count);
+
+      card.appendChild(infoRow);
+
+      const detail = document.createElement('div');
+      detail.style.fontSize = '12px';
+      detail.style.color = '#9ca3af';
+      detail.style.marginBottom = '8px';
+      if (tournament.phase === 'lobby') {
+        detail.innerText = 'Waiting for players';
+      } else if (tournament.phase === 'between_rounds') {
+        detail.innerText = `Between rounds (${tournament.currentRound}/${tournament.totalRounds})`;
+      } else if (tournament.phase === 'round_active') {
+        detail.innerText = `Round ${tournament.currentRound} of ${tournament.totalRounds} in progress`;
+      } else {
+        detail.innerText = 'Complete';
+      }
+      card.appendChild(detail);
+
+      const joinBtn = document.createElement('button');
+      if (tournament.phase === 'lobby' || tournament.phase === 'between_rounds') {
+        joinBtn.innerText = 'Join';
+        joinBtn.style.background = '#fbbf24';
+        joinBtn.style.color = '#000';
+        joinBtn.style.cursor = 'pointer';
+        joinBtn.addEventListener('click', () => {
+          socket.emit('joinTournament', { tournamentId: tournament.id });
+        });
+        joinBtn.addEventListener('mouseenter', () => { joinBtn.style.background = '#f59e0b'; });
+        joinBtn.addEventListener('mouseleave', () => { joinBtn.style.background = '#fbbf24'; });
+      } else if (tournament.phase === 'round_active') {
+        joinBtn.innerText = 'Spectate';
+        joinBtn.style.background = '#60a5fa';
+        joinBtn.style.color = '#fff';
+        joinBtn.style.cursor = 'pointer';
+        joinBtn.addEventListener('click', () => {
+          socket.emit('spectateTournament', { tournamentId: tournament.id });
+        });
+        joinBtn.addEventListener('mouseenter', () => { joinBtn.style.background = '#3b82f6'; });
+        joinBtn.addEventListener('mouseleave', () => { joinBtn.style.background = '#60a5fa'; });
+      } else {
+        joinBtn.innerText = 'Finished';
+        joinBtn.disabled = true;
+        joinBtn.style.background = '#6b7280';
+        joinBtn.style.cursor = 'not-allowed';
+      }
+      joinBtn.style.width = '100%';
+      joinBtn.style.padding = '8px';
+      joinBtn.style.borderRadius = '4px';
+      joinBtn.style.border = 'none';
+      joinBtn.style.fontSize = '14px';
+      joinBtn.style.fontWeight = 'bold';
+      card.appendChild(joinBtn);
+
+      container.appendChild(card);
     });
   }
 }
@@ -474,6 +571,30 @@ export function showMainRoom(data, socket) {
   });
   lobbyPanel.appendChild(createGameBtn);
 
+  // Create Tournament button
+  const createTournamentBtn = document.createElement('button');
+  createTournamentBtn.innerText = '+ Create Tournament';
+  createTournamentBtn.style.width = '100%';
+  createTournamentBtn.style.padding = '12px';
+  createTournamentBtn.style.marginBottom = '15px';
+  createTournamentBtn.style.borderRadius = '6px';
+  createTournamentBtn.style.border = 'none';
+  createTournamentBtn.style.background = '#fbbf24';
+  createTournamentBtn.style.color = '#000';
+  createTournamentBtn.style.fontSize = '16px';
+  createTournamentBtn.style.fontWeight = 'bold';
+  createTournamentBtn.style.cursor = 'pointer';
+  createTournamentBtn.addEventListener('click', () => {
+    socket.emit('createTournament');
+  });
+  createTournamentBtn.addEventListener('mouseenter', () => {
+    createTournamentBtn.style.background = '#f59e0b';
+  });
+  createTournamentBtn.addEventListener('mouseleave', () => {
+    createTournamentBtn.style.background = '#fbbf24';
+  });
+  lobbyPanel.appendChild(createTournamentBtn);
+
   // Lobby list container
   const lobbyList = document.createElement('div');
   lobbyList.id = 'mainRoomLobbyList';
@@ -483,8 +604,8 @@ export function showMainRoom(data, socket) {
   lobbyList.style.flexDirection = 'column';
   lobbyList.style.gap = '10px';
 
-  // Populate with existing lobbies and in-progress games
-  updateLobbyListContent(lobbyList, data.lobbies || [], socket, data.inProgressGames || []);
+  // Populate with existing lobbies, in-progress games, and tournaments
+  updateLobbyListContent(lobbyList, data.lobbies || [], socket, data.inProgressGames || [], data.tournaments || []);
 
   lobbyPanel.appendChild(lobbyList);
   contentArea.appendChild(lobbyPanel);
@@ -523,11 +644,11 @@ export function addMainRoomChatMessage(username, message) {
  * @param {Object} socket - Socket instance
  * @param {Array} inProgressGames - Array of in-progress game data
  */
-export function updateLobbyList(lobbies, socket, inProgressGames = []) {
+export function updateLobbyList(lobbies, socket, inProgressGames = [], tournaments = []) {
   const lobbyList = document.getElementById('mainRoomLobbyList');
   if (!lobbyList) return;
 
-  updateLobbyListContent(lobbyList, lobbies, socket, inProgressGames);
+  updateLobbyListContent(lobbyList, lobbies, socket, inProgressGames, tournaments);
 }
 
 /**
