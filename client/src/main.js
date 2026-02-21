@@ -2360,8 +2360,9 @@ function initializeApp() {
     // Draw phase - handled by DrawManager
     onStartDraw: (data) => {
       console.log('🎴 onStartDraw callback');
-      // Remove waiting screen
+      // Remove waiting screen and tournament lobby
       uiManager.removeWaitingScreen();
+      removeTournamentLobby();
 
       // Use DrawManager via scene handler
       const scene = getGameScene();
@@ -2389,10 +2390,11 @@ function initializeApp() {
     },
     onCreateUI: (data) => {
       console.log('🎨 onCreateUI callback');
-      // Remove waiting screen and lobby/main room UI
+      // Remove waiting screen and lobby/main room/tournament UI
       uiManager.removeWaitingScreen();
       removeMainRoom();
       removeGameLobby();
+      removeTournamentLobby();
 
       // Clean up draw phase via DrawManager with fade transition
       const scene = getGameScene();
