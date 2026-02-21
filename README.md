@@ -64,7 +64,7 @@ bab-online/
 │   │   ├── rules/                  # legality.js - card play validation
 │   │   ├── state/                  # GameState.js - client state singleton
 │   │   ├── socket/                 # SocketManager.js - connection management
-│   │   ├── handlers/               # Socket event handlers (auth, game, chat, lobby, profile, leaderboard)
+│   │   ├── handlers/               # Socket event handlers (auth, game, chat, lobby, profile, leaderboard, tournament)
 │   │   ├── phaser/
 │   │   │   ├── config.js           # Phaser game configuration
 │   │   │   ├── PhaserGame.js       # Game instance wrapper
@@ -72,8 +72,8 @@ bab-online/
 │   │   │   └── managers/           # CardManager, TrickManager, BidManager, etc.
 │   │   └── ui/
 │   │       ├── UIManager.js        # DOM lifecycle management
-│   │       ├── components/         # Modal, Toast, BidUI, GameLog
-│   │       └── screens/            # SignIn, Register, MainRoom, GameLobby, ProfilePage, LeaderboardPage
+│   │       ├── components/         # Modal, Toast, BidUI, GameLog, TournamentScoreboard
+│   │       └── screens/            # SignIn, Register, MainRoom, GameLobby, TournamentLobby, ProfilePage, LeaderboardPage
 │   ├── styles/
 │   │   └── components.css          # UI component styles
 │   ├── assets/                     # Card images, backgrounds
@@ -86,7 +86,8 @@ bab-online/
 │   ├── game/
 │   │   ├── Deck.js                 # Card deck management
 │   │   ├── GameState.js            # Game state + room management
-│   │   ├── GameManager.js          # Multi-game coordination
+│   │   ├── GameManager.js          # Multi-game and tournament coordination
+│   │   ├── TournamentState.js      # Per-tournament state + round management
 │   │   ├── rules.js                # Pure game logic functions
 │   │   └── bot/                    # Bot player system
 │   │       ├── BotPlayer.js        # Bot player class with card memory
@@ -104,6 +105,7 @@ bab-online/
 │   │   ├── reconnectHandlers.js    # Reconnection logic
 │   │   ├── chatHandlers.js         # Chat events
 │   │   ├── profileHandlers.js      # Profile and leaderboard events
+│   │   ├── tournamentHandlers.js   # Tournament lifecycle events
 │   │   ├── validators.js           # Joi validation schemas
 │   │   ├── errorHandler.js         # Handler wrappers
 │   │   └── rateLimiter.js          # Per-socket rate limiting
@@ -160,7 +162,7 @@ The server runs on `http://localhost:3000` by default.
 ## How to Play
 
 1. **Sign up/Sign in** - Create an account (auto-logs in) or log in
-2. **Main Room** - Chat globally, browse game lobbies, or create a new game
+2. **Main Room** - Chat globally, browse game lobbies, create a new game, or create/join a tournament
 3. **Game Lobby** - Wait for 4 players, chat, and click "Ready" when prepared
    - Click "+ Add Bot" to add AI players (up to 3 bots with unique personalities)
    - Bot names are hidden in lobby and revealed at game start
@@ -190,6 +192,20 @@ Browse in-progress games in the main room lobby panel and click **Spectate** to 
 
 If a player disconnects, a 60-second grace period starts. If they don't return, any remaining player can click to replace them with a bot. The game only aborts if all human players disconnect.
 
+### Tournaments
+
+Create a tournament from the main room to compete across 4 rounds of randomly-assigned games:
+
+1. Click **Create Tournament** — opens a tournament lobby (unbounded player count)
+2. Other players click **Join** on the tournament listing in the main room
+3. All players ready up, then the creator clicks **Begin Tournament**
+4. Players are shuffled and divided into games of 4 (bots fill remaining slots)
+5. Play a normal game — when it ends, click **Return to Tournament** to see the scoreboard
+6. Ready up again for the next round (4 rounds total)
+7. After round 4, the player with the highest cumulative score wins
+
+Each player's round score is their team's final score from that round's game. Spectators can watch tournament games in progress from the tournament lobby.
+
 ### Card Rankings
 - High Joker (highest)
 - Low Joker
@@ -208,12 +224,13 @@ Client (Phaser/ES6) ←→ Socket.IO ←→ Server (Node/Express) ←→ MongoDB
 
 The server uses a modular architecture with clear separation of concerns:
 
-- **GameManager** - Singleton managing queue, active games, and in-progress game listing
+- **GameManager** - Singleton managing queue, active games, tournaments, and in-progress game listing
 - **GameState** - Encapsulated state for each game instance (includes resignation, lazy mode, and spectator tracking)
+- **TournamentState** - Per-tournament state managing players, rounds, scoring, and game distribution
 - **Deck** - Card deck with Fisher-Yates shuffle
 - **rules.js** - Pure functions for game logic (testable)
 - **BotController / BotStrategy** - AI bot system with 5 personalities, hand-size-aware bidding, card memory, and in-game chat
-- **Socket handlers** - Organized by domain (auth, queue, game, chat, profile, reconnect)
+- **Socket handlers** - Organized by domain (auth, queue, game, chat, profile, reconnect, tournament)
 
 ### Client Architecture
 
@@ -226,7 +243,7 @@ The client uses ES6 modules with Vite bundling and proper lifecycle management:
   - CardManager, TrickManager, BidManager, DrawManager
   - OpponentManager, EffectsManager, LayoutManager
 - **UIManager** - DOM element lifecycle management
-- **Handler Modules** - Socket event handlers (auth, game, chat, lobby)
+- **Handler Modules** - Socket event handlers (auth, game, chat, lobby, tournament)
 
 ### Key Socket Events
 
@@ -249,6 +266,13 @@ The client uses ES6 modules with Vite bundling and proper lifecycle management:
 | `getProfile` | Fetch user profile and stats |
 | `updateProfilePic` | Change profile picture |
 | `getLeaderboard` | Fetch leaderboard data |
+| `createTournament` | Create a new tournament lobby |
+| `joinTournament` | Join an existing tournament |
+| `leaveTournament` | Leave a tournament |
+| `tournamentReady` | Mark ready in tournament lobby |
+| `beginTournament` | Start round 1 (creator only) |
+| `beginNextRound` | Start rounds 2-4 (creator only) |
+| `returnToTournament` | Return to tournament lobby after game |
 
 | Server → Client | Description |
 |-----------------|-------------|
@@ -275,6 +299,13 @@ The client uses ES6 modules with Vite bundling and proper lifecycle management:
 | `spectatorJoined` | Spectator joined the game |
 | `profileResponse` | User profile data |
 | `leaderboardResponse` | Leaderboard data |
+| `tournamentCreated` | Tournament created, show lobby |
+| `tournamentJoined` | Joined tournament, show lobby |
+| `tournamentRoundStart` | Round started, games being created |
+| `tournamentGameAssignment` | Player assigned to a game |
+| `tournamentGameComplete` | A game in the round finished |
+| `tournamentRoundComplete` | All games in round finished |
+| `tournamentComplete` | Tournament finished, final results |
 
 ## Docker
 
