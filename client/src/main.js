@@ -2952,11 +2952,13 @@ function initializeApp() {
     // Tournament callbacks
     onTournamentCreated: (data) => {
       gameState.tournamentId = data.tournamentId;
+      removeMainRoom();
       uiManager.showScreen(SCREENS.TOURNAMENT_LOBBY, data);
     },
 
     onTournamentJoined: (data) => {
       gameState.tournamentId = data.tournamentId;
+      removeMainRoom();
       uiManager.showScreen(SCREENS.TOURNAMENT_LOBBY, data);
     },
 
