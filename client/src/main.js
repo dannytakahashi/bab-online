@@ -3024,7 +3024,7 @@ function initializeApp() {
 
     onTournamentLeft: () => {
       gameState.tournamentId = null;
-      // Main room transition is handled by the mainRoomJoined event
+      removeTournamentLobby();
     },
 
     onActiveTournamentFound: (data) => {
