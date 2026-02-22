@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   SocketManager,
   CONNECTION_STATE,
@@ -26,6 +26,8 @@ function createMockSocket() {
       }
     }),
     emit: vi.fn(),
+    disconnect: vi.fn(),
+    connect: vi.fn(),
     // Helper to trigger events in tests
     _trigger: (event, data) => {
       const eventListeners = listeners.get(event);
@@ -278,6 +280,123 @@ describe('SocketManager', () => {
 
       expect(manager.getTotalListenerCount()).toBe(3);
     });
+  });
+});
+
+describe('visibility reconnection', () => {
+  let manager;
+  let mockSocket;
+  let visibilityCallback;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    mockSocket = createMockSocket();
+
+    // Capture the visibilitychange listener
+    vi.spyOn(document, 'addEventListener').mockImplementation((event, cb) => {
+      if (event === 'visibilitychange') {
+        visibilityCallback = cb;
+      }
+    });
+
+    manager = new SocketManager();
+    manager.initialize(mockSocket);
+    sessionStorage.clear();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  function simulateHideAndShow(hiddenMs) {
+    // Simulate hiding
+    Object.defineProperty(document, 'hidden', { value: true, configurable: true });
+    visibilityCallback();
+
+    // Advance time while hidden
+    vi.advanceTimersByTime(hiddenMs);
+
+    // Simulate showing
+    Object.defineProperty(document, 'hidden', { value: false, configurable: true });
+    visibilityCallback();
+  }
+
+  it('does not force reconnect when hidden < 5 seconds', () => {
+    manager.setGameId('game123');
+    sessionStorage.setItem('username', 'testuser');
+
+    simulateHideAndShow(3000);
+
+    expect(mockSocket.disconnect).not.toHaveBeenCalled();
+  });
+
+  it('does not force reconnect when not in a game', () => {
+    // No gameId set
+    simulateHideAndShow(10000);
+
+    expect(mockSocket.disconnect).not.toHaveBeenCalled();
+  });
+
+  it('forces reconnect when hidden > 5 seconds and in a game', () => {
+    manager.setGameId('game123');
+    sessionStorage.setItem('username', 'testuser');
+
+    simulateHideAndShow(10000);
+
+    expect(mockSocket.disconnect).toHaveBeenCalledOnce();
+
+    // After 100ms delay, connect is called
+    vi.advanceTimersByTime(100);
+    expect(mockSocket.connect).toHaveBeenCalledOnce();
+  });
+
+  it('prevents concurrent force reconnects', () => {
+    manager.setGameId('game123');
+    sessionStorage.setItem('username', 'testuser');
+
+    // First hide/show triggers reconnect
+    simulateHideAndShow(10000);
+    expect(mockSocket.disconnect).toHaveBeenCalledTimes(1);
+
+    // Manually trigger another show before the 100ms delay completes
+    // (simulate rapid visibility toggles without advancing time)
+    manager._hiddenAt = Date.now() - 10000;
+    Object.defineProperty(document, 'hidden', { value: false, configurable: true });
+    visibilityCallback();
+
+    // Second _forceReconnect should be blocked by the guard
+    expect(mockSocket.disconnect).toHaveBeenCalledTimes(1);
+
+    // After delay, guard is cleared and connect fires
+    vi.advanceTimersByTime(100);
+    expect(mockSocket.connect).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows reconnect after previous one completes', () => {
+    manager.setGameId('game123');
+    sessionStorage.setItem('username', 'testuser');
+
+    // First cycle
+    simulateHideAndShow(10000);
+    vi.advanceTimersByTime(100);
+
+    // Second cycle
+    simulateHideAndShow(10000);
+    vi.advanceTimersByTime(100);
+
+    expect(mockSocket.disconnect).toHaveBeenCalledTimes(2);
+    expect(mockSocket.connect).toHaveBeenCalledTimes(2);
+  });
+
+  it('ignores show event without prior hide', () => {
+    manager.setGameId('game123');
+
+    // Show without hiding first
+    Object.defineProperty(document, 'hidden', { value: false, configurable: true });
+    visibilityCallback();
+
+    expect(mockSocket.disconnect).not.toHaveBeenCalled();
   });
 });
 
