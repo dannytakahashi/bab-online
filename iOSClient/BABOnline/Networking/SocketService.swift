@@ -30,7 +30,13 @@ final class SocketService: ObservableObject {
     // MARK: - Connection
 
     func connect() {
-        guard socket == nil || socket?.status != .connected else { return }
+        // If socket already exists, just reconnect it (preserves registered handlers)
+        if let socket = socket {
+            if socket.status != .connected {
+                socket.connect()
+            }
+            return
+        }
 
         let url = URL(string: serverURL)!
         manager = SocketManager(socketURL: url, config: [
