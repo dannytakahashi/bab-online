@@ -59,21 +59,18 @@ final class SocketService: ObservableObject {
                 self?.connectionError = nil
                 print("[Socket] Connected: \(self?.socket?.sid ?? "?")")
             }
+            // Auto-restore session on any connection (handles force-reconnect,
+            // auto-reconnect, and app relaunch with stored credentials)
+            if let authState = self?.authState, authState.hasStoredSession {
+                print("[Socket] Auto-restoring session for: \(authState.username)")
+                AuthEmitter.restoreSession(username: authState.username, sessionToken: authState.sessionToken)
+            }
         }
 
         socket?.on(clientEvent: .disconnect) { [weak self] _, _ in
             DispatchQueue.main.async {
                 self?.isConnected = false
                 print("[Socket] Disconnected")
-            }
-        }
-
-        socket?.on(clientEvent: .reconnect) { [weak self] _, _ in
-            print("[Socket] Reconnected")
-            // Auto-restore session on reconnect
-            if let authState = self?.authState, authState.hasStoredSession {
-                print("[Socket] Auto-restoring session for: \(authState.username)")
-                AuthEmitter.restoreSession(username: authState.username, sessionToken: authState.sessionToken)
             }
         }
 
@@ -91,7 +88,7 @@ final class SocketService: ObservableObject {
     /// Force a full disconnect/reconnect cycle.
     /// iOS can silently kill the WebSocket when backgrounded without firing a disconnect event,
     /// leaving `isConnected` stale. This tears down and re-establishes the connection so
-    /// Socket.IO fires `.connect` → `.reconnect` and the `restoreSession` flow runs.
+    /// Socket.IO fires `.connect` and the `restoreSession` flow runs.
     func forceReconnect() {
         guard !isForceReconnecting else {
             print("[Socket] forceReconnect already in progress, skipping")
