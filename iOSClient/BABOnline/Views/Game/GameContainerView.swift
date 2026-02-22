@@ -51,7 +51,7 @@ struct GameContainerView: View {
                                 .clipShape(Circle())
                         }
                         .padding(.trailing, 12)
-                        .padding(.top, 50)
+                        .padding(.top, 80)
                     }
                     Spacer()
                 }

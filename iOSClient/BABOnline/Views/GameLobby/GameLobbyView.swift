@@ -76,8 +76,10 @@ struct GameLobbyView: View {
                         .padding(.vertical, 16)
                         .background(isReady ? Color.Theme.oppColor : Color.Theme.buttonBackground)
                         .foregroundColor(.white)
+                        .cornerRadius(10)
                 }
-                .padding(.bottom, 1) // ensure it sits above safe area
+                .padding(.horizontal, 12)
+                .padding(.bottom, 4)
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 Color.clear.frame(height: 0)

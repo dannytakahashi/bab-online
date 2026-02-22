@@ -35,7 +35,16 @@ class SKBidManager {
         bubble.zPosition = 60
         bubble.alpha = 0
         scene.addChild(bubble)
-        bubble.run(CardAnimations.fadeIn(duration: 0.2))
+
+        // Fade in, hold for 5s, then fade out and remove
+        let fadeIn = CardAnimations.fadeIn(duration: 0.2)
+        let wait = SKAction.wait(forDuration: 5.0)
+        let fadeOut = SKAction.fadeOut(withDuration: 0.3)
+        let remove = SKAction.run { [weak self] in
+            bubble.removeFromParent()
+            self?.bidBubbles.removeValue(forKey: position)
+        }
+        bubble.run(SKAction.sequence([fadeIn, wait, fadeOut, remove]))
 
         bidBubbles[position] = bubble
     }
