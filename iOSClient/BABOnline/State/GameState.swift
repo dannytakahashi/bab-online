@@ -127,6 +127,7 @@ final class GameState: ObservableObject {
     let destroyHandsSubject = PassthroughSubject<Void, Never>()
     let rainbowSubject = PassthroughSubject<Int, Never>()          // position
     let chatBubbleSubject = PassthroughSubject<(message: String, position: Int), Never>()
+    let bidReceivedSubject = PassthroughSubject<(position: Int, bid: String), Never>()
 
     // MARK: - Optimistic Update State
 
@@ -299,6 +300,7 @@ final class GameState: ObservableObject {
         bids[pos] = bid
         tempBids.append(bid.uppercased())
         updateTeamBids()
+        bidReceivedSubject.send((position: pos, bid: bid))
     }
 
     private func updateTeamBids() {

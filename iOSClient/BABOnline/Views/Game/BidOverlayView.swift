@@ -10,30 +10,16 @@ struct BidOverlayView: View {
         gameState.myCards.count
     }
 
-    /// Check if a bore bid is available based on bid history
-    private var canBore: Bool {
-        // Bore requires all previous bids to be 0
-        guard maxBid > 0 else { return false }
-        let previousBids = gameState.tempBids
-        return !previousBids.isEmpty && previousBids.allSatisfy { $0 == "0" }
-    }
-
-    /// Current bore level
-    private var currentBoreLevel: String? {
-        let bores = gameState.tempBids.filter { $0.contains("B") }
-        if bores.isEmpty { return nil }
-        return bores.last
-    }
-
-    /// Available bore levels
+    /// Available bore levels based on what's already been bid
     private var availableBoreLevels: [String] {
-        guard canBore || currentBoreLevel != nil else { return [] }
-        let levels = ["B", "2B", "3B", "4B"]
-        if let current = currentBoreLevel, let idx = levels.firstIndex(of: current) {
-            // Can only escalate
-            return Array(levels.suffix(from: idx + 1))
-        }
-        return ["B"]
+        guard maxBid > 0 else { return [] }
+        let bids = gameState.tempBids
+        var levels: [String] = []
+        if !bids.contains("B")                          { levels.append("B") }
+        if bids.contains("B") && !bids.contains("2B")   { levels.append("2B") }
+        if bids.contains("2B") && !bids.contains("3B")  { levels.append("3B") }
+        if bids.contains("3B") && !bids.contains("4B")  { levels.append("4B") }
+        return levels
     }
 
     var body: some View {
