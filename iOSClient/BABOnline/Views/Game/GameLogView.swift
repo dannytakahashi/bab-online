@@ -39,6 +39,11 @@ struct GameLogView: View {
                             .padding(.horizontal, 12)
                             .padding(.vertical, 6)
                         }
+                        .onAppear {
+                            if let last = gameState.gameLog.last {
+                                proxy.scrollTo(last.id, anchor: .bottom)
+                            }
+                        }
                         .onChange(of: gameState.gameLog.count) {
                             if let last = gameState.gameLog.last {
                                 withAnimation(.easeOut(duration: 0.2)) {
