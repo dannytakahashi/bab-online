@@ -68,10 +68,10 @@ func drawText(_ text: String, x: CGFloat, y: CGFloat, fontSize: CGFloat, color: 
     ctx.restoreGState()
 }
 
-// Suit symbols in a 2x2 grid
-let suitSize: CGFloat = 150
-let gridOffset: CGFloat = 210
-let centerY = h / 2 + 40  // shift up slightly to leave room for text
+// Suit symbols in a 2x2 grid — no text, suits fill the icon
+let suitSize: CGFloat = 280
+let gridOffset: CGFloat = 200
+let centerY = h / 2 + 95  // nudge up to optically center
 
 // Colors
 let whiteColor = CGColor(red: 1, green: 1, blue: 1, alpha: 0.9)
@@ -85,14 +85,6 @@ drawText("\u{2665}", x: w / 2 + gridOffset, y: centerY + gridOffset, fontSize: s
 drawText("\u{2666}", x: w / 2 - gridOffset, y: centerY - gridOffset, fontSize: suitSize, color: redColor)
 // Bottom-right: Club (white)
 drawText("\u{2663}", x: w / 2 + gridOffset, y: centerY - gridOffset, fontSize: suitSize, color: whiteColor)
-
-// "BAB" text across center
-let babColor = CGColor(red: 0.25, green: 0.85, blue: 0.45, alpha: 1.0)
-drawText("BAB", x: w / 2, y: h / 2 + 40, fontSize: 200, color: babColor, bold: true)
-
-// "ONLINE" subtitle below
-let subtitleColor = CGColor(red: 1, green: 1, blue: 1, alpha: 0.7)
-drawText("ONLINE", x: w / 2, y: h * 0.15, fontSize: 90, color: subtitleColor, bold: true)
 
 // Save to PNG
 guard let image = ctx.makeImage() else {
