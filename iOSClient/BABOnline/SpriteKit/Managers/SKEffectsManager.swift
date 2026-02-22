@@ -78,14 +78,14 @@ class SKEffectsManager {
         guard let scene = scene else { return }
 
         let texture = SKTexture(imageNamed: "ot")
-        let badge = SKSpriteNode(texture: texture, size: CGSize(width: 80, height: 80))
+        let badge = SKSpriteNode(texture: texture, size: CGSize(width: 120, height: 120))
         // Top-left of play area
         badge.position = CGPoint(x: -scene.size.width / 4, y: scene.size.height / 4)
         badge.zPosition = 999
         badge.setScale(0)
         scene.addChild(badge)
 
-        let scaleIn = SKAction.scale(to: 0.9, duration: 0.5)
+        let scaleIn = SKAction.scale(to: 1.0, duration: 0.5)
         scaleIn.timingMode = .easeOut
         let wait = SKAction.wait(forDuration: 1.5)
         let fadeOut = SKAction.fadeOut(withDuration: 1.0)

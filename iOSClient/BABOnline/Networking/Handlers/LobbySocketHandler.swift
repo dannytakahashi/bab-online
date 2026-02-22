@@ -26,6 +26,12 @@ final class LobbySocketHandler {
                 if let messages = dict["recentMessages"] as? [[String: Any]] {
                     self.mainRoomState.messages = messages.compactMap { ChatMessage.from($0) }
                 }
+                if let lobbies = dict["lobbies"] as? [[String: Any]] {
+                    self.mainRoomState.lobbies = lobbies.compactMap { Lobby.from($0) }
+                }
+                if let inProgress = dict["inProgressGames"] as? [[String: Any]] {
+                    self.mainRoomState.inProgressGames = inProgress.compactMap { Lobby.from($0) }
+                }
                 print("[Lobby] Joined main room")
             }
         }

@@ -170,6 +170,17 @@ class GameSKScene: SKScene {
             }
             .store(in: &cancellables)
 
+        // Player info changes (lazy mode, bot replacement, active mode)
+        gameState.$players
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] players in
+                guard let self else { return }
+                for (pos, info) in players {
+                    self.opponentManager?.updatePlayerInfo(position: pos, username: info.username, pic: info.pic)
+                }
+            }
+            .store(in: &cancellables)
+
         // Draw phase results and teams announced — handled by SwiftUI DrawPhaseView
     }
 

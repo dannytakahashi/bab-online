@@ -8,8 +8,22 @@ struct Lobby: Identifiable, Equatable {
     var isInProgress: Bool = false
 
     static func from(_ dict: [String: Any]) -> Lobby? {
-        guard let id = dict["id"] as? String ?? dict["lobbyId"] as? String,
-              let name = dict["name"] as? String else { return nil }
+        guard let id = dict["id"] as? String ?? dict["lobbyId"] as? String ?? dict["gameId"] as? String else { return nil }
+
+        // Name is optional — in-progress games don't have one, so generate from players
+        let name: String
+        if let n = dict["name"] as? String {
+            name = n
+        } else if let pArr = dict["players"] as? [[String: Any]] {
+            let names = pArr.compactMap { $0["username"] as? String }
+            if names.count == 4 {
+                name = "\(names[0]) & \(names[2]) vs \(names[1]) & \(names[3])"
+            } else {
+                name = names.joined(separator: ", ")
+            }
+        } else {
+            name = "Game \(id.prefix(4))"
+        }
 
         let playerCount = dict["playerCount"] as? Int ?? 0
         let isInProgress = dict["inProgress"] as? Bool ?? false

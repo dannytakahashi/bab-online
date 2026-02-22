@@ -58,7 +58,14 @@ final class AuthSocketHandler {
                 self.gameState.username = username
                 self.gameState.playerId = self.socket.socketId
 
-                self.appState.screen = .mainRoom
+                // Check if there's an active game to rejoin (e.g. force-killed app)
+                if let gameId = data["activeGameId"] as? String, !gameId.isEmpty {
+                    print("[Auth] Signed in with active game: \(gameId)")
+                    AuthEmitter.rejoinGame(gameId: gameId, username: username)
+                } else {
+                    self.appState.screen = .mainRoom
+                    LobbyEmitter.joinMainRoom()
+                }
                 print("[Auth] Signed in as: \(username)")
             } else {
                 let message = data["message"] as? String ?? "Sign in failed"

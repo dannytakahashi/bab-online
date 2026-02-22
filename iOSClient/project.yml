@@ -33,13 +33,7 @@ targets:
     sources:
       - path: BABOnline
         excludes:
-          - "Resources/Cards.xcassets"
-          - "Resources/Misc.xcassets"
           - Info.plist
-    resources:
-      - path: BABOnline/Resources/Assets.xcassets
-      - path: BABOnline/Resources/Cards.xcassets
-      - path: BABOnline/Resources/Misc.xcassets
     settings:
       base:
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: true
