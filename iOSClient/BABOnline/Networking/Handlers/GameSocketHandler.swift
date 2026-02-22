@@ -187,8 +187,11 @@ final class GameSocketHandler {
                 let winnerName = self.gameState.getPlayerName(position: winner)
                 self.gameState.addSystemLog("\(winnerName) won the trick (\(self.gameState.teamTricks)-\(self.gameState.oppTricks))")
 
-                // Clear trick state after delay (let animation play)
+                // Clear trick state after delay (let animation play).
+                // Guard: if a new trick's card has already been played
+                // (playedCardIndex > 0), skip to avoid wiping new trick state.
                 DispatchQueue.main.asyncAfter(deadline: .now() + LayoutConstants.collectTrickDuration + 0.3) {
+                    guard self.gameState.playedCardIndex == 0 else { return }
                     self.gameState.clearTrick()
                 }
             }

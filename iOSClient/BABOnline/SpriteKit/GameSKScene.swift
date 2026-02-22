@@ -187,7 +187,7 @@ class GameSKScene: SKScene {
         case .bidding:
             setupGameUI()
         case .playing:
-            cardManager?.updateHand()
+            setupGameUI()
         case .ended:
             // Handled by SwiftUI overlay
             break

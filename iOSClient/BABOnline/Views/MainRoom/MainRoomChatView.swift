@@ -30,6 +30,7 @@ struct MainRoomChatView: View {
                     .padding(.horizontal)
                     .padding(.vertical, 8)
                 }
+                .scrollDismissesKeyboard(.interactively)
                 .onChange(of: mainRoomState.messages.count) {
                     if let last = mainRoomState.messages.last {
                         withAnimation(.easeOut(duration: 0.2)) {
