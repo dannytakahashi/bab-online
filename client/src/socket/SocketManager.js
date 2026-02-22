@@ -34,6 +34,10 @@ export class SocketManager {
     this._globalListeners = new Map(); // Persist across games
     this._gameListeners = new Map(); // Cleanup between games
     this._stateListeners = new Set(); // Connection state listeners
+
+    // iOS Safari background/foreground reconnection
+    this._hiddenAt = null;
+    this._isForceReconnecting = false;
   }
 
   /**
@@ -117,6 +121,8 @@ export class SocketManager {
       this.clearGameId();
       this._emitStateChange('reconnectFailed');
     });
+
+    this._setupVisibilityHandler();
   }
 
   /**
@@ -152,6 +158,51 @@ export class SocketManager {
       console.log(`Attempting to rejoin game ${gameId} as ${username}`);
       this.emit(CLIENT_EVENTS.REJOIN_GAME, { gameId, username });
     }
+  }
+
+  /**
+   * Set up visibility change handler for iOS Safari background/foreground.
+   *
+   * iOS kills WebSocket connections when Safari is backgrounded, but
+   * Socket.IO's frozen heartbeat timer doesn't detect it immediately.
+   * This forces a clean disconnect/reconnect cycle when returning from
+   * background after >5 seconds, triggering the normal rejoin flow.
+   */
+  _setupVisibilityHandler() {
+    if (typeof document === 'undefined') return;
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        this._hiddenAt = Date.now();
+      } else {
+        if (!this._hiddenAt) return;
+
+        const hiddenDuration = Date.now() - this._hiddenAt;
+        this._hiddenAt = null;
+
+        // Only force reconnect if hidden >5s and player is in a game
+        if (hiddenDuration > 5000 && this.gameId) {
+          this._forceReconnect();
+        }
+      }
+    });
+  }
+
+  /**
+   * Force a clean disconnect/reconnect cycle.
+   * Triggers the existing connect → _tryRejoin() → rejoinGame flow.
+   */
+  _forceReconnect() {
+    if (this._isForceReconnecting) return;
+    this._isForceReconnecting = true;
+
+    console.log('Force reconnecting after background (iOS Safari workaround)');
+    this._socket.disconnect();
+
+    setTimeout(() => {
+      this._socket.connect();
+      this._isForceReconnecting = false;
+    }, 100);
   }
 
   // ============================================
