@@ -1,0 +1,761 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0AFE71725CB8CD0D40446684 /* GameState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 006A718437AB193FE3F34B14 /* GameState.swift */; };
+		0D1479057F4F8E28A2C0C482 /* ChatMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 409C82291F02FA6A105021BE /* ChatMessage.swift */; };
+		0D25FCF69FC9AF34A7A5C0A3 /* SKTrickManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0E2E4B3B3896E524EF05AB1 /* SKTrickManager.swift */; };
+		1A52C4D663DFAE60116D9CB0 /* TrickHistoryNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9851CDF9CB5E3CFFBD929C8F /* TrickHistoryNode.swift */; };
+		2C879BC1C33494BB4AC7468C /* ScoreData.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABD47677D06A3496EC34B3AC /* ScoreData.swift */; };
+		2DC3F6E51394ABFC98D3F746 /* GameEndView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7D19DF413AEB22E4D8F0CB7 /* GameEndView.swift */; };
+		313D29830FDF017A20D5CBB1 /* LobbyPlayerRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF9F36992678FBDC040366E9 /* LobbyPlayerRow.swift */; };
+		34DB3B2F9965A4193CCF4DD0 /* LayoutConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = F26F4F58EBB420C081B15138 /* LayoutConstants.swift */; };
+		39B5487AEDCCC050AFED060C /* View+Haptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 590A4C6D80BFFB5B7643CFB6 /* View+Haptics.swift */; };
+		3D0A859DE21658E3D5B09BE1 /* ChatSocketHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CC5887542913E6A913FA11E /* ChatSocketHandler.swift */; };
+		3FE5081206C6F380756FAB21 /* BidBubbleNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91311C67E1ED8D1C5421D58E /* BidBubbleNode.swift */; };
+		427CF1456C7DF9E1AF8ADE16 /* CardAnimations.swift in Sources */ = {isa = PBXBuildFile; fileRef = E351C73D3028BDE65B7BC08E /* CardAnimations.swift */; };
+		454C9420CAF6A9EEC90F4080 /* SocketIO in Frameworks */ = {isa = PBXBuildFile; productRef = 369628F9131811122EB62EAD /* SocketIO */; };
+		469EDE0D5489C9E9CA8DD8DB /* RegisterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF428793710528CEB471FDF7 /* RegisterView.swift */; };
+		47380CD80F8287DC58668AA9 /* LobbyChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B639F96D4A1C11BA1CDD076 /* LobbyChatView.swift */; };
+		48DFFF3FEE58CD64BDDC5C99 /* Lobby.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BA11DB6AFE269661E829F5A /* Lobby.swift */; };
+		4FE9A31CADE409D9F3455651 /* SocketEvents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60E60EBA3E35912039DA9C3E /* SocketEvents.swift */; };
+		616CCBD9E2E7D8FD57385AA7 /* GameSKScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 889525E013DAD15823BAAA6E /* GameSKScene.swift */; };
+		6290C7B4FB7537971B28220C /* MainRoomState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8BFDA96358A6BEB484A42FB /* MainRoomState.swift */; };
+		659B2D2BB84FF1472A3DAB2A /* Positions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 812F272D69A23E90F74E663E /* Positions.swift */; };
+		673F325B6550AE9311E0041A /* DrawPhaseNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2878CDFEA7CEB9F77BA8C6C8 /* DrawPhaseNode.swift */; };
+		68EE1BE53906A7084E9F704E /* LobbyState.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9B310B890DA152FC2DC27BB /* LobbyState.swift */; };
+		68F00F16CBB0861A46B7B701 /* SKOpponentManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA8B8AB7C156EE02DB4AA5EC /* SKOpponentManager.swift */; };
+		695D67B3F890889F37A7163E /* DisconnectBannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C753D08CF7E5D35B8C398DD /* DisconnectBannerView.swift */; };
+		6BE0A4F111109267843AC10C /* SocketEventRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD3FDF5B050165FBA337E6D1 /* SocketEventRouter.swift */; };
+		6C8BF96D03D45CA6E2768194 /* HandNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 933108D8AFD4FC2B2D6CEF38 /* HandNode.swift */; };
+		6FEB3B6CE89BEB55FA70539B /* SKEffectsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4560586AFC2B799AA78FE3FB /* SKEffectsManager.swift */; };
+		762849D3514C9326C39FFF29 /* TrickAreaNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = C388CF7DA4B1B394B2FB89C7 /* TrickAreaNode.swift */; };
+		7A46E42567414E6969EA1C2A /* LobbyListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C53AAE255FBF334AD3AEC34F /* LobbyListView.swift */; };
+		7CC9F097364F502479C368EE /* GameLogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C12922A47ABEF52E6CD513E /* GameLogView.swift */; };
+		7FA4C5ACDFA109744D4ED040 /* BABOnlineApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F24F68CC6DF7864D6C56767A /* BABOnlineApp.swift */; };
+		801BFFB9CB5E4704137E34F5 /* GameContainerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA579DC4E6B636DA5E52C8AE /* GameContainerView.swift */; };
+		824EB243D531F4482C1E303B /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7CC4C6EE071BCAFAF5B8FFF /* AppState.swift */; };
+		88774AF746A4B620C689090A /* GameEmitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97217006DFD0797BEBAF6836 /* GameEmitter.swift */; };
+		88D6CEA7598EF27578BB00A5 /* ChatEmitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 281B7D8A956EA7591D9F54C8 /* ChatEmitter.swift */; };
+		896418D2F4B35BC3D18218A4 /* Color+Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1FDF804D64CB2ADCF49F83A /* Color+Theme.swift */; };
+		8C439A10BE0213B79DC863E0 /* GameSocketHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AA293C5CC063A9C3A5D35F2 /* GameSocketHandler.swift */; };
+		8CA174CB34AD22C90102770A /* LobbyEmitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABFB49C1B9B998424D06A9B7 /* LobbyEmitter.swift */; };
+		902F44A26653DE8831F20CDE /* SKCardManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82EEBA726E4095626D47FD1C /* SKCardManager.swift */; };
+		928367895A6772000691F618 /* HapticManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6417A37D0B5BC7A02FB2BBB2 /* HapticManager.swift */; };
+		94E6B3762DD45EE9BA15062F /* SignInView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26DFDBCEB31996914FD461DC /* SignInView.swift */; };
+		B0C0F2FA27394738C0CD3E36 /* OpponentHandNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7CDC046A6CD61F2193F4516 /* OpponentHandNode.swift */; };
+		B348925DF11C006AF98146DA /* LobbySocketHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FD14869A6FDEFEF8A26EB44 /* LobbySocketHandler.swift */; };
+		BFAE12C47A3D5E9B01234567 /* CardTextureGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFAE12C47A3D5E9B76543210 /* CardTextureGenerator.swift */; };
+		C034D2B8FD084ABC10C6EA59 /* CardSpriteNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92E3162E733BE7280BECE498 /* CardSpriteNode.swift */; };
+		C38CECA4398136469B2963BC /* AvatarNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD7736BF05FE6B17925F5B58 /* AvatarNode.swift */; };
+		C8BD6D380C48140E4CA8BBA3 /* Card.swift in Sources */ = {isa = PBXBuildFile; fileRef = D93F1941362F417B0FA5594F /* Card.swift */; };
+		D28BE7A9A269BF3E7C4DDC6C /* SocketService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8844D76D26441BDFA1AA6B4 /* SocketService.swift */; };
+		D55F13028E30296E4822D591 /* CardLegality.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33580074C0FC6733FD4A8D01 /* CardLegality.swift */; };
+		DB67F3346A80A1153ED988C6 /* SKBidManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7CDEA2975BCFBDB3CE3C774 /* SKBidManager.swift */; };
+		DD194794CCBC2E21759D42F5 /* BidOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 101D97EAA83720860106849C /* BidOverlayView.swift */; };
+		E00AF90BAB6B21E200673C4C /* GameLobbyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4807E7512F273C84639C7966 /* GameLobbyView.swift */; };
+		E1122E2C79E20E18927F0CE1 /* ScoreBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0C0084565BB95FB47383922 /* ScoreBarView.swift */; };
+		E118CADCE8BAC6B1CA85A94C /* Player.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7187D649710ECFC3C9A68D59 /* Player.swift */; };
+		E640FAA2BD8250B7ABC30370 /* AuthState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31CC71A809AE3AFB89C1E0D7 /* AuthState.swift */; };
+		E73A7EE74D07E23CD13599F6 /* AuthEmitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D74F821D951B0C701D3EEC7F /* AuthEmitter.swift */; };
+		E7988D4976F10ACF179A6129 /* CardConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = E18353C8901AA58E061531F2 /* CardConstants.swift */; };
+		EA59CF07192D698567C4B4ED /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DA7DA1840AFEF31F921700C /* ContentView.swift */; };
+		EF8870774CB1F6132E401E65 /* SKDrawManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58321163C76BBDE1CED7AA3F /* SKDrawManager.swift */; };
+		F0F39CCF660CAEF84977927F /* MainRoomView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBBC8430F514042641E150DF /* MainRoomView.swift */; };
+		F20146DFE1206F0A2A61249C /* MainRoomChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07ED0716768E28CCCDE8A731 /* MainRoomChatView.swift */; };
+		F74A788A36EF3556E7FD78E0 /* AuthSocketHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = F28474CFED18B3E46768C988 /* AuthSocketHandler.swift */; };
+		FA7C18BDCC1C31AC365877F9 /* CardUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62295A09DC541B3ED5023CE7 /* CardUtils.swift */; };
+		FDB5445E7BEE26B8943D8770 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8790511FF395019A12A1F429 /* Assets.xcassets */; };
+		A1B2C3D4E5F6A7B8C9D0E1F2 /* SplashView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B1A2C3D4E5F6A7B8C9D0E1F /* SplashView.swift */; };
+		1A2B3C4D5E6F7A8B9C0D1E2F /* DrawPhaseView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1E2F3A4B5C6D7E8F9A0B1C2 /* DrawPhaseView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		006A718437AB193FE3F34B14 /* GameState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameState.swift; sourceTree = "<group>"; };
+		07ED0716768E28CCCDE8A731 /* MainRoomChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainRoomChatView.swift; sourceTree = "<group>"; };
+		101D97EAA83720860106849C /* BidOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BidOverlayView.swift; sourceTree = "<group>"; };
+		1C12922A47ABEF52E6CD513E /* GameLogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameLogView.swift; sourceTree = "<group>"; };
+		1CC5887542913E6A913FA11E /* ChatSocketHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSocketHandler.swift; sourceTree = "<group>"; };
+		26DFDBCEB31996914FD461DC /* SignInView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInView.swift; sourceTree = "<group>"; };
+		281B7D8A956EA7591D9F54C8 /* ChatEmitter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatEmitter.swift; sourceTree = "<group>"; };
+		2878CDFEA7CEB9F77BA8C6C8 /* DrawPhaseNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawPhaseNode.swift; sourceTree = "<group>"; };
+		31CC71A809AE3AFB89C1E0D7 /* AuthState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthState.swift; sourceTree = "<group>"; };
+		33580074C0FC6733FD4A8D01 /* CardLegality.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardLegality.swift; sourceTree = "<group>"; };
+		409C82291F02FA6A105021BE /* ChatMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatMessage.swift; sourceTree = "<group>"; };
+		4560586AFC2B799AA78FE3FB /* SKEffectsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SKEffectsManager.swift; sourceTree = "<group>"; };
+		4807E7512F273C84639C7966 /* GameLobbyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameLobbyView.swift; sourceTree = "<group>"; };
+		4C753D08CF7E5D35B8C398DD /* DisconnectBannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisconnectBannerView.swift; sourceTree = "<group>"; };
+		58321163C76BBDE1CED7AA3F /* SKDrawManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SKDrawManager.swift; sourceTree = "<group>"; };
+		590A4C6D80BFFB5B7643CFB6 /* View+Haptics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "View+Haptics.swift"; sourceTree = "<group>"; };
+		5BA11DB6AFE269661E829F5A /* Lobby.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Lobby.swift; sourceTree = "<group>"; };
+		5DA7DA1840AFEF31F921700C /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		60E60EBA3E35912039DA9C3E /* SocketEvents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketEvents.swift; sourceTree = "<group>"; };
+		62295A09DC541B3ED5023CE7 /* CardUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardUtils.swift; sourceTree = "<group>"; };
+		6417A37D0B5BC7A02FB2BBB2 /* HapticManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HapticManager.swift; sourceTree = "<group>"; };
+		7187D649710ECFC3C9A68D59 /* Player.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Player.swift; sourceTree = "<group>"; };
+		7AA293C5CC063A9C3A5D35F2 /* GameSocketHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameSocketHandler.swift; sourceTree = "<group>"; };
+		7F8955A183A4B54328782B3C /* BABOnline.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = BABOnline.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		7FD14869A6FDEFEF8A26EB44 /* LobbySocketHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LobbySocketHandler.swift; sourceTree = "<group>"; };
+		812F272D69A23E90F74E663E /* Positions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Positions.swift; sourceTree = "<group>"; };
+		82EEBA726E4095626D47FD1C /* SKCardManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SKCardManager.swift; sourceTree = "<group>"; };
+		8790511FF395019A12A1F429 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		889525E013DAD15823BAAA6E /* GameSKScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameSKScene.swift; sourceTree = "<group>"; };
+		8B639F96D4A1C11BA1CDD076 /* LobbyChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LobbyChatView.swift; sourceTree = "<group>"; };
+		91311C67E1ED8D1C5421D58E /* BidBubbleNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BidBubbleNode.swift; sourceTree = "<group>"; };
+		92E3162E733BE7280BECE498 /* CardSpriteNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardSpriteNode.swift; sourceTree = "<group>"; };
+		BFAE12C47A3D5E9B76543210 /* CardTextureGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardTextureGenerator.swift; sourceTree = "<group>"; };
+		933108D8AFD4FC2B2D6CEF38 /* HandNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HandNode.swift; sourceTree = "<group>"; };
+		97217006DFD0797BEBAF6836 /* GameEmitter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameEmitter.swift; sourceTree = "<group>"; };
+		9851CDF9CB5E3CFFBD929C8F /* TrickHistoryNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrickHistoryNode.swift; sourceTree = "<group>"; };
+		A7CC4C6EE071BCAFAF5B8FFF /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
+		A7CDEA2975BCFBDB3CE3C774 /* SKBidManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SKBidManager.swift; sourceTree = "<group>"; };
+		ABD47677D06A3496EC34B3AC /* ScoreData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoreData.swift; sourceTree = "<group>"; };
+		ABFB49C1B9B998424D06A9B7 /* LobbyEmitter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LobbyEmitter.swift; sourceTree = "<group>"; };
+		B0E2E4B3B3896E524EF05AB1 /* SKTrickManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SKTrickManager.swift; sourceTree = "<group>"; };
+		B7CDC046A6CD61F2193F4516 /* OpponentHandNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpponentHandNode.swift; sourceTree = "<group>"; };
+		B7D19DF413AEB22E4D8F0CB7 /* GameEndView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameEndView.swift; sourceTree = "<group>"; };
+		C388CF7DA4B1B394B2FB89C7 /* TrickAreaNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrickAreaNode.swift; sourceTree = "<group>"; };
+		C53AAE255FBF334AD3AEC34F /* LobbyListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LobbyListView.swift; sourceTree = "<group>"; };
+		CA579DC4E6B636DA5E52C8AE /* GameContainerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameContainerView.swift; sourceTree = "<group>"; };
+		CBBC8430F514042641E150DF /* MainRoomView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainRoomView.swift; sourceTree = "<group>"; };
+		CD3FDF5B050165FBA337E6D1 /* SocketEventRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketEventRouter.swift; sourceTree = "<group>"; };
+		CF9F36992678FBDC040366E9 /* LobbyPlayerRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LobbyPlayerRow.swift; sourceTree = "<group>"; };
+		D74F821D951B0C701D3EEC7F /* AuthEmitter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthEmitter.swift; sourceTree = "<group>"; };
+		D8844D76D26441BDFA1AA6B4 /* SocketService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketService.swift; sourceTree = "<group>"; };
+		D8BFDA96358A6BEB484A42FB /* MainRoomState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainRoomState.swift; sourceTree = "<group>"; };
+		D93F1941362F417B0FA5594F /* Card.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Card.swift; sourceTree = "<group>"; };
+		DF428793710528CEB471FDF7 /* RegisterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegisterView.swift; sourceTree = "<group>"; };
+		E0C0084565BB95FB47383922 /* ScoreBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoreBarView.swift; sourceTree = "<group>"; };
+		E18353C8901AA58E061531F2 /* CardConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardConstants.swift; sourceTree = "<group>"; };
+		E1FDF804D64CB2ADCF49F83A /* Color+Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Color+Theme.swift"; sourceTree = "<group>"; };
+		E351C73D3028BDE65B7BC08E /* CardAnimations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardAnimations.swift; sourceTree = "<group>"; };
+		E9B310B890DA152FC2DC27BB /* LobbyState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LobbyState.swift; sourceTree = "<group>"; };
+		F24F68CC6DF7864D6C56767A /* BABOnlineApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BABOnlineApp.swift; sourceTree = "<group>"; };
+		F26F4F58EBB420C081B15138 /* LayoutConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutConstants.swift; sourceTree = "<group>"; };
+		F28474CFED18B3E46768C988 /* AuthSocketHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthSocketHandler.swift; sourceTree = "<group>"; };
+		FA8B8AB7C156EE02DB4AA5EC /* SKOpponentManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SKOpponentManager.swift; sourceTree = "<group>"; };
+		FD7736BF05FE6B17925F5B58 /* AvatarNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvatarNode.swift; sourceTree = "<group>"; };
+		5B1A2C3D4E5F6A7B8C9D0E1F /* SplashView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplashView.swift; sourceTree = "<group>"; };
+		D1E2F3A4B5C6D7E8F9A0B1C2 /* DrawPhaseView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrawPhaseView.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		6BFE364EE93244104CBB1EFA /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				454C9420CAF6A9EEC90F4080 /* SocketIO in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		09D360B5508E1509A614547D /* Networking */ = {
+			isa = PBXGroup;
+			children = (
+				CD3FDF5B050165FBA337E6D1 /* SocketEventRouter.swift */,
+				D8844D76D26441BDFA1AA6B4 /* SocketService.swift */,
+				09F51B4DE80BCB1210C97690 /* Emitters */,
+				49432807E994E9B1713C83B1 /* Handlers */,
+			);
+			path = Networking;
+			sourceTree = "<group>";
+		};
+		09F51B4DE80BCB1210C97690 /* Emitters */ = {
+			isa = PBXGroup;
+			children = (
+				D74F821D951B0C701D3EEC7F /* AuthEmitter.swift */,
+				281B7D8A956EA7591D9F54C8 /* ChatEmitter.swift */,
+				97217006DFD0797BEBAF6836 /* GameEmitter.swift */,
+				ABFB49C1B9B998424D06A9B7 /* LobbyEmitter.swift */,
+			);
+			path = Emitters;
+			sourceTree = "<group>";
+		};
+		426F53F5D8BE43B74A85A9D1 = {
+			isa = PBXGroup;
+			children = (
+				7E2AB04501AE19CA1AA49906 /* BABOnline */,
+				E80216038A0F001B2BEA7D32 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		49432807E994E9B1713C83B1 /* Handlers */ = {
+			isa = PBXGroup;
+			children = (
+				F28474CFED18B3E46768C988 /* AuthSocketHandler.swift */,
+				1CC5887542913E6A913FA11E /* ChatSocketHandler.swift */,
+				7AA293C5CC063A9C3A5D35F2 /* GameSocketHandler.swift */,
+				7FD14869A6FDEFEF8A26EB44 /* LobbySocketHandler.swift */,
+			);
+			path = Handlers;
+			sourceTree = "<group>";
+		};
+		58F0FCC0B1127CAB4217FA87 /* Managers */ = {
+			isa = PBXGroup;
+			children = (
+				A7CDEA2975BCFBDB3CE3C774 /* SKBidManager.swift */,
+				82EEBA726E4095626D47FD1C /* SKCardManager.swift */,
+				58321163C76BBDE1CED7AA3F /* SKDrawManager.swift */,
+				4560586AFC2B799AA78FE3FB /* SKEffectsManager.swift */,
+				FA8B8AB7C156EE02DB4AA5EC /* SKOpponentManager.swift */,
+				B0E2E4B3B3896E524EF05AB1 /* SKTrickManager.swift */,
+			);
+			path = Managers;
+			sourceTree = "<group>";
+		};
+		5D696315870C4CCDCC8C684B /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				D86C161126AE20A6A2F082D3 /* Auth */,
+				9CB8AFDF8AACB2CDF741C5B0 /* Game */,
+				C12D81E2062D1556C063393C /* GameLobby */,
+				D5AAEA07E9E0D4E83C6DED04 /* MainRoom */,
+				5B1A2C3D4E5F6A7B8C9D0E1F /* SplashView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		72042726A6D40442AA539569 /* Constants */ = {
+			isa = PBXGroup;
+			children = (
+				E18353C8901AA58E061531F2 /* CardConstants.swift */,
+				F26F4F58EBB420C081B15138 /* LayoutConstants.swift */,
+				60E60EBA3E35912039DA9C3E /* SocketEvents.swift */,
+			);
+			path = Constants;
+			sourceTree = "<group>";
+		};
+		7E2AB04501AE19CA1AA49906 /* BABOnline */ = {
+			isa = PBXGroup;
+			children = (
+				A7CC4C6EE071BCAFAF5B8FFF /* AppState.swift */,
+				F24F68CC6DF7864D6C56767A /* BABOnlineApp.swift */,
+				5DA7DA1840AFEF31F921700C /* ContentView.swift */,
+				72042726A6D40442AA539569 /* Constants */,
+				AD45A86ECAA5CBA7CEF1D783 /* Extensions */,
+				FB41DE74809A2EFE6AD69CA0 /* Models */,
+				09D360B5508E1509A614547D /* Networking */,
+				AFA26BF5EC3440DBD3CFDF12 /* Resources */,
+				EC79CDB84EEA7BE0748F8F9A /* Rules */,
+				C7D3E6AE19E3CA7F1C42DE9A /* SpriteKit */,
+				EAECBA8F695BF16DD5F1E652 /* State */,
+				D3586572A4C8C5B0BD5A3B1C /* Utils */,
+				5D696315870C4CCDCC8C684B /* Views */,
+			);
+			path = BABOnline;
+			sourceTree = "<group>";
+		};
+		9CB8AFDF8AACB2CDF741C5B0 /* Game */ = {
+			isa = PBXGroup;
+			children = (
+				101D97EAA83720860106849C /* BidOverlayView.swift */,
+				4C753D08CF7E5D35B8C398DD /* DisconnectBannerView.swift */,
+				D1E2F3A4B5C6D7E8F9A0B1C2 /* DrawPhaseView.swift */,
+				CA579DC4E6B636DA5E52C8AE /* GameContainerView.swift */,
+				B7D19DF413AEB22E4D8F0CB7 /* GameEndView.swift */,
+				1C12922A47ABEF52E6CD513E /* GameLogView.swift */,
+				E0C0084565BB95FB47383922 /* ScoreBarView.swift */,
+			);
+			path = Game;
+			sourceTree = "<group>";
+		};
+		AD45A86ECAA5CBA7CEF1D783 /* Extensions */ = {
+			isa = PBXGroup;
+			children = (
+				E1FDF804D64CB2ADCF49F83A /* Color+Theme.swift */,
+				590A4C6D80BFFB5B7643CFB6 /* View+Haptics.swift */,
+			);
+			path = Extensions;
+			sourceTree = "<group>";
+		};
+		AFA26BF5EC3440DBD3CFDF12 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				8790511FF395019A12A1F429 /* Assets.xcassets */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		C12D81E2062D1556C063393C /* GameLobby */ = {
+			isa = PBXGroup;
+			children = (
+				4807E7512F273C84639C7966 /* GameLobbyView.swift */,
+				8B639F96D4A1C11BA1CDD076 /* LobbyChatView.swift */,
+				CF9F36992678FBDC040366E9 /* LobbyPlayerRow.swift */,
+			);
+			path = GameLobby;
+			sourceTree = "<group>";
+		};
+		C7D3E6AE19E3CA7F1C42DE9A /* SpriteKit */ = {
+			isa = PBXGroup;
+			children = (
+				BFAE12C47A3D5E9B76543210 /* CardTextureGenerator.swift */,
+				889525E013DAD15823BAAA6E /* GameSKScene.swift */,
+				FC24732243280176146999AA /* Actions */,
+				58F0FCC0B1127CAB4217FA87 /* Managers */,
+				E0D859734882810FEC2F85BE /* Nodes */,
+			);
+			path = SpriteKit;
+			sourceTree = "<group>";
+		};
+		D3586572A4C8C5B0BD5A3B1C /* Utils */ = {
+			isa = PBXGroup;
+			children = (
+				62295A09DC541B3ED5023CE7 /* CardUtils.swift */,
+				6417A37D0B5BC7A02FB2BBB2 /* HapticManager.swift */,
+				812F272D69A23E90F74E663E /* Positions.swift */,
+			);
+			path = Utils;
+			sourceTree = "<group>";
+		};
+		D5AAEA07E9E0D4E83C6DED04 /* MainRoom */ = {
+			isa = PBXGroup;
+			children = (
+				C53AAE255FBF334AD3AEC34F /* LobbyListView.swift */,
+				07ED0716768E28CCCDE8A731 /* MainRoomChatView.swift */,
+				CBBC8430F514042641E150DF /* MainRoomView.swift */,
+			);
+			path = MainRoom;
+			sourceTree = "<group>";
+		};
+		D86C161126AE20A6A2F082D3 /* Auth */ = {
+			isa = PBXGroup;
+			children = (
+				DF428793710528CEB471FDF7 /* RegisterView.swift */,
+				26DFDBCEB31996914FD461DC /* SignInView.swift */,
+			);
+			path = Auth;
+			sourceTree = "<group>";
+		};
+		E0D859734882810FEC2F85BE /* Nodes */ = {
+			isa = PBXGroup;
+			children = (
+				FD7736BF05FE6B17925F5B58 /* AvatarNode.swift */,
+				91311C67E1ED8D1C5421D58E /* BidBubbleNode.swift */,
+				92E3162E733BE7280BECE498 /* CardSpriteNode.swift */,
+				2878CDFEA7CEB9F77BA8C6C8 /* DrawPhaseNode.swift */,
+				933108D8AFD4FC2B2D6CEF38 /* HandNode.swift */,
+				B7CDC046A6CD61F2193F4516 /* OpponentHandNode.swift */,
+				C388CF7DA4B1B394B2FB89C7 /* TrickAreaNode.swift */,
+				9851CDF9CB5E3CFFBD929C8F /* TrickHistoryNode.swift */,
+			);
+			path = Nodes;
+			sourceTree = "<group>";
+		};
+		E80216038A0F001B2BEA7D32 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				7F8955A183A4B54328782B3C /* BABOnline.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		EAECBA8F695BF16DD5F1E652 /* State */ = {
+			isa = PBXGroup;
+			children = (
+				31CC71A809AE3AFB89C1E0D7 /* AuthState.swift */,
+				006A718437AB193FE3F34B14 /* GameState.swift */,
+				E9B310B890DA152FC2DC27BB /* LobbyState.swift */,
+				D8BFDA96358A6BEB484A42FB /* MainRoomState.swift */,
+			);
+			path = State;
+			sourceTree = "<group>";
+		};
+		EC79CDB84EEA7BE0748F8F9A /* Rules */ = {
+			isa = PBXGroup;
+			children = (
+				33580074C0FC6733FD4A8D01 /* CardLegality.swift */,
+			);
+			path = Rules;
+			sourceTree = "<group>";
+		};
+		FB41DE74809A2EFE6AD69CA0 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				D93F1941362F417B0FA5594F /* Card.swift */,
+				409C82291F02FA6A105021BE /* ChatMessage.swift */,
+				5BA11DB6AFE269661E829F5A /* Lobby.swift */,
+				7187D649710ECFC3C9A68D59 /* Player.swift */,
+				ABD47677D06A3496EC34B3AC /* ScoreData.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		FC24732243280176146999AA /* Actions */ = {
+			isa = PBXGroup;
+			children = (
+				E351C73D3028BDE65B7BC08E /* CardAnimations.swift */,
+			);
+			path = Actions;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		2AC5F2EA7EC758EF4B1916F8 /* BABOnline */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B23C802D5AB9AA1A88DE2CFA /* Build configuration list for PBXNativeTarget "BABOnline" */;
+			buildPhases = (
+				62D94D871C0773A659D3DF54 /* Sources */,
+				DDFC3512B19BF4D5E47817EF /* Resources */,
+				6BFE364EE93244104CBB1EFA /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = BABOnline;
+			packageProductDependencies = (
+				369628F9131811122EB62EAD /* SocketIO */,
+			);
+			productName = BABOnline;
+			productReference = 7F8955A183A4B54328782B3C /* BABOnline.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		FC2182A22377A1A66C0AA437 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					2AC5F2EA7EC758EF4B1916F8 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 069DA4D604E15DD108379A4F /* Build configuration list for PBXProject "BABOnline" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 426F53F5D8BE43B74A85A9D1;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				68E432C06209C0685B308F4A /* XCRemoteSwiftPackageReference "socket.io-client-swift" */,
+			);
+			preferredProjectObjectVersion = 77;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				2AC5F2EA7EC758EF4B1916F8 /* BABOnline */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		DDFC3512B19BF4D5E47817EF /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				FDB5445E7BEE26B8943D8770 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		62D94D871C0773A659D3DF54 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				824EB243D531F4482C1E303B /* AppState.swift in Sources */,
+				E73A7EE74D07E23CD13599F6 /* AuthEmitter.swift in Sources */,
+				F74A788A36EF3556E7FD78E0 /* AuthSocketHandler.swift in Sources */,
+				E640FAA2BD8250B7ABC30370 /* AuthState.swift in Sources */,
+				C38CECA4398136469B2963BC /* AvatarNode.swift in Sources */,
+				7FA4C5ACDFA109744D4ED040 /* BABOnlineApp.swift in Sources */,
+				3FE5081206C6F380756FAB21 /* BidBubbleNode.swift in Sources */,
+				DD194794CCBC2E21759D42F5 /* BidOverlayView.swift in Sources */,
+				C8BD6D380C48140E4CA8BBA3 /* Card.swift in Sources */,
+				427CF1456C7DF9E1AF8ADE16 /* CardAnimations.swift in Sources */,
+				E7988D4976F10ACF179A6129 /* CardConstants.swift in Sources */,
+				D55F13028E30296E4822D591 /* CardLegality.swift in Sources */,
+				C034D2B8FD084ABC10C6EA59 /* CardSpriteNode.swift in Sources */,
+				BFAE12C47A3D5E9B01234567 /* CardTextureGenerator.swift in Sources */,
+				FA7C18BDCC1C31AC365877F9 /* CardUtils.swift in Sources */,
+				88D6CEA7598EF27578BB00A5 /* ChatEmitter.swift in Sources */,
+				0D1479057F4F8E28A2C0C482 /* ChatMessage.swift in Sources */,
+				3D0A859DE21658E3D5B09BE1 /* ChatSocketHandler.swift in Sources */,
+				896418D2F4B35BC3D18218A4 /* Color+Theme.swift in Sources */,
+				EA59CF07192D698567C4B4ED /* ContentView.swift in Sources */,
+				695D67B3F890889F37A7163E /* DisconnectBannerView.swift in Sources */,
+				673F325B6550AE9311E0041A /* DrawPhaseNode.swift in Sources */,
+				801BFFB9CB5E4704137E34F5 /* GameContainerView.swift in Sources */,
+				88774AF746A4B620C689090A /* GameEmitter.swift in Sources */,
+				2DC3F6E51394ABFC98D3F746 /* GameEndView.swift in Sources */,
+				E00AF90BAB6B21E200673C4C /* GameLobbyView.swift in Sources */,
+				7CC9F097364F502479C368EE /* GameLogView.swift in Sources */,
+				616CCBD9E2E7D8FD57385AA7 /* GameSKScene.swift in Sources */,
+				8C439A10BE0213B79DC863E0 /* GameSocketHandler.swift in Sources */,
+				0AFE71725CB8CD0D40446684 /* GameState.swift in Sources */,
+				6C8BF96D03D45CA6E2768194 /* HandNode.swift in Sources */,
+				928367895A6772000691F618 /* HapticManager.swift in Sources */,
+				34DB3B2F9965A4193CCF4DD0 /* LayoutConstants.swift in Sources */,
+				48DFFF3FEE58CD64BDDC5C99 /* Lobby.swift in Sources */,
+				47380CD80F8287DC58668AA9 /* LobbyChatView.swift in Sources */,
+				8CA174CB34AD22C90102770A /* LobbyEmitter.swift in Sources */,
+				7A46E42567414E6969EA1C2A /* LobbyListView.swift in Sources */,
+				313D29830FDF017A20D5CBB1 /* LobbyPlayerRow.swift in Sources */,
+				B348925DF11C006AF98146DA /* LobbySocketHandler.swift in Sources */,
+				68EE1BE53906A7084E9F704E /* LobbyState.swift in Sources */,
+				F20146DFE1206F0A2A61249C /* MainRoomChatView.swift in Sources */,
+				6290C7B4FB7537971B28220C /* MainRoomState.swift in Sources */,
+				F0F39CCF660CAEF84977927F /* MainRoomView.swift in Sources */,
+				B0C0F2FA27394738C0CD3E36 /* OpponentHandNode.swift in Sources */,
+				E118CADCE8BAC6B1CA85A94C /* Player.swift in Sources */,
+				659B2D2BB84FF1472A3DAB2A /* Positions.swift in Sources */,
+				469EDE0D5489C9E9CA8DD8DB /* RegisterView.swift in Sources */,
+				DB67F3346A80A1153ED988C6 /* SKBidManager.swift in Sources */,
+				902F44A26653DE8831F20CDE /* SKCardManager.swift in Sources */,
+				EF8870774CB1F6132E401E65 /* SKDrawManager.swift in Sources */,
+				6FEB3B6CE89BEB55FA70539B /* SKEffectsManager.swift in Sources */,
+				68F00F16CBB0861A46B7B701 /* SKOpponentManager.swift in Sources */,
+				0D25FCF69FC9AF34A7A5C0A3 /* SKTrickManager.swift in Sources */,
+				E1122E2C79E20E18927F0CE1 /* ScoreBarView.swift in Sources */,
+				2C879BC1C33494BB4AC7468C /* ScoreData.swift in Sources */,
+				94E6B3762DD45EE9BA15062F /* SignInView.swift in Sources */,
+				6BE0A4F111109267843AC10C /* SocketEventRouter.swift in Sources */,
+				4FE9A31CADE409D9F3455651 /* SocketEvents.swift in Sources */,
+				D28BE7A9A269BF3E7C4DDC6C /* SocketService.swift in Sources */,
+				762849D3514C9326C39FFF29 /* TrickAreaNode.swift in Sources */,
+				1A52C4D663DFAE60116D9CB0 /* TrickHistoryNode.swift in Sources */,
+				39B5487AEDCCC050AFED060C /* View+Haptics.swift in Sources */,
+				A1B2C3D4E5F6A7B8C9D0E1F2 /* SplashView.swift in Sources */,
+				1A2B3C4D5E6F7A8B9C0D1E2F /* DrawPhaseView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		2B228A65877E1E64007BF5F1 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.9;
+			};
+			name = Release;
+		};
+		3CC53104596623FB219DF535 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				INFOPLIST_FILE = BABOnline/Info.plist;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.bab-online.BABOnline";
+				PRODUCT_NAME = "BAB Online";
+				SDKROOT = iphoneos;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		59BE54F1604CAADEE2CB6F45 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.9;
+			};
+			name = Debug;
+		};
+		74A9960952A30F4CD8F09C2C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				INFOPLIST_FILE = BABOnline/Info.plist;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.bab-online.BABOnline";
+				PRODUCT_NAME = "BAB Online";
+				SDKROOT = iphoneos;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		069DA4D604E15DD108379A4F /* Build configuration list for PBXProject "BABOnline" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				59BE54F1604CAADEE2CB6F45 /* Debug */,
+				2B228A65877E1E64007BF5F1 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		B23C802D5AB9AA1A88DE2CFA /* Build configuration list for PBXNativeTarget "BABOnline" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3CC53104596623FB219DF535 /* Debug */,
+				74A9960952A30F4CD8F09C2C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		68E432C06209C0685B308F4A /* XCRemoteSwiftPackageReference "socket.io-client-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/socketio/socket.io-client-swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 16.1.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		369628F9131811122EB62EAD /* SocketIO */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 68E432C06209C0685B308F4A /* XCRemoteSwiftPackageReference "socket.io-client-swift" */;
+			productName = SocketIO;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = FC2182A22377A1A66C0AA437 /* Project object */;
+}
