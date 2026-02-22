@@ -54,8 +54,6 @@ class SKOpponentManager {
 
         guard let scene = scene else { return }
 
-        // Spectators view from position 1
-        let myPos = 1
         let allPositions: [(absPos: Int, relPos: Positions.RelativePosition)] = [
             (1, .bottom),
             (2, .left),
