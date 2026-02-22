@@ -32,6 +32,9 @@ final class LobbySocketHandler {
                 if let inProgress = dict["inProgressGames"] as? [[String: Any]] {
                     self.mainRoomState.inProgressGames = inProgress.compactMap { Lobby.from($0) }
                 }
+                if let tournamentsArr = dict["tournaments"] as? [[String: Any]] {
+                    self.mainRoomState.tournaments = tournamentsArr.compactMap { TournamentSummary.from($0) }
+                }
                 print("[Lobby] Joined main room")
             }
         }
@@ -61,6 +64,9 @@ final class LobbySocketHandler {
                 }
                 if let inProgress = dict["inProgressGames"] as? [[String: Any]] {
                     self?.mainRoomState.inProgressGames = inProgress.compactMap { Lobby.from($0) }
+                }
+                if let tournamentsArr = dict["tournaments"] as? [[String: Any]] {
+                    self?.mainRoomState.tournaments = tournamentsArr.compactMap { TournamentSummary.from($0) }
                 }
             }
         }

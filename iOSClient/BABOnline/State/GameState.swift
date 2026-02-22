@@ -27,6 +27,7 @@ final class GameState: ObservableObject {
     // MARK: - Game Info
 
     @Published var gameId: String?
+    @Published var tournamentId: String?
     @Published var phase: GamePhase = .none
     @Published var currentHand: Int = 0
     @Published var dealer: Int?
@@ -155,6 +156,7 @@ final class GameState: ObservableObject {
         pic = nil
 
         gameId = nil
+        tournamentId = nil
         phase = .none
         currentHand = 0
         dealer = nil

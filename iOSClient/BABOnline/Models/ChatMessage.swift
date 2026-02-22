@@ -27,7 +27,11 @@ struct ChatMessage: Identifiable, Equatable {
         let username = dict["username"] as? String ?? "System"
         let message = dict["message"] as? String ?? ""
         let typeStr = dict["type"] as? String ?? "player"
-        let type = MessageType(rawValue: typeStr) ?? .player
+        var type = MessageType(rawValue: typeStr) ?? .player
+        // Tournament messages use isSpectator boolean instead of type string
+        if dict["isSpectator"] as? Bool == true {
+            type = .spectator
+        }
         let position = dict["position"] as? Int
         return ChatMessage(username: username, message: message, type: type, position: position)
     }

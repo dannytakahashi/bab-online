@@ -7,6 +7,7 @@ final class AppState: ObservableObject {
         case register
         case mainRoom
         case gameLobby
+        case tournamentLobby
         case game
     }
 

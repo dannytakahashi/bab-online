@@ -23,6 +23,8 @@ struct ContentView: View {
                         MainRoomView()
                     case .gameLobby:
                         GameLobbyView()
+                    case .tournamentLobby:
+                        TournamentLobbyView()
                     case .game:
                         GameContainerView()
                     }

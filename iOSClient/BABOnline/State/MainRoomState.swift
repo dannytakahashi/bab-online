@@ -6,11 +6,13 @@ final class MainRoomState: ObservableObject {
     @Published var inProgressGames: [Lobby] = []
     @Published var messages: [ChatMessage] = []
     @Published var onlineCount: Int = 0
+    @Published var tournaments: [TournamentSummary] = []
 
     func reset() {
         lobbies = []
         inProgressGames = []
         messages = []
         onlineCount = 0
+        tournaments = []
     }
 }
