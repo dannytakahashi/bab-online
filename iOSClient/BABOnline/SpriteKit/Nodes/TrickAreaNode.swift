@@ -24,7 +24,7 @@ class TrickAreaNode: SKNode {
         let relPos = Positions.getRelative(target: position, from: myPosition)
         let offset = cardOffset(for: relPos, sceneSize: sceneSize)
 
-        let texture = SKTexture(imageNamed: card.imageName)
+        let texture = CardTextureGenerator.texture(for: card)
         let sprite = SKSpriteNode(texture: texture, size: CGSize(width: LayoutConstants.cardWidth * 0.8, height: LayoutConstants.cardHeight * 0.8))
         sprite.position = animated ? CGPoint(x: offset.x * 3, y: offset.y * 3) : offset
         sprite.zPosition = 100 + CGFloat(trickCards.count)

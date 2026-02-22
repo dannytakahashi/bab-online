@@ -30,7 +30,7 @@ struct MainRoomChatView: View {
                     .padding(.horizontal)
                     .padding(.vertical, 8)
                 }
-                .onChange(of: mainRoomState.messages.count) { _ in
+                .onChange(of: mainRoomState.messages.count) {
                     if let last = mainRoomState.messages.last {
                         withAnimation(.easeOut(duration: 0.2)) {
                             proxy.scrollTo(last.id, anchor: .bottom)

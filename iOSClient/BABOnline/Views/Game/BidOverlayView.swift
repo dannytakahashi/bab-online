@@ -37,73 +37,70 @@ struct BidOverlayView: View {
     }
 
     var body: some View {
-        VStack(spacing: 12) {
-            // Header
-            Text("Your Bid")
-                .font(.headline)
-                .foregroundColor(Color.Theme.textPrimary)
+        VStack(spacing: 6) {
+            // Compact bid grid
+            let columns = Array(repeating: GridItem(.flexible(), spacing: 4), count: min(maxBid + 1, 7))
 
-            // Bid grid
-            let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: min(maxBid + 1, 7))
-
-            LazyVGrid(columns: columns, spacing: 8) {
+            LazyVGrid(columns: columns, spacing: 4) {
                 ForEach(0...maxBid, id: \.self) { bid in
                     Button(action: { selectedBid = bid }) {
                         Text("\(bid)")
-                            .font(.title3.bold())
-                            .frame(minWidth: 44, minHeight: 44)
+                            .font(.callout.bold())
+                            .frame(minWidth: 36, minHeight: 36)
                             .background(selectedBid == bid ? Color.Theme.primary : Color.Theme.surfaceLight)
                             .foregroundColor(selectedBid == bid ? .black : Color.Theme.textPrimary)
-                            .cornerRadius(8)
+                            .cornerRadius(6)
                     }
                 }
             }
-            .padding(.horizontal)
+            .padding(.horizontal, 8)
 
-            // Bore buttons
-            if !availableBoreLevels.isEmpty {
-                HStack(spacing: 12) {
+            HStack(spacing: 8) {
+                // Bore buttons inline with submit
+                if !availableBoreLevels.isEmpty {
                     ForEach(availableBoreLevels, id: \.self) { level in
                         Button(action: { submitBore(level) }) {
                             Text(level)
-                                .font(.callout.bold())
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 8)
+                                .font(.caption.bold())
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
                                 .background(Color.Theme.oppColor)
                                 .foregroundColor(.white)
-                                .cornerRadius(8)
+                                .cornerRadius(6)
                         }
                     }
                 }
-            }
 
-            // Submit button
-            Button(action: submitBid) {
-                Text("Submit Bid")
-                    .font(.body.bold())
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(selectedBid != nil ? Color.Theme.buttonBackground : Color.Theme.buttonDisabled)
-                    .foregroundColor(.white)
-                    .cornerRadius(10)
+                Spacer()
+
+                // Submit button
+                Button(action: submitBid) {
+                    Text("Bid")
+                        .font(.callout.bold())
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 8)
+                        .background(selectedBid != nil ? Color.Theme.buttonBackground : Color.Theme.buttonDisabled)
+                        .foregroundColor(.white)
+                        .cornerRadius(8)
+                }
+                .disabled(selectedBid == nil)
             }
-            .disabled(selectedBid == nil)
-            .padding(.horizontal)
+            .padding(.horizontal, 8)
         }
-        .padding(.vertical, 16)
+        .padding(.vertical, 8)
         .background(
-            RoundedRectangle(cornerRadius: 20)
-                .fill(Color.Theme.surface)
-                .shadow(color: .black.opacity(0.5), radius: 20)
+            RoundedRectangle(cornerRadius: 14)
+                .fill(Color.Theme.surface.opacity(0.95))
+                .shadow(color: .black.opacity(0.4), radius: 10)
         )
-        .padding(.horizontal, 12)
-        .padding(.bottom, 8)
+        .padding(.horizontal, 8)
+        .padding(.bottom, 4)
     }
 
     private func submitBid() {
         guard let bid = selectedBid, let pos = gameState.position else { return }
         HapticManager.mediumImpact()
-        gameState.optimisticBid(bid)
+        gameState.optimisticBid(String(bid))
         GameEmitter.playerBid(bid: bid, position: pos)
         selectedBid = nil
     }
@@ -111,6 +108,7 @@ struct BidOverlayView: View {
     private func submitBore(_ level: String) {
         guard let pos = gameState.position else { return }
         HapticManager.mediumImpact()
+        gameState.optimisticBid(level)
         GameEmitter.playerBidBore(bid: level, position: pos)
     }
 }

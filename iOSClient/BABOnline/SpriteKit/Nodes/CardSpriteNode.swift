@@ -17,7 +17,7 @@ class CardSpriteNode: SKSpriteNode {
     init(card: Card) {
         self.card = card
 
-        let texture = SKTexture(imageNamed: card.imageName)
+        let texture = CardTextureGenerator.texture(for: card)
         super.init(texture: texture, color: .clear, size: CardSpriteNode.cardSize)
 
         self.name = "card_\(card.id)"
@@ -26,7 +26,7 @@ class CardSpriteNode: SKSpriteNode {
 
     /// Create a card-back sprite
     static func cardBack() -> SKSpriteNode {
-        let texture = SKTexture(imageNamed: "card_back")
+        let texture = CardTextureGenerator.cardBackTexture()
         let sprite = SKSpriteNode(texture: texture, size: CGSize(
             width: LayoutConstants.opponentCardWidth,
             height: LayoutConstants.opponentCardHeight

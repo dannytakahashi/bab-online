@@ -26,7 +26,8 @@ class SKCardManager {
 
     func positionHand() {
         guard let scene = scene else { return }
-        let bottomY = -scene.size.height / 2 + LayoutConstants.cardHeight / 2 + 20
+        // Raise hand above bottom edge to leave room for bid overlay
+        let bottomY = -scene.size.height / 2 + LayoutConstants.cardHeight / 2 + 60
         handNode.position = CGPoint(x: 0, y: bottomY)
     }
 

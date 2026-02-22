@@ -22,17 +22,17 @@ struct GameContainerView: View {
 
             // SwiftUI overlays
             VStack(spacing: 0) {
-                // Score bar at top
+                // Score bar pinned to top of safe area
                 if gameState.phase == .bidding || gameState.phase == .playing {
                     ScoreBarView()
-                        .padding(.top, safeAreaTop)
                 }
 
                 Spacer()
 
-                // Bid overlay at bottom
+                // Bid overlay above cards
                 if gameState.isBidding && gameState.isMyTurn {
                     BidOverlayView()
+                        .padding(.bottom, 170)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
@@ -51,7 +51,7 @@ struct GameContainerView: View {
                                 .clipShape(Circle())
                         }
                         .padding(.trailing, 12)
-                        .padding(.top, safeAreaTop + 50)
+                        .padding(.top, 50)
                     }
                     Spacer()
                 }
@@ -67,7 +67,7 @@ struct GameContainerView: View {
             if !gameState.disconnectedPlayers.isEmpty {
                 VStack {
                     DisconnectBannerView()
-                        .padding(.top, safeAreaTop + (gameState.phase == .bidding || gameState.phase == .playing ? 50 : 0))
+                        .padding(.top, gameState.phase == .bidding || gameState.phase == .playing ? 50 : 0)
                     Spacer()
                 }
             }
@@ -86,11 +86,5 @@ struct GameContainerView: View {
         .onDisappear {
             scene.cleanupAll()
         }
-    }
-
-    private var safeAreaTop: CGFloat {
-        UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .first?.windows.first?.safeAreaInsets.top ?? 0
     }
 }

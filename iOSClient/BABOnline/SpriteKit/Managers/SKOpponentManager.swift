@@ -1,6 +1,6 @@
 import SpriteKit
 
-/// Manages opponent hand displays, turn indicators, and card removal.
+/// Manages opponent hand displays, turn indicators, and card animations.
 class SKOpponentManager {
     weak var scene: GameSKScene?
     private var opponents: [Int: OpponentHandNode] = [:]  // position → node
@@ -24,21 +24,18 @@ class SKOpponentManager {
             (rel.opp2, .right),
         ]
 
-        let scaleX = scene.size.width / LayoutConstants.referenceWidth
-        let scaleY = scene.size.height / LayoutConstants.referenceHeight
-
         for (absPos, relPos) in positions {
             let username = gameState.getPlayerName(position: absPos)
             let node = OpponentHandNode(position: relPos, username: username)
 
-            // Position on screen
+            // Position on screen — partner well below score bar, opponents centered vertically
             switch relPos {
             case .top:
-                node.position = CGPoint(x: 0, y: scene.size.height / 2 - 100 * scaleY)
+                node.position = CGPoint(x: 0, y: scene.size.height / 2 - 220)
             case .left:
-                node.position = CGPoint(x: -scene.size.width / 2 + 120 * scaleX, y: 0)
+                node.position = CGPoint(x: -scene.size.width / 2 + 60, y: 0)
             case .right:
-                node.position = CGPoint(x: scene.size.width / 2 - 120 * scaleX, y: 0)
+                node.position = CGPoint(x: scene.size.width / 2 - 60, y: 0)
             default:
                 break
             }
@@ -49,11 +46,8 @@ class SKOpponentManager {
         }
     }
 
-    func setCardCounts(_ count: Int) {
-        for (_, node) in opponents {
-            node.cardCount = count
-        }
-    }
+    /// No-op — card-back fans are removed.
+    func setCardCounts(_ count: Int) {}
 
     func updateTurn(currentTurn: Int?) {
         for (pos, node) in opponents {
@@ -65,16 +59,50 @@ class SKOpponentManager {
         }
     }
 
-    func showBid(position: Int, bid: Int) {
-        opponents[position]?.showBid(bid)
-    }
-
     func clearAllBids() {
-        opponents.values.forEach { $0.clearBid() }
+        // Bids are managed by SKBidManager — no-op here
     }
 
-    func removeCard(fromPosition position: Int, trickPoint: CGPoint, completion: (() -> Void)? = nil) {
-        opponents[position]?.removeOneCard(animateTo: trickPoint, completion: completion)
+    /// Animate a face-up card from the opponent's direction to the trick area.
+    func animateOpponentCard(card: Card, fromPosition position: Int, toTrickPoint trickPoint: CGPoint, completion: (() -> Void)? = nil) {
+        guard let scene = scene, let node = opponents[position] else {
+            completion?()
+            return
+        }
+
+        let scaleX = scene.size.width / LayoutConstants.referenceWidth
+        let scaleY = scene.size.height / LayoutConstants.referenceHeight
+
+        // Start point: off-screen in the opponent's direction
+        let startPoint: CGPoint
+        switch node.relativePosition {
+        case .top:
+            startPoint = CGPoint(x: 0, y: scene.size.height / 2 + 100 * scaleY)
+        case .left:
+            startPoint = CGPoint(x: -scene.size.width / 2 - 100 * scaleX, y: 0)
+        case .right:
+            startPoint = CGPoint(x: scene.size.width / 2 + 100 * scaleX, y: 0)
+        default:
+            startPoint = node.position
+        }
+
+        // Create face-up card sprite
+        let texture = CardTextureGenerator.texture(for: card)
+        let cardSprite = SKSpriteNode(texture: texture, size: CGSize(
+            width: LayoutConstants.cardWidth * 0.8,
+            height: LayoutConstants.cardHeight * 0.8
+        ))
+        cardSprite.position = startPoint
+        cardSprite.zPosition = 90
+        scene.addChild(cardSprite)
+
+        // Animate to trick area then remove
+        let move = SKAction.move(to: trickPoint, duration: LayoutConstants.playCardDuration)
+        move.timingMode = .easeOut
+        cardSprite.run(move) {
+            cardSprite.removeFromParent()
+            completion?()
+        }
     }
 
     func setDisconnected(position: Int, disconnected: Bool) {

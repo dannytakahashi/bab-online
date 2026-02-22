@@ -101,11 +101,25 @@ final class GameSocketHandler {
             guard let self, let dict = data.first as? [String: Any] else { return }
             DispatchQueue.main.async {
                 let position = dict["position"] as? Int ?? 0
-                let bid = dict["bid"] as? Int ?? 0
+
+                // Server sends bid as String (e.g. "5", "B", "2B") or Int
+                let bid: String
+                if let bidStr = dict["bid"] as? String {
+                    bid = bidStr
+                } else if let bidInt = dict["bid"] as? Int {
+                    bid = String(bidInt)
+                } else {
+                    bid = "0"
+                }
+
                 self.gameState.recordBid(position: position, bid: bid)
 
                 if let t1m = dict["team1Mult"] as? Int { self.gameState.team1Mult = t1m }
                 if let t2m = dict["team2Mult"] as? Int { self.gameState.team2Mult = t2m }
+
+                // Client-side log entry
+                let name = self.gameState.getPlayerName(position: position)
+                self.gameState.addSystemLog("\(name) bid \(bid)")
             }
         }
 
@@ -123,6 +137,11 @@ final class GameSocketHandler {
 
                 if let lead = dict["lead"] as? Int {
                     self.gameState.currentTurn = lead
+                }
+
+                // Client-side log: bidding summary
+                if let teamBids = self.gameState.teamBids, let oppBids = self.gameState.oppBids {
+                    self.gameState.addSystemLog("Bidding complete — Your team: \(teamBids), Opponents: \(oppBids)")
                 }
             }
         }
@@ -162,6 +181,10 @@ final class GameSocketHandler {
                         self.gameState.oppTricks += 1
                     }
                 }
+
+                // Client-side log entry
+                let winnerName = self.gameState.getPlayerName(position: winner)
+                self.gameState.addSystemLog("\(winnerName) won the trick (\(self.gameState.teamTricks)-\(self.gameState.oppTricks))")
 
                 // Clear trick state after delay (let animation play)
                 DispatchQueue.main.asyncAfter(deadline: .now() + LayoutConstants.collectTrickDuration + 0.3) {
@@ -351,6 +374,21 @@ final class GameSocketHandler {
         gameState.phase = .bidding
         gameState.isUICreated = true
         appState.screen = .game
+
+        // Client-side log: new hand
+        if let trump = gameState.trump {
+            let trumpStr: String
+            switch trump.suit {
+            case .spades:   trumpStr = "\(trump.rank.rawValue)\u{2660}"
+            case .hearts:   trumpStr = "\(trump.rank.rawValue)\u{2665}"
+            case .diamonds: trumpStr = "\(trump.rank.rawValue)\u{2666}"
+            case .clubs:    trumpStr = "\(trump.rank.rawValue)\u{2663}"
+            case .joker:    trumpStr = trump.rank == .hi ? "High Joker" : "Low Joker"
+            }
+            gameState.addSystemLog("Hand \(gameState.currentHand) — Trump: \(trumpStr)")
+        } else {
+            gameState.addSystemLog("Hand \(gameState.currentHand) started")
+        }
     }
 
     private func handleCardPlayed(_ dict: [String: Any]) {
@@ -373,11 +411,19 @@ final class GameSocketHandler {
         gameState.playedCardIndex += 1
         gameState.cardPlayedSubject.send(PlayedCard(card: card, position: position))
 
+        // Client-side log entry
+        let playerName = gameState.getPlayerName(position: position)
+        gameState.addSystemLog("\(playerName) played \(card.displayName)")
+
         // Confirm optimistic play
         gameState.confirmCardPlay()
 
         if gameState.playedCardIndex >= 4 {
             gameState.playedCardIndex = 0
+            // Immediately clear lead so trick winner can lead freely.
+            // clearTrick() will clean up playedCards after the animation delay.
+            gameState.leadCard = nil
+            gameState.leadPosition = nil
         }
     }
 
@@ -393,6 +439,9 @@ final class GameSocketHandler {
                 gameState.teamScore = t2
                 gameState.oppScore = t1
             }
+
+            // Client-side log: hand complete with scores
+            gameState.addSystemLog("Hand complete — Score: \(gameState.teamScore) to \(gameState.oppScore)")
         }
 
         gameState.handCompleteSubject.send(dict)

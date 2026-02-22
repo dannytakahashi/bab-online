@@ -64,10 +64,10 @@ class GameSKScene: SKScene {
 
     private func setupBackground() {
         backgroundNode?.removeFromParent()
-        let bg = SKSpriteNode(imageNamed: "background")
+        // Programmatic green felt background — no asset needed
+        let bg = SKSpriteNode(color: UIColor(red: 0.05, green: 0.22, blue: 0.08, alpha: 1), size: size)
         bg.position = .zero
         bg.zPosition = -100
-        bg.size = size
         addChild(bg)
         backgroundNode = bg
     }
@@ -168,7 +168,6 @@ class GameSKScene: SKScene {
                 guard let self, let myPos = self.gameState.position else { return }
                 for (pos, bid) in bids {
                     self.bidManager?.showBid(position: pos, bid: bid, myPosition: myPos)
-                    self.opponentManager?.showBid(position: pos, bid: bid)
                 }
             }
             .store(in: &cancellables)
@@ -228,10 +227,6 @@ class GameSKScene: SKScene {
         opponentManager?.setup(gameState: gameState)
         trickManager?.setup(gameState: gameState)
 
-        // Set initial card counts for opponents
-        let handSize = gameState.myCards.count
-        opponentManager?.setCardCounts(handSize)
-
         cardManager?.updateHand()
     }
 
@@ -240,14 +235,18 @@ class GameSKScene: SKScene {
     private func handleCardPlayed(_ played: PlayedCard) {
         guard let myPos = gameState.position else { return }
 
+        let trickPos = trickManager?.trickPosition(for: played.position) ?? .zero
+
         if played.position == myPos {
             // Our card — animate from hand to trick area
-            let trickPos = trickManager?.trickPosition(for: played.position) ?? .zero
             cardManager?.animateCardToTrick(card: played.card, trickPosition: trickPos)
         } else {
-            // Opponent card — remove card back and show face card in trick area
-            let trickPos = trickManager?.trickPosition(for: played.position) ?? .zero
-            opponentManager?.removeCard(fromPosition: played.position, trickPoint: trickPos)
+            // Opponent card — animate face-up card from off-screen to trick area
+            opponentManager?.animateOpponentCard(
+                card: played.card,
+                fromPosition: played.position,
+                toTrickPoint: trickPos
+            )
         }
 
         // Place card face-up in trick area

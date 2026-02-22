@@ -9,27 +9,27 @@ class SKBidManager {
         self.scene = scene
     }
 
-    func showBid(position: Int, bid: Int, myPosition: Int) {
+    func showBid(position: Int, bid: String, myPosition: Int) {
         guard let scene = scene else { return }
         let relPos = Positions.getRelative(target: position, from: myPosition)
-        let scaleX = scene.size.width / LayoutConstants.referenceWidth
-        let scaleY = scene.size.height / LayoutConstants.referenceHeight
+        let halfW = scene.size.width / 2
+        let halfH = scene.size.height / 2
 
         // Remove existing bubble for this position
         bidBubbles[position]?.removeFromParent()
 
-        let bubble = BidBubbleNode(bid: "\(bid)")
+        let bubble = BidBubbleNode(bid: bid)
 
-        // Position near the player area
+        // Position near each player — offset below names to avoid overlap
         switch relPos {
         case .bottom:
-            bubble.position = CGPoint(x: 100 * scaleX, y: -scene.size.height / 2 + 180)
+            bubble.position = CGPoint(x: 80, y: -halfH + 280)
         case .top:
-            bubble.position = CGPoint(x: 0, y: scene.size.height / 2 - 160 * scaleY)
+            bubble.position = CGPoint(x: 0, y: halfH - 250)
         case .left:
-            bubble.position = CGPoint(x: -scene.size.width / 2 + 180 * scaleX, y: 60 * scaleY)
+            bubble.position = CGPoint(x: -halfW + 60, y: -30)
         case .right:
-            bubble.position = CGPoint(x: scene.size.width / 2 - 180 * scaleX, y: 60 * scaleY)
+            bubble.position = CGPoint(x: halfW - 60, y: -30)
         }
 
         bubble.zPosition = 60

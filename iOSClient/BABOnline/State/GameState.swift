@@ -54,7 +54,7 @@ final class GameState: ObservableObject {
 
     // MARK: - Bids
 
-    @Published var bids: [Int: Int] = [:]  // position → bid
+    @Published var bids: [Int: String] = [:]  // position → bid string (e.g. "5", "B", "2B")
     @Published var teamBids: String?
     @Published var oppBids: String?
     @Published var team1Mult: Int = 1
@@ -130,7 +130,7 @@ final class GameState: ObservableObject {
 
     private var pendingCard: Card?
     private var previousCards: [Card]?
-    private var pendingBid: Int?
+    private var pendingBid: String?
 
     // MARK: - Init
 
@@ -282,9 +282,9 @@ final class GameState: ObservableObject {
 
     // MARK: - Bids
 
-    func recordBid(position pos: Int, bid: Int) {
+    func recordBid(position pos: Int, bid: String) {
         bids[pos] = bid
-        tempBids.append(String(bid).uppercased())
+        tempBids.append(bid.uppercased())
         updateTeamBids()
     }
 
@@ -298,8 +298,8 @@ final class GameState: ObservableObject {
         let opp1Bid = bids[oppPositions[0]]
         let opp2Bid = bids[oppPositions[1]]
 
-        teamBids = "\(myBid.map { String($0) } ?? "-")/\(partnerBid.map { String($0) } ?? "-")"
-        oppBids = "\(opp1Bid.map { String($0) } ?? "-")/\(opp2Bid.map { String($0) } ?? "-")"
+        teamBids = "\(myBid ?? "-")/\(partnerBid ?? "-")"
+        oppBids = "\(opp1Bid ?? "-")/\(opp2Bid ?? "-")"
     }
 
     // MARK: - Trick
@@ -330,7 +330,7 @@ final class GameState: ObservableObject {
     }
 
     var isLeading: Bool {
-        playedCards.isEmpty
+        leadCard == nil
     }
 
     var sortedHand: [Card] {
@@ -360,7 +360,7 @@ final class GameState: ObservableObject {
         }
     }
 
-    func optimisticBid(_ bid: Int) {
+    func optimisticBid(_ bid: String) {
         pendingBid = bid
     }
 
@@ -373,6 +373,13 @@ final class GameState: ObservableObject {
 
     func rollbackBid() {
         pendingBid = nil
+    }
+
+    // MARK: - Game Log
+
+    func addSystemLog(_ message: String) {
+        let entry = ChatMessage(username: "System", message: message, type: .system)
+        gameLog.append(entry)
     }
 
     // MARK: - Restore from Rejoin
@@ -399,8 +406,13 @@ final class GameState: ObservableObject {
         if let bidsDict = data["bids"] as? [String: Any] {
             bids = [:]
             for (key, val) in bidsDict {
-                if let pos = Int(key), let bid = val as? Int {
-                    bids[pos] = bid
+                if let pos = Int(key) {
+                    // Bids can be Int or String from server
+                    if let bidInt = val as? Int {
+                        bids[pos] = String(bidInt)
+                    } else if let bidStr = val as? String {
+                        bids[pos] = bidStr
+                    }
                 }
             }
             updateTeamBids()

@@ -21,8 +21,7 @@ class SKTrickManager {
         scene.addChild(trickArea)
 
         trickHistory.removeFromParent()
-        let scaleX = scene.size.width / LayoutConstants.referenceWidth
-        trickHistory.position = CGPoint(x: scene.size.width / 2 - 150 * scaleX, y: -scene.size.height / 2 + 50)
+        trickHistory.position = CGPoint(x: -scene.size.width / 2 + 20, y: -scene.size.height / 2 + 100)
         trickHistory.zPosition = 10
         scene.addChild(trickHistory)
     }

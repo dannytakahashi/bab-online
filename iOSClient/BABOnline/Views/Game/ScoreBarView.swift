@@ -35,8 +35,8 @@ struct ScoreBarView: View {
                         Text("Trump:")
                             .font(.system(size: 10))
                             .foregroundColor(Color.Theme.textDim)
-                        Text(trumpSymbol(trump))
-                            .font(.system(size: 14))
+                        Text(trumpDisplay(trump))
+                            .font(.system(size: 13, weight: .semibold))
                             .foregroundColor(trumpColor(trump))
                     }
                 }
@@ -50,7 +50,7 @@ struct ScoreBarView: View {
                         .foregroundColor(Color.Theme.warning)
                 }
             }
-            .frame(width: 80)
+            .frame(width: 100)
 
             // Opponent side
             VStack(spacing: 2) {
@@ -80,11 +80,8 @@ struct ScoreBarView: View {
     }
 
     private var handNumber: String {
-        let idx = gameState.currentHand
-        if idx >= 0 && idx < CardConstants.handProgression.count {
-            return "\(CardConstants.handProgression[idx])"
-        }
-        return "\(idx)"
+        // currentHand is the hand SIZE (12, 10, 8, ...), display it directly
+        return "\(gameState.currentHand)"
     }
 
     private var multiplierText: String {
@@ -102,14 +99,16 @@ struct ScoreBarView: View {
         return parts.joined(separator: " | ")
     }
 
-    private func trumpSymbol(_ trump: Card) -> String {
+    private func trumpDisplay(_ trump: Card) -> String {
+        let suitSymbol: String
         switch trump.suit {
-        case .spades:   return "\u{2660}"
-        case .hearts:   return "\u{2665}"
-        case .diamonds: return "\u{2666}"
-        case .clubs:    return "\u{2663}"
-        case .joker:    return "NT"
+        case .spades:   suitSymbol = "\u{2660}"
+        case .hearts:   suitSymbol = "\u{2665}"
+        case .diamonds: suitSymbol = "\u{2666}"
+        case .clubs:    suitSymbol = "\u{2663}"
+        case .joker:    return trump.rank == .hi ? "High Joker" : "Low Joker"
         }
+        return "\(trump.rank.rawValue)\(suitSymbol)"
     }
 
     private func trumpColor(_ trump: Card) -> Color {

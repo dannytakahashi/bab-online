@@ -15,10 +15,11 @@ class SKDrawManager {
         drawPhaseNode.removeFromParent()
         scene.addChild(drawPhaseNode)
 
-        drawPhaseNode.showDeck(sceneSize: scene.size)
+        drawPhaseNode.showAutoDrawTitle(sceneSize: scene.size)
 
-        drawPhaseNode.onCardDrawn = { cardIndex in
-            GameEmitter.draw(cardIndex: cardIndex)
+        // Auto-emit draw after a short delay
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            GameEmitter.draw(cardIndex: Int.random(in: 0..<54))
         }
     }
 
