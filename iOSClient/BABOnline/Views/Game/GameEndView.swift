@@ -52,12 +52,12 @@ struct GameEndView: View {
                     }
                 }
 
-                Button(action: returnToMainRoom) {
-                    Text("Return to Lobby")
+                Button(action: returnAction) {
+                    Text(gameState.tournamentId != nil ? "Return to Tournament" : "Return to Lobby")
                         .font(.body.bold())
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
-                        .background(Color.Theme.buttonBackground)
+                        .background(gameState.tournamentId != nil ? Color.Theme.warning : Color.Theme.buttonBackground)
                         .foregroundColor(.white)
                         .cornerRadius(10)
                 }
@@ -72,9 +72,14 @@ struct GameEndView: View {
         }
     }
 
-    private func returnToMainRoom() {
+    private func returnAction() {
+        let savedTournamentId = gameState.tournamentId
         gameState.reset()
-        appState.screen = .mainRoom
-        LobbyEmitter.joinMainRoom()
+        if savedTournamentId != nil {
+            TournamentEmitter.returnToTournament()
+        } else {
+            appState.screen = .mainRoom
+            LobbyEmitter.joinMainRoom()
+        }
     }
 }

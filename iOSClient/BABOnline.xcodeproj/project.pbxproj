@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 77;
+	objectVersion = 63;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -76,6 +76,16 @@
 		F74A788A36EF3556E7FD78E0 /* AuthSocketHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = F28474CFED18B3E46768C988 /* AuthSocketHandler.swift */; };
 		FA7C18BDCC1C31AC365877F9 /* CardUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62295A09DC541B3ED5023CE7 /* CardUtils.swift */; };
 		FDB5445E7BEE26B8943D8770 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8790511FF395019A12A1F429 /* Assets.xcassets */; };
+		BB1234567890ABCDEF000001 /* Tournament.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1234567890ABCDEF000001 /* Tournament.swift */; };
+		BB1234567890ABCDEF000002 /* TournamentState.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1234567890ABCDEF000002 /* TournamentState.swift */; };
+		BB1234567890ABCDEF000003 /* TournamentEmitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1234567890ABCDEF000003 /* TournamentEmitter.swift */; };
+		BB1234567890ABCDEF000004 /* TournamentSocketHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1234567890ABCDEF000004 /* TournamentSocketHandler.swift */; };
+		BB1234567890ABCDEF000005 /* TournamentLobbyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1234567890ABCDEF000005 /* TournamentLobbyView.swift */; };
+		BB1234567890ABCDEF000006 /* TournamentPlayerListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1234567890ABCDEF000006 /* TournamentPlayerListView.swift */; };
+		BB1234567890ABCDEF000007 /* TournamentChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1234567890ABCDEF000007 /* TournamentChatView.swift */; };
+		BB1234567890ABCDEF000008 /* TournamentScoreboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1234567890ABCDEF000008 /* TournamentScoreboardView.swift */; };
+		BB1234567890ABCDEF000009 /* TournamentActiveGamesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1234567890ABCDEF000009 /* TournamentActiveGamesView.swift */; };
+		BB1234567890ABCDEF00000A /* TournamentResultsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1234567890ABCDEF00000A /* TournamentResultsView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -106,7 +116,7 @@
 		7187D649710ECFC3C9A68D59 /* Player.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Player.swift; sourceTree = "<group>"; };
 		75D2E270D4D2316436C2B415 /* UsernameColor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsernameColor.swift; sourceTree = "<group>"; };
 		7AA293C5CC063A9C3A5D35F2 /* GameSocketHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameSocketHandler.swift; sourceTree = "<group>"; };
-		7F8955A183A4B54328782B3C /* BABOnline.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = BABOnline.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		7F8955A183A4B54328782B3C /* BAB Online.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "BAB Online.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		7FD14869A6FDEFEF8A26EB44 /* LobbySocketHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LobbySocketHandler.swift; sourceTree = "<group>"; };
 		812F272D69A23E90F74E663E /* Positions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Positions.swift; sourceTree = "<group>"; };
 		82EEBA726E4095626D47FD1C /* SKCardManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SKCardManager.swift; sourceTree = "<group>"; };
@@ -148,6 +158,16 @@
 		F5181763FA4333160B98FDC2 /* SplashView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplashView.swift; sourceTree = "<group>"; };
 		FA8B8AB7C156EE02DB4AA5EC /* SKOpponentManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SKOpponentManager.swift; sourceTree = "<group>"; };
 		FD7736BF05FE6B17925F5B58 /* AvatarNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvatarNode.swift; sourceTree = "<group>"; };
+		AA1234567890ABCDEF000001 /* Tournament.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tournament.swift; sourceTree = "<group>"; };
+		AA1234567890ABCDEF000002 /* TournamentState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TournamentState.swift; sourceTree = "<group>"; };
+		AA1234567890ABCDEF000003 /* TournamentEmitter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TournamentEmitter.swift; sourceTree = "<group>"; };
+		AA1234567890ABCDEF000004 /* TournamentSocketHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TournamentSocketHandler.swift; sourceTree = "<group>"; };
+		AA1234567890ABCDEF000005 /* TournamentLobbyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TournamentLobbyView.swift; sourceTree = "<group>"; };
+		AA1234567890ABCDEF000006 /* TournamentPlayerListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TournamentPlayerListView.swift; sourceTree = "<group>"; };
+		AA1234567890ABCDEF000007 /* TournamentChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TournamentChatView.swift; sourceTree = "<group>"; };
+		AA1234567890ABCDEF000008 /* TournamentScoreboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TournamentScoreboardView.swift; sourceTree = "<group>"; };
+		AA1234567890ABCDEF000009 /* TournamentActiveGamesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TournamentActiveGamesView.swift; sourceTree = "<group>"; };
+		AA1234567890ABCDEF00000A /* TournamentResultsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TournamentResultsView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -180,6 +200,7 @@
 				281B7D8A956EA7591D9F54C8 /* ChatEmitter.swift */,
 				97217006DFD0797BEBAF6836 /* GameEmitter.swift */,
 				ABFB49C1B9B998424D06A9B7 /* LobbyEmitter.swift */,
+				AA1234567890ABCDEF000003 /* TournamentEmitter.swift */,
 			);
 			path = Emitters;
 			sourceTree = "<group>";
@@ -199,6 +220,7 @@
 				1CC5887542913E6A913FA11E /* ChatSocketHandler.swift */,
 				7AA293C5CC063A9C3A5D35F2 /* GameSocketHandler.swift */,
 				7FD14869A6FDEFEF8A26EB44 /* LobbySocketHandler.swift */,
+				AA1234567890ABCDEF000004 /* TournamentSocketHandler.swift */,
 			);
 			path = Handlers;
 			sourceTree = "<group>";
@@ -224,8 +246,22 @@
 				9CB8AFDF8AACB2CDF741C5B0 /* Game */,
 				C12D81E2062D1556C063393C /* GameLobby */,
 				D5AAEA07E9E0D4E83C6DED04 /* MainRoom */,
+				CC1234567890ABCDEF000001 /* Tournament */,
 			);
 			path = Views;
+			sourceTree = "<group>";
+		};
+		CC1234567890ABCDEF000001 /* Tournament */ = {
+			isa = PBXGroup;
+			children = (
+				AA1234567890ABCDEF000005 /* TournamentLobbyView.swift */,
+				AA1234567890ABCDEF000006 /* TournamentPlayerListView.swift */,
+				AA1234567890ABCDEF000007 /* TournamentChatView.swift */,
+				AA1234567890ABCDEF000008 /* TournamentScoreboardView.swift */,
+				AA1234567890ABCDEF000009 /* TournamentActiveGamesView.swift */,
+				AA1234567890ABCDEF00000A /* TournamentResultsView.swift */,
+			);
+			path = Tournament;
 			sourceTree = "<group>";
 		};
 		72042726A6D40442AA539569 /* Constants */ = {
@@ -361,7 +397,7 @@
 		E80216038A0F001B2BEA7D32 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				7F8955A183A4B54328782B3C /* BABOnline.app */,
+				7F8955A183A4B54328782B3C /* BAB Online.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -373,6 +409,7 @@
 				006A718437AB193FE3F34B14 /* GameState.swift */,
 				E9B310B890DA152FC2DC27BB /* LobbyState.swift */,
 				D8BFDA96358A6BEB484A42FB /* MainRoomState.swift */,
+				AA1234567890ABCDEF000002 /* TournamentState.swift */,
 			);
 			path = State;
 			sourceTree = "<group>";
@@ -393,6 +430,7 @@
 				5BA11DB6AFE269661E829F5A /* Lobby.swift */,
 				7187D649710ECFC3C9A68D59 /* Player.swift */,
 				ABD47677D06A3496EC34B3AC /* ScoreData.swift */,
+				AA1234567890ABCDEF000001 /* Tournament.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -425,7 +463,7 @@
 				369628F9131811122EB62EAD /* SocketIO */,
 			);
 			productName = BABOnline;
-			productReference = 7F8955A183A4B54328782B3C /* BABOnline.app */;
+			productReference = 7F8955A183A4B54328782B3C /* BAB Online.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -438,7 +476,6 @@
 				LastUpgradeCheck = 1600;
 				TargetAttributes = {
 					2AC5F2EA7EC758EF4B1916F8 = {
-						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -454,9 +491,8 @@
 			mainGroup = 426F53F5D8BE43B74A85A9D1;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				68E432C06209C0685B308F4A /* XCRemoteSwiftPackageReference "socket.io-client-swift" */,
+				68E432C06209C0685B308F4A /* XCRemoteSwiftPackageReference "socket" */,
 			);
-			preferredProjectObjectVersion = 77;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -546,6 +582,16 @@
 				935CFA3A9A5E985D296ADBB6 /* SplashView.swift in Sources */,
 				762849D3514C9326C39FFF29 /* TrickAreaNode.swift in Sources */,
 				1A52C4D663DFAE60116D9CB0 /* TrickHistoryNode.swift in Sources */,
+				BB1234567890ABCDEF000001 /* Tournament.swift in Sources */,
+				BB1234567890ABCDEF000002 /* TournamentState.swift in Sources */,
+				BB1234567890ABCDEF000003 /* TournamentEmitter.swift in Sources */,
+				BB1234567890ABCDEF000004 /* TournamentSocketHandler.swift in Sources */,
+				BB1234567890ABCDEF000005 /* TournamentLobbyView.swift in Sources */,
+				BB1234567890ABCDEF000006 /* TournamentPlayerListView.swift in Sources */,
+				BB1234567890ABCDEF000007 /* TournamentChatView.swift in Sources */,
+				BB1234567890ABCDEF000008 /* TournamentScoreboardView.swift in Sources */,
+				BB1234567890ABCDEF000009 /* TournamentActiveGamesView.swift in Sources */,
+				BB1234567890ABCDEF00000A /* TournamentResultsView.swift in Sources */,
 				01BE20189A36B2369389142A /* UsernameColor.swift in Sources */,
 				39B5487AEDCCC050AFED060C /* View+Haptics.swift in Sources */,
 			);
@@ -617,8 +663,9 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = 9SYNY7K2HE;
 				INFOPLIST_FILE = BABOnline/Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.card-games";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -707,8 +754,9 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = 9SYNY7K2HE;
 				INFOPLIST_FILE = BABOnline/Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.card-games";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -751,7 +799,7 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		68E432C06209C0685B308F4A /* XCRemoteSwiftPackageReference "socket.io-client-swift" */ = {
+		68E432C06209C0685B308F4A /* XCRemoteSwiftPackageReference "socket" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/socketio/socket.io-client-swift";
 			requirement = {
@@ -764,7 +812,7 @@
 /* Begin XCSwiftPackageProductDependency section */
 		369628F9131811122EB62EAD /* SocketIO */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 68E432C06209C0685B308F4A /* XCRemoteSwiftPackageReference "socket.io-client-swift" */;
+			package = 68E432C06209C0685B308F4A /* XCRemoteSwiftPackageReference "socket" */;
 			productName = SocketIO;
 		};
 /* End XCSwiftPackageProductDependency section */

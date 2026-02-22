@@ -38,6 +38,19 @@ enum SocketEvents {
         // Bots
         static let addBot = "addBot"
         static let removeBot = "removeBot"
+
+        // Tournament
+        static let createTournament = "createTournament"
+        static let joinTournament = "joinTournament"
+        static let leaveTournament = "leaveTournament"
+        static let tournamentReady = "tournamentReady"
+        static let tournamentUnready = "tournamentUnready"
+        static let beginTournament = "beginTournament"
+        static let beginNextRound = "beginNextRound"
+        static let tournamentChat = "tournamentChat"
+        static let spectateTournament = "spectateTournament"
+        static let spectateTournamentGame = "spectateTournamentGame"
+        static let returnToTournament = "returnToTournament"
     }
 
     // MARK: - Server → Client
@@ -107,6 +120,21 @@ enum SocketEvents {
         static let leftGame = "leftGame"
         static let restorePlayerState = "restorePlayerState"
         static let spectatorJoined = "spectatorJoined"
+
+        // Tournament
+        static let tournamentCreated = "tournamentCreated"
+        static let tournamentJoined = "tournamentJoined"
+        static let tournamentPlayerJoined = "tournamentPlayerJoined"
+        static let tournamentPlayerLeft = "tournamentPlayerLeft"
+        static let tournamentReadyUpdate = "tournamentReadyUpdate"
+        static let tournamentMessage = "tournamentMessage"
+        static let tournamentRoundStart = "tournamentRoundStart"
+        static let tournamentGameAssignment = "tournamentGameAssignment"
+        static let tournamentGameComplete = "tournamentGameComplete"
+        static let tournamentRoundComplete = "tournamentRoundComplete"
+        static let tournamentComplete = "tournamentComplete"
+        static let tournamentLeft = "tournamentLeft"
+        static let activeTournamentFound = "activeTournamentFound"
 
         // Connection
         static let connect = "connect"

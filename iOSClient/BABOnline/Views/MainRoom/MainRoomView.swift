@@ -61,6 +61,12 @@ struct MainRoomView: View {
                     .font(.caption)
                     .foregroundColor(Color.Theme.textSecondary)
 
+                Button(action: { TournamentEmitter.createTournament() }) {
+                    Label("Tournament", systemImage: "trophy.fill")
+                        .font(.callout.bold())
+                        .foregroundColor(Color.Theme.warning)
+                }
+
                 Button(action: { LobbyEmitter.createLobby() }) {
                     Label("Create", systemImage: "plus.circle.fill")
                         .font(.callout.bold())

@@ -247,8 +247,13 @@ final class GameSocketHandler {
         socket.on(SocketEvents.Server.abortGame) { [weak self] _, _ in
             guard let self else { return }
             DispatchQueue.main.async {
+                let savedTournamentId = self.gameState.tournamentId
                 self.gameState.reset()
-                self.appState.screen = .mainRoom
+                if savedTournamentId != nil {
+                    TournamentEmitter.returnToTournament()
+                } else {
+                    self.appState.screen = .mainRoom
+                }
             }
         }
 
@@ -397,9 +402,14 @@ final class GameSocketHandler {
         socket.on(SocketEvents.Server.leftGame) { [weak self] _, _ in
             guard let self else { return }
             DispatchQueue.main.async {
+                let savedTournamentId = self.gameState.tournamentId
                 self.gameState.reset()
-                self.appState.screen = .mainRoom
-                LobbyEmitter.joinMainRoom()
+                if savedTournamentId != nil {
+                    TournamentEmitter.returnToTournament()
+                } else {
+                    self.appState.screen = .mainRoom
+                    LobbyEmitter.joinMainRoom()
+                }
             }
         }
 

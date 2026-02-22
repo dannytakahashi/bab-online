@@ -62,6 +62,9 @@ final class AuthSocketHandler {
                 if let gameId = data["activeGameId"] as? String, !gameId.isEmpty {
                     print("[Auth] Signed in with active game: \(gameId)")
                     AuthEmitter.rejoinGame(gameId: gameId, username: username)
+                } else if let tournamentId = data["activeTournamentId"] as? String, !tournamentId.isEmpty {
+                    print("[Auth] Signed in with active tournament: \(tournamentId)")
+                    TournamentEmitter.joinTournament(tournamentId: tournamentId)
                 } else {
                     self.appState.screen = .mainRoom
                     LobbyEmitter.joinMainRoom()
@@ -127,6 +130,9 @@ final class AuthSocketHandler {
                 if let gameId = data["activeGameId"] as? String, !gameId.isEmpty {
                     print("[Auth] Session restored with active game: \(gameId)")
                     AuthEmitter.rejoinGame(gameId: gameId, username: username)
+                } else if let tournamentId = data["activeTournamentId"] as? String, !tournamentId.isEmpty {
+                    print("[Auth] Session restored with active tournament: \(tournamentId)")
+                    TournamentEmitter.joinTournament(tournamentId: tournamentId)
                 } else {
                     print("[Auth] Session restored for: \(username)")
                     self.appState.screen = .mainRoom

@@ -8,6 +8,7 @@ final class SocketEventRouter {
     private let lobbyHandler: LobbySocketHandler
     private let gameHandler: GameSocketHandler
     private let chatHandler: ChatSocketHandler
+    private let tournamentHandler: TournamentSocketHandler
 
     init(
         socket: SocketService,
@@ -15,13 +16,15 @@ final class SocketEventRouter {
         mainRoomState: MainRoomState,
         lobbyState: LobbyState,
         gameState: GameState,
-        appState: AppState
+        appState: AppState,
+        tournamentState: TournamentState
     ) {
         self.socket = socket
         self.authHandler = AuthSocketHandler(socket: socket, authState: authState, appState: appState, gameState: gameState)
         self.lobbyHandler = LobbySocketHandler(socket: socket, mainRoomState: mainRoomState, lobbyState: lobbyState, appState: appState, gameState: gameState)
         self.gameHandler = GameSocketHandler(socket: socket, gameState: gameState, appState: appState)
         self.chatHandler = ChatSocketHandler(socket: socket, gameState: gameState)
+        self.tournamentHandler = TournamentSocketHandler(socket: socket, tournamentState: tournamentState, gameState: gameState, appState: appState)
     }
 
     func registerAll() {
@@ -29,5 +32,6 @@ final class SocketEventRouter {
         lobbyHandler.register()
         gameHandler.register()
         chatHandler.register()
+        tournamentHandler.register()
     }
 }
