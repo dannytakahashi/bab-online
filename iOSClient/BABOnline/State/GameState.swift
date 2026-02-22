@@ -6,6 +6,7 @@ struct DrawResult: Equatable {
     let username: String
     let position: Int
     let cardIndex: Int
+    let card: Card?
 }
 
 /// Game phases
@@ -108,6 +109,7 @@ final class GameState: ObservableObject {
     // MARK: - Game Log / Chat
 
     @Published var gameLog: [ChatMessage] = []
+    @Published var unreadChatCount: Int = 0
 
     // MARK: - Game End
 
@@ -188,6 +190,7 @@ final class GameState: ObservableObject {
         disconnectedPlayers = [:]
         resignationAvailable = nil
         gameLog = []
+        unreadChatCount = 0
         gameEndData = nil
         errorMessage = nil
         pendingCard = nil
@@ -247,7 +250,17 @@ final class GameState: ObservableObject {
             usernames = uArr
         }
 
-        let pics = dict["pics"] as? [String?] ?? Array(repeating: nil, count: positions.count)
+        // Pics can be Int (numbered 1-82) or String (base64 custom) from server
+        let pics: [String?]
+        if let rawPics = dict["pics"] as? [Any?] {
+            pics = rawPics.map { val -> String? in
+                if let s = val as? String { return s }
+                if let n = val as? Int { return String(n) }
+                return nil
+            }
+        } else {
+            pics = Array(repeating: nil, count: positions.count)
+        }
 
         playerData = PlayerData(positions: positions, sockets: sockets, usernames: usernames, pics: pics)
 

@@ -78,6 +78,11 @@ struct GameLogView: View {
     private func sendChat() {
         let text = chatMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
+        // Ignore slash commands — not yet supported on iOS
+        guard !text.hasPrefix("/") else {
+            chatMessage = ""
+            return
+        }
         ChatEmitter.sendMessage(text)
         chatMessage = ""
     }

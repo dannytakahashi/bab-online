@@ -26,7 +26,8 @@ class SKOpponentManager {
 
         for (absPos, relPos) in positions {
             let username = gameState.getPlayerName(position: absPos)
-            let node = OpponentHandNode(position: relPos, username: username)
+            let pic = gameState.players[absPos]?.pic
+            let node = OpponentHandNode(position: relPos, username: username, pic: pic)
 
             // Position on screen — partner well below score bar, opponents centered vertically
             switch relPos {

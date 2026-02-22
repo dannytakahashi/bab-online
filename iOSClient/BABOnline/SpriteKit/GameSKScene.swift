@@ -172,31 +172,7 @@ class GameSKScene: SKScene {
             }
             .store(in: &cancellables)
 
-        // Draw phase results
-        gameState.$drawResults
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] results in
-                guard let self, let lastResult = results.last else { return }
-                let isLocal = lastResult.username == self.gameState.username
-                self.drawManager?.handlePlayerDrew(
-                    username: lastResult.username,
-                    card: self.gameState.drawnCard ?? Card(suit: .spades, rank: .ace),
-                    drawOrder: results.count,
-                    isLocalPlayer: isLocal
-                )
-            }
-            .store(in: &cancellables)
-
-        // Teams announced
-        gameState.$teamsAnnouncedData
-            .receive(on: DispatchQueue.main)
-            .compactMap { $0 }
-            .sink { [weak self] data in
-                self?.drawManager?.handleTeamsAnnounced(data: data) {
-                    // Draw phase complete — game will transition via gameStart event
-                }
-            }
-            .store(in: &cancellables)
+        // Draw phase results and teams announced — handled by SwiftUI DrawPhaseView
     }
 
     // MARK: - Phase Handling
@@ -208,7 +184,8 @@ class GameSKScene: SKScene {
     private func handlePhaseChange(_ phase: GamePhase) {
         switch phase {
         case .draw:
-            drawManager?.showDrawUI()
+            // Handled by SwiftUI DrawPhaseView
+            break
         case .bidding:
             setupGameUI()
         case .playing:

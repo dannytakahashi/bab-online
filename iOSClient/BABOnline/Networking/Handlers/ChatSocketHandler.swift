@@ -22,6 +22,11 @@ final class ChatSocketHandler {
                 let chatMsg = ChatMessage(username: username, message: message, type: type)
                 self.gameState.gameLog.append(chatMsg)
 
+                // Increment unread count for player/spectator messages
+                if type == .player || type == .spectator {
+                    self.gameState.unreadChatCount += 1
+                }
+
                 // Trigger chat bubble
                 if let pos = position {
                     self.gameState.chatBubbleSubject.send((message: message, position: pos))

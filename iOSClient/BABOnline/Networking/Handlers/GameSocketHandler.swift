@@ -66,8 +66,9 @@ final class GameSocketHandler {
             guard let self, let dict = data.first as? [String: Any] else { return }
             DispatchQueue.main.async {
                 if let username = dict["username"] as? String,
-                   let pos = dict["position"] as? Int {
-                    self.gameState.drawResults.append(DrawResult(username: username, position: pos, cardIndex: dict["cardIndex"] as? Int ?? 0))
+                   let drawOrder = dict["drawOrder"] as? Int {
+                    let card: Card? = (dict["card"] as? [String: Any]).flatMap { Card.from($0) }
+                    self.gameState.drawResults.append(DrawResult(username: username, position: drawOrder, cardIndex: dict["cardIndex"] as? Int ?? 0, card: card))
                 }
             }
         }

@@ -32,7 +32,7 @@ struct GameContainerView: View {
                 // Bid overlay above cards
                 if gameState.isBidding && gameState.isMyTurn {
                     BidOverlayView()
-                        .padding(.bottom, 170)
+                        .padding(.bottom, 200)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
@@ -42,13 +42,31 @@ struct GameContainerView: View {
                 VStack {
                     HStack {
                         Spacer()
-                        Button(action: { withAnimation { showGameLog.toggle() } }) {
+                        Button(action: {
+                            withAnimation {
+                                showGameLog.toggle()
+                                if showGameLog {
+                                    gameState.unreadChatCount = 0
+                                }
+                            }
+                        }) {
                             Image(systemName: showGameLog ? "xmark.circle.fill" : "text.bubble.fill")
                                 .font(.title2)
                                 .foregroundColor(Color.Theme.textSecondary)
                                 .padding(12)
                                 .background(Color.Theme.surface.opacity(0.8))
                                 .clipShape(Circle())
+                                .overlay(alignment: .topTrailing) {
+                                    if !showGameLog && gameState.unreadChatCount > 0 {
+                                        Text("\(gameState.unreadChatCount)")
+                                            .font(.system(size: 11, weight: .bold))
+                                            .foregroundStyle(.white)
+                                            .frame(minWidth: 18, minHeight: 18)
+                                            .background(Color.Theme.error)
+                                            .clipShape(Circle())
+                                            .offset(x: 4, y: -4)
+                                    }
+                                }
                         }
                         .padding(.trailing, 12)
                         .padding(.top, 80)
@@ -70,6 +88,12 @@ struct GameContainerView: View {
                         .padding(.top, gameState.phase == .bidding || gameState.phase == .playing ? 50 : 0)
                     Spacer()
                 }
+            }
+
+            // Draw phase overlay
+            if gameState.phase == .draw {
+                DrawPhaseView()
+                    .transition(.opacity)
             }
 
             // Game end modal

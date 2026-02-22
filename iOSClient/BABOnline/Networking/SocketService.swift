@@ -13,11 +13,11 @@ final class SocketService: ObservableObject {
     private(set) var socket: SocketIOClient?
     var eventRouter: SocketEventRouter?
 
-    /// The server URL — change for production vs development
-    #if DEBUG
+    /// The server URL — simulator uses localhost, physical device uses production
+    #if targetEnvironment(simulator)
     private let serverURL = "http://localhost:3000"
     #else
-    private let serverURL = "https://bab-online-production.up.railway.app"
+    private let serverURL = "https://babonline.io"
     #endif
 
     var socketId: String? { socket?.sid }

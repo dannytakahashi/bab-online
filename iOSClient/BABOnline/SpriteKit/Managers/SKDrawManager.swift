@@ -11,16 +11,7 @@ class SKDrawManager {
     }
 
     func showDrawUI() {
-        guard let scene = scene else { return }
-        drawPhaseNode.removeFromParent()
-        scene.addChild(drawPhaseNode)
-
-        drawPhaseNode.showAutoDrawTitle(sceneSize: scene.size)
-
-        // Auto-emit draw after a short delay
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            GameEmitter.draw(cardIndex: Int.random(in: 0..<54))
-        }
+        // No-op — draw phase is now handled by SwiftUI DrawPhaseView
     }
 
     func handleYouDrew(card: Card, position: Int) {
