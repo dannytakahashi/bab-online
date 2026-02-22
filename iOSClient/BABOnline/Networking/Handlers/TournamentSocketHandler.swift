@@ -163,8 +163,8 @@ final class TournamentSocketHandler {
             }
         }
 
-        socket.on(SocketEvents.Server.activeTournamentFound) { [weak self] data, _ in
-            guard let self, let dict = data.first as? [String: Any] else { return }
+        socket.on(SocketEvents.Server.activeTournamentFound) { data, _ in
+            guard let dict = data.first as? [String: Any] else { return }
             DispatchQueue.main.async {
                 if let tournamentId = dict["tournamentId"] as? String {
                     TournamentEmitter.joinTournament(tournamentId: tournamentId)
