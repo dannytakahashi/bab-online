@@ -20,6 +20,7 @@ final class GameSocketHandler {
         registerGameEnd()
         registerSpecialEvents()
         registerReconnection()
+        registerSpectatorAndLazy()
     }
 
     // MARK: - Setup Phase
@@ -317,6 +318,9 @@ final class GameSocketHandler {
             guard let self, let dict = data.first as? [String: Any] else { return }
             DispatchQueue.main.async {
                 self.gameState.restoreFromRejoin(dict)
+                if dict["isLazy"] as? Bool == true {
+                    self.gameState.isLazy = true
+                }
                 self.appState.screen = .game
                 print("[Game] Rejoin success")
             }
@@ -329,6 +333,83 @@ final class GameSocketHandler {
                 let reason = dict?["reason"] as? String ?? "Rejoin failed"
                 print("[Game] Rejoin failed: \(reason)")
                 self.appState.screen = .mainRoom
+            }
+        }
+    }
+
+    // MARK: - Spectator & Lazy Mode
+
+    private func registerSpectatorAndLazy() {
+        // spectatorJoined — either we're joining as spectator (full state) or someone else joined
+        socket.on(SocketEvents.Server.spectatorJoined) { [weak self] data, _ in
+            guard let self, let dict = data.first as? [String: Any] else { return }
+            DispatchQueue.main.async {
+                if dict["players"] != nil && dict["trump"] != nil {
+                    // We are joining as spectator — full game state provided
+                    self.gameState.restoreFromSpectator(dict)
+                    self.appState.screen = .game
+                    print("[Game] Joined as spectator")
+                } else {
+                    // Someone else joined as spectator
+                    let username = dict["username"] as? String ?? "Someone"
+                    self.gameState.addSystemLog("\(username) joined as spectator")
+                }
+            }
+        }
+
+        // playerLazyMode — a player switched to lazy (bot takes over)
+        socket.on(SocketEvents.Server.playerLazyMode) { [weak self] data, _ in
+            guard let self, let dict = data.first as? [String: Any] else { return }
+            DispatchQueue.main.async {
+                let pos = dict["position"] as? Int ?? 0
+                let botUsername = dict["botUsername"] as? String ?? "Bot"
+                let botPic = dict["botPic"] as? String
+
+                self.gameState.players[pos] = GameState.PlayerInfo(username: botUsername, pic: botPic)
+                self.gameState.updatePlayerNames()
+
+                if pos == self.gameState.position {
+                    self.gameState.isLazy = true
+                }
+            }
+        }
+
+        // playerActiveMode — a player took back control from bot
+        socket.on(SocketEvents.Server.playerActiveMode) { [weak self] data, _ in
+            guard let self, let dict = data.first as? [String: Any] else { return }
+            DispatchQueue.main.async {
+                let pos = dict["position"] as? Int ?? 0
+                let username = dict["username"] as? String ?? ""
+                let pic = dict["pic"] as? String
+
+                self.gameState.players[pos] = GameState.PlayerInfo(username: username, pic: pic)
+                self.gameState.updatePlayerNames()
+
+                if pos == self.gameState.position {
+                    self.gameState.isLazy = false
+                }
+            }
+        }
+
+        // leftGame — server confirmed we left the game
+        socket.on(SocketEvents.Server.leftGame) { [weak self] _, _ in
+            guard let self else { return }
+            DispatchQueue.main.async {
+                self.gameState.reset()
+                self.appState.screen = .mainRoom
+                LobbyEmitter.joinMainRoom()
+            }
+        }
+
+        // restorePlayerState — player used /active from spectator mode
+        socket.on(SocketEvents.Server.restorePlayerState) { [weak self] data, _ in
+            guard let self, let dict = data.first as? [String: Any] else { return }
+            DispatchQueue.main.async {
+                self.gameState.isSpectator = false
+                self.gameState.isLazy = false
+                self.gameState.restoreFromRejoin(dict)
+                self.appState.screen = .game
+                print("[Game] Player state restored from spectator")
             }
         }
     }

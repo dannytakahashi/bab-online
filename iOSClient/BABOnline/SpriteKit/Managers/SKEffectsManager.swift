@@ -8,7 +8,7 @@ class SKEffectsManager {
         self.scene = scene
     }
 
-    /// Show rainbow effect for a position
+    /// Show rainbow effect for a position using rainbow1 image
     func showRainbow(position: Int, myPosition: Int) {
         guard let scene = scene else { return }
         let relPos = Positions.getRelative(target: position, from: myPosition)
@@ -23,26 +23,19 @@ class SKEffectsManager {
         case .right:  effectPos = CGPoint(x: scene.size.width / 2 - 120 * scaleX, y: 0)
         }
 
-        // Rainbow text
-        let label = SKLabelNode(text: "RAINBOW!")
-        label.fontName = "Helvetica-Bold"
-        label.fontSize = 28
-        label.fontColor = .white
-        label.position = effectPos
-        label.zPosition = 500
-        scene.addChild(label)
+        let texture = SKTexture(imageNamed: "rainbow1")
+        let sprite = SKSpriteNode(texture: texture)
+        sprite.position = effectPos
+        sprite.zPosition = 1000
+        sprite.setScale(0)
+        scene.addChild(sprite)
 
-        // Animate with color shimmer and fade
-        let shimmer = CardAnimations.rainbowShimmer()
-        let scaleUp = SKAction.scale(to: 1.5, duration: 0.5)
-        let fadeOut = SKAction.fadeOut(withDuration: 0.5)
-        let remove = SKAction.removeFromParent()
+        let scaleIn = SKAction.scale(to: 1.0, duration: 0.5)
+        scaleIn.timingMode = .easeOut
+        let wait = SKAction.wait(forDuration: 2.0)
+        let fadeOut = SKAction.fadeOut(withDuration: 1.0)
 
-        label.run(SKAction.sequence([
-            shimmer,
-            SKAction.group([scaleUp, fadeOut]),
-            remove
-        ]))
+        sprite.run(SKAction.sequence([scaleIn, wait, fadeOut, SKAction.removeFromParent()]))
     }
 
     /// Show bore badge effect
@@ -78,6 +71,26 @@ class SKEffectsManager {
             ]),
             SKAction.removeFromParent(),
         ]))
+    }
+
+    /// Show over-trump (OT) badge effect
+    func showOverTrump() {
+        guard let scene = scene else { return }
+
+        let texture = SKTexture(imageNamed: "ot")
+        let badge = SKSpriteNode(texture: texture, size: CGSize(width: 80, height: 80))
+        // Top-left of play area
+        badge.position = CGPoint(x: -scene.size.width / 4, y: scene.size.height / 4)
+        badge.zPosition = 999
+        badge.setScale(0)
+        scene.addChild(badge)
+
+        let scaleIn = SKAction.scale(to: 0.9, duration: 0.5)
+        scaleIn.timingMode = .easeOut
+        let wait = SKAction.wait(forDuration: 1.5)
+        let fadeOut = SKAction.fadeOut(withDuration: 1.0)
+
+        badge.run(SKAction.sequence([scaleIn, wait, fadeOut, SKAction.removeFromParent()]))
     }
 
     func cleanup() {

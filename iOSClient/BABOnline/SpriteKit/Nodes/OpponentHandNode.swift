@@ -78,6 +78,19 @@ class OpponentHandNode: SKNode {
         turnGlow = nil
     }
 
+    func updatePic(_ pic: String) {
+        guard let circle = avatarNode else { return }
+        // Remove existing avatar content (initial letter or crop node)
+        circle.childNode(withName: "avatar_initial")?.removeFromParent()
+        for child in circle.children {
+            if child is SKCropNode {
+                child.removeFromParent()
+            }
+        }
+        avatarSprite = nil
+        loadProfilePic(pic)
+    }
+
     func cleanup() {
         turnGlow?.removeFromParent()
         turnGlow = nil

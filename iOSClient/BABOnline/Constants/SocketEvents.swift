@@ -32,6 +32,9 @@ enum SocketEvents {
         static let rejoinGame = "rejoinGame"
         static let forceResign = "forceResign"
 
+        // Spectator
+        static let joinAsSpectator = "joinAsSpectator"
+
         // Bots
         static let addBot = "addBot"
         static let removeBot = "removeBot"

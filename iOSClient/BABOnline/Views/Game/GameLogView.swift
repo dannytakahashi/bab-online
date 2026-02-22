@@ -1,10 +1,37 @@
 import SwiftUI
 
+/// Slash command definition
+private struct SlashCommand {
+    let command: String
+    let description: String
+}
+
 /// Collapsible game log + chat panel.
 struct GameLogView: View {
     @EnvironmentObject var gameState: GameState
     @Binding var isShowing: Bool
     @State private var chatMessage = ""
+    @State private var showAutocomplete = false
+
+    private static let allCommands: [SlashCommand] = [
+        SlashCommand(command: "/lazy", description: "Bot plays for you"),
+        SlashCommand(command: "/active", description: "Take back control"),
+        SlashCommand(command: "/leave", description: "Exit to lobby"),
+    ]
+
+    private var availableCommands: [SlashCommand] {
+        // Pure spectators (not lazy) only see /leave
+        if gameState.isSpectator && !gameState.isLazy {
+            return Self.allCommands.filter { $0.command == "/leave" }
+        }
+        return Self.allCommands
+    }
+
+    private var filteredCommands: [SlashCommand] {
+        guard chatMessage.hasPrefix("/") else { return [] }
+        let query = chatMessage.lowercased()
+        return availableCommands.filter { $0.command.hasPrefix(query) }
+    }
 
     var body: some View {
         GeometryReader { geo in
@@ -55,10 +82,35 @@ struct GameLogView: View {
 
                     Divider().background(Color.Theme.inputBorder)
 
+                    // Slash command autocomplete
+                    if showAutocomplete && !filteredCommands.isEmpty {
+                        VStack(spacing: 0) {
+                            ForEach(filteredCommands, id: \.command) { cmd in
+                                Button(action: { submitCommand(cmd.command) }) {
+                                    HStack(spacing: 8) {
+                                        Text(cmd.command)
+                                            .font(.system(size: 13, weight: .bold, design: .monospaced))
+                                            .foregroundColor(.green)
+                                        Text(cmd.description)
+                                            .font(.system(size: 12))
+                                            .foregroundColor(Color.Theme.textDim)
+                                        Spacer()
+                                    }
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                }
+                            }
+                        }
+                        .background(Color.Theme.surface)
+                    }
+
                     // Chat input
                     HStack(spacing: 8) {
                         TextField("Chat...", text: $chatMessage)
                             .textFieldStyle(BABTextFieldStyle())
+                            .onChange(of: chatMessage) {
+                                showAutocomplete = chatMessage.hasPrefix("/")
+                            }
                             .onSubmit(sendChat)
 
                         Button(action: sendChat) {
@@ -83,13 +135,25 @@ struct GameLogView: View {
     private func sendChat() {
         let text = chatMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-        // Ignore slash commands — not yet supported on iOS
-        guard !text.hasPrefix("/") else {
-            chatMessage = ""
+
+        // Slash command: auto-submit if single match
+        if text.hasPrefix("/") {
+            let matches = filteredCommands
+            if matches.count == 1 {
+                submitCommand(matches[0].command)
+            }
             return
         }
+
         ChatEmitter.sendMessage(text)
         chatMessage = ""
+        showAutocomplete = false
+    }
+
+    private func submitCommand(_ command: String) {
+        ChatEmitter.sendMessage(command)
+        chatMessage = ""
+        showAutocomplete = false
     }
 }
 

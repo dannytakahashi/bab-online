@@ -198,11 +198,17 @@ class GameSKScene: SKScene {
 
     private func setupGameUI() {
         drawManager?.cleanup()
-        cardManager?.setup(gameState: gameState)
-        opponentManager?.setup(gameState: gameState)
-        trickManager?.setup(gameState: gameState)
 
-        cardManager?.updateHand()
+        if gameState.isSpectator {
+            opponentManager?.setupForSpectator(gameState: gameState)
+            // No card manager setup — spectators have no hand
+        } else {
+            cardManager?.setup(gameState: gameState)
+            opponentManager?.setup(gameState: gameState)
+            cardManager?.updateHand()
+        }
+
+        trickManager?.setup(gameState: gameState)
     }
 
     // MARK: - Event Handlers
@@ -212,11 +218,11 @@ class GameSKScene: SKScene {
 
         let trickPos = trickManager?.trickPosition(for: played.position) ?? .zero
 
-        if played.position == myPos {
+        if played.position == myPos && !gameState.isSpectator {
             // Our card — animate from hand to trick area
             cardManager?.animateCardToTrick(card: played.card, trickPosition: trickPos)
         } else {
-            // Opponent card — animate face-up card from off-screen to trick area
+            // Opponent card (or any card in spectator mode) — animate from off-screen to trick area
             opponentManager?.animateOpponentCard(
                 card: played.card,
                 fromPosition: played.position,
@@ -226,6 +232,28 @@ class GameSKScene: SKScene {
 
         // Place card face-up in trick area
         trickManager?.placeCard(played.card, position: played.position)
+
+        // OT detection: current card is trump/joker, previous card is trump/joker,
+        // current rank > previous rank, and lead card is NOT trump
+        if gameState.playedCards.count >= 2 {
+            let currentCard = played.card
+            let previousPlayed = gameState.playedCards[gameState.playedCards.count - 2]
+            let previousCard = previousPlayed.card
+
+            if let leadCard = gameState.leadCard, let trump = gameState.trump {
+                let leadIsTrump = leadCard.suit == trump.suit || leadCard.suit == .joker
+                let currentIsTrump = currentCard.suit == trump.suit || currentCard.suit == .joker
+                let previousIsTrump = previousCard.suit == trump.suit || previousCard.suit == .joker
+
+                if !leadIsTrump && currentIsTrump && previousIsTrump {
+                    let currentRank = CardConstants.rankValues[currentCard.rank] ?? 0
+                    let previousRank = CardConstants.rankValues[previousCard.rank] ?? 0
+                    if currentRank > previousRank {
+                        effectsManager?.showOverTrump()
+                    }
+                }
+            }
+        }
     }
 
     private func handleTrickComplete(winner: Int) {

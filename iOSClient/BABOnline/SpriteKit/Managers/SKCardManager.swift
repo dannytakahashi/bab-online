@@ -33,6 +33,7 @@ class SKCardManager {
 
     func updateHand() {
         guard let scene = scene, let gs = gameState else { return }
+        guard !gs.isSpectator else { return }  // Spectators have no hand
 
         let sortedCards = gs.sortedHand
         let legalCards: [Card]
@@ -56,7 +57,7 @@ class SKCardManager {
     }
 
     private func handleCardPlay(_ card: Card) {
-        guard let gs = gameState, gs.isMyTurn, !gs.hasPlayedCard, gs.phase == .playing else { return }
+        guard let gs = gameState, gs.isMyTurn, !gs.hasPlayedCard, gs.phase == .playing, !gs.isReadOnly else { return }
 
         // Legality check
         let result = CardLegality.isLegalMove(
