@@ -1,6 +1,6 @@
 # BAB Online
 
-A 4-player online multiplayer trick-taking card game built with Phaser 3 and Socket.IO.
+A 4-player online multiplayer trick-taking card game built with Phaser 3, SpriteKit, and Socket.IO.
 
 ## Game Overview
 
@@ -12,8 +12,9 @@ For complete game rules including bidding, scoring, and special mechanics, see [
 
 | Layer | Technology |
 |-------|------------|
-| Frontend | Phaser 3.55.2, ES6 Modules, Socket.IO Client 4.0.1 |
-| Build | Vite |
+| Web Frontend | Phaser 3.55.2, ES6 Modules, Socket.IO Client 4.0.1 |
+| iOS Client | SwiftUI, SpriteKit, Socket.IO-Client-Swift 16, Combine |
+| Build | Vite (web), Xcode 15+ (iOS) |
 | Backend | Node.js 18+, Express.js 4.21.2, Socket.IO 4.8.1 |
 | Database | MongoDB with Mongoose 8.12.1 |
 | Security | Helmet, bcryptjs |
@@ -25,6 +26,7 @@ For complete game rules including bidding, scoring, and special mechanics, see [
 ### Prerequisites
 - Node.js 18+
 - MongoDB (local or Atlas)
+- Xcode 15+ (for iOS client)
 
 ### Installation
 
@@ -44,6 +46,10 @@ cp .env.example .env
 npm run dev
 ```
 
+### iOS Client
+
+Open `iOSClient/BABOnline.xcodeproj` in Xcode, select your target device (iOS 17+), and build.
+
 ### Environment Variables
 
 ```bash
@@ -56,77 +62,98 @@ MONGO_URI=mongodb://localhost:27017/bab-online
 
 ```
 bab-online/
-├── client/
-│   ├── src/                        # Modular ES6 client code (Vite)
-│   │   ├── main.js                 # Entry point
-│   │   ├── constants/              # events.js, ranks.js
-│   │   ├── utils/                  # positions.js, cards.js, colors.js
-│   │   ├── rules/                  # legality.js - card play validation
-│   │   ├── state/                  # GameState.js - client state singleton
-│   │   ├── socket/                 # SocketManager.js - connection management
-│   │   ├── handlers/               # Socket event handlers (auth, game, chat, lobby, profile, leaderboard, tournament)
+├── client/                            # Web client (Phaser + Vite)
+│   ├── src/
+│   │   ├── main.js                    # Entry point
+│   │   ├── constants/                 # events.js, ranks.js
+│   │   ├── utils/                     # positions.js, cards.js, colors.js
+│   │   ├── rules/                     # legality.js - card play validation
+│   │   ├── state/                     # GameState.js - client state singleton
+│   │   ├── socket/                    # SocketManager.js - connection management
+│   │   ├── handlers/                  # Socket event handlers (auth, game, chat, lobby, profile, leaderboard, tournament)
 │   │   ├── phaser/
-│   │   │   ├── config.js           # Phaser game configuration
-│   │   │   ├── PhaserGame.js       # Game instance wrapper
-│   │   │   ├── scenes/             # GameScene.js
-│   │   │   └── managers/           # CardManager, TrickManager, BidManager, etc.
+│   │   │   ├── config.js              # Phaser game configuration
+│   │   │   ├── PhaserGame.js          # Game instance wrapper
+│   │   │   ├── scenes/                # GameScene.js
+│   │   │   └── managers/              # CardManager, TrickManager, BidManager, etc.
 │   │   └── ui/
-│   │       ├── UIManager.js        # DOM lifecycle management
-│   │       ├── components/         # Modal, Toast, BidUI, GameLog, TournamentScoreboard
-│   │       └── screens/            # SignIn, Register, MainRoom, GameLobby, TournamentLobby, ProfilePage, LeaderboardPage
+│   │       ├── UIManager.js           # DOM lifecycle management
+│   │       ├── components/            # Modal, Toast, BidUI, GameLog, TournamentScoreboard
+│   │       └── screens/               # SignIn, Register, MainRoom, GameLobby, TournamentLobby, ProfilePage, LeaderboardPage
 │   ├── styles/
-│   │   └── components.css          # UI component styles
-│   ├── assets/                     # Card images, backgrounds
-│   ├── vite.config.js              # Vite build configuration
-│   └── index.html                  # Entry point
+│   │   └── components.css             # UI component styles
+│   ├── assets/                        # Card images, backgrounds
+│   ├── vite.config.js                 # Vite build configuration
+│   └── index.html                     # Entry point
+├── iOSClient/BABOnline/               # iOS client (SwiftUI + SpriteKit)
+│   ├── BABOnlineApp.swift             # App entry point
+│   ├── ContentView.swift              # Root view switch + session restore
+│   ├── Constants/                     # CardConstants, LayoutConstants, SocketEvents
+│   ├── Models/                        # Card, ChatMessage, Lobby, Player, ScoreData, Tournament
+│   ├── Networking/
+│   │   ├── SocketService.swift        # Socket.IO connection management
+│   │   ├── Emitters/                  # Auth, Chat, Game, Lobby, Tournament emitters
+│   │   └── Handlers/                  # Auth, Chat, Game, Lobby, Tournament socket handlers
+│   ├── State/                         # AuthState, GameState, LobbyState, MainRoomState, TournamentState
+│   ├── SpriteKit/
+│   │   ├── GameSKScene.swift          # Main game scene
+│   │   ├── Managers/                  # Card, Trick, Bid, Draw, Opponent, Effects managers
+│   │   └── Nodes/                     # CardSprite, HandNode, TrickArea, BidBubble, etc.
+│   └── Views/
+│       ├── Auth/                      # SignInView, RegisterView
+│       ├── Components/                # ConnectionStatusToast
+│       ├── Game/                      # GameContainerView, BidOverlay, DrawPhase, GameEnd, GameLog, ScoreBar
+│       ├── GameLobby/                 # GameLobbyView, LobbyChatView, LobbyPlayerRow
+│       ├── MainRoom/                  # MainRoomView, MainRoomChatView, LobbyListView
+│       └── Tournament/                # TournamentLobby, PlayerList, Chat, Scoreboard, ActiveGames, Results
 ├── server/
-│   ├── index.js                    # Entry point
+│   ├── index.js                       # Entry point
 │   ├── config/
-│   │   └── index.js                # Server configuration
+│   │   └── index.js                   # Server configuration
 │   ├── game/
-│   │   ├── Deck.js                 # Card deck management
-│   │   ├── GameState.js            # Game state + room management
-│   │   ├── GameManager.js          # Multi-game and tournament coordination
-│   │   ├── TournamentState.js      # Per-tournament state + round management
-│   │   ├── rules.js                # Pure game logic functions
-│   │   └── bot/                    # Bot player system
-│   │       ├── BotPlayer.js        # Bot player class with card memory
-│   │       ├── BotController.js    # Bot lifecycle and personality hooks
-│   │       ├── BotStrategy.js      # AI strategy functions
-│   │       ├── personalities.js    # Bot personality definitions
-│   │       └── __tests__/          # Bot strategy tests
+│   │   ├── Deck.js                    # Card deck management
+│   │   ├── GameState.js               # Game state + room management
+│   │   ├── GameManager.js             # Multi-game and tournament coordination
+│   │   ├── TournamentState.js         # Per-tournament state + round management
+│   │   ├── rules.js                   # Pure game logic functions
+│   │   └── bot/                       # Bot player system
+│   │       ├── BotPlayer.js           # Bot player class with card memory
+│   │       ├── BotController.js       # Bot lifecycle and personality hooks
+│   │       ├── BotStrategy.js         # AI strategy functions
+│   │       ├── personalities.js       # Bot personality definitions
+│   │       └── __tests__/             # Bot strategy tests
 │   ├── socket/
-│   │   ├── index.js                # Socket event routing
-│   │   ├── authHandlers.js         # Auth events
-│   │   ├── mainRoomHandlers.js     # Main room & lobby browser
-│   │   ├── queueHandlers.js        # Matchmaking events
-│   │   ├── lobbyHandlers.js        # Game lobby events
-│   │   ├── gameHandlers.js         # Game events
-│   │   ├── reconnectHandlers.js    # Reconnection logic
-│   │   ├── chatHandlers.js         # Chat events
-│   │   ├── profileHandlers.js      # Profile and leaderboard events
-│   │   ├── tournamentHandlers.js   # Tournament lifecycle events
-│   │   ├── validators.js           # Joi validation schemas
-│   │   ├── errorHandler.js         # Handler wrappers
-│   │   └── rateLimiter.js          # Per-socket rate limiting
+│   │   ├── index.js                   # Socket event routing
+│   │   ├── authHandlers.js            # Auth events
+│   │   ├── mainRoomHandlers.js        # Main room & lobby browser
+│   │   ├── queueHandlers.js           # Matchmaking events
+│   │   ├── lobbyHandlers.js           # Game lobby events
+│   │   ├── gameHandlers.js            # Game events
+│   │   ├── reconnectHandlers.js       # Reconnection logic
+│   │   ├── chatHandlers.js            # Chat events
+│   │   ├── profileHandlers.js         # Profile and leaderboard events
+│   │   ├── tournamentHandlers.js      # Tournament lifecycle events
+│   │   ├── validators.js              # Joi validation schemas
+│   │   ├── errorHandler.js            # Handler wrappers
+│   │   └── rateLimiter.js             # Per-socket rate limiting
 │   ├── routes/
-│   │   └── index.js                # Express routes
+│   │   └── index.js                   # Express routes
 │   ├── middleware/
-│   │   └── requestLogger.js        # Request logging
+│   │   └── requestLogger.js           # Request logging
 │   ├── utils/
-│   │   ├── timing.js               # Async timing utilities
-│   │   ├── logger.js               # Winston logger
-│   │   ├── errors.js               # Custom error classes
-│   │   └── shutdown.js             # Graceful shutdown
-│   └── database.js                 # MongoDB connection
+│   │   ├── timing.js                  # Async timing utilities
+│   │   ├── logger.js                  # Winston logger
+│   │   ├── errors.js                  # Custom error classes
+│   │   └── shutdown.js                # Graceful shutdown
+│   └── database.js                    # MongoDB connection
 ├── docs/
-│   ├── RULES.md                    # Complete game rules
-│   ├── bot-strategy-guide.md       # Bot strategy reference
-│   └── todos/                      # Improvement roadmap
+│   ├── RULES.md                       # Complete game rules
+│   ├── bot-strategy-guide.md          # Bot strategy reference
+│   └── todos/                         # Improvement roadmap
 ├── scripts/
-│   └── build-atlas.js              # Sprite atlas builder
+│   └── build-atlas.js                 # Sprite atlas builder
 ├── .github/
-│   └── workflows/ci.yml            # GitHub Actions CI
+│   └── workflows/ci.yml              # GitHub Actions CI
 ├── package.json
 ├── docker-compose.yml
 └── .env.example
@@ -217,7 +244,8 @@ Trump suit beats all other suits. Must follow suit if possible.
 
 ### Communication Flow
 ```
-Client (Phaser/ES6) ←→ Socket.IO ←→ Server (Node/Express) ←→ MongoDB
+Web Client (Phaser/ES6)  ←→ Socket.IO ←→ Server (Node/Express) ←→ MongoDB
+iOS Client (SwiftUI/SK)  ←→ Socket.IO ←↗
 ```
 
 ### Server Architecture
@@ -232,9 +260,9 @@ The server uses a modular architecture with clear separation of concerns:
 - **BotController / BotStrategy** - AI bot system with 5 personalities, hand-size-aware bidding, card memory, and in-game chat
 - **Socket handlers** - Organized by domain (auth, queue, game, chat, profile, reconnect, tournament)
 
-### Client Architecture
+### Web Client Architecture
 
-The client uses ES6 modules with Vite bundling and proper lifecycle management:
+The web client uses ES6 modules with Vite bundling and proper lifecycle management:
 
 - **SocketManager** - Tracks listeners for cleanup (prevents memory leaks)
 - **GameState** - Single source of truth (replaces 50+ globals)
@@ -244,6 +272,17 @@ The client uses ES6 modules with Vite bundling and proper lifecycle management:
   - OpponentManager, EffectsManager, LayoutManager
 - **UIManager** - DOM element lifecycle management
 - **Handler Modules** - Socket event handlers (auth, game, chat, lobby, tournament)
+
+### iOS Client Architecture
+
+The iOS client uses SwiftUI for UI and SpriteKit for the game canvas:
+
+- **SwiftUI Views** - Screen navigation, overlays (bid, score, draw phase, game end, disconnect banner)
+- **SpriteKit GameSKScene** - Main game scene subscribing to GameState via Combine
+- **SK Managers** - Mirror the web client's Phaser managers (SKCardManager, SKTrickManager, etc.)
+- **State Objects** - `@Published` properties on ObservableObject classes, injected as `@EnvironmentObject`
+- **SocketService** - Socket.IO connection with `forceReconnect()` on app foreground
+- **Emitters / Handlers** - Static emitter methods and handler classes matching the web client's socket event structure
 
 ### Key Socket Events
 
