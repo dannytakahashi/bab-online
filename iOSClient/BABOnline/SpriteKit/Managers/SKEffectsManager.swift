@@ -39,7 +39,7 @@ class SKEffectsManager {
     }
 
     /// Show bore badge effect
-    func showBoreBadge(_ level: String, sceneSize: CGSize) {
+    func showBoreBadge(_ level: String) {
         guard let scene = scene else { return }
 
         let textureName: String
@@ -53,7 +53,7 @@ class SKEffectsManager {
 
         let texture = SKTexture(imageNamed: textureName)
         let badge = SKSpriteNode(texture: texture, size: CGSize(width: 80, height: 80))
-        badge.position = .zero
+        badge.position = CGPoint(x: -scene.size.width / 4, y: scene.size.height / 4)
         badge.zPosition = 500
         badge.alpha = 0
         badge.setScale(0.5)

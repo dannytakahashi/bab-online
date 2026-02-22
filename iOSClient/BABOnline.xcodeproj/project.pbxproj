@@ -76,6 +76,7 @@
 		F74A788A36EF3556E7FD78E0 /* AuthSocketHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = F28474CFED18B3E46768C988 /* AuthSocketHandler.swift */; };
 		FA7C18BDCC1C31AC365877F9 /* CardUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62295A09DC541B3ED5023CE7 /* CardUtils.swift */; };
 		FDB5445E7BEE26B8943D8770 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8790511FF395019A12A1F429 /* Assets.xcassets */; };
+		CC0000000000000000000001 /* ConnectionStatusToast.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0000000000000000000002 /* ConnectionStatusToast.swift */; };
 		BB1234567890ABCDEF000001 /* Tournament.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1234567890ABCDEF000001 /* Tournament.swift */; };
 		BB1234567890ABCDEF000002 /* TournamentState.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1234567890ABCDEF000002 /* TournamentState.swift */; };
 		BB1234567890ABCDEF000003 /* TournamentEmitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1234567890ABCDEF000003 /* TournamentEmitter.swift */; };
@@ -158,6 +159,7 @@
 		F5181763FA4333160B98FDC2 /* SplashView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplashView.swift; sourceTree = "<group>"; };
 		FA8B8AB7C156EE02DB4AA5EC /* SKOpponentManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SKOpponentManager.swift; sourceTree = "<group>"; };
 		FD7736BF05FE6B17925F5B58 /* AvatarNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvatarNode.swift; sourceTree = "<group>"; };
+		CC0000000000000000000002 /* ConnectionStatusToast.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionStatusToast.swift; sourceTree = "<group>"; };
 		AA1234567890ABCDEF000001 /* Tournament.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tournament.swift; sourceTree = "<group>"; };
 		AA1234567890ABCDEF000002 /* TournamentState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TournamentState.swift; sourceTree = "<group>"; };
 		AA1234567890ABCDEF000003 /* TournamentEmitter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TournamentEmitter.swift; sourceTree = "<group>"; };
@@ -243,12 +245,21 @@
 			children = (
 				F5181763FA4333160B98FDC2 /* SplashView.swift */,
 				D86C161126AE20A6A2F082D3 /* Auth */,
+				CC0000000000000000000003 /* Components */,
 				9CB8AFDF8AACB2CDF741C5B0 /* Game */,
 				C12D81E2062D1556C063393C /* GameLobby */,
 				D5AAEA07E9E0D4E83C6DED04 /* MainRoom */,
 				CC1234567890ABCDEF000001 /* Tournament */,
 			);
 			path = Views;
+			sourceTree = "<group>";
+		};
+		CC0000000000000000000003 /* Components */ = {
+			isa = PBXGroup;
+			children = (
+				CC0000000000000000000002 /* ConnectionStatusToast.swift */,
+			);
+			path = Components;
 			sourceTree = "<group>";
 		};
 		CC1234567890ABCDEF000001 /* Tournament */ = {
@@ -538,6 +549,7 @@
 				0D1479057F4F8E28A2C0C482 /* ChatMessage.swift in Sources */,
 				3D0A859DE21658E3D5B09BE1 /* ChatSocketHandler.swift in Sources */,
 				896418D2F4B35BC3D18218A4 /* Color+Theme.swift in Sources */,
+				CC0000000000000000000001 /* ConnectionStatusToast.swift in Sources */,
 				EA59CF07192D698567C4B4ED /* ContentView.swift in Sources */,
 				695D67B3F890889F37A7163E /* DisconnectBannerView.swift in Sources */,
 				673F325B6550AE9311E0041A /* DrawPhaseNode.swift in Sources */,

@@ -13,20 +13,26 @@ struct ContentView: View {
                 SplashView()
                     .transition(.opacity)
             } else {
-                Group {
-                    switch appState.screen {
-                    case .signIn:
-                        SignInView()
-                    case .register:
-                        RegisterView()
-                    case .mainRoom:
-                        MainRoomView()
-                    case .gameLobby:
-                        GameLobbyView()
-                    case .tournamentLobby:
-                        TournamentLobbyView()
-                    case .game:
-                        GameContainerView()
+                ZStack {
+                    Group {
+                        switch appState.screen {
+                        case .signIn:
+                            SignInView()
+                        case .register:
+                            RegisterView()
+                        case .mainRoom:
+                            MainRoomView()
+                        case .gameLobby:
+                            GameLobbyView()
+                        case .tournamentLobby:
+                            TournamentLobbyView()
+                        case .game:
+                            GameContainerView()
+                        }
+                    }
+
+                    if authState.isAuthenticated {
+                        ConnectionStatusToast()
                     }
                 }
                 .transition(.opacity)
