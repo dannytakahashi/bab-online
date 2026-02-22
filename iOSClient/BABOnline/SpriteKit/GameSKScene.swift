@@ -162,13 +162,11 @@ class GameSKScene: SKScene {
             .store(in: &cancellables)
 
         // Bid received
-        gameState.$bids
+        gameState.bidReceivedSubject
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] bids in
+            .sink { [weak self] (position, bid) in
                 guard let self, let myPos = self.gameState.position else { return }
-                for (pos, bid) in bids {
-                    self.bidManager?.showBid(position: pos, bid: bid, myPosition: myPos)
-                }
+                self.bidManager?.showBid(position: position, bid: bid, myPosition: myPos)
             }
             .store(in: &cancellables)
 
