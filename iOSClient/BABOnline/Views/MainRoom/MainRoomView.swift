@@ -68,7 +68,7 @@ struct MainRoomView: View {
                 }
 
                 Button(action: { LobbyEmitter.createLobby() }) {
-                    Label("Create", systemImage: "plus.circle.fill")
+                    Label("Game", systemImage: "suit.spade.fill")
                         .font(.callout.bold())
                         .foregroundColor(Color.Theme.primary)
                 }

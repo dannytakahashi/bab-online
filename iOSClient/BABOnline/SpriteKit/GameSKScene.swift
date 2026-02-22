@@ -167,6 +167,10 @@ class GameSKScene: SKScene {
             .sink { [weak self] (position, bid) in
                 guard let self, let myPos = self.gameState.position else { return }
                 self.bidManager?.showBid(position: position, bid: bid, myPosition: myPos)
+                // Trigger bore badge animation for bore bids
+                if bid == "B" || bid == "2B" || bid == "3B" || bid == "4B" {
+                    self.effectsManager?.showBoreBadge(bid)
+                }
             }
             .store(in: &cancellables)
 
