@@ -821,6 +821,13 @@ async function handleHandComplete(game, io) {
         // Clear playerGames Map entries so players can create new lobbies/return to tournament
         gameManager.endGame(game.gameId);
         game.resetForNewGame();
+
+        // Notify main room that an in-progress game has ended
+        io.to('mainRoom').emit('lobbiesUpdated', {
+            lobbies: gameManager.getAllLobbies(),
+            inProgressGames: gameManager.getInProgressGames(),
+            tournaments: gameManager.getAllTournaments()
+        });
     } else {
         gameLogger.debug('Starting next hand', { dealer: nextDealer, handSize: nextHandSize, gameId: game.gameId });
         await cleanupNextHand(game, io, nextDealer, nextHandSize);
