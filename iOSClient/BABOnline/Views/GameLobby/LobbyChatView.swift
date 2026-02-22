@@ -20,6 +20,7 @@ struct LobbyChatView: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
                 }
+                .scrollDismissesKeyboard(.interactively)
                 .onChange(of: lobbyState.messages.count) {
                     if let last = lobbyState.messages.last {
                         withAnimation(.easeOut(duration: 0.2)) {

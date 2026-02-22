@@ -19,7 +19,7 @@ final class ChatSocketHandler {
                 let position = dict["position"] as? Int
                 let type: ChatMessage.MessageType = (dict["type"] as? String) == "spectator" ? .spectator : .player
 
-                let chatMsg = ChatMessage(username: username, message: message, type: type)
+                let chatMsg = ChatMessage(username: username, message: message, type: type, position: position)
                 self.gameState.gameLog.append(chatMsg)
 
                 // Increment unread count for player/spectator messages

@@ -13,6 +13,9 @@ final class SocketService: ObservableObject {
     private(set) var socket: SocketIOClient?
     var eventRouter: SocketEventRouter?
 
+    /// Set by BABOnlineApp so SocketService can auto-restore session on reconnect
+    weak var authState: AuthState?
+
     /// The server URL — simulator uses localhost, physical device uses production
     #if targetEnvironment(simulator)
     private let serverURL = "http://localhost:3000"
@@ -57,8 +60,13 @@ final class SocketService: ObservableObject {
             }
         }
 
-        socket?.on(clientEvent: .reconnect) { _, _ in
+        socket?.on(clientEvent: .reconnect) { [weak self] _, _ in
             print("[Socket] Reconnected")
+            // Auto-restore session on reconnect
+            if let authState = self?.authState, authState.hasStoredSession {
+                print("[Socket] Auto-restoring session for: \(authState.username)")
+                AuthEmitter.restoreSession(username: authState.username, sessionToken: authState.sessionToken)
+            }
         }
 
         socket?.on(clientEvent: .error) { [weak self] data, _ in

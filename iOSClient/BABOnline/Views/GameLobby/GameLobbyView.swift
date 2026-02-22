@@ -84,6 +84,9 @@ struct GameLobbyView: View {
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 Color.clear.frame(height: 0)
             }
+            .onTapGesture {
+                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+            }
         }
     }
 

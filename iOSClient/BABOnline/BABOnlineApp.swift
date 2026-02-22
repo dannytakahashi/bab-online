@@ -7,6 +7,7 @@ struct BABOnlineApp: App {
     @StateObject private var mainRoomState = MainRoomState()
     @StateObject private var lobbyState = LobbyState()
     @StateObject private var gameState = GameState()
+    @Environment(\.scenePhase) private var scenePhase
 
     private let socketService = SocketService.shared
 
@@ -22,10 +23,14 @@ struct BABOnlineApp: App {
                 .onAppear {
                     setupSocket()
                 }
+                .onChange(of: scenePhase) { _, newPhase in
+                    handleScenePhase(newPhase)
+                }
         }
     }
 
     private func setupSocket() {
+        socketService.authState = authState
         socketService.connect()
 
         // Register event router — stored on socketService so handlers stay alive
@@ -39,5 +44,20 @@ struct BABOnlineApp: App {
         )
         router.registerAll()
         socketService.eventRouter = router
+    }
+
+    private func handleScenePhase(_ phase: ScenePhase) {
+        switch phase {
+        case .active:
+            // Reconnect socket when app comes to foreground
+            if !socketService.isConnected {
+                print("[App] Foregrounded — reconnecting socket")
+                socketService.connect()
+            }
+        case .background:
+            print("[App] Backgrounded")
+        default:
+            break
+        }
     }
 }

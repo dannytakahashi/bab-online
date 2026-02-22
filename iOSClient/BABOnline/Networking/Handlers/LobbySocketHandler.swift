@@ -66,11 +66,14 @@ final class LobbySocketHandler {
             DispatchQueue.main.async {
                 let lobbyId = dict["lobbyId"] as? String ?? ""
                 self.lobbyState.lobbyId = lobbyId
-                self.lobbyState.lobbyName = dict["lobbyName"] as? String ?? ""
+                self.lobbyState.lobbyName = dict["lobbyName"] as? String ?? dict["name"] as? String ?? ""
                 self.gameState.gameId = lobbyId
 
                 if let players = dict["players"] as? [[String: Any]] {
                     self.lobbyState.players = players.compactMap { LobbyPlayer.from($0) }
+                }
+                if let messages = dict["messages"] as? [[String: Any]] {
+                    self.lobbyState.messages = messages.compactMap { ChatMessage.from($0) }
                 }
                 self.appState.screen = .gameLobby
                 print("[Lobby] Created lobby: \(lobbyId)")
@@ -87,6 +90,9 @@ final class LobbySocketHandler {
 
                 if let players = dict["players"] as? [[String: Any]] {
                     self.lobbyState.players = players.compactMap { LobbyPlayer.from($0) }
+                }
+                if let messages = dict["messages"] as? [[String: Any]] {
+                    self.lobbyState.messages = messages.compactMap { ChatMessage.from($0) }
                 }
                 self.appState.screen = .gameLobby
                 print("[Lobby] Joined lobby: \(lobbyId)")

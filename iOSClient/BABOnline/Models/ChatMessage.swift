@@ -6,6 +6,7 @@ struct ChatMessage: Identifiable, Equatable {
     let message: String
     let timestamp: Date
     var type: MessageType
+    var position: Int?
 
     enum MessageType: String, Equatable {
         case player
@@ -13,12 +14,13 @@ struct ChatMessage: Identifiable, Equatable {
         case spectator
     }
 
-    init(username: String, message: String, type: MessageType = .player) {
+    init(username: String, message: String, type: MessageType = .player, position: Int? = nil) {
         self.id = UUID()
         self.username = username
         self.message = message
         self.timestamp = Date()
         self.type = type
+        self.position = position
     }
 
     static func from(_ dict: [String: Any]) -> ChatMessage? {
@@ -26,6 +28,7 @@ struct ChatMessage: Identifiable, Equatable {
         let message = dict["message"] as? String ?? ""
         let typeStr = dict["type"] as? String ?? "player"
         let type = MessageType(rawValue: typeStr) ?? .player
-        return ChatMessage(username: username, message: message, type: type)
+        let position = dict["position"] as? Int
+        return ChatMessage(username: username, message: message, type: type, position: position)
     }
 }

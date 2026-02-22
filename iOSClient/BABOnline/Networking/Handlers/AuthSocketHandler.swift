@@ -31,6 +31,11 @@ final class AuthSocketHandler {
             self.handleForceLogout(dict)
         }
 
+        socket.on(SocketEvents.Server.restoreSessionResponse) { [weak self] data, _ in
+            guard let self, let dict = data.first as? [String: Any] else { return }
+            self.handleRestoreSessionResponse(dict)
+        }
+
         socket.on(SocketEvents.Server.activeGameFound) { [weak self] data, _ in
             guard let self, let dict = data.first as? [String: Any] else { return }
             self.handleActiveGameFound(dict)
@@ -43,7 +48,9 @@ final class AuthSocketHandler {
         DispatchQueue.main.async {
             if success {
                 let username = data["username"] as? String ?? ""
+                let sessionToken = data["sessionToken"] as? String ?? ""
                 self.authState.username = username
+                self.authState.sessionToken = sessionToken
                 self.authState.isAuthenticated = true
                 self.authState.error = nil
                 self.authState.saveCredentials()
@@ -67,7 +74,9 @@ final class AuthSocketHandler {
         DispatchQueue.main.async {
             if success {
                 let username = data["username"] as? String ?? ""
+                let sessionToken = data["sessionToken"] as? String ?? ""
                 self.authState.username = username
+                self.authState.sessionToken = sessionToken
                 self.authState.isAuthenticated = true
                 self.authState.error = nil
                 self.authState.saveCredentials()
@@ -91,6 +100,39 @@ final class AuthSocketHandler {
             self.authState.clearCredentials()
             self.gameState.reset()
             self.appState.screen = .signIn
+        }
+    }
+
+    private func handleRestoreSessionResponse(_ data: [String: Any]) {
+        let success = data["success"] as? Bool ?? false
+
+        DispatchQueue.main.async {
+            if success {
+                let username = data["username"] as? String ?? self.authState.username
+                self.authState.username = username
+                self.authState.isAuthenticated = true
+                self.authState.error = nil
+
+                self.gameState.username = username
+                self.gameState.playerId = self.socket.socketId
+
+                // Check if there's an active game to rejoin
+                if let gameId = data["activeGameId"] as? String, !gameId.isEmpty {
+                    print("[Auth] Session restored with active game: \(gameId)")
+                    AuthEmitter.rejoinGame(gameId: gameId, username: username)
+                } else {
+                    print("[Auth] Session restored for: \(username)")
+                    self.appState.screen = .mainRoom
+                    LobbyEmitter.joinMainRoom()
+                }
+            } else {
+                let message = data["message"] as? String ?? "Session expired"
+                print("[Auth] Session restore failed: \(message)")
+                // Clear stale credentials and show sign-in
+                self.authState.sessionToken = ""
+                self.authState.saveCredentials()
+                self.appState.screen = .signIn
+            }
         }
     }
 
