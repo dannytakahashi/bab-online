@@ -81,11 +81,18 @@ struct ChatBubbleView: View {
             } else {
                 Text(message.username)
                     .font(.caption.bold())
-                    .foregroundColor(message.type == .spectator ? Color.Theme.textDim : Color.Theme.primary)
+                    .foregroundColor(usernameColor)
                 Text(message.message)
                     .font(.caption)
                     .foregroundColor(Color.Theme.textPrimary)
             }
         }
+    }
+
+    private var usernameColor: Color {
+        if message.type == .spectator {
+            return Color.Theme.textDim
+        }
+        return UsernameColor.color(for: message.username)
     }
 }

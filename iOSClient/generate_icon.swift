@@ -69,8 +69,8 @@ func drawText(_ text: String, x: CGFloat, y: CGFloat, fontSize: CGFloat, color: 
 }
 
 // Suit symbols in a 2x2 grid
-let suitSize: CGFloat = 180
-let gridOffset: CGFloat = 160
+let suitSize: CGFloat = 150
+let gridOffset: CGFloat = 210
 let centerY = h / 2 + 40  // shift up slightly to leave room for text
 
 // Colors

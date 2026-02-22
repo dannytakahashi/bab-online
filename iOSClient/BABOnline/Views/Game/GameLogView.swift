@@ -101,11 +101,23 @@ struct GameLogEntryView: View {
             } else {
                 Text("\(entry.username):")
                     .font(.system(size: 11, weight: .bold))
-                    .foregroundColor(entry.type == .spectator ? Color.Theme.textDim : Color.Theme.primary)
+                    .foregroundColor(usernameColor)
                 Text(entry.message)
                     .font(.system(size: 11))
                     .foregroundColor(Color.Theme.textPrimary)
             }
         }
+    }
+
+    private var usernameColor: Color {
+        if entry.type == .spectator {
+            return Color.Theme.textDim
+        }
+        // Use team-based color if position is available
+        if let position = entry.position {
+            return UsernameColor.teamColor(for: position)
+        }
+        // Fall back to username-based color
+        return UsernameColor.color(for: entry.username)
     }
 }

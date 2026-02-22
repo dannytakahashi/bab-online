@@ -453,8 +453,17 @@ class GameManager {
         lobby.readyPlayers.delete(socketId);
         this.playerLobbies.delete(socketId);
 
-        // If lobby is now empty, delete it
-        if (lobby.players.length === 0) {
+        // If lobby is now empty, or only bots remain, delete it
+        const onlyBotsRemain = lobby.players.length > 0 &&
+            lobby.players.every(p => p.socketId?.startsWith('bot:'));
+
+        if (lobby.players.length === 0 || onlyBotsRemain) {
+            // Clean up bot player-lobby mappings
+            if (onlyBotsRemain) {
+                for (const bot of lobby.players) {
+                    this.playerLobbies.delete(bot.socketId);
+                }
+            }
             this.lobbies.delete(lobbyId);
             return {
                 success: true,

@@ -21,6 +21,9 @@ enum SocketEvents {
         static let playerReady = "playerReady"
         static let playerUnready = "playerUnready"
 
+        // Session
+        static let restoreSession = "restoreSession"
+
         // Game
         static let draw = "draw"
         static let playerBid = "playerBid"
@@ -40,6 +43,7 @@ enum SocketEvents {
         // Auth
         static let signInResponse = "signInResponse"
         static let signUpResponse = "signUpResponse"
+        static let restoreSessionResponse = "restoreSessionResponse"
         static let forceLogout = "forceLogout"
         static let activeGameFound = "activeGameFound"
 
