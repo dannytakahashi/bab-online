@@ -135,6 +135,11 @@ async function handleDisconnect(socket, io) {
                 await gameManager.clearActiveGameForAll(result.gameId);
                 result.game.leaveAllFromRoom(io);
                 gameManager.abortGame(result.gameId);
+                io.to('mainRoom').emit('lobbiesUpdated', {
+                    lobbies: gameManager.getAllLobbies(),
+                    inProgressGames: gameManager.getInProgressGames(),
+                    tournaments: gameManager.getAllTournaments()
+                });
             }
             return;
         }
@@ -176,6 +181,11 @@ async function handleDisconnect(socket, io) {
                     await gameManager.clearActiveGameForAll(result.gameId);
                     checkResult.game.leaveAllFromRoom(io);
                     gameManager.abortGame(result.gameId);
+                    io.to('mainRoom').emit('lobbiesUpdated', {
+                        lobbies: gameManager.getAllLobbies(),
+                        inProgressGames: gameManager.getInProgressGames(),
+                        tournaments: gameManager.getAllTournaments()
+                    });
                 } else {
                     // Broadcast resignationAvailable to remaining connected players
                     for (const pos of disconnectedPositions) {
