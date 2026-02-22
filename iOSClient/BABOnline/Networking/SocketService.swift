@@ -9,6 +9,8 @@ final class SocketService: ObservableObject {
     @Published var isConnected = false
     @Published var connectionError: String?
 
+    private var isForceReconnecting = false
+
     private(set) var manager: SocketManager?
     private(set) var socket: SocketIOClient?
     var eventRouter: SocketEventRouter?
@@ -84,6 +86,32 @@ final class SocketService: ObservableObject {
         }
 
         socket?.connect()
+    }
+
+    /// Force a full disconnect/reconnect cycle.
+    /// iOS can silently kill the WebSocket when backgrounded without firing a disconnect event,
+    /// leaving `isConnected` stale. This tears down and re-establishes the connection so
+    /// Socket.IO fires `.connect` → `.reconnect` and the `restoreSession` flow runs.
+    func forceReconnect() {
+        guard !isForceReconnecting else {
+            print("[Socket] forceReconnect already in progress, skipping")
+            return
+        }
+        guard socket != nil else {
+            print("[Socket] No socket to force-reconnect, calling connect()")
+            connect()
+            return
+        }
+
+        isForceReconnecting = true
+        print("[Socket] Force reconnecting — tearing down and reconnecting")
+        socket?.disconnect()
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            guard let self = self else { return }
+            self.socket?.connect()
+            self.isForceReconnecting = false
+        }
     }
 
     func disconnect() {

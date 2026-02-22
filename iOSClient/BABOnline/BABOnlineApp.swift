@@ -49,11 +49,13 @@ struct BABOnlineApp: App {
     private func handleScenePhase(_ phase: ScenePhase) {
         switch phase {
         case .active:
-            // Reconnect socket when app comes to foreground
-            if !socketService.isConnected {
-                print("[App] Foregrounded — reconnecting socket")
-                socketService.connect()
-            }
+            // Always force reconnect when foregrounding. iOS can silently kill the
+            // WebSocket without firing a disconnect event, so `isConnected` is unreliable.
+            // forceReconnect() tears down and re-establishes the connection, which triggers
+            // the .reconnect handler's restoreSession flow (handles both main room and
+            // in-game rejoin).
+            print("[App] Foregrounded — force reconnecting socket")
+            socketService.forceReconnect()
         case .background:
             print("[App] Backgrounded")
         default:

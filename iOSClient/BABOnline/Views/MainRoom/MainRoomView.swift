@@ -3,6 +3,7 @@ import SwiftUI
 struct MainRoomView: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var mainRoomState: MainRoomState
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         ZStack {
@@ -34,6 +35,13 @@ struct MainRoomView: View {
         }
         .onAppear {
             LobbyEmitter.joinMainRoom()
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .active {
+                // Re-join main room after foregrounding to re-establish the server-side
+                // room subscription. Safe to call redundantly — server just re-adds to the room.
+                LobbyEmitter.joinMainRoom()
+            }
         }
     }
 
