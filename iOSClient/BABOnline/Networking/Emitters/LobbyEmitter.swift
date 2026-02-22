@@ -42,4 +42,8 @@ enum LobbyEmitter {
     static func removeBot() {
         socket.emit(SocketEvents.Client.removeBot)
     }
+
+    static func joinAsSpectator(gameId: String) {
+        socket.emit(SocketEvents.Client.joinAsSpectator, ["gameId": gameId])
+    }
 }

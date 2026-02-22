@@ -47,6 +47,53 @@ class SKOpponentManager {
         }
     }
 
+    /// Setup for spectator mode — show all 4 positions (spectator has no "self")
+    func setupForSpectator(gameState: GameState) {
+        self.gameState = gameState
+        cleanup()
+
+        guard let scene = scene else { return }
+
+        // Spectators view from position 1
+        let myPos = 1
+        let allPositions: [(absPos: Int, relPos: Positions.RelativePosition)] = [
+            (1, .bottom),
+            (2, .left),
+            (3, .top),
+            (4, .right),
+        ]
+
+        for (absPos, relPos) in allPositions {
+            let username = gameState.getPlayerName(position: absPos)
+            let pic = gameState.players[absPos]?.pic
+            let node = OpponentHandNode(position: relPos, username: username, pic: pic)
+
+            switch relPos {
+            case .bottom:
+                node.position = CGPoint(x: 0, y: -scene.size.height / 2 + 80)
+            case .top:
+                node.position = CGPoint(x: 0, y: scene.size.height / 2 - 220)
+            case .left:
+                node.position = CGPoint(x: -scene.size.width / 2 + 60, y: 0)
+            case .right:
+                node.position = CGPoint(x: scene.size.width / 2 - 60, y: 0)
+            }
+
+            node.zPosition = 10
+            scene.addChild(node)
+            opponents[absPos] = node
+        }
+    }
+
+    /// Update player info when lazy/active/resign changes identity
+    func updatePlayerInfo(position: Int, username: String, pic: String?) {
+        guard let node = opponents[position] else { return }
+        node.updateUsername(username)
+        if let pic = pic {
+            node.updatePic(pic)
+        }
+    }
+
     /// No-op — card-back fans are removed.
     func setCardCounts(_ count: Int) {}
 

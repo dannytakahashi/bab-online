@@ -63,13 +63,17 @@ struct LobbyRowView: View {
             Spacer()
 
             if isInProgress {
-                Text("In Progress")
-                    .font(.caption)
-                    .foregroundColor(Color.Theme.warning)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color.Theme.warning.opacity(0.15))
-                    .cornerRadius(6)
+                Button(action: {
+                    LobbyEmitter.joinAsSpectator(gameId: lobby.id)
+                }) {
+                    Text("Spectate")
+                        .font(.callout.bold())
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(Color(red: 0.376, green: 0.647, blue: 0.98)) // #60a5fa
+                        .cornerRadius(8)
+                }
             } else {
                 Button(action: {
                     LobbyEmitter.joinLobby(lobbyId: lobby.id)

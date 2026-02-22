@@ -84,6 +84,13 @@ final class GameState: ObservableObject {
     @Published var opp1Name: String?
     @Published var opp2Name: String?
 
+    // MARK: - Spectator / Lazy
+
+    @Published var isSpectator: Bool = false
+    @Published var isLazy: Bool = false
+
+    var isReadOnly: Bool { isSpectator || isLazy }
+
     // MARK: - UI Flags
 
     @Published var hasPlayedCard: Bool = false
@@ -180,6 +187,8 @@ final class GameState: ObservableObject {
         partnerName = nil
         opp1Name = nil
         opp2Name = nil
+        isSpectator = false
+        isLazy = false
         hasPlayedCard = false
         hasDrawn = false
         isUICreated = false
@@ -488,6 +497,103 @@ final class GameState: ObservableObject {
                 players[pos] = PlayerInfo(username: usernames[idx], pic: pics[idx])
             }
             updatePlayerNames()
+        }
+
+        phase = bidding ? .bidding : .playing
+        isUICreated = true
+    }
+
+    // MARK: - Restore from Spectator
+
+    func restoreFromSpectator(_ data: [String: Any]) {
+        gameId = data["gameId"] as? String
+        position = 1  // Spectators always view from position 1
+        isSpectator = true
+        myCards = []
+
+        currentHand = data["currentHand"] as? Int ?? 0
+        dealer = data["dealer"] as? Int
+
+        if let trumpDict = data["trump"] as? [String: Any] {
+            trump = Card.from(trumpDict)
+        }
+        trumpBroken = data["trumpBroken"] as? Bool ?? false
+
+        let bidding = data["isBidding"] as? Bool ?? data["bidding"] as? Bool ?? false
+        isBidding = bidding
+        currentTurn = data["currentTurn"] as? Int
+
+        // Restore bids
+        if let bidsDict = data["bids"] as? [String: Any] {
+            bids = [:]
+            for (key, val) in bidsDict {
+                if let pos = Int(key) {
+                    if let bidInt = val as? Int {
+                        bids[pos] = String(bidInt)
+                    } else if let bidStr = val as? String {
+                        bids[pos] = bidStr
+                    }
+                }
+            }
+            updateTeamBids()
+        }
+
+        // Restore scores
+        if let score = data["score"] as? [String: Any] {
+            let t1 = score["team1"] as? Int ?? 0
+            let t2 = score["team2"] as? Int ?? 0
+            // Spectator views from position 1 (team 1)
+            teamScore = t1
+            oppScore = t2
+        }
+        if let tt = data["teamTricks"] as? Int { teamTricks = tt }
+        if let ot = data["oppTricks"] as? Int { oppTricks = ot }
+
+        // Restore played cards
+        if let pcArr = data["playedCards"] as? [[String: Any]?] {
+            playedCards = []
+            playedCardIndex = 0
+            leadCard = nil
+            leadPosition = nil
+            for (index, cardDict) in pcArr.enumerated() {
+                if let cd = cardDict, let card = Card.from(cd) {
+                    let cardPos = index + 1
+                    if leadCard == nil {
+                        leadCard = card
+                        leadPosition = cardPos
+                    }
+                    playedCards.append(PlayedCard(card: card, position: cardPos))
+                    playedCardIndex += 1
+                }
+            }
+        }
+
+        // Restore player data
+        if let playersArr = data["players"] as? [[String: Any]] {
+            var positions: [Int] = []
+            var sockets: [String] = []
+            var usernames: [String] = []
+            var pics: [String?] = []
+            for p in playersArr {
+                positions.append(p["position"] as? Int ?? 0)
+                sockets.append(p["socketId"] as? String ?? "")
+                usernames.append(p["username"] as? String ?? "")
+                pics.append(p["pic"] as? String)
+            }
+            playerData = PlayerData(positions: positions, sockets: sockets, usernames: usernames, pics: pics)
+            for (idx, pos) in positions.enumerated() {
+                players[pos] = PlayerInfo(username: usernames[idx], pic: pics[idx])
+            }
+            updatePlayerNames()
+        }
+
+        // Restore game log
+        if let logArr = data["gameLog"] as? [[String: Any]] {
+            for entry in logArr {
+                let message = entry["message"] as? String ?? ""
+                let type = entry["type"] as? String ?? "system"
+                gameLog.append(ChatMessage(username: "System", message: message, type: ChatMessage.MessageType(rawValue: type) ?? .system))
+            }
         }
 
         phase = bidding ? .bidding : .playing

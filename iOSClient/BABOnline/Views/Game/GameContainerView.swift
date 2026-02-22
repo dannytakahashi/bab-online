@@ -30,7 +30,7 @@ struct GameContainerView: View {
                 Spacer()
 
                 // Bid overlay above cards
-                if gameState.isBidding && gameState.isMyTurn {
+                if gameState.isBidding && gameState.isMyTurn && !gameState.isReadOnly {
                     BidOverlayView()
                         .padding(.bottom, 200)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -87,6 +87,33 @@ struct GameContainerView: View {
                     DisconnectBannerView()
                         .padding(.top, gameState.phase == .bidding || gameState.phase == .playing ? 50 : 0)
                     Spacer()
+                }
+            }
+
+            // Spectator / Lazy mode indicator
+            if gameState.isSpectator && !gameState.isLazy {
+                VStack {
+                    Spacer()
+                    Text("Spectating \u{2014} type /leave to exit")
+                        .font(.caption.bold())
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(Color(red: 0.376, green: 0.647, blue: 0.98).opacity(0.9))
+                        .cornerRadius(8)
+                        .padding(.bottom, 12)
+                }
+            } else if gameState.isLazy {
+                VStack {
+                    Spacer()
+                    Text("Spectating \u{2014} type /active to take back control")
+                        .font(.caption.bold())
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(Color.green.opacity(0.8))
+                        .cornerRadius(8)
+                        .padding(.bottom, 12)
                 }
             }
 
