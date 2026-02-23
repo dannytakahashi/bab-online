@@ -55,20 +55,10 @@ struct MainRoomView: View {
         VStack(spacing: 0) {
             // Header
             HStack {
-                Text("Game Lobbies")
-                    .font(.title2.bold())
-                    .foregroundColor(Color.Theme.textPrimary)
-
-                Spacer()
-
-                Text("\(mainRoomState.onlineCount) online")
-                    .font(.caption)
-                    .foregroundColor(Color.Theme.textSecondary)
-
-                Button(action: { showLeaderboard = true }) {
-                    Label("Stats", systemImage: "chart.bar.fill")
+                Button(action: { LobbyEmitter.createLobby() }) {
+                    Label("New Game", systemImage: "suit.spade.fill")
                         .font(.callout.bold())
-                        .foregroundColor(Color.Theme.textSecondary)
+                        .foregroundColor(Color.Theme.primary)
                 }
 
                 Button(action: { TournamentEmitter.createTournament() }) {
@@ -77,11 +67,17 @@ struct MainRoomView: View {
                         .foregroundColor(Color.Theme.warning)
                 }
 
-                Button(action: { LobbyEmitter.createLobby() }) {
-                    Label("Game", systemImage: "suit.spade.fill")
+                Button(action: { showLeaderboard = true }) {
+                    Label("Stats", systemImage: "chart.bar.fill")
                         .font(.callout.bold())
-                        .foregroundColor(Color.Theme.primary)
+                        .foregroundColor(Color.Theme.textSecondary)
                 }
+
+                Spacer()
+
+                Text("\(mainRoomState.onlineCount) online")
+                    .font(.caption)
+                    .foregroundColor(Color.Theme.textSecondary)
             }
             .padding()
 
