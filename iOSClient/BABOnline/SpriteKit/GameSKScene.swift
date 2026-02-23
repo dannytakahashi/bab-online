@@ -231,6 +231,12 @@ class GameSKScene: SKScene {
     private func handleCardPlayed(_ played: PlayedCard) {
         guard let myPos = gameState.position else { return }
 
+        // If first card of a new trick, ensure trick area is visually clear
+        // (safety net for trickComplete's delayed clear being skipped)
+        if gameState.playedCards.count <= 1 {
+            trickManager?.clearTrickArea()
+        }
+
         let trickPos = trickManager?.trickPosition(for: played.position) ?? .zero
 
         if played.position == myPos && !gameState.isSpectator {

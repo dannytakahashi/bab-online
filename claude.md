@@ -6,7 +6,8 @@ A 4-player online multiplayer trick-taking card game (Back Alley Bridge). Player
 
 ## Technology Stack
 
-- **Frontend**: Phaser 3.55.2 (game engine), ES6 Modules, Socket.io 4.0.1, Vite (build)
+- **Web Frontend**: Phaser 3.55.2 (game engine), ES6 Modules, Socket.io 4.0.1, Vite (build)
+- **iOS Client**: SwiftUI + SpriteKit, Socket.IO-Client-Swift 16, Combine, iOS 17+
 - **Backend**: Node.js 18+, Express.js 4.21.2, Socket.IO 4.8.1
 - **Database**: MongoDB with Mongoose 8.12.1
 - **Security**: Helmet, bcryptjs for password hashing
@@ -17,71 +18,114 @@ A 4-player online multiplayer trick-taking card game (Back Alley Bridge). Player
 
 ```
 bab-online/
-├── client/
+├── client/                             # Web client (Phaser + Vite)
 │   ├── src/
-│   │   ├── main.js                 # Entry point, wires callbacks to GameScene
-│   │   ├── constants/              # events.js, ranks.js
-│   │   ├── utils/                  # positions.js, cards.js, colors.js
-│   │   ├── rules/                  # legality.js - card play validation
-│   │   ├── state/                  # GameState.js - client state singleton
-│   │   ├── socket/                 # SocketManager.js - connection management
-│   │   ├── handlers/               # Socket event handlers (auth, game, chat, lobby, profile, leaderboard)
+│   │   ├── main.js                     # Entry point, wires callbacks to GameScene
+│   │   ├── constants/                  # events.js, ranks.js
+│   │   ├── utils/                      # positions.js, cards.js, colors.js
+│   │   ├── rules/                      # legality.js - card play validation
+│   │   ├── state/                      # GameState.js - client state singleton
+│   │   ├── socket/                     # SocketManager.js - connection management
+│   │   ├── handlers/                   # Socket event handlers (auth, game, chat, lobby, profile, leaderboard, tournament)
 │   │   ├── phaser/
-│   │   │   ├── PhaserGame.js       # Game instance wrapper
-│   │   │   ├── scenes/GameScene.js # Main game scene
-│   │   │   └── managers/           # Card, Trick, Opponent, Effects, Draw, Bid, Layout
+│   │   │   ├── PhaserGame.js           # Game instance wrapper
+│   │   │   ├── scenes/GameScene.js     # Main game scene
+│   │   │   └── managers/               # Card, Trick, Opponent, Effects, Draw, Bid, Layout
 │   │   └── ui/
-│   │       ├── UIManager.js        # DOM lifecycle management
-│   │       ├── components/         # Modal, Toast, BidUI, GameLog, ChatBubble, ScoreModal, PlayerQueue
-│   │       └── screens/            # SignIn, Register, MainRoom, GameLobby, ProfilePage, LeaderboardPage
-│   ├── styles/components.css       # All UI styles
-│   └── assets/                     # Card images, backgrounds
+│   │       ├── UIManager.js            # DOM lifecycle management
+│   │       ├── components/             # Modal, Toast, BidUI, GameLog, ChatBubble, ScoreModal, TournamentScoreboard
+│   │       └── screens/               # SignIn, Register, MainRoom, GameLobby, TournamentLobby, ProfilePage, LeaderboardPage
+│   ├── styles/components.css           # All UI styles
+│   └── assets/                         # Card images, backgrounds
+├── iOSClient/BABOnline/                # iOS client (SwiftUI + SpriteKit)
+│   ├── BABOnlineApp.swift              # App entry, environment objects, scene phase handling
+│   ├── AppState.swift                  # Screen navigation state
+│   ├── ContentView.swift               # Root view switch + session restore
+│   ├── Constants/                      # CardConstants, LayoutConstants, SocketEvents
+│   ├── Extensions/                     # Color+Theme, View+Haptics
+│   ├── Models/                         # Card, ChatMessage, Lobby, Player, ScoreData, Tournament
+│   ├── Networking/
+│   │   ├── SocketService.swift         # Socket.IO connection, forceReconnect on foreground
+│   │   ├── SocketEventRouter.swift     # Routes incoming events to handlers
+│   │   ├── Emitters/                   # Auth, Chat, Game, Lobby, Tournament emitters
+│   │   └── Handlers/                   # Auth, Chat, Game, Lobby, Tournament socket handlers
+│   ├── Rules/CardLegality.swift        # Card play validation (mirrors server rules.js)
+│   ├── State/                          # AuthState, GameState, LobbyState, MainRoomState, TournamentState
+│   ├── SpriteKit/
+│   │   ├── GameSKScene.swift           # Main scene, Combine subscriptions to GameState
+│   │   ├── CardTextureGenerator.swift  # Programmatic card rendering
+│   │   ├── Managers/                   # SKCard, SKTrick, SKBid, SKDraw, SKOpponent, SKEffects managers
+│   │   ├── Nodes/                      # CardSprite, HandNode, TrickArea, BidBubble, Avatar, OpponentHand, TrickHistory
+│   │   └── Actions/CardAnimations.swift
+│   ├── Utils/                          # CardUtils, Positions, HapticManager, UsernameColor
+│   └── Views/
+│       ├── Auth/                       # SignInView, RegisterView
+│       ├── Components/                 # ConnectionStatusToast
+│       ├── Game/                       # GameContainerView, BidOverlayView, DrawPhaseView, GameEndView, GameLogView, ScoreBarView, DisconnectBannerView
+│       ├── GameLobby/                  # GameLobbyView, LobbyChatView, LobbyPlayerRow
+│       ├── MainRoom/                   # MainRoomView, MainRoomChatView, LobbyListView
+│       └── Tournament/                 # TournamentLobbyView, PlayerList, Chat, Scoreboard, ActiveGames, Results
 ├── server/
-│   ├── index.js                    # Entry point
+│   ├── index.js                        # Entry point
 │   ├── game/
-│   │   ├── Deck.js                 # Card deck with shuffle
-│   │   ├── GameState.js            # Per-game state + room management
-│   │   ├── GameManager.js          # Queue, lobby, game coordination, in-progress listing
-│   │   ├── rules.js                # Pure game logic functions
-│   │   └── bot/                    # Bot player system
-│   │       ├── BotPlayer.js        # Bot player class with card memory
-│   │       ├── BotController.js    # Singleton managing bot lifecycle
-│   │       ├── BotStrategy.js      # Pure strategy functions
-│   │       └── personalities.js    # Bot personality definitions
+│   │   ├── Deck.js                     # Card deck with shuffle
+│   │   ├── GameState.js                # Per-game state + room management
+│   │   ├── GameManager.js              # Queue, lobby, game coordination, in-progress listing
+│   │   ├── TournamentState.js          # Per-tournament state + round management
+│   │   ├── rules.js                    # Pure game logic functions
+│   │   └── bot/                        # Bot player system
+│   │       ├── BotPlayer.js            # Bot player class with card memory
+│   │       ├── BotController.js        # Singleton managing bot lifecycle
+│   │       ├── BotStrategy.js          # Pure strategy functions
+│   │       └── personalities.js        # Bot personality definitions
 │   ├── socket/
-│   │   ├── index.js                # Socket event routing
-│   │   ├── authHandlers.js         # signIn, signUp
-│   │   ├── mainRoomHandlers.js     # Main room, lobby browser, spectator join
-│   │   ├── queueHandlers.js        # joinQueue, disconnect grace period
-│   │   ├── lobbyHandlers.js        # playerReady, lobbyChat, leaveLobby
-│   │   ├── gameHandlers.js         # playCard, playerBid, draw, forceResign
-│   │   ├── reconnectHandlers.js    # rejoinGame for mid-game reconnection
-│   │   ├── chatHandlers.js         # chatMessage, slash commands (/lazy, /active, /leave)
-│   │   ├── profileHandlers.js      # Profile and leaderboard events
-│   │   ├── validators.js           # Joi validation schemas
-│   │   ├── errorHandler.js         # Handler wrappers with rate limiting
-│   │   └── rateLimiter.js          # Per-socket rate limiting
-│   ├── routes/index.js             # Express routes, /health
-│   ├── utils/                      # timing.js, logger.js, errors.js, shutdown.js
-│   └── database.js                 # MongoDB connection
+│   │   ├── index.js                    # Socket event routing
+│   │   ├── authHandlers.js             # signIn, signUp
+│   │   ├── mainRoomHandlers.js         # Main room, lobby browser, spectator join
+│   │   ├── queueHandlers.js            # joinQueue, disconnect grace period
+│   │   ├── lobbyHandlers.js            # playerReady, lobbyChat, leaveLobby
+│   │   ├── gameHandlers.js             # playCard, playerBid, draw, forceResign
+│   │   ├── reconnectHandlers.js        # rejoinGame for mid-game reconnection
+│   │   ├── chatHandlers.js             # chatMessage, slash commands (/lazy, /active, /leave)
+│   │   ├── profileHandlers.js          # Profile and leaderboard events
+│   │   ├── tournamentHandlers.js       # Tournament lifecycle events
+│   │   ├── validators.js               # Joi validation schemas
+│   │   ├── errorHandler.js             # Handler wrappers with rate limiting
+│   │   └── rateLimiter.js              # Per-socket rate limiting
+│   ├── routes/index.js                 # Express routes, /health
+│   ├── utils/                          # timing.js, logger.js, errors.js, shutdown.js
+│   └── database.js                     # MongoDB connection
 ├── docs/
-│   ├── RULES.md                    # Complete game rules
-│   ├── bot-strategy-guide.md       # Bot strategy reference
-│   └── todos/                      # Improvement roadmap
-└── scripts/build-atlas.js          # Sprite atlas builder
+│   ├── RULES.md                        # Complete game rules
+│   ├── bot-strategy-guide.md           # Bot strategy reference
+│   └── todos/                          # Improvement roadmap
+└── scripts/build-atlas.js              # Sprite atlas builder
 ```
 
 ## Architecture Patterns
 
-- **Communication**: Socket.io bidirectional WebSocket
-- **State**: Server-authoritative, `GameState` class per game instance
-- **Client State**: `GameState` singleton with event emitter (`handChanged`, `bidChanged`)
+### Web Client
 - **Event Callbacks**: Socket events → `handlers/*.js` → `main.js` callbacks → `GameScene.handleX()` → Phaser managers
-- **Validation**: Server validates all actions; Joi schemas validate all socket event data
-- **Socket Rooms**: Game events broadcast only to game participants + spectators via `game.broadcast()`
+- **Client State**: `GameState` singleton with event emitter (`handChanged`, `bidChanged`)
 - **Optimistic Updates**: Client updates UI immediately, rolls back on server rejection
 - **Socket Cleanup**: `SocketManager` tracks listeners via `onGame()`, cleaned up between games
 - **UI**: Phaser for game canvas, `UIManager` for DOM lifecycle
+
+### iOS Client
+- **Architecture**: SwiftUI views + SpriteKit game scene, MVVM-ish with `@Published` state objects
+- **State**: `@EnvironmentObject` for AuthState, AppState, LobbyState, MainRoomState, GameState, TournamentState, SocketService
+- **Reactive**: `GameState` uses `@Published` properties + Combine subjects; `GameSKScene` subscribes via `.sink`
+- **Socket Pattern**: `SocketEventRouter` dispatches to domain handlers → handlers update `@Published` state → SwiftUI/SpriteKit react
+- **Emitter Pattern**: Static methods on `AuthEmitter`, `GameEmitter`, `LobbyEmitter`, `ChatEmitter`, `TournamentEmitter` — access `SocketService.shared`
+- **Game Rendering**: SpriteKit scene with managers (SKCardManager, SKTrickManager, etc.) matching web client manager pattern
+- **Reconnection**: `BABOnlineApp` calls `forceReconnect()` on `scenePhase` change to `.active`; `ConnectionStatusToast` shows reconnecting/connected state
+- **Theme**: `Color.Theme.*` extension (background, surface, primary, warning, success, etc.)
+
+### Shared
+- **Communication**: Socket.io bidirectional WebSocket (same server events for both clients)
+- **State**: Server-authoritative, `GameState` class per game instance
+- **Validation**: Server validates all actions; Joi schemas validate all socket event data
+- **Socket Rooms**: Game events broadcast only to game participants + spectators via `game.broadcast()`
 - **Game Logic**: Pure functions in `rules.js` for testability
 
 ## Game Flow
@@ -95,9 +139,9 @@ bab-online/
 
 ## Key Socket Events
 
-**Client → Server**: `signIn`, `signUp`, `joinMainRoom`, `mainRoomChat`, `createLobby`, `joinLobby`, `playerReady`, `lobbyChat`, `leaveLobby`, `addBot`, `removeBot`, `draw`, `playerBid`, `playCard`, `chatMessage`, `rejoinGame`, `forceResign`, `joinAsSpectator`, `getProfile`, `updateProfilePic`, `getLeaderboard`
+**Client → Server**: `signIn`, `signUp`, `joinMainRoom`, `mainRoomChat`, `createLobby`, `joinLobby`, `playerReady`, `lobbyChat`, `leaveLobby`, `addBot`, `removeBot`, `draw`, `playerBid`, `playCard`, `chatMessage`, `rejoinGame`, `forceResign`, `joinAsSpectator`, `getProfile`, `updateProfilePic`, `getLeaderboard`, `createTournament`, `joinTournament`, `leaveTournament`, `tournamentReady`, `beginTournament`, `beginNextRound`, `returnToTournament`
 
-**Server → Client**: `mainRoomJoined`, `mainRoomMessage`, `lobbiesUpdated`, `lobbyCreated`, `lobbyJoined`, `playerReadyUpdate`, `lobbyMessage`, `lobbyPlayerLeft`, `allPlayersReady`, `startDraw`, `playerDrew`, `youDrew`, `teamsAnnounced`, `positionUpdate`, `createUI`, `gameStart`, `bidReceived`, `doneBidding`, `cardPlayed`, `updateTurn`, `trickComplete`, `handComplete`, `gameEnd`, `rainbow`, `rejoinSuccess`, `rejoinFailed`, `playerDisconnected`, `playerReconnected`, `activeGameFound`, `resignationAvailable`, `playerResigned`, `playerLazyMode`, `playerActiveMode`, `gameLogEntry`, `leftGame`, `spectatorJoined`, `profileResponse`, `leaderboardResponse`, `restorePlayerState`
+**Server → Client**: `mainRoomJoined`, `mainRoomMessage`, `lobbiesUpdated`, `lobbyCreated`, `lobbyJoined`, `playerReadyUpdate`, `lobbyMessage`, `lobbyPlayerLeft`, `allPlayersReady`, `startDraw`, `playerDrew`, `youDrew`, `teamsAnnounced`, `positionUpdate`, `createUI`, `gameStart`, `bidReceived`, `doneBidding`, `cardPlayed`, `updateTurn`, `trickComplete`, `handComplete`, `gameEnd`, `rainbow`, `rejoinSuccess`, `rejoinFailed`, `playerDisconnected`, `playerReconnected`, `activeGameFound`, `resignationAvailable`, `playerResigned`, `playerLazyMode`, `playerActiveMode`, `gameLogEntry`, `leftGame`, `spectatorJoined`, `profileResponse`, `leaderboardResponse`, `restorePlayerState`, `tournamentCreated`, `tournamentJoined`, `tournamentRoundStart`, `tournamentGameAssignment`, `tournamentGameComplete`, `tournamentRoundComplete`, `tournamentComplete`
 
 ## Disconnection, Resignation & Bot Takeover
 
@@ -110,8 +154,8 @@ When a player disconnects mid-game:
 6. Game stats are attributed to the original human player, not the bot
 7. Game only aborts if ALL human players disconnect
 
-### Cross-Browser Reconnection
-Server stores `activeGameId` in MongoDB user document. On sign-in, checks for active game and emits `activeGameFound`.
+### Cross-Browser/Device Reconnection
+Server stores `activeGameId` in MongoDB user document. On sign-in, checks for active game and emits `activeGameFound`. iOS client also restores session via stored credentials on app launch.
 
 ## Slash Commands (In-Game)
 
@@ -133,12 +177,11 @@ Slash commands are intercepted in `chatHandlers.js` on the server. The `GameLog.
 ## Spectator System
 
 Players can join in-progress games from the main room lobby panel:
-- `MainRoom.js` shows in-progress games (from `gameManager.getInProgressGames()`) with "Spectate" button
+- `MainRoom.js` / `MainRoomView.swift` shows in-progress games with "Spectate" button
 - `joinAsSpectator` event → server sends full game state (no hand data) → client sets up read-only view
 - Spectators see tricks, bids, scores, game log; can chat (marked as spectator)
 - Pure spectators only see `/leave` in autocomplete; `/lazy` and `/active` are silently ignored
 - Lazy-mode players who used `/leave` and rejoined as spectators still see `/active` and `/leave`
-- All `lobbiesUpdated` emissions include `inProgressGames` for the main room display
 
 ## Server Game State (`server/game/GameState.js`)
 
@@ -154,7 +197,7 @@ Key fields beyond core game state:
 { suit: "spades|hearts|diamonds|clubs|joker", rank: "2"-"K"|"A"|"HI"|"LO" }
 ```
 
-Deck: 52 standard cards + 2 jokers (HI and LO)
+Deck: 52 standard cards + 2 jokers (HI and LO). iOS uses `Card` struct with `Suit` and `Rank` enums.
 
 ## Scoring Rules
 
@@ -174,6 +217,16 @@ Deck: 52 standard cards + 2 jokers (HI and LO)
 - Random delays simulate human thinking time (500-1500ms)
 - Used for lobby fill, resignation replacement, and lazy mode
 
+## Tournament System
+
+4-round tournament with cumulative scoring. Managed by `TournamentState.js` on server and `tournamentHandlers.js`.
+
+- Creator creates tournament from main room → tournament lobby (unbounded player count)
+- Players join and ready up → creator begins tournament
+- Each round: players shuffled into games of 4 (bots fill remaining slots)
+- Round score = team's final game score; cumulative across 4 rounds
+- Highest total score wins
+
 ## Development Commands
 
 ```bash
@@ -188,22 +241,29 @@ npm run dev:client    # Vite dev server (port 5173, proxies to :3000)
 
 Server runs on port 3000. Requires Node.js 18+.
 
+iOS client: open `iOSClient/BABOnline.xcodeproj` in Xcode 15+, build for iOS 17+ device/simulator.
+
 ## Common Tasks
 
 ### Adding Socket Events
 1. Add handler in appropriate `server/socket/*.js` file
 2. Register in `server/socket/index.js`
-3. Add client listener in `client/src/handlers/*.js`
-4. **Critical**: Wire callback through `client/src/handlers/index.js` — destructure from callbacks object AND pass to the correct `register*Handlers()` call
-5. Add cleanup in `cleanupGameListeners()` for game-specific events
+3. **Web client**: Add listener in `client/src/handlers/*.js`, wire callback through `client/src/handlers/index.js` — destructure from callbacks AND pass to the correct `register*Handlers()` call. Add cleanup in `cleanupGameListeners()` for game-specific events.
+4. **iOS client**: Add handler in appropriate `iOSClient/BABOnline/Networking/Handlers/*SocketHandler.swift`, add emitter method in `Emitters/*.swift` if needed, update relevant `State/*.swift` `@Published` properties
 
 ### Game Logic Changes
 - **Rules**: `server/game/rules.js` — pure functions
 - **State**: `server/game/GameState.js` — game state management
 - **Flow**: `server/socket/gameHandlers.js` — `playCard()`, `playerBid()`
 
-### UI Changes
+### Web UI Changes
 - **Styles**: `client/styles/components.css`
 - **Components**: `client/src/ui/components/`
 - **Screens**: `client/src/ui/screens/`
 - **Cards**: `client/src/phaser/managers/CardManager.js`
+
+### iOS UI Changes
+- **Views**: `iOSClient/BABOnline/Views/` — SwiftUI views organized by screen
+- **Theme**: `iOSClient/BABOnline/Extensions/Color+Theme.swift` — all colors
+- **Game visuals**: `iOSClient/BABOnline/SpriteKit/Managers/` — SK managers mirror web Phaser managers
+- **Game scene subscriptions**: `iOSClient/BABOnline/SpriteKit/GameSKScene.swift` — `subscribeToState()` wires Combine to managers
