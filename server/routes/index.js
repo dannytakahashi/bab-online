@@ -60,6 +60,16 @@ router.get('/privacy', (req, res) => {
 </html>`);
 });
 
+// Apple App Site Association — links iOS app with this domain for password autofill
+router.get('/.well-known/apple-app-site-association', (req, res) => {
+    res.set('Content-Type', 'application/json');
+    res.json({
+        webcredentials: {
+            apps: ['9SYNY7K2HE.com.bab-online.BABOnline']
+        }
+    });
+});
+
 // Health check endpoint - is the server running?
 router.get('/health', (req, res) => {
     res.json({

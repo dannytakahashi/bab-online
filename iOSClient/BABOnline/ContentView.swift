@@ -45,16 +45,8 @@ struct ContentView: View {
                 withAnimation(.easeInOut(duration: 0.4)) {
                     showSplash = false
                 }
-                // Attempt session restore if we have stored credentials
-                attemptSessionRestore()
             }
         }
-    }
-
-    private func attemptSessionRestore() {
-        guard authState.hasStoredSession, socketService.isConnected else { return }
-        print("[ContentView] Attempting session restore for: \(authState.username)")
-        AuthEmitter.restoreSession(username: authState.username, sessionToken: authState.sessionToken)
     }
 }
 

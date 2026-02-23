@@ -4,6 +4,7 @@ struct MainRoomView: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var mainRoomState: MainRoomState
     @Environment(\.scenePhase) private var scenePhase
+    @State private var showLeaderboard = false
 
     var body: some View {
         ZStack {
@@ -43,6 +44,9 @@ struct MainRoomView: View {
                 LobbyEmitter.joinMainRoom()
             }
         }
+        .sheet(isPresented: $showLeaderboard) {
+            LeaderboardView()
+        }
     }
 
     // MARK: - Lobby Browser
@@ -60,6 +64,12 @@ struct MainRoomView: View {
                 Text("\(mainRoomState.onlineCount) online")
                     .font(.caption)
                     .foregroundColor(Color.Theme.textSecondary)
+
+                Button(action: { showLeaderboard = true }) {
+                    Label("Stats", systemImage: "chart.bar.fill")
+                        .font(.callout.bold())
+                        .foregroundColor(Color.Theme.textSecondary)
+                }
 
                 Button(action: { TournamentEmitter.createTournament() }) {
                     Label("Tournament", systemImage: "trophy.fill")

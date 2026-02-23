@@ -803,6 +803,8 @@ async function handleHandComplete(game, io) {
                             scoreboard: tournament.getScoreboard()
                         });
                         await gameManager.clearActiveTournamentForAll(tournament.tournamentId);
+                        // Clean up tournament from memory and update lobby
+                        gameManager.deleteTournament(tournament.tournamentId);
                     } else {
                         // Round complete, waiting for next round
                         tournament.broadcast(io, 'tournamentRoundComplete', {

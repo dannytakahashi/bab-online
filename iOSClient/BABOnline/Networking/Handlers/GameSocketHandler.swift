@@ -339,7 +339,12 @@ final class GameSocketHandler {
             DispatchQueue.main.async {
                 let reason = dict?["reason"] as? String ?? "Rejoin failed"
                 print("[Game] Rejoin failed: \(reason)")
-                self.appState.screen = .mainRoom
+                // Don't navigate away if we're already in a game
+                // (handles duplicate rejoin where first succeeded)
+                if self.appState.screen != .game {
+                    self.appState.screen = .mainRoom
+                    LobbyEmitter.joinMainRoom()
+                }
             }
         }
     }
@@ -495,6 +500,8 @@ final class GameSocketHandler {
 
         // Track lead
         if gameState.playedCardIndex == 0 {
+            // Safety net: clear stale trick data if the delayed clearTrick() was skipped
+            gameState.clearTrick()
             gameState.leadCard = card
             gameState.leadPosition = position
         }

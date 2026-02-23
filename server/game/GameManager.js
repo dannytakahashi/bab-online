@@ -1027,6 +1027,24 @@ class GameManager {
     }
 
     /**
+     * Delete a completed tournament and clean up all references
+     */
+    deleteTournament(tournamentId) {
+        const tournament = this.tournaments.get(tournamentId);
+        if (!tournament) return;
+
+        for (const [socketId] of tournament.players) {
+            this.playerTournaments.delete(socketId);
+        }
+        for (const [gameId, tId] of this.tournamentGames) {
+            if (tId === tournamentId) {
+                this.tournamentGames.delete(gameId);
+            }
+        }
+        this.tournaments.delete(tournamentId);
+    }
+
+    /**
      * Get the tournament a player is in
      */
     getPlayerTournament(socketId) {

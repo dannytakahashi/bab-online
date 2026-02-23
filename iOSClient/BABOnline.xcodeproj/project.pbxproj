@@ -87,6 +87,11 @@
 		BB1234567890ABCDEF000008 /* TournamentScoreboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1234567890ABCDEF000008 /* TournamentScoreboardView.swift */; };
 		BB1234567890ABCDEF000009 /* TournamentActiveGamesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1234567890ABCDEF000009 /* TournamentActiveGamesView.swift */; };
 		BB1234567890ABCDEF00000A /* TournamentResultsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1234567890ABCDEF00000A /* TournamentResultsView.swift */; };
+		BB1234567890ABCDEF00000B /* LeaderboardEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1234567890ABCDEF00000B /* LeaderboardEntry.swift */; };
+		BB1234567890ABCDEF00000C /* LeaderboardState.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1234567890ABCDEF00000C /* LeaderboardState.swift */; };
+		BB1234567890ABCDEF00000D /* LeaderboardEmitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1234567890ABCDEF00000D /* LeaderboardEmitter.swift */; };
+		BB1234567890ABCDEF00000E /* LeaderboardSocketHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1234567890ABCDEF00000E /* LeaderboardSocketHandler.swift */; };
+		BB1234567890ABCDEF00000F /* LeaderboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1234567890ABCDEF00000F /* LeaderboardView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -170,6 +175,11 @@
 		AA1234567890ABCDEF000008 /* TournamentScoreboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TournamentScoreboardView.swift; sourceTree = "<group>"; };
 		AA1234567890ABCDEF000009 /* TournamentActiveGamesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TournamentActiveGamesView.swift; sourceTree = "<group>"; };
 		AA1234567890ABCDEF00000A /* TournamentResultsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TournamentResultsView.swift; sourceTree = "<group>"; };
+		AA1234567890ABCDEF00000B /* LeaderboardEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LeaderboardEntry.swift; sourceTree = "<group>"; };
+		AA1234567890ABCDEF00000C /* LeaderboardState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LeaderboardState.swift; sourceTree = "<group>"; };
+		AA1234567890ABCDEF00000D /* LeaderboardEmitter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LeaderboardEmitter.swift; sourceTree = "<group>"; };
+		AA1234567890ABCDEF00000E /* LeaderboardSocketHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LeaderboardSocketHandler.swift; sourceTree = "<group>"; };
+		AA1234567890ABCDEF00000F /* LeaderboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LeaderboardView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -201,6 +211,7 @@
 				D74F821D951B0C701D3EEC7F /* AuthEmitter.swift */,
 				281B7D8A956EA7591D9F54C8 /* ChatEmitter.swift */,
 				97217006DFD0797BEBAF6836 /* GameEmitter.swift */,
+				AA1234567890ABCDEF00000D /* LeaderboardEmitter.swift */,
 				ABFB49C1B9B998424D06A9B7 /* LobbyEmitter.swift */,
 				AA1234567890ABCDEF000003 /* TournamentEmitter.swift */,
 			);
@@ -221,6 +232,7 @@
 				F28474CFED18B3E46768C988 /* AuthSocketHandler.swift */,
 				1CC5887542913E6A913FA11E /* ChatSocketHandler.swift */,
 				7AA293C5CC063A9C3A5D35F2 /* GameSocketHandler.swift */,
+				AA1234567890ABCDEF00000E /* LeaderboardSocketHandler.swift */,
 				7FD14869A6FDEFEF8A26EB44 /* LobbySocketHandler.swift */,
 				AA1234567890ABCDEF000004 /* TournamentSocketHandler.swift */,
 			);
@@ -374,6 +386,7 @@
 		D5AAEA07E9E0D4E83C6DED04 /* MainRoom */ = {
 			isa = PBXGroup;
 			children = (
+				AA1234567890ABCDEF00000F /* LeaderboardView.swift */,
 				C53AAE255FBF334AD3AEC34F /* LobbyListView.swift */,
 				07ED0716768E28CCCDE8A731 /* MainRoomChatView.swift */,
 				CBBC8430F514042641E150DF /* MainRoomView.swift */,
@@ -418,6 +431,7 @@
 			children = (
 				31CC71A809AE3AFB89C1E0D7 /* AuthState.swift */,
 				006A718437AB193FE3F34B14 /* GameState.swift */,
+				AA1234567890ABCDEF00000C /* LeaderboardState.swift */,
 				E9B310B890DA152FC2DC27BB /* LobbyState.swift */,
 				D8BFDA96358A6BEB484A42FB /* MainRoomState.swift */,
 				AA1234567890ABCDEF000002 /* TournamentState.swift */,
@@ -438,6 +452,7 @@
 			children = (
 				D93F1941362F417B0FA5594F /* Card.swift */,
 				409C82291F02FA6A105021BE /* ChatMessage.swift */,
+				AA1234567890ABCDEF00000B /* LeaderboardEntry.swift */,
 				5BA11DB6AFE269661E829F5A /* Lobby.swift */,
 				7187D649710ECFC3C9A68D59 /* Player.swift */,
 				ABD47677D06A3496EC34B3AC /* ScoreData.swift */,
@@ -565,6 +580,11 @@
 				6C8BF96D03D45CA6E2768194 /* HandNode.swift in Sources */,
 				928367895A6772000691F618 /* HapticManager.swift in Sources */,
 				34DB3B2F9965A4193CCF4DD0 /* LayoutConstants.swift in Sources */,
+				BB1234567890ABCDEF00000D /* LeaderboardEmitter.swift in Sources */,
+				BB1234567890ABCDEF00000B /* LeaderboardEntry.swift in Sources */,
+				BB1234567890ABCDEF00000E /* LeaderboardSocketHandler.swift in Sources */,
+				BB1234567890ABCDEF00000C /* LeaderboardState.swift in Sources */,
+				BB1234567890ABCDEF00000F /* LeaderboardView.swift in Sources */,
 				48DFFF3FEE58CD64BDDC5C99 /* Lobby.swift in Sources */,
 				47380CD80F8287DC58668AA9 /* LobbyChatView.swift in Sources */,
 				8CA174CB34AD22C90102770A /* LobbyEmitter.swift in Sources */,
@@ -672,6 +692,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = BABOnline/BABOnline.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -763,6 +784,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = BABOnline/BABOnline.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
