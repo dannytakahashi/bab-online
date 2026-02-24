@@ -88,6 +88,14 @@ struct LobbyRowView: View {
                         .background(Color(red: 0.376, green: 0.647, blue: 0.98)) // #60a5fa
                         .cornerRadius(8)
                 }
+            } else if lobby.playerCount >= 4 {
+                Text("Full")
+                    .font(.callout.bold())
+                    .foregroundColor(Color.Theme.textDim)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 8)
+                    .background(Color(red: 0.42, green: 0.44, blue: 0.47))
+                    .cornerRadius(8)
             } else {
                 Button(action: {
                     LobbyEmitter.joinLobby(lobbyId: lobby.id)
