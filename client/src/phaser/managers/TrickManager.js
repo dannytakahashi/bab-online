@@ -71,6 +71,16 @@ export class TrickManager {
 
     // Background graphics
     this._backgroundGraphics = null;
+
+    // Spectator mode — allows inspecting opponent tricks
+    this._isSpectatorMode = false;
+  }
+
+  /**
+   * Set spectator mode (enables hover on opponent tricks).
+   */
+  setSpectatorMode(enabled) {
+    this._isSpectatorMode = enabled;
   }
 
   /**
@@ -308,7 +318,7 @@ export class TrickManager {
         trickNumber,
       });
 
-      // Add hover effects for team tricks
+      // Add hover effects for team tricks (always inspectable)
       this._setupTrickHover(trickCards, winningPosition);
     } else {
       this._oppTrickHistory.push({
@@ -316,6 +326,11 @@ export class TrickManager {
         position: { ...winningPosition },
         trickNumber,
       });
+
+      // Spectators can also inspect opponent tricks
+      if (this._isSpectatorMode) {
+        this._setupTrickHover(trickCards, winningPosition);
+      }
     }
 
     // Clear current trick
@@ -731,6 +746,54 @@ export class TrickManager {
    */
   getCurrentTrickSprites() {
     return this._currentTrick;
+  }
+
+  /**
+   * Restore trick history as card-back placeholders.
+   * Used when a spectator (or reconnecting player) joins mid-hand and
+   * the server only provides trick counts, not the actual cards.
+   *
+   * @param {number} teamTricks - Number of tricks won by team
+   * @param {number} oppTricks - Number of tricks won by opponents
+   */
+  restoreTrickPlaceholders(teamTricks, oppTricks) {
+    const scene = this._scene;
+
+    for (let i = 1; i <= teamTricks; i++) {
+      this._teamTrickCount++;
+      const pos = this._getTrickPosition(i, true);
+      const cards = this._createPlaceholderStack(scene, pos);
+      this._teamTrickHistory.push({ cards, position: { ...pos }, trickNumber: i });
+      this._setupTrickHover(cards, pos);
+    }
+
+    for (let i = 1; i <= oppTricks; i++) {
+      this._oppTrickCount++;
+      const pos = this._getTrickPosition(i, false);
+      const cards = this._createPlaceholderStack(scene, pos);
+      this._oppTrickHistory.push({ cards, position: { ...pos }, trickNumber: i });
+      this._setupTrickHover(cards, pos);
+    }
+
+    if (this._backgroundGraphics) {
+      this._drawBackgrounds();
+    }
+  }
+
+  /**
+   * Create a small stack of card-back sprites as a placeholder for a won trick.
+   */
+  _createPlaceholderStack(scene, pos) {
+    const cards = [];
+    for (let j = 0; j < 4; j++) {
+      const sprite = scene.add.image(pos.x, pos.y, 'cardBack');
+      sprite.setScale(TRICK_SCALE);
+      sprite.setDepth(200 + j);
+      sprite.setInteractive();
+      sprite.originalDepth = 200 + j;
+      cards.push(sprite);
+    }
+    return cards;
   }
 
   /**

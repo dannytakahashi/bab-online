@@ -23,6 +23,9 @@ final class LobbySocketHandler {
             guard let self, let dict = data.first as? [String: Any] else { return }
             DispatchQueue.main.async {
                 self.mainRoomState.onlineCount = dict["onlineCount"] as? Int ?? 0
+                if let users = dict["onlineUsers"] as? [String] {
+                    self.mainRoomState.onlineUsers = users
+                }
                 if let messages = dict["recentMessages"] as? [[String: Any]] {
                     self.mainRoomState.messages = messages.compactMap { ChatMessage.from($0) }
                 }
@@ -52,6 +55,9 @@ final class LobbySocketHandler {
             DispatchQueue.main.async {
                 if let count = dict["onlineCount"] as? Int {
                     self?.mainRoomState.onlineCount = count
+                }
+                if let users = dict["onlineUsers"] as? [String] {
+                    self?.mainRoomState.onlineUsers = users
                 }
             }
         }
@@ -112,11 +118,10 @@ final class LobbySocketHandler {
         }
 
         socket.on(SocketEvents.Server.lobbyPlayerJoined) { [weak self] data, _ in
-            guard let self, let dict = data.first as? [String: Any],
-                  let player = LobbyPlayer.from(dict) else { return }
+            guard let self, let dict = data.first as? [String: Any] else { return }
             DispatchQueue.main.async {
-                if !self.lobbyState.players.contains(where: { $0.username == player.username }) {
-                    self.lobbyState.players.append(player)
+                if let players = dict["players"] as? [[String: Any]] {
+                    self.lobbyState.players = players.compactMap { LobbyPlayer.from($0) }
                 }
             }
         }

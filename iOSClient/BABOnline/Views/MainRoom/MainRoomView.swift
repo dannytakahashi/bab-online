@@ -5,6 +5,7 @@ struct MainRoomView: View {
     @EnvironmentObject var mainRoomState: MainRoomState
     @Environment(\.scenePhase) private var scenePhase
     @State private var showLeaderboard = false
+    @State private var showOnlineUsers = false
 
     var body: some View {
         ZStack {
@@ -47,6 +48,9 @@ struct MainRoomView: View {
         .sheet(isPresented: $showLeaderboard) {
             LeaderboardView()
         }
+        .sheet(isPresented: $showOnlineUsers) {
+            OnlineUsersSheet(users: mainRoomState.onlineUsers)
+        }
     }
 
     // MARK: - Lobby Browser
@@ -75,9 +79,11 @@ struct MainRoomView: View {
 
                 Spacer()
 
-                Text("\(mainRoomState.onlineCount) online")
-                    .font(.caption)
-                    .foregroundColor(Color.Theme.textSecondary)
+                Button(action: { showOnlineUsers = true }) {
+                    Text("\(mainRoomState.onlineCount) online")
+                        .font(.caption)
+                        .foregroundColor(Color.Theme.textSecondary)
+                }
             }
             .padding()
 
@@ -88,4 +94,30 @@ struct MainRoomView: View {
         }
     }
 
+}
+
+// MARK: - Online Users Sheet
+
+private struct OnlineUsersSheet: View {
+    let users: [String]
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationView {
+            List(users, id: \.self) { username in
+                Text(username)
+                    .foregroundColor(Color.Theme.textPrimary)
+            }
+            .listStyle(.plain)
+            .background(Color.Theme.background)
+            .scrollContentBackground(.hidden)
+            .navigationTitle("Online Players")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+    }
 }

@@ -68,7 +68,7 @@ class SKOpponentManager {
 
             switch relPos {
             case .bottom:
-                node.position = CGPoint(x: 0, y: -scene.size.height / 2 + 80)
+                node.position = CGPoint(x: 0, y: -scene.size.height / 2 + 140)
             case .top:
                 node.position = CGPoint(x: 0, y: scene.size.height / 2 - 220)
             case .left:

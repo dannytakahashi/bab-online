@@ -2102,6 +2102,7 @@ function initializeApp() {
               // Set up managers
               if (scene.trickManager) {
                 scene.trickManager.setPlayerPosition(1);
+                scene.trickManager.setSpectatorMode(true);
                 scene.trickManager.updatePlayPositions();
               }
               if (scene.opponentManager) {
@@ -2123,6 +2124,18 @@ function initializeApp() {
                 scene.trickManager._teamTrickCount = gameState.teamTricks || 0;
                 scene.trickManager._oppTrickCount = gameState.oppTricks || 0;
                 scene.trickManager.createTrickBackgrounds(false);
+
+                // Create card-back placeholder stacks for already-won tricks
+                // (server only sends counts, not actual cards)
+                if (gameState.teamTricks > 0 || gameState.oppTricks > 0) {
+                  // Reset counts first — restoreTrickPlaceholders increments them
+                  scene.trickManager._teamTrickCount = 0;
+                  scene.trickManager._oppTrickCount = 0;
+                  scene.trickManager.restoreTrickPlaceholders(
+                    gameState.teamTricks || 0,
+                    gameState.oppTricks || 0
+                  );
+                }
               }
 
               // Display trump card
@@ -2911,10 +2924,11 @@ function initializeApp() {
       const senderName = data.username || getPlayerName(data.position, state.playerData);
 
       // Add to game feed with player position for color coding
+      const chatPosition = data.isSpectator ? 'spectator' : data.position;
       if (scene && scene.handleAddToGameFeed) {
-        scene.handleAddToGameFeed(`${senderName}: ${data.message}`, data.position);
+        scene.handleAddToGameFeed(`${senderName}: ${data.message}`, chatPosition);
       } else if (window.addToGameFeedFromLegacy) {
-        window.addToGameFeedFromLegacy(`${senderName}: ${data.message}`, data.position);
+        window.addToGameFeedFromLegacy(`${senderName}: ${data.message}`, chatPosition);
       }
 
       // Show chat bubble at appropriate position

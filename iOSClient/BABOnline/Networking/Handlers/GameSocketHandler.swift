@@ -513,11 +513,28 @@ final class GameSocketHandler {
         // Add to played cards
         gameState.playedCards.append(PlayedCard(card: card, position: position))
         gameState.playedCardIndex += 1
-        gameState.cardPlayedSubject.send(PlayedCard(card: card, position: position))
 
-        // Client-side log entry
-        let playerName = gameState.getPlayerName(position: position)
-        gameState.addSystemLog("\(playerName) played \(card.displayName)")
+        // OT detection: current card is trump/joker, previous card is trump/joker,
+        // current rank > previous rank, and lead card is NOT trump.
+        // Done here (not in SpriteKit scene) so playedCards state is guaranteed consistent.
+        if gameState.playedCards.count >= 2,
+           let leadCard = gameState.leadCard,
+           let trump = gameState.trump {
+            let previousCard = gameState.playedCards[gameState.playedCards.count - 2].card
+            let leadIsTrump = leadCard.suit == trump.suit || leadCard.suit == .joker
+            let currentIsTrump = card.suit == trump.suit || card.suit == .joker
+            let previousIsTrump = previousCard.suit == trump.suit || previousCard.suit == .joker
+
+            if !leadIsTrump && currentIsTrump && previousIsTrump {
+                let currentRank = CardConstants.rankValues[card.rank] ?? 0
+                let previousRank = CardConstants.rankValues[previousCard.rank] ?? 0
+                if currentRank > previousRank {
+                    gameState.overTrumpSubject.send()
+                }
+            }
+        }
+
+        gameState.cardPlayedSubject.send(PlayedCard(card: card, position: position))
 
         // Confirm optimistic play
         gameState.confirmCardPlay()

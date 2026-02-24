@@ -6,9 +6,9 @@ struct ScoreBarView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            // Team side
+            // Team side (positions 1 & 3)
             VStack(spacing: 2) {
-                Text("Your Team")
+                Text(team1Label)
                     .font(.system(size: 10))
                     .foregroundColor(Color.Theme.textDim)
                 Text("\(gameState.teamScore)")
@@ -52,9 +52,9 @@ struct ScoreBarView: View {
             }
             .frame(width: 100)
 
-            // Opponent side
+            // Opponent side (positions 2 & 4)
             VStack(spacing: 2) {
-                Text("Opponents")
+                Text(team2Label)
                     .font(.system(size: 10))
                     .foregroundColor(Color.Theme.textDim)
                 Text("\(gameState.oppScore)")
@@ -77,6 +77,24 @@ struct ScoreBarView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(Color.Theme.surface.opacity(0.9))
+    }
+
+    private var team1Label: String {
+        if gameState.isSpectator {
+            let p1 = gameState.players[1]?.username.prefix(1) ?? "?"
+            let p3 = gameState.players[3]?.username.prefix(1) ?? "?"
+            return "\(p1) & \(p3)"
+        }
+        return "Your Team"
+    }
+
+    private var team2Label: String {
+        if gameState.isSpectator {
+            let p2 = gameState.players[2]?.username.prefix(1) ?? "?"
+            let p4 = gameState.players[4]?.username.prefix(1) ?? "?"
+            return "\(p2) & \(p4)"
+        }
+        return "Opponents"
     }
 
     private var handNumber: String {

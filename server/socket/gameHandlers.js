@@ -474,6 +474,20 @@ async function startHand(game, io) {
         });
     }
 
+    // Send spectator-safe gameStart (no hand data) so spectators see updated trump/score/hand
+    for (const spec of game.getSpectators()) {
+        io.to(spec.socketId).emit('gameStart', {
+            gameId: game.gameId,
+            trump: game.trump,
+            score1: game.score.team1,
+            score2: game.score.team2,
+            dealer: game.dealer,
+            currentHand: game.currentHand,
+            hand: [],
+            playerInfo
+        });
+    }
+
     gameLogger.info('Game started', { gameId: game.gameId, handSize: game.currentHand, dealer: game.dealer });
     game.bidding = true;
     game.currentTurn = game.bidder;
@@ -598,8 +612,8 @@ async function handleHandComplete(game, io) {
             (game.tricks.team1 - game.bids.team1) +
             game.rainbows.team1 * 10;
     } else {
-        game.score.team1 -= game.bids.team1 * 10 * game.team1Mult -
-            game.rainbows.team1 * 10;
+        game.score.team1 -= game.bids.team1 * 10 * game.team1Mult;
+        game.score.team1 += game.rainbows.team1 * 10;
     }
 
     // Calculate team 2 score
@@ -608,8 +622,8 @@ async function handleHandComplete(game, io) {
             (game.tricks.team2 - game.bids.team2) +
             game.rainbows.team2 * 10;
     } else {
-        game.score.team2 -= game.bids.team2 * 10 * game.team2Mult -
-            game.rainbows.team2 * 10;
+        game.score.team2 -= game.bids.team2 * 10 * game.team2Mult;
+        game.score.team2 += game.rainbows.team2 * 10;
     }
 
     // Track hand stats for player profiles
@@ -892,6 +906,20 @@ async function cleanupNextHand(game, io, dealer, handSize) {
             currentHand: game.currentHand,  // Hand index for hand indicator
             hsiValues,  // HSI for all players to display under avatars
             playerInfo  // Current player info for avatar updates
+        });
+    }
+
+    // Send spectator-safe gameStart (no hand data) so spectators see updated trump/score/hand
+    for (const spec of game.getSpectators()) {
+        io.to(spec.socketId).emit('gameStart', {
+            gameId: game.gameId,
+            trump: game.trump,
+            score1: game.score.team1,
+            score2: game.score.team2,
+            dealer: game.dealer,
+            currentHand: game.currentHand,
+            hand: [],
+            playerInfo
         });
     }
 

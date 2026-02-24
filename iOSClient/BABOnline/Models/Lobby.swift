@@ -25,7 +25,7 @@ struct Lobby: Identifiable, Equatable {
             name = "Game \(id.prefix(4))"
         }
 
-        let playerCount = dict["playerCount"] as? Int ?? 0
+        let playerCount = dict["playerCount"] as? Int ?? (dict["players"] as? [[String: Any]])?.count ?? 0
         let isInProgress = dict["inProgress"] as? Bool ?? false
 
         var players: [LobbyPlayer] = []

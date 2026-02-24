@@ -4,7 +4,7 @@ import SwiftUI
 struct BidOverlayView: View {
     @EnvironmentObject var gameState: GameState
 
-    @State private var selectedBid: Int?
+    @State private var selectedBid: String?
 
     private var maxBid: Int {
         gameState.myCards.count
@@ -29,12 +29,13 @@ struct BidOverlayView: View {
 
             LazyVGrid(columns: columns, spacing: 4) {
                 ForEach(0...maxBid, id: \.self) { bid in
-                    Button(action: { selectedBid = bid }) {
+                    let bidStr = String(bid)
+                    Button(action: { selectedBid = bidStr }) {
                         Text("\(bid)")
                             .font(.callout.bold())
                             .frame(minWidth: 36, minHeight: 36)
-                            .background(selectedBid == bid ? Color.Theme.primary : Color.Theme.surfaceLight)
-                            .foregroundColor(selectedBid == bid ? .black : Color.Theme.textPrimary)
+                            .background(selectedBid == bidStr ? Color.Theme.primary : Color.Theme.surfaceLight)
+                            .foregroundColor(selectedBid == bidStr ? .black : Color.Theme.textPrimary)
                             .cornerRadius(6)
                     }
                 }
@@ -45,13 +46,13 @@ struct BidOverlayView: View {
                 // Bore buttons inline with submit
                 if !availableBoreLevels.isEmpty {
                     ForEach(availableBoreLevels, id: \.self) { level in
-                        Button(action: { submitBore(level) }) {
+                        Button(action: { selectedBid = level }) {
                             Text(level)
                                 .font(.caption.bold())
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 6)
-                                .background(Color.Theme.oppColor)
-                                .foregroundColor(.white)
+                                .background(selectedBid == level ? Color.Theme.oppColor : Color.Theme.surfaceLight)
+                                .foregroundColor(selectedBid == level ? .white : Color.Theme.textPrimary)
                                 .cornerRadius(6)
                         }
                     }
@@ -86,15 +87,16 @@ struct BidOverlayView: View {
     private func submitBid() {
         guard let bid = selectedBid, let pos = gameState.position else { return }
         HapticManager.mediumImpact()
-        gameState.optimisticBid(String(bid))
-        GameEmitter.playerBid(bid: bid, position: pos)
-        selectedBid = nil
-    }
 
-    private func submitBore(_ level: String) {
-        guard let pos = gameState.position else { return }
-        HapticManager.mediumImpact()
-        gameState.optimisticBid(level)
-        GameEmitter.playerBidBore(bid: level, position: pos)
+        let boreLevels = ["B", "2B", "3B", "4B"]
+        if boreLevels.contains(bid) {
+            gameState.optimisticBid(bid)
+            GameEmitter.playerBidBore(bid: bid, position: pos)
+        } else if let numericBid = Int(bid) {
+            gameState.optimisticBid(bid)
+            GameEmitter.playerBid(bid: numericBid, position: pos)
+        }
+
+        selectedBid = nil
     }
 }

@@ -178,6 +178,13 @@ class GameManager {
     }
 
     /**
+     * Get usernames of all online users (registered in currentUsers)
+     */
+    getOnlineUsernames() {
+        return this.currentUsers.map(u => u.username);
+    }
+
+    /**
      * Check if player is in main room
      */
     isInMainRoom(socketId) {
@@ -841,6 +848,7 @@ class GameManager {
         const games = [];
         for (const [gameId, game] of this.games) {
             if (game.phase === 'waiting' || game.phase === 'drawing') continue;
+            if (this.tournamentGames.has(gameId)) continue;
 
             const players = [];
             for (let pos = 1; pos <= 4; pos++) {

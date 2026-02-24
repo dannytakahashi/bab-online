@@ -136,6 +136,7 @@ final class GameState: ObservableObject {
     let rainbowSubject = PassthroughSubject<Int, Never>()          // position
     let chatBubbleSubject = PassthroughSubject<(message: String, position: Int), Never>()
     let bidReceivedSubject = PassthroughSubject<(position: Int, bid: String), Never>()
+    let overTrumpSubject = PassthroughSubject<Void, Never>()
 
     // MARK: - Optimistic Update State
 

@@ -368,11 +368,15 @@ export function createGameLog({ onChatSubmit } = {}) {
       `;
       msgDiv.appendChild(timeSpan);
 
-      // Message text with team coloring
+      // Message text with team/spectator coloring
       const textSpan = document.createElement('span');
       textSpan.textContent = message;
-      // Team 1 (positions 1, 3) = blue, Team 2 (positions 2, 4) = red
-      textSpan.style.color = (playerPosition === 1 || playerPosition === 3) ? '#63b3ed' : '#fc8181';
+      if (playerPosition === 'spectator') {
+        textSpan.style.color = '#4ade80'; // Green for spectators
+      } else {
+        // Team 1 (positions 1, 3) = blue, Team 2 (positions 2, 4) = red
+        textSpan.style.color = (playerPosition === 1 || playerPosition === 3) ? '#63b3ed' : '#fc8181';
+      }
       msgDiv.appendChild(textSpan);
 
       messageArea.appendChild(msgDiv);
