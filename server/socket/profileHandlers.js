@@ -47,6 +47,7 @@ async function getProfile(socket, io) {
                 stats: dbUser.stats || {
                     wins: 0,
                     losses: 0,
+                    draws: 0,
                     gamesPlayed: 0,
                     totalPoints: 0,
                     totalTricksBid: 0,
@@ -203,6 +204,7 @@ async function recordGameStats(game) {
 
     // Determine winner based on final scores
     const team1Won = game.score.team1 > game.score.team2;
+    const isTie = game.score.team1 === game.score.team2;
 
     // Get all players — use original human player info for resigned positions
     const players = [
@@ -241,8 +243,9 @@ async function recordGameStats(game) {
                 {
                     $inc: {
                         'stats.gamesPlayed': 1,
-                        'stats.wins': isWinner ? 1 : 0,
-                        'stats.losses': isWinner ? 0 : 1,
+                        'stats.wins': isTie ? 0 : (isWinner ? 1 : 0),
+                        'stats.losses': isTie ? 0 : (isWinner ? 0 : 1),
+                        'stats.draws': isTie ? 1 : 0,
                         'stats.totalPoints': teamScore,
                         'stats.totalTricksBid': playerBids,
                         'stats.totalTricksTaken': playerTricks,

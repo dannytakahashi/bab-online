@@ -174,6 +174,14 @@ class GameSKScene: SKScene {
             }
             .store(in: &cancellables)
 
+        // Over-trump detection (fired from socket handler where data is consistent)
+        gameState.overTrumpSubject
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in
+                self?.effectsManager?.showOverTrump()
+            }
+            .store(in: &cancellables)
+
         // Player info changes (lazy mode, bot replacement, active mode)
         gameState.$players
             .receive(on: DispatchQueue.main)
@@ -253,28 +261,6 @@ class GameSKScene: SKScene {
 
         // Place card face-up in trick area
         trickManager?.placeCard(played.card, position: played.position)
-
-        // OT detection: current card is trump/joker, previous card is trump/joker,
-        // current rank > previous rank, and lead card is NOT trump
-        if gameState.playedCards.count >= 2 {
-            let currentCard = played.card
-            let previousPlayed = gameState.playedCards[gameState.playedCards.count - 2]
-            let previousCard = previousPlayed.card
-
-            if let leadCard = gameState.leadCard, let trump = gameState.trump {
-                let leadIsTrump = leadCard.suit == trump.suit || leadCard.suit == .joker
-                let currentIsTrump = currentCard.suit == trump.suit || currentCard.suit == .joker
-                let previousIsTrump = previousCard.suit == trump.suit || previousCard.suit == .joker
-
-                if !leadIsTrump && currentIsTrump && previousIsTrump {
-                    let currentRank = CardConstants.rankValues[currentCard.rank] ?? 0
-                    let previousRank = CardConstants.rankValues[previousCard.rank] ?? 0
-                    if currentRank > previousRank {
-                        effectsManager?.showOverTrump()
-                    }
-                }
-            }
-        }
     }
 
     private func handleTrickComplete(winner: Int) {

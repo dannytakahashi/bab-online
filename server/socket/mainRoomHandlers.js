@@ -25,6 +25,7 @@ function joinMainRoom(socket, io) {
         messages: result.messages,
         lobbies: result.lobbies,
         onlineCount: result.onlineCount,
+        onlineUsers: gameManager.getOnlineUsernames(),
         inProgressGames: gameManager.getInProgressGames(),
         tournaments: gameManager.getAllTournaments()
     });
@@ -32,7 +33,8 @@ function joinMainRoom(socket, io) {
     // Notify others of new player
     socket.to('mainRoom').emit('mainRoomPlayerJoined', {
         username: result.username,
-        onlineCount: result.onlineCount
+        onlineCount: result.onlineCount,
+        onlineUsers: gameManager.getOnlineUsernames()
     });
 
     socketLogger.info('Player joined main room', {
