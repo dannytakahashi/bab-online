@@ -34,7 +34,7 @@ class DrawPhaseNode: SKNode {
         nameLabel.fontName = "Helvetica-Bold"
         nameLabel.fontSize = 16
         nameLabel.fontColor = isLocalPlayer ? UIColor(red: 0.3, green: 0.9, blue: 0.4, alpha: 1) : .white
-        nameLabel.position = CGPoint(x: slotX, y: displayY + (cardH / 2) + 14)
+        nameLabel.position = CGPoint(x: slotX, y: displayY + (cardH / 2) + 22)
         nameLabel.zPosition = 300
         addChild(nameLabel)
         drawnDisplays.append(nameLabel)
