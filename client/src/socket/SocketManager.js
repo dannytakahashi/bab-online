@@ -149,6 +149,7 @@ export class SocketManager {
 
   /**
    * Attempt to rejoin game after reconnection.
+   * Handles both active players (via gameId) and spectators (via spectatingGameId).
    */
   _tryRejoin() {
     const gameId = this.gameId;
@@ -157,6 +158,14 @@ export class SocketManager {
     if (gameId && username) {
       console.log(`Attempting to rejoin game ${gameId} as ${username}`);
       this.emit(CLIENT_EVENTS.REJOIN_GAME, { gameId, username });
+      return;
+    }
+
+    // Spectator reconnection: re-join the game being watched
+    const spectatingGameId = sessionStorage.getItem('spectatingGameId');
+    if (spectatingGameId && username) {
+      console.log(`Attempting to rejoin as spectator for game ${spectatingGameId}`);
+      this.emit(CLIENT_EVENTS.JOIN_AS_SPECTATOR, { gameId: spectatingGameId });
     }
   }
 
@@ -180,8 +189,8 @@ export class SocketManager {
         const hiddenDuration = Date.now() - this._hiddenAt;
         this._hiddenAt = null;
 
-        // Only force reconnect if hidden >5s and player is in a game
-        if (hiddenDuration > 5000 && this.gameId) {
+        // Only force reconnect if hidden >5s and player is in a game or spectating
+        if (hiddenDuration > 5000 && (this.gameId || sessionStorage.getItem('spectatingGameId'))) {
           this._forceReconnect();
         }
       }
