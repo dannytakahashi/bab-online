@@ -23,7 +23,7 @@ final class ChatSocketHandler {
                 self.gameState.gameLog.append(chatMsg)
 
                 // Increment unread count for player/spectator messages
-                if type == .player || type == .spectator {
+                if (type == .player || type == .spectator) && username != self.gameState.username {
                     self.gameState.unreadChatCount += 1
                 }
 
