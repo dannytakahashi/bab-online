@@ -281,8 +281,8 @@ export class TrickManager {
 
     // Animate cards to stack position
     trickCards.forEach((card, index) => {
-      // If not our team's trick, show card backs
-      if (!isMyTeam) {
+      // If not our team's trick, show card backs (unless spectating)
+      if (!isMyTeam && !this._isSpectatorMode) {
         card.setTexture('cardBack');
       }
 
@@ -327,10 +327,7 @@ export class TrickManager {
         trickNumber,
       });
 
-      // Spectators can also inspect opponent tricks
-      if (this._isSpectatorMode) {
-        this._setupTrickHover(trickCards, winningPosition);
-      }
+      this._setupTrickHover(trickCards, winningPosition);
     }
 
     // Clear current trick
