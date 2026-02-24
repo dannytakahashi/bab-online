@@ -174,19 +174,29 @@ class UIManager {
   // ============================================
 
   _cleanupSignIn() {
+    // Legacy IDs (camelCase)
     const signInContainer = document.getElementById('signInContainer');
     if (signInContainer) signInContainer.remove();
-
     const signInVignette = document.getElementById('SignInVignette');
     if (signInVignette) signInVignette.remove();
+    // Current IDs (kebab-case)
+    const signInContainerNew = document.getElementById('sign-in-container');
+    if (signInContainerNew) signInContainerNew.remove();
+    const signInVignetteNew = document.getElementById('sign-in-vignette');
+    if (signInVignetteNew) signInVignetteNew.remove();
   }
 
   _cleanupRegister() {
+    // Legacy IDs (camelCase)
     const registerContainer = document.getElementById('registerContainer');
     if (registerContainer) registerContainer.remove();
-
     const registerVignette = document.getElementById('RegisterVignette');
     if (registerVignette) registerVignette.remove();
+    // Current IDs (kebab-case)
+    const registerContainerNew = document.getElementById('register-container');
+    if (registerContainerNew) registerContainerNew.remove();
+    const registerVignetteNew = document.getElementById('register-vignette');
+    if (registerVignetteNew) registerVignetteNew.remove();
   }
 
   _cleanupMainRoom() {

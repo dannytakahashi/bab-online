@@ -324,6 +324,14 @@ function updateLobbyListContent(container, lobbies, socket, inProgressGames = []
 export function showMainRoom(data, socket) {
   console.log('Showing main room...', data);
 
+  // Defensively clean up sign-in/register screens that may still be in the DOM
+  ['sign-in-container', 'sign-in-vignette', 'signInContainer', 'SignInVignette',
+   'register-container', 'register-vignette', 'registerContainer', 'RegisterVignette'
+  ].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.remove();
+  });
+
   // Remove any existing UI
   removeMainRoom();
 

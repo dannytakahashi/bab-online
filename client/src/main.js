@@ -1488,6 +1488,14 @@ const MAX_JOIN_RETRIES = 5;
 function handleSocketError(error, socket) {
   let message = 'Something went wrong';
 
+  // Handle spectator rejoin failure (game ended while disconnected)
+  if (error.message === 'Game not found' && sessionStorage.getItem('spectatingGameId')) {
+    console.log('Spectated game no longer exists, returning to main room');
+    sessionStorage.removeItem('spectatingGameId');
+    socket.emit('joinMainRoom');
+    return;
+  }
+
   // Handle race condition where joinMainRoom is called before user is registered
   if (error.message === 'User not registered yet') {
     // Don't retry if we're in a game (have a gameId)
@@ -1923,6 +1931,7 @@ function initializeApp() {
       sessionStorage.removeItem('username');
       sessionStorage.removeItem('sessionToken');
       sessionStorage.removeItem('gameId');
+      sessionStorage.removeItem('spectatingGameId');
       gameState.reset();
 
       // Show sign-in screen
@@ -1937,6 +1946,8 @@ function initializeApp() {
     onMainRoomJoined: (data) => {
       // Reset retry counter on success
       joinMainRoomRetries = 0;
+      // No longer spectating
+      sessionStorage.removeItem('spectatingGameId');
 
       // Don't show main room if we're in a game or rejoin succeeded
       if (sessionStorage.getItem('gameId') || rejoinSucceeded) {
@@ -2027,6 +2038,11 @@ function initializeApp() {
       // If this is the full game state (not just a notification about another spectator)
       if (data.players && data.trump) {
         try {
+        // Track spectating game for reconnection
+        if (data.gameId) {
+          sessionStorage.setItem('spectatingGameId', data.gameId);
+        }
+
         // Remove main room and tournament lobby UI
         removeMainRoom();
         removeTournamentLobby();
@@ -2612,6 +2628,7 @@ function initializeApp() {
           // Reset game state for next game
           const tournamentId = savedTournamentId;
           resetGameState();
+          sessionStorage.removeItem('spectatingGameId');
 
           if (isTournamentGame && tournamentId) {
             gameState.tournamentId = tournamentId;
@@ -2685,6 +2702,7 @@ function initializeApp() {
       }
       // Reset game state for next game
       resetGameState();
+      sessionStorage.removeItem('spectatingGameId');
       socket.emit("joinMainRoom");
     },
     onRoomFull: (data) => {
@@ -2864,6 +2882,7 @@ function initializeApp() {
       resetGameState();
       // Clear gameId so mainRoomJoined handler doesn't ignore the transition
       sessionStorage.removeItem('gameId');
+      sessionStorage.removeItem('spectatingGameId');
       socket.emit("joinMainRoom");
     },
     onRestorePlayerState: (data) => {
@@ -3094,6 +3113,9 @@ function displaySignInScreen() {
 
   // Remove width restriction from game container
   document.getElementById('game-container')?.classList.remove('in-game');
+
+  // Clear spectating state
+  sessionStorage.removeItem('spectatingGameId');
 
   // Pre-fill username if we have it stored (e.g., after failed rejoin)
   const storedUsername = sessionStorage.getItem('username') || '';
