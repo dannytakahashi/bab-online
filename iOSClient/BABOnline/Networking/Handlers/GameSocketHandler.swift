@@ -142,7 +142,13 @@ final class GameSocketHandler {
                 }
 
                 // Client-side log: bidding summary
-                if let teamBids = self.gameState.teamBids, let oppBids = self.gameState.oppBids {
+                if self.gameState.isSpectator {
+                    let team1Name = "\(self.gameState.getPlayerName(position: 1))/\(self.gameState.getPlayerName(position: 3))"
+                    let team2Name = "\(self.gameState.getPlayerName(position: 2))/\(self.gameState.getPlayerName(position: 4))"
+                    let t1Bids = "\(self.gameState.bids[1] ?? "-")/\(self.gameState.bids[3] ?? "-")"
+                    let t2Bids = "\(self.gameState.bids[2] ?? "-")/\(self.gameState.bids[4] ?? "-")"
+                    self.gameState.addSystemLog("Bidding complete — \(team1Name): \(t1Bids), \(team2Name): \(t2Bids)")
+                } else if let teamBids = self.gameState.teamBids, let oppBids = self.gameState.oppBids {
                     self.gameState.addSystemLog("Bidding complete — Your team: \(teamBids), Opponents: \(oppBids)")
                 }
             }
@@ -549,10 +555,21 @@ final class GameSocketHandler {
     }
 
     private func handleHandComplete(_ dict: [String: Any]) {
-        if let score = dict["score"] as? [String: Any],
-           let myPos = gameState.position {
-            let t1 = score["team1"] as? Int ?? 0
-            let t2 = score["team2"] as? Int ?? 0
+        guard let score = dict["score"] as? [String: Any] else {
+            gameState.handCompleteSubject.send(dict)
+            gameState.resetForNewHand()
+            return
+        }
+
+        let t1 = score["team1"] as? Int ?? 0
+        let t2 = score["team2"] as? Int ?? 0
+        let t1Tricks = dict["team1Tricks"] as? Int ?? 0
+        let t2Tricks = dict["team2Tricks"] as? Int ?? 0
+        let t1OldScore = dict["team1OldScore"] as? Int ?? 0
+        let t2OldScore = dict["team2OldScore"] as? Int ?? 0
+
+        // Update scores (relative to player)
+        if let myPos = gameState.position {
             if myPos % 2 != 0 {
                 gameState.teamScore = t1
                 gameState.oppScore = t2
@@ -560,10 +577,53 @@ final class GameSocketHandler {
                 gameState.teamScore = t2
                 gameState.oppScore = t1
             }
-
-            // Client-side log: hand complete with scores
-            gameState.addSystemLog("Hand complete — Score: \(gameState.teamScore) to \(gameState.oppScore)")
         }
+
+        // Build detailed score breakdown before reset clears bids/rainbows
+        let team1Name = "\(gameState.getPlayerName(position: 1))/\(gameState.getPlayerName(position: 3))"
+        let team2Name = "\(gameState.getPlayerName(position: 2))/\(gameState.getPlayerName(position: 4))"
+
+        let t1Bid1 = gameState.bids[1] ?? "-"
+        let t1Bid2 = gameState.bids[3] ?? "-"
+        let t2Bid1 = gameState.bids[2] ?? "-"
+        let t2Bid2 = gameState.bids[4] ?? "-"
+
+        let t1Change = t1 - t1OldScore
+        let t2Change = t2 - t2OldScore
+        let t1ChangeStr = t1Change >= 0 ? "+\(t1Change)" : "\(t1Change)"
+        let t2ChangeStr = t2Change >= 0 ? "+\(t2Change)" : "\(t2Change)"
+
+        // Map relative rainbow counts to absolute team1/team2
+        let team1Rainbows: Int
+        let team2Rainbows: Int
+        if let myPos = gameState.position {
+            if myPos % 2 != 0 {
+                team1Rainbows = gameState.teamRainbows
+                team2Rainbows = gameState.oppRainbows
+            } else {
+                team1Rainbows = gameState.oppRainbows
+                team2Rainbows = gameState.teamRainbows
+            }
+        } else {
+            team1Rainbows = 0
+            team2Rainbows = 0
+        }
+
+        // Build annotation strings for bore multipliers and rainbow bonuses
+        func annotation(mult: Int, rainbows: Int) -> String {
+            var parts: [String] = []
+            if mult > 1 { parts.append("\(mult)x") }
+            if rainbows > 0 { parts.append("rainbow +\(rainbows * 10)") }
+            return parts.isEmpty ? "" : " (\(parts.joined(separator: ", ")))"
+        }
+
+        let t1Annotation = annotation(mult: gameState.team1Mult, rainbows: team1Rainbows)
+        let t2Annotation = annotation(mult: gameState.team2Mult, rainbows: team2Rainbows)
+
+        // Add detailed log entries
+        gameState.addSystemLog("--- HAND COMPLETE ---")
+        gameState.addSystemLog("\(team1Name): Bid \(t1Bid1)/\(t1Bid2), Won \(t1Tricks), \(t1ChangeStr) → \(t1)\(t1Annotation)")
+        gameState.addSystemLog("\(team2Name): Bid \(t2Bid1)/\(t2Bid2), Won \(t2Tricks), \(t2ChangeStr) → \(t2)\(t2Annotation)")
 
         gameState.handCompleteSubject.send(dict)
         gameState.resetForNewHand()
