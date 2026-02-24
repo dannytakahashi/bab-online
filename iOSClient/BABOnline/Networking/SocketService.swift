@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import SocketIO
 import Combine
 
@@ -10,6 +11,8 @@ final class SocketService: ObservableObject {
     @Published var connectionError: String?
 
     private var isForceReconnecting = false
+    private var backgroundTaskId: UIBackgroundTaskIdentifier = .invalid
+    private(set) var isBackgroundTaskActive = false
 
     private(set) var manager: SocketManager?
     private(set) var socket: SocketIOClient?
@@ -118,6 +121,28 @@ final class SocketService: ObservableObject {
         DispatchQueue.main.async {
             self.isConnected = false
         }
+    }
+
+    // MARK: - Background Keep-Alive
+
+    /// Begin a background task to keep the socket alive during brief app switches (~30s).
+    func beginBackgroundKeepAlive() {
+        guard backgroundTaskId == .invalid else { return }
+        isBackgroundTaskActive = true
+        backgroundTaskId = UIApplication.shared.beginBackgroundTask(withName: "SocketKeepAlive") { [weak self] in
+            // Expiration handler — OS is about to kill the task
+            self?.endBackgroundKeepAlive()
+        }
+        print("[Socket] Background keep-alive started")
+    }
+
+    /// End the background task (called on return to foreground or expiration).
+    func endBackgroundKeepAlive() {
+        guard backgroundTaskId != .invalid else { return }
+        isBackgroundTaskActive = false
+        UIApplication.shared.endBackgroundTask(backgroundTaskId)
+        backgroundTaskId = .invalid
+        print("[Socket] Background keep-alive ended")
     }
 
     // MARK: - Emit

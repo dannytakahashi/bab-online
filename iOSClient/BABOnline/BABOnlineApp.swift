@@ -55,15 +55,25 @@ struct BABOnlineApp: App {
     private func handleScenePhase(_ phase: ScenePhase) {
         switch phase {
         case .active:
-            // Always force reconnect when foregrounding. iOS can silently kill the
-            // WebSocket without firing a disconnect event, so `isConnected` is unreliable.
-            // forceReconnect() tears down and re-establishes the connection, which triggers
-            // the .reconnect handler's restoreSession flow (handles both main room and
-            // in-game rejoin).
-            print("[App] Foregrounded — force reconnecting socket")
-            socketService.forceReconnect()
+            if socketService.isBackgroundTaskActive {
+                // Returned within the background keep-alive window (~30s).
+                // Socket likely still connected — end the task and only reconnect if needed.
+                print("[App] Foregrounded within keep-alive window")
+                socketService.endBackgroundKeepAlive()
+                if !socketService.isConnected {
+                    print("[App] Socket disconnected during background — force reconnecting")
+                    socketService.forceReconnect()
+                }
+            } else {
+                // Background task expired or was never started — do a full reconnect.
+                // iOS can silently kill the WebSocket without firing a disconnect event,
+                // so `isConnected` is unreliable after a long background period.
+                print("[App] Foregrounded after keep-alive expired — force reconnecting socket")
+                socketService.forceReconnect()
+            }
         case .background:
-            print("[App] Backgrounded")
+            print("[App] Backgrounded — starting socket keep-alive")
+            socketService.beginBackgroundKeepAlive()
         default:
             break
         }

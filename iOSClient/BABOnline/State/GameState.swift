@@ -502,6 +502,17 @@ final class GameState: ObservableObject {
             updatePlayerNames()
         }
 
+        // Restore HSI values
+        if let hsi = data["hsiValues"] as? [String: Any] {
+            var parsed: [Int: Double] = [:]
+            for (key, val) in hsi {
+                if let pos = Int(key), let v = val as? Double {
+                    parsed[pos] = v
+                }
+            }
+            hsiValues = parsed
+        }
+
         phase = bidding ? .bidding : .playing
         isUICreated = true
     }
