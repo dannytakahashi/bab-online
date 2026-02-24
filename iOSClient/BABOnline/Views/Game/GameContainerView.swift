@@ -117,6 +117,32 @@ struct GameContainerView: View {
                 }
             }
 
+            // HSI display (bottom-right, above card hand)
+            if (gameState.phase == .bidding || gameState.phase == .playing),
+               !gameState.isSpectator,
+               let myPos = gameState.position,
+               let hsi = gameState.hsiValues[myPos] {
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        Text("HSI: \(String(format: "%.1f", hsi))")
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundColor(Color(white: 0.67))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(Color.black.opacity(0.7))
+                            .cornerRadius(4)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 4)
+                                    .stroke(Color(white: 0.4), lineWidth: 1)
+                            )
+                            .padding(.trailing, 12)
+                            .padding(.bottom, 190)
+                    }
+                }
+            }
+
             // Draw phase overlay
             if gameState.phase == .draw {
                 DrawPhaseView()
