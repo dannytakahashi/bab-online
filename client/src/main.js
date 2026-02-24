@@ -3046,6 +3046,13 @@ function initializeApp() {
       removeTournamentLobby();
     },
 
+    onTournamentCancelled: () => {
+      gameState.tournamentId = null;
+      removeTournamentLobby();
+      showInfo('Tournament has been cancelled by the host');
+      socket.emit('joinMainRoom');
+    },
+
     onActiveTournamentFound: (data) => {
       gameState.tournamentId = data.tournamentId;
       uiManager.showScreen(SCREENS.TOURNAMENT_LOBBY, data);

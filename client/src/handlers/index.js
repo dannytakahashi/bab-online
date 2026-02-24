@@ -99,6 +99,7 @@ export function registerAllHandlers(socketManager, callbacks = {}) {
     onTournamentRoundComplete,
     onTournamentComplete,
     onTournamentLeft,
+    onTournamentCancelled,
     onActiveTournamentFound,
   } = callbacks;
 
@@ -197,6 +198,7 @@ export function registerAllHandlers(socketManager, callbacks = {}) {
     onTournamentRoundComplete,
     onTournamentComplete,
     onTournamentLeft,
+    onTournamentCancelled,
     onActiveTournamentFound,
   });
 }

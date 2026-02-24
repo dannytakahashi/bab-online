@@ -741,11 +741,25 @@ class GameManager {
                     game.markPlayerDisconnected(position);
                 }
             }
+            // Also remove from tournament if in one (e.g. during round_active)
+            let wasInTournament = false;
+            let tournamentResult = null;
+            const tournamentId = this.playerTournaments.get(socketId);
+            if (tournamentId) {
+                const tournament = this.tournaments.get(tournamentId);
+                if (tournament) {
+                    tournamentResult = this.leaveTournament(socketId);
+                    wasInTournament = true;
+                }
+            }
+
             return {
                 wasInLobby,
                 wasInMainRoom,
                 wasInGame: true,
                 wasLazy,
+                wasInTournament,
+                tournamentResult,
                 game,
                 gameId,
                 // Don't abort immediately - give time to reconnect
@@ -753,13 +767,13 @@ class GameManager {
             };
         }
 
-        // Handle tournament lobby disconnect (not in a game)
+        // Handle tournament disconnect (not in a game)
         let wasInTournament = false;
         let tournamentResult = null;
         const tournamentId = this.playerTournaments.get(socketId);
         if (tournamentId) {
             const tournament = this.tournaments.get(tournamentId);
-            if (tournament && (tournament.phase === 'lobby' || tournament.phase === 'between_rounds')) {
+            if (tournament) {
                 tournamentResult = this.leaveTournament(socketId);
                 wasInTournament = true;
             }

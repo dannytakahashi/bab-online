@@ -30,6 +30,7 @@ export function registerTournamentHandlers(socketManager, callbacks = {}) {
     onTournamentRoundComplete,
     onTournamentComplete,
     onTournamentLeft,
+    onTournamentCancelled,
     onActiveTournamentFound,
   } = callbacks;
 
@@ -91,6 +92,11 @@ export function registerTournamentHandlers(socketManager, callbacks = {}) {
   socketManager.on(SERVER_EVENTS.TOURNAMENT_LEFT, (data) => {
     console.log('Tournament left:', data);
     onTournamentLeft?.(data);
+  });
+
+  socketManager.on(SERVER_EVENTS.TOURNAMENT_CANCELLED, (data) => {
+    console.log('Tournament cancelled:', data);
+    onTournamentCancelled?.(data);
   });
 
   socketManager.on(SERVER_EVENTS.ACTIVE_TOURNAMENT_FOUND, (data) => {
