@@ -163,6 +163,16 @@ final class TournamentSocketHandler {
             }
         }
 
+        socket.on(SocketEvents.Server.tournamentCancelled) { [weak self] _, _ in
+            guard let self else { return }
+            DispatchQueue.main.async {
+                self.tournamentState.reset()
+                self.appState.screen = .mainRoom
+                LobbyEmitter.joinMainRoom()
+                print("[Tournament] Tournament cancelled by host")
+            }
+        }
+
         socket.on(SocketEvents.Server.activeTournamentFound) { data, _ in
             guard let dict = data.first as? [String: Any] else { return }
             DispatchQueue.main.async {

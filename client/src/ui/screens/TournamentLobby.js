@@ -337,6 +337,24 @@ export function showTournamentLobby(data, socket, username) {
         beginBtn.style.cursor = 'not-allowed';
       });
       buttonRow.appendChild(beginBtn);
+
+      // Cancel Tournament button (creator only)
+      const cancelBtn = document.createElement('button');
+      cancelBtn.id = 'tournamentCancelBtn';
+      cancelBtn.textContent = 'Cancel Tournament';
+      cancelBtn.style.cssText = `
+        padding: 12px 24px;
+        font-size: 16px;
+        border-radius: 8px;
+        border: none;
+        background: #991b1b;
+        color: #fff;
+        cursor: pointer;
+      `;
+      cancelBtn.addEventListener('click', () => {
+        socket.emit('cancelTournament');
+      });
+      buttonRow.appendChild(cancelBtn);
     }
 
     // Leave button

@@ -54,6 +54,7 @@ enum SocketEvents {
         static let spectateTournament = "spectateTournament"
         static let spectateTournamentGame = "spectateTournamentGame"
         static let returnToTournament = "returnToTournament"
+        static let cancelTournament = "cancelTournament"
     }
 
     // MARK: - Server → Client
@@ -137,6 +138,7 @@ enum SocketEvents {
         static let tournamentRoundComplete = "tournamentRoundComplete"
         static let tournamentComplete = "tournamentComplete"
         static let tournamentLeft = "tournamentLeft"
+        static let tournamentCancelled = "tournamentCancelled"
         static let activeTournamentFound = "activeTournamentFound"
 
         // Leaderboard

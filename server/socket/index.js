@@ -150,6 +150,9 @@ function setupSocketHandlers(io) {
         socket.on('returnToTournament', () =>
             safeHandler(tournamentHandlers.returnToTournament)(socket, io, {})
         );
+        socket.on('cancelTournament', () =>
+            asyncHandler('cancelTournament', tournamentHandlers.cancelTournament)(socket, io, {})
+        );
 
         // Disconnect - cleanup rate limiter and handle game state
         socket.on('disconnect', () => {

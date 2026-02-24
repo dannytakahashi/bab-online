@@ -43,6 +43,7 @@ export const CLIENT_EVENTS = {
   SPECTATE_TOURNAMENT: 'spectateTournament',
   SPECTATE_TOURNAMENT_GAME: 'spectateTournamentGame',
   RETURN_TO_TOURNAMENT: 'returnToTournament',
+  CANCEL_TOURNAMENT: 'cancelTournament',
 
   // Profile
   GET_PROFILE: 'getProfile',
@@ -145,5 +146,6 @@ export const SERVER_EVENTS = {
   TOURNAMENT_ROUND_COMPLETE: 'tournamentRoundComplete',
   TOURNAMENT_COMPLETE: 'tournamentComplete',
   TOURNAMENT_LEFT: 'tournamentLeft',
+  TOURNAMENT_CANCELLED: 'tournamentCancelled',
   ACTIVE_TOURNAMENT_FOUND: 'activeTournamentFound',
 };

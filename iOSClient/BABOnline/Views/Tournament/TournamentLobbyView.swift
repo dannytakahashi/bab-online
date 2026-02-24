@@ -156,6 +156,19 @@ struct TournamentLobbyView: View {
                     .disabled(!allReady)
                 }
             }
+
+            // Cancel Tournament button (creator only, visible in all phases)
+            if isCreator {
+                Button(action: cancelTournament) {
+                    Text("Cancel Tournament")
+                        .font(.subheadline.bold())
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(Color(red: 0.6, green: 0.1, blue: 0.1))
+                        .foregroundColor(.white)
+                        .cornerRadius(10)
+                }
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -183,5 +196,9 @@ struct TournamentLobbyView: View {
 
     private func leaveTournament() {
         TournamentEmitter.leaveTournament()
+    }
+
+    private func cancelTournament() {
+        TournamentEmitter.cancelTournament()
     }
 }

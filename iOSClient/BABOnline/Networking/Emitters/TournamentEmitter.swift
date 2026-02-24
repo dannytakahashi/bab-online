@@ -46,4 +46,8 @@ enum TournamentEmitter {
     static func returnToTournament() {
         socket.emit(SocketEvents.Client.returnToTournament)
     }
+
+    static func cancelTournament() {
+        socket.emit(SocketEvents.Client.cancelTournament)
+    }
 }

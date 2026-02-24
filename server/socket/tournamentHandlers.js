@@ -550,6 +550,51 @@ function spectateTournamentGame(socket, io, data) {
 }
 
 /**
+ * Cancel a tournament (creator only).
+ * Broadcasts tournamentCancelled to all players, clears DB state, deletes tournament.
+ */
+async function cancelTournament(socket, io) {
+    const tournament = gameManager.getPlayerTournament(socket.id);
+    if (!tournament) {
+        socket.emit('error', { message: 'Not in a tournament' });
+        return;
+    }
+
+    if (tournament.createdBy !== socket.id) {
+        socket.emit('error', { message: 'Only the creator can cancel the tournament' });
+        return;
+    }
+
+    const tournamentId = tournament.tournamentId;
+
+    // Notify all players in tournament room
+    tournament.broadcast(io, 'tournamentCancelled', {});
+
+    // Clear active tournament in DB for all players
+    await gameManager.clearActiveTournamentForAll(tournamentId);
+
+    // Remove all players from tournament room
+    for (const [playerSocketId] of tournament.players) {
+        tournament.leaveRoom(io, playerSocketId);
+    }
+
+    // Delete tournament and clean up maps
+    gameManager.deleteTournament(tournamentId);
+
+    // Update main room
+    io.to('mainRoom').emit('lobbiesUpdated', {
+        lobbies: gameManager.getAllLobbies(),
+        inProgressGames: gameManager.getInProgressGames(),
+        tournaments: gameManager.getAllTournaments()
+    });
+
+    socketLogger.info('Tournament cancelled by creator', {
+        socketId: socket.id,
+        tournamentId
+    });
+}
+
+/**
  * Return to tournament lobby from game/spectating
  */
 function returnToTournament(socket, io) {
@@ -578,6 +623,7 @@ module.exports = {
     createTournament,
     joinTournament,
     leaveTournament,
+    cancelTournament,
     tournamentReady,
     tournamentUnready,
     beginTournament,
