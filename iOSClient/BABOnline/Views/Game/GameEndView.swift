@@ -12,12 +12,18 @@ struct GameEndView: View {
             VStack(spacing: 24) {
                 if let data = gameState.gameEndData {
                     // Winner banner
-                    let myTeam = Positions.getTeamNumber(gameState.position ?? 1)
-                    let didWin = data.winningTeam == myTeam
+                    if gameState.isSpectator {
+                        Text("Game Over")
+                            .font(.system(size: 36, weight: .bold, design: .rounded))
+                            .foregroundColor(Color.Theme.textSecondary)
+                    } else {
+                        let myTeam = Positions.getTeamNumber(gameState.position ?? 1)
+                        let didWin = data.winningTeam == myTeam
 
-                    Text(didWin ? "Victory!" : "Defeat")
-                        .font(.system(size: 36, weight: .bold, design: .rounded))
-                        .foregroundColor(didWin ? Color.Theme.success : Color.Theme.oppColor)
+                        Text(didWin ? "Victory!" : "Defeat")
+                            .font(.system(size: 36, weight: .bold, design: .rounded))
+                            .foregroundColor(didWin ? Color.Theme.success : Color.Theme.oppColor)
+                    }
 
                     // Score summary
                     HStack(spacing: 40) {
