@@ -405,6 +405,13 @@ async function handleDrawComplete(io, game) {
     game.drawIDs = [];
     game.phase = 'bidding';
 
+    // Notify main room that a new in-progress game is available to spectate
+    io.to('mainRoom').emit('lobbiesUpdated', {
+        lobbies: gameManager.getAllLobbies(),
+        inProgressGames: gameManager.getInProgressGames(),
+        tournaments: gameManager.getAllTournaments()
+    });
+
     // createUI must come BEFORE gameStart (client expects this order)
     game.broadcast(io, 'createUI', {});
 
