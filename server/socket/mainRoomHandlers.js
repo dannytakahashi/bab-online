@@ -204,7 +204,7 @@ function joinAsSpectator(socket, io, data) {
 
     // Check if this user is actually a lazy player for this game
     const lazyPosition = game.getOriginalPlayerPosition(user.username);
-    if (lazyPosition && game.isLazy(lazyPosition)) {
+    if (lazyPosition && game.isLazy(lazyPosition) && !game.lazyPlayers[lazyPosition].permanentLeave) {
         // Update originalSocketId so /active will recognize this socket
         game.lazyPlayers[lazyPosition].originalSocketId = socket.id;
 

@@ -108,7 +108,7 @@ export function createGameLog({ onChatSubmit } = {}) {
   const ALL_SLASH_COMMANDS = [
     { command: '/lazy', description: 'Have a bot play for you' },
     { command: '/active', description: 'Take back control from bot' },
-    { command: '/leave', description: 'Exit to lobby (bot plays, rejoin anytime)' },
+    { command: '/leave', description: 'Leave the game (bot finishes for you)' },
   ];
   const SPECTATOR_SLASH_COMMANDS = [
     { command: '/leave', description: 'Exit spectating' },

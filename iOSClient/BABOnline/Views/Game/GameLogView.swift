@@ -16,7 +16,7 @@ struct GameLogView: View {
     private static let allCommands: [SlashCommand] = [
         SlashCommand(command: "/lazy", description: "Bot plays for you"),
         SlashCommand(command: "/active", description: "Take back control"),
-        SlashCommand(command: "/leave", description: "Exit to lobby"),
+        SlashCommand(command: "/leave", description: "Leave the game (bot finishes for you)"),
     ]
 
     private var availableCommands: [SlashCommand] {

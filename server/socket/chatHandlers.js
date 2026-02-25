@@ -164,13 +164,22 @@ function handleLeaveCommand(socket, io, game, position) {
         handleLazyCommand(socket, io, game, position);
     }
 
-    // Leave the game room (but stay associated via lazyPlayers for rejoin)
+    // Mark as permanent leave (bot keeps playing, but player can't /active back)
+    game.lazyPlayers[position].permanentLeave = true;
+
+    // Leave the game room (bot continues via lazyPlayers entry)
     game.leaveRoom(io, socket.id);
+
+    // Clear activeGameId so the player can create new lobbies / join tournaments
+    const user = gameManager.getUserBySocketId(socket.id);
+    if (user) {
+        gameManager.clearActiveGame(user.username);
+    }
 
     // Send player to main room
     socket.emit('leftGame');
 
-    socketLogger.info('Player left game (lazy)', {
+    socketLogger.info('Player left game (permanent)', {
         gameId: game.gameId, position
     });
 
@@ -213,7 +222,7 @@ function chatMessage(socket, io, data) {
                 const spectator = activeGame.spectators.get(socket.id);
                 const username = spectator?.username;
                 const position = username ? activeGame.getOriginalPlayerPosition(username) : null;
-                if (position && activeGame.isLazy(position)) {
+                if (position && activeGame.isLazy(position) && !activeGame.lazyPlayers[position].permanentLeave) {
                     // Re-associate socket with the player position
                     activeGame.updatePlayerSocket(position, socket.id, io);
                     // Update lazyPlayers to track new socket
