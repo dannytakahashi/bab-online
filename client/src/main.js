@@ -1622,109 +1622,112 @@ function initializeApp() {
       }
 
       // Initialize managers with player position for reconnection
-      if (scene && data.position) {
+      if (scene && gameState.position) {
         if (scene.trickManager) {
-          scene.trickManager.setPlayerPosition(data.position);
+          scene.trickManager.setPlayerPosition(gameState.position);
           scene.trickManager.updatePlayPositions();
         }
         if (scene.opponentManager) {
-          scene.opponentManager.setPlayerPosition(data.position);
+          scene.opponentManager.setPlayerPosition(gameState.position);
         }
         if (scene.effectsManager) {
-          scene.effectsManager.setPlayerPosition(data.position);
+          scene.effectsManager.setPlayerPosition(gameState.position);
         }
+      }
 
-        // Display trump card
-        if (data.trump && scene.displayTrumpCard) {
-          scene.displayTrumpCard(data.trump);
-        }
+      // Display trump card
+      if (scene && data.trump && scene.displayTrumpCard) {
+        scene.displayTrumpCard(data.trump);
+      }
 
-        // Display player hand via CardManager (skip animation on rejoin)
-        if (scene.handleDisplayHand && data.hand) {
-          scene.handleDisplayHand(data.hand, true);
-        }
+      // Display player hand via CardManager (skip animation on rejoin)
+      if (scene && scene.handleDisplayHand && data.hand) {
+        scene.handleDisplayHand(data.hand, true);
+      }
 
-        // Display opponent hands via OpponentManager (skip animation on rejoin)
-        if (scene.handleDisplayOpponentHands && data.hand) {
+      // Display opponent hands via OpponentManager (skip animation on rejoin)
+      if (scene && scene.handleDisplayOpponentHands) {
+        const cardCount = data.currentHand || data.hand?.length;
+        if (cardCount) {
           scene.handleDisplayOpponentHands(
-            data.hand.length,
+            cardCount,
             data.dealer,
             gameState.playerData,
             true
           );
         }
+      }
 
-        // Create DOM backgrounds via LayoutManager
-        if (scene.layoutManager) {
-          scene.layoutManager.update();
-          scene.layoutManager.createDomBackgrounds();
-        }
+      // Create DOM backgrounds via LayoutManager
+      if (scene && scene.layoutManager) {
+        scene.layoutManager.update();
+        scene.layoutManager.createDomBackgrounds({ skipHandArea: gameState.isSpectator });
+      }
 
-        // Add .in-game class for game log layout
-        document.getElementById('game-container')?.classList.add('in-game');
+      // Add .in-game class for game log layout
+      document.getElementById('game-container')?.classList.add('in-game');
 
-        // Create player info box (own avatar)
-        if (scene.createPlayerInfoBox && !scene._playerInfo && gameState.playerData && gameState.position) {
-          scene.createPlayerInfoBox(gameState.playerData, gameState.position);
-        }
+      // Create player info box (own avatar)
+      if (scene && scene.createPlayerInfoBox && !scene._playerInfo && !gameState.isSpectator && gameState.playerData && gameState.position) {
+        scene.createPlayerInfoBox(gameState.playerData, gameState.position);
+      }
 
-        // Restore HSI display
-        if (data.hsiValues && scene.updatePlayerHsi && gameState.position) {
-          scene.updatePlayerHsi(data.hsiValues[gameState.position]);
-        }
+      // Restore HSI display
+      if (scene && data.hsiValues && scene.updatePlayerHsi && gameState.position && !gameState.isSpectator) {
+        scene.updatePlayerHsi(data.hsiValues[gameState.position]);
+      }
 
-        // Restore trick backgrounds if bidding is complete
-        if (scene.trickManager && data.playerBids && data.playerBids.length > 0 && !gameState.isBidding) {
-          const parseBid = (bid) => {
-            const bidStr = String(bid);
-            return bidStr.includes('B') ? 0 : parseInt(bidStr, 10) || 0;
-          };
-          const team1Bid = parseBid(data.playerBids[0]) + parseBid(data.playerBids[2]);
-          const team2Bid = parseBid(data.playerBids[1]) + parseBid(data.playerBids[3]);
-          const isTeam1 = gameState.position === 1 || gameState.position === 3;
-          const teamBid = isTeam1 ? team1Bid : team2Bid;
-          const oppBid = isTeam1 ? team2Bid : team1Bid;
+      // Restore trick backgrounds if bidding is complete
+      if (scene && scene.trickManager && data.playerBids && data.playerBids.length > 0 && !gameState.isBidding) {
+        const parseBid = (bid) => {
+          const bidStr = String(bid);
+          return bidStr.includes('B') ? 0 : parseInt(bidStr, 10) || 0;
+        };
+        const team1Bid = parseBid(data.playerBids[0]) + parseBid(data.playerBids[2]);
+        const team2Bid = parseBid(data.playerBids[1]) + parseBid(data.playerBids[3]);
+        const isTeam1 = gameState.position === 1 || gameState.position === 3;
+        const teamBid = isTeam1 ? team1Bid : team2Bid;
+        const oppBid = isTeam1 ? team2Bid : team1Bid;
 
-          scene.trickManager.setBidTotals(teamBid, oppBid);
-          scene.trickManager._teamTrickCount = gameState.teamTricks || 0;
-          scene.trickManager._oppTrickCount = gameState.oppTricks || 0;
-          scene.trickManager.createTrickBackgrounds(false);
-        }
+        scene.trickManager.setBidTotals(teamBid, oppBid);
+        scene.trickManager._teamTrickCount = gameState.teamTricks || 0;
+        scene.trickManager._oppTrickCount = gameState.oppTricks || 0;
+        scene.trickManager.createTrickBackgrounds(false);
+      }
 
-        // Restore played cards in current trick via TrickManager
-        if (data.playedCards && data.playedCards.length > 0 && scene.trickManager) {
-          scene.trickManager.restorePlayedCards(data.playedCards);
-        }
+      // Restore played cards in current trick via TrickManager
+      if (scene && data.playedCards && data.playedCards.length > 0 && scene.trickManager) {
+        scene.trickManager.restorePlayedCards(data.playedCards);
+      }
 
-        // Update card legality after restoring state
-        if (scene.cardManager) {
-          const canPlay = !gameState.isBidding &&
-                          gameState.currentTurn === gameState.position &&
-                          !gameState.hasPlayedCard;
-          const legalityChecker = (card) => {
-            const result = isLegalMove(
-              card,
-              gameState.myCards,
-              gameState.leadCard,
-              gameState.playedCardIndex === 0,
-              gameState.trump,
-              gameState.trumpBroken,
-              gameState.position,
-              gameState.leadPosition
-            );
-            return result.legal;
-          };
-          scene.cardManager.updateCardLegality(legalityChecker, canPlay);
-        }
+      // Update card legality after restoring state
+      if (scene && scene.cardManager && !gameState.isSpectator) {
+        const canPlay = !gameState.isBidding &&
+                        gameState.currentTurn === gameState.position &&
+                        !gameState.hasPlayedCard;
+        const legalityChecker = (card) => {
+          const result = isLegalMove(
+            card,
+            gameState.myCards,
+            gameState.leadCard,
+            gameState.playedCardIndex === 0,
+            gameState.trump,
+            gameState.trumpBroken,
+            gameState.position,
+            gameState.leadPosition
+          );
+          return result.legal;
+        };
+        scene.cardManager.updateCardLegality(legalityChecker, canPlay);
+      }
 
-        // Create bid UI via BidManager (only if still in bidding phase)
-        if (scene.bidManager && data.hand && gameState.isBidding) {
-          scene.bidManager.showBidUI(data.hand.length, (bid) => {
-            if (window.socket) {
-              window.socket.emit('playerBid', { position: gameState.position, bid });
-            }
-          });
-        }
+      // Create bid UI via BidManager (only if still in bidding phase)
+      if (scene && scene.bidManager && data.hand && gameState.isBidding && !gameState.isSpectator) {
+        scene.bidManager.showBidUI(data.hand.length, (bid) => {
+          if (window.socket) {
+            window.socket.emit('playerBid', { position: gameState.position, bid });
+          }
+        });
       }
 
       // Add reconnected message to game feed
@@ -2252,122 +2255,128 @@ function initializeApp() {
 
       // Initialize all managers with player position
       const scene = getGameScene();
-      if (scene && data.position) {
+      if (!scene) return;
+
+      // Initialize managers with player position
+      if (gameState.position) {
         if (scene.trickManager) {
-          scene.trickManager.setPlayerPosition(data.position);
+          scene.trickManager.setPlayerPosition(gameState.position);
           scene.trickManager.updatePlayPositions();
           // Note: trick backgrounds are created after bidding completes (in onDoneBidding)
         }
         if (scene.opponentManager) {
-          scene.opponentManager.setPlayerPosition(data.position);
+          scene.opponentManager.setPlayerPosition(gameState.position);
         }
         if (scene.effectsManager) {
-          scene.effectsManager.setPlayerPosition(data.position);
+          scene.effectsManager.setPlayerPosition(gameState.position);
         }
+      }
 
-        // Update player data if included (reflects bot takeovers)
-        if (data.playerInfo) {
-          gameState.setPlayerData({
-            positions: data.playerInfo.map(p => p.position),
-            sockets: data.players,
-            usernames: data.playerInfo.map(p => ({ username: p.username })),
-            pics: data.playerInfo.map(p => p.pic),
-          });
-        }
-
-        // Display avatars and dealer button immediately (not cards)
-        if (scene.opponentManager && data.hand) {
-          scene.opponentManager.displayDealerButton(data.dealer);
-          if (gameState.playerData) {
-            scene.opponentManager.displayAvatars(gameState.playerData);
-          }
-        }
-
-        // Create player info box (own avatar) immediately
-        if (scene.createPlayerInfoBox && !scene._playerInfo) {
-          if (gameState.position && gameState.playerData) {
-            scene.createPlayerInfoBox(gameState.playerData, gameState.position);
-          }
-        }
-
-        // Update player's HSI display (only shown for self, not opponents)
-        if (data.hsiValues && scene.updatePlayerHsi && data.position) {
-          scene.updatePlayerHsi(data.hsiValues[data.position]);
-        }
-
-        // Create DOM backgrounds via LayoutManager (show immediately)
-        if (scene.layoutManager) {
-          scene.layoutManager.update();
-          scene.layoutManager.createDomBackgrounds();
-        }
-
-        // Display trump card via scene method (show immediately)
-        if (data.trump && scene.displayTrumpCard) {
-          scene.displayTrumpCard(data.trump);
-        }
-
-        // Function to display cards (delayed until fade complete)
-        const showCards = () => {
-          // Display player hand via CardManager
-          if (scene.handleDisplayHand && data.hand) {
-            scene.handleDisplayHand(data.hand, false);
-          }
-
-          // In lazy mode, disable card interaction after dealing
-          if (gameState.isLazy && scene.cardManager) {
-            scene.cardManager.setInteractive(false);
-          }
-
-          // Display opponent card backs (skip avatars since already shown)
-          if (scene.opponentManager && data.hand) {
-            scene.opponentManager.displayOpponentCards(data.hand.length);
-          }
-        };
-
-        // Function to show bid UI (delayed until trump flip complete)
-        const showBidUIAfterFlip = () => {
-          if (gameState.isLazy) return;
-          if (scene.bidManager && data.hand) {
-            scene.bidManager.showBidUI(data.hand.length, (bid) => {
-              console.log(`📩 Sending bid: ${bid}`);
-              if (window.socket) {
-                window.socket.emit('playerBid', { position: gameState.position, bid });
-              }
-            });
-          }
-        };
-
-        // Wait for transition to complete before showing cards
-        // If no transition overlay exists, wait for tricks to clear (subsequent hands)
-        const hasTransition = window._transitionOverlay || document.getElementById('transition-overlay');
-        if (hasTransition) {
-          // First hand - wait for fade transition
-          if (window._readyForGameUI) {
-            showCards();
-          } else {
-            window.addEventListener('gameUIReady', function onReady() {
-              window.removeEventListener('gameUIReady', onReady);
-              showCards();
-            });
-          }
-        } else {
-          // Subsequent hands - wait for tricks to clear first
-          if (window._tricksAnimating) {
-            window.addEventListener('tricksCleared', function onCleared() {
-              window.removeEventListener('tricksCleared', onCleared);
-              showCards();
-            });
-          } else {
-            showCards();
-          }
-        }
-
-        // Wait for trump flip to complete before showing bid UI
-        window.addEventListener('trumpFlipComplete', function onFlip() {
-          window.removeEventListener('trumpFlipComplete', onFlip);
-          showBidUIAfterFlip();
+      // Update player data if included (reflects bot takeovers)
+      if (data.playerInfo) {
+        gameState.setPlayerData({
+          positions: data.playerInfo.map(p => p.position),
+          sockets: data.players,
+          usernames: data.playerInfo.map(p => ({ username: p.username })),
+          pics: data.playerInfo.map(p => p.pic),
         });
       }
+
+      // Display avatars and dealer button immediately
+      if (scene.opponentManager) {
+        scene.opponentManager.displayDealerButton(data.dealer);
+        if (gameState.playerData) {
+          scene.opponentManager.displayAvatars(gameState.playerData);
+        }
+      }
+
+      // Create player info box (own avatar) immediately
+      if (scene.createPlayerInfoBox && !scene._playerInfo && !gameState.isSpectator) {
+        if (gameState.position && gameState.playerData) {
+          scene.createPlayerInfoBox(gameState.playerData, gameState.position);
+        }
+      }
+
+      // Update player's HSI display (only shown for self, not opponents)
+      if (data.hsiValues && scene.updatePlayerHsi && gameState.position) {
+        scene.updatePlayerHsi(data.hsiValues[gameState.position]);
+      }
+
+      // Create DOM backgrounds via LayoutManager (show immediately)
+      if (scene.layoutManager) {
+        scene.layoutManager.update();
+        scene.layoutManager.createDomBackgrounds({ skipHandArea: gameState.isSpectator });
+      }
+
+      // Display trump card via scene method (show immediately)
+      if (data.trump && scene.displayTrumpCard) {
+        scene.displayTrumpCard(data.trump);
+      }
+
+      // Function to display cards (delayed until fade complete)
+      const showCards = () => {
+        // Display player hand via CardManager
+        if (scene.handleDisplayHand && data.hand) {
+          scene.handleDisplayHand(data.hand, false);
+        }
+
+        // In lazy mode, disable card interaction after dealing
+        if (gameState.isLazy && scene.cardManager) {
+          scene.cardManager.setInteractive(false);
+        }
+
+        // Display opponent card backs (skip avatars since already shown)
+        if (scene.opponentManager) {
+          const cardCount = data.currentHand || data.hand?.length;
+          if (cardCount) {
+            scene.opponentManager.displayOpponentCards(cardCount);
+          }
+        }
+      };
+
+      // Function to show bid UI (delayed until trump flip complete)
+      const showBidUIAfterFlip = () => {
+        if (gameState.isLazy || gameState.isSpectator) return;
+        if (scene.bidManager && data.hand) {
+          scene.bidManager.showBidUI(data.hand.length, (bid) => {
+            console.log(`📩 Sending bid: ${bid}`);
+            if (window.socket) {
+              window.socket.emit('playerBid', { position: gameState.position, bid });
+            }
+          });
+        }
+      };
+
+      // Wait for transition to complete before showing cards
+      // If no transition overlay exists, wait for tricks to clear (subsequent hands)
+      const hasTransition = window._transitionOverlay || document.getElementById('transition-overlay');
+      if (hasTransition) {
+        // First hand - wait for fade transition
+        if (window._readyForGameUI) {
+          showCards();
+        } else {
+          window.addEventListener('gameUIReady', function onReady() {
+            window.removeEventListener('gameUIReady', onReady);
+            showCards();
+          });
+        }
+      } else {
+        // Subsequent hands - wait for tricks to clear first
+        if (window._tricksAnimating) {
+          window.addEventListener('tricksCleared', function onCleared() {
+            window.removeEventListener('tricksCleared', onCleared);
+            showCards();
+          });
+        } else {
+          showCards();
+        }
+      }
+
+      // Wait for trump flip to complete before showing bid UI
+      window.addEventListener('trumpFlipComplete', function onFlip() {
+        window.removeEventListener('trumpFlipComplete', onFlip);
+        showBidUIAfterFlip();
+      });
 
       // Update game log score display
       if (data.hand && data.hand.length > 0) {
@@ -2556,14 +2565,14 @@ function initializeApp() {
       const scene = getGameScene();
 
       // Determine which team the player is on (positions 1,3 = Team 1, positions 2,4 = Team 2)
+      // Spectators view from position 1 but aren't on either team
       const position = gameState.position;
+      const isSpectator = gameState.isSpectator;
       let teamScore, oppScore;
       if (position % 2 !== 0) {
-        // Player is on Team 1 (odd positions 1, 3)
         teamScore = data.score.team1;
         oppScore = data.score.team2;
       } else {
-        // Player is on Team 2 (even positions 2, 4)
         teamScore = data.score.team2;
         oppScore = data.score.team1;
       }
@@ -2575,6 +2584,7 @@ function initializeApp() {
         playerData: playerData,
         teamScore: teamScore,
         oppScore: oppScore,
+        isSpectator: isSpectator,
       });
       messages.forEach(msg => window.addToGameFeedFromLegacy(msg));
 
@@ -2592,6 +2602,9 @@ function initializeApp() {
         oppScore: oppScore,
         playerStats: data.playerStats,
         buttonText: isTournamentGame ? 'Return to Tournament' : undefined,
+        isSpectator: isSpectator,
+        teamName: teamName,
+        oppName: oppName,
         onReturnToLobby: () => {
           // Remove game feed/log
           let gameFeed = document.getElementById("gameFeed");
