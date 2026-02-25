@@ -1661,7 +1661,7 @@ function initializeApp() {
       // Create DOM backgrounds via LayoutManager
       if (scene && scene.layoutManager) {
         scene.layoutManager.update();
-        scene.layoutManager.createDomBackgrounds();
+        scene.layoutManager.createDomBackgrounds({ skipHandArea: gameState.isSpectator });
       }
 
       // Add .in-game class for game log layout
@@ -2305,7 +2305,7 @@ function initializeApp() {
       // Create DOM backgrounds via LayoutManager (show immediately)
       if (scene.layoutManager) {
         scene.layoutManager.update();
-        scene.layoutManager.createDomBackgrounds();
+        scene.layoutManager.createDomBackgrounds({ skipHandArea: gameState.isSpectator });
       }
 
       // Display trump card via scene method (show immediately)
