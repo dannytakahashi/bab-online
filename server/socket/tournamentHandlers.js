@@ -128,10 +128,12 @@ function leaveTournament(socket, io) {
     // Auto-rejoin main room
     const mainRoomResult = gameManager.joinMainRoom(socket.id);
     socket.join('mainRoom');
+    const onlineUsers = gameManager.getOnlineUsernames();
     socket.emit('mainRoomJoined', {
         messages: mainRoomResult.messages,
         lobbies: mainRoomResult.lobbies,
-        onlineCount: mainRoomResult.onlineCount,
+        onlineCount: onlineUsers.length,
+        onlineUsers,
         inProgressGames: gameManager.getInProgressGames(),
         tournaments: gameManager.getAllTournaments()
     });

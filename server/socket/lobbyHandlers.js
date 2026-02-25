@@ -193,12 +193,16 @@ function leaveLobby(socket, io) {
     const mainRoomResult = gameManager.joinMainRoom(socket.id);
     socket.join('mainRoom');
 
+    // Compute online users once so count and list always agree
+    const onlineUsers = gameManager.getOnlineUsernames();
+
     // Notify leaving player they're back to main room
     socket.emit('leftLobby', {});
     socket.emit('mainRoomJoined', {
         messages: mainRoomResult.messages,
         lobbies: mainRoomResult.lobbies,
-        onlineCount: mainRoomResult.onlineCount,
+        onlineCount: onlineUsers.length,
+        onlineUsers,
         inProgressGames: gameManager.getInProgressGames(),
         tournaments: gameManager.getAllTournaments()
     });

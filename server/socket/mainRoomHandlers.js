@@ -20,12 +20,15 @@ function joinMainRoom(socket, io) {
     // Join the Socket.IO room for main room broadcasts
     socket.join('mainRoom');
 
+    // Compute online users once so count and list always agree
+    const onlineUsers = gameManager.getOnlineUsernames();
+
     // Send initial state to the player
     socket.emit('mainRoomJoined', {
         messages: result.messages,
         lobbies: result.lobbies,
-        onlineCount: result.onlineCount,
-        onlineUsers: gameManager.getOnlineUsernames(),
+        onlineCount: onlineUsers.length,
+        onlineUsers,
         inProgressGames: gameManager.getInProgressGames(),
         tournaments: gameManager.getAllTournaments()
     });
@@ -33,14 +36,14 @@ function joinMainRoom(socket, io) {
     // Notify others of new player
     socket.to('mainRoom').emit('mainRoomPlayerJoined', {
         username: result.username,
-        onlineCount: result.onlineCount,
-        onlineUsers: gameManager.getOnlineUsernames()
+        onlineCount: onlineUsers.length,
+        onlineUsers
     });
 
     socketLogger.info('Player joined main room', {
         socketId: socket.id,
         username: result.username,
-        onlineCount: result.onlineCount
+        onlineCount: onlineUsers.length
     });
 }
 
