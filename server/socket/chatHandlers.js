@@ -186,6 +186,28 @@ function handleLeaveCommand(socket, io, game, position) {
         gameId: game.gameId, position
     });
 
+    // Check if all human players have permanently left — if so, abort the game
+    const hasActiveHuman = Array.from(game.players.values()).some(p => {
+        if (p.isBot) return false;
+        if (game.isResigned(p.position)) return false;
+        if (game.isLazy(p.position) && game.lazyPlayers[p.position].permanentLeave) return false;
+        return true;
+    });
+
+    if (!hasActiveHuman) {
+        socketLogger.warn('All humans permanently left, aborting game', { gameId: game.gameId });
+        game.broadcast(io, 'abortGame', { reason: 'All players left' });
+        gameManager.clearActiveGameForAll(game.gameId);
+        game.leaveAllFromRoom(io);
+        gameManager.abortGame(game.gameId);
+        botController.cleanupGame(game.gameId);
+        io.to('mainRoom').emit('lobbiesUpdated', {
+            lobbies: gameManager.getAllLobbies(),
+            inProgressGames: gameManager.getInProgressGames(),
+            tournaments: gameManager.getAllTournaments()
+        });
+    }
+
     return true;
 }
 
