@@ -95,13 +95,21 @@ export function formatHandCompleteMessages(options) {
  * @returns {Array} Array of message strings to add to game log
  */
 export function formatGameEndMessages(options) {
-  const { myPosition, playerData, teamScore, oppScore } = options;
+  const { myPosition, playerData, teamScore, oppScore, isSpectator } = options;
 
   const { teamName, oppName } = getTeamNames(myPosition, playerData);
 
   // Determine winner
   let resultMsg;
-  if (teamScore > oppScore) {
+  if (isSpectator) {
+    if (teamScore > oppScore) {
+      resultMsg = `${teamName} wins!`;
+    } else if (teamScore < oppScore) {
+      resultMsg = `${oppName} wins!`;
+    } else {
+      resultMsg = 'TIE GAME';
+    }
+  } else if (teamScore > oppScore) {
     resultMsg = 'VICTORY';
   } else if (teamScore < oppScore) {
     resultMsg = 'DEFEAT';
@@ -122,11 +130,14 @@ export function formatGameEndMessages(options) {
  * @param {Function} options.onReturnToLobby - Called when user clicks return button
  * @returns {Object} { overlay, destroy }
  */
-export function showFinalScoreOverlay({ teamScore, oppScore, playerStats, onReturnToLobby, buttonText }) {
+export function showFinalScoreOverlay({ teamScore, oppScore, playerStats, onReturnToLobby, buttonText, isSpectator, teamName, oppName }) {
   // Determine winner message
   let resultMsg;
   let resultColor;
-  if (teamScore > oppScore) {
+  if (isSpectator) {
+    resultMsg = 'GAME OVER';
+    resultColor = '#94a3b8';
+  } else if (teamScore > oppScore) {
     resultMsg = 'VICTORY';
     resultColor = '#4ade80';
   } else if (teamScore < oppScore) {
@@ -173,7 +184,11 @@ export function showFinalScoreOverlay({ teamScore, oppScore, playerStats, onRetu
     color: white;
     margin-bottom: 30px;
   `;
-  scoreDiv.textContent = `Final Score: ${teamScore} - ${oppScore}`;
+  if (isSpectator && teamName && oppName) {
+    scoreDiv.textContent = `${teamName}: ${teamScore}  —  ${oppName}: ${oppScore}`;
+  } else {
+    scoreDiv.textContent = `Final Score: ${teamScore} - ${oppScore}`;
+  }
   overlay.appendChild(scoreDiv);
 
   // Player stats grid (if available)
