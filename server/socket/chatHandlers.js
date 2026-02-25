@@ -170,7 +170,10 @@ function handleLeaveCommand(socket, io, game, position) {
     // Leave the game room (bot continues via lazyPlayers entry)
     game.leaveRoom(io, socket.id);
 
-    // Clear activeGameId so the player can create new lobbies / join tournaments
+    // Remove in-memory player→game mapping so the player can create/join lobbies
+    gameManager.playerGames.delete(socket.id);
+
+    // Clear activeGameId in DB so the player can create new lobbies / join tournaments
     const user = gameManager.getUserBySocketId(socket.id);
     if (user) {
         gameManager.clearActiveGame(user.username);
