@@ -2252,122 +2252,128 @@ function initializeApp() {
 
       // Initialize all managers with player position
       const scene = getGameScene();
-      if (scene && data.position) {
+      if (!scene) return;
+
+      // Initialize managers with player position
+      if (gameState.position) {
         if (scene.trickManager) {
-          scene.trickManager.setPlayerPosition(data.position);
+          scene.trickManager.setPlayerPosition(gameState.position);
           scene.trickManager.updatePlayPositions();
           // Note: trick backgrounds are created after bidding completes (in onDoneBidding)
         }
         if (scene.opponentManager) {
-          scene.opponentManager.setPlayerPosition(data.position);
+          scene.opponentManager.setPlayerPosition(gameState.position);
         }
         if (scene.effectsManager) {
-          scene.effectsManager.setPlayerPosition(data.position);
+          scene.effectsManager.setPlayerPosition(gameState.position);
         }
+      }
 
-        // Update player data if included (reflects bot takeovers)
-        if (data.playerInfo) {
-          gameState.setPlayerData({
-            positions: data.playerInfo.map(p => p.position),
-            sockets: data.players,
-            usernames: data.playerInfo.map(p => ({ username: p.username })),
-            pics: data.playerInfo.map(p => p.pic),
-          });
-        }
-
-        // Display avatars and dealer button immediately (not cards)
-        if (scene.opponentManager && data.hand) {
-          scene.opponentManager.displayDealerButton(data.dealer);
-          if (gameState.playerData) {
-            scene.opponentManager.displayAvatars(gameState.playerData);
-          }
-        }
-
-        // Create player info box (own avatar) immediately
-        if (scene.createPlayerInfoBox && !scene._playerInfo) {
-          if (gameState.position && gameState.playerData) {
-            scene.createPlayerInfoBox(gameState.playerData, gameState.position);
-          }
-        }
-
-        // Update player's HSI display (only shown for self, not opponents)
-        if (data.hsiValues && scene.updatePlayerHsi && data.position) {
-          scene.updatePlayerHsi(data.hsiValues[data.position]);
-        }
-
-        // Create DOM backgrounds via LayoutManager (show immediately)
-        if (scene.layoutManager) {
-          scene.layoutManager.update();
-          scene.layoutManager.createDomBackgrounds();
-        }
-
-        // Display trump card via scene method (show immediately)
-        if (data.trump && scene.displayTrumpCard) {
-          scene.displayTrumpCard(data.trump);
-        }
-
-        // Function to display cards (delayed until fade complete)
-        const showCards = () => {
-          // Display player hand via CardManager
-          if (scene.handleDisplayHand && data.hand) {
-            scene.handleDisplayHand(data.hand, false);
-          }
-
-          // In lazy mode, disable card interaction after dealing
-          if (gameState.isLazy && scene.cardManager) {
-            scene.cardManager.setInteractive(false);
-          }
-
-          // Display opponent card backs (skip avatars since already shown)
-          if (scene.opponentManager && data.hand) {
-            scene.opponentManager.displayOpponentCards(data.hand.length);
-          }
-        };
-
-        // Function to show bid UI (delayed until trump flip complete)
-        const showBidUIAfterFlip = () => {
-          if (gameState.isLazy) return;
-          if (scene.bidManager && data.hand) {
-            scene.bidManager.showBidUI(data.hand.length, (bid) => {
-              console.log(`📩 Sending bid: ${bid}`);
-              if (window.socket) {
-                window.socket.emit('playerBid', { position: gameState.position, bid });
-              }
-            });
-          }
-        };
-
-        // Wait for transition to complete before showing cards
-        // If no transition overlay exists, wait for tricks to clear (subsequent hands)
-        const hasTransition = window._transitionOverlay || document.getElementById('transition-overlay');
-        if (hasTransition) {
-          // First hand - wait for fade transition
-          if (window._readyForGameUI) {
-            showCards();
-          } else {
-            window.addEventListener('gameUIReady', function onReady() {
-              window.removeEventListener('gameUIReady', onReady);
-              showCards();
-            });
-          }
-        } else {
-          // Subsequent hands - wait for tricks to clear first
-          if (window._tricksAnimating) {
-            window.addEventListener('tricksCleared', function onCleared() {
-              window.removeEventListener('tricksCleared', onCleared);
-              showCards();
-            });
-          } else {
-            showCards();
-          }
-        }
-
-        // Wait for trump flip to complete before showing bid UI
-        window.addEventListener('trumpFlipComplete', function onFlip() {
-          window.removeEventListener('trumpFlipComplete', onFlip);
-          showBidUIAfterFlip();
+      // Update player data if included (reflects bot takeovers)
+      if (data.playerInfo) {
+        gameState.setPlayerData({
+          positions: data.playerInfo.map(p => p.position),
+          sockets: data.players,
+          usernames: data.playerInfo.map(p => ({ username: p.username })),
+          pics: data.playerInfo.map(p => p.pic),
         });
       }
+
+      // Display avatars and dealer button immediately
+      if (scene.opponentManager) {
+        scene.opponentManager.displayDealerButton(data.dealer);
+        if (gameState.playerData) {
+          scene.opponentManager.displayAvatars(gameState.playerData);
+        }
+      }
+
+      // Create player info box (own avatar) immediately
+      if (scene.createPlayerInfoBox && !scene._playerInfo && !gameState.isSpectator) {
+        if (gameState.position && gameState.playerData) {
+          scene.createPlayerInfoBox(gameState.playerData, gameState.position);
+        }
+      }
+
+      // Update player's HSI display (only shown for self, not opponents)
+      if (data.hsiValues && scene.updatePlayerHsi && gameState.position) {
+        scene.updatePlayerHsi(data.hsiValues[gameState.position]);
+      }
+
+      // Create DOM backgrounds via LayoutManager (show immediately)
+      if (scene.layoutManager) {
+        scene.layoutManager.update();
+        scene.layoutManager.createDomBackgrounds();
+      }
+
+      // Display trump card via scene method (show immediately)
+      if (data.trump && scene.displayTrumpCard) {
+        scene.displayTrumpCard(data.trump);
+      }
+
+      // Function to display cards (delayed until fade complete)
+      const showCards = () => {
+        // Display player hand via CardManager
+        if (scene.handleDisplayHand && data.hand) {
+          scene.handleDisplayHand(data.hand, false);
+        }
+
+        // In lazy mode, disable card interaction after dealing
+        if (gameState.isLazy && scene.cardManager) {
+          scene.cardManager.setInteractive(false);
+        }
+
+        // Display opponent card backs (skip avatars since already shown)
+        if (scene.opponentManager) {
+          const cardCount = data.currentHand || data.hand?.length;
+          if (cardCount) {
+            scene.opponentManager.displayOpponentCards(cardCount);
+          }
+        }
+      };
+
+      // Function to show bid UI (delayed until trump flip complete)
+      const showBidUIAfterFlip = () => {
+        if (gameState.isLazy || gameState.isSpectator) return;
+        if (scene.bidManager && data.hand) {
+          scene.bidManager.showBidUI(data.hand.length, (bid) => {
+            console.log(`📩 Sending bid: ${bid}`);
+            if (window.socket) {
+              window.socket.emit('playerBid', { position: gameState.position, bid });
+            }
+          });
+        }
+      };
+
+      // Wait for transition to complete before showing cards
+      // If no transition overlay exists, wait for tricks to clear (subsequent hands)
+      const hasTransition = window._transitionOverlay || document.getElementById('transition-overlay');
+      if (hasTransition) {
+        // First hand - wait for fade transition
+        if (window._readyForGameUI) {
+          showCards();
+        } else {
+          window.addEventListener('gameUIReady', function onReady() {
+            window.removeEventListener('gameUIReady', onReady);
+            showCards();
+          });
+        }
+      } else {
+        // Subsequent hands - wait for tricks to clear first
+        if (window._tricksAnimating) {
+          window.addEventListener('tricksCleared', function onCleared() {
+            window.removeEventListener('tricksCleared', onCleared);
+            showCards();
+          });
+        } else {
+          showCards();
+        }
+      }
+
+      // Wait for trump flip to complete before showing bid UI
+      window.addEventListener('trumpFlipComplete', function onFlip() {
+        window.removeEventListener('trumpFlipComplete', onFlip);
+        showBidUIAfterFlip();
+      });
 
       // Update game log score display
       if (data.hand && data.hand.length > 0) {
