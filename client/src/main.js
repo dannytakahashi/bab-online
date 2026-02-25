@@ -2252,17 +2252,18 @@ function initializeApp() {
 
       // Initialize all managers with player position
       const scene = getGameScene();
-      if (scene && data.position) {
+      const effectivePosition = data.position || gameState.position;
+      if (scene && effectivePosition) {
         if (scene.trickManager) {
-          scene.trickManager.setPlayerPosition(data.position);
+          scene.trickManager.setPlayerPosition(effectivePosition);
           scene.trickManager.updatePlayPositions();
           // Note: trick backgrounds are created after bidding completes (in onDoneBidding)
         }
         if (scene.opponentManager) {
-          scene.opponentManager.setPlayerPosition(data.position);
+          scene.opponentManager.setPlayerPosition(effectivePosition);
         }
         if (scene.effectsManager) {
-          scene.effectsManager.setPlayerPosition(data.position);
+          scene.effectsManager.setPlayerPosition(effectivePosition);
         }
 
         // Update player data if included (reflects bot takeovers)
@@ -2284,21 +2285,21 @@ function initializeApp() {
         }
 
         // Create player info box (own avatar) immediately
-        if (scene.createPlayerInfoBox && !scene._playerInfo) {
+        if (scene.createPlayerInfoBox && !scene._playerInfo && !gameState.isSpectator) {
           if (gameState.position && gameState.playerData) {
             scene.createPlayerInfoBox(gameState.playerData, gameState.position);
           }
         }
 
         // Update player's HSI display (only shown for self, not opponents)
-        if (data.hsiValues && scene.updatePlayerHsi && data.position) {
-          scene.updatePlayerHsi(data.hsiValues[data.position]);
+        if (data.hsiValues && scene.updatePlayerHsi && effectivePosition) {
+          scene.updatePlayerHsi(data.hsiValues[effectivePosition]);
         }
 
         // Create DOM backgrounds via LayoutManager (show immediately)
         if (scene.layoutManager) {
           scene.layoutManager.update();
-          scene.layoutManager.createDomBackgrounds();
+          scene.layoutManager.createDomBackgrounds({ skipHandArea: !!gameState.isSpectator });
         }
 
         // Display trump card via scene method (show immediately)
@@ -2309,7 +2310,7 @@ function initializeApp() {
         // Function to display cards (delayed until fade complete)
         const showCards = () => {
           // Display player hand via CardManager
-          if (scene.handleDisplayHand && data.hand) {
+          if (scene.handleDisplayHand && data.hand && data.hand.length > 0) {
             scene.handleDisplayHand(data.hand, false);
           }
 
@@ -2320,13 +2321,15 @@ function initializeApp() {
 
           // Display opponent card backs (skip avatars since already shown)
           if (scene.opponentManager && data.hand) {
-            scene.opponentManager.displayOpponentCards(data.hand.length);
+            const opponentCardCount = data.hand.length > 0 ? data.hand.length : data.currentHand;
+            scene.opponentManager.displayOpponentCards(opponentCardCount);
           }
         };
 
         // Function to show bid UI (delayed until trump flip complete)
         const showBidUIAfterFlip = () => {
           if (gameState.isLazy) return;
+          if (gameState.isSpectator) return;
           if (scene.bidManager && data.hand) {
             scene.bidManager.showBidUI(data.hand.length, (bid) => {
               console.log(`📩 Sending bid: ${bid}`);
@@ -2370,7 +2373,7 @@ function initializeApp() {
       }
 
       // Update game log score display
-      if (data.hand && data.hand.length > 0) {
+      if (data.hand) {
         const position = gameState.position;
         const playerData = gameState.playerData;
         if (playerData && position) {
