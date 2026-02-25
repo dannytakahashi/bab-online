@@ -2797,7 +2797,7 @@ function initializeApp() {
       }
 
       // If it's the local player entering lazy mode, disable card interaction
-      if (data.position === gameState.position) {
+      if (data.position === gameState.position && !gameState.isSpectator) {
         gameState.isLazy = true;
         if (scene && scene.cardManager) {
           scene.cardManager.setInteractive(false);
@@ -2837,7 +2837,7 @@ function initializeApp() {
       }
 
       // If it's the local player returning to active mode, re-enable card interaction
-      if (data.position === gameState.position) {
+      if (data.position === gameState.position && !gameState.isSpectator) {
         gameState.isLazy = false;
         if (scene && scene.cardManager) {
           scene.cardManager.setInteractive(true);

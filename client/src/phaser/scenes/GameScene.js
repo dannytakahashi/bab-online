@@ -1598,7 +1598,7 @@ export class GameScene extends Phaser.Scene {
    */
   handlePlayerLazyMode(data) {
     console.log('🎮 GameScene.handlePlayerLazyMode()');
-    if (data.position === this.state.position) {
+    if (data.position === this.state.position && !this.state.isSpectator) {
       // Update local player's avatar to show bot info
       if (this._playerInfo) {
         const pic = data.botPic;
@@ -1625,7 +1625,7 @@ export class GameScene extends Phaser.Scene {
    */
   handlePlayerActiveMode(data) {
     console.log('🎮 GameScene.handlePlayerActiveMode()');
-    if (data.position === this.state.position) {
+    if (data.position === this.state.position && !this.state.isSpectator) {
       // Restore local player's avatar
       if (this._playerInfo) {
         const pic = data.pic;

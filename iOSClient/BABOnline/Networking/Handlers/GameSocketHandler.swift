@@ -386,7 +386,7 @@ final class GameSocketHandler {
                 self.gameState.players[pos] = GameState.PlayerInfo(username: botUsername, pic: botPic)
                 self.gameState.updatePlayerNames()
 
-                if pos == self.gameState.position {
+                if pos == self.gameState.position && !self.gameState.isSpectator {
                     self.gameState.isLazy = true
                 }
             }
@@ -403,7 +403,7 @@ final class GameSocketHandler {
                 self.gameState.players[pos] = GameState.PlayerInfo(username: username, pic: pic)
                 self.gameState.updatePlayerNames()
 
-                if pos == self.gameState.position {
+                if pos == self.gameState.position && !self.gameState.isSpectator {
                     self.gameState.isLazy = false
                 }
             }
