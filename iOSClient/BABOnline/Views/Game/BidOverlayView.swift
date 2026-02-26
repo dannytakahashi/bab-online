@@ -62,7 +62,7 @@ struct BidOverlayView: View {
 
                 // Submit button
                 Button(action: submitBid) {
-                    Text("Bid")
+                    Text("Submit")
                         .font(.callout.bold())
                         .padding(.horizontal, 24)
                         .padding(.vertical, 8)
