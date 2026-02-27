@@ -420,7 +420,7 @@ final class GameState: ObservableObject {
         if let trumpDict = data["trump"] as? [String: Any] {
             trump = Card.from(trumpDict)
         }
-        trumpBroken = data["trumpBroken"] as? Bool ?? false
+        trumpBroken = data["trumpBroken"] as? Bool ?? data["isTrumpBroken"] as? Bool ?? false
 
         let bidding = data["isBidding"] as? Bool ?? data["bidding"] as? Bool ?? false
         isBidding = bidding
@@ -447,6 +447,21 @@ final class GameState: ObservableObject {
 
         if let tt = data["teamTricks"] as? Int { teamTricks = tt }
         if let ot = data["oppTricks"] as? Int { oppTricks = ot }
+
+        // Restore tricks from alternate format (server sends "tricks": { team1, team2 })
+        if let tricks = data["tricks"] as? [String: Any],
+           let myPos = position {
+            let t1 = tricks["team1"] as? Int ?? 0
+            let t2 = tricks["team2"] as? Int ?? 0
+            if myPos % 2 != 0 {
+                teamTricks = t1
+                oppTricks = t2
+            } else {
+                teamTricks = t2
+                oppTricks = t1
+            }
+        }
+
         if let ts = data["teamScore"] as? Int { teamScore = ts }
         if let os = data["oppScore"] as? Int { oppScore = os }
 
@@ -481,6 +496,13 @@ final class GameState: ObservableObject {
                     playedCardIndex += 1
                 }
             }
+        }
+
+        // Derive hasPlayedCard from restored trick state
+        if let pos = position {
+            hasPlayedCard = playedCards.contains { $0.position == pos }
+        } else {
+            hasPlayedCard = false
         }
 
         // Restore player data
