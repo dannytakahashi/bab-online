@@ -24,7 +24,9 @@ export function registerVoiceHandlers(socketManager) {
   });
 
   socketManager.on(SERVER_EVENTS.VOICE_PEER_JOINED, (data) => {
-    voiceManager.connectToPeer(data.socketId, data.username);
+    // Don't initiate here — the new joiner will initiate to us via voicePeerList.
+    // If both sides initiate simultaneously, WebRTC glare breaks both connections.
+    console.log('Voice peer joined:', data.socketId, data.username);
   });
 
   socketManager.on(SERVER_EVENTS.VOICE_PEER_LEFT, (data) => {
