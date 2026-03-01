@@ -755,11 +755,13 @@ async function handleHandComplete(game, io) {
 
         // Build player stats with usernames for final score screen
         const playerStatsWithNames = {};
+        const totalHands = game.handStats.totalHands;
         for (let pos = 1; pos <= 4; pos++) {
             const player = game.getPlayerByPosition(pos);
             playerStatsWithNames[pos] = {
                 username: player?.username || `P${pos}`,
-                ...game.playerStats[pos]
+                ...game.playerStats[pos],
+                avgHSI: totalHands > 0 ? Math.round(game.playerStats[pos].totalHSI / totalHands) : 0
             };
         }
 
