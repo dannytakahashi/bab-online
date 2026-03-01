@@ -202,6 +202,13 @@ async function uploadProfilePic(socket, io, data) {
 async function recordGameStats(game) {
     const usersCollection = getUsersCollection();
 
+    // Skip stat recording if any player is a bot
+    const hasBots = [1, 2, 3, 4].some(pos => game.isBot(game.positions[pos]));
+    if (hasBots) {
+        authLogger.info('Skipping stat recording — game contains bots', { gameId: game.gameId });
+        return;
+    }
+
     // Determine winner based on final scores
     const team1Won = game.score.team1 > game.score.team2;
     const isTie = game.score.team1 === game.score.team2;
