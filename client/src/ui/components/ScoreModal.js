@@ -206,7 +206,7 @@ export function showFinalScoreOverlay({ teamScore, oppScore, playerStats, onRetu
     const statsHeader = document.createElement('div');
     statsHeader.style.cssText = `
       display: grid;
-      grid-template-columns: 2fr 1fr 1fr 1fr;
+      grid-template-columns: 2fr 1fr 1fr 1fr 1fr;
       gap: 12px;
       padding-bottom: 12px;
       border-bottom: 1px solid #444;
@@ -221,6 +221,7 @@ export function showFinalScoreOverlay({ teamScore, oppScore, playerStats, onRetu
       <div style="text-align: center;">Bids</div>
       <div style="text-align: center;">Tricks</div>
       <div style="text-align: center;">Faults</div>
+      <div style="text-align: center;">Avg HSI</div>
     `;
     statsContainer.appendChild(statsHeader);
 
@@ -236,7 +237,7 @@ export function showFinalScoreOverlay({ teamScore, oppScore, playerStats, onRetu
       const playerRow = document.createElement('div');
       playerRow.style.cssText = `
         display: grid;
-        grid-template-columns: 2fr 1fr 1fr 1fr;
+        grid-template-columns: 2fr 1fr 1fr 1fr 1fr;
         gap: 12px;
         padding: 8px 0;
         color: white;
@@ -247,6 +248,7 @@ export function showFinalScoreOverlay({ teamScore, oppScore, playerStats, onRetu
         <div style="text-align: center;">${stats.totalBids}</div>
         <div style="text-align: center;">${stats.totalTricks}</div>
         <div style="text-align: center; color: ${stats.setsCaused > 0 ? '#ef4444' : 'inherit'};">${stats.setsCaused}</div>
+        <div style="text-align: center;">${stats.avgHSI}</div>
       `;
       statsContainer.appendChild(playerRow);
     }
