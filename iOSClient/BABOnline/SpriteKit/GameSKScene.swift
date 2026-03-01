@@ -232,6 +232,11 @@ class GameSKScene: SKScene {
         }
 
         trickManager?.setup(gameState: gameState)
+
+        // Render any cards already played in the current trick (e.g. after reconnect)
+        for played in gameState.playedCards {
+            trickManager?.placeCard(played.card, position: played.position)
+        }
     }
 
     // MARK: - Event Handlers
