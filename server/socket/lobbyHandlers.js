@@ -240,6 +240,13 @@ function leaveLobby(socket, io) {
             leftUsername: user?.username || 'Unknown',
             needsMorePlayers: result.needsMorePlayers
         });
+
+        // Notify remaining human players that this peer left voice
+        if (!gameManager.isBot(player.socketId)) {
+            io.to(player.socketId).emit('voicePeerLeft', {
+                socketId: socket.id
+            });
+        }
     });
 }
 

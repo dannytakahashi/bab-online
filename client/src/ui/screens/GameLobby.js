@@ -54,15 +54,20 @@ export function updateLobbyPlayersList(container, players, currentUsername) {
     playerRow.style.alignItems = 'center';
     playerRow.style.padding = '8px 0';
     playerRow.style.borderBottom = '1px solid #374151';
+    playerRow.style.height = '36px';
 
     const nameContainer = document.createElement('span');
     nameContainer.style.display = 'flex';
     nameContainer.style.alignItems = 'center';
     nameContainer.style.gap = '6px';
+    nameContainer.style.overflow = 'hidden';
+    nameContainer.style.whiteSpace = 'nowrap';
+    nameContainer.style.minWidth = '0';
 
     const nameSpan = document.createElement('span');
     nameSpan.innerText = player.username;
     nameSpan.style.fontSize = '16px';
+    nameSpan.style.lineHeight = '1.2';
     if (player.isBot) {
       nameSpan.style.color = '#a78bfa'; // Purple for bots
     }
@@ -73,6 +78,8 @@ export function updateLobbyPlayersList(container, players, currentUsername) {
     rightSide.style.display = 'flex';
     rightSide.style.alignItems = 'center';
     rightSide.style.gap = '8px';
+    rightSide.style.flexShrink = '0';
+    rightSide.style.whiteSpace = 'nowrap';
 
     const statusSpan = document.createElement('span');
     if (player.ready) {
@@ -85,20 +92,25 @@ export function updateLobbyPlayersList(container, players, currentUsername) {
     statusSpan.style.fontSize = '14px';
     rightSide.appendChild(statusSpan);
 
-    // Add remove button for bot players (hide once ready)
-    if (player.isBot && !player.ready) {
+    // Add remove button for bot players, or invisible spacer for alignment
+    if (!player.ready) {
       const removeBtn = document.createElement('button');
       removeBtn.innerText = '✕';
-      removeBtn.title = 'Remove bot';
       removeBtn.style.background = 'none';
       removeBtn.style.border = 'none';
-      removeBtn.style.color = '#ef4444';
-      removeBtn.style.cursor = 'pointer';
       removeBtn.style.fontSize = '16px';
       removeBtn.style.fontWeight = 'bold';
       removeBtn.style.padding = '0 4px';
       removeBtn.style.lineHeight = '1';
-      removeBtn.dataset.botSocketId = player.socketId;
+
+      if (player.isBot) {
+        removeBtn.title = 'Remove bot';
+        removeBtn.style.color = '#ef4444';
+        removeBtn.style.cursor = 'pointer';
+        removeBtn.dataset.botSocketId = player.socketId;
+      } else {
+        removeBtn.style.visibility = 'hidden';
+      }
       rightSide.appendChild(removeBtn);
     }
 
@@ -115,6 +127,7 @@ export function updateLobbyPlayersList(container, players, currentUsername) {
     emptyRow.style.alignItems = 'center';
     emptyRow.style.padding = '8px 0';
     emptyRow.style.borderBottom = i < 3 ? '1px solid #374151' : 'none';
+    emptyRow.style.height = '36px';
 
     const emptySpan = document.createElement('span');
     emptySpan.innerText = '— Empty Slot —';

@@ -59,6 +59,10 @@ import {
   cleanupGameHandlers,
 } from './handlers/index.js';
 
+// Voice Chat
+import { getVoiceChatManager } from './voice/VoiceChatManager.js';
+import { createMuteButton, removeMuteButton, reattachMuteButton, showVoiceOverlay, removeVoiceOverlay } from './ui/components/VoiceChatUI.js';
+
 // ============================================
 // Game Scene Access
 // ============================================
@@ -970,6 +974,9 @@ export function setGameScene(scene) {
       // Add avatar to DOM
       document.body.appendChild(avatarContainer);
 
+      // Move voice mute button into avatar container if voice is active
+      reattachMuteButton();
+
       this._playerInfo = { avatarContainer, avatarImg, nameLabel, hsiBox };
       return this._playerInfo;
     };
@@ -991,6 +998,9 @@ export function setGameScene(scene) {
       // Reposition DOM avatar container (position text is inside container)
       this._playerInfo.avatarContainer.style.left = `${boxX}px`;
       this._playerInfo.avatarContainer.style.top = `${boxY - 60 * scaleY}px`;
+
+      // Reposition mute button to follow HSI box
+      reattachMuteButton();
     };
   }
 
@@ -1561,6 +1571,85 @@ function initializeApp() {
   // Get game state singleton
   const gameState = getGameState();
 
+  // Voice chat lifecycle helpers
+  const voiceManager = getVoiceChatManager();
+
+  async function startVoice() {
+    if (voiceManager.active) return;
+    try {
+      await voiceManager.initialize(socketMgr);
+      createMuteButton();
+      // Register speaking indicator callback
+      voiceManager.onSpeakingChange((id, isSpeaking) => {
+        if (id === 'self') {
+          const el = document.getElementById('player-avatar-container');
+          if (el) el.classList.toggle('voice-speaking', isSpeaking);
+        } else if (gameState.playerData && gameState.position) {
+          // Map socketId → game position → opponent slot
+          const pd = gameState.playerData;
+          const idx = pd.socket ? pd.socket.indexOf(id) : -1;
+          if (idx !== -1) {
+            const pos = pd.position[idx];
+            const myPos = gameState.position;
+            let slotId = null;
+            if (pos === team(myPos)) slotId = 'partner';
+            else if (pos === rotate(myPos)) slotId = 'opp1';
+            else if (pos === rotate(rotate(rotate(myPos)))) slotId = 'opp2';
+            if (slotId) {
+              const el = document.getElementById(`opponent-avatar-${slotId}`);
+              if (el) el.classList.toggle('voice-speaking', isSpeaking);
+            }
+          }
+        }
+      });
+    } catch (err) {
+      console.warn('Voice chat unavailable:', err.message);
+      showWarning('Microphone access denied. Voice chat unavailable.');
+    }
+  }
+
+  function stopVoice() {
+    voiceManager.shutdown();
+    removeMuteButton();
+    removeVoiceOverlay();
+    // Clean up speaking indicator classes
+    document.querySelectorAll('.voice-speaking').forEach(el => {
+      el.classList.remove('voice-speaking');
+    });
+  }
+
+  // Tab key: hold to show voice overlay
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Tab' && voiceManager.active) {
+      e.preventDefault();
+      if (!document.getElementById('voice-overlay')) {
+        showVoiceOverlay();
+      }
+    }
+    // M key: toggle mute
+    if (e.key === 'm' && voiceManager.active && !e.ctrlKey && !e.metaKey) {
+      const activeEl = document.activeElement;
+      if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) return;
+      const muted = voiceManager.toggleSelfMute();
+      const btn = document.getElementById('voice-mute-btn');
+      if (btn) {
+        btn.innerHTML = '';
+        // Re-trigger by removing and re-creating the button content
+        const svgContainer = document.createElement('span');
+        svgContainer.innerHTML = muted
+          ? `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2c0 .76-.13 1.49-.36 2.18"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>`
+          : `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>`;
+        btn.appendChild(svgContainer);
+        btn.style.background = muted ? 'rgba(220, 38, 38, 0.8)' : 'rgba(30, 30, 50, 0.8)';
+      }
+    }
+  });
+  document.addEventListener('keyup', (e) => {
+    if (e.key === 'Tab') {
+      removeVoiceOverlay();
+    }
+  });
+
   // Set up error handler
   socket.on('error', (error) => {
     console.error('Server error:', error);
@@ -1999,6 +2088,8 @@ function initializeApp() {
         socket,
         gameState.username
       );
+      // Start voice chat when entering a lobby
+      startVoice();
     },
     onLobbyJoined: (data) => {
       // Don't show lobby if we're in a game (e.g., during rejoin)
@@ -2028,6 +2119,7 @@ function initializeApp() {
     },
     onLeftLobby: () => {
       console.log('Left lobby, returning to main room');
+      stopVoice();
       removeGameLobby();
       socket.emit('joinMainRoom');
     },
@@ -2606,6 +2698,7 @@ function initializeApp() {
         teamName: teamName,
         oppName: oppName,
         onReturnToLobby: () => {
+          stopVoice();
           // Remove game feed/log
           let gameFeed = document.getElementById("gameFeed");
           if (gameFeed) gameFeed.remove();
@@ -2672,6 +2765,7 @@ function initializeApp() {
     // Error & connection handlers
     onAbortGame: (data) => {
       console.log("Handling abortGame");
+      stopVoice();
       const scene = getGameScene();
 
       // Clear scene player info
@@ -2739,6 +2833,10 @@ function initializeApp() {
     },
     onRejoinSuccess: (data) => {
       processRejoinOrRestore(data);
+      // Re-establish voice on reconnect
+      if (!voiceManager.active) {
+        startVoice();
+      }
     },
     onRejoinFailed: (data) => {
       const scene = getGameScene();
@@ -2863,6 +2961,7 @@ function initializeApp() {
     },
     onLeftGame: (data) => {
       // Player used /leave — clean up game UI and return to main room
+      stopVoice();
       const scene = getGameScene();
 
       if (scene && scene.clearPlayerInfo) {

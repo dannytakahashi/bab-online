@@ -39,6 +39,8 @@ async function joinQueue(socket, io) {
         });
 
         // Notify existing players that someone joined
+        const joiningUsername = lobby.players.find(p => p.socketId === socket.id)?.username;
+        const existingHumans = [];
         lobby.players.forEach(player => {
             if (player.socketId !== socket.id) {
                 io.to(player.socketId).emit('lobbyPlayerJoined', {
@@ -46,11 +48,25 @@ async function joinQueue(socket, io) {
                     players: lobby.players,
                     newPlayer: {
                         socketId: socket.id,
-                        username: lobby.players.find(p => p.socketId === socket.id)?.username
+                        username: joiningUsername
                     }
                 });
+
+                // Send voicePeerJoined to existing human players
+                if (!gameManager.isBot(player.socketId)) {
+                    existingHumans.push({ socketId: player.socketId, username: player.username });
+                    io.to(player.socketId).emit('voicePeerJoined', {
+                        socketId: socket.id,
+                        username: joiningUsername
+                    });
+                }
             }
         });
+
+        // Send voicePeerList to the joining player
+        if (existingHumans.length > 0) {
+            socket.emit('voicePeerList', { peers: existingHumans });
+        }
     }
 }
 
@@ -94,6 +110,17 @@ async function handleDisconnect(socket, io) {
             username: user?.username || 'Unknown',
             players: tournament.getClientState().players,
             newCreator: result.tournamentResult.newCreator ? result.tournamentResult.newCreator.username : null
+        });
+    }
+
+    // Emit voicePeerLeft for lobby disconnect
+    if (result.wasInLobby && !result.wasInGame && result.lobby) {
+        result.lobby.players.forEach(player => {
+            if (!gameManager.isBot(player.socketId)) {
+                io.to(player.socketId).emit('voicePeerLeft', {
+                    socketId: socket.id
+                });
+            }
         });
     }
 
@@ -150,6 +177,7 @@ async function handleDisconnect(socket, io) {
 
         // Notify other players that someone disconnected
         result.game.broadcast(io, 'playerDisconnected', { position, username });
+        result.game.broadcast(io, 'voicePeerLeft', { socketId: socket.id });
 
         // Add game log entry so players see it in the feed
         const dcMessage = `${username} disconnected. Waiting for reconnection...`;

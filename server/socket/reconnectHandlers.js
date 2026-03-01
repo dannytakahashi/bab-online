@@ -139,6 +139,18 @@ async function rejoinGame(socket, io, data) {
         username
     });
 
+    // Voice chat: send peer list to reconnecting player and notify others
+    const voicePeers = [];
+    for (const [sid, player] of game.players) {
+        if (sid !== socket.id && !player.isBot && !game.getDisconnectedPlayers().includes(player.position)) {
+            voicePeers.push({ socketId: sid, username: player.username });
+            io.to(sid).emit('voicePeerJoined', { socketId: socket.id, username });
+        }
+    }
+    if (voicePeers.length > 0) {
+        socket.emit('voicePeerList', { peers: voicePeers });
+    }
+
     const rcMessage = `${username} reconnected.`;
     game.addLogEntry(rcMessage, null, 'system');
     game.broadcast(io, 'gameLogEntry', { message: rcMessage, type: 'system' });

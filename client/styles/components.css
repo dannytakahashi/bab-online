@@ -870,3 +870,15 @@
     height: 100%;
     object-fit: contain;
 }
+
+/* ==========================================================================
+   Voice Chat Speaking Indicators
+   ========================================================================== */
+
+.opponent-avatar-container.voice-speaking .opponent-avatar-img {
+    box-shadow: 0 0 20px 8px rgba(74, 222, 128, 0.6);
+}
+
+#player-avatar-container.voice-speaking .player-avatar-img {
+    box-shadow: 0 0 20px 8px rgba(74, 222, 128, 0.6);
+}
