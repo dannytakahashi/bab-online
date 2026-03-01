@@ -17,7 +17,6 @@ export function registerVoiceHandlers(socketManager) {
   const voiceManager = getVoiceChatManager();
 
   socketManager.on(SERVER_EVENTS.VOICE_PEER_LIST, (data) => {
-    if (!voiceManager.active) return;
     const { peers } = data;
     peers.forEach(peer => {
       voiceManager.connectToPeer(peer.socketId, peer.username);
@@ -25,9 +24,7 @@ export function registerVoiceHandlers(socketManager) {
   });
 
   socketManager.on(SERVER_EVENTS.VOICE_PEER_JOINED, (data) => {
-    // A new peer joined — they will send us an offer, so we just wait.
-    // No action needed here; we handle their offer in VOICE_OFFER.
-    console.log('Voice peer joined:', data.username);
+    voiceManager.connectToPeer(data.socketId, data.username);
   });
 
   socketManager.on(SERVER_EVENTS.VOICE_PEER_LEFT, (data) => {
@@ -35,8 +32,7 @@ export function registerVoiceHandlers(socketManager) {
   });
 
   socketManager.on(SERVER_EVENTS.VOICE_OFFER, async (data) => {
-    if (!voiceManager.active) return;
-    await voiceManager.handleOffer(data.fromSocketId, data.offer);
+    await voiceManager.handleOffer(data.fromSocketId, data.offer, data.username);
   });
 
   socketManager.on(SERVER_EVENTS.VOICE_ANSWER, async (data) => {

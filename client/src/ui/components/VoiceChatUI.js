@@ -218,13 +218,43 @@ function updateOverlayPlayers() {
       name.style.cssText = 'color: #fff; flex: 1; font-size: 14px;';
       row.appendChild(name);
 
+      let slider = null;
+      let volLabel = null;
+      const entryId = entry.id;
+      const isSelf = entry.isSelf;
+
+      // Volume slider for remote peers only
+      if (!isSelf) {
+        const sliderWrap = document.createElement('div');
+        sliderWrap.style.cssText = 'display: flex; align-items: center; margin-right: 8px; flex-shrink: 0;';
+
+        slider = document.createElement('input');
+        slider.type = 'range';
+        slider.min = '0';
+        slider.max = '200';
+        slider.value = String(Math.round(voiceManager.getPeerVolume(entryId) * 100));
+        slider.style.cssText = 'width: 80px; accent-color: #4ade80; cursor: pointer;';
+
+        volLabel = document.createElement('span');
+        volLabel.textContent = slider.value + '%';
+        volLabel.style.cssText = 'color: #aaa; font-size: 11px; width: 36px; text-align: right; margin-left: 4px;';
+
+        slider.addEventListener('input', () => {
+          const pct = Number(slider.value);
+          voiceManager.setPeerVolume(entryId, pct / 100);
+          volLabel.textContent = pct + '%';
+        });
+
+        sliderWrap.appendChild(slider);
+        sliderWrap.appendChild(volLabel);
+        row.appendChild(sliderWrap);
+      }
+
       const muteBtn = document.createElement('button');
       muteBtn.style.cssText = `
         border: none; border-radius: 6px; color: #fff;
         padding: 4px 8px; cursor: pointer; font-size: 12px; flex-shrink: 0;
       `;
-      const entryId = entry.id;
-      const isSelf = entry.isSelf;
       muteBtn.addEventListener('click', () => {
         if (isSelf) {
           const muted = voiceManager.toggleSelfMute();
@@ -244,7 +274,7 @@ function updateOverlayPlayers() {
       row.appendChild(muteBtn);
 
       container.appendChild(row);
-      _overlayRows.set(entry.id, { row, dot, muteBtn, isSelf: entry.isSelf });
+      _overlayRows.set(entry.id, { row, dot, muteBtn, slider, volLabel, isSelf });
     }
 
     // Update dynamic state (speaking, muted) on existing elements
@@ -256,6 +286,14 @@ function updateOverlayPlayers() {
     els.dot.style.background = isSpeaking ? '#4ade80' : '#444';
     els.muteBtn.textContent = isMuted ? 'Unmute' : 'Mute';
     els.muteBtn.style.background = isMuted ? 'rgba(220, 38, 38, 0.6)' : 'rgba(255, 255, 255, 0.1)';
+
+    // Dim slider when muted
+    if (els.slider) {
+      els.slider.style.opacity = isMuted ? '0.4' : '1';
+    }
+    if (els.volLabel) {
+      els.volLabel.style.opacity = isMuted ? '0.4' : '1';
+    }
   }
 }
 

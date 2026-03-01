@@ -6,6 +6,7 @@
  */
 
 import { CLIENT_EVENTS } from '../constants/events.js';
+import { getGameState } from '../state/GameState.js';
 
 const ICE_CONFIG = {
   iceServers: [
@@ -22,7 +23,7 @@ export class VoiceChatManager {
     /** @type {MediaStream|null} */
     this.localStream = null;
 
-    /** @type {Map<string, {connection: RTCPeerConnection, audioEl: HTMLAudioElement, username: string, stream: MediaStream|null}>} */
+    /** @type {Map<string, {connection: RTCPeerConnection, username: string, stream: MediaStream|null}>} */
     this.peers = new Map();
 
     this.socketManager = null;
@@ -38,6 +39,17 @@ export class VoiceChatManager {
 
     // Per-peer mute state
     this._peerMuted = new Map(); // socketId → boolean
+
+    // Per-peer volume control (Web Audio API)
+    this._gainNodes = new Map(); // socketId → GainNode
+    this._peerVolumes = new Map(); // socketId → number (0.0–2.0, default 1.0)
+
+    // Local username for offer relay
+    this._localUsername = null;
+
+    // Buffered events received before initialization completes
+    this._pendingPeers = [];
+    this._pendingOffers = [];
   }
 
   /**
@@ -57,11 +69,22 @@ export class VoiceChatManager {
     }
 
     this.active = true;
+    this._localUsername = getGameState().username || null;
 
     // Set up speaking detection for local stream
     this._setupAudioContext();
     this._addAnalyser('self', this.localStream);
     this._startSpeakingDetection();
+
+    // Flush buffered events that arrived before initialization
+    for (const p of this._pendingPeers) {
+      this.connectToPeer(p.socketId, p.username);
+    }
+    this._pendingPeers = [];
+    for (const o of this._pendingOffers) {
+      this.handleOffer(o.fromSocketId, o.offer, o.username);
+    }
+    this._pendingOffers = [];
   }
 
   /**
@@ -69,7 +92,10 @@ export class VoiceChatManager {
    * Called when we receive voicePeerList — we initiate to existing peers.
    */
   async connectToPeer(socketId, username) {
-    if (!this.active || !this.localStream) return;
+    if (!this.active || !this.localStream) {
+      this._pendingPeers.push({ socketId, username });
+      return;
+    }
     if (this.peers.has(socketId)) return;
 
     const pc = this._createPeerConnection(socketId, username);
@@ -85,7 +111,8 @@ export class VoiceChatManager {
 
     this.socketManager.emit(CLIENT_EVENTS.VOICE_OFFER, {
       targetSocketId: socketId,
-      offer: pc.localDescription
+      offer: pc.localDescription,
+      username: this._localUsername
     });
   }
 
@@ -93,7 +120,10 @@ export class VoiceChatManager {
    * Handle an incoming offer from a peer (responder side).
    */
   async handleOffer(fromSocketId, offer, username) {
-    if (!this.active || !this.localStream) return;
+    if (!this.active || !this.localStream) {
+      this._pendingOffers.push({ fromSocketId, offer, username });
+      return;
+    }
 
     // If we already have a connection, close it and recreate
     if (this.peers.has(fromSocketId)) {
@@ -169,9 +199,9 @@ export class VoiceChatManager {
    */
   mutePeer(socketId) {
     this._peerMuted.set(socketId, true);
-    const peer = this.peers.get(socketId);
-    if (peer && peer.audioEl) {
-      peer.audioEl.muted = true;
+    const gainNode = this._gainNodes.get(socketId);
+    if (gainNode) {
+      gainNode.gain.value = 0;
     }
   }
 
@@ -180,9 +210,9 @@ export class VoiceChatManager {
    */
   unmutePeer(socketId) {
     this._peerMuted.set(socketId, false);
-    const peer = this.peers.get(socketId);
-    if (peer && peer.audioEl) {
-      peer.audioEl.muted = false;
+    const gainNode = this._gainNodes.get(socketId);
+    if (gainNode) {
+      gainNode.gain.value = this._peerVolumes.get(socketId) ?? 1.0;
     }
   }
 
@@ -191,6 +221,27 @@ export class VoiceChatManager {
    */
   isPeerMuted(socketId) {
     return this._peerMuted.get(socketId) || false;
+  }
+
+  /**
+   * Set a peer's volume (0.0–2.0). Does not apply if peer is muted.
+   */
+  setPeerVolume(socketId, volume) {
+    const clamped = Math.max(0, Math.min(2, volume));
+    this._peerVolumes.set(socketId, clamped);
+    if (!this._peerMuted.get(socketId)) {
+      const gainNode = this._gainNodes.get(socketId);
+      if (gainNode) {
+        gainNode.gain.value = clamped;
+      }
+    }
+  }
+
+  /**
+   * Get a peer's stored volume (default 1.0).
+   */
+  getPeerVolume(socketId) {
+    return this._peerVolumes.get(socketId) ?? 1.0;
   }
 
   /**
@@ -255,6 +306,11 @@ export class VoiceChatManager {
     this._speakingStates.clear();
     this._speakingCallbacks = [];
     this._peerMuted.clear();
+    this._gainNodes.clear();
+    this._peerVolumes.clear();
+    this._pendingPeers = [];
+    this._pendingOffers = [];
+    this._localUsername = null;
     this.selfMuted = false;
     this.socketManager = null;
   }
@@ -266,19 +322,8 @@ export class VoiceChatManager {
   _createPeerConnection(socketId, username) {
     const pc = new RTCPeerConnection(ICE_CONFIG);
 
-    const audioEl = document.createElement('audio');
-    audioEl.autoplay = true;
-    audioEl.id = `voice-audio-${socketId}`;
-    document.body.appendChild(audioEl);
-
-    // Apply existing mute state if any
-    if (this._peerMuted.get(socketId)) {
-      audioEl.muted = true;
-    }
-
     this.peers.set(socketId, {
       connection: pc,
-      audioEl,
       username,
       stream: null
     });
@@ -293,14 +338,11 @@ export class VoiceChatManager {
       }
     };
 
-    // Remote stream handling
+    // Remote stream handling — playback via GainNode (set up in _addAnalyser)
     pc.ontrack = (event) => {
       const peer = this.peers.get(socketId);
       if (peer) {
         peer.stream = event.streams[0];
-        peer.audioEl.srcObject = event.streams[0];
-
-        // Set up speaking detection for this peer
         this._addAnalyser(socketId, event.streams[0]);
       }
     };
@@ -320,11 +362,8 @@ export class VoiceChatManager {
     if (!peer) return;
 
     peer.connection.close();
-    if (peer.audioEl) {
-      peer.audioEl.srcObject = null;
-      peer.audioEl.remove();
-    }
 
+    this._gainNodes.delete(socketId);
     this._analysers.delete(socketId);
     this._speakingStates.delete(socketId);
     this.peers.delete(socketId);
@@ -343,6 +382,16 @@ export class VoiceChatManager {
       const analyser = this._audioContext.createAnalyser();
       analyser.fftSize = 256;
       source.connect(analyser);
+
+      // For remote peers, route audio through a GainNode for volume control
+      if (id !== 'self') {
+        const gainNode = this._audioContext.createGain();
+        const volume = this._peerVolumes.get(id) ?? 1.0;
+        gainNode.gain.value = this._peerMuted.get(id) ? 0 : volume;
+        source.connect(gainNode);
+        gainNode.connect(this._audioContext.destination);
+        this._gainNodes.set(id, gainNode);
+      }
 
       const dataArray = new Float32Array(analyser.fftSize);
       this._analysers.set(id, { analyser, dataArray });
