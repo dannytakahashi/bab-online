@@ -5,15 +5,19 @@
  */
 
 const { socketLogger } = require('../utils/logger');
+const gameManager = require('../game/GameManager');
 
 function voiceOffer(socket, io, data) {
-    const { targetSocketId, offer, username } = data;
+    const { targetSocketId, offer } = data;
     if (!targetSocketId || !offer) return;
+
+    // Look up username server-side — don't trust client payload
+    const user = gameManager.getUserBySocketId(socket.id);
 
     io.to(targetSocketId).emit('voiceOffer', {
         fromSocketId: socket.id,
         offer,
-        username
+        username: user?.username
     });
 }
 
