@@ -42,17 +42,67 @@ export function createSignInScreen({ onSignIn, onCreateAccount }) {
     z-index: 100;
   `;
 
-  // Logo
+  // Logo wrapper (for splash text positioning)
+  const logoWrapper = document.createElement('div');
+  logoWrapper.style.cssText = `
+    position: relative;
+    margin-bottom: 2vh;
+  `;
+
   const logo = document.createElement('img');
   logo.src = 'assets/logo.png';
   logo.alt = 'Game Logo';
   logo.style.cssText = `
     width: 26vw;
-    margin-bottom: 2vh;
     position: relative;
     left: 2vw;
   `;
-  container.appendChild(logo);
+  logoWrapper.appendChild(logo);
+
+  // Splash text (Minecraft-style)
+  const splashPhrases = [
+    'he sends a boy!',
+    'i got my bid...',
+    'out of boolats!',
+    'heartless!',
+    'this one is mandatory.',
+    'i bid on that one.',
+    'you need to get my one.',
+    'surely...',
+  ];
+  const splash = document.createElement('span');
+  splash.textContent = splashPhrases[Math.floor(Math.random() * splashPhrases.length)];
+  splash.style.cssText = `
+    position: absolute;
+    left: 80%;
+    top: 70%;
+    color: #ffff00;
+    font-weight: bold;
+    font-size: 1.4vw;
+    font-style: italic;
+    white-space: nowrap;
+    transform-origin: center;
+    transform: rotate(-15deg);
+    animation: splashPulse 2s ease-in-out infinite;
+    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+    pointer-events: none;
+  `;
+  logoWrapper.appendChild(splash);
+
+  // Inject splash pulse keyframes
+  if (!document.getElementById('splash-keyframes')) {
+    const style = document.createElement('style');
+    style.id = 'splash-keyframes';
+    style.textContent = `
+      @keyframes splashPulse {
+        0%, 100% { transform: rotate(-15deg) scale(1); }
+        50% { transform: rotate(-15deg) scale(1.04); }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  container.appendChild(logoWrapper);
 
   // Username input
   const usernameInput = document.createElement('input');
