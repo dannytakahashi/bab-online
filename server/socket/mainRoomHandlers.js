@@ -151,6 +151,7 @@ function joinLobby(socket, io, data) {
     });
 
     // Notify existing players in the lobby
+    const existingHumans = [];
     lobby.players.forEach(player => {
         if (player.socketId !== socket.id) {
             io.to(player.socketId).emit('lobbyPlayerJoined', {
@@ -158,8 +159,22 @@ function joinLobby(socket, io, data) {
                 players: lobby.players,
                 newPlayer: result.newPlayer
             });
+
+            // Send voicePeerJoined to existing human players
+            if (!gameManager.isBot(player.socketId)) {
+                existingHumans.push({ socketId: player.socketId, username: player.username });
+                io.to(player.socketId).emit('voicePeerJoined', {
+                    socketId: socket.id,
+                    username: result.newPlayer.username
+                });
+            }
         }
     });
+
+    // Send voicePeerList to the joining player
+    if (existingHumans.length > 0) {
+        socket.emit('voicePeerList', { peers: existingHumans });
+    }
 
     // Notify main room of updated lobbies
     io.to('mainRoom').emit('lobbiesUpdated', {

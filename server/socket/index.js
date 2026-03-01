@@ -12,6 +12,7 @@ const chatHandlers = require('./chatHandlers');
 const reconnectHandlers = require('./reconnectHandlers');
 const profileHandlers = require('./profileHandlers');
 const tournamentHandlers = require('./tournamentHandlers');
+const voiceHandlers = require('./voiceHandlers');
 const { asyncHandler, syncHandler, safeHandler, rateLimiter } = require('./errorHandler');
 const { socketLogger } = require('../utils/logger');
 
@@ -152,6 +153,17 @@ function setupSocketHandlers(io) {
         );
         socket.on('cancelTournament', () =>
             asyncHandler('cancelTournament', tournamentHandlers.cancelTournament)(socket, io, {})
+        );
+
+        // Voice chat signaling relay
+        socket.on('voiceOffer', (data) =>
+            safeHandler(voiceHandlers.voiceOffer)(socket, io, data)
+        );
+        socket.on('voiceAnswer', (data) =>
+            safeHandler(voiceHandlers.voiceAnswer)(socket, io, data)
+        );
+        socket.on('voiceIceCandidate', (data) =>
+            safeHandler(voiceHandlers.voiceIceCandidate)(socket, io, data)
         );
 
         // Disconnect - cleanup rate limiter and handle game state

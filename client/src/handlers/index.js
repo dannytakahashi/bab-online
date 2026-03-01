@@ -12,6 +12,7 @@ import { registerChatHandlers } from './chatHandlers.js';
 import { registerProfileHandlers } from './profileHandlers.js';
 import { registerLeaderboardHandlers } from './leaderboardHandlers.js';
 import { registerTournamentHandlers } from './tournamentHandlers.js';
+import { registerVoiceHandlers } from './voiceHandlers.js';
 
 /**
  * Register all socket event handlers.
@@ -184,6 +185,9 @@ export function registerAllHandlers(socketManager, callbacks = {}) {
     onLeaderboardError,
   });
 
+  // Register voice handlers (no callbacks needed - self-contained)
+  registerVoiceHandlers(socketManager);
+
   // Register tournament handlers
   registerTournamentHandlers(socketManager, {
     onTournamentCreated,
@@ -218,3 +222,4 @@ export { registerChatHandlers } from './chatHandlers.js';
 export { registerProfileHandlers } from './profileHandlers.js';
 export { registerLeaderboardHandlers } from './leaderboardHandlers.js';
 export { registerTournamentHandlers } from './tournamentHandlers.js';
+export { registerVoiceHandlers } from './voiceHandlers.js';

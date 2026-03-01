@@ -74,7 +74,7 @@ export function registerAuthHandlers(socketManager, callbacks = {}) {
 
   // Force logout (another session signed in)
   socketManager.on(SERVER_EVENTS.FORCE_LOGOUT, (data) => {
-    console.warn('⚠️ Force logout:', data.reason);
+    console.warn('⚠️ Force logout:', data?.reason);
 
     // Clear stored credentials
     sessionStorage.removeItem('username');

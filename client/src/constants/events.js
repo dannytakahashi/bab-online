@@ -51,6 +51,11 @@ export const CLIENT_EVENTS = {
 
   // Leaderboard
   GET_LEADERBOARD: 'getLeaderboard',
+
+  // Voice Chat
+  VOICE_OFFER: 'voiceOffer',
+  VOICE_ANSWER: 'voiceAnswer',
+  VOICE_ICE_CANDIDATE: 'voiceIceCandidate',
 };
 
 // Server -> Client Events
@@ -148,4 +153,12 @@ export const SERVER_EVENTS = {
   TOURNAMENT_LEFT: 'tournamentLeft',
   TOURNAMENT_CANCELLED: 'tournamentCancelled',
   ACTIVE_TOURNAMENT_FOUND: 'activeTournamentFound',
+
+  // Voice Chat
+  VOICE_OFFER: 'voiceOffer',
+  VOICE_ANSWER: 'voiceAnswer',
+  VOICE_ICE_CANDIDATE: 'voiceIceCandidate',
+  VOICE_PEER_LIST: 'voicePeerList',
+  VOICE_PEER_JOINED: 'voicePeerJoined',
+  VOICE_PEER_LEFT: 'voicePeerLeft',
 };
