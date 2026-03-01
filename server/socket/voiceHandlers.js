@@ -7,12 +7,13 @@
 const { socketLogger } = require('../utils/logger');
 
 function voiceOffer(socket, io, data) {
-    const { targetSocketId, offer } = data;
+    const { targetSocketId, offer, username } = data;
     if (!targetSocketId || !offer) return;
 
     io.to(targetSocketId).emit('voiceOffer', {
         fromSocketId: socket.id,
-        offer
+        offer,
+        username
     });
 }
 
