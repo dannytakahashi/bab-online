@@ -76,15 +76,23 @@ export class VoiceChatManager {
     this._addAnalyser('self', this.localStream);
     this._startSpeakingDetection();
 
-    // Flush buffered events that arrived before initialization
-    for (const p of this._pendingPeers) {
-      this.connectToPeer(p.socketId, p.username);
-    }
+    // Flush buffered events that arrived before initialization.
+    // Process offers first — if we have an offer from a peer, we don't need
+    // to also initiate to them (that would cause WebRTC glare).
+    const offerPeerIds = new Set(this._pendingOffers.map(o => o.fromSocketId));
+    const pendingPeers = this._pendingPeers;
+    const pendingOffers = this._pendingOffers;
     this._pendingPeers = [];
-    for (const o of this._pendingOffers) {
+    this._pendingOffers = [];
+
+    for (const o of pendingOffers) {
       this.handleOffer(o.fromSocketId, o.offer, o.username);
     }
-    this._pendingOffers = [];
+    for (const p of pendingPeers) {
+      if (!offerPeerIds.has(p.socketId)) {
+        this.connectToPeer(p.socketId, p.username);
+      }
+    }
   }
 
   /**
@@ -105,15 +113,20 @@ export class VoiceChatManager {
       pc.addTrack(track, this.localStream);
     });
 
-    // Create and send offer
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
+    try {
+      // Create and send offer
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
 
-    this.socketManager.emit(CLIENT_EVENTS.VOICE_OFFER, {
-      targetSocketId: socketId,
-      offer: pc.localDescription,
-      username: this._localUsername
-    });
+      this.socketManager.emit(CLIENT_EVENTS.VOICE_OFFER, {
+        targetSocketId: socketId,
+        offer: pc.localDescription,
+        username: this._localUsername
+      });
+    } catch (err) {
+      // PC may have been closed by a concurrent handleOffer — safe to ignore
+      console.log('connectToPeer aborted for', socketId, err.message);
+    }
   }
 
   /**
@@ -137,14 +150,18 @@ export class VoiceChatManager {
       pc.addTrack(track, this.localStream);
     });
 
-    await pc.setRemoteDescription(new RTCSessionDescription(offer));
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
+    try {
+      await pc.setRemoteDescription(new RTCSessionDescription(offer));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
 
-    this.socketManager.emit(CLIENT_EVENTS.VOICE_ANSWER, {
-      targetSocketId: fromSocketId,
-      answer: pc.localDescription
-    });
+      this.socketManager.emit(CLIENT_EVENTS.VOICE_ANSWER, {
+        targetSocketId: fromSocketId,
+        answer: pc.localDescription
+      });
+    } catch (err) {
+      console.warn('handleOffer failed for', fromSocketId, err.message);
+    }
   }
 
   /**
