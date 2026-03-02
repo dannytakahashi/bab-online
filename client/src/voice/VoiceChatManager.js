@@ -228,10 +228,8 @@ export class VoiceChatManager {
    */
   mutePeer(socketId) {
     this._peerMuted.set(socketId, true);
-    const gainNode = this._gainNodes.get(socketId);
-    if (gainNode) {
-      gainNode.gain.value = 0;
-    }
+    const peer = this.peers.get(socketId);
+    if (peer?.audioEl) peer.audioEl.volume = 0;
   }
 
   /**
@@ -239,10 +237,8 @@ export class VoiceChatManager {
    */
   unmutePeer(socketId) {
     this._peerMuted.set(socketId, false);
-    const gainNode = this._gainNodes.get(socketId);
-    if (gainNode) {
-      gainNode.gain.value = this._peerVolumes.get(socketId) ?? 1.0;
-    }
+    const peer = this.peers.get(socketId);
+    if (peer?.audioEl) peer.audioEl.volume = Math.min(1, this._peerVolumes.get(socketId) ?? 1.0);
   }
 
   /**
@@ -259,10 +255,8 @@ export class VoiceChatManager {
     const clamped = Math.max(0, Math.min(2, volume));
     this._peerVolumes.set(socketId, clamped);
     if (!this._peerMuted.get(socketId)) {
-      const gainNode = this._gainNodes.get(socketId);
-      if (gainNode) {
-        gainNode.gain.value = clamped;
-      }
+      const peer = this.peers.get(socketId);
+      if (peer?.audioEl) peer.audioEl.volume = Math.min(1, clamped);
     }
   }
 
@@ -351,8 +345,15 @@ export class VoiceChatManager {
   _createPeerConnection(socketId, username) {
     const pc = new RTCPeerConnection(ICE_CONFIG);
 
+    // Audio element for reliable playback (Web Audio API alone is unreliable for remote WebRTC streams)
+    const audioEl = document.createElement('audio');
+    audioEl.autoplay = true;
+    audioEl.id = `voice-audio-${socketId}`;
+    document.body.appendChild(audioEl);
+
     this.peers.set(socketId, {
       connection: pc,
+      audioEl,
       username,
       stream: null
     });
@@ -367,13 +368,16 @@ export class VoiceChatManager {
       }
     };
 
-    // Remote stream handling — playback via GainNode (set up in _addAnalyser)
+    // Remote stream handling
     pc.ontrack = (event) => {
-      const track = event.streams[0]?.getAudioTracks()[0];
-      console.log('[Voice] ontrack from', socketId, 'track:', track?.kind, 'enabled:', track?.enabled, 'muted:', track?.muted, 'state:', track?.readyState);
+      console.log('[Voice] ontrack from', socketId);
       const peer = this.peers.get(socketId);
       if (peer) {
         peer.stream = event.streams[0];
+        // Audio element for playback
+        peer.audioEl.srcObject = event.streams[0];
+        peer.audioEl.volume = this._peerMuted.get(socketId) ? 0 : Math.min(1, this._peerVolumes.get(socketId) ?? 1.0);
+        // Web Audio analyser for speaking detection only
         this._addAnalyser(socketId, event.streams[0]);
       }
     };
@@ -395,6 +399,10 @@ export class VoiceChatManager {
     if (!peer) return;
 
     peer.connection.close();
+    if (peer.audioEl) {
+      peer.audioEl.srcObject = null;
+      peer.audioEl.remove();
+    }
 
     this._gainNodes.delete(socketId);
     this._analysers.delete(socketId);
@@ -408,10 +416,7 @@ export class VoiceChatManager {
   }
 
   _addAnalyser(id, stream) {
-    if (!this._audioContext || !stream) {
-      console.warn('[Voice] _addAnalyser bail:', id, 'ctx:', !!this._audioContext, 'stream:', !!stream);
-      return;
-    }
+    if (!this._audioContext || !stream) return;
 
     try {
       const source = this._audioContext.createMediaStreamSource(stream);
@@ -419,20 +424,8 @@ export class VoiceChatManager {
       analyser.fftSize = 256;
       source.connect(analyser);
 
-      // For remote peers, route audio through a GainNode for volume control
-      if (id !== 'self') {
-        const gainNode = this._audioContext.createGain();
-        const volume = this._peerVolumes.get(id) ?? 1.0;
-        gainNode.gain.value = this._peerMuted.get(id) ? 0 : volume;
-        source.connect(gainNode);
-        gainNode.connect(this._audioContext.destination);
-        this._gainNodes.set(id, gainNode);
-        console.log('[Voice] _addAnalyser remote peer', id, 'gain:', gainNode.gain.value, 'audioCtx:', this._audioContext.state);
-      }
-
       const dataArray = new Float32Array(analyser.fftSize);
       this._analysers.set(id, { analyser, dataArray });
-      console.log('[Voice] _addAnalyser OK for', id, 'total analysers:', this._analysers.size);
     } catch (err) {
       console.warn('Failed to create analyser for', id, err.message);
     }
