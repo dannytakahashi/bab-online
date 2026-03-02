@@ -50,6 +50,10 @@ export function createMuteButton() {
   // Position below the HSI box if it exists, otherwise use fallback
   _positionMuteButton(btn);
   document.body.appendChild(btn);
+
+  // Create the device selector button alongside
+  createDeviceButton();
+
   return btn;
 }
 
@@ -77,11 +81,171 @@ export function reattachMuteButton() {
   const btn = document.getElementById('voice-mute-btn');
   if (!btn) return;
   _positionMuteButton(btn);
+  reattachDeviceButton();
 }
 
 export function removeMuteButton() {
   const existing = document.getElementById('voice-mute-btn');
   if (existing) existing.remove();
+  removeDeviceButton();
+}
+
+// ============================================
+// Device Selector Button + Popover
+// ============================================
+
+export function createDeviceButton() {
+  removeDeviceButton();
+
+  const btn = document.createElement('button');
+  btn.id = 'voice-device-btn';
+  btn.innerHTML = getGearIcon();
+  btn.title = 'Select microphone';
+  btn.style.cssText = `
+    position: absolute;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    background: rgba(30, 30, 50, 0.8);
+    color: #fff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s;
+    padding: 0;
+    z-index: 300;
+  `;
+
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleDevicePopover();
+  });
+
+  _positionDeviceButton(btn);
+  document.body.appendChild(btn);
+  return btn;
+}
+
+function _positionDeviceButton(btn) {
+  const muteBtn = document.getElementById('voice-mute-btn');
+  if (muteBtn) {
+    const rect = muteBtn.getBoundingClientRect();
+    btn.style.left = `${rect.left - 42}px`;
+    btn.style.top = `${rect.top}px`;
+    btn.style.bottom = '';
+    btn.style.right = '';
+  } else {
+    btn.style.bottom = '20px';
+    btn.style.right = '62px';
+    btn.style.top = '';
+    btn.style.left = '';
+  }
+}
+
+export function reattachDeviceButton() {
+  const btn = document.getElementById('voice-device-btn');
+  if (!btn) return;
+  _positionDeviceButton(btn);
+}
+
+function removeDeviceButton() {
+  removeDevicePopover();
+  const existing = document.getElementById('voice-device-btn');
+  if (existing) existing.remove();
+}
+
+async function toggleDevicePopover() {
+  if (document.getElementById('voice-device-popover')) {
+    removeDevicePopover();
+    return;
+  }
+
+  const voiceManager = getVoiceChatManager();
+  const devices = await voiceManager.getAudioDevices();
+  if (devices.length === 0) return;
+
+  const activeId = voiceManager.getActiveDeviceId();
+
+  const popover = document.createElement('div');
+  popover.id = 'voice-device-popover';
+  popover.style.cssText = `
+    position: absolute;
+    background: #1a1a2e;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 8px;
+    padding: 6px 0;
+    min-width: 200px;
+    max-width: 300px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+    z-index: 400;
+  `;
+
+  for (const device of devices) {
+    const item = document.createElement('div');
+    const isActive = device.deviceId === activeId;
+    item.style.cssText = `
+      padding: 8px 14px;
+      color: ${isActive ? '#4ade80' : '#fff'};
+      font-size: 13px;
+      cursor: pointer;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    `;
+    item.innerHTML = `<span style="flex-shrink:0">${isActive ? '&#10003;' : '&nbsp;&nbsp;'}</span><span style="overflow:hidden;text-overflow:ellipsis">${device.label}</span>`;
+    item.addEventListener('mouseenter', () => { item.style.background = 'rgba(255,255,255,0.1)'; });
+    item.addEventListener('mouseleave', () => { item.style.background = 'none'; });
+    item.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (!isActive) {
+        try {
+          await voiceManager.switchAudioDevice(device.deviceId);
+        } catch (err) {
+          console.warn('[Voice] switchAudioDevice failed:', err.message);
+        }
+      }
+      removeDevicePopover();
+    });
+    popover.appendChild(item);
+  }
+
+  // Position above the device button, right-aligned so it doesn't overflow left
+  const btn = document.getElementById('voice-device-btn');
+  if (btn) {
+    const rect = btn.getBoundingClientRect();
+    popover.style.right = `${window.innerWidth - rect.right}px`;
+    popover.style.left = '';
+    popover.style.top = '';
+    popover.style.bottom = `${window.innerHeight - rect.top + 6}px`;
+  }
+
+  document.body.appendChild(popover);
+
+  // Close on outside click
+  const closeHandler = (e) => {
+    if (!popover.contains(e.target) && e.target.id !== 'voice-device-btn') {
+      removeDevicePopover();
+      document.removeEventListener('click', closeHandler);
+    }
+  };
+  setTimeout(() => document.addEventListener('click', closeHandler), 0);
+}
+
+function removeDevicePopover() {
+  const existing = document.getElementById('voice-device-popover');
+  if (existing) existing.remove();
+}
+
+function getGearIcon() {
+  return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="3"></circle>
+    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+  </svg>`;
 }
 
 function getMicIcon(muted) {
