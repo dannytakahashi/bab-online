@@ -33,6 +33,8 @@
 			</dict>
 		</dict>
 	</dict>
+	<key>NSCameraUsageDescription</key>
+	<string>BAB Online does not use the camera. This permission is required by the WebRTC framework used for voice chat.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>BAB Online uses the microphone for voice chat with other players during games.</string>
 	<key>UILaunchScreen</key>
