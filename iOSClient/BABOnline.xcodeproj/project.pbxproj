@@ -92,6 +92,12 @@
 		BB1234567890ABCDEF00000D /* LeaderboardEmitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1234567890ABCDEF00000D /* LeaderboardEmitter.swift */; };
 		BB1234567890ABCDEF00000E /* LeaderboardSocketHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1234567890ABCDEF00000E /* LeaderboardSocketHandler.swift */; };
 		BB1234567890ABCDEF00000F /* LeaderboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1234567890ABCDEF00000F /* LeaderboardView.swift */; };
+		DD0000000000000000000003 /* VoiceChatManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD0000000000000000000002 /* VoiceChatManager.swift */; };
+		DD0000000000000000000005 /* VoiceEmitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD0000000000000000000004 /* VoiceEmitter.swift */; };
+		DD0000000000000000000007 /* VoiceSocketHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD0000000000000000000006 /* VoiceSocketHandler.swift */; };
+		DD0000000000000000000009 /* VoiceMuteButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD0000000000000000000008 /* VoiceMuteButton.swift */; };
+		DD000000000000000000000B /* VoicePanelSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD000000000000000000000A /* VoicePanelSheet.swift */; };
+		DD000000000000000000000E /* WebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = DD000000000000000000000D /* WebRTC */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -180,6 +186,11 @@
 		AA1234567890ABCDEF00000D /* LeaderboardEmitter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LeaderboardEmitter.swift; sourceTree = "<group>"; };
 		AA1234567890ABCDEF00000E /* LeaderboardSocketHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LeaderboardSocketHandler.swift; sourceTree = "<group>"; };
 		AA1234567890ABCDEF00000F /* LeaderboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LeaderboardView.swift; sourceTree = "<group>"; };
+		DD0000000000000000000002 /* VoiceChatManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceChatManager.swift; sourceTree = "<group>"; };
+		DD0000000000000000000004 /* VoiceEmitter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceEmitter.swift; sourceTree = "<group>"; };
+		DD0000000000000000000006 /* VoiceSocketHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceSocketHandler.swift; sourceTree = "<group>"; };
+		DD0000000000000000000008 /* VoiceMuteButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceMuteButton.swift; sourceTree = "<group>"; };
+		DD000000000000000000000A /* VoicePanelSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePanelSheet.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -188,6 +199,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				454C9420CAF6A9EEC90F4080 /* SocketIO in Frameworks */,
+				DD000000000000000000000E /* WebRTC in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -214,6 +226,7 @@
 				AA1234567890ABCDEF00000D /* LeaderboardEmitter.swift */,
 				ABFB49C1B9B998424D06A9B7 /* LobbyEmitter.swift */,
 				AA1234567890ABCDEF000003 /* TournamentEmitter.swift */,
+				DD0000000000000000000004 /* VoiceEmitter.swift */,
 			);
 			path = Emitters;
 			sourceTree = "<group>";
@@ -235,6 +248,7 @@
 				AA1234567890ABCDEF00000E /* LeaderboardSocketHandler.swift */,
 				7FD14869A6FDEFEF8A26EB44 /* LobbySocketHandler.swift */,
 				AA1234567890ABCDEF000004 /* TournamentSocketHandler.swift */,
+				DD0000000000000000000006 /* VoiceSocketHandler.swift */,
 			);
 			path = Handlers;
 			sourceTree = "<group>";
@@ -313,6 +327,7 @@
 				EAECBA8F695BF16DD5F1E652 /* State */,
 				D3586572A4C8C5B0BD5A3B1C /* Utils */,
 				5D696315870C4CCDCC8C684B /* Views */,
+				DD0000000000000000000001 /* Voice */,
 			);
 			path = BABOnline;
 			sourceTree = "<group>";
@@ -327,6 +342,8 @@
 				B7D19DF413AEB22E4D8F0CB7 /* GameEndView.swift */,
 				1C12922A47ABEF52E6CD513E /* GameLogView.swift */,
 				E0C0084565BB95FB47383922 /* ScoreBarView.swift */,
+				DD0000000000000000000008 /* VoiceMuteButton.swift */,
+				DD000000000000000000000A /* VoicePanelSheet.swift */,
 			);
 			path = Game;
 			sourceTree = "<group>";
@@ -469,6 +486,14 @@
 			path = Actions;
 			sourceTree = "<group>";
 		};
+		DD0000000000000000000001 /* Voice */ = {
+			isa = PBXGroup;
+			children = (
+				DD0000000000000000000002 /* VoiceChatManager.swift */,
+			);
+			path = Voice;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -487,6 +512,7 @@
 			name = BABOnline;
 			packageProductDependencies = (
 				369628F9131811122EB62EAD /* SocketIO */,
+				DD000000000000000000000D /* WebRTC */,
 			);
 			productName = BABOnline;
 			productReference = 7F8955A183A4B54328782B3C /* BAB Online.app */;
@@ -518,6 +544,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				68E432C06209C0685B308F4A /* XCRemoteSwiftPackageReference "socket" */,
+				DD000000000000000000000C /* XCRemoteSwiftPackageReference "WebRTC" */,
 			);
 			projectDirPath = "";
 			projectRoot = "";
@@ -626,6 +653,11 @@
 				BB1234567890ABCDEF00000A /* TournamentResultsView.swift in Sources */,
 				01BE20189A36B2369389142A /* UsernameColor.swift in Sources */,
 				39B5487AEDCCC050AFED060C /* View+Haptics.swift in Sources */,
+				DD0000000000000000000003 /* VoiceChatManager.swift in Sources */,
+				DD0000000000000000000005 /* VoiceEmitter.swift in Sources */,
+				DD0000000000000000000007 /* VoiceSocketHandler.swift in Sources */,
+				DD0000000000000000000009 /* VoiceMuteButton.swift in Sources */,
+				DD000000000000000000000B /* VoicePanelSheet.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -713,6 +745,7 @@
 				PRODUCT_NAME = "BAB Online";
 				SDKROOT = iphoneos;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_ENABLE_EXPLICIT_MODULES = NO;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
@@ -805,6 +838,7 @@
 				PRODUCT_NAME = "BAB Online";
 				SDKROOT = iphoneos;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_ENABLE_EXPLICIT_MODULES = NO;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
@@ -841,6 +875,14 @@
 				minimumVersion = 16.1.1;
 			};
 		};
+		DD000000000000000000000C /* XCRemoteSwiftPackageReference "WebRTC" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/stasel/WebRTC.git";
+			requirement = {
+				kind = exactVersion;
+				version = 140.0.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -848,6 +890,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 68E432C06209C0685B308F4A /* XCRemoteSwiftPackageReference "socket" */;
 			productName = SocketIO;
+		};
+		DD000000000000000000000D /* WebRTC */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = DD000000000000000000000C /* XCRemoteSwiftPackageReference "WebRTC" */;
+			productName = WebRTC;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

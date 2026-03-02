@@ -194,6 +194,23 @@ class GameSKScene: SKScene {
             .store(in: &cancellables)
 
         // Draw phase results and teams announced — handled by SwiftUI DrawPhaseView
+
+        // Voice speaking indicators
+        VoiceChatManager.shared.speakingChangedSubject
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] (socketId, isSpeaking) in
+                guard let self, socketId != "self" else { return }
+                // Map socketId → position using playerData
+                guard let playerData = self.gameState.playerData else { return }
+                for (index, sid) in playerData.sockets.enumerated() {
+                    if sid == socketId, index < playerData.positions.count {
+                        let position = playerData.positions[index]
+                        self.opponentManager?.setSpeaking(position: position, speaking: isSpeaking)
+                        break
+                    }
+                }
+            }
+            .store(in: &cancellables)
     }
 
     // MARK: - Phase Handling

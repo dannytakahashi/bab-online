@@ -105,6 +105,15 @@ class SKOpponentManager {
         }
     }
 
+    func setSpeaking(position: Int, speaking: Bool) {
+        guard let node = opponents[position] else { return }
+        if speaking {
+            node.showSpeakingGlow()
+        } else {
+            node.hideSpeakingGlow()
+        }
+    }
+
     func clearAllBids() {
         // Bids are managed by SKBidManager — no-op here
     }

@@ -6,6 +6,8 @@ struct GameLobbyView: View {
     @EnvironmentObject var lobbyState: LobbyState
 
     @State private var isReady = false
+    @State private var showVoicePanel = false
+    @ObservedObject private var voiceManager = VoiceChatManager.shared
 
     var body: some View {
         ZStack {
@@ -30,8 +32,17 @@ struct GameLobbyView: View {
 
                     Spacer()
 
-                    Text("\(lobbyState.playerCount)/4")
-                        .foregroundColor(Color.Theme.textSecondary)
+                    HStack(spacing: 12) {
+                        if voiceManager.isActive {
+                            VoiceMuteButton(onLongPress: {
+                                showVoicePanel = true
+                            })
+                            .scaleEffect(0.8)
+                        }
+
+                        Text("\(lobbyState.playerCount)/4")
+                            .foregroundColor(Color.Theme.textSecondary)
+                    }
                 }
                 .padding()
 
@@ -86,6 +97,30 @@ struct GameLobbyView: View {
             }
             .onTapGesture {
                 UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+            }
+        }
+        .onAppear {
+            startVoice()
+        }
+        .sheet(isPresented: $showVoicePanel) {
+            VoicePanelSheet()
+                .presentationDetents([.medium])
+        }
+        .onDisappear {
+            // Only shut down voice if we're not transitioning to game
+            // (game screen takes over voice lifecycle)
+            if appState.screen != .game {
+                VoiceChatManager.shared.shutdown()
+            }
+        }
+    }
+
+    private func startVoice() {
+        Task {
+            do {
+                try await VoiceChatManager.shared.initialize()
+            } catch {
+                print("[Lobby] Voice init failed: \(error.localizedDescription)")
             }
         }
     }

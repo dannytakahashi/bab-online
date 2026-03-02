@@ -13,6 +13,8 @@ struct GameContainerView: View {
     }()
 
     @State private var showGameLog = false
+    @State private var showVoicePanel = false
+    @ObservedObject private var voiceManager = VoiceChatManager.shared
 
     var body: some View {
         ZStack {
@@ -34,6 +36,46 @@ struct GameContainerView: View {
                     BidOverlayView()
                         .padding(.bottom, 200)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+
+            // HSI display and voice mute button (bottom-right, above card hand)
+            // Placed before game log in ZStack so it renders underneath
+            // Hide when bid overlay is visible to avoid overlap
+            if (gameState.phase == .bidding || gameState.phase == .playing)
+                && !(gameState.isBidding && gameState.isMyTurn && !gameState.isReadOnly) {
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        VStack(alignment: .trailing, spacing: 8) {
+                            // HSI display
+                            if !gameState.isSpectator,
+                               let myPos = gameState.position,
+                               let hsi = gameState.hsiValues[myPos] {
+                                Text("HSI: \(String(format: "%.1f", hsi))")
+                                    .font(.system(size: 12, design: .monospaced))
+                                    .foregroundColor(Color(white: 0.67))
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 3)
+                                    .background(Color.black.opacity(0.7))
+                                    .cornerRadius(4)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 4)
+                                            .stroke(Color(white: 0.4), lineWidth: 1)
+                                    )
+                            }
+
+                            // Voice mute button
+                            if voiceManager.isActive {
+                                VoiceMuteButton(onLongPress: {
+                                    showVoicePanel = true
+                                })
+                            }
+                        }
+                        .padding(.trailing, 12)
+                        .padding(.bottom, 190)
+                    }
                 }
             }
 
@@ -117,32 +159,6 @@ struct GameContainerView: View {
                 }
             }
 
-            // HSI display (bottom-right, above card hand)
-            if (gameState.phase == .bidding || gameState.phase == .playing),
-               !gameState.isSpectator,
-               let myPos = gameState.position,
-               let hsi = gameState.hsiValues[myPos] {
-                VStack {
-                    Spacer()
-                    HStack {
-                        Spacer()
-                        Text("HSI: \(String(format: "%.1f", hsi))")
-                            .font(.system(size: 12, design: .monospaced))
-                            .foregroundColor(Color(white: 0.67))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 3)
-                            .background(Color.black.opacity(0.7))
-                            .cornerRadius(4)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 4)
-                                    .stroke(Color(white: 0.4), lineWidth: 1)
-                            )
-                            .padding(.trailing, 12)
-                            .padding(.bottom, 190)
-                    }
-                }
-            }
-
             // Draw phase overlay
             if gameState.phase == .draw {
                 DrawPhaseView()
@@ -162,6 +178,11 @@ struct GameContainerView: View {
         }
         .onDisappear {
             scene.cleanupAll()
+            VoiceChatManager.shared.shutdown()
+        }
+        .sheet(isPresented: $showVoicePanel) {
+            VoicePanelSheet()
+                .presentationDetents([.medium])
         }
     }
 }
