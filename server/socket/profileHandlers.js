@@ -388,11 +388,114 @@ async function getLeaderboard(socket, io) {
     }
 }
 
+/**
+ * Search for players by username
+ * @param {Socket} socket - Socket instance
+ * @param {Server} io - Socket.IO server instance
+ * @param {Object} data - Contains query string
+ */
+async function searchPlayers(socket, io, data) {
+    const usersCollection = getUsersCollection();
+
+    const { query } = data || {};
+    if (!query || typeof query !== 'string' || !query.trim()) {
+        socket.emit('searchPlayersResponse', {
+            success: false,
+            message: 'Search query is required'
+        });
+        return;
+    }
+
+    try {
+        // Escape regex special characters
+        const escaped = query.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const users = await usersCollection.find(
+            { username: { $regex: escaped, $options: 'i' } },
+            { projection: { username: 1, profilePic: 1, customProfilePic: 1, stats: 1 } }
+        ).limit(20).toArray();
+
+        const players = users.map(u => ({
+            username: u.username,
+            profilePic: u.profilePic || 1,
+            customProfilePic: u.customProfilePic || null,
+            gamesPlayed: u.stats?.gamesPlayed || 0,
+            wins: u.stats?.wins || 0
+        }));
+
+        socket.emit('searchPlayersResponse', { success: true, players });
+        authLogger.debug('Player search', { query: query.trim(), resultCount: players.length });
+    } catch (error) {
+        authLogger.error('Error searching players', { query, error: error.message });
+        socket.emit('searchPlayersResponse', { success: false, message: 'Database error' });
+    }
+}
+
+/**
+ * Get another player's profile by username
+ * @param {Socket} socket - Socket instance
+ * @param {Server} io - Socket.IO server instance
+ * @param {Object} data - Contains username string
+ */
+async function getPlayerProfile(socket, io, data) {
+    const usersCollection = getUsersCollection();
+
+    const { username } = data || {};
+    if (!username || typeof username !== 'string' || !username.trim()) {
+        socket.emit('playerProfileResponse', {
+            success: false,
+            message: 'Username is required'
+        });
+        return;
+    }
+
+    try {
+        const dbUser = await usersCollection.findOne({ username: username.trim() });
+
+        if (!dbUser) {
+            socket.emit('playerProfileResponse', {
+                success: false,
+                message: 'Player not found'
+            });
+            return;
+        }
+
+        socket.emit('playerProfileResponse', {
+            success: true,
+            profile: {
+                username: dbUser.username,
+                profilePic: dbUser.profilePic || 1,
+                customProfilePic: dbUser.customProfilePic || null,
+                stats: dbUser.stats || {
+                    wins: 0,
+                    losses: 0,
+                    draws: 0,
+                    gamesPlayed: 0,
+                    totalPoints: 0,
+                    totalTricksBid: 0,
+                    totalTricksTaken: 0,
+                    totalHands: 0,
+                    totalSets: 0,
+                    totalSetPoints: 0,
+                    totalFaults: 0,
+                    totalHSI: 0
+                }
+            }
+        });
+
+        authLogger.debug('Player profile fetched', { username: username.trim() });
+    } catch (error) {
+        authLogger.error('Error fetching player profile', { username, error: error.message });
+        socket.emit('playerProfileResponse', { success: false, message: 'Database error' });
+    }
+}
+
 module.exports = {
     getProfile,
     updateProfilePic,
     uploadProfilePic,
     recordGameStats,
     getUserProfilePic,
-    getLeaderboard
+    getLeaderboard,
+    searchPlayers,
+    getPlayerProfile
 };
