@@ -70,6 +70,7 @@ export class VoiceChatManager {
 
     this.active = true;
     this._localUsername = getGameState().username || null;
+    console.log('[Voice] initialized, username:', this._localUsername);
 
     // Set up speaking detection for local stream
     this._setupAudioContext();
@@ -85,6 +86,7 @@ export class VoiceChatManager {
     this._pendingPeers = [];
     this._pendingOffers = [];
 
+    console.log('[Voice] flushing', pendingOffers.length, 'offers,', pendingPeers.length, 'peers');
     for (const o of pendingOffers) {
       this.handleOffer(o.fromSocketId, o.offer, o.username);
     }
@@ -101,10 +103,15 @@ export class VoiceChatManager {
    */
   async connectToPeer(socketId, username) {
     if (!this.active || !this.localStream) {
+      console.log('[Voice] buffering connectToPeer', socketId, username);
       this._pendingPeers.push({ socketId, username });
       return;
     }
-    if (this.peers.has(socketId)) return;
+    if (this.peers.has(socketId)) {
+      console.log('[Voice] already connected to', socketId);
+      return;
+    }
+    console.log('[Voice] connectToPeer', socketId, username);
 
     const pc = this._createPeerConnection(socketId, username);
 
@@ -134,9 +141,11 @@ export class VoiceChatManager {
    */
   async handleOffer(fromSocketId, offer, username) {
     if (!this.active || !this.localStream) {
+      console.log('[Voice] buffering handleOffer', fromSocketId, username);
       this._pendingOffers.push({ fromSocketId, offer, username });
       return;
     }
+    console.log('[Voice] handleOffer from', fromSocketId, username);
 
     // If we already have a connection, close it and recreate
     if (this.peers.has(fromSocketId)) {
@@ -169,8 +178,11 @@ export class VoiceChatManager {
    */
   async handleAnswer(fromSocketId, answer) {
     const peer = this.peers.get(fromSocketId);
-    if (!peer) return;
-
+    if (!peer) {
+      console.warn('[Voice] handleAnswer: no peer for', fromSocketId);
+      return;
+    }
+    console.log('[Voice] handleAnswer from', fromSocketId);
     await peer.connection.setRemoteDescription(new RTCSessionDescription(answer));
   }
 
