@@ -298,6 +298,72 @@ export class VoiceChatManager {
   }
 
   /**
+   * Enumerate available audio input devices.
+   * @returns {Promise<Array<{deviceId: string, label: string}>>}
+   */
+  async getAudioDevices() {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      return devices
+        .filter(d => d.kind === 'audioinput')
+        .map(d => ({ deviceId: d.deviceId, label: d.label || `Microphone (${d.deviceId.slice(0, 8)})` }));
+    } catch (err) {
+      console.warn('[Voice] enumerateDevices failed:', err.message);
+      return [];
+    }
+  }
+
+  /**
+   * Get the deviceId of the currently active mic track.
+   * @returns {string|null}
+   */
+  getActiveDeviceId() {
+    if (!this.localStream) return null;
+    const track = this.localStream.getAudioTracks()[0];
+    if (!track) return null;
+    const settings = track.getSettings();
+    return settings.deviceId || null;
+  }
+
+  /**
+   * Switch to a different audio input device without renegotiating WebRTC.
+   * @param {string} deviceId
+   */
+  async switchAudioDevice(deviceId) {
+    if (!this.active) return;
+
+    // Get new stream from selected device
+    const newStream = await navigator.mediaDevices.getUserMedia({
+      audio: { deviceId: { exact: deviceId } }
+    });
+    const newTrack = newStream.getAudioTracks()[0];
+
+    // Stop old tracks
+    if (this.localStream) {
+      this.localStream.getAudioTracks().forEach(t => t.stop());
+    }
+    this.localStream = newStream;
+
+    // Replace track on all peer connections (no renegotiation needed)
+    for (const [, peer] of this.peers) {
+      const senders = peer.connection.getSenders();
+      const audioSender = senders.find(s => s.track?.kind === 'audio' || s.track === null);
+      if (audioSender) {
+        await audioSender.replaceTrack(newTrack);
+      }
+    }
+
+    // Recreate self analyser with new stream
+    this._analysers.delete('self');
+    this._addAnalyser('self', newStream);
+
+    // Re-apply mute state
+    if (this.selfMuted) {
+      newTrack.enabled = false;
+    }
+  }
+
+  /**
    * Shut down all voice connections and clean up.
    */
   shutdown() {
