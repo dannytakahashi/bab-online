@@ -369,7 +369,8 @@ export class VoiceChatManager {
 
     // Remote stream handling — playback via GainNode (set up in _addAnalyser)
     pc.ontrack = (event) => {
-      console.log('[Voice] ontrack from', socketId, 'streams:', event.streams.length, 'tracks:', event.streams[0]?.getAudioTracks().length);
+      const track = event.streams[0]?.getAudioTracks()[0];
+      console.log('[Voice] ontrack from', socketId, 'track:', track?.kind, 'enabled:', track?.enabled, 'muted:', track?.muted, 'state:', track?.readyState);
       const peer = this.peers.get(socketId);
       if (peer) {
         peer.stream = event.streams[0];
@@ -407,7 +408,10 @@ export class VoiceChatManager {
   }
 
   _addAnalyser(id, stream) {
-    if (!this._audioContext || !stream) return;
+    if (!this._audioContext || !stream) {
+      console.warn('[Voice] _addAnalyser bail:', id, 'ctx:', !!this._audioContext, 'stream:', !!stream);
+      return;
+    }
 
     try {
       const source = this._audioContext.createMediaStreamSource(stream);
@@ -423,10 +427,12 @@ export class VoiceChatManager {
         source.connect(gainNode);
         gainNode.connect(this._audioContext.destination);
         this._gainNodes.set(id, gainNode);
+        console.log('[Voice] _addAnalyser remote peer', id, 'gain:', gainNode.gain.value, 'audioCtx:', this._audioContext.state);
       }
 
       const dataArray = new Float32Array(analyser.fftSize);
       this._analysers.set(id, { analyser, dataArray });
+      console.log('[Voice] _addAnalyser OK for', id, 'total analysers:', this._analysers.size);
     } catch (err) {
       console.warn('Failed to create analyser for', id, err.message);
     }
