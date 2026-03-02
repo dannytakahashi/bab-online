@@ -450,6 +450,15 @@ export class VoiceChatManager {
 
         if (isSpeaking !== wasSpeaking) {
           this._speakingStates.set(id, isSpeaking);
+
+          // Noise gate: mute audio element when peer isn't speaking
+          if (id !== 'self') {
+            const peer = this.peers.get(id);
+            if (peer?.audioEl && !this._peerMuted.get(id)) {
+              peer.audioEl.volume = isSpeaking ? Math.min(1, this._peerVolumes.get(id) ?? 1.0) : 0;
+            }
+          }
+
           this._speakingCallbacks.forEach(cb => {
             try { cb(id, isSpeaking); } catch (e) { /* ignore */ }
           });
