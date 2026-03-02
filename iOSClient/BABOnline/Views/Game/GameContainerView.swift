@@ -120,7 +120,9 @@ struct GameContainerView: View {
             }
 
             // HSI display and voice mute button (bottom-right, above card hand)
-            if gameState.phase == .bidding || gameState.phase == .playing {
+            // Hide when bid overlay is visible to avoid overlap
+            if (gameState.phase == .bidding || gameState.phase == .playing)
+                && !(gameState.isBidding && gameState.isMyTurn && !gameState.isReadOnly) {
                 VStack {
                     Spacer()
                     HStack {
