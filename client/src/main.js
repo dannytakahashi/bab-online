@@ -30,8 +30,9 @@ import { createSignInScreen, showSignInScreen } from './ui/screens/SignIn.js';
 import { createRegisterScreen, showRegisterScreen } from './ui/screens/Register.js';
 import { showMainRoom, addMainRoomChatMessage, updateLobbyList, removeMainRoom, updateMainRoomOnlineCount, getMainRoomUserColors } from './ui/screens/MainRoom.js';
 import { showGameLobby, updateLobbyPlayersList, addLobbyChatMessage, removeGameLobby, getCurrentLobbyId, getIsPlayerReady, getLobbyUserColors } from './ui/screens/GameLobby.js';
-import { showProfilePage, updateProfilePicDisplay, updateCustomProfilePicDisplay, removeProfilePage, isProfilePageVisible } from './ui/screens/ProfilePage.js';
+import { showProfilePage, updateProfilePicDisplay, updateCustomProfilePicDisplay, removeProfilePage, isProfilePageVisible, showPlayerProfilePage } from './ui/screens/ProfilePage.js';
 import { showLeaderboardPage, removeLeaderboardPage, isLeaderboardPageVisible } from './ui/screens/LeaderboardPage.js';
+import { updatePlayerSearchResults } from './ui/screens/PlayerSearchPage.js';
 import { showTournamentLobby, removeTournamentLobby, addTournamentChatMessage, updateTournamentPlayers, updateTournamentScoreboardUI, updateTournamentRoundIndicator, updateTournamentActiveGames, setTournamentPhase } from './ui/screens/TournamentLobby.js';
 import { showTournamentResultsOverlay, removeTournamentResultsOverlay } from './ui/components/TournamentScoreboard.js';
 import { UIManager, SCREENS, getUIManager, initializeUIManager, resetUIManager } from './ui/UIManager.js';
@@ -2071,7 +2072,7 @@ function initializeApp() {
       updateLobbyList(data.lobbies, socket, data.inProgressGames, data.tournaments);
     },
     onMainRoomPlayerJoined: (data) => {
-      updateMainRoomOnlineCount(data.onlineCount);
+      updateMainRoomOnlineCount(data.onlineCount, data.onlineUsers);
     },
 
     // Lobby callbacks
@@ -3088,6 +3089,12 @@ function initializeApp() {
     },
     onCustomProfilePicUploadError: (message) => {
       showError(message || 'Failed to upload profile picture');
+    },
+    onSearchPlayersResult: (players) => {
+      updatePlayerSearchResults(players);
+    },
+    onPlayerProfileReceived: (profile) => {
+      showPlayerProfilePage(profile);
     },
     // Leaderboard callbacks
     onLeaderboardReceived: (leaderboard) => {

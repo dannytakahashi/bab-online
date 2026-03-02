@@ -599,3 +599,178 @@ export function removeProfilePage() {
 export function isProfilePageVisible() {
   return document.getElementById('profilePageOverlay') !== null;
 }
+
+/**
+ * Show a read-only profile page for viewing another player.
+ *
+ * @param {Object} profile - Profile data (username, profilePic, stats)
+ */
+export function showPlayerProfilePage(profile) {
+  // Remove any existing player profile page
+  removePlayerProfilePage();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'playerProfilePageOverlay';
+  overlay.style.position = 'fixed';
+  overlay.style.top = '0';
+  overlay.style.left = '0';
+  overlay.style.right = '0';
+  overlay.style.bottom = '0';
+  overlay.style.background = 'rgba(0, 0, 0, 0.7)';
+  overlay.style.zIndex = '2000';
+  overlay.style.display = 'flex';
+  overlay.style.alignItems = 'center';
+  overlay.style.justifyContent = 'center';
+
+  const modal = document.createElement('div');
+  modal.style.background = 'rgba(26, 26, 46, 0.98)';
+  modal.style.color = '#fff';
+  modal.style.padding = '30px';
+  modal.style.borderRadius = '12px';
+  modal.style.border = '2px solid #4a5568';
+  modal.style.width = '500px';
+  modal.style.maxWidth = '95vw';
+  modal.style.maxHeight = '90vh';
+  modal.style.overflow = 'auto';
+  modal.style.boxSizing = 'border-box';
+  modal.style.fontFamily = 'Arial, sans-serif';
+
+  // Header
+  const headerRow = document.createElement('div');
+  headerRow.style.display = 'flex';
+  headerRow.style.justifyContent = 'space-between';
+  headerRow.style.alignItems = 'center';
+  headerRow.style.marginBottom = '25px';
+
+  const title = document.createElement('div');
+  title.innerText = profile.username;
+  title.style.fontSize = '28px';
+  title.style.fontWeight = 'bold';
+  title.style.color = '#4ade80';
+  headerRow.appendChild(title);
+
+  const closeBtn = document.createElement('button');
+  closeBtn.innerText = 'X';
+  closeBtn.style.background = '#ef4444';
+  closeBtn.style.border = 'none';
+  closeBtn.style.borderRadius = '50%';
+  closeBtn.style.width = '36px';
+  closeBtn.style.height = '36px';
+  closeBtn.style.color = '#fff';
+  closeBtn.style.fontSize = '18px';
+  closeBtn.style.cursor = 'pointer';
+  closeBtn.style.fontWeight = 'bold';
+  closeBtn.addEventListener('click', removePlayerProfilePage);
+  closeBtn.addEventListener('mouseenter', () => { closeBtn.style.background = '#dc2626'; });
+  closeBtn.addEventListener('mouseleave', () => { closeBtn.style.background = '#ef4444'; });
+  headerRow.appendChild(closeBtn);
+
+  modal.appendChild(headerRow);
+
+  // Profile picture (read-only — no upload/choose buttons)
+  const picSection = document.createElement('div');
+  picSection.style.display = 'flex';
+  picSection.style.alignItems = 'center';
+  picSection.style.gap = '20px';
+  picSection.style.marginBottom = '30px';
+  picSection.style.padding = '20px';
+  picSection.style.background = 'rgba(0, 0, 0, 0.3)';
+  picSection.style.borderRadius = '8px';
+
+  const picContainer = document.createElement('div');
+  picContainer.style.width = '100px';
+  picContainer.style.height = '100px';
+  picContainer.style.borderRadius = '50%';
+  picContainer.style.border = '3px solid #4ade80';
+  picContainer.style.overflow = 'hidden';
+  picContainer.style.flexShrink = '0';
+
+  const picImg = document.createElement('img');
+  picImg.src = getProfilePicSrc(profile);
+  picImg.style.width = '100%';
+  picImg.style.height = '100%';
+  picImg.style.objectFit = 'cover';
+  picImg.alt = 'Profile Picture';
+  picContainer.appendChild(picImg);
+
+  picSection.appendChild(picContainer);
+
+  const picLabel = document.createElement('div');
+  picLabel.innerText = profile.username;
+  picLabel.style.fontSize = '20px';
+  picLabel.style.fontWeight = 'bold';
+  picLabel.style.color = '#fff';
+  picSection.appendChild(picLabel);
+
+  modal.appendChild(picSection);
+
+  // Stats section
+  const statsHeader = document.createElement('div');
+  statsHeader.innerText = 'Statistics';
+  statsHeader.style.fontSize = '18px';
+  statsHeader.style.fontWeight = 'bold';
+  statsHeader.style.marginBottom = '15px';
+  statsHeader.style.color = '#60a5fa';
+  modal.appendChild(statsHeader);
+
+  const stats = profile.stats;
+  const gamesPlayed = stats.gamesPlayed || 0;
+
+  const statsGrid = document.createElement('div');
+  statsGrid.style.display = 'grid';
+  statsGrid.style.gridTemplateColumns = 'repeat(3, 1fr)';
+  statsGrid.style.gap = '10px';
+
+  statsGrid.appendChild(createStatItem('Games Played', String(gamesPlayed)));
+  statsGrid.appendChild(createStatItem('Wins', String(stats.wins || 0)));
+  statsGrid.appendChild(createStatItem('Losses', String(stats.losses || 0)));
+
+  const winPct = gamesPlayed > 0 ? ((stats.wins / gamesPlayed) * 100).toFixed(1) + '%' : '0%';
+  const pointsPerGame = gamesPlayed > 0 ? (stats.totalPoints / gamesPlayed).toFixed(1) : '0';
+  const bidPerGame = gamesPlayed > 0 ? (stats.totalTricksBid / gamesPlayed).toFixed(1) : '0';
+  const tricksPerGame = gamesPlayed > 0 ? (stats.totalTricksTaken / gamesPlayed).toFixed(1) : '0';
+
+  statsGrid.appendChild(createStatItem('Win Rate', winPct));
+  statsGrid.appendChild(createStatItem('Points/Game', pointsPerGame));
+  statsGrid.appendChild(createStatItem('Bids/Game', bidPerGame));
+
+  statsGrid.appendChild(createStatItem('Tricks/Game', tricksPerGame));
+  const tricksPerBid = stats.totalTricksBid > 0
+    ? (stats.totalTricksTaken / stats.totalTricksBid).toFixed(2)
+    : '0';
+  statsGrid.appendChild(createStatItem('Tricks/Bid', tricksPerBid));
+  const setRate = stats.totalHands > 0
+    ? ((stats.totalSets / stats.totalHands) * 100).toFixed(1) + '%'
+    : '0%';
+  statsGrid.appendChild(createStatItem('Set Rate', setRate));
+
+  const drag = gamesPlayed > 0
+    ? ((stats.totalSetPoints || 0) / gamesPlayed).toFixed(1)
+    : '0';
+  statsGrid.appendChild(createStatItem('Drag', drag));
+  const faultsPerGame = gamesPlayed > 0
+    ? ((stats.totalFaults || 0) / gamesPlayed).toFixed(2)
+    : '0';
+  statsGrid.appendChild(createStatItem('Faults/Game', faultsPerGame));
+  const avgHSI = (stats.totalHands || 0) > 0
+    ? ((stats.totalHSI || 0) / stats.totalHands).toFixed(1)
+    : '0';
+  statsGrid.appendChild(createStatItem('HSI', avgHSI));
+
+  modal.appendChild(statsGrid);
+  overlay.appendChild(modal);
+
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) removePlayerProfilePage();
+  });
+
+  document.body.appendChild(overlay);
+}
+
+/**
+ * Remove the read-only player profile page.
+ */
+export function removePlayerProfilePage() {
+  const overlay = document.getElementById('playerProfilePageOverlay');
+  if (overlay) overlay.remove();
+}

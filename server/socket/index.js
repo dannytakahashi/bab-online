@@ -116,6 +116,12 @@ function setupSocketHandlers(io) {
         socket.on('getLeaderboard', () =>
             safeHandler(profileHandlers.getLeaderboard)(socket, io, {})
         );
+        socket.on('searchPlayers', (data) =>
+            asyncHandler('searchPlayers', profileHandlers.searchPlayers)(socket, io, data)
+        );
+        socket.on('getPlayerProfile', (data) =>
+            asyncHandler('getPlayerProfile', profileHandlers.getPlayerProfile)(socket, io, data)
+        );
 
         // Tournament events
         socket.on('createTournament', () =>

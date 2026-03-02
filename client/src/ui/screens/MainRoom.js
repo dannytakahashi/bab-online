@@ -5,11 +5,13 @@
  */
 
 import { generateDistinctColor, getUsernameColor } from '../../utils/colors.js';
+import { showPlayerSearchPage } from './PlayerSearchPage.js';
 
 /**
  * Module state - tracks user colors for consistent display.
  */
 let mainRoomUserColors = {};
+let currentOnlineUsers = [];
 
 /**
  * Create a chat message element.
@@ -403,6 +405,28 @@ export function showMainRoom(data, socket) {
   });
   rightContainer.appendChild(leaderboardBtn);
 
+  // Players search button
+  const playersBtn = document.createElement('button');
+  playersBtn.innerText = 'Players';
+  playersBtn.style.padding = '8px 16px';
+  playersBtn.style.borderRadius = '6px';
+  playersBtn.style.border = 'none';
+  playersBtn.style.background = '#6366f1';
+  playersBtn.style.color = '#fff';
+  playersBtn.style.fontSize = '14px';
+  playersBtn.style.fontWeight = 'bold';
+  playersBtn.style.cursor = 'pointer';
+  playersBtn.addEventListener('click', () => {
+    showPlayerSearchPage(socket);
+  });
+  playersBtn.addEventListener('mouseenter', () => {
+    playersBtn.style.background = '#4f46e5';
+  });
+  playersBtn.addEventListener('mouseleave', () => {
+    playersBtn.style.background = '#6366f1';
+  });
+  rightContainer.appendChild(playersBtn);
+
   // Profile button
   const profileBtn = document.createElement('button');
   profileBtn.innerText = 'Profile';
@@ -425,11 +449,55 @@ export function showMainRoom(data, socket) {
   });
   rightContainer.appendChild(profileBtn);
 
+  // Store online users from initial data
+  currentOnlineUsers = data.onlineUsers || [];
+
   const onlineCount = document.createElement('div');
   onlineCount.id = 'mainRoomOnlineCount';
   onlineCount.innerText = `${data.onlineCount || 0} players online`;
   onlineCount.style.fontSize = '14px';
   onlineCount.style.color = '#9ca3af';
+  onlineCount.style.cursor = 'default';
+  onlineCount.style.position = 'relative';
+  onlineCount.addEventListener('mouseenter', () => {
+    // Remove any existing tooltip
+    const existing = document.getElementById('onlinePlayersTooltip');
+    if (existing) existing.remove();
+
+    if (currentOnlineUsers.length === 0) return;
+
+    const tooltip = document.createElement('div');
+    tooltip.id = 'onlinePlayersTooltip';
+    tooltip.style.position = 'absolute';
+    tooltip.style.top = '100%';
+    tooltip.style.right = '0';
+    tooltip.style.marginTop = '6px';
+    tooltip.style.background = 'rgba(26, 26, 46, 0.98)';
+    tooltip.style.border = '1px solid #4a5568';
+    tooltip.style.borderRadius = '8px';
+    tooltip.style.padding = '10px 14px';
+    tooltip.style.zIndex = '3000';
+    tooltip.style.minWidth = '140px';
+    tooltip.style.maxHeight = '200px';
+    tooltip.style.overflowY = 'auto';
+    tooltip.style.boxShadow = '0 4px 12px rgba(0,0,0,0.4)';
+
+    currentOnlineUsers.forEach((username) => {
+      const row = document.createElement('div');
+      row.innerText = username;
+      row.style.color = '#e5e7eb';
+      row.style.fontSize = '13px';
+      row.style.padding = '3px 0';
+      row.style.whiteSpace = 'nowrap';
+      tooltip.appendChild(row);
+    });
+
+    onlineCount.appendChild(tooltip);
+  });
+  onlineCount.addEventListener('mouseleave', () => {
+    const tooltip = document.getElementById('onlinePlayersTooltip');
+    if (tooltip) tooltip.remove();
+  });
   rightContainer.appendChild(onlineCount);
 
   headerRow.appendChild(rightContainer);
@@ -666,14 +734,19 @@ export function removeMainRoom() {
   const mainRoom = document.getElementById('mainRoomContainer');
   if (mainRoom) mainRoom.remove();
   mainRoomUserColors = {};
+  currentOnlineUsers = [];
 }
 
 /**
  * Update the online player count display.
  *
  * @param {number} count - Number of online players
+ * @param {Array} onlineUsers - Array of online usernames
  */
-export function updateMainRoomOnlineCount(count) {
+export function updateMainRoomOnlineCount(count, onlineUsers) {
+  if (onlineUsers) {
+    currentOnlineUsers = onlineUsers;
+  }
   const countEl = document.getElementById('mainRoomOnlineCount');
   if (countEl) {
     countEl.innerText = `${count} players online`;

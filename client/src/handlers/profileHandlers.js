@@ -15,6 +15,8 @@
  * @param {Function} callbacks.onProfilePicUpdateError - Called on profile pic update error
  * @param {Function} callbacks.onCustomProfilePicUploaded - Called when custom pic is uploaded
  * @param {Function} callbacks.onCustomProfilePicUploadError - Called on custom pic upload error
+ * @param {Function} callbacks.onSearchPlayersResult - Called with search results
+ * @param {Function} callbacks.onPlayerProfileReceived - Called with another player's profile
  */
 export function registerProfileHandlers(socketManager, callbacks = {}) {
   const {
@@ -24,6 +26,8 @@ export function registerProfileHandlers(socketManager, callbacks = {}) {
     onProfilePicUpdateError,
     onCustomProfilePicUploaded,
     onCustomProfilePicUploadError,
+    onSearchPlayersResult,
+    onPlayerProfileReceived,
   } = callbacks;
 
   // Profile response
@@ -56,6 +60,26 @@ export function registerProfileHandlers(socketManager, callbacks = {}) {
     } else {
       console.warn('Custom profile pic upload failed:', data.message);
       onCustomProfilePicUploadError?.(data.message || 'Failed to upload profile picture');
+    }
+  });
+
+  // Player search response
+  socketManager.on('searchPlayersResponse', (data) => {
+    console.log('searchPlayersResponse received:', data);
+    if (data.success) {
+      onSearchPlayersResult?.(data.players);
+    } else {
+      console.warn('Player search failed:', data.message);
+      onSearchPlayersResult?.([]);
+    }
+  });
+
+  // Player profile response (viewing another player)
+  socketManager.on('playerProfileResponse', (data) => {
+    if (data.success) {
+      onPlayerProfileReceived?.(data.profile);
+    } else {
+      console.warn('Player profile fetch failed:', data.message);
     }
   });
 }
