@@ -55,6 +55,11 @@ enum SocketEvents {
         static let spectateTournamentGame = "spectateTournamentGame"
         static let returnToTournament = "returnToTournament"
         static let cancelTournament = "cancelTournament"
+
+        // Voice
+        static let voiceOffer = "voiceOffer"
+        static let voiceAnswer = "voiceAnswer"
+        static let voiceIceCandidate = "voiceIceCandidate"
     }
 
     // MARK: - Server → Client
@@ -143,6 +148,14 @@ enum SocketEvents {
 
         // Leaderboard
         static let leaderboardResponse = "leaderboardResponse"
+
+        // Voice
+        static let voiceOffer = "voiceOffer"
+        static let voiceAnswer = "voiceAnswer"
+        static let voiceIceCandidate = "voiceIceCandidate"
+        static let voicePeerList = "voicePeerList"
+        static let voicePeerJoined = "voicePeerJoined"
+        static let voicePeerLeft = "voicePeerLeft"
 
         // Connection
         static let connect = "connect"

@@ -88,6 +88,26 @@ struct GameLobbyView: View {
                 UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
             }
         }
+        .onAppear {
+            startVoice()
+        }
+        .onDisappear {
+            // Only shut down voice if we're not transitioning to game
+            // (game screen takes over voice lifecycle)
+            if appState.screen != .game {
+                VoiceChatManager.shared.shutdown()
+            }
+        }
+    }
+
+    private func startVoice() {
+        Task {
+            do {
+                try await VoiceChatManager.shared.initialize()
+            } catch {
+                print("[Lobby] Voice init failed: \(error.localizedDescription)")
+            }
+        }
     }
 
     private func addRandomBot() {

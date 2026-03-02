@@ -55,6 +55,9 @@ struct BABOnlineApp: App {
     private func handleScenePhase(_ phase: ScenePhase) {
         switch phase {
         case .active:
+            // Restore voice mic state
+            VoiceChatManager.shared.handleForeground()
+
             if socketService.isBackgroundTaskActive {
                 // Returned within the background keep-alive window (~30s).
                 // Socket likely still connected — end the task and only reconnect if needed.
@@ -72,6 +75,9 @@ struct BABOnlineApp: App {
                 socketService.forceReconnect()
             }
         case .background:
+            // Mute voice mic for privacy while backgrounded
+            VoiceChatManager.shared.handleBackground()
+
             print("[App] Backgrounded — starting socket keep-alive")
             socketService.beginBackgroundKeepAlive()
         default:

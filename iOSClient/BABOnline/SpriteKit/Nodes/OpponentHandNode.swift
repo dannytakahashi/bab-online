@@ -7,6 +7,7 @@ class OpponentHandNode: SKNode {
 
     private let nameLabel: SKLabelNode
     private var turnGlow: SKShapeNode?
+    private var speakingGlow: SKShapeNode?
     private var avatarNode: SKShapeNode?
     private var avatarSprite: SKSpriteNode?
     private let avatarRadius: CGFloat = 20
@@ -78,6 +79,25 @@ class OpponentHandNode: SKNode {
         turnGlow = nil
     }
 
+    // MARK: - Speaking Glow
+
+    func showSpeakingGlow() {
+        guard speakingGlow == nil else { return }
+        let glow = SKShapeNode(circleOfRadius: 28)
+        glow.fillColor = UIColor(red: 0.1, green: 0.9, blue: 0.3, alpha: 0.4)
+        glow.strokeColor = UIColor(red: 0.1, green: 0.9, blue: 0.3, alpha: 0.7)
+        glow.lineWidth = 1.5
+        glow.zPosition = -2
+        glow.run(CardAnimations.pulseGlow())
+        addChild(glow)
+        speakingGlow = glow
+    }
+
+    func hideSpeakingGlow() {
+        speakingGlow?.removeFromParent()
+        speakingGlow = nil
+    }
+
     func updatePic(_ pic: String) {
         guard let circle = avatarNode else { return }
         // Remove existing avatar content (initial letter or crop node)
@@ -94,6 +114,8 @@ class OpponentHandNode: SKNode {
     func cleanup() {
         turnGlow?.removeFromParent()
         turnGlow = nil
+        speakingGlow?.removeFromParent()
+        speakingGlow = nil
     }
 
     // MARK: - Profile Pic
