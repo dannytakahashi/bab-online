@@ -39,6 +39,46 @@ struct GameContainerView: View {
                 }
             }
 
+            // HSI display and voice mute button (bottom-right, above card hand)
+            // Placed before game log in ZStack so it renders underneath
+            // Hide when bid overlay is visible to avoid overlap
+            if (gameState.phase == .bidding || gameState.phase == .playing)
+                && !(gameState.isBidding && gameState.isMyTurn && !gameState.isReadOnly) {
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        VStack(alignment: .trailing, spacing: 8) {
+                            // HSI display
+                            if !gameState.isSpectator,
+                               let myPos = gameState.position,
+                               let hsi = gameState.hsiValues[myPos] {
+                                Text("HSI: \(String(format: "%.1f", hsi))")
+                                    .font(.system(size: 12, design: .monospaced))
+                                    .foregroundColor(Color(white: 0.67))
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 3)
+                                    .background(Color.black.opacity(0.7))
+                                    .cornerRadius(4)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 4)
+                                            .stroke(Color(white: 0.4), lineWidth: 1)
+                                    )
+                            }
+
+                            // Voice mute button
+                            if voiceManager.isActive {
+                                VoiceMuteButton(onLongPress: {
+                                    showVoicePanel = true
+                                })
+                            }
+                        }
+                        .padding(.trailing, 12)
+                        .padding(.bottom, 190)
+                    }
+                }
+            }
+
             // Game log toggle button
             if gameState.phase == .bidding || gameState.phase == .playing {
                 VStack {
@@ -116,45 +156,6 @@ struct GameContainerView: View {
                         .background(Color.green.opacity(0.8))
                         .cornerRadius(8)
                         .padding(.bottom, 12)
-                }
-            }
-
-            // HSI display and voice mute button (bottom-right, above card hand)
-            // Hide when bid overlay is visible to avoid overlap
-            if (gameState.phase == .bidding || gameState.phase == .playing)
-                && !(gameState.isBidding && gameState.isMyTurn && !gameState.isReadOnly) {
-                VStack {
-                    Spacer()
-                    HStack {
-                        Spacer()
-                        VStack(alignment: .trailing, spacing: 8) {
-                            // HSI display
-                            if !gameState.isSpectator,
-                               let myPos = gameState.position,
-                               let hsi = gameState.hsiValues[myPos] {
-                                Text("HSI: \(String(format: "%.1f", hsi))")
-                                    .font(.system(size: 12, design: .monospaced))
-                                    .foregroundColor(Color(white: 0.67))
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 3)
-                                    .background(Color.black.opacity(0.7))
-                                    .cornerRadius(4)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 4)
-                                            .stroke(Color(white: 0.4), lineWidth: 1)
-                                    )
-                            }
-
-                            // Voice mute button
-                            if voiceManager.isActive {
-                                VoiceMuteButton(onLongPress: {
-                                    showVoicePanel = true
-                                })
-                            }
-                        }
-                        .padding(.trailing, 12)
-                        .padding(.bottom, 190)
-                    }
                 }
             }
 
