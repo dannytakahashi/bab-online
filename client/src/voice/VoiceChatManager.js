@@ -70,12 +70,12 @@ export class VoiceChatManager {
 
     this.active = true;
     this._localUsername = getGameState().username || null;
-    console.log('[Voice] initialized, username:', this._localUsername);
-
     // Set up speaking detection for local stream
     this._setupAudioContext();
     this._addAnalyser('self', this.localStream);
     this._startSpeakingDetection();
+
+    console.log('[Voice] initialized, username:', this._localUsername, 'audioCtx:', this._audioContext?.state);
 
     // Flush buffered events that arrived before initialization.
     // Process offers first — if we have an offer from a peer, we don't need
@@ -369,6 +369,7 @@ export class VoiceChatManager {
 
     // Remote stream handling — playback via GainNode (set up in _addAnalyser)
     pc.ontrack = (event) => {
+      console.log('[Voice] ontrack from', socketId, 'streams:', event.streams.length, 'tracks:', event.streams[0]?.getAudioTracks().length);
       const peer = this.peers.get(socketId);
       if (peer) {
         peer.stream = event.streams[0];
@@ -378,9 +379,11 @@ export class VoiceChatManager {
 
     // Connection state monitoring
     pc.onconnectionstatechange = () => {
-      if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
-        console.log(`Voice peer ${socketId} connection ${pc.connectionState}`);
-      }
+      console.log(`[Voice] peer ${socketId} connection: ${pc.connectionState}`);
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      console.log(`[Voice] peer ${socketId} ICE: ${pc.iceConnectionState}`);
     };
 
     return pc;
