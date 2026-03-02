@@ -15,8 +15,9 @@ const ICE_CONFIG = {
   ]
 };
 
-const SPEAKING_THRESHOLD = 0.01;
+const SPEAKING_THRESHOLD = 0.005;
 const SPEAKING_POLL_INTERVAL = 100;
+const SPEAKING_HOLD_MS = 400; // Keep gate open after speech stops
 
 export class VoiceChatManager {
   constructor() {
@@ -34,6 +35,7 @@ export class VoiceChatManager {
     this._audioContext = null;
     this._analysers = new Map(); // socketId|'self' → { analyser, dataArray }
     this._speakingStates = new Map(); // socketId|'self' → boolean
+    this._speakingLastActive = new Map(); // socketId|'self' → timestamp of last above-threshold
     this._speakingInterval = null;
     this._speakingCallbacks = [];
 
@@ -327,6 +329,7 @@ export class VoiceChatManager {
 
     this._analysers.clear();
     this._speakingStates.clear();
+    this._speakingLastActive.clear();
     this._speakingCallbacks = [];
     this._peerMuted.clear();
     this._gainNodes.clear();
@@ -445,8 +448,14 @@ export class VoiceChatManager {
         }
         const rms = Math.sqrt(sum / dataArray.length);
 
+        const now = Date.now();
+        if (rms > SPEAKING_THRESHOLD) {
+          this._speakingLastActive.set(id, now);
+        }
+
         const wasSpeaking = this._speakingStates.get(id) || false;
-        const isSpeaking = rms > SPEAKING_THRESHOLD;
+        const lastActive = this._speakingLastActive.get(id) || 0;
+        const isSpeaking = (now - lastActive) < SPEAKING_HOLD_MS;
 
         if (isSpeaking !== wasSpeaking) {
           this._speakingStates.set(id, isSpeaking);
