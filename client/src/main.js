@@ -32,6 +32,7 @@ import { showMainRoom, addMainRoomChatMessage, updateLobbyList, removeMainRoom, 
 import { showGameLobby, updateLobbyPlayersList, addLobbyChatMessage, removeGameLobby, getCurrentLobbyId, getIsPlayerReady, getLobbyUserColors } from './ui/screens/GameLobby.js';
 import { showProfilePage, updateProfilePicDisplay, updateCustomProfilePicDisplay, removeProfilePage, isProfilePageVisible, showPlayerProfilePage } from './ui/screens/ProfilePage.js';
 import { showLeaderboardPage, removeLeaderboardPage, isLeaderboardPageVisible } from './ui/screens/LeaderboardPage.js';
+import { showRecordsPage, removeRecordsPage } from './ui/screens/RecordsPage.js';
 import { updatePlayerSearchResults } from './ui/screens/PlayerSearchPage.js';
 import { showTournamentLobby, removeTournamentLobby, addTournamentChatMessage, updateTournamentPlayers, updateTournamentScoreboardUI, updateTournamentRoundIndicator, updateTournamentActiveGames, setTournamentPhase } from './ui/screens/TournamentLobby.js';
 import { showTournamentResultsOverlay, removeTournamentResultsOverlay } from './ui/components/TournamentScoreboard.js';
@@ -915,9 +916,16 @@ export function setGameScene(scene) {
         display: flex;
         flex-direction: column;
         align-items: center;
-        pointer-events: none;
+        pointer-events: auto;
+        cursor: pointer;
         z-index: 100;
       `;
+
+      avatarContainer.addEventListener('click', () => {
+        if (socket) {
+          socket.emit('getPlayerProfile', { username });
+        }
+      });
 
       const avatarImg = document.createElement('img');
       avatarImg.className = 'player-avatar-img';
@@ -949,9 +957,13 @@ export function setGameScene(scene) {
       nameLabel.textContent = username;
       nameLabel.style.cssText = `
         margin-top: 5px;
+        padding: 2px 8px;
+        background: rgba(0, 0, 0, 0.7);
+        border: 1px solid #666;
+        border-radius: 4px;
         font-size: 14px;
         font-family: Arial, sans-serif;
-        color: #ffffff;
+        color: #aaa;
         text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
       `;
       avatarContainer.appendChild(nameLabel);
@@ -3102,6 +3114,13 @@ function initializeApp() {
     },
     onLeaderboardError: (message) => {
       showError(message || 'Failed to load leaderboard');
+    },
+    // Records callbacks
+    onRecordsReceived: (records) => {
+      showRecordsPage(records);
+    },
+    onRecordsError: (message) => {
+      showError(message || 'Failed to load records');
     },
 
     // Tournament callbacks

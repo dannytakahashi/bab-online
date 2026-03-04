@@ -6,6 +6,7 @@
 
 import { team, rotate } from '../../utils/positions.js';
 import { CARD_CONFIG, ANIMATION_CONFIG } from '../config.js';
+import { getSocketManager } from '../../socket/SocketManager.js';
 
 /**
  * Base design dimensions for scaling.
@@ -417,9 +418,17 @@ export class OpponentManager {
       display: flex;
       flex-direction: column;
       align-items: center;
-      pointer-events: none;
+      pointer-events: auto;
+      cursor: pointer;
       z-index: 100;
     `;
+
+    container.addEventListener('click', () => {
+      const sm = getSocketManager();
+      if (sm.socket) {
+        sm.socket.emit('getPlayerProfile', { username });
+      }
+    });
 
     // Avatar image
     const img = document.createElement('img');
@@ -452,8 +461,12 @@ export class OpponentManager {
     label.textContent = username;
     label.style.cssText = `
       margin-top: 5px;
+      padding: 2px 8px;
+      background: rgba(0, 0, 0, 0.7);
+      border: 1px solid #666;
+      border-radius: 4px;
       font-size: 14px;
-      color: white;
+      color: #aaa;
       text-shadow: 1px 1px 2px black;
       white-space: nowrap;
     `;

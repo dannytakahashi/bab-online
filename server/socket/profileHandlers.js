@@ -3,7 +3,7 @@
  * Handles fetching and updating user profiles
  */
 
-const { getUsersCollection } = require('../database');
+const { getUsersCollection, getGameRecordsCollection } = require('../database');
 const gameManager = require('../game/GameManager');
 const { authLogger } = require('../utils/logger');
 
@@ -195,6 +195,37 @@ async function uploadProfilePic(socket, io, data) {
 }
 
 /**
+ * Record a completed game's results into the gameRecords collection
+ * @param {Object} game - The completed game object
+ */
+async function recordGameResult(game) {
+    const gameRecordsCollection = getGameRecordsCollection();
+    if (!gameRecordsCollection) return;
+
+    try {
+        const team1Players = [game.getOriginalPlayer(1), game.getOriginalPlayer(3)]
+            .filter(p => p && p.username)
+            .map(p => p.username);
+        const team2Players = [game.getOriginalPlayer(2), game.getOriginalPlayer(4)]
+            .filter(p => p && p.username)
+            .map(p => p.username);
+
+        await gameRecordsCollection.insertOne({
+            gameId: game.gameId,
+            team1Score: game.score.team1,
+            team2Score: game.score.team2,
+            team1Players,
+            team2Players,
+            completedAt: new Date()
+        });
+
+        authLogger.info('Game result recorded', { gameId: game.gameId });
+    } catch (error) {
+        authLogger.error('Error recording game result', { gameId: game.gameId, error: error.message });
+    }
+}
+
+/**
  * Record game statistics for all players after a game ends
  * @param {Object} game - The completed game object
  * @param {boolean} team1Won - Whether team 1 won (positions 1 & 3)
@@ -208,6 +239,9 @@ async function recordGameStats(game) {
         authLogger.info('Skipping stat recording — game contains bots', { gameId: game.gameId });
         return;
     }
+
+    // Record the game result for records page
+    await recordGameResult(game);
 
     // Determine winner based on final scores
     const team1Won = game.score.team1 > game.score.team2;
@@ -489,6 +523,85 @@ async function getPlayerProfile(socket, io, data) {
     }
 }
 
+/**
+ * Get game records (highest score, lowest score, biggest win) for 3 time periods
+ * @param {Socket} socket - Socket instance
+ * @param {Server} io - Socket.IO server instance
+ */
+async function getRecords(socket, io) {
+    const gameRecordsCollection = getGameRecordsCollection();
+
+    if (!gameRecordsCollection) {
+        socket.emit('recordsResponse', { success: false, message: 'Database not available' });
+        return;
+    }
+
+    try {
+        const now = new Date();
+        const startOfYear = new Date(now.getFullYear(), 0, 1);
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+        const filters = {
+            allTime: {},
+            thisYear: { completedAt: { $gte: startOfYear } },
+            thisMonth: { completedAt: { $gte: startOfMonth } }
+        };
+
+        const records = {};
+
+        for (const [period, filter] of Object.entries(filters)) {
+            const games = await gameRecordsCollection.find(filter).toArray();
+
+            if (games.length === 0) {
+                records[period] = null;
+                continue;
+            }
+
+            let highestScore = null;
+            let lowestScore = null;
+            let biggestWin = null;
+
+            for (const game of games) {
+                // Check both teams for highest/lowest individual team score
+                const entries = [
+                    { score: game.team1Score, players: game.team1Players },
+                    { score: game.team2Score, players: game.team2Players }
+                ];
+
+                for (const entry of entries) {
+                    if (!highestScore || entry.score > highestScore.score) {
+                        highestScore = { score: entry.score, players: entry.players };
+                    }
+                    if (!lowestScore || entry.score < lowestScore.score) {
+                        lowestScore = { score: entry.score, players: entry.players };
+                    }
+                }
+
+                // Biggest win margin
+                const margin = Math.abs(game.team1Score - game.team2Score);
+                if (!biggestWin || margin > biggestWin.margin) {
+                    const winnerIsTeam1 = game.team1Score > game.team2Score;
+                    biggestWin = {
+                        margin,
+                        winnerScore: winnerIsTeam1 ? game.team1Score : game.team2Score,
+                        loserScore: winnerIsTeam1 ? game.team2Score : game.team1Score,
+                        winnerPlayers: winnerIsTeam1 ? game.team1Players : game.team2Players,
+                        loserPlayers: winnerIsTeam1 ? game.team2Players : game.team1Players
+                    };
+                }
+            }
+
+            records[period] = { highestScore, lowestScore, biggestWin };
+        }
+
+        socket.emit('recordsResponse', { success: true, records });
+        authLogger.debug('Records fetched');
+    } catch (error) {
+        authLogger.error('Error fetching records', { error: error.message });
+        socket.emit('recordsResponse', { success: false, message: 'Database error' });
+    }
+}
+
 module.exports = {
     getProfile,
     updateProfilePic,
@@ -497,5 +610,6 @@ module.exports = {
     getUserProfilePic,
     getLeaderboard,
     searchPlayers,
-    getPlayerProfile
+    getPlayerProfile,
+    getRecords
 };

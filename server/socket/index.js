@@ -116,6 +116,9 @@ function setupSocketHandlers(io) {
         socket.on('getLeaderboard', () =>
             safeHandler(profileHandlers.getLeaderboard)(socket, io, {})
         );
+        socket.on('getRecords', () =>
+            safeHandler(profileHandlers.getRecords)(socket, io, {})
+        );
         socket.on('searchPlayers', (data) =>
             asyncHandler('searchPlayers', profileHandlers.searchPlayers)(socket, io, data)
         );

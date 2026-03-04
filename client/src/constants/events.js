@@ -54,6 +54,9 @@ export const CLIENT_EVENTS = {
   // Leaderboard
   GET_LEADERBOARD: 'getLeaderboard',
 
+  // Records
+  GET_RECORDS: 'getRecords',
+
   // Voice Chat
   VOICE_OFFER: 'voiceOffer',
   VOICE_ANSWER: 'voiceAnswer',
@@ -143,6 +146,9 @@ export const SERVER_EVENTS = {
 
   // Leaderboard
   LEADERBOARD_RESPONSE: 'leaderboardResponse',
+
+  // Records
+  RECORDS_RESPONSE: 'recordsResponse',
 
   // Tournament
   TOURNAMENT_CREATED: 'tournamentCreated',
