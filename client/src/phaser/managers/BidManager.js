@@ -28,6 +28,11 @@ export class BidManager {
 
     // Currently selected bid
     this.selectedBid = null;
+
+    // Trick indicator
+    this.trickIndicators = [];
+    this.indicatorRow = null;
+    this.handSize = 0;
   }
 
   /**
@@ -97,8 +102,24 @@ export class BidManager {
     header.style.fontWeight = 'bold';
     header.style.textAlign = 'center';
     header.style.marginBottom = '4px';
-    header.innerText = 'Your Bid:';
+    header.innerText = 'Bid!';
     this.bidContainer.appendChild(header);
+
+    // Trick indicator
+    this.handSize = handSize;
+    this.indicatorRow = document.createElement('div');
+    this.indicatorRow.style.display = 'flex';
+    this.indicatorRow.style.gap = '3px';
+    this.indicatorRow.style.justifyContent = 'center';
+    this.indicatorRow.style.marginBottom = '4px';
+    this.trickIndicators = [];
+    for (let i = 0; i < handSize; i++) {
+      const rect = this.createIndicatorRect();
+      this.trickIndicators.push(rect);
+      this.indicatorRow.appendChild(rect);
+    }
+    this.bidContainer.appendChild(this.indicatorRow);
+    this.updateTrickIndicator();
 
     // Reset selection tracking
     this.allBidButtons = [];
@@ -247,6 +268,84 @@ export class BidManager {
         btn.style.background = '#c53030';
       }
     });
+
+    this.updateTrickIndicator();
+  }
+
+  /**
+   * Create a single indicator rectangle element.
+   */
+  createIndicatorRect() {
+    const rect = document.createElement('div');
+    rect.style.width = '18px';
+    rect.style.height = '26px';
+    rect.style.borderRadius = '3px';
+    rect.style.background = '#555';
+    rect.style.transition = 'background 150ms ease';
+    rect.style.boxSizing = 'border-box';
+    return rect;
+  }
+
+  /**
+   * Update trick indicator colors based on current bids.
+   * Adds extra pulsing rectangles for overbids (capped at 16 total).
+   */
+  updateTrickIndicator() {
+    if (!this.indicatorRow) return;
+
+    const bids = this.state.bids;
+    const myTeam = this.state.position % 2;
+
+    let teamBidCount = 0;
+    let oppBidCount = 0;
+
+    for (const [pos, bid] of Object.entries(bids)) {
+      const bidStr = String(bid).toUpperCase();
+      if (['B', '2B', '3B', '4B'].includes(bidStr)) continue;
+      const numBid = parseInt(bidStr, 10);
+      if (isNaN(numBid)) continue;
+
+      if (Number(pos) % 2 === myTeam) {
+        teamBidCount += numBid;
+      } else {
+        oppBidCount += numBid;
+      }
+    }
+
+    const totalBid = teamBidCount + oppBidCount;
+    const totalNeeded = Math.min(Math.max(totalBid, this.handSize), 16);
+
+    // Add or remove extra rectangles to match totalNeeded
+    while (this.trickIndicators.length < totalNeeded) {
+      const rect = this.createIndicatorRect();
+      this.trickIndicators.push(rect);
+      this.indicatorRow.appendChild(rect);
+    }
+    while (this.trickIndicators.length > totalNeeded) {
+      const rect = this.trickIndicators.pop();
+      rect.remove();
+    }
+
+    // Color the rectangles
+    for (let i = 0; i < this.trickIndicators.length; i++) {
+      const rect = this.trickIndicators[i];
+      const isOverbid = i >= this.handSize;
+
+      if (i < teamBidCount) {
+        rect.style.background = '#68d391';
+      } else if (i < totalBid) {
+        rect.style.background = '#fc8181';
+      } else {
+        rect.style.background = '#555';
+      }
+
+      if (isOverbid) {
+        rect.style.animation = 'trickOverbidPulse 1s ease-in-out infinite';
+      } else {
+        rect.style.animation = '';
+        rect.style.outline = '';
+      }
+    }
   }
 
   /**
@@ -300,6 +399,9 @@ export class BidManager {
     this.boreButtons = {};
     this.allBidButtons = [];
     this.selectedBid = null;
+    this.trickIndicators = [];
+    this.indicatorRow = null;
+    this.handSize = 0;
   }
 
   /**
