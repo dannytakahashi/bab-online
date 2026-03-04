@@ -191,6 +191,10 @@ export function setGameScene(scene) {
       if (window.updateBoreButtons) {
         window.updateBoreButtons();
       }
+      // Update game log trick indicator
+      if (gameLogInstance && gameLogInstance.updateTrickIndicator) {
+        gameLogInstance.updateTrickIndicator();
+      }
     };
   }
 
@@ -204,6 +208,7 @@ export function setGameScene(scene) {
       if (this.bidManager) {
         this.bidManager.hideBidUI();
       }
+      // Keep game log trick indicator visible through playing phase
     };
   }
 
@@ -1823,8 +1828,22 @@ function initializeApp() {
         scene.cardManager.updateCardLegality(legalityChecker, canPlay);
       }
 
+      // Show game log trick indicator on reconnect (persists through entire hand)
+      if (gameLogInstance && gameLogInstance.showTrickIndicator) {
+        const handSize = data.hand?.length || data.currentHand;
+        if (handSize) {
+          gameLogInstance.showTrickIndicator(handSize);
+        }
+      }
+
+      // Re-apply bidding state (scene creation may have reset it)
+      if (isBiddingOnRejoin) {
+        gameState.isBidding = true;
+        gameState.phase = PHASE.BIDDING;
+      }
+
       // Create bid UI via BidManager (only if still in bidding phase)
-      if (scene && scene.bidManager && data.hand && gameState.isBidding && !gameState.isSpectator) {
+      if (scene && scene.bidManager && data.hand && isBiddingOnRejoin && !gameState.isSpectator) {
         scene.bidManager.showBidUI(data.hand.length, (bid) => {
           if (window.socket) {
             window.socket.emit('playerBid', { position: gameState.position, bid });
@@ -2437,6 +2456,11 @@ function initializeApp() {
             scene.opponentManager.displayOpponentCards(cardCount);
           }
         }
+
+        // Show game log trick indicator as cards are dealt
+        if (gameLogInstance && gameLogInstance.showTrickIndicator && data.hand) {
+          gameLogInstance.showTrickIndicator(data.hand.length);
+        }
       };
 
       // Function to show bid UI (delayed until trump flip complete)
@@ -2598,6 +2622,10 @@ function initializeApp() {
       if (scene && scene.handleBidReceived) {
         scene.handleBidReceived(data);
       }
+      // Update game log trick indicator
+      if (gameLogInstance && gameLogInstance.updateTrickIndicator) {
+        gameLogInstance.updateTrickIndicator();
+      }
       // Note: Legacy code in displayCards() also handles bidReceived for bubbles/impact events
     },
     onDoneBidding: (data) => {
@@ -2665,9 +2693,16 @@ function initializeApp() {
       if (scene && scene.handleHandComplete) {
         scene.handleHandComplete(data);
       }
+      // Hide game log trick indicator at end of hand
+      if (gameLogInstance && gameLogInstance.hideTrickIndicator) {
+        gameLogInstance.hideTrickIndicator();
+      }
     },
     onGameEnd: (data) => {
       const scene = getGameScene();
+      if (gameLogInstance && gameLogInstance.hideTrickIndicator) {
+        gameLogInstance.hideTrickIndicator();
+      }
 
       // Determine which team the player is on (positions 1,3 = Team 1, positions 2,4 = Team 2)
       // Spectators view from position 1 but aren't on either team

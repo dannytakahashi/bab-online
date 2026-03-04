@@ -84,11 +84,131 @@ export function createGameLog({ onChatSubmit } = {}) {
   scoreSection.appendChild(oppScoreDiv);
   container.appendChild(scoreSection);
 
+  // Trick indicator (shown during bidding, below score section)
+  const trickIndicatorSection = document.createElement('div');
+  trickIndicatorSection.style.cssText = `
+    display: none;
+    padding: 6px 10px;
+    border-bottom: 1px solid #333;
+    background: rgba(0, 0, 0, 0.3);
+    flex-shrink: 0;
+  `;
+  const trickIndicatorRow = document.createElement('div');
+  trickIndicatorRow.style.cssText = `
+    display: flex;
+    gap: 2px;
+    justify-content: center;
+    flex-wrap: wrap;
+  `;
+  trickIndicatorSection.appendChild(trickIndicatorRow);
+  container.appendChild(trickIndicatorSection);
+
   // Message area
   const messageArea = document.createElement('div');
   messageArea.id = 'gameFeedMessages';  // Legacy ID for compatibility
   messageArea.classList.add('chat-messages');  // Legacy class
   container.appendChild(messageArea);
+
+  let trickRects = [];
+  let trickHandSize = 0;
+
+  const createTrickRect = () => {
+    const rect = document.createElement('div');
+    rect.style.cssText = `
+      width: 14px;
+      height: 20px;
+      border-radius: 2px;
+      background: #555;
+      transition: background 150ms ease;
+      box-sizing: border-box;
+    `;
+    return rect;
+  };
+
+  const showTrickIndicator = (handSize) => {
+    trickHandSize = handSize;
+    trickIndicatorRow.innerHTML = '';
+    trickRects = [];
+    for (let i = 0; i < handSize; i++) {
+      const rect = createTrickRect();
+      trickRects.push(rect);
+      trickIndicatorRow.appendChild(rect);
+    }
+    trickIndicatorSection.style.display = 'block';
+    updateTrickIndicator();
+  };
+
+  const hideTrickIndicator = () => {
+    trickIndicatorSection.style.display = 'none';
+    trickIndicatorRow.innerHTML = '';
+    trickRects = [];
+    trickHandSize = 0;
+  };
+
+  const updateTrickIndicator = () => {
+    if (trickRects.length === 0) return;
+
+    const state = getGameState();
+    const bids = state.bids;
+    const myTeam = state.position % 2;
+
+    let teamBidCount = 0;
+    let oppBidCount = 0;
+
+    // After bidding completes, bids changes to { team1: N, team2: N }
+    if (bids.team1 !== undefined) {
+      const isTeam1 = state.position === 1 || state.position === 3;
+      teamBidCount = isTeam1 ? bids.team1 : bids.team2;
+      oppBidCount = isTeam1 ? bids.team2 : bids.team1;
+    } else {
+      for (const [pos, bid] of Object.entries(bids)) {
+        const bidStr = String(bid).toUpperCase();
+        if (['B', '2B', '3B', '4B'].includes(bidStr)) continue;
+        const numBid = parseInt(bidStr, 10);
+        if (isNaN(numBid)) continue;
+
+        if (Number(pos) % 2 === myTeam) {
+          teamBidCount += numBid;
+        } else {
+          oppBidCount += numBid;
+        }
+      }
+    }
+
+    const totalBid = teamBidCount + oppBidCount;
+    const totalNeeded = Math.min(Math.max(totalBid, trickHandSize), 16);
+
+    // Add or remove extra rectangles
+    while (trickRects.length < totalNeeded) {
+      const rect = createTrickRect();
+      trickRects.push(rect);
+      trickIndicatorRow.appendChild(rect);
+    }
+    while (trickRects.length > totalNeeded) {
+      const rect = trickRects.pop();
+      rect.remove();
+    }
+
+    for (let i = 0; i < trickRects.length; i++) {
+      const rect = trickRects[i];
+      const isOverbid = i >= trickHandSize;
+
+      if (i < teamBidCount) {
+        rect.style.background = '#68d391';
+      } else if (i < totalBid) {
+        rect.style.background = '#fc8181';
+      } else {
+        rect.style.background = '#555';
+      }
+
+      if (isOverbid) {
+        rect.style.animation = 'trickOverbidPulse 1s ease-in-out infinite';
+      } else {
+        rect.style.animation = '';
+        rect.style.outline = '';
+      }
+    }
+  };
 
   // Chat input section
   const chatSection = document.createElement('div');
@@ -426,6 +546,9 @@ export function createGameLog({ onChatSubmit } = {}) {
     updateTricks,
     updateFullScore,
     updateHandIndicator,
+    showTrickIndicator,
+    hideTrickIndicator,
+    updateTrickIndicator,
     clearMessages,
     destroy,
     chatInput,

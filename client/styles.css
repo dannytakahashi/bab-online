@@ -76,6 +76,17 @@ h1 {
     }
 }
 
+@keyframes trickOverbidPulse {
+    0%, 100% {
+        outline: 2px solid transparent;
+        box-shadow: none;
+    }
+    50% {
+        outline: 2px solid #ff3333;
+        box-shadow: 0 0 6px #ff3333;
+    }
+}
+
 /* Warning toast (yellow) */
 .warning-toast {
     background: #f59e0b;
