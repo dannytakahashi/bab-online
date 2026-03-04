@@ -405,6 +405,28 @@ export function showMainRoom(data, socket) {
   });
   rightContainer.appendChild(leaderboardBtn);
 
+  // Records button
+  const recordsBtn = document.createElement('button');
+  recordsBtn.innerText = 'Records';
+  recordsBtn.style.padding = '8px 16px';
+  recordsBtn.style.borderRadius = '6px';
+  recordsBtn.style.border = 'none';
+  recordsBtn.style.background = '#6366f1';
+  recordsBtn.style.color = '#fff';
+  recordsBtn.style.fontSize = '14px';
+  recordsBtn.style.fontWeight = 'bold';
+  recordsBtn.style.cursor = 'pointer';
+  recordsBtn.addEventListener('click', () => {
+    socket.emit('getRecords');
+  });
+  recordsBtn.addEventListener('mouseenter', () => {
+    recordsBtn.style.background = '#4f46e5';
+  });
+  recordsBtn.addEventListener('mouseleave', () => {
+    recordsBtn.style.background = '#6366f1';
+  });
+  rightContainer.appendChild(recordsBtn);
+
   // Players search button
   const playersBtn = document.createElement('button');
   playersBtn.innerText = 'Players';

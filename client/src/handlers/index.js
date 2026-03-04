@@ -11,6 +11,7 @@ import { registerGameHandlers, cleanupGameHandlers as cleanupGame } from './game
 import { registerChatHandlers } from './chatHandlers.js';
 import { registerProfileHandlers } from './profileHandlers.js';
 import { registerLeaderboardHandlers } from './leaderboardHandlers.js';
+import { registerRecordsHandlers } from './recordsHandlers.js';
 import { registerTournamentHandlers } from './tournamentHandlers.js';
 import { registerVoiceHandlers } from './voiceHandlers.js';
 
@@ -89,6 +90,9 @@ export function registerAllHandlers(socketManager, callbacks = {}) {
     // Leaderboard callbacks
     onLeaderboardReceived,
     onLeaderboardError,
+    // Records callbacks
+    onRecordsReceived,
+    onRecordsError,
     // Tournament callbacks
     onTournamentCreated,
     onTournamentJoined,
@@ -189,6 +193,12 @@ export function registerAllHandlers(socketManager, callbacks = {}) {
     onLeaderboardError,
   });
 
+  // Register records handlers
+  registerRecordsHandlers(socketManager, {
+    onRecordsReceived,
+    onRecordsError,
+  });
+
   // Register voice handlers (no callbacks needed - self-contained)
   registerVoiceHandlers(socketManager);
 
@@ -225,5 +235,6 @@ export { registerGameHandlers } from './gameHandlers.js';
 export { registerChatHandlers } from './chatHandlers.js';
 export { registerProfileHandlers } from './profileHandlers.js';
 export { registerLeaderboardHandlers } from './leaderboardHandlers.js';
+export { registerRecordsHandlers } from './recordsHandlers.js';
 export { registerTournamentHandlers } from './tournamentHandlers.js';
 export { registerVoiceHandlers } from './voiceHandlers.js';
