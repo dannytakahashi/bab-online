@@ -41,8 +41,19 @@ function voiceIceCandidate(socket, io, data) {
     });
 }
 
+function voiceRelayAudio(socket, io, data) {
+    const { targetSocketId, audio } = data;
+    if (!targetSocketId || !audio) return;
+
+    io.to(targetSocketId).emit('voiceRelayAudio', {
+        fromSocketId: socket.id,
+        audio
+    });
+}
+
 module.exports = {
     voiceOffer,
     voiceAnswer,
-    voiceIceCandidate
+    voiceIceCandidate,
+    voiceRelayAudio
 };

@@ -174,6 +174,9 @@ function setupSocketHandlers(io) {
         socket.on('voiceIceCandidate', (data) =>
             safeHandler(voiceHandlers.voiceIceCandidate)(socket, io, data)
         );
+        socket.on('voiceRelayAudio', (data) =>
+            safeHandler(voiceHandlers.voiceRelayAudio)(socket, io, data)
+        );
 
         // Disconnect - cleanup rate limiter and handle game state
         socket.on('disconnect', () => {

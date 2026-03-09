@@ -52,6 +52,14 @@ export class VoiceChatManager {
     // Buffered events received before initialization completes
     this._pendingPeers = [];
     this._pendingOffers = [];
+
+    // Relay fallback state
+    this._relayedPeers = new Set();          // socketIds using relay
+    this._relayProcessor = null;              // shared ScriptProcessorNode
+    this._relaySource = null;                 // MediaStreamSource for relay capture
+    this._relayMuteNode = null;              // GainNode(0) to prevent echo
+    this._relayPlaybackTime = new Map();     // socketId → next scheduled playback time
+    this._relayGainNodes = new Map();        // socketId → GainNode for volume control
   }
 
   /**
@@ -232,6 +240,8 @@ export class VoiceChatManager {
     this._peerMuted.set(socketId, true);
     const peer = this.peers.get(socketId);
     if (peer?.audioEl) peer.audioEl.volume = 0;
+    const relayGain = this._relayGainNodes.get(socketId);
+    if (relayGain) relayGain.gain.value = 0;
   }
 
   /**
@@ -239,8 +249,11 @@ export class VoiceChatManager {
    */
   unmutePeer(socketId) {
     this._peerMuted.set(socketId, false);
+    const vol = this._peerVolumes.get(socketId) ?? 1.0;
     const peer = this.peers.get(socketId);
-    if (peer?.audioEl) peer.audioEl.volume = Math.min(1, this._peerVolumes.get(socketId) ?? 1.0);
+    if (peer?.audioEl) peer.audioEl.volume = Math.min(1, vol);
+    const relayGain = this._relayGainNodes.get(socketId);
+    if (relayGain) relayGain.gain.value = vol;
   }
 
   /**
@@ -259,6 +272,8 @@ export class VoiceChatManager {
     if (!this._peerMuted.get(socketId)) {
       const peer = this.peers.get(socketId);
       if (peer?.audioEl) peer.audioEl.volume = Math.min(1, clamped);
+      const relayGain = this._relayGainNodes.get(socketId);
+      if (relayGain) relayGain.gain.value = clamped;
     }
   }
 
@@ -295,6 +310,13 @@ export class VoiceChatManager {
    */
   isSpeaking(socketId) {
     return this._speakingStates.get(socketId) || false;
+  }
+
+  /**
+   * Check if a peer is using relay (non-P2P) mode.
+   */
+  isRelayed(socketId) {
+    return this._relayedPeers.has(socketId);
   }
 
   /**
@@ -357,6 +379,15 @@ export class VoiceChatManager {
     this._analysers.delete('self');
     this._addAnalyser('self', newStream);
 
+    // Reconnect relay processor to new stream if relay is active
+    if (this._relayProcessor && this._relayedPeers.size > 0) {
+      if (this._relaySource) {
+        this._relaySource.disconnect();
+      }
+      this._relaySource = this._audioContext.createMediaStreamSource(newStream);
+      this._relaySource.connect(this._relayProcessor);
+    }
+
     // Re-apply mute state
     if (this.selfMuted) {
       newTrack.enabled = false;
@@ -405,6 +436,15 @@ export class VoiceChatManager {
     this._localUsername = null;
     this.selfMuted = false;
     this.socketManager = null;
+
+    // Clean up relay state
+    this._stopRelayCapture();
+    this._relayedPeers.clear();
+    this._relayPlaybackTime.clear();
+    for (const gain of this._relayGainNodes.values()) {
+      gain.disconnect();
+    }
+    this._relayGainNodes.clear();
   }
 
   // ============================================
@@ -458,6 +498,10 @@ export class VoiceChatManager {
 
     pc.oniceconnectionstatechange = () => {
       console.log(`[Voice] peer ${socketId} ICE: ${pc.iceConnectionState}`);
+      if (pc.iceConnectionState === 'failed') {
+        console.log(`[Voice] P2P failed for ${socketId}, switching to relay`);
+        this._startRelay(socketId);
+      }
     };
 
     return pc;
@@ -467,7 +511,9 @@ export class VoiceChatManager {
     const peer = this.peers.get(socketId);
     if (!peer) return;
 
-    peer.connection.close();
+    if (peer.connection.signalingState !== 'closed') {
+      peer.connection.close();
+    }
     if (peer.audioEl) {
       peer.audioEl.srcObject = null;
       peer.audioEl.remove();
@@ -476,7 +522,183 @@ export class VoiceChatManager {
     this._gainNodes.delete(socketId);
     this._analysers.delete(socketId);
     this._speakingStates.delete(socketId);
+    this._speakingLastActive.delete(socketId);
+
+    // Clean up relay state
+    this._relayedPeers.delete(socketId);
+    this._relayPlaybackTime.delete(socketId);
+    const relayGain = this._relayGainNodes.get(socketId);
+    if (relayGain) {
+      relayGain.disconnect();
+      this._relayGainNodes.delete(socketId);
+    }
+    if (this._relayedPeers.size === 0) {
+      this._stopRelayCapture();
+    }
+
     this.peers.delete(socketId);
+  }
+
+  /**
+   * Switch a peer to relay mode after ICE failure.
+   */
+  _startRelay(socketId) {
+    if (this._relayedPeers.has(socketId)) return;
+
+    const peer = this.peers.get(socketId);
+    if (!peer) return;
+
+    // Close the P2P connection but keep the peer entry for username/metadata
+    if (peer.connection.signalingState !== 'closed') {
+      peer.connection.close();
+    }
+    if (peer.audioEl) {
+      peer.audioEl.srcObject = null;
+      peer.audioEl.remove();
+      peer.audioEl = null;
+    }
+
+    // Remove P2P analyser — speaking detection for relay uses RMS from received PCM
+    this._analysers.delete(socketId);
+
+    this._relayedPeers.add(socketId);
+    this._ensureRelayCapture();
+
+    // Create per-peer GainNode for volume/mute control on playback
+    if (this._audioContext) {
+      const gain = this._audioContext.createGain();
+      const vol = this._peerMuted.get(socketId) ? 0 : (this._peerVolumes.get(socketId) ?? 1.0);
+      gain.gain.value = vol;
+      gain.connect(this._audioContext.destination);
+      this._relayGainNodes.set(socketId, gain);
+    }
+  }
+
+  /**
+   * Set up shared ScriptProcessorNode for relay audio capture.
+   */
+  _ensureRelayCapture() {
+    if (this._relayProcessor) return;
+    if (!this._audioContext || !this.localStream) return;
+
+    this._relaySource = this._audioContext.createMediaStreamSource(this.localStream);
+
+    // ScriptProcessorNode for capturing and downsampling audio
+    this._relayProcessor = this._audioContext.createScriptProcessor(4096, 1, 1);
+
+    // GainNode(0) connected to destination — required for processing to fire
+    this._relayMuteNode = this._audioContext.createGain();
+    this._relayMuteNode.gain.value = 0;
+
+    this._relaySource.connect(this._relayProcessor);
+    this._relayProcessor.connect(this._relayMuteNode);
+    this._relayMuteNode.connect(this._audioContext.destination);
+
+    const inputSampleRate = this._audioContext.sampleRate;
+    const outputSampleRate = 8000;
+
+    this._relayProcessor.onaudioprocess = (e) => {
+      if (this.selfMuted || this._relayedPeers.size === 0) return;
+      if (!this.socketManager) return;
+
+      const input = e.inputBuffer.getChannelData(0);
+
+      // Downsample to 8kHz
+      const ratio = inputSampleRate / outputSampleRate;
+      const outputLength = Math.floor(input.length / ratio);
+      const output = new Int16Array(outputLength);
+
+      for (let i = 0; i < outputLength; i++) {
+        const srcIndex = Math.floor(i * ratio);
+        // Clamp and convert float [-1, 1] to Int16
+        const sample = Math.max(-1, Math.min(1, input[srcIndex]));
+        output[i] = sample * 32767;
+      }
+
+      // Send to each relayed peer
+      for (const targetSocketId of this._relayedPeers) {
+        this.socketManager.emit(CLIENT_EVENTS.VOICE_RELAY_AUDIO, {
+          targetSocketId,
+          audio: output.buffer
+        });
+      }
+    };
+  }
+
+  /**
+   * Tear down relay capture when no more relayed peers.
+   */
+  _stopRelayCapture() {
+    if (this._relayProcessor) {
+      this._relayProcessor.onaudioprocess = null;
+      this._relayProcessor.disconnect();
+      this._relayProcessor = null;
+    }
+    if (this._relaySource) {
+      this._relaySource.disconnect();
+      this._relaySource = null;
+    }
+    if (this._relayMuteNode) {
+      this._relayMuteNode.disconnect();
+      this._relayMuteNode = null;
+    }
+  }
+
+  /**
+   * Handle incoming relay audio from a peer.
+   */
+  _onRelayAudio(fromSocketId, audioData) {
+    if (!this._audioContext || !this._relayedPeers.has(fromSocketId)) return;
+
+    // Convert ArrayBuffer/Int16Array → Float32Array
+    const int16 = new Int16Array(audioData);
+    const float32 = new Float32Array(int16.length);
+    for (let i = 0; i < int16.length; i++) {
+      float32[i] = int16[i] / 32767;
+    }
+
+    // Speaking detection: compute RMS from received PCM
+    let sum = 0;
+    for (let i = 0; i < float32.length; i++) {
+      sum += float32[i] * float32[i];
+    }
+    const rms = Math.sqrt(sum / float32.length);
+
+    const now = Date.now();
+    if (rms > SPEAKING_THRESHOLD) {
+      this._speakingLastActive.set(fromSocketId, now);
+    }
+    const wasSpeaking = this._speakingStates.get(fromSocketId) || false;
+    const lastActive = this._speakingLastActive.get(fromSocketId) || 0;
+    const isSpeaking = (now - lastActive) < SPEAKING_HOLD_MS;
+
+    if (isSpeaking !== wasSpeaking) {
+      this._speakingStates.set(fromSocketId, isSpeaking);
+      this._speakingCallbacks.forEach(cb => {
+        try { cb(fromSocketId, isSpeaking); } catch (e) { /* ignore */ }
+      });
+    }
+
+    // Playback: create AudioBuffer and schedule via AudioBufferSourceNode
+    const gainNode = this._relayGainNodes.get(fromSocketId);
+    if (!gainNode) return;
+
+    const sampleRate = 8000;
+    const buffer = this._audioContext.createBuffer(1, float32.length, sampleRate);
+    buffer.getChannelData(0).set(float32);
+
+    const source = this._audioContext.createBufferSource();
+    source.buffer = buffer;
+    source.connect(gainNode);
+
+    // Schedule playback contiguously to avoid gaps
+    const currentTime = this._audioContext.currentTime;
+    let startTime = this._relayPlaybackTime.get(fromSocketId) || 0;
+    if (startTime < currentTime) {
+      startTime = currentTime;
+    }
+    source.start(startTime);
+    this._relayPlaybackTime.set(fromSocketId, startTime + buffer.duration);
   }
 
   _setupAudioContext() {
