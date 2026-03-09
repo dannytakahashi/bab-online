@@ -380,6 +380,13 @@ function updateOverlayPlayers() {
       const name = document.createElement('span');
       name.textContent = entry.username + (entry.isSelf ? ' (You)' : '');
       name.style.cssText = 'color: #fff; flex: 1; font-size: 14px;';
+
+      // Red "S" badge for relayed (non-P2P) connections
+      const relayBadge = document.createElement('span');
+      relayBadge.textContent = 'S';
+      relayBadge.style.cssText = 'color: #ef4444; font-weight: bold; font-size: 12px; margin-left: 4px; display: none;';
+      name.appendChild(relayBadge);
+
       row.appendChild(name);
 
       let slider = null;
@@ -438,7 +445,7 @@ function updateOverlayPlayers() {
       row.appendChild(muteBtn);
 
       container.appendChild(row);
-      _overlayRows.set(entry.id, { row, dot, muteBtn, slider, volLabel, isSelf });
+      _overlayRows.set(entry.id, { row, dot, muteBtn, slider, volLabel, relayBadge, isSelf });
     }
 
     // Update dynamic state (speaking, muted) on existing elements
@@ -457,6 +464,12 @@ function updateOverlayPlayers() {
     }
     if (els.volLabel) {
       els.volLabel.style.opacity = isMuted ? '0.4' : '1';
+    }
+
+    // Toggle relay badge visibility
+    if (els.relayBadge) {
+      const showBadge = !entry.isSelf && voiceManager.isRelayed(entry.id);
+      els.relayBadge.style.display = showBadge ? 'inline' : 'none';
     }
   }
 }

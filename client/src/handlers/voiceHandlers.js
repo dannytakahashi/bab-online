@@ -44,4 +44,8 @@ export function registerVoiceHandlers(socketManager) {
   socketManager.on(SERVER_EVENTS.VOICE_ICE_CANDIDATE, async (data) => {
     await voiceManager.handleIceCandidate(data.fromSocketId, data.candidate);
   });
+
+  socketManager.on(SERVER_EVENTS.VOICE_RELAY_AUDIO, (data) => {
+    voiceManager._onRelayAudio(data.fromSocketId, data.audio);
+  });
 }

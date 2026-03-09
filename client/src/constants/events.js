@@ -61,6 +61,7 @@ export const CLIENT_EVENTS = {
   VOICE_OFFER: 'voiceOffer',
   VOICE_ANSWER: 'voiceAnswer',
   VOICE_ICE_CANDIDATE: 'voiceIceCandidate',
+  VOICE_RELAY_AUDIO: 'voiceRelayAudio',
 };
 
 // Server -> Client Events
@@ -173,4 +174,5 @@ export const SERVER_EVENTS = {
   VOICE_PEER_LIST: 'voicePeerList',
   VOICE_PEER_JOINED: 'voicePeerJoined',
   VOICE_PEER_LEFT: 'voicePeerLeft',
+  VOICE_RELAY_AUDIO: 'voiceRelayAudio',
 };
