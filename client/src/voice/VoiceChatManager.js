@@ -494,6 +494,10 @@ export class VoiceChatManager {
     // Connection state monitoring
     pc.onconnectionstatechange = () => {
       console.log(`[Voice] peer ${socketId} connection: ${pc.connectionState}`);
+      if (pc.connectionState === 'failed') {
+        console.log(`[Voice] P2P connection failed for ${socketId}, switching to relay`);
+        this._startRelay(socketId);
+      }
     };
 
     pc.oniceconnectionstatechange = () => {
