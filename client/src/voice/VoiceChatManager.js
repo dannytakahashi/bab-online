@@ -354,29 +354,55 @@ export class VoiceChatManager {
   async switchAudioDevice(deviceId) {
     if (!this.active) return;
 
+    const oldStream = this.localStream;
+
     // Get new stream from selected device
-    const newStream = await navigator.mediaDevices.getUserMedia({
-      audio: { deviceId: { exact: deviceId } }
-    });
+    let newStream;
+    try {
+      newStream = await navigator.mediaDevices.getUserMedia({
+        audio: { deviceId: { exact: deviceId } }
+      });
+    } catch (err) {
+      console.warn('[Voice] Failed to get new audio device:', err.message);
+      throw err;
+    }
+
     const newTrack = newStream.getAudioTracks()[0];
 
-    // Stop old tracks
-    if (this.localStream) {
-      this.localStream.getAudioTracks().forEach(t => t.stop());
+    // Re-apply mute state to the new track before connecting
+    if (this.selfMuted) {
+      newTrack.enabled = false;
     }
-    this.localStream = newStream;
 
-    // Replace track on all peer connections (no renegotiation needed)
-    for (const [, peer] of this.peers) {
-      const senders = peer.connection.getSenders();
-      const audioSender = senders.find(s => s.track?.kind === 'audio' || s.track === null);
-      if (audioSender) {
-        await audioSender.replaceTrack(newTrack);
+    try {
+      // Replace track on all peer connections BEFORE stopping old tracks
+      for (const [, peer] of this.peers) {
+        const senders = peer.connection.getSenders();
+        const audioSender = senders.find(s => s.track?.kind === 'audio' || s.track === null);
+        if (audioSender) {
+          await audioSender.replaceTrack(newTrack);
+        }
       }
+    } catch (err) {
+      // Rollback: stop the new stream and leave old one intact
+      console.warn('[Voice] replaceTrack failed, rolling back:', err.message);
+      newStream.getTracks().forEach(t => t.stop());
+      throw err;
     }
 
-    // Recreate self analyser with new stream
-    this._analysers.delete('self');
+    // All replacements succeeded — now safe to stop old tracks
+    this.localStream = newStream;
+    if (oldStream) {
+      oldStream.getAudioTracks().forEach(t => t.stop());
+    }
+
+    // Resume AudioContext if suspended (some browsers suspend after getUserMedia)
+    if (this._audioContext?.state === 'suspended') {
+      await this._audioContext.resume().catch(() => {});
+    }
+
+    // Properly disconnect old analyser source node, then create new one
+    this._cleanupAnalyser('self');
     this._addAnalyser('self', newStream);
 
     // Reconnect relay processor to new stream if relay is active
@@ -387,11 +413,42 @@ export class VoiceChatManager {
       this._relaySource = this._audioContext.createMediaStreamSource(newStream);
       this._relaySource.connect(this._relayProcessor);
     }
+  }
 
-    // Re-apply mute state
-    if (this.selfMuted) {
-      newTrack.enabled = false;
-    }
+  /**
+   * Play a short test tone (~300ms, 440Hz) through the speakers.
+   * @returns {Promise<void>} Resolves when the tone finishes.
+   */
+  playTestTone() {
+    this._setupAudioContext();
+    const ctx = this._audioContext;
+    if (!ctx) return Promise.resolve();
+
+    // Resume if suspended (user gesture requirement)
+    const ready = ctx.state === 'suspended' ? ctx.resume() : Promise.resolve();
+
+    return ready.then(() => {
+      const duration = 0.3;
+      const oscillator = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      oscillator.type = 'sine';
+      oscillator.frequency.value = 440;
+
+      gain.gain.setValueAtTime(0.15, ctx.currentTime);
+      // Ramp down for a clean end
+      gain.gain.linearRampToValueAtTime(0, ctx.currentTime + duration);
+
+      oscillator.connect(gain);
+      gain.connect(ctx.destination);
+
+      oscillator.start(ctx.currentTime);
+      oscillator.stop(ctx.currentTime + duration);
+
+      return new Promise(resolve => {
+        oscillator.onended = resolve;
+      });
+    });
   }
 
   /**
@@ -524,7 +581,7 @@ export class VoiceChatManager {
     }
 
     this._gainNodes.delete(socketId);
-    this._analysers.delete(socketId);
+    this._cleanupAnalyser(socketId);
     this._speakingStates.delete(socketId);
     this._speakingLastActive.delete(socketId);
 
@@ -563,7 +620,7 @@ export class VoiceChatManager {
     }
 
     // Remove P2P analyser — speaking detection for relay uses RMS from received PCM
-    this._analysers.delete(socketId);
+    this._cleanupAnalyser(socketId);
 
     this._relayedPeers.add(socketId);
     this._ensureRelayCapture();
@@ -720,10 +777,22 @@ export class VoiceChatManager {
       source.connect(analyser);
 
       const dataArray = new Float32Array(analyser.fftSize);
-      this._analysers.set(id, { analyser, dataArray });
+      this._analysers.set(id, { analyser, dataArray, source });
     } catch (err) {
       console.warn('Failed to create analyser for', id, err.message);
     }
+  }
+
+  /**
+   * Properly clean up an analyser entry by disconnecting its Web Audio source node.
+   */
+  _cleanupAnalyser(id) {
+    const entry = this._analysers.get(id);
+    if (!entry) return;
+    try {
+      entry.source?.disconnect();
+    } catch (e) { /* already disconnected */ }
+    this._analysers.delete(id);
   }
 
   _startSpeakingDetection() {
