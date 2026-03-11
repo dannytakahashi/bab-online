@@ -752,7 +752,7 @@ export class GameState {
     this.position = data.position;
     this.currentHand = data.currentHand;
     this.trump = data.trump;
-    this.trumpBroken = data.trumpBroken || false;
+    this.trumpBroken = data.trumpBroken || data.isTrumpBroken || false;
     this.dealer = data.dealer;
     this.isBidding = data.isBidding !== undefined ? data.isBidding : (data.bidding || false);
     this.currentTurn = data.currentTurn;
@@ -769,6 +769,14 @@ export class GameState {
     if (data.teamTricks !== undefined) {
       this.teamTricks = data.teamTricks;
       this.oppTricks = data.oppTricks;
+    } else if (data.tricks) {
+      if (this.position % 2 !== 0) {
+        this.teamTricks = data.tricks.team1;
+        this.oppTricks = data.tricks.team2;
+      } else {
+        this.teamTricks = data.tricks.team2;
+        this.oppTricks = data.tricks.team1;
+      }
     }
 
     if (data.teamScore !== undefined) {
@@ -797,9 +805,17 @@ export class GameState {
       this.leadCard = null;
       this.leadPosition = null;
 
+      // Use server-provided leadPosition when available
+      if (data.leadPosition !== undefined) {
+        this.leadPosition = data.leadPosition;
+        const leadCard = data.playedCards[data.leadPosition - 1];
+        if (leadCard) this.leadCard = leadCard;
+      }
+
       data.playedCards.forEach((card, index) => {
         if (card) {
           const cardPosition = index + 1; // Convert to 1-4 position
+          // Fallback: infer lead from first non-null card if server didn't provide it
           if (!this.leadCard) {
             this.leadCard = card;
             this.leadPosition = cardPosition;

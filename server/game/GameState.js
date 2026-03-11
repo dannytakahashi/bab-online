@@ -269,6 +269,7 @@ class GameState {
             tricks: this.tricks,
             score: this.score,
             playedCards: this.playedCards,
+            leadPosition: this.leadPosition,
             isTrumpBroken: this.isTrumpBroken,
             players: playerInfo,
             gameLog: this.getGameLog(),

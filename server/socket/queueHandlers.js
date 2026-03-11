@@ -129,6 +129,59 @@ async function handleDisconnect(socket, io) {
     // If player was in an active game, give them time to reconnect
     if (result.wasInGame && result.game) {
         const position = result.game.getPositionBySocketId(socket.id);
+
+        // Handle disconnect during draw phase (player has no position yet)
+        if (!position && result.game.phase === 'drawing') {
+            const user = gameManager.getUserBySocketId(socket.id);
+            const username = user?.username || 'Player';
+
+            // Check if this player already drew
+            const alreadyDrew = result.game.drawIDs.includes(socket.id);
+
+            if (!alreadyDrew) {
+                // Auto-draw for the disconnected player (random card)
+                const remaining = result.game.deck.cards.length;
+                if (remaining > 0) {
+                    const drawIndex = Math.floor(Math.random() * remaining);
+                    const card = result.game.deck.cards[drawIndex];
+                    result.game.drawCards.push(card);
+                    result.game.drawIDs.push(socket.id);
+                    result.game.deck.cards.splice(drawIndex, 1);
+
+                    result.game.broadcast(io, 'playerDrew', {
+                        username,
+                        card,
+                        drawOrder: result.game.drawIndex + 1,
+                        socketId: socket.id
+                    });
+
+                    result.game.drawIndex++;
+
+                    // If all 4 have now drawn, complete the draw phase
+                    if (result.game.drawIndex === 4) {
+                        const { handleDrawComplete } = require('./gameHandlers');
+                        handleDrawComplete(io, result.game);
+                    }
+                }
+            }
+
+            // Store username for lookup during handleDrawComplete
+            if (!result.game._pendingUsernames) result.game._pendingUsernames = {};
+            result.game._pendingUsernames[socket.id] = username;
+
+            // Mark this socket as needing replacement after draw completes
+            if (!result.game._drawPhaseDisconnects) result.game._drawPhaseDisconnects = {};
+            result.game._drawPhaseDisconnects[socket.id] = { username };
+
+            // Log disconnect
+            result.game.broadcast(io, 'playerDisconnected', { position: null, username });
+            const dcMessage = `${username} disconnected during card draw.`;
+            result.game.addLogEntry(dcMessage, null, 'system');
+            result.game.broadcast(io, 'gameLogEntry', { message: dcMessage, type: 'system' });
+
+            return;
+        }
+
         const player = result.game.getPlayerByPosition(position);
         const username = player?.username || `Player ${position}`;
 
