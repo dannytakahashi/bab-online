@@ -1800,6 +1800,14 @@ function initializeApp() {
         scene.trickManager._teamTrickCount = gameState.teamTricks || 0;
         scene.trickManager._oppTrickCount = gameState.oppTricks || 0;
         scene.trickManager.createTrickBackgrounds(false);
+
+        // Restore visual trick stacks (card-back placeholders for won tricks)
+        if (gameState.teamTricks > 0 || gameState.oppTricks > 0) {
+          // Reset counts before restoreTrickPlaceholders (it increments them)
+          scene.trickManager._teamTrickCount = 0;
+          scene.trickManager._oppTrickCount = 0;
+          scene.trickManager.restoreTrickPlaceholders(gameState.teamTricks, gameState.oppTricks);
+        }
       }
 
       // Restore played cards in current trick via TrickManager
@@ -1915,25 +1923,33 @@ function initializeApp() {
     if (data.currentTurn !== undefined) gameState.setCurrentTurn(data.currentTurn);
 
     const bidding = data.isBidding !== undefined ? data.isBidding : data.bidding;
+    const isBiddingOnRejoin = !!bidding;
     if (bidding !== undefined) {
       gameState.isBidding = bidding;
       gameState.phase = bidding ? PHASE.BIDDING : PHASE.PLAYING;
     }
 
     if (data.playedCards && Array.isArray(data.playedCards)) {
-      let foundLead = false;
       let playedCount = 0;
-      data.playedCards.forEach((card, index) => {
-        if (card) {
-          playedCount++;
-          if (!foundLead) {
-            gameState.leadCard = card;
-            gameState.leadPosition = index + 1;
-            foundLead = true;
-          }
-        }
+      data.playedCards.forEach((card) => {
+        if (card) playedCount++;
       });
       gameState.playedCardIndex = playedCount;
+
+      // Use server-provided leadPosition (position-indexed array can't reliably infer lead order)
+      if (data.leadPosition !== undefined) {
+        gameState.leadPosition = data.leadPosition;
+        const leadCard = data.playedCards[data.leadPosition - 1];
+        if (leadCard) gameState.leadCard = leadCard;
+      } else {
+        // Fallback: infer from first non-null card (legacy)
+        data.playedCards.forEach((card, index) => {
+          if (card && !gameState.leadCard) {
+            gameState.leadCard = card;
+            gameState.leadPosition = index + 1;
+          }
+        });
+      }
     } else {
       if (data.leadCard) gameState.leadCard = data.leadCard;
       if (data.leadPosition !== undefined) gameState.leadPosition = data.leadPosition;

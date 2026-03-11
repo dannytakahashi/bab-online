@@ -76,6 +76,8 @@ export function createSignInScreen({ onSignIn, onCreateAccount }) {
     "this is a man's game!",
     'you should be dealing already!',
     "i did it frank's way, that bastard!",
+    'alls we gotta do...',
+    'coulda bored!',
   ];
   const splash = document.createElement('span');
   splash.textContent = splashPhrases[Math.floor(Math.random() * splashPhrases.length)];

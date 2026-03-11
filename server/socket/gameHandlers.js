@@ -331,7 +331,7 @@ async function handleDrawComplete(io, game) {
             username = bot?.username || 'Bot';
         } else {
             const user = gameManager.getUserBySocketId(playerId);
-            username = user?.username || 'Player';
+            username = user?.username || game._pendingUsernames?.[playerId] || 'Player';
         }
 
         game.addPlayer(playerId, username, position, pics[i], isBot);
@@ -349,6 +349,18 @@ async function handleDrawComplete(io, game) {
         if (!isBot) {
             io.to(playerId).emit('playerAssigned', { playerId, position });
         }
+    }
+
+    // Handle players who disconnected during draw phase
+    if (game._drawPhaseDisconnects) {
+        for (const [socketId, info] of Object.entries(game._drawPhaseDisconnects)) {
+            const pos = game.getPositionBySocketId(socketId);
+            if (pos) {
+                game.markPlayerDisconnected(pos);
+            }
+        }
+        delete game._drawPhaseDisconnects;
+        delete game._pendingUsernames;
     }
 
     // Build all arrays in position order (1, 2, 3, 4) for consistency
