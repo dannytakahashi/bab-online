@@ -22,7 +22,7 @@ export function registerRecordsHandlers(socketManager, callbacks = {}) {
   socketManager.on('recordsResponse', (data) => {
     if (data.success) {
       console.log('Records received');
-      onRecordsReceived?.(data.records);
+      onRecordsReceived?.(data.records, data.totalGames);
     } else {
       console.warn('Records fetch failed:', data.message);
       onRecordsError?.(data.message || 'Failed to fetch records');

@@ -3167,8 +3167,8 @@ function initializeApp() {
       showError(message || 'Failed to load leaderboard');
     },
     // Records callbacks
-    onRecordsReceived: (records) => {
-      showRecordsPage(records);
+    onRecordsReceived: (records, totalGames) => {
+      showRecordsPage(records, totalGames);
     },
     onRecordsError: (message) => {
       showError(message || 'Failed to load records');

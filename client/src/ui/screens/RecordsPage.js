@@ -49,6 +49,19 @@ function createRecordEntry(label, color, data, type) {
     playersEl.style.fontSize = '12px';
     playersEl.style.color = '#9ca3af';
     entry.appendChild(playersEl);
+  } else if (type === 'bags') {
+    const bagsEl = document.createElement('div');
+    bagsEl.innerText = `${data.bags} bags`;
+    bagsEl.style.fontSize = '20px';
+    bagsEl.style.fontWeight = 'bold';
+    bagsEl.style.color = '#fff';
+    entry.appendChild(bagsEl);
+
+    const playersEl = document.createElement('div');
+    playersEl.innerText = data.players.join(' & ');
+    playersEl.style.fontSize = '12px';
+    playersEl.style.color = '#9ca3af';
+    entry.appendChild(playersEl);
   } else if (type === 'win') {
     const marginEl = document.createElement('div');
     marginEl.innerText = `${data.margin} pt margin`;
@@ -122,6 +135,8 @@ function createPeriodBox(title, periodData) {
   box.appendChild(createRecordEntry('Highest Score', '#4ade80', periodData.highestScore, 'score'));
   box.appendChild(createRecordEntry('Lowest Score', '#f87171', periodData.lowestScore, 'score'));
   box.appendChild(createRecordEntry('Biggest Win', '#fbbf24', periodData.biggestWin, 'win'));
+  box.appendChild(createRecordEntry('Most Bags', '#fb923c', periodData.mostBags, 'bags'));
+  box.appendChild(createRecordEntry('Least Bags', '#a78bfa', periodData.leastBags, 'bags'));
 
   return box;
 }
@@ -131,7 +146,7 @@ function createPeriodBox(title, periodData) {
  *
  * @param {Object} records - Records data with allTime, thisYear, thisMonth
  */
-export function showRecordsPage(records) {
+export function showRecordsPage(records, totalGames) {
   // Remove any existing records page
   removeRecordsPage();
 
@@ -205,6 +220,24 @@ export function showRecordsPage(records) {
   headerRow.appendChild(closeBtn);
 
   modal.appendChild(headerRow);
+
+  // Total games played
+  if (totalGames != null) {
+    const totalRow = document.createElement('div');
+    totalRow.style.textAlign = 'center';
+    totalRow.style.marginBottom = '16px';
+    totalRow.style.fontSize = '14px';
+    totalRow.style.color = '#9ca3af';
+
+    const countSpan = document.createElement('span');
+    countSpan.innerText = totalGames.toLocaleString();
+    countSpan.style.color = '#e5e7eb';
+    countSpan.style.fontWeight = 'bold';
+
+    totalRow.appendChild(countSpan);
+    totalRow.appendChild(document.createTextNode(' games played'));
+    modal.appendChild(totalRow);
+  }
 
   // Three boxes row
   const boxesRow = document.createElement('div');
