@@ -207,21 +207,34 @@ function renderTableBody(tbody, data) {
 
   const sortedData = sortLeaderboard(data);
 
-  sortedData.forEach((player, index) => {
+  let rank = 0;
+  sortedData.forEach((player) => {
+    const isPopulation = player.isPopulation;
+    if (!isPopulation) rank++;
+
     const tr = document.createElement('tr');
     tr.style.transition = 'background 0.2s';
+    const defaultBg = isPopulation ? 'rgba(96, 165, 250, 0.1)' : 'transparent';
+    tr.style.background = defaultBg;
     tr.addEventListener('mouseenter', () => {
-      tr.style.background = 'rgba(255, 255, 255, 0.05)';
+      tr.style.background = isPopulation ? 'rgba(96, 165, 250, 0.18)' : 'rgba(255, 255, 255, 0.05)';
     });
     tr.addEventListener('mouseleave', () => {
-      tr.style.background = 'transparent';
+      tr.style.background = defaultBg;
     });
 
     // Rank
-    tr.appendChild(createDataCell(index + 1));
+    tr.appendChild(createDataCell(isPopulation ? '\u2014' : rank));
 
-    // Player (avatar + username)
-    tr.appendChild(createDataCell(createPlayerCell(player), 'left'));
+    // Player (avatar + username, or "Population" label)
+    if (isPopulation) {
+      const popLabel = document.createElement('span');
+      popLabel.innerText = 'Population';
+      popLabel.style.fontWeight = 'bold';
+      tr.appendChild(createDataCell(popLabel, 'left'));
+    } else {
+      tr.appendChild(createDataCell(createPlayerCell(player), 'left'));
+    }
 
     // Stats columns
     tr.appendChild(createDataCell(formatStatValue(player.gamesPlayed, 'integer')));
@@ -232,6 +245,13 @@ function renderTableBody(tbody, data) {
     tr.appendChild(createDataCell(formatStatValue(player.setRate, 'percent')));
     tr.appendChild(createDataCell(formatStatValue(player.drag, 'decimal')));
     tr.appendChild(createDataCell(formatStatValue(player.avgHSI, 'decimal')));
+
+    // Bold all cells in population row
+    if (isPopulation) {
+      for (const td of tr.children) {
+        td.style.fontWeight = 'bold';
+      }
+    }
 
     tbody.appendChild(tr);
   });

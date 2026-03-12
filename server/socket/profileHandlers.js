@@ -210,12 +210,21 @@ async function recordGameResult(game) {
             .filter(p => p && p.username)
             .map(p => p.username);
 
+        // Calculate team-level bags (total tricks taken minus total tricks bid)
+        const ps = game.playerStats || {};
+        const team1Bags = ((ps[1]?.totalTricks || 0) + (ps[3]?.totalTricks || 0))
+            - ((ps[1]?.totalBids || 0) + (ps[3]?.totalBids || 0));
+        const team2Bags = ((ps[2]?.totalTricks || 0) + (ps[4]?.totalTricks || 0))
+            - ((ps[2]?.totalBids || 0) + (ps[4]?.totalBids || 0));
+
         await gameRecordsCollection.insertOne({
             gameId: game.gameId,
             team1Score: game.score.team1,
             team2Score: game.score.team2,
             team1Players,
             team2Players,
+            team1Bags,
+            team2Bags,
             completedAt: new Date()
         });
 
@@ -404,6 +413,25 @@ async function getLeaderboard(socket, io) {
             };
         });
 
+        // Compute population averages
+        if (leaderboard.length > 0) {
+            const n = leaderboard.length;
+            const sum = (key) => leaderboard.reduce((acc, p) => acc + p[key], 0);
+            leaderboard.push({
+                username: 'Population',
+                isPopulation: true,
+                gamesPlayed: Math.round(sum('gamesPlayed') / n),
+                winRate: sum('winRate') / n,
+                pointsPerGame: sum('pointsPerGame') / n,
+                bidsPerGame: sum('bidsPerGame') / n,
+                tricksPerBid: sum('tricksPerBid') / n,
+                setRate: sum('setRate') / n,
+                drag: sum('drag') / n,
+                faultsPerGame: sum('faultsPerGame') / n,
+                avgHSI: sum('avgHSI') / n
+            });
+        }
+
         // Sort by win rate descending by default
         leaderboard.sort((a, b) => b.winRate - a.winRate);
 
@@ -560,6 +588,8 @@ async function getRecords(socket, io) {
             let highestScore = null;
             let lowestScore = null;
             let biggestWin = null;
+            let mostBags = null;
+            let leastBags = null;
 
             for (const game of games) {
                 // Check both teams for highest/lowest individual team score
@@ -589,12 +619,32 @@ async function getRecords(socket, io) {
                         loserPlayers: winnerIsTeam1 ? game.team2Players : game.team1Players
                     };
                 }
+
+                // Most/least bags — skip legacy records without bags data
+                if (game.team1Bags != null && game.team2Bags != null) {
+                    const bagsEntries = [
+                        { bags: game.team1Bags, players: game.team1Players },
+                        { bags: game.team2Bags, players: game.team2Players }
+                    ];
+
+                    for (const entry of bagsEntries) {
+                        if (!mostBags || entry.bags > mostBags.bags) {
+                            mostBags = { bags: entry.bags, players: entry.players };
+                        }
+                        if (!leastBags || entry.bags < leastBags.bags) {
+                            leastBags = { bags: entry.bags, players: entry.players };
+                        }
+                    }
+                }
             }
 
-            records[period] = { highestScore, lowestScore, biggestWin };
+            records[period] = { highestScore, lowestScore, biggestWin, mostBags, leastBags };
         }
 
-        socket.emit('recordsResponse', { success: true, records });
+        // Total games played (all time count)
+        const totalGames = (await gameRecordsCollection.countDocuments({}));
+
+        socket.emit('recordsResponse', { success: true, records, totalGames });
         authLogger.debug('Records fetched');
     } catch (error) {
         authLogger.error('Error fetching records', { error: error.message });
