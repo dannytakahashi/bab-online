@@ -2113,7 +2113,7 @@ function initializeApp() {
       showMainRoom(data, socket);
     },
     onMainRoomMessage: (data) => {
-      addMainRoomChatMessage(data.username, data.message);
+      addMainRoomChatMessage(data.username, data.message, data.timestamp);
     },
     onLobbiesUpdated: (data) => {
       updateLobbyList(data.lobbies, socket, data.inProgressGames, data.tournaments);

@@ -20,10 +20,23 @@ let currentOnlineUsers = [];
  * @param {string} message - Message content
  * @returns {HTMLElement} Message div element
  */
-function createChatMessageElement(username, message) {
+function createChatMessageElement(username, message, timestamp) {
   const msgDiv = document.createElement('div');
   msgDiv.style.marginBottom = '8px';
   msgDiv.style.wordWrap = 'break-word';
+
+  if (timestamp) {
+    const timeSpan = document.createElement('span');
+    const date = new Date(timestamp);
+    const month = (date.getMonth() + 1).toString().padStart(2, '0');
+    const day = date.getDate().toString().padStart(2, '0');
+    const hours = date.getHours().toString().padStart(2, '0');
+    const minutes = date.getMinutes().toString().padStart(2, '0');
+    timeSpan.innerText = `${month}/${day} ${hours}:${minutes} `;
+    timeSpan.style.color = '#6b7280';
+    timeSpan.style.fontSize = '12px';
+    msgDiv.appendChild(timeSpan);
+  }
 
   const nameSpan = document.createElement('span');
   nameSpan.innerText = username + ': ';
@@ -575,7 +588,7 @@ export function showMainRoom(data, socket) {
       }
     });
     data.messages.forEach((msg) => {
-      const msgDiv = createChatMessageElement(msg.username, msg.message);
+      const msgDiv = createChatMessageElement(msg.username, msg.message, msg.timestamp);
       chatMessages.appendChild(msgDiv);
     });
     setTimeout(() => {
@@ -718,7 +731,7 @@ export function showMainRoom(data, socket) {
  * @param {string} username - Message author
  * @param {string} message - Message content
  */
-export function addMainRoomChatMessage(username, message) {
+export function addMainRoomChatMessage(username, message, timestamp) {
   const chatMessages = document.getElementById('mainRoomChatMessages');
   if (!chatMessages) return;
 
@@ -730,7 +743,7 @@ export function addMainRoomChatMessage(username, message) {
     );
   }
 
-  const msgDiv = createChatMessageElement(username, message);
+  const msgDiv = createChatMessageElement(username, message, timestamp);
   chatMessages.appendChild(msgDiv);
   chatMessages.scrollTop = chatMessages.scrollHeight;
 }
