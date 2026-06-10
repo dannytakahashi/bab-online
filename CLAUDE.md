@@ -10,11 +10,12 @@ BAB Online is a 4-player online multiplayer trick-taking card game ("Back Alley 
 
 ## Tech Stack
 
-- **Frontend**: Phaser 3 (game engine), ES6 modules, Socket.IO client, Vite bundler
+- **Frontend (web)**: Phaser 3 (game engine), ES6 modules, Socket.IO client, Vite bundler
+- **iOS**: Native SwiftUI app in `iOSClient/` (SpriteKit game scene, Socket.IO-Client-Swift, WebRTC voice) — NOT a webview; it mirrors the web client's socket contract
 - **Backend**: Node.js 18+, Express.js, Socket.IO server
-- **Database**: MongoDB (native client, no ORM)
+- **Database**: MongoDB (native client, no ORM) — collections: `users`, `gameRecords`, `reports`
 - **Testing**: Jest (server), Vitest (client)
-- **Deployment**: Railway.app via GitHub Actions
+- **Deployment**: Railway via its GitHub integration on push to main (GitHub Actions runs tests/build only)
 
 ## Directory Structure
 
@@ -39,14 +40,22 @@ bab-online/
 │   │   ├── rules.js           # Pure functions: card comparison, legality, scoring
 │   │   ├── Deck.js            # Card deck with Fisher-Yates shuffle
 │   │   ├── GameState.js       # Game state encapsulation
-│   │   ├── GameManager.js     # Singleton: manages games, queue, lobbies
+│   │   ├── GameManager.js     # Singleton: manages games, queue, lobbies, tournaments
+│   │   ├── TournamentState.js # Per-tournament state (4 rounds, scoreboard)
 │   │   └── bot/               # AI player system
 │   ├── socket/                # Socket.IO handlers by domain
 │   │   ├── gameHandlers.js    # Core gameplay (draw, bid, play)
 │   │   ├── lobbyHandlers.js   # Pre-game lobby
-│   │   ├── authHandlers.js    # Sign-in/up
+│   │   ├── tournamentHandlers.js # Tournament lifecycle
+│   │   ├── authHandlers.js    # Sign-in/up, account deletion
+│   │   ├── safetyHandlers.js  # Report / block / unblock users
 │   │   └── validators.js      # Joi validation schemas
+│   ├── utils/
+│   │   └── profanityFilter.js # UGC filter (chat, usernames, lobby names)
 │   └── __tests__/             # Jest tests
+│
+├── iOSClient/                  # Native SwiftUI iOS app (Xcode project)
+│   └── BABOnline/             # Views, State, Networking (handlers/emitters), SpriteKit
 │
 └── docs/
     └── RULES.md               # Complete game rules
@@ -85,12 +94,16 @@ bab-online/
 
 ## Game Flow (Socket Events)
 
-1. **Auth**: `signIn`/`signUp` → `signInResponse`
+1. **Auth**: `signIn`/`signUp` → `signInResponse` (includes `blockedUsers`; `deleteAccount` → `deleteAccountResponse` for in-app account deletion)
 2. **Lobby**: `joinQueue` → `lobbyCreated` → `playerReadyUpdate` → `allPlayersReady`
 3. **Draw**: `startDraw` → `draw` → `playerDrew` → `teamsAnnounced`
 4. **Bidding**: `gameStart` → `updateTurn` → `playerBid` → `bidReceived` → `doneBidding`
 5. **Play**: `updateTurn` → `playCard` → `cardPlayed` → `trickComplete` → `handComplete`
-6. **End**: `gameEnd`
+6. **End**: `gameEnd` (payload always includes `tournamentId`, null for casual games)
+
+**Tournaments**: `createTournament`/`joinTournament` → `tournamentJoined` → ready-up → `beginTournament` → 4 rounds of games (`tournamentGameAssignment`, results via `tournamentGameComplete`/`tournamentRoundComplete`) → `beginNextRound` between rounds → `tournamentComplete` (with `winners[]`). Disconnected players are marked `connected: false` and reattach by username (any phase); completed tournaments linger ~10 min so players can view results.
+
+**Safety**: `reportUser` → `reportUserResponse` (stored in `reports` collection); `blockUser`/`unblockUser` → `blockListUpdated`. Chat is profanity-filtered server-side; clients hide blocked users' messages.
 
 ## Quick Game Rules Reference
 
@@ -116,10 +129,14 @@ npm run test:client  # Client tests (Vitest)
 ## Important Implementation Details
 
 - Bots have socketIds like `bot:{username}:{uuid}`, use `BotStrategy.js` for AI
-- Reconnection uses session tokens stored in MongoDB
-- Socket rooms: players join `game:{gameId}` for broadcasts
-- Event constants in `client/src/constants/events.js` prevent typos
-- Card legality logic duplicated in `server/game/rules.js` and `client/src/rules/legality.js`
+- Reconnection uses session tokens stored in MongoDB; rejoining a tournament game also reattaches tournament membership to the new socket
+- Socket rooms: players join `game:{gameId}` for broadcasts; tournaments use `tournament:{tournamentId}`
+- Event constants in `client/src/constants/events.js` (web) and `iOSClient/.../Constants/SocketEvents.swift` (iOS) prevent typos — keep all three sides of the contract in sync
+- Card legality logic duplicated in `server/game/rules.js`, `client/src/rules/legality.js`, and `iOSClient/.../Rules/CardLegality.swift`
+- In-game leave is a chat command (`/leave`, `/lazy`, `/active`) routed through `chatMessage` — both clients' Leave buttons send `/leave`; it also works during the draw phase (before positions exist)
+- Account deletion (`authHandlers.deleteAccount`) requires an authenticated socket + password re-confirm; it anonymizes the username in `gameRecords`
+- Express pages: `/privacy`, `/support`, `/terms` (App Store compliance copy lives in `server/routes/index.js`)
+- iOS builds: prebuilt WebRTC (stasel/WebRTC via SPM) ships no dSYM — the archive warning at upload is expected and safe to ignore
 
 ## Common Files to Check
 

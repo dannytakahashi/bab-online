@@ -16,7 +16,7 @@ For complete game rules including bidding, scoring, and special mechanics, see [
 | iOS Client | SwiftUI, SpriteKit, Socket.IO-Client-Swift 16, Combine |
 | Build | Vite (web), Xcode 15+ (iOS) |
 | Backend | Node.js 18+, Express.js 4.21.2, Socket.IO 4.8.1 |
-| Database | MongoDB with Mongoose 8.12.1 |
+| Database | MongoDB (native driver) — `users`, `gameRecords`, `reports` collections |
 | Security | Helmet, bcryptjs |
 | Testing | Vitest (client), Jest (server) |
 | Deployment | Railway.app |
@@ -92,19 +92,19 @@ bab-online/
 │   ├── Models/                        # Card, ChatMessage, Lobby, Player, ScoreData, Tournament
 │   ├── Networking/
 │   │   ├── SocketService.swift        # Socket.IO connection management
-│   │   ├── Emitters/                  # Auth, Chat, Game, Lobby, Tournament emitters
-│   │   └── Handlers/                  # Auth, Chat, Game, Lobby, Tournament socket handlers
-│   ├── State/                         # AuthState, GameState, LobbyState, MainRoomState, TournamentState
+│   │   ├── Emitters/                  # Auth, Chat, Game, Lobby, Tournament, Safety emitters
+│   │   └── Handlers/                  # Auth, Chat, Game, Lobby, Tournament, Safety socket handlers
+│   ├── State/                         # AuthState, GameState, LobbyState, MainRoomState, TournamentState, SafetyState
 │   ├── SpriteKit/
 │   │   ├── GameSKScene.swift          # Main game scene
 │   │   ├── Managers/                  # Card, Trick, Bid, Draw, Opponent, Effects managers
 │   │   └── Nodes/                     # CardSprite, HandNode, TrickArea, BidBubble, etc.
 │   └── Views/
 │       ├── Auth/                      # SignInView, RegisterView
-│       ├── Components/                # ConnectionStatusToast
+│       ├── Components/                # ConnectionStatusToast, SafetyMenus (report/block)
 │       ├── Game/                      # GameContainerView, BidOverlay, DrawPhase, GameEnd, GameLog, ScoreBar
 │       ├── GameLobby/                 # GameLobbyView, LobbyChatView, LobbyPlayerRow
-│       ├── MainRoom/                  # MainRoomView, MainRoomChatView, LobbyListView
+│       ├── MainRoom/                  # MainRoomView, MainRoomChatView, LobbyListView, AccountSettingsView
 │       └── Tournament/                # TournamentLobby, PlayerList, Chat, Scoreboard, ActiveGames, Results
 ├── server/
 │   ├── index.js                       # Entry point
@@ -124,7 +124,7 @@ bab-online/
 │   │       └── __tests__/             # Bot strategy tests
 │   ├── socket/
 │   │   ├── index.js                   # Socket event routing
-│   │   ├── authHandlers.js            # Auth events
+│   │   ├── authHandlers.js            # Auth events + account deletion
 │   │   ├── mainRoomHandlers.js        # Main room & lobby browser
 │   │   ├── queueHandlers.js           # Matchmaking events
 │   │   ├── lobbyHandlers.js           # Game lobby events
@@ -133,6 +133,7 @@ bab-online/
 │   │   ├── chatHandlers.js            # Chat events
 │   │   ├── profileHandlers.js         # Profile and leaderboard events
 │   │   ├── tournamentHandlers.js      # Tournament lifecycle events
+│   │   ├── safetyHandlers.js          # Report / block / unblock users
 │   │   ├── validators.js              # Joi validation schemas
 │   │   ├── errorHandler.js            # Handler wrappers
 │   │   └── rateLimiter.js             # Per-socket rate limiting
@@ -144,6 +145,7 @@ bab-online/
 │   │   ├── timing.js                  # Async timing utilities
 │   │   ├── logger.js                  # Winston logger
 │   │   ├── errors.js                  # Custom error classes
+│   │   ├── profanityFilter.js         # UGC filter (chat, usernames, lobby names)
 │   │   └── shutdown.js                # Graceful shutdown
 │   └── database.js                    # MongoDB connection
 ├── docs/
@@ -224,14 +226,21 @@ If a player disconnects, a 60-second grace period starts. If they don't return, 
 Create a tournament from the main room to compete across 4 rounds of randomly-assigned games:
 
 1. Click **Create Tournament** — opens a tournament lobby (unbounded player count)
-2. Other players click **Join** on the tournament listing in the main room
+2. Other players click **Join** on the tournament listing in the main room (joining is only open before the tournament starts)
 3. All players ready up, then the creator clicks **Begin Tournament**
 4. Players are shuffled and divided into games of 4 (bots fill remaining slots)
 5. Play a normal game — when it ends, click **Return to Tournament** to see the scoreboard
 6. Ready up again for the next round (4 rounds total)
-7. After round 4, the player with the highest cumulative score wins
+7. After round 4, the player with the highest cumulative score wins (ties produce co-winners)
 
-Each player's round score is their team's final score from that round's game. Spectators can watch tournament games in progress from the tournament lobby.
+Each player's round score is their team's final score from that round's game. Spectators can watch tournament games in progress from the tournament lobby. Disconnecting mid-tournament doesn't forfeit your seat — your scores are kept and you're re-attached when you reconnect; disconnected players just sit out rounds until they return. Final standings stay viewable for ~10 minutes after the tournament completes.
+
+### Safety & Account Management
+
+- All chat (main room, lobby, in-game, tournament), usernames, and lobby names are profanity-filtered server-side.
+- **Report or block any player**: on iOS, long-press a chat message; on web, open a player's profile (leaderboard/search) for Report/Block buttons. Blocking hides that user's messages everywhere and persists across sessions; manage blocks on iOS under Account Settings → Blocked Users.
+- **Sign out / delete account**: on iOS, main room gear icon → Account Settings; on web, your profile page. Account deletion confirms with your password, removes the account and stats immediately, and anonymizes the username in match records.
+- Legal pages served by the app: `/privacy`, `/terms`, `/support`.
 
 ### Card Rankings
 - High Joker (highest)
@@ -312,6 +321,9 @@ The iOS client uses SwiftUI for UI and SpriteKit for the game canvas:
 | `beginTournament` | Start round 1 (creator only) |
 | `beginNextRound` | Start rounds 2-4 (creator only) |
 | `returnToTournament` | Return to tournament lobby after game |
+| `deleteAccount` | Permanently delete account (password re-confirm) |
+| `reportUser` | Report a user (stored for review) |
+| `blockUser` / `unblockUser` | Manage personal block list |
 
 | Server → Client | Description |
 |-----------------|-------------|
@@ -344,7 +356,10 @@ The iOS client uses SwiftUI for UI and SpriteKit for the game canvas:
 | `tournamentGameAssignment` | Player assigned to a game |
 | `tournamentGameComplete` | A game in the round finished |
 | `tournamentRoundComplete` | All games in round finished |
-| `tournamentComplete` | Tournament finished, final results |
+| `tournamentComplete` | Tournament finished, final results (`winners[]` includes ties) |
+| `deleteAccountResponse` | Account deletion result |
+| `reportUserResponse` | Report acknowledgement |
+| `blockListUpdated` | Current block list after block/unblock |
 
 ## Docker
 
