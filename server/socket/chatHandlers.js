@@ -198,6 +198,13 @@ function handleLeaveCommand(socket, io, game, position) {
         socketLogger.warn('All humans permanently left, aborting game', { gameId: game.gameId });
         game.broadcast(io, 'abortGame', { reason: 'All players left' });
         gameManager.clearActiveGameForAll(game.gameId);
+        // Tournament games must still count toward round completion
+        const { handleAbortedTournamentGame } = require('./tournamentHandlers');
+        handleAbortedTournamentGame(io, game.gameId).catch(err =>
+            socketLogger.error('Failed to resolve aborted tournament game', {
+                gameId: game.gameId, error: err.message
+            })
+        );
         game.leaveAllFromRoom(io);
         gameManager.abortGame(game.gameId);
         botController.cleanupGame(game.gameId);
@@ -209,6 +216,57 @@ function handleLeaveCommand(socket, io, game, position) {
     }
 
     return true;
+}
+
+/**
+ * Leave during the draw phase, before positions exist. Mirrors the
+ * disconnect-during-draw handling: auto-draw a card for the leaver so the
+ * phase can complete, mark their seat for bot replacement, and send them out.
+ */
+function handleDrawPhaseLeave(socket, io, game) {
+    const user = gameManager.getUserBySocketId(socket.id);
+    const username = user?.username || 'Player';
+
+    const alreadyDrew = game.drawIDs.includes(socket.id);
+    if (!alreadyDrew && game.deck && game.deck.cards.length > 0) {
+        const drawIndex = Math.floor(Math.random() * game.deck.cards.length);
+        const card = game.deck.cards[drawIndex];
+        game.drawCards.push(card);
+        game.drawIDs.push(socket.id);
+        game.deck.cards.splice(drawIndex, 1);
+
+        game.broadcast(io, 'playerDrew', {
+            username,
+            card,
+            drawOrder: game.drawIndex + 1,
+            socketId: socket.id
+        });
+        game.drawIndex++;
+    }
+
+    // Mark the seat for bot replacement once positions are assigned
+    if (!game._pendingUsernames) game._pendingUsernames = {};
+    game._pendingUsernames[socket.id] = username;
+    if (!game._drawPhaseDisconnects) game._drawPhaseDisconnects = {};
+    game._drawPhaseDisconnects[socket.id] = { username };
+
+    const msg = `${username} left during card draw.`;
+    game.addLogEntry(msg, null, 'system');
+    game.broadcast(io, 'gameLogEntry', { message: msg, type: 'system' });
+
+    game.leaveRoom(io, socket.id);
+    gameManager.playerGames.delete(socket.id);
+    if (user) {
+        gameManager.clearActiveGame(user.username);
+    }
+    socket.emit('leftGame');
+
+    socketLogger.info('Player left during draw phase', { gameId: game.gameId, username });
+
+    if (game.drawIndex === 4) {
+        const { handleDrawComplete } = require('./gameHandlers');
+        handleDrawComplete(io, game);
+    }
 }
 
 function chatMessage(socket, io, data) {
@@ -268,6 +326,12 @@ function chatMessage(socket, io, data) {
             }
             return;
         }
+        // /leave works during the draw phase too, before positions exist
+        if (!position && activeGame.phase === 'drawing' &&
+            data.message.trim().toLowerCase() === '/leave') {
+            handleDrawPhaseLeave(socket, io, activeGame);
+            return;
+        }
         if (position && handleSlashCommand(socket, io, activeGame, position, data.message)) {
             return;
         }
@@ -289,13 +353,16 @@ function chatMessage(socket, io, data) {
         username = player ? player.username : 'Unknown';
     }
 
+    const { filterProfanity } = require('../utils/profanityFilter');
+    const cleanMessage = filterProfanity(data.message);
+
     // Add to game log for reconnection persistence
-    activeGame.addLogEntry(`${username}: ${data.message}`, position, 'chat');
+    activeGame.addLogEntry(`${username}: ${cleanMessage}`, position, 'chat');
 
     // Broadcast to players in the same game only
     activeGame.broadcast(io, 'chatMessage', {
         position,
-        message: data.message,
+        message: cleanMessage,
         username,
         isSpectator: activeGame.isSpectator(socket.id)
     });

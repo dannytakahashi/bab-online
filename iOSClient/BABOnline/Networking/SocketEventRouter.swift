@@ -11,6 +11,7 @@ final class SocketEventRouter {
     private let tournamentHandler: TournamentSocketHandler
     private let leaderboardHandler: LeaderboardSocketHandler
     private let voiceHandler: VoiceSocketHandler
+    private let safetyHandler: SafetySocketHandler
 
     init(
         socket: SocketService,
@@ -20,16 +21,18 @@ final class SocketEventRouter {
         gameState: GameState,
         appState: AppState,
         tournamentState: TournamentState,
-        leaderboardState: LeaderboardState
+        leaderboardState: LeaderboardState,
+        safetyState: SafetyState
     ) {
         self.socket = socket
-        self.authHandler = AuthSocketHandler(socket: socket, authState: authState, appState: appState, gameState: gameState)
-        self.lobbyHandler = LobbySocketHandler(socket: socket, mainRoomState: mainRoomState, lobbyState: lobbyState, appState: appState, gameState: gameState)
+        self.authHandler = AuthSocketHandler(socket: socket, authState: authState, appState: appState, gameState: gameState, safetyState: safetyState)
+        self.lobbyHandler = LobbySocketHandler(socket: socket, mainRoomState: mainRoomState, lobbyState: lobbyState, appState: appState, gameState: gameState, safetyState: safetyState)
         self.gameHandler = GameSocketHandler(socket: socket, gameState: gameState, appState: appState)
-        self.chatHandler = ChatSocketHandler(socket: socket, gameState: gameState)
-        self.tournamentHandler = TournamentSocketHandler(socket: socket, tournamentState: tournamentState, gameState: gameState, appState: appState)
+        self.chatHandler = ChatSocketHandler(socket: socket, gameState: gameState, safetyState: safetyState)
+        self.tournamentHandler = TournamentSocketHandler(socket: socket, tournamentState: tournamentState, gameState: gameState, appState: appState, safetyState: safetyState)
         self.leaderboardHandler = LeaderboardSocketHandler(socket: socket, leaderboardState: leaderboardState)
         self.voiceHandler = VoiceSocketHandler(socket: socket)
+        self.safetyHandler = SafetySocketHandler(socket: socket, safetyState: safetyState)
     }
 
     func registerAll() {
@@ -40,5 +43,6 @@ final class SocketEventRouter {
         tournamentHandler.register()
         leaderboardHandler.register()
         voiceHandler.register()
+        safetyHandler.register()
     }
 }

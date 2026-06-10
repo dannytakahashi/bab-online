@@ -130,11 +130,13 @@ struct TournamentRowView: View {
     }
 
     private var canJoin: Bool {
-        tournament.phase == "lobby" || tournament.phase == "between_rounds"
+        // New entrants can only join before the tournament starts; returning
+        // members are re-attached automatically at sign-in
+        tournament.phase == "lobby"
     }
 
     private var canSpectate: Bool {
-        tournament.phase == "round_active"
+        tournament.phase == "round_active" || tournament.phase == "between_rounds"
     }
 
     var body: some View {

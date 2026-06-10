@@ -1,17 +1,19 @@
 import Foundation
 
-/// Handles auth-related socket events: signInResponse, signUpResponse, forceLogout, activeGameFound
+/// Handles auth-related socket events: signInResponse, signUpResponse, forceLogout, activeGameFound, deleteAccountResponse
 final class AuthSocketHandler {
     private let socket: SocketService
     private let authState: AuthState
     private let appState: AppState
     private let gameState: GameState
+    private let safetyState: SafetyState
 
-    init(socket: SocketService, authState: AuthState, appState: AppState, gameState: GameState) {
+    init(socket: SocketService, authState: AuthState, appState: AppState, gameState: GameState, safetyState: SafetyState) {
         self.socket = socket
         self.authState = authState
         self.appState = appState
         self.gameState = gameState
+        self.safetyState = safetyState
     }
 
     func register() {
@@ -40,6 +42,11 @@ final class AuthSocketHandler {
             guard let self, let dict = data.first as? [String: Any] else { return }
             self.handleActiveGameFound(dict)
         }
+
+        socket.on(SocketEvents.Server.deleteAccountResponse) { [weak self] data, _ in
+            guard let self, let dict = data.first as? [String: Any] else { return }
+            self.handleDeleteAccountResponse(dict)
+        }
     }
 
     private func handleSignInResponse(_ data: [String: Any]) {
@@ -57,6 +64,10 @@ final class AuthSocketHandler {
 
                 self.gameState.username = username
                 self.gameState.playerId = self.socket.socketId
+
+                if let blocked = data["blockedUsers"] as? [String] {
+                    self.safetyState.setBlockedUsers(blocked)
+                }
 
                 // Check if there's an active game to rejoin (e.g. force-killed app)
                 if let gameId = data["activeGameId"] as? String, !gameId.isEmpty {
@@ -109,6 +120,7 @@ final class AuthSocketHandler {
             print("[Auth] Force logout: \(reason)")
             self.authState.clearCredentials()
             self.gameState.reset()
+            self.safetyState.reset()
             self.appState.screen = .signIn
         }
     }
@@ -125,6 +137,10 @@ final class AuthSocketHandler {
 
                 self.gameState.username = username
                 self.gameState.playerId = self.socket.socketId
+
+                if let blocked = data["blockedUsers"] as? [String] {
+                    self.safetyState.setBlockedUsers(blocked)
+                }
 
                 // Check if there's an active game to rejoin
                 if let gameId = data["activeGameId"] as? String, !gameId.isEmpty {
@@ -156,6 +172,27 @@ final class AuthSocketHandler {
 
             // Auto-rejoin the active game
             AuthEmitter.rejoinGame(gameId: gameId, username: self.authState.username)
+        }
+    }
+
+    private func handleDeleteAccountResponse(_ data: [String: Any]) {
+        let success = data["success"] as? Bool ?? false
+
+        DispatchQueue.main.async {
+            if success {
+                // Mirror forceLogout cleanup — the server force-disconnects this
+                // socket shortly after the response; with credentials cleared, the
+                // auto-reconnect won't restore a session.
+                print("[Auth] Account deleted")
+                self.authState.clearCredentials()
+                self.gameState.reset()
+                self.safetyState.reset()
+                self.appState.screen = .signIn
+            } else {
+                let message = data["message"] as? String ?? "Account deletion failed"
+                self.authState.deleteAccountError = message
+                print("[Auth] Account deletion failed: \(message)")
+            }
         }
     }
 }

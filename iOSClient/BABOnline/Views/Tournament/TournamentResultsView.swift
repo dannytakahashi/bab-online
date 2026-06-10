@@ -4,8 +4,19 @@ struct TournamentResultsView: View {
     @EnvironmentObject var tournamentState: TournamentState
     @EnvironmentObject var appState: AppState
 
-    private var winner: TournamentScoreEntry? {
-        tournamentState.scoreboard.first
+    private var winnerText: String? {
+        // Server-provided winners handle co-winners on tie; fall back to the
+        // scoreboard leader when winners is empty (e.g. rejoin after complete)
+        if !tournamentState.winners.isEmpty {
+            if tournamentState.winners.count == 1 {
+                return "\(tournamentState.winners[0]) wins!"
+            }
+            return "\(tournamentState.winners.joined(separator: " & ")) tie!"
+        }
+        if let first = tournamentState.scoreboard.first {
+            return "\(first.username) wins!"
+        }
+        return nil
     }
 
     var body: some View {
@@ -22,8 +33,8 @@ struct TournamentResultsView: View {
                     .font(.system(size: 28, weight: .bold, design: .rounded))
                     .foregroundColor(Color.Theme.warning)
 
-                if let winner = winner {
-                    Text("\(winner.username) wins!")
+                if let winnerText = winnerText {
+                    Text(winnerText)
                         .font(.title2.bold())
                         .foregroundColor(Color.Theme.textPrimary)
                 }

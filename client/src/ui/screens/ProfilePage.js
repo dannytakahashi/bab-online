@@ -535,6 +535,9 @@ export function showProfilePage(profile, socket) {
 
   modal.appendChild(statsGrid);
 
+  // Danger zone — account deletion (required by App Store Guideline 5.1.1(v))
+  modal.appendChild(createDangerZone(socket));
+
   overlay.appendChild(modal);
 
   // Close on overlay click (but not modal click)
@@ -545,6 +548,115 @@ export function showProfilePage(profile, socket) {
   });
 
   document.body.appendChild(overlay);
+}
+
+/**
+ * Create the account-deletion section: a Delete Account button that expands
+ * into a password-confirm form.
+ *
+ * @param {Object} socket - Socket instance
+ * @returns {HTMLElement}
+ */
+function createDangerZone(socket) {
+  const section = document.createElement('div');
+  section.style.marginTop = '25px';
+  section.style.padding = '15px';
+  section.style.background = 'rgba(127, 29, 29, 0.2)';
+  section.style.border = '1px solid #7f1d1d';
+  section.style.borderRadius = '8px';
+
+  const deleteBtn = document.createElement('button');
+  deleteBtn.innerText = 'Delete Account';
+  deleteBtn.style.padding = '10px 20px';
+  deleteBtn.style.borderRadius = '6px';
+  deleteBtn.style.border = 'none';
+  deleteBtn.style.background = '#991b1b';
+  deleteBtn.style.color = '#fff';
+  deleteBtn.style.fontSize = '14px';
+  deleteBtn.style.cursor = 'pointer';
+  deleteBtn.style.fontWeight = 'bold';
+  section.appendChild(deleteBtn);
+
+  const confirmArea = document.createElement('div');
+  confirmArea.style.display = 'none';
+  confirmArea.style.marginTop = '12px';
+
+  const warning = document.createElement('div');
+  warning.innerText = 'This permanently deletes your account, statistics, and profile. This cannot be undone. Enter your password to confirm.';
+  warning.style.fontSize = '13px';
+  warning.style.color = '#fca5a5';
+  warning.style.marginBottom = '10px';
+  confirmArea.appendChild(warning);
+
+  const passwordInput = document.createElement('input');
+  passwordInput.type = 'password';
+  passwordInput.placeholder = 'Password';
+  passwordInput.autocomplete = 'current-password';
+  passwordInput.style.padding = '8px 12px';
+  passwordInput.style.borderRadius = '6px';
+  passwordInput.style.border = '1px solid #4a5568';
+  passwordInput.style.background = '#1f2937';
+  passwordInput.style.color = '#fff';
+  passwordInput.style.fontSize = '14px';
+  passwordInput.style.marginRight = '8px';
+  confirmArea.appendChild(passwordInput);
+
+  const confirmBtn = document.createElement('button');
+  confirmBtn.innerText = 'Permanently Delete';
+  confirmBtn.style.padding = '8px 16px';
+  confirmBtn.style.borderRadius = '6px';
+  confirmBtn.style.border = 'none';
+  confirmBtn.style.background = '#dc2626';
+  confirmBtn.style.color = '#fff';
+  confirmBtn.style.fontSize = '14px';
+  confirmBtn.style.cursor = 'pointer';
+  confirmBtn.style.fontWeight = 'bold';
+  confirmBtn.addEventListener('click', () => {
+    const password = passwordInput.value;
+    if (!password) {
+      passwordInput.style.border = '1px solid #dc2626';
+      return;
+    }
+    confirmBtn.disabled = true;
+    confirmBtn.innerText = 'Deleting…';
+    socket.emit('deleteAccount', { password });
+  });
+  confirmArea.appendChild(confirmBtn);
+
+  const errorMsg = document.createElement('div');
+  errorMsg.id = 'deleteAccountError';
+  errorMsg.style.fontSize = '13px';
+  errorMsg.style.color = '#f87171';
+  errorMsg.style.marginTop = '8px';
+  confirmArea.appendChild(errorMsg);
+
+  section.appendChild(confirmArea);
+
+  deleteBtn.addEventListener('click', () => {
+    const visible = confirmArea.style.display !== 'none';
+    confirmArea.style.display = visible ? 'none' : 'block';
+  });
+
+  return section;
+}
+
+/**
+ * Re-enable the delete-account form after a failed attempt.
+ *
+ * @param {string} message - Error message to display
+ */
+export function showDeleteAccountError(message) {
+  const errorMsg = document.getElementById('deleteAccountError');
+  if (errorMsg) {
+    errorMsg.innerText = message;
+  }
+  const buttons = document.querySelectorAll('#profilePageModal button');
+  buttons.forEach(btn => {
+    if (btn.innerText === 'Deleting…') {
+      btn.disabled = false;
+      btn.innerText = 'Permanently Delete';
+    }
+  });
 }
 
 /**
@@ -604,8 +716,11 @@ export function isProfilePageVisible() {
  * Show a read-only profile page for viewing another player.
  *
  * @param {Object} profile - Profile data (username, profilePic, stats)
+ * @param {Object} [socket] - Socket instance (enables report/block actions)
+ * @param {Object} [options] - { isBlocked } current block state for the toggle
  */
-export function showPlayerProfilePage(profile) {
+export function showPlayerProfilePage(profile, socket, options = {}) {
+  socket = socket || currentSocket;
   // Remove any existing player profile page
   removePlayerProfilePage();
 
@@ -703,6 +818,43 @@ export function showPlayerProfilePage(profile) {
   picSection.appendChild(picLabel);
 
   modal.appendChild(picSection);
+
+  // Report / Block actions (App Store Guideline 1.2 — UGC safety)
+  if (socket) {
+    const safetyRow = document.createElement('div');
+    safetyRow.style.display = 'flex';
+    safetyRow.style.gap = '10px';
+    safetyRow.style.marginBottom = '25px';
+
+    const reportBtn = document.createElement('button');
+    reportBtn.innerText = 'Report';
+    reportBtn.style.cssText = 'padding: 8px 16px; border-radius: 6px; border: 1px solid #b45309; background: transparent; color: #f59e0b; font-size: 13px; cursor: pointer;';
+    reportBtn.addEventListener('click', () => {
+      const reason = window.prompt(`Report ${profile.username} — what happened?`);
+      if (reason && reason.trim()) {
+        socket.emit('reportUser', { username: profile.username, reason: reason.trim().slice(0, 500), context: '' });
+      }
+    });
+    safetyRow.appendChild(reportBtn);
+
+    const blockBtn = document.createElement('button');
+    let isBlocked = !!options.isBlocked;
+    const renderBlockBtn = () => {
+      blockBtn.innerText = isBlocked ? 'Unblock' : 'Block';
+      blockBtn.style.cssText = isBlocked
+        ? 'padding: 8px 16px; border-radius: 6px; border: 1px solid #4a5568; background: transparent; color: #9ca3af; font-size: 13px; cursor: pointer;'
+        : 'padding: 8px 16px; border-radius: 6px; border: 1px solid #991b1b; background: transparent; color: #f87171; font-size: 13px; cursor: pointer;';
+    };
+    renderBlockBtn();
+    blockBtn.addEventListener('click', () => {
+      socket.emit(isBlocked ? 'unblockUser' : 'blockUser', { username: profile.username });
+      isBlocked = !isBlocked;
+      renderBlockBtn();
+    });
+    safetyRow.appendChild(blockBtn);
+
+    modal.appendChild(safetyRow);
+  }
 
   // Stats section
   const statsHeader = document.createElement('div');

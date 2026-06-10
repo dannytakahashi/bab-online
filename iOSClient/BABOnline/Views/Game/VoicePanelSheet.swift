@@ -3,6 +3,7 @@ import SwiftUI
 /// Bottom sheet showing voice chat participants with mute controls.
 struct VoicePanelSheet: View {
     @ObservedObject var voiceManager = VoiceChatManager.shared
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationView {
@@ -57,6 +58,11 @@ struct VoicePanelSheet: View {
             .background(Color.Theme.background)
             .navigationTitle("Voice Chat")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                }
+            }
         }
     }
 

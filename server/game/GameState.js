@@ -438,6 +438,14 @@ class GameState {
         if (this.resignedPlayers[position]) {
             return this.resignedPlayers[position];
         }
+        // Lazy mode overwrites the player entry with the bot's name — return
+        // the original human for stat/score attribution
+        if (this.lazyPlayers[position]) {
+            return {
+                username: this.lazyPlayers[position].originalUsername,
+                pic: this.lazyPlayers[position].originalPic
+            };
+        }
         return this.getPlayerByPosition(position);
     }
 

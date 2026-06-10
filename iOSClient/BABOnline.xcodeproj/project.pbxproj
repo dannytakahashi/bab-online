@@ -78,6 +78,11 @@
 		FDB5445E7BEE26B8943D8770 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8790511FF395019A12A1F429 /* Assets.xcassets */; };
 		CC0000000000000000000001 /* ConnectionStatusToast.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0000000000000000000002 /* ConnectionStatusToast.swift */; };
 		BB1234567890ABCDEF000001 /* Tournament.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1234567890ABCDEF000001 /* Tournament.swift */; };
+		CD0000000000000000000002 /* SafetyState.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD0000000000000000000001 /* SafetyState.swift */; };
+		CD0000000000000000000004 /* SafetyEmitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD0000000000000000000003 /* SafetyEmitter.swift */; };
+		CD0000000000000000000006 /* SafetySocketHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD0000000000000000000005 /* SafetySocketHandler.swift */; };
+		CD0000000000000000000008 /* AccountSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD0000000000000000000007 /* AccountSettingsView.swift */; };
+		CD000000000000000000000A /* SafetyMenus.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD0000000000000000000009 /* SafetyMenus.swift */; };
 		BB1234567890ABCDEF000002 /* TournamentState.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1234567890ABCDEF000002 /* TournamentState.swift */; };
 		BB1234567890ABCDEF000003 /* TournamentEmitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1234567890ABCDEF000003 /* TournamentEmitter.swift */; };
 		BB1234567890ABCDEF000004 /* TournamentSocketHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1234567890ABCDEF000004 /* TournamentSocketHandler.swift */; };
@@ -171,6 +176,11 @@
 		FA8B8AB7C156EE02DB4AA5EC /* SKOpponentManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SKOpponentManager.swift; sourceTree = "<group>"; };
 		FD7736BF05FE6B17925F5B58 /* AvatarNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvatarNode.swift; sourceTree = "<group>"; };
 		CC0000000000000000000002 /* ConnectionStatusToast.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionStatusToast.swift; sourceTree = "<group>"; };
+		CD0000000000000000000001 /* SafetyState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafetyState.swift; sourceTree = "<group>"; };
+		CD0000000000000000000003 /* SafetyEmitter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafetyEmitter.swift; sourceTree = "<group>"; };
+		CD0000000000000000000005 /* SafetySocketHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafetySocketHandler.swift; sourceTree = "<group>"; };
+		CD0000000000000000000007 /* AccountSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountSettingsView.swift; sourceTree = "<group>"; };
+		CD0000000000000000000009 /* SafetyMenus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafetyMenus.swift; sourceTree = "<group>"; };
 		AA1234567890ABCDEF000001 /* Tournament.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tournament.swift; sourceTree = "<group>"; };
 		AA1234567890ABCDEF000002 /* TournamentState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TournamentState.swift; sourceTree = "<group>"; };
 		AA1234567890ABCDEF000003 /* TournamentEmitter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TournamentEmitter.swift; sourceTree = "<group>"; };
@@ -225,6 +235,7 @@
 				97217006DFD0797BEBAF6836 /* GameEmitter.swift */,
 				AA1234567890ABCDEF00000D /* LeaderboardEmitter.swift */,
 				ABFB49C1B9B998424D06A9B7 /* LobbyEmitter.swift */,
+				CD0000000000000000000003 /* SafetyEmitter.swift */,
 				AA1234567890ABCDEF000003 /* TournamentEmitter.swift */,
 				DD0000000000000000000004 /* VoiceEmitter.swift */,
 			);
@@ -244,6 +255,7 @@
 			children = (
 				F28474CFED18B3E46768C988 /* AuthSocketHandler.swift */,
 				1CC5887542913E6A913FA11E /* ChatSocketHandler.swift */,
+				CD0000000000000000000005 /* SafetySocketHandler.swift */,
 				7AA293C5CC063A9C3A5D35F2 /* GameSocketHandler.swift */,
 				AA1234567890ABCDEF00000E /* LeaderboardSocketHandler.swift */,
 				7FD14869A6FDEFEF8A26EB44 /* LobbySocketHandler.swift */,
@@ -284,6 +296,7 @@
 			isa = PBXGroup;
 			children = (
 				CC0000000000000000000002 /* ConnectionStatusToast.swift */,
+				CD0000000000000000000009 /* SafetyMenus.swift */,
 			);
 			path = Components;
 			sourceTree = "<group>";
@@ -403,6 +416,7 @@
 		D5AAEA07E9E0D4E83C6DED04 /* MainRoom */ = {
 			isa = PBXGroup;
 			children = (
+				CD0000000000000000000007 /* AccountSettingsView.swift */,
 				AA1234567890ABCDEF00000F /* LeaderboardView.swift */,
 				C53AAE255FBF334AD3AEC34F /* LobbyListView.swift */,
 				07ED0716768E28CCCDE8A731 /* MainRoomChatView.swift */,
@@ -451,6 +465,7 @@
 				AA1234567890ABCDEF00000C /* LeaderboardState.swift */,
 				E9B310B890DA152FC2DC27BB /* LobbyState.swift */,
 				D8BFDA96358A6BEB484A42FB /* MainRoomState.swift */,
+				CD0000000000000000000001 /* SafetyState.swift */,
 				AA1234567890ABCDEF000002 /* TournamentState.swift */,
 			);
 			path = State;
@@ -658,6 +673,11 @@
 				DD0000000000000000000007 /* VoiceSocketHandler.swift in Sources */,
 				DD0000000000000000000009 /* VoiceMuteButton.swift in Sources */,
 				DD000000000000000000000B /* VoicePanelSheet.swift in Sources */,
+				CD0000000000000000000002 /* SafetyState.swift in Sources */,
+				CD0000000000000000000004 /* SafetyEmitter.swift in Sources */,
+				CD0000000000000000000006 /* SafetySocketHandler.swift in Sources */,
+				CD0000000000000000000008 /* AccountSettingsView.swift in Sources */,
+				CD000000000000000000000A /* SafetyMenus.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

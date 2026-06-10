@@ -14,7 +14,12 @@ struct GameContainerView: View {
 
     @State private var showGameLog = false
     @State private var showVoicePanel = false
+    @State private var showLeaveConfirm = false
     @ObservedObject private var voiceManager = VoiceChatManager.shared
+
+    private var isPureSpectator: Bool {
+        gameState.isSpectator && !gameState.isLazy
+    }
 
     var body: some View {
         ZStack {
@@ -79,8 +84,32 @@ struct GameContainerView: View {
                 }
             }
 
+            // Leave/exit game button (always visible during play — Guideline 4)
+            if gameState.phase == .draw || gameState.phase == .bidding || gameState.phase == .playing {
+                VStack {
+                    HStack {
+                        Button(action: handleLeaveTapped) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "rectangle.portrait.and.arrow.right")
+                                Text(isPureSpectator ? "Exit" : "Leave")
+                            }
+                            .font(.caption.bold())
+                            .foregroundColor(Color.Theme.textSecondary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .background(Color.Theme.surface.opacity(0.8))
+                            .clipShape(Capsule())
+                        }
+                        .padding(.leading, 12)
+                        .padding(.top, 80)
+                        Spacer()
+                    }
+                    Spacer()
+                }
+            }
+
             // Game log toggle button
-            if gameState.phase == .bidding || gameState.phase == .playing {
+            if gameState.phase == .draw || gameState.phase == .bidding || gameState.phase == .playing {
                 VStack {
                     HStack {
                         Spacer()
@@ -136,14 +165,25 @@ struct GameContainerView: View {
             if gameState.isSpectator && !gameState.isLazy {
                 VStack {
                     Spacer()
-                    Text("Spectating \u{2014} type /leave to exit")
-                        .font(.caption.bold())
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                        .background(Color(red: 0.376, green: 0.647, blue: 0.98).opacity(0.9))
-                        .cornerRadius(8)
-                        .padding(.bottom, 12)
+                    HStack(spacing: 10) {
+                        Text("Spectating")
+                            .font(.caption.bold())
+                            .foregroundColor(.white)
+                        Button(action: { ChatEmitter.sendMessage("/leave") }) {
+                            Text("Exit")
+                                .font(.caption.bold())
+                                .foregroundColor(Color(red: 0.376, green: 0.647, blue: 0.98))
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 4)
+                                .background(Color.white)
+                                .cornerRadius(6)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(Color(red: 0.376, green: 0.647, blue: 0.98).opacity(0.9))
+                    .cornerRadius(8)
+                    .padding(.bottom, 12)
                 }
             } else if gameState.isLazy {
                 VStack {
@@ -173,6 +213,14 @@ struct GameContainerView: View {
         }
         .animation(.easeInOut(duration: 0.3), value: gameState.isBidding)
         .animation(.easeInOut(duration: 0.3), value: gameState.phase)
+        .alert("Leave game?", isPresented: $showLeaveConfirm) {
+            Button("Leave Game", role: .destructive) {
+                ChatEmitter.sendMessage("/leave")
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("A bot will finish your hand for you.")
+        }
         .onAppear {
             scene.configure(gameState: gameState)
         }
@@ -183,6 +231,15 @@ struct GameContainerView: View {
         .sheet(isPresented: $showVoicePanel) {
             VoicePanelSheet()
                 .presentationDetents([.medium])
+        }
+    }
+
+    private func handleLeaveTapped() {
+        if isPureSpectator {
+            // Spectators just exit — nothing to confirm
+            ChatEmitter.sendMessage("/leave")
+        } else {
+            showLeaveConfirm = true
         }
     }
 }

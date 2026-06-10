@@ -5,7 +5,7 @@ const { dbLogger } = require("./utils/logger");
 const mongoURI = process.env.MONGO_URI || 'mongodb://localhost:27017/babonline';
 const dbName = "babonline";
 
-let db, usersCollection, gameRecordsCollection;
+let db, usersCollection, gameRecordsCollection, reportsCollection;
 
 /**
  * Connect to MongoDB
@@ -18,11 +18,19 @@ async function connectDB() {
         db = client.db(dbName);
         usersCollection = db.collection("users");
         gameRecordsCollection = db.collection("gameRecords");
+        reportsCollection = db.collection("reports");
         await gameRecordsCollection.createIndex({ completedAt: -1 });
+        await reportsCollection.createIndex({ createdAt: -1 });
     } catch (error) {
         dbLogger.error("MongoDB connection failed", { error: error.message });
     }
 }
 
 // ✅ Export database and collection references
-module.exports = { connectDB, getDB: () => db, getUsersCollection: () => usersCollection, getGameRecordsCollection: () => gameRecordsCollection };
+module.exports = {
+    connectDB,
+    getDB: () => db,
+    getUsersCollection: () => usersCollection,
+    getGameRecordsCollection: () => gameRecordsCollection,
+    getReportsCollection: () => reportsCollection
+};

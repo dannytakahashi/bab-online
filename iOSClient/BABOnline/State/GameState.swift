@@ -413,6 +413,12 @@ final class GameState: ObservableObject {
 
     func restoreFromRejoin(_ data: [String: Any]) {
         gameId = data["gameId"] as? String
+        // rejoinSuccess always carries tournamentId (null for casual games) —
+        // assigning clears stale tournament context. restorePlayerState reuses
+        // this parser but omits the key, so only overwrite when it's present.
+        if data.keys.contains("tournamentId") {
+            tournamentId = data["tournamentId"] as? String
+        }
         position = data["position"] as? Int
         currentHand = data["currentHand"] as? Int ?? 0
         dealer = data["dealer"] as? Int

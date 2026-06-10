@@ -62,7 +62,8 @@ function mainRoomChat(socket, io, data) {
         return;
     }
 
-    const result = gameManager.addMainRoomMessage(socket.id, message.trim());
+    const { filterProfanity } = require('../utils/profanityFilter');
+    const result = gameManager.addMainRoomMessage(socket.id, filterProfanity(message.trim()));
 
     if (!result.success) {
         socket.emit('error', { message: result.error });
@@ -87,7 +88,8 @@ function mainRoomChat(socket, io, data) {
 function createLobby(socket, io, data) {
     const { name } = data || {};
 
-    const result = gameManager.createNamedLobby(socket.id, name);
+    const { filterProfanity } = require('../utils/profanityFilter');
+    const result = gameManager.createNamedLobby(socket.id, name ? filterProfanity(name) : name);
 
     if (!result.success) {
         socket.emit('error', { message: result.error });

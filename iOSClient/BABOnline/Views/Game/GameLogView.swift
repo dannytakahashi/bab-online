@@ -12,6 +12,7 @@ struct GameLogView: View {
     @Binding var isShowing: Bool
     @State private var chatMessage = ""
     @State private var showAutocomplete = false
+    @State private var reportTarget: String?
 
     private static let allCommands: [SlashCommand] = [
         SlashCommand(command: "/lazy", description: "Bot plays for you"),
@@ -61,6 +62,7 @@ struct GameLogView: View {
                                 ForEach(gameState.gameLog) { entry in
                                     GameLogEntryView(entry: entry)
                                         .id(entry.id)
+                                        .reportBlockMenu(for: entry, currentUsername: gameState.username ?? "", reportTarget: $reportTarget)
                                 }
                             }
                             .padding(.horizontal, 12)
@@ -130,6 +132,7 @@ struct GameLogView: View {
                 .padding(.vertical, 60)
             }
         }
+        .safetyAlerts(reportTarget: $reportTarget, reportContext: "game chat")
     }
 
     private func sendChat() {

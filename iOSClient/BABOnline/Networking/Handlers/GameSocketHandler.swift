@@ -227,6 +227,10 @@ final class GameSocketHandler {
             DispatchQueue.main.async {
                 self.gameState.phase = .ended
                 self.gameState.gameEndData = GameEndData.from(dict)
+                // Always present (null for casual games) — keeps the
+                // "Return to Tournament" branch correct after reconnects and
+                // prevents stale tournament state on casual games.
+                self.gameState.tournamentId = dict["tournamentId"] as? String
             }
         }
     }

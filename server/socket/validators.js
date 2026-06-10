@@ -55,6 +55,12 @@ const schemas = {
         message: Joi.string().min(1).max(500).required()
     }),
 
+    // Lobby creation — the name is run through the profanity filter, so it
+    // must be length-capped here
+    createLobby: Joi.object({
+        name: Joi.string().max(50).allow('', null).optional()
+    }),
+
     // Queue (no data needed, but validate anyway)
     joinQueue: Joi.object({}).unknown(true),
     leaveQueue: Joi.object({}).unknown(true),
@@ -95,6 +101,36 @@ const schemas = {
 
     spectateTournamentGame: Joi.object({
         gameId: Joi.string().uuid().required()
+    }),
+
+    // No-payload tournament events (schemas exist so rate limiting applies)
+    createTournament: Joi.object({}).unknown(true),
+    leaveTournament: Joi.object({}).unknown(true),
+    tournamentReady: Joi.object({}).unknown(true),
+    tournamentUnready: Joi.object({}).unknown(true),
+    beginTournament: Joi.object({}).unknown(true),
+    beginNextRound: Joi.object({}).unknown(true),
+    returnToTournament: Joi.object({}).unknown(true),
+    cancelTournament: Joi.object({}).unknown(true),
+
+    // Account management
+    deleteAccount: Joi.object({
+        password: Joi.string().min(1).max(100).required()
+    }),
+
+    // Safety / moderation
+    reportUser: Joi.object({
+        username: Joi.string().min(1).max(50).required(),
+        reason: Joi.string().min(1).max(500).required(),
+        context: Joi.string().max(1000).allow('').optional()
+    }),
+
+    blockUser: Joi.object({
+        username: Joi.string().min(1).max(50).required()
+    }),
+
+    unblockUser: Joi.object({
+        username: Joi.string().min(1).max(50).required()
     })
 };
 

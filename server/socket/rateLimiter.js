@@ -24,7 +24,32 @@ class RateLimiter {
 
             // Queue - prevent queue spam
             joinQueue: { max: 5, windowMs: 30000 },    // 5 per 30 seconds
-            leaveQueue: { max: 5, windowMs: 30000 }    // 5 per 30 seconds
+            leaveQueue: { max: 5, windowMs: 30000 },   // 5 per 30 seconds
+
+            // Lobby creation
+            createLobby: { max: 5, windowMs: 60000 },
+
+            // Tournaments - create/join/leave cycles trigger room-wide
+            // broadcasts, so keep them throttled
+            createTournament: { max: 3, windowMs: 60000 },
+            joinTournament: { max: 10, windowMs: 60000 },
+            leaveTournament: { max: 10, windowMs: 60000 },
+            tournamentReady: { max: 10, windowMs: 10000 },
+            tournamentUnready: { max: 10, windowMs: 10000 },
+            beginTournament: { max: 5, windowMs: 60000 },
+            beginNextRound: { max: 5, windowMs: 60000 },
+            returnToTournament: { max: 10, windowMs: 30000 },
+            spectateTournament: { max: 10, windowMs: 60000 },
+            spectateTournamentGame: { max: 10, windowMs: 60000 },
+            cancelTournament: { max: 3, windowMs: 60000 },
+
+            // Account management
+            deleteAccount: { max: 3, windowMs: 300000 },  // 3 per 5 minutes
+
+            // Safety / moderation
+            reportUser: { max: 5, windowMs: 300000 },     // 5 per 5 minutes
+            blockUser: { max: 10, windowMs: 60000 },
+            unblockUser: { max: 10, windowMs: 60000 }
         };
 
         // Track requests: Map<string, number[]> where key is "socketId:event"

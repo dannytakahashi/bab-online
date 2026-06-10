@@ -10,6 +10,7 @@ final class TournamentState: ObservableObject {
     @Published var players: [TournamentPlayer] = []
     @Published var messages: [ChatMessage] = []
     @Published var scoreboard: [TournamentScoreEntry] = []
+    @Published var winners: [String] = []
     @Published var activeGames: [TournamentActiveGame] = []
     @Published var creatorUsername: String = ""
     @Published var isSpectator: Bool = false
@@ -24,6 +25,7 @@ final class TournamentState: ObservableObject {
         players = []
         messages = []
         scoreboard = []
+        winners = []
         activeGames = []
         creatorUsername = ""
         isSpectator = false
@@ -50,6 +52,8 @@ final class TournamentState: ObservableObject {
         if let scoreboardArr = dict["scoreboard"] as? [[String: Any]] {
             scoreboard = scoreboardArr.compactMap { TournamentScoreEntry.from($0) }
         }
+
+        winners = dict["winners"] as? [String] ?? []
 
         if let gamesArr = dict["activeGames"] as? [[String: Any]] {
             activeGames = gamesArr.compactMap { TournamentActiveGame.from($0) }

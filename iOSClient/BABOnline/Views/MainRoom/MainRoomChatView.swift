@@ -2,7 +2,9 @@ import SwiftUI
 
 struct MainRoomChatView: View {
     @EnvironmentObject var mainRoomState: MainRoomState
+    @EnvironmentObject var authState: AuthState
     @State private var message = ""
+    @State private var reportTarget: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -25,6 +27,7 @@ struct MainRoomChatView: View {
                         ForEach(mainRoomState.messages) { msg in
                             ChatBubbleView(message: msg)
                                 .id(msg.id)
+                                .reportBlockMenu(for: msg, currentUsername: authState.username, reportTarget: $reportTarget)
                         }
                     }
                     .padding(.horizontal)
@@ -57,6 +60,7 @@ struct MainRoomChatView: View {
             }
             .padding(10)
         }
+        .safetyAlerts(reportTarget: $reportTarget, reportContext: "main room chat")
     }
 
     private func sendMessage() {

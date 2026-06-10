@@ -30,7 +30,7 @@ import { createSignInScreen, showSignInScreen } from './ui/screens/SignIn.js';
 import { createRegisterScreen, showRegisterScreen } from './ui/screens/Register.js';
 import { showMainRoom, addMainRoomChatMessage, updateLobbyList, removeMainRoom, updateMainRoomOnlineCount, getMainRoomUserColors } from './ui/screens/MainRoom.js';
 import { showGameLobby, updateLobbyPlayersList, addLobbyChatMessage, removeGameLobby, getCurrentLobbyId, getIsPlayerReady, getLobbyUserColors } from './ui/screens/GameLobby.js';
-import { showProfilePage, updateProfilePicDisplay, updateCustomProfilePicDisplay, removeProfilePage, isProfilePageVisible, showPlayerProfilePage } from './ui/screens/ProfilePage.js';
+import { showProfilePage, updateProfilePicDisplay, updateCustomProfilePicDisplay, removeProfilePage, isProfilePageVisible, showPlayerProfilePage, showDeleteAccountError } from './ui/screens/ProfilePage.js';
 import { showLeaderboardPage, removeLeaderboardPage, isLeaderboardPageVisible } from './ui/screens/LeaderboardPage.js';
 import { showRecordsPage, removeRecordsPage } from './ui/screens/RecordsPage.js';
 import { updatePlayerSearchResults } from './ui/screens/PlayerSearchPage.js';
@@ -1414,7 +1414,56 @@ socket.on('rejoinSuccess', (data) => {
   // Also remove main room and lobby if present
   removeMainRoom();
   removeGameLobby();
+
+  // Restore tournament context (server includes it when the rejoined game
+  // belongs to a tournament) so the game-end screen offers 'Return to Tournament'
+  if (data.tournamentId !== undefined) {
+    getGameState().tournamentId = data.tournamentId;
+  }
   // Note: State restoration and UI rebuild handled by gameHandlers onRejoinSuccess callback
+});
+
+// Blocked users — chat from these usernames is hidden locally. Populated from
+// signInResponse/restoreSessionResponse and kept in sync via blockListUpdated.
+const blockedUsers = new Set();
+
+export function isUserBlocked(username) {
+  return blockedUsers.has(username);
+}
+
+export function setBlockedUsers(list) {
+  blockedUsers.clear();
+  (list || []).forEach(u => blockedUsers.add(u));
+}
+
+socket.on('blockListUpdated', (data) => {
+  if (data.success) {
+    setBlockedUsers(data.blockedUsers);
+    showInfo('Block list updated');
+  } else {
+    showError(data.message || 'Failed to update block list');
+  }
+});
+
+socket.on('reportUserResponse', (data) => {
+  if (data.success) {
+    showSuccess('Report submitted. Thank you — we review all reports.');
+  } else {
+    showError(data.message || 'Failed to submit report');
+  }
+});
+
+// Account deletion (in-app, required by App Store Guideline 5.1.1(v))
+socket.on('deleteAccountResponse', (data) => {
+  if (data.success) {
+    sessionStorage.removeItem('username');
+    sessionStorage.removeItem('sessionToken');
+    sessionStorage.removeItem('gameId');
+    sessionStorage.removeItem('spectatingGameId');
+    window.location.reload();
+  } else {
+    showDeleteAccountError(data.message || 'Account deletion failed');
+  }
 });
 
 socket.on('rejoinFailed', (data) => {
@@ -2002,6 +2051,7 @@ function initializeApp() {
       console.log('Sign in success, going to main room');
       gameState.username = data.username;
       uiManager.setUsername(data.username);
+      setBlockedUsers(data.blockedUsers);
       // Reset rejoin flags for fresh session
       rejoinAttempted = false;
       rejoinSucceeded = false;
@@ -2029,6 +2079,8 @@ function initializeApp() {
         console.log(`Registration & auto-login successful: ${data.username}`);
         gameState.username = data.username;
         uiManager.setUsername(data.username);
+        // Fresh account, fresh block list (don't inherit a prior session's)
+        setBlockedUsers([]);
         socket.emit('joinMainRoom');
       } else {
         showSuccess('Registration successful! Please sign in.');
@@ -2073,6 +2125,7 @@ function initializeApp() {
       sessionStorage.removeItem('gameId');
       sessionStorage.removeItem('spectatingGameId');
       gameState.reset();
+      setBlockedUsers([]);
 
       // Show sign-in screen
       displaySignInScreen();
@@ -2095,6 +2148,10 @@ function initializeApp() {
         return;
       }
       console.log('Joined main room, showing UI');
+      // Hide replayed chat history from blocked users
+      if (data.messages) {
+        data.messages = data.messages.filter(m => !isUserBlocked(m.username));
+      }
       // Clear modular sign-in/register screens (with dashes)
       const signInContainer = document.getElementById('sign-in-container');
       if (signInContainer) signInContainer.remove();
@@ -2113,6 +2170,7 @@ function initializeApp() {
       showMainRoom(data, socket);
     },
     onMainRoomMessage: (data) => {
+      if (isUserBlocked(data.username)) return;
       addMainRoomChatMessage(data.username, data.message, data.timestamp);
     },
     onLobbiesUpdated: (data) => {
@@ -2132,7 +2190,11 @@ function initializeApp() {
       console.log('Lobby created, showing lobby UI');
       removeMainRoom();
       showGameLobby(
-        { lobbyId: data.lobbyId, players: data.players, messages: data.messages || [] },
+        {
+          lobbyId: data.lobbyId,
+          players: data.players,
+          messages: (data.messages || []).filter(m => !isUserBlocked(m.username))
+        },
         socket,
         gameState.username
       );
@@ -2148,7 +2210,11 @@ function initializeApp() {
       console.log('Joined lobby, showing lobby UI');
       removeMainRoom();
       showGameLobby(
-        { lobbyId: data.lobbyId, players: data.players, messages: data.messages || [] },
+        {
+          lobbyId: data.lobbyId,
+          players: data.players,
+          messages: (data.messages || []).filter(m => !isUserBlocked(m.username))
+        },
         socket,
         gameState.username
       );
@@ -2157,6 +2223,7 @@ function initializeApp() {
       updateLobbyPlayersList(null, data.players, gameState.username);
     },
     onLobbyMessage: (data) => {
+      if (isUserBlocked(data.username)) return;
       addLobbyChatMessage(data.username, data.message);
     },
     onLobbyPlayerLeft: (data) => {
@@ -2748,9 +2815,16 @@ function initializeApp() {
       const { teamName, oppName } = getTeamNames(position, playerData);
       window.updateGameLogScoreFromLegacy(teamName, oppName, teamScore, oppScore);
 
-      // Determine return flow: tournament game returns to tournament, normal game to main room
-      const isTournamentGame = !!data.tournamentId || !!gameState.tournamentId;
-      const savedTournamentId = data.tournamentId || gameState.tournamentId;
+      // Determine return flow: tournament game returns to tournament, normal game to main room.
+      // The server always includes tournamentId in gameEnd (null for casual
+      // games), so prefer it — a stale local tournamentId from a previous
+      // tournament must not hijack a casual game's end screen.
+      const isTournamentGame = data.tournamentId !== undefined
+        ? !!data.tournamentId
+        : !!gameState.tournamentId;
+      const savedTournamentId = data.tournamentId !== undefined
+        ? data.tournamentId
+        : gameState.tournamentId;
 
       // Show final score overlay
       showFinalScoreOverlay({
@@ -3112,6 +3186,8 @@ function initializeApp() {
 
     // Chat callback - add to game feed and show bubble
     onChatMessage: (data) => {
+      if (data.username && isUserBlocked(data.username)) return;
+
       const scene = getGameScene();
       const state = getGameState();
 
@@ -3157,7 +3233,7 @@ function initializeApp() {
       updatePlayerSearchResults(players);
     },
     onPlayerProfileReceived: (profile) => {
-      showPlayerProfilePage(profile);
+      showPlayerProfilePage(profile, socket, { isBlocked: isUserBlocked(profile.username) });
     },
     // Leaderboard callbacks
     onLeaderboardReceived: (leaderboard) => {
@@ -3183,8 +3259,36 @@ function initializeApp() {
 
     onTournamentJoined: (data) => {
       gameState.tournamentId = data.tournamentId;
+      if (data.messages) {
+        data.messages = data.messages.filter(m => !isUserBlocked(m.username));
+      }
       removeMainRoom();
       uiManager.showScreen(SCREENS.TOURNAMENT_LOBBY, data);
+
+      // Returning to a finished tournament (e.g. from the game-end screen):
+      // show the final results on top of the lobby
+      if (data.phase === 'complete') {
+        const pending = gameState.pendingTournamentResults;
+        const scoreboard = data.scoreboard || pending?.scoreboard || [];
+        // Fresh server data first (getClientState now includes winners for
+        // completed tournaments); pending is only a same-session fallback
+        let winners = data.winners;
+        if (!winners || winners.length === 0) winners = pending?.winners;
+        if (!winners || winners.length === 0) {
+          const top = scoreboard.length > 0 ? scoreboard[0].totalScore : null;
+          winners = top === null ? [] : scoreboard.filter(e => e.totalScore === top).map(e => e.username);
+        }
+        showTournamentResultsOverlay({
+          scoreboard,
+          winners,
+          onReturn: () => {
+            gameState.tournamentId = null;
+            gameState.pendingTournamentResults = null;
+            removeTournamentLobby();
+            socket.emit('joinMainRoom');
+          }
+        });
+      }
     },
 
     onTournamentPlayerJoined: (data) => {
@@ -3203,6 +3307,7 @@ function initializeApp() {
     },
 
     onTournamentMessage: (data) => {
+      if (isUserBlocked(data.username)) return;
       addTournamentChatMessage(data.username, data.message, data.isSpectator);
     },
 
@@ -3236,13 +3341,24 @@ function initializeApp() {
     },
 
     onTournamentComplete: (data) => {
-      const winner = data.scoreboard && data.scoreboard.length > 0
-        ? data.scoreboard[0].username : null;
+      const winners = data.winners && data.winners.length > 0
+        ? data.winners
+        : (data.scoreboard && data.scoreboard.length > 0 ? [data.scoreboard[0].username] : []);
+
+      // If the player is still on the game-end screen, don't stack the results
+      // on top of the score modal — they'll see them after clicking 'Return to
+      // Tournament' (the server keeps the tournament alive for this)
+      if (document.getElementById('finalScoreOverlay')) {
+        gameState.pendingTournamentResults = { scoreboard: data.scoreboard, winners };
+        return;
+      }
+
       showTournamentResultsOverlay({
         scoreboard: data.scoreboard,
-        winner,
+        winners,
         onReturn: () => {
           gameState.tournamentId = null;
+          gameState.pendingTournamentResults = null;
           removeTournamentLobby();
           socket.emit('joinMainRoom');
         }
@@ -3251,11 +3367,13 @@ function initializeApp() {
 
     onTournamentLeft: () => {
       gameState.tournamentId = null;
+      gameState.pendingTournamentResults = null;
       removeTournamentLobby();
     },
 
     onTournamentCancelled: () => {
       gameState.tournamentId = null;
+      gameState.pendingTournamentResults = null;
       removeTournamentLobby();
       showInfo('Tournament has been cancelled by the host');
       socket.emit('joinMainRoom');
@@ -3379,6 +3497,7 @@ socket.on('restoreSessionResponse', (data) => {
     console.log('Session restored successfully');
     const gameState = getGameState();
     gameState.username = data.username;
+    setBlockedUsers(data.blockedUsers);
 
     // Check if user has an active game to rejoin
     if (data.activeGameId) {

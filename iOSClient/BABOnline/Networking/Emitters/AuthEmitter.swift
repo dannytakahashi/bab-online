@@ -18,4 +18,8 @@ enum AuthEmitter {
     static func rejoinGame(gameId: String, username: String) {
         socket.emit(SocketEvents.Client.rejoinGame, ["gameId": gameId, "username": username])
     }
+
+    static func deleteAccount(password: String) {
+        socket.emit(SocketEvents.Client.deleteAccount, ["password": password])
+    }
 }

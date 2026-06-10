@@ -44,7 +44,7 @@ class TournamentState {
     // ========================================
 
     addPlayer(socketId, username, pic) {
-        this.players.set(socketId, { username, pic, ready: false });
+        this.players.set(socketId, { username, pic, ready: false, connected: true });
         // Initialize scoreboard entry
         if (!this.scoreboard[username]) {
             this.scoreboard[username] = {
@@ -54,6 +54,71 @@ class TournamentState {
             };
         }
         this.logAction('addPlayer', { socketId, username });
+    }
+
+    /**
+     * Mark a player disconnected without removing them — keeps their scores and
+     * lets them reattach with a new socket. Returns the player or null.
+     */
+    markPlayerDisconnected(socketId) {
+        const player = this.players.get(socketId);
+        if (!player) return null;
+
+        player.connected = false;
+        player.ready = false;
+        this.readyPlayers.delete(socketId);
+
+        this.logAction('markPlayerDisconnected', { socketId, username: player.username });
+        return player;
+    }
+
+    /**
+     * Re-key an existing player entry (matched by username) to a new socket.
+     * Used when a player reconnects mid-tournament.
+     * @returns {{ oldSocketId: string } | null}
+     */
+    reattachPlayerByUsername(username, newSocketId) {
+        for (const [oldSocketId, player] of this.players.entries()) {
+            if (player.username === username) {
+                if (oldSocketId === newSocketId) {
+                    player.connected = true;
+                    this.recoverCreatorIfDisconnected();
+                    return { oldSocketId };
+                }
+                this.players.delete(oldSocketId);
+                this.readyPlayers.delete(oldSocketId);
+                player.connected = true;
+                player.ready = false;
+                this.players.set(newSocketId, player);
+                if (this.createdBy === oldSocketId) {
+                    this.createdBy = newSocketId;
+                }
+                this.recoverCreatorIfDisconnected();
+                this.logAction('reattachPlayer', { username, oldSocketId, newSocketId });
+                return { oldSocketId };
+            }
+        }
+        return null;
+    }
+
+    /**
+     * If the creator role is stuck on a disconnected/missing socket (e.g.
+     * everyone dropped at once, so no transfer happened at disconnect time),
+     * hand it to a connected player so Begin/Cancel work again.
+     */
+    recoverCreatorIfDisconnected() {
+        const creatorEntry = this.players.get(this.createdBy);
+        if (!creatorEntry || creatorEntry.connected === false) {
+            this.transferCreator();
+        }
+    }
+
+    getConnectedPlayerCount() {
+        let count = 0;
+        for (const [, player] of this.players) {
+            if (player.connected !== false) count++;
+        }
+        return count;
     }
 
     removePlayer(socketId) {
@@ -101,8 +166,15 @@ class TournamentState {
     }
 
     allPlayersReady() {
-        if (this.players.size === 0) return false;
-        return this.readyPlayers.size === this.players.size;
+        // Disconnected players don't block readiness — they're excluded from
+        // round pairings until they reattach.
+        let connected = 0;
+        for (const [socketId, player] of this.players.entries()) {
+            if (player.connected === false) continue;
+            connected++;
+            if (!this.readyPlayers.has(socketId)) return false;
+        }
+        return connected > 0;
     }
 
     resetAllReady() {
@@ -117,7 +189,16 @@ class TournamentState {
      * @returns {{ socketId: string, username: string } | null} New creator, or null if no humans remain
      */
     transferCreator() {
-        // Find first player that isn't the current creator
+        // Prefer a connected player that isn't the current creator
+        for (const [socketId, player] of this.players.entries()) {
+            if (socketId !== this.createdBy && player.connected !== false) {
+                this.createdBy = socketId;
+                this.creatorUsername = player.username;
+                this.logAction('transferCreator', { newCreator: player.username });
+                return { socketId, username: player.username };
+            }
+        }
+        // Fall back to any other player
         for (const [socketId, player] of this.players.entries()) {
             if (socketId !== this.createdBy) {
                 this.createdBy = socketId;
@@ -186,7 +267,22 @@ class TournamentState {
 
         const entry = this.scoreboard[username];
         const roundScore = details.teamScore;
-        entry.roundScores.push(roundScore);
+        const roundIdx = (details.roundNumber || this.currentRound) - 1;
+
+        // Index by round number (padding missed rounds with 0) so scoreboard
+        // columns stay aligned for players who missed a round or joined late.
+        if (roundIdx >= 0) {
+            if (entry.roundScores[roundIdx] !== undefined) {
+                this.logAction('recordPlayerRoundScore:duplicate', { username, roundIdx });
+                return;
+            }
+            while (entry.roundScores.length < roundIdx) {
+                entry.roundScores.push(0);
+            }
+            entry.roundScores[roundIdx] = roundScore;
+        } else {
+            entry.roundScores.push(roundScore);
+        }
         entry.roundDetails.push(details);
         entry.totalScore += roundScore;
 
@@ -239,9 +335,30 @@ class TournamentState {
                 username,
                 ...data
             }))
-            .sort((a, b) => b.totalScore - a.totalScore);
+            .sort((a, b) => b.totalScore - a.totalScore || a.username.localeCompare(b.username));
 
         return entries;
+    }
+
+    /**
+     * All entrants tied for the top score (co-winners on a tie).
+     * @returns {string[]} usernames
+     */
+    getWinners() {
+        const scoreboard = this.getScoreboard();
+        if (scoreboard.length === 0) return [];
+
+        // Only current members can win — scoreboard entries persist for
+        // players who quit, and a no-show's 0 can beat real (negative) totals
+        const memberNames = new Set();
+        for (const [, player] of this.players) {
+            memberNames.add(player.username);
+        }
+        const eligible = scoreboard.filter(e => memberNames.has(e.username));
+        const pool = eligible.length > 0 ? eligible : scoreboard;
+
+        const top = pool[0].totalScore;
+        return pool.filter(e => e.totalScore === top).map(e => e.username);
     }
 
     // ========================================
@@ -332,11 +449,12 @@ class TournamentState {
                 username: player.username,
                 pic: player.pic,
                 ready: player.ready,
+                connected: player.connected !== false,
                 isCreator: socketId === this.createdBy
             });
         }
 
-        return {
+        const state = {
             tournamentId: this.tournamentId,
             name: this.name,
             phase: this.phase,
@@ -349,6 +467,14 @@ class TournamentState {
             creatorUsername: this.creatorUsername,
             creatorSocketId: this.createdBy
         };
+
+        // Returning to a finished tournament must show the same (co-)winners
+        // the tournamentComplete broadcast announced
+        if (this.phase === 'complete') {
+            state.winners = this.getWinners();
+        }
+
+        return state;
     }
 
     // ========================================

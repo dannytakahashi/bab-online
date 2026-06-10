@@ -6,6 +6,7 @@ struct TournamentPlayer: Identifiable, Equatable {
     var pic: String?
     var isReady: Bool
     var isCreator: Bool
+    var connected: Bool
 
     static func from(_ dict: [String: Any]) -> TournamentPlayer? {
         guard let username = dict["username"] as? String else { return nil }
@@ -16,7 +17,8 @@ struct TournamentPlayer: Identifiable, Equatable {
         else { pic = nil }
         let isReady = dict["ready"] as? Bool ?? dict["isReady"] as? Bool ?? false
         let isCreator = dict["isCreator"] as? Bool ?? false
-        return TournamentPlayer(id: id, username: username, pic: pic, isReady: isReady, isCreator: isCreator)
+        let connected = dict["connected"] as? Bool ?? true
+        return TournamentPlayer(id: id, username: username, pic: pic, isReady: isReady, isCreator: isCreator, connected: connected)
     }
 }
 

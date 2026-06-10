@@ -6,12 +6,14 @@ final class TournamentSocketHandler {
     private let tournamentState: TournamentState
     private let gameState: GameState
     private let appState: AppState
+    private let safetyState: SafetyState
 
-    init(socket: SocketService, tournamentState: TournamentState, gameState: GameState, appState: AppState) {
+    init(socket: SocketService, tournamentState: TournamentState, gameState: GameState, appState: AppState, safetyState: SafetyState) {
         self.socket = socket
         self.tournamentState = tournamentState
         self.gameState = gameState
         self.appState = appState
+        self.safetyState = safetyState
     }
 
     func register() {
@@ -21,6 +23,7 @@ final class TournamentSocketHandler {
             guard let self, let dict = data.first as? [String: Any] else { return }
             DispatchQueue.main.async {
                 self.tournamentState.loadFromServerState(dict)
+                self.tournamentState.messages.removeAll { self.safetyState.isBlocked($0.username) }
                 self.appState.screen = .tournamentLobby
                 print("[Tournament] Created tournament: \(self.tournamentState.tournamentId)")
             }
@@ -30,6 +33,7 @@ final class TournamentSocketHandler {
             guard let self, let dict = data.first as? [String: Any] else { return }
             DispatchQueue.main.async {
                 self.tournamentState.loadFromServerState(dict)
+                self.tournamentState.messages.removeAll { self.safetyState.isBlocked($0.username) }
                 self.appState.screen = .tournamentLobby
                 print("[Tournament] Joined tournament: \(self.tournamentState.tournamentId)")
             }
@@ -73,7 +77,7 @@ final class TournamentSocketHandler {
         socket.on(SocketEvents.Server.tournamentMessage) { [weak self] data, _ in
             guard let self, let dict = data.first as? [String: Any] else { return }
             DispatchQueue.main.async {
-                if let msg = ChatMessage.from(dict) {
+                if let msg = ChatMessage.from(dict), !self.safetyState.isBlocked(msg.username) {
                     self.tournamentState.messages.append(msg)
                 }
             }
@@ -147,6 +151,7 @@ final class TournamentSocketHandler {
                 if let scoreboardArr = dict["scoreboard"] as? [[String: Any]] {
                     self.tournamentState.scoreboard = scoreboardArr.compactMap { TournamentScoreEntry.from($0) }
                 }
+                self.tournamentState.winners = dict["winners"] as? [String] ?? []
                 print("[Tournament] Tournament complete")
             }
         }

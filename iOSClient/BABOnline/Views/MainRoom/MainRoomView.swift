@@ -6,6 +6,7 @@ struct MainRoomView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var showLeaderboard = false
     @State private var showOnlineUsers = false
+    @State private var showAccountSettings = false
 
     var body: some View {
         ZStack {
@@ -51,6 +52,9 @@ struct MainRoomView: View {
         .sheet(isPresented: $showOnlineUsers) {
             OnlineUsersSheet(users: mainRoomState.onlineUsers)
         }
+        .sheet(isPresented: $showAccountSettings) {
+            AccountSettingsView()
+        }
     }
 
     // MARK: - Lobby Browser
@@ -82,6 +86,12 @@ struct MainRoomView: View {
                 Button(action: { showOnlineUsers = true }) {
                     Text("\(mainRoomState.onlineCount) online")
                         .font(.caption)
+                        .foregroundColor(Color.Theme.textSecondary)
+                }
+
+                Button(action: { showAccountSettings = true }) {
+                    Image(systemName: "gearshape.fill")
+                        .font(.callout)
                         .foregroundColor(Color.Theme.textSecondary)
                 }
             }

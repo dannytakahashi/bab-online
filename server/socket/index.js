@@ -13,6 +13,7 @@ const reconnectHandlers = require('./reconnectHandlers');
 const profileHandlers = require('./profileHandlers');
 const tournamentHandlers = require('./tournamentHandlers');
 const voiceHandlers = require('./voiceHandlers');
+const safetyHandlers = require('./safetyHandlers');
 const { asyncHandler, syncHandler, safeHandler, rateLimiter } = require('./errorHandler');
 const { socketLogger } = require('../utils/logger');
 
@@ -29,6 +30,9 @@ function setupSocketHandlers(io) {
         );
         socket.on('restoreSession', (data) =>
             asyncHandler('restoreSession', authHandlers.restoreSession)(socket, io, data)
+        );
+        socket.on('deleteAccount', (data) =>
+            asyncHandler('deleteAccount', authHandlers.deleteAccount)(socket, io, data)
         );
 
         // Queue events - no data to validate
@@ -47,7 +51,7 @@ function setupSocketHandlers(io) {
             syncHandler('chatMessage', mainRoomHandlers.mainRoomChat)(socket, io, data)
         );
         socket.on('createLobby', (data) =>
-            safeHandler(mainRoomHandlers.createLobby)(socket, io, data || {})
+            asyncHandler('createLobby', mainRoomHandlers.createLobby)(socket, io, data || {})
         );
         socket.on('joinLobby', (data) =>
             safeHandler(mainRoomHandlers.joinLobby)(socket, io, data)
@@ -126,27 +130,27 @@ function setupSocketHandlers(io) {
             asyncHandler('getPlayerProfile', profileHandlers.getPlayerProfile)(socket, io, data)
         );
 
-        // Tournament events
+        // Tournament events - rate limited via their schema names
         socket.on('createTournament', () =>
-            safeHandler(tournamentHandlers.createTournament)(socket, io, {})
+            asyncHandler('createTournament', tournamentHandlers.createTournament)(socket, io, {})
         );
         socket.on('joinTournament', (data) =>
             asyncHandler('joinTournament', tournamentHandlers.joinTournament)(socket, io, data)
         );
         socket.on('leaveTournament', () =>
-            safeHandler(tournamentHandlers.leaveTournament)(socket, io, {})
+            asyncHandler('leaveTournament', tournamentHandlers.leaveTournament)(socket, io, {})
         );
         socket.on('tournamentReady', () =>
-            safeHandler(tournamentHandlers.tournamentReady)(socket, io, {})
+            asyncHandler('tournamentReady', tournamentHandlers.tournamentReady)(socket, io, {})
         );
         socket.on('tournamentUnready', () =>
-            safeHandler(tournamentHandlers.tournamentUnready)(socket, io, {})
+            asyncHandler('tournamentUnready', tournamentHandlers.tournamentUnready)(socket, io, {})
         );
         socket.on('beginTournament', () =>
-            safeHandler(tournamentHandlers.beginTournament)(socket, io, {})
+            asyncHandler('beginTournament', tournamentHandlers.beginTournament)(socket, io, {})
         );
         socket.on('beginNextRound', () =>
-            safeHandler(tournamentHandlers.beginNextRound)(socket, io, {})
+            asyncHandler('beginNextRound', tournamentHandlers.beginNextRound)(socket, io, {})
         );
         socket.on('tournamentChat', (data) =>
             syncHandler('chatMessage', tournamentHandlers.tournamentChat)(socket, io, data)
@@ -158,10 +162,21 @@ function setupSocketHandlers(io) {
             asyncHandler('spectateTournamentGame', tournamentHandlers.spectateTournamentGame)(socket, io, data)
         );
         socket.on('returnToTournament', () =>
-            safeHandler(tournamentHandlers.returnToTournament)(socket, io, {})
+            asyncHandler('returnToTournament', tournamentHandlers.returnToTournament)(socket, io, {})
         );
         socket.on('cancelTournament', () =>
             asyncHandler('cancelTournament', tournamentHandlers.cancelTournament)(socket, io, {})
+        );
+
+        // Safety / moderation events
+        socket.on('reportUser', (data) =>
+            asyncHandler('reportUser', safetyHandlers.reportUser)(socket, io, data)
+        );
+        socket.on('blockUser', (data) =>
+            asyncHandler('blockUser', safetyHandlers.blockUser)(socket, io, data)
+        );
+        socket.on('unblockUser', (data) =>
+            asyncHandler('unblockUser', safetyHandlers.unblockUser)(socket, io, data)
         );
 
         // Voice chat signaling relay

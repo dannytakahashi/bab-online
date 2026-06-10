@@ -6,6 +6,7 @@ const gameManager = require('../game/GameManager');
 const Deck = require('../game/Deck');
 const { delay } = require('../utils/timing');
 const { socketLogger } = require('../utils/logger');
+const { handleAbortedTournamentGame } = require('./tournamentHandlers');
 
 async function joinQueue(socket, io) {
     const result = gameManager.joinQueue(socket.id);
@@ -213,6 +214,8 @@ async function handleDisconnect(socket, io) {
                 socketLogger.warn('No connected humans remain, aborting game', { gameId: result.gameId });
                 result.game.broadcast(io, 'abortGame', { reason: 'All players disconnected' });
                 await gameManager.clearActiveGameForAll(result.gameId);
+                // Tournament games must still count toward round completion
+                await handleAbortedTournamentGame(io, result.gameId);
                 result.game.leaveAllFromRoom(io);
                 gameManager.abortGame(result.gameId);
                 io.to('mainRoom').emit('lobbiesUpdated', {
@@ -260,6 +263,8 @@ async function handleDisconnect(socket, io) {
                     socketLogger.warn('All humans disconnected, aborting game', { gameId: result.gameId });
                     checkResult.game.broadcast(io, 'abortGame', { reason: 'All players disconnected' });
                     await gameManager.clearActiveGameForAll(result.gameId);
+                    // Tournament games must still count toward round completion
+                    await handleAbortedTournamentGame(io, result.gameId);
                     checkResult.game.leaveAllFromRoom(io);
                     gameManager.abortGame(result.gameId);
                     io.to('mainRoom').emit('lobbiesUpdated', {

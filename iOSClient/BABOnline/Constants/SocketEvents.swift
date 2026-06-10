@@ -8,6 +8,12 @@ enum SocketEvents {
         // Auth
         static let signIn = "signIn"
         static let signUp = "signUp"
+        static let deleteAccount = "deleteAccount"
+
+        // Safety / moderation
+        static let reportUser = "reportUser"
+        static let blockUser = "blockUser"
+        static let unblockUser = "unblockUser"
 
         // Main Room
         static let joinMainRoom = "joinMainRoom"
@@ -71,6 +77,11 @@ enum SocketEvents {
         static let restoreSessionResponse = "restoreSessionResponse"
         static let forceLogout = "forceLogout"
         static let activeGameFound = "activeGameFound"
+        static let deleteAccountResponse = "deleteAccountResponse"
+
+        // Safety / moderation
+        static let reportUserResponse = "reportUserResponse"
+        static let blockListUpdated = "blockListUpdated"
 
         // Main Room
         static let mainRoomJoined = "mainRoomJoined"

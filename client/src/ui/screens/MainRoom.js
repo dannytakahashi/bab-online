@@ -291,7 +291,9 @@ function updateLobbyListContent(container, lobbies, socket, inProgressGames = []
       card.appendChild(detail);
 
       const joinBtn = document.createElement('button');
-      if (tournament.phase === 'lobby' || tournament.phase === 'between_rounds') {
+      if (tournament.phase === 'lobby') {
+        // New entrants can only join before the tournament starts; returning
+        // members are re-attached automatically at sign-in
         joinBtn.innerText = 'Join';
         joinBtn.style.background = '#fbbf24';
         joinBtn.style.color = '#000';
@@ -301,7 +303,7 @@ function updateLobbyListContent(container, lobbies, socket, inProgressGames = []
         });
         joinBtn.addEventListener('mouseenter', () => { joinBtn.style.background = '#f59e0b'; });
         joinBtn.addEventListener('mouseleave', () => { joinBtn.style.background = '#fbbf24'; });
-      } else if (tournament.phase === 'round_active') {
+      } else if (tournament.phase === 'round_active' || tournament.phase === 'between_rounds') {
         joinBtn.innerText = 'Spectate';
         joinBtn.style.background = '#60a5fa';
         joinBtn.style.color = '#fff';

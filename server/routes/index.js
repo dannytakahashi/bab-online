@@ -46,7 +46,8 @@ router.get('/privacy', (req, res) => {
     <p>Data is stored in a MongoDB database hosted on Railway. Passwords are hashed with bcrypt and are never stored in plain text.</p>
 
     <h2>Data Deletion</h2>
-    <p>To request deletion of your account and all associated data, contact us at the support link below.</p>
+    <p>You can permanently delete your account and all associated data directly in the app: open <strong>Settings → Delete Account</strong> (iOS) or your <strong>profile page → Delete Account</strong> (web), confirm with your password, and your account, statistics, and profile data are removed immediately. Your username is also anonymized in historical game records.</p>
+    <p>You may also email <a href="mailto:support@zalberico.com">support@zalberico.com</a> if you prefer; we will process the request within 48 hours.</p>
 
     <h2>Children's Privacy</h2>
     <p>BAB Online does not knowingly collect data from children under 13. The game contains no advertising, in-app purchases, or tracking.</p>
@@ -102,7 +103,8 @@ router.get('/support', (req, res) => {
 
     <details>
         <summary>How do I delete my account?</summary>
-        <p>To request deletion of your account and all associated data, email <a href="mailto:support@zalberico.com">support@zalberico.com</a> with your username. We will delete your account within 48 hours.</p>
+        <p>You can delete your account directly in the app. On iOS, open <strong>Settings</strong> (the gear icon in the main room) and tap <strong>Delete Account</strong>; on the web, open your <strong>profile page</strong> and click <strong>Delete Account</strong>. You'll confirm with your password, and your account, statistics, and profile data are deleted immediately. Your username is anonymized in historical game records.</p>
+        <p>You may also email <a href="mailto:support@zalberico.com">support@zalberico.com</a> with your username and we will delete your account within 48 hours.</p>
     </details>
 
     <details>
@@ -126,6 +128,55 @@ router.get('/support', (req, res) => {
 
     <h2>Links</h2>
     <p><a href="/privacy">Privacy Policy</a></p>
+</body>
+</html>`);
+});
+
+// Terms of Use — includes the zero-tolerance UGC policy required by App Store Guideline 1.2
+router.get('/terms', (req, res) => {
+    res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BAB Online - Terms of Use</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 700px; margin: 40px auto; padding: 0 20px; color: #e0e0e0; background: #1a1a1a; line-height: 1.6; }
+        h1 { color: #4dcc73; }
+        h2 { color: #ccc; margin-top: 2em; }
+        p { margin: 0.8em 0; }
+        a { color: #4dcc73; }
+        ul { margin: 0.8em 0; }
+    </style>
+</head>
+<body>
+    <h1>BAB Online — Terms of Use</h1>
+    <p><strong>Last updated:</strong> June 9, 2026</p>
+
+    <h2>Acceptance</h2>
+    <p>By creating an account or playing BAB Online you agree to these terms. If you do not agree, do not use the service.</p>
+
+    <h2>User Conduct — Zero Tolerance for Objectionable Content</h2>
+    <p>BAB Online includes text chat and voice chat with other players. There is <strong>no tolerance for objectionable content or abusive behavior</strong>, including but not limited to:</p>
+    <ul>
+        <li>Harassment, threats, or hate speech</li>
+        <li>Obscene, sexual, or violent content</li>
+        <li>Offensive usernames, lobby names, or profile pictures</li>
+        <li>Spam or impersonation</li>
+    </ul>
+    <p>Violations may result in immediate account termination without notice.</p>
+
+    <h2>Moderation Tools</h2>
+    <p>You can <strong>report</strong> any player and <strong>block</strong> any player from within the app (block hides their chat messages from you immediately). Reports are reviewed within 24 hours, and offending users may be removed.</p>
+
+    <h2>Accounts</h2>
+    <p>You are responsible for your account. You may delete your account at any time in the app (Settings → Delete Account on iOS, profile page on web); see the <a href="/privacy">Privacy Policy</a> for what deletion removes.</p>
+
+    <h2>Service</h2>
+    <p>BAB Online is provided free of charge, as-is, with no warranty. We may modify or discontinue the service at any time.</p>
+
+    <h2>Contact</h2>
+    <p>Email: <a href="mailto:support@zalberico.com">support@zalberico.com</a></p>
 </body>
 </html>`);
 });
