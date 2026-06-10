@@ -2,7 +2,9 @@ import SwiftUI
 
 struct LobbyChatView: View {
     @EnvironmentObject var lobbyState: LobbyState
+    @EnvironmentObject var authState: AuthState
     @State private var message = ""
+    @State private var reportTarget: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -15,6 +17,7 @@ struct LobbyChatView: View {
                         ForEach(lobbyState.messages) { msg in
                             ChatBubbleView(message: msg)
                                 .id(msg.id)
+                                .reportBlockMenu(for: msg, currentUsername: authState.username, reportTarget: $reportTarget)
                         }
                     }
                     .padding(.horizontal, 12)
@@ -47,6 +50,7 @@ struct LobbyChatView: View {
             }
             .padding(8)
         }
+        .safetyAlerts(reportTarget: $reportTarget, reportContext: "lobby chat")
     }
 
     private func sendMessage() {

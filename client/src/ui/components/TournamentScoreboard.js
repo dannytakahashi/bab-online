@@ -96,7 +96,7 @@ export function createTournamentScoreboard(scoreboard, currentRound, totalRounds
     for (let r = 0; r < totalRounds; r++) {
       const td = document.createElement('td');
       td.style.cssText = 'padding: 8px 6px; text-align: center; color: #e5e7eb;';
-      if (entry.roundScores && entry.roundScores[r] !== undefined) {
+      if (entry.roundScores && typeof entry.roundScores[r] === 'number') {
         td.textContent = entry.roundScores[r];
       } else {
         td.textContent = '-';
@@ -124,10 +124,11 @@ export function createTournamentScoreboard(scoreboard, currentRound, totalRounds
  *
  * @param {Object} options
  * @param {Array} options.scoreboard - Final sorted scoreboard
- * @param {string} options.winner - Winner's username
+ * @param {string} [options.winner] - Winner's username (single-winner fallback)
+ * @param {string[]} [options.winners] - All winners (ties produce co-winners)
  * @param {Function} options.onReturn - Called when user clicks return
  */
-export function showTournamentResultsOverlay({ scoreboard, winner, onReturn }) {
+export function showTournamentResultsOverlay({ scoreboard, winner, winners, onReturn }) {
   removeTournamentResultsOverlay();
 
   const overlay = document.createElement('div');
@@ -158,10 +159,13 @@ export function showTournamentResultsOverlay({ scoreboard, winner, onReturn }) {
   `;
   overlay.appendChild(title);
 
-  // Winner
-  if (winner) {
+  // Winner(s) — ties are announced as co-winners
+  const winnerList = (winners && winners.length > 0) ? winners : (winner ? [winner] : []);
+  if (winnerList.length > 0) {
     const winnerDiv = document.createElement('div');
-    winnerDiv.textContent = `Winner: ${winner}`;
+    winnerDiv.textContent = winnerList.length > 1
+      ? `Winners (tie): ${winnerList.join(' & ')}`
+      : `Winner: ${winnerList[0]}`;
     winnerDiv.style.cssText = `
       font-size: 24px;
       color: #4ade80;

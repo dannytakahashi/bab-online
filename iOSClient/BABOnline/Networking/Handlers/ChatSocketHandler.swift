@@ -4,10 +4,12 @@ import Foundation
 final class ChatSocketHandler {
     private let socket: SocketService
     private let gameState: GameState
+    private let safetyState: SafetyState
 
-    init(socket: SocketService, gameState: GameState) {
+    init(socket: SocketService, gameState: GameState, safetyState: SafetyState) {
         self.socket = socket
         self.gameState = gameState
+        self.safetyState = safetyState
     }
 
     func register() {
@@ -15,6 +17,7 @@ final class ChatSocketHandler {
             guard let self, let dict = data.first as? [String: Any] else { return }
             DispatchQueue.main.async {
                 let username = dict["username"] as? String ?? ""
+                guard !self.safetyState.isBlocked(username) else { return }
                 let message = dict["message"] as? String ?? ""
                 let position = dict["position"] as? Int
                 let type: ChatMessage.MessageType = (dict["type"] as? String) == "spectator" ? .spectator : .player

@@ -124,6 +124,19 @@ export function createRegisterScreen({ onRegister, onBackToSignIn, prefill = {} 
   `;
   container.appendChild(registerButton);
 
+  // Terms acceptance notice (UGC apps must require agreement to terms)
+  const termsNote = document.createElement('div');
+  termsNote.style.cssText = 'font-size: 11px; color: #888; margin-bottom: 10px; max-width: 260px; text-align: center;';
+  termsNote.append('By creating an account you agree to the ');
+  const termsLink = document.createElement('a');
+  termsLink.textContent = 'Terms of Use';
+  termsLink.href = '/terms';
+  termsLink.target = '_blank';
+  termsLink.style.color = '#4dcc73';
+  termsNote.appendChild(termsLink);
+  termsNote.append(', including zero tolerance for abusive content.');
+  container.appendChild(termsNote);
+
   // Back to sign in link
   const backLink = document.createElement('button');
   backLink.textContent = 'Back to Sign In';

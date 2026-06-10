@@ -121,7 +121,8 @@ function lobbyChat(socket, io, data) {
         return;
     }
 
-    const result = gameManager.addLobbyMessage(socket.id, message.trim());
+    const { filterProfanity } = require('../utils/profanityFilter');
+    const result = gameManager.addLobbyMessage(socket.id, filterProfanity(message.trim()));
 
     if (!result.success) {
         socketLogger.debug('Lobby chat rejected', { socketId: socket.id, error: result.error });

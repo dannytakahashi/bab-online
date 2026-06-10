@@ -62,6 +62,14 @@ export const CLIENT_EVENTS = {
   VOICE_ANSWER: 'voiceAnswer',
   VOICE_ICE_CANDIDATE: 'voiceIceCandidate',
   VOICE_RELAY_AUDIO: 'voiceRelayAudio',
+
+  // Account management
+  DELETE_ACCOUNT: 'deleteAccount',
+
+  // Safety / moderation
+  REPORT_USER: 'reportUser',
+  BLOCK_USER: 'blockUser',
+  UNBLOCK_USER: 'unblockUser',
 };
 
 // Server -> Client Events
@@ -71,6 +79,11 @@ export const SERVER_EVENTS = {
   SIGN_UP_RESPONSE: 'signUpResponse',
   FORCE_LOGOUT: 'forceLogout',
   ACTIVE_GAME_FOUND: 'activeGameFound',
+  DELETE_ACCOUNT_RESPONSE: 'deleteAccountResponse',
+
+  // Safety / moderation
+  REPORT_USER_RESPONSE: 'reportUserResponse',
+  BLOCK_LIST_UPDATED: 'blockListUpdated',
 
   // Main Room
   MAIN_ROOM_JOINED: 'mainRoomJoined',

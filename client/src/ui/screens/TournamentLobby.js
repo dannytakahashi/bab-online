@@ -24,11 +24,15 @@ let isPlayerReady = false;
  */
 export function showTournamentLobby(data, socket, username) {
   console.log('Showing tournament lobby...', data);
+
+  // Remove any existing tournament lobby (this resets module state, so the
+  // server-provided phase must be applied afterwards — otherwise the Begin
+  // button emits beginTournament instead of beginNextRound after round 1)
+  removeTournamentLobby();
+
   currentTournamentId = data.tournamentId;
   isPlayerReady = false;
-
-  // Remove any existing tournament lobby
-  removeTournamentLobby();
+  currentPhase = data.phase || 'lobby';
 
   const isSpectator = data.isSpectator || false;
   const isCreator = data.creatorUsername === username;
@@ -280,8 +284,8 @@ export function showTournamentLobby(data, socket, username) {
       readyBtn.style.background = '#22c55e';
     }
 
-    // Hide ready button during active rounds
-    if (data.phase === 'round_active') {
+    // Hide ready button during active rounds and once the tournament is over
+    if (data.phase === 'round_active' || data.phase === 'complete') {
       readyBtn.style.display = 'none';
     }
 
@@ -327,10 +331,13 @@ export function showTournamentLobby(data, socket, username) {
 
       beginBtn.addEventListener('click', () => {
         if (beginBtn.disabled) return;
-        if (data.phase === 'lobby' || currentPhase === 'lobby') {
-          socket.emit('beginTournament');
-        } else {
+        // currentPhase tracks the latest server state (set on lobby render
+        // and by setTournamentPhase) — round 1 starts from 'lobby', later
+        // rounds from 'between_rounds'
+        if (currentPhase === 'between_rounds') {
           socket.emit('beginNextRound');
+        } else {
+          socket.emit('beginTournament');
         }
         beginBtn.disabled = true;
         beginBtn.style.background = '#6b7280';
@@ -594,7 +601,10 @@ function updateBeginButton(players) {
   const beginBtn = document.getElementById('tournamentBeginBtn');
   if (!beginBtn) return;
 
-  const allReady = players && players.length > 0 && players.every(p => p.ready);
+  // Disconnected members sit out rounds and never ready up — they must not
+  // gate the Begin button (the server's allPlayersReady ignores them too)
+  const connectedPlayers = (players || []).filter(p => p.connected !== false);
+  const allReady = connectedPlayers.length > 0 && connectedPlayers.every(p => p.ready);
 
   if (allReady) {
     beginBtn.disabled = false;

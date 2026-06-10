@@ -52,7 +52,17 @@ function triggerBotIfNeeded(io, game, actionType) {
         const delayMs = bot.getActionDelay(actionType);
 
         setTimeout(() => {
+            // Re-validate before acting: the game may have moved on during the
+            // delay (turn advanced, trick resolved, /active, game ended). A
+            // stale write here corrupts playedCards and wedges the game.
+            if (!gameManager.getGameById(game.gameId)) return;
+            if (!game.isLazy(bot.position)) return;
+            if (game.currentTurn !== bot.position) return;
+
             if (actionType === 'bid') {
+                if (!game.bidding) return;
+                if (game.playerBids[bot.position - 1] != null) return;
+
                 // Use player's hand for bot decision
                 const hand = game.getHand(playerSocketId);
                 const gameContext = {
@@ -67,6 +77,10 @@ function triggerBotIfNeeded(io, game, actionType) {
                 game.currentTurn = rotatePosition(game.currentTurn);
                 handlePostBid(io, game);
             } else if (actionType === 'play') {
+                if (game.bidding) return;
+                if (game.playedCardsIndex >= 4) return;
+                if (game.playedCards[bot.position - 1]) return;
+
                 const hand = game.getHand(playerSocketId);
                 if (!hand || hand.length === 0) return;
                 const card = bot.decideCard(hand, game.playedCards, game.leadCard, game.leadPosition, game.trump, game.isTrumpBroken, game.currentHand);
@@ -124,14 +138,17 @@ async function handlePostBid(io, game) {
             team2: (BID_RANKS[bids[1]] || 0) + (BID_RANKS[bids[3]] || 0)
         };
 
-        // Cap bids at hand size and calculate multipliers
+        // Multipliers apply whenever a bore was bid — even when the summed bid
+        // doesn't exceed the hand size (e.g. 'B' + '0' on the 13-card hand)
+        game.team1Mult = calculateMultiplier(bids[0], bids[2]);
+        game.team2Mult = calculateMultiplier(bids[1], bids[3]);
+
+        // Cap bids at hand size
         if (game.bids.team1 > game.currentHand) {
             game.bids.team1 = game.currentHand;
-            game.team1Mult = calculateMultiplier(bids[0], bids[2]);
         }
         if (game.bids.team2 > game.currentHand) {
             game.bids.team2 = game.currentHand;
-            game.team2Mult = calculateMultiplier(bids[1], bids[3]);
         }
 
         gameLogger.debug('Bidding complete', { team1: game.bids.team1, team2: game.bids.team2, gameId: game.gameId });
@@ -190,7 +207,24 @@ async function handlePostBid(io, game) {
 async function handlePostPlay(io, game) {
     // Check if trick is complete
     if (game.playedCardsIndex === 4) {
+        // Guard against double resolution while we pause for the animation
+        if (game._trickResolving) return;
+        game._trickResolving = true;
+
         await delay(2000);
+
+        // Re-validate after the pause: if the trick array was corrupted by a
+        // stale action, log loudly instead of crashing the whole game loop
+        const trickCards = game.playedCards.slice(0, 4);
+        if (game.playedCardsIndex !== 4 || trickCards.length < 4 || trickCards.some(c => !c)) {
+            gameLogger.error('Trick state invalid after resolution delay, skipping', {
+                gameId: game.gameId,
+                playedCardsIndex: game.playedCardsIndex,
+                playedCards: game.playedCards
+            });
+            game._trickResolving = false;
+            return;
+        }
 
         const winner = determineWinner(game.playedCards, game.leadPosition, game.trump);
 
@@ -224,6 +258,7 @@ async function handlePostPlay(io, game) {
 
         game.playedCards = [];
         game.playedCardsIndex = 0;
+        game._trickResolving = false;
 
         // Check if hand is complete
         if (game.cardIndex === game.currentHand * 4) {
@@ -832,22 +867,11 @@ async function handleHandComplete(game, io) {
                 });
 
                 if (result && result.roundComplete) {
-                    if (tournament.isTournamentComplete()) {
-                        // Tournament is complete
-                        tournament.broadcast(io, 'tournamentComplete', {
-                            scoreboard: tournament.getScoreboard()
-                        });
-                        await gameManager.clearActiveTournamentForAll(tournament.tournamentId);
-                        // Clean up tournament from memory and update lobby
-                        gameManager.deleteTournament(tournament.tournamentId);
-                    } else {
-                        // Round complete, waiting for next round
-                        tournament.broadcast(io, 'tournamentRoundComplete', {
-                            scoreboard: tournament.getScoreboard(),
-                            currentRound: tournament.currentRound,
-                            totalRounds: tournament.totalRounds
-                        });
-                    }
+                    // Broadcasts tournamentRoundComplete, or tournamentComplete
+                    // with the tournament kept alive briefly so players can
+                    // return from the game-end screen and see final standings
+                    const { broadcastRoundOutcome } = require('./tournamentHandlers');
+                    await broadcastRoundOutcome(io, tournament);
                 }
             }
         }

@@ -9,6 +9,7 @@ struct BABOnlineApp: App {
     @StateObject private var gameState = GameState()
     @StateObject private var tournamentState = TournamentState()
     @StateObject private var leaderboardState = LeaderboardState()
+    @StateObject private var safetyState = SafetyState()
     @Environment(\.scenePhase) private var scenePhase
 
     private let socketService = SocketService.shared
@@ -23,6 +24,7 @@ struct BABOnlineApp: App {
                 .environmentObject(gameState)
                 .environmentObject(tournamentState)
                 .environmentObject(leaderboardState)
+                .environmentObject(safetyState)
                 .environmentObject(socketService)
                 .onAppear {
                     setupSocket()
@@ -46,7 +48,8 @@ struct BABOnlineApp: App {
             gameState: gameState,
             appState: appState,
             tournamentState: tournamentState,
-            leaderboardState: leaderboardState
+            leaderboardState: leaderboardState,
+            safetyState: safetyState
         )
         router.registerAll()
         socketService.eventRouter = router

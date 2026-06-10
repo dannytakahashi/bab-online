@@ -124,21 +124,26 @@ struct TournamentLobbyView: View {
     }
 
     private var allReady: Bool {
-        !tournamentState.players.isEmpty && tournamentState.players.allSatisfy { $0.isReady }
+        // Disconnected members sit out rounds and never ready up — they must
+        // not gate the Begin button (the server ignores them too)
+        let connected = tournamentState.players.filter { $0.connected }
+        return !connected.isEmpty && connected.allSatisfy { $0.isReady }
     }
 
     private var bottomButtons: some View {
         VStack(spacing: 8) {
             if tournamentState.phase == "lobby" || tournamentState.phase == "between_rounds" {
-                // Ready / Unready
-                Button(action: toggleReady) {
-                    Text(tournamentState.isReady ? "Unready" : "Ready")
-                        .font(.title3.bold())
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(tournamentState.isReady ? Color.Theme.oppColor : Color.Theme.buttonBackground)
-                        .foregroundColor(.white)
-                        .cornerRadius(10)
+                // Ready / Unready (spectators can't ready up)
+                if !tournamentState.isSpectator {
+                    Button(action: toggleReady) {
+                        Text(tournamentState.isReady ? "Unready" : "Ready")
+                            .font(.title3.bold())
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .background(tournamentState.isReady ? Color.Theme.oppColor : Color.Theme.buttonBackground)
+                            .foregroundColor(.white)
+                            .cornerRadius(10)
+                    }
                 }
 
                 // Begin button (creator only)

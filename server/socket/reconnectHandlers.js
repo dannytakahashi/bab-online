@@ -7,6 +7,35 @@ const { cancelAbortTimer } = require('./queueHandlers');
 const { socketLogger } = require('../utils/logger');
 
 /**
+ * If the rejoined game belongs to a tournament, reattach the player's
+ * tournament membership to their new socket and rejoin the tournament room.
+ * @returns {Object|null} - The tournament, or null
+ */
+function reattachTournament(io, socket, gameId, username) {
+    const tournamentId = gameManager.tournamentGames.get(gameId);
+    if (!tournamentId) return null;
+
+    // Scope the reattach to THIS game's tournament — the same username can
+    // linger as a ghost entry in an older tournament
+    const tournament = gameManager.reattachTournamentPlayer(socket.id, username, tournamentId);
+    if (tournament) {
+        socket.join(tournament.roomName);
+        // Let lobby viewers see the reconnect (and any creator handoff)
+        tournament.broadcast(io, 'tournamentPlayerJoined', {
+            username,
+            players: tournament.getClientState().players
+        });
+        socketLogger.info('Tournament membership reattached on rejoin', {
+            username, tournamentId: tournament.tournamentId, gameId
+        });
+        return tournament;
+    }
+    // Game maps to a tournament but no membership entry matched (e.g. the
+    // tournament was deleted) — still return whatever exists for the id
+    return gameManager.getTournamentById(tournamentId);
+}
+
+/**
  * Handle a player attempting to rejoin a game after disconnect
  */
 async function rejoinGame(socket, io, data) {
@@ -93,6 +122,10 @@ async function rejoinGame(socket, io, data) {
         // Map the human's new socket to the game
         gameManager.updatePlayerGameMapping(null, socket.id, gameId);
 
+        // Restore tournament membership for the new socket if this is a
+        // tournament game (disconnect only marks the player disconnected)
+        const lazyTournament = reattachTournament(io, socket, gameId, username);
+
         socketLogger.info('Player rejoined game in lazy mode', { username, gameId, position });
 
         // Send current game state (they'll be in lazy/spectator mode)
@@ -100,6 +133,7 @@ async function rejoinGame(socket, io, data) {
         const currentBotSocketId = game.positions[position];
         const rejoinState = game.getClientState(currentBotSocketId);
         rejoinState.isLazy = true;
+        rejoinState.tournamentId = lazyTournament ? lazyTournament.tournamentId : null;
         socket.emit('rejoinSuccess', rejoinState);
 
         // Notify other players
@@ -127,10 +161,15 @@ async function rejoinGame(socket, io, data) {
     // Register user with new socket
     gameManager.registerUser(socket.id, username);
 
+    // Restore tournament membership for the new socket if this is a
+    // tournament game (disconnect only marks the player disconnected)
+    const tournament = reattachTournament(io, socket, gameId, username);
+
     socketLogger.info('Player rejoined game', { username, gameId, position: existingPlayer.position });
 
     // Send current game state to rejoining player
     const gameState = game.getClientState(socket.id);
+    gameState.tournamentId = tournament ? tournament.tournamentId : null;
     socket.emit('rejoinSuccess', gameState);
 
     // Notify other players

@@ -7,13 +7,15 @@ final class LobbySocketHandler {
     private let lobbyState: LobbyState
     private let appState: AppState
     private let gameState: GameState
+    private let safetyState: SafetyState
 
-    init(socket: SocketService, mainRoomState: MainRoomState, lobbyState: LobbyState, appState: AppState, gameState: GameState) {
+    init(socket: SocketService, mainRoomState: MainRoomState, lobbyState: LobbyState, appState: AppState, gameState: GameState, safetyState: SafetyState) {
         self.socket = socket
         self.mainRoomState = mainRoomState
         self.lobbyState = lobbyState
         self.appState = appState
         self.gameState = gameState
+        self.safetyState = safetyState
     }
 
     func register() {
@@ -27,7 +29,9 @@ final class LobbySocketHandler {
                     self.mainRoomState.onlineUsers = users
                 }
                 if let messages = dict["recentMessages"] as? [[String: Any]] {
-                    self.mainRoomState.messages = messages.compactMap { ChatMessage.from($0) }
+                    self.mainRoomState.messages = messages
+                        .compactMap { ChatMessage.from($0) }
+                        .filter { !self.safetyState.isBlocked($0.username) }
                 }
                 if let lobbies = dict["lobbies"] as? [[String: Any]] {
                     self.mainRoomState.lobbies = lobbies.compactMap { Lobby.from($0) }
@@ -46,7 +50,8 @@ final class LobbySocketHandler {
             guard let dict = data.first as? [String: Any],
                   let msg = ChatMessage.from(dict) else { return }
             DispatchQueue.main.async {
-                self?.mainRoomState.messages.append(msg)
+                guard let self, !self.safetyState.isBlocked(msg.username) else { return }
+                self.mainRoomState.messages.append(msg)
             }
         }
 
@@ -91,7 +96,9 @@ final class LobbySocketHandler {
                     self.lobbyState.players = players.compactMap { LobbyPlayer.from($0) }
                 }
                 if let messages = dict["messages"] as? [[String: Any]] {
-                    self.lobbyState.messages = messages.compactMap { ChatMessage.from($0) }
+                    self.lobbyState.messages = messages
+                        .compactMap { ChatMessage.from($0) }
+                        .filter { !self.safetyState.isBlocked($0.username) }
                 }
                 self.appState.screen = .gameLobby
                 print("[Lobby] Created lobby: \(lobbyId)")
@@ -110,7 +117,9 @@ final class LobbySocketHandler {
                     self.lobbyState.players = players.compactMap { LobbyPlayer.from($0) }
                 }
                 if let messages = dict["messages"] as? [[String: Any]] {
-                    self.lobbyState.messages = messages.compactMap { ChatMessage.from($0) }
+                    self.lobbyState.messages = messages
+                        .compactMap { ChatMessage.from($0) }
+                        .filter { !self.safetyState.isBlocked($0.username) }
                 }
                 self.appState.screen = .gameLobby
                 print("[Lobby] Joined lobby: \(lobbyId)")
@@ -153,7 +162,8 @@ final class LobbySocketHandler {
             guard let dict = data.first as? [String: Any],
                   let msg = ChatMessage.from(dict) else { return }
             DispatchQueue.main.async {
-                self?.lobbyState.messages.append(msg)
+                guard let self, !self.safetyState.isBlocked(msg.username) else { return }
+                self.lobbyState.messages.append(msg)
             }
         }
 

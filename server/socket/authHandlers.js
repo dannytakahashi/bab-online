@@ -4,7 +4,7 @@
 
 const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid');
-const { getUsersCollection } = require('../database');
+const { getUsersCollection, getGameRecordsCollection } = require('../database');
 const gameManager = require('../game/GameManager');
 const { authLogger } = require('../utils/logger');
 
@@ -61,13 +61,16 @@ async function signIn(socket, io, data) {
         const activeGameId = user.activeGameId;
         const activeGame = activeGameId ? gameManager.getGameById(activeGameId) : null;
 
+        const blockedUsers = user.blockedUsers || [];
+
         if (activeGame) {
             // User has an active game - notify client
             socket.emit('signInResponse', {
                 success: true,
                 username,
                 sessionToken,
-                activeGameId: activeGameId
+                activeGameId: activeGameId,
+                blockedUsers
             });
             authLogger.info('User signed in with active game', { username, socketId: socket.id, gameId: activeGameId });
         } else {
@@ -85,14 +88,15 @@ async function signIn(socket, io, data) {
                     success: true,
                     username,
                     sessionToken,
-                    activeTournamentId
+                    activeTournamentId,
+                    blockedUsers
                 });
                 authLogger.info('User signed in with active tournament', { username, socketId: socket.id, tournamentId: activeTournamentId });
             } else {
                 if (activeTournamentId) {
                     await gameManager.clearActiveTournament(username);
                 }
-                socket.emit('signInResponse', { success: true, username, sessionToken });
+                socket.emit('signInResponse', { success: true, username, sessionToken, blockedUsers });
                 authLogger.info('User signed in', { username, socketId: socket.id });
             }
         }
@@ -119,6 +123,18 @@ async function signUp(socket, io, data) {
     }
 
     const { username, password } = data;
+
+    // Substring matching for usernames — embedded slurs in handles like
+    // "xX_slur_Xx" must be rejected, not just standalone words
+    const { containsProfanitySubstring } = require('../utils/profanityFilter');
+    if (containsProfanitySubstring(username)) {
+        socket.emit('signUpResponse', {
+            success: false,
+            message: 'That username is not allowed.'
+        });
+        authLogger.warn('Sign-up failed: username rejected by filter', { username });
+        return;
+    }
 
     try {
         const existingUser = await usersCollection.findOne({ username });
@@ -153,6 +169,10 @@ async function signUp(socket, io, data) {
                 totalTricksTaken: 0
             }
         });
+
+        // The name now belongs to a fresh account — stop anonymizing it in
+        // new game records (only relevant if a deleted name is re-registered)
+        gameManager.deletedUsernames.delete(username);
 
         // Auto-login: register with game manager (same as signIn)
         gameManager.registerUser(socket.id, username);
@@ -210,12 +230,14 @@ async function restoreSession(socket, io, data) {
         // Check if user has an active game they can rejoin
         const activeGameId = user.activeGameId;
         const activeGame = activeGameId ? gameManager.getGameById(activeGameId) : null;
+        const blockedUsers = user.blockedUsers || [];
 
         if (activeGame) {
             socket.emit('restoreSessionResponse', {
                 success: true,
                 username,
-                activeGameId: activeGameId
+                activeGameId: activeGameId,
+                blockedUsers
             });
             authLogger.info('Session restored with active game', { username, socketId: socket.id, gameId: activeGameId });
         } else {
@@ -232,14 +254,15 @@ async function restoreSession(socket, io, data) {
                 socket.emit('restoreSessionResponse', {
                     success: true,
                     username,
-                    activeTournamentId
+                    activeTournamentId,
+                    blockedUsers
                 });
                 authLogger.info('Session restored with active tournament', { username, socketId: socket.id, tournamentId: activeTournamentId });
             } else {
                 if (activeTournamentId) {
                     await gameManager.clearActiveTournament(username);
                 }
-                socket.emit('restoreSessionResponse', { success: true, username });
+                socket.emit('restoreSessionResponse', { success: true, username, blockedUsers });
                 authLogger.info('Session restored', { username, socketId: socket.id });
             }
         }
@@ -253,8 +276,107 @@ async function restoreSession(socket, io, data) {
     }
 }
 
+/**
+ * Permanently delete the signed-in user's account (App Store Guideline
+ * 5.1.1(v) requires in-app deletion). Requires password re-confirmation.
+ * Removes the user document and anonymizes the username in historical game
+ * records, which are shared documents describing other players' games too.
+ */
+async function deleteAccount(socket, io, data) {
+    const usersCollection = getUsersCollection();
+    const { password } = data;
+
+    if (!usersCollection) {
+        socket.emit('deleteAccountResponse', {
+            success: false,
+            message: 'Database not ready. Try again.'
+        });
+        return;
+    }
+
+    // Only the authenticated session may delete its own account — never
+    // accept a client-supplied username here
+    const sessionUser = gameManager.getUserBySocketId(socket.id);
+    if (!sessionUser) {
+        socket.emit('deleteAccountResponse', {
+            success: false,
+            message: 'Not signed in'
+        });
+        return;
+    }
+    const username = sessionUser.username;
+
+    try {
+        const user = await usersCollection.findOne({ username });
+        if (!user) {
+            socket.emit('deleteAccountResponse', {
+                success: false,
+                message: 'Account not found'
+            });
+            return;
+        }
+
+        const passwordMatch = await bcrypt.compare(password, user.password);
+        if (!passwordMatch) {
+            socket.emit('deleteAccountResponse', {
+                success: false,
+                message: 'Incorrect password'
+            });
+            authLogger.warn('Account deletion failed: incorrect password', { username });
+            return;
+        }
+
+        const gameRecords = getGameRecordsCollection();
+        if (gameRecords) {
+            await gameRecords.updateMany(
+                { team1Players: username },
+                { $set: { 'team1Players.$[p]': '[deleted]' } },
+                { arrayFilters: [{ p: username }] }
+            );
+            await gameRecords.updateMany(
+                { team2Players: username },
+                { $set: { 'team2Players.$[p]': '[deleted]' } },
+                { arrayFilters: [{ p: username }] }
+            );
+        }
+
+        // Removes password hash, session token, stats (and with them the
+        // leaderboard entry), profile pictures, and active game/tournament
+        // pointers in one shot — everything else is keyed by this document
+        await usersCollection.deleteOne({ username });
+
+        // Keep an in-flight game from re-inserting this username into a new
+        // game record after the anonymization above
+        gameManager.deletedUsernames.add(username);
+
+        // Force-logout any other device signed into this account
+        if (user.socketId && user.socketId !== socket.id) {
+            const otherSocket = io.sockets.sockets.get(user.socketId);
+            if (otherSocket) {
+                otherSocket.emit('forceLogout');
+                otherSocket.disconnect();
+            }
+        }
+
+        socket.emit('deleteAccountResponse', { success: true });
+        authLogger.info('Account deleted', { username, socketId: socket.id });
+
+        // Disconnect after the response flushes; the normal disconnect flow
+        // cleans up any lobby/queue/game/tournament state
+        setTimeout(() => socket.disconnect(true), 500);
+
+    } catch (error) {
+        authLogger.error('Database error during account deletion', { username, error: error.message });
+        socket.emit('deleteAccountResponse', {
+            success: false,
+            message: 'Database error. Try again.'
+        });
+    }
+}
+
 module.exports = {
     signIn,
     signUp,
-    restoreSession
+    restoreSession,
+    deleteAccount
 };

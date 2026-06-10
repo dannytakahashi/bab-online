@@ -35,6 +35,10 @@ class GameManager {
         this.tournaments = new Map();       // tournamentId → TournamentState
         this.playerTournaments = new Map();  // socketId → tournamentId
         this.tournamentGames = new Map();    // gameId → tournamentId
+
+        // Usernames deleted this server lifetime — keeps an in-flight game
+        // from re-inserting a deleted username into new gameRecords
+        this.deletedUsernames = new Set();
     }
 
     // Constants
@@ -157,6 +161,10 @@ class GameManager {
         if (this.playerLobbies.has(socketId)) {
             this.leaveLobby(socketId);
         }
+
+        // Returning from a finished tournament's results screen releases that
+        // membership (active tournaments are left alone)
+        this.releaseCompletedTournamentMembership(socketId);
 
         this.mainRoomSocketIds.add(socketId);
 
@@ -741,14 +749,15 @@ class GameManager {
                     game.markPlayerDisconnected(position);
                 }
             }
-            // Also remove from tournament if in one (e.g. during round_active)
+            // Mark disconnected in tournament (keeps membership/scores so the
+            // player can reattach with a new socket)
             let wasInTournament = false;
             let tournamentResult = null;
             const tournamentId = this.playerTournaments.get(socketId);
             if (tournamentId) {
                 const tournament = this.tournaments.get(tournamentId);
                 if (tournament) {
-                    tournamentResult = this.leaveTournament(socketId);
+                    tournamentResult = this.handleTournamentDisconnect(socketId, tournament);
                     wasInTournament = true;
                 }
             }
@@ -774,7 +783,7 @@ class GameManager {
         if (tournamentId) {
             const tournament = this.tournaments.get(tournamentId);
             if (tournament) {
-                tournamentResult = this.leaveTournament(socketId);
+                tournamentResult = this.handleTournamentDisconnect(socketId, tournament);
                 wasInTournament = true;
             }
         }
@@ -970,6 +979,10 @@ class GameManager {
         const user = this.getUserBySocketId(socketId);
         if (!user) return { success: false, error: 'User not found' };
 
+        // A finished tournament lingering for its results window must not
+        // block new ones
+        this.releaseCompletedTournamentMembership(socketId);
+
         // Check if already in a tournament
         if (this.playerTournaments.has(socketId)) {
             return { success: false, error: 'Already in a tournament' };
@@ -995,6 +1008,12 @@ class GameManager {
         const user = this.getUserBySocketId(socketId);
         if (!user) return { success: false, error: 'User not found' };
 
+        // A finished tournament lingering for its results window must not
+        // block joining a new one (unless they're rejoining that same one)
+        if (this.playerTournaments.get(socketId) !== tournamentId) {
+            this.releaseCompletedTournamentMembership(socketId);
+        }
+
         if (this.playerTournaments.has(socketId)) {
             return { success: false, error: 'Already in a tournament' };
         }
@@ -1002,7 +1021,22 @@ class GameManager {
         const tournament = this.tournaments.get(tournamentId);
         if (!tournament) return { success: false, error: 'Tournament not found' };
 
-        if (tournament.phase !== 'lobby' && tournament.phase !== 'between_rounds') {
+        // Returning member (e.g. reconnecting with a new socket): reattach in
+        // any phase so a dropped connection doesn't forfeit the tournament.
+        const reattach = tournament.reattachPlayerByUsername(user.username, socketId);
+        if (reattach) {
+            if (reattach.oldSocketId !== socketId) {
+                this.playerTournaments.delete(reattach.oldSocketId);
+            }
+            this.playerTournaments.set(socketId, tournamentId);
+            this.leaveMainRoom(socketId);
+            return { success: true, tournament, reattached: true };
+        }
+
+        // New entrants can only join before the tournament starts — joining
+        // mid-tournament would let anyone block the next round by never
+        // readying, and their scoreboard would be missing earlier rounds.
+        if (tournament.phase !== 'lobby') {
             return { success: false, error: 'Tournament is not accepting players' };
         }
 
@@ -1033,9 +1067,9 @@ class GameManager {
         tournament.removePlayer(socketId);
         this.playerTournaments.delete(socketId);
 
-        // If no players left, delete tournament
-        if (tournament.players.size === 0) {
-            this.tournaments.delete(tournamentId);
+        // Delete when empty — or when only disconnected ghosts remain, so a
+        // tournament can't sit in everyone's lobby list forever
+        if (this.deleteTournamentIfAbandoned(tournament)) {
             return { success: true, deleted: true, tournament };
         }
 
@@ -1046,6 +1080,99 @@ class GameManager {
         }
 
         return { success: true, tournament, newCreator };
+    }
+
+    /**
+     * Delete a tournament that has nobody left to play it: no players at all,
+     * or only disconnected ghosts with no round game still running (running
+     * games carry their own 60s reconnect grace).
+     * @returns {boolean} - true if deleted
+     */
+    deleteTournamentIfAbandoned(tournament) {
+        const round = tournament.getCurrentRound();
+        const hasRunningGames = round && round.completedGames.size < round.games.size;
+        if (tournament.players.size === 0 ||
+            (tournament.getConnectedPlayerCount() === 0 && !hasRunningGames)) {
+            this.deleteTournament(tournament.tournamentId);
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Drop a socket's membership in a tournament that is already complete (or
+     * gone). Completed tournaments linger briefly so players can view results;
+     * that lingering membership must not block creating/joining new ones.
+     */
+    releaseCompletedTournamentMembership(socketId) {
+        const tournamentId = this.playerTournaments.get(socketId);
+        if (!tournamentId) return;
+
+        const tournament = this.tournaments.get(tournamentId);
+        if (!tournament) {
+            this.playerTournaments.delete(socketId);
+            return;
+        }
+        if (tournament.phase === 'complete') {
+            tournament.removePlayer(socketId);
+            this.playerTournaments.delete(socketId);
+            this.deleteTournamentIfAbandoned(tournament);
+        }
+    }
+
+    /**
+     * Handle a tournament member's socket disconnecting.
+     * In the lobby phase this is a plain leave (nothing to preserve). Once the
+     * tournament has started, the player is only marked disconnected so their
+     * scores survive and they can reattach with a new socket.
+     * @returns {{ success: boolean, tournament?: TournamentState, deleted?: boolean, newCreator?: Object, disconnected?: boolean }}
+     */
+    handleTournamentDisconnect(socketId, tournament) {
+        if (tournament.phase === 'lobby') {
+            return this.leaveTournament(socketId);
+        }
+
+        const wasCreator = tournament.createdBy === socketId;
+        tournament.markPlayerDisconnected(socketId);
+        this.playerTournaments.delete(socketId);
+
+        if (this.deleteTournamentIfAbandoned(tournament)) {
+            return { success: true, deleted: true, tournament, disconnected: true };
+        }
+
+        let newCreator = null;
+        if (wasCreator && tournament.getConnectedPlayerCount() > 0) {
+            newCreator = tournament.transferCreator();
+        }
+
+        return { success: true, tournament, newCreator, disconnected: true };
+    }
+
+    /**
+     * Reattach a reconnecting user (new socket) to the tournament that still
+     * holds a player entry for their username, in any phase.
+     * @param {string} [preferredTournamentId] - When known (e.g. resolved from
+     *   the game being rejoined), reattach only within that tournament — the
+     *   same username can linger as a ghost in an older tournament.
+     * @returns {TournamentState|null}
+     */
+    reattachTournamentPlayer(socketId, username, preferredTournamentId = null) {
+        const candidates = preferredTournamentId
+            ? [[preferredTournamentId, this.tournaments.get(preferredTournamentId)]]
+            : this.tournaments;
+
+        for (const [tournamentId, tournament] of candidates) {
+            if (!tournament) continue;
+            const result = tournament.reattachPlayerByUsername(username, socketId);
+            if (result) {
+                if (result.oldSocketId !== socketId) {
+                    this.playerTournaments.delete(result.oldSocketId);
+                }
+                this.playerTournaments.set(socketId, tournamentId);
+                return tournament;
+            }
+        }
+        return null;
     }
 
     /**

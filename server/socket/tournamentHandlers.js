@@ -55,7 +55,7 @@ function createTournament(socket, io) {
 /**
  * Join an existing tournament
  */
-function joinTournament(socket, io, data) {
+async function joinTournament(socket, io, data) {
     const { tournamentId } = data;
     if (!tournamentId) {
         socket.emit('error', { message: 'Tournament ID required' });
@@ -65,6 +65,18 @@ function joinTournament(socket, io, data) {
     const result = gameManager.joinTournament(socket.id, tournamentId);
     if (!result.success) {
         socket.emit('error', { message: result.error });
+        // An active member of another tournament stays where they are — only
+        // genuinely unattached players get dropped into the main room (the
+        // clients auto-emit joinTournament after sign-in, so a failure must
+        // not strand them on a blank screen).
+        if (result.error === 'Already in a tournament') {
+            return;
+        }
+        const failedUser = gameManager.getUserBySocketId(socket.id);
+        if (failedUser && !gameManager.getTournamentById(tournamentId)) {
+            await gameManager.clearActiveTournament(failedUser.username);
+        }
+        sendToMainRoom(socket);
         return;
     }
 
@@ -101,31 +113,10 @@ function joinTournament(socket, io, data) {
 }
 
 /**
- * Leave a tournament
+ * Send a player back to the main room (used after leaving a tournament or
+ * when a tournament they reference no longer exists).
  */
-function leaveTournament(socket, io) {
-    const tournament = gameManager.getPlayerTournament(socket.id);
-    if (!tournament) {
-        socket.emit('error', { message: 'Not in a tournament' });
-        return;
-    }
-
-    const user = gameManager.getUserBySocketId(socket.id);
-    const tournamentId = tournament.tournamentId;
-
-    // Leave tournament room
-    tournament.leaveRoom(io, socket.id);
-
-    const result = gameManager.leaveTournament(socket.id);
-    if (!result.success) {
-        socket.emit('error', { message: result.error });
-        return;
-    }
-
-    // Notify leaving player
-    socket.emit('tournamentLeft', {});
-
-    // Auto-rejoin main room
+function sendToMainRoom(socket) {
     const mainRoomResult = gameManager.joinMainRoom(socket.id);
     socket.join('mainRoom');
     const onlineUsers = gameManager.getOnlineUsernames();
@@ -137,6 +128,59 @@ function leaveTournament(socket, io) {
         inProgressGames: gameManager.getInProgressGames(),
         tournaments: gameManager.getAllTournaments()
     });
+}
+
+/**
+ * Leave a tournament
+ */
+async function leaveTournament(socket, io) {
+    const tournament = gameManager.getPlayerTournament(socket.id);
+    const user = gameManager.getUserBySocketId(socket.id);
+
+    if (!tournament) {
+        // Spectators aren't in playerTournaments — resolve via spectator maps
+        for (const [, t] of gameManager.tournaments) {
+            if (t.isSpectator(socket.id)) {
+                t.removeSpectator(socket.id);
+                t.leaveRoom(io, socket.id);
+                socket.emit('tournamentLeft', {});
+                sendToMainRoom(socket);
+                socketLogger.info('Spectator left tournament', {
+                    socketId: socket.id, tournamentId: t.tournamentId
+                });
+                return;
+            }
+        }
+
+        // Nothing to leave (e.g. tournament already cleaned up) — still land
+        // the player somewhere sane instead of erroring.
+        socket.emit('tournamentLeft', {});
+        sendToMainRoom(socket);
+        return;
+    }
+
+    const tournamentId = tournament.tournamentId;
+
+    // Leave tournament room
+    tournament.leaveRoom(io, socket.id);
+
+    const result = gameManager.leaveTournament(socket.id);
+    if (!result.success) {
+        socket.emit('error', { message: result.error });
+        return;
+    }
+
+    // Explicit leave is permanent — clear the DB pointer so future sign-ins
+    // don't try to rejoin this tournament.
+    if (user) {
+        await gameManager.clearActiveTournament(user.username);
+    }
+
+    // Notify leaving player
+    socket.emit('tournamentLeft', {});
+
+    // Auto-rejoin main room
+    sendToMainRoom(socket);
 
     if (result.deleted) {
         // Tournament was deleted — notify main room
@@ -232,12 +276,23 @@ async function beginTournament(socket, io) {
         return;
     }
 
-    // Set active tournament in DB for all players
-    for (const [, player] of tournament.players) {
-        await gameManager.setActiveTournament(player.username, tournament.tournamentId);
-    }
+    // Flip the phase synchronously before any awaits so a double-click or
+    // retry can't pass the phase guard and start round 1 twice.
+    tournament.phase = 'starting';
 
-    await startTournamentRound(io, tournament, 1);
+    try {
+        // Set active tournament in DB for all players
+        for (const [, player] of tournament.players) {
+            await gameManager.setActiveTournament(player.username, tournament.tournamentId);
+        }
+
+        await startTournamentRound(io, tournament, 1);
+    } catch (error) {
+        if (tournament.phase === 'starting') {
+            tournament.phase = 'lobby';
+        }
+        throw error;
+    }
 }
 
 /**
@@ -271,17 +326,30 @@ async function beginNextRound(socket, io) {
         return;
     }
 
-    await startTournamentRound(io, tournament, nextRound);
+    // Same double-start protection as beginTournament
+    tournament.phase = 'starting';
+
+    try {
+        await startTournamentRound(io, tournament, nextRound);
+    } catch (error) {
+        if (tournament.phase === 'starting') {
+            tournament.phase = 'between_rounds';
+        }
+        throw error;
+    }
 }
 
 /**
  * Start a tournament round — creates games, assigns players, starts draw phase
  */
 async function startTournamentRound(io, tournament, roundNumber) {
-    // Shuffle player usernames
+    // Shuffle player usernames (connected players only — disconnected members
+    // keep their scores but sit out rounds until they reattach)
     const usernames = [];
     for (const [, player] of tournament.players) {
-        usernames.push(player.username);
+        if (player.connected !== false) {
+            usernames.push(player.username);
+        }
     }
     // Fisher-Yates shuffle
     for (let i = usernames.length - 1; i > 0; i--) {
@@ -303,19 +371,33 @@ async function startTournamentRound(io, tournament, roundNumber) {
 
     // Create each game
     for (const assignment of assignments) {
-        // Collect human socket IDs
+        // Collect human socket IDs. A player may have left/disconnected during
+        // the delays above — back-fill their seat with a bot so the game still
+        // has 4 participants and the draw phase can complete.
         const humanSocketIds = [];
+        const presentHumans = [];
         for (const username of assignment.humans) {
             const playerInfo = tournament.getPlayerByUsername(username);
-            if (playerInfo) {
+            if (playerInfo && playerInfo.connected !== false &&
+                io.sockets.sockets.get(playerInfo.socketId)) {
                 humanSocketIds.push(playerInfo.socketId);
+                presentHumans.push(username);
             }
+        }
+        const botCount = assignment.botCount + (assignment.humans.length - presentHumans.length);
+
+        if (humanSocketIds.length === 0) {
+            // Nobody from this table is still here — skip it entirely
+            socketLogger.warn('Skipping tournament game with no connected humans', {
+                tournamentId: tournament.tournamentId, roundNumber
+            });
+            continue;
         }
 
         // Create bot socket IDs
         const botSocketIds = [];
         const usedPersonalities = [];
-        for (let i = 0; i < assignment.botCount; i++) {
+        for (let i = 0; i < botCount; i++) {
             const available = PERSONALITY_LIST.filter(p => !usedPersonalities.includes(p));
             const personality = available[Math.floor(Math.random() * available.length)];
             usedPersonalities.push(personality);
@@ -340,10 +422,10 @@ async function startTournamentRound(io, tournament, roundNumber) {
         }
 
         // Add game to tournament round
-        tournament.addGameToRound(game.gameId, assignment.humans, assignment.botCount);
+        tournament.addGameToRound(game.gameId, presentHumans, botCount);
 
         // Set active game in DB for humans
-        for (const username of assignment.humans) {
+        for (const username of presentHumans) {
             await gameManager.setActiveGame(username, game.gameId);
         }
 
@@ -385,6 +467,26 @@ async function startTournamentRound(io, tournament, roundNumber) {
             botDrawOrder++;
             botController.scheduleBotDraw(io, game, botInfo.socketId, botDrawOrder);
         }
+    }
+
+    // If every table was skipped (everyone left during the start delays),
+    // roll the round back so the tournament isn't stuck in round_active
+    // waiting on games that don't exist.
+    const startedRound = tournament.getCurrentRound();
+    if (startedRound && startedRound.roundNumber === roundNumber && startedRound.games.size === 0) {
+        tournament.rounds.pop();
+        tournament.currentRound = roundNumber - 1;
+        tournament.phase = roundNumber === 1 ? 'lobby' : 'between_rounds';
+        tournament.broadcast(io, 'tournamentMessage', {
+            username: 'System',
+            message: 'Round could not start — no connected players.',
+            isSpectator: false,
+            timestamp: Date.now()
+        });
+        socketLogger.warn('Tournament round rolled back, no games created', {
+            tournamentId: tournament.tournamentId, roundNumber
+        });
+        return;
     }
 
     // Update main room
@@ -429,10 +531,11 @@ function tournamentChat(socket, io, data) {
         return;
     }
 
+    const { filterProfanity } = require('../utils/profanityFilter');
     const user = gameManager.getUserBySocketId(socket.id);
     const chatMessage = foundTournament.addMessage(
         user?.username || 'Unknown',
-        message.trim(),
+        filterProfanity(message.trim()),
         isSpectator
     );
 
@@ -575,9 +678,12 @@ async function cancelTournament(socket, io) {
     // Clear active tournament in DB for all players
     await gameManager.clearActiveTournamentForAll(tournamentId);
 
-    // Remove all players from tournament room
+    // Remove all players and spectators from tournament room
     for (const [playerSocketId] of tournament.players) {
         tournament.leaveRoom(io, playerSocketId);
+    }
+    for (const [spectatorSocketId] of tournament.spectators) {
+        tournament.leaveRoom(io, spectatorSocketId);
     }
 
     // Delete tournament and clean up maps
@@ -600,9 +706,31 @@ async function cancelTournament(socket, io) {
  * Return to tournament lobby from game/spectating
  */
 function returnToTournament(socket, io) {
-    const tournament = gameManager.getPlayerTournament(socket.id);
+    let tournament = gameManager.getPlayerTournament(socket.id);
+
+    // Tournament spectators aren't in playerTournaments
     if (!tournament) {
-        socket.emit('error', { message: 'Not in a tournament' });
+        for (const [, t] of gameManager.tournaments) {
+            if (t.isSpectator(socket.id)) {
+                tournament = t;
+                break;
+            }
+        }
+    }
+
+    // Last resort: reattach by username (e.g. socket changed while in a game)
+    if (!tournament) {
+        const user = gameManager.getUserBySocketId(socket.id);
+        if (user) {
+            tournament = gameManager.reattachTournamentPlayer(socket.id, user.username);
+        }
+    }
+
+    if (!tournament) {
+        // Tournament is gone (completed and cleaned up, or cancelled) — land
+        // the player in the main room instead of leaving them stranded.
+        socket.emit('tournamentLeft', {});
+        sendToMainRoom(socket);
         return;
     }
 
@@ -621,6 +749,94 @@ function returnToTournament(socket, io) {
     socket.emit('tournamentJoined', tournament.getClientState());
 }
 
+// Completed tournaments stay in memory for a grace window so players coming
+// from the game-end screen can still return and see the final standings.
+const COMPLETED_TOURNAMENT_TTL_MS = 10 * 60 * 1000;
+const cleanupTimers = new Map(); // tournamentId → timer
+
+function scheduleTournamentCleanup(io, tournamentId, delayMs = COMPLETED_TOURNAMENT_TTL_MS) {
+    if (cleanupTimers.has(tournamentId)) {
+        clearTimeout(cleanupTimers.get(tournamentId));
+    }
+    const timer = setTimeout(() => {
+        cleanupTimers.delete(tournamentId);
+        const tournament = gameManager.getTournamentById(tournamentId);
+        if (!tournament) return;
+
+        for (const [playerSocketId] of tournament.players) {
+            tournament.leaveRoom(io, playerSocketId);
+        }
+        for (const [spectatorSocketId] of tournament.spectators) {
+            tournament.leaveRoom(io, spectatorSocketId);
+        }
+        gameManager.deleteTournament(tournamentId);
+
+        io.to('mainRoom').emit('lobbiesUpdated', {
+            lobbies: gameManager.getAllLobbies(),
+            inProgressGames: gameManager.getInProgressGames(),
+            tournaments: gameManager.getAllTournaments()
+        });
+        socketLogger.info('Completed tournament cleaned up', { tournamentId });
+    }, delayMs);
+    if (timer.unref) timer.unref();
+    cleanupTimers.set(tournamentId, timer);
+}
+
+/**
+ * Broadcast the outcome of a finished round: either the between-rounds prompt
+ * or the final standings. Shared by the normal game-end and abort paths.
+ */
+async function broadcastRoundOutcome(io, tournament) {
+    if (tournament.isTournamentComplete()) {
+        tournament.broadcast(io, 'tournamentComplete', {
+            scoreboard: tournament.getScoreboard(),
+            winners: tournament.getWinners()
+        });
+        await gameManager.clearActiveTournamentForAll(tournament.tournamentId);
+        scheduleTournamentCleanup(io, tournament.tournamentId);
+    } else {
+        tournament.broadcast(io, 'tournamentRoundComplete', {
+            scoreboard: tournament.getScoreboard(),
+            currentRound: tournament.currentRound,
+            totalRounds: tournament.totalRounds
+        });
+    }
+}
+
+/**
+ * A tournament game ended without reaching gameEnd (aborted/abandoned).
+ * Mark it complete with no scores recorded so the round can still advance —
+ * otherwise the tournament is stuck in round_active forever.
+ */
+async function handleAbortedTournamentGame(io, gameId) {
+    const game = gameManager.getGameById(gameId);
+    const result = gameManager.handleTournamentGameEnd(gameId);
+    if (!result) return;
+
+    const tournament = result.tournament;
+    tournament.broadcast(io, 'tournamentGameComplete', {
+        gameId,
+        score: game ? game.score : { team1: 0, team2: 0 },
+        aborted: true,
+        activeGames: tournament.getActiveGames(),
+        scoreboard: tournament.getScoreboard(),
+        currentRound: tournament.currentRound,
+        totalRounds: tournament.totalRounds
+    });
+
+    if (result.roundComplete) {
+        await broadcastRoundOutcome(io, tournament);
+        // Everyone may be gone already (that's often why the game aborted)
+        if (tournament.getConnectedPlayerCount() === 0) {
+            gameManager.deleteTournament(tournament.tournamentId);
+        }
+    }
+
+    socketLogger.info('Aborted tournament game resolved', {
+        gameId, tournamentId: tournament.tournamentId, roundComplete: result.roundComplete
+    });
+}
+
 module.exports = {
     createTournament,
     joinTournament,
@@ -633,5 +849,8 @@ module.exports = {
     tournamentChat,
     spectateTournament,
     spectateTournamentGame,
-    returnToTournament
+    returnToTournament,
+    broadcastRoundOutcome,
+    handleAbortedTournamentGame,
+    scheduleTournamentCleanup
 };

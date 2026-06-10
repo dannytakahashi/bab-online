@@ -2,6 +2,7 @@ import SwiftUI
 
 struct LeaderboardView: View {
     @EnvironmentObject var leaderboardState: LeaderboardState
+    @Environment(\.dismiss) private var dismiss
 
     enum SortField: String, CaseIterable {
         case winRate = "Win %"
@@ -88,6 +89,11 @@ struct LeaderboardView: View {
             }
             .navigationTitle("Leaderboard")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                }
+            }
         }
         .onAppear {
             leaderboardState.isLoading = true

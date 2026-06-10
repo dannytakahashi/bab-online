@@ -203,12 +203,19 @@ async function recordGameResult(game) {
     if (!gameRecordsCollection) return;
 
     try {
+        // Users who deleted their account mid-game must not reappear in new
+        // records — deletion already anonymized their historical ones
+        const gameManager = require('../game/GameManager');
+        const recordName = (p) => {
+            if (!p || !p.username) return null;
+            return gameManager.deletedUsernames.has(p.username) ? '[deleted]' : p.username;
+        };
         const team1Players = [game.getOriginalPlayer(1), game.getOriginalPlayer(3)]
-            .filter(p => p && p.username)
-            .map(p => p.username);
+            .map(recordName)
+            .filter(Boolean);
         const team2Players = [game.getOriginalPlayer(2), game.getOriginalPlayer(4)]
-            .filter(p => p && p.username)
-            .map(p => p.username);
+            .map(recordName)
+            .filter(Boolean);
 
         // Calculate team-level bags (total tricks taken minus total tricks bid)
         const ps = game.playerStats || {};

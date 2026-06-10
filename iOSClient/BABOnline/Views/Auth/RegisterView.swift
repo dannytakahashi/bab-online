@@ -67,6 +67,13 @@ struct RegisterView: View {
                         .cornerRadius(10)
                     }
                     .disabled(!canRegister)
+
+                    Text(.init("By creating an account you agree to the [Terms of Use](https://babonline.io/terms) — zero tolerance for abusive content."))
+                        .font(.caption2)
+                        .foregroundColor(Color.Theme.textDim)
+                        .tint(Color.Theme.primary)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity)
                 }
                 .padding(.horizontal, 32)
 

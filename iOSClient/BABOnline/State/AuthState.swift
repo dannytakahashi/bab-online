@@ -7,6 +7,7 @@ final class AuthState: ObservableObject {
     @Published var sessionToken: String = ""
     @Published var isAuthenticated: Bool = false
     @Published var error: String?
+    @Published var deleteAccountError: String?
 
     private let keychainService = "com.bab-online.auth"
     private let usernameKey = "username"
@@ -43,6 +44,7 @@ final class AuthState: ObservableObject {
         sessionToken = ""
         isAuthenticated = false
         error = nil
+        deleteAccountError = nil
     }
 
     // MARK: - Keychain Helpers

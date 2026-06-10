@@ -61,6 +61,13 @@ struct TournamentPlayerListView: View {
                             .cornerRadius(4)
                     }
                 }
+
+                if !player.connected {
+                    Text("reconnecting\u{2026}")
+                        .font(.caption2)
+                        .foregroundColor(Color.Theme.textDim)
+                        .italic()
+                }
             }
 
             Spacer()
@@ -80,5 +87,6 @@ struct TournamentPlayerListView: View {
         .padding(.vertical, 10)
         .background(Color.Theme.surface)
         .cornerRadius(10)
+        .opacity(player.connected ? 1.0 : 0.5)
     }
 }
