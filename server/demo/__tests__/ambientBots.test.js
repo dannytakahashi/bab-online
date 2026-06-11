@@ -113,4 +113,28 @@ describe('startBotGame', () => {
         const { botController } = require('../../game/bot');
         botController.cleanupGame(game.gameId);
     });
+
+    test('announces in chat exactly once, only after the game is visible', async () => {
+        jest.useFakeTimers();
+        // Pre-fill chat so maybePostChat stays quiet during the test
+        gameManager.mainRoomMessages.push({ username: 'real', message: 'hi', timestamp: Date.now() });
+
+        const game = ambient.startBotGame(fakeIo);
+
+        // Still drawing — no announcement yet
+        ambient.tick(fakeIo);
+        expect(gameManager.mainRoomMessages).toHaveLength(1);
+
+        await jest.advanceTimersByTimeAsync(30 * 1000);
+        expect(game.phase).not.toBe('drawing');
+
+        // Visible — announce once, then stay quiet
+        ambient.tick(fakeIo);
+        ambient.tick(fakeIo);
+        expect(gameManager.mainRoomMessages).toHaveLength(2);
+        expect(gameManager.mainRoomMessages[1].message).toMatch(/game/i);
+
+        const { botController } = require('../../game/bot');
+        botController.cleanupGame(game.gameId);
+    });
 });
