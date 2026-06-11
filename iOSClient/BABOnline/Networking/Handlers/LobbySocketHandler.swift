@@ -28,7 +28,9 @@ final class LobbySocketHandler {
                 if let users = dict["onlineUsers"] as? [String] {
                     self.mainRoomState.onlineUsers = users
                 }
-                if let messages = dict["recentMessages"] as? [[String: Any]] {
+                // The server sends the replay under "messages" (and mirrors it
+                // as "recentMessages" for app builds that read this key)
+                if let messages = (dict["recentMessages"] ?? dict["messages"]) as? [[String: Any]] {
                     self.mainRoomState.messages = messages
                         .compactMap { ChatMessage.from($0) }
                         .filter { !self.safetyState.isBlocked($0.username) }

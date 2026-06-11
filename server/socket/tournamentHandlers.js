@@ -122,6 +122,7 @@ function sendToMainRoom(socket) {
     const onlineUsers = gameManager.getOnlineUsernames();
     socket.emit('mainRoomJoined', {
         messages: mainRoomResult.messages,
+        recentMessages: mainRoomResult.messages, // iOS reads this key
         lobbies: mainRoomResult.lobbies,
         onlineCount: onlineUsers.length,
         onlineUsers,
