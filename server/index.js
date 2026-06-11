@@ -80,6 +80,13 @@ const io = new Server(server, {
 // Setup socket event handlers
 setupSocketHandlers(io);
 
+// Ambient bot activity (spectatable bot games + seeded main-room chat) so
+// the app is never an empty room — on by default in production
+const { startAmbientActivity, shouldEnable } = require('./demo/ambientBots');
+if (shouldEnable()) {
+    startAmbientActivity(io);
+}
+
 // Start server
 function start() {
     // Hardcode port 3000 - Railway requires this (using PORT env var causes 502)

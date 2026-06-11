@@ -188,6 +188,8 @@ npm run build:atlas
 
 The server runs on `http://localhost:3000` by default.
 
+**Ambient bot activity**: in production the server keeps one bot-vs-bot game running (spectatable from the main room) and seeds the global chat with bot-persona messages, so new players never land in an empty room. Control with `AMBIENT_BOTS=true|false` (default: on in production, off in development).
+
 ## How to Play
 
 1. **Sign up/Sign in** - Create an account (auto-logs in) or log in
