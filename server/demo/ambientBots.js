@@ -21,8 +21,8 @@ const { botController, personalities } = require('../game/bot');
 const { PERSONALITY_LIST, getDisplayName } = personalities;
 const { logger } = require('../utils/logger');
 
-const CHECK_INTERVAL_MS = 30 * 1000;        // poll cadence
-const RESTART_DELAY_MS = 90 * 1000;         // pause between games
+const CHECK_INTERVAL_MS = 15 * 1000;        // poll cadence
+const RESTART_DELAY_MS = 30 * 1000;         // pause between games (keep the gap short)
 const MAX_GAME_AGE_MS = 90 * 60 * 1000;     // recycle a wedged game
 const CHAT_IDLE_MS = 30 * 60 * 1000;        // post bot chatter when room is quiet this long
 const MAX_MESSAGES = 50;                    // mirrors GameManager.MAX_MAIN_ROOM_MESSAGES
@@ -37,19 +37,28 @@ const SEED_MESSAGES = [
     { username: '🤖 Zach', message: 'Mike got set twice last game, do not listen to him' },
 ];
 
+// Idle chatter must be timeless — anything temporal ("new game starting")
+// belongs in announceGameVisible, where it's actually true
 const ROTATING_MESSAGES = [
-    { username: '🤖 Mary', message: 'New game starting — come watch!' },
     { username: '🤖 Mike', message: 'Bidding board on the 13 hand again. No regrets' },
     { username: '🤖 Sharon', message: 'A conservative 2 bid never hurt anyone' },
     { username: '🤖 Danny', message: 'Rainbow bonus on the 4-card hand, count it' },
-    { username: '🤖 Zach', message: 'gg — running it back' },
+    { username: '🤖 Zach', message: 'Our table is pretty much always running — tap Spectate to watch' },
+];
+
+const GAME_START_MESSAGES = [
+    { username: '🤖 Mary', message: 'New game starting — come watch!' },
+    { username: '🤖 Danny', message: 'Cards are dealt, new game underway — spectators welcome' },
+    { username: '🤖 Mike', message: 'Fresh game just started. Come watch me not get set' },
 ];
 
 let intervalHandle = null;
 let currentGameId = null;
 let currentGameStartedAt = 0;
+let currentGameAnnounced = false;
 let nextGameAt = 0;
 let rotationIndex = 0;
+let startIndex = 0;
 
 /**
  * Ambient activity runs in production unless explicitly disabled, and in
@@ -102,6 +111,23 @@ function maybePostChat(io) {
 }
 
 /**
+ * Once the new game leaves the draw phase it shows up in the main room's
+ * in-progress list (handleDrawComplete broadcasts lobbiesUpdated) — that is
+ * the moment a "new game starting" chat message is actually true.
+ */
+function announceGameVisible(io) {
+    const m = GAME_START_MESSAGES[startIndex % GAME_START_MESSAGES.length];
+    startIndex++;
+
+    const chatMessage = { username: m.username, message: m.message, timestamp: Date.now() };
+    gameManager.mainRoomMessages.push(chatMessage);
+    if (gameManager.mainRoomMessages.length > MAX_MESSAGES) {
+        gameManager.mainRoomMessages.shift();
+    }
+    io.to('mainRoom').emit('mainRoomMessage', chatMessage);
+}
+
+/**
  * Start a fresh 4-bot game. Same flow as tournament bot seats: create and
  * register bots, then kick off the draw phase — processBotDraw chains into
  * handleDrawComplete and the bots play the game to completion on their own.
@@ -134,6 +160,7 @@ function startBotGame(io) {
 
     currentGameId = game.gameId;
     currentGameStartedAt = Date.now();
+    currentGameAnnounced = false;
     logger.info('Ambient bot game started', { gameId: game.gameId });
     return game;
 }
@@ -152,6 +179,10 @@ function tick(io) {
             currentGameId = null;
             nextGameAt = Date.now() + RESTART_DELAY_MS;
             return;
+        }
+        if (!currentGameAnnounced && game.phase !== 'drawing' && game.phase !== 'waiting') {
+            currentGameAnnounced = true;
+            announceGameVisible(io);
         }
         if (Date.now() - currentGameStartedAt > MAX_GAME_AGE_MS) {
             logger.warn('Ambient bot game exceeded max age, recycling', { gameId: currentGameId });
@@ -204,6 +235,7 @@ module.exports = {
     // exported for tests
     seedMainRoomChat,
     maybePostChat,
+    announceGameVisible,
     startBotGame,
     tick
 };
