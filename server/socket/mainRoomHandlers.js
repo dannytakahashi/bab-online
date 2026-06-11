@@ -23,9 +23,12 @@ function joinMainRoom(socket, io) {
     // Compute online users once so count and list always agree
     const onlineUsers = gameManager.getOnlineUsernames();
 
-    // Send initial state to the player
+    // Send initial state to the player.
+    // recentMessages duplicates messages: the iOS client reads that key for
+    // the chat history replay (web reads messages) — keep both populated.
     socket.emit('mainRoomJoined', {
         messages: result.messages,
+        recentMessages: result.messages,
         lobbies: result.lobbies,
         onlineCount: onlineUsers.length,
         onlineUsers,
