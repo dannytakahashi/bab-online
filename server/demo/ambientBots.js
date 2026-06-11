@@ -32,7 +32,7 @@ const MAX_MESSAGES = 50;                    // mirrors GameManager.MAX_MAIN_ROOM
 const SEED_MESSAGES = [
     { username: '🤖 Mary', message: 'Anyone up for a game? Starting a table now' },
     { username: '🤖 Danny', message: 'gl everyone, feeling a 3-bid kind of day' },
-    { username: '🤖 Sharon', message: 'You can spectate our game from the list below 👇' },
+    { username: '🤖 Sharon', message: 'You can watch our game from the games list — tap Spectate' },
     { username: '🤖 Mike', message: 'I never get set. Watch and learn' },
     { username: '🤖 Zach', message: 'Mike got set twice last game, do not listen to him' },
 ];
