@@ -136,6 +136,7 @@ npm run test:client  # Client tests (Vitest)
 - In-game leave is a chat command (`/leave`, `/lazy`, `/active`) routed through `chatMessage` — both clients' Leave buttons send `/leave`; it also works during the draw phase (before positions exist)
 - Account deletion (`authHandlers.deleteAccount`) requires an authenticated socket + password re-confirm; it anonymizes the username in `gameRecords`
 - Express pages: `/privacy`, `/support`, `/terms` (App Store compliance copy lives in `server/routes/index.js`)
+- Ambient bot activity (`server/demo/ambientBots.js`): keeps one spectatable bot-vs-bot game running and seeds main-room chat with bot-persona messages, so the app is never an empty room (added for App Review Guideline 2.1(a) — reviewers must see other users' chats and games). On by default in production; `AMBIENT_BOTS=true|false` overrides
 - iOS builds: prebuilt WebRTC (stasel/WebRTC via SPM) ships no dSYM — the archive warning at upload is expected and safe to ignore
 
 ## Common Files to Check
