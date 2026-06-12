@@ -16,6 +16,28 @@ class BotController {
     }
 
     /**
+     * Contract state passed into card-play decisions: team bids, tricks taken
+     * so far, raw player bids (for bore detection), and multipliers.
+     * @param {Object} game - GameState
+     * @returns {Object}
+     */
+    buildPlayContext(game) {
+        // game.bids is position-keyed during bidding and only takes its
+        // {team1, team2} shape once handlePostBid runs; outside the play
+        // phase pass null so strategy falls back to contract-blind play
+        // rather than misreading the field
+        const bids = game.bids;
+        const teamShaped = bids && typeof bids.team1 === 'number' && typeof bids.team2 === 'number';
+        return {
+            playerBids: game.playerBids,
+            bids: teamShaped ? bids : null,
+            tricks: game.tricks,
+            team1Mult: game.team1Mult,
+            team2Mult: game.team2Mult
+        };
+    }
+
+    /**
      * Create a new bot for a lobby
      * @param {string} username - Bot name (default: "Mary")
      * @returns {BotPlayer}
@@ -126,6 +148,11 @@ class BotController {
 
         const actionKey = `${game.gameId}:${botSocketId}:draw`;
 
+        // Clear any previously scheduled draw for this bot
+        if (this.pendingActions.has(actionKey)) {
+            clearTimeout(this.pendingActions.get(actionKey));
+        }
+
         const timeoutId = setTimeout(() => {
             this.pendingActions.delete(actionKey);
             this.processBotDraw(io, game, bot);
@@ -182,9 +209,17 @@ class BotController {
      * @param {Object} io - Socket.IO server
      * @param {Object} game - GameState
      * @param {BotPlayer} bot - Bot player
+     * @returns {boolean} - true if the bid was made; false if the game state
+     *   no longer allows it (callers must NOT advance the turn on false)
      */
     processBotBid(io, game, bot) {
-        if (!game.bidding || game.currentTurn !== bot.position) return;
+        if (!game.bidding || game.currentTurn !== bot.position) {
+            gameLogger.warn('Bot bid skipped: stale game state', {
+                gameId: game.gameId, botName: bot.username,
+                bidding: game.bidding, currentTurn: game.currentTurn, botPosition: bot.position
+            });
+            return false;
+        }
 
         const hand = game.getHand(bot.socketId);
         const gameContext = {
@@ -212,6 +247,7 @@ class BotController {
         });
 
         // Let the caller handle post-bid logic (turn advancement, etc.)
+        return true;
     }
 
     /**
@@ -219,12 +255,36 @@ class BotController {
      * @param {Object} io - Socket.IO server
      * @param {Object} game - GameState
      * @param {BotPlayer} bot - Bot player
+     * @returns {boolean} - true if a card was played; false if the game state
+     *   no longer allows it (callers must NOT advance the turn on false)
      */
     processBotPlay(io, game, bot) {
-        if (game.bidding || game.currentTurn !== bot.position) return;
+        if (game.bidding || game.currentTurn !== bot.position) {
+            gameLogger.warn('Bot play skipped: stale game state', {
+                gameId: game.gameId, botName: bot.username,
+                bidding: game.bidding, currentTurn: game.currentTurn, botPosition: bot.position
+            });
+            return false;
+        }
+
+        // The game may have moved on while this action sat on a timer (e.g.
+        // forceResign during trick resolution) — never inject a 5th card or
+        // overwrite an occupied slot
+        if (game.playedCardsIndex >= 4 || game.playedCards[bot.position - 1] != null) {
+            gameLogger.warn('Bot play skipped: trick already full or slot occupied', {
+                gameId: game.gameId, botName: bot.username, position: bot.position,
+                playedCardsIndex: game.playedCardsIndex
+            });
+            return false;
+        }
 
         const hand = game.getHand(bot.socketId);
-        if (!hand || hand.length === 0) return;
+        if (!hand || hand.length === 0) {
+            gameLogger.warn('Bot play skipped: empty hand', {
+                gameId: game.gameId, botName: bot.username, position: bot.position
+            });
+            return false;
+        }
 
         const card = bot.decideCard(
             hand,
@@ -233,7 +293,8 @@ class BotController {
             game.leadPosition,
             game.trump,
             game.isTrumpBroken,
-            game.currentHand
+            game.currentHand,
+            this.buildPlayContext(game)
         );
 
         gameLogger.debug('Bot playing card', {
@@ -271,9 +332,10 @@ class BotController {
         });
 
         // Notify all bots about this card play
-        this.notifyCardPlayed(game.gameId, card, bot.position, game.trump);
+        this.notifyCardPlayed(game.gameId, card, bot.position, game.trump, game.leadPosition);
 
         // Let the caller handle post-play logic (turn advancement, trick completion, etc.)
+        return true;
     }
 
     /**
@@ -297,13 +359,14 @@ class BotController {
      * @param {Object} card - Card played
      * @param {number} position - Position of player who played
      * @param {Object} trump - Trump card
+     * @param {number} [leadPosition] - Position that led the current trick
      */
-    notifyCardPlayed(gameId, card, position, trump) {
+    notifyCardPlayed(gameId, card, position, trump, leadPosition) {
         const gameBots = this.gamesBots.get(gameId);
         if (!gameBots) return;
 
         for (const bot of gameBots.values()) {
-            bot.recordCardPlayed(card, position, trump);
+            bot.recordCardPlayed(card, position, trump, leadPosition);
         }
     }
 
@@ -331,7 +394,10 @@ class BotController {
      */
     sendBotChat(io, game, bot, message, delayMs = null) {
         const delay = delayMs !== null ? delayMs : 500 + Math.random() * 500; // default 500-1000ms
-        const actionKey = `${game.gameId}:${bot.socketId}:chat`;
+        // Unique key per message so queued messages don't orphan each other's
+        // timers; cleanupGame clears by gameId prefix either way
+        this.chatSeq = (this.chatSeq || 0) + 1;
+        const actionKey = `${game.gameId}:${bot.socketId}:chat:${this.chatSeq}`;
 
         const timeoutId = setTimeout(() => {
             this.pendingActions.delete(actionKey);
@@ -436,10 +502,11 @@ class BotController {
             if (bot.personality !== 'zach') continue;
 
             const partnerPosition = bot.position === 1 ? 3 : bot.position === 3 ? 1 : bot.position === 2 ? 4 : 2;
-            const partnerBidStr = game.playerBids[partnerPosition - 1];
-            // Treat bore bids as 0 for tracking purposes (bore hands are special)
-            const bidStr = String(partnerBidStr);
-            const partnerBidValue = bidStr.includes('B') ? 0 : parseInt(bidStr, 10) || 0;
+            const partnerBidStr = String(game.playerBids[partnerPosition - 1]);
+            // Skip bore hands entirely: logging a successful bore as "bid 0,
+            // took N" would poison the over/under-bid signal Zach adapts to
+            if (partnerBidStr.includes('B')) continue;
+            const partnerBidValue = parseInt(partnerBidStr, 10) || 0;
             const partnerTricks = game.handTricks[partnerPosition] || 0;
 
             bot.recordPartnerHand(partnerBidValue, partnerTricks);
@@ -453,13 +520,11 @@ class BotController {
     cleanupGame(gameId) {
         const gameBots = this.gamesBots.get(gameId);
         if (gameBots) {
-            for (const [socketId] of gameBots) {
-                // Clear any pending actions
-                for (const [key, timeoutId] of this.pendingActions) {
-                    if (key.startsWith(`${gameId}:`)) {
-                        clearTimeout(timeoutId);
-                        this.pendingActions.delete(key);
-                    }
+            // Clear any pending actions for this game
+            for (const [key, timeoutId] of this.pendingActions) {
+                if (key.startsWith(`${gameId}:`)) {
+                    clearTimeout(timeoutId);
+                    this.pendingActions.delete(key);
                 }
             }
             this.gamesBots.delete(gameId);

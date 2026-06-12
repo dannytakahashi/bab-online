@@ -45,13 +45,10 @@ describe('evaluateHand', () => {
                 card('hearts', '2'), card('diamonds', '2'), card('clubs', '2')
             ];
             const result = evaluateHand(hand, heartsTrump, 13);
-            // Ace: 0.8 * 1.0 = 0.8, hearts 2 = trump (no value), diamonds 2 = 0, clubs 2 = 0
-            // trumpCount = 1, single trump devaluation doesn't apply (handSize < 8 for this check... wait handSize=13)
-            // Actually single trump devaluation: trumpCount=1, handSize=13>=8, card is hearts 2 (not HI/LO)
-            // hearts 2 rank value = 2 < 7, so no points were added, devaluation doesn't subtract anything extra
-            // voids = 0 (all suits present)
+            // Ace: 0.8 * 1.0 = 0.8, hearts 2 = low trump (0.05 at hand size 8+),
+            // diamonds 2 = 0, clubs 2 = 0, voids = 0 (all suits present),
             // trump length bonus: trumpCount=1, < 4, so 0
-            expect(result.points).toBeCloseTo(0.8, 1);
+            expect(result.points).toBeCloseTo(0.85, 1);
         });
 
         test('non-trump Ace worth ~0.08 at hand size 2', () => {
@@ -418,14 +415,15 @@ describe('selectLead', () => {
 
 describe('selectFollow', () => {
     describe('King protection', () => {
-        test('avoids King as lowest winner when Ace unplayed on large hand', () => {
+        test('fights with King when it is the only winner, even with the Ace outstanding', () => {
             const hand = [
-                card('spades', 'K'), card('spades', 'A'), // Has both King and Ace
+                card('spades', 'K'), card('spades', '10'),
                 card('diamonds', '2'), card('diamonds', '3'),
                 card('clubs', '2'), card('clubs', '3'),
                 card('hearts', '2'), card('hearts', '3')
             ];
-            // Lead is spades, current winner is Q of spades from opponent
+            // Lead is spades, current winner is Q of spades from opponent;
+            // an opponent still acts after us and the Ace is unseen
             const playedCards = [undefined, card('spades', 'Q'), undefined, undefined];
             const leadCard = card('spades', 'Q');
             const memory = {
@@ -436,21 +434,31 @@ describe('selectFollow', () => {
                 totalCardsPlayed: 1
             };
 
-            // Position 1, lead position 2, Ace unplayed, but we HAVE both K and A
-            // King is lowest winner, A hasn't been played but we have it
-            // This should actually still play King (we own the Ace)
-            // Let's test a case where we DON'T have the Ace
-            const hand2 = [
-                card('spades', 'K'), card('spades', '10'),
+            const result = selectFollow(hand, playedCards, leadCard, 2, heartsTrump, false, 3, memory, 8);
+            // King is the only card that beats the Queen — contest the trick
+            expect(result.rank).toBe('K');
+        });
+
+        test('cashes both honors cheapest-first when holding A-K over the trick', () => {
+            const hand = [
+                card('spades', 'K'), card('spades', 'A'),
                 card('diamonds', '2'), card('diamonds', '3'),
                 card('clubs', '2'), card('clubs', '3'),
                 card('hearts', '2'), card('hearts', '3')
             ];
-            // King is lowest winner, Ace not played, players still to act
-            const result = selectFollow(hand2, playedCards, leadCard, 2, heartsTrump, false, 3, memory, 8);
-            // Should avoid playing King (play 10 instead since it can't win, or skip to lower)
-            // Actually, if Q is current winner, K beats Q, 10 doesn't beat Q
-            // So King is the ONLY winner - should still play it
+            const playedCards = [undefined, card('spades', 'Q'), undefined, undefined];
+            const leadCard = card('spades', 'Q');
+            const memory = {
+                playedCards: [],
+                trumpPlayed: [],
+                acesPlayed: { spades: false, hearts: false, diamonds: false, clubs: false },
+                trickIndex: 0,
+                totalCardsPlayed: 1
+            };
+
+            const result = selectFollow(hand, playedCards, leadCard, 2, heartsTrump, false, 3, memory, 8);
+            // Holding the Ace ourselves makes the King boss — win cheap, keep the Ace
+            expect(result.rank).toBe('K');
         });
 
         test('plays King when last to act', () => {
@@ -573,7 +581,7 @@ describe('selectFollow', () => {
             expect(result.rank).toBe('3');
         });
 
-        test('overtakes partner when opponent known void (trump-in risk)', () => {
+        test('plays low under partner when nothing in hand can overtake (despite trump-in risk)', () => {
             const hand = [
                 card('spades', 'K'), card('spades', '3')
             ];
@@ -868,32 +876,46 @@ describe('isWinVulnerable', () => {
 describe('bestWithoutHiJoker', () => {
     test('returns non-joker when HI joker is best and alternatives exist', () => {
         const sorted = [HI, card('hearts', 'K'), card('hearts', '5')];
-        const result = bestWithoutHiJoker(sorted, card('hearts', '3'));
+        const result = bestWithoutHiJoker(sorted, card('hearts', '3'), heartsTrump);
         expect(result.rank).toBe('K');
     });
 
     test('returns HI joker when it is the only option', () => {
         const sorted = [HI];
-        const result = bestWithoutHiJoker(sorted, card('hearts', '3'));
+        const result = bestWithoutHiJoker(sorted, card('hearts', '3'), heartsTrump);
         expect(result.rank).toBe('HI');
     });
 
     test('returns HI joker to beat LO joker', () => {
         const sorted = [HI, card('hearts', 'K')];
-        const result = bestWithoutHiJoker(sorted, LO);
+        const result = bestWithoutHiJoker(sorted, LO, heartsTrump);
         expect(result.rank).toBe('HI');
     });
 
     test('returns HI joker to beat trump Ace', () => {
         const sorted = [HI, card('hearts', 'K')];
-        const result = bestWithoutHiJoker(sorted, card('hearts', 'A'));
+        const result = bestWithoutHiJoker(sorted, card('hearts', 'A'), heartsTrump);
         expect(result.rank).toBe('HI');
+    });
+
+    test('holds HI joker when LO joker also beats the trump Ace', () => {
+        const sorted = [HI, LO];
+        const result = bestWithoutHiJoker(sorted, card('hearts', 'A'), heartsTrump);
+        expect(result.rank).toBe('LO');
     });
 
     test('returns non-joker when winning card is low trump', () => {
         const sorted = [HI, card('hearts', 'K')];
-        const result = bestWithoutHiJoker(sorted, card('hearts', '7'));
+        const result = bestWithoutHiJoker(sorted, card('hearts', '7'), heartsTrump);
         expect(result.rank).toBe('K');
+    });
+
+    test('holds HI joker against a NON-trump Ace — any trump in the list beats it', () => {
+        // Regression: the old code matched any non-joker Ace, burning HI to
+        // trump an opponent's side-suit Ace when low trump won identically
+        const sorted = [HI, card('hearts', '2')];
+        const result = bestWithoutHiJoker(sorted, card('spades', 'A'), heartsTrump);
+        expect(result.rank).toBe('2');
     });
 });
 
@@ -996,50 +1018,41 @@ describe('applyBidModifier', () => {
     });
 
     describe('sharon (conservative)', () => {
-        test('underbids strong hand by 1 (points >= handSize * 0.5)', () => {
-            // handSize=12, 0.5*12=6, points=6.5 >= 6
+        test('trims big bids by 1', () => {
+            expect(applyBidModifier(3, 'sharon', makeEval(3.5), 12, [])).toBe(2);
             expect(applyBidModifier(6, 'sharon', makeEval(6.5), 12, [])).toBe(5);
         });
 
-        test('underbids very strong hand by 2 (points >= handSize * 0.7)', () => {
-            // handSize=12, 0.7*12=8.4, points=9.0 >= 8.4
-            expect(applyBidModifier(8, 'sharon', makeEval(9.0), 12, [])).toBe(6);
-        });
-
-        test('does not modify weak hand bid', () => {
-            // handSize=12, 0.5*12=6, points=2.0 < 6
+        test('does not modify small bids', () => {
+            expect(applyBidModifier(0, 'sharon', makeEval(0.5), 12, [])).toBe(0);
+            expect(applyBidModifier(1, 'sharon', makeEval(1.5), 12, [])).toBe(1);
             expect(applyBidModifier(2, 'sharon', makeEval(2.0), 12, [])).toBe(2);
-        });
-
-        test('does not go below 0', () => {
-            // handSize=4, 0.5*4=2, points=2.5 >= 2, bid 1 - 1 = 0
-            expect(applyBidModifier(1, 'sharon', makeEval(2.5), 4, [])).toBe(0);
         });
     });
 
     describe('danny (calculated aggressive)', () => {
-        test('rounds up when points close to next integer (0.25+ over)', () => {
-            // baseBid=2 (from floor(2.7)), points=2.7, diff=0.7 >= 0.25
-            expect(applyBidModifier(2, 'danny', makeEval(2.7), 12, [])).toBe(3);
+        test('rounds up when points just missed the next trick (0.85+ over)', () => {
+            // baseBid=2 (from floor(2.9)), points=2.9, diff=0.9 >= 0.85
+            expect(applyBidModifier(2, 'danny', makeEval(2.9), 12, [])).toBe(3);
         });
 
-        test('does not round up when well below next integer', () => {
-            // baseBid=2, points=2.1, diff=0.1 < 0.25
-            expect(applyBidModifier(2, 'danny', makeEval(2.1), 12, [])).toBe(2);
+        test('does not round up when below the threshold', () => {
+            // baseBid=2, points=2.7, diff=0.7 < 0.85
+            expect(applyBidModifier(2, 'danny', makeEval(2.7), 12, [])).toBe(2);
         });
 
         test('does not exceed hand size', () => {
-            expect(applyBidModifier(4, 'danny', makeEval(4.5), 4, [])).toBe(4);
+            expect(applyBidModifier(4, 'danny', makeEval(4.9), 4, [])).toBe(4);
         });
 
         test('does not bump 0 to 1 on small hands (<=4 cards)', () => {
-            expect(applyBidModifier(0, 'danny', makeEval(0.5), 1, [])).toBe(0);
-            expect(applyBidModifier(0, 'danny', makeEval(0.5), 2, [])).toBe(0);
-            expect(applyBidModifier(0, 'danny', makeEval(0.5), 4, [])).toBe(0);
+            expect(applyBidModifier(0, 'danny', makeEval(0.9), 1, [])).toBe(0);
+            expect(applyBidModifier(0, 'danny', makeEval(0.9), 2, [])).toBe(0);
+            expect(applyBidModifier(0, 'danny', makeEval(0.9), 4, [])).toBe(0);
         });
 
         test('still bumps 0 to 1 on large hands when close', () => {
-            expect(applyBidModifier(0, 'danny', makeEval(0.5), 8, [])).toBe(1);
+            expect(applyBidModifier(0, 'danny', makeEval(0.9), 8, [])).toBe(1);
         });
     });
 
@@ -1067,42 +1080,55 @@ describe('applyBidModifier', () => {
     });
 
     describe('zach (adaptive)', () => {
-        test('does not modify bid with insufficient history (< 2 hands)', () => {
-            const history = [{ bid: 3, tricks: 5 }]; // only 1 hand
+        test('does not modify bid with insufficient history (< 3 hands)', () => {
+            const history = [{ bid: 3, tricks: 5 }, { bid: 3, tricks: 5 }]; // only 2 hands
             expect(applyBidModifier(3, 'zach', makeEval(3.5), 12, history)).toBe(3);
         });
 
         test('bids down when partner is aggressive (overbids)', () => {
-            // Partner bids more than they win: avg error = (2-3 + 1-3) / 2 = -1.5
+            // Partner bids more than they win: avg error = (2-3 + 1-3 + 2-3) / 3 = -1.33
             const history = [
                 { bid: 3, tricks: 2 },
-                { bid: 3, tricks: 1 }
+                { bid: 3, tricks: 1 },
+                { bid: 3, tricks: 2 }
             ];
             expect(applyBidModifier(3, 'zach', makeEval(3.5), 12, history)).toBe(2);
         });
 
-        test('cautiously bids up when partner is conservative and hand supports it', () => {
-            // Partner wins more than they bid: avg error = (5-2 + 4-2) / 2 = 2.5
+        test('cautiously bids up when partner sandbags heavily and hand supports it', () => {
+            // Partner wins far more than they bid: avg error = (5-2 + 4-2 + 4-2) / 3 = 2.33 > 1.5
             const history = [
                 { bid: 2, tricks: 5 },
+                { bid: 2, tricks: 4 },
                 { bid: 2, tricks: 4 }
             ];
-            // evaluation.points - baseBid = 3.5 - 3 = 0.5 >= 0.3 -> bid up
+            // evaluation.points - baseBid = 3.5 - 3 = 0.5 >= 0.5 -> bid up
             expect(applyBidModifier(3, 'zach', makeEval(3.5), 12, history)).toBe(4);
         });
 
+        test('ignores normal conservative surplus (calibrated partners run +0.5-1)', () => {
+            // avg error = +1.0 — within the deadband, not sandbagging
+            const history = [
+                { bid: 2, tricks: 3 },
+                { bid: 2, tricks: 3 },
+                { bid: 2, tricks: 3 }
+            ];
+            expect(applyBidModifier(3, 'zach', makeEval(3.9), 12, history)).toBe(3);
+        });
+
         test('does not bid up when hand does not support it', () => {
-            // Partner is conservative but hand evaluation barely supports current bid
             const history = [
                 { bid: 2, tricks: 5 },
+                { bid: 2, tricks: 4 },
                 { bid: 2, tricks: 4 }
             ];
-            // evaluation.points - baseBid = 3.1 - 3 = 0.1 < 0.3 -> stay
+            // evaluation.points - baseBid = 3.1 - 3 = 0.1 < 0.5 -> stay
             expect(applyBidModifier(3, 'zach', makeEval(3.1), 12, history)).toBe(3);
         });
 
         test('does not go below 0', () => {
             const history = [
+                { bid: 3, tricks: 0 },
                 { bid: 3, tricks: 0 },
                 { bid: 3, tricks: 0 }
             ];

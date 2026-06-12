@@ -860,6 +860,10 @@ class GameManager {
 
         this.games.delete(gameId);
 
+        // Release bots and cancel their pending timers — otherwise the bot
+        // registry leaks and stale timers fire into the dead game
+        botController.cleanupGame(gameId);
+
         return socketIds;
     }
 

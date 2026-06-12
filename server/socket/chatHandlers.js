@@ -206,8 +206,7 @@ function handleLeaveCommand(socket, io, game, position) {
             })
         );
         game.leaveAllFromRoom(io);
-        gameManager.abortGame(game.gameId);
-        botController.cleanupGame(game.gameId);
+        gameManager.abortGame(game.gameId); // also releases bots via cleanupGame
         io.to('mainRoom').emit('lobbiesUpdated', {
             lobbies: gameManager.getAllLobbies(),
             inProgressGames: gameManager.getInProgressGames(),

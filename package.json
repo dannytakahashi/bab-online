@@ -14,7 +14,8 @@
         "test:client:watch": "vitest --config client/vite.config.js",
         "test:watch": "jest --watch",
         "test:coverage": "jest --coverage",
-        "build:atlas": "node scripts/build-atlas.js"
+        "build:atlas": "node scripts/build-atlas.js",
+        "sim": "node server/game/bot/sim/simulate.js"
     },
     "dependencies": {
         "bcryptjs": "^3.0.2",

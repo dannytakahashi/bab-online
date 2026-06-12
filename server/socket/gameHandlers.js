@@ -83,7 +83,7 @@ function triggerBotIfNeeded(io, game, actionType) {
 
                 const hand = game.getHand(playerSocketId);
                 if (!hand || hand.length === 0) return;
-                const card = bot.decideCard(hand, game.playedCards, game.leadCard, game.leadPosition, game.trump, game.isTrumpBroken, game.currentHand);
+                const card = bot.decideCard(hand, game.playedCards, game.leadCard, game.leadPosition, game.trump, game.isTrumpBroken, game.currentHand, botController.buildPlayContext(game));
                 game.removeCardFromHand(playerSocketId, card);
                 const isLeading = game.playedCardsIndex === 0;
                 if (isLeading) {
@@ -97,7 +97,7 @@ function triggerBotIfNeeded(io, game, actionType) {
                     game.isTrumpBroken = true;
                 }
                 game.broadcast(io, 'cardPlayed', { playerId: playerSocketId, card, position: bot.position, trump: game.isTrumpBroken });
-                botController.notifyCardPlayed(game.gameId, card, bot.position, game.trump);
+                botController.notifyCardPlayed(game.gameId, card, bot.position, game.trump, game.leadPosition);
                 game.currentTurn = rotatePosition(game.currentTurn);
                 handlePostPlay(io, game);
             }
@@ -108,15 +108,15 @@ function triggerBotIfNeeded(io, game, actionType) {
     // Normal bot action
     if (actionType === 'bid') {
         botController.scheduleBotAction(io, game, 'bid', (io, game, bot) => {
-            botController.processBotBid(io, game, bot);
-            // After bot bids, advance turn and check for more bots or end bidding
+            // Only advance the turn if the bid actually happened — advancing
+            // after a stale-state bail wedges the game on a phantom turn
+            if (!botController.processBotBid(io, game, bot)) return;
             game.currentTurn = rotatePosition(game.currentTurn);
             handlePostBid(io, game);
         });
     } else if (actionType === 'play') {
         botController.scheduleBotAction(io, game, 'play', (io, game, bot) => {
-            botController.processBotPlay(io, game, bot);
-            // After bot plays, advance turn and check for trick complete
+            if (!botController.processBotPlay(io, game, bot)) return;
             game.currentTurn = rotatePosition(game.currentTurn);
             handlePostPlay(io, game);
         });
@@ -645,7 +645,7 @@ async function playCard(socket, io, data) {
     });
 
     // Notify bots about this card play
-    botController.notifyCardPlayed(game.gameId, card, position, game.trump);
+    botController.notifyCardPlayed(game.gameId, card, position, game.trump, game.leadPosition);
 
     // Advance turn
     game.currentTurn = rotatePosition(game.currentTurn);
@@ -1004,8 +1004,11 @@ async function forceResign(socket, io, data) {
     const oldPlayer = game.getPlayerByPosition(position);
     const oldUsername = oldPlayer?.username || `Player ${position}`;
 
-    // Pick a random personality
-    const personality = PERSONALITY_LIST[Math.floor(Math.random() * PERSONALITY_LIST.length)];
+    // Pick a random personality not already used by a bot in this game
+    const usedPersonalities = botController.getGameBots(game.gameId).map(b => b.personality);
+    const availablePersonalities = PERSONALITY_LIST.filter(p => !usedPersonalities.includes(p));
+    const pool = availablePersonalities.length > 0 ? availablePersonalities : PERSONALITY_LIST;
+    const personality = pool[Math.floor(Math.random() * pool.length)];
     const displayName = personalities.getDisplayName(personality);
     const botUsername = `🤖 ${displayName}`;
 

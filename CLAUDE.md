@@ -42,7 +42,7 @@ bab-online/
 │   │   ├── GameState.js       # Game state encapsulation
 │   │   ├── GameManager.js     # Singleton: manages games, queue, lobbies, tournaments
 │   │   ├── TournamentState.js # Per-tournament state (4 rounds, scoreboard)
-│   │   └── bot/               # AI player system
+│   │   └── bot/               # AI player system (strategy, personalities, sim/ harness)
 │   ├── socket/                # Socket.IO handlers by domain
 │   │   ├── gameHandlers.js    # Core gameplay (draw, bid, play)
 │   │   ├── lobbyHandlers.js   # Pre-game lobby
@@ -124,11 +124,12 @@ npm run build:client # Production build
 
 npm test             # Server tests (Jest)
 npm run test:client  # Client tests (Vitest)
+npm run sim          # Bot-vs-bot simulation (tuning/regression; see server/game/bot/sim/README.md)
 ```
 
 ## Important Implementation Details
 
-- Bots have socketIds like `bot:{username}:{uuid}`, use `BotStrategy.js` for AI
+- Bots have socketIds like `bot:{username}:{uuid}`, use `BotStrategy.js` for AI. Card play is contract-aware: `processBotPlay` passes a play context (team bids/tricks/bores) into `decideCard`. Personalities (`personalities.js`) define `bidStyle` + `playStyle` consumed by the strategy; Mary is the sim-tuned optimal baseline, the others are slight measured variations. Strategy changes must be benchmarked with `npm run sim` against the frozen legacy snapshot (`sim/legacyStrategy.js`)
 - Reconnection uses session tokens stored in MongoDB; rejoining a tournament game also reattaches tournament membership to the new socket
 - Socket rooms: players join `game:{gameId}` for broadcasts; tournaments use `tournament:{tournamentId}`
 - Event constants in `client/src/constants/events.js` (web) and `iOSClient/.../Constants/SocketEvents.swift` (iOS) prevent typos — keep all three sides of the contract in sync
@@ -144,6 +145,7 @@ npm run test:client  # Client tests (Vitest)
 | Task | Files |
 |------|-------|
 | Game rules/logic | `server/game/rules.js`, `docs/RULES.md` |
+| Bot AI / strategy | `server/game/bot/BotStrategy.js`, `docs/bot-strategy-guide.md`, `server/game/bot/sim/` |
 | Card play handling | `server/socket/gameHandlers.js` |
 | Client card legality | `client/src/rules/legality.js` |
 | UI screens | `client/src/ui/screens/` |

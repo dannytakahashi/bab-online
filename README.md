@@ -119,9 +119,10 @@ bab-online/
 │   │   └── bot/                       # Bot player system
 │   │       ├── BotPlayer.js           # Bot player class with card memory
 │   │       ├── BotController.js       # Bot lifecycle and personality hooks
-│   │       ├── BotStrategy.js         # AI strategy functions
-│   │       ├── personalities.js       # Bot personality definitions
-│   │       └── __tests__/             # Bot strategy tests
+│   │       ├── BotStrategy.js         # AI strategy (contract-aware, card-counting)
+│   │       ├── personalities.js       # Personality registry (bid + play styles)
+│   │       ├── sim/                   # Bot-vs-bot simulation harness (npm run sim)
+│   │       └── __tests__/             # Strategy tests + legality fuzz suite
 │   ├── socket/
 │   │   ├── index.js                   # Socket event routing
 │   │   ├── authHandlers.js            # Auth events + account deletion
@@ -175,6 +176,10 @@ npm test
 
 # Run client tests (Vitest)
 npm run test:client
+
+# Bot-vs-bot simulation: benchmarks strategy changes against a frozen
+# baseline and validates every bot decision against the rules engine
+npm run sim
 
 # Vite dev server only (port 5173, proxies to :3000)
 npm run dev:client
@@ -268,7 +273,7 @@ The server uses a modular architecture with clear separation of concerns:
 - **TournamentState** - Per-tournament state managing players, rounds, scoring, and game distribution
 - **Deck** - Card deck with Fisher-Yates shuffle
 - **rules.js** - Pure functions for game logic (testable)
-- **BotController / BotStrategy** - AI bot system with 5 personalities, hand-size-aware bidding, card memory, and in-game chat
+- **BotController / BotStrategy** - AI bot system: contract-aware card play (bore execution/defense, set denial), card-counting trick play, hand-size-aware bidding, card memory, and in-game chat. Five personalities layer measured bid/play variations over the optimal "Mary" baseline; strategy changes are benchmarked with the simulation harness (`npm run sim`) against a frozen snapshot
 - **Socket handlers** - Organized by domain (auth, queue, game, chat, profile, reconnect, tournament)
 
 ### Web Client Architecture
