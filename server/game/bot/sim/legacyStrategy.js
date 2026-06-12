@@ -1,8 +1,7 @@
 /**
- * Pure strategy functions for bot decision making.
- * No side effects - all functions take inputs and return outputs.
- *
- * Strategy is informed by docs/bot-strategy-guide.md
+ * FROZEN SNAPSHOT of BotStrategy.js as of June 2026, kept as the benchmark
+ * opponent for the simulation harness (see ./simulate.js, `legacy:` prefix).
+ * Do not edit or "fix" this file — its value is that it never changes.
  */
 
 const {
@@ -13,8 +12,7 @@ const {
     isTrumpTight,
     isLegalMove,
     determineWinner
-} = require('../rules');
-const { getBidStyle, getPlayStyle } = require('./personalities');
+} = require('../../rules');
 
 // --- Hand progression for determining game phase ---
 const HAND_PROGRESSION = [12, 10, 8, 6, 4, 2, 1, 3, 5, 7, 9, 11, 13];
@@ -76,9 +74,9 @@ function hasOpponentsAfterMe(playedCards, position) {
 /**
  * Select the best card from a sorted-highest-first list, preserving HI joker for leading.
  * HI joker's forcing ability (opponents must play highest trump) is too valuable to waste
- * on a follow. Only play it when it's the sole winner or genuinely needed to hold the trick.
+ * on a follow. Only play it when it's the sole winner or needed to beat LO joker / trump Ace.
  */
-function bestWithoutHiJoker(sortedCards, winningCard, trump) {
+function bestWithoutHiJoker(sortedCards, winningCard) {
     if (sortedCards.length === 0) return null;
     const best = sortedCards[0];
 
@@ -89,16 +87,12 @@ function bestWithoutHiJoker(sortedCards, winningCard, trump) {
     // Yes if it's our only option
     if (sortedCards.length === 1) return best;
 
-    // Spend HI only when the current winner is trump strong enough that our
-    // next-best winner can't reliably hold the trick (LO joker or trump Ace).
-    // A non-trump winner never needs HI — every card in this list already
-    // beats it. And if our next-best winner is the LO joker, it is itself
-    // unbeatable (we hold the HI), so hold HI even then.
-    const winningIsTrump = winningCard && (winningCard.suit === 'joker' ||
-        (trump.suit !== 'joker' && winningCard.suit === trump.suit));
-    if (winningIsTrump && (winningCard.rank === 'LO' || winningCard.rank === 'A')) {
-        const next = sortedCards[1];
-        if (!(next.rank === 'LO' && next.suit === 'joker')) return best;
+    // Yes if we need it to beat LO joker or trump Ace (high-value trump only HI can reliably beat)
+    if (winningCard && (
+        (winningCard.rank === 'LO' && winningCard.suit === 'joker') ||
+        (winningCard.rank === 'A' && winningCard.suit !== 'joker')
+    )) {
+        return best;
     }
 
     // Otherwise hold HI joker for leading — use next best card
@@ -107,12 +101,15 @@ function bestWithoutHiJoker(sortedCards, winningCard, trump) {
 
 /**
  * Determine if the current winning card is vulnerable to being beaten by an opponent still to play.
- * A win is "good" (not vulnerable) if no card that outranks it remains in unseen hands
- * AND (for non-trump winners) no remaining opponent is known void in the led suit.
- * @param {Array} [hand] - Our own hand; cards we hold can't beat the winner from elsewhere
+ * A win is "good" (not vulnerable) if it's the highest remaining card in suit AND no remaining
+ * opponent is known void in the led suit. A win is "vulnerable" if higher cards could exist
+ * or an opponent could trump in.
  */
-function isWinVulnerable(winningCard, leadCard, trump, memory, playedCards, position, hand = []) {
+function isWinVulnerable(winningCard, leadCard, trump, memory, playedCards, position) {
     const noTrump = isNoTrump(trump);
+    const winningSuit = winningCard.suit === 'joker'
+        ? (noTrump ? 'joker' : trump.suit)
+        : winningCard.suit;
     const winningIsTrump = winningCard.suit === 'joker' || (!noTrump && winningCard.suit === trump.suit);
 
     // Check if any remaining opponent is known void in the led suit (trump-in risk)
@@ -129,26 +126,32 @@ function isWinVulnerable(winningCard, leadCard, trump, memory, playedCards, posi
         }
     }
 
-    // Trump winner: only a higher trump still in unseen hands threatens it.
-    // Counting actual outstanding cards lets a trump Queen stand once the
-    // jokers/A/K are accounted for, instead of overtaking partner "just in case".
-    if (winningIsTrump) {
-        if (!memory) {
-            // No memory: fall back to rank heuristics
-            return !(winningCard.rank === 'HI' || winningCard.rank === 'LO' || winningCard.rank === 'A');
-        }
-        return countHigherUnseen(winningCard, hand, memory, trump) > 0;
-    }
+    // HI joker: only vulnerable if it's somehow not winning (shouldn't happen) — treat as good
+    if (winningCard.rank === 'HI' && winningCard.suit === 'joker') return false;
 
-    // Non-trump winner: vulnerable to a ruff from a known-void opponent.
-    // In no-trump the one live joker is still trump — the ruff risk only
-    // disappears once that joker is accounted for.
-    if (opponentKnownVoid && (!noTrump || countLiveJokersOutside(hand, memory, trump) > 0)) {
+    // If winning card is trump, check for higher trump threats
+    if (winningIsTrump) {
+        // LO joker: only HI joker beats it — hard to assess, treat as mostly good
+        if (winningCard.rank === 'LO' && winningCard.suit === 'joker') return false;
+        // Trump Ace: only jokers beat it
+        if (winningCard.rank === 'A') return false;
+        // Other trump: vulnerable (higher trump could exist)
         return true;
     }
-    // ...or to a higher card of the suit in unseen hands
-    if (!memory) return winningCard.rank !== 'A';
-    return countHigherUnseen(winningCard, hand, memory, trump) > 0;
+
+    // Non-trump winning card
+    // Ace of led suit: only vulnerable if opponent could trump in
+    if (winningCard.rank === 'A') return opponentKnownVoid;
+
+    // King: vulnerable if Ace hasn't been played OR opponent known void
+    if (winningCard.rank === 'K') {
+        if (opponentKnownVoid) return true;
+        if (!memory) return true; // No memory, assume vulnerable
+        return !memory.acesPlayed[winningSuit];
+    }
+
+    // Queen and below: vulnerable by default when opponents remain
+    return true;
 }
 
 /**
@@ -170,8 +173,7 @@ function getOpponentVoidSuits(memory, position, trump) {
 
     for (const trickCards of Object.values(tricks)) {
         if (trickCards.length === 0) continue;
-        const leadEntry = findLeadEntry(trickCards);
-        if (!leadEntry) continue; // partially observed trick (bot joined mid-trick)
+        const leadEntry = trickCards[0];
         const leadSuit = leadEntry.suit === 'joker' ? (isNoTrump(trump) ? 'joker' : trump.suit) : leadEntry.suit;
 
         for (const entry of trickCards) {
@@ -184,18 +186,6 @@ function getOpponentVoidSuits(memory, position, trump) {
     }
 
     return voidSuits;
-}
-
-/**
- * Find the entry that led a recorded trick. Entries carry an explicit isLead
- * flag (recorded by BotPlayer); when absent (older recordings), fall back to
- * assuming the first recorded card led — only safe when the bot observed the
- * trick from its start.
- */
-function findLeadEntry(trickCards) {
-    const hasLeadInfo = trickCards.some(e => e.isLead !== undefined);
-    if (hasLeadInfo) return trickCards.find(e => e.isLead) || null;
-    return trickCards[0];
 }
 
 /**
@@ -216,8 +206,7 @@ function getPartnerVoidSuits(memory, position, trump) {
 
     for (const trickCards of Object.values(tricks)) {
         if (trickCards.length === 0) continue;
-        const leadEntry = findLeadEntry(trickCards);
-        if (!leadEntry) continue; // partially observed trick (bot joined mid-trick)
+        const leadEntry = trickCards[0];
         const leadSuit = leadEntry.suit === 'joker' ? (isNoTrump(trump) ? 'joker' : trump.suit) : leadEntry.suit;
 
         for (const entry of trickCards) {
@@ -230,131 +219,6 @@ function getPartnerVoidSuits(memory, position, trump) {
     }
 
     return voidSuits;
-}
-
-const SUIT_RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
-
-/**
- * Count cards still in opponents'/partner's hands that would beat this card
- * in direct comparison: higher cards of its suit (for trump, higher trump
- * including jokers). Excludes cards already played, cards in our own hand,
- * and the flipped trump card (which is out of play). 0 means the card is
- * boss — nothing left in other hands outranks it (it can still lose to a
- * ruff if it isn't trump; that risk is tracked separately).
- */
-function countHigherUnseen(card, hand, memory, trump) {
-    const noTrump = isNoTrump(trump);
-    const cardIsTrump = card.suit === 'joker' || (!noTrump && card.suit === trump.suit);
-    const myVal = RANK_VALUES[card.rank];
-
-    const gone = new Set();
-    gone.add(`${trump.suit}:${trump.rank}`); // flipped card is out of play
-    for (const c of hand) gone.add(`${c.suit}:${c.rank}`);
-    if (memory && memory.playedCards) {
-        for (const e of memory.playedCards) gone.add(`${e.suit}:${e.rank}`);
-    }
-    if (memory && memory.acesPlayed) {
-        for (const [suit, played] of Object.entries(memory.acesPlayed)) {
-            if (played) gone.add(`${suit}:A`);
-        }
-    }
-
-    let count = 0;
-    if (cardIsTrump) {
-        if (!noTrump) {
-            for (const r of SUIT_RANKS) {
-                if (RANK_VALUES[r] > myVal && !gone.has(`${trump.suit}:${r}`)) count++;
-            }
-        }
-        if (RANK_VALUES['LO'] > myVal && !gone.has('joker:LO')) count++;
-        if (RANK_VALUES['HI'] > myVal && !gone.has('joker:HI')) count++;
-    } else {
-        for (const r of SUIT_RANKS) {
-            if (RANK_VALUES[r] > myVal && !gone.has(`${card.suit}:${r}`)) count++;
-        }
-    }
-    return count;
-}
-
-/**
- * Count jokers still in other players' hands (not flipped, not ours, not yet
- * played). In no-trump hands the one live joker is still trump and can ruff.
- */
-function countLiveJokersOutside(hand, memory, trump) {
-    const gone = new Set();
-    gone.add(`${trump.suit}:${trump.rank}`);
-    for (const c of hand) gone.add(`${c.suit}:${c.rank}`);
-    if (memory && memory.playedCards) {
-        for (const e of memory.playedCards) gone.add(`${e.suit}:${e.rank}`);
-    }
-    let count = 0;
-    if (!gone.has('joker:HI')) count++;
-    if (!gone.has('joker:LO')) count++;
-    return count;
-}
-
-/**
- * Derive the contract picture from play context (see BotController.buildPlayContext).
- * Returns null when context is unavailable; callers fall back to contract-blind play.
- *
- * The core output is `target` — how many of the remaining tricks the team
- * should fight for — and the effort level that follows from it:
- *  - 'max':    every remaining trick matters (live bore, or bid exactly
- *              coverable, or one trick sets an opponent bore)
- *  - 'cheap':  nothing left but ±1 overtricks — never spend honors or trump
- *  - 'normal': contested middle
- */
-function getContractState(playContext, position, handSize) {
-    if (!playContext || !playContext.bids || !playContext.tricks) return null;
-
-    const isTeam1 = position === 1 || position === 3;
-    const myBid = (isTeam1 ? playContext.bids.team1 : playContext.bids.team2) || 0;
-    const oppBid = (isTeam1 ? playContext.bids.team2 : playContext.bids.team1) || 0;
-    const myTricks = (isTeam1 ? playContext.tricks.team1 : playContext.tricks.team2) || 0;
-    const oppTricks = (isTeam1 ? playContext.tricks.team2 : playContext.tricks.team1) || 0;
-
-    const partnerPosition = getPartnerPosition(position);
-    const playerBids = playContext.playerBids || [];
-    const isBoreBid = (b) => ['B', '2B', '3B', '4B'].includes(String(b));
-    const teamBored = isBoreBid(playerBids[position - 1]) || isBoreBid(playerBids[partnerPosition - 1]);
-    const oppBored = getOpponentPositions(position).some(p => isBoreBid(playerBids[p - 1]));
-
-    const tricksRemaining = handSize - myTricks - oppTricks;
-    const needed = Math.max(0, myBid - myTricks);
-    const oppNeeded = Math.max(0, oppBid - oppTricks);
-
-    // Objectives still alive: making our own bid, and setting theirs
-    const makeTarget = needed <= tricksRemaining ? needed : 0; // 0 when our bid is already dead
-    const toSetOpp = oppNeeded > 0 ? tricksRemaining - oppNeeded + 1 : Infinity;
-    // Denial is worth chasing only when realistic: an opposing bore (huge
-    // swing), or a set that doesn't demand sweeping far beyond what our own
-    // bid already requires. Without this gate, opponents sitting one trick
-    // from a small bid would push the bot into sweep-everything mode all hand.
-    let setTarget = 0;
-    if (toSetOpp > 0 && toSetOpp <= tricksRemaining) {
-        if (oppBored || toSetOpp <= Math.max(makeTarget, Math.ceil(tricksRemaining / 2))) {
-            setTarget = toSetOpp;
-        }
-    }
-
-    const target = Math.max(makeTarget, setTarget);
-    let effort = 'normal';
-    if (target === 0) effort = 'cheap';
-    else if (target >= tricksRemaining) effort = 'max';
-    // An opposing bore is worth so much that the one trick that sets it
-    // always justifies maximum effort
-    else if (oppBored && myTricks === 0) effort = 'max';
-
-    return {
-        teamBored,
-        oppBored,
-        needed,
-        oppNeeded,
-        tricksRemaining,
-        target,
-        effort,
-        urgency: tricksRemaining > 0 ? target / tricksRemaining : 0
-    };
 }
 
 /**
@@ -394,27 +258,19 @@ function evaluateHand(hand, trump, handSize) {
         }
 
         // --- Point evaluation ---
-        // The flipped trump card is out of play: when it's the HI joker the LO
-        // becomes unbeatable, and a trump King under a flipped Ace is the boss
-        // trump card after the jokers.
         if (card.rank === 'HI') {
             points += 1.9;
         } else if (card.rank === 'LO') {
-            points += (trump.rank === 'HI' ? 1.9 : 1.4);
+            points += 1.4;
         } else if (isTrump && card.rank === 'A') {
             points += 1.4 * tScale;
         } else if (isTrump && card.rank === 'K') {
-            points += (trump.rank === 'A' ? 1.4 : 0.9) * tScale;
+            points += 0.9 * tScale;
         } else if (isTrump && card.rank === 'Q') {
-            points += (trump.rank === 'K' ? 0.9 : 0.4) * tScale;
-        } else if (isTrump) {
-            // Low/mid trump (2-J): every trump card pulls weight — it ruffs or
-            // forces out a bigger trump. Worth more in small hands (fewer
-            // trump in play) and when higher in rank.
-            const mid = RANK_VALUES[card.rank] >= 7;
-            if (handSize <= 4) points += (mid ? 0.45 : 0.35) * tScale;
-            else if (handSize <= 7) points += (mid ? 0.25 : 0.1) * tScale;
-            else points += (mid ? 0.15 : 0.05) * tScale;
+            points += 0.4 * tScale;
+        } else if (isTrump && RANK_VALUES[card.rank] >= 7) {
+            // Trump mid-cards (J-7): small value in small hands
+            points += (handSize <= 4) ? 0.3 * tScale : 0;
         } else if (!isTrump && card.rank === 'A') {
             if (noTrump) {
                 points += 1.3;
@@ -464,13 +320,11 @@ function evaluateHand(hand, trump, handSize) {
         points += voids * 0.1;
     }
 
-    // Trump length bonus (large hands only) — smaller than before since each
-    // trump card now carries value of its own; this models the extra control
-    // long trump gives beyond the sum of its cards
+    // Trump length bonus (large hands only)
     if (handSize >= 6 && !noTrump) {
-        if (trumpCount >= 6) points += 0.75;
-        else if (trumpCount >= 5) points += 0.4;
-        else if (trumpCount >= 4) points += 0.15;
+        if (trumpCount >= 6) points += 1.5;
+        else if (trumpCount >= 5) points += 0.75;
+        else if (trumpCount >= 4) points += 0.25;
     }
 
     return {
@@ -513,9 +367,8 @@ function calculateOptimalBid(hand, trump, position, existingBids, handSize, memo
 
     let opponentTotalBid = 0;
     let opponentBidCount = 0;
-    let allSeenBidsZero = true;
+    let allOthersBidZero = true;
     let partnerBored = false;
-    let opponentBored = false;
     let highestBore = null;
 
     for (let i = 0; i < 4; i++) {
@@ -523,36 +376,29 @@ function calculateOptimalBid(hand, trump, position, existingBids, handSize, memo
         if (bid === undefined || bid === null) continue;
         const bidValue = BID_RANKS[bid] || 0;
         const bidPosition = i + 1;
-        const isBoreBid = ['B', '2B', '3B', '4B'].includes(bid);
 
         if (bidPosition !== position) {
-            if (bidValue > 0 || isBoreBid) {
-                allSeenBidsZero = false;
+            if (bidValue > 0 || ['B', '2B', '3B', '4B'].includes(bid)) {
+                allOthersBidZero = false;
             }
         }
 
         if (opponentPositions.includes(bidPosition)) {
-            // Bores carry BID_RANKS values 13-16; keep them out of trick math
-            opponentTotalBid += isBoreBid ? 0 : bidValue;
+            opponentTotalBid += bidValue;
             opponentBidCount++;
         }
 
-        if (isBoreBid) {
-            if (!highestBore || BID_RANKS[bid] > BID_RANKS[highestBore]) {
-                highestBore = bid;
+        if (['B', '2B', '3B', '4B'].includes(bid)) {
+            highestBore = bid;
+            if (bidPosition === partnerPosition) {
+                partnerBored = true;
             }
-            if (bidPosition === partnerPosition) partnerBored = true;
-            if (opponentPositions.includes(bidPosition)) opponentBored = true;
         }
     }
 
     const bidsBefore = existingBids.filter(b => b !== undefined && b !== null).length;
     const isFirstBidder = bidsBefore === 0;
     const isDealer = bidsBefore === 3;
-    // "Weak field" signals for bore decisions. A seat that hasn't bid yet is
-    // NOT a zero bid — it's no information at all.
-    const weakFieldConfirmed = isDealer && allSeenBidsZero;          // saw all 3 others bid 0
-    const weakFieldLikely = bidsBefore >= 1 && allSeenBidsZero;      // saw 1+ bids, all 0
 
     // --- Game-level score awareness ---
     let riskAdjustment = 0; // positive = more aggressive, negative = more conservative
@@ -569,27 +415,19 @@ function calculateOptimalBid(hand, trump, position, existingBids, handSize, memo
 
     // --- BORE DECISIONS (check before normal bidding) ---
 
-    // When the flipped trump card is the HI joker, the LO joker is the boss
-    // trump — nothing in play beats it.
-    const loIsBoss = evaluation.hasLowJoker && trump.rank === 'HI';
-
     // 1-card hand bore
-    if (handSize === 1) {
-        // HI joker (or LO when HI was flipped): unbeatable — bore regardless of
-        // other bids. Bidding 'B' also wins the lead, guaranteeing the trick.
-        if (evaluation.hasHighJoker || loIsBoss) return 'B';
-        // LO joker / trump Ace: near-certain winners; bore unless an opponent
-        // has already shown a monster of their own
-        if ((evaluation.hasLowJoker || evaluation.hasTrumpAce) && !opponentBored) return 'B';
+    if (handSize === 1 && allOthersBidZero) {
+        if (evaluation.hasHighJoker) return 'B';
+        if (evaluation.hasLowJoker || evaluation.hasTrumpAce) return 'B';
         const card = hand[0];
         const isTrump = card.suit === 'joker' || (!noTrump && card.suit === trump.suit);
-        if (weakFieldConfirmed && isTrump && RANK_VALUES[card.rank] >= RANK_VALUES['K']) return 'B';
+        if (isTrump && RANK_VALUES[card.rank] >= RANK_VALUES['K']) return 'B';
         // With positive risk adjustment, lower the threshold
-        if (riskAdjustment > 0 && weakFieldConfirmed && isTrump && RANK_VALUES[card.rank] >= RANK_VALUES['Q']) return 'B';
+        if (riskAdjustment > 0 && isTrump && RANK_VALUES[card.rank] >= RANK_VALUES['Q']) return 'B';
     }
 
     // 2-card hand bore
-    if (handSize === 2 && weakFieldLikely) {
+    if (handSize === 2 && allOthersBidZero) {
         const c1 = hand[0];
         const c2 = hand[1];
         const c1Trump = c1.suit === 'joker' || (!noTrump && c1.suit === trump.suit);
@@ -609,28 +447,21 @@ function calculateOptimalBid(hand, trump, position, existingBids, handSize, memo
         if (bothTrump && hasMidTrumpPlus) return 'B';
         // One high trump + one high non-trump: BORE
         if (hasHighTrump && hasHighNonTrump) return 'B';
-        // No-trump: two Aces can't be ruffed — bore as dealer in a weak field
-        if (noTrump && weakFieldConfirmed && hand.every(c => c.rank === 'A' || c.rank === 'HI' || c.rank === 'LO')) {
-            return 'B';
-        }
     }
 
     // 3-5 card hand bore
-    if (handSize >= 3 && handSize <= 5 && weakFieldLikely) {
+    if (handSize >= 3 && handSize <= 5 && allOthersBidZero) {
         if (evaluation.hasHighJoker && evaluation.trumpCount >= handSize) return 'B';
         if (evaluation.hasHighJoker && evaluation.trumpCount >= handSize - 1 && evaluation.hasLowJoker) return 'B';
     }
 
-    // Partner bore support (escalate the multiplier)
+    // Partner bore support (double bore)
     if (partnerBored && !['B', '2B', '3B', '4B'].includes(existingBids[position - 1])) {
         if (handSize <= 4 && evaluation.trumpCount >= Math.ceil(handSize / 2)) {
-            // Escalating over an OPPONENT's counter-bore doubles the stakes on a
-            // contested hand — only do it holding the unbeatable card ourselves
-            if (!opponentBored || evaluation.hasHighJoker || loIsBoss) {
-                if (highestBore === 'B') return '2B';
-                if (highestBore === '2B') return '3B';
-                if (highestBore === '3B') return '4B';
-            }
+            // Determine the next bore level
+            if (highestBore === 'B') return '2B';
+            if (highestBore === '2B') return '3B';
+            if (highestBore === '3B') return '4B';
         }
     }
 
@@ -643,14 +474,13 @@ function calculateOptimalBid(hand, trump, position, existingBids, handSize, memo
 
     // --- NORMAL BIDDING ---
 
-    // Conservative rounding: floor instead of round. The set penalty
-    // (-10/trick) dwarfs the overtrick payoff (+1/trick); sim-tested against
-    // +0.2/+0.45 offsets — same win rate, materially fewer sets.
+    // Conservative rounding: floor instead of round
     let bid = Math.floor(evaluation.points);
 
-    // No extra first-bidder discount: the pessimistic evaluation plus floor()
-    // already price in the uncertainty — stacking a further -1 triple-counts
-    // it (sim-tested: the discount cost ~1.2% win rate).
+    // Additional conservatism for first bidder (least information)
+    if (isFirstBidder && bid > 1) {
+        bid = bid - 1;
+    }
 
     // Cap at hand size
     bid = Math.min(bid, handSize);
@@ -659,38 +489,19 @@ function calculateOptimalBid(hand, trump, position, existingBids, handSize, memo
     if (handSize === 1) {
         if (evaluation.hasHighJoker || evaluation.hasLowJoker || evaluation.hasTrumpAce) {
             bid = 1;
-        } else if (noTrump && (hand[0].rank === 'A' || hand[0].rank === 'K')) {
-            // No-trump: an Ace (or King) can't be ruffed and we lead as the
-            // highest bidder — near-certain winner
-            bid = 1;
-        } else if (!noTrump &&
-            (hand[0].suit === trump.suit || hand[0].suit === 'joker') &&
-            RANK_VALUES[hand[0].rank] >= RANK_VALUES['7']) {
-            // High trump is a likely winner even into an unknown field
-            bid = 1;
         } else {
             bid = 0;
         }
     } else if (handSize === 2) {
-        if (noTrump) {
-            // Nothing can be ruffed: jokers and aces are near-certain winners
-            let winners = 0;
-            for (const c of hand) {
-                if (c.rank === 'HI' || c.rank === 'LO' || c.rank === 'A') winners++;
-            }
-            bid = Math.min(winners, 2);
+        const hasTrump = hand.some(c => c.suit === 'joker' || (!noTrump && c.suit === trump.suit));
+        if (evaluation.hasHighJoker) {
+            bid = (evaluation.hasLowJoker || evaluation.hasTrumpAce) ? 2 : 1;
+        } else if (evaluation.hasLowJoker || evaluation.hasTrumpAce) {
+            bid = 1;
+        } else if (hasTrump) {
+            bid = 0;
         } else {
-            let winners = 0;
-            let trumps = 0;
-            for (const c of hand) {
-                const isTrumpCard = c.suit === 'joker' || c.suit === trump.suit;
-                if (isTrumpCard) trumps++;
-                if (c.rank === 'HI' || c.rank === 'LO') winners++;
-                else if (isTrumpCard && RANK_VALUES[c.rank] >= RANK_VALUES['Q']) winners++;
-            }
-            // Two trump cards: the higher one usually scores a trick
-            if (winners === 0 && trumps === 2) winners = 1;
-            bid = Math.min(winners, 2);
+            bid = 0;
         }
     } else if (handSize <= 4) {
         // Cap at trump-based estimate for small hands
@@ -711,12 +522,6 @@ function calculateOptimalBid(hand, trump, position, existingBids, handSize, memo
     // --- Opponent bid adjustments ---
     if (opponentBidCount === 2 && opponentTotalBid >= handSize * 0.6) {
         bid = Math.max(0, bid - 1);
-    }
-
-    // An opponent bored: either they sweep (we're set regardless of our bid)
-    // or we take a trick and set them. Keep our own bid minimal.
-    if (opponentBored) {
-        bid = Math.min(bid, 1);
     }
 
     if (partnerBidValue !== null && partnerBidValue >= Math.ceil(handSize * 0.5)) {
@@ -742,16 +547,6 @@ function calculateOptimalBid(hand, trump, position, existingBids, handSize, memo
     // Apply personality-specific bid modifier
     bid = applyBidModifier(bid, personality, evaluation, handSize, partnerHistory);
 
-    // Personality adjustments must still respect the combined-bid cap — a
-    // team bid above hand size is unmakeable — and the opponent-bore cap
-    if (partnerBidValue !== null) {
-        bid = Math.min(bid, Math.max(0, handSize - partnerBidValue));
-    }
-    if (opponentBored) {
-        bid = Math.min(bid, 1);
-    }
-    bid = Math.max(0, Math.min(bid, handSize));
-
     return String(bid);
 }
 
@@ -767,48 +562,46 @@ function calculateOptimalBid(hand, trump, position, existingBids, handSize, memo
 function applyBidModifier(baseBid, personality, evaluation, handSize, partnerHistory) {
     let bid = baseBid;
 
-    switch (getBidStyle(personality)) {
-        case 'conservative':
-            // Sharon trims big bids by one: banks the safety, forfeits ~9
-            // points of upside on hands she'd usually make anyway
-            if (bid >= 3) {
-                bid = bid - 1;
+    switch (personality) {
+        case 'sharon':
+            // Sharon underbids strong hands
+            if (handSize > 0 && evaluation.points >= handSize * 0.7) {
+                bid = Math.max(0, bid - 2);
+            } else if (handSize > 0 && evaluation.points >= handSize * 0.5) {
+                bid = Math.max(0, bid - 1);
             }
             break;
 
-        case 'calculated-aggressive':
-            // Danny rounds up bids that just missed the next trick.
+        case 'danny':
+            // Danny rounds up on close calls - calculated risk-taking
             // But don't override small-hand special logic: a 0 bid on ≤4 cards
             // means the hand genuinely lacks trick-taking power
-            if (evaluation.points - baseBid >= 0.85) {
+            if (evaluation.points - baseBid >= 0.25) {
                 if (baseBid === 0 && handSize <= 4) break;
                 bid = Math.min(baseBid + 1, handSize);
             }
             break;
 
-        case 'overconfident':
-            // Mike misjudges his hand now and then
-            if (Math.random() < 0.10) {
+        case 'mike':
+            // Mike randomly overbids ~25% of the time - he misjudges hands
+            if (Math.random() < 0.25) {
                 bid = Math.min(baseBid + 1, handSize);
             }
             break;
 
-        case 'adaptive': {
-            // Zach compensates for his partner's observed bid error. The
-            // deadband is asymmetric because well-calibrated partners run
-            // ~+0.5-1 tricks over their bid by design (conservative floor
-            // rounding) — only a clearly larger surplus means sandbagging.
-            if (partnerHistory.length >= 3) {
+        case 'zach': {
+            // Zach compensates for partner's tendencies with conservative lean
+            if (partnerHistory.length >= 2) {
                 const totalError = partnerHistory.reduce((sum, h) => sum + (h.tricks - h.bid), 0);
                 const avgError = totalError / partnerHistory.length;
 
                 if (avgError < -0.5) {
-                    // Partner overbids (gets set) - compensate down
+                    // Partner overbids (aggressive) - fully compensate down
                     bid = Math.max(0, bid - 1);
-                } else if (avgError > 1.5) {
-                    // Partner sandbags heavily - pick up the slack when the
-                    // hand supports it
-                    if (evaluation.points - baseBid >= 0.5) {
+                } else if (avgError > 0.5) {
+                    // Partner underbids (conservative) - cautious half-measure up
+                    // Only bid up if hand evaluation supports it
+                    if (evaluation.points - baseBid >= 0.3) {
                         bid = Math.min(bid + 1, handSize);
                     }
                 }
@@ -816,7 +609,7 @@ function applyBidModifier(baseBid, personality, evaluation, handSize, partnerHis
             break;
         }
 
-        // 'neutral' (Mary) and default: no modification
+        // 'mary' and default: no modification
     }
 
     return bid;
@@ -868,35 +661,9 @@ function getCurrentWinner(playedCards, leadPosition, trump) {
 }
 
 /**
- * Pick which of several trick-winning cards to actually play.
- * Always prefers the cheapest BOSS winner (a card nothing left in unseen
- * hands can beat — secure AND cheap). With no boss available: highest
- * winner when securing matters, lowest when it doesn't. HI joker is held
- * back whenever an alternative does the job.
- */
-function pickWinner(winners, hand, memory, trump, winningCard, secure) {
-    const asc = [...winners].sort((a, b) => RANK_VALUES[a.rank] - RANK_VALUES[b.rank]);
-    const isHi = (c) => c.rank === 'HI' && c.suit === 'joker';
-
-    // Cheapest non-HI boss: secure AND cheap
-    const nonHiBoss = asc.filter(c => !isHi(c) && countHigherUnseen(c, hand, memory, trump) === 0);
-    if (nonHiBoss.length > 0) return nonHiBoss[0];
-
-    // HI is always boss but too valuable to spend while alternatives exist —
-    // bestWithoutHiJoker arbitrates the exceptions
-    if (asc.length === 1) return asc[0];
-    if (secure) {
-        const desc = [...winners].sort((a, b) => RANK_VALUES[b.rank] - RANK_VALUES[a.rank]);
-        return bestWithoutHiJoker(desc, winningCard, trump);
-    }
-    return asc[0];
-}
-
-/**
  * Select optimal card when leading
- * @param {Object|null} contract - From getContractState(); null = contract-blind
  */
-function selectLead(hand, trump, trumpBroken, gameState, memory, handSize, contract) {
+function selectLead(hand, trump, trumpBroken, gameState, memory, handSize) {
     const legalCards = getLegalCards(hand, null, true, trump, trumpBroken, gameState.position, gameState.position);
 
     if (legalCards.length === 1) return legalCards[0];
@@ -904,37 +671,6 @@ function selectLead(hand, trump, trumpBroken, gameState, memory, handSize, contr
     const noTrump = isNoTrump(trump);
     const opponentVoids = getOpponentVoidSuits(memory, gameState.position, trump);
     const partnerVoids = getPartnerVoidSuits(memory, gameState.position, trump);
-    const effort = contract ? contract.effort : 'normal';
-    const opponents = getOpponentPositions(gameState.position);
-
-    const legalTrump = legalCards.filter(c => c.suit === 'joker' || (!noTrump && c.suit === trump.suit));
-    const legalOffsuit = legalCards.filter(c => c.suit !== 'joker' && (noTrump || c.suit !== trump.suit));
-    // "Safe" boss: nothing outranks it AND no known-void opponent can ruff it
-    // (in no-trump, ruffs stay possible until the live joker is accounted for)
-    const ruffersExist = !noTrump || countLiveJokersOutside(hand, memory, trump) > 0;
-    const safeBossOffsuit = legalOffsuit.filter(c =>
-        countHigherUnseen(c, hand, memory, trump) === 0 &&
-        (!ruffersExist || !opponents.some(o => opponentVoids.has(`${o}:${c.suit}`))));
-
-    // --- Maximum effort (live bore / must-win-every-trick): lead raw strength ---
-    if (effort === 'max') {
-        const hiJoker = legalCards.find(c => c.rank === 'HI');
-        if (hiJoker) return hiJoker;
-        const bossTrump = legalTrump
-            .filter(c => countHigherUnseen(c, hand, memory, trump) === 0)
-            .sort((a, b) => RANK_VALUES[b.rank] - RANK_VALUES[a.rank])[0];
-        if (bossTrump) return bossTrump;
-        if (safeBossOffsuit.length > 0) return safeBossOffsuit[0];
-        if (legalTrump.length > 0) {
-            return legalTrump.sort((a, b) => RANK_VALUES[b.rank] - RANK_VALUES[a.rank])[0];
-        }
-        return legalCards.sort((a, b) => RANK_VALUES[b.rank] - RANK_VALUES[a.rank])[0];
-    }
-
-    // --- Only ±1 overtricks left: cash sure winners while we have the lead ---
-    if (effort === 'cheap' && safeBossOffsuit.length > 0) {
-        return safeBossOffsuit[0];
-    }
 
     // 1. Lead HI joker when we have it (draws out opponent trump)
     const highJoker = legalCards.find(c => c.rank === 'HI');
@@ -952,6 +688,7 @@ function selectLead(hand, trump, trumpBroken, gameState, memory, handSize, contr
     }
 
     // 3. Score each off-suit for leading
+    const opponents = getOpponentPositions(gameState.position);
     let bestSuit = null;
     let bestScore = -Infinity;
 
@@ -1016,11 +753,8 @@ function selectLead(hand, trump, trumpBroken, gameState, memory, handSize, contr
 
 /**
  * Select optimal card when following
- * @param {Object|null} contract - From getContractState(); null = contract-blind
- * @param {string} [playStyle] - Personality play style (see personalities.js);
- *   styles never apply at 'max' effort — flavor must not bust a live bore
  */
-function selectFollow(hand, playedCards, leadCard, leadPosition, trump, trumpBroken, position, memory, handSize, contract, playStyle = 'balanced') {
+function selectFollow(hand, playedCards, leadCard, leadPosition, trump, trumpBroken, position, memory, handSize) {
     const legalCards = getLegalCards(hand, leadCard, false, trump, trumpBroken, position, leadPosition);
 
     if (legalCards.length === 1) return legalCards[0];
@@ -1028,8 +762,7 @@ function selectFollow(hand, playedCards, leadCard, leadPosition, trump, trumpBro
     const partnerPosition = getPartnerPosition(position);
     const { card: winningCard, position: winnerPosition } = getCurrentWinner(playedCards, leadPosition, trump);
     const partnerIsWinning = winnerPosition === partnerPosition;
-    const partnerHasPlayed = playedCards[partnerPosition - 1] != null;
-    const effort = contract ? contract.effort : 'normal';
+    const partnerHasPlayed = playedCards[partnerPosition - 1] !== undefined;
 
     const leadSuit = leadCard.suit === 'joker' ? trump.suit : leadCard.suit;
 
@@ -1043,26 +776,16 @@ function selectFollow(hand, playedCards, leadCard, leadPosition, trump, trumpBro
 
     const opponentsRemain = hasOpponentsAfterMe(playedCards, position);
 
-    const effortIsMax = effort === 'max';
-
     if (canFollow) {
         // We can follow suit
         if (partnerIsWinning && partnerHasPlayed) {
-            const partnerVulnerable = isWinVulnerable(winningCard, leadCard, trump, memory, playedCards, position, hand);
-
-            // Mike sometimes overtakes a partner who is winning just fine
-            if (playStyle === 'erratic' && !effortIsMax && !partnerVulnerable && Math.random() < 0.12) {
-                const higherCards = followCards.filter(c => canBeatCard(c, winningCard, leadCard, trump));
-                if (higherCards.length > 0) {
-                    return pickWinner(higherCards, hand, memory, trump, winningCard, true);
-                }
-            }
-
             // If opponents still play after us and partner's win is vulnerable, overtake it
-            if (opponentsRemain && partnerVulnerable) {
+            if (opponentsRemain && isWinVulnerable(winningCard, leadCard, trump, memory, playedCards, position)) {
                 const higherCards = followCards.filter(c => canBeatCard(c, winningCard, leadCard, trump));
                 if (higherCards.length > 0) {
-                    return pickWinner(higherCards, hand, memory, trump, winningCard, true);
+                    // Play highest to secure the trick (but preserve HI joker for leading)
+                    const sorted = higherCards.sort((a, b) => RANK_VALUES[b.rank] - RANK_VALUES[a.rank]);
+                    return bestWithoutHiJoker(sorted, winningCard);
                 }
             }
             // Partner's win is good, or we can't beat it — play low
@@ -1073,29 +796,27 @@ function selectFollow(hand, playedCards, leadCard, leadPosition, trump, trumpBro
         const winners = followCards.filter(c => canBeatCard(c, winningCard, leadCard, trump));
         if (winners.length > 0) {
             if (opponentsRemain) {
-                // Sharon won't spend honors on a contested trick — she ducks
-                // unless she holds a sure (boss) winner
-                if (playStyle === 'hoarding' && !effortIsMax) {
-                    const sureWinners = winners.filter(c =>
-                        !(c.rank === 'HI' && c.suit === 'joker') &&
-                        countHigherUnseen(c, hand, memory, trump) === 0);
-                    if (sureWinners.length === 0) {
-                        return followCards.sort((a, b) => RANK_VALUES[a.rank] - RANK_VALUES[b.rank])[0];
-                    }
-                }
-                // Danny reaches straight for the big card a cheaper winner
-                // would have held with
-                if (playStyle === 'flashy' && !effortIsMax) {
-                    const desc = [...winners].sort((a, b) => RANK_VALUES[b.rank] - RANK_VALUES[a.rank]);
-                    return bestWithoutHiJoker(desc, winningCard, trump);
-                }
-                // Cheapest boss winner when we have one, else highest to fight
-                // for the trick (HI joker preserved when alternatives exist)
-                return pickWinner(winners, hand, memory, trump, winningCard, true);
+                // Opponents still to play — play highest winner to secure the trick
+                // (but preserve HI joker for leading)
+                const sorted = winners.sort((a, b) => RANK_VALUES[b.rank] - RANK_VALUES[a.rank]);
+                return bestWithoutHiJoker(sorted, winningCard);
             }
 
-            // No opponents remain — the lowest winner always holds the trick
-            return winners.sort((a, b) => RANK_VALUES[a.rank] - RANK_VALUES[b.rank])[0];
+            // No opponents remain — play lowest winner (conserve cards)
+            const sortedWinners = winners.sort((a, b) => RANK_VALUES[a.rank] - RANK_VALUES[b.rank]);
+            const lowestWinner = sortedWinners[0];
+
+            // King protection on large hands: if King is lowest winner and Ace not played
+            if (lowestWinner.rank === 'K' && handSize >= 8 && memory) {
+                const kingSuit = lowestWinner.suit;
+                if (kingSuit !== 'joker' && !memory.acesPlayed[kingSuit]) {
+                    if (sortedWinners.length > 1) {
+                        return sortedWinners[1]; // Play next lowest winner instead
+                    }
+                }
+            }
+
+            return lowestWinner;
         }
 
         // Can't win - play lowest
@@ -1107,20 +828,9 @@ function selectFollow(hand, playedCards, leadCard, leadPosition, trump, trumpBro
     const nonTrumpCards = legalCards.filter(c => c.suit !== trump.suit && c.suit !== 'joker');
 
     if (partnerIsWinning && partnerHasPlayed) {
-        // When sweeping is mandatory, secure a vulnerable partner win with trump
-        if (effort === 'max' && opponentsRemain && trumpCards.length > 0 &&
-            isWinVulnerable(winningCard, leadCard, trump, memory, playedCards, position, hand)) {
-            const winningIsTrump = winningCard.suit === trump.suit || winningCard.suit === 'joker';
-            const candidates = winningIsTrump
-                ? trumpCards.filter(c => RANK_VALUES[c.rank] > RANK_VALUES[winningCard.rank])
-                : trumpCards;
-            if (candidates.length > 0) {
-                return pickWinner(candidates, hand, memory, trump, winningCard, true);
-            }
-        }
         // Partner winning - don't trump, just discard
         if (nonTrumpCards.length > 0) {
-            return selectDiscard(nonTrumpCards, trump, trumpCards.length > 0, memory, hand);
+            return selectDiscard(nonTrumpCards, trump, trumpCards.length > 0);
         }
         return trumpCards.sort((a, b) => RANK_VALUES[a.rank] - RANK_VALUES[b.rank])[0];
     }
@@ -1128,30 +838,32 @@ function selectFollow(hand, playedCards, leadCard, leadPosition, trump, trumpBro
     // Opponent winning - try to trump
     if (trumpCards.length > 0) {
         const winningIsTrump = winningCard.suit === trump.suit || winningCard.suit === 'joker';
-        const candidates = winningIsTrump
-            ? trumpCards.filter(c => RANK_VALUES[c.rank] > RANK_VALUES[winningCard.rank])
-            : trumpCards;
+        // Play high trump when opponents remain to secure the trick, low when last to act
+        const trumpSortOrder = opponentsRemain
+            ? (a, b) => RANK_VALUES[b.rank] - RANK_VALUES[a.rank]   // highest first
+            : (a, b) => RANK_VALUES[a.rank] - RANK_VALUES[b.rank];  // lowest first
 
-        if (candidates.length > 0) {
-            if (opponentsRemain) {
-                if (playStyle === 'flashy' && !effortIsMax) {
-                    const desc = [...candidates].sort((a, b) => RANK_VALUES[b.rank] - RANK_VALUES[a.rank]);
-                    return bestWithoutHiJoker(desc, winningCard, trump);
-                }
-                return pickWinner(candidates, hand, memory, trump, winningCard, true);
+        if (winningIsTrump) {
+            // Need to overtrump
+            const overtrumps = trumpCards.filter(c => RANK_VALUES[c.rank] > RANK_VALUES[winningCard.rank]);
+            if (overtrumps.length > 0) {
+                const sorted = overtrumps.sort(trumpSortOrder);
+                return opponentsRemain ? bestWithoutHiJoker(sorted, winningCard) : sorted[0];
             }
-            return candidates.sort((a, b) => RANK_VALUES[a.rank] - RANK_VALUES[b.rank])[0];
+            // Can't overtrump - discard
+            if (nonTrumpCards.length > 0) {
+                return selectDiscard(nonTrumpCards, trump, true);
+            }
+            return trumpCards.sort((a, b) => RANK_VALUES[a.rank] - RANK_VALUES[b.rank])[0];
         }
 
-        // Can't overtrump - discard
-        if (nonTrumpCards.length > 0) {
-            return selectDiscard(nonTrumpCards, trump, true, memory, hand);
-        }
-        return trumpCards.sort((a, b) => RANK_VALUES[a.rank] - RANK_VALUES[b.rank])[0];
+        // Trump in (preserve HI joker for leading when possible)
+        const sorted = trumpCards.sort(trumpSortOrder);
+        return opponentsRemain ? bestWithoutHiJoker(sorted, winningCard) : sorted[0];
     }
 
     // No trump available - discard
-    return selectDiscard(legalCards, trump, false, memory, hand);
+    return selectDiscard(legalCards, trump, false);
 }
 
 /**
@@ -1159,28 +871,17 @@ function selectFollow(hand, playedCards, leadCard, leadPosition, trump, trumpBro
  * @param {Array} cards - Available cards to discard from
  * @param {Object} trump - Trump card
  * @param {boolean} hasTrumpInHand - Whether bot holds any trump cards
- * @param {Object|null} [memory] - Card memory; enables boss-card protection
- * @param {Array} [fullHand] - Complete current hand (for boss detection)
  */
-function selectDiscard(cards, trump, hasTrumpInHand, memory = null, fullHand = null) {
+function selectDiscard(cards, trump, hasTrumpInHand) {
     const nonTrump = cards.filter(c => c.suit !== trump.suit && c.suit !== 'joker');
     const pool = nonTrump.length > 0 ? nonTrump : cards;
 
-    // A card is worth protecting if nothing left in unseen hands beats it
-    // (established winner), or — without memory — if it's an Ace or King
-    const isProtected = (c) => {
-        if (memory && fullHand) return countHigherUnseen(c, fullHand, memory, trump) === 0;
-        return c.rank === 'A' || c.rank === 'K';
-    };
-
     if (!hasTrumpInHand) {
-        // No trump = voiding is pointless. Keep suit coverage and winners,
-        // dump the lowest unprotected card.
-        const sorted = [...pool].sort((a, b) => RANK_VALUES[a.rank] - RANK_VALUES[b.rank]);
-        return sorted.find(c => !isProtected(c)) || sorted[0];
+        // No trump = voiding is pointless. Keep suit coverage, dump lowest card overall.
+        return pool.sort((a, b) => RANK_VALUES[a.rank] - RANK_VALUES[b.rank])[0];
     }
 
-    // Has trump - try to void shortest suit, but protect established winners
+    // Has trump - try to void shortest suit, but protect high cards
     const bySuit = {};
     for (const card of pool) {
         if (!bySuit[card.suit]) bySuit[card.suit] = [];
@@ -1200,13 +901,13 @@ function selectDiscard(cards, trump, hasTrumpInHand, memory = null, fullHand = n
         const candidate = bySuit[shortestSuit]
             .sort((a, b) => RANK_VALUES[a.rank] - RANK_VALUES[b.rank])[0];
 
-        // Don't slough a winner to complete a void - find a lower card elsewhere
-        if (isProtected(candidate)) {
-            const allSorted = [...pool]
+        // Don't slough an Ace or King to complete a void - find a lower card elsewhere
+        if (candidate.rank === 'A' || candidate.rank === 'K') {
+            const allSorted = pool
                 .sort((a, b) => RANK_VALUES[a.rank] - RANK_VALUES[b.rank]);
-            const lowerCard = allSorted.find(c => !isProtected(c));
+            const lowerCard = allSorted.find(c => c.rank !== 'A' && c.rank !== 'K');
             if (lowerCard) return lowerCard;
-            // Everything is a winner - discard the lowest-ranked one
+            // All cards are high - discard the lowest-ranked one
             return allSorted[0];
         }
 
@@ -1218,19 +919,15 @@ function selectDiscard(cards, trump, hasTrumpInHand, memory = null, fullHand = n
 
 /**
  * Select optimal card to play
- * @param {Object|null} playContext - Contract state from BotController.buildPlayContext;
- *   null falls back to contract-blind tactics (used by older callers/tests)
- * @param {string} [personality] - Personality key; its playStyle flavors following
  */
-function selectOptimalCard(hand, playedCards, leadCard, leadPosition, trump, trumpBroken, position, memory, handSize, playContext = null, personality = 'mary') {
+function selectOptimalCard(hand, playedCards, leadCard, leadPosition, trump, trumpBroken, position, memory, handSize) {
     const isLeading = !leadCard || playedCards.every(c => c === undefined || c === null);
-    const contract = getContractState(playContext, position, handSize);
 
     if (isLeading) {
-        return selectLead(hand, trump, trumpBroken, { position }, memory, handSize, contract);
+        return selectLead(hand, trump, trumpBroken, { position }, memory, handSize);
     }
 
-    return selectFollow(hand, playedCards, leadCard, leadPosition, trump, trumpBroken, position, memory, handSize, contract, getPlayStyle(personality));
+    return selectFollow(hand, playedCards, leadCard, leadPosition, trump, trumpBroken, position, memory, handSize);
 }
 
 module.exports = {
@@ -1254,8 +951,5 @@ module.exports = {
     applyBidModifier,
     hasOpponentsAfterMe,
     isWinVulnerable,
-    bestWithoutHiJoker,
-    countHigherUnseen,
-    getContractState,
-    pickWinner
+    bestWithoutHiJoker
 };

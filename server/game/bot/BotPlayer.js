@@ -72,15 +72,19 @@ class BotPlayer {
      * @param {Object} card - { suit, rank }
      * @param {number} position - Position of player who played it (1-4)
      * @param {Object} trump - Trump card for determining trump status
+     * @param {number} [leadPosition] - Position that led the current trick.
+     *   Recording this explicitly (rather than assuming the first recorded
+     *   card led) keeps void inference correct for bots that join mid-trick.
      */
-    recordCardPlayed(card, position, trump) {
+    recordCardPlayed(card, position, trump, leadPosition) {
         if (!this.cardMemory) return;
 
         this.cardMemory.playedCards.push({
             suit: card.suit,
             rank: card.rank,
             position,
-            trickIndex: this.cardMemory.trickIndex
+            trickIndex: this.cardMemory.trickIndex,
+            isLead: leadPosition !== undefined ? position === leadPosition : undefined
         });
 
         // Track aces
@@ -158,9 +162,12 @@ class BotPlayer {
      * @param {number|null} leadPosition - Position that led
      * @param {Object} trump - Trump card
      * @param {boolean} trumpBroken - Whether trump has been broken
+     * @param {number} handSize - Cards dealt per player this hand
+     * @param {Object|null} playContext - Contract state (team bids/tricks/bores);
+     *   see BotController.buildPlayContext. Null falls back to contract-blind play.
      * @returns {Object} - Card to play
      */
-    decideCard(hand, playedCards, leadCard, leadPosition, trump, trumpBroken, handSize) {
+    decideCard(hand, playedCards, leadCard, leadPosition, trump, trumpBroken, handSize, playContext = null) {
         return selectOptimalCard(
             hand,
             playedCards,
@@ -170,7 +177,9 @@ class BotPlayer {
             trumpBroken,
             this.position,
             this.getMemorySnapshot(),
-            handSize
+            handSize,
+            playContext,
+            this.personality
         );
     }
 
