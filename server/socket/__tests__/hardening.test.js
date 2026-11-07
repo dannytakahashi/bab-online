@@ -223,6 +223,56 @@ describe('rejoinGame authentication', () => {
         gameManager.abortGame(game.gameId);
     });
 
+    // Per-device tokens (server/utils/sessionTokens.js): the user document
+    // holds only hashes in sessionTokens, one per signed-in device
+    function gameWithDeviceSessions() {
+        const { issueSession } = require('../../utils/sessionTokens');
+        const { game, ids, victim } = gameWithVictim();
+        const phone = issueSession(null);
+        const laptop = issueSession({ sessionTokens: phone.update.$set.sessionTokens });
+        mockUsers[victim] = { username: victim, sessionTokens: laptop.update.$set.sessionTokens };
+        return { game, ids, victim, phoneToken: phone.token, laptopToken: laptop.token };
+    }
+
+    test('a per-device session token rejoins (any of the user\'s devices)', async () => {
+        const log = [];
+        const { game, victim, phoneToken } = gameWithDeviceSessions();
+        const fresh = makeSocket(`device-${seq}`, log);
+
+        await reconnectHandlers.rejoinGame(fresh, makeIo(log), { gameId: game.gameId, username: victim, sessionToken: phoneToken });
+
+        expect(log.some((l) => l.event === 'rejoinSuccess')).toBe(true);
+        expect(game.getPlayerByPosition(2).socketId).toBe(fresh.id);
+        gameManager.abortGame(game.gameId);
+    });
+
+    test('a wrong token is refused when the user has per-device sessions', async () => {
+        const log = [];
+        const { game, ids, victim } = gameWithDeviceSessions();
+
+        await reconnectHandlers.rejoinGame(makeSocket(`attacker3-${seq}`, log), makeIo(log), {
+            gameId: game.gameId, username: victim, sessionToken: '44444444-4444-4444-8444-444444444444',
+        });
+
+        expect(log.some((l) => l.event === 'rejoinSuccess')).toBe(false);
+        expect(log.find((l) => l.event === 'rejoinFailed').data.reason).toBe('Not authenticated');
+        expect(game.getPlayerByPosition(2).socketId).toBe(ids[1]);
+        gameManager.abortGame(game.gameId);
+    });
+
+    test('a merged (retired) account cannot rejoin with an old token', async () => {
+        const log = [];
+        const { game, victim, phoneToken } = gameWithDeviceSessions();
+        mockUsers[victim] = { username: victim, mergedInto: 'Someone' };
+
+        await reconnectHandlers.rejoinGame(makeSocket(`retired-${seq}`, log), makeIo(log), {
+            gameId: game.gameId, username: victim, sessionToken: phoneToken,
+        });
+
+        expect(log.some((l) => l.event === 'rejoinSuccess')).toBe(false);
+        gameManager.abortGame(game.gameId);
+    });
+
     test('a socket already signed in as the user rejoins without a token', async () => {
         const log = [];
         const { game, victim } = gameWithVictim();

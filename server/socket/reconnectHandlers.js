@@ -6,6 +6,7 @@ const gameManager = require('../game/GameManager');
 const { cancelAbortTimer } = require('./queueHandlers');
 const { socketLogger } = require('../utils/logger');
 const { getUsersCollection } = require('../database');
+const { verifySession } = require('../utils/sessionTokens');
 
 /**
  * A rejoin binds this socket to `username` and hands it that seat's hand, so
@@ -19,8 +20,19 @@ async function isAuthorizedForUser(socket, username, sessionToken) {
     if (authed && authed.username === username) return true;
     if (!sessionToken) return false;
     try {
-        const user = await getUsersCollection().findOne({ username }, { projection: { sessionToken: 1 } });
-        return !!(user && user.sessionToken && user.sessionToken === sessionToken);
+        const usersCollection = getUsersCollection();
+        const user = await usersCollection.findOne(
+            { username },
+            { projection: { sessionTokens: 1, sessionToken: 1 } }
+        );
+        // Per-device tokens (server/utils/sessionTokens.js); also accepts and
+        // migrates a legacy plaintext sessionToken
+        const session = verifySession(user, sessionToken);
+        if (!session) return false;
+        // Lets a later restore from another device tell this one apart
+        if (socket.data) socket.data.sessionHash = session.hash;
+        await usersCollection.updateOne({ username }, session.update);
+        return true;
     } catch (err) {
         socketLogger.error('Rejoin auth lookup failed', { username, error: err.message });
         return false;
