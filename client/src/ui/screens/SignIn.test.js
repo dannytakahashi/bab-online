@@ -42,6 +42,16 @@ describe('createSignInScreen', () => {
     expect(screen.passwordInput.type).toBe('password');
   });
 
+  it('marks inputs so browsers offer to save and fill the password', () => {
+    screen = createSignInScreen({
+      onSignIn: mockOnSignIn,
+      onCreateAccount: mockOnCreateAccount,
+    });
+
+    expect(screen.usernameInput.getAttribute('autocomplete')).toBe('username');
+    expect(screen.passwordInput.getAttribute('autocomplete')).toBe('current-password');
+  });
+
   it('calls onSignIn with credentials when sign in clicked', () => {
     screen = createSignInScreen({
       onSignIn: mockOnSignIn,

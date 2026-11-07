@@ -117,6 +117,9 @@ export function createSignInScreen({ onSignIn, onCreateAccount }) {
   const usernameInput = document.createElement('input');
   usernameInput.type = 'text';
   usernameInput.placeholder = 'Username';
+  usernameInput.name = 'username';
+  usernameInput.autocomplete = 'username';
+  usernameInput.autocapitalize = 'none';
   usernameInput.style.cssText = `
     font-size: 12px;
     padding: 10px;
@@ -131,6 +134,8 @@ export function createSignInScreen({ onSignIn, onCreateAccount }) {
   const passwordInput = document.createElement('input');
   passwordInput.type = 'password';
   passwordInput.placeholder = 'Password';
+  passwordInput.name = 'password';
+  passwordInput.autocomplete = 'current-password';
   passwordInput.style.cssText = `
     font-size: 12px;
     padding: 10px;

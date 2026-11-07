@@ -12,6 +12,7 @@ import { RANK_VALUES, RANK_ORDER, SUITS, JOKER_SUIT, HAND_PROGRESSION } from './
 // Utilities
 import { team, rotate, isSameTeam, getTeamNumber, getPlayerName, getRelativePosition } from './utils/positions.js';
 import { getCardImageKey, getSuitOrder, sortHand, cardsEqual, isJoker, getCardDisplayName } from './utils/cards.js';
+import { adoptSavedSession, forgetSession, clearAllSessionData } from './utils/sessionPersistence.js';
 import { hashToHue, generateDistinctColor, getUsernameColor, extractHue } from './utils/colors.js';
 
 // Rules
@@ -1456,10 +1457,7 @@ socket.on('reportUserResponse', (data) => {
 // Account deletion (in-app, required by App Store Guideline 5.1.1(v))
 socket.on('deleteAccountResponse', (data) => {
   if (data.success) {
-    sessionStorage.removeItem('username');
-    sessionStorage.removeItem('sessionToken');
-    sessionStorage.removeItem('gameId');
-    sessionStorage.removeItem('spectatingGameId');
+    clearAllSessionData();
     window.location.reload();
   } else {
     showDeleteAccountError(data.message || 'Account deletion failed');
@@ -3515,7 +3513,8 @@ socket.on('restoreSessionResponse', (data) => {
     }
   } else {
     console.log('Session restore failed:', data.message);
-    // Clear invalid session data
+    // Clear invalid session data (and the device's saved copy of it)
+    forgetSession(sessionStorage.getItem('sessionToken'));
     sessionStorage.removeItem('username');
     sessionStorage.removeItem('sessionToken');
     sessionStorage.removeItem('gameId');
@@ -3532,6 +3531,11 @@ window.addEventListener('load', () => {
 
   // Create the Phaser game - GameScene.create() will call setGameScene
   createPhaserGame('game-container');
+
+  // A fresh tab (or a reopened browser) resumes this device's saved session
+  if (adoptSavedSession()) {
+    console.log('Resuming saved session from this device');
+  }
 
   // Check if user is logged in and was in a game
   const username = sessionStorage.getItem('username');

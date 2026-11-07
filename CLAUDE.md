@@ -50,9 +50,14 @@ bab-online/
 │   │   ├── authHandlers.js    # Sign-in/up, account deletion
 │   │   ├── safetyHandlers.js  # Report / block / unblock users
 │   │   └── validators.js      # Joi validation schemas
+│   ├── admin/                 # Account admin logic used by scripts/ (merge, set password)
+│   ├── testUtils/memoryDb.js  # In-memory Mongo collection fake for Jest (no mongod needed)
 │   ├── utils/
-│   │   └── profanityFilter.js # UGC filter (chat, usernames, lobby names)
+│   │   ├── profanityFilter.js # UGC filter (chat, usernames, lobby names)
+│   │   └── sessionTokens.js   # Per-device "stay signed in" tokens
 │   └── __tests__/             # Jest tests
+│
+├── scripts/                    # Owner-run CLIs: merge-accounts.js, set-password.js, build-atlas.js
 │
 ├── iOSClient/                  # Native SwiftUI iOS app (Xcode project)
 │   └── BABOnline/             # Views, State, Networking (handlers/emitters), SpriteKit
@@ -94,7 +99,7 @@ bab-online/
 
 ## Game Flow (Socket Events)
 
-1. **Auth**: `signIn`/`signUp` → `signInResponse` (includes `blockedUsers`; `deleteAccount` → `deleteAccountResponse` for in-app account deletion)
+1. **Auth**: `signIn`/`signUp` → `signInResponse` (includes `blockedUsers`; `deleteAccount` → `deleteAccountResponse` for in-app account deletion); `restoreSession` resumes a saved per-device token without a password
 2. **Lobby**: `joinQueue` → `lobbyCreated` → `playerReadyUpdate` → `allPlayersReady`
 3. **Draw**: `startDraw` → `draw` → `playerDrew` → `teamsAnnounced`
 4. **Bidding**: `gameStart` → `updateTurn` → `playerBid` → `bidReceived` → `doneBidding`
@@ -130,7 +135,9 @@ npm run sim          # Bot-vs-bot simulation (tuning/regression; see server/game
 ## Important Implementation Details
 
 - Bots have socketIds like `bot:{username}:{uuid}`, use `BotStrategy.js` for AI. Card play is contract-aware: `processBotPlay` passes a play context (team bids/tricks/bores) into `decideCard`. Personalities (`personalities.js`) define `bidStyle` + `playStyle` consumed by the strategy; Mary is the sim-tuned optimal baseline, the others are slight measured variations. Strategy changes must be benchmarked with `npm run sim` against the frozen legacy snapshot (`sim/legacyStrategy.js`)
-- Reconnection uses session tokens stored in MongoDB; rejoining a tournament game also reattaches tournament membership to the new socket
+- Sessions are per device (`server/utils/sessionTokens.js`): each sign-in adds a token to `users.sessionTokens` (SHA-256 hashes only, max 5, expire 90 days after last use) instead of replacing the old one, so signing in on the computer doesn't log the phone out. A legacy plaintext `users.sessionToken` is still accepted and migrated. Only one *live* socket per user: a password sign-in, or a different device restoring its token, kicks the previous socket (`forceLogout`); the same device reconnecting (same token hash in `socket.data.sessionHash`) does not. `rejoinGame` from an unauthenticated socket (web reload mid-game) is authorized by the same `verifySession` check on the token it sends. Rejoining a tournament game also reattaches tournament membership to the new socket
+- Web "stay signed in" (`client/src/utils/sessionPersistence.js`): the tab's session is in `sessionStorage` (so 4-tab local testing still works) and the latest sign-in is mirrored to `localStorage`, which a fresh tab adopts on load. Profile page has a Sign Out button (shared family computers). iOS keeps its token in the Keychain
+- Merged accounts: `scripts/merge-accounts.js` turns duplicate accounts into tombstones `{ username, mergedInto, mergedAt }` (no password/tokens/stats). Sign-in/sign-up/restore on a tombstone tell the player which account to use; leaderboard and player search exclude them; `getPlayerProfile` follows `mergedInto`; deleting the kept account deletes its tombstones. The kept account's `mergedFrom[]` is the audit log and the idempotency guard. Any new per-user data keyed by username must be added to `server/admin/accountMerge.js`
 - Socket rooms: players join `game:{gameId}` for broadcasts; tournaments use `tournament:{tournamentId}`
 - Event constants in `client/src/constants/events.js` (web) and `iOSClient/.../Constants/SocketEvents.swift` (iOS) prevent typos — keep all three sides of the contract in sync
 - Card legality logic duplicated in `server/game/rules.js`, `client/src/rules/legality.js`, and `iOSClient/.../Rules/CardLegality.swift`
@@ -139,6 +146,17 @@ npm run sim          # Bot-vs-bot simulation (tuning/regression; see server/game
 - Express pages: `/privacy`, `/support`, `/terms` (App Store compliance copy lives in `server/routes/index.js`)
 - Ambient bot activity (`server/demo/ambientBots.js`): keeps one spectatable bot-vs-bot game running and seeds main-room chat with bot-persona messages, so the app is never an empty room (added for App Review Guideline 2.1(a) — reviewers must see other users' chats and games). On by default in production; `AMBIENT_BOTS=true|false` overrides
 - iOS builds: prebuilt WebRTC (stasel/WebRTC via SPM) ships no dSYM — the archive warning at upload is expected and safe to ignore
+
+## Account Admin (owner-run, against production via `MONGO_URI`)
+
+```bash
+node scripts/merge-accounts.js --find-duplicates                  # list look-alike usernames
+node scripts/merge-accounts.js --into Alan alan2 AlanB            # dry run: prints every change
+node scripts/merge-accounts.js --into Alan alan2 AlanB --apply    # asks you to type MERGE
+node scripts/set-password.js Alan                                 # new friendly password, signs out all devices
+```
+
+Merging is idempotent (re-running prints "Nothing to do") and refuses while a source account is in an active game or tournament. There is no in-app password reset by design (no emails are stored); the owner resets passwords for players who ask.
 
 ## Common Files to Check
 
@@ -152,3 +170,4 @@ npm run sim          # Bot-vs-bot simulation (tuning/regression; see server/game
 | Visual card display | `client/src/phaser/managers/CardManager.js` |
 | State management | `server/game/GameState.js`, `client/src/state/GameState.js` |
 | Socket events list | `client/src/constants/events.js` |
+| Sign-in sessions / account merge | `server/socket/authHandlers.js`, `server/utils/sessionTokens.js`, `server/admin/accountMerge.js` |

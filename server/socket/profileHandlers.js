@@ -385,9 +385,10 @@ async function getLeaderboard(socket, io) {
     const usersCollection = getUsersCollection();
 
     try {
-        // Find all users with at least one game played
+        // Find all users with at least one game played (merged-away
+        // accounts are tombstones whose stats live on the kept account)
         const users = await usersCollection.find(
-            { 'stats.gamesPlayed': { $gt: 0 } }
+            { 'stats.gamesPlayed': { $gt: 0 }, mergedInto: { $exists: false } }
         ).toArray();
 
         // Compute derived stats and format response
@@ -479,7 +480,7 @@ async function searchPlayers(socket, io, data) {
         // Escape regex special characters
         const escaped = query.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         const users = await usersCollection.find(
-            { username: { $regex: escaped, $options: 'i' } },
+            { username: { $regex: escaped, $options: 'i' }, mergedInto: { $exists: false } },
             { projection: { username: 1, profilePic: 1, customProfilePic: 1, stats: 1 } }
         ).limit(20).toArray();
 
@@ -518,7 +519,13 @@ async function getPlayerProfile(socket, io, data) {
     }
 
     try {
-        const dbUser = await usersCollection.findOne({ username: username.trim() });
+        let dbUser = await usersCollection.findOne({ username: username.trim() });
+
+        // Old names from merged accounts (e.g. in game records) show the
+        // account they were merged into
+        if (dbUser?.mergedInto) {
+            dbUser = await usersCollection.findOne({ username: dbUser.mergedInto });
+        }
 
         if (!dbUser) {
             socket.emit('playerProfileResponse', {
