@@ -527,6 +527,272 @@ function countLockedWinners(hand, trump) {
 
 const NEXT_BORE = { null: 'B', B: '2B', '2B': '3B', '3B': '4B', '4B': null };
 
+/** Binomial coefficient C(n, k) as a float (n <= 54 here, so it stays exact). */
+function choose(n, k) {
+    if (k < 0 || k > n) return 0;
+    if (k > n - k) k = n - k;
+    let r = 1;
+    for (let i = 1; i <= k; i++) r = (r * (n - k + i)) / i;
+    return r;
+}
+
+/**
+ * What a seat would bid on a small hand holding exactly these trump cards
+ * (off-suit cards contribute ~nothing at hand sizes 1-5). Mirrors this
+ * module's own small-hand bidding — which is also how people bid them — and
+ * is used to read opponents' bids: a 0 says "no top trump", a number says
+ * "probably one".
+ */
+function impliedTrumpBid(trumps, trump, handSize) {
+    const m = trumps.length;
+    const isJoker = c => c.rank === 'HI' || c.rank === 'LO';
+    if (handSize === 1) {
+        return (m > 0 && (isJoker(trumps[0]) || RANK_VALUES[trumps[0].rank] >= RANK_VALUES['7'])) ? 1 : 0;
+    }
+    if (handSize === 2) {
+        let winners = trumps.filter(c => isJoker(c) || RANK_VALUES[c.rank] >= RANK_VALUES['Q']).length;
+        if (winners === 0 && m === 2) winners = 1;
+        return Math.min(winners, 2);
+    }
+    const ts = getTrumpScale(handSize);
+    let points = 0;
+    for (const c of trumps) {
+        if (c.rank === 'HI') points += 1.9;
+        else if (c.rank === 'LO') points += (trump.rank === 'HI' ? 1.9 : 1.4);
+        else if (c.rank === 'A') points += 1.4 * ts;
+        else if (c.rank === 'K') points += (trump.rank === 'A' ? 1.4 : 0.9) * ts;
+        else if (c.rank === 'Q') points += (trump.rank === 'K' ? 0.9 : 0.4) * ts;
+        else {
+            const mid = RANK_VALUES[c.rank] >= 7;
+            points += (handSize <= 4 ? (mid ? 0.45 : 0.35) : (mid ? 0.25 : 0.1)) * ts;
+        }
+    }
+    let bid = Math.floor(points);
+    if (handSize <= 4) {
+        const hi = trumps.some(c => c.rank === 'HI') ? 1 : 0;
+        const lo = trumps.some(c => c.rank === 'LO') ? 1 : 0;
+        bid = Math.min(bid, Math.ceil(m * 0.75) + hi + lo);
+    }
+    return bid;
+}
+
+/**
+ * Probability that our hand sweeps when it holds the opening lead — which a
+ * bore bid wins, as the highest bid on the table.
+ *
+ * Models the line the bot plays at max effort: while trump is unbroken a
+ * mixed hand must lead its off-suit cards first; once only trump remains it
+ * leads the HI joker, then the rest of its trump top-down. Each opponent's
+ * trump holding is enumerated exactly (every subset of the unseen trump,
+ * weighted by its hypergeometric probability) and scored against the
+ * worst-case defence. An opponent holding m trumps against our r can save
+ * its best for trick min(m, r):
+ *  - our HI joker led first forces its highest trump, so it beats us iff its
+ *    SECOND-highest outranks our min(m, r)-th trump;
+ *  - without the HI it beats us iff its highest does.
+ * An off-suit lead loses iff the opponent holds a higher card of the suit,
+ * or is void in it with a trump to ruff.
+ *
+ * oppBids are the two opponents' bids seen so far: each holding is weighted
+ * by how consistent it is with the bid (BORE_TUNING.likelihood). The two
+ * opponents are combined as independent, and partner's cards are treated as
+ * harmless (they can only help), so the estimate is mildly pessimistic —
+ * except after an opponent's non-zero bid, where the soft likelihood leaves
+ * it optimistic; calculateOptimalBid demands a much higher bar there.
+ *
+ * @returns {number} P(sweep) in [0, 1]
+ */
+function analyzeLeadSweep(hand, trump, handSize, oppBids = []) {
+    const noTrump = isNoTrump(trump);
+    const isTrumpCard = c => c.suit === 'joker' || (!noTrump && c.suit === trump.suit);
+    const key = c => `${c.suit}:${c.rank}`;
+    const mine = new Set(hand.map(key));
+    const flipped = key(trump);
+
+    // Unseen trump cards, high to low
+    const pool = [];
+    for (const rank of ['HI', 'LO']) {
+        if (!mine.has(`joker:${rank}`) && `joker:${rank}` !== flipped) pool.push({ suit: 'joker', rank });
+    }
+    if (!noTrump) {
+        for (let i = SUIT_RANKS.length - 1; i >= 0; i--) {
+            const c = { suit: trump.suit, rank: SUIT_RANKS[i] };
+            if (!mine.has(key(c)) && key(c) !== flipped) pool.push(c);
+        }
+    }
+    const T = pool.length;
+    const N = 54 - 1 - hand.length; // unseen cards
+    const n = handSize;
+    const myTrump = hand.filter(isTrumpCard).map(c => RANK_VALUES[c.rank]).sort((a, b) => b - a);
+    const r = myTrump.length;
+    const hasHi = r > 0 && myTrump[0] === RANK_VALUES.HI;
+
+    const offsuit = hand.filter(c => !isTrumpCard(c)).map(c => {
+        let inSuit = 0, higher = 0;
+        for (const rank of SUIT_RANKS) {
+            const k = `${c.suit}:${rank}`;
+            if (mine.has(k) || k === flipped) continue;
+            inSuit++;
+            if (RANK_VALUES[rank] > RANK_VALUES[c.rank]) higher++;
+        }
+        return { inSuit, higher };
+    });
+
+    // P(every off-suit lead survives this opponent | it holds m trumps)
+    const offOk = [];
+    for (let m = 0; m <= n; m++) {
+        const k = n - m;
+        const tot = choose(N - T, k);
+        let ok = 1;
+        for (const o of offsuit) {
+            if (tot === 0) break;
+            const pHigher = 1 - choose(N - T - o.higher, k) / tot;
+            const pVoid = m > 0 ? choose(N - T - o.inSuit, k) / tot : 0;
+            ok *= Math.max(0, 1 - pHigher - pVoid);
+        }
+        offOk.push(ok);
+    }
+
+    const L = BORE_TUNING.likelihood;
+    const likelihood = (held, bid) => {
+        if (bid === undefined || bid === null) return 1;
+        const implied = impliedTrumpBid(held, trump, n);
+        if (['B', '2B', '3B', '4B'].includes(bid)) return implied >= 1 ? 1 : L.boreWithout;
+        if ((BID_RANKS[bid] || 0) === 0) return implied === 0 ? 1 : L.zeroWith;
+        return implied >= 1 ? 1 : L.numberWithout;
+    };
+
+    const totalHands = choose(N, n);
+    let pSweep = 1;
+    for (let o = 0; o < 2; o++) {
+        const bid = oppBids[o];
+        let okMass = 0, mass = 0;
+        const held = [];
+        const visit = (start) => {
+            const m = held.length;
+            const w = choose(N - T, n - m) / totalHands;
+            if (w > 0) {
+                let beatsTrump = false;
+                if (r > 0 && m > 0) {
+                    const v = myTrump[Math.min(m, r) - 1];
+                    let above = 0;
+                    for (const c of held) if (RANK_VALUES[c.rank] > v) above++;
+                    beatsTrump = hasHi ? above >= 2 : above >= 1;
+                }
+                const ok = beatsTrump ? 0 : offOk[m];
+                const lw = likelihood(held, bid);
+                okMass += w * lw * ok;
+                mass += w * lw;
+            }
+            if (m >= n) return;
+            for (let i = start; i < T; i++) {
+                held.push(pool[i]);
+                visit(i + 1);
+                held.pop();
+            }
+        };
+        visit(0);
+        pSweep *= mass > 0 ? okMass / mass : 0;
+    }
+    return pSweep;
+}
+
+/**
+ * Sim-tuned bore knobs (see sim/README.md for the measurements). Exported so
+ * the tuning harness can sweep them; production code never mutates them.
+ */
+const BORE_TUNING = {
+    // Hand sizes the sweep model decides (bigger hands fall back to the
+    // conservative large-hand rule — the model ignores too much there)
+    maxModelHandSize: 5,
+    // Minimum modelled P(sweep) to open a bore (no bore on the table yet)
+    threshold: { 1: 0.6, 2: 0.6, 3: 0.6, 4: 0.6, 5: 0.6 },
+    // ...after an opponent bid a number: the model reads such bids softly and
+    // is badly optimistic there (measured 2-card bores at model p 0.5-0.7
+    // swept only 10-35%), so demand near-certainty
+    thresholdAfterOppBid: 0.9,
+    // How strongly an opponent's bid says it holds a top trump: weight of a
+    // holding the bid is inconsistent with (see impliedTrumpBid)
+    likelihood: { boreWithout: 0.05, zeroWith: 0.1, numberWithout: 0.25 }
+};
+
+/**
+ * Decide whether to bore (or escalate a bore) and at what level. Returns the
+ * bore bid, or null to bid a number.
+ *
+ * Legality: the only bore ever returned is NEXT_BORE[highest bore on the
+ * table] — 'B' when none is out, otherwise exactly one level up. A bore
+ * never repeats or skips a level.
+ *
+ * "Guaranteed" is only ever claimed for a true lock (countLockedWinners
+ * covers the whole hand): those cards win every trick whoever leads. Any
+ * other sweep estimate assumes we keep the opening lead, which a later seat
+ * can take by escalating — so it is never used to counter-bore an opponent.
+ */
+function decideBore(hand, trump, handSize, evaluation, existingBids, position, table) {
+    const { highestBore, highestBorePosition, opponentBored, oppNumericBid } = table;
+    const nextBore = NEXT_BORE[highestBore];
+    if (!nextBore) return null;
+
+    // Guaranteed sweep: every card is a top trump, so our team wins every
+    // trick regardless of seat, lead, or what anyone else bid. Bore — or
+    // escalate one level over any existing bore (partner's raises our
+    // multiplier; an opponent's is certain to be set while ours is certain
+    // to make).
+    if (countLockedWinners(hand, trump) >= handSize) return nextBore;
+
+    const partnerPosition = getPartnerPosition(position);
+    const loIsBoss = evaluation.hasLowJoker && trump.rank === 'HI';
+
+    if (highestBore) {
+        // An opponent holds the top bore: counter only on a true lock (above).
+        // Everything else measured strongly negative (-20 to -80 per hand).
+        if (highestBorePosition !== partnerPosition) return null;
+
+        // Partner holds the top bore: escalating doubles our own multiplier
+        // and hands us the lead.
+        if (handSize === 1) {
+            // A 1-card bore is near-certain (~99% sweep) and our card can only
+            // help, so escalate whatever we hold (+19 points per decision in
+            // sim counterfactuals, even holding an off-suit 2). Over an
+            // opponent's counter-bore, only with the unbeatable card.
+            if (!opponentBored) return nextBore;
+            return (evaluation.hasHighJoker || loIsBoss) ? nextBore : null;
+        }
+        if (handSize <= 4) {
+            // Escalating over an OPPONENT's counter-bore doubles the stakes on a
+            // contested hand — only do it holding the unbeatable card ourselves
+            if (opponentBored && !(evaluation.hasHighJoker || loIsBoss)) return null;
+            if (evaluation.trumpCount >= Math.ceil(handSize / 2)) return nextBore;
+            // 2 cards: an off-suit Ace is a safe lead once we hold the lead
+            // (no off-suit King to strand); measured +12.8 per decision
+            if (handSize === 2 && !opponentBored) {
+                const off = hand.filter(c => c.suit !== 'joker' && (isNoTrump(trump) || c.suit !== trump.suit));
+                if (off.some(c => c.rank === 'A') && !off.some(c => c.rank === 'K')) return nextBore;
+            }
+        }
+        return null;
+    }
+
+    // No bore on the table yet: bore when the modelled sweep chance clears
+    // the bar. A bore pays +/-20 per card against roughly +10 to +20 for a
+    // plain small-hand bid, so it is +EV down to roughly a 60-65% sweep.
+    if (handSize <= BORE_TUNING.maxModelHandSize) {
+        const opps = getOpponentPositions(position);
+        const p = analyzeLeadSweep(hand, trump, handSize, opps.map(o => existingBids[o - 1]));
+        const th = oppNumericBid ? BORE_TUNING.thresholdAfterOppBid : BORE_TUNING.threshold[handSize];
+        return p >= th ? 'B' : null;
+    }
+
+    // Large hand bore (10+, keep conservative)
+    if (handSize >= 10 && evaluation.points >= 8 && evaluation.trumpCount >= 7 &&
+        evaluation.hasHighJoker && evaluation.hasLowJoker) {
+        return 'B';
+    }
+    return null;
+}
+
+
 function calculateOptimalBid(hand, trump, position, existingBids, handSize, memory, gameContext, personality = 'mary', partnerHistory = []) {
     const evaluation = evaluateHand(hand, trump, handSize);
     const noTrump = isNoTrump(trump);
@@ -543,10 +809,10 @@ function calculateOptimalBid(hand, trump, position, existingBids, handSize, memo
 
     let opponentTotalBid = 0;
     let opponentBidCount = 0;
-    let allSeenBidsZero = true;
-    let partnerBored = false;
     let opponentBored = false;
     let highestBore = null;
+    let highestBorePosition = null;
+    let oppNumericBid = false;     // an opponent bid a number > 0
 
     for (let i = 0; i < 4; i++) {
         const bid = existingBids[i];
@@ -555,10 +821,8 @@ function calculateOptimalBid(hand, trump, position, existingBids, handSize, memo
         const bidPosition = i + 1;
         const isBoreBid = ['B', '2B', '3B', '4B'].includes(bid);
 
-        if (bidPosition !== position) {
-            if (bidValue > 0 || isBoreBid) {
-                allSeenBidsZero = false;
-            }
+        if (!isBoreBid && bidValue > 0) {
+            if (opponentPositions.includes(bidPosition)) oppNumericBid = true;
         }
 
         if (opponentPositions.includes(bidPosition)) {
@@ -570,19 +834,11 @@ function calculateOptimalBid(hand, trump, position, existingBids, handSize, memo
         if (isBoreBid) {
             if (!highestBore || BID_RANKS[bid] > BID_RANKS[highestBore]) {
                 highestBore = bid;
+                highestBorePosition = bidPosition;
             }
-            if (bidPosition === partnerPosition) partnerBored = true;
             if (opponentPositions.includes(bidPosition)) opponentBored = true;
         }
     }
-
-    const bidsBefore = existingBids.filter(b => b !== undefined && b !== null).length;
-    const isFirstBidder = bidsBefore === 0;
-    const isDealer = bidsBefore === 3;
-    // "Weak field" signals for bore decisions. A seat that hasn't bid yet is
-    // NOT a zero bid — it's no information at all.
-    const weakFieldConfirmed = isDealer && allSeenBidsZero;          // saw all 3 others bid 0
-    const weakFieldLikely = bidsBefore >= 1 && allSeenBidsZero;      // saw 1+ bids, all 0
 
     // --- Game-level score awareness ---
     let riskAdjustment = 0; // positive = more aggressive, negative = more conservative
@@ -598,88 +854,10 @@ function calculateOptimalBid(hand, trump, position, existingBids, handSize, memo
     }
 
     // --- BORE DECISIONS (check before normal bidding) ---
-
-    // Guaranteed sweep: every card is a top trump, so our team wins every
-    // trick regardless of seat, lead, or what anyone else bid. Bore — or
-    // escalate one level over any existing bore (partner's raises our
-    // multiplier; an opponent's is certain to be set while ours is certain
-    // to make). No field-strength gating applies: nothing can go wrong.
-    if (countLockedWinners(hand, trump) >= handSize) {
-        const next = NEXT_BORE[highestBore];
-        if (next) return next;
-    }
-
-    // When the flipped trump card is the HI joker, the LO joker is the boss
-    // trump — nothing in play beats it.
-    const loIsBoss = evaluation.hasLowJoker && trump.rank === 'HI';
-
-    // 1-card hand bore
-    if (handSize === 1) {
-        // HI joker (or LO when HI was flipped): unbeatable — bore regardless of
-        // other bids. Bidding 'B' also wins the lead, guaranteeing the trick.
-        if (evaluation.hasHighJoker || loIsBoss) return 'B';
-        // LO joker / trump Ace: near-certain winners; bore unless an opponent
-        // has already shown a monster of their own
-        if ((evaluation.hasLowJoker || evaluation.hasTrumpAce) && !opponentBored) return 'B';
-        const card = hand[0];
-        const isTrump = card.suit === 'joker' || (!noTrump && card.suit === trump.suit);
-        if (weakFieldConfirmed && isTrump && RANK_VALUES[card.rank] >= RANK_VALUES['K']) return 'B';
-        // With positive risk adjustment, lower the threshold
-        if (riskAdjustment > 0 && weakFieldConfirmed && isTrump && RANK_VALUES[card.rank] >= RANK_VALUES['Q']) return 'B';
-    }
-
-    // 2-card hand bore
-    if (handSize === 2 && weakFieldLikely) {
-        const c1 = hand[0];
-        const c2 = hand[1];
-        const c1Trump = c1.suit === 'joker' || (!noTrump && c1.suit === trump.suit);
-        const c2Trump = c2.suit === 'joker' || (!noTrump && c2.suit === trump.suit);
-        const bothTrump = c1Trump && c2Trump;
-        const hasMidTrumpPlus = hand.some(c =>
-            (c.suit === 'joker' || (!noTrump && c.suit === trump.suit)) &&
-            RANK_VALUES[c.rank] >= RANK_VALUES['7']
-        );
-        const hasHighNonTrump = hand.some(c =>
-            c.suit !== 'joker' && (noTrump || c.suit !== trump.suit) &&
-            (c.rank === 'A' || c.rank === 'K')
-        );
-        const hasHighTrump = evaluation.hasHighJoker || evaluation.hasLowJoker || evaluation.hasTrumpAce;
-
-        // Two trump cards, at least one mid+: BORE
-        if (bothTrump && hasMidTrumpPlus) return 'B';
-        // One high trump + one high non-trump: BORE
-        if (hasHighTrump && hasHighNonTrump) return 'B';
-        // No-trump: two Aces can't be ruffed — bore as dealer in a weak field
-        if (noTrump && weakFieldConfirmed && hand.every(c => c.rank === 'A' || c.rank === 'HI' || c.rank === 'LO')) {
-            return 'B';
-        }
-    }
-
-    // 3-5 card hand bore
-    if (handSize >= 3 && handSize <= 5 && weakFieldLikely) {
-        if (evaluation.hasHighJoker && evaluation.trumpCount >= handSize) return 'B';
-        if (evaluation.hasHighJoker && evaluation.trumpCount >= handSize - 1 && evaluation.hasLowJoker) return 'B';
-    }
-
-    // Partner bore support (escalate the multiplier)
-    if (partnerBored && !['B', '2B', '3B', '4B'].includes(existingBids[position - 1])) {
-        if (handSize <= 4 && evaluation.trumpCount >= Math.ceil(handSize / 2)) {
-            // Escalating over an OPPONENT's counter-bore doubles the stakes on a
-            // contested hand — only do it holding the unbeatable card ourselves
-            if (!opponentBored || evaluation.hasHighJoker || loIsBoss) {
-                if (highestBore === 'B') return '2B';
-                if (highestBore === '2B') return '3B';
-                if (highestBore === '3B') return '4B';
-            }
-        }
-    }
-
-    // Large hand bore (10+, keep conservative)
-    if (handSize >= 10 && evaluation.points >= 8 && evaluation.trumpCount >= 6) {
-        if (evaluation.hasHighJoker && evaluation.hasLowJoker && evaluation.trumpCount >= 7) {
-            return 'B';
-        }
-    }
+    const boreBid = decideBore(hand, trump, handSize, evaluation, existingBids, position, {
+        highestBore, highestBorePosition, opponentBored, oppNumericBid
+    });
+    if (boreBid) return boreBid;
 
     // --- NORMAL BIDDING ---
 
@@ -1297,6 +1475,10 @@ module.exports = {
     bestWithoutHiJoker,
     countHigherUnseen,
     countLockedWinners,
+    analyzeLeadSweep,
+    decideBore,
+    BORE_TUNING,
+    NEXT_BORE,
     getContractState,
     pickWinner
 };
