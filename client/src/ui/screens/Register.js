@@ -69,6 +69,9 @@ export function createRegisterScreen({ onRegister, onBackToSignIn, prefill = {} 
   const usernameInput = document.createElement('input');
   usernameInput.type = 'text';
   usernameInput.placeholder = 'Username';
+  usernameInput.name = 'username';
+  usernameInput.autocomplete = 'username';
+  usernameInput.autocapitalize = 'none';
   usernameInput.value = prefill.username || '';
   usernameInput.style.cssText = `
     font-size: 12px;
@@ -84,6 +87,8 @@ export function createRegisterScreen({ onRegister, onBackToSignIn, prefill = {} 
   const passwordInput = document.createElement('input');
   passwordInput.type = 'password';
   passwordInput.placeholder = 'Password';
+  passwordInput.name = 'new-password';
+  passwordInput.autocomplete = 'new-password';
   passwordInput.value = prefill.password || '';
   passwordInput.style.cssText = `
     font-size: 12px;
@@ -99,6 +104,8 @@ export function createRegisterScreen({ onRegister, onBackToSignIn, prefill = {} 
   const confirmInput = document.createElement('input');
   confirmInput.type = 'password';
   confirmInput.placeholder = 'Confirm Password';
+  confirmInput.name = 'confirm-password';
+  confirmInput.autocomplete = 'new-password';
   confirmInput.style.cssText = `
     font-size: 12px;
     padding: 10px;

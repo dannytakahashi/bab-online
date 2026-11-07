@@ -4,6 +4,8 @@
  * Modal overlay showing user profile with stats and profile picture selection.
  */
 
+import { clearAllSessionData } from '../../utils/sessionPersistence.js';
+
 /**
  * Module state - tracks current profile data and UI state.
  */
@@ -535,6 +537,8 @@ export function showProfilePage(profile, socket) {
 
   modal.appendChild(statsGrid);
 
+  modal.appendChild(createSignOutButton());
+
   // Danger zone — account deletion (required by App Store Guideline 5.1.1(v))
   modal.appendChild(createDangerZone(socket));
 
@@ -548,6 +552,32 @@ export function showProfilePage(profile, socket) {
   });
 
   document.body.appendChild(overlay);
+}
+
+/**
+ * Sign Out: the web client stays signed in across visits, so shared family
+ * computers need an explicit way to switch players.
+ *
+ * @returns {HTMLElement}
+ */
+export function createSignOutButton() {
+  const btn = document.createElement('button');
+  btn.innerText = 'Sign Out';
+  btn.id = 'profileSignOutButton';
+  btn.style.marginTop = '25px';
+  btn.style.padding = '10px 20px';
+  btn.style.borderRadius = '6px';
+  btn.style.border = '1px solid #4a5568';
+  btn.style.background = '#374151';
+  btn.style.color = '#fff';
+  btn.style.fontSize = '14px';
+  btn.style.cursor = 'pointer';
+  btn.addEventListener('click', () => {
+    clearAllSessionData();
+    // Reloading drops the socket; the server's disconnect flow cleans up
+    window.location.reload();
+  });
+  return btn;
 }
 
 /**

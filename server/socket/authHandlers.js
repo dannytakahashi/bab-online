@@ -3,10 +3,33 @@
  */
 
 const bcrypt = require('bcryptjs');
-const { v4: uuidv4 } = require('uuid');
 const { getUsersCollection, getGameRecordsCollection } = require('../database');
 const gameManager = require('../game/GameManager');
 const { authLogger } = require('../utils/logger');
+const { issueSession, verifySession } = require('../utils/sessionTokens');
+
+/**
+ * Accounts merged by scripts/merge-accounts.js stay behind as tombstones
+ * ({ username, mergedInto }). Tell the player which account to use instead
+ * of a generic "wrong password", since they likely forgot which one is theirs.
+ */
+function mergedAccountMessage(username, mergedInto) {
+    return `"${username}" was combined into your account "${mergedInto}". Please sign in as ${mergedInto}.`;
+}
+
+/**
+ * One live connection per user: kick the previous socket (another device or
+ * tab) so a game never has two sockets for the same player.
+ */
+function disconnectPreviousSocket(io, previousSocketId, currentSocketId, username) {
+    if (!previousSocketId || previousSocketId === currentSocketId) return;
+    const oldSocket = io.sockets.sockets.get(previousSocketId);
+    if (!oldSocket) return;
+    oldSocket.emit('forceLogout');
+    gameManager.handleDisconnect(previousSocketId);
+    oldSocket.disconnect();
+    authLogger.info('User logged out from another device', { username });
+}
 
 async function signIn(socket, io, data) {
     const usersCollection = getUsersCollection();
@@ -24,6 +47,15 @@ async function signIn(socket, io, data) {
             return;
         }
 
+        if (user.mergedInto) {
+            socket.emit('signInResponse', {
+                success: false,
+                message: mergedAccountMessage(username, user.mergedInto)
+            });
+            authLogger.info('Sign-in to merged account redirected', { username, mergedInto: user.mergedInto });
+            return;
+        }
+
         const passwordMatch = await bcrypt.compare(password, user.password);
         if (!passwordMatch) {
             socket.emit('signInResponse', {
@@ -35,23 +67,19 @@ async function signIn(socket, io, data) {
         }
 
         // If user is already logged in, disconnect the old session
-        if (user.socketId) {
-            const oldSocket = io.sockets.sockets.get(user.socketId);
-            if (oldSocket) {
-                oldSocket.emit('forceLogout');
-                gameManager.handleDisconnect(user.socketId);
-                oldSocket.disconnect();
-                authLogger.info('User logged out from another device', { username });
-            }
-        }
+        disconnectPreviousSocket(io, user.socketId, socket.id, username);
 
-        // Generate a session token for reconnection
-        const sessionToken = uuidv4();
+        // New per-device session token; other devices' tokens stay valid
+        const session = issueSession(user);
+        const sessionToken = session.token;
+        socket.data.sessionHash = session.hash;
 
-        // Update MongoDB with the new socket ID and session token
         await usersCollection.updateOne(
             { username },
-            { $set: { socketId: socket.id, sessionToken } }
+            {
+                $set: { socketId: socket.id, ...session.update.$set },
+                $unset: session.update.$unset
+            }
         );
 
         // Register with game manager
@@ -142,14 +170,18 @@ async function signUp(socket, io, data) {
         if (existingUser) {
             socket.emit('signUpResponse', {
                 success: false,
-                message: 'Username already taken!'
+                message: existingUser.mergedInto
+                    ? mergedAccountMessage(username, existingUser.mergedInto)
+                    : 'Username already taken!'
             });
             authLogger.warn('Sign-up failed: username taken', { username });
             return;
         }
 
-        // Generate a session token for reconnection
-        const sessionToken = uuidv4();
+        // Session token for reconnection (this device's first session)
+        const session = issueSession(null);
+        const sessionToken = session.token;
+        socket.data.sessionHash = session.hash;
 
         const hashedPassword = await bcrypt.hash(password, 10);
         // Generate random profile pic (1-82)
@@ -158,7 +190,7 @@ async function signUp(socket, io, data) {
             username,
             password: hashedPassword,
             socketId: socket.id,  // Set socketId immediately for auto-login
-            sessionToken,
+            sessionTokens: session.update.$set.sessionTokens,
             profilePic,
             stats: {
                 wins: 0,
@@ -209,7 +241,16 @@ async function restoreSession(socket, io, data) {
             return;
         }
 
-        if (!user.sessionToken || user.sessionToken !== sessionToken) {
+        if (user.mergedInto) {
+            socket.emit('restoreSessionResponse', {
+                success: false,
+                message: mergedAccountMessage(username, user.mergedInto)
+            });
+            return;
+        }
+
+        const session = verifySession(user, sessionToken);
+        if (!session) {
             socket.emit('restoreSessionResponse', {
                 success: false,
                 message: 'Invalid session token'
@@ -218,10 +259,22 @@ async function restoreSession(socket, io, data) {
             return;
         }
 
-        // Session token is valid - update socket ID
+        // A different device resuming its saved session takes over the one
+        // live connection. The same device reconnecting (same token, e.g. a
+        // network blip or page refresh) is left to the normal disconnect flow.
+        const previousSocket = user.socketId ? io.sockets.sockets.get(user.socketId) : null;
+        if (previousSocket && previousSocket.data?.sessionHash !== session.hash) {
+            disconnectPreviousSocket(io, user.socketId, socket.id, username);
+        }
+        socket.data.sessionHash = session.hash;
+
+        // Session token is valid - update socket ID and session last-used time
         await usersCollection.updateOne(
             { username },
-            { $set: { socketId: socket.id } }
+            {
+                $set: { socketId: socket.id, ...session.update.$set },
+                $unset: session.update.$unset
+            }
         );
 
         // Register with game manager
@@ -344,6 +397,10 @@ async function deleteAccount(socket, io, data) {
         // leaderboard entry), profile pictures, and active game/tournament
         // pointers in one shot — everything else is keyed by this document
         await usersCollection.deleteOne({ username });
+
+        // Old accounts merged into this one only reserve their names; remove
+        // them too so nothing tied to this person remains
+        await usersCollection.deleteMany({ mergedInto: username });
 
         // Keep an in-flight game from re-inserting this username into a new
         // game record after the anonymization above

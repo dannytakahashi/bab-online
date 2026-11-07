@@ -6,6 +6,7 @@
 
 import { SERVER_EVENTS } from '../constants/events.js';
 import { getGameState } from '../state/GameState.js';
+import { rememberSession } from '../utils/sessionPersistence.js';
 
 /**
  * Register authentication handlers.
@@ -38,6 +39,7 @@ export function registerAuthHandlers(socketManager, callbacks = {}) {
       sessionStorage.setItem('username', data.username);
       if (data.sessionToken) {
         sessionStorage.setItem('sessionToken', data.sessionToken);
+        rememberSession(data.username, data.sessionToken);
       }
 
       // Update state
@@ -59,6 +61,7 @@ export function registerAuthHandlers(socketManager, callbacks = {}) {
       sessionStorage.setItem('username', data.username);
       if (data.sessionToken) {
         sessionStorage.setItem('sessionToken', data.sessionToken);
+        rememberSession(data.username, data.sessionToken);
       }
 
       // Update state
@@ -76,7 +79,8 @@ export function registerAuthHandlers(socketManager, callbacks = {}) {
   socketManager.on(SERVER_EVENTS.FORCE_LOGOUT, (data) => {
     console.warn('⚠️ Force logout:', data?.reason);
 
-    // Clear stored credentials
+    // Clear this tab's credentials. The device's saved session is kept:
+    // reloading the page resumes it here (taking over from the other device).
     sessionStorage.removeItem('username');
     sessionStorage.removeItem('sessionToken');
     sessionStorage.removeItem('gameId');
