@@ -813,7 +813,6 @@ function calculateOptimalBid(hand, trump, position, existingBids, handSize, memo
     let highestBore = null;
     let highestBorePosition = null;
     let oppNumericBid = false;     // an opponent bid a number > 0
-    let partnerNumericBid = false; // partner bid a number > 0
 
     for (let i = 0; i < 4; i++) {
         const bid = existingBids[i];
@@ -824,7 +823,6 @@ function calculateOptimalBid(hand, trump, position, existingBids, handSize, memo
 
         if (!isBoreBid && bidValue > 0) {
             if (opponentPositions.includes(bidPosition)) oppNumericBid = true;
-            if (bidPosition === partnerPosition) partnerNumericBid = true;
         }
 
         if (opponentPositions.includes(bidPosition)) {
@@ -857,7 +855,7 @@ function calculateOptimalBid(hand, trump, position, existingBids, handSize, memo
 
     // --- BORE DECISIONS (check before normal bidding) ---
     const boreBid = decideBore(hand, trump, handSize, evaluation, existingBids, position, {
-        highestBore, highestBorePosition, opponentBored, oppNumericBid, partnerNumericBid
+        highestBore, highestBorePosition, opponentBored, oppNumericBid
     });
     if (boreBid) return boreBid;
 
