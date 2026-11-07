@@ -68,7 +68,8 @@ const schemas = {
     // Reconnection
     rejoinGame: Joi.object({
         gameId: Joi.string().uuid().required(),
-        username: Joi.string().min(1).max(50).required()
+        username: Joi.string().min(1).max(50).required(),
+        sessionToken: Joi.string().max(200).optional()
     }),
 
     // Resignation

@@ -253,6 +253,22 @@ function findHighestBidder(startPosition, bids) {
  * @param {string} bid2 - Second player's bid (teammate)
  * @returns {number} - Multiplier (1, 2, 4, 8, or 16)
  */
+/**
+ * Server-side bid legality. Numeric bids must fit the hand; a bore above 'B'
+ * requires the level directly below it to already be on the table (2B needs
+ * a B, 3B a 2B, 4B a 3B) — levels can't be skipped.
+ * @param {string} bid - Uppercased bid string
+ * @param {Array} playerBids - Bids so far, indexed by position-1
+ * @param {number} handSize - Cards in this hand
+ * @returns {boolean}
+ */
+function isValidBid(bid, playerBids, handSize) {
+    if (/^\d+$/.test(bid)) return Number(bid) <= handSize;
+    const prerequisite = { B: null, '2B': 'B', '3B': '2B', '4B': '3B' };
+    if (!(bid in prerequisite)) return false;
+    return prerequisite[bid] === null || playerBids.includes(prerequisite[bid]);
+}
+
 function calculateMultiplier(bid1, bid2) {
     const bids = [bid1, bid2];
 
@@ -353,6 +369,7 @@ function calculateHSI(hand, trump) {
 module.exports = {
     RANK_VALUES,
     BID_RANKS,
+    isValidBid,
     rotatePosition,
     getPartnerPosition,
     isSameSuit,
