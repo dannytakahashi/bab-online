@@ -87,35 +87,32 @@ When a joker is flipped, there is no trump suit — but **the other joker is sti
 
 ## Bore Strategy
 
-Bore is a double-or-nothing bet to win ALL tricks. It's most valuable on **small hands**: a 2-card bore is worth 40 points against 20 for a plain bid of 2 — same requirement, double the reward — while a 12-card bore needs an extraordinary hand to be anything but a donation. In practice, well-judged bores succeed about 90% of the time, and ~85% of kept 1-card hands contain one.
+Bore is a double-or-nothing bet to win ALL tricks. It's most valuable on **small hands**: a 2-card bore is worth 40 points against 20 for a plain bid of 2 — same requirement, double the reward — while a 12-card bore needs an extraordinary hand to be anything but a donation. Because a plain small-hand bid only earns about +10 to +20, **a small bore stays profitable down to roughly a 60–65% chance of sweeping**. Boring only on near-certainties (the old bot: ~1.5% of hands, ~91% success) leaves most of the profitable bores on the table.
 
-### 1-Card Hands
+### Small hands (1–5 cards): estimate the sweep, then decide
 
-- **HI joker** (or LO when the HI was flipped): bore **unconditionally** — the card is unbeatable, and the bore itself wins you the lead.
-- **LO joker or trump Ace**: bore unless an opponent has already bored (their bore may be the HI joker). Expected value strongly favors the bore: ~94% to win doubles your payoff for a small added risk.
-- **Trump King**: bore only as dealer after seeing all three others bid 0.
-- **Trump Queen or lower**: don't bore; trump 7+ still bids 1.
+The bot estimates P(sweep) assuming it holds the opening lead (a bore is the highest bid, so it does):
+- **All-trump hands** lead the HI joker first (it pulls an opponent's highest trump), then the rest top-down. They lose only if an opponent holds enough trump above yours.
+- **Mixed hands** must lead their off-suit cards while trump is unbroken, into possible ruffs and higher cards. That's why HI joker + off-suit Ace on 2 cards is only ~45–58% and does *not* bore, while HI + trump King (~99.8%) bores from any seat.
+- **Read the bids you've actually seen.** A 0 says "no top trump" (raises your odds); a number says "probably a top trump" (lowers them); an unbid seat says nothing.
 
-### 2-Card Hands (after seeing at least one bid, all seen bids 0)
-
-- **Two trump, at least one mid (7+)**: bore.
-- **One top trump (joker or trump Ace) + one high off-suit card (A/K)**: bore — lead the off-suit card into the weak field first.
-- **No-trump A+A** (as dealer, weak field): bore — nothing can ruff you.
-- **One top trump + junk**: do NOT bore. The junk card will lose a trick.
-
-### 3-5 Card Hands
-
-Bore only with the HI joker plus a near-all-trump holding. The more tricks you must sweep, the faster bore equity evaporates.
+Bore when P(sweep) ≥ 0.6. After an **opponent bid a number**, demand ≥ 0.9: their trick is usually a trump that beats yours, and the estimate is too generous there. Examples: a lone low trump bores as dealer after three 0s (~83%); a lone off-suit Ace as first bidder doesn't (~53%).
 
 ### Large Hands (10+)
 
-Only with both jokers and 7+ trump. These are once-a-season hands.
+Only with both jokers and 7+ trump. These are once-a-season hands. (Hands of 6–9 cards don't bore unless they're a lock.)
 
-### Bore Escalation (2B/3B/4B)
+### Locks and counter-bores
 
-Support your partner's bore with the next level up when the hand is small (≤4 cards) and you hold decent trump. Two rules the original bot got wrong:
-- Escalate **above the highest bore on the table**, not blindly to "the next level" — re-boring at the same level isn't a thing.
-- If an **opponent** holds the highest bore, escalating doubles the stakes on a hand someone else thinks they'll sweep. Only do it holding the unbeatable card yourself (HI joker, or LO when HI was flipped).
+- **A lock** — every card is a top trump (HI, LO, trump A, … with no gap, skipping the flipped card) — wins every trick whoever leads. Bore, or escalate one level over *any* bore on the table.
+- **Only a lock may counter-bore an opponent.** Every sweep estimate assumes you keep the lead; an opponent's bore keeps it with them, and a later seat can always escalate and take it. Measured: every non-lock counter-bore lost 20–80 points per hand.
+
+### Supporting partner's bore (2B/3B/4B)
+
+- **1 card: always escalate partner's bore, whatever you hold.** A 1-card bore is ~99% to sweep and your card can only help (worth ~1 point of win rate in sim).
+- **2–4 cards:** escalate holding at least half your cards in trump; on 2 cards, also with an off-suit Ace (no off-suit King).
+- If an opponent also bored, escalate only holding the unbeatable card yourself (HI joker, or LO when HI was flipped).
+- **Never skip or repeat a level**: 'B' only when no bore is out, otherwise exactly one level above the highest bore on the table. The server rejects skipped levels.
 
 ## Playing the Contract
 
@@ -190,7 +187,7 @@ A rainbow (one card of each suit) pays +10 even if you're set, and rainbow hands
 4. **There is no card conservation without an objective.** Once both contracts are decided, "saving" a card wastes it. Play every remaining trick to win.
 5. **Secure beats cheap when contesting.** Cheapest *boss* winner first; failing that, fight high. Classical lowest-that-beats economy assumes a scoring system this game doesn't have.
 6. **A partner's safe win is sacred; a vulnerable one isn't.** Count, then duck or overtake — don't guess by rank.
-7. **Bores are a small-hand weapon with ~90% success when properly gated** — and the gates are informational (bids actually seen), not just material.
+7. **Bores are a small-hand weapon, and ~80% success beats ~90%.** Bore whenever the sweep chance clears the break-even (~60%), reading the bids actually seen; only locks counter-bore an opponent.
 8. **The flipped card is information.** Promote honors under it; in no-trump, know where the live joker is before calling anything safe.
 
 ---

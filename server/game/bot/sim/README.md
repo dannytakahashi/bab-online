@@ -97,8 +97,9 @@ seeds 201–204; the numbers below are on held-out seeds.
 | mary vs legacy mary | 58.7% ±0.8 | 62.1% ±0.8 |
 | mary vs legacy danny+zach | 59.0% ±0.8 | 61.8% ±0.8 |
 
-Mary's bore stats (seeds 11/12): attempt rate 1.1% → 4.9–5.0% of hands,
-success 89–91% → 82–83%, team set rate 8.7% → 8.8–8.9%. Bores fail more often
+Mary's bore stats: attempt rate 1.4–1.5% of hands (main, mary-vs-mary
+control) → 4.9–5.0% (seeds 11/12); success 91% → 82–83%; team set rate
+8.6% → 8.8–8.9%. Bores fail more often
 now, by design: a 2-card bore pays ±40 against roughly +10 to +20 for a plain
 bid, so it stays +EV down to about a 60–65% sweep rate. A bid decision takes
 at most ~1 ms (5-card hand). Zero incidents and zero exceptions in every run.
