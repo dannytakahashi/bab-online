@@ -15,6 +15,7 @@ const {
     calculateMultiplier,
     determineDrawPosition,
     calculateHSI,
+    isValidBid,
     BID_RANKS
 } = require('../game/rules');
 const { delay } = require('../utils/timing');
@@ -22,6 +23,16 @@ const { gameLogger } = require('../utils/logger');
 const { botController, personalities } = require('../game/bot');
 const { PERSONALITY_LIST } = personalities;
 const { cancelAbortTimer } = require('./queueHandlers');
+
+/**
+ * Tell the sender its action was refused (instead of failing silently) so a
+ * client can resync rather than freeze. Clients that predate this event just
+ * ignore it.
+ */
+function rejectAction(socket, game, action, reason, extra = {}) {
+    gameLogger.warn('Action rejected', { action, reason, gameId: game.gameId, socketId: socket.id, ...extra });
+    socket.emit('actionRejected', { action, reason });
+}
 
 /**
  * Check if the current turn is a bot and schedule their action
@@ -52,10 +63,16 @@ function triggerBotIfNeeded(io, game, actionType) {
         const delayMs = bot.getActionDelay(actionType);
 
         setTimeout(() => {
+          // A throw in a timer callback is an uncaughtException, which the
+          // shutdown handler turns into process.exit — taking every game on
+          // the server down with it. Contain failures to this one action.
+          try {
             // Re-validate before acting: the game may have moved on during the
             // delay (turn advanced, trick resolved, /active, game ended). A
             // stale write here corrupts playedCards and wedges the game.
             if (!gameManager.getGameById(game.gameId)) return;
+            // No hand dealt yet (draw / team announcement) — nothing to act on
+            if (!game.isHandInProgress()) return;
             if (!game.isLazy(bot.position)) return;
             if (game.currentTurn !== bot.position) return;
 
@@ -101,6 +118,9 @@ function triggerBotIfNeeded(io, game, actionType) {
                 game.currentTurn = rotatePosition(game.currentTurn);
                 handlePostPlay(io, game);
             }
+          } catch (err) {
+            gameLogger.error('Lazy-bot action failed', { gameId: game.gameId, actionType, error: err.message, stack: err.stack });
+          }
         }, delayMs);
         return;
     }
@@ -560,13 +580,22 @@ async function playerBid(socket, io, data) {
 
     const position = game.getPositionBySocketId(socket.id);
 
-    // Validate turn
-    if (!game.bidding || position !== game.currentTurn) {
-        gameLogger.warn('Player tried to bid out of turn', { position, currentTurn: game.currentTurn, gameId: game.gameId });
+    // Validate turn (and that a hand is actually dealt — before startHand,
+    // currentTurn/bidding hold constructor defaults)
+    if (!game.isHandInProgress() || !game.bidding || position !== game.currentTurn) {
+        rejectAction(socket, game, 'bid', 'not_your_turn', { position, currentTurn: game.currentTurn });
+        return;
+    }
+    if (game.playerBids[position - 1] != null) {
+        rejectAction(socket, game, 'bid', 'already_bid', { position });
         return;
     }
 
     const bid = String(data.bid).toUpperCase();
+    if (!isValidBid(bid, game.playerBids, game.currentHand)) {
+        rejectAction(socket, game, 'bid', 'invalid_bid', { position, bid, handSize: game.currentHand });
+        return;
+    }
     game.recordBid(position, bid);
 
     // Add bid to game log
@@ -593,9 +622,21 @@ async function playCard(socket, io, data) {
 
     const position = game.getPositionBySocketId(socket.id);
 
-    // Validate turn
-    if (position !== game.currentTurn || game.bidding) {
-        gameLogger.warn('Player tried to play out of turn', { socketId: socket.id, position, currentTurn: game.currentTurn });
+    // Validate turn, phase, trick state and card ownership. During the
+    // trick-resolution pause currentTurn has already rotated to the leader
+    // while playedCardsIndex is still 4 — accepting a play there overwrote
+    // the trick and wedged the game; a card not in hand was also accepted.
+    if (!game.isHandInProgress() || position !== game.currentTurn || game.bidding) {
+        rejectAction(socket, game, 'play', 'not_your_turn', { position, currentTurn: game.currentTurn });
+        return;
+    }
+    const check = game.validateCardPlay(socket.id, data.card);
+    if (!check.valid) {
+        rejectAction(socket, game, 'play', 'invalid_play', { position, error: check.error });
+        return;
+    }
+    if (game.playedCards[position - 1]) {
+        rejectAction(socket, game, 'play', 'already_played', { position });
         return;
     }
 
@@ -614,6 +655,7 @@ async function playCard(socket, io, data) {
             gameLogger.warn('Player tried to lead illegal card', { position, card, gameId: game.gameId });
             // Re-add card to hand
             hand.push(card);
+            rejectAction(socket, game, 'play', 'illegal_card', { position, card });
             return;
         }
         game.leadCard = card;
@@ -623,6 +665,7 @@ async function playCard(socket, io, data) {
             gameLogger.warn('Player tried to play illegal card', { position, card, gameId: game.gameId });
             // Re-add card to hand
             remainingHand.push(card);
+            rejectAction(socket, game, 'play', 'illegal_card', { position, card });
             return;
         }
     }

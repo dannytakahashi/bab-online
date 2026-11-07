@@ -5,6 +5,27 @@
 const gameManager = require('../game/GameManager');
 const { cancelAbortTimer } = require('./queueHandlers');
 const { socketLogger } = require('../utils/logger');
+const { getUsersCollection } = require('../database');
+
+/**
+ * A rejoin binds this socket to `username` and hands it that seat's hand, so
+ * the caller must prove it is that user: either the socket already signed in
+ * / restored a session as them, or the payload carries their session token
+ * (the web client rejoins straight after a reload or reconnect, before any
+ * restoreSession round trip).
+ */
+async function isAuthorizedForUser(socket, username, sessionToken) {
+    const authed = gameManager.getUserBySocketId(socket.id);
+    if (authed && authed.username === username) return true;
+    if (!sessionToken) return false;
+    try {
+        const user = await getUsersCollection().findOne({ username }, { projection: { sessionToken: 1 } });
+        return !!(user && user.sessionToken && user.sessionToken === sessionToken);
+    } catch (err) {
+        socketLogger.error('Rejoin auth lookup failed', { username, error: err.message });
+        return false;
+    }
+}
 
 /**
  * If the rejoined game belongs to a tournament, reattach the player's
@@ -39,9 +60,15 @@ function reattachTournament(io, socket, gameId, username) {
  * Handle a player attempting to rejoin a game after disconnect
  */
 async function rejoinGame(socket, io, data) {
-    const { gameId, username } = data;
+    const { gameId, username, sessionToken } = data;
 
     socketLogger.debug('Rejoin attempt', { username, gameId });
+
+    if (!(await isAuthorizedForUser(socket, username, sessionToken))) {
+        socketLogger.warn('Rejoin refused: not authenticated as user', { username, gameId, socketId: socket.id });
+        socket.emit('rejoinFailed', { reason: 'Not authenticated' });
+        return;
+    }
 
     // Find the game
     const game = gameManager.getGameById(gameId);

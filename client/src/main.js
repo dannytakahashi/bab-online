@@ -3549,13 +3549,13 @@ window.addEventListener('load', () => {
     console.log(`User ${username} has pending game ${gameId}, attempting rejoin...`);
     if (window.socket.connected && !rejoinAttempted) {
       rejoinAttempted = true;
-      window.socket.emit('rejoinGame', { gameId, username });
+      window.socket.emit('rejoinGame', { gameId, username, sessionToken: sessionToken || undefined });
     } else if (!window.socket.connected) {
       // Socket not connected yet - wait for connect then rejoin
       window.socket.once('connect', () => {
         if (!rejoinAttempted) {
           rejoinAttempted = true;
-          window.socket.emit('rejoinGame', { gameId, username });
+          window.socket.emit('rejoinGame', { gameId, username, sessionToken: sessionToken || undefined });
         }
       });
     }

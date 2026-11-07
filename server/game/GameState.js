@@ -783,6 +783,16 @@ class GameState {
      * @param {Object} card - Card being played
      * @returns {{ valid: boolean, error?: string }}
      */
+    /**
+     * True only while a hand is actually dealt and live (bidding or play).
+     * phase stays 'bidding' through the play of the hand; trump is null from
+     * construction until startHand deals, which covers the draw and the
+     * team-announcement window where bids/plays/bot timers must not act.
+     */
+    isHandInProgress() {
+        return this.phase === 'bidding' && !!this.trump;
+    }
+
     validateCardPlay(socketId, card) {
         // Check turn
         const turnCheck = this.validateTurn(socketId);

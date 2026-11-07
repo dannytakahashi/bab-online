@@ -157,7 +157,10 @@ export class SocketManager {
 
     if (gameId && username) {
       console.log(`Attempting to rejoin game ${gameId} as ${username}`);
-      this.emit(CLIENT_EVENTS.REJOIN_GAME, { gameId, username });
+      // The server only hands a seat to a socket that proves it is that user;
+      // a reconnected socket hasn't restored its session yet, so send the token
+      const sessionToken = sessionStorage.getItem('sessionToken') || undefined;
+      this.emit(CLIENT_EVENTS.REJOIN_GAME, { gameId, username, sessionToken });
       return;
     }
 

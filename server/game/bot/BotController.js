@@ -125,7 +125,13 @@ class BotController {
 
         const timeoutId = setTimeout(() => {
             this.pendingActions.delete(actionKey);
-            actionHandler(io, game, bot);
+            // Contain failures: an uncaughtException here would exit the
+            // whole server (see utils/shutdown.js), dropping every game
+            try {
+                actionHandler(io, game, bot);
+            } catch (err) {
+                gameLogger.error('Bot action failed', { gameId: game.gameId, actionType, error: err.message, stack: err.stack });
+            }
         }, delay);
 
         this.pendingActions.set(actionKey, timeoutId);
@@ -155,7 +161,11 @@ class BotController {
 
         const timeoutId = setTimeout(() => {
             this.pendingActions.delete(actionKey);
-            this.processBotDraw(io, game, bot);
+            try {
+                this.processBotDraw(io, game, bot);
+            } catch (err) {
+                gameLogger.error('Bot draw failed', { gameId: game.gameId, error: err.message, stack: err.stack });
+            }
         }, delay);
 
         this.pendingActions.set(actionKey, timeoutId);
@@ -213,7 +223,7 @@ class BotController {
      *   no longer allows it (callers must NOT advance the turn on false)
      */
     processBotBid(io, game, bot) {
-        if (!game.bidding || game.currentTurn !== bot.position) {
+        if (!game.isHandInProgress() || !game.bidding || game.currentTurn !== bot.position) {
             gameLogger.warn('Bot bid skipped: stale game state', {
                 gameId: game.gameId, botName: bot.username,
                 bidding: game.bidding, currentTurn: game.currentTurn, botPosition: bot.position
@@ -259,7 +269,7 @@ class BotController {
      *   no longer allows it (callers must NOT advance the turn on false)
      */
     processBotPlay(io, game, bot) {
-        if (game.bidding || game.currentTurn !== bot.position) {
+        if (!game.isHandInProgress() || game.bidding || game.currentTurn !== bot.position) {
             gameLogger.warn('Bot play skipped: stale game state', {
                 gameId: game.gameId, botName: bot.username,
                 bidding: game.bidding, currentTurn: game.currentTurn, botPosition: bot.position
