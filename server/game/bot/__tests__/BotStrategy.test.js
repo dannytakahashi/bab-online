@@ -20,7 +20,9 @@ const {
     hasOpponentsAfterMe,
     isWinVulnerable,
     bestWithoutHiJoker,
-    countLockedWinners
+    countLockedWinners,
+    analyzeLeadSweep,
+    NEXT_BORE
 } = require('../BotStrategy');
 
 const BotPlayer = require('../BotPlayer');
@@ -230,18 +232,23 @@ describe('calculateOptimalBid', () => {
             expect(bid).toBe('B');
         });
 
-        test('2-card hand: HI joker + Ace non-trump bores when all bid 0', () => {
+        // Changed deliberately (bore tuning round 2): the off-suit card must be
+        // led into possible ruffs while trump is unbroken, so HI + off-suit A
+        // sweeps only ~58% even after three 0 bids (model 0.58; sim
+        // counterfactuals measured the old "high trump + off-suit A/K" bore at
+        // -2.8 points per decision). Bid the sure trick instead.
+        test('2-card hand: HI joker + Ace non-trump does NOT bore, bids 1', () => {
             const hand = [HI, card('spades', 'A')];
             const bids = ['0', undefined, '0', '0'];
             const bid = calculateOptimalBid(hand, heartsTrump, 2, bids, 2, null, null);
-            expect(bid).toBe('B');
+            expect(bid).toBe('1');
         });
 
-        test('2-card hand: HI joker + King non-trump bores when all bid 0', () => {
+        test('2-card hand: HI joker + King non-trump does NOT bore, bids 1', () => {
             const hand = [HI, card('spades', 'K')];
             const bids = ['0', undefined, '0', '0'];
             const bid = calculateOptimalBid(hand, heartsTrump, 2, bids, 2, null, null);
-            expect(bid).toBe('B');
+            expect(bid).toBe('1');
         });
 
         test('2-card hand: HI joker + 5 non-trump does NOT bore', () => {
@@ -258,9 +265,20 @@ describe('calculateOptimalBid', () => {
             expect(bid).toBe('B');
         });
 
-        test('1-card hand: low trump does NOT bore', () => {
+        // Changed deliberately (bore tuning round 2): as dealer after three 0
+        // bids, nobody is likely to hold a higher trump (model 0.83; sim
+        // counterfactuals: 96% sweep, +13 points per decision), so a low trump
+        // now bores. After an opponent's non-zero bid it still doesn't.
+        test('1-card hand: low trump bores as dealer after three 0 bids', () => {
             const hand = [card('hearts', '3')];
             const bids = ['0', undefined, '0', '0'];
+            const bid = calculateOptimalBid(hand, heartsTrump, 2, bids, 1, null, null);
+            expect(bid).toBe('B');
+        });
+
+        test('1-card hand: low trump does NOT bore after an opponent bid 1', () => {
+            const hand = [card('hearts', '3')];
+            const bids = ['1', undefined, undefined, undefined];
             const bid = calculateOptimalBid(hand, heartsTrump, 2, bids, 1, null, null);
             expect(bid).not.toBe('B');
         });
@@ -382,6 +400,129 @@ describe('calculateOptimalBid', () => {
             const bids = ['0', undefined, undefined, 'B'];
             const bid = calculateOptimalBid(hand, heartsTrump, 2, bids, 2, null, null);
             expect(bid).toBe('2B');
+        });
+
+        test('1-card hand: escalates partner bore with ANY card (even an off-suit 2)', () => {
+            const bid = calculateOptimalBid([card('spades', '2')], heartsTrump, 2, [undefined, undefined, undefined, 'B'], 1, null, null);
+            expect(bid).toBe('2B');
+        });
+
+        test('1-card hand: HI joker over partner bore escalates instead of repeating B', () => {
+            expect(calculateOptimalBid([HI], heartsTrump, 2, [undefined, undefined, undefined, 'B'], 1, null, null)).toBe('2B');
+        });
+    });
+
+    describe('sweep-model bores (round 2)', () => {
+        const NONE = [undefined, undefined, undefined, undefined];
+
+        test('analyzeLeadSweep: all-trump hands with the HI are near-certain', () => {
+            expect(analyzeLeadSweep([HI, card('hearts', 'K')], heartsTrump, 2)).toBeGreaterThan(0.99);
+        });
+
+        test('analyzeLeadSweep: an off-suit card to lead drags the odds down', () => {
+            const p = analyzeLeadSweep([HI, card('spades', 'A')], heartsTrump, 2);
+            expect(p).toBeGreaterThan(0.4);
+            expect(p).toBeLessThan(0.5);
+        });
+
+        test("analyzeLeadSweep: opponents' 0 bids raise the odds, a number lowers them", () => {
+            const hand = [LO, card('hearts', 'A')];
+            const unknown = analyzeLeadSweep(hand, heartsTrump, 2);
+            expect(analyzeLeadSweep(hand, heartsTrump, 2, ['0', '0'])).toBeGreaterThan(unknown);
+            expect(analyzeLeadSweep(hand, heartsTrump, 2, ['1'])).toBeLessThan(unknown);
+        });
+
+        test('analyzeLeadSweep is a pure function of its inputs', () => {
+            const hand = [card('hearts', 'Q'), card('hearts', '9'), card('spades', 'A')];
+            expect(analyzeLeadSweep(hand, heartsTrump, 3, ['0'])).toBe(analyzeLeadSweep(hand, heartsTrump, 3, ['0']));
+        });
+
+        test('first bidder bores a strong all-trump hand (no weak field needed)', () => {
+            expect(calculateOptimalBid([HI, card('hearts', 'K')], heartsTrump, 1, NONE, 2, null, null)).toBe('B');
+            expect(calculateOptimalBid([LO, card('hearts', 'A')], heartsTrump, 1, NONE, 2, null, null)).toBe('B');
+        });
+
+        test('after an opponent bid a number, a 0.6-0.9 hand does not bore', () => {
+            // LO + trump A: model 0.92 unconditioned, ~0.86 after an opponent's 1
+            expect(calculateOptimalBid([LO, card('hearts', 'A')], heartsTrump, 2, ['1', undefined, undefined, undefined], 2, null, null)).not.toBe('B');
+            // ...but it bores after opponents' zeros
+            expect(calculateOptimalBid([LO, card('hearts', 'A')], heartsTrump, 2, ['0', undefined, undefined, '0'], 2, null, null)).toBe('B');
+        });
+
+        test('a 1-card off-suit Ace does not bore as first bidder', () => {
+            expect(calculateOptimalBid([card('spades', 'A')], heartsTrump, 1, NONE, 1, null, null)).not.toBe('B');
+        });
+
+        test('counter-bore over an opponent needs a true lock, not just a likely sweep', () => {
+            // HI + trump A sweeps from the lead, but the opponent's bore keeps the
+            // lead with them: no counter
+            expect(calculateOptimalBid([HI, card('hearts', 'A')], heartsTrump, 2, ['B', undefined, undefined, undefined], 2, null, null)).not.toMatch(/B/);
+            // HI + LO wins every trick whoever leads
+            expect(calculateOptimalBid([HI, LO], heartsTrump, 2, ['B', undefined, undefined, undefined], 2, null, null)).toBe('2B');
+        });
+
+        test('no bore is possible over 4B', () => {
+            expect(calculateOptimalBid([HI], heartsTrump, 2, ['4B', undefined, undefined, undefined], 1, null, null)).not.toMatch(/B/);
+        });
+
+        test('every bore bid is exactly the next level, never a repeat or a skip (random hands)', () => {
+            const SUITS = ['spades', 'hearts', 'diamonds', 'clubs'];
+            const RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
+            const deck = [HI, LO];
+            for (const s of SUITS) for (const r of RANKS) deck.push(card(s, r));
+            let seed = 42;
+            const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+            const BIDS = ['0', '1', '2', 'B'];
+            const ESCALATE = { B: '2B', '2B': '3B', '3B': '4B', '4B': '4B' };
+            let bores = 0;
+            for (let t = 0; t < 3000; t++) {
+                const d = deck.slice();
+                for (let i = d.length - 1; i > 0; i--) {
+                    const j = Math.floor(rnd() * (i + 1));
+                    [d[i], d[j]] = [d[j], d[i]];
+                }
+                const n = 1 + Math.floor(rnd() * 5);
+                const trump = d[53];
+                const position = 1 + Math.floor(rnd() * 4);
+                const bids = [undefined, undefined, undefined, undefined];
+                let top = null;
+                const before = Math.floor(rnd() * 4);
+                for (let k = before; k >= 1; k--) {
+                    const p = (position - 1 + 4 - k) % 4;
+                    let b = BIDS[Math.floor(rnd() * BIDS.length)];
+                    if (b === 'B') {
+                        if (top === '4B') b = '0';
+                        else b = top ? ESCALATE[top] : 'B';
+                    }
+                    if (/B/.test(b)) top = b;
+                    bids[p] = b;
+                }
+                const bid = calculateOptimalBid(d.slice(0, n), trump, position, bids, n, null, null);
+                if (/B/.test(bid)) {
+                    bores++;
+                    expect(bid).toBe(NEXT_BORE[top]);
+                }
+            }
+            expect(bores).toBeGreaterThan(50);
+        });
+
+        test('bidding never touches Math.random (deterministic)', () => {
+            const spy = jest.spyOn(Math, 'random');
+            try {
+                calculateOptimalBid([card('hearts', 'Q'), card('hearts', '9')], heartsTrump, 1, NONE, 2, null, null);
+                calculateOptimalBid([card('spades', '2')], heartsTrump, 2, [undefined, undefined, undefined, 'B'], 1, null, null);
+                calculateOptimalBid([HI, card('hearts', 'K'), card('spades', 'A'), card('clubs', '4'), card('hearts', '2')], heartsTrump, 3, ['0', '1', undefined, undefined], 5, null, null);
+                expect(spy).not.toHaveBeenCalled();
+            } finally {
+                spy.mockRestore();
+            }
+        });
+
+        test('worst-case 5-card decision stays well under 20 ms', () => {
+            const hand = [HI, card('hearts', 'K'), card('hearts', '9'), card('hearts', '4'), card('hearts', '2')];
+            const t0 = Date.now();
+            for (let i = 0; i < 10; i++) calculateOptimalBid(hand, heartsTrump, 3, ['0', '1', undefined, undefined], 5, null, null);
+            expect((Date.now() - t0) / 10).toBeLessThan(20);
         });
     });
 });
