@@ -27,6 +27,7 @@
  *   node server/game/bot/sim/simulate.js --exp legacy            # current Mary vs frozen pre-tuning Mary
  *   node server/game/bot/sim/simulate.js --exp personalities     # each personality+Mary vs Mary+Mary
  *   node server/game/bot/sim/simulate.js --team mary,danny --vs legacy:mary,legacy:mary
+ *   node server/game/bot/sim/simulate.js --baseline /tmp/BotStrategy.before.js --team mary,mary --vs base:mary,base:mary
  *
  * Personality specs: mary | sharon | danny | mike | zach, with optional
  * `legacy:` prefix to use the frozen June-2026 strategy snapshot
@@ -77,14 +78,38 @@ class LegacyBotPlayer extends BotPlayer {
     }
 }
 
+/**
+ * Bot that plays with an arbitrary strategy module (--baseline <file>), e.g. a
+ * copy of BotStrategy.js taken before a change, for head-to-head A/B tests of
+ * the working-tree strategy against that snapshot. Same call signatures as
+ * BotPlayer, including the contract-aware play context.
+ */
+let baselineStrategy = null;
+class BaselineBotPlayer extends BotPlayer {
+    decideBid(hand, trump, existingBids, handSize, gameContext) {
+        return baselineStrategy.calculateOptimalBid(
+            hand, trump, this.position, existingBids, handSize,
+            this.getMemorySnapshot(), gameContext, this.personality, this.partnerHistory
+        );
+    }
+
+    decideCard(hand, playedCards, leadCard, leadPosition, trump, trumpBroken, handSize, playContext = null) {
+        return baselineStrategy.selectOptimalCard(
+            hand, playedCards, leadCard, leadPosition, trump, trumpBroken,
+            this.position, this.getMemorySnapshot(), handSize, playContext, this.personality
+        );
+    }
+}
+
 const NAMES = { mary: 'Mary', sharon: 'Sharon', danny: 'Danny', mike: 'Mike', zach: 'Zach' };
 
-/** spec: 'mary' or 'legacy:mary' */
+/** spec: 'mary', 'legacy:mary' or 'base:mary' (needs --baseline) */
 function makeBot(spec, position, gameId) {
-    const legacy = spec.startsWith('legacy:');
-    const personality = legacy ? spec.slice('legacy:'.length) : spec;
+    const [prefix, rest] = spec.includes(':') ? spec.split(':') : [null, spec];
+    const personality = rest;
     if (!NAMES[personality]) throw new Error(`Unknown personality spec: ${spec}`);
-    const Ctor = legacy ? LegacyBotPlayer : BotPlayer;
+    if (prefix === 'base' && !baselineStrategy) throw new Error('base: specs require --baseline <strategy file>');
+    const Ctor = prefix === 'legacy' ? LegacyBotPlayer : prefix === 'base' ? BaselineBotPlayer : BotPlayer;
     const bot = new Ctor(`🤖 ${NAMES[personality]}`, personality);
     bot.assignToGame(gameId, position, position);
     bot.statKey = spec; // legacy and current stats must not merge
@@ -401,6 +426,7 @@ function parseArgs(argv) {
         else if (a === '--exp') args.exp = argv[++i];
         else if (a === '--team') args.team = argv[++i].split(',');
         else if (a === '--vs') args.vs = argv[++i].split(',');
+        else if (a === '--baseline') args.baseline = argv[++i];
         else if (/^\d+$/.test(a)) args.games = parseInt(a, 10); // bare number = games
         else throw new Error(`Unknown argument: ${a}`);
     }
@@ -409,6 +435,7 @@ function parseArgs(argv) {
 
 function main() {
     const args = parseArgs(process.argv);
+    if (args.baseline) baselineStrategy = require(require('path').resolve(args.baseline));
     const N = args.games;
     const t0 = Date.now();
     const results = [];
