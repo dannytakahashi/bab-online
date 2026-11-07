@@ -19,7 +19,8 @@ const {
     applyBidModifier,
     hasOpponentsAfterMe,
     isWinVulnerable,
-    bestWithoutHiJoker
+    bestWithoutHiJoker,
+    countLockedWinners
 } = require('../BotStrategy');
 
 const BotPlayer = require('../BotPlayer');
@@ -319,6 +320,58 @@ describe('calculateOptimalBid', () => {
             const bids = ['0', undefined, '0', '0'];
             const bid = calculateOptimalBid(hand, heartsTrump, 2, bids, 2, null, null, 'danny');
             expect(bid).toBe('0');
+        });
+    });
+
+    describe('guaranteed sweeps (locked top trumps)', () => {
+        const ALL = ['mary', 'sharon', 'danny', 'mike', 'zach'];
+
+        test('2-card hand: both jokers bores as FIRST bidder, every personality', () => {
+            for (const p of ALL) {
+                const bid = calculateOptimalBid([HI, LO], heartsTrump, 1, [undefined, undefined, undefined, undefined], 2, null, null, p);
+                expect(bid).toBe('B');
+            }
+        });
+
+        test('2-card hand: both jokers bores even after opponents bid numbers', () => {
+            const bid = calculateOptimalBid([HI, LO], heartsTrump, 3, ['2', '1', undefined, undefined], 2, null, null);
+            expect(bid).toBe('B');
+        });
+
+        test('2-card hand: both jokers double-bores over partner bore', () => {
+            const bid = calculateOptimalBid([HI, LO], heartsTrump, 3, ['B', '0', undefined, undefined], 2, null, null);
+            expect(bid).toBe('2B');
+        });
+
+        test('2-card hand: both jokers counter-bores over opponent bore', () => {
+            const bid = calculateOptimalBid([HI, LO], heartsTrump, 3, ['0', 'B', undefined, undefined], 2, null, null);
+            expect(bid).toBe('2B');
+        });
+
+        test('escalates through 3B to 4B', () => {
+            expect(calculateOptimalBid([HI, LO], heartsTrump, 4, ['B', '2B', '3B', undefined], 2, null, null)).toBe('4B');
+        });
+
+        test('1-card hand: HI joker counter-bores over opponent bore', () => {
+            expect(calculateOptimalBid([HI], heartsTrump, 2, ['B', undefined, undefined, undefined], 1, null, null)).toBe('2B');
+        });
+
+        test('flipped card is skipped: HI flipped, LO + trump Ace is locked', () => {
+            // HI flipped → no-trump hand; only LO is trump, so LO alone is locked
+            expect(countLockedWinners([LO], card('joker', 'HI'))).toBe(1);
+            // Trump Ace flipped: HI, LO, K run is unbroken
+            expect(countLockedWinners([HI, LO, card('hearts', 'K')], card('hearts', 'A'))).toBe(3);
+        });
+
+        test('3-card hand: HI, LO, trump A locks; HI, LO, trump K does not', () => {
+            expect(countLockedWinners([HI, LO, card('hearts', 'A')], heartsTrump)).toBe(3);
+            expect(countLockedWinners([HI, LO, card('hearts', 'K')], heartsTrump)).toBe(2);
+            expect(calculateOptimalBid([HI, LO, card('hearts', 'A')], heartsTrump, 1, [undefined, undefined, undefined, undefined], 3, null, null)).toBe('B');
+        });
+
+        test('no-trump: jokers lock, non-trump Aces do not', () => {
+            expect(countLockedWinners([HI, LO], card('joker', 'LO'))).toBe(1);
+            expect(countLockedWinners([HI, card('spades', 'A')], jokerTrump)).toBe(0);
         });
     });
 

@@ -497,6 +497,36 @@ function evaluateHand(hand, trump, handSize) {
  * @param {Array} partnerHistory - Zach's partner tracking data
  * @returns {string} - Bid value
  */
+/**
+ * Count the cards in hand that are guaranteed to win a trick no matter how
+ * play unfolds: an unbroken run of the highest trumps in play, counted down
+ * from the HI joker. The flipped trump card is out of play, so it is skipped
+ * rather than breaking the run (e.g. HI flipped → LO, trump A, ... lead it).
+ *
+ * Holding N such cards guarantees N tricks — a top trump wins whatever trick
+ * it is played into, and if a hand is entirely top trumps it may lead trump
+ * even when trump isn't broken.
+ */
+function countLockedWinners(hand, trump) {
+    const noTrump = isNoTrump(trump);
+    const order = [{ suit: 'joker', rank: 'HI' }, { suit: 'joker', rank: 'LO' }];
+    if (!noTrump) {
+        for (let i = SUIT_RANKS.length - 1; i >= 0; i--) {
+            order.push({ suit: trump.suit, rank: SUIT_RANKS[i] });
+        }
+    }
+
+    let locked = 0;
+    for (const c of order) {
+        if (c.suit === trump.suit && c.rank === trump.rank) continue; // flipped: out of play
+        if (hand.some(h => h.suit === c.suit && h.rank === c.rank)) locked++;
+        else break;
+    }
+    return locked;
+}
+
+const NEXT_BORE = { null: 'B', B: '2B', '2B': '3B', '3B': '4B', '4B': null };
+
 function calculateOptimalBid(hand, trump, position, existingBids, handSize, memory, gameContext, personality = 'mary', partnerHistory = []) {
     const evaluation = evaluateHand(hand, trump, handSize);
     const noTrump = isNoTrump(trump);
@@ -568,6 +598,16 @@ function calculateOptimalBid(hand, trump, position, existingBids, handSize, memo
     }
 
     // --- BORE DECISIONS (check before normal bidding) ---
+
+    // Guaranteed sweep: every card is a top trump, so our team wins every
+    // trick regardless of seat, lead, or what anyone else bid. Bore — or
+    // escalate one level over any existing bore (partner's raises our
+    // multiplier; an opponent's is certain to be set while ours is certain
+    // to make). No field-strength gating applies: nothing can go wrong.
+    if (countLockedWinners(hand, trump) >= handSize) {
+        const next = NEXT_BORE[highestBore];
+        if (next) return next;
+    }
 
     // When the flipped trump card is the HI joker, the LO joker is the boss
     // trump — nothing in play beats it.
@@ -1256,6 +1296,7 @@ module.exports = {
     isWinVulnerable,
     bestWithoutHiJoker,
     countHigherUnseen,
+    countLockedWinners,
     getContractState,
     pickWinner
 };
