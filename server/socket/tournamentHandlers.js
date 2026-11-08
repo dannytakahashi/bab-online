@@ -462,17 +462,23 @@ async function startTournamentRound(io, tournament, roundNumber, epoch = tournam
     // Set active game in DB for every table's humans, one parallel batch
     await Promise.all(tables.flatMap(({ game, presentHumans }) =>
         presentHumans.map(u => gameManager.setActiveGame(u, game.gameId))));
-    // A table aborted during the writes may have run its own clear before
-    // one of them landed: re-clear (scoped to that game)
-    const abortedTables = tables.filter(({ game }) => game.isTerminal());
-    if (abortedTables.length) {
-        await Promise.all(abortedTables.flatMap(({ game, presentHumans }) =>
-            presentHumans.map(u => gameManager.clearActiveGame(u, game.gameId))));
-    }
+    // A table aborted during the writes, or an entrant who left it during
+    // them (leaveTournament / /leave), may have run its own clear before
+    // the write landed: re-clear (scoped to that game). A disconnected
+    // entrant keeps its pointer (it may still come back).
+    const reclears = tables.flatMap(({ game, presentHumans, humanSocketIds }) =>
+        presentHumans.filter((u, i) => game.isTerminal() ||
+            game.entrant(humanSocketIds[i])?.presence === 'left')
+            .map(u => gameManager.clearActiveGame(u, game.gameId)));
+    if (reclears.length) await Promise.all(reclears);
     if (!live()) return stop();
 
-    for (const { game, humanSocketIds } of tables) {
+    for (const { game, humanSocketIds: allSocketIds } of tables) {
         if (game.isTerminal()) continue;
+        // Never assign a table to an entrant who already left it (or
+        // dropped) during the writes: it already got tournamentLeft /
+        // leftGame and the main room
+        const humanSocketIds = allSocketIds.filter(id => game.entrant(id)?.presence === 'connected');
         for (const socketId of humanSocketIds) {
             io.to(socketId).emit('tournamentGameAssignment', {
                 gameId: game.gameId,

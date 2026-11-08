@@ -424,6 +424,49 @@ describe('leave and disconnect during the round start', () => {
         expect(gameManager.games.size).toBe(0);
     });
 
+    test.each([
+        ['leaveTournament', (ctx, s) => tournamentHandlers.leaveTournament(s, ctx.io)],
+        ['/leave', (ctx, s) => chatHandlers.chatMessage(s, ctx.io, { message: '/leave' })],
+    ])('%s during the setActiveGame batch: no assignment, no stale pointer', async (_name, leave) => {
+        const ctx = await setupTournament(6);
+        const leaver = ctx.sockets[1];
+        const leaverName = ctx.usernames[1];
+        const gate = gateUpdates((f, u) => u.$set && 'activeGameId' in u.$set);
+        ctx.starting = tournamentHandlers.beginTournament(ctx.sockets[0], ctx.io);
+        await jest.advanceTimersByTimeAsync(1600);
+        const tables = liveTables(ctx.t);
+        expect(tables).toHaveLength(2);
+        expect(gate.hits).toBe(6);
+        const table = tables.find((g) => g.entrant(leaver.id));
+
+        await leave(ctx, leaver);
+        expect(table.entrant(leaver.id).presence).toBe('left');
+        const mark = ctx.log.length;
+        gate.release();
+        await advanceUntil(() => tables.every((g) => g.stage === Phase.BIDDING || g.stage === Phase.PLAYING), 100, 120000);
+        await ctx.starting;
+
+        const toLeaver = ctx.log.slice(mark).filter((l) => (l.to === leaver.id || l.members?.includes(leaver.id)) &&
+            l.event !== 'lobbiesUpdated');
+        expect(toLeaver.map((l) => l.event)).toEqual([]);
+        // Everyone else still got their table
+        const assigned = events(ctx.log, 'tournamentGameAssignment').map((l) => l.to);
+        expect(assigned).toHaveLength(5);
+        expect(assigned).not.toContain(leaver.id);
+        expect(events(ctx.log, 'allPlayersReady').map((l) => l.to)).not.toContain(leaver.id);
+        // The write that landed after the leave's clear is re-cleared;
+        // the others keep their table
+        const doc = (u) => mockDb.current.users.docs.find((d) => d.username === u);
+        expect(doc(leaverName).activeGameId).toBeUndefined();
+        for (const u of ctx.usernames.filter((u) => u !== leaverName)) {
+            expect(doc(u).activeGameId).toBeDefined();
+        }
+        // The table goes on with a bot in the leaver's seat
+        const pos = table.seatByUsername(leaverName);
+        expect(table.seat(pos).controller).not.toBe('human');
+        expect(errorLogs).toEqual([]);
+    });
+
     test('everyone disconnecting in the announce deletes the tournament; the start stops', async () => {
         const ctx = await setupTournament(3);
         ctx.starting = tournamentHandlers.beginTournament(ctx.sockets[0], ctx.io);
