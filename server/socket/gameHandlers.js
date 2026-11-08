@@ -440,18 +440,25 @@ async function handleDrawComplete(io, game) {
     // before teamsAnnounced so the pointer sign-in auto-rejoin reads is in
     // place in the same order as before.
     if (!alive()) return;
-    const targets = game.seatList()
-        .filter(s => s.ownerUsername && s.presence !== Presence.GONE && s.controller !== Controller.RESIGN_BOT)
-        .map(s => s.ownerUsername);
-    await Promise.all(targets.map(u => gameManager.setActiveGame(u, game.gameId)));
+    const isTarget = s => s.ownerUsername && s.presence !== Presence.GONE && s.controller !== Controller.RESIGN_BOT;
+    const targetSeats = game.seatList().filter(isTarget).map(s => ({ pos: s.position, username: s.ownerUsername }));
+    await Promise.all(targetSeats.map(t => gameManager.setActiveGame(t.username, game.gameId)));
     // Aborted meanwhile: the abort's own clear may have run before one of
-    // these writes landed, so re-clear (scoped to this game) every write
-    if (!alive()) {
-        await Promise.all(targets.map(u =>
-            gameManager.clearActiveGame(u, game.gameId).catch(logContinuationError('clearActiveGame', game))
+    // these writes landed, so re-clear (scoped to this game) every write.
+    // Likewise a seat resigned or /leave'd during the batch: its leave-time
+    // clear may have run first (the tournament batch does the same).
+    const dead = !alive();
+    const reclear = targetSeats.filter(t => {
+        if (dead) return true;
+        const seat = game.seat(t.pos);
+        return !seat || seat.ownerUsername !== t.username || !isTarget(seat);
+    });
+    if (reclear.length) {
+        await Promise.all(reclear.map(t =>
+            gameManager.clearActiveGame(t.username, game.gameId).catch(logContinuationError('clearActiveGame', game))
         ));
-        return;
     }
+    if (dead || !alive()) return;
 
     // Announce teams (positions 1&3 vs 2&4)
     const team1Player1 = game.getPlayerByPosition(1);

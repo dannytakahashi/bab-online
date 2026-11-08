@@ -244,6 +244,45 @@ describe('2. abort in each handleDrawComplete window', () => {
     });
 });
 
+describe('2b. /leave during the game-start setActiveGame batch', () => {
+    test('the leaver\'s pointer is cleared again; the others keep theirs', async () => {
+        // Regression: the batch built its targets once, so a write landing
+        // after leaveSeat's clear re-armed the leaver's activeGameId (sign-in
+        // then auto-rejoined into rejoinFailed until the game ended)
+        const { io, log } = newIo();
+        const { game, ids, sockets, bots } = drawingGame('lv', { io });
+        const users = mockDb.current.users;
+        const real = users.updateOne.bind(users);
+        const gate = deferred();
+        let hits = 0;
+        jest.spyOn(users, 'updateOne').mockImplementation(async (filter, update) => {
+            if (update.$set && 'activeGameId' in update.$set) {
+                hits++;
+                await gate.promise;
+            }
+            return real(filter, update);
+        });
+        const pending = drawAll(io, game, sockets, bots, log);
+        await advanceUntil(() => hits === 4, 50);
+
+        const leaverSocket = sockets[2];
+        const leaverName = `user_${ids[2]}`;
+        await chatHandlers.chatMessage(leaverSocket, io, { message: '/leave' });
+        const pos = game.seatByUsername(leaverName);
+        expect(game.seat(pos).presence).toBe('gone');
+        gate.resolve();
+        await jest.advanceTimersByTimeAsync(10000);
+        expect([Phase.BIDDING, Phase.PLAYING]).toContain(game.stage);
+        await Promise.all(pending);
+
+        const doc = (u) => users.docs.find((d) => d.username === u);
+        expect(doc(leaverName).activeGameId).toBeUndefined();
+        for (const id of ids.filter((id) => id !== ids[2])) {
+            expect(doc(`user_${id}`).activeGameId).toBe(game.gameId);
+        }
+    });
+});
+
 describe('3. abort during the lobby countdown', () => {
     test('no startDraw, no mapping left, and the players can queue again', async () => {
         const { io, log } = newIo();
