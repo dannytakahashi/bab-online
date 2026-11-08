@@ -31,12 +31,22 @@ function disconnectPreviousSocket(io, previousSocketId, currentSocketId, usernam
     authLogger.info('User logged out from another device', { username });
 }
 
+/**
+ * signIn/restoreSession read everything on the user document except the
+ * big or unused fields: the custom picture (up to ~500 KB base64), stats
+ * and the merge audit log. Exclusion keeps password, mergedInto, socketId,
+ * sessionTokens, the legacy sessionToken, activeGameId, activeTournamentId
+ * and blockedUsers.
+ */
+const SIGN_IN_PROJECTION = { customProfilePic: 0, stats: 0, mergedFrom: 0 };
+const RESTORE_PROJECTION = { ...SIGN_IN_PROJECTION, password: 0 };
+
 async function signIn(socket, io, data) {
     const usersCollection = getUsersCollection();
     const { username, password } = data;
 
     try {
-        const user = await usersCollection.findOne({ username });
+        const user = await usersCollection.findOne({ username }, { projection: SIGN_IN_PROJECTION });
 
         if (!user) {
             socket.emit('signInResponse', {
@@ -56,7 +66,10 @@ async function signIn(socket, io, data) {
             return;
         }
 
-        const passwordMatch = await bcrypt.compare(password, user.password);
+        // No password hash (a malformed legacy document): a normal failure,
+        // not a throw inside compare
+        const passwordMatch = typeof user.password === 'string'
+            && await bcrypt.compare(password, user.password);
         if (!passwordMatch) {
             socket.emit('signInResponse', {
                 success: false,
@@ -103,8 +116,10 @@ async function signIn(socket, io, data) {
             authLogger.info('User signed in with active game', { username, socketId: socket.id, gameId: activeGameId });
         } else {
             // No active game (or game no longer exists) - clear stale activeGameId if present
+            // Scoped to the stale id: a game that starts meanwhile and
+            // writes a new pointer must keep it
             if (activeGameId) {
-                await gameManager.clearActiveGame(username);
+                await gameManager.clearActiveGame(username, activeGameId);
             }
 
             // Check for active tournament
@@ -122,7 +137,7 @@ async function signIn(socket, io, data) {
                 authLogger.info('User signed in with active tournament', { username, socketId: socket.id, tournamentId: activeTournamentId });
             } else {
                 if (activeTournamentId) {
-                    await gameManager.clearActiveTournament(username);
+                    await gameManager.clearActiveTournament(username, activeTournamentId);
                 }
                 socket.emit('signInResponse', { success: true, username, sessionToken, blockedUsers });
                 authLogger.info('User signed in', { username, socketId: socket.id });
@@ -165,7 +180,7 @@ async function signUp(socket, io, data) {
     }
 
     try {
-        const existingUser = await usersCollection.findOne({ username });
+        const existingUser = await usersCollection.findOne({ username }, { projection: { mergedInto: 1 } });
 
         if (existingUser) {
             socket.emit('signUpResponse', {
@@ -237,7 +252,7 @@ async function restoreSession(socket, io, data) {
 
     try {
         // Find user and validate session token
-        const user = await usersCollection.findOne({ username });
+        const user = await usersCollection.findOne({ username }, { projection: RESTORE_PROJECTION });
 
         if (!user) {
             socket.emit('restoreSessionResponse', {
@@ -302,8 +317,10 @@ async function restoreSession(socket, io, data) {
             authLogger.info('Session restored with active game', { username, socketId: socket.id, gameId: activeGameId });
         } else {
             // Clear stale activeGameId if present
+            // Scoped to the stale id: a game that starts meanwhile and
+            // writes a new pointer must keep it
             if (activeGameId) {
-                await gameManager.clearActiveGame(username);
+                await gameManager.clearActiveGame(username, activeGameId);
             }
 
             // Check for active tournament
@@ -320,7 +337,7 @@ async function restoreSession(socket, io, data) {
                 authLogger.info('Session restored with active tournament', { username, socketId: socket.id, tournamentId: activeTournamentId });
             } else {
                 if (activeTournamentId) {
-                    await gameManager.clearActiveTournament(username);
+                    await gameManager.clearActiveTournament(username, activeTournamentId);
                 }
                 socket.emit('restoreSessionResponse', { success: true, username, blockedUsers });
                 authLogger.info('Session restored', { username, socketId: socket.id });
@@ -367,7 +384,7 @@ async function deleteAccount(socket, io, data) {
     const username = sessionUser.username;
 
     try {
-        const user = await usersCollection.findOne({ username });
+        const user = await usersCollection.findOne({ username }, { projection: { password: 1, socketId: 1 } });
         if (!user) {
             socket.emit('deleteAccountResponse', {
                 success: false,

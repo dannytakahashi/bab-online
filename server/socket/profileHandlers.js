@@ -7,6 +7,9 @@ const { getUsersCollection, getGameRecordsCollection } = require('../database');
 const gameManager = require('../game/GameManager');
 const { authLogger } = require('../utils/logger');
 
+/** Fields a profile reply is built from (plus mergedInto for the redirect). */
+const PROFILE_PROJECTION = { username: 1, profilePic: 1, customProfilePic: 1, stats: 1, mergedInto: 1 };
+
 /**
  * Get user profile with stats
  * @param {Socket} socket - Socket instance
@@ -26,7 +29,7 @@ async function getProfile(socket, io) {
     }
 
     try {
-        const dbUser = await usersCollection.findOne({ username: user.username });
+        const dbUser = await usersCollection.findOne({ username: user.username }, { projection: PROFILE_PROJECTION });
 
         if (!dbUser) {
             socket.emit('profileResponse', {
@@ -388,7 +391,8 @@ async function getLeaderboard(socket, io) {
         // Find all users with at least one game played (merged-away
         // accounts are tombstones whose stats live on the kept account)
         const users = await usersCollection.find(
-            { 'stats.gamesPlayed': { $gt: 0 }, mergedInto: { $exists: false } }
+            { 'stats.gamesPlayed': { $gt: 0 }, mergedInto: { $exists: false } },
+            { projection: { username: 1, profilePic: 1, customProfilePic: 1, stats: 1 } }
         ).toArray();
 
         // Compute derived stats and format response
@@ -481,7 +485,7 @@ async function searchPlayers(socket, io, data) {
         const escaped = query.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         const users = await usersCollection.find(
             { username: { $regex: escaped, $options: 'i' }, mergedInto: { $exists: false } },
-            { projection: { username: 1, profilePic: 1, customProfilePic: 1, stats: 1 } }
+            { projection: { username: 1, profilePic: 1, customProfilePic: 1, 'stats.gamesPlayed': 1, 'stats.wins': 1 } }
         ).limit(20).toArray();
 
         const players = users.map(u => ({
@@ -519,12 +523,12 @@ async function getPlayerProfile(socket, io, data) {
     }
 
     try {
-        let dbUser = await usersCollection.findOne({ username: username.trim() });
+        let dbUser = await usersCollection.findOne({ username: username.trim() }, { projection: PROFILE_PROJECTION });
 
         // Old names from merged accounts (e.g. in game records) show the
         // account they were merged into
         if (dbUser?.mergedInto) {
-            dbUser = await usersCollection.findOne({ username: dbUser.mergedInto });
+            dbUser = await usersCollection.findOne({ username: dbUser.mergedInto }, { projection: PROFILE_PROJECTION });
         }
 
         if (!dbUser) {

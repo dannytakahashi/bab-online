@@ -262,3 +262,93 @@ describe('users.username unique index', () => {
         await expect(ensureUsernameIndex(collection)).resolves.toBeUndefined();
     });
 });
+
+describe('projected sign-in reads', () => {
+    const legacy = '44444444-4444-4444-8444-444444444444';
+    const bigPic = 'data:image/png;base64,' + 'A'.repeat(4096);
+
+    beforeEach(async () => {
+        await mockDb.current.users.insertOne({
+            username: 'Cara',
+            password: await bcrypt.hash('pw', 4),
+            customProfilePic: bigPic,
+            profilePic: 9,
+            stats: { gamesPlayed: 2, wins: 1 },
+            mergedFrom: [{ username: 'OldCara', mergedAt: new Date() }],
+            activeGameId: 'G1',
+            activeTournamentId: 'T1',
+            blockedUsers: ['Mallory'],
+            sessionToken: legacy
+        });
+    });
+
+    afterEach(() => jest.restoreAllMocks());
+
+    test('signIn reads without the picture/stats/audit log and replies exactly as before (active game)', async () => {
+        const spy = jest.spyOn(mockDb.current.users, 'findOne');
+        gameManager.getGameById.mockImplementation((id) => (id === 'G1' ? { gameId: 'G1' } : null));
+        const res = await signIn(connect(), 'Cara', 'pw');
+        expect(res).toEqual({
+            success: true, username: 'Cara', sessionToken: expect.any(String),
+            activeGameId: 'G1', blockedUsers: ['Mallory']
+        });
+        const read = await spy.mock.results[0].value;
+        expect(read).not.toHaveProperty('customProfilePic');
+        expect(read).not.toHaveProperty('stats');
+        expect(read).not.toHaveProperty('mergedFrom');
+        expect(read).toMatchObject({ activeGameId: 'G1', activeTournamentId: 'T1', blockedUsers: ['Mallory'], sessionToken: legacy });
+        expect(typeof read.password).toBe('string');
+        gameManager.getGameById.mockImplementation(() => null);
+    });
+
+    test('signIn with a stale game and a live tournament: scoped clear, tournament reply', async () => {
+        gameManager.getTournamentById.mockImplementation((id) => (id === 'T1' ? { id: 'T1' } : null));
+        const res = await signIn(connect(), 'Cara', 'pw');
+        expect(res).toEqual({
+            success: true, username: 'Cara', sessionToken: expect.any(String),
+            activeTournamentId: 'T1', blockedUsers: ['Mallory']
+        });
+        expect(gameManager.clearActiveGame).toHaveBeenCalledWith('Cara', 'G1');
+        expect(gameManager.clearActiveTournament).not.toHaveBeenCalled();
+        gameManager.getTournamentById.mockImplementation(() => null);
+    });
+
+    test('signIn with nothing live clears both pointers, scoped to their ids', async () => {
+        const res = await signIn(connect(), 'Cara', 'pw');
+        expect(res).toEqual({ success: true, username: 'Cara', sessionToken: expect.any(String), blockedUsers: ['Mallory'] });
+        expect(gameManager.clearActiveGame).toHaveBeenCalledWith('Cara', 'G1');
+        expect(gameManager.clearActiveTournament).toHaveBeenCalledWith('Cara', 'T1');
+    });
+
+    test('restoreSession reads without the password too, replies as before and still migrates the legacy token', async () => {
+        const spy = jest.spyOn(mockDb.current.users, 'findOne');
+        gameManager.getGameById.mockImplementation((id) => (id === 'G1' ? { gameId: 'G1' } : null));
+        const res = await restore(connect(), legacy, 'Cara');
+        expect(res).toEqual({ success: true, username: 'Cara', activeGameId: 'G1', blockedUsers: ['Mallory'] });
+        const read = await spy.mock.results[0].value;
+        expect(read).not.toHaveProperty('password');
+        expect(read).not.toHaveProperty('customProfilePic');
+        const user = await getUser('Cara');
+        expect(user).not.toHaveProperty('sessionToken');
+        expect(user.sessionTokens.map(e => e.hash)).toEqual([hashToken(legacy)]);
+        expect(user.customProfilePic).toBe(bigPic);
+        gameManager.getGameById.mockImplementation(() => null);
+    });
+
+    test('a user document without a password hash is an ordinary failed sign-in', async () => {
+        await mockDb.current.users.insertOne({ username: 'NoHash' });
+        const res = await signIn(connect(), 'NoHash', 'pw');
+        expect(res).toEqual({ success: false, message: 'Invalid username or password!' });
+    });
+
+    test('profile and player profile still carry the picture and stats', async () => {
+        const socket = connect();
+        gameManager.getUserBySocketId.mockReturnValue({ username: 'Cara' });
+        await profile.getProfile(socket, io);
+        expect(lastEmit(socket, 'profileResponse').profile).toEqual({
+            username: 'Cara', profilePic: 9, customProfilePic: bigPic, stats: { gamesPlayed: 2, wins: 1 }
+        });
+        await profile.getPlayerProfile(socket, io, { username: 'Cara' });
+        expect(lastEmit(socket, 'playerProfileResponse').profile.customProfilePic).toBe(bigPic);
+    });
+});

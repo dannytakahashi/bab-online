@@ -72,9 +72,10 @@ async function rejoinGame(socket, io, data) {
     const game = gameManager.getGameById(gameId);
     if (!game) {
         socketLogger.debug('Rejoin failed: game not found', { gameId });
-        // Clear stale activeGameId from database
+        // Clear the stale activeGameId from the database, scoped to this
+        // game id: a pointer to another (live) game must stay
         if (username) {
-            await gameManager.clearActiveGame(username);
+            await gameManager.clearActiveGame(username, gameId);
         }
         socket.emit('rejoinFailed', { reason: 'Game no longer exists' });
         return;
