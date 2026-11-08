@@ -399,6 +399,14 @@ final class GameState: ObservableObject {
         return true
     }
 
+    /// A card left our seat without us playing it (the lazy bot played it).
+    /// Drop it from the hand, or the next redraw brings it back and a tap on
+    /// it is refused by the server.
+    func removeCardPlayedForUs(_ card: Card) {
+        guard pendingCard != card, let index = myCards.firstIndex(of: card) else { return }
+        myCards.remove(at: index)
+    }
+
     func confirmCardPlay() {
         pendingCard = nil
         previousCards = nil
