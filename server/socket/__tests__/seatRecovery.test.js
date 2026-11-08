@@ -62,7 +62,7 @@ function drawingGame(ids, humans = ids) {
     });
     const game = gameManager.createGame(ids);
     game.deck = new Deck();
-    game.phase = 'drawing';
+    game.transition('CREATED', 'DRAWING');
     return game;
 }
 
@@ -214,8 +214,7 @@ describe('/active over a resigned seat', () => {
         ids.forEach((id, i) => game.setHand(id, [C(String(i + 2), 'hearts')]));
         game.currentHand = 1;
         game.trump = C('A', 'spades');
-        game.phase = 'bidding';
-        game.bidding = true;
+        game.forcePhase('BIDDING');
         game.currentTurn = 1;
         game.playerBids = [];
         return { game, ids };
@@ -286,7 +285,7 @@ describe('/active over a resigned seat', () => {
         const s0 = makeSocket(ids[0], log);
 
         chatHandlers.chatMessage(s0, io, { message: '/lazy' });
-        game._trickResolving = true;
+        game.forcePhase('TRICK_RESOLVING');
         log.length = 0;
         chatHandlers.chatMessage(s0, io, { message: '/active' });
 
@@ -307,8 +306,7 @@ describe('zero-bid redeal', () => {
         ids.forEach((id, i) => game.setHand(id, [C(String(i + 2), 'hearts')]));
         game.currentHand = 1;
         game.trump = C('A', 'spades');
-        game.phase = 'bidding';
-        game.bidding = true;
+        game.forcePhase('BIDDING');
         game.currentTurn = 1;
         game.playerBids = [];
 

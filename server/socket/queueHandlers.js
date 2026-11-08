@@ -6,6 +6,7 @@ const gameManager = require('../game/GameManager');
 const Deck = require('../game/Deck');
 const { delay } = require('../utils/timing');
 const { socketLogger } = require('../utils/logger');
+const { Phase } = require('../game/GamePhase');
 const { handleAbortedTournamentGame } = require('./tournamentHandlers');
 
 async function joinQueue(socket, io) {
@@ -129,38 +130,18 @@ async function handleDisconnect(socket, io) {
         const position = result.game.getPositionBySocketId(socket.id);
 
         // Handle disconnect during draw phase (player has no position yet)
-        if (!position && result.game.phase === 'drawing') {
+        if (!position && (result.game.stage === Phase.DRAWING || result.game.stage === Phase.DRAW_RESOLVING)) {
             const user = gameManager.getUserBySocketId(socket.id);
             const username = user?.username || 'Player';
 
-            // Check if this player already drew
-            const alreadyDrew = result.game.drawIDs.includes(socket.id);
-
-            if (!alreadyDrew) {
-                // Auto-draw for the disconnected player (random card)
-                const remaining = result.game.deck.cards.length;
-                if (remaining > 0) {
-                    const drawIndex = Math.floor(Math.random() * remaining);
-                    const card = result.game.deck.cards[drawIndex];
-                    result.game.drawCards.push(card);
-                    result.game.drawIDs.push(socket.id);
-                    result.game.deck.cards.splice(drawIndex, 1);
-
-                    result.game.broadcast(io, 'playerDrew', {
-                        username,
-                        card,
-                        drawOrder: result.game.drawIndex + 1,
-                        socketId: socket.id
-                    });
-
-                    result.game.drawIndex++;
-
-                    // If all 4 have now drawn, complete the draw phase
-                    if (result.game.drawIndex === 4) {
-                        const { handleDrawComplete } = require('./gameHandlers');
-                        handleDrawComplete(io, result.game);
-                    }
-                }
+            // Auto-draw for the disconnected player (random card); a no-op
+            // if they already drew or the draw is no longer open
+            const { autoDraw, handleDrawComplete } = require('./gameHandlers');
+            if (autoDraw(io, result.game, socket.id, username) && result.game.drawIndex === 4) {
+                // This draw completed the phase
+                handleDrawComplete(io, result.game).catch(err =>
+                    socketLogger.error('handleDrawComplete failed', { gameId: result.gameId, error: err.message, stack: err.stack })
+                );
             }
 
             // Store username for lookup during handleDrawComplete

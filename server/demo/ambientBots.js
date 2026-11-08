@@ -20,6 +20,7 @@ const Deck = require('../game/Deck');
 const { botController, personalities } = require('../game/bot');
 const { PERSONALITY_LIST, getDisplayName } = personalities;
 const { logger } = require('../utils/logger');
+const { Phase } = require('../game/GamePhase');
 
 const CHECK_INTERVAL_MS = 15 * 1000;        // poll cadence
 const RESTART_DELAY_MS = 30 * 1000;         // pause between games (keep the gap short)
@@ -150,7 +151,7 @@ function startBotGame(io) {
 
     game.deck = new Deck();
     game.deck.shuffle();
-    game.phase = 'drawing';
+    game.transition(Phase.CREATED, Phase.DRAWING);
 
     let drawOrder = 0;
     for (const bot of bots) {

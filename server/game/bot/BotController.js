@@ -5,6 +5,9 @@
 
 const BotPlayer = require('./BotPlayer');
 const { gameLogger } = require('../../utils/logger');
+const { Phase } = require('../GamePhase');
+
+const PLAY_STAGES = [Phase.PLAYING, Phase.TRICK_RESOLVING, Phase.HAND_RESOLVING];
 
 class BotController {
     constructor() {
@@ -23,14 +26,13 @@ class BotController {
      */
     buildPlayContext(game) {
         // game.bids is position-keyed during bidding and only takes its
-        // {team1, team2} shape once handlePostBid runs; outside the play
-        // phase pass null so strategy falls back to contract-blind play
+        // {team1, team2} shape once bidding completes; outside the play
+        // stages pass null so strategy falls back to contract-blind play
         // rather than misreading the field
-        const bids = game.bids;
-        const teamShaped = bids && typeof bids.team1 === 'number' && typeof bids.team2 === 'number';
+        const inPlay = PLAY_STAGES.includes(game.stage);
         return {
             playerBids: game.playerBids,
-            bids: teamShaped ? bids : null,
+            bids: inPlay ? game.bids : null,
             tricks: game.tricks,
             team1Mult: game.team1Mult,
             team2Mult: game.team2Mult
@@ -178,17 +180,11 @@ class BotController {
      * @param {BotPlayer} bot - Bot player
      */
     processBotDraw(io, game, bot) {
-        if (game.phase !== 'drawing') return;
+        if (game.stage !== Phase.DRAWING || !game.deck) return;
 
-        const remaining = game.deck.cards.length;
-        if (remaining === 0) return;
-
-        const drawIndex = bot.decideDraw(remaining);
-        const card = game.deck.cards[drawIndex];
-
-        game.drawCards.push(card);
-        game.drawIDs.push(bot.socketId);
-        game.deck.cards.splice(drawIndex, 1);
+        const d = game.recordDraw(bot.socketId, bot.decideDraw(game.deck.cards.length));
+        if (!d) return;
+        const { card, drawOrder } = d;
 
         gameLogger.debug('Bot drew card', {
             botName: bot.username,
@@ -200,17 +196,17 @@ class BotController {
         game.broadcast(io, 'playerDrew', {
             username: bot.username,
             card,
-            drawOrder: game.drawIndex + 1,
+            drawOrder,
             socketId: bot.socketId
         });
-
-        game.drawIndex++;
 
         // Check if all players have drawn - trigger draw completion
         if (game.drawIndex === 4) {
             // Use lazy require to avoid circular dependency
             const { handleDrawComplete } = require('../../socket/gameHandlers');
-            handleDrawComplete(io, game);
+            handleDrawComplete(io, game).catch(err =>
+                gameLogger.error('handleDrawComplete failed', { gameId: game.gameId, error: err.message, stack: err.stack })
+            );
         }
     }
 
@@ -223,10 +219,10 @@ class BotController {
      *   no longer allows it (callers must NOT advance the turn on false)
      */
     processBotBid(io, game, bot) {
-        if (!game.isHandInProgress() || !game.bidding || game.currentTurn !== bot.position) {
+        if (game.stage !== Phase.BIDDING || game.currentTurn !== bot.position) {
             gameLogger.warn('Bot bid skipped: stale game state', {
                 gameId: game.gameId, botName: bot.username,
-                bidding: game.bidding, currentTurn: game.currentTurn, botPosition: bot.position
+                stage: game.stage, currentTurn: game.currentTurn, botPosition: bot.position
             });
             return false;
         }
@@ -269,10 +265,10 @@ class BotController {
      *   no longer allows it (callers must NOT advance the turn on false)
      */
     processBotPlay(io, game, bot) {
-        if (!game.isHandInProgress() || game.bidding || game.currentTurn !== bot.position) {
+        if (game.stage !== Phase.PLAYING || game.currentTurn !== bot.position) {
             gameLogger.warn('Bot play skipped: stale game state', {
                 gameId: game.gameId, botName: bot.username,
-                bidding: game.bidding, currentTurn: game.currentTurn, botPosition: bot.position
+                stage: game.stage, currentTurn: game.currentTurn, botPosition: bot.position
             });
             return false;
         }

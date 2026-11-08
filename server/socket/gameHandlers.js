@@ -20,6 +20,7 @@ const {
 } = require('../game/rules');
 const { delay } = require('../utils/timing');
 const { gameLogger } = require('../utils/logger');
+const { Phase, reportViolation } = require('../game/GamePhase');
 const { botController, personalities } = require('../game/bot');
 const { PERSONALITY_LIST } = personalities;
 const { cancelAbortTimer, startReconnectGraceTimer } = require('./queueHandlers');
@@ -71,13 +72,13 @@ function triggerBotIfNeeded(io, game, actionType) {
             // delay (turn advanced, trick resolved, /active, game ended). A
             // stale write here corrupts playedCards and wedges the game.
             if (!gameManager.getGameById(game.gameId)) return;
-            // No hand dealt yet (draw / team announcement) — nothing to act on
-            if (!game.isHandInProgress()) return;
+            // Only act in the stage this action was scheduled for (no hand
+            // before the deal, no plays while a trick or hand is resolving)
+            if (actionType === 'bid' ? game.stage !== Phase.BIDDING : game.stage !== Phase.PLAYING) return;
             if (!game.isLazy(bot.position)) return;
             if (game.currentTurn !== bot.position) return;
 
             if (actionType === 'bid') {
-                if (!game.bidding) return;
                 if (game.playerBids[bot.position - 1] != null) return;
 
                 // Use player's hand for bot decision
@@ -94,7 +95,6 @@ function triggerBotIfNeeded(io, game, actionType) {
                 game.currentTurn = rotatePosition(game.currentTurn);
                 handlePostBid(io, game);
             } else if (actionType === 'play') {
-                if (game.bidding) return;
                 if (game.playedCardsIndex >= 4) return;
                 if (game.playedCards[bot.position - 1]) return;
 
@@ -147,10 +147,10 @@ function triggerBotIfNeeded(io, game, actionType) {
  * Handle logic after a bid is made (check if all bids done, trigger next bot)
  */
 async function handlePostBid(io, game) {
+    if (game.stage !== Phase.BIDDING) return;
+
     // Check if all bids are in
     if (game.getBidCount() === 4) {
-        game.bidding = false;
-
         // Calculate team bids
         const bids = game.playerBids;
         game.bids = {
@@ -177,17 +177,20 @@ async function handlePostBid(io, game) {
         // doneBidding as "enter play", so sending it first flashes the play
         // phase for a hand that is about to be torn down
         if (game.bids.team1 === 0 && game.bids.team2 === 0) {
+            if (!game.transition(Phase.BIDDING, Phase.REDEAL)) return;
             gameLogger.info('Zero bids, redealing', { gameId: game.gameId });
             const redealMsg = 'All bids were zero. Redealing.';
             game.addLogEntry(redealMsg, null, 'system');
             game.broadcast(io, 'gameLogEntry', { message: redealMsg, type: 'system' });
             game.broadcast(io, 'destroyHands', {});
+            if (!game.transition(Phase.REDEAL, Phase.DEALING)) return;
             await dealHand(game, io, { dealer: game.dealer, handSize: game.currentHand });
             return;
         }
 
         const lead = findHighestBidder(game.bidder, bids) + 1;
 
+        if (!game.transition(Phase.BIDDING, Phase.PLAYING)) return;
         game.broadcast(io, 'doneBidding', { bids, lead });
 
         game.currentTurn = lead;
@@ -217,24 +220,20 @@ async function handlePostBid(io, game) {
 
     game.broadcast(io, 'updateTurn', { currentTurn: game.currentTurn });
 
-    // Trigger next bot if needed
-    if (game.bidding) {
-        triggerBotIfNeeded(io, game, 'bid');
-    } else {
-        // Bidding done, start play phase - trigger bot if lead is a bot
-        triggerBotIfNeeded(io, game, 'play');
-    }
+    // Trigger next bot if needed (bidding done: the lead may be a bot)
+    triggerBotIfNeeded(io, game, game.stage === Phase.BIDDING ? 'bid' : 'play');
 }
 
 /**
  * Handle logic after a card is played (check for trick complete, trigger next bot)
  */
 async function handlePostPlay(io, game) {
+    if (game.stage !== Phase.PLAYING) return;
+
     // Check if trick is complete
     if (game.playedCardsIndex === 4) {
-        // Guard against double resolution while we pause for the animation
-        if (game._trickResolving) return;
-        game._trickResolving = true;
+        // TRICK_RESOLVING rejects plays and makes a second resolution a no-op
+        if (!game.transition(Phase.PLAYING, Phase.TRICK_RESOLVING)) return;
 
         await delay(2000);
 
@@ -247,7 +246,6 @@ async function handlePostPlay(io, game) {
                 playedCardsIndex: game.playedCardsIndex,
                 playedCards: game.playedCards
             });
-            game._trickResolving = false;
             return;
         }
 
@@ -283,14 +281,15 @@ async function handlePostPlay(io, game) {
 
         game.playedCards = [];
         game.playedCardsIndex = 0;
-        game._trickResolving = false;
 
         // Check if hand is complete
         if (game.cardIndex === game.currentHand * 4) {
+            if (!game.transition(Phase.TRICK_RESOLVING, Phase.HAND_RESOLVING)) return;
             await delay(2000); // Brief pause after last trick stacks
             await handleHandComplete(game, io);
             return;
         }
+        if (!game.transition(Phase.TRICK_RESOLVING, Phase.PLAYING)) return;
     }
 
     game.broadcast(io, 'updateTurn', { currentTurn: game.currentTurn });
@@ -301,18 +300,12 @@ async function handlePostPlay(io, game) {
 
 async function draw(socket, io, data) {
     const game = gameManager.getPlayerGame(socket.id);
-    if (!game || game.phase !== 'drawing') return;
+    if (!game) return;
 
-    let order = data.num;
-    if (order > game.deck.remaining - 1) {
-        order = game.deck.remaining - 1;
-    }
-
-    // Draw card at specified position
-    const card = game.deck.cards[order];
-    game.drawCards.push(card);
-    game.drawIDs.push(socket.id);
-    game.deck.cards.splice(order, 1);
+    // recordDraw refuses out-of-phase, duplicate and 5th draws
+    const d = game.recordDraw(socket.id, data && data.num);
+    if (!d) return;
+    const { card, drawOrder } = d;
 
     gameLogger.debug('Player drew card', { socketId: socket.id, card: `${card.rank} of ${card.suit}` });
 
@@ -321,17 +314,15 @@ async function draw(socket, io, data) {
     const username = user?.username || 'Player';
 
     // Tell the drawing player their card
-    socket.emit('youDrew', { card, drawOrder: game.drawIndex + 1 });
+    socket.emit('youDrew', { card, drawOrder });
 
     // Broadcast to all players that someone drew (so they can see it)
     game.broadcast(io, 'playerDrew', {
         username,
         card,
-        drawOrder: game.drawIndex + 1,
+        drawOrder,
         socketId: socket.id
     });
-
-    game.drawIndex++;
 
     // Check if all players have drawn
     if (game.drawIndex === 4) {
@@ -340,10 +331,27 @@ async function draw(socket, io, data) {
 }
 
 /**
+ * Auto-draw a random card for a socket that left or disconnected before
+ * drawing. Broadcasts playerDrew; the caller decides whether this draw
+ * completed the phase (game.drawIndex === 4).
+ * @returns {boolean} true if a card was drawn
+ */
+function autoDraw(io, game, socketId, username) {
+    const d = game.recordDraw(socketId, null);
+    if (d) {
+        game.broadcast(io, 'playerDrew', { username, card: d.card, drawOrder: d.drawOrder, socketId });
+    }
+    return !!d;
+}
+
+/**
  * Handle draw phase completion - assign positions and start game
- * Called when all 4 players (human or bot) have drawn
+ * Called when all 4 players (human or bot) have drawn. Every draw path may
+ * call it; the DRAWING -> DRAW_RESOLVING latch makes it run exactly once.
  */
 async function handleDrawComplete(io, game) {
+    if (game.drawIDs.length !== 4 || !game.tryTransition(Phase.DRAWING, Phase.DRAW_RESOLVING)) return;
+
     // Fetch saved profile pics for all players
     const pics = [];
     const usedPics = new Set();
@@ -519,6 +527,7 @@ async function handleDrawComplete(io, game) {
 
     await delay(1000);
 
+    if (!game.transition(Phase.DRAW_RESOLVING, Phase.TEAMS_ANNOUNCED)) return;
     game.broadcast(io, 'teamsAnnounced', {
         team1: [team1Player1?.username || 'Player 1', team1Player2?.username || 'Player 3'],
         team2: [team2Player1?.username || 'Player 2', team2Player2?.username || 'Player 4']
@@ -527,11 +536,13 @@ async function handleDrawComplete(io, game) {
     // Wait for team announcement to be seen (3 seconds)
     await delay(3000);
 
+    if (!game.transition(Phase.TEAMS_ANNOUNCED, Phase.DEALING)) return;
+
     // Reset draw state
     game.drawCards = [];
     game.drawIndex = 0;
     game.drawIDs = [];
-    game.phase = 'bidding';
+    game.deck = null;
 
     // Notify main room that a new in-progress game is available to spectate
     io.to('mainRoom').emit('lobbiesUpdated', {
@@ -561,6 +572,10 @@ async function handleDrawComplete(io, game) {
  * @param {boolean} [opts.firstHand=false] - pause 1s before the first updateTurn
  */
 async function dealHand(game, io, { dealer, handSize, firstHand = false }) {
+    if (game.stage !== Phase.DEALING) {
+        reportViolation('deal-wrong-stage', { gameId: game.gameId, stage: game.stage });
+        return;
+    }
     // Hand 1 passes (1, 12), which equals the constructor defaults (bidder 2)
     game.resetForNewHand(dealer, handSize);
 
@@ -635,14 +650,14 @@ async function dealHand(game, io, { dealer, handSize, firstHand = false }) {
     }
 
     gameLogger.info('Hand dealt', { gameId: game.gameId, handSize: game.currentHand, dealer: game.dealer, firstHand });
-    game.bidding = true;
     game.currentTurn = game.bidder;
+    if (!game.transition(Phase.DEALING, Phase.BIDDING)) return;
 
     if (firstHand) {
         await delay(1000);
         // A bid during the pause already sent updateTurn and triggered the
         // next bot; repeating them would double-schedule it
-        if (game.getBidCount() > 0) return;
+        if (game.stage !== Phase.BIDDING || game.getBidCount() > 0) return;
     }
 
     game.broadcast(io, 'updateTurn', { currentTurn: game.currentTurn });
@@ -657,9 +672,9 @@ async function playerBid(socket, io, data) {
 
     const position = game.getPositionBySocketId(socket.id);
 
-    // Validate turn (and that a hand is actually dealt — before dealHand,
-    // currentTurn/bidding hold constructor defaults)
-    if (!game.isHandInProgress() || !game.bidding || position !== game.currentTurn) {
+    // Validate stage and turn (before the deal currentTurn holds the
+    // constructor default)
+    if (game.stage !== Phase.BIDDING || position !== game.currentTurn) {
         rejectAction(socket, game, 'bid', 'not_your_turn', { position, currentTurn: game.currentTurn });
         return;
     }
@@ -699,11 +714,10 @@ async function playCard(socket, io, data) {
 
     const position = game.getPositionBySocketId(socket.id);
 
-    // Validate turn, phase, trick state and card ownership. During the
-    // trick-resolution pause currentTurn has already rotated to the leader
-    // while playedCardsIndex is still 4 — accepting a play there overwrote
-    // the trick and wedged the game; a card not in hand was also accepted.
-    if (!game.isHandInProgress() || position !== game.currentTurn || game.bidding) {
+    // Validate stage, turn, trick state and card ownership. Plays are only
+    // accepted in PLAYING: during TRICK_RESOLVING currentTurn has already
+    // rotated to the leader while the trick is still on the table.
+    if (game.stage !== Phase.PLAYING || position !== game.currentTurn) {
         rejectAction(socket, game, 'play', 'not_your_turn', { position, currentTurn: game.currentTurn });
         return;
     }
@@ -775,6 +789,7 @@ async function playCard(socket, io, data) {
 }
 
 async function handleHandComplete(game, io) {
+    if (game.stage !== Phase.HAND_RESOLVING) return;
     gameLogger.info('Hand complete', { gameId: game.gameId, handSize: game.currentHand });
 
     const team1OldScore = game.score.team1;
@@ -1001,7 +1016,7 @@ async function handleHandComplete(game, io) {
         game.leaveAllFromRoom(io);
         // Clear playerGames Map entries so players can create new lobbies/return to tournament
         gameManager.endGame(game.gameId);
-        game.resetForNewGame();
+        game.terminate(null, Phase.ENDED);
 
         // Notify main room that an in-progress game has ended
         io.to('mainRoom').emit('lobbiesUpdated', {
@@ -1011,6 +1026,7 @@ async function handleHandComplete(game, io) {
         });
     } else {
         gameLogger.debug('Starting next hand', { dealer: nextDealer, handSize: nextHandSize, gameId: game.gameId });
+        if (!game.transition(Phase.HAND_RESOLVING, Phase.DEALING)) return;
         await dealHand(game, io, { dealer: nextDealer, handSize: nextHandSize });
     }
 }
@@ -1122,14 +1138,16 @@ async function forceResign(socket, io, data) {
     });
 
     // If it's the resigned player's turn, trigger bot action
-    if (game.currentTurn === position) {
-        const actionType = game.bidding ? 'bid' : 'play';
+    // (not while a trick/hand resolves: the next updateTurn re-triggers it)
+    const actionType = game.actionTypeForTurn();
+    if (game.currentTurn === position && actionType) {
         triggerBotIfNeeded(io, game, actionType);
     }
 }
 
 module.exports = {
     draw,
+    autoDraw,
     playerBid,
     playCard,
     handleDrawComplete,

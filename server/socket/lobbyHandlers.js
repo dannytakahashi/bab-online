@@ -6,6 +6,7 @@
 const gameManager = require('../game/GameManager');
 const Deck = require('../game/Deck');
 const { socketLogger } = require('../utils/logger');
+const { Phase } = require('../game/GamePhase');
 const { delay } = require('../utils/timing');
 const { botController, personalities } = require('../game/bot');
 const { getDisplayName } = personalities;
@@ -96,7 +97,7 @@ async function playerReady(socket, io) {
             game.deck = new Deck();
             game.deck.shuffle();
 
-            game.phase = 'drawing';
+            if (!game.transition(Phase.CREATED, Phase.DRAWING)) return;
             game.broadcast(io, 'startDraw', { start: true });
 
             // Schedule bot draws

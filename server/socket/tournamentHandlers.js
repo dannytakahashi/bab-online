@@ -7,6 +7,7 @@ const gameManager = require('../game/GameManager');
 const TournamentState = require('../game/TournamentState');
 const Deck = require('../game/Deck');
 const { socketLogger } = require('../utils/logger');
+const { Phase } = require('../game/GamePhase');
 const { delay } = require('../utils/timing');
 const { botController, BotPlayer, personalities } = require('../game/bot');
 const { PERSONALITY_LIST, getDisplayName } = personalities;
@@ -459,7 +460,7 @@ async function startTournamentRound(io, tournament, roundNumber) {
 
         game.deck = new Deck();
         game.deck.shuffle();
-        game.phase = 'drawing';
+        if (!game.transition(Phase.CREATED, Phase.DRAWING)) continue;
         game.broadcast(io, 'startDraw', { start: true });
 
         // Schedule bot draws
