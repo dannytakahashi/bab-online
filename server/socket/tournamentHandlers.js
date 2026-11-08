@@ -5,8 +5,8 @@
 
 const gameManager = require('../game/GameManager');
 const TournamentState = require('../game/TournamentState');
-const Deck = require('../game/Deck');
 const { socketLogger } = require('../utils/logger');
+const { beginDraw } = require('./gameLifecycle');
 const { delay } = require('../utils/timing');
 const { botController, BotPlayer, personalities } = require('../game/bot');
 const { PERSONALITY_LIST, getDisplayName } = personalities;
@@ -429,6 +429,8 @@ async function startTournamentRound(io, tournament, roundNumber) {
         for (const username of presentHumans) {
             await gameManager.setActiveGame(username, game.gameId);
         }
+        // The table may have been aborted during those writes
+        if (!game.aliveCheck()()) continue;
 
         // Join human players to game room
         for (const socketId of humanSocketIds) {
@@ -454,20 +456,12 @@ async function startTournamentRound(io, tournament, roundNumber) {
             });
         }
 
-        // Start draw phase after delay
-        await delay(2000);
+        // Start draw phase after delay (false: the table aborted meanwhile)
+        if (!(await game.pause(2000))) continue;
 
-        game.deck = new Deck();
-        game.deck.shuffle();
-        game.phase = 'drawing';
-        game.broadcast(io, 'startDraw', { start: true });
-
-        // Schedule bot draws
-        let botDrawOrder = 0;
-        for (const botInfo of botSocketIds) {
-            botDrawOrder++;
-            botController.scheduleBotDraw(io, game, botInfo.socketId, botDrawOrder);
-        }
+        // Deck, startDraw, bot draws, and auto-draws for anyone who left or
+        // disconnected during the countdown
+        beginDraw(io, game);
     }
 
     // If every table was skipped (everyone left during the start delays),
@@ -809,8 +803,7 @@ async function broadcastRoundOutcome(io, tournament) {
  * Mark it complete with no scores recorded so the round can still advance —
  * otherwise the tournament is stuck in round_active forever.
  */
-async function handleAbortedTournamentGame(io, gameId) {
-    const game = gameManager.getGameById(gameId);
+async function handleAbortedTournamentGame(io, gameId, game = gameManager.getGameById(gameId)) {
     const result = gameManager.handleTournamentGameEnd(gameId);
     if (!result) return;
 

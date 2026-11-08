@@ -9,6 +9,7 @@ const TournamentState = require('./TournamentState');
 const { getUsersCollection } = require('../database');
 const { botController, BotPlayer, personalities } = require('./bot');
 const { PERSONALITY_LIST } = personalities;
+const { Phase } = require('./GamePhase');
 
 class GameManager {
     constructor() {
@@ -672,6 +673,10 @@ class GameManager {
         // Store socket IDs for later position assignment
         game.pendingPlayers = playerSocketIds;
 
+        // A seat whose socket no longer maps here (e.g. a /leave'd lazy
+        // human now in the main room) must not be dealt private cards
+        game._isSeatReachable = (sid) => this.playerGames.get(sid) === gameId;
+
         this.games.set(gameId, game);
 
         // Clear queued users who are now in game
@@ -830,39 +835,70 @@ class GameManager {
     }
 
     /**
-     * End and cleanup a game
+     * Release everything the server holds for a (terminal) game: bots and
+     * their timers, the socket room, every playerGames entry pointing at it
+     * (seats, pending draw-phase sockets, bots, resign bots, lazy shadows and
+     * spectator-/active mappings) and the spectator list.
+     * @param {GameState} game
+     * @param {Object|null} io - when given, sockets also leave the game room
      */
-    endGame(gameId) {
-        const game = this.games.get(gameId);
-        if (!game) return;
+    _retire(game, io) {
+        const id = game.gameId;
 
-        // Remove player mappings
-        for (const socketId of game.players.keys()) {
-            this.playerGames.delete(socketId);
+        // Release bots and cancel their pending timers — otherwise the bot
+        // registry leaks and stale timers fire into the dead game
+        botController.cleanupGame(id);
+
+        const mapped = [];
+        for (const [sid, gid] of this.playerGames) {
+            if (gid === id) mapped.push(sid);
         }
 
-        this.games.delete(gameId);
+        if (io) {
+            const ids = new Set([...game.players.keys(), ...game.spectators.keys(), ...mapped]);
+            for (const sid of ids) {
+                if (this.isBot(sid)) continue;
+                io.sockets.sockets.get(sid)?.leave(game.roomName);
+            }
+        }
+
+        for (const sid of mapped) this.playerGames.delete(sid);
+        game.spectators.clear();
+        this.games.delete(id);
     }
 
     /**
-     * Abort a game (player disconnected mid-game)
+     * End and cleanup a game. A live game is terminated first (ENDED when
+     * legal, otherwise ABORTED).
+     * @param {string} gameId
+     * @param {Object|null} [io]
      */
-    abortGame(gameId) {
+    endGame(gameId, io = null) {
+        const game = this.games.get(gameId);
+        if (!game) return;
+
+        if (!game.isTerminal()) {
+            game.terminate(null, game.canTransition(Phase.ENDED) ? Phase.ENDED : Phase.ABORTED);
+        }
+        this._retire(game, io);
+    }
+
+    /**
+     * Abort a game: terminate it (no broadcast — see socket/gameLifecycle
+     * abortGame for the client-facing path) and retire it.
+     * @param {string} gameId
+     * @param {Object|null} [io]
+     * @returns {string[]} the seat socket ids ([] before seats exist)
+     */
+    abortGame(gameId, io = null) {
         const game = this.games.get(gameId);
         if (!game) return [];
 
         const socketIds = game.getSocketIds();
-
-        // Remove player mappings
-        for (const socketId of socketIds) {
-            this.playerGames.delete(socketId);
+        if (!game.isTerminal()) {
+            game.terminate(null, Phase.ABORTED);
         }
-
-        this.games.delete(gameId);
-
-        // Release bots and cancel their pending timers — otherwise the bot
-        // registry leaks and stale timers fire into the dead game
-        botController.cleanupGame(gameId);
+        this._retire(game, io);
 
         return socketIds;
     }
@@ -966,9 +1002,11 @@ class GameManager {
 
     /**
      * Clear active game for all players in a game
+     * @param {string} gameId
+     * @param {GameState} [game] - pass it when the game was already retired
+     *   from the map (end/abort teardown runs the DB clears afterwards)
      */
-    async clearActiveGameForAll(gameId) {
-        const game = this.games.get(gameId);
+    async clearActiveGameForAll(gameId, game = this.games.get(gameId)) {
         if (!game) return;
 
         for (let position = 1; position <= 4; position++) {

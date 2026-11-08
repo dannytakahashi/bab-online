@@ -55,7 +55,7 @@ describe('pre-hand window (positions assigned, no hand dealt yet)', () => {
         const log = [];
         const io = makeIo(log);
         const { game, ids } = setupGame(12, null);
-        game.phase = 'drawing'; // handleDrawComplete window: trump still null
+        game.forcePhase('TEAMS_ANNOUNCED'); // handleDrawComplete window: trump still null
 
         chatHandlers.chatMessage(makeSocket(ids[0], log), io, { message: '/leave' });
         await sleep(2600); // past the lazy/bot action delay
@@ -69,7 +69,7 @@ describe('pre-hand window (positions assigned, no hand dealt yet)', () => {
         const log = [];
         const io = makeIo(log);
         const { game, ids } = setupGame(12, null);
-        game.phase = 'drawing';
+        game.forcePhase('TEAMS_ANNOUNCED');
 
         await gameHandlers.playerBid(makeSocket(ids[0], log), io, { bid: '3' });
         await gameHandlers.playCard(makeSocket(ids[0], log), io, { card: C('2', 'hearts') });
@@ -91,8 +91,7 @@ describe('playCard validation', () => {
             [C('8', 'hearts'), C('9', 'hearts')],
         ]);
         game.trump = C('A', 'spades');
-        game.bidding = false;
-        game.phase = 'bidding';
+        game.forcePhase('PLAYING');
         game.currentTurn = 1;
         game.bids = { team1: 1, team2: 1 };
         game.playerBids = ['1', '0', '0', '1'];
@@ -137,8 +136,7 @@ describe('playerBid validation', () => {
     function biddingGame() {
         const { game, ids } = setupGame(2, [[C('2', 'hearts')], [C('4', 'hearts')], [C('6', 'hearts')], [C('8', 'hearts')]]);
         game.trump = C('A', 'spades');
-        game.phase = 'bidding';
-        game.bidding = true;
+        game.forcePhase('BIDDING');
         game.currentTurn = 1;
         game.playerBids = [];
         return { game, ids };

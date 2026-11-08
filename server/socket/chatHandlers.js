@@ -4,6 +4,7 @@
 
 const gameManager = require('../game/GameManager');
 const { socketLogger } = require('../utils/logger');
+const { abortGame } = require('./gameLifecycle');
 const { botController, personalities } = require('../game/bot');
 const { PERSONALITY_LIST, getDisplayName } = personalities;
 
@@ -90,10 +91,11 @@ function handleLazyCommand(socket, io, game, position) {
         gameId: game.gameId, position, botUsername: bot.username
     });
 
-    // If it's this player's turn, trigger bot action
-    if (game.currentTurn === position) {
+    // If it's this player's turn, trigger bot action (not while a trick or
+    // hand resolves: the next updateTurn re-triggers it)
+    const actionType = game.actionTypeForTurn();
+    if (game.currentTurn === position && actionType) {
         const { triggerBotIfNeeded } = require('./gameHandlers');
-        const actionType = game.bidding ? 'bid' : 'play';
         triggerBotIfNeeded(io, game, actionType);
     }
 
@@ -123,6 +125,9 @@ function handleActiveCommand(socket, io, game, position, { resendTurn = true } =
     const lazyInfo = game.getLazyBot(position);
     const originalUsername = lazyInfo?.originalUsername || 'Unknown';
     const originalPic = lazyInfo?.originalPic;
+
+    // Drop the lazy bot's pending action for this seat
+    game.clearTimer('lazy:' + position);
 
     // Clean up the bot from controller
     if (lazyInfo?.botSocketId) {
@@ -170,21 +175,63 @@ function handleActiveCommand(socket, io, game, position, { resendTurn = true } =
         gameId: game.gameId, position, username: originalUsername
     });
 
-    // Not during trick resolution: the post-trick updateTurn follows shortly
-    if (resendTurn && game.isHandInProgress() && !game._trickResolving) {
+    // Only while a turn is open (not during trick/hand resolution: the next
+    // updateTurn follows shortly)
+    if (resendTurn && game.acceptsTurnInput()) {
         game.sendToPlayer(io, socket.id, 'updateTurn', { currentTurn: game.currentTurn });
     }
 
     return true;
 }
 
+/**
+ * After a permanent leave: abort if no human is left to play for; otherwise,
+ * if nobody present could forceResign the disconnected seats, give those a
+ * fresh grace period (theirs may already have run out while the leaver was
+ * still there) after which the game aborts unless one of them is back.
+ */
+function checkRemainingHumans(io, game) {
+    const goneForGood = (p) => p.isBot || game.isResigned(p.position) ||
+        (game.isLazy(p.position) && game.lazyPlayers[p.position].permanentLeave);
+    const seats = Array.from(game.players.values());
+
+    if (seats.every(goneForGood)) {
+        socketLogger.warn('All humans permanently left, aborting game', { gameId: game.gameId });
+        // The synchronous part (broadcast, retire, lobbiesUpdated) runs now;
+        // DB clears and tournament follow-up continue in the background
+        abortGame(io, game, 'All players left').catch(err =>
+            socketLogger.error('Abort failed', { gameId: game.gameId, error: err.message, stack: err.stack })
+        );
+    } else {
+        const { ensureGraceIfAbandoned } = require('./queueHandlers');
+        ensureGraceIfAbandoned(io, game);
+    }
+}
+
 function handleLeaveCommand(socket, io, game, position) {
     // Spectators just leave
     if (game.isSpectator(socket.id)) {
+        const spectator = game.spectators.get(socket.id);
         game.removeSpectator(socket.id);
         game.leaveRoom(io, socket.id);
+        // A rejoin shadow is mapped to the game; free it for new lobbies
+        if (gameManager.playerGames.get(socket.id) === game.gameId) {
+            gameManager.playerGames.delete(socket.id);
+        }
         socket.emit('leftGame');
         socket.emit('joinMainRoom');
+
+        // The rejoin shadow of a lazy/resigned seat leaving is that human
+        // leaving for good: the bot keeps the seat and the table must not
+        // wait for them
+        const seat = spectator?.username ? game.getOriginalPlayerPosition(spectator.username) : null;
+        const lazyInfo = seat ? game.lazyPlayers[seat] : null;
+        if (lazyInfo && lazyInfo.originalSocketId === socket.id && !lazyInfo.permanentLeave) {
+            lazyInfo.permanentLeave = true;
+            gameManager.clearActiveGame(spectator.username, game.gameId);
+            socketLogger.info('Player left game from spectator view (permanent)', { gameId: game.gameId, position: seat });
+            checkRemainingHumans(io, game);
+        }
         return true;
     }
 
@@ -215,33 +262,7 @@ function handleLeaveCommand(socket, io, game, position) {
         gameId: game.gameId, position
     });
 
-    // Check if all human players have permanently left — if so, abort the game
-    const hasActiveHuman = Array.from(game.players.values()).some(p => {
-        if (p.isBot) return false;
-        if (game.isResigned(p.position)) return false;
-        if (game.isLazy(p.position) && game.lazyPlayers[p.position].permanentLeave) return false;
-        return true;
-    });
-
-    if (!hasActiveHuman) {
-        socketLogger.warn('All humans permanently left, aborting game', { gameId: game.gameId });
-        game.broadcast(io, 'abortGame', { reason: 'All players left' });
-        gameManager.clearActiveGameForAll(game.gameId);
-        // Tournament games must still count toward round completion
-        const { handleAbortedTournamentGame } = require('./tournamentHandlers');
-        handleAbortedTournamentGame(io, game.gameId).catch(err =>
-            socketLogger.error('Failed to resolve aborted tournament game', {
-                gameId: game.gameId, error: err.message
-            })
-        );
-        game.leaveAllFromRoom(io);
-        gameManager.abortGame(game.gameId); // also releases bots via cleanupGame
-        io.to('mainRoom').emit('lobbiesUpdated', {
-            lobbies: gameManager.getAllLobbies(),
-            inProgressGames: gameManager.getInProgressGames(),
-            tournaments: gameManager.getAllTournaments()
-        });
-    }
+    checkRemainingHumans(io, game);
 
     return true;
 }
@@ -252,27 +273,15 @@ function handleLeaveCommand(socket, io, game, position) {
  * phase can complete, mark their seat for bot replacement, and send them out.
  */
 function handleDrawPhaseLeave(socket, io, game) {
+    // Idempotent: a second leave from the same socket changes nothing
+    if (game._drawPhaseDisconnects?.[socket.id]?.left) return;
+
     const user = gameManager.getUserBySocketId(socket.id);
     const username = user?.username || 'Player';
 
-    const alreadyDrew = game.drawIDs.includes(socket.id);
-    let drewNow = false;
-    if (!alreadyDrew && game.deck && game.deck.cards.length > 0) {
-        drewNow = true;
-        const drawIndex = Math.floor(Math.random() * game.deck.cards.length);
-        const card = game.deck.cards[drawIndex];
-        game.drawCards.push(card);
-        game.drawIDs.push(socket.id);
-        game.deck.cards.splice(drawIndex, 1);
-
-        game.broadcast(io, 'playerDrew', {
-            username,
-            card,
-            drawOrder: game.drawIndex + 1,
-            socketId: socket.id
-        });
-        game.drawIndex++;
-    }
+    // No-op if they already drew (or the draw is no longer open)
+    const { autoDraw } = require('./gameHandlers');
+    const drewNow = autoDraw(io, game, socket.id, username);
 
     // Mark the seat for bot replacement once positions are assigned
     // (handleDrawComplete seats a bot for `left` entries)
@@ -298,7 +307,9 @@ function handleDrawPhaseLeave(socket, io, game) {
     // drawn, the 4th draw has already started handleDrawComplete
     if (drewNow && game.drawIndex === 4) {
         const { handleDrawComplete } = require('./gameHandlers');
-        handleDrawComplete(io, game);
+        handleDrawComplete(io, game).catch(err =>
+            socketLogger.error('handleDrawComplete failed', { gameId: game.gameId, error: err.message, stack: err.stack })
+        );
     }
 }
 
@@ -360,7 +371,7 @@ function chatMessage(socket, io, data) {
             return;
         }
         // /leave works during the draw phase too, before positions exist
-        if (!position && activeGame.phase === 'drawing' &&
+        if (!position && activeGame.isPreSeating() &&
             data.message.trim().toLowerCase() === '/leave') {
             handleDrawPhaseLeave(socket, io, activeGame);
             return;

@@ -4,8 +4,8 @@
  */
 
 const gameManager = require('../game/GameManager');
-const Deck = require('../game/Deck');
 const { socketLogger } = require('../utils/logger');
+const { beginDraw } = require('./gameLifecycle');
 const { delay } = require('../utils/timing');
 const { botController, personalities } = require('../game/bot');
 const { getDisplayName } = personalities;
@@ -89,24 +89,13 @@ async function playerReady(socket, io) {
                 }
             });
 
-            // After another delay, start the draw phase
-            await delay(2000);
+            // After another delay, start the draw phase (false: the game
+            // was aborted meanwhile)
+            if (!(await game.pause(2000))) return;
 
-            // Create and shuffle deck for draw phase
-            game.deck = new Deck();
-            game.deck.shuffle();
-
-            game.phase = 'drawing';
-            game.broadcast(io, 'startDraw', { start: true });
-
-            // Schedule bot draws
-            let botDrawOrder = 0;
-            for (const player of lobby.players) {
-                if (player.isBot) {
-                    botDrawOrder++;
-                    botController.scheduleBotDraw(io, game, player.socketId, botDrawOrder);
-                }
-            }
+            // Deck, startDraw, bot draws, and auto-draws for anyone who
+            // left or disconnected during the countdown
+            beginDraw(io, game);
         }
     }
 }

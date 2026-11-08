@@ -1,7 +1,28 @@
 /**
  * Encapsulates all state for a single game instance
  * Includes validation and debug logging
+ *
+ * Lifecycle: `_stage` is the authoritative game phase (see GamePhase.js) and
+ * only changes through transition() / tryTransition() / terminate(). The
+ * legacy `phase` / `bidding` fields are read-only projections for the wire.
  */
+const {
+    Phase,
+    NOT_BIDDING,
+    PRE_SEATING,
+    isTerminal,
+    isLegal,
+    wirePhase,
+    reportViolation,
+    shouldCheckInvariants
+} = require('./GamePhase');
+const { gameLogger } = require('../utils/logger');
+
+const IN_HAND_STAGES = new Set([
+    Phase.DEALING, Phase.BIDDING, Phase.REDEAL, Phase.PLAYING,
+    Phase.TRICK_RESOLVING, Phase.HAND_RESOLVING
+]);
+
 class GameState {
     constructor(gameId) {
         this.gameId = gameId;
@@ -21,9 +42,13 @@ class GameState {
         this.currentHand = 12;     // Cards per player (12 down to 1)
         this.dealer = 1;           // Dealer position (rotates)
 
-        // Phase tracking
-        this.phase = 'waiting';    // waiting, drawing, bidding, playing
-        this.bidding = true;
+        // Lifecycle (authoritative phase; `phase`/`bidding` are getters)
+        this._stage = Phase.CREATED;
+        this.epoch = 0;            // bumped once when the game ends or aborts
+        this._timers = new Map();  // key -> timeout (setTimer)
+        this._pauses = new Set();  // in-flight pause() entries
+        this._history = shouldCheckInvariants() ? [Phase.CREATED] : null;
+        this._isSeatReachable = null;   // set by GameManager.createGame
         this.currentTurn = 1;
 
         // Bidding state
@@ -35,6 +60,7 @@ class GameState {
 
         // Trick play state
         this.leadPosition = 1;
+        this.leadCard = null;
         this.playedCards = [];     // Cards played this trick [pos1Card, pos2Card, ...]
         this.playedCardsIndex = 0;
         this.trump = null;         // Trump card
@@ -87,6 +113,238 @@ class GameState {
         // Game log for reconnection restoration
         this.gameLog = [];
         this.maxLogEntries = 500;
+    }
+
+    // ========================================
+    // Lifecycle (phase FSM)
+    // ========================================
+
+    /** Authoritative stage (GamePhase.Phase). Internal only — never on the wire. */
+    get stage() {
+        return this._stage;
+    }
+
+    /** Legacy wire phase: 'waiting' | 'drawing' | 'bidding' (never 'playing'). */
+    get phase() {
+        return wirePhase(this._stage);
+    }
+
+    set phase(value) {
+        reportViolation('legacy-write', { field: 'phase', value, gameId: this.gameId });
+    }
+
+    /** Legacy wire flag: false only from the end of bidding to the next deal. */
+    get bidding() {
+        return !NOT_BIDDING.has(this._stage);
+    }
+
+    set bidding(value) {
+        reportViolation('legacy-write', { field: 'bidding', value, gameId: this.gameId });
+    }
+
+    isTerminal() {
+        return isTerminal(this._stage);
+    }
+
+    /** Before seats exist: a mapped socket may legitimately have no position. */
+    isPreSeating() {
+        return PRE_SEATING.has(this._stage);
+    }
+
+    /** 'bid' / 'play' while a turn can be taken, null otherwise. */
+    actionTypeForTurn() {
+        if (this._stage === Phase.BIDDING) return 'bid';
+        if (this._stage === Phase.PLAYING) return 'play';
+        return null;
+    }
+
+    acceptsTurnInput() {
+        return this._stage === Phase.BIDDING || this._stage === Phase.PLAYING;
+    }
+
+    _enterStage(from, to) {
+        this._stage = to;
+        if (this._history) this._history.push(to);
+        gameLogger.debug('phase', { gameId: this.gameId, from, to });
+    }
+
+    /**
+     * Assert-and-apply a lifecycle edge. Every production call site reads
+     * `if (!game.transition(F, T)) return;` — illegal calls throw under tests
+     * and fail closed (logged, continuation stops) in production.
+     */
+    transition(from, to) {
+        if (this._stage !== from) {
+            reportViolation('illegal-from', { gameId: this.gameId, from, actual: this._stage, to });
+            return false;
+        }
+        return this._applyTransition(from, to);
+    }
+
+    /**
+     * Latch for legitimate races (several draw paths may complete the draw):
+     * a stage mismatch quietly returns false. An illegal edge is still reported.
+     */
+    tryTransition(from, to) {
+        if (this._stage !== from) {
+            gameLogger.debug('tryTransition: stage moved on', { gameId: this.gameId, from, actual: this._stage, to });
+            return false;
+        }
+        return this._applyTransition(from, to);
+    }
+
+    _applyTransition(from, to) {
+        if (!isLegal(from, to)) {
+            reportViolation('illegal-edge', { gameId: this.gameId, from, to });
+            return false;
+        }
+        if (isTerminal(to)) {
+            reportViolation('use-terminate', { gameId: this.gameId, from, to });
+            return false;
+        }
+        this._enterStage(from, to);
+        if (shouldCheckInvariants()) {
+            const { errors } = this.validateGameState();
+            if (errors.length > 0) {
+                reportViolation('invariant', { gameId: this.gameId, stage: to, errors });
+            }
+        }
+        return true;
+    }
+
+    canTransition(to) {
+        return !this.isTerminal() && isLegal(this._stage, to);
+    }
+
+    /**
+     * Move to ENDED or ABORTED (absorbing). The final event, if any, is
+     * broadcast while the game is still live. Returns false if the game is
+     * already terminal (so callers never double-resolve).
+     * @param {Object|null} io
+     * @param {string} to - Phase.ENDED or Phase.ABORTED
+     * @param {string|null} [event] - final event broadcast to the room
+     * @param {Object} [payload]
+     */
+    terminate(io, to, event = null, payload) {
+        if (this.isTerminal()) return false;
+        if (!isTerminal(to) || !isLegal(this._stage, to)) {
+            reportViolation('illegal-terminate', { gameId: this.gameId, from: this._stage, to });
+            return false;
+        }
+        // Steps below are synchronous: nothing can run between the final
+        // event and the epoch bump / timer cancellation
+        if (io && event) this.broadcast(io, event, payload);
+        const from = this._stage;
+        this._stage = to;
+        if (this._history) this._history.push(to);
+        this.epoch++;
+        this._cancelAllTimers();
+        gameLogger.info('Game terminated', { gameId: this.gameId, from, to, event });
+        return true;
+    }
+
+    // ========================================
+    // Epoch-guarded pauses and timers
+    // ========================================
+
+    /** @returns {Function} true while the game is still in this epoch and live */
+    aliveCheck() {
+        const e = this.epoch;
+        return () => this.epoch === e && !this.isTerminal();
+    }
+
+    /**
+     * Lifecycle pause. Resolves true after `ms` if the game is still in the
+     * same epoch, false (immediately) when the game ends/aborts meanwhile or
+     * is already terminal. Every lifecycle continuation reads
+     * `if (!(await game.pause(ms))) return;`.
+     * @returns {Promise<boolean>}
+     */
+    pause(ms) {
+        if (this.isTerminal()) return Promise.resolve(false);
+        const e = this.epoch;
+        return new Promise((resolve) => {
+            const entry = { timer: null, resolve };
+            entry.timer = setTimeout(() => {
+                this._pauses.delete(entry);
+                resolve(this.epoch === e);
+            }, ms);
+            this._pauses.add(entry);
+        });
+    }
+
+    /**
+     * Named one-shot timer owned by this game (replaces any timer under the
+     * same key). The callback is skipped if the game ended/aborted meanwhile;
+     * sync throws and async rejections are logged, never uncaught.
+     */
+    setTimer(key, ms, fn) {
+        this.clearTimer(key);
+        if (this.isTerminal()) return false;
+        const e = this.epoch;
+        const timer = setTimeout(() => {
+            this._timers.delete(key);
+            if (this.epoch !== e || this.isTerminal()) return;
+            Promise.resolve().then(fn).catch(err =>
+                gameLogger.error('Game timer failed', { gameId: this.gameId, key, error: err.message, stack: err.stack })
+            );
+        }, ms);
+        this._timers.set(key, timer);
+        return true;
+    }
+
+    clearTimer(key) {
+        const timer = this._timers.get(key);
+        if (timer !== undefined) {
+            clearTimeout(timer);
+            this._timers.delete(key);
+        }
+    }
+
+    hasTimer(key) {
+        return this._timers.has(key);
+    }
+
+    get pendingTimerCount() {
+        return this._timers.size + this._pauses.size;
+    }
+
+    _cancelAllTimers() {
+        for (const timer of this._timers.values()) clearTimeout(timer);
+        this._timers.clear();
+        for (const entry of this._pauses) {
+            clearTimeout(entry.timer);
+            entry.resolve(false);
+        }
+        this._pauses.clear();
+    }
+
+    /** Test-only fixture helper: jump straight to a non-terminal stage. */
+    forcePhase(p) {
+        if (process.env.NODE_ENV !== 'test') throw new Error('forcePhase is test-only');
+        if (!Phase[p] || isTerminal(p)) throw new Error(`forcePhase: invalid stage ${p}`);
+        this._stage = p;
+        if (this._history) this._history.push(p);
+    }
+
+    /**
+     * The only writer of draw state. Takes the card at `index` (null = random,
+     * clamped into the deck) for `socketId`.
+     * @returns {{card: Object, drawOrder: number}|null} null when refused
+     *   (not drawing, no deck, duplicate drawer, or 4 draws already in)
+     */
+    recordDraw(socketId, index) {
+        if (this._stage !== Phase.DRAWING || !this.deck || this.deck.cards.length === 0) return null;
+        if (this.drawIDs.includes(socketId) || this.drawIDs.length >= 4) return null;
+        const n = this.deck.cards.length;
+        let i = index == null ? Math.floor(Math.random() * n) : Math.floor(Number(index));
+        if (!Number.isFinite(i)) i = 0;
+        i = Math.max(0, Math.min(n - 1, i));
+        const [card] = this.deck.cards.splice(i, 1);
+        this.drawCards.push(card);
+        this.drawIDs.push(socketId);
+        this.drawIndex++;
+        return { card, drawOrder: this.drawIndex };
     }
 
     addPlayer(socketId, username, position, pic, isBot = false) {
@@ -341,9 +599,6 @@ class GameState {
         this.bidder = (newDealer % 4) + 1;
         this.currentTurn = this.bidder;
 
-        this.phase = 'bidding';
-        this.bidding = true;
-
         this.bids = {};
         this.playerBids = [];
         this.team1Mult = 1;
@@ -351,6 +606,7 @@ class GameState {
 
         this.playedCards = [];
         this.playedCardsIndex = 0;
+        this.leadCard = null;
         this.trump = null;
         this.isTrumpBroken = false;
         this.cardIndex = 0;
@@ -360,26 +616,6 @@ class GameState {
 
         // Reset per-hand trick tracking
         this.handTricks = { 1: 0, 2: 0, 3: 0, 4: 0 };
-    }
-
-    resetForNewGame() {
-        this.currentHand = 12;
-        this.dealer = 1;
-        this.score = { team1: 0, team2: 0 };
-        this.handStats = { totalHands: 0, team1Sets: 0, team2Sets: 0 };
-        this.playerStats = {
-            1: { totalBids: 0, totalTricks: 0, setsCaused: 0, totalHSI: 0 },
-            2: { totalBids: 0, totalTricks: 0, setsCaused: 0, totalHSI: 0 },
-            3: { totalBids: 0, totalTricks: 0, setsCaused: 0, totalHSI: 0 },
-            4: { totalBids: 0, totalTricks: 0, setsCaused: 0, totalHSI: 0 },
-        };
-        this.resetForNewHand(1, 12);
-
-        this.phase = 'waiting';
-        this.drawCards = [];
-        this.drawIDs = [];
-        this.drawIndex = 0;
-        this.clearGameLog();
     }
 
     getSocketIds() {
@@ -702,7 +938,9 @@ class GameState {
      * @param {Server} io - Socket.IO server instance
      */
     leaveAllFromRoom(io) {
-        for (const socketId of this.players.keys()) {
+        // Snapshot first: callers may mutate the maps afterwards
+        const ids = [...this.players.keys(), ...this.spectators.keys()];
+        for (const socketId of ids) {
             // Skip bots
             if (this.isBot(socketId)) continue;
             const socket = io.sockets.sockets.get(socketId);
@@ -714,12 +952,17 @@ class GameState {
     }
 
     /**
-     * Broadcast an event to all players in this game
+     * Broadcast an event to all players in this game. Dropped once the game
+     * is terminal (nothing is emitted from a dead game).
      * @param {Server} io - Socket.IO server instance
      * @param {string} event - Event name
      * @param {Object} data - Event data
      */
     broadcast(io, event, data) {
+        if (this.isTerminal()) {
+            gameLogger.debug('emit dropped: terminal', { gameId: this.gameId, event });
+            return;
+        }
         io.to(this.roomName).emit(event, data);
     }
 
@@ -732,6 +975,10 @@ class GameState {
      * @param {Object} data - Event data
      */
     sendToPlayer(io, socketId, event, data) {
+        if (this.isTerminal()) {
+            gameLogger.debug('emit dropped: terminal', { gameId: this.gameId, event });
+            return;
+        }
         // Skip bots - they don't have real socket connections
         if (this.isBot(socketId)) return;
         io.to(socketId).emit(event, data);
@@ -746,6 +993,8 @@ class GameState {
             currentTurn: this.currentTurn,
             phase: this.phase,
             bidding: this.bidding,
+            stage: this._stage,     // internal only (not in getClientState)
+            epoch: this.epoch,
             trump: this.trump,
             isTrumpBroken: this.isTrumpBroken,
             tricks: this.tricks,
@@ -783,23 +1032,13 @@ class GameState {
      * @param {Object} card - Card being played
      * @returns {{ valid: boolean, error?: string }}
      */
-    /**
-     * True only while a hand is actually dealt and live (bidding or play).
-     * phase stays 'bidding' through the play of the hand; trump is null from
-     * construction until startHand deals, which covers the draw and the
-     * team-announcement window where bids/plays/bot timers must not act.
-     */
-    isHandInProgress() {
-        return this.phase === 'bidding' && !!this.trump;
-    }
-
     validateCardPlay(socketId, card) {
         // Check turn
         const turnCheck = this.validateTurn(socketId);
         if (!turnCheck.valid) return turnCheck;
 
-        // Check not in bidding phase
-        if (this.bidding) {
+        // Cards are only accepted while a trick is open
+        if (this._stage !== Phase.PLAYING) {
             return { valid: false, error: 'Cannot play cards during bidding' };
         }
 
@@ -835,7 +1074,7 @@ class GameState {
         if (!turnCheck.valid) return turnCheck;
 
         // Check in bidding phase
-        if (!this.bidding) {
+        if (this._stage !== Phase.BIDDING) {
             return { valid: false, error: 'Not in bidding phase' };
         }
 
@@ -856,52 +1095,106 @@ class GameState {
     }
 
     /**
-     * Validate entire game state for consistency
+     * Validate the game state against the invariants of its current stage.
+     * Run on every transition when BAB_FSM_CHECK=1 (tests, chaos runs).
      * @returns {{ valid: boolean, errors: string[] }}
      */
     validateGameState() {
         const errors = [];
+        const stage = this._stage;
+        const tt = this.tricks.team1 + this.tricks.team2;
+        const seatHand = (pos) => this.hands[this.positions[pos]] || [];
+        const teamShaped = (b) => !!b && typeof b.team1 === 'number' && typeof b.team2 === 'number';
 
-        // Check player count
-        if (this.players.size !== 4 && this.phase !== 'waiting') {
-            errors.push(`Expected 4 players, have ${this.players.size}`);
+        if (stage === Phase.CREATED) {
+            return { valid: true, errors };
+        }
+        if (isTerminal(stage)) {
+            const pending = this.pendingTimerCount || 0;
+            if (pending !== 0) errors.push(`Terminal game has ${pending} pending timers`);
+            return { valid: errors.length === 0, errors };
         }
 
-        // Check all positions filled
-        if (this.phase !== 'waiting') {
-            for (let i = 1; i <= 4; i++) {
-                if (!this.positions[i]) {
-                    errors.push(`Position ${i} not assigned`);
-                }
+        if (stage === Phase.DRAWING || stage === Phase.DRAW_RESOLVING) {
+            if (new Set(this.drawIDs).size !== this.drawIDs.length) {
+                errors.push(`Duplicate drawIDs: ${this.drawIDs.join(',')}`);
             }
-        }
-
-        // Check valid turn
-        if (this.currentTurn < 1 || this.currentTurn > 4) {
-            errors.push(`Invalid currentTurn: ${this.currentTurn}`);
-        }
-
-        // Check hand sizes match (during playing phase)
-        if (this.phase === 'playing') {
-            const totalTricks = this.tricks.team1 + this.tricks.team2;
-            const expectedCards = this.currentHand - totalTricks;
-
-            for (const [socketId, hand] of Object.entries(this.hands)) {
-                // Account for cards played this trick
-                const playerPos = this.getPositionBySocketId(socketId);
-                const playedThisTrick = this.playedCards[playerPos - 1] ? 1 : 0;
-                const expected = expectedCards - playedThisTrick;
-
-                if (hand.length !== expected && hand.length !== expected + 1) {
-                    errors.push(`Player at pos ${playerPos} has ${hand.length} cards, expected ~${expected}`);
-                }
+            if (this.drawIDs.length !== this.drawCards.length || this.drawCards.length !== this.drawIndex) {
+                errors.push(`Draw state mismatch: ids=${this.drawIDs.length} cards=${this.drawCards.length} index=${this.drawIndex}`);
             }
+            if (this.drawIndex > 4) errors.push(`drawIndex ${this.drawIndex} > 4`);
+            if (stage === Phase.DRAW_RESOLVING && this.drawIndex !== 4) {
+                errors.push(`DRAW_RESOLVING with drawIndex ${this.drawIndex}`);
+            }
+            return { valid: errors.length === 0, errors };
         }
 
-        // Check tricks don't exceed hand size
-        const totalTricks = this.tricks.team1 + this.tricks.team2;
-        if (totalTricks > this.currentHand) {
-            errors.push(`Total tricks (${totalTricks}) exceeds hand size (${this.currentHand})`);
+        // TEAMS_ANNOUNCED onward: four seats
+        if (this.players.size !== 4) errors.push(`Expected 4 players, have ${this.players.size}`);
+        for (let pos = 1; pos <= 4; pos++) {
+            if (!this.positions[pos]) errors.push(`Position ${pos} not assigned`);
+        }
+
+        if (IN_HAND_STAGES.has(stage)) {
+            if (tt > this.currentHand) errors.push(`Total tricks (${tt}) exceeds hand size (${this.currentHand})`);
+            if (!(this.currentTurn >= 1 && this.currentTurn <= 4)) errors.push(`Invalid currentTurn: ${this.currentTurn}`);
+            // The first deal enters DEALING before trump exists
+            if (stage !== Phase.DEALING && !this.trump) errors.push(`No trump in ${stage}`);
+        }
+
+        switch (stage) {
+            case Phase.BIDDING: {
+                const n = this.playerBids.filter(b => b != null).length;
+                if (n !== Object.keys(this.bids).length) errors.push(`playerBids (${n}) != bids (${Object.keys(this.bids).length})`);
+                if (n >= 4) errors.push(`BIDDING with ${n} bids`);
+                const expectedTurn = ((this.bidder - 1 + n) % 4) + 1;
+                if (this.currentTurn !== expectedTurn) errors.push(`Bid turn ${this.currentTurn}, expected ${expectedTurn}`);
+                for (let pos = 1; pos <= 4; pos++) {
+                    if (seatHand(pos).length !== this.currentHand) {
+                        errors.push(`Seat ${pos} holds ${seatHand(pos).length} cards, expected ${this.currentHand}`);
+                    }
+                }
+                if (this.playedCardsIndex !== 0) errors.push(`playedCardsIndex ${this.playedCardsIndex} during bidding`);
+                break;
+            }
+            case Phase.REDEAL:
+                if (!teamShaped(this.bids) || this.bids.team1 !== 0 || this.bids.team2 !== 0) {
+                    errors.push(`REDEAL with bids ${JSON.stringify(this.bids)}`);
+                }
+                break;
+            case Phase.PLAYING: {
+                if (!teamShaped(this.bids)) errors.push(`PLAYING with bids ${JSON.stringify(this.bids)}`);
+                const pci = this.playedCardsIndex;
+                if (!(pci >= 0 && pci <= 3)) errors.push(`playedCardsIndex ${pci} while PLAYING`);
+                const played = this.playedCards.filter(c => c != null).length;
+                if (played !== pci) errors.push(`${played} cards on the table, playedCardsIndex ${pci}`);
+                if (this.cardIndex !== tt * 4 + pci) errors.push(`cardIndex ${this.cardIndex}, expected ${tt * 4 + pci}`);
+                for (let pos = 1; pos <= 4; pos++) {
+                    const expected = this.currentHand - tt - (this.playedCards[pos - 1] ? 1 : 0);
+                    if (seatHand(pos).length !== expected) {
+                        errors.push(`Seat ${pos} holds ${seatHand(pos).length} cards, expected ${expected}`);
+                    }
+                }
+                if (pci > 0) {
+                    const expectedTurn = ((this.leadPosition - 1 + pci) % 4) + 1;
+                    if (this.currentTurn !== expectedTurn) errors.push(`Play turn ${this.currentTurn}, expected ${expectedTurn}`);
+                }
+                break;
+            }
+            case Phase.TRICK_RESOLVING:
+                if (this.playedCardsIndex !== 4 || [0, 1, 2, 3].some(i => !this.playedCards[i])) {
+                    errors.push(`TRICK_RESOLVING with ${this.playedCardsIndex} cards`);
+                }
+                break;
+            case Phase.HAND_RESOLVING:
+                for (let pos = 1; pos <= 4; pos++) {
+                    if (seatHand(pos).length !== 0) errors.push(`Seat ${pos} still holds ${seatHand(pos).length} cards`);
+                }
+                if (tt !== this.currentHand) errors.push(`Hand resolved with ${tt} of ${this.currentHand} tricks`);
+                if (this.playedCardsIndex !== 0) errors.push(`playedCardsIndex ${this.playedCardsIndex} after the last trick`);
+                break;
+            default:
+                break;
         }
 
         return {
@@ -933,6 +1226,8 @@ class GameState {
 
         console.log(`[Game ${this.gameId.slice(0, 8)}] State:`, {
             phase: this.phase,
+            stage: this._stage,
+            epoch: this.epoch,
             hand: this.currentHand,
             turn: this.currentTurn,
             bidding: this.bidding,

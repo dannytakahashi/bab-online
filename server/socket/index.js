@@ -199,8 +199,15 @@ function setupSocketHandlers(io) {
                 // Clear rate limit data for this socket
                 rateLimiter.clearSocket(socket.id);
 
-                // Handle game/queue disconnect
-                queueHandlers.handleDisconnect(socket, io);
+                // Handle game/queue disconnect (async: a rejection must not
+                // become an unhandledRejection)
+                queueHandlers.handleDisconnect(socket, io).catch(error =>
+                    socketLogger.error('Error in disconnect handler', {
+                        socketId: socket.id,
+                        error: error.message,
+                        stack: error.stack
+                    })
+                );
             } catch (error) {
                 socketLogger.error('Error in disconnect handler', {
                     socketId: socket.id,

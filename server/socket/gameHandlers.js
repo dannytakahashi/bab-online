@@ -18,11 +18,15 @@ const {
     isValidBid,
     BID_RANKS
 } = require('../game/rules');
-const { delay } = require('../utils/timing');
 const { gameLogger } = require('../utils/logger');
+const { Phase, reportViolation } = require('../game/GamePhase');
 const { botController, personalities } = require('../game/bot');
 const { PERSONALITY_LIST } = personalities;
 const { cancelAbortTimer, startReconnectGraceTimer } = require('./queueHandlers');
+const { abortGame, emitLobbiesUpdated } = require('./gameLifecycle');
+
+const logContinuationError = (what, game) => (err) =>
+    gameLogger.error(`${what} failed`, { gameId: game.gameId, error: err.message, stack: err.stack });
 
 /**
  * Tell the sender its action was refused (instead of failing silently) so a
@@ -62,22 +66,22 @@ function triggerBotIfNeeded(io, game, actionType) {
         const playerSocketId = currentPlayer.socketId;
         const delayMs = bot.getActionDelay(actionType);
 
-        setTimeout(() => {
-          // A throw in a timer callback is an uncaughtException, which the
-          // shutdown handler turns into process.exit — taking every game on
-          // the server down with it. Contain failures to this one action.
+        // One pending lazy action per seat, owned by the game: it never fires
+        // after the game ends/aborts, and /active clears it
+        game.setTimer('lazy:' + bot.position, delayMs, () => {
+          // Contain failures to this one action (setTimer also logs throws)
           try {
             // Re-validate before acting: the game may have moved on during the
             // delay (turn advanced, trick resolved, /active, game ended). A
             // stale write here corrupts playedCards and wedges the game.
             if (!gameManager.getGameById(game.gameId)) return;
-            // No hand dealt yet (draw / team announcement) — nothing to act on
-            if (!game.isHandInProgress()) return;
+            // Only act in the stage this action was scheduled for (no hand
+            // before the deal, no plays while a trick or hand is resolving)
+            if (actionType === 'bid' ? game.stage !== Phase.BIDDING : game.stage !== Phase.PLAYING) return;
             if (!game.isLazy(bot.position)) return;
             if (game.currentTurn !== bot.position) return;
 
             if (actionType === 'bid') {
-                if (!game.bidding) return;
                 if (game.playerBids[bot.position - 1] != null) return;
 
                 // Use player's hand for bot decision
@@ -92,9 +96,8 @@ function triggerBotIfNeeded(io, game, actionType) {
                 game.addLogEntry(`${currentPlayer.username} bid ${bid}.`, bot.position, 'bid');
                 game.broadcast(io, 'bidReceived', { bid, position: bot.position, bidArray: game.playerBids });
                 game.currentTurn = rotatePosition(game.currentTurn);
-                handlePostBid(io, game);
+                handlePostBid(io, game).catch(logContinuationError('handlePostBid', game));
             } else if (actionType === 'play') {
-                if (game.bidding) return;
                 if (game.playedCardsIndex >= 4) return;
                 if (game.playedCards[bot.position - 1]) return;
 
@@ -116,12 +119,12 @@ function triggerBotIfNeeded(io, game, actionType) {
                 game.broadcast(io, 'cardPlayed', { playerId: playerSocketId, card, position: bot.position, trump: game.isTrumpBroken });
                 botController.notifyCardPlayed(game.gameId, card, bot.position, game.trump, game.leadPosition);
                 game.currentTurn = rotatePosition(game.currentTurn);
-                handlePostPlay(io, game);
+                handlePostPlay(io, game).catch(logContinuationError('handlePostPlay', game));
             }
           } catch (err) {
             gameLogger.error('Lazy-bot action failed', { gameId: game.gameId, actionType, error: err.message, stack: err.stack });
           }
-        }, delayMs);
+        });
         return;
     }
 
@@ -132,13 +135,13 @@ function triggerBotIfNeeded(io, game, actionType) {
             // after a stale-state bail wedges the game on a phantom turn
             if (!botController.processBotBid(io, game, bot)) return;
             game.currentTurn = rotatePosition(game.currentTurn);
-            handlePostBid(io, game);
+            handlePostBid(io, game).catch(logContinuationError('handlePostBid', game));
         });
     } else if (actionType === 'play') {
         botController.scheduleBotAction(io, game, 'play', (io, game, bot) => {
             if (!botController.processBotPlay(io, game, bot)) return;
             game.currentTurn = rotatePosition(game.currentTurn);
-            handlePostPlay(io, game);
+            handlePostPlay(io, game).catch(logContinuationError('handlePostPlay', game));
         });
     }
 }
@@ -147,10 +150,10 @@ function triggerBotIfNeeded(io, game, actionType) {
  * Handle logic after a bid is made (check if all bids done, trigger next bot)
  */
 async function handlePostBid(io, game) {
+    if (game.stage !== Phase.BIDDING) return;
+
     // Check if all bids are in
     if (game.getBidCount() === 4) {
-        game.bidding = false;
-
         // Calculate team bids
         const bids = game.playerBids;
         game.bids = {
@@ -177,17 +180,20 @@ async function handlePostBid(io, game) {
         // doneBidding as "enter play", so sending it first flashes the play
         // phase for a hand that is about to be torn down
         if (game.bids.team1 === 0 && game.bids.team2 === 0) {
+            if (!game.transition(Phase.BIDDING, Phase.REDEAL)) return;
             gameLogger.info('Zero bids, redealing', { gameId: game.gameId });
             const redealMsg = 'All bids were zero. Redealing.';
             game.addLogEntry(redealMsg, null, 'system');
             game.broadcast(io, 'gameLogEntry', { message: redealMsg, type: 'system' });
             game.broadcast(io, 'destroyHands', {});
-            await cleanupNextHand(game, io, game.dealer, game.currentHand);
+            if (!game.transition(Phase.REDEAL, Phase.DEALING)) return;
+            await dealHand(game, io, { dealer: game.dealer, handSize: game.currentHand });
             return;
         }
 
         const lead = findHighestBidder(game.bidder, bids) + 1;
 
+        if (!game.transition(Phase.BIDDING, Phase.PLAYING)) return;
         game.broadcast(io, 'doneBidding', { bids, lead });
 
         game.currentTurn = lead;
@@ -217,26 +223,22 @@ async function handlePostBid(io, game) {
 
     game.broadcast(io, 'updateTurn', { currentTurn: game.currentTurn });
 
-    // Trigger next bot if needed
-    if (game.bidding) {
-        triggerBotIfNeeded(io, game, 'bid');
-    } else {
-        // Bidding done, start play phase - trigger bot if lead is a bot
-        triggerBotIfNeeded(io, game, 'play');
-    }
+    // Trigger next bot if needed (bidding done: the lead may be a bot)
+    triggerBotIfNeeded(io, game, game.stage === Phase.BIDDING ? 'bid' : 'play');
 }
 
 /**
  * Handle logic after a card is played (check for trick complete, trigger next bot)
  */
 async function handlePostPlay(io, game) {
+    if (game.stage !== Phase.PLAYING) return;
+
     // Check if trick is complete
     if (game.playedCardsIndex === 4) {
-        // Guard against double resolution while we pause for the animation
-        if (game._trickResolving) return;
-        game._trickResolving = true;
+        // TRICK_RESOLVING rejects plays and makes a second resolution a no-op
+        if (!game.transition(Phase.PLAYING, Phase.TRICK_RESOLVING)) return;
 
-        await delay(2000);
+        if (!(await game.pause(2000))) return;
 
         // Re-validate after the pause: if the trick array was corrupted by a
         // stale action, log loudly instead of crashing the whole game loop
@@ -247,7 +249,6 @@ async function handlePostPlay(io, game) {
                 playedCardsIndex: game.playedCardsIndex,
                 playedCards: game.playedCards
             });
-            game._trickResolving = false;
             return;
         }
 
@@ -283,14 +284,15 @@ async function handlePostPlay(io, game) {
 
         game.playedCards = [];
         game.playedCardsIndex = 0;
-        game._trickResolving = false;
 
         // Check if hand is complete
         if (game.cardIndex === game.currentHand * 4) {
-            await delay(2000); // Brief pause after last trick stacks
+            if (!game.transition(Phase.TRICK_RESOLVING, Phase.HAND_RESOLVING)) return;
+            if (!(await game.pause(2000))) return; // Brief pause after last trick stacks
             await handleHandComplete(game, io);
             return;
         }
+        if (!game.transition(Phase.TRICK_RESOLVING, Phase.PLAYING)) return;
     }
 
     game.broadcast(io, 'updateTurn', { currentTurn: game.currentTurn });
@@ -301,18 +303,12 @@ async function handlePostPlay(io, game) {
 
 async function draw(socket, io, data) {
     const game = gameManager.getPlayerGame(socket.id);
-    if (!game || game.phase !== 'drawing') return;
+    if (!game) return;
 
-    let order = data.num;
-    if (order > game.deck.remaining - 1) {
-        order = game.deck.remaining - 1;
-    }
-
-    // Draw card at specified position
-    const card = game.deck.cards[order];
-    game.drawCards.push(card);
-    game.drawIDs.push(socket.id);
-    game.deck.cards.splice(order, 1);
+    // recordDraw refuses out-of-phase, duplicate and 5th draws
+    const d = game.recordDraw(socket.id, data && data.num);
+    if (!d) return;
+    const { card, drawOrder } = d;
 
     gameLogger.debug('Player drew card', { socketId: socket.id, card: `${card.rank} of ${card.suit}` });
 
@@ -321,17 +317,15 @@ async function draw(socket, io, data) {
     const username = user?.username || 'Player';
 
     // Tell the drawing player their card
-    socket.emit('youDrew', { card, drawOrder: game.drawIndex + 1 });
+    socket.emit('youDrew', { card, drawOrder });
 
     // Broadcast to all players that someone drew (so they can see it)
     game.broadcast(io, 'playerDrew', {
         username,
         card,
-        drawOrder: game.drawIndex + 1,
+        drawOrder,
         socketId: socket.id
     });
-
-    game.drawIndex++;
 
     // Check if all players have drawn
     if (game.drawIndex === 4) {
@@ -340,10 +334,28 @@ async function draw(socket, io, data) {
 }
 
 /**
+ * Auto-draw a random card for a socket that left or disconnected before
+ * drawing. Broadcasts playerDrew; the caller decides whether this draw
+ * completed the phase (game.drawIndex === 4).
+ * @returns {boolean} true if a card was drawn
+ */
+function autoDraw(io, game, socketId, username) {
+    const d = game.recordDraw(socketId, null);
+    if (d) {
+        game.broadcast(io, 'playerDrew', { username, card: d.card, drawOrder: d.drawOrder, socketId });
+    }
+    return !!d;
+}
+
+/**
  * Handle draw phase completion - assign positions and start game
- * Called when all 4 players (human or bot) have drawn
+ * Called when all 4 players (human or bot) have drawn. Every draw path may
+ * call it; the DRAWING -> DRAW_RESOLVING latch makes it run exactly once.
  */
 async function handleDrawComplete(io, game) {
+    if (game.drawIDs.length !== 4 || !game.tryTransition(Phase.DRAWING, Phase.DRAW_RESOLVING)) return;
+    const alive = game.aliveCheck();
+
     // Fetch saved profile pics for all players
     const pics = [];
     const usedPics = new Set();
@@ -374,6 +386,8 @@ async function handleDrawComplete(io, game) {
         usedPics.add(pic);
         pics.push(pic);
     }
+    // Aborted while the profile pics loaded
+    if (!alive()) return;
 
     // Assign positions based on cards drawn
     const positions = [];
@@ -408,7 +422,7 @@ async function handleDrawComplete(io, game) {
         // Only emit to human players still at the table (a draw-phase leaver
         // is back in the main room and must not pick up a seat position)
         if (!isBot && !game._drawPhaseDisconnects?.[playerId]?.left) {
-            io.to(playerId).emit('playerAssigned', { playerId, position });
+            game.sendToPlayer(io, playerId, 'playerAssigned', { playerId, position });
         }
     }
 
@@ -441,17 +455,7 @@ async function handleDrawComplete(io, game) {
     // as /leave once the game is under way). All-bot demo games never get here.
     if (seatedBotForLeaver && Array.from(game.players.values()).every(p => p.isBot)) {
         gameLogger.warn('All humans left during draw, aborting game', { gameId: game.gameId });
-        game.broadcast(io, 'abortGame', { reason: 'All players left' });
-        await gameManager.clearActiveGameForAll(game.gameId);
-        const { handleAbortedTournamentGame } = require('./tournamentHandlers');
-        await handleAbortedTournamentGame(io, game.gameId);
-        game.leaveAllFromRoom(io);
-        gameManager.abortGame(game.gameId);
-        io.to('mainRoom').emit('lobbiesUpdated', {
-            lobbies: gameManager.getAllLobbies(),
-            inProgressGames: gameManager.getInProgressGames(),
-            tournaments: gameManager.getAllTournaments()
-        });
+        await abortGame(io, game, 'All players left');
         return;
     }
 
@@ -473,7 +477,7 @@ async function handleDrawComplete(io, game) {
         }
     }
 
-    await delay(1000);
+    if (!(await game.pause(1000))) return;
 
     game.broadcast(io, 'positionUpdate', {
         positions: orderedPositions,
@@ -497,6 +501,7 @@ async function handleDrawComplete(io, game) {
     // reconnection). Resolved per seat now, not from the pre-delay snapshot:
     // bots have no user document, and a seat that was resigned or /leave'd
     // meanwhile must not have its human's activeGameId re-armed.
+    const written = [];
     for (let pos = 1; pos <= 4; pos++) {
         const player = game.getPlayerByPosition(pos);
         if (!player || game.isResigned(pos)) continue;
@@ -508,7 +513,17 @@ async function handleDrawComplete(io, game) {
             if (player.isBot || gameManager.isBot(player.socketId)) continue;
             username = player.username;
         }
+        if (!alive()) break;
         await gameManager.setActiveGame(username, game.gameId);
+        written.push(username);
+    }
+    // Aborted mid-loop: the abort's own clear may have run before one of
+    // these writes landed, so re-clear (scoped to this game) what we wrote
+    if (!alive()) {
+        await Promise.all(written.map(u =>
+            gameManager.clearActiveGame(u, game.gameId).catch(logContinuationError('clearActiveGame', game))
+        ));
+        return;
     }
 
     // Announce teams (positions 1&3 vs 2&4)
@@ -517,28 +532,27 @@ async function handleDrawComplete(io, game) {
     const team2Player1 = game.getPlayerByPosition(2);
     const team2Player2 = game.getPlayerByPosition(4);
 
-    await delay(1000);
+    if (!(await game.pause(1000))) return;
 
+    if (!game.transition(Phase.DRAW_RESOLVING, Phase.TEAMS_ANNOUNCED)) return;
     game.broadcast(io, 'teamsAnnounced', {
         team1: [team1Player1?.username || 'Player 1', team1Player2?.username || 'Player 3'],
         team2: [team2Player1?.username || 'Player 2', team2Player2?.username || 'Player 4']
     });
 
     // Wait for team announcement to be seen (3 seconds)
-    await delay(3000);
+    if (!(await game.pause(3000))) return;
+
+    if (!game.transition(Phase.TEAMS_ANNOUNCED, Phase.DEALING)) return;
 
     // Reset draw state
     game.drawCards = [];
     game.drawIndex = 0;
     game.drawIDs = [];
-    game.phase = 'bidding';
+    game.deck = null;
 
     // Notify main room that a new in-progress game is available to spectate
-    io.to('mainRoom').emit('lobbiesUpdated', {
-        lobbies: gameManager.getAllLobbies(),
-        inProgressGames: gameManager.getInProgressGames(),
-        tournaments: gameManager.getAllTournaments()
-    });
+    emitLobbiesUpdated(io);
 
     // createUI must come BEFORE gameStart (client expects this order)
     game.broadcast(io, 'createUI', {});
@@ -546,23 +560,41 @@ async function handleDrawComplete(io, game) {
     // Add game start message to log
     game.addLogEntry('Game started!', null, 'system');
 
-    // Start the actual game (emits gameStart to each player)
-    await startHand(game, io);
+    // Deal the first hand (emits gameStart to each player)
+    await dealHand(game, io, { dealer: game.dealer, handSize: game.currentHand, firstHand: true });
 }
 
-async function startHand(game, io) {
-    // Initialize deck
+/**
+ * Deal a hand and open its bidding. Used for the first hand (after the team
+ * announcement), every following hand, and the all-zero redeal.
+ * Wire order: gameStart (each seat) -> gameStart (spectators) ->
+ * [1s pause on the first hand] -> updateTurn.
+ * @param {Object} opts
+ * @param {number} opts.dealer - dealer position for this hand
+ * @param {number} opts.handSize - cards per player
+ * @param {boolean} [opts.firstHand=false] - pause 1s before the first updateTurn
+ */
+async function dealHand(game, io, { dealer, handSize, firstHand = false }) {
+    if (game.stage !== Phase.DEALING) {
+        reportViolation('deal-wrong-stage', { gameId: game.gameId, stage: game.stage });
+        return;
+    }
+    // Hand 1 passes (1, 12), which equals the constructor defaults (bidder 2)
+    game.resetForNewHand(dealer, handSize);
+    // Identifies this deal so a stale continuation (e.g. the first-hand
+    // pause outliving an all-zero redeal) can tell it is no longer current
+    const dealSeq = game.dealSeq = (game.dealSeq || 0) + 1;
+
+    // Initialize new deck and deal
     const deck = new Deck();
     deck.shuffle();
 
-    // Deal cards
     const socketIds = game.getSocketIds();
     for (const socketId of socketIds) {
         const hand = deck.draw(game.currentHand);
         game.setHand(socketId, hand);
     }
 
-    // Set trump
     game.trump = deck.drawOne();
 
     // Reset bot memory for new hand and trigger personality reactions to trump
@@ -591,8 +623,12 @@ async function startHand(game, io) {
         }
     }
 
-    // Send game start to all players (each gets their own hand and position)
+    // Send the hand to every seat (each gets their own hand and position).
+    // A seat whose socket no longer maps to this game (a /leave'd lazy
+    // human, now in the main room) gets nothing.
     for (const socketId of socketIds) {
+        if (game.isBot(socketId)) continue;
+        if (game._isSeatReachable && !game._isSeatReachable(socketId)) continue;
         const playerPosition = game.getPositionBySocketId(socketId);
         game.sendToPlayer(io, socketId, 'gameStart', {
             gameId: game.gameId,
@@ -602,7 +638,7 @@ async function startHand(game, io) {
             score1: game.score.team1,
             score2: game.score.team2,
             dealer: game.dealer,
-            position: playerPosition,  // Include player's position to avoid race condition
+            position: playerPosition,  // Include player's position to avoid the bid UI race
             currentHand: game.currentHand,  // Hand index for hand indicator
             hsiValues,  // HSI for all players to display under avatars
             playerInfo  // Current player info for avatar updates
@@ -611,7 +647,7 @@ async function startHand(game, io) {
 
     // Send spectator-safe gameStart (no hand data) so spectators see updated trump/score/hand
     for (const spec of game.getSpectators()) {
-        io.to(spec.socketId).emit('gameStart', {
+        game.sendToPlayer(io, spec.socketId, 'gameStart', {
             gameId: game.gameId,
             trump: game.trump,
             score1: game.score.team1,
@@ -623,11 +659,16 @@ async function startHand(game, io) {
         });
     }
 
-    gameLogger.info('Game started', { gameId: game.gameId, handSize: game.currentHand, dealer: game.dealer });
-    game.bidding = true;
+    gameLogger.info('Hand dealt', { gameId: game.gameId, handSize: game.currentHand, dealer: game.dealer, firstHand });
     game.currentTurn = game.bidder;
+    if (!game.transition(Phase.DEALING, Phase.BIDDING)) return;
 
-    await delay(1000);
+    if (firstHand) {
+        if (!(await game.pause(1000))) return;
+        // A bid during the pause already sent updateTurn and triggered the
+        // next bot; repeating them would double-schedule it
+        if (game.stage !== Phase.BIDDING || game.dealSeq !== dealSeq || game.getBidCount() > 0) return;
+    }
 
     game.broadcast(io, 'updateTurn', { currentTurn: game.currentTurn });
 
@@ -641,9 +682,9 @@ async function playerBid(socket, io, data) {
 
     const position = game.getPositionBySocketId(socket.id);
 
-    // Validate turn (and that a hand is actually dealt — before startHand,
-    // currentTurn/bidding hold constructor defaults)
-    if (!game.isHandInProgress() || !game.bidding || position !== game.currentTurn) {
+    // Validate stage and turn (before the deal currentTurn holds the
+    // constructor default)
+    if (game.stage !== Phase.BIDDING || position !== game.currentTurn) {
         rejectAction(socket, game, 'bid', 'not_your_turn', { position, currentTurn: game.currentTurn });
         return;
     }
@@ -683,11 +724,10 @@ async function playCard(socket, io, data) {
 
     const position = game.getPositionBySocketId(socket.id);
 
-    // Validate turn, phase, trick state and card ownership. During the
-    // trick-resolution pause currentTurn has already rotated to the leader
-    // while playedCardsIndex is still 4 — accepting a play there overwrote
-    // the trick and wedged the game; a card not in hand was also accepted.
-    if (!game.isHandInProgress() || position !== game.currentTurn || game.bidding) {
+    // Validate stage, turn, trick state and card ownership. Plays are only
+    // accepted in PLAYING: during TRICK_RESOLVING currentTurn has already
+    // rotated to the leader while the trick is still on the table.
+    if (game.stage !== Phase.PLAYING || position !== game.currentTurn) {
         rejectAction(socket, game, 'play', 'not_your_turn', { position, currentTurn: game.currentTurn });
         return;
     }
@@ -759,6 +799,7 @@ async function playCard(socket, io, data) {
 }
 
 async function handleHandComplete(game, io) {
+    if (game.stage !== Phase.HAND_RESOLVING) return;
     gameLogger.info('Hand complete', { gameId: game.gameId, handSize: game.currentHand });
 
     const team1OldScore = game.score.team1;
@@ -901,9 +942,6 @@ async function handleHandComplete(game, io) {
 
         gameLogger.info('Game ended', { gameId: game.gameId, finalScore: game.score });
 
-        // Record game stats for all players
-        await recordGameStats(game);
-
         // Build player stats with usernames for final score screen
         const playerStatsWithNames = {};
         const totalHands = game.handStats.totalHands;
@@ -917,16 +955,31 @@ async function handleHandComplete(game, io) {
         }
 
         // Check for tournament context
-        const tournamentId = gameManager.tournamentGames.get(game.gameId);
+        const tournamentId = gameManager.tournamentGames.get(game.gameId) || null;
 
-        game.broadcast(io, 'gameEnd', {
+        // gameEnd goes out first, then ENDED + epoch bump + timer
+        // cancellation (synchronously). False: the game was aborted
+        // meanwhile, so the tournament must not be resolved a second time.
+        if (!game.terminate(io, Phase.ENDED, 'gameEnd', {
             score: game.score,
             playerStats: playerStatsWithNames,
-            tournamentId: tournamentId || null
-        });
+            tournamentId
+        })) return;
+
+        // Retire: bots, room, every playerGames entry (players can create
+        // new lobbies / return to the tournament right away)
+        gameManager.endGame(game.gameId, io);
+
+        // Persist stats in the background: a slow DB must not hold up the
+        // end of the game for the players
+        recordGameStats(game).catch(logContinuationError('recordGameStats', game));
 
         // Clear active game for all players
-        await gameManager.clearActiveGameForAll(game.gameId);
+        try {
+            await gameManager.clearActiveGameForAll(game.gameId, game);
+        } catch (err) {
+            logContinuationError('clearActiveGameForAll', game)(err);
+        }
 
         // Tournament-specific: record scores and check round completion
         if (tournamentId) {
@@ -980,103 +1033,13 @@ async function handleHandComplete(game, io) {
             }
         }
 
-        // Cleanup bots
-        botController.cleanupGame(game.gameId);
-        game.leaveAllFromRoom(io);
-        // Clear playerGames Map entries so players can create new lobbies/return to tournament
-        gameManager.endGame(game.gameId);
-        game.resetForNewGame();
-
         // Notify main room that an in-progress game has ended
-        io.to('mainRoom').emit('lobbiesUpdated', {
-            lobbies: gameManager.getAllLobbies(),
-            inProgressGames: gameManager.getInProgressGames(),
-            tournaments: gameManager.getAllTournaments()
-        });
+        emitLobbiesUpdated(io);
     } else {
         gameLogger.debug('Starting next hand', { dealer: nextDealer, handSize: nextHandSize, gameId: game.gameId });
-        await cleanupNextHand(game, io, nextDealer, nextHandSize);
+        if (!game.transition(Phase.HAND_RESOLVING, Phase.DEALING)) return;
+        await dealHand(game, io, { dealer: nextDealer, handSize: nextHandSize });
     }
-}
-
-async function cleanupNextHand(game, io, dealer, handSize) {
-    game.resetForNewHand(dealer, handSize);
-
-    // Initialize new deck and deal
-    const deck = new Deck();
-    deck.shuffle();
-
-    const socketIds = game.getSocketIds();
-    for (const socketId of socketIds) {
-        const hand = deck.draw(game.currentHand);
-        game.setHand(socketId, hand);
-    }
-
-    game.trump = deck.drawOne();
-
-    // Reset bot memory for new hand and trigger personality reactions to trump
-    botController.resetBotMemory(game.gameId, game.currentHand, game.trump);
-    botController.handleTrumpRevealed(io, game);
-
-    // Calculate HSI for each player's hand and add to their stats
-    const hsiValues = {};
-    for (const socketId of socketIds) {
-        const hand = game.getHand(socketId);
-        const position = game.getPositionBySocketId(socketId);
-        const hsi = calculateHSI(hand, game.trump);
-        game.addHSI(position, hsi);
-        hsiValues[position] = hsi;
-    }
-
-    // Store HSI values on game state for reconnection
-    game.hsiValues = hsiValues;
-
-    // Build current player info (reflects bot takeovers via lazy/resign)
-    const playerInfo = [];
-    for (let pos = 1; pos <= 4; pos++) {
-        const p = game.getPlayerByPosition(pos);
-        if (p) {
-            playerInfo.push({ position: pos, username: p.username, pic: p.pic });
-        }
-    }
-
-    // Send new hand to all players (each gets their own hand and position)
-    for (const socketId of socketIds) {
-        const playerPosition = game.getPositionBySocketId(socketId);
-        game.sendToPlayer(io, socketId, 'gameStart', {
-            gameId: game.gameId,
-            players: socketIds,
-            hand: game.getHand(socketId),
-            trump: game.trump,
-            score1: game.score.team1,
-            score2: game.score.team2,
-            dealer: game.dealer,
-            position: playerPosition,  // Include player's position to fix bid UI bug
-            currentHand: game.currentHand,  // Hand index for hand indicator
-            hsiValues,  // HSI for all players to display under avatars
-            playerInfo  // Current player info for avatar updates
-        });
-    }
-
-    // Send spectator-safe gameStart (no hand data) so spectators see updated trump/score/hand
-    for (const spec of game.getSpectators()) {
-        io.to(spec.socketId).emit('gameStart', {
-            gameId: game.gameId,
-            trump: game.trump,
-            score1: game.score.team1,
-            score2: game.score.team2,
-            dealer: game.dealer,
-            currentHand: game.currentHand,
-            hand: [],
-            playerInfo
-        });
-    }
-
-    game.currentTurn = game.bidder;
-    game.broadcast(io, 'updateTurn', { currentTurn: game.currentTurn });
-
-    // Trigger bot if first bidder is a bot
-    triggerBotIfNeeded(io, game, 'bid');
 }
 
 /**
@@ -1186,14 +1149,16 @@ async function forceResign(socket, io, data) {
     });
 
     // If it's the resigned player's turn, trigger bot action
-    if (game.currentTurn === position) {
-        const actionType = game.bidding ? 'bid' : 'play';
+    // (not while a trick/hand resolves: the next updateTurn re-triggers it)
+    const actionType = game.actionTypeForTurn();
+    if (game.currentTurn === position && actionType) {
         triggerBotIfNeeded(io, game, actionType);
     }
 }
 
 module.exports = {
     draw,
+    autoDraw,
     playerBid,
     playCard,
     handleDrawComplete,
