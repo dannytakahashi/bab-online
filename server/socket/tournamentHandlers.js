@@ -496,7 +496,7 @@ async function startTournamentRound(io, tournament, roundNumber, epoch = tournam
     }
 
     // One shared countdown (false: that table aborted meanwhile)
-    const counted = await Promise.all(tables.map(({ game }) => game.pause(pacing(game).TABLE_COUNTDOWN_MS)));
+    const counted = await Promise.all(tables.map(({ game }) => game.hold('countdown', pacing(game).TABLE_COUNTDOWN_MS)));
     if (!live()) return stop();
 
     // Deck, startDraw, bot draws, and auto-draws for anyone who left or

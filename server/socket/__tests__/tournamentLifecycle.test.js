@@ -288,6 +288,19 @@ describe('cancel in every tournament phase', () => {
         expect(gameManager.reattachTournamentPlayer(back.id, ctx.usernames[0])).toBeNull();
     });
 
+    test.each([Phase.TRICK_RESOLVING, Phase.HAND_RESOLVING])('inside a %s hold (resume timer pending)', async (stage) => {
+        const ctx = await setupTournament(4); // one 4-human table
+        const [g] = await beginAndReach(ctx);
+        for (let pos = 1; pos <= 4; pos++) {
+            chatHandlers.chatMessage(ctx.sockets.find((s) => s.id === g.seat(pos).ownerSocketId), ctx.io, { message: '/lazy' });
+        }
+        await advanceUntil(() => g.stage === stage, 10, 10 * 60 * 1000);
+        expect(g.hasTimer('resume')).toBe(true);
+        expect(g.resume).not.toBeNull();
+        await cancelAndCheck(ctx);
+        expect(g.resume).toBeNull();
+    });
+
     test('between rounds', async () => {
         const ctx = await setupTournament(6);
         const tables = await beginAndReach(ctx);

@@ -44,6 +44,7 @@ const { gameLogger, socketLogger, authLogger, logger } = require('../../utils/lo
 const { makeIo, makeSocket, events, legalCards, legalBids, mulberry32 } = require('../../testUtils/gameDriver');
 const contractCheck = require('../../testUtils/contractCheck');
 const { watchSeq } = require('../../testUtils/seqCheck');
+const { watchPacing } = require('../../testUtils/pacingInvariants');
 
 const { Phase } = GamePhase;
 const SEEDS = Number(process.env.CHAOS_SEEDS) || 200;
@@ -111,10 +112,13 @@ const seatSnapshot = (game) => JSON.stringify(game.seatList().map((s) => [s.posi
  */
 async function runSeed(seed) {
     let seqWatch = null;
+    let paceWatch = null;
     contractCheck.setContext(`chaos seed ${seed}`);
-    const result = await runSeedInner(seed, (io) => { seqWatch = watchSeq(io); });
+    const result = await runSeedInner(seed, (io) => { seqWatch = watchSeq(io); paceWatch = watchPacing(); });
     const seqResult = seqWatch ? seqWatch.stop() : { failures: [] };
+    const paceResult = paceWatch ? paceWatch.stop() : { failures: [] };
     if (result.ok && seqResult.failures.length) return { seed, why: 'seq', failures: seqResult.failures.slice(0, 5) };
+    if (result.ok && paceResult.failures.length) return { seed, why: 'pacing', failures: paceResult.failures.slice(0, 5) };
     return result;
 }
 

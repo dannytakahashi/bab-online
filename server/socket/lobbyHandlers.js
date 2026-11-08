@@ -95,9 +95,7 @@ async function playerReady(socket, io) {
 
             // After another delay, start the draw phase (false: the game
             // was aborted meanwhile)
-            const countdownMs = pacing(game).PREDRAW_COUNTDOWN_MS;
-            pacing.trace('countdown', countdownMs, game);
-            if (!(await game.pause(countdownMs))) return;
+            if (!(await game.hold('countdown', pacing(game).PREDRAW_COUNTDOWN_MS))) return;
 
             // Deck, startDraw, bot draws, and auto-draws for anyone who
             // left or disconnected during the countdown
