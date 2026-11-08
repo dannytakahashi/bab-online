@@ -712,6 +712,64 @@ describe('12. departures during the lobby countdown (CREATED)', () => {
     });
 });
 
+describe('13. leavers and watchers', () => {
+    test("a /leave'd lazy player gets no gameStart for the next hand", async () => {
+        const { io, log } = newIo();
+        const { game, ids, sockets } = seatedGame('q', io);
+        toPlaying(game);
+        chatHandlers.chatMessage(sockets[0], io, { message: '/leave' }); // lazy bot plays seat 1
+        const pending = [];
+        await advanceUntil(() => game.currentTurn === 2, 100);
+        for (let i = 1; i < 4; i++) {
+            pending.push(gameHandlers.playCard(sockets[i], io, { card: game.getHand(ids[i])[0] }));
+        }
+        await advanceUntil(() => game.stage === Phase.BIDDING && game.currentHand === 3, 100);
+        await Promise.all(pending);
+
+        const starts = events(log, 'gameStart');
+        expect(starts.some((l) => l.to === ids[0])).toBe(false);
+        for (const id of ids.slice(1)) expect(starts.filter((l) => l.to === id)).toHaveLength(1);
+    });
+
+    function lazyShadow(io, log) {
+        const g = seatedGame('o', io);
+        g.game.forcePhase(Phase.BIDDING);
+        g.game.currentTurn = 2;
+        chatHandlers.chatMessage(g.sockets[0], io, { message: '/lazy' });
+        const shadow = makeSocket(`${g.ids[0]}-again`, log, io);
+        gameManager.registerUser(shadow.id, `user_${g.ids[0]}`);
+        return { ...g, shadow };
+    }
+
+    test('a rejoin shadow that disconnects is dropped without a position:null event', async () => {
+        const { io, log } = newIo();
+        const { game, shadow } = lazyShadow(io, log);
+        await reconnectHandlers.rejoinGame(shadow, io, { gameId: game.gameId, username: `user_${shadow.id.replace('-again', '')}` });
+        expect(game.isSpectator(shadow.id)).toBe(true);
+
+        await queueHandlers.handleDisconnect(shadow, io);
+
+        expect(events(log, 'playerDisconnected')).toHaveLength(0);
+        expect(game.isSpectator(shadow.id)).toBe(false);
+        expect(gameManager.playerGames.has(shadow.id)).toBe(false);
+        expect(game.hasTimer('reconnectGrace')).toBe(false);
+    });
+
+    test('a rejoin shadow that /leaves is unmapped and can queue again', async () => {
+        const { io, log } = newIo();
+        const { game, shadow } = lazyShadow(io, log);
+        await reconnectHandlers.rejoinGame(shadow, io, { gameId: game.gameId, username: `user_${shadow.id.replace('-again', '')}` });
+
+        chatHandlers.chatMessage(shadow, io, { message: '/leave' });
+
+        expect(log.some((l) => l.to === `self:${shadow.id}` && l.event === 'leftGame')).toBe(true);
+        expect(gameManager.playerGames.has(shadow.id)).toBe(false);
+        expect(io.rooms.get(game.roomName).has(shadow.id)).toBe(false);
+        expect(gameManager.joinQueue(shadow.id).success).toBe(true);
+        gameManager.leaveLobby(shadow.id);
+    });
+});
+
 describe('14. redeal', () => {
     test('all-zero bids redeal in place: no doneBidding, destroyHands before gameStart, back in BIDDING', async () => {
         const { io, log } = newIo();

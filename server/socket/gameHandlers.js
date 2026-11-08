@@ -620,8 +620,12 @@ async function dealHand(game, io, { dealer, handSize, firstHand = false }) {
         }
     }
 
-    // Send the hand to every seat (each gets their own hand and position)
+    // Send the hand to every seat (each gets their own hand and position).
+    // A seat whose socket no longer maps to this game (a /leave'd lazy
+    // human, now in the main room) gets nothing.
     for (const socketId of socketIds) {
+        if (game.isBot(socketId)) continue;
+        if (game._isSeatReachable && !game._isSeatReachable(socketId)) continue;
         const playerPosition = game.getPositionBySocketId(socketId);
         game.sendToPlayer(io, socketId, 'gameStart', {
             gameId: game.gameId,

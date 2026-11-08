@@ -189,6 +189,10 @@ function handleLeaveCommand(socket, io, game, position) {
     if (game.isSpectator(socket.id)) {
         game.removeSpectator(socket.id);
         game.leaveRoom(io, socket.id);
+        // A rejoin shadow is mapped to the game; free it for new lobbies
+        if (gameManager.playerGames.get(socket.id) === game.gameId) {
+            gameManager.playerGames.delete(socket.id);
+        }
         socket.emit('leftGame');
         socket.emit('joinMainRoom');
         return true;

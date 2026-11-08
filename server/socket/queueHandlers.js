@@ -158,6 +158,17 @@ async function handleDisconnect(socket, io) {
             return;
         }
 
+        // A mapped socket without a seat once seats exist is a watcher (a
+        // lazy/resigned human's rejoin shadow, or a spectator who /active'd
+        // nothing yet): drop it quietly — there is no seat to report
+        if (!position) {
+            result.game.removeSpectator(socket.id);
+            if (gameManager.playerGames.get(socket.id) === result.game.gameId) {
+                gameManager.playerGames.delete(socket.id);
+            }
+            return;
+        }
+
         const player = result.game.getPlayerByPosition(position);
         const username = player?.username || `Player ${position}`;
 
