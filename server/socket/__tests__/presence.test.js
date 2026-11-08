@@ -756,7 +756,8 @@ describe('lazy seat chat', () => {
         chat(t, 1, '/lazy');
         chat(t, 1, 'brb');
         expect(events(t.log, 'chatMessage').map((l) => l.data)).toEqual([
-            { position: 1, message: 'brb', username: 'user1', isSpectator: false },
+            // CHANGED (snapshot v2 item, additive): + type (iOS spectator label)
+            { position: 1, message: 'brb', username: 'user1', isSpectator: false, type: 'player' },
         ]);
     });
 
@@ -766,7 +767,8 @@ describe('lazy seat chat', () => {
         const w = await rejoin(t, 'user1');
         chat(t, 1, 'back', w);
         expect(events(t.log, 'chatMessage').map((l) => l.data)).toEqual([
-            { position: null, message: 'back', username: 'user1', isSpectator: true },
+            // CHANGED (snapshot v2 item, additive): + type (iOS spectator label)
+            { position: null, message: 'back', username: 'user1', isSpectator: true, type: 'spectator' },
         ]);
     });
 });

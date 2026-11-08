@@ -442,12 +442,17 @@ const s2c = {
     // ==================== Chat ====================
     chatMessage: {
         payload: anyOf(
-            variant('humanOrSpectator', obj({ position: orNull(ref('position')), message: str(), username: str(), isSpectator: bool() })),
-            variant('bot', obj({ position: ref('position'), message: str(), username: str() })),
+            variant('humanOrSpectator', obj({
+                position: orNull(ref('position')), message: str(), username: str(), isSpectator: bool(), type: enm('player', 'spectator'),
+            })),
+            variant('bot', obj({ position: ref('position'), message: str(), username: str(), isSpectator: konst(false), type: konst('player') })),
         ),
         status: 'active', to: 'room', seq: false,
-        clientReads: reads([W.chat, W.main('onChatMessage')], I.chat),
+        added: ['type', 'isSpectator'],
+        activates: ['type'],
+        clientReads: reads([W.chat, W.main('onChatMessage')], `${I.chat}#reads:type`),
         emittedFrom: ['server/socket/chatHandlers.js:chatMessage', 'server/game/bot/BotController.js:sendBotChat'],
+        notes: "type ('player' | 'spectator') is additive and switches on the shipped iOS spectator label (ChatSocketHandler reads type == 'spectator'; ctr-14). Bot chat also gains isSpectator:false (web: undefined and false read the same). Keep one of isSpectator / type in v2 (V1_REMOVALS #12).",
     },
     gameLogEntry: {
         payload: obj({ message: str(), type: konst('system') }),

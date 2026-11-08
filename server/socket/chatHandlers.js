@@ -198,12 +198,15 @@ function chatMessage(socket, io, data) {
     // Add to game log for reconnection persistence
     game.addLogEntry(`${username}: ${cleanMessage}`, position, 'chat');
 
-    // Broadcast to players in the same game only
+    // Broadcast to players in the same game only. `type` is additive: the
+    // shipped iOS app labels a message as spectator chat only from
+    // type == 'spectator' (web reads isSpectator)
     game.broadcast(io, 'chatMessage', {
         position,
         message: cleanMessage,
         username,
-        isSpectator
+        isSpectator,
+        type: isSpectator ? 'spectator' : 'player'
     });
 }
 

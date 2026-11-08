@@ -423,7 +423,11 @@ class BotController {
             game.broadcast(io, 'chatMessage', {
                 position: bot.position,
                 message,
-                username: bot.username
+                username: bot.username,
+                // additive: same shape as human chat (web treats a missing
+                // isSpectator as false; iOS reads type)
+                isSpectator: false,
+                type: 'player'
             });
         }, delay);
 

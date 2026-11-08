@@ -5065,13 +5065,20 @@
               },
               "isSpectator": {
                 "type": "boolean"
+              },
+              "type": {
+                "enum": [
+                  "player",
+                  "spectator"
+                ]
               }
             },
             "required": [
               "position",
               "message",
               "username",
-              "isSpectator"
+              "isSpectator",
+              "type"
             ],
             "additionalProperties": false
           },
@@ -5087,12 +5094,20 @@
               },
               "username": {
                 "type": "string"
+              },
+              "isSpectator": {
+                "const": false
+              },
+              "type": {
+                "const": "player"
               }
             },
             "required": [
               "position",
               "message",
-              "username"
+              "username",
+              "isSpectator",
+              "type"
             ],
             "additionalProperties": false
           }
@@ -5101,19 +5116,27 @@
       "status": "active",
       "to": "room",
       "seq": false,
+      "added": [
+        "type",
+        "isSpectator"
+      ],
+      "activates": [
+        "type"
+      ],
       "clientReads": {
         "web": [
           "client/src/handlers/chatHandlers.js:registerChatHandlers",
           "client/src/main.js:onChatMessage"
         ],
         "ios": [
-          "iOSClient/BABOnline/Networking/Handlers/ChatSocketHandler.swift:register"
+          "iOSClient/BABOnline/Networking/Handlers/ChatSocketHandler.swift:register#reads:type"
         ]
       },
       "emittedFrom": [
         "server/socket/chatHandlers.js:chatMessage",
         "server/game/bot/BotController.js:sendBotChat"
-      ]
+      ],
+      "notes": "type ('player' | 'spectator') is additive and switches on the shipped iOS spectator label (ChatSocketHandler reads type == 'spectator'; ctr-14). Bot chat also gains isSpectator:false (web: undefined and false read the same). Keep one of isSpectator / type in v2 (V1_REMOVALS #12)."
     },
     "gameLogEntry": {
       "payload": {
