@@ -93,8 +93,13 @@ function spectatorCommand(socket, io, game, message) {
     if (!seat) return; // an ordinary spectator
     if (seat.controller !== Controller.HUMAN && seat.presence === Presence.AWAY) {
         seatLifecycle.reclaimSeat(io, game, pos, socket, username);
-    } else if (seat.presence !== Presence.GONE) {
+    } else if (seat.presence === Presence.GONE) {
+        sendError(io, game, socket, 'You left this game. You can keep watching or type /leave.');
+    } else if (seat.ownerSocketId) {
         sendError(io, game, socket, 'Your seat is controlled from another connection. Reconnect to take it back.');
+    } else {
+        // Human seat in grace/resignable with no socket attached
+        sendError(io, game, socket, 'Reconnect to take your seat back.');
     }
 }
 

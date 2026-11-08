@@ -882,6 +882,33 @@ describe('review fixes (seat records)', () => {
         expect(t.log.slice(mark2).filter((l) => l.to === fan.id || l.to === `self:${fan.id}`)).toEqual([]);
     });
 
+    test('an owner-named spectator\'s /active error matches the seat state', async () => {
+        const errorsTo = (t, s, mark) => t.log.slice(mark)
+            .filter((l) => l.event === 'error' && (l.to === s.id || l.to === `self:${s.id}`))
+            .map((l) => l.data.message);
+
+        // Human seat in grace, nothing attached: told to reconnect, not that another connection holds it
+        const t = table();
+        const tab = newSocket(t, 'user1');
+        tournamentHandlers.spectateTournamentGame(tab, t.io, { gameId: t.game.gameId });
+        await drop(t, t.sockets[1]);
+        expect(t.game.seat(1).presence).toBe('grace');
+        let mark = t.log.length;
+        chat(t, 1, '/active', tab);
+        expect(errorsTo(t, tab, mark)).toEqual(['Reconnect to take your seat back.']);
+
+        // Lazy seat whose newer socket /left: the demoted socket is told it left
+        const u = table();
+        chat(u, 1, '/lazy');
+        const s2 = await rejoin(u, 'user1');
+        chat(u, 1, '/leave', s2);
+        expect(u.game.seat(1).presence).toBe('gone');
+        mark = u.log.length;
+        chat(u, 1, '/active', u.sockets[1]);
+        expect(errorsTo(u, u.sockets[1], mark)).toEqual(['You left this game. You can keep watching or type /leave.']);
+        expect(u.game.seatController(1)).not.toBe('human');
+    });
+
     test('a pure spectator under the owner\'s name rejoins its own seat without an invariant failure', async () => {
         // Human seat: a second tab spectates (seat connected), then rejoins
         const t = table();
