@@ -1,0 +1,124 @@
+{
+  "name": "draw-in-progress",
+  "description": "An entrant who drew asks mid-draw: 2 of 4 cards drawn (one by a bot), no seats yet, viewerDrawOrder set.",
+  "capturedFrom": "stateSnapshot",
+  "viewerRole": "entrant",
+  "snapshot": {
+    "v": 2,
+    "gameId": "00000000-0000-4000-8000-000000000003",
+    "seq": 3,
+    "serverTime": 1767268805300,
+    "stage": "DRAWING",
+    "partial": [],
+    "viewer": {
+      "role": "entrant",
+      "position": null,
+      "ownerView": null,
+      "canAct": false
+    },
+    "hand": null,
+    "deal": null,
+    "trump": null,
+    "trumpBroken": false,
+    "turn": null,
+    "bids": {
+      "byPosition": [
+        null,
+        null,
+        null,
+        null
+      ],
+      "order": [
+        2,
+        3,
+        4,
+        1
+      ],
+      "teamBids": null,
+      "mults": {
+        "team1": 1,
+        "team2": 1
+      }
+    },
+    "trick": {
+      "number": null,
+      "leadPosition": null,
+      "cards": []
+    },
+    "tricks": {
+      "team1": 0,
+      "team2": 0
+    },
+    "tricksByPosition": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "score": {
+      "team1": 0,
+      "team2": 0
+    },
+    "rainbows": {
+      "team1": 0,
+      "team2": 0
+    },
+    "hsi": null,
+    "seats": [],
+    "entrants": [
+      {
+        "username": "eve",
+        "isBot": false,
+        "presence": "connected",
+        "hasDrawn": false
+      },
+      {
+        "username": "fay",
+        "isBot": false,
+        "presence": "connected",
+        "hasDrawn": true
+      },
+      {
+        "username": "gus",
+        "isBot": false,
+        "presence": "connected",
+        "hasDrawn": false
+      },
+      {
+        "username": null,
+        "isBot": true,
+        "presence": "connected",
+        "hasDrawn": true
+      }
+    ],
+    "draw": {
+      "deckRemaining": 52,
+      "drawn": [
+        {
+          "drawOrder": 1,
+          "username": "fay",
+          "isBot": false,
+          "card": {
+            "suit": "clubs",
+            "rank": "J"
+          },
+          "position": null
+        },
+        {
+          "drawOrder": 2,
+          "username": "🤖 Mike",
+          "isBot": true,
+          "card": {
+            "suit": "hearts",
+            "rank": "K"
+          },
+          "position": null
+        }
+      ],
+      "viewerDrawOrder": 1
+    },
+    "spectatorCount": 0,
+    "tournament": null,
+    "log": []
+  }
+}

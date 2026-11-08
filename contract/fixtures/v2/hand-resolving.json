@@ -1,0 +1,265 @@
+{
+  "name": "hand-resolving",
+  "description": "Seat 4 asks after the last trick of the hand (HAND_RESOLVING): no turn, hand empty.",
+  "capturedFrom": "stateSnapshot",
+  "viewerRole": "seat",
+  "snapshot": {
+    "v": 2,
+    "gameId": "00000000-0000-4000-8000-000000000002",
+    "seq": 129,
+    "serverTime": 1767268834000,
+    "stage": "HAND_RESOLVING",
+    "partial": [],
+    "viewer": {
+      "role": "seat",
+      "position": 4,
+      "ownerView": "seat",
+      "canAct": false
+    },
+    "hand": [],
+    "deal": {
+      "handNo": 1,
+      "handSize": 12,
+      "dealer": 1,
+      "bidder": 2,
+      "dealSeq": 1
+    },
+    "trump": {
+      "suit": "hearts",
+      "rank": "8"
+    },
+    "trumpBroken": true,
+    "turn": null,
+    "bids": {
+      "byPosition": [
+        "2",
+        "1",
+        "4",
+        "1"
+      ],
+      "order": [
+        2,
+        3,
+        4,
+        1
+      ],
+      "teamBids": {
+        "team1": 6,
+        "team2": 2
+      },
+      "mults": {
+        "team1": 1,
+        "team2": 1
+      }
+    },
+    "trick": {
+      "number": null,
+      "leadPosition": null,
+      "cards": []
+    },
+    "tricks": {
+      "team1": 4,
+      "team2": 8
+    },
+    "tricksByPosition": [
+      2,
+      6,
+      2,
+      2
+    ],
+    "score": {
+      "team1": 0,
+      "team2": 0
+    },
+    "rainbows": {
+      "team1": 0,
+      "team2": 0
+    },
+    "hsi": [
+      119.16666666666666,
+      143,
+      130,
+      115.91666666666666
+    ],
+    "seats": [
+      {
+        "position": 1,
+        "username": "ivy",
+        "pic": 11,
+        "hasCustomPic": false,
+        "customPic": null,
+        "ownerUsername": "ivy",
+        "controller": "human",
+        "presence": "connected",
+        "isBot": false,
+        "lazy": false,
+        "offered": false,
+        "graceDeadline": null,
+        "resignableAt": null,
+        "cardsInHand": 0
+      },
+      {
+        "position": 2,
+        "username": "kim",
+        "pic": null,
+        "hasCustomPic": true,
+        "customPic": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+        "ownerUsername": "kim",
+        "controller": "human",
+        "presence": "connected",
+        "isBot": false,
+        "lazy": false,
+        "offered": false,
+        "graceDeadline": null,
+        "resignableAt": null,
+        "cardsInHand": 0
+      },
+      {
+        "position": 3,
+        "username": "hal",
+        "pic": 10,
+        "hasCustomPic": false,
+        "customPic": null,
+        "ownerUsername": "hal",
+        "controller": "human",
+        "presence": "connected",
+        "isBot": false,
+        "lazy": false,
+        "offered": false,
+        "graceDeadline": null,
+        "resignableAt": null,
+        "cardsInHand": 0
+      },
+      {
+        "position": 4,
+        "username": "jon",
+        "pic": 12,
+        "hasCustomPic": false,
+        "customPic": null,
+        "ownerUsername": "jon",
+        "controller": "human",
+        "presence": "connected",
+        "isBot": false,
+        "lazy": false,
+        "offered": false,
+        "graceDeadline": null,
+        "resignableAt": null,
+        "cardsInHand": 0
+      }
+    ],
+    "entrants": null,
+    "draw": null,
+    "spectatorCount": 1,
+    "tournament": null,
+    "log": [
+      {
+        "message": "kim reconnected.",
+        "type": "system",
+        "position": null,
+        "at": 1767268805500
+      },
+      {
+        "message": "Game started!",
+        "type": "system",
+        "position": null,
+        "at": 1767268808500
+      },
+      {
+        "message": "kim bid 1.",
+        "type": "bid",
+        "position": 2,
+        "at": 1767268810000
+      },
+      {
+        "message": "hal bid 4.",
+        "type": "bid",
+        "position": 3,
+        "at": 1767268810000
+      },
+      {
+        "message": "jon bid 1.",
+        "type": "bid",
+        "position": 4,
+        "at": 1767268810000
+      },
+      {
+        "message": "ivy bid 2.",
+        "type": "bid",
+        "position": 1,
+        "at": 1767268810000
+      },
+      {
+        "message": "Trick won by kim.",
+        "type": "trick",
+        "position": 2,
+        "at": 1767268812000
+      },
+      {
+        "message": "Trick won by hal.",
+        "type": "trick",
+        "position": 3,
+        "at": 1767268814000
+      },
+      {
+        "message": "Trick won by kim.",
+        "type": "trick",
+        "position": 2,
+        "at": 1767268816000
+      },
+      {
+        "message": "Trick won by ivy.",
+        "type": "trick",
+        "position": 1,
+        "at": 1767268818000
+      },
+      {
+        "message": "Trick won by jon.",
+        "type": "trick",
+        "position": 4,
+        "at": 1767268820000
+      },
+      {
+        "message": "Trick won by kim.",
+        "type": "trick",
+        "position": 2,
+        "at": 1767268822000
+      },
+      {
+        "message": "Trick won by kim.",
+        "type": "trick",
+        "position": 2,
+        "at": 1767268824000
+      },
+      {
+        "message": "Trick won by hal.",
+        "type": "trick",
+        "position": 3,
+        "at": 1767268826000
+      },
+      {
+        "message": "Trick won by jon.",
+        "type": "trick",
+        "position": 4,
+        "at": 1767268828000
+      },
+      {
+        "message": "Trick won by ivy.",
+        "type": "trick",
+        "position": 1,
+        "at": 1767268830000
+      },
+      {
+        "message": "Trick won by kim.",
+        "type": "trick",
+        "position": 2,
+        "at": 1767268832000
+      },
+      {
+        "message": "Trick won by kim.",
+        "type": "trick",
+        "position": 2,
+        "at": 1767268834000
+      }
+    ]
+  }
+}

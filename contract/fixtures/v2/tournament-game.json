@@ -1,0 +1,217 @@
+{
+  "name": "tournament-game",
+  "description": "The human at a round-1 tournament table asks during bidding: tournament info filled in.",
+  "capturedFrom": "stateSnapshot",
+  "viewerRole": "seat",
+  "snapshot": {
+    "v": 2,
+    "gameId": "00000000-0000-4000-8000-000000000005",
+    "seq": 9,
+    "serverTime": 1767268838500,
+    "stage": "BIDDING",
+    "partial": [],
+    "viewer": {
+      "role": "seat",
+      "position": 2,
+      "ownerView": "seat",
+      "canAct": true
+    },
+    "hand": [
+      {
+        "suit": "hearts",
+        "rank": "2"
+      },
+      {
+        "suit": "hearts",
+        "rank": "8"
+      },
+      {
+        "suit": "diamonds",
+        "rank": "9"
+      },
+      {
+        "suit": "clubs",
+        "rank": "J"
+      },
+      {
+        "suit": "hearts",
+        "rank": "Q"
+      },
+      {
+        "suit": "clubs",
+        "rank": "3"
+      },
+      {
+        "suit": "spades",
+        "rank": "2"
+      },
+      {
+        "suit": "spades",
+        "rank": "3"
+      },
+      {
+        "suit": "hearts",
+        "rank": "5"
+      },
+      {
+        "suit": "clubs",
+        "rank": "K"
+      },
+      {
+        "suit": "diamonds",
+        "rank": "Q"
+      },
+      {
+        "suit": "hearts",
+        "rank": "6"
+      }
+    ],
+    "deal": {
+      "handNo": 1,
+      "handSize": 12,
+      "dealer": 1,
+      "bidder": 2,
+      "dealSeq": 1
+    },
+    "trump": {
+      "suit": "spades",
+      "rank": "6"
+    },
+    "trumpBroken": false,
+    "turn": {
+      "position": 2,
+      "action": "bid"
+    },
+    "bids": {
+      "byPosition": [
+        null,
+        null,
+        null,
+        null
+      ],
+      "order": [
+        2,
+        3,
+        4,
+        1
+      ],
+      "teamBids": null,
+      "mults": {
+        "team1": 1,
+        "team2": 1
+      }
+    },
+    "trick": {
+      "number": null,
+      "leadPosition": null,
+      "cards": []
+    },
+    "tricks": {
+      "team1": 0,
+      "team2": 0
+    },
+    "tricksByPosition": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "score": {
+      "team1": 0,
+      "team2": 0
+    },
+    "rainbows": {
+      "team1": 0,
+      "team2": 0
+    },
+    "hsi": [
+      131.08333333333331,
+      97.5,
+      164.66666666666666,
+      115.91666666666666
+    ],
+    "seats": [
+      {
+        "position": 1,
+        "username": "🤖 Mike",
+        "pic": 38,
+        "hasCustomPic": false,
+        "customPic": null,
+        "ownerUsername": null,
+        "controller": "bot",
+        "presence": "none",
+        "isBot": true,
+        "lazy": false,
+        "offered": false,
+        "graceDeadline": null,
+        "resignableAt": null,
+        "cardsInHand": 12
+      },
+      {
+        "position": 2,
+        "username": "T1_u1",
+        "pic": 3,
+        "hasCustomPic": false,
+        "customPic": null,
+        "ownerUsername": "T1_u1",
+        "controller": "human",
+        "presence": "connected",
+        "isBot": false,
+        "lazy": false,
+        "offered": false,
+        "graceDeadline": null,
+        "resignableAt": null,
+        "cardsInHand": 12
+      },
+      {
+        "position": 3,
+        "username": "🤖 Mary",
+        "pic": 2,
+        "hasCustomPic": false,
+        "customPic": null,
+        "ownerUsername": null,
+        "controller": "bot",
+        "presence": "none",
+        "isBot": true,
+        "lazy": false,
+        "offered": false,
+        "graceDeadline": null,
+        "resignableAt": null,
+        "cardsInHand": 12
+      },
+      {
+        "position": 4,
+        "username": "🤖 Sharon",
+        "pic": 4,
+        "hasCustomPic": false,
+        "customPic": null,
+        "ownerUsername": null,
+        "controller": "bot",
+        "presence": "none",
+        "isBot": true,
+        "lazy": false,
+        "offered": false,
+        "graceDeadline": null,
+        "resignableAt": null,
+        "cardsInHand": 12
+      }
+    ],
+    "entrants": null,
+    "draw": null,
+    "spectatorCount": 0,
+    "tournament": {
+      "tournamentId": "00000000-0000-4000-8000-000000000001",
+      "name": "T1_u1's Tournament",
+      "roundNumber": 1,
+      "totalRounds": 4
+    },
+    "log": [
+      {
+        "message": "Game started!",
+        "type": "system",
+        "position": null,
+        "at": 1767268838500
+      }
+    ]
+  }
+}

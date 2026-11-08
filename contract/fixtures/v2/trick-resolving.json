@@ -1,0 +1,217 @@
+{
+  "name": "trick-resolving",
+  "description": "A spectator asks while the 4th card is on the table (TRICK_RESOLVING): 4 cards, no turn.",
+  "capturedFrom": "stateSnapshot",
+  "viewerRole": "spectator",
+  "snapshot": {
+    "v": 2,
+    "gameId": "00000000-0000-4000-8000-000000000002",
+    "seq": 29,
+    "serverTime": 1767268810000,
+    "stage": "TRICK_RESOLVING",
+    "partial": [],
+    "viewer": {
+      "role": "spectator",
+      "position": null,
+      "ownerView": null,
+      "canAct": false
+    },
+    "hand": null,
+    "deal": {
+      "handNo": 1,
+      "handSize": 12,
+      "dealer": 1,
+      "bidder": 2,
+      "dealSeq": 1
+    },
+    "trump": {
+      "suit": "hearts",
+      "rank": "8"
+    },
+    "trumpBroken": false,
+    "turn": null,
+    "bids": {
+      "byPosition": [
+        "2",
+        "1",
+        "4",
+        "1"
+      ],
+      "order": [
+        2,
+        3,
+        4,
+        1
+      ],
+      "teamBids": {
+        "team1": 6,
+        "team2": 2
+      },
+      "mults": {
+        "team1": 1,
+        "team2": 1
+      }
+    },
+    "trick": {
+      "number": 1,
+      "leadPosition": 3,
+      "cards": [
+        {
+          "position": 3,
+          "card": {
+            "suit": "clubs",
+            "rank": "4"
+          }
+        },
+        {
+          "position": 4,
+          "card": {
+            "suit": "clubs",
+            "rank": "6"
+          }
+        },
+        {
+          "position": 1,
+          "card": {
+            "suit": "clubs",
+            "rank": "Q"
+          }
+        },
+        {
+          "position": 2,
+          "card": {
+            "suit": "clubs",
+            "rank": "A"
+          }
+        }
+      ]
+    },
+    "tricks": {
+      "team1": 0,
+      "team2": 0
+    },
+    "tricksByPosition": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "score": {
+      "team1": 0,
+      "team2": 0
+    },
+    "rainbows": {
+      "team1": 0,
+      "team2": 0
+    },
+    "hsi": null,
+    "seats": [
+      {
+        "position": 1,
+        "username": "ivy",
+        "pic": 11,
+        "hasCustomPic": false,
+        "customPic": null,
+        "ownerUsername": "ivy",
+        "controller": "human",
+        "presence": "connected",
+        "isBot": false,
+        "lazy": false,
+        "offered": false,
+        "graceDeadline": null,
+        "resignableAt": null,
+        "cardsInHand": 11
+      },
+      {
+        "position": 2,
+        "username": "kim",
+        "pic": null,
+        "hasCustomPic": true,
+        "customPic": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+        "ownerUsername": "kim",
+        "controller": "human",
+        "presence": "connected",
+        "isBot": false,
+        "lazy": false,
+        "offered": false,
+        "graceDeadline": null,
+        "resignableAt": null,
+        "cardsInHand": 11
+      },
+      {
+        "position": 3,
+        "username": "hal",
+        "pic": 10,
+        "hasCustomPic": false,
+        "customPic": null,
+        "ownerUsername": "hal",
+        "controller": "human",
+        "presence": "connected",
+        "isBot": false,
+        "lazy": false,
+        "offered": false,
+        "graceDeadline": null,
+        "resignableAt": null,
+        "cardsInHand": 11
+      },
+      {
+        "position": 4,
+        "username": "jon",
+        "pic": 12,
+        "hasCustomPic": false,
+        "customPic": null,
+        "ownerUsername": "jon",
+        "controller": "human",
+        "presence": "connected",
+        "isBot": false,
+        "lazy": false,
+        "offered": false,
+        "graceDeadline": null,
+        "resignableAt": null,
+        "cardsInHand": 11
+      }
+    ],
+    "entrants": null,
+    "draw": null,
+    "spectatorCount": 1,
+    "tournament": null,
+    "log": [
+      {
+        "message": "kim reconnected.",
+        "type": "system",
+        "position": null,
+        "at": 1767268805500
+      },
+      {
+        "message": "Game started!",
+        "type": "system",
+        "position": null,
+        "at": 1767268808500
+      },
+      {
+        "message": "kim bid 1.",
+        "type": "bid",
+        "position": 2,
+        "at": 1767268810000
+      },
+      {
+        "message": "hal bid 4.",
+        "type": "bid",
+        "position": 3,
+        "at": 1767268810000
+      },
+      {
+        "message": "jon bid 1.",
+        "type": "bid",
+        "position": 4,
+        "at": 1767268810000
+      },
+      {
+        "message": "ivy bid 2.",
+        "type": "bid",
+        "position": 1,
+        "at": 1767268810000
+      }
+    ]
+  }
+}

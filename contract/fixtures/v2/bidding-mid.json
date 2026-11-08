@@ -1,0 +1,224 @@
+{
+  "name": "bidding-mid",
+  "description": "The seat on turn asks with 2 bids in (one a bore): multipliers so far, no team bids yet.",
+  "capturedFrom": "stateSnapshot",
+  "viewerRole": "seat",
+  "snapshot": {
+    "v": 2,
+    "gameId": "00000000-0000-4000-8000-000000000002",
+    "seq": 14,
+    "serverTime": 1767268810000,
+    "stage": "BIDDING",
+    "partial": [],
+    "viewer": {
+      "role": "seat",
+      "position": 4,
+      "ownerView": "seat",
+      "canAct": true
+    },
+    "hand": [
+      {
+        "suit": "diamonds",
+        "rank": "8"
+      },
+      {
+        "suit": "spades",
+        "rank": "4"
+      },
+      {
+        "suit": "clubs",
+        "rank": "K"
+      },
+      {
+        "suit": "diamonds",
+        "rank": "10"
+      },
+      {
+        "suit": "clubs",
+        "rank": "5"
+      },
+      {
+        "suit": "hearts",
+        "rank": "4"
+      },
+      {
+        "suit": "spades",
+        "rank": "8"
+      },
+      {
+        "suit": "hearts",
+        "rank": "A"
+      },
+      {
+        "suit": "diamonds",
+        "rank": "2"
+      },
+      {
+        "suit": "clubs",
+        "rank": "9"
+      },
+      {
+        "suit": "spades",
+        "rank": "6"
+      },
+      {
+        "suit": "diamonds",
+        "rank": "A"
+      }
+    ],
+    "deal": {
+      "handNo": 1,
+      "handSize": 12,
+      "dealer": 1,
+      "bidder": 2,
+      "dealSeq": 1
+    },
+    "trump": {
+      "suit": "joker",
+      "rank": "LO"
+    },
+    "trumpBroken": false,
+    "turn": {
+      "position": 4,
+      "action": "bid"
+    },
+    "bids": {
+      "byPosition": [
+        null,
+        "B",
+        "1",
+        null
+      ],
+      "order": [
+        2,
+        3,
+        4,
+        1
+      ],
+      "teamBids": null,
+      "mults": {
+        "team1": 1,
+        "team2": 2
+      }
+    },
+    "trick": {
+      "number": null,
+      "leadPosition": null,
+      "cards": []
+    },
+    "tricks": {
+      "team1": 0,
+      "team2": 0
+    },
+    "tricksByPosition": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "score": {
+      "team1": 0,
+      "team2": 0
+    },
+    "rainbows": {
+      "team1": 0,
+      "team2": 0
+    },
+    "hsi": [
+      100.75,
+      89.91666666666666,
+      84.5,
+      79.08333333333333
+    ],
+    "seats": [
+      {
+        "position": 1,
+        "username": "ora",
+        "pic": 12,
+        "hasCustomPic": false,
+        "customPic": null,
+        "ownerUsername": "ora",
+        "controller": "human",
+        "presence": "connected",
+        "isBot": false,
+        "lazy": false,
+        "offered": false,
+        "graceDeadline": null,
+        "resignableAt": null,
+        "cardsInHand": 12
+      },
+      {
+        "position": 2,
+        "username": "max",
+        "pic": 10,
+        "hasCustomPic": false,
+        "customPic": null,
+        "ownerUsername": "max",
+        "controller": "human",
+        "presence": "connected",
+        "isBot": false,
+        "lazy": false,
+        "offered": false,
+        "graceDeadline": null,
+        "resignableAt": null,
+        "cardsInHand": 12
+      },
+      {
+        "position": 3,
+        "username": "pat",
+        "pic": 13,
+        "hasCustomPic": false,
+        "customPic": null,
+        "ownerUsername": "pat",
+        "controller": "human",
+        "presence": "connected",
+        "isBot": false,
+        "lazy": false,
+        "offered": false,
+        "graceDeadline": null,
+        "resignableAt": null,
+        "cardsInHand": 12
+      },
+      {
+        "position": 4,
+        "username": "ned",
+        "pic": 11,
+        "hasCustomPic": false,
+        "customPic": null,
+        "ownerUsername": "ned",
+        "controller": "human",
+        "presence": "connected",
+        "isBot": false,
+        "lazy": false,
+        "offered": false,
+        "graceDeadline": null,
+        "resignableAt": null,
+        "cardsInHand": 12
+      }
+    ],
+    "entrants": null,
+    "draw": null,
+    "spectatorCount": 0,
+    "tournament": null,
+    "log": [
+      {
+        "message": "Game started!",
+        "type": "system",
+        "position": null,
+        "at": 1767268808500
+      },
+      {
+        "message": "max bid B.",
+        "type": "bid",
+        "position": 2,
+        "at": 1767268810000
+      },
+      {
+        "message": "pat bid 1.",
+        "type": "bid",
+        "position": 3,
+        "at": 1767268810000
+      }
+    ]
+  }
+}
