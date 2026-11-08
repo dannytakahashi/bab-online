@@ -41,8 +41,24 @@ function disconnectPreviousSocket(io, previousSocketId, currentSocketId, usernam
 const SIGN_IN_PROJECTION = { customProfilePic: 0, stats: 0, mergedFrom: 0 };
 const RESTORE_PROJECTION = { ...SIGN_IN_PROJECTION, password: 0 };
 
+/**
+ * The users collection, waiting up to 10 s on a cold start: connectDB runs
+ * after listen(), and a reconnect storm right after a deploy must not get
+ * 'Database error' (a failed restoreSession makes both clients forget their
+ * saved token). Still missing after the wait: the caller's usual reply.
+ * whenReady is optional so test mocks of ../database without it still work.
+ */
+async function usersCollectionWhenReady() {
+    let usersCollection = getUsersCollection();
+    if (!usersCollection) {
+        await require('../database').whenReady?.(10000);
+        usersCollection = getUsersCollection();
+    }
+    return usersCollection;
+}
+
 async function signIn(socket, io, data) {
-    const usersCollection = getUsersCollection();
+    const usersCollection = await usersCollectionWhenReady();
     const { username, password } = data;
 
     try {
@@ -154,7 +170,7 @@ async function signIn(socket, io, data) {
 }
 
 async function signUp(socket, io, data) {
-    const usersCollection = getUsersCollection();
+    const usersCollection = await usersCollectionWhenReady();
 
     if (!usersCollection) {
         socket.emit('signUpResponse', {
@@ -247,7 +263,7 @@ async function signUp(socket, io, data) {
  * Restore session after page refresh using session token
  */
 async function restoreSession(socket, io, data) {
-    const usersCollection = getUsersCollection();
+    const usersCollection = await usersCollectionWhenReady();
     const { username, sessionToken } = data;
 
     try {

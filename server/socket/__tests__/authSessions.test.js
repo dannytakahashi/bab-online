@@ -6,11 +6,13 @@
 const bcrypt = require('bcryptjs');
 const { createMemoryDb } = require('../../testUtils/memoryDb');
 
-const mockDb = { current: null };
+const mockDb = { current: null, cold: false, whenReady: null };
 jest.mock('../../database', () => ({
-    getUsersCollection: () => mockDb.current.users,
+    // cold: the server is up but connectDB has not assigned the collections yet
+    getUsersCollection: () => (mockDb.cold ? undefined : mockDb.current.users),
     getGameRecordsCollection: () => mockDb.current.gameRecords,
-    getReportsCollection: () => mockDb.current.reports
+    getReportsCollection: () => mockDb.current.reports,
+    whenReady: (ms) => (mockDb.whenReady ? mockDb.whenReady(ms) : Promise.resolve(!mockDb.cold))
 }));
 
 jest.mock('../../game/GameManager', () => ({
@@ -54,6 +56,8 @@ async function getUser(username) {
 
 beforeEach(async () => {
     jest.clearAllMocks();
+    mockDb.cold = false;
+    mockDb.whenReady = null;
     io = { sockets: { sockets: new Map() } };
     mockDb.current = createMemoryDb({
         users: [
@@ -350,5 +354,42 @@ describe('projected sign-in reads', () => {
         });
         await profile.getPlayerProfile(socket, io, { username: 'Cara' });
         expect(lastEmit(socket, 'playerProfileResponse').profile.customProfilePic).toBe(bigPic);
+    });
+});
+
+describe('cold start (connectDB still running)', () => {
+    test('restoreSession waits for the database instead of failing (no forced sign-out)', async () => {
+        const { sessionToken } = await signIn(connect());
+        mockDb.cold = true;
+        const waits = [];
+        mockDb.whenReady = async (ms) => { waits.push(ms); mockDb.cold = false; return true; };
+        expect(await restore(connect(), sessionToken)).toMatchObject({ success: true, username: 'Alan' });
+        expect(waits).toEqual([10000]);
+    });
+
+    test('signIn and signUp wait too', async () => {
+        mockDb.cold = true;
+        mockDb.whenReady = async () => { mockDb.cold = false; return true; };
+        expect(await signIn(connect())).toMatchObject({ success: true });
+        mockDb.cold = true;
+        const s = connect();
+        await auth.signUp(s, io, { username: 'Late', password: 'pw' });
+        expect(lastEmit(s, 'signUpResponse')).toMatchObject({ success: true, username: 'Late' });
+    });
+
+    test('still down after the wait: the same replies as before', async () => {
+        mockDb.cold = true;
+        mockDb.whenReady = async () => false;
+        expect(await signIn(connect())).toEqual({ success: false, message: 'Database error. Try again.' });
+        expect(await restore(connect(), '55555555-5555-4555-8555-555555555555'))
+            .toEqual({ success: false, message: 'Database error. Try again.' });
+        const s = connect();
+        await auth.signUp(s, io, { username: 'Late', password: 'pw' });
+        expect(lastEmit(s, 'signUpResponse')).toEqual({ success: false, message: 'Database not ready. Try again.' });
+    });
+
+    test('database.whenReady times out to false before connectDB ever ran', async () => {
+        const { whenReady } = jest.requireActual('../../database');
+        await expect(whenReady(5)).resolves.toBe(false);
     });
 });
