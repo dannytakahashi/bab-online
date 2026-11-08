@@ -48,6 +48,7 @@ const safetyHandlers = require('../safetyHandlers');
 const voiceHandlers = require('../voiceHandlers');
 const snapshotHandlers = require('../snapshotHandlers');
 const { watchSeq } = require('../../testUtils/seqCheck');
+const { watchPacing } = require('../../testUtils/pacingInvariants');
 const { asyncHandler, syncHandler, rateLimiter } = require('../errorHandler');
 const ambient = require('../../demo/ambientBots');
 const { Phase } = require('../../game/GamePhase');
@@ -222,6 +223,7 @@ describe('(b) F1 full human game through the lobby', () => {
     test('13 hands with redeal, bore, lazy/active, watch rejoin, resign, rejects, spectator, /leave', async () => {
         let watcher = null;
         let seqWatch = null;
+        let paceWatch = null;
         const asked = {};
         const ask = (w, s, data) => {
             const mark = w.log.length;
@@ -234,6 +236,7 @@ describe('(b) F1 full human game through the lobby', () => {
                 onWorld(wd) {
                     watcher = watchSnapshots(wd);
                     seqWatch = watchSeq(wd.io);
+                    paceWatch = watchPacing({ requireResumeInMs: true });
                 },
                 // (f) requestSnapshot from a seat, a lazy watcher and a spectator
                 async onStep(wd, game, { hands, stage }) {
@@ -268,6 +271,11 @@ describe('(b) F1 full human game through the lobby', () => {
         const sq = seqWatch.stop();
         expect(sq.failures).toEqual([]);
         expect(sq.games).toBeGreaterThanOrEqual(1);
+        // (i) resume holds: nothing actionable while a trick is held;
+        // trickComplete/updateTurn and handComplete/gameStart/updateTurn share a tick
+        const pw = paceWatch.stop();
+        expect(pw.failures).toEqual([]);
+        expect(pw.checked).toBeGreaterThan(300);
         const bySelf = (e) => events(w.log, e).filter((l) => l.to.startsWith('self:'));
         expect(bySelf('rejoinSuccess').length).toBeGreaterThanOrEqual(4);
         const chats = events(w.log, 'chatMessage').map((l) => l.data);

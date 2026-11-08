@@ -330,7 +330,7 @@ describe('purity and options', () => {
         const { game } = seated();
         expect(Object.keys(game.getSnapshotV2(null))).toEqual(['v', 'gameId', 'seq', 'serverTime', 'stage', 'partial', 'viewer',
             'hand', 'deal', 'trump', 'trumpBroken', 'turn', 'bids', 'trick', 'tricks', 'tricksByPosition', 'score', 'rainbows',
-            'hsi', 'seats', 'entrants', 'draw', 'spectatorCount', 'tournament', 'log']);
+            'hsi', 'seats', 'entrants', 'draw', 'spectatorCount', 'tournament', 'log', 'resume']);
     });
 
     test('the builder requires only rules, GamePhase and SeatState', () => {

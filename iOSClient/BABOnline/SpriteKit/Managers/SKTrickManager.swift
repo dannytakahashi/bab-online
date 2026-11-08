@@ -49,6 +49,9 @@ class SKTrickManager {
         HapticManager.success()
     }
 
+    /// True while a trick is being collected (the hand is not playable).
+    var isCollecting: Bool { trickArea.collectingCount > 0 }
+
     func clearTrickArea() {
         trickArea.clearAllCards()
     }

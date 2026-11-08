@@ -148,6 +148,15 @@ function deepFreeze(v) {
   return v;
 }
 
+const RESUME_KINDS = ['countdown', 'drawReveal', 'seating', 'teams', 'firstTurn', 'trick', 'hand'];
+
+/** null, or {kind, inMs} with a known kind and a non-negative integer inMs. */
+function validResume(r) {
+  if (r === null) return true;
+  return typeof r === 'object' && !Array.isArray(r) && RESUME_KINDS.includes(r.kind) &&
+    Number.isInteger(r.inMs) && r.inMs >= 0;
+}
+
 /**
  * @param {*} raw - a snapshot as received on the wire
  * @returns {{ok: true, snapshot: Object} | {ok: false, errors: string[]}}
@@ -159,6 +168,10 @@ export function parseSnapshotV2(raw) {
   if (c.errors.length) return { ok: false, errors: c.errors };
   const copy = {};
   for (const k of TOP_KEYS) copy[k] = JSON.parse(JSON.stringify(raw[k]));
+  // Optional extras: copied when present, never required (an older server
+  // sends none). resume: the open server hold {kind, inMs} relative to
+  // receipt (contract/README.md "Resume holds")
+  if ('resume' in raw && validResume(raw.resume)) copy.resume = JSON.parse(JSON.stringify(raw.resume));
   return { ok: true, snapshot: deepFreeze(copy) };
 }
 

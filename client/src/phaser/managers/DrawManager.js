@@ -8,6 +8,7 @@
 import { getGameState } from '../../state/GameState.js';
 import { getCardImageKey } from '../../utils/cards.js';
 import { getSocketManager } from '../../socket/SocketManager.js';
+import { teamsFade } from '../pacing.js';
 
 // Base design dimensions for scaling
 const BASE_WIDTH = 1920;
@@ -466,9 +467,10 @@ export class DrawManager {
     const teamElements = [overlay, team1Label, team1Players, vsText, team2Label, team2Players];
     this.drawnCardDisplays.push(...teamElements);
 
-    // After showing teams for a moment, start fading to black
-    const fadeDelay = 2000; // Show teams for 2 seconds
-    const fadeDuration = 1200;
+    // After showing teams for a moment, fade to black, ending exactly when
+    // the server's hold does (teamsAnnounced.resumeInMs; createUI then
+    // forces the overlay opaque)
+    const { fadeDelay, fadeDuration } = teamsFade(data.resumeInMs);
 
     this._fadeTimer = this.scene.time.delayedCall(fadeDelay, () => {
       this._fadeTimer = null;

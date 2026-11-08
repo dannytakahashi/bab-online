@@ -7,7 +7,7 @@
     "v": 2,
     "gameId": "00000000-0000-4000-8000-000000000002",
     "seq": 7,
-    "serverTime": 1767268805500,
+    "serverTime": 1767268804500,
     "stage": "TEAMS_ANNOUNCED",
     "partial": [
       "customPics"
@@ -181,6 +181,10 @@
     },
     "spectatorCount": 0,
     "tournament": null,
-    "log": []
+    "log": [],
+    "resume": {
+      "kind": "teams",
+      "inMs": 3000
+    }
   }
 }

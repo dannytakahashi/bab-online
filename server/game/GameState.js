@@ -28,6 +28,10 @@ const {
     validateSeats
 } = require('./SeatState');
 const { buildSnapshotV2 } = require('./snapshotV2');
+const pacing = require('./pacing');
+
+/** game.resume.kind values (snapshot v2 resume.kind) */
+const RESUME_KINDS = ['countdown', 'drawReveal', 'seating', 'teams', 'firstTurn', 'trick', 'hand'];
 
 const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v) &&
     Object.getPrototypeOf(v) === Object.prototype;
@@ -65,6 +69,9 @@ class GameState {
         this.eventSeq = 0;
         this._timers = new Map();  // key -> timeout (setTimer)
         this._pauses = new Set();  // in-flight pause() entries
+        // Server-timed hold in progress (hold / scheduleResume): {kind, at}
+        // with `at` a server Date.now(); non-null exactly while one is open
+        this.resume = null;
         this._history = shouldCheckInvariants() ? [Phase.CREATED] : null;
         // Pre-seating participants: socketId -> {socketId, username, isBot,
         // presence: 'connected'|'disconnected'|'left'}. Filled by
@@ -259,6 +266,7 @@ class GameState {
         if (this._history) this._history.push(to);
         this.epoch++;
         this._cancelAllTimers();
+        this.resume = null;
         gameLogger.info('Game terminated', { gameId: this.gameId, from, to, event });
         return true;
     }
@@ -291,6 +299,60 @@ class GameState {
             }, ms);
             this._pauses.add(entry);
         });
+    }
+
+    /**
+     * Presentation hold for a linear lifecycle chain (server/game/pacing.js):
+     * like pause(), and game.resume = {kind, at} while it runs.
+     * `if (!(await game.hold(kind, ms))) return;`
+     * @param {string} kind - one of RESUME_KINDS
+     * @param {number} ms
+     * @param {string} [traceKind=kind] - pacing.trace component
+     * @returns {Promise<boolean>}
+     */
+    hold(kind, ms, traceKind = kind) {
+        if (this.isTerminal()) return Promise.resolve(false);
+        pacing.trace(traceKind, ms, this);
+        this.resume = { kind, at: Date.now() + ms };
+        return this.pause(ms).then((ok) => {
+            if (this.resume && this.resume.kind === kind) this.resume = null;
+            return ok;
+        });
+    }
+
+    /**
+     * Presentation hold that ends in a scheduled transition: the 'resume'
+     * game timer runs `fn` after `ms` (skipped after end/abort; errors are
+     * logged), and game.resume = {kind, at} until then. The caller returns
+     * at once: the table state is authoritative throughout the hold, and
+     * `fn` re-checks the stage it expects.
+     * @returns {boolean} false if the game is terminal
+     */
+    scheduleResume(kind, ms, fn, traceKind = kind) {
+        if (this.isTerminal()) return false;
+        pacing.trace(traceKind, ms, this);
+        this.resume = { kind, at: Date.now() + ms };
+        return this.setTimer('resume', ms, () => {
+            this.resume = null;
+            return fn();
+        });
+    }
+
+    /**
+     * cardPlayed payload (both emit sites: gameHandlers.playCard and
+     * BotController.processBotPlay). Call after the card is recorded. The
+     * card that completes a trick carries resumeInMs (additive): how long
+     * the server holds the full trick before trickComplete.
+     */
+    cardPlayedPayload(playerId, card, position) {
+        const payload = { playerId, card, position, trump: this.isTrumpBroken };
+        if (this.playedCardsIndex === 4) payload.resumeInMs = pacing(this).TRICK_VIEW_MS;
+        return payload;
+    }
+
+    /** {kind, inMs} of the open hold (inMs relative to `now`), or null. */
+    resumeInfo(now = Date.now()) {
+        return this.resume ? { kind: this.resume.kind, inMs: Math.max(0, Math.round(this.resume.at - now)) } : null;
     }
 
     /**
@@ -1485,3 +1547,4 @@ class GameState {
 }
 
 module.exports = GameState;
+module.exports.RESUME_KINDS = RESUME_KINDS;

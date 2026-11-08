@@ -7,7 +7,7 @@
     "v": 2,
     "gameId": "00000000-0000-4000-8000-000000000005",
     "seq": 9,
-    "serverTime": 1767268838500,
+    "serverTime": 1767268838000,
     "stage": "BIDDING",
     "partial": [],
     "viewer": {
@@ -210,8 +210,12 @@
         "message": "Game started!",
         "type": "system",
         "position": null,
-        "at": 1767268838500
+        "at": 1767268838000
       }
-    ]
+    ],
+    "resume": {
+      "kind": "firstTurn",
+      "inMs": 1000
+    }
   }
 }

@@ -7,7 +7,7 @@
     "v": 2,
     "gameId": "00000000-0000-4000-8000-000000000003",
     "seq": 3,
-    "serverTime": 1767268805300,
+    "serverTime": 1767268804100,
     "stage": "DRAWING",
     "partial": [],
     "viewer": {
@@ -119,6 +119,7 @@
     },
     "spectatorCount": 0,
     "tournament": null,
-    "log": []
+    "log": [],
+    "resume": null
   }
 }

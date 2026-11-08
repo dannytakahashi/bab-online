@@ -35,6 +35,11 @@ const {
 } = require('../../testUtils/tournamentDriver');
 
 const { Phase } = GamePhase;
+const pacing = require('../../game/pacing');
+// A test that acts inside a timed window needs that window: under
+// BAB_PACING=zero (the race run) it does not exist
+const inWindow = (ms) => (ms > 0 ? test : test.skip);
+const inWindowEach = (ms) => (ms > 0 ? test.each : test.skip.each);
 
 // Nothing of a tournament's start may reach anyone after it is cancelled
 const START_EVENTS = ['tournamentRoundStart', 'tournamentGameAssignment', 'allPlayersReady', 'startDraw'];
@@ -205,7 +210,7 @@ describe('cancel in every tournament phase', () => {
         expect(events(ctx.log, 'tournamentRoundStart')).toHaveLength(0);
     });
 
-    test('during the round announce (no table yet)', async () => {
+    inWindow(pacing().ROUND_ANNOUNCE_MS)('during the round announce (no table yet)', async () => {
         const ctx = await setupTournament(6);
         ctx.starting = tournamentHandlers.beginTournament(ctx.sockets[0], ctx.io);
         await jest.advanceTimersByTimeAsync(500);
@@ -231,7 +236,7 @@ describe('cancel in every tournament phase', () => {
         expectReturnLandsInMainRoom(ctx, ctx.sockets[3]);
     });
 
-    test('during the shared pre-draw countdown', async () => {
+    inWindow(pacing().TABLE_COUNTDOWN_MS)('during the shared pre-draw countdown', async () => {
         const ctx = await setupTournament(6);
         ctx.starting = tournamentHandlers.beginTournament(ctx.sockets[0], ctx.io);
         await jest.advanceTimersByTimeAsync(2500);
@@ -286,6 +291,19 @@ describe('cancel in every tournament phase', () => {
         // The disconnected players reconnect: no tournament, no game to rejoin
         const back = newUser(ctx.io, ctx.log, ctx.usernames[0]);
         expect(gameManager.reattachTournamentPlayer(back.id, ctx.usernames[0])).toBeNull();
+    });
+
+    inWindowEach(pacing().TRICK_VIEW_MS)([Phase.TRICK_RESOLVING, Phase.HAND_RESOLVING])('inside a %s hold (resume timer pending)', async (stage) => {
+        const ctx = await setupTournament(4); // one 4-human table
+        const [g] = await beginAndReach(ctx);
+        for (let pos = 1; pos <= 4; pos++) {
+            chatHandlers.chatMessage(ctx.sockets.find((s) => s.id === g.seat(pos).ownerSocketId), ctx.io, { message: '/lazy' });
+        }
+        await advanceUntil(() => g.stage === stage, 10, 10 * 60 * 1000);
+        expect(g.hasTimer('resume')).toBe(true);
+        expect(g.resume).not.toBeNull();
+        await cancelAndCheck(ctx);
+        expect(g.resume).toBeNull();
     });
 
     test('between rounds', async () => {
@@ -355,7 +373,7 @@ describe('cancel in every tournament phase', () => {
 });
 
 describe('leave and disconnect during the round start', () => {
-    test('a member leaving the tournament in the countdown leaves the table; the last one leaving aborts it', async () => {
+    inWindow(pacing().TABLE_COUNTDOWN_MS)('a member leaving the tournament in the countdown leaves the table; the last one leaving aborts it', async () => {
         const ctx = await setupTournament(2); // one table: 2 humans + 2 bots
         ctx.starting = tournamentHandlers.beginTournament(ctx.sockets[0], ctx.io);
         await jest.advanceTimersByTimeAsync(2000);
@@ -423,7 +441,7 @@ describe('leave and disconnect during the round start', () => {
         expect(errorLogs).toEqual([]);
     });
 
-    test('everyone disconnecting in the announce deletes the tournament; the start stops', async () => {
+    inWindow(pacing().ROUND_ANNOUNCE_MS)('everyone disconnecting in the announce deletes the tournament; the start stops', async () => {
         const ctx = await setupTournament(3);
         ctx.starting = tournamentHandlers.beginTournament(ctx.sockets[0], ctx.io);
         await jest.advanceTimersByTimeAsync(200);
@@ -641,7 +659,10 @@ describe('seeded tournament chaos: cancel / leave / disconnect at random times',
             if (process.env.CHAOS_STATS) process.stdout.write(`tournament chaos ${JSON.stringify(stats)}\n`);
             // Coverage: cancels land on live tables, some inside the start
             expect(stats.cancelledTables).toBeGreaterThan(0);
-            if (SEEDS >= 20) expect(stats.cancelledInStart).toBeGreaterThan(0);
+            // (only when the round start has a timed window: the zero profile has none)
+            if (SEEDS >= 20 && pacing().ROUND_ANNOUNCE_MS + pacing().TABLE_COUNTDOWN_MS > 0) {
+                expect(stats.cancelledInStart).toBeGreaterThan(0);
+            }
         } finally {
             Math.random = realRandom;
         }

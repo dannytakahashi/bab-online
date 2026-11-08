@@ -7,6 +7,7 @@ const gameManager = require('../game/GameManager');
 const { socketLogger } = require('../utils/logger');
 const { beginDraw } = require('./gameLifecycle');
 const { delay } = require('../utils/timing');
+const pacing = require('../game/pacing');
 const { botController, personalities } = require('../game/bot');
 const { getDisplayName } = personalities;
 
@@ -52,8 +53,11 @@ async function playerReady(socket, io) {
     if (allReady) {
         socketLogger.info('All players ready, starting game', { lobbyId: lobby.id });
 
-        // Small delay before transitioning to draw phase
-        await delay(1500);
+        // Small delay before transitioning to draw phase. A raw delay: no
+        // game exists yet, and startGameFromLobby re-validates the lobby
+        const lobbyMs = pacing().LOBBY_START_MS;
+        pacing.trace('lobby', lobbyMs);
+        await delay(lobbyMs);
 
         const startResult = gameManager.startGameFromLobby(lobby.id);
 
@@ -91,7 +95,7 @@ async function playerReady(socket, io) {
 
             // After another delay, start the draw phase (false: the game
             // was aborted meanwhile)
-            if (!(await game.pause(2000))) return;
+            if (!(await game.hold('countdown', pacing(game).PREDRAW_COUNTDOWN_MS))) return;
 
             // Deck, startDraw, bot draws, and auto-draws for anyone who
             // left or disconnected during the countdown

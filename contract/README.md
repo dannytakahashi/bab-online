@@ -164,6 +164,39 @@ skips exact repeats of a validated (event, target kind, payload).
 Checked per receiver in every chaos seed and in contract F1/F2/F3
 (`server/testUtils/seqCheck.js`).
 
+## Resume holds (resumeInMs)
+
+The server holds the table for presentation at fixed points (all delays in
+`server/game/pacing.js`): the full trick before `trickComplete`, the last
+trick before `handComplete`, the team announcement before
+`createUI`/`gameStart`, and a few pre-game steps. While a trick or hand
+hold (`trick`, `hand`) is open the table state is authoritative and
+complete, every bid/play is rejected with
+`actionRejected {reason: 'not_your_turn'}`, and nothing becomes actionable
+until the hold's resume event (`updateTurn` in the same tick as
+`trickComplete` / the next deal's `gameStart`). The `firstTurn` hold (the
+first hand's deal reveal) is the exception: the seat on turn may already
+bid during it (the bid ends the hold early), so a client must not disable
+bidding just because a snapshot's `resume` is non-null. No action exists in
+the pre-game holds (countdown, drawReveal, seating, teams).
+
+`resumeInMs` = the server holds the table this long from emission; clients
+may size animations to it, measured from receipt with a local monotonic
+timer; never compare it with a local wall clock. Latency only shortens the
+client's view by the one-way delay. It appears on:
+
+- `cardPlayed`, only on the card that completes a trick (time until
+  `trickComplete`);
+- `trickComplete`, only on a hand's last trick (time until `handComplete`;
+  absent means the next trick is open now);
+- `teamsAnnounced`, always (time until `createUI`/`gameStart`);
+- snapshot v2 `resume: {kind, inMs} | null` — the open hold, `inMs` relative
+  to the snapshot's own `serverTime` (kinds: countdown, drawReveal, seating,
+  teams, firstTurn, trick, hand).
+
+The event order is unchanged; the shipped iOS app ignores the field and
+relies on the server's minimum gaps (`pacing.SHIPPED_IOS_FLOORS`).
+
 ## Snapshot v2
 
 `server/game/snapshotV2.js` (`$defs.snapshotV2`): one normalized table view

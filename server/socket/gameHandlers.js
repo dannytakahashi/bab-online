@@ -25,6 +25,7 @@ const { Controller, Presence } = require('../game/SeatState');
 const seatLifecycle = require('./seatLifecycle');
 const { emitLobbiesUpdated } = require('./gameLifecycle');
 const { snapshotFor } = require('./snapshotHandlers');
+const pacing = require('../game/pacing');
 
 const logContinuationError = (what, game) => (err) =>
     gameLogger.error(`${what} failed`, { gameId: game.gameId, error: err.message, stack: err.stack });
@@ -163,76 +164,99 @@ async function handlePostBid(io, game) {
 }
 
 /**
- * Handle logic after a card is played (check for trick complete, trigger next bot)
+ * Handle logic after a card is played (check for trick complete, trigger next bot).
+ *
+ * The 4th card opens TRICK_RESOLVING and schedules resumeTrick after
+ * TRICK_VIEW_MS (the 'resume' game timer), then returns: nothing awaits the
+ * hold. While it is open every play/bid is rejected (not_your_turn), no bot
+ * is scheduled and no updateTurn goes out, so no compliant client can act.
  */
 async function handlePostPlay(io, game) {
     if (game.stage !== Phase.PLAYING) return;
 
-    // Check if trick is complete
     if (game.playedCardsIndex === 4) {
         // TRICK_RESOLVING rejects plays and makes a second resolution a no-op
         if (!game.transition(Phase.PLAYING, Phase.TRICK_RESOLVING)) return;
-
-        if (!(await game.pause(2000))) return;
-
-        // Re-validate after the pause: if the trick array was corrupted by a
-        // stale action, log loudly instead of crashing the whole game loop
-        const trickCards = game.playedCards.slice(0, 4);
-        if (game.playedCardsIndex !== 4 || trickCards.length < 4 || trickCards.some(c => !c)) {
-            gameLogger.error('Trick state invalid after resolution delay, skipping', {
-                gameId: game.gameId,
-                playedCardsIndex: game.playedCardsIndex,
-                playedCards: game.playedCards
-            });
-            return;
-        }
-
-        const winner = determineWinner(game.playedCards, game.leadPosition, game.trump);
-
-        if (winner === 1 || winner === 3) {
-            game.tricks.team1++;
-        } else {
-            game.tricks.team2++;
-        }
-
-        // Track tricks for player stats
-        if (game.playerStats && game.playerStats[winner]) {
-            game.playerStats[winner].totalTricks++;
-        }
-        // Track tricks for this hand (used for set responsibility)
-        if (game.handTricks) {
-            game.handTricks[winner]++;
-        }
-
-        // Add trick winner to game log
-        const winnerPlayer = game.getPlayerByPosition(winner);
-        game.addLogEntry(`Trick won by ${winnerPlayer.username}.`, winner, 'trick');
-
-        gameLogger.debug('Trick complete', { winner, team1Tricks: game.tricks.team1, team2Tricks: game.tricks.team2, gameId: game.gameId });
-
-        game.currentTurn = winner;
-
-        game.broadcast(io, 'trickComplete', { winner });
-
-        // Notify bots that the trick is complete
-        botController.notifyTrickComplete(game.gameId);
-
-        game.playedCards = [];
-        game.playedCardsIndex = 0;
-
-        // Check if hand is complete
-        if (game.cardIndex === game.currentHand * 4) {
-            if (!game.transition(Phase.TRICK_RESOLVING, Phase.HAND_RESOLVING)) return;
-            if (!(await game.pause(2000))) return; // Brief pause after last trick stacks
-            await handleHandComplete(game, io);
-            return;
-        }
-        if (!game.transition(Phase.TRICK_RESOLVING, Phase.PLAYING)) return;
+        game.scheduleResume('trick', pacing(game).TRICK_VIEW_MS, () => resumeTrick(io, game), 'trickView');
+        return;
     }
 
     game.broadcast(io, 'updateTurn', { currentTurn: game.currentTurn });
 
     // Trigger next bot if needed
+    triggerBotIfNeeded(io, game, 'play');
+}
+
+/**
+ * End of the trick view: count the trick (bookkeeping happens here, not at
+ * the 4th card, so a rejoin during the hold sees exactly the pre-resolution
+ * table), broadcast trickComplete, then either open the next trick
+ * (updateTurn in the same tick) or hold HAND_RESOLVING until the hand is
+ * scored.
+ */
+function resumeTrick(io, game) {
+    if (game.stage !== Phase.TRICK_RESOLVING) return;
+
+    // Re-validate after the hold: if the trick array was corrupted by a
+    // stale action, log loudly instead of crashing the whole game loop
+    const trickCards = game.playedCards.slice(0, 4);
+    if (game.playedCardsIndex !== 4 || trickCards.length < 4 || trickCards.some(c => !c)) {
+        gameLogger.error('Trick state invalid after resolution delay, skipping', {
+            gameId: game.gameId,
+            playedCardsIndex: game.playedCardsIndex,
+            playedCards: game.playedCards
+        });
+        return;
+    }
+
+    const winner = determineWinner(game.playedCards, game.leadPosition, game.trump);
+
+    if (winner === 1 || winner === 3) {
+        game.tricks.team1++;
+    } else {
+        game.tricks.team2++;
+    }
+
+    // Track tricks for player stats
+    if (game.playerStats && game.playerStats[winner]) {
+        game.playerStats[winner].totalTricks++;
+    }
+    // Track tricks for this hand (used for set responsibility)
+    if (game.handTricks) {
+        game.handTricks[winner]++;
+    }
+
+    // Add trick winner to game log
+    const winnerPlayer = game.getPlayerByPosition(winner);
+    game.addLogEntry(`Trick won by ${winnerPlayer.username}.`, winner, 'trick');
+
+    gameLogger.debug('Trick complete', { winner, team1Tricks: game.tricks.team1, team2Tricks: game.tricks.team2, gameId: game.gameId });
+
+    game.currentTurn = winner;
+
+    const lastTrick = game.cardIndex === game.currentHand * 4;
+    const lastHand = game.currentHand === 13;
+    const handMs = lastHand ? pacing(game).GAME_END_MS : pacing(game).HAND_END_MS;
+
+    // The hand's last trick says how long the table is held before
+    // handComplete (additive); otherwise the next trick is open now
+    game.broadcast(io, 'trickComplete', lastTrick ? { winner, resumeInMs: handMs } : { winner });
+
+    // Notify bots that the trick is complete
+    botController.notifyTrickComplete(game.gameId);
+
+    game.playedCards = [];
+    game.playedCardsIndex = 0;
+
+    if (lastTrick) {
+        // Brief hold after the last trick stacks (longer before gameEnd)
+        if (!game.transition(Phase.TRICK_RESOLVING, Phase.HAND_RESOLVING)) return;
+        game.scheduleResume('hand', handMs, () => handleHandComplete(game, io), lastHand ? 'gameEnd' : 'handEnd');
+        return;
+    }
+    if (!game.transition(Phase.TRICK_RESOLVING, Phase.PLAYING)) return;
+
+    game.broadcast(io, 'updateTurn', { currentTurn: game.currentTurn });
     triggerBotIfNeeded(io, game, 'play');
 }
 
@@ -413,7 +437,7 @@ async function handleDrawComplete(io, game) {
         }
     }
 
-    if (!(await game.pause(1000))) return;
+    if (!(await game.hold('drawReveal', pacing(game).DRAW_REVEAL_MS))) return;
 
     game.broadcast(io, 'positionUpdate', {
         positions: orderedPositions,
@@ -466,16 +490,19 @@ async function handleDrawComplete(io, game) {
     const team2Player1 = game.getPlayerByPosition(2);
     const team2Player2 = game.getPlayerByPosition(4);
 
-    if (!(await game.pause(1000))) return;
+    const seatingMs = pacing(game).SEATING_TO_TEAMS_MS;
+    if (seatingMs > 0 && !(await game.hold('seating', seatingMs, 'seatingToTeams'))) return;
 
     if (!game.transition(Phase.DRAW_RESOLVING, Phase.TEAMS_ANNOUNCED)) return;
+    const teamsMs = pacing(game).TEAMS_MS;
     game.broadcast(io, 'teamsAnnounced', {
         team1: [team1Player1?.username || 'Player 1', team1Player2?.username || 'Player 3'],
-        team2: [team2Player1?.username || 'Player 2', team2Player2?.username || 'Player 4']
+        team2: [team2Player1?.username || 'Player 2', team2Player2?.username || 'Player 4'],
+        resumeInMs: teamsMs // additive: time until createUI/gameStart
     });
 
-    // Wait for team announcement to be seen (3 seconds)
-    if (!(await game.pause(3000))) return;
+    // Wait for the team announcement to be seen
+    if (!(await game.hold('teams', teamsMs))) return;
 
     if (!game.transition(Phase.TEAMS_ANNOUNCED, Phase.DEALING)) return;
 
@@ -603,7 +630,7 @@ async function dealHand(game, io, { dealer, handSize, firstHand = false }) {
     if (!game.transition(Phase.DEALING, Phase.BIDDING)) return;
 
     if (firstHand) {
-        if (!(await game.pause(1000))) return;
+        if (!(await game.hold('firstTurn', pacing(game).FIRST_HAND_TURN_MS))) return;
         // A bid during the pause already sent updateTurn and triggered the
         // next bot; repeating them would double-schedule it
         if (game.stage !== Phase.BIDDING || game.dealSeq !== dealSeq || game.getBidCount() > 0) return;
@@ -638,6 +665,9 @@ async function playerBid(socket, io, data) {
         return;
     }
     game.recordBid(position, bid);
+    // A bid during the first-hand hold opens the turn early (its pause
+    // then just ends): the table is no longer held
+    if (game.resume && game.resume.kind === 'firstTurn') game.resume = null;
 
     // Add bid to game log
     const player = game.getPlayerByPosition(position);
@@ -731,12 +761,7 @@ async function playCard(socket, io, data) {
         game.isTrumpBroken = true;
     }
 
-    game.broadcast(io, 'cardPlayed', {
-        playerId: socket.id,
-        card,
-        position,
-        trump: game.isTrumpBroken
-    });
+    game.broadcast(io, 'cardPlayed', game.cardPlayedPayload(socket.id, card, position));
 
     // Notify bots about this card play
     botController.notifyCardPlayed(game.gameId, card, position, game.trump, game.leadPosition);

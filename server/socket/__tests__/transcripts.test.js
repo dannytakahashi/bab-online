@@ -286,7 +286,8 @@ describe('seat transcripts (wire characterization)', () => {
             'room:gameLogEntry{message,type}',
             'room:positionUpdate{pics,positions,sockets,usernames}',
             'room:playerDisconnected{position,username}@p',
-            'room:teamsAnnounced{team1,team2}',
+            // CHANGED (pacing resume holds, additive): +resumeInMs (TEAMS_MS)
+            'room:teamsAnnounced{resumeInMs,team1,team2}',
             'room:createUI{}',
             'h2:gameStart{currentHand,dealer,gameId,hand,hsiValues,playerInfo,players,position,score1,score2,trump}@p',
             'h3:gameStart{currentHand,dealer,gameId,hand,hsiValues,playerInfo,players,position,score1,score2,trump}@p',

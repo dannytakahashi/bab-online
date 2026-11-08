@@ -7,7 +7,7 @@
     "v": 2,
     "gameId": "00000000-0000-4000-8000-000000000002",
     "seq": 129,
-    "serverTime": 1767268834000,
+    "serverTime": 1767268822200,
     "stage": "HAND_RESOLVING",
     "partial": [],
     "viewer": {
@@ -156,110 +156,114 @@
         "message": "kim reconnected.",
         "type": "system",
         "position": null,
-        "at": 1767268805500
+        "at": 1767268804500
       },
       {
         "message": "Game started!",
         "type": "system",
         "position": null,
-        "at": 1767268808500
+        "at": 1767268807500
       },
       {
         "message": "kim bid 1.",
         "type": "bid",
         "position": 2,
-        "at": 1767268810000
+        "at": 1767268809000
       },
       {
         "message": "hal bid 4.",
         "type": "bid",
         "position": 3,
-        "at": 1767268810000
+        "at": 1767268809000
       },
       {
         "message": "jon bid 1.",
         "type": "bid",
         "position": 4,
-        "at": 1767268810000
+        "at": 1767268809000
       },
       {
         "message": "ivy bid 2.",
         "type": "bid",
         "position": 1,
-        "at": 1767268810000
+        "at": 1767268809000
       },
       {
         "message": "Trick won by kim.",
         "type": "trick",
         "position": 2,
-        "at": 1767268812000
+        "at": 1767268810100
       },
       {
         "message": "Trick won by hal.",
         "type": "trick",
         "position": 3,
-        "at": 1767268814000
+        "at": 1767268811200
       },
       {
         "message": "Trick won by kim.",
         "type": "trick",
         "position": 2,
-        "at": 1767268816000
+        "at": 1767268812300
       },
       {
         "message": "Trick won by ivy.",
         "type": "trick",
         "position": 1,
-        "at": 1767268818000
+        "at": 1767268813400
       },
       {
         "message": "Trick won by jon.",
         "type": "trick",
         "position": 4,
+        "at": 1767268814500
+      },
+      {
+        "message": "Trick won by kim.",
+        "type": "trick",
+        "position": 2,
+        "at": 1767268815600
+      },
+      {
+        "message": "Trick won by kim.",
+        "type": "trick",
+        "position": 2,
+        "at": 1767268816700
+      },
+      {
+        "message": "Trick won by hal.",
+        "type": "trick",
+        "position": 3,
+        "at": 1767268817800
+      },
+      {
+        "message": "Trick won by jon.",
+        "type": "trick",
+        "position": 4,
+        "at": 1767268818900
+      },
+      {
+        "message": "Trick won by ivy.",
+        "type": "trick",
+        "position": 1,
         "at": 1767268820000
       },
       {
         "message": "Trick won by kim.",
         "type": "trick",
         "position": 2,
-        "at": 1767268822000
+        "at": 1767268821100
       },
       {
         "message": "Trick won by kim.",
         "type": "trick",
         "position": 2,
-        "at": 1767268824000
-      },
-      {
-        "message": "Trick won by hal.",
-        "type": "trick",
-        "position": 3,
-        "at": 1767268826000
-      },
-      {
-        "message": "Trick won by jon.",
-        "type": "trick",
-        "position": 4,
-        "at": 1767268828000
-      },
-      {
-        "message": "Trick won by ivy.",
-        "type": "trick",
-        "position": 1,
-        "at": 1767268830000
-      },
-      {
-        "message": "Trick won by kim.",
-        "type": "trick",
-        "position": 2,
-        "at": 1767268832000
-      },
-      {
-        "message": "Trick won by kim.",
-        "type": "trick",
-        "position": 2,
-        "at": 1767268834000
+        "at": 1767268822200
       }
-    ]
+    ],
+    "resume": {
+      "kind": "hand",
+      "inMs": 1000
+    }
   }
 }

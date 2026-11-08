@@ -44,6 +44,8 @@ const { gameLogger, socketLogger, authLogger, logger } = require('../../utils/lo
 const { makeIo, makeSocket, events, legalCards, legalBids, mulberry32 } = require('../../testUtils/gameDriver');
 const contractCheck = require('../../testUtils/contractCheck');
 const { watchSeq } = require('../../testUtils/seqCheck');
+const { watchPacing } = require('../../testUtils/pacingInvariants');
+const pacing = require('../../game/pacing');
 
 const { Phase } = GamePhase;
 const SEEDS = Number(process.env.CHAOS_SEEDS) || 200;
@@ -111,10 +113,13 @@ const seatSnapshot = (game) => JSON.stringify(game.seatList().map((s) => [s.posi
  */
 async function runSeed(seed) {
     let seqWatch = null;
+    let paceWatch = null;
     contractCheck.setContext(`chaos seed ${seed}`);
-    const result = await runSeedInner(seed, (io) => { seqWatch = watchSeq(io); });
+    const result = await runSeedInner(seed, (io) => { seqWatch = watchSeq(io); paceWatch = watchPacing({ requireResumeInMs: true }); });
     const seqResult = seqWatch ? seqWatch.stop() : { failures: [] };
+    const paceResult = paceWatch ? paceWatch.stop() : { failures: [] };
     if (result.ok && seqResult.failures.length) return { seed, why: 'seq', failures: seqResult.failures.slice(0, 5) };
+    if (result.ok && paceResult.failures.length) return { seed, why: 'pacing', failures: paceResult.failures.slice(0, 5) };
     return result;
 }
 
@@ -181,9 +186,10 @@ async function runSeedInner(seed, onIo) {
         const lobby = gameManager.createLobby(humans.map((h) => h.current));
         for (let i = nHumans; i < 4; i++) gameManager.addBotToLobby(lobby.id);
         starting = Promise.all(humans.map((h) => track(lobbyHandlers.playerReady(sockets.get(h.current), io))));
-        await jest.advanceTimersByTimeAsync(1500);
+        await jest.advanceTimersByTimeAsync(pacing().LOBBY_START_MS);
         game = gameManager.getPlayerGame(humans[0].current);
-        if (!game || game.stage !== Phase.CREATED) {
+        // (no CREATED window under BAB_PACING=zero: the countdown is 0)
+        if (!game || (game.stage !== Phase.CREATED && pacing().PREDRAW_COUNTDOWN_MS > 0)) {
             return { seed, why: 'lobby countdown did not create the game', stage: game?.stage };
         }
     } else {

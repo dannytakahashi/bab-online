@@ -6,6 +6,7 @@
 const BotPlayer = require('./BotPlayer');
 const { gameLogger } = require('../../utils/logger');
 const { Phase } = require('../GamePhase');
+const pacing = require('../pacing');
 
 const PLAY_STAGES = [Phase.PLAYING, Phase.TRICK_RESOLVING, Phase.HAND_RESOLVING];
 
@@ -93,6 +94,28 @@ class BotController {
     }
 
     /**
+     * Which think-time range a bot action uses (no RNG; read at schedule
+     * time, which is always at or after the event that opened the turn):
+     * bid 'firstBid' | 'bid'; play 'afterBidding' | 'afterTrick' (any lead
+     * after a trick, the forced last card included) | 'forced' (a follow
+     * with the bot's last card) | 'follow'.
+     *
+     * Every kind depends on PUBLIC state only, so think time is never a
+     * tempo tell. In particular 'forced' is NOT "exactly one legal card":
+     * under follow-suit that almost always means a singleton in the led
+     * suit, and a fast play would tell the table the bot just went void.
+     * Only the hand's last card (everyone can see the bot holds one) is
+     * quick.
+     */
+    actionKind(game, actionType, bot) {
+        if (actionType === 'bid') return game.getBidCount() === 0 ? 'firstBid' : 'bid';
+        if (actionType !== 'play') return null;
+        if (game.playedCardsIndex === 0) return game.cardIndex === 0 ? 'afterBidding' : 'afterTrick';
+        const hand = game.getHand(bot.socketId) || [];
+        return hand.length === 1 ? 'forced' : 'follow';
+    }
+
+    /**
      * Schedule a bot action with delay
      * @param {Object} io - Socket.IO server
      * @param {Object} game - GameState
@@ -117,7 +140,9 @@ class BotController {
             return;
         }
 
-        const delay = bot.getActionDelay(actionType);
+        const kind = this.actionKind(game, actionType, bot);
+        const delay = bot.getActionDelay(actionType, { kind, game });
+        pacing.trace(`${actionType === 'bid' ? 'botBid' : 'botPlay'}:${kind}`, delay, game);
         const actionKey = `${game.gameId}:${player.socketId}:${actionType}`;
 
         // Clear any existing pending action
@@ -157,8 +182,9 @@ class BotController {
         if (!bot) return;
 
         // Stagger draws based on order
-        const baseDelay = drawOrder * 800;
-        const delay = baseDelay + bot.getActionDelay('draw');
+        const baseDelay = drawOrder * pacing(game).BOT_DRAW_STAGGER_MS;
+        const delay = baseDelay + bot.getActionDelay('draw', { game });
+        pacing.trace('botDraw', delay, game);
 
         const actionKey = `${game.gameId}:${botSocketId}:draw`;
 
@@ -338,12 +364,7 @@ class BotController {
             game.isTrumpBroken = true;
         }
 
-        game.broadcast(io, 'cardPlayed', {
-            playerId: bot.socketId,
-            card,
-            position: bot.position,
-            trump: game.isTrumpBroken
-        });
+        game.broadcast(io, 'cardPlayed', game.cardPlayedPayload(bot.socketId, card, bot.position));
 
         // Notify all bots about this card play
         this.notifyCardPlayed(game.gameId, card, bot.position, game.trump, game.leadPosition);
@@ -407,7 +428,7 @@ class BotController {
      * @param {string} message - Chat message text
      */
     sendBotChat(io, game, bot, message, delayMs = null) {
-        const delay = delayMs !== null ? delayMs : 500 + Math.random() * 500; // default 500-1000ms
+        const delay = delayMs !== null ? delayMs : pacing.fromRange(pacing(game).BOT_CHAT, Math.random());
         // Unique key per message so queued messages don't orphan each other's
         // timers; cleanupGame clears by gameId prefix either way
         this.chatSeq = (this.chatSeq || 0) + 1;
@@ -445,9 +466,9 @@ class BotController {
         for (const bot of bots) {
             if (bot.personality === 'sharon') {
                 if (game.trump.suit === 'clubs') {
-                    this.sendBotChat(io, game, bot, "puppy's feet", 5000);
+                    this.sendBotChat(io, game, bot, "puppy's feet", pacing(game).BOT_TRUMP_QUIP_MS);
                 } else if (game.trump.suit === 'diamonds') {
-                    this.sendBotChat(io, game, bot, "diamonds are a girl's best friend", 5000);
+                    this.sendBotChat(io, game, bot, "diamonds are a girl's best friend", pacing(game).BOT_TRUMP_QUIP_MS);
                 }
             }
         }

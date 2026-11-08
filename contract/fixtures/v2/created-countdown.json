@@ -7,7 +7,7 @@
     "v": 2,
     "gameId": "00000000-0000-4000-8000-000000000002",
     "seq": 0,
-    "serverTime": 1767268801500,
+    "serverTime": 1767268801000,
     "stage": "CREATED",
     "partial": [],
     "viewer": {
@@ -98,6 +98,10 @@
     },
     "spectatorCount": 0,
     "tournament": null,
-    "log": []
+    "log": [],
+    "resume": {
+      "kind": "countdown",
+      "inMs": 2000
+    }
   }
 }

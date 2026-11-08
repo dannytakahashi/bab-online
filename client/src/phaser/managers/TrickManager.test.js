@@ -139,3 +139,92 @@ describe('TrickManager stale animations', () => {
     expect(card.y).toBe(tm._playPositions.partner.y);
   });
 });
+
+describe('TrickManager collect gate', () => {
+  let scene;
+  let tm;
+  let tweens;
+  let timers;
+
+  beforeEach(() => {
+    tweens = [];
+    timers = [];
+    scene = {
+      scale: { width: 1920, height: 953 },
+      tweens: { add: vi.fn((cfg) => { tweens.push(cfg); return { stop: vi.fn() }; }), killTweensOf: vi.fn() },
+      time: { delayedCall: vi.fn((ms, fn) => { const t = { ms, fn, remove: vi.fn() }; timers.push(t); return t; }) },
+    };
+    tm = new TrickManager(scene);
+    tm.setPlayerPosition(1);
+    setVisibility('visible');
+  });
+
+  afterEach(() => setVisibility('visible'));
+
+  const fullTrick = () => { for (let i = 0; i < 4; i++) tm._currentTrick.push(createMockCard({ faceKey: 'two_of_hearts' })); };
+
+  it('is collecting from completeTrick until the last tween lands, then runs the callbacks once', () => {
+    fullTrick();
+    tm.completeTrick(2, true);
+    expect(tm.isCollecting()).toBe(true);
+    expect(tweens.every((t) => t.duration === 500)).toBe(true);
+    const cb = vi.fn();
+    tm.onCollected(cb);
+    tweens.slice(0, 3).forEach((t) => t.onComplete());
+    expect(cb).not.toHaveBeenCalled();
+    tweens[3].onComplete();
+    expect(tm.isCollecting()).toBe(false);
+    expect(cb).toHaveBeenCalledTimes(1);
+    expect(timers[0].remove).toHaveBeenCalled();
+  });
+
+  it('the last trick of a hand sizes the collect to half of resumeInMs (150-500 ms)', () => {
+    fullTrick();
+    tm.completeTrick(2, true, 600);
+    expect(tweens.every((t) => t.duration === 300)).toBe(true);
+  });
+
+  it('a killed tween is covered by the fallback timer (CARD_COLLECT + 150)', () => {
+    fullTrick();
+    tm.completeTrick(3, false);
+    const cb = vi.fn();
+    tm.onCollected(cb);
+    expect(timers[0].ms).toBe(650);
+    timers[0].fn();
+    expect(tm.isCollecting()).toBe(false);
+    expect(cb).toHaveBeenCalledTimes(1);
+  });
+
+  it('a stale fallback does not end a newer collect', () => {
+    fullTrick();
+    tm.completeTrick(3, false);
+    const first = timers[0];
+    fullTrick();
+    tm.completeTrick(4, true);
+    first.fn();
+    expect(tm.isCollecting()).toBe(true);
+  });
+
+  it('clearing the table or snapping (resize) ends it; a hidden tab never starts one', () => {
+    fullTrick();
+    tm.completeTrick(2, true);
+    const cb = vi.fn();
+    tm.onCollected(cb);
+    tm.clearCurrentTrick();
+    expect(tm.isCollecting()).toBe(false);
+    expect(cb).toHaveBeenCalledTimes(1);
+
+    fullTrick();
+    tm.completeTrick(2, true);
+    tm.repositionTrickHistory();
+    expect(tm.isCollecting()).toBe(false);
+
+    setVisibility('hidden');
+    fullTrick();
+    tm.completeTrick(2, true);
+    expect(tm.isCollecting()).toBe(false);
+    const now = vi.fn();
+    tm.onCollected(now);
+    expect(now).toHaveBeenCalledTimes(1);
+  });
+});

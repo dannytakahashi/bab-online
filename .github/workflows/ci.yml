@@ -38,6 +38,12 @@ jobs:
           MONGO_URI: mongodb://localhost:27017/test
           NODE_ENV: test
 
+      - name: Race check (every pacing delay 0)
+        run: npm run test:race
+        env:
+          MONGO_URI: mongodb://localhost:27017/test
+          NODE_ENV: test
+
       - name: Run tests with coverage
         run: npm run test:coverage
         env:

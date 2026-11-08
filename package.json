@@ -19,7 +19,8 @@
         "contract:gen": "node contract/gen.js",
         "contract:check": "node contract/gen.js --check",
         "contract:fixtures": "UPDATE_CONTRACT_FIXTURES=1 jest server/socket/__tests__/contractFixtures.test.js",
-        "test:contract": "CHAOS_SEEDS=1500 jest server/socket/__tests__/chaos.test.js server/socket/__tests__/tournamentLifecycle.test.js server/socket/__tests__/contract.test.js"
+        "test:contract": "CHAOS_SEEDS=1500 jest server/socket/__tests__/chaos.test.js server/socket/__tests__/tournamentLifecycle.test.js server/socket/__tests__/contract.test.js",
+        "test:race": "BAB_PACING=zero CHAOS_SEEDS=200 jest server/socket/__tests__/chaos.test.js server/socket/__tests__/tournamentLifecycle.test.js server/socket/__tests__/hardening.test.js server/socket/__tests__/pacingBudget.test.js"
     },
     "dependencies": {
         "bcryptjs": "^3.0.2",
@@ -53,7 +54,8 @@
         ],
         "setupFilesAfterEnv": [
             "<rootDir>/server/testUtils/fsmGuard.js",
-            "<rootDir>/server/testUtils/contractGuard.js"
+            "<rootDir>/server/testUtils/contractGuard.js",
+            "<rootDir>/server/testUtils/pacingReset.js"
         ],
         "coverageDirectory": "coverage",
         "collectCoverageFrom": [

@@ -22,16 +22,16 @@ const gameHandlers = require('../gameHandlers');
 const chatHandlers = require('../chatHandlers');
 const reconnectHandlers = require('../reconnectHandlers');
 const { isValidBid } = require('../../game/rules');
+const pacing = require('../../game/pacing');
 // Every emit here is contract-checked like the gameDriver suites
 const { instrument } = require('../../testUtils/contractCheck');
 
 const C = (rank, suit) => ({ rank, suit });
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function makeIo(log) {
     instrument(log);
     return {
-        to: (room) => ({ emit: (event, data) => log.push({ to: room, event, data }) }),
+        to: (room) => ({ emit: (event, data) => log.push({ to: room, event, data, at: Date.now() }) }),
         emit: () => {},
         sockets: { sockets: new Map() },
     };
@@ -56,13 +56,17 @@ function setupGame(handSize, hands) {
 
 describe('pre-hand window (positions assigned, no hand dealt yet)', () => {
     test('/leave during team announcement does not crash a bot timer or record a phantom bid', async () => {
+        jest.useFakeTimers();
         const log = [];
         const io = makeIo(log);
         const { game, ids } = setupGame(12, null);
         game.forcePhase('TEAMS_ANNOUNCED'); // handleDrawComplete window: trump still null
 
         chatHandlers.chatMessage(makeSocket(ids[0], log), io, { message: '/leave' });
-        await sleep(2600); // past the lazy/bot action delay
+        const p = pacing();
+        // past every bot think range (pacing.js)
+        await jest.advanceTimersByTimeAsync(Math.max(...[p.BOT_FIRST_BID, p.BOT_BID, p.BOT_PLAY, p.BOT_LEAD_AFTER_TRICK].map(([a, b]) => a + b)) + 100);
+        jest.useRealTimers();
 
         expect(game.playerBids.filter((b) => b != null)).toEqual([]);
         expect(log.some((l) => l.event === 'bidReceived')).toBe(false);
@@ -102,25 +106,67 @@ describe('playCard validation', () => {
         return { game, ids };
     }
 
-    test('a second play during the trick-resolution pause is rejected and the trick still resolves', async () => {
-        const log = [];
-        const io = makeIo(log);
-        const { game, ids } = playingGame();
-        const s = ids.map((id) => makeSocket(id, log));
+    // Harness A: the trick-resolution window. The 4th card returns at once
+    // with the table held ('resume' timer); plays during the hold are
+    // rejected deterministically; the trick resolves exactly once at
+    // resume, with updateTurn in the same tick. Under 'zero' the hold is a
+    // 0 ms macrotask, so the window still exists.
+    describe.each(['zero', 'standard'])('harness A (%s pacing)', (profile) => {
+        beforeEach(() => jest.useFakeTimers());
+        afterEach(() => jest.useRealTimers());
 
-        await gameHandlers.playCard(s[0], io, { card: C('2', 'hearts') });
-        await gameHandlers.playCard(s[1], io, { card: C('4', 'hearts') });
-        await gameHandlers.playCard(s[2], io, { card: C('6', 'hearts') });
-        const fourth = gameHandlers.playCard(s[3], io, { card: C('8', 'hearts') }); // 2s resolution pause
-        await sleep(100);
-        await gameHandlers.playCard(s[0], io, { card: C('3', 'hearts') }); // leader again, mid-pause
-        await fourth;
+        test('plays during the trick hold are rejected and the trick resolves once at resume', async () => {
+            pacing.setPacingForTests(profile);
+            const HOLD = pacing().TRICK_VIEW_MS;
+            const log = [];
+            const io = makeIo(log);
+            const { game, ids } = playingGame();
+            const s = ids.map((id) => makeSocket(id, log));
 
-        expect(log.some((l) => l.event === 'trickComplete')).toBe(true);
-        expect(game.tricks.team1 + game.tricks.team2).toBe(1);
-        expect(log.some((l) => l.to === `self:${ids[0]}` && l.event === 'actionRejected')).toBe(true);
-        gameManager.abortGame(game.gameId);
-    }, 10000);
+            await gameHandlers.playCard(s[0], io, { card: C('2', 'hearts') });
+            await gameHandlers.playCard(s[1], io, { card: C('4', 'hearts') });
+            await gameHandlers.playCard(s[2], io, { card: C('6', 'hearts') });
+            await gameHandlers.playCard(s[3], io, { card: C('8', 'hearts') });
+            expect(game.stage).toBe('TRICK_RESOLVING');
+            expect(game.hasTimer('resume')).toBe(true);
+            expect(game.resumeInfo()).toEqual({ kind: 'trick', inMs: HOLD });
+
+            // Synchronously: the leader again and the winner-to-be
+            const mark = log.length;
+            await gameHandlers.playCard(s[0], io, { card: C('3', 'hearts') });
+            await gameHandlers.playCard(s[3], io, { card: C('9', 'hearts') });
+            const rejected = log.slice(mark).filter((l) => l.event === 'actionRejected');
+            expect(rejected.map((l) => [l.to, l.data.reason])).toEqual([
+                [`self:${ids[0]}`, 'not_your_turn'], [`self:${ids[3]}`, 'not_your_turn'],
+            ]);
+            expect(game.playedCardsIndex).toBe(4);
+            expect(log.some((l) => l.event === 'trickComplete')).toBe(false);
+
+            if (HOLD > 0) {
+                await jest.advanceTimersByTimeAsync(HOLD - 1);
+                expect(game.stage).toBe('TRICK_RESOLVING');
+                expect(log.some((l) => l.event === 'trickComplete')).toBe(false);
+            }
+            await jest.advanceTimersByTimeAsync(HOLD > 0 ? 1 : 0);
+
+            const tc = log.filter((l) => l.event === 'trickComplete');
+            expect(tc).toHaveLength(1);
+            expect(tc[0].data.winner).toBe(4);
+            expect(game.tricks.team1 + game.tricks.team2).toBe(1);
+            const iTc = log.indexOf(tc[0]);
+            const turn = log.slice(iTc).find((l) => l.event === 'updateTurn');
+            expect(turn.data).toEqual({ currentTurn: 4, seq: expect.any(Number) });
+            expect(turn.at).toBe(tc[0].at);
+            expect(game.stage).toBe('PLAYING');
+            expect(game.resume).toBeNull();
+
+            // The winner's lead is accepted
+            const before = log.length;
+            await gameHandlers.playCard(s[3], io, { card: C('9', 'hearts') });
+            expect(log.slice(before).map((l) => l.event)).toEqual(['cardPlayed', 'updateTurn']);
+            gameManager.abortGame(game.gameId);
+        });
+    });
 
     test('a card not in the hand is rejected and never injected', async () => {
         const log = [];

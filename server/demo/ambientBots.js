@@ -21,8 +21,10 @@ const { PERSONALITY_LIST, getDisplayName } = personalities;
 const { logger } = require('../utils/logger');
 const { abortGame, beginDraw } = require('../socket/gameLifecycle');
 
-const CHECK_INTERVAL_MS = 15 * 1000;        // poll cadence
-const RESTART_DELAY_MS = 30 * 1000;         // pause between games (keep the gap short)
+const pacing = require('../game/pacing');
+
+// Poll cadence and the pause between games: pacing.js AMBIENT_CHECK_MS /
+// AMBIENT_RESTART_MS
 const MAX_GAME_AGE_MS = 90 * 60 * 1000;     // recycle a wedged game
 const CHAT_IDLE_MS = 30 * 60 * 1000;        // post bot chatter when room is quiet this long
 const MAX_MESSAGES = 50;                    // mirrors GameManager.MAX_MAIN_ROOM_MESSAGES
@@ -170,7 +172,7 @@ function tick(io) {
         if (!game) {
             // Finished normally (endGame removed it) — schedule the next one
             currentGameId = null;
-            nextGameAt = Date.now() + RESTART_DELAY_MS;
+            nextGameAt = Date.now() + pacing().AMBIENT_RESTART_MS;
             return;
         }
         if (!currentGameAnnounced && game.phase !== 'drawing' && game.phase !== 'waiting') {
@@ -184,7 +186,7 @@ function tick(io) {
                 logger.error('Ambient recycle failed', { gameId: game.gameId, error: err.message })
             );
             currentGameId = null;
-            nextGameAt = Date.now() + RESTART_DELAY_MS;
+            nextGameAt = Date.now() + pacing().AMBIENT_RESTART_MS;
         }
         return;
     }
@@ -209,7 +211,7 @@ function startAmbientActivity(io) {
         } catch (error) {
             logger.error('Ambient activity tick failed', { error: error.message, stack: error.stack });
         }
-    }, CHECK_INTERVAL_MS);
+    }, pacing().AMBIENT_CHECK_MS);
     if (intervalHandle.unref) intervalHandle.unref();
 
     logger.info('Ambient bot activity enabled');

@@ -4,6 +4,7 @@
  */
 
 const { v4: uuidv4 } = require('uuid');
+const pacing = require('../pacing');
 const {
     calculateOptimalBid,
     selectOptimalCard
@@ -184,20 +185,35 @@ class BotPlayer {
     }
 
     /**
-     * Get random delay for actions (simulates thinking)
+     * Random think time for an action (server/game/pacing.js ranges).
+     * Exactly one Math.random() per call, on every path, so seeded games
+     * keep their RNG stream positions.
      * @param {string} actionType - 'draw', 'bid', or 'play'
+     * @param {Object} [opts]
+     * @param {string} [opts.kind] - bid: 'firstBid' (first bid of the deal);
+     *   play: 'afterBidding' (opening lead), 'afterTrick' (lead after a
+     *   trick, the last card included), 'forced' (a follow with the bot's
+     *   last card in hand — public, since every seat holds one card on the
+     *   last trick; never "exactly one legal card", which would reveal a
+     *   void through timing); otherwise the ordinary range
+     * @param {Object} [opts.game] - for the per-game overlay (pacing(game))
      * @returns {number} - Delay in milliseconds
      */
-    getActionDelay(actionType) {
+    getActionDelay(actionType, { kind, game } = {}) {
+        const r = Math.random();
+        const p = pacing(game);
         switch (actionType) {
             case 'draw':
-                return 500 + Math.random() * 500; // 500-1000ms
+                return pacing.fromRange(p.BOT_DRAW, r);
             case 'bid':
-                return 1000 + Math.random() * 1000; // 1000-2000ms
+                return pacing.fromRange(kind === 'firstBid' ? p.BOT_FIRST_BID : p.BOT_BID, r);
             case 'play':
-                return 800 + Math.random() * 700; // 800-1500ms
+                if (kind === 'afterBidding') return pacing.fromRange(p.BOT_LEAD_AFTER_BIDDING, r);
+                if (kind === 'afterTrick') return pacing.fromRange(p.BOT_LEAD_AFTER_TRICK, r);
+                if (kind === 'forced') return pacing.fromRange(p.BOT_FORCED_PLAY, r);
+                return pacing.fromRange(p.BOT_PLAY, r);
             default:
-                return 500;
+                return pacing.fromRange(p.BOT_CHAT, r);
         }
     }
 

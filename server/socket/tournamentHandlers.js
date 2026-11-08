@@ -8,6 +8,7 @@ const TournamentState = require('../game/TournamentState');
 const { socketLogger } = require('../utils/logger');
 const { beginDraw, abortGame, emitLobbiesUpdated } = require('./gameLifecycle');
 const { delay } = require('../utils/timing');
+const pacing = require('../game/pacing');
 const { spectatorJoinState, snapshotFor } = require('./snapshotHandlers');
 const { botController, BotPlayer, personalities } = require('../game/bot');
 const { PERSONALITY_LIST, getDisplayName } = personalities;
@@ -368,10 +369,9 @@ async function beginNextRound(socket, io) {
     }
 }
 
-// Round start timing: tournamentRoundStart is on screen this long before
-// the tables exist, then every table shares one pre-draw countdown.
-const ROUND_ANNOUNCE_MS = 1500;
-const TABLE_COUNTDOWN_MS = 2000;
+// Round start timing (server/game/pacing.js): tournamentRoundStart is on
+// screen ROUND_ANNOUNCE_MS before the tables exist, then every table shares
+// one TABLE_COUNTDOWN_MS pre-draw countdown.
 
 /** True while `tournament` is registered and generation `epoch` is current. */
 function tournamentLive(tournament, epoch) {
@@ -426,7 +426,7 @@ async function startTournamentRound(io, tournament, roundNumber, epoch = tournam
         assignments: assignments.map(a => ({ humanCount: a.humans.length, botCount: a.botCount }))
     });
 
-    await delay(ROUND_ANNOUNCE_MS);
+    await delay(pacing().ROUND_ANNOUNCE_MS);
     if (!live()) return false;
 
     // Create every table, no await in between
@@ -496,7 +496,7 @@ async function startTournamentRound(io, tournament, roundNumber, epoch = tournam
     }
 
     // One shared countdown (false: that table aborted meanwhile)
-    const counted = await Promise.all(tables.map(({ game }) => game.pause(TABLE_COUNTDOWN_MS)));
+    const counted = await Promise.all(tables.map(({ game }) => game.hold('countdown', pacing(game).TABLE_COUNTDOWN_MS)));
     if (!live()) return stop();
 
     // Deck, startDraw, bot draws, and auto-draws for anyone who left or
