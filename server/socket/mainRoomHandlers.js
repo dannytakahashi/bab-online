@@ -5,11 +5,17 @@
 
 const gameManager = require('../game/GameManager');
 const { socketLogger } = require('../utils/logger');
+const { Controller, Presence } = require('../game/SeatState');
+const seatLifecycle = require('./seatLifecycle');
 
 /**
  * Handle player joining the main room
  */
 function joinMainRoom(socket, io) {
+    // Back in the main room: a pure spectator stops watching its game
+    // (never affects a seat owner's socket)
+    gameManager.leaveSpectating(io, socket.id);
+
     const result = gameManager.joinMainRoom(socket.id);
 
     if (!result.success) {
@@ -222,56 +228,33 @@ function joinAsSpectator(socket, io, data) {
         return;
     }
 
-    // Check if this user is actually a lazy player for this game
-    const lazyPosition = game.getOriginalPlayerPosition(user.username);
-    if (lazyPosition && game.isLazy(lazyPosition) && !game.lazyPlayers[lazyPosition].permanentLeave) {
-        // Update originalSocketId so /active will recognize this socket
-        game.lazyPlayers[lazyPosition].originalSocketId = socket.id;
-
-        // Leave main room
+    // An owner of this game comes back to their own seat, not as a spectator
+    const ownPos = game.seatByUsername(user.username);
+    const ownSeat = ownPos ? game.seat(ownPos) : null;
+    if (ownSeat && ownSeat.controller !== Controller.HUMAN &&
+        (ownSeat.presence === Presence.CONNECTED || ownSeat.presence === Presence.AWAY)) {
+        // Lazy or resigned seat: watch it while the bot plays (/active works)
+        seatLifecycle.watchSeat(io, game, ownPos, socket, user.username, { via: 'spectate' });
+        return;
+    }
+    if (ownSeat && ownSeat.controller === Controller.HUMAN &&
+        (ownSeat.presence === Presence.GRACE || ownSeat.presence === Presence.RESIGNABLE)) {
         socket.leave('mainRoom');
         gameManager.leaveMainRoom(socket.id);
+        seatLifecycle.reconnectOwner(io, game, ownPos, socket, user.username);
+        return;
+    }
 
-        // Register user with new socket
-        gameManager.registerUser(socket.id, user.username);
-
-        // Add as spectator (so they can chat and use /active)
-        game.addSpectator(socket.id, user.username, null);
-        game.joinToRoom(io, socket.id);
-
-        // Map socket to game
-        gameManager.updatePlayerGameMapping(null, socket.id, gameId);
-
-        // Send full game state with isLazy flag (same as reconnectHandlers lazy rejoin)
-        const currentBotSocketId = game.positions[lazyPosition];
-        const rejoinState = game.getClientState(currentBotSocketId);
-        rejoinState.isLazy = true;
-        socket.emit('rejoinSuccess', rejoinState);
-
-        // Notify other players
-        game.broadcast(io, 'spectatorJoined', {
-            username: user.username,
-            spectatorCount: game.getSpectators().length
-        });
-
-        socketLogger.info('Lazy player rejoined via spectate', {
-            socketId: socket.id,
-            username: user.username,
-            gameId,
-            position: lazyPosition
-        });
+    // A pure spectator (of one game at a time), in the game's room
+    if (!gameManager.addSpectator(io, game, socket.id, user.username, null)) {
+        socketLogger.warn('Spectate refused: socket is in a game', { socketId: socket.id, gameId });
+        socket.emit('error', { message: 'Leave your current game before spectating another' });
         return;
     }
 
     // Leave main room
     socket.leave('mainRoom');
     gameManager.leaveMainRoom(socket.id);
-
-    // Add as spectator
-    game.addSpectator(socket.id, user.username, null);
-
-    // Join the game's socket room (so they receive broadcasts)
-    game.joinToRoom(io, socket.id);
 
     // Build player info for the spectator
     const playerInfo = [];

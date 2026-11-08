@@ -51,7 +51,8 @@ async function abortGame(io, game, reason) {
 
 /**
  * Open the draw (CREATED -> DRAWING): shuffle a deck, announce startDraw,
- * schedule every registered bot's draw, and replay departures that happened
+ * arm the 30s draw watchdog (seatLifecycle.startDrawWatchdog), schedule
+ * every registered bot's draw, and replay departures that happened
  * while the game sat in CREATED (lobby/tournament countdown): each departed
  * socket auto-draws now, and handleDrawComplete later seats it as a resign
  * bot (left) or a disconnected seat — or aborts if every human left.
@@ -72,6 +73,9 @@ function beginDraw(io, game, { announce = true } = {}) {
 
     if (announce) game.broadcast(io, 'startDraw', { start: true });
 
+    // The draw ends within DRAW_WATCHDOG_MS whatever the sockets do
+    require('./seatLifecycle').startDrawWatchdog(io, game);
+
     // Bots draw on staggered timers, in registration order
     let drawOrder = 0;
     for (const bot of botController.getGameBots(game.gameId)) {
@@ -81,9 +85,9 @@ function beginDraw(io, game, { announce = true } = {}) {
 
     // Sockets that left or disconnected during the countdown draw now
     const { autoDraw, handleDrawComplete } = require('./gameHandlers');
-    const departed = game._drawPhaseDisconnects || {};
-    for (const [socketId, info] of Object.entries(departed)) {
-        if (!game.drawIDs.includes(socketId)) autoDraw(io, game, socketId, info.username);
+    for (const e of game.entrants ? game.entrants.values() : []) {
+        if (e.presence === 'connected' || game.drawIDs.includes(e.socketId)) continue;
+        autoDraw(io, game, e.socketId, e.username || 'Player');
     }
     if (game.drawIndex === 4) {
         handleDrawComplete(io, game).catch(err =>

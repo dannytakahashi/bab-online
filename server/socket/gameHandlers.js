@@ -20,10 +20,10 @@ const {
 } = require('../game/rules');
 const { gameLogger } = require('../utils/logger');
 const { Phase, reportViolation } = require('../game/GamePhase');
-const { botController, personalities } = require('../game/bot');
-const { PERSONALITY_LIST } = personalities;
-const { cancelAbortTimer, startReconnectGraceTimer } = require('./queueHandlers');
-const { abortGame, emitLobbiesUpdated } = require('./gameLifecycle');
+const { botController } = require('../game/bot');
+const { Controller, Presence } = require('../game/SeatState');
+const seatLifecycle = require('./seatLifecycle');
+const { emitLobbiesUpdated } = require('./gameLifecycle');
 
 const logContinuationError = (what, game) => (err) =>
     gameLogger.error(`${what} failed`, { gameId: game.gameId, error: err.message, stack: err.stack });
@@ -45,90 +45,12 @@ function rejectAction(socket, game, action, reason, extra = {}) {
  * @param {string} actionType - 'bid' or 'play'
  */
 function triggerBotIfNeeded(io, game, actionType) {
-    const currentPlayer = game.getPlayerByPosition(game.currentTurn);
-    if (!currentPlayer) return;
+    const seat = game.seat(game.currentTurn);
+    // A human seat acts through its own socket. (A future AFK watchdog
+    // would arm an 'afk:<pos>' game timer here for a connected human.)
+    if (!seat || seat.controller === Controller.HUMAN) return;
 
-    const isBot = game.isBot(currentPlayer.socketId);
-    const isLazy = game.isLazy(game.currentTurn);
-
-    if (!isBot && !isLazy) {
-        return;
-    }
-
-    if (isLazy && !isBot) {
-        // Lazy mode: find the substitute bot and use it to play
-        const lazyInfo = game.getLazyBot(game.currentTurn);
-        if (!lazyInfo) return;
-        const bot = botController.getBot(game.gameId, lazyInfo.botSocketId);
-        if (!bot) return;
-
-        // The bot needs to use the player's hand (still keyed by player's socketId)
-        const playerSocketId = currentPlayer.socketId;
-        const delayMs = bot.getActionDelay(actionType);
-
-        // One pending lazy action per seat, owned by the game: it never fires
-        // after the game ends/aborts, and /active clears it
-        game.setTimer('lazy:' + bot.position, delayMs, () => {
-          // Contain failures to this one action (setTimer also logs throws)
-          try {
-            // Re-validate before acting: the game may have moved on during the
-            // delay (turn advanced, trick resolved, /active, game ended). A
-            // stale write here corrupts playedCards and wedges the game.
-            if (!gameManager.getGameById(game.gameId)) return;
-            // Only act in the stage this action was scheduled for (no hand
-            // before the deal, no plays while a trick or hand is resolving)
-            if (actionType === 'bid' ? game.stage !== Phase.BIDDING : game.stage !== Phase.PLAYING) return;
-            if (!game.isLazy(bot.position)) return;
-            if (game.currentTurn !== bot.position) return;
-
-            if (actionType === 'bid') {
-                if (game.playerBids[bot.position - 1] != null) return;
-
-                // Use player's hand for bot decision
-                const hand = game.getHand(playerSocketId);
-                const gameContext = {
-                    teamScore: (bot.position === 1 || bot.position === 3) ? game.score.team1 : game.score.team2,
-                    oppScore: (bot.position === 1 || bot.position === 3) ? game.score.team2 : game.score.team1,
-                    currentHandSize: game.currentHand
-                };
-                const bid = bot.decideBid(hand, game.trump, game.playerBids, game.currentHand, gameContext);
-                game.recordBid(bot.position, bid);
-                game.addLogEntry(`${currentPlayer.username} bid ${bid}.`, bot.position, 'bid');
-                game.broadcast(io, 'bidReceived', { bid, position: bot.position, bidArray: game.playerBids });
-                game.currentTurn = rotatePosition(game.currentTurn);
-                handlePostBid(io, game).catch(logContinuationError('handlePostBid', game));
-            } else if (actionType === 'play') {
-                if (game.playedCardsIndex >= 4) return;
-                if (game.playedCards[bot.position - 1]) return;
-
-                const hand = game.getHand(playerSocketId);
-                if (!hand || hand.length === 0) return;
-                const card = bot.decideCard(hand, game.playedCards, game.leadCard, game.leadPosition, game.trump, game.isTrumpBroken, game.currentHand, botController.buildPlayContext(game));
-                game.removeCardFromHand(playerSocketId, card);
-                const isLeading = game.playedCardsIndex === 0;
-                if (isLeading) {
-                    game.leadCard = card;
-                    game.leadPosition = bot.position;
-                }
-                game.playedCards[bot.position - 1] = card;
-                game.playedCardsIndex++;
-                game.cardIndex++;
-                if (card.suit === game.trump.suit || card.suit === 'joker') {
-                    game.isTrumpBroken = true;
-                }
-                game.broadcast(io, 'cardPlayed', { playerId: playerSocketId, card, position: bot.position, trump: game.isTrumpBroken });
-                botController.notifyCardPlayed(game.gameId, card, bot.position, game.trump, game.leadPosition);
-                game.currentTurn = rotatePosition(game.currentTurn);
-                handlePostPlay(io, game).catch(logContinuationError('handlePostPlay', game));
-            }
-          } catch (err) {
-            gameLogger.error('Lazy-bot action failed', { gameId: game.gameId, actionType, error: err.message, stack: err.stack });
-          }
-        });
-        return;
-    }
-
-    // Normal bot action
+    // Lazy, resign and native bot seats are all keyed by their bot socket
     if (actionType === 'bid') {
         botController.scheduleBotAction(io, game, 'bid', (io, game, bot) => {
             // Only advance the turn if the bid actually happened — advancing
@@ -312,9 +234,7 @@ async function draw(socket, io, data) {
 
     gameLogger.debug('Player drew card', { socketId: socket.id, card: `${card.rank} of ${card.suit}` });
 
-    // Get username for this player
-    const user = gameManager.getUserBySocketId(socket.id);
-    const username = user?.username || 'Player';
+    const username = game.entrant(socket.id)?.username || 'Player';
 
     // Tell the drawing player their card
     socket.emit('youDrew', { card, drawOrder });
@@ -334,17 +254,18 @@ async function draw(socket, io, data) {
 }
 
 /**
- * Auto-draw a random card for a socket that left or disconnected before
- * drawing. Broadcasts playerDrew; the caller decides whether this draw
- * completed the phase (game.drawIndex === 4).
- * @returns {boolean} true if a card was drawn
+ * Auto-draw a random card for a socket that left, disconnected or (draw
+ * watchdog) never drew. Broadcasts playerDrew; the caller decides whether
+ * this draw completed the phase (game.drawIndex === 4).
+ * @returns {{card: Object, drawOrder: number}|null} the draw, or null if
+ *   none was made
  */
 function autoDraw(io, game, socketId, username) {
     const d = game.recordDraw(socketId, null);
     if (d) {
         game.broadcast(io, 'playerDrew', { username, card: d.card, drawOrder: d.drawOrder, socketId });
     }
-    return !!d;
+    return d;
 }
 
 /**
@@ -353,7 +274,9 @@ function autoDraw(io, game, socketId, username) {
  * call it; the DRAWING -> DRAW_RESOLVING latch makes it run exactly once.
  */
 async function handleDrawComplete(io, game) {
-    if (game.drawIDs.length !== 4 || !game.tryTransition(Phase.DRAWING, Phase.DRAW_RESOLVING)) return;
+    if (game.drawIDs.length !== 4) return;
+    game.clearTimer('draw:watchdog');
+    if (!game.tryTransition(Phase.DRAWING, Phase.DRAW_RESOLVING)) return;
     const alive = game.aliveCheck();
 
     // Fetch saved profile pics for all players
@@ -371,8 +294,7 @@ async function handleDrawComplete(io, game) {
             } while (usedPics.has(pic));
         } else {
             // Human players - fetch saved profile pic
-            const user = gameManager.getUserBySocketId(playerId);
-            pic = await getUserProfilePic(user?.username);
+            pic = await getUserProfilePic(game.entrant(playerId)?.username);
             const isCustomPic = typeof pic === 'string' && pic.startsWith('data:image');
 
             // Only check for duplicates on numbered pics (custom pics are always unique)
@@ -389,75 +311,69 @@ async function handleDrawComplete(io, game) {
     // Aborted while the profile pics loaded
     if (!alive()) return;
 
-    // Assign positions based on cards drawn
-    const positions = [];
+    // Seat from the entrants as they are now (presence may have changed
+    // during the pic lookups); the 4th seat clears game.entrants
+    const entrants = game.entrants;
+
+    // Assign positions based on cards drawn. Each entrant is seated by its
+    // presence now: connected humans and bots normally; a draw-phase
+    // disconnect as a human seat in reconnect grace (its 60s start now); a
+    // draw-phase leaver straight to a bot (as if resigned, owner gone).
+    const absentAtSeating = [];
+    const takeovers = [];
     for (let i = 0; i < game.drawIDs.length; i++) {
         const playerId = game.drawIDs[i];
         const position = determineDrawPosition(game.drawCards[i], game.drawCards);
-        positions.push(position);
+        const entrant = entrants?.get(playerId) ||
+            { socketId: playerId, isBot: gameManager.isBot(playerId), username: null, presence: 'connected' };
 
-        // Get username - check if bot first, then user lookup
-        const isBot = gameManager.isBot(playerId);
-        let username = 'Player';
-        if (isBot) {
-            // Look up real personality name from BotController
-            const bot = botController.getBot(game.gameId, playerId);
-            username = bot?.username || 'Bot';
-        } else {
-            const user = gameManager.getUserBySocketId(playerId);
-            username = user?.username || game._pendingUsernames?.[playerId] || 'Player';
-        }
-
-        game.addPlayer(playerId, username, position, pics[i], isBot);
-
-        // Update bot position in controller
-        if (isBot) {
+        if (entrant.isBot) {
+            // Real personality name from BotController
             const bot = botController.getBot(game.gameId, playerId);
             if (bot) {
                 bot.position = position;
                 bot.pic = pics[i];
             }
+            game.addPlayer(playerId, bot?.username || 'Bot', position, pics[i], true);
+            continue;
         }
 
-        // Only emit to human players still at the table (a draw-phase leaver
-        // is back in the main room and must not pick up a seat position)
-        if (!isBot && !game._drawPhaseDisconnects?.[playerId]?.left) {
+        const username = entrant.username || 'Player';
+        if (entrant.presence === 'connected') {
+            game.addPlayer(playerId, username, position, pics[i], false);
             game.sendToPlayer(io, playerId, 'playerAssigned', { playerId, position });
+        } else if (entrant.presence === 'disconnected') {
+            game.createSeat(position, {
+                controller: Controller.HUMAN,
+                presence: Presence.GRACE,
+                ownerUsername: username,
+                ownerPic: pics[i],
+                seatSocketId: playerId,
+                onGraceExpire: () => seatLifecycle.onGraceExpired(io, game, position)
+            });
+            absentAtSeating.push(position);
+        } else {
+            // Left during the draw: gone for good, the table never waits
+            const bot = seatLifecycle.createSeatBot(game, position, null);
+            game.createSeat(position, {
+                controller: Controller.RESIGN_BOT,
+                presence: Presence.GONE,
+                ownerUsername: username,
+                ownerPic: pics[i],
+                bot
+            });
+            takeovers.push(`${bot.username} is taking over for ${username}.`);
         }
     }
-
-    // Players who left or disconnected during the draw now hold seats.
-    // Leavers are gone for good, so a bot takes the seat now (as if resigned)
-    // and the table never waits on them. Disconnects get the normal reconnect
-    // grace timer, after which the others are offered a bot replacement.
-    const drawPhaseDisconnects = [];
-    let seatedBotForLeaver = false;
-    if (game._drawPhaseDisconnects) {
-        for (const [socketId, info] of Object.entries(game._drawPhaseDisconnects)) {
-            const pos = game.getPositionBySocketId(socketId);
-            if (!pos) continue;
-            if (info.left) {
-                const bot = replaceSeatWithBot(game, pos);
-                seatedBotForLeaver = true;
-                const msg = `${bot.username} is taking over for ${info.username}.`;
-                game.addLogEntry(msg, null, 'system');
-                game.broadcast(io, 'gameLogEntry', { message: msg, type: 'system' });
-            } else {
-                game.markPlayerDisconnected(pos);
-                drawPhaseDisconnects.push({ position: pos, username: info.username });
-            }
-        }
-        delete game._drawPhaseDisconnects;
-        delete game._pendingUsernames;
+    game.entrants = null;
+    for (const msg of takeovers) {
+        game.addLogEntry(msg, null, 'system');
+        game.broadcast(io, 'gameLogEntry', { message: msg, type: 'system' });
     }
 
-    // Every human left during the draw: nobody to play for, abort (same rule
-    // as /leave once the game is under way). All-bot demo games never get here.
-    if (seatedBotForLeaver && Array.from(game.players.values()).every(p => p.isBot)) {
-        gameLogger.warn('All humans left during draw, aborting game', { gameId: game.gameId });
-        await abortGame(io, game, 'All players left');
-        return;
-    }
+    // Every human left during the draw: abort now. Nobody connected: the
+    // abandon timer runs (draw-time grace seats started together with it).
+    if (seatLifecycle.maybeAbort(io, game)) return;
 
     // Build all arrays in position order (1, 2, 3, 4) for consistency
     const orderedPositions = [];
@@ -487,14 +403,13 @@ async function handleDrawComplete(io, game) {
     });
 
     // Now that seats have positions, show draw-phase disconnects on the
-    // table and start their reconnect grace period. Skip anyone who rejoined
-    // during the delays above (they already got playerReconnected).
-    const stillDisconnected = drawPhaseDisconnects.filter(dc => game.isPlayerDisconnected(dc.position));
-    for (const dc of stillDisconnected) {
-        game.broadcast(io, 'playerDisconnected', dc);
-    }
-    if (stillDisconnected.length > 0) {
-        startReconnectGraceTimer(io, game.gameId);
+    // table (their grace began at seating). Skip anyone who rejoined during
+    // the delay above (they already got playerReconnected).
+    for (const pos of absentAtSeating) {
+        const seat = game.seat(pos);
+        if (seat.presence === Presence.GRACE || seat.presence === Presence.RESIGNABLE) {
+            game.broadcast(io, 'playerDisconnected', { position: pos, username: seat.ownerUsername });
+        }
     }
 
     // Set active game for all human players (enables cross-browser
@@ -502,17 +417,9 @@ async function handleDrawComplete(io, game) {
     // bots have no user document, and a seat that was resigned or /leave'd
     // meanwhile must not have its human's activeGameId re-armed.
     const written = [];
-    for (let pos = 1; pos <= 4; pos++) {
-        const player = game.getPlayerByPosition(pos);
-        if (!player || game.isResigned(pos)) continue;
-        let username;
-        if (game.isLazy(pos)) {
-            if (game.lazyPlayers[pos].permanentLeave) continue;
-            username = game.lazyPlayers[pos].originalUsername;
-        } else {
-            if (player.isBot || gameManager.isBot(player.socketId)) continue;
-            username = player.username;
-        }
+    for (const seat of game.seatList()) {
+        if (!seat.ownerUsername || seat.presence === Presence.GONE || seat.controller === Controller.RESIGN_BOT) continue;
+        const username = seat.ownerUsername;
         if (!alive()) break;
         await gameManager.setActiveGame(username, game.gameId);
         written.push(username);
@@ -623,17 +530,15 @@ async function dealHand(game, io, { dealer, handSize, firstHand = false }) {
         }
     }
 
-    // Send the hand to every seat (each gets their own hand and position).
-    // A seat whose socket no longer maps to this game (a /leave'd lazy
-    // human, now in the main room) gets nothing.
-    for (const socketId of socketIds) {
-        if (game.isBot(socketId)) continue;
-        if (game._isSeatReachable && !game._isSeatReachable(socketId)) continue;
-        const playerPosition = game.getPositionBySocketId(socketId);
-        game.sendToPlayer(io, socketId, 'gameStart', {
+    // Send each seat's hand to its connected owner (a lazy owner too, in
+    // seat or watch view). Absent and /leave'd owners get nothing.
+    for (const seat of game.seatList()) {
+        if (seat.presence !== Presence.CONNECTED) continue;
+        const playerPosition = seat.position;
+        game.sendToPlayer(io, seat.ownerSocketId, 'gameStart', {
             gameId: game.gameId,
             players: socketIds,
-            hand: game.getHand(socketId),
+            hand: game.getHand(seat.seatSocketId),
             trump: game.trump,
             score1: game.score.team1,
             score2: game.score.team2,
@@ -1043,53 +948,8 @@ async function handleHandComplete(game, io) {
 }
 
 /**
- * Resign the human at `position` and seat a fresh bot there (hand, player
- * entry and playerGames mapping move to the bot). Shared by forceResign and
- * draw-phase leavers. Broadcasting is left to the caller.
- * @returns {BotPlayer} the new bot
- */
-function replaceSeatWithBot(game, position) {
-    // Pick a random personality not already used by a bot in this game
-    const usedPersonalities = botController.getGameBots(game.gameId).map(b => b.personality);
-    const availablePersonalities = PERSONALITY_LIST.filter(p => !usedPersonalities.includes(p));
-    const pool = availablePersonalities.length > 0 ? availablePersonalities : PERSONALITY_LIST;
-    const personality = pool[Math.floor(Math.random() * pool.length)];
-    const displayName = personalities.getDisplayName(personality);
-    const botUsername = `🤖 ${displayName}`;
-
-    // Create bot instance
-    const bot = botController.createBot(botUsername, personality);
-
-    // Assign random pic for bot
-    const botPic = Math.floor(Math.random() * 82) + 1;
-    bot.position = position;
-    bot.pic = botPic;
-
-    // Resign the player (transfers hand, replaces player entry)
-    game.resignPlayer(position, bot.socketId, bot.username, botPic);
-
-    // Register bot with controller
-    botController.registerBot(game.gameId, bot);
-
-    // Initialize bot card memory
-    bot.resetCardMemory(game.currentHand, game.trump);
-
-    // Update playerGames mapping: remove old socket (unless it has since
-    // moved on to another game), add bot
-    const oldSocketId = game.resignedPlayers[position]?.originalSocketId;
-    if (oldSocketId && gameManager.playerGames.get(oldSocketId) === game.gameId) {
-        gameManager.playerGames.delete(oldSocketId);
-    }
-    gameManager.playerGames.set(bot.socketId, game.gameId);
-
-    // Clear disconnected status
-    game.clearPlayerDisconnected(position);
-
-    return bot;
-}
-
-/**
- * Force-resign a disconnected player, replacing them with a bot
+ * Replace a disconnected player whose grace period ran out with a bot. Any
+ * connected owner may ask (a lazy owner watching their bot too).
  */
 async function forceResign(socket, io, data) {
     const game = gameManager.getPlayerGame(socket.id);
@@ -1100,60 +960,32 @@ async function forceResign(socket, io, data) {
 
     const { position } = data;
 
-    // Validate: requesting player is in the same game
-    const requestingPosition = game.getPositionBySocketId(socket.id);
-    if (!requestingPosition) {
+    // Validate: the requesting socket owns a seat in this game
+    const requestingPosition = game.seatByOwnerSocket(socket.id);
+    if (!requestingPosition || !game.isHumanPresent(requestingPosition)) {
         socket.emit('error', { message: 'Not a player in this game' });
         return;
     }
 
-    // Validate: target position is actually disconnected
-    if (!game.isPlayerDisconnected(position)) {
-        socket.emit('error', { message: 'Player is not disconnected' });
+    // Validate: the target seat's grace period has run out
+    const targetPresence = game.seatPresence(position);
+    if (targetPresence !== Presence.RESIGNABLE) {
+        socket.emit('error', {
+            message: targetPresence === Presence.GRACE ? 'Player is still reconnecting' : 'Player is not disconnected'
+        });
         return;
     }
 
-    // Get the disconnected player's info before replacement
-    const oldPlayer = game.getPlayerByPosition(position);
-    const oldUsername = oldPlayer?.username || `Player ${position}`;
-
-    const bot = replaceSeatWithBot(game, position);
-    const botPic = bot.pic;
-
-    // Cancel abort timer if no more disconnected players
-    if (game.getDisconnectedPlayers().length === 0) {
-        cancelAbortTimer(game.gameId);
-    }
-
-    // Broadcast playerResigned event
-    game.broadcast(io, 'playerResigned', {
-        position,
-        oldUsername,
-        botUsername: bot.username,
-        botPic
-    });
-
-    // Add game log entry
-    game.addLogEntry(`${oldUsername} has been resigned. ${bot.username} is taking over.`, null, 'system');
-    game.broadcast(io, 'gameLogEntry', {
-        message: `${oldUsername} has been resigned. ${bot.username} is taking over.`,
-        type: 'system'
-    });
+    const oldUsername = game.seat(position).ownerUsername;
+    if (!seatLifecycle.resignSeat(io, game, position)) return;
 
     gameLogger.info('Player force-resigned', {
         gameId: game.gameId,
         position,
         oldUsername,
-        botUsername: bot.username,
+        botUsername: game.seat(position).bot?.username,
         requestedBy: requestingPosition
     });
-
-    // If it's the resigned player's turn, trigger bot action
-    // (not while a trick/hand resolves: the next updateTurn re-triggers it)
-    const actionType = game.actionTypeForTurn();
-    if (game.currentTurn === position && actionType) {
-        triggerBotIfNeeded(io, game, actionType);
-    }
 }
 
 module.exports = {

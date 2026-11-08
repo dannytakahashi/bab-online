@@ -93,9 +93,10 @@ describe('startBotGame', () => {
 
         expect(game.players.size).toBe(4);
         expect(['bidding', 'playing']).toContain(game.phase);
-        for (const [, player] of game.players) {
-            expect(player.isBot).toBe(true);
+        for (const [sid] of game.players) {
+            expect(game.isBot(sid)).toBe(true);
         }
+        expect(game.seatList().map((s) => s.controller)).toEqual(['bot', 'bot', 'bot', 'bot']);
 
         const { botController } = require('../../game/bot');
         botController.cleanupGame(game.gameId);

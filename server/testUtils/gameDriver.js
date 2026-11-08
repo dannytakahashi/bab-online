@@ -7,14 +7,14 @@
 const { isLegalMove, isTrumpTight, isValidBid } = require('../game/rules');
 
 /**
- * Stub Socket.IO server. `log` gets {to, event, data, seq} for every emit;
+ * Stub Socket.IO server. `log` gets {to, event, data, at} for every emit;
  * `rooms` maps room name -> Set of socket ids joined through stub sockets.
  */
 function makeIo(log, rooms = new Map()) {
     const io = {
         rooms,
-        to: (room) => ({ emit: (event, data) => log.push({ to: room, event, data }) }),
-        emit: (event, data) => log.push({ to: '*', event, data }),
+        to: (room) => ({ emit: (event, data) => log.push({ to: room, event, data, at: Date.now() }) }),
+        emit: (event, data) => log.push({ to: '*', event, data, at: Date.now() }),
         sockets: { sockets: new Map() },
     };
     return io;
@@ -28,7 +28,9 @@ function makeSocket(id, log, io = null) {
     const socket = {
         id,
         data: {},
-        emit: (event, data) => log.push({ to: `self:${id}`, event, data }),
+        emit: (event, data) => log.push({ to: `self:${id}`, event, data, at: Date.now() }),
+        // socket.to(room).emit: everyone in the room but this socket
+        to: (room) => ({ emit: (event, data) => log.push({ to: room, except: id, event, data, at: Date.now() }) }),
         join(room) {
             if (!io) return;
             if (!io.rooms.has(room)) io.rooms.set(room, new Set());
@@ -37,6 +39,10 @@ function makeSocket(id, log, io = null) {
         leave(room) {
             if (!io) return;
             io.rooms.get(room)?.delete(id);
+        },
+        // Like socket.io: false once the socket is gone from io.sockets
+        get connected() {
+            return io ? io.sockets.sockets.has(id) : true;
         },
     };
     if (io) io.sockets.sockets.set(id, socket);
@@ -79,4 +85,47 @@ function mulberry32(seed) {
     };
 }
 
-module.exports = { makeIo, makeSocket, events, legalCards, legalBids, mulberry32 };
+/** Register `bot` for seat `pos` and map it to the game (as createSeatBot does). */
+function attachBot(game, pos, bot) {
+    const { botController } = require('../game/bot');
+    const gameManager = require('../game/GameManager');
+    bot.position = pos;
+    if (bot.pic == null) bot.pic = 1;
+    botController.registerBot(game.gameId, bot);
+    gameManager.playerGames.set(bot.socketId, game.gameId);
+}
+
+/**
+ * Fixture: seat `pos` (a human seat) is lazy, played by `bot`. view 'seat'
+ * keeps the owner's socket as its owner socket (as /lazy does); 'watch'
+ * takes `ownerSocketId`; presence 'away' has no owner socket.
+ */
+function lazySeat(game, pos, bot, { view = 'seat', ownerSocketId, presence = 'connected' } = {}) {
+    const s = game.seat(pos);
+    attachBot(game, pos, bot);
+    const owner = presence === 'connected' ? (ownerSocketId ?? s.ownerSocketId) : null;
+    return game.forceSeat(pos, {
+        controller: 'lazyBot', presence, bot,
+        ownerSocketId: owner, ownerView: presence === 'connected' ? view : null,
+    });
+}
+
+/**
+ * Fixture: seat `pos` was resigned to `bot` (owner away by default). The
+ * owner's old socket is unmapped, as a real resign leaves it.
+ */
+function resignedSeat(game, pos, bot, { presence = 'away', ownerSocketId = null } = {}) {
+    const gameManager = require('../game/GameManager');
+    const s = game.seat(pos);
+    if (s?.ownerSocketId && gameManager.playerGames.get(s.ownerSocketId) === game.gameId) {
+        gameManager.playerGames.delete(s.ownerSocketId);
+    }
+    attachBot(game, pos, bot);
+    return game.forceSeat(pos, {
+        controller: 'resignBot', presence, bot,
+        ownerSocketId: presence === 'connected' ? ownerSocketId : null,
+        ownerView: presence === 'connected' ? 'watch' : null,
+    });
+}
+
+module.exports = { makeIo, makeSocket, events, legalCards, legalBids, mulberry32, lazySeat, resignedSeat };

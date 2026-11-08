@@ -249,8 +249,9 @@ async function recordGameResult(game) {
 async function recordGameStats(game) {
     const usersCollection = getUsersCollection();
 
-    // Skip stat recording if any player is a bot
-    const hasBots = [1, 2, 3, 4].some(pos => game.isBot(game.positions[pos]));
+    // Skip stat recording if a bot played a seat for good (native bot or
+    // resign bot). Lazy seats still count for their human.
+    const hasBots = game.seatList().some(s => s.controller === 'bot' || s.controller === 'resignBot');
     if (hasBots) {
         authLogger.info('Skipping stat recording — game contains bots', { gameId: game.gameId });
         return;
@@ -274,9 +275,8 @@ async function recordGameStats(game) {
     for (const { position, player } of players) {
         if (!player || !player.username) continue;
 
-        // Skip bots (they don't have DB records)
-        // But don't skip resigned positions — those have original human usernames
-        if (!game.isResigned(position) && game.isBot(game.positions[position])) continue;
+        // Skip seats without a human owner (they have no DB records)
+        if (!game.seat(position)?.ownerUsername) continue;
 
         const isTeam1 = position === 1 || position === 3;
         const isWinner = (isTeam1 && team1Won) || (!isTeam1 && !team1Won);

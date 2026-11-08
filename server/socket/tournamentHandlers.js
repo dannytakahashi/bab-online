@@ -605,9 +605,12 @@ function spectateTournamentGame(socket, io, data) {
         return;
     }
 
-    // Add as spectator to the game
-    game.addSpectator(socket.id, user.username, null);
-    game.joinToRoom(io, socket.id);
+    // A pure spectator of this one game (leaves any other game it watched)
+    if (!gameManager.addSpectator(io, game, socket.id, user.username, null)) {
+        socketLogger.warn('Spectate refused: socket is in a game', { socketId: socket.id, gameId });
+        socket.emit('error', { message: 'Leave your current game before spectating another' });
+        return;
+    }
 
     // Build player info
     const playerInfo = [];
@@ -729,13 +732,8 @@ function returnToTournament(socket, io) {
         return;
     }
 
-    // Remove from any game spectator lists
-    for (const [, game] of gameManager.games) {
-        if (game.isSpectator(socket.id)) {
-            game.removeSpectator(socket.id);
-            game.leaveRoom(io, socket.id);
-        }
-    }
+    // Stop spectating whatever game it watched
+    gameManager.leaveSpectating(io, socket.id);
 
     // Make sure they're in tournament room
     tournament.joinToRoom(io, socket.id);

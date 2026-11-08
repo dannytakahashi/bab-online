@@ -4,7 +4,8 @@
 
 const gameManager = require('../game/GameManager');
 const { socketLogger } = require('../utils/logger');
-const { abortGame, emitLobbiesUpdated } = require('./gameLifecycle');
+const { emitLobbiesUpdated } = require('./gameLifecycle');
+const { disconnectOwner } = require('./seatLifecycle');
 
 async function joinQueue(socket, io) {
     const result = gameManager.joinQueue(socket.id);
@@ -77,10 +78,18 @@ function leaveQueue(socket, io) {
     }
 }
 
-// Grace period for reconnection (60 seconds)
-const RECONNECT_GRACE_PERIOD = 60000;
-
+/**
+ * A socket disconnected: drop it from the main room / lobby / tournament /
+ * spectating (GameManager.handleDisconnect), then route an in-game socket to
+ * its seat bookkeeping: a pre-seating entrant is marked disconnected (and
+ * auto-drawn during the draw), a seat owner goes through
+ * seatLifecycle.disconnectOwner (grace for a human seat, 'away' for a lazy /
+ * resigned seat's watcher). Anything else mapped (a stale socket) is just
+ * unmapped.
+ */
 async function handleDisconnect(socket, io) {
+    // Resolve the name before the socket's entry can go away
+    const user = gameManager.getUserBySocketId(socket.id);
     const result = gameManager.handleDisconnect(socket.id);
 
     // Leave main room Socket.IO room
@@ -94,7 +103,6 @@ async function handleDisconnect(socket, io) {
     // If player was in a tournament lobby, notify remaining players
     if (result.wasInTournament && result.tournamentResult && !result.tournamentResult.deleted) {
         const tournament = result.tournamentResult.tournament;
-        const user = gameManager.getUserBySocketId(socket.id);
         tournament.broadcast(io, 'tournamentPlayerLeft', {
             username: user?.username || 'Unknown',
             players: tournament.getClientState().players,
@@ -113,213 +121,62 @@ async function handleDisconnect(socket, io) {
         });
     }
 
+    // A pure spectator was already removed from its game; just the room
+    if (result.spectatorGame) result.spectatorGame.leaveRoom(io, socket.id);
+
     socketLogger.debug('Player disconnected', { socketId: socket.id });
 
-    // If player was in an active game, give them time to reconnect
-    if (result.wasInGame && result.game) {
-        const position = result.game.getPositionBySocketId(socket.id);
+    if (result.wasInGame && result.game) routeGameDisconnect(socket, io, result);
 
-        // Handle disconnect during draw phase (player has no position yet)
-        // Before seats exist (CREATED countdown, draw, draw resolution): no
-        // seat to mark yet. A CREATED departure auto-draws when the draw opens
-        // (gameLifecycle.beginDraw); handleDrawComplete seats it.
-        if (!position && result.game.isPreSeating()) {
-            const user = gameManager.getUserBySocketId(socket.id);
-            const username = user?.username || 'Player';
+    // Last: the routing above resolves names from the entrant / seat, not
+    // from this (now dead) socket. Offline users drop out of the online list.
+    gameManager.removeUserSocket(socket.id);
+}
 
-            // Auto-draw for the disconnected player (random card); a no-op
-            // if they already drew or the draw is no longer open
-            const { autoDraw, handleDrawComplete } = require('./gameHandlers');
-            if (autoDraw(io, result.game, socket.id, username) && result.game.drawIndex === 4) {
-                // This draw completed the phase
-                handleDrawComplete(io, result.game).catch(err =>
-                    socketLogger.error('handleDrawComplete failed', { gameId: result.gameId, error: err.message, stack: err.stack })
-                );
-            }
+/** Route an in-game socket's disconnect to its entrant or seat-owner transition. */
+function routeGameDisconnect(socket, io, result) {
+    const game = result.game;
 
-            // Store username for lookup during handleDrawComplete
-            if (!result.game._pendingUsernames) result.game._pendingUsernames = {};
-            result.game._pendingUsernames[socket.id] = username;
+    // Before seats exist (CREATED countdown, draw, draw resolution): a
+    // CREATED departure auto-draws when the draw opens
+    // (gameLifecycle.beginDraw); handleDrawComplete seats it.
+    const entrant = game.entrant(socket.id);
+    if (entrant) {
+        game.markEntrantDisconnected(socket.id);
+        if (gameManager.playerGames.get(socket.id) === game.gameId) gameManager.playerGames.delete(socket.id);
+        const username = entrant.username || 'Player';
 
-            // Mark this socket as needing replacement after draw completes
-            if (!result.game._drawPhaseDisconnects) result.game._drawPhaseDisconnects = {};
-            // Never downgrade a /leave (left: true) to a plain disconnect
-            if (!result.game._drawPhaseDisconnects[socket.id]?.left) {
-                result.game._drawPhaseDisconnects[socket.id] = { username };
-            }
-
-            // Log disconnect. No playerDisconnected here: there is no seat yet
-            // (iOS would file position:null under 0 and never clear it);
-            // handleDrawComplete sends it with the real position.
-            const dcMessage = `${username} disconnected during card draw.`;
-            result.game.addLogEntry(dcMessage, null, 'system');
-            result.game.broadcast(io, 'gameLogEntry', { message: dcMessage, type: 'system' });
-
-            return;
-        }
-
-        // A mapped socket without a seat once seats exist is a watcher (a
-        // lazy/resigned human's rejoin shadow, or a spectator who /active'd
-        // nothing yet): drop it quietly — there is no seat to report
-        if (!position) {
-            result.game.removeSpectator(socket.id);
-            if (gameManager.playerGames.get(socket.id) === result.game.gameId) {
-                gameManager.playerGames.delete(socket.id);
-            }
-            // A lazy human's shadow may have been the last human able to
-            // forceResign a disconnected seat
-            ensureGraceIfAbandoned(io, result.game);
-            return;
-        }
-
-        const player = result.game.getPlayerByPosition(position);
-        const username = player?.username || `Player ${position}`;
-
-        // If player is in lazy mode, bot is already playing — skip grace period
-        if (result.wasLazy) {
-            const lazyInfo = result.game.getLazyBot(position);
-            const originalUsername = lazyInfo?.originalUsername || username;
-            socketLogger.info('Lazy player disconnected, bot continues playing', {
-                originalUsername, position, gameId: result.gameId
-            });
-
-            // Notify other players, but don't say "waiting for reconnection"
-            const dcMessage = `${originalUsername} disconnected. Bot continues playing.`;
-            result.game.addLogEntry(dcMessage, null, 'system');
-            result.game.broadcast(io, 'gameLogEntry', {
-                message: dcMessage,
-                type: 'system'
-            });
-
-            // Check if all remaining humans are gone (bots, lazy, or disconnected)
-            const disconnectedPositions = result.game.getDisconnectedPlayers();
-            const hasConnectedHuman = Array.from(result.game.players.values()).some(
-                p => !p.isBot &&
-                     !result.game.isLazy(p.position) &&
-                     !disconnectedPositions.includes(p.position)
+        // Auto-draw for the disconnected player (random card); a no-op
+        // if they already drew or the draw is no longer open
+        const { autoDraw, handleDrawComplete } = require('./gameHandlers');
+        if (autoDraw(io, game, socket.id, username) && game.drawIndex === 4) {
+            // This draw completed the phase
+            handleDrawComplete(io, game).catch(err =>
+                socketLogger.error('handleDrawComplete failed', { gameId: result.gameId, error: err.message, stack: err.stack })
             );
-
-            if (!hasConnectedHuman) {
-                socketLogger.warn('No connected humans remain, aborting game', { gameId: result.gameId });
-                await abortGame(io, result.game, 'All players disconnected');
-            }
-            return;
         }
 
-        socketLogger.info('Player disconnected from game, waiting for reconnection', {
-            username, position, gameId: result.gameId, gracePeriod: RECONNECT_GRACE_PERIOD / 1000
-        });
-
-        // Notify other players that someone disconnected
-        result.game.broadcast(io, 'playerDisconnected', { position, username });
-        result.game.broadcast(io, 'voicePeerLeft', { socketId: socket.id });
-
-        // Add game log entry so players see it in the feed
-        const dcMessage = `${username} disconnected. Waiting for reconnection...`;
-        result.game.addLogEntry(dcMessage, null, 'system');
-        result.game.broadcast(io, 'gameLogEntry', {
-            message: dcMessage,
-            type: 'system'
-        });
-
-        startReconnectGraceTimer(io, result.gameId);
+        // No playerDisconnected here: there is no seat yet (iOS would
+        // file position:null under 0 and never clear it);
+        // handleDrawComplete sends it with the real position.
+        const dcMessage = `${username} disconnected during card draw.`;
+        game.addLogEntry(dcMessage, null, 'system');
+        game.broadcast(io, 'gameLogEntry', { message: dcMessage, type: 'system' });
+        return;
     }
-}
 
-/**
- * Start (or restart) the reconnect grace timer for a game. When it expires,
- * an all-disconnected table is aborted; otherwise the connected players are
- * offered a bot replacement (resignationAvailable) for each disconnected seat.
- * Used for in-game disconnects and for seats whose player disconnected during
- * the draw (started once positions are assigned).
- */
-function startReconnectGraceTimer(io, gameId) {
-    const game = gameManager.getGameById(gameId);
-    if (!game) return;
-
-    // One timer per game, owned by the game: restarting replaces it, and it
-    // never fires once the game has ended or aborted
-    game.setTimer('reconnectGrace', RECONNECT_GRACE_PERIOD, async () => {
-        const checkResult = gameManager.checkGameAbort(gameId);
-        if (!checkResult.shouldAbort) return;
-
-        // Abort when no human is left who could reconnect the table or
-        // forceResign the disconnected seats (see isHumanPresent)
-        const disconnectedPositions = checkResult.game.getDisconnectedPlayers();
-
-        if (!hasPresentHuman(io, checkResult.game)) {
-            socketLogger.warn('All humans disconnected, aborting game', { gameId });
-            await abortGame(io, checkResult.game, 'All players disconnected');
-        } else {
-            // Broadcast resignationAvailable to remaining connected players
-            for (const pos of disconnectedPositions) {
-                const disconnectedPlayer = checkResult.game.getPlayerByPosition(pos);
-                const dcUsername = disconnectedPlayer?.username || `Player ${pos}`;
-                socketLogger.info('Grace period expired, resignation available', {
-                    gameId, position: pos, username: dcUsername
-                });
-                checkResult.game.broadcast(io, 'resignationAvailable', {
-                    position: pos,
-                    username: dcUsername
-                });
-
-                const expiredMsg = `${dcUsername} failed to reconnect. You may replace them with a bot.`;
-                checkResult.game.addLogEntry(expiredMsg, null, 'system');
-                checkResult.game.broadcast(io, 'gameLogEntry', { message: expiredMsg, type: 'system' });
-            }
-        }
-    });
-}
-
-/**
- * Is the human behind this seat still at the table? Not for bots and
- * resigned seats, disconnected seats, and lazy seats whose human left for
- * good or whose watching socket (the seat socket or a rejoin shadow) is gone.
- */
-function isHumanPresent(io, game, player) {
-    if (player.isBot || game.isResigned(player.position)) return false;
-    if (game.isPlayerDisconnected(player.position)) return false;
-    if (game.isLazy(player.position)) {
-        const info = game.lazyPlayers[player.position];
-        if (info.permanentLeave) return false;
-        return !!io.sockets.sockets.get(info.originalSocketId);
+    const position = game.seatByOwnerSocket(socket.id);
+    if (position) {
+        disconnectOwner(io, game, position, socket.id);
+        return;
     }
-    return true;
-}
 
-function hasPresentHuman(io, game) {
-    return Array.from(game.players.values()).some(p => isHumanPresent(io, game, p));
-}
-
-/**
- * Call when a human silently stops being present (leave, shadow
- * disconnect). If disconnected seats remain and nobody present could
- * forceResign them, (re)start the grace period: their own may already have
- * run out, and the game must abort rather than wait forever.
- */
-function ensureGraceIfAbandoned(io, game) {
-    if (game.isTerminal() || hasPresentHuman(io, game)) return;
-    if (game.getDisconnectedPlayers().length > 0 && !game.hasTimer('reconnectGrace')) {
-        startReconnectGraceTimer(io, game.gameId);
-    }
-}
-
-/**
- * Cancel abort timer when player reconnects
- */
-function cancelAbortTimer(gameId) {
-    const game = gameManager.getGameById(gameId);
-    if (game && game.hasTimer('reconnectGrace')) {
-        game.clearTimer('reconnectGrace');
-        socketLogger.debug('Abort timer cancelled', { gameId });
-    }
+    // Mapped but owning nothing (a stale socket): just unmap it
+    if (gameManager.playerGames.get(socket.id) === game.gameId) gameManager.playerGames.delete(socket.id);
 }
 
 module.exports = {
     joinQueue,
     leaveQueue,
-    handleDisconnect,
-    cancelAbortTimer,
-    startReconnectGraceTimer,
-    ensureGraceIfAbandoned
+    handleDisconnect
 };

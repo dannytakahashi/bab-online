@@ -248,7 +248,7 @@ describe('GameManager', () => {
             const gameId = result.game.gameId;
             const socketIds = gameManager.abortGame(gameId);
 
-            expect(socketIds).toHaveLength(0); // pendingPlayers not yet assigned
+            expect(socketIds).toHaveLength(0); // entrants only: no seats yet
             expect(gameManager.getGame(gameId)).toBeUndefined();
         });
 

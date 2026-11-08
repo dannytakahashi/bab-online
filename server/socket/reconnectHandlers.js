@@ -3,7 +3,8 @@
  */
 
 const gameManager = require('../game/GameManager');
-const { cancelAbortTimer } = require('./queueHandlers');
+const { Controller, Presence } = require('../game/SeatState');
+const seatLifecycle = require('./seatLifecycle');
 const { socketLogger } = require('../utils/logger');
 const { getUsersCollection } = require('../database');
 const { verifySession } = require('../utils/sessionTokens');
@@ -39,33 +40,9 @@ async function isAuthorizedForUser(socket, username, sessionToken) {
     }
 }
 
-/**
- * If the rejoined game belongs to a tournament, reattach the player's
- * tournament membership to their new socket and rejoin the tournament room.
- * @returns {Object|null} - The tournament, or null
- */
-function reattachTournament(io, socket, gameId, username) {
-    const tournamentId = gameManager.tournamentGames.get(gameId);
-    if (!tournamentId) return null;
-
-    // Scope the reattach to THIS game's tournament — the same username can
-    // linger as a ghost entry in an older tournament
-    const tournament = gameManager.reattachTournamentPlayer(socket.id, username, tournamentId);
-    if (tournament) {
-        socket.join(tournament.roomName);
-        // Let lobby viewers see the reconnect (and any creator handoff)
-        tournament.broadcast(io, 'tournamentPlayerJoined', {
-            username,
-            players: tournament.getClientState().players
-        });
-        socketLogger.info('Tournament membership reattached on rejoin', {
-            username, tournamentId: tournament.tournamentId, gameId
-        });
-        return tournament;
-    }
-    // Game maps to a tournament but no membership entry matched (e.g. the
-    // tournament was deleted) — still return whatever exists for the id
-    return gameManager.getTournamentById(tournamentId);
+/** Whether the socket is still connected (socket.io sets connected=false on disconnect). */
+function isLive(socket) {
+    return socket.connected !== false;
 }
 
 /**
@@ -82,6 +59,14 @@ async function rejoinGame(socket, io, data) {
         return;
     }
 
+    // The session lookup above awaits the DB: if the socket dropped meanwhile
+    // its disconnect found nothing to clean up, so seating it now would leave
+    // a 'connected' seat on a dead socket that never gets a grace timer
+    if (!isLive(socket)) {
+        socketLogger.info('Rejoin dropped: socket disconnected during auth', { username, gameId, socketId: socket.id });
+        return;
+    }
+
     // Find the game
     const game = gameManager.getGameById(gameId);
     if (!game) {
@@ -94,144 +79,63 @@ async function rejoinGame(socket, io, data) {
         return;
     }
 
-    // Find player by username — check current players first, then lazy/resigned
-    let existingPlayer = game.getPlayerByUsername(username);
-    let isLazyRejoin = false;
-
-    if (!existingPlayer) {
-        // Check if this user is in lazy mode or was resigned (their name was replaced by bot)
-        const lazyPosition = game.getOriginalPlayerPosition(username);
-        if (lazyPosition) {
-            // This user has a lazy/resigned position — they're rejoining
-            isLazyRejoin = true;
-            existingPlayer = game.getPlayerByPosition(lazyPosition);
-        }
+    // A socket seated (or entered) in another game keeps that game: taking
+    // this seat would overwrite its mapping and strand the other seat on a
+    // socket whose disconnect that game never hears
+    const mappedTo = gameManager.playerGames.get(socket.id);
+    if (mappedTo !== undefined && mappedTo !== gameId) {
+        socketLogger.warn('Rejoin refused: socket is in another game', { username, gameId, otherGameId: mappedTo });
+        socket.emit('rejoinFailed', { reason: 'In another game' });
+        return;
     }
 
-    if (!existingPlayer) {
+    const refuse = () => {
         const playersInGame = Array.from(game.players.values()).map(p => p.username);
         socketLogger.debug('Rejoin failed: player not in game', { username, playersInGame });
         socket.emit('rejoinFailed', {
             reason: 'Not a player in this game',
             debug: { lookingFor: username, playersInGame }
         });
+    };
+
+    // Before seats exist there is nothing to rejoin into yet
+    if (game.entrants !== null) {
+        refuse();
         return;
     }
 
-    // Check if this is actually a reconnect (different socket ID)
-    if (existingPlayer.socketId === socket.id) {
-        socketLogger.debug('Rejoin failed: already connected', { username });
-        socket.emit('rejoinFailed', { reason: 'Already connected' });
+    // The seat this user owns (human, lazy or resigned). A /leave is final.
+    const position = game.seatByUsername(username);
+    const seat = position ? game.seat(position) : null;
+    if (!seat || seat.presence === Presence.GONE) {
+        refuse();
         return;
     }
 
-    // For lazy/resigned rejoins, player re-enters as spectator while bot keeps playing
-    if (isLazyRejoin) {
-        const position = existingPlayer.position;
-
-        if (game.isLazy(position)) {
-            // Already in lazy mode — just update the original socket ID
-            const lazyInfo = game.lazyPlayers[position];
-            lazyInfo.originalSocketId = socket.id;
-        } else if (game.isResigned(position)) {
-            // Resigned player reconnecting — convert resignation into lazy mode
-            // so the bot keeps playing and the human can spectate / /active back
-            const resignedInfo = game.resignedPlayers[position];
-            const botSocketId = game.positions[position];
-            const botPlayer = game.players.get(botSocketId);
-
-            game.lazyPlayers[position] = {
-                botSocketId,
-                botUsername: botPlayer.username,
-                botPic: botPlayer.pic,
-                originalUsername: resignedInfo.username,
-                originalPic: resignedInfo.pic,
-                originalSocketId: socket.id,
-                personality: game.assignedPersonality[position] || 'mary'
-            };
+    if (seat.controller === Controller.HUMAN) {
+        if (seat.seatSocketId === socket.id) {
+            socketLogger.debug('Rejoin failed: already connected', { username });
+            socket.emit('rejoinFailed', { reason: 'Already connected' });
+            return;
         }
-
-        // Register user with new socket
-        gameManager.registerUser(socket.id, username);
-
-        // Add as spectator so they can chat and use /active through the spectator path
-        game.addSpectator(socket.id, username, null);
-        socket.join(game.roomName);
-
-        // Map the human's new socket to the game
-        gameManager.updatePlayerGameMapping(null, socket.id, gameId);
-
-        // Restore tournament membership for the new socket if this is a
-        // tournament game (disconnect only marks the player disconnected)
-        const lazyTournament = reattachTournament(io, socket, gameId, username);
-
-        socketLogger.info('Player rejoined game in lazy mode', { username, gameId, position });
-
-        // Send current game state (they'll be in lazy/spectator mode)
-        // Use bot's socket ID to get correct position/hand, since the human isn't in the players map
-        const currentBotSocketId = game.positions[position];
-        const rejoinState = game.getClientState(currentBotSocketId);
-        rejoinState.isLazy = true;
-        rejoinState.tournamentId = lazyTournament ? lazyTournament.tournamentId : null;
-        socket.emit('rejoinSuccess', rejoinState);
-
-        // Notify other players
-        game.broadcast(io, 'playerReconnected', { position, username });
-
-        const rcMessage = `${username} reconnected.`;
-        game.addLogEntry(rcMessage, null, 'system');
-        game.broadcast(io, 'gameLogEntry', { message: rcMessage, type: 'system' });
+        // From grace / resignable, or replacing a still-live older socket
+        seatLifecycle.reconnectOwner(io, game, position, socket, username);
         return;
     }
 
-    // Normal reconnection (not lazy)
-    // Update socket ID mapping
-    const oldSocketId = game.updatePlayerSocket(existingPlayer.position, socket.id, io);
-    gameManager.updatePlayerGameMapping(oldSocketId, socket.id, gameId);
-
-    // Clear disconnected status for this player
-    game.clearPlayerDisconnected(existingPlayer.position);
-
-    // Cancel the abort timer if no more disconnected players
-    if (game.getDisconnectedPlayers().length === 0) {
-        cancelAbortTimer(gameId);
+    // Bot-controlled seat: the owner watches while the bot plays
+    if (seat.ownerSocketId === socket.id) {
+        // Same socket asking again: idempotent, never rejoinFailed (the web
+        // client drops its game on any rejoinFailed)
+        const tournamentId = gameManager.tournamentGames.get(gameId) || null;
+        socket.emit('rejoinSuccess', {
+            ...game.getClientState(seat.seatSocketId),
+            isLazy: true,
+            tournamentId: tournamentId && gameManager.getTournamentById(tournamentId) ? tournamentId : null
+        });
+        return;
     }
-
-    // Register user with new socket
-    gameManager.registerUser(socket.id, username);
-
-    // Restore tournament membership for the new socket if this is a
-    // tournament game (disconnect only marks the player disconnected)
-    const tournament = reattachTournament(io, socket, gameId, username);
-
-    socketLogger.info('Player rejoined game', { username, gameId, position: existingPlayer.position });
-
-    // Send current game state to rejoining player
-    const gameState = game.getClientState(socket.id);
-    gameState.tournamentId = tournament ? tournament.tournamentId : null;
-    socket.emit('rejoinSuccess', gameState);
-
-    // Notify other players
-    game.broadcast(io, 'playerReconnected', {
-        position: existingPlayer.position,
-        username
-    });
-
-    // Voice chat: send peer list to reconnecting player and notify others
-    const voicePeers = [];
-    for (const [sid, player] of game.players) {
-        if (sid !== socket.id && !player.isBot && !game.getDisconnectedPlayers().includes(player.position)) {
-            voicePeers.push({ socketId: sid, username: player.username });
-            io.to(sid).emit('voicePeerJoined', { socketId: socket.id, username });
-        }
-    }
-    if (voicePeers.length > 0) {
-        socket.emit('voicePeerList', { peers: voicePeers });
-    }
-
-    const rcMessage = `${username} reconnected.`;
-    game.addLogEntry(rcMessage, null, 'system');
-    game.broadcast(io, 'gameLogEntry', { message: rcMessage, type: 'system' });
+    seatLifecycle.watchSeat(io, game, position, socket, username, { via: 'rejoin' });
 }
 
 module.exports = {

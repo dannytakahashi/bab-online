@@ -130,6 +130,9 @@ class BotController {
             this.pendingActions.delete(actionKey);
             // Never act into a game that ended/aborted after scheduling
             if (game.epoch !== epoch || game.isTerminal()) return;
+            // ...or for a seat this bot no longer controls (/active, a new
+            // lazy bot) or after the bot was released
+            if (game.positions[currentPosition] !== bot.socketId || !this.getBot(game.gameId, bot.socketId)) return;
             // Contain failures: an uncaughtException here would exit the
             // whole server (see utils/shutdown.js), dropping every game
             try {
@@ -414,6 +417,8 @@ class BotController {
         const timeoutId = setTimeout(() => {
             this.pendingActions.delete(actionKey);
             if (game.epoch !== epoch || game.isTerminal()) return;
+            // A bot released meanwhile (/active) says nothing more
+            if (!this.getBot(game.gameId, bot.socketId)) return;
             game.addLogEntry(`${bot.username}: ${message}`, bot.position, 'chat');
             game.broadcast(io, 'chatMessage', {
                 position: bot.position,
@@ -539,6 +544,17 @@ class BotController {
                 this.pendingActions.delete(key);
             }
         }
+    }
+
+    /**
+     * Release one bot from a game (a lazy bot after /active): cancels all its
+     * timers and removes it from the registry
+     * @param {string} gameId
+     * @param {string} botSocketId
+     */
+    unregisterBot(gameId, botSocketId) {
+        this.cancelBotActions(gameId, botSocketId);
+        this.gamesBots.get(gameId)?.delete(botSocketId);
     }
 
     /**
