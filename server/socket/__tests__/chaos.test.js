@@ -45,6 +45,7 @@ const { makeIo, makeSocket, events, legalCards, legalBids, mulberry32 } = requir
 const contractCheck = require('../../testUtils/contractCheck');
 const { watchSeq } = require('../../testUtils/seqCheck');
 const { watchPacing } = require('../../testUtils/pacingInvariants');
+const pacing = require('../../game/pacing');
 
 const { Phase } = GamePhase;
 const SEEDS = Number(process.env.CHAOS_SEEDS) || 200;
@@ -185,9 +186,10 @@ async function runSeedInner(seed, onIo) {
         const lobby = gameManager.createLobby(humans.map((h) => h.current));
         for (let i = nHumans; i < 4; i++) gameManager.addBotToLobby(lobby.id);
         starting = Promise.all(humans.map((h) => track(lobbyHandlers.playerReady(sockets.get(h.current), io))));
-        await jest.advanceTimersByTimeAsync(1500);
+        await jest.advanceTimersByTimeAsync(pacing().LOBBY_START_MS);
         game = gameManager.getPlayerGame(humans[0].current);
-        if (!game || game.stage !== Phase.CREATED) {
+        // (no CREATED window under BAB_PACING=zero: the countdown is 0)
+        if (!game || (game.stage !== Phase.CREATED && pacing().PREDRAW_COUNTDOWN_MS > 0)) {
             return { seed, why: 'lobby countdown did not create the game', stage: game?.stage };
         }
     } else {

@@ -12,7 +12,7 @@
  *   legacy              the values before the retune (owner rollback knob)
  *   fast                dev only: every value at its floor (ignored, with a
  *                       warning, when NODE_ENV=production)
- *   zero                tests only (throws unless NODE_ENV=test)
+ *   zero                tests only (throws outside Jest / NODE_ENV=test)
  *
  * Bot think ranges are [min, span] pairs: delay = min + r * span, with one
  * Math.random() per action (BotPlayer.getActionDelay).
@@ -201,7 +201,8 @@ const PROFILES = {
 // Selection
 // ---------------------------------------------------------------------------
 
-const isTest = () => process.env.NODE_ENV === 'test';
+// Under Jest (also NODE_ENV=production test runs) or NODE_ENV=test
+const isTest = () => process.env.NODE_ENV === 'test' || process.env.JEST_WORKER_ID !== undefined;
 const freeze = (p) => Object.freeze(Object.fromEntries(Object.entries(p).map(([k, v]) => [k, Array.isArray(v) ? Object.freeze([...v]) : v])));
 
 function profileFromEnv() {

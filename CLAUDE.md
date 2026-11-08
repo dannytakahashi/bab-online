@@ -147,6 +147,7 @@ npm run contract:gen        # regenerate events.schema.json + web/Swift constant
 npm run contract:check      # fail if a generated file is stale
 npm run contract:fixtures   # rewrite contract/fixtures/v2 from real games
 npm run test:contract       # 1500 chaos seeds + tournamentLifecycle + contract.test (also run with NODE_ENV=production)
+npm run test:race           # BAB_PACING=zero: chaos (200) + tournamentLifecycle + harness A + budget with every delay 0 (CI)
 # iOS compile check after touching SocketEvents.swift:
 # xcodebuild -project iOSClient/BABOnline.xcodeproj -scheme BABOnline -destination 'id=<simulator>' -derivedDataPath <tmp>/dd CODE_SIGNING_ALLOWED=NO build
 ```

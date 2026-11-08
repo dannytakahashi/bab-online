@@ -100,6 +100,7 @@ describe('1 human + 3 bots, the human acting instantly', () => {
     }, 60000);
 
     test('standard: at most 0.55 x the baseline, components as pinned, every gap above its shipped-iOS floor, no refusal', async () => {
+        pacing.setPacingForTests('standard'); // whatever BAB_PACING says
         const m = await measure(SEEDS, { humans: 1 });
         print(report('standard', m));
         print(`  vs baseline ${(m.mean / BASELINE_MS * 100).toFixed(1)}%`);
@@ -122,6 +123,7 @@ describe('1 human + 3 bots, the human acting instantly', () => {
 
 describe('ambient 4-bot game', () => {
     test('measured end to end, every gap above its floor', async () => {
+        pacing.setPacingForTests('standard');
         const m = await measure(AMBIENT_SEEDS, { humans: 0 });
         print(report('ambient', m));
         expectAccounted(m);

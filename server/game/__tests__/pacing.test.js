@@ -45,8 +45,14 @@ describe('SHIPPED_IOS_FLOORS', () => {
 
 describe('profile selection', () => {
     const env = { ...process.env };
+    // "Outside tests" = neither NODE_ENV=test nor a Jest worker
+    const leaveTests = () => {
+        process.env.NODE_ENV = 'production';
+        delete process.env.JEST_WORKER_ID;
+    };
     afterEach(() => {
         process.env.NODE_ENV = env.NODE_ENV;
+        process.env.JEST_WORKER_ID = env.JEST_WORKER_ID;
         if (env.BAB_PACING === undefined) delete process.env.BAB_PACING; else process.env.BAB_PACING = env.BAB_PACING;
         pacing.resetPacing();
     });
@@ -63,11 +69,12 @@ describe('profile selection', () => {
     test('zero, setPacingForTests and resetPacing throw outside tests', () => {
         process.env.BAB_PACING = 'zero';
         pacing.resetPacing();
-        process.env.NODE_ENV = 'production';
+        leaveTests();
         expect(() => pacing()).toThrow(/test-only/);
         expect(() => pacing.setPacingForTests('zero')).toThrow(/test-only/);
         expect(() => pacing.resetPacing()).toThrow(/test-only/);
         expect(() => pacing.setTracer(() => {})).toThrow(/test-only/);
+        process.env.JEST_WORKER_ID = env.JEST_WORKER_ID;
     });
 
     test('fast is ignored in production (standard, with a warning)', () => {
@@ -77,7 +84,7 @@ describe('profile selection', () => {
         process.env.NODE_ENV = 'production';
         expect(pacing().TRICK_VIEW_MS).toBe(PROFILES.standard.TRICK_VIEW_MS);
         expect(warn).toHaveBeenCalled();
-        process.env.NODE_ENV = 'test';
+        process.env.NODE_ENV = 'development';
         pacing.resetPacing();
         expect(pacing().TRICK_VIEW_MS).toBe(PROFILES.fast.TRICK_VIEW_MS);
         warn.mockRestore();
