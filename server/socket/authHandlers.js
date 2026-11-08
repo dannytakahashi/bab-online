@@ -2,7 +2,7 @@
  * Authentication socket event handlers
  */
 
-const bcrypt = require('bcryptjs');
+const passwordHash = require('../utils/passwordHash');
 const { getUsersCollection, getGameRecordsCollection } = require('../database');
 const gameManager = require('../game/GameManager');
 const { authLogger } = require('../utils/logger');
@@ -13,6 +13,9 @@ const { issueSession, verifySession } = require('../utils/sessionTokens');
  * ({ username, mergedInto }). Tell the player which account to use instead
  * of a generic "wrong password", since they likely forgot which one is theirs.
  */
+const BUSY_MESSAGE = 'Server is busy. Try again in a moment.';
+const isHashBusy = (error) => Boolean(error && error.code === 'HASH_BUSY');
+
 function mergedAccountMessage(username, mergedInto) {
     return `"${username}" was combined into your account "${mergedInto}". Please sign in as ${mergedInto}.`;
 }
@@ -85,7 +88,7 @@ async function signIn(socket, io, data) {
         // No password hash (a malformed legacy document): a normal failure,
         // not a throw inside compare
         const passwordMatch = typeof user.password === 'string'
-            && await bcrypt.compare(password, user.password);
+            && await passwordHash.compare(password, user.password);
         if (!passwordMatch) {
             socket.emit('signInResponse', {
                 success: false,
@@ -161,6 +164,11 @@ async function signIn(socket, io, data) {
         }
 
     } catch (error) {
+        if (isHashBusy(error)) {
+            authLogger.warn('Sign-in deferred: password hashing busy', { username });
+            socket.emit('signInResponse', { success: false, message: BUSY_MESSAGE });
+            return;
+        }
         authLogger.error('Database error during sign-in', { username, error: error.message });
         socket.emit('signInResponse', {
             success: false,
@@ -213,7 +221,7 @@ async function signUp(socket, io, data) {
         const session = issueSession(null);
         const sessionToken = session.token;
 
-        const hashedPassword = await bcrypt.hash(password, 10);
+        const hashedPassword = await passwordHash.hash(password, 10);
         // Generate random profile pic (1-82)
         const profilePic = Math.floor(Math.random() * 82) + 1;
         await usersCollection.insertOne({
@@ -249,6 +257,11 @@ async function signUp(socket, io, data) {
         if (error && error.code === 11000) {
             socket.emit('signUpResponse', { success: false, message: 'Username already taken!' });
             authLogger.warn('Sign-up failed: username taken (duplicate key)', { username });
+            return;
+        }
+        if (isHashBusy(error)) {
+            authLogger.warn('Sign-up deferred: password hashing busy', { username });
+            socket.emit('signUpResponse', { success: false, message: BUSY_MESSAGE });
             return;
         }
         authLogger.error('Database error during sign-up', { username, error: error.message });
@@ -409,7 +422,7 @@ async function deleteAccount(socket, io, data) {
             return;
         }
 
-        const passwordMatch = await bcrypt.compare(password, user.password);
+        const passwordMatch = await passwordHash.compare(password, user.password);
         if (!passwordMatch) {
             socket.emit('deleteAccountResponse', {
                 success: false,
@@ -468,6 +481,10 @@ async function deleteAccount(socket, io, data) {
         setTimeout(() => socket.disconnect(true), 500);
 
     } catch (error) {
+        if (isHashBusy(error)) {
+            socket.emit('deleteAccountResponse', { success: false, message: BUSY_MESSAGE });
+            return;
+        }
         authLogger.error('Database error during account deletion', { username, error: error.message });
         socket.emit('deleteAccountResponse', {
             success: false,
