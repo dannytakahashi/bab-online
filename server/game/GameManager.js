@@ -55,6 +55,11 @@ class GameManager {
         this.currentUsers.push({ username, socketId });
     }
 
+    /** Forget a (dead) socket's signed-in user entry. */
+    removeUserSocket(socketId) {
+        this.currentUsers = this.currentUsers.filter(u => u.socketId !== socketId);
+    }
+
     /**
      * Get user by socket ID
      */
@@ -855,6 +860,18 @@ class GameManager {
                 if (this.isBot(sid)) continue;
                 io.sockets.sockets.get(sid)?.leave(game.roomName);
             }
+        }
+
+        // Backstop for currentUsers: drop every entry of a dead socket that
+        // belonged to this game (a live socket, e.g. an owner who watched
+        // to the end, keeps its entry)
+        if (io) {
+            const ids = new Set([...game.players.keys(), ...game.spectators.keys(), ...mapped]);
+            for (const s of game.seatList()) {
+                if (s.ownerSocketId) ids.add(s.ownerSocketId);
+            }
+            if (game.entrants) for (const sid of game.entrants.keys()) ids.add(sid);
+            this.currentUsers = this.currentUsers.filter(u => !ids.has(u.socketId) || io.sockets.sockets.has(u.socketId));
         }
 
         for (const sid of mapped) this.playerGames.delete(sid);

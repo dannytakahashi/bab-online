@@ -702,3 +702,50 @@ describe('R13/R14 draw watchdog (srv-2)', () => {
         expect(events(log, 'playerDisconnected').map((l) => l.data.position)).toEqual([pos]);
     });
 });
+
+describe('R22 currentUsers is pruned (sp-9)', () => {
+    const online = () => gameManager.getOnlineUsernames();
+
+    test('an in-game disconnect drops the user from the online list', async () => {
+        const t = table();
+        expect(online()).toContain('user1');
+        await drop(t, t.sockets[1]);
+        expect(online()).not.toContain('user1');
+        expect(gameManager.getUserBySocketId(t.sockets[1].id)).toBeUndefined();
+        // ...and a rejoin puts them back
+        await rejoin(t, 'user1');
+        expect(online()).toContain('user1');
+    });
+
+    test('a draw-phase dropper is still named from its entrant at seating', async () => {
+        seq++;
+        const log = [];
+        const io = makeIo(log);
+        const ids = [1, 2, 3, 4].map((n) => `nm${seq}-h${n}`);
+        ids.forEach((id, i) => gameManager.registerUser(id, `nm${seq}u${i}`));
+        const game = gameManager.createGame(ids);
+        const sockets = ids.map((id) => makeSocket(id, log, io));
+        gameLifecycle.beginDraw(io, game);
+        await drop({ io }, sockets[0]);
+        expect(gameManager.getUserBySocketId(ids[0])).toBeUndefined();
+        const pending = sockets.slice(1).map((s) => gameHandlers.draw(s, io, { num: 0 }));
+        await jest.advanceTimersByTimeAsync(7000);
+        await Promise.all(pending);
+        const pos = game.seatByUsername(`nm${seq}u0`);
+        expect(game.seat(pos)).toMatchObject({ presence: 'grace', ownerUsername: `nm${seq}u0` });
+        expect(events(log, 'playerDisconnected')[0].data).toEqual({ position: pos, username: `nm${seq}u0` });
+    });
+
+    test('retiring a game drops its dead sockets and keeps live ones', async () => {
+        const t = table();
+        chat(t, 2, '/lazy');
+        const w = await rejoin(t, 'user2');
+        // A socket that died without a disconnect event
+        t.io.sockets.sockets.delete(t.sockets[3].id);
+        await gameLifecycle.abortGame(t.io, t.game, 'test');
+        expect(gameManager.getUserBySocketId(t.sockets[3].id)).toBeUndefined();
+        expect(gameManager.getUserBySocketId(w.id)?.username).toBe('user2');
+        expect(gameManager.getUserBySocketId(t.sockets[1].id)?.username).toBe('user1');
+        expect(gameManager.spectatorGames.has(t.sockets[2].id)).toBe(false); // the demoted seat socket
+    });
+});

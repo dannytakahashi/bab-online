@@ -126,46 +126,53 @@ async function handleDisconnect(socket, io) {
 
     socketLogger.debug('Player disconnected', { socketId: socket.id });
 
-    if (result.wasInGame && result.game) {
-        const game = result.game;
+    if (result.wasInGame && result.game) routeGameDisconnect(socket, io, result);
 
-        // Before seats exist (CREATED countdown, draw, draw resolution): a
-        // CREATED departure auto-draws when the draw opens
-        // (gameLifecycle.beginDraw); handleDrawComplete seats it.
-        const entrant = game.entrant(socket.id);
-        if (entrant) {
-            game.markEntrantDisconnected(socket.id);
-            if (gameManager.playerGames.get(socket.id) === game.gameId) gameManager.playerGames.delete(socket.id);
-            const username = entrant.username || 'Player';
+    // Last: the routing above resolves names from the entrant / seat, not
+    // from this (now dead) socket. Offline users drop out of the online list.
+    gameManager.removeUserSocket(socket.id);
+}
 
-            // Auto-draw for the disconnected player (random card); a no-op
-            // if they already drew or the draw is no longer open
-            const { autoDraw, handleDrawComplete } = require('./gameHandlers');
-            if (autoDraw(io, game, socket.id, username) && game.drawIndex === 4) {
-                // This draw completed the phase
-                handleDrawComplete(io, game).catch(err =>
-                    socketLogger.error('handleDrawComplete failed', { gameId: result.gameId, error: err.message, stack: err.stack })
-                );
-            }
+/** Route an in-game socket's disconnect to its entrant or seat-owner transition. */
+function routeGameDisconnect(socket, io, result) {
+    const game = result.game;
 
-            // No playerDisconnected here: there is no seat yet (iOS would
-            // file position:null under 0 and never clear it);
-            // handleDrawComplete sends it with the real position.
-            const dcMessage = `${username} disconnected during card draw.`;
-            game.addLogEntry(dcMessage, null, 'system');
-            game.broadcast(io, 'gameLogEntry', { message: dcMessage, type: 'system' });
-            return;
-        }
-
-        const position = game.seatByOwnerSocket(socket.id);
-        if (position) {
-            disconnectOwner(io, game, position, socket.id);
-            return;
-        }
-
-        // Mapped but owning nothing (a stale socket): just unmap it
+    // Before seats exist (CREATED countdown, draw, draw resolution): a
+    // CREATED departure auto-draws when the draw opens
+    // (gameLifecycle.beginDraw); handleDrawComplete seats it.
+    const entrant = game.entrant(socket.id);
+    if (entrant) {
+        game.markEntrantDisconnected(socket.id);
         if (gameManager.playerGames.get(socket.id) === game.gameId) gameManager.playerGames.delete(socket.id);
+        const username = entrant.username || 'Player';
+
+        // Auto-draw for the disconnected player (random card); a no-op
+        // if they already drew or the draw is no longer open
+        const { autoDraw, handleDrawComplete } = require('./gameHandlers');
+        if (autoDraw(io, game, socket.id, username) && game.drawIndex === 4) {
+            // This draw completed the phase
+            handleDrawComplete(io, game).catch(err =>
+                socketLogger.error('handleDrawComplete failed', { gameId: result.gameId, error: err.message, stack: err.stack })
+            );
+        }
+
+        // No playerDisconnected here: there is no seat yet (iOS would
+        // file position:null under 0 and never clear it);
+        // handleDrawComplete sends it with the real position.
+        const dcMessage = `${username} disconnected during card draw.`;
+        game.addLogEntry(dcMessage, null, 'system');
+        game.broadcast(io, 'gameLogEntry', { message: dcMessage, type: 'system' });
+        return;
     }
+
+    const position = game.seatByOwnerSocket(socket.id);
+    if (position) {
+        disconnectOwner(io, game, position, socket.id);
+        return;
+    }
+
+    // Mapped but owning nothing (a stale socket): just unmap it
+    if (gameManager.playerGames.get(socket.id) === game.gameId) gameManager.playerGames.delete(socket.id);
 }
 
 module.exports = {
