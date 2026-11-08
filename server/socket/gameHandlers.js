@@ -894,8 +894,14 @@ async function handleHandComplete(game, io) {
 
         // Tournament-specific: record scores and check round completion
         if (tournamentId) {
-            const tournament = gameManager.getTournamentById(tournamentId);
+            // Re-resolved after the await: a cancel meanwhile deleted the
+            // tournament and this game's mapping, and nothing is recorded
+            const tournament = gameManager.tournamentGames.get(game.gameId) === tournamentId
+                ? gameManager.getTournamentById(tournamentId)
+                : null;
             if (tournament) {
+                // Scores go to the round this game was created in
+                const roundNumber = tournament.roundOfGame(game.gameId)?.roundNumber ?? tournament.currentRound;
                 // Record each human tournament player's team score
                 for (let pos = 1; pos <= 4; pos++) {
                     const player = game.getOriginalPlayer(pos);
@@ -912,7 +918,7 @@ async function handleHandComplete(game, io) {
                     const partner = game.getOriginalPlayer(partnerPos);
 
                     tournament.recordPlayerRoundScore(player.username, {
-                        roundNumber: tournament.currentRound,
+                        roundNumber,
                         gameId: game.gameId,
                         position: pos,
                         teamScore,

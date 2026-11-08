@@ -1031,10 +1031,20 @@ class GameManager {
         // The human behind every owned seat (human, lazy, resigned or gone);
         // native bots have no user document. Scoped to this game: a leaver
         // may already be in another game.
+        const usernames = new Set();
         for (const seat of game.seatList()) {
-            if (seat.ownerUsername) {
-                await this.clearActiveGame(seat.ownerUsername, gameId);
+            if (seat.ownerUsername) usernames.add(seat.ownerUsername);
+        }
+        // Before seating (a tournament table aborted in its countdown) the
+        // humans are still entrants; the tournament start already wrote
+        // their activeGameId
+        if (game.entrants) {
+            for (const e of game.entrants.values()) {
+                if (!e.isBot && e.username) usernames.add(e.username);
             }
+        }
+        for (const username of usernames) {
+            await this.clearActiveGame(username, gameId);
         }
     }
 
@@ -1136,9 +1146,12 @@ class GameManager {
         this.playerTournaments.delete(socketId);
 
         // Delete when empty — or when only disconnected ghosts remain, so a
-        // tournament can't sit in everyone's lobby list forever
+        // tournament can't sit in everyone's lobby list forever. The last
+        // member leaving mid-start can leave tables behind (bots plus
+        // departed entrants): the caller aborts these orphans.
+        const live = this.getTournamentLiveGames(tournamentId);
         if (this.deleteTournamentIfAbandoned(tournament)) {
-            return { success: true, deleted: true, tournament };
+            return { success: true, deleted: true, tournament, orphanedGames: live };
         }
 
         // Transfer creator if needed
@@ -1248,17 +1261,40 @@ class GameManager {
      */
     deleteTournament(tournamentId) {
         const tournament = this.tournaments.get(tournamentId);
-        if (!tournament) return;
+        if (!tournament) return [];
 
+        // Stale every captured epoch first: an in-flight round start stops
+        // at its next check
+        tournament.retire();
         for (const [socketId] of tournament.players) {
-            this.playerTournaments.delete(socketId);
+            if (this.playerTournaments.get(socketId) === tournamentId) {
+                this.playerTournaments.delete(socketId);
+            }
         }
+        // Unmapped first, so the abort follow-up of any table still running
+        // (handleAbortedTournamentGame) has nothing to resolve
+        const orphaned = this.getTournamentLiveGames(tournamentId);
         for (const [gameId, tId] of this.tournamentGames) {
             if (tId === tournamentId) {
                 this.tournamentGames.delete(gameId);
             }
         }
         this.tournaments.delete(tournamentId);
+        return orphaned;
+    }
+
+    /**
+     * The live (non-terminal, still registered) games mapped to a tournament.
+     * @returns {GameState[]}
+     */
+    getTournamentLiveGames(tournamentId) {
+        const games = [];
+        for (const [gameId, tId] of this.tournamentGames) {
+            if (tId !== tournamentId) continue;
+            const game = this.games.get(gameId);
+            if (game && !game.isTerminal()) games.push(game);
+        }
+        return games;
     }
 
     /**
@@ -1303,13 +1339,13 @@ class GameManager {
         const tournamentId = this.tournamentGames.get(gameId);
         if (!tournamentId) return null;
 
+        // Resolved at most once: the mapping goes now, whatever follows
+        this.tournamentGames.delete(gameId);
+
         const tournament = this.tournaments.get(tournamentId);
         if (!tournament) return null;
 
         tournament.markGameComplete(gameId);
-
-        // Clean up game→tournament mapping
-        this.tournamentGames.delete(gameId);
 
         const roundComplete = tournament.isRoundComplete();
         if (roundComplete) {
@@ -1339,13 +1375,14 @@ class GameManager {
     /**
      * Clear active tournament for a user in the database
      */
-    async clearActiveTournament(username) {
+    async clearActiveTournament(username, tournamentId) {
         try {
             const usersCollection = getUsersCollection();
             if (!usersCollection) return;
 
+            // Scoped when given: the user may already be in another tournament
             await usersCollection.updateOne(
-                { username },
+                tournamentId ? { username, activeTournamentId: tournamentId } : { username },
                 { $unset: { activeTournamentId: '' } }
             );
         } catch (error) {
@@ -1356,15 +1393,15 @@ class GameManager {
     /**
      * Clear active tournament for all players in a tournament
      */
-    async clearActiveTournamentForAll(tournamentId) {
-        const tournament = this.tournaments.get(tournamentId);
+    async clearActiveTournamentForAll(tournamentId, tournament = this.tournaments.get(tournamentId)) {
         if (!tournament) return;
 
+        // Usernames snapshotted now, written in parallel
+        const usernames = [];
         for (const [, player] of tournament.players) {
-            if (player.username) {
-                await this.clearActiveTournament(player.username);
-            }
+            if (player.username) usernames.push(player.username);
         }
+        await Promise.all(usernames.map(u => this.clearActiveTournament(u, tournamentId)));
     }
 }
 
