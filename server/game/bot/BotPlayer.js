@@ -192,8 +192,10 @@ class BotPlayer {
      * @param {Object} [opts]
      * @param {string} [opts.kind] - bid: 'firstBid' (first bid of the deal);
      *   play: 'afterBidding' (opening lead), 'afterTrick' (lead after a
-     *   trick, the last card included), 'forced' (a follow with exactly one
-     *   legal card); otherwise the ordinary range
+     *   trick, the last card included), 'forced' (a follow with the bot's
+     *   last card in hand — public, since every seat holds one card on the
+     *   last trick; never "exactly one legal card", which would reveal a
+     *   void through timing); otherwise the ordinary range
      * @param {Object} [opts.game] - for the per-game overlay (pacing(game))
      * @returns {number} - Delay in milliseconds
      */
