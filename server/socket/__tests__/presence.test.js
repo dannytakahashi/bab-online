@@ -749,3 +749,24 @@ describe('R22 currentUsers is pruned (sp-9)', () => {
         expect(gameManager.spectatorGames.has(t.sockets[2].id)).toBe(false); // the demoted seat socket
     });
 });
+
+describe('lazy seat chat', () => {
+    test('a seat-view lazy owner chats under their own name, from the seat', () => {
+        const t = table();
+        chat(t, 1, '/lazy');
+        chat(t, 1, 'brb');
+        expect(events(t.log, 'chatMessage').map((l) => l.data)).toEqual([
+            { position: 1, message: 'brb', username: 'user1', isSpectator: false },
+        ]);
+    });
+
+    test('a watching owner chats as a spectator under their own name', async () => {
+        const t = table();
+        chat(t, 1, '/lazy');
+        const w = await rejoin(t, 'user1');
+        chat(t, 1, 'back', w);
+        expect(events(t.log, 'chatMessage').map((l) => l.data)).toEqual([
+            { position: null, message: 'back', username: 'user1', isSpectator: true },
+        ]);
+    });
+});

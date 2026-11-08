@@ -158,7 +158,9 @@ function chatMessage(socket, io, data) {
         if (seat.controller === Controller.HUMAN || seat.ownerView === 'seat') {
             position = pos;
             isSpectator = false;
-            username = game.getPlayerByPosition(pos).username;
+            // The sender is the human, also while their bot plays the seat
+            // (clients match it against block lists and their own name)
+            username = seat.ownerUsername;
         } else {
             username = seat.ownerUsername;
         }
