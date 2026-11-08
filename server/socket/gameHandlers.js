@@ -182,7 +182,7 @@ async function handlePostBid(io, game) {
             game.addLogEntry(redealMsg, null, 'system');
             game.broadcast(io, 'gameLogEntry', { message: redealMsg, type: 'system' });
             game.broadcast(io, 'destroyHands', {});
-            await cleanupNextHand(game, io, game.dealer, game.currentHand);
+            await dealHand(game, io, { dealer: game.dealer, handSize: game.currentHand });
             return;
         }
 
@@ -546,23 +546,34 @@ async function handleDrawComplete(io, game) {
     // Add game start message to log
     game.addLogEntry('Game started!', null, 'system');
 
-    // Start the actual game (emits gameStart to each player)
-    await startHand(game, io);
+    // Deal the first hand (emits gameStart to each player)
+    await dealHand(game, io, { dealer: game.dealer, handSize: game.currentHand, firstHand: true });
 }
 
-async function startHand(game, io) {
-    // Initialize deck
+/**
+ * Deal a hand and open its bidding. Used for the first hand (after the team
+ * announcement), every following hand, and the all-zero redeal.
+ * Wire order: gameStart (each seat) -> gameStart (spectators) ->
+ * [1s pause on the first hand] -> updateTurn.
+ * @param {Object} opts
+ * @param {number} opts.dealer - dealer position for this hand
+ * @param {number} opts.handSize - cards per player
+ * @param {boolean} [opts.firstHand=false] - pause 1s before the first updateTurn
+ */
+async function dealHand(game, io, { dealer, handSize, firstHand = false }) {
+    // Hand 1 passes (1, 12), which equals the constructor defaults (bidder 2)
+    game.resetForNewHand(dealer, handSize);
+
+    // Initialize new deck and deal
     const deck = new Deck();
     deck.shuffle();
 
-    // Deal cards
     const socketIds = game.getSocketIds();
     for (const socketId of socketIds) {
         const hand = deck.draw(game.currentHand);
         game.setHand(socketId, hand);
     }
 
-    // Set trump
     game.trump = deck.drawOne();
 
     // Reset bot memory for new hand and trigger personality reactions to trump
@@ -591,7 +602,7 @@ async function startHand(game, io) {
         }
     }
 
-    // Send game start to all players (each gets their own hand and position)
+    // Send the hand to every seat (each gets their own hand and position)
     for (const socketId of socketIds) {
         const playerPosition = game.getPositionBySocketId(socketId);
         game.sendToPlayer(io, socketId, 'gameStart', {
@@ -602,7 +613,7 @@ async function startHand(game, io) {
             score1: game.score.team1,
             score2: game.score.team2,
             dealer: game.dealer,
-            position: playerPosition,  // Include player's position to avoid race condition
+            position: playerPosition,  // Include player's position to avoid the bid UI race
             currentHand: game.currentHand,  // Hand index for hand indicator
             hsiValues,  // HSI for all players to display under avatars
             playerInfo  // Current player info for avatar updates
@@ -623,11 +634,16 @@ async function startHand(game, io) {
         });
     }
 
-    gameLogger.info('Game started', { gameId: game.gameId, handSize: game.currentHand, dealer: game.dealer });
+    gameLogger.info('Hand dealt', { gameId: game.gameId, handSize: game.currentHand, dealer: game.dealer, firstHand });
     game.bidding = true;
     game.currentTurn = game.bidder;
 
-    await delay(1000);
+    if (firstHand) {
+        await delay(1000);
+        // A bid during the pause already sent updateTurn and triggered the
+        // next bot; repeating them would double-schedule it
+        if (game.getBidCount() > 0) return;
+    }
 
     game.broadcast(io, 'updateTurn', { currentTurn: game.currentTurn });
 
@@ -641,7 +657,7 @@ async function playerBid(socket, io, data) {
 
     const position = game.getPositionBySocketId(socket.id);
 
-    // Validate turn (and that a hand is actually dealt — before startHand,
+    // Validate turn (and that a hand is actually dealt — before dealHand,
     // currentTurn/bidding hold constructor defaults)
     if (!game.isHandInProgress() || !game.bidding || position !== game.currentTurn) {
         rejectAction(socket, game, 'bid', 'not_your_turn', { position, currentTurn: game.currentTurn });
@@ -995,88 +1011,8 @@ async function handleHandComplete(game, io) {
         });
     } else {
         gameLogger.debug('Starting next hand', { dealer: nextDealer, handSize: nextHandSize, gameId: game.gameId });
-        await cleanupNextHand(game, io, nextDealer, nextHandSize);
+        await dealHand(game, io, { dealer: nextDealer, handSize: nextHandSize });
     }
-}
-
-async function cleanupNextHand(game, io, dealer, handSize) {
-    game.resetForNewHand(dealer, handSize);
-
-    // Initialize new deck and deal
-    const deck = new Deck();
-    deck.shuffle();
-
-    const socketIds = game.getSocketIds();
-    for (const socketId of socketIds) {
-        const hand = deck.draw(game.currentHand);
-        game.setHand(socketId, hand);
-    }
-
-    game.trump = deck.drawOne();
-
-    // Reset bot memory for new hand and trigger personality reactions to trump
-    botController.resetBotMemory(game.gameId, game.currentHand, game.trump);
-    botController.handleTrumpRevealed(io, game);
-
-    // Calculate HSI for each player's hand and add to their stats
-    const hsiValues = {};
-    for (const socketId of socketIds) {
-        const hand = game.getHand(socketId);
-        const position = game.getPositionBySocketId(socketId);
-        const hsi = calculateHSI(hand, game.trump);
-        game.addHSI(position, hsi);
-        hsiValues[position] = hsi;
-    }
-
-    // Store HSI values on game state for reconnection
-    game.hsiValues = hsiValues;
-
-    // Build current player info (reflects bot takeovers via lazy/resign)
-    const playerInfo = [];
-    for (let pos = 1; pos <= 4; pos++) {
-        const p = game.getPlayerByPosition(pos);
-        if (p) {
-            playerInfo.push({ position: pos, username: p.username, pic: p.pic });
-        }
-    }
-
-    // Send new hand to all players (each gets their own hand and position)
-    for (const socketId of socketIds) {
-        const playerPosition = game.getPositionBySocketId(socketId);
-        game.sendToPlayer(io, socketId, 'gameStart', {
-            gameId: game.gameId,
-            players: socketIds,
-            hand: game.getHand(socketId),
-            trump: game.trump,
-            score1: game.score.team1,
-            score2: game.score.team2,
-            dealer: game.dealer,
-            position: playerPosition,  // Include player's position to fix bid UI bug
-            currentHand: game.currentHand,  // Hand index for hand indicator
-            hsiValues,  // HSI for all players to display under avatars
-            playerInfo  // Current player info for avatar updates
-        });
-    }
-
-    // Send spectator-safe gameStart (no hand data) so spectators see updated trump/score/hand
-    for (const spec of game.getSpectators()) {
-        io.to(spec.socketId).emit('gameStart', {
-            gameId: game.gameId,
-            trump: game.trump,
-            score1: game.score.team1,
-            score2: game.score.team2,
-            dealer: game.dealer,
-            currentHand: game.currentHand,
-            hand: [],
-            playerInfo
-        });
-    }
-
-    game.currentTurn = game.bidder;
-    game.broadcast(io, 'updateTurn', { currentTurn: game.currentTurn });
-
-    // Trigger bot if first bidder is a bot
-    triggerBotIfNeeded(io, game, 'bid');
 }
 
 /**
