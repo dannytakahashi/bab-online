@@ -2,7 +2,9 @@
  * Authentication socket event handlers
  */
 
-const bcrypt = require('bcryptjs');
+const passwordHash = require('../utils/passwordHash');
+const signInThrottle = require('./signInThrottle');
+const { describeClientAddress } = require('../utils/clientIp');
 const { getUsersCollection, getGameRecordsCollection } = require('../database');
 const gameManager = require('../game/GameManager');
 const { authLogger } = require('../utils/logger');
@@ -13,6 +15,10 @@ const { issueSession, verifySession } = require('../utils/sessionTokens');
  * ({ username, mergedInto }). Tell the player which account to use instead
  * of a generic "wrong password", since they likely forgot which one is theirs.
  */
+const BUSY_MESSAGE = 'Server is busy. Try again in a moment.';
+const THROTTLED_MESSAGE = 'Too many failed sign-in attempts. Please wait a few minutes and try again.';
+const isHashBusy = (error) => Boolean(error && error.code === 'HASH_BUSY');
+
 function mergedAccountMessage(username, mergedInto) {
     return `"${username}" was combined into your account "${mergedInto}". Please sign in as ${mergedInto}.`;
 }
@@ -31,12 +37,55 @@ function disconnectPreviousSocket(io, previousSocketId, currentSocketId, usernam
     authLogger.info('User logged out from another device', { username });
 }
 
+/**
+ * signIn/restoreSession read everything on the user document except the
+ * big or unused fields: the custom picture (up to ~500 KB base64), stats
+ * and the merge audit log. Exclusion keeps password, mergedInto, socketId,
+ * sessionTokens, the legacy sessionToken, activeGameId, activeTournamentId
+ * and blockedUsers.
+ */
+const SIGN_IN_PROJECTION = { customProfilePic: 0, stats: 0, mergedFrom: 0 };
+const RESTORE_PROJECTION = { ...SIGN_IN_PROJECTION, password: 0 };
+
+/**
+ * The users collection, waiting up to 10 s on a cold start: connectDB runs
+ * after listen(), and a reconnect storm right after a deploy must not get
+ * 'Database error' (a failed restoreSession makes both clients forget their
+ * saved token). Still missing after the wait: the caller's usual reply.
+ * whenReady is optional so test mocks of ../database without it still work.
+ */
+async function usersCollectionWhenReady() {
+    let usersCollection = getUsersCollection();
+    if (!usersCollection) {
+        await require('../database').whenReady?.(10000);
+        usersCollection = getUsersCollection();
+    }
+    return usersCollection;
+}
+
 async function signIn(socket, io, data) {
-    const usersCollection = getUsersCollection();
     const { username, password } = data;
 
+    // Failed-attempt throttle (pair / ip / username), checked before any
+    // DB read or hash. Only failures count (signInThrottle.js).
+    const who = { ip: socket.data?.clientIp ?? null, username };
+    const gate = signInThrottle.check(who);
+    if (!gate.ok) {
+        authLogger.warn('Sign-in throttled after repeated failures', { username, ip: who.ip, retryAfterMs: gate.retryAfterMs });
+        socket.emit('signInResponse', { success: false, message: THROTTLED_MESSAGE });
+        return;
+    }
+
+    // Reserve a failure now, synchronously with the check, so concurrent
+    // attempts cannot overshoot the limits while their hashes run; settled
+    // in the finally below (kept for a real failure, released otherwise)
+    const reservation = signInThrottle.reserve(who);
+    let failed = false;
+    let succeeded = false;
+
     try {
-        const user = await usersCollection.findOne({ username });
+        const usersCollection = await usersCollectionWhenReady();
+        const user = await usersCollection.findOne({ username }, { projection: SIGN_IN_PROJECTION });
 
         if (!user) {
             socket.emit('signInResponse', {
@@ -44,6 +93,7 @@ async function signIn(socket, io, data) {
                 message: 'Invalid username or password!'
             });
             authLogger.warn('Sign-in failed: user not found', { username });
+            failed = true;
             return;
         }
 
@@ -56,15 +106,23 @@ async function signIn(socket, io, data) {
             return;
         }
 
-        const passwordMatch = await bcrypt.compare(password, user.password);
+        // No password hash (a malformed legacy document): a normal failure,
+        // not a throw inside compare
+        const passwordMatch = typeof user.password === 'string'
+            && await passwordHash.compare(password, user.password);
         if (!passwordMatch) {
             socket.emit('signInResponse', {
                 success: false,
                 message: 'Invalid username or password!'
             });
             authLogger.warn('Sign-in failed: incorrect password', { username });
+            failed = true;
             return;
         }
+        succeeded = true;
+        // Family scale: one line per password sign-in so the owner can check
+        // after a deploy that different networks get different IPs
+        authLogger.info('Sign-in client address', { username, ip: who.ip, ...describeClientAddress(socket) });
 
         // If user is already logged in, disconnect the old session
         disconnectPreviousSocket(io, user.socketId, socket.id, username);
@@ -103,8 +161,10 @@ async function signIn(socket, io, data) {
             authLogger.info('User signed in with active game', { username, socketId: socket.id, gameId: activeGameId });
         } else {
             // No active game (or game no longer exists) - clear stale activeGameId if present
+            // Scoped to the stale id: a game that starts meanwhile and
+            // writes a new pointer must keep it
             if (activeGameId) {
-                await gameManager.clearActiveGame(username);
+                await gameManager.clearActiveGame(username, activeGameId);
             }
 
             // Check for active tournament
@@ -122,7 +182,7 @@ async function signIn(socket, io, data) {
                 authLogger.info('User signed in with active tournament', { username, socketId: socket.id, tournamentId: activeTournamentId });
             } else {
                 if (activeTournamentId) {
-                    await gameManager.clearActiveTournament(username);
+                    await gameManager.clearActiveTournament(username, activeTournamentId);
                 }
                 socket.emit('signInResponse', { success: true, username, sessionToken, blockedUsers });
                 authLogger.info('User signed in', { username, socketId: socket.id });
@@ -130,16 +190,27 @@ async function signIn(socket, io, data) {
         }
 
     } catch (error) {
+        if (isHashBusy(error)) {
+            authLogger.warn('Sign-in deferred: password hashing busy', { username });
+            socket.emit('signInResponse', { success: false, message: BUSY_MESSAGE });
+            return;
+        }
         authLogger.error('Database error during sign-in', { username, error: error.message });
         socket.emit('signInResponse', {
             success: false,
             message: 'Database error. Try again.'
         });
+    } finally {
+        // Counted: unknown user, wrong password. Not counted: a merged
+        // account, a database error, a busy hash pool. Success clears the pair.
+        if (succeeded) signInThrottle.recordSuccess(who, reservation);
+        else if (failed) signInThrottle.confirm(who);
+        else signInThrottle.release(who, reservation);
     }
 }
 
 async function signUp(socket, io, data) {
-    const usersCollection = getUsersCollection();
+    const usersCollection = await usersCollectionWhenReady();
 
     if (!usersCollection) {
         socket.emit('signUpResponse', {
@@ -165,7 +236,7 @@ async function signUp(socket, io, data) {
     }
 
     try {
-        const existingUser = await usersCollection.findOne({ username });
+        const existingUser = await usersCollection.findOne({ username }, { projection: { mergedInto: 1 } });
 
         if (existingUser) {
             socket.emit('signUpResponse', {
@@ -182,7 +253,7 @@ async function signUp(socket, io, data) {
         const session = issueSession(null);
         const sessionToken = session.token;
 
-        const hashedPassword = await bcrypt.hash(password, 10);
+        const hashedPassword = await passwordHash.hash(password, 10);
         // Generate random profile pic (1-82)
         const profilePic = Math.floor(Math.random() * 82) + 1;
         await usersCollection.insertOne({
@@ -220,6 +291,11 @@ async function signUp(socket, io, data) {
             authLogger.warn('Sign-up failed: username taken (duplicate key)', { username });
             return;
         }
+        if (isHashBusy(error)) {
+            authLogger.warn('Sign-up deferred: password hashing busy', { username });
+            socket.emit('signUpResponse', { success: false, message: BUSY_MESSAGE });
+            return;
+        }
         authLogger.error('Database error during sign-up', { username, error: error.message });
         socket.emit('signUpResponse', {
             success: false,
@@ -232,12 +308,12 @@ async function signUp(socket, io, data) {
  * Restore session after page refresh using session token
  */
 async function restoreSession(socket, io, data) {
-    const usersCollection = getUsersCollection();
+    const usersCollection = await usersCollectionWhenReady();
     const { username, sessionToken } = data;
 
     try {
         // Find user and validate session token
-        const user = await usersCollection.findOne({ username });
+        const user = await usersCollection.findOne({ username }, { projection: RESTORE_PROJECTION });
 
         if (!user) {
             socket.emit('restoreSessionResponse', {
@@ -265,6 +341,9 @@ async function restoreSession(socket, io, data) {
             authLogger.warn('Session restore failed: invalid token', { username });
             return;
         }
+        // A valid saved session proves this network is the account's own:
+        // its password sign-ins skip the username-wide limit (signInThrottle)
+        signInThrottle.rememberGood({ ip: socket.data?.clientIp ?? null, username });
 
         // A different device resuming its saved session takes over the one
         // live connection. The same device reconnecting (same token, e.g. a
@@ -302,8 +381,10 @@ async function restoreSession(socket, io, data) {
             authLogger.info('Session restored with active game', { username, socketId: socket.id, gameId: activeGameId });
         } else {
             // Clear stale activeGameId if present
+            // Scoped to the stale id: a game that starts meanwhile and
+            // writes a new pointer must keep it
             if (activeGameId) {
-                await gameManager.clearActiveGame(username);
+                await gameManager.clearActiveGame(username, activeGameId);
             }
 
             // Check for active tournament
@@ -320,7 +401,7 @@ async function restoreSession(socket, io, data) {
                 authLogger.info('Session restored with active tournament', { username, socketId: socket.id, tournamentId: activeTournamentId });
             } else {
                 if (activeTournamentId) {
-                    await gameManager.clearActiveTournament(username);
+                    await gameManager.clearActiveTournament(username, activeTournamentId);
                 }
                 socket.emit('restoreSessionResponse', { success: true, username, blockedUsers });
                 authLogger.info('Session restored', { username, socketId: socket.id });
@@ -367,7 +448,7 @@ async function deleteAccount(socket, io, data) {
     const username = sessionUser.username;
 
     try {
-        const user = await usersCollection.findOne({ username });
+        const user = await usersCollection.findOne({ username }, { projection: { password: 1, socketId: 1 } });
         if (!user) {
             socket.emit('deleteAccountResponse', {
                 success: false,
@@ -376,7 +457,7 @@ async function deleteAccount(socket, io, data) {
             return;
         }
 
-        const passwordMatch = await bcrypt.compare(password, user.password);
+        const passwordMatch = await passwordHash.compare(password, user.password);
         if (!passwordMatch) {
             socket.emit('deleteAccountResponse', {
                 success: false,
@@ -409,6 +490,11 @@ async function deleteAccount(socket, io, data) {
         // them too so nothing tied to this person remains
         await usersCollection.deleteMany({ mergedInto: username });
 
+        // The leaderboard row is gone and the records now say '[deleted]'
+        const { invalidateLeaderboard, invalidateRecords } = require('./profileHandlers');
+        invalidateLeaderboard?.();
+        invalidateRecords?.();
+
         // Keep an in-flight game from re-inserting this username into a new
         // game record after the anonymization above
         gameManager.deletedUsernames.add(username);
@@ -430,6 +516,10 @@ async function deleteAccount(socket, io, data) {
         setTimeout(() => socket.disconnect(true), 500);
 
     } catch (error) {
+        if (isHashBusy(error)) {
+            socket.emit('deleteAccountResponse', { success: false, message: BUSY_MESSAGE });
+            return;
+        }
         authLogger.error('Database error during account deletion', { username, error: error.message });
         socket.emit('deleteAccountResponse', {
             success: false,

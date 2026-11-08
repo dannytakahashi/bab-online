@@ -25,6 +25,16 @@ class RateLimiter {
             // Snapshot v2 resync requests (clients debounce; README R5)
             requestSnapshot: { max: 10, windowMs: 10000 },
 
+            // Profile pages. getLeaderboard/getRecords are checked inside
+            // their handlers (safeHandler) and over the limit answer with the
+            // cached page, never 'error'. searchPlayers/getPlayerProfile go
+            // through asyncHandler (error {type:'rateLimit'}, a web toast);
+            // web debounces search at 300 ms (about 3/s while typing)
+            getLeaderboard: { max: 10, windowMs: 10000 },
+            getRecords: { max: 10, windowMs: 10000 },
+            searchPlayers: { max: 30, windowMs: 10000 },
+            getPlayerProfile: { max: 30, windowMs: 10000 },
+
             // Queue - prevent queue spam
             joinQueue: { max: 5, windowMs: 30000 },    // 5 per 30 seconds
             leaveQueue: { max: 5, windowMs: 30000 },   // 5 per 30 seconds
@@ -60,6 +70,8 @@ class RateLimiter {
 
         // Cleanup old entries periodically (every 5 minutes)
         this.cleanupInterval = setInterval(() => this.cleanup(), 300000);
+        // Housekeeping only: never keep a process (CLI, test worker) alive
+        this.cleanupInterval.unref?.();
     }
 
     /**

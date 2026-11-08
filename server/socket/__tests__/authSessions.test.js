@@ -6,11 +6,13 @@
 const bcrypt = require('bcryptjs');
 const { createMemoryDb } = require('../../testUtils/memoryDb');
 
-const mockDb = { current: null };
+const mockDb = { current: null, cold: false, whenReady: null };
 jest.mock('../../database', () => ({
-    getUsersCollection: () => mockDb.current.users,
+    // cold: the server is up but connectDB has not assigned the collections yet
+    getUsersCollection: () => (mockDb.cold ? undefined : mockDb.current.users),
     getGameRecordsCollection: () => mockDb.current.gameRecords,
-    getReportsCollection: () => mockDb.current.reports
+    getReportsCollection: () => mockDb.current.reports,
+    whenReady: (ms) => (mockDb.whenReady ? mockDb.whenReady(ms) : Promise.resolve(!mockDb.cold))
 }));
 
 jest.mock('../../game/GameManager', () => ({
@@ -54,6 +56,9 @@ async function getUser(username) {
 
 beforeEach(async () => {
     jest.clearAllMocks();
+    mockDb.cold = false;
+    mockDb.whenReady = null;
+    require('../signInThrottle')._reset();
     io = { sockets: { sockets: new Map() } };
     mockDb.current = createMemoryDb({
         users: [
@@ -260,5 +265,293 @@ describe('users.username unique index', () => {
             })
         };
         await expect(ensureUsernameIndex(collection)).resolves.toBeUndefined();
+    });
+
+    test('duplicates: a non-unique fallback keeps lookups indexed; a later boot drops it and retries unique', async () => {
+        const { USERNAME_FALLBACK_INDEX } = jest.requireActual('../../database');
+        let dups = true;
+        const names = new Set(['_id_']);
+        const collection = {
+            indexes: jest.fn(async () => [...names].map(name => ({ name }))),
+            dropIndex: jest.fn(async (name) => { names.delete(name); }),
+            createIndex: jest.fn(async (keys, opts) => {
+                if (opts.unique) {
+                    if (dups) throw Object.assign(new Error('E11000 duplicate key error'), { code: 11000 });
+                    names.add('username_1');
+                } else {
+                    names.add(opts.name);
+                }
+            })
+        };
+        await ensureUsernameIndex(collection);
+        expect([...names].sort()).toEqual(['_id_', USERNAME_FALLBACK_INDEX].sort());
+        await ensureUsernameIndex(collection); // still duplicated: rebuilt
+        expect([...names].sort()).toEqual(['_id_', USERNAME_FALLBACK_INDEX].sort());
+        dups = false;
+        await ensureUsernameIndex(collection);
+        expect([...names].sort()).toEqual(['_id_', 'username_1']);
+    });
+
+    test('a non-duplicate failure builds no fallback', async () => {
+        const collection = {
+            indexes: jest.fn(async () => []),
+            createIndex: jest.fn(async () => { throw Object.assign(new Error('not authorized'), { code: 13 }); })
+        };
+        await expect(ensureUsernameIndex(collection)).resolves.toBeUndefined();
+        expect(collection.createIndex).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe('projected sign-in reads', () => {
+    const legacy = '44444444-4444-4444-8444-444444444444';
+    const bigPic = 'data:image/png;base64,' + 'A'.repeat(4096);
+
+    beforeEach(async () => {
+        await mockDb.current.users.insertOne({
+            username: 'Cara',
+            password: await bcrypt.hash('pw', 4),
+            customProfilePic: bigPic,
+            profilePic: 9,
+            stats: { gamesPlayed: 2, wins: 1 },
+            mergedFrom: [{ username: 'OldCara', mergedAt: new Date() }],
+            activeGameId: 'G1',
+            activeTournamentId: 'T1',
+            blockedUsers: ['Mallory'],
+            sessionToken: legacy
+        });
+    });
+
+    afterEach(() => jest.restoreAllMocks());
+
+    test('signIn reads without the picture/stats/audit log and replies exactly as before (active game)', async () => {
+        const spy = jest.spyOn(mockDb.current.users, 'findOne');
+        gameManager.getGameById.mockImplementation((id) => (id === 'G1' ? { gameId: 'G1' } : null));
+        const res = await signIn(connect(), 'Cara', 'pw');
+        expect(res).toEqual({
+            success: true, username: 'Cara', sessionToken: expect.any(String),
+            activeGameId: 'G1', blockedUsers: ['Mallory']
+        });
+        const read = await spy.mock.results[0].value;
+        expect(read).not.toHaveProperty('customProfilePic');
+        expect(read).not.toHaveProperty('stats');
+        expect(read).not.toHaveProperty('mergedFrom');
+        expect(read).toMatchObject({ activeGameId: 'G1', activeTournamentId: 'T1', blockedUsers: ['Mallory'], sessionToken: legacy });
+        expect(typeof read.password).toBe('string');
+        gameManager.getGameById.mockImplementation(() => null);
+    });
+
+    test('signIn with a stale game and a live tournament: scoped clear, tournament reply', async () => {
+        gameManager.getTournamentById.mockImplementation((id) => (id === 'T1' ? { id: 'T1' } : null));
+        const res = await signIn(connect(), 'Cara', 'pw');
+        expect(res).toEqual({
+            success: true, username: 'Cara', sessionToken: expect.any(String),
+            activeTournamentId: 'T1', blockedUsers: ['Mallory']
+        });
+        expect(gameManager.clearActiveGame).toHaveBeenCalledWith('Cara', 'G1');
+        expect(gameManager.clearActiveTournament).not.toHaveBeenCalled();
+        gameManager.getTournamentById.mockImplementation(() => null);
+    });
+
+    test('signIn with nothing live clears both pointers, scoped to their ids', async () => {
+        const res = await signIn(connect(), 'Cara', 'pw');
+        expect(res).toEqual({ success: true, username: 'Cara', sessionToken: expect.any(String), blockedUsers: ['Mallory'] });
+        expect(gameManager.clearActiveGame).toHaveBeenCalledWith('Cara', 'G1');
+        expect(gameManager.clearActiveTournament).toHaveBeenCalledWith('Cara', 'T1');
+    });
+
+    test('restoreSession reads without the password too, replies as before and still migrates the legacy token', async () => {
+        const spy = jest.spyOn(mockDb.current.users, 'findOne');
+        gameManager.getGameById.mockImplementation((id) => (id === 'G1' ? { gameId: 'G1' } : null));
+        const res = await restore(connect(), legacy, 'Cara');
+        expect(res).toEqual({ success: true, username: 'Cara', activeGameId: 'G1', blockedUsers: ['Mallory'] });
+        const read = await spy.mock.results[0].value;
+        expect(read).not.toHaveProperty('password');
+        expect(read).not.toHaveProperty('customProfilePic');
+        const user = await getUser('Cara');
+        expect(user).not.toHaveProperty('sessionToken');
+        expect(user.sessionTokens.map(e => e.hash)).toEqual([hashToken(legacy)]);
+        expect(user.customProfilePic).toBe(bigPic);
+        gameManager.getGameById.mockImplementation(() => null);
+    });
+
+    test('a user document without a password hash is an ordinary failed sign-in', async () => {
+        await mockDb.current.users.insertOne({ username: 'NoHash' });
+        const res = await signIn(connect(), 'NoHash', 'pw');
+        expect(res).toEqual({ success: false, message: 'Invalid username or password!' });
+    });
+
+    test('profile and player profile still carry the picture and stats', async () => {
+        const socket = connect();
+        gameManager.getUserBySocketId.mockReturnValue({ username: 'Cara' });
+        await profile.getProfile(socket, io);
+        expect(lastEmit(socket, 'profileResponse').profile).toEqual({
+            username: 'Cara', profilePic: 9, customProfilePic: bigPic, stats: { gamesPlayed: 2, wins: 1 }
+        });
+        await profile.getPlayerProfile(socket, io, { username: 'Cara' });
+        expect(lastEmit(socket, 'playerProfileResponse').profile.customProfilePic).toBe(bigPic);
+    });
+});
+
+describe('cold start (connectDB still running)', () => {
+    test('restoreSession waits for the database instead of failing (no forced sign-out)', async () => {
+        const { sessionToken } = await signIn(connect());
+        mockDb.cold = true;
+        const waits = [];
+        mockDb.whenReady = async (ms) => { waits.push(ms); mockDb.cold = false; return true; };
+        expect(await restore(connect(), sessionToken)).toMatchObject({ success: true, username: 'Alan' });
+        expect(waits).toEqual([10000]);
+    });
+
+    test('signIn and signUp wait too', async () => {
+        mockDb.cold = true;
+        mockDb.whenReady = async () => { mockDb.cold = false; return true; };
+        expect(await signIn(connect())).toMatchObject({ success: true });
+        mockDb.cold = true;
+        const s = connect();
+        await auth.signUp(s, io, { username: 'Late', password: 'pw' });
+        expect(lastEmit(s, 'signUpResponse')).toMatchObject({ success: true, username: 'Late' });
+    });
+
+    test('still down after the wait: the same replies as before', async () => {
+        mockDb.cold = true;
+        mockDb.whenReady = async () => false;
+        expect(await signIn(connect())).toEqual({ success: false, message: 'Database error. Try again.' });
+        expect(await restore(connect(), '55555555-5555-4555-8555-555555555555'))
+            .toEqual({ success: false, message: 'Database error. Try again.' });
+        const s = connect();
+        await auth.signUp(s, io, { username: 'Late', password: 'pw' });
+        expect(lastEmit(s, 'signUpResponse')).toEqual({ success: false, message: 'Database not ready. Try again.' });
+    });
+
+    test('a token rejoin (web reload) waits too instead of "Not authenticated"', async () => {
+        const { sessionToken } = await signIn(connect());
+        mockDb.cold = true;
+        mockDb.whenReady = async () => { mockDb.cold = false; return true; };
+        const reconnect = require('../reconnectHandlers');
+        const s = connect();
+        await reconnect.rejoinGame(s, io, { gameId: 'gone', username: 'Alan', sessionToken });
+        expect(lastEmit(s, 'rejoinFailed')).toEqual({ reason: 'Game no longer exists' });
+    });
+
+    test('database.whenReady times out to false before connectDB ever ran', async () => {
+        const { whenReady } = jest.requireActual('../../database');
+        await expect(whenReady(5)).resolves.toBe(false);
+    });
+});
+
+describe('failed sign-in throttle', () => {
+    const passwordHash = require('../../utils/passwordHash');
+    const THROTTLED = { success: false, message: 'Too many failed sign-in attempts. Please wait a few minutes and try again.' };
+    const from = (ip) => { const s = connect(); s.data.clientIp = ip; return s; };
+
+    afterEach(() => jest.restoreAllMocks());
+
+    test('the 11th wrong attempt for a pair is refused before any DB read or hash; another IP still works', async () => {
+        for (let i = 0; i < 10; i++) {
+            expect(await signIn(from('198.51.100.1'), 'Alan', 'wrong')).toEqual({ success: false, message: 'Invalid username or password!' });
+        }
+        const findOne = jest.spyOn(mockDb.current.users, 'findOne');
+        const compare = jest.spyOn(passwordHash, 'compare');
+        expect(await signIn(from('198.51.100.1'), 'Alan', 'pw')).toEqual(THROTTLED);
+        expect(findOne).not.toHaveBeenCalled();
+        expect(compare).not.toHaveBeenCalled();
+        // The same person on the phone network signs in fine
+        expect(await signIn(from('203.0.113.50'), 'Alan', 'pw')).toMatchObject({ success: true });
+    });
+
+    test('30 failures across 30 IPs lock the username, even with the right password', async () => {
+        for (let i = 0; i < 30; i++) await signIn(from(`192.0.2.${i + 1}`), 'Alan', 'wrong');
+        expect(await signIn(from('203.0.113.77'), 'Alan', 'pw')).toEqual(THROTTLED);
+        expect(gameManager.registerUser).not.toHaveBeenCalled();
+    });
+
+    test('family NAT: 49 failures from one IP, then 6 family members sign in from it', async () => {
+        const family = ['Mom', 'Dad', 'Kid1', 'Kid2', 'Gran', 'Pop'];
+        const hash = await bcrypt.hash('pw', 4);
+        for (const u of family) await mockDb.current.users.insertOne({ username: u, password: hash });
+        const nat = '203.0.113.10';
+        for (let i = 0; i < 49; i++) await signIn(from(nat), family[i % 6], 'typo');
+        const replies = await Promise.all(family.map(u => signIn(from(nat), u, 'pw')));
+        expect(replies.every(r => r.success === true)).toBe(true);
+    });
+
+    test('unknown usernames count; a merged-account redirect does not', async () => {
+        for (let i = 0; i < 10; i++) await signIn(from('198.51.100.9'), 'Nobody', 'x');
+        expect(await signIn(from('198.51.100.9'), 'Nobody', 'x')).toEqual(THROTTLED);
+        for (let i = 0; i < 15; i++) {
+            expect((await signIn(from('198.51.100.9'), 'Alan2', 'x')).message).toContain('Please sign in as Alan');
+        }
+    });
+
+    test('database errors and a busy hash pool are not counted', async () => {
+        jest.spyOn(mockDb.current.users, 'findOne').mockRejectedValue(new Error('db down'));
+        for (let i = 0; i < 12; i++) await signIn(from('198.51.100.3'), 'Alan', 'pw');
+        jest.restoreAllMocks();
+        jest.spyOn(passwordHash, 'compare').mockRejectedValue(Object.assign(new Error('full'), { code: 'HASH_BUSY' }));
+        for (let i = 0; i < 12; i++) {
+            expect(await signIn(from('198.51.100.3'), 'Alan', 'pw')).toEqual({ success: false, message: 'Server is busy. Try again in a moment.' });
+        }
+        jest.restoreAllMocks();
+        expect(await signIn(from('198.51.100.3'), 'Alan', 'pw')).toMatchObject({ success: true });
+    });
+
+    test('after a lockout, restoreSession with a saved token still works (never throttled)', async () => {
+        const { sessionToken } = await signIn(from('198.51.100.4'), 'Alan', 'pw');
+        for (let i = 0; i < 30; i++) await signIn(from(`192.0.2.${i + 100}`), 'Alan', 'wrong');
+        // A new network is refused...
+        expect(await signIn(from('198.51.100.40'), 'Alan', 'pw')).toEqual(THROTTLED);
+        // ...saved sessions are never throttled, from any network
+        for (let i = 0; i < 20; i++) {
+            expect(await restore(from(i % 2 ? '198.51.100.4' : '198.51.100.41'), sessionToken)).toMatchObject({ success: true, username: 'Alan' });
+        }
+    });
+
+    test('a username lockout from other IPs never blocks the household that signed in before', async () => {
+        // Regression: the username key (30) applied before the hash, so an
+        // outsider could keep a family member's correct password refused
+        const home = '203.0.113.20';
+        expect(await signIn(from(home), 'Alan', 'pw')).toMatchObject({ success: true });
+        for (let i = 0; i < 30; i++) await signIn(from(`192.0.2.${i + 1}`), 'Alan', 'wrong');
+        expect(await signIn(from('198.51.100.60'), 'Alan', 'pw')).toEqual(THROTTLED);
+        expect(await signIn(from(home), 'Alan', 'pw')).toMatchObject({ success: true });
+        // The household's own typos still lock its pair at 10
+        for (let i = 0; i < 10; i++) await signIn(from(home), 'Alan', 'wrong');
+        expect(await signIn(from(home), 'Alan', 'pw')).toEqual(THROTTLED);
+    });
+
+    test('a restored session marks its network known-good for password sign-in', async () => {
+        const { sessionToken } = await signIn(from('198.51.100.70'), 'Alan', 'pw');
+        const phoneNet = '203.0.113.21';
+        expect(await restore(from(phoneNet), sessionToken)).toMatchObject({ success: true });
+        for (let i = 0; i < 30; i++) await signIn(from(`192.0.2.${i + 50}`), 'Alan', 'wrong');
+        expect(await signIn(from(phoneNet), 'Alan', 'pw')).toMatchObject({ success: true });
+    });
+
+    test('a success clears the pair', async () => {
+        const ip = '198.51.100.5';
+        for (let i = 0; i < 9; i++) await signIn(from(ip), 'Alan', 'wrong');
+        expect(await signIn(from(ip), 'Alan', 'pw')).toMatchObject({ success: true });
+        for (let i = 0; i < 10; i++) {
+            expect(await signIn(from(ip), 'Alan', 'wrong')).toEqual({ success: false, message: 'Invalid username or password!' });
+        }
+        expect(await signIn(from(ip), 'Alan', 'pw')).toEqual(THROTTLED);
+    });
+
+    test('concurrent wrong attempts cannot overshoot the pair limit', async () => {
+        const ip = '198.51.100.6';
+        const replies = await Promise.all(Array.from({ length: 25 }, () => signIn(from(ip), 'Alan', 'wrong')));
+        expect(replies.filter(r => r.message === 'Invalid username or password!')).toHaveLength(10);
+        expect(replies.filter(r => r.message === THROTTLED.message)).toHaveLength(15);
+    });
+
+    test('no client IP: only the username key applies', async () => {
+        for (let i = 0; i < 60; i++) await signIn(from(null), `ghost${i}`, 'x');
+        expect(await signIn(from(null), 'Alan', 'pw')).toMatchObject({ success: true });
+        // Regression: a null IP made one shared 'unknown|Alan' pair key with a
+        // limit of 10, so 10 failures from anyone locked every null-IP device
+        for (let i = 0; i < 10; i++) await signIn(from(null), 'Alan', 'wrong');
+        expect(await signIn(from(null), 'Alan', 'pw')).toMatchObject({ success: true });
+        for (let i = 0; i < 30; i++) await signIn(from(null), 'Alan', 'wrong');
+        expect(await signIn(from(null), 'Alan', 'pw')).toEqual(THROTTLED);
     });
 });

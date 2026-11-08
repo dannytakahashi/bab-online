@@ -1004,22 +1004,6 @@ class GameManager {
     }
 
     /**
-     * Get active game for a user from the database
-     */
-    async getActiveGame(username) {
-        try {
-            const usersCollection = getUsersCollection();
-            if (!usersCollection) return null;
-
-            const user = await usersCollection.findOne({ username });
-            return user?.activeGameId || null;
-        } catch (error) {
-            console.error('Failed to get active game:', error);
-            return null;
-        }
-    }
-
-    /**
      * Clear active game for all players in a game
      * @param {string} gameId
      * @param {GameState} [game] - pass it when the game was already retired
@@ -1043,9 +1027,8 @@ class GameManager {
                 if (!e.isBot && e.username) usernames.add(e.username);
             }
         }
-        for (const username of usernames) {
-            await this.clearActiveGame(username, gameId);
-        }
+        // In parallel (one round trip); each clear swallows its own error
+        await Promise.all([...usernames].map(u => this.clearActiveGame(u, gameId)));
     }
 
     // ==================== TOURNAMENT METHODS ====================

@@ -22,7 +22,13 @@ async function isAuthorizedForUser(socket, username, sessionToken) {
     if (authed && authed.username === username) return true;
     if (!sessionToken) return false;
     try {
-        const usersCollection = getUsersCollection();
+        // Cold start (connectDB still running): wait like signIn/restoreSession
+        // do, instead of refusing a web reload's rejoin
+        let usersCollection = getUsersCollection();
+        if (!usersCollection) {
+            await require('../database').whenReady?.(10000);
+            usersCollection = getUsersCollection();
+        }
         const user = await usersCollection.findOne(
             { username },
             { projection: { sessionTokens: 1, sessionToken: 1 } }
@@ -72,9 +78,10 @@ async function rejoinGame(socket, io, data) {
     const game = gameManager.getGameById(gameId);
     if (!game) {
         socketLogger.debug('Rejoin failed: game not found', { gameId });
-        // Clear stale activeGameId from database
+        // Clear the stale activeGameId from the database, scoped to this
+        // game id: a pointer to another (live) game must stay
         if (username) {
-            await gameManager.clearActiveGame(username);
+            await gameManager.clearActiveGame(username, gameId);
         }
         socket.emit('rejoinFailed', { reason: 'Game no longer exists' });
         return;

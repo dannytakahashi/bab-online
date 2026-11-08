@@ -292,7 +292,14 @@ async function handleDrawComplete(io, game) {
     if (!game.tryTransition(Phase.DRAWING, Phase.DRAW_RESOLVING)) return;
     const alive = game.aliveCheck();
 
-    // Fetch saved profile pics for all players
+    // Saved profile pics for every human, looked up in parallel. No random
+    // fallback here (null instead): the loop below draws every random pic
+    // in drawIDs order, exactly as the sequential lookups did, so seeded
+    // games (contract fixtures, transcripts, sim) are unchanged.
+    const saved = await Promise.all(game.drawIDs.map(id => (gameManager.isBot(id)
+        ? null
+        : getUserProfilePic(game.entrant(id)?.username, { randomFallback: false }))));
+
     const pics = [];
     const usedPics = new Set();
     for (let i = 0; i < game.drawIDs.length; i++) {
@@ -306,8 +313,8 @@ async function handleDrawComplete(io, game) {
                 pic = Math.floor(Math.random() * 82) + 1;
             } while (usedPics.has(pic));
         } else {
-            // Human players - fetch saved profile pic
-            pic = await getUserProfilePic(game.entrant(playerId)?.username);
+            // Human players - saved profile pic, else a random one
+            pic = saved[i] ?? (Math.floor(Math.random() * 82) + 1);
             const isCustomPic = typeof pic === 'string' && pic.startsWith('data:image');
 
             // Only check for duplicates on numbered pics (custom pics are always unique)
@@ -429,22 +436,29 @@ async function handleDrawComplete(io, game) {
     // reconnection). Resolved per seat now, not from the pre-delay snapshot:
     // bots have no user document, and a seat that was resigned or /leave'd
     // meanwhile must not have its human's activeGameId re-armed.
-    const written = [];
-    for (const seat of game.seatList()) {
-        if (!seat.ownerUsername || seat.presence === Presence.GONE || seat.controller === Controller.RESIGN_BOT) continue;
-        const username = seat.ownerUsername;
-        if (!alive()) break;
-        await gameManager.setActiveGame(username, game.gameId);
-        written.push(username);
-    }
-    // Aborted mid-loop: the abort's own clear may have run before one of
-    // these writes landed, so re-clear (scoped to this game) what we wrote
-    if (!alive()) {
-        await Promise.all(written.map(u =>
-            gameManager.clearActiveGame(u, game.gameId).catch(logContinuationError('clearActiveGame', game))
+    // One parallel batch (one DB round trip instead of four), still awaited
+    // before teamsAnnounced so the pointer sign-in auto-rejoin reads is in
+    // place in the same order as before.
+    if (!alive()) return;
+    const isTarget = s => s.ownerUsername && s.presence !== Presence.GONE && s.controller !== Controller.RESIGN_BOT;
+    const targetSeats = game.seatList().filter(isTarget).map(s => ({ pos: s.position, username: s.ownerUsername }));
+    await Promise.all(targetSeats.map(t => gameManager.setActiveGame(t.username, game.gameId)));
+    // Aborted meanwhile: the abort's own clear may have run before one of
+    // these writes landed, so re-clear (scoped to this game) every write.
+    // Likewise a seat resigned or /leave'd during the batch: its leave-time
+    // clear may have run first (the tournament batch does the same).
+    const dead = !alive();
+    const reclear = targetSeats.filter(t => {
+        if (dead) return true;
+        const seat = game.seat(t.pos);
+        return !seat || seat.ownerUsername !== t.username || !isTarget(seat);
+    });
+    if (reclear.length) {
+        await Promise.all(reclear.map(t =>
+            gameManager.clearActiveGame(t.username, game.gameId).catch(logContinuationError('clearActiveGame', game))
         ));
-        return;
     }
+    if (dead || !alive()) return;
 
     // Announce teams (positions 1&3 vs 2&4)
     const team1Player1 = game.getPlayerByPosition(1);

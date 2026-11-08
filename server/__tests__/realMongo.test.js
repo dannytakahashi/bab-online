@@ -1,0 +1,304 @@
+/**
+ * Against a REAL mongod (CI's mongo:6 service, or a local one): startup
+ * indexes, query plans, the duplicate sign-up race, projections on the real
+ * driver, and payload equality with the 3db87b1 handlers.
+ *
+ * Uses a scratch database bab_jest_item9_<pid>_<ts> that is dropped in
+ * afterAll. Never touches 'babonline' (connectDB is never called). Only runs
+ * against localhost; with no reachable mongod every test returns early and
+ * passes.
+ */
+
+// Read before anything loads dotenv (server/database.js does)
+const ENV_URI = process.env.MONGO_URI;
+
+const { MongoClient } = require('mongodb');
+const bcrypt = require('bcryptjs');
+
+const mockHolder = { users: null, gameRecords: null, reports: null };
+jest.mock('../database', () => {
+    const actual = jest.requireActual('../database');
+    return {
+        ...actual,
+        getDB: () => null,
+        getUsersCollection: () => mockHolder.users,
+        getGameRecordsCollection: () => mockHolder.gameRecords,
+        getReportsCollection: () => mockHolder.reports,
+        whenReady: async () => true
+    };
+});
+
+const database = require('../database');
+const { dbLogger } = require('../utils/logger');
+const auth = require('../socket/authHandlers');
+const profile = require('../socket/profileHandlers');
+const { makeIo, makeSocket } = require('../testUtils/gameDriver');
+const { makeReference } = require('../testUtils/legacyProfileReference');
+
+function baseUri() {
+    if (!ENV_URI) return 'mongodb://localhost:27017';
+    // Strip the path (database name) and query
+    const m = /^(mongodb:\/\/[^/?]+)/.exec(ENV_URI);
+    return m ? m[1] : null;
+}
+
+function isLocal(uri) {
+    return /^mongodb:\/\/(?:[^@/]*@)?(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/.test(uri || '');
+}
+
+let client = null;
+let db = null;
+const dbName = `bab_jest_item9_${process.pid}_${Date.now()}`;
+const PIC = 'data:image/png;base64,' + 'Q'.repeat(500 * 1024);
+
+beforeAll(async () => {
+    const base = baseUri();
+    if (!isLocal(base)) {
+        console.info(`realMongo: MONGO_URI is not a localhost mongod, skipping`);
+        return;
+    }
+    try {
+        client = await new MongoClient(base, { serverSelectionTimeoutMS: 1500 }).connect();
+        db = client.db(dbName);
+    } catch (e) {
+        client = null;
+        console.info('realMongo: no mongod, skipping');
+    }
+}, 20000);
+
+afterAll(async () => {
+    if (!client) return;
+    try {
+        await db.dropDatabase();
+    } finally {
+        await client.close();
+    }
+});
+
+const now = Date.now();
+async function seed() {
+    for (const name of ['users', 'gameRecords', 'reports']) {
+        await db.collection(name).drop().catch(() => {});
+    }
+    mockHolder.users = db.collection('users');
+    mockHolder.gameRecords = db.collection('gameRecords');
+    mockHolder.reports = db.collection('reports');
+    const stats = (g, w, extra = {}) => ({
+        gamesPlayed: g, wins: w, losses: g - w, draws: 0, totalPoints: g * 230, totalTricksBid: g * 20,
+        totalTricksTaken: g * 21, totalHands: g * 13, totalSets: g, totalSetPoints: -g * 40,
+        totalFaults: g, totalHSI: g * 300, ...extra
+    });
+    const hash = await bcrypt.hash('pw', 4);
+    await mockHolder.users.insertMany([
+        { username: 'Alan', password: hash, profilePic: 3, customProfilePic: PIC, stats: stats(10, 6), blockedUsers: ['Mallory'] },
+        { username: 'alan', password: hash, profilePic: 4, stats: stats(2, 1) },
+        { username: 'OldAlan', mergedInto: 'Alan', mergedAt: new Date(now - 86400000) },
+        { username: 'Bea', password: hash, profilePic: 5 },
+        { username: 'Cy', password: hash, profilePic: 6, customProfilePic: PIC, stats: stats(4, 1) },
+        { username: 'Dot', password: hash, profilePic: 7, stats: stats(0, 0) },
+        { username: 'Eve', password: hash, stats: { gamesPlayed: 3, wins: 3 } }
+    ]);
+    const lastYear = new Date(new Date(now).getFullYear() - 1, 5, 15);
+    // Natural (insertion) order is oldest first; the two 700s tie
+    await mockHolder.gameRecords.insertMany([
+        { gameId: 'g0', team1Score: 300, team2Score: -200, team1Players: ['Alan', 'Cy'], team2Players: ['Eve', 'alan'], completedAt: lastYear },
+        { gameId: 'g1', team1Score: 120, team2Score: 90, team1Players: ['Bea', 'Cy'], team2Players: ['Alan', 'Eve'], completedAt: new Date(lastYear.getTime() + 86400000) },
+        { gameId: 'g2', team1Score: 700, team2Score: 650, team1Players: ['Alan', 'Bea'], team2Players: ['Cy', 'Eve'], team1Bags: 3, team2Bags: 1, completedAt: new Date(now - 2000) },
+        { gameId: 'g3', team1Score: 700, team2Score: 650, team1Players: ['alan', 'Cy'], team2Players: ['Bea', 'Eve'], team1Bags: 3, team2Bags: 1, completedAt: new Date(now - 1000) },
+        { gameId: 'g4', team1Score: -50, team2Score: 210, team1Players: ['Eve', 'Cy'], team2Players: ['Alan', 'alan'], team1Bags: -1, team2Bags: 5, completedAt: new Date(now - 1500) }
+    ]);
+    await database.ensureIndexes(mockHolder);
+}
+
+/** Every {stage, indexName} in an explain plan (classic and SBE layouts). */
+function walkPlan(node, out = []) {
+    if (!node || typeof node !== 'object') return out;
+    if (node.stage) out.push({ stage: node.stage, indexName: node.indexName });
+    for (const key of ['winningPlan', 'queryPlan', 'inputStage', 'shards']) {
+        if (Array.isArray(node[key])) node[key].forEach(n => walkPlan(n, out));
+        else if (node[key]) walkPlan(node[key], out);
+    }
+    if (Array.isArray(node.inputStages)) node.inputStages.forEach(n => walkPlan(n, out));
+    return out;
+}
+const planOf = (explain) => walkPlan(explain.queryPlanner || explain);
+const usesIndex = (stages, index) => stages.some(s => /IXSCAN$/.test(s.stage) && (!index || !s.indexName || s.indexName === index));
+
+let log;
+let io;
+let n = 0;
+const sock = () => makeSocket(`rm-${++n}`, log, io);
+const last = (event) => log.filter(l => l.event === event).pop()?.data;
+
+beforeEach(async () => {
+    if (!client) return;
+    log = [];
+    io = makeIo(log);
+    profile._resetCachesForTests?.();
+    await seed();
+});
+
+describe('real mongod', () => {
+    test('(a) ensureIndexes builds username_1 unique, is idempotent, and the hot queries use indexes', async () => {
+        if (!client) return;
+        const indexes = await mockHolder.users.indexes();
+        expect(indexes.find(i => i.name === 'username_1')).toMatchObject({ unique: true, key: { username: 1 } });
+        expect((await mockHolder.gameRecords.indexes()).map(i => i.name)).toContain('completedAt_-1');
+        expect((await mockHolder.reports.indexes()).map(i => i.name)).toContain('createdAt_-1');
+
+        const warn = jest.spyOn(dbLogger, 'warn');
+        await database.ensureIndexes(mockHolder);
+        expect(warn).not.toHaveBeenCalled();
+        expect((await mockHolder.users.indexes()).length).toBe(indexes.length);
+        warn.mockRestore();
+
+        const plans = {};
+        plans.byName = planOf(await mockHolder.users.find({ username: 'Alan' }).limit(1).explain('queryPlanner'));
+        plans.byNameAndGame = planOf(await mockHolder.users.find({ username: 'Alan', activeGameId: 'g' }).explain('queryPlanner'));
+        const four = ['Alan', 'alan', 'Cy', 'Eve'];
+        plans.inAndGame = planOf(await mockHolder.users.find({ username: { $in: four }, activeGameId: 'g' }).explain('queryPlanner'));
+        const upd = await db.command({
+            explain: { update: 'users', updates: [{ q: { username: { $in: four }, activeGameId: 'g' }, u: { $unset: { activeGameId: '' } }, multi: true }] },
+            verbosity: 'queryPlanner'
+        });
+        plans.updateMany = planOf(upd);
+        const search = await mockHolder.users.find(
+            { username: { $regex: 'lan', $options: 'i' }, mergedInto: { $exists: false } },
+            { projection: { username: 1 } }
+        ).limit(20).explain('executionStats');
+        plans.search = planOf(search);
+        plans.records = planOf(await mockHolder.gameRecords.find({ completedAt: { $gte: new Date(now - 86400000) } }).explain('queryPlanner'));
+
+        for (const [name, stages] of Object.entries(plans)) {
+            expect({ name, indexed: usesIndex(stages) }).toEqual({ name, indexed: true });
+            expect({ name, collscan: stages.some(s => s.stage === 'COLLSCAN') }).toEqual({ name, collscan: false });
+        }
+        expect(usesIndex(plans.search, 'username_1')).toBe(true);
+        expect(usesIndex(plans.records, 'completedAt_-1')).toBe(true);
+        console.info('realMongo plans', JSON.stringify({
+            ...Object.fromEntries(Object.entries(plans).map(([k, v]) => [k, v.map(s => s.stage).join('>')])),
+            searchKeysExamined: search.executionStats.totalKeysExamined,
+            searchDocsExamined: search.executionStats.totalDocsExamined
+        }));
+    });
+
+    test('(b) concurrent sign-ups for one name: exactly one account, the loser is told the name is taken', async () => {
+        if (!client) return;
+        const a = sock();
+        const b = sock();
+        await Promise.all([
+            auth.signUp(a, io, { username: 'Racer', password: 'pw' }),
+            auth.signUp(b, io, { username: 'Racer', password: 'pw' })
+        ]);
+        const replies = log.filter(l => l.event === 'signUpResponse').map(l => l.data);
+        expect(replies).toHaveLength(2);
+        expect(replies.filter(r => r.success)).toHaveLength(1);
+        expect(replies.filter(r => !r.success)).toEqual([{ success: false, message: 'Username already taken!' }]);
+        expect(await mockHolder.users.countDocuments({ username: 'Racer' })).toBe(1);
+
+        const c = sock();
+        await auth.signUp(c, io, { username: 'Racer', password: 'pw' });
+        expect(last('signUpResponse')).toEqual({ success: false, message: 'Username already taken!' });
+    }, 20000);
+
+    test('(c) existing exact duplicates: warn and continue without the unique index; the other indexes still build', async () => {
+        if (!client) return;
+        const users = db.collection('users_dups');
+        const gameRecords = db.collection('gameRecords_dups');
+        const reports = db.collection('reports_dups');
+        await users.insertMany([{ username: 'Twin' }, { username: 'Twin' }]);
+        await gameRecords.insertOne({ completedAt: new Date() });
+        await reports.insertOne({ createdAt: new Date() });
+        const warn = jest.spyOn(dbLogger, 'warn').mockImplementation(() => {});
+        await expect(database.ensureIndexes({ users, gameRecords, reports })).resolves.toBeDefined();
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(warn.mock.calls[0][0]).toMatch(/unique index on users\.username/);
+        expect((await users.indexes()).map(i => i.name)).not.toContain('username_1');
+        expect((await gameRecords.indexes()).map(i => i.name)).toContain('completedAt_-1');
+        expect((await reports.indexes()).map(i => i.name)).toContain('createdAt_-1');
+        // The non-unique fallback keeps username lookups on an index
+        const fallback = database.USERNAME_FALLBACK_INDEX;
+        expect((await users.indexes()).find(i => i.name === fallback)).toMatchObject({ key: { username: 1 } });
+        expect(usesIndex(planOf(await users.find({ username: 'Twin' }).explain('queryPlanner')), fallback)).toBe(true);
+        // Idempotent while the duplicates remain; once they are merged the
+        // next boot swaps the fallback for the unique index
+        await database.ensureIndexes({ users, gameRecords, reports });
+        expect((await users.indexes()).map(i => i.name)).toContain(fallback);
+        await users.deleteOne({ username: 'Twin' });
+        warn.mockClear();
+        await database.ensureIndexes({ users, gameRecords, reports });
+        expect(warn).not.toHaveBeenCalled();
+        warn.mockRestore();
+        const names = (await users.indexes()).map(i => i.name);
+        expect(names).toContain('username_1');
+        expect(names).not.toContain(fallback);
+    });
+
+    test('(d) projected reads on the real driver keep every reply field; tombstones stay hidden', async () => {
+        if (!client) return;
+        const s = sock();
+        await auth.signIn(s, io, { username: 'Alan', password: 'pw' });
+        const signed = last('signInResponse');
+        expect(signed).toEqual({ success: true, username: 'Alan', sessionToken: expect.any(String), blockedUsers: ['Mallory'] });
+
+        await auth.restoreSession(sock(), io, { username: 'Alan', sessionToken: signed.sessionToken });
+        expect(last('restoreSessionResponse')).toEqual({ success: true, username: 'Alan', blockedUsers: ['Mallory'] });
+
+        const gameManager = require('../game/GameManager');
+        const me = sock();
+        gameManager.registerUser(me.id, 'Alan');
+        await profile.getProfile(me, io);
+        expect(last('profileResponse').profile).toMatchObject({ username: 'Alan', customProfilePic: PIC, stats: { gamesPlayed: 10, wins: 6 } });
+        await profile.getPlayerProfile(me, io, { username: 'OldAlan' });
+        expect(last('playerProfileResponse').profile).toMatchObject({ username: 'Alan', customProfilePic: PIC, stats: { gamesPlayed: 10 } });
+
+        await profile.getLeaderboard(me, io);
+        const rows = last('leaderboardResponse').leaderboard;
+        expect(rows.find(r => r.username === 'Alan')).toMatchObject({ customProfilePic: PIC, gamesPlayed: 10, winRate: 60 });
+        expect(rows.find(r => r.username === 'Cy').customProfilePic).toBe(PIC);
+        expect(rows.map(r => r.username)).not.toContain('OldAlan');
+
+        await profile.searchPlayers(me, io, { query: 'alan' });
+        const found = last('searchPlayersResponse').players;
+        expect(found.map(p => p.username).sort()).toEqual(['Alan', 'alan']);
+        expect(found.find(p => p.username === 'Alan')).toEqual({ username: 'Alan', profilePic: 3, customProfilePic: PIC, gamesPlayed: 10, wins: 6 });
+    });
+
+    test('(e) leaderboard and search payloads deep-equal the 3db87b1 handlers on the same data', async () => {
+        if (!client) return;
+        const ref = makeReference(database);
+        const a = sock();
+        const b = sock();
+        await ref.getLeaderboard(a, io);
+        await profile.getLeaderboard(b, io);
+        const before = log.filter(l => l.to === `self:${a.id}`).pop().data;
+        const after = log.filter(l => l.to === `self:${b.id}`).pop().data;
+        expect(after).toEqual(before);
+        expect(JSON.stringify(after).length).toBe(JSON.stringify(before).length);
+
+        for (const query of ['al', 'ALAN', 'y', 'nobody']) {
+            await ref.searchPlayers(a, io, { query });
+            await profile.searchPlayers(b, io, { query });
+            const x = log.filter(l => l.to === `self:${a.id}`).pop().data;
+            const y = log.filter(l => l.to === `self:${b.id}`).pop().data;
+            expect({ query, y }).toEqual({ query, y: x });
+        }
+    });
+
+    test('(f) records payload deep-equals the 3db87b1 handler, including tie-breaks per period', async () => {
+        if (!client) return;
+        const ref = makeReference(database);
+        const a = sock();
+        const b = sock();
+        await ref.getRecords(a, io);
+        await profile.getRecords(b, io);
+        const before = log.filter(l => l.to === `self:${a.id}`).pop().data;
+        const after = log.filter(l => l.to === `self:${b.id}`).pop().data;
+        expect(after).toEqual(before);
+        expect(after.totalGames).toBe(5);
+        // allTime walks natural order (oldest tied game wins), thisMonth the
+        // completedAt_-1 index (newest tied game wins)
+        expect(after.records.allTime.highestScore).toEqual({ score: 700, players: ['Alan', 'Bea'] });
+        expect(after.records.thisMonth.highestScore).toEqual({ score: 700, players: ['alan', 'Cy'] });
+    });
+});

@@ -6,6 +6,23 @@
 const { getUsersCollection, getGameRecordsCollection } = require('../database');
 const gameManager = require('../game/GameManager');
 const { authLogger } = require('../utils/logger');
+const { createCache } = require('../utils/ttlCache');
+const rateLimiter = require('./rateLimiter');
+
+// Leaderboard and records pages: 60 s caches, invalidated on every write
+// this process makes that changes them (recordGameStats, deleteAccount,
+// profile picture changes). The owner CLIs (merge-accounts, set-password)
+// run in another process: only the TTL covers them.
+const CACHE_TTL_MS = 60000;
+const leaderboardCache = createCache({ ttlMs: CACHE_TTL_MS });
+const recordsCache = createCache({ ttlMs: CACHE_TTL_MS });
+let recordsCacheKey = null;
+
+/** Longest possible username (validators.js): a longer query matches nobody. */
+const MAX_USERNAME_LENGTH = 50;
+
+/** Fields a profile reply is built from (plus mergedInto for the redirect). */
+const PROFILE_PROJECTION = { username: 1, profilePic: 1, customProfilePic: 1, stats: 1, mergedInto: 1 };
 
 /**
  * Get user profile with stats
@@ -26,7 +43,7 @@ async function getProfile(socket, io) {
     }
 
     try {
-        const dbUser = await usersCollection.findOne({ username: user.username });
+        const dbUser = await usersCollection.findOne({ username: user.username }, { projection: PROFILE_PROJECTION });
 
         if (!dbUser) {
             socket.emit('profileResponse', {
@@ -106,6 +123,7 @@ async function updateProfilePic(socket, io, data) {
             { username: user.username },
             { $set: { profilePic: profilePic } }
         );
+        invalidateLeaderboard();
 
         socket.emit('profilePicUpdateResponse', {
             success: true,
@@ -178,6 +196,7 @@ async function uploadProfilePic(socket, io, data) {
             { username: user.username },
             { $set: { customProfilePic: imageData } }
         );
+        invalidateLeaderboard();
 
         socket.emit('profilePicUploadResponse', {
             success: true,
@@ -259,6 +278,7 @@ async function recordGameStats(game) {
 
     // Record the game result for records page
     await recordGameResult(game);
+    invalidateRecords();
 
     // Determine winner based on final scores
     const team1Won = game.score.team1 > game.score.team2;
@@ -272,81 +292,96 @@ async function recordGameStats(game) {
         { position: 4, player: game.getOriginalPlayer(4) }
     ];
 
-    for (const { position, player } of players) {
-        if (!player || !player.username) continue;
+    try {
+        // One $inc per human seat, written in parallel; each keeps its own
+        // try/catch so one failure never hides the others
+        await Promise.all(players.map(async ({ position, player }) => {
+            if (!player || !player.username) return;
 
-        // Skip seats without a human owner (they have no DB records)
-        if (!game.seat(position)?.ownerUsername) continue;
+            // Skip seats without a human owner (they have no DB records)
+            if (!game.seat(position)?.ownerUsername) return;
 
-        const isTeam1 = position === 1 || position === 3;
-        const isWinner = (isTeam1 && team1Won) || (!isTeam1 && !team1Won);
-        const teamScore = isTeam1 ? game.score.team1 : game.score.team2;
-        const totalHands = game.handStats.totalHands;
+            const isTeam1 = position === 1 || position === 3;
+            const isWinner = (isTeam1 && team1Won) || (!isTeam1 && !team1Won);
+            const teamScore = isTeam1 ? game.score.team1 : game.score.team2;
+            const totalHands = game.handStats.totalHands;
 
-        // Use per-player stats for individual bids/tricks (accumulated across all hands)
-        const playerStats = game.playerStats?.[position] || { totalBids: 0, totalTricks: 0, setsCaused: 0, totalHSI: 0 };
-        const playerBids = playerStats.totalBids;
-        const playerTricks = playerStats.totalTricks;
-        const playerFaults = playerStats.setsCaused || 0;
-        const playerHSI = playerStats.totalHSI || 0;
-        // Total sets is team-based, not fault-based
-        const teamSets = isTeam1 ? game.handStats.team1Sets : game.handStats.team2Sets;
-        // Total set points (negative points lost to sets) - for "drag" stat
-        const teamSetPoints = isTeam1 ? (game.handStats.team1SetPoints || 0) : (game.handStats.team2SetPoints || 0);
+            // Use per-player stats for individual bids/tricks (accumulated across all hands)
+            const playerStats = game.playerStats?.[position] || { totalBids: 0, totalTricks: 0, setsCaused: 0, totalHSI: 0 };
+            const playerBids = playerStats.totalBids;
+            const playerTricks = playerStats.totalTricks;
+            const playerFaults = playerStats.setsCaused || 0;
+            const playerHSI = playerStats.totalHSI || 0;
+            // Total sets is team-based, not fault-based
+            const teamSets = isTeam1 ? game.handStats.team1Sets : game.handStats.team2Sets;
+            // Total set points (negative points lost to sets) - for "drag" stat
+            const teamSetPoints = isTeam1 ? (game.handStats.team1SetPoints || 0) : (game.handStats.team2SetPoints || 0);
 
-        try {
-            await usersCollection.updateOne(
-                { username: player.username },
-                {
-                    $inc: {
-                        'stats.gamesPlayed': 1,
-                        'stats.wins': isTie ? 0 : (isWinner ? 1 : 0),
-                        'stats.losses': isTie ? 0 : (isWinner ? 0 : 1),
-                        'stats.draws': isTie ? 1 : 0,
-                        'stats.totalPoints': teamScore,
-                        'stats.totalTricksBid': playerBids,
-                        'stats.totalTricksTaken': playerTricks,
-                        'stats.totalHands': totalHands,
-                        'stats.totalSets': teamSets,
-                        'stats.totalSetPoints': teamSetPoints,
-                        'stats.totalFaults': playerFaults,
-                        'stats.totalHSI': playerHSI
+            try {
+                await usersCollection.updateOne(
+                    { username: player.username },
+                    {
+                        $inc: {
+                            'stats.gamesPlayed': 1,
+                            'stats.wins': isTie ? 0 : (isWinner ? 1 : 0),
+                            'stats.losses': isTie ? 0 : (isWinner ? 0 : 1),
+                            'stats.draws': isTie ? 1 : 0,
+                            'stats.totalPoints': teamScore,
+                            'stats.totalTricksBid': playerBids,
+                            'stats.totalTricksTaken': playerTricks,
+                            'stats.totalHands': totalHands,
+                            'stats.totalSets': teamSets,
+                            'stats.totalSetPoints': teamSetPoints,
+                            'stats.totalFaults': playerFaults,
+                            'stats.totalHSI': playerHSI
+                        }
                     }
-                }
-            );
+                );
 
-            authLogger.info('Game stats recorded', {
-                username: player.username,
-                won: isWinner,
-                score: teamScore,
-                tricks: playerTricks,
-                bids: playerBids,
-                hands: totalHands,
-                sets: teamSets,
-                setPoints: teamSetPoints,
-                faults: playerFaults,
-                hsi: playerHSI
-            });
-        } catch (error) {
-            authLogger.error('Error recording game stats', {
-                username: player.username,
-                error: error.message
-            });
-        }
+                authLogger.info('Game stats recorded', {
+                    username: player.username,
+                    won: isWinner,
+                    score: teamScore,
+                    tricks: playerTricks,
+                    bids: playerBids,
+                    hands: totalHands,
+                    sets: teamSets,
+                    setPoints: teamSetPoints,
+                    faults: playerFaults,
+                    hsi: playerHSI
+                });
+            } catch (error) {
+                authLogger.error('Error recording game stats', {
+                    username: player.username,
+                    error: error.message
+                });
+            }
+        }));
+    } finally {
+        // Settled (each write logs its own failure): the pages re-read, so
+        // the players who just played see this game
+        invalidateLeaderboard();
+        invalidateRecords();
     }
 }
 
 /**
  * Get user's saved profile pic from database
  * @param {string} username - Username to look up
- * @returns {Promise<number>} Profile pic number (1-82) or random if not set
+ * @param {Object} [options]
+ * @param {boolean} [options.randomFallback=true] - false: return null instead
+ *   of a random pic (no username, user not found, no pic, DB error), so a
+ *   caller running lookups in parallel can draw the random pics itself in a
+ *   fixed order
+ * @returns {Promise<number|string|null>} Profile pic number (1-82), custom
+ *   pic data URL, or random (null when randomFallback is false) if not set
  */
-async function getUserProfilePic(username) {
+async function getUserProfilePic(username, { randomFallback = true } = {}) {
     const usersCollection = getUsersCollection();
 
     if (!username) {
         authLogger.warn('getUserProfilePic called with no username, returning random pic');
-        return Math.floor(Math.random() * 82) + 1;
+        return randomFallback ? Math.floor(Math.random() * 82) + 1 : null;
     }
 
     try {
@@ -373,7 +408,77 @@ async function getUserProfilePic(username) {
 
     // Return random if not set or error
     authLogger.warn('getUserProfilePic: No profilePic found for user, returning random', { username });
-    return Math.floor(Math.random() * 82) + 1;
+    return randomFallback ? Math.floor(Math.random() * 82) + 1 : null;
+}
+
+/**
+ * The leaderboard rows (one per player with a game, plus the Population
+ * average row), sorted by win rate. Cached for 60 s; invalidated when stats
+ * change (recordGameStats, account deletion, a profile picture change).
+ */
+async function fillLeaderboard() {
+    const usersCollection = getUsersCollection();
+
+    // Find all users with at least one game played (merged-away
+    // accounts are tombstones whose stats live on the kept account)
+    const users = await usersCollection.find(
+        { 'stats.gamesPlayed': { $gt: 0 }, mergedInto: { $exists: false } },
+        { projection: { username: 1, profilePic: 1, customProfilePic: 1, stats: 1 } }
+    ).toArray();
+
+    // Compute derived stats and format response
+    const leaderboard = users.map(user => {
+        const stats = user.stats || {};
+        const gamesPlayed = stats.gamesPlayed || 0;
+        const wins = stats.wins || 0;
+        const totalPoints = stats.totalPoints || 0;
+        const totalTricksBid = stats.totalTricksBid || 0;
+        const totalTricksTaken = stats.totalTricksTaken || 0;
+        const totalHands = stats.totalHands || 0;
+        const totalSets = stats.totalSets || 0;
+        const totalSetPoints = stats.totalSetPoints || 0;
+        const totalFaults = stats.totalFaults || 0;
+        const totalHSI = stats.totalHSI || 0;
+
+        return {
+            username: user.username,
+            profilePic: user.profilePic || 1,
+            customProfilePic: user.customProfilePic || null,
+            gamesPlayed,
+            winRate: gamesPlayed > 0 ? (wins / gamesPlayed) * 100 : 0,
+            pointsPerGame: gamesPlayed > 0 ? totalPoints / gamesPlayed : 0,
+            bidsPerGame: gamesPlayed > 0 ? totalTricksBid / gamesPlayed : 0,
+            tricksPerBid: totalTricksBid > 0 ? totalTricksTaken / totalTricksBid : 0,
+            setRate: totalHands > 0 ? (totalSets / totalHands) * 100 : 0,
+            drag: gamesPlayed > 0 ? totalSetPoints / gamesPlayed : 0,
+            faultsPerGame: gamesPlayed > 0 ? totalFaults / gamesPlayed : 0,
+            avgHSI: totalHands > 0 ? totalHSI / totalHands : 0
+        };
+    });
+
+    // Compute population averages
+    if (leaderboard.length > 0) {
+        const n = leaderboard.length;
+        const sum = (key) => leaderboard.reduce((acc, p) => acc + p[key], 0);
+        leaderboard.push({
+            username: 'Population',
+            isPopulation: true,
+            gamesPlayed: Math.round(sum('gamesPlayed') / n),
+            winRate: sum('winRate') / n,
+            pointsPerGame: sum('pointsPerGame') / n,
+            bidsPerGame: sum('bidsPerGame') / n,
+            tricksPerBid: sum('tricksPerBid') / n,
+            setRate: sum('setRate') / n,
+            drag: sum('drag') / n,
+            faultsPerGame: sum('faultsPerGame') / n,
+            avgHSI: sum('avgHSI') / n
+        });
+    }
+
+    // Sort by win rate descending by default
+    leaderboard.sort((a, b) => b.winRate - a.winRate);
+
+    return leaderboard;
 }
 
 /**
@@ -382,66 +487,15 @@ async function getUserProfilePic(username) {
  * @param {Server} io - Socket.IO server instance
  */
 async function getLeaderboard(socket, io) {
-    const usersCollection = getUsersCollection();
+    // Soft limit: over it, the (possibly stale) cached rows, never 'error'
+    if (!rateLimiter.check(socket.id, 'getLeaderboard')) {
+        await replyThrottled(socket, 'leaderboardResponse', leaderboardCache,
+            (leaderboard) => ({ success: true, leaderboard }));
+        return;
+    }
 
     try {
-        // Find all users with at least one game played (merged-away
-        // accounts are tombstones whose stats live on the kept account)
-        const users = await usersCollection.find(
-            { 'stats.gamesPlayed': { $gt: 0 }, mergedInto: { $exists: false } }
-        ).toArray();
-
-        // Compute derived stats and format response
-        const leaderboard = users.map(user => {
-            const stats = user.stats || {};
-            const gamesPlayed = stats.gamesPlayed || 0;
-            const wins = stats.wins || 0;
-            const totalPoints = stats.totalPoints || 0;
-            const totalTricksBid = stats.totalTricksBid || 0;
-            const totalTricksTaken = stats.totalTricksTaken || 0;
-            const totalHands = stats.totalHands || 0;
-            const totalSets = stats.totalSets || 0;
-            const totalSetPoints = stats.totalSetPoints || 0;
-            const totalFaults = stats.totalFaults || 0;
-            const totalHSI = stats.totalHSI || 0;
-
-            return {
-                username: user.username,
-                profilePic: user.profilePic || 1,
-                customProfilePic: user.customProfilePic || null,
-                gamesPlayed,
-                winRate: gamesPlayed > 0 ? (wins / gamesPlayed) * 100 : 0,
-                pointsPerGame: gamesPlayed > 0 ? totalPoints / gamesPlayed : 0,
-                bidsPerGame: gamesPlayed > 0 ? totalTricksBid / gamesPlayed : 0,
-                tricksPerBid: totalTricksBid > 0 ? totalTricksTaken / totalTricksBid : 0,
-                setRate: totalHands > 0 ? (totalSets / totalHands) * 100 : 0,
-                drag: gamesPlayed > 0 ? totalSetPoints / gamesPlayed : 0,
-                faultsPerGame: gamesPlayed > 0 ? totalFaults / gamesPlayed : 0,
-                avgHSI: totalHands > 0 ? totalHSI / totalHands : 0
-            };
-        });
-
-        // Compute population averages
-        if (leaderboard.length > 0) {
-            const n = leaderboard.length;
-            const sum = (key) => leaderboard.reduce((acc, p) => acc + p[key], 0);
-            leaderboard.push({
-                username: 'Population',
-                isPopulation: true,
-                gamesPlayed: Math.round(sum('gamesPlayed') / n),
-                winRate: sum('winRate') / n,
-                pointsPerGame: sum('pointsPerGame') / n,
-                bidsPerGame: sum('bidsPerGame') / n,
-                tricksPerBid: sum('tricksPerBid') / n,
-                setRate: sum('setRate') / n,
-                drag: sum('drag') / n,
-                faultsPerGame: sum('faultsPerGame') / n,
-                avgHSI: sum('avgHSI') / n
-            });
-        }
-
-        // Sort by win rate descending by default
-        leaderboard.sort((a, b) => b.winRate - a.winRate);
+        const leaderboard = await leaderboardCache.get(fillLeaderboard);
 
         socket.emit('leaderboardResponse', {
             success: true,
@@ -476,12 +530,20 @@ async function searchPlayers(socket, io, data) {
         return;
     }
 
+    // No username is longer than 50 characters, so a longer query matches
+    // nobody: answer without a DB round trip
+    if (query.trim().length > MAX_USERNAME_LENGTH) {
+        socket.emit('searchPlayersResponse', { success: true, players: [] });
+        return;
+    }
+
     try {
-        // Escape regex special characters
+        // Escape regex special characters. The unanchored case-insensitive
+        // regex walks the username_1 index keys (no collection scan)
         const escaped = query.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         const users = await usersCollection.find(
             { username: { $regex: escaped, $options: 'i' }, mergedInto: { $exists: false } },
-            { projection: { username: 1, profilePic: 1, customProfilePic: 1, stats: 1 } }
+            { projection: { username: 1, profilePic: 1, customProfilePic: 1, 'stats.gamesPlayed': 1, 'stats.wins': 1 } }
         ).limit(20).toArray();
 
         const players = users.map(u => ({
@@ -519,12 +581,12 @@ async function getPlayerProfile(socket, io, data) {
     }
 
     try {
-        let dbUser = await usersCollection.findOne({ username: username.trim() });
+        let dbUser = await usersCollection.findOne({ username: username.trim() }, { projection: PROFILE_PROJECTION });
 
         // Old names from merged accounts (e.g. in game records) show the
         // account they were merged into
         if (dbUser?.mergedInto) {
-            dbUser = await usersCollection.findOne({ username: dbUser.mergedInto });
+            dbUser = await usersCollection.findOne({ username: dbUser.mergedInto }, { projection: PROFILE_PROJECTION });
         }
 
         if (!dbUser) {
@@ -565,6 +627,109 @@ async function getPlayerProfile(socket, io, data) {
     }
 }
 
+/** Records periods are in server local time; the cache key changes with the month. */
+function recordsKey(now) {
+    return `${now.getFullYear()}-${now.getMonth()}`;
+}
+
+// Only the fields the reduction below reads
+const RECORDS_PROJECTION = { _id: 0, team1Score: 1, team2Score: 1, team1Players: 1, team2Players: 1, team1Bags: 1, team2Bags: 1 };
+
+/**
+ * The records page: highest/lowest team score, biggest win and most/least
+ * bags for all time, this year and this month, plus the total game count.
+ * Three separate finds on purpose: thisYear/thisMonth come back newest-first
+ * through the completedAt_-1 index and allTime in natural order, and ties
+ * keep the first game seen, so merging them into one pass would change which
+ * tied game a period shows.
+ */
+async function fillRecords(now) {
+    const gameRecordsCollection = getGameRecordsCollection();
+    const startOfYear = new Date(now.getFullYear(), 0, 1);
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    const filters = {
+        allTime: {},
+        thisYear: { completedAt: { $gte: startOfYear } },
+        thisMonth: { completedAt: { $gte: startOfMonth } }
+    };
+
+    const periods = Object.keys(filters);
+    const [totalGames, ...results] = await Promise.all([
+        gameRecordsCollection.countDocuments({}),
+        ...periods.map(period => gameRecordsCollection.find(filters[period], { projection: RECORDS_PROJECTION }).toArray())
+    ]);
+
+    const records = {};
+
+    for (let p = 0; p < periods.length; p++) {
+        const period = periods[p];
+        const games = results[p];
+
+        if (games.length === 0) {
+            records[period] = null;
+            continue;
+        }
+
+        let highestScore = null;
+        let lowestScore = null;
+        let biggestWin = null;
+        let mostBags = null;
+        let leastBags = null;
+
+        for (const game of games) {
+            // Check both teams for highest/lowest individual team score
+            const entries = [
+                { score: game.team1Score, players: game.team1Players },
+                { score: game.team2Score, players: game.team2Players }
+            ];
+
+            for (const entry of entries) {
+                if (!highestScore || entry.score > highestScore.score) {
+                    highestScore = { score: entry.score, players: entry.players };
+                }
+                if (!lowestScore || entry.score < lowestScore.score) {
+                    lowestScore = { score: entry.score, players: entry.players };
+                }
+            }
+
+            // Biggest win margin
+            const margin = Math.abs(game.team1Score - game.team2Score);
+            if (!biggestWin || margin > biggestWin.margin) {
+                const winnerIsTeam1 = game.team1Score > game.team2Score;
+                biggestWin = {
+                    margin,
+                    winnerScore: winnerIsTeam1 ? game.team1Score : game.team2Score,
+                    loserScore: winnerIsTeam1 ? game.team2Score : game.team1Score,
+                    winnerPlayers: winnerIsTeam1 ? game.team1Players : game.team2Players,
+                    loserPlayers: winnerIsTeam1 ? game.team2Players : game.team1Players
+                };
+            }
+
+            // Most/least bags — skip legacy records without bags data
+            if (game.team1Bags != null && game.team2Bags != null) {
+                const bagsEntries = [
+                    { bags: game.team1Bags, players: game.team1Players },
+                    { bags: game.team2Bags, players: game.team2Players }
+                ];
+
+                for (const entry of bagsEntries) {
+                    if (!mostBags || entry.bags > mostBags.bags) {
+                        mostBags = { bags: entry.bags, players: entry.players };
+                    }
+                    if (!leastBags || entry.bags < leastBags.bags) {
+                        leastBags = { bags: entry.bags, players: entry.players };
+                    }
+                }
+            }
+        }
+
+        records[period] = { highestScore, lowestScore, biggestWin, mostBags, leastBags };
+    }
+
+    return { records, totalGames };
+}
+
 /**
  * Get game records (highest score, lowest score, biggest win) for 3 time periods
  * @param {Socket} socket - Socket instance
@@ -578,87 +743,25 @@ async function getRecords(socket, io) {
         return;
     }
 
+    // A new month starts new thisMonth (and maybe thisYear) periods
+    const now = new Date();
+    const key = recordsKey(now);
+    if (key !== recordsCacheKey) {
+        recordsCache.invalidate();
+        recordsCacheKey = key;
+    }
+
+    const toPayload = ({ records, totalGames }) => ({ success: true, records, totalGames });
+
+    // Soft limit: over it, the (possibly stale) cached records, never 'error'
+    if (!rateLimiter.check(socket.id, 'getRecords')) {
+        await replyThrottled(socket, 'recordsResponse', recordsCache, toPayload);
+        return;
+    }
+
     try {
-        const now = new Date();
-        const startOfYear = new Date(now.getFullYear(), 0, 1);
-        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-
-        const filters = {
-            allTime: {},
-            thisYear: { completedAt: { $gte: startOfYear } },
-            thisMonth: { completedAt: { $gte: startOfMonth } }
-        };
-
-        const records = {};
-
-        for (const [period, filter] of Object.entries(filters)) {
-            const games = await gameRecordsCollection.find(filter).toArray();
-
-            if (games.length === 0) {
-                records[period] = null;
-                continue;
-            }
-
-            let highestScore = null;
-            let lowestScore = null;
-            let biggestWin = null;
-            let mostBags = null;
-            let leastBags = null;
-
-            for (const game of games) {
-                // Check both teams for highest/lowest individual team score
-                const entries = [
-                    { score: game.team1Score, players: game.team1Players },
-                    { score: game.team2Score, players: game.team2Players }
-                ];
-
-                for (const entry of entries) {
-                    if (!highestScore || entry.score > highestScore.score) {
-                        highestScore = { score: entry.score, players: entry.players };
-                    }
-                    if (!lowestScore || entry.score < lowestScore.score) {
-                        lowestScore = { score: entry.score, players: entry.players };
-                    }
-                }
-
-                // Biggest win margin
-                const margin = Math.abs(game.team1Score - game.team2Score);
-                if (!biggestWin || margin > biggestWin.margin) {
-                    const winnerIsTeam1 = game.team1Score > game.team2Score;
-                    biggestWin = {
-                        margin,
-                        winnerScore: winnerIsTeam1 ? game.team1Score : game.team2Score,
-                        loserScore: winnerIsTeam1 ? game.team2Score : game.team1Score,
-                        winnerPlayers: winnerIsTeam1 ? game.team1Players : game.team2Players,
-                        loserPlayers: winnerIsTeam1 ? game.team2Players : game.team1Players
-                    };
-                }
-
-                // Most/least bags — skip legacy records without bags data
-                if (game.team1Bags != null && game.team2Bags != null) {
-                    const bagsEntries = [
-                        { bags: game.team1Bags, players: game.team1Players },
-                        { bags: game.team2Bags, players: game.team2Players }
-                    ];
-
-                    for (const entry of bagsEntries) {
-                        if (!mostBags || entry.bags > mostBags.bags) {
-                            mostBags = { bags: entry.bags, players: entry.players };
-                        }
-                        if (!leastBags || entry.bags < leastBags.bags) {
-                            leastBags = { bags: entry.bags, players: entry.players };
-                        }
-                    }
-                }
-            }
-
-            records[period] = { highestScore, lowestScore, biggestWin, mostBags, leastBags };
-        }
-
-        // Total games played (all time count)
-        const totalGames = (await gameRecordsCollection.countDocuments({}));
-
-        socket.emit('recordsResponse', { success: true, records, totalGames });
+        const value = await recordsCache.get(() => fillRecords(now));
+        socket.emit('recordsResponse', toPayload(value));
         authLogger.debug('Records fetched');
     } catch (error) {
         authLogger.error('Error fetching records', { error: error.message });
@@ -666,7 +769,50 @@ async function getRecords(socket, io) {
     }
 }
 
+/**
+ * Reply to a request over its soft rate limit (getLeaderboard/getRecords):
+ * the last cached value even if expired, else the fill already running,
+ * else the ordinary failure reply both clients show (never 'error').
+ */
+async function replyThrottled(socket, event, cache, toPayload) {
+    const cached = cache.peek();
+    if (cached !== undefined) {
+        socket.emit(event, toPayload(cached));
+        return;
+    }
+    const pending = cache.inflightPromise();
+    if (pending) {
+        try {
+            socket.emit(event, toPayload(await pending));
+        } catch (error) {
+            socket.emit(event, { success: false, message: 'Database error' });
+        }
+        return;
+    }
+    socket.emit(event, { success: false, message: 'Too many requests. Please wait a moment.' });
+}
+
+/** A stats/picture/account change: the next leaderboard fetch reads fresh. */
+function invalidateLeaderboard() {
+    leaderboardCache.invalidate();
+}
+
+/** A new or anonymized game record: the next records fetch reads fresh. */
+function invalidateRecords() {
+    recordsCache.invalidate();
+}
+
+/** Test helper: empty both caches. */
+function _resetCachesForTests() {
+    leaderboardCache.invalidate();
+    recordsCache.invalidate();
+    recordsCacheKey = null;
+}
+
 module.exports = {
+    invalidateLeaderboard,
+    invalidateRecords,
+    _resetCachesForTests,
     getProfile,
     updateProfilePic,
     uploadProfilePic,
