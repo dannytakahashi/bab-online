@@ -114,7 +114,7 @@ async function runSeed(seed) {
     let seqWatch = null;
     let paceWatch = null;
     contractCheck.setContext(`chaos seed ${seed}`);
-    const result = await runSeedInner(seed, (io) => { seqWatch = watchSeq(io); paceWatch = watchPacing(); });
+    const result = await runSeedInner(seed, (io) => { seqWatch = watchSeq(io); paceWatch = watchPacing({ requireResumeInMs: true }); });
     const seqResult = seqWatch ? seqWatch.stop() : { failures: [] };
     const paceResult = paceWatch ? paceWatch.stop() : { failures: [] };
     if (result.ok && seqResult.failures.length) return { seed, why: 'seq', failures: seqResult.failures.slice(0, 5) };

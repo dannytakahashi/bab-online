@@ -181,6 +181,10 @@
     },
     "spectatorCount": 0,
     "tournament": null,
-    "log": []
+    "log": [],
+    "resume": {
+      "kind": "teams",
+      "inMs": 3000
+    }
   }
 }

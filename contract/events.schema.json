@@ -1548,6 +1548,35 @@
             ],
             "additionalProperties": false
           }
+        },
+        "resume": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "kind": {
+              "enum": [
+                "countdown",
+                "drawReveal",
+                "seating",
+                "teams",
+                "firstTurn",
+                "trick",
+                "hand"
+              ]
+            },
+            "inMs": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "ms the server still holds the table, from serverTime (relative: never compare with a client clock)"
+            }
+          },
+          "required": [
+            "kind",
+            "inMs"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [
@@ -1575,7 +1604,8 @@
         "draw",
         "spectatorCount",
         "tournament",
-        "log"
+        "log",
+        "resume"
       ],
       "additionalProperties": false
     },
@@ -4729,6 +4759,11 @@
             "minItems": 2,
             "maxItems": 2
           },
+          "resumeInMs": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "TEAMS_MS: the server holds the announcement this long before createUI/gameStart"
+          },
           "seq": {
             "$ref": "#/$defs/seq"
           }
@@ -4736,6 +4771,7 @@
         "required": [
           "team1",
           "team2",
+          "resumeInMs",
           "seq"
         ],
         "additionalProperties": false
@@ -4743,6 +4779,11 @@
       "status": "active",
       "to": "room",
       "seq": true,
+      "added": [
+        "resumeInMs",
+        "seq"
+      ],
+      "notes": "resumeInMs (additive, relative; contract/README.md \"Resume holds\"): web sizes its fade to it; the shipped iOS app ignores it.",
       "clientReads": {
         "web": [
           "client/src/handlers/gameHandlers.js:registerGameHandlers"
@@ -4753,9 +4794,6 @@
       },
       "emittedFrom": [
         "server/socket/gameHandlers.js:handleDrawComplete"
-      ],
-      "added": [
-        "seq"
       ]
     },
     "positionUpdate": {
@@ -5293,6 +5331,11 @@
             "type": "boolean",
             "description": "trumpBroken after this card"
           },
+          "resumeInMs": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Only on the card that completes a trick: TRICK_VIEW_MS until trickComplete"
+          },
           "seq": {
             "$ref": "#/$defs/seq"
           }
@@ -5309,6 +5352,11 @@
       "status": "active",
       "to": "room",
       "seq": true,
+      "added": [
+        "resumeInMs",
+        "seq"
+      ],
+      "notes": "resumeInMs (additive, relative; contract/README.md \"Resume holds\") only on the 4th card of a trick; built by GameState.cardPlayedPayload for both emit sites.",
       "reserved": [
         {
           "key": "trumpBroken",
@@ -5326,9 +5374,6 @@
       "emittedFrom": [
         "server/socket/gameHandlers.js:playCard",
         "server/game/bot/BotController.js:processBotPlay"
-      ],
-      "added": [
-        "seq"
       ]
     },
     "actionRejected": {
@@ -5385,6 +5430,11 @@
           "winner": {
             "$ref": "#/$defs/position"
           },
+          "resumeInMs": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Only on the last trick of a hand: HAND_END_MS (GAME_END_MS on hand 13) until handComplete"
+          },
           "seq": {
             "$ref": "#/$defs/seq"
           }
@@ -5398,6 +5448,11 @@
       "status": "active",
       "to": "room",
       "seq": true,
+      "added": [
+        "resumeInMs",
+        "seq"
+      ],
+      "notes": "Absent resumeInMs: the next trick is open now (updateTurn follows in the same tick).",
       "clientReads": {
         "web": [
           "client/src/handlers/gameHandlers.js:registerGameHandlers"
@@ -5408,9 +5463,6 @@
       },
       "emittedFrom": [
         "server/socket/gameHandlers.js:handlePostPlay"
-      ],
-      "added": [
-        "seq"
       ]
     },
     "handComplete": {

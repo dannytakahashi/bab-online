@@ -210,6 +210,8 @@ function buildSnapshotV2(game, viewerSid, { tournament = null, now = Date.now(),
             totalRounds: tournament.totalRounds,
         } : null,
         log: logEntries,
+        // The open server-timed hold (pacing.js), relative to serverTime
+        resume: typeof game.resumeInfo === 'function' ? game.resumeInfo(now) : null,
     };
 }
 

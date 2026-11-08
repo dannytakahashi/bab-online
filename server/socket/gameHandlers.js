@@ -238,7 +238,9 @@ function resumeTrick(io, game) {
     const lastHand = game.currentHand === 13;
     const handMs = lastHand ? pacing(game).GAME_END_MS : pacing(game).HAND_END_MS;
 
-    game.broadcast(io, 'trickComplete', { winner });
+    // The hand's last trick says how long the table is held before
+    // handComplete (additive); otherwise the next trick is open now
+    game.broadcast(io, 'trickComplete', lastTrick ? { winner, resumeInMs: handMs } : { winner });
 
     // Notify bots that the trick is complete
     botController.notifyTrickComplete(game.gameId);
@@ -492,13 +494,15 @@ async function handleDrawComplete(io, game) {
     if (seatingMs > 0 && !(await game.hold('seating', seatingMs, 'seatingToTeams'))) return;
 
     if (!game.transition(Phase.DRAW_RESOLVING, Phase.TEAMS_ANNOUNCED)) return;
+    const teamsMs = pacing(game).TEAMS_MS;
     game.broadcast(io, 'teamsAnnounced', {
         team1: [team1Player1?.username || 'Player 1', team1Player2?.username || 'Player 3'],
-        team2: [team2Player1?.username || 'Player 2', team2Player2?.username || 'Player 4']
+        team2: [team2Player1?.username || 'Player 2', team2Player2?.username || 'Player 4'],
+        resumeInMs: teamsMs // additive: time until createUI/gameStart
     });
 
     // Wait for the team announcement to be seen
-    if (!(await game.hold('teams', pacing(game).TEAMS_MS))) return;
+    if (!(await game.hold('teams', teamsMs))) return;
 
     if (!game.transition(Phase.TEAMS_ANNOUNCED, Phase.DEALING)) return;
 
@@ -757,12 +761,7 @@ async function playCard(socket, io, data) {
         game.isTrumpBroken = true;
     }
 
-    game.broadcast(io, 'cardPlayed', {
-        playerId: socket.id,
-        card,
-        position,
-        trump: game.isTrumpBroken
-    });
+    game.broadcast(io, 'cardPlayed', game.cardPlayedPayload(socket.id, card, position));
 
     // Notify bots about this card play
     botController.notifyCardPlayed(game.gameId, card, position, game.trump, game.leadPosition);

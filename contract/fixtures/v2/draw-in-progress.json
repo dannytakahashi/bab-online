@@ -119,6 +119,7 @@
     },
     "spectatorCount": 0,
     "tournament": null,
-    "log": []
+    "log": [],
+    "resume": null
   }
 }

@@ -146,6 +146,10 @@ describe('rejoin during a hold', () => {
         expect(ok.snapshot.turn).toBeNull();
         expect(ok.snapshot.trick.cards).toHaveLength(4);
         expect(ok.snapshot.tricks).toEqual({ team1: 0, team2: 0 });
+        expect(ok.snapshot.resume.kind).toBe('trick');
+        expect(ok.snapshot.resume.inMs).toBeGreaterThanOrEqual(0);
+        expect(ok.snapshot.resume.inMs).toBeLessThanOrEqual(P().TRICK_VIEW_MS);
+        expect(ok.snapshot.resume.inMs).toBe(P().TRICK_VIEW_MS - Math.floor(P().TRICK_VIEW_MS / 2));
         expect(t.io.rooms.get(t.game.roomName).has(r.id)).toBe(true);
 
         const mark = t.log.length;
@@ -170,9 +174,41 @@ describe('rejoin during a hold', () => {
         expect(ok.playedCards).toEqual([]);
         expect(ok.tricks).toEqual({ team1: 0, team2: 2 });
         expect(ok.snapshot.turn).toBeNull();
+        expect(ok.snapshot.resume).toEqual({ kind: 'hand', inMs: P().HAND_END_MS });
         await jest.advanceTimersByTimeAsync(P().HAND_END_MS);
         expect(events(t.log, 'handComplete')).toHaveLength(1);
         expect(t.log.some((l) => l.to === r.id && l.event === 'gameStart')).toBe(true);
+    });
+});
+
+describe('resumeInMs on the wire (relative, additive)', () => {
+    test('only the trick-completing card, and only the hand\'s last trickComplete, carry it', async () => {
+        const t = setup();
+        await firstTrick(t);
+        expect(events(t.log, 'cardPlayed').map((l) => l.data.resumeInMs)).toEqual([undefined, undefined, undefined, P().TRICK_VIEW_MS]);
+        await jest.advanceTimersByTimeAsync(P().TRICK_VIEW_MS);
+        expect('resumeInMs' in events(t.log, 'trickComplete')[0].data).toBe(false);
+        await lastTrick(t);
+        await jest.advanceTimersByTimeAsync(P().TRICK_VIEW_MS);
+        expect(events(t.log, 'trickComplete')[1].data.resumeInMs).toBe(P().HAND_END_MS);
+        expect(t.game.resumeInfo()).toEqual({ kind: 'hand', inMs: P().HAND_END_MS });
+    });
+
+    test('hand 13\'s last trick holds GAME_END_MS before gameEnd', async () => {
+        const t = setup();
+        t.game.currentHand = 13;
+        // Pretend the 13-card hand is down to its last trick
+        t.game.cardIndex = 13 * 4 - 8;
+        t.game.setHand(t.ids[0], [C('2', 'hearts'), C('3', 'hearts')]);
+        await firstTrick(t);
+        await jest.advanceTimersByTimeAsync(P().TRICK_VIEW_MS);
+        await lastTrick(t);
+        await jest.advanceTimersByTimeAsync(P().TRICK_VIEW_MS);
+        expect(events(t.log, 'trickComplete')[1].data.resumeInMs).toBe(P().GAME_END_MS);
+        await jest.advanceTimersByTimeAsync(P().GAME_END_MS - 1);
+        expect(events(t.log, 'gameEnd')).toHaveLength(0);
+        await jest.advanceTimersByTimeAsync(1);
+        expect(events(t.log, 'gameEnd')).toHaveLength(1);
     });
 });
 
@@ -256,5 +292,54 @@ describe('abort inside the window', () => {
         expect(t.game.pendingTimerCount).toBe(0);
         expect(t.game.resume).toBeNull();
         expect(botKeys(t.game)).toEqual([]);
+    });
+});
+
+describe('TEAMS_ANNOUNCED hold', () => {
+    test('a spectator and a rejoin get resume {teams}; createUI and gameStart follow at resume', async () => {
+        const mainRoomHandlers = require('../mainRoomHandlers');
+        const lobbyHandlers = require('../lobbyHandlers');
+        const log = [];
+        const io = makeIo(log);
+        seq++;
+        const name = `teams_${seq}`;
+        gameManager.registerUser(`tm${seq}`, name);
+        mockDb.current.users._insert({ username: name, profilePic: 4 });
+        const s = makeSocket(`tm${seq}`, log, io);
+        mainRoomHandlers.joinMainRoom(s, io);
+        mainRoomHandlers.createLobby(s, io, { name: 'T' });
+        for (let i = 0; i < 3; i++) lobbyHandlers.addBot(s, io);
+        const ready = lobbyHandlers.playerReady(s, io);
+        await jest.advanceTimersByTimeAsync(P().LOBBY_START_MS + P().PREDRAW_COUNTDOWN_MS);
+        const game = gameManager.getPlayerGame(s.id);
+        gameHandlers.draw(s, io, { num: 0 });
+        while (game.stage !== Phase.TEAMS_ANNOUNCED) await jest.advanceTimersByTimeAsync(10);
+        expect(events(log, 'teamsAnnounced')[0].data.resumeInMs).toBe(P().TEAMS_MS);
+        await jest.advanceTimersByTimeAsync(10);
+
+        const spec = makeSocket(`tm${seq}-spec`, log, io);
+        gameManager.registerUser(spec.id, `fan_${seq}`);
+        mainRoomHandlers.joinMainRoom(spec, io);
+        mainRoomHandlers.joinAsSpectator(spec, io, { gameId: game.gameId });
+        const joined = log.find((l) => l.to === `self:${spec.id}` && l.event === 'spectatorJoined').data;
+        expect(joined.snapshot.resume.kind).toBe('teams');
+        expect(joined.snapshot.resume.inMs).toBeLessThanOrEqual(P().TEAMS_MS - 10);
+        expect(joined.snapshot.resume.inMs).toBeGreaterThan(0);
+
+        const back = makeSocket(`tm${seq}-r`, log, io);
+        gameManager.registerUser(back.id, name);
+        await reconnectHandlers.rejoinGame(back, io, { gameId: game.gameId, username: name });
+        const ok = log.find((l) => l.to === `self:${back.id}` && l.event === 'rejoinSuccess').data;
+        expect(ok.snapshot.resume.kind).toBe('teams');
+        expect(ok.snapshot.turn).toBeNull();
+
+        const mark = log.length;
+        await jest.advanceTimersByTimeAsync(P().TEAMS_MS);
+        expect(log.slice(mark).map((l) => l.event)).toEqual(expect.arrayContaining(['createUI', 'gameStart']));
+        expect(game.stage).toBe(Phase.BIDDING);
+        if (P().FIRST_HAND_TURN_MS > 0) expect(game.resumeInfo().kind).toBe('firstTurn');
+        await jest.advanceTimersByTimeAsync(P().FIRST_HAND_TURN_MS);
+        expect(game.resume).toBeNull();
+        await ready;
     });
 });

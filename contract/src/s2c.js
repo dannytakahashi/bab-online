@@ -290,8 +290,14 @@ const s2c = {
         notes: 'Web main.js reads it; replaced by v2 viewer.position (V1_REMOVALS #7).',
     },
     teamsAnnounced: {
-        payload: obj({ team1: arr(str(), { minItems: 2, maxItems: 2 }), team2: arr(str(), { minItems: 2, maxItems: 2 }) }),
+        payload: obj({
+            team1: arr(str(), { minItems: 2, maxItems: 2 }),
+            team2: arr(str(), { minItems: 2, maxItems: 2 }),
+            resumeInMs: int({ minimum: 0, description: 'TEAMS_MS: the server holds the announcement this long before createUI/gameStart' }),
+        }),
         status: 'active', to: 'room', seq: false,
+        added: ['resumeInMs'],
+        notes: 'resumeInMs (additive, relative; contract/README.md "Resume holds"): web sizes its fade to it; the shipped iOS app ignores it.',
         clientReads: reads(W.game, I.game('registerSetupPhase')),
         emittedFrom: ['server/socket/gameHandlers.js:handleDrawComplete'],
     },
@@ -390,8 +396,13 @@ const s2c = {
         emittedFrom: ['server/socket/gameHandlers.js:handlePostBid'],
     },
     cardPlayed: {
-        payload: obj({ playerId: str(), card: ref('card'), position: ref('position'), trump: bool({ description: 'trumpBroken after this card' }) }),
+        payload: obj({
+            playerId: str(), card: ref('card'), position: ref('position'), trump: bool({ description: 'trumpBroken after this card' }),
+            resumeInMs: int({ minimum: 0, description: 'Only on the card that completes a trick: TRICK_VIEW_MS until trickComplete' }),
+        }, { optional: ['resumeInMs'] }),
         status: 'active', to: 'room', seq: false,
+        added: ['resumeInMs'],
+        notes: 'resumeInMs (additive, relative; contract/README.md "Resume holds") only on the 4th card of a trick; built by GameState.cardPlayedPayload for both emit sites.',
         reserved: [{ key: 'trumpBroken', why: 'iOS reads trumpBroken ?? trump; trump must stay a Bool' }],
         clientReads: reads(W.game, I.game('handleCardPlayed')),
         emittedFrom: ['server/socket/gameHandlers.js:playCard', 'server/game/bot/BotController.js:processBotPlay'],
@@ -409,8 +420,13 @@ const s2c = {
         notes: 'iOS reads action == "play" (rollbackCardPlay); web has no listener. Always BEFORE the restorePlayerState of a "Card not in hand" play.',
     },
     trickComplete: {
-        payload: obj({ winner: ref('position') }),
+        payload: obj({
+            winner: ref('position'),
+            resumeInMs: int({ minimum: 0, description: 'Only on the last trick of a hand: HAND_END_MS (GAME_END_MS on hand 13) until handComplete' }),
+        }, { optional: ['resumeInMs'] }),
         status: 'active', to: 'room', seq: false,
+        added: ['resumeInMs'],
+        notes: 'Absent resumeInMs: the next trick is open now (updateTurn follows in the same tick).',
         clientReads: reads(W.game, I.game('registerPlayingPhase')),
         emittedFrom: ['server/socket/gameHandlers.js:handlePostPlay'],
     },

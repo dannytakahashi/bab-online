@@ -266,6 +266,10 @@ const defs = {
         spectatorCount: int({ minimum: 0 }),
         tournament: orNull(ref('tournamentV2')),
         log: arr(obj({ message: str(), type: enm(...LOG_TYPES), position: orNull(ref('position')), at: int() })),
+        resume: orNull(obj({
+            kind: enm('countdown', 'drawReveal', 'seating', 'teams', 'firstTurn', 'trick', 'hand'),
+            inMs: int({ minimum: 0, description: 'ms the server still holds the table, from serverTime (relative: never compare with a client clock)' }),
+        })),
     }),
     viewerV2: obj({
         role: enm('seat', 'lazyWatcher', 'spectator', 'entrant', 'none'),

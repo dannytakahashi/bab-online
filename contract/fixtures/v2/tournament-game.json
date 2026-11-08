@@ -212,6 +212,10 @@
         "position": null,
         "at": 1767268838500
       }
-    ]
+    ],
+    "resume": {
+      "kind": "firstTurn",
+      "inMs": 1000
+    }
   }
 }

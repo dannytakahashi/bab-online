@@ -338,6 +338,18 @@ class GameState {
         });
     }
 
+    /**
+     * cardPlayed payload (both emit sites: gameHandlers.playCard and
+     * BotController.processBotPlay). Call after the card is recorded. The
+     * card that completes a trick carries resumeInMs (additive): how long
+     * the server holds the full trick before trickComplete.
+     */
+    cardPlayedPayload(playerId, card, position) {
+        const payload = { playerId, card, position, trump: this.isTrumpBroken };
+        if (this.playedCardsIndex === 4) payload.resumeInMs = pacing(this).TRICK_VIEW_MS;
+        return payload;
+    }
+
     /** {kind, inMs} of the open hold (inMs relative to `now`), or null. */
     resumeInfo(now = Date.now()) {
         return this.resume ? { kind: this.resume.kind, inMs: Math.max(0, Math.round(this.resume.at - now)) } : null;

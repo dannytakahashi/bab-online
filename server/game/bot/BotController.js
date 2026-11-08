@@ -341,12 +341,7 @@ class BotController {
             game.isTrumpBroken = true;
         }
 
-        game.broadcast(io, 'cardPlayed', {
-            playerId: bot.socketId,
-            card,
-            position: bot.position,
-            trump: game.isTrumpBroken
-        });
+        game.broadcast(io, 'cardPlayed', game.cardPlayedPayload(bot.socketId, card, bot.position));
 
         // Notify all bots about this card play
         this.notifyCardPlayed(game.gameId, card, bot.position, game.trump, game.leadPosition);

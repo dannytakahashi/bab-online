@@ -236,7 +236,7 @@ describe('(b) F1 full human game through the lobby', () => {
                 onWorld(wd) {
                     watcher = watchSnapshots(wd);
                     seqWatch = watchSeq(wd.io);
-                    paceWatch = watchPacing();
+                    paceWatch = watchPacing({ requireResumeInMs: true });
                 },
                 // (f) requestSnapshot from a seat, a lazy watcher and a spectator
                 async onStep(wd, game, { hands, stage }) {
