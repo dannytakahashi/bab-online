@@ -562,18 +562,26 @@ const s2c = {
     },
     spectatorJoined: {
         payload: anyOf(
-            variant('fullState', obj({ ...SPECTATOR_STATE_V1_PROPS, snapshot: ref('snapshotV2') })),
+            variant('fullState', obj({
+                ...SPECTATOR_STATE_V1_PROPS,
+                leadPosition: ref('position'),
+                trumpBroken: bool(),
+                teamTricks: int({ minimum: 0 }),
+                oppTricks: int({ minimum: 0 }),
+                snapshot: ref('snapshotV2'),
+            })),
             variant('notice', obj({ username: str(), spectatorCount: int({ minimum: 0 }) })),
         ),
         status: 'active', to: 'room', seq: false,
-        added: ['snapshot'],
+        added: ['snapshot', 'leadPosition', 'trumpBroken', 'teamTricks', 'oppTricks'],
+        activates: ['leadPosition', 'trumpBroken', 'teamTricks', 'oppTricks'],
         reserved: [
             { key: 'players', why: 'notice only: both clients route a payload with players + trump as the full state' },
             { key: 'trump', why: 'notice only: both clients route a payload with players + trump as the full state' },
         ],
-        clientReads: reads([W.lobby, W.main('onSpectatorJoined')], [I.game('registerSpectatorAndLazy'), I.state('restoreFromSpectator')]),
+        clientReads: reads([W.lobby, W.main('onSpectatorJoined')], [I.game('registerSpectatorAndLazy'), I.state('restoreFromSpectator#reads:leadPosition,trumpBroken,teamTricks,oppTricks')]),
         emittedFrom: ['server/socket/mainRoomHandlers.js:joinAsSpectator', 'server/socket/tournamentHandlers.js:spectateTournamentGame', 'server/socket/seatLifecycle.js:watchSeat'],
-        notes: 'fullState goes to the joining socket only (socket.emit), BEFORE the room notice. The notice reaches the joiner too (ctr-17; V1_REMOVALS #8).',
+        notes: 'fullState goes to the joining socket only (socket.emit), BEFORE the room notice. The notice reaches the joiner too (ctr-17; V1_REMOVALS #8). leadPosition / trumpBroken / teamTricks / oppTricks switch on the shipped iOS restoreFromSpectator reads (ctr-1, ctr-8, ios-8d); web reads none of them.',
     },
 
     // ==================== Profile ====================

@@ -34,9 +34,11 @@ const LEGACY_SPECTATOR_KEYS = [
     'bids', 'playerBids', 'tricks', 'score', 'playedCards', 'isTrumpBroken', 'gameLog', 'spectatorCount'
 ].sort();
 
-// CHANGED (snapshot v2, additive): the full state gains `snapshot`. Read by
-// neither shipped client; the legacy keys above are unchanged.
-const ADDITIVE_SPECTATOR_KEYS = ['snapshot'];
+// CHANGED (snapshot v2, additive): the full state gains `snapshot` (read by
+// neither shipped client) and leadPosition / trumpBroken / teamTricks /
+// oppTricks (the shipped iOS restoreFromSpectator already reads them; web
+// reads none). The legacy keys above are unchanged.
+const ADDITIVE_SPECTATOR_KEYS = ['snapshot', 'leadPosition', 'trumpBroken', 'teamTricks', 'oppTricks'];
 
 const GOLDEN = {
     CREATED: { phase: 'waiting', bidding: true },
@@ -112,6 +114,13 @@ describe('getClientState golden table (forcePhase fixtures)', () => {
         expect(Object.keys(joined.data).sort()).toEqual([...LEGACY_SPECTATOR_KEYS, ...ADDITIVE_SPECTATOR_KEYS].sort());
         expect(joined.data.phase).toBe('bidding');
         expect(joined.data.bidding).toBe(false);
+        // The additive keys the shipped iOS spectator restore reads
+        expect(joined.data).toMatchObject({
+            leadPosition: game.leadPosition,
+            trumpBroken: game.isTrumpBroken,
+            teamTricks: game.tricks.team1,
+            oppTricks: game.tricks.team2,
+        });
     });
 });
 

@@ -6180,6 +6180,20 @@
                 "type": "integer",
                 "minimum": 0
               },
+              "leadPosition": {
+                "$ref": "#/$defs/position"
+              },
+              "trumpBroken": {
+                "type": "boolean"
+              },
+              "teamTricks": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "oppTricks": {
+                "type": "integer",
+                "minimum": 0
+              },
               "snapshot": {
                 "$ref": "#/$defs/snapshotV2"
               }
@@ -6201,6 +6215,10 @@
               "isTrumpBroken",
               "gameLog",
               "spectatorCount",
+              "leadPosition",
+              "trumpBroken",
+              "teamTricks",
+              "oppTricks",
               "snapshot"
             ],
             "additionalProperties": false
@@ -6229,7 +6247,17 @@
       "to": "room",
       "seq": false,
       "added": [
-        "snapshot"
+        "snapshot",
+        "leadPosition",
+        "trumpBroken",
+        "teamTricks",
+        "oppTricks"
+      ],
+      "activates": [
+        "leadPosition",
+        "trumpBroken",
+        "teamTricks",
+        "oppTricks"
       ],
       "reserved": [
         {
@@ -6248,7 +6276,7 @@
         ],
         "ios": [
           "iOSClient/BABOnline/Networking/Handlers/GameSocketHandler.swift:registerSpectatorAndLazy",
-          "iOSClient/BABOnline/State/GameState.swift:restoreFromSpectator"
+          "iOSClient/BABOnline/State/GameState.swift:restoreFromSpectator#reads:leadPosition,trumpBroken,teamTricks,oppTricks"
         ]
       },
       "emittedFrom": [
@@ -6256,7 +6284,7 @@
         "server/socket/tournamentHandlers.js:spectateTournamentGame",
         "server/socket/seatLifecycle.js:watchSeat"
       ],
-      "notes": "fullState goes to the joining socket only (socket.emit), BEFORE the room notice. The notice reaches the joiner too (ctr-17; V1_REMOVALS #8)."
+      "notes": "fullState goes to the joining socket only (socket.emit), BEFORE the room notice. The notice reaches the joiner too (ctr-17; V1_REMOVALS #8). leadPosition / trumpBroken / teamTricks / oppTricks switch on the shipped iOS restoreFromSpectator reads (ctr-1, ctr-8, ios-8d); web reads none of them."
     },
     "profileResponse": {
       "payload": {

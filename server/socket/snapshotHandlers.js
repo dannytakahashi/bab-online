@@ -32,9 +32,14 @@ function snapshotFor(game, sid, opts = {}) {
 }
 
 /**
- * The legacy spectator full state (spectatorJoined to the joining socket):
- * exactly the 16 keys both clients read, in the cc865b4 order. Built after
- * addSpectator (spectatorCount includes the joiner).
+ * The spectator full state (spectatorJoined to the joining socket): the 16
+ * cc865b4 keys in their order, then four additive keys the SHIPPED iOS app
+ * already reads in GameState.restoreFromSpectator but never got (so its
+ * spectators showed no lead, trump never broken and 0-0 tricks):
+ * leadPosition (the same raw value getClientState sends), trumpBroken,
+ * teamTricks / oppTricks (spectators view from seat 1: team 1 is "team").
+ * Web's spectator path reads none of them. Built after addSpectator
+ * (spectatorCount includes the joiner).
  */
 function spectatorJoinState(game) {
     const playerInfo = [];
@@ -65,7 +70,11 @@ function spectatorJoinState(game) {
         playedCards: game.playedCards,
         isTrumpBroken: game.isTrumpBroken,
         gameLog: game.getGameLog(),
-        spectatorCount: game.getSpectators().length
+        spectatorCount: game.getSpectators().length,
+        leadPosition: game.leadPosition,
+        trumpBroken: game.isTrumpBroken,
+        teamTricks: game.tricks.team1,
+        oppTricks: game.tricks.team2
     };
 }
 
