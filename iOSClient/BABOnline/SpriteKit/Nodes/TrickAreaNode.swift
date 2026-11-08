@@ -4,6 +4,12 @@ import SpriteKit
 class TrickAreaNode: SKNode {
     private var trickCards: [Int: SKSpriteNode] = [:]  // position → sprite
 
+    /// Collects in flight (collectTrick until its group completes). While it is
+    /// above 0 the hand is not playable, so the next card cannot be played into
+    /// a table that is still being cleared (server pacing: the winner's
+    /// updateTurn arrives in the same tick as trickComplete).
+    private(set) var collectingCount = 0
+
     /// Positions for each player's card in the trick area (relative to center)
     private func cardOffset(for relPos: Positions.RelativePosition, sceneSize: CGSize) -> CGPoint {
         let scaleX = sceneSize.width / LayoutConstants.referenceWidth
@@ -67,6 +73,7 @@ class TrickAreaNode: SKNode {
         let collecting = trickCards
         trickCards.removeAll()
 
+        collectingCount += 1
         let group = DispatchGroup()
         for (_, sprite) in collecting {
             group.enter()
@@ -76,13 +83,15 @@ class TrickAreaNode: SKNode {
             }
         }
 
-        group.notify(queue: .main) {
+        group.notify(queue: .main) { [weak self] in
+            if let self = self { self.collectingCount = max(0, self.collectingCount - 1) }
             completion()
         }
     }
 
     /// Remove all trick cards immediately
     func clearAllCards() {
+        collectingCount = 0
         trickCards.values.forEach { $0.removeFromParent() }
         trickCards.removeAll()
         // Also drop sprites still mid-collect (no longer in trickCards), so a cleanup

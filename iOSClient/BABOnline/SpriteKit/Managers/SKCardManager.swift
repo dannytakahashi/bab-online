@@ -37,8 +37,10 @@ class SKCardManager {
 
         let sortedCards = gs.sortedHand
         let legalCards: [Card]
+        // The collect completion calls updateHand again
+        let collecting = scene.trickManager?.isCollecting ?? false
 
-        if gs.isMyTurn && gs.phase == .playing && !gs.hasPlayedCard {
+        if gs.isMyTurn && gs.phase == .playing && !gs.hasPlayedCard && !collecting {
             legalCards = CardLegality.getLegalCards(
                 hand: sortedCards,
                 lead: gs.leadCard,
@@ -58,6 +60,8 @@ class SKCardManager {
 
     private func handleCardPlay(_ card: Card) {
         guard let gs = gameState, gs.isMyTurn, !gs.hasPlayedCard, gs.phase == .playing, !gs.isReadOnly else { return }
+        // Not while the previous trick is still flying to its winner
+        guard !(scene?.trickManager?.isCollecting ?? false) else { return }
 
         // Legality check
         let result = CardLegality.isLegalMove(
