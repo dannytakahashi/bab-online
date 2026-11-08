@@ -304,6 +304,35 @@ final class GameState: ObservableObject {
 
     // MARK: - Bids
 
+    /// Per-seat bids from a rejoin/restore payload. The server sends them as
+    /// `playerBids` (array indexed by position - 1; `bids` holds team totals
+    /// {team1, team2}), so reading only `bids` showed "-/-" after a rejoin and
+    /// offered the wrong bore levels when rejoining mid-bidding. A
+    /// position-keyed `bids` dictionary is still accepted as a fallback.
+    private func restoreBids(from data: [String: Any]) {
+        func bidString(_ val: Any?) -> String? {
+            if let s = val as? String { return s }
+            if let i = val as? Int { return String(i) }
+            return nil
+        }
+        var restored: [Int: String] = [:]
+        if let arr = data["playerBids"] as? [Any] {
+            for (i, val) in arr.enumerated() where i < 4 {
+                if let b = bidString(val) { restored[i + 1] = b }
+            }
+        } else if let dict = data["bids"] as? [String: Any] {
+            for (key, val) in dict {
+                if let pos = Int(key), let b = bidString(val) { restored[pos] = b }
+            }
+        } else {
+            return  // payload carries no bids; keep what we have
+        }
+        bids = restored
+        // Bore availability only checks membership, so seat order is fine here
+        tempBids = (1...4).compactMap { restored[$0]?.uppercased() }
+        updateTeamBids()
+    }
+
     func recordBid(position pos: Int, bid: String) {
         bids[pos] = bid
         tempBids.append(bid.uppercased())
@@ -432,20 +461,8 @@ final class GameState: ObservableObject {
             myCards = Card.arrayFrom(handArr)
         }
 
-        if let bidsDict = data["bids"] as? [String: Any] {
-            bids = [:]
-            for (key, val) in bidsDict {
-                if let pos = Int(key) {
-                    // Bids can be Int or String from server
-                    if let bidInt = val as? Int {
-                        bids[pos] = String(bidInt)
-                    } else if let bidStr = val as? String {
-                        bids[pos] = bidStr
-                    }
-                }
-            }
-            updateTeamBids()
-        }
+        // Restore bids
+        restoreBids(from: data)
 
         if let tt = data["teamTricks"] as? Int { teamTricks = tt }
         if let ot = data["oppTricks"] as? Int { oppTricks = ot }
@@ -596,19 +613,7 @@ final class GameState: ObservableObject {
         currentTurn = data["currentTurn"] as? Int
 
         // Restore bids
-        if let bidsDict = data["bids"] as? [String: Any] {
-            bids = [:]
-            for (key, val) in bidsDict {
-                if let pos = Int(key) {
-                    if let bidInt = val as? Int {
-                        bids[pos] = String(bidInt)
-                    } else if let bidStr = val as? String {
-                        bids[pos] = bidStr
-                    }
-                }
-            }
-            updateTeamBids()
-        }
+        restoreBids(from: data)
 
         // Restore scores
         if let score = data["score"] as? [String: Any] {
