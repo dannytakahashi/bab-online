@@ -303,6 +303,26 @@ describe('4. first-hand pause', () => {
         expect(turns).toHaveLength(1);
         expect(turns[0].data.currentTurn).toBe(game.currentTurn);
     });
+
+    test('an all-zero redeal during it does not let the stale continuation re-send updateTurn', async () => {
+        const { io, log } = newIo();
+        const { game, ids, sockets } = drawingGame('f', { io });
+        drawAll(io, game, sockets, [], log);
+        await advanceUntil(() => game.stage === Phase.BIDDING, 50);
+
+        for (let i = 0; i < 4; i++) {
+            const bidder = sockets[ids.indexOf(game.positions[game.currentTurn])];
+            await gameHandlers.playerBid(bidder, io, { bid: '0' });
+        }
+        const names = log.map((l) => l.event);
+        const redeal = names.lastIndexOf('destroyHands');
+        expect(redeal).toBeGreaterThan(-1);
+        await jest.advanceTimersByTimeAsync(2000);
+
+        const turns = events(log.slice(redeal), 'updateTurn');
+        expect(turns).toHaveLength(1);
+        expect(turns[0].data.currentTurn).toBe(game.currentTurn);
+    });
 });
 
 describe('5. abort with bot and lazy timers pending', () => {

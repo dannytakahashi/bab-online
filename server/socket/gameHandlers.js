@@ -581,6 +581,9 @@ async function dealHand(game, io, { dealer, handSize, firstHand = false }) {
     }
     // Hand 1 passes (1, 12), which equals the constructor defaults (bidder 2)
     game.resetForNewHand(dealer, handSize);
+    // Identifies this deal so a stale continuation (e.g. the first-hand
+    // pause outliving an all-zero redeal) can tell it is no longer current
+    const dealSeq = game.dealSeq = (game.dealSeq || 0) + 1;
 
     // Initialize new deck and deal
     const deck = new Deck();
@@ -664,7 +667,7 @@ async function dealHand(game, io, { dealer, handSize, firstHand = false }) {
         if (!(await game.pause(1000))) return;
         // A bid during the pause already sent updateTurn and triggered the
         // next bot; repeating them would double-schedule it
-        if (game.stage !== Phase.BIDDING || game.getBidCount() > 0) return;
+        if (game.stage !== Phase.BIDDING || game.dealSeq !== dealSeq || game.getBidCount() > 0) return;
     }
 
     game.broadcast(io, 'updateTurn', { currentTurn: game.currentTurn });
