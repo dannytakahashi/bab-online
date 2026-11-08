@@ -22,7 +22,13 @@ async function isAuthorizedForUser(socket, username, sessionToken) {
     if (authed && authed.username === username) return true;
     if (!sessionToken) return false;
     try {
-        const usersCollection = getUsersCollection();
+        // Cold start (connectDB still running): wait like signIn/restoreSession
+        // do, instead of refusing a web reload's rejoin
+        let usersCollection = getUsersCollection();
+        if (!usersCollection) {
+            await require('../database').whenReady?.(10000);
+            usersCollection = getUsersCollection();
+        }
         const user = await usersCollection.findOne(
             { username },
             { projection: { sessionTokens: 1, sessionToken: 1 } }

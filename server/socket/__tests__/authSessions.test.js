@@ -389,6 +389,16 @@ describe('cold start (connectDB still running)', () => {
         expect(lastEmit(s, 'signUpResponse')).toEqual({ success: false, message: 'Database not ready. Try again.' });
     });
 
+    test('a token rejoin (web reload) waits too instead of "Not authenticated"', async () => {
+        const { sessionToken } = await signIn(connect());
+        mockDb.cold = true;
+        mockDb.whenReady = async () => { mockDb.cold = false; return true; };
+        const reconnect = require('../reconnectHandlers');
+        const s = connect();
+        await reconnect.rejoinGame(s, io, { gameId: 'gone', username: 'Alan', sessionToken });
+        expect(lastEmit(s, 'rejoinFailed')).toEqual({ reason: 'Game no longer exists' });
+    });
+
     test('database.whenReady times out to false before connectDB ever ran', async () => {
         const { whenReady } = jest.requireActual('../../database');
         await expect(whenReady(5)).resolves.toBe(false);
