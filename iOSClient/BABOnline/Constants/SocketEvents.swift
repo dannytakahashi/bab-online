@@ -1,6 +1,6 @@
 import Foundation
 
-/// All socket event name constants — must match server's events.js exactly.
+/// Generated from contract/events.schema.json by npm run contract:gen — do not edit
 enum SocketEvents {
     // MARK: - Client → Server
 
@@ -66,6 +66,9 @@ enum SocketEvents {
         static let voiceOffer = "voiceOffer"
         static let voiceAnswer = "voiceAnswer"
         static let voiceIceCandidate = "voiceIceCandidate"
+
+        // Snapshot v2
+        static let requestSnapshot = "requestSnapshot"
     }
 
     // MARK: - Server → Client
@@ -88,6 +91,7 @@ enum SocketEvents {
         static let mainRoomMessage = "mainRoomMessage"
         static let mainRoomPlayerJoined = "mainRoomPlayerJoined"
         static let lobbiesUpdated = "lobbiesUpdated"
+        static let mainRoomPlayerLeft = "mainRoomPlayerLeft"
 
         // Lobby
         static let lobbyCreated = "lobbyCreated"
@@ -172,5 +176,9 @@ enum SocketEvents {
         // Connection
         static let connect = "connect"
         static let disconnect = "disconnect"
+        static let serverShutdown = "serverShutdown"
+
+        // Snapshot v2
+        static let stateSnapshot = "stateSnapshot"
     }
 }

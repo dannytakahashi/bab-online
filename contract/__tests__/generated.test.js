@@ -28,7 +28,8 @@ describe('layout rules', () => {
     test('an unknown name, a missing active event and a new deprecated constant are refused', () => {
         const l = layout();
         l.web.CLIENT_EVENTS[0].events.push('notAnEvent');
-        delete l.exclude.web.restoreSession;
+        const auth = l.web.CLIENT_EVENTS.find((sec) => sec.section === 'Auth');
+        auth.events = auth.events.filter((e) => e !== 'restoreSession');
         l.swift.Server[0].events.push('queueUpdate');
         const legacy = { web: [], swift: [] };
         const problems = gen.checkLayout(l, schema, legacy).join('\n');
