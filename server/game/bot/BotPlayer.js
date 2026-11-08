@@ -189,17 +189,25 @@ class BotPlayer {
      * Exactly one Math.random() per call, on every path, so seeded games
      * keep their RNG stream positions.
      * @param {string} actionType - 'draw', 'bid', or 'play'
+     * @param {Object} [opts]
+     * @param {string} [opts.kind] - bid: 'firstBid' (first bid of the deal);
+     *   play: 'afterBidding' (opening lead), 'afterTrick' (lead after a
+     *   trick, the last card included), 'forced' (a follow with exactly one
+     *   legal card); otherwise the ordinary range
      * @returns {number} - Delay in milliseconds
      */
-    getActionDelay(actionType) {
+    getActionDelay(actionType, { kind } = {}) {
         const r = Math.random();
         const p = pacing();
         switch (actionType) {
             case 'draw':
                 return pacing.fromRange(p.BOT_DRAW, r);
             case 'bid':
-                return pacing.fromRange(p.BOT_BID, r);
+                return pacing.fromRange(kind === 'firstBid' ? p.BOT_FIRST_BID : p.BOT_BID, r);
             case 'play':
+                if (kind === 'afterBidding') return pacing.fromRange(p.BOT_LEAD_AFTER_BIDDING, r);
+                if (kind === 'afterTrick') return pacing.fromRange(p.BOT_LEAD_AFTER_TRICK, r);
+                if (kind === 'forced') return pacing.fromRange(p.BOT_FORCED_PLAY, r);
                 return pacing.fromRange(p.BOT_PLAY, r);
             default:
                 return pacing.fromRange(p.BOT_CHAT, r);

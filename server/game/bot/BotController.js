@@ -7,6 +7,7 @@ const BotPlayer = require('./BotPlayer');
 const { gameLogger } = require('../../utils/logger');
 const { Phase } = require('../GamePhase');
 const pacing = require('../pacing');
+const { getLegalCards } = require('./BotStrategy');
 
 const PLAY_STAGES = [Phase.PLAYING, Phase.TRICK_RESOLVING, Phase.HAND_RESOLVING];
 
@@ -94,6 +95,23 @@ class BotController {
     }
 
     /**
+     * Which think-time range a bot action uses (no RNG; read at schedule
+     * time, which is always at or after the event that opened the turn):
+     * bid 'firstBid' | 'bid'; play 'afterBidding' | 'afterTrick' (any lead
+     * after a trick, the forced last card included) | 'forced' (a follow
+     * with exactly one legal card) | 'follow'.
+     */
+    actionKind(game, actionType, bot) {
+        if (actionType === 'bid') return game.getBidCount() === 0 ? 'firstBid' : 'bid';
+        if (actionType !== 'play') return null;
+        if (game.playedCardsIndex === 0) return game.cardIndex === 0 ? 'afterBidding' : 'afterTrick';
+        const hand = game.getHand(bot.socketId) || [];
+        if (!game.trump || !game.leadCard) return 'follow';
+        const legal = getLegalCards(hand, game.leadCard, false, game.trump, game.isTrumpBroken, bot.position, game.leadPosition);
+        return legal.length === 1 ? 'forced' : 'follow';
+    }
+
+    /**
      * Schedule a bot action with delay
      * @param {Object} io - Socket.IO server
      * @param {Object} game - GameState
@@ -118,8 +136,9 @@ class BotController {
             return;
         }
 
-        const delay = bot.getActionDelay(actionType);
-        pacing.trace(actionType === 'bid' ? 'botBid' : 'botPlay', delay, game);
+        const kind = this.actionKind(game, actionType, bot);
+        const delay = bot.getActionDelay(actionType, { kind });
+        pacing.trace(`${actionType === 'bid' ? 'botBid' : 'botPlay'}:${kind}`, delay, game);
         const actionKey = `${game.gameId}:${player.socketId}:${actionType}`;
 
         // Clear any existing pending action
