@@ -29,6 +29,8 @@ function makeSocket(id, log, io = null) {
         id,
         data: {},
         emit: (event, data) => log.push({ to: `self:${id}`, event, data, at: Date.now() }),
+        // socket.to(room).emit: everyone in the room but this socket
+        to: (room) => ({ emit: (event, data) => log.push({ to: room, except: id, event, data, at: Date.now() }) }),
         join(room) {
             if (!io) return;
             if (!io.rooms.has(room)) io.rooms.set(room, new Set());
