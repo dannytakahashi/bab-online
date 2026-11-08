@@ -661,7 +661,7 @@ describe('seeded tournament chaos: cancel / leave / disconnect at random times',
     const { mulberry32 } = require('../../testUtils/gameDriver');
     const SEEDS = Math.max(4, Math.floor((Number(process.env.CHAOS_SEEDS) || 200) / 25));
 
-    test(`${SEEDS} seeds end with no game, mapping or pointer left behind`, async () => {
+    test(`${SEEDS} seeds end with no live game or tournament mapping left; a cancel leaves no member mapping or DB pointer`, async () => {
         const realRandom = Math.random;
         const stats = { cancelledTables: 0, cancelledInStart: 0 };
         try {
@@ -707,6 +707,17 @@ describe('seeded tournament chaos: cancel / leave / disconnect at random times',
                     if (cancelIdx >= 0) {
                         const late = ctx.log.slice(cancelIdx).filter((l) => START_EVENTS.includes(l.event) || RESULT_EVENTS.includes(l.event));
                         expect({ seed, late }).toEqual({ seed, late: [] });
+                        // A cancel leaves no mapping or DB pointer behind
+                        // for any member (abandonment deletes are not
+                        // checked: a disconnected member's activeTournamentId
+                        // is cleared at its next sign-in)
+                        const mapped = ctx.sockets.filter((s) => gameManager.playerGames.has(s.id) ||
+                            gameManager.spectatorGames.has(s.id) || gameManager.playerTournaments.has(s.id)).map((s) => s.id);
+                        expect({ seed, mapped }).toEqual({ seed, mapped: [] });
+                        const pointers = ctx.usernames.map((u) => mockDb.current.users.docs.find((d) => d.username === u))
+                            .filter((d) => d.activeTournamentId !== undefined || d.activeGameId !== undefined)
+                            .map((d) => ({ u: d.username, t: d.activeTournamentId, g: d.activeGameId }));
+                        expect({ seed, pointers }).toEqual({ seed, pointers: [] });
                     }
                     expect({ seed, mapped: [...gameManager.tournamentGames.values()].filter((v) => v === tid) }).toEqual({ seed, mapped: [] });
                 }
