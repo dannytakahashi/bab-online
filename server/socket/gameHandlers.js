@@ -122,7 +122,14 @@ async function handlePostBid(io, game) {
         const lead = findHighestBidder(game.bidder, bids) + 1;
 
         if (!game.transition(Phase.BIDDING, Phase.PLAYING)) return;
-        game.broadcast(io, 'doneBidding', { bids, lead });
+        // teamBids / mults: additive (read by neither shipped client; v2
+        // and future clients use them instead of re-deriving the bores)
+        game.broadcast(io, 'doneBidding', {
+            bids,
+            lead,
+            teamBids: { team1: game.bids.team1, team2: game.bids.team2 },
+            mults: { team1: game.team1Mult, team2: game.team2Mult }
+        });
 
         game.currentTurn = lead;
         game.leadPosition = lead;

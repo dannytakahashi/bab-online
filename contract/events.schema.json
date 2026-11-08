@@ -3571,6 +3571,42 @@
       ],
       "notes": "socket.to(mainRoom): everyone in the main room but the joiner."
     },
+    "mainRoomPlayerLeft": {
+      "payload": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string"
+          },
+          "onlineCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "onlineUsers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "username",
+          "onlineCount",
+          "onlineUsers"
+        ],
+        "additionalProperties": false
+      },
+      "status": "active",
+      "to": "mainRoom",
+      "clientReads": {
+        "web": [],
+        "ios": []
+      },
+      "emittedFrom": [
+        "server/socket/queueHandlers.js:handleDisconnect"
+      ],
+      "notes": "New: the user's last socket disconnected (the online list shrank). Counterpart of mainRoomPlayerJoined. A sign-out that keeps the socket open is not covered. Current builds ignore it and keep a stale count (ctr-21)."
+    },
     "lobbiesUpdated": {
       "payload": {
         "type": "object",
@@ -4550,17 +4586,44 @@
           },
           "lead": {
             "$ref": "#/$defs/position"
+          },
+          "teamBids": {
+            "$ref": "#/$defs/teamPair"
+          },
+          "mults": {
+            "type": "object",
+            "properties": {
+              "team1": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "team2": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "required": [
+              "team1",
+              "team2"
+            ],
+            "additionalProperties": false
           }
         },
         "required": [
           "bids",
-          "lead"
+          "lead",
+          "teamBids",
+          "mults"
         ],
         "additionalProperties": false
       },
       "status": "active",
       "to": "room",
       "seq": false,
+      "added": [
+        "teamBids",
+        "mults"
+      ],
       "clientReads": {
         "web": [
           "client/src/handlers/gameHandlers.js:registerGameHandlers"
@@ -4572,7 +4635,7 @@
       "emittedFrom": [
         "server/socket/gameHandlers.js:handlePostBid"
       ],
-      "notes": "Web reads bids and lead; iOS reads lead. Not sent for an all-zero redeal."
+      "notes": "Web reads bids and lead; iOS reads lead. teamBids (capped at the hand size) and mults (bore multipliers) are additive and read by neither shipped client. Not sent for an all-zero redeal."
     },
     "updateTurn": {
       "payload": {

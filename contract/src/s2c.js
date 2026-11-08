@@ -169,6 +169,13 @@ const s2c = {
         emittedFrom: ['server/socket/mainRoomHandlers.js:joinMainRoom'],
         notes: 'socket.to(mainRoom): everyone in the main room but the joiner.',
     },
+    mainRoomPlayerLeft: {
+        payload: obj({ username: str(), onlineCount: int({ minimum: 0 }), onlineUsers: arr(str()) }),
+        status: 'active', to: 'mainRoom',
+        clientReads: reads([], []),
+        emittedFrom: ['server/socket/queueHandlers.js:handleDisconnect'],
+        notes: "New: the user's last socket disconnected (the online list shrank). Counterpart of mainRoomPlayerJoined. A sign-out that keeps the socket open is not covered. Current builds ignore it and keep a stale count (ctr-21).",
+    },
     lobbiesUpdated: {
         payload: obj(lobbyLists),
         status: 'active', to: 'mainRoom',
@@ -350,11 +357,12 @@ const s2c = {
         notes: 'bid echoes the client value: an Int from iOS numeric bids (ctr-22).',
     },
     doneBidding: {
-        payload: obj({ bids: ref('bidArray'), lead: ref('position') }),
+        payload: obj({ bids: ref('bidArray'), lead: ref('position'), teamBids: ref('teamPair'), mults: obj({ team1: int({ minimum: 1 }), team2: int({ minimum: 1 }) }) }),
         status: 'active', to: 'room', seq: false,
+        added: ['teamBids', 'mults'],
         clientReads: reads(W.game, I.game('registerBiddingPhase')),
         emittedFrom: ['server/socket/gameHandlers.js:handlePostBid'],
-        notes: 'Web reads bids and lead; iOS reads lead. Not sent for an all-zero redeal.',
+        notes: 'Web reads bids and lead; iOS reads lead. teamBids (capped at the hand size) and mults (bore multipliers) are additive and read by neither shipped client. Not sent for an all-zero redeal.',
     },
     updateTurn: {
         payload: anyOf(

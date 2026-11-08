@@ -415,7 +415,12 @@ describe('(e) non-game handlers', () => {
         // Account deletion, and the last socket of a user going away
         await authHandlers.deleteAccount(c, w.io, { password: 'wrong' });
         await authHandlers.deleteAccount(c, w.io, { password: 'pw1' });
+        const online = gameManager.getOnlineUsernames().length;
         await w.kill(d);
+        const left = events(w.log, 'mainRoomPlayerLeft');
+        expect(left).toHaveLength(1);
+        expect(left[0]).toMatchObject({ to: 'mainRoom', data: { username: 'e_dora', onlineCount: online - 1 } });
+        expect(left[0].data.onlineUsers).not.toContain('e_dora');
         await w.kill(e);
         expect(errorLogs.filter((x) => !/Failed|failed|Error/.test(String(x.msg)))).toEqual([]);
     }, 30000);
