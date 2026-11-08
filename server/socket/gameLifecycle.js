@@ -51,7 +51,8 @@ async function abortGame(io, game, reason) {
 
 /**
  * Open the draw (CREATED -> DRAWING): shuffle a deck, announce startDraw,
- * schedule every registered bot's draw, and replay departures that happened
+ * arm the 30s draw watchdog (seatLifecycle.startDrawWatchdog), schedule
+ * every registered bot's draw, and replay departures that happened
  * while the game sat in CREATED (lobby/tournament countdown): each departed
  * socket auto-draws now, and handleDrawComplete later seats it as a resign
  * bot (left) or a disconnected seat — or aborts if every human left.
@@ -71,6 +72,9 @@ function beginDraw(io, game, { announce = true } = {}) {
     game.deck = deck;
 
     if (announce) game.broadcast(io, 'startDraw', { start: true });
+
+    // The draw ends within DRAW_WATCHDOG_MS whatever the sockets do
+    require('./seatLifecycle').startDrawWatchdog(io, game);
 
     // Bots draw on staggered timers, in registration order
     let drawOrder = 0;

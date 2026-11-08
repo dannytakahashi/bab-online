@@ -20,6 +20,7 @@
 
 const gameManager = require('../game/GameManager');
 const { botController, personalities } = require('../game/bot');
+const { Phase } = require('../game/GamePhase');
 const SeatState = require('../game/SeatState');
 const { socketLogger } = require('../utils/logger');
 
@@ -440,6 +441,37 @@ function leaveSeat(io, game, pos, socket) {
     return true;
 }
 
+// ==================== draw watchdog ====================
+
+/**
+ * Armed when the draw opens (gameLifecycle.beginDraw): DRAW_WATCHDOG_MS
+ * later every entrant that still has not drawn (an idle connected human, or
+ * anyone whose own draw never happened) gets a random card, so DRAWING can
+ * never wedge. Disconnected / departed entrants are auto-drawn at once
+ * elsewhere and bots draw within a few seconds, so in practice this only
+ * catches a connected human who did not tap for 30s. handleDrawComplete
+ * clears it.
+ */
+function startDrawWatchdog(io, game) {
+    game.setTimer('draw:watchdog', DRAW_WATCHDOG_MS, () => {
+        if (game.stage !== Phase.DRAWING) return;
+        const { autoDraw, handleDrawComplete } = require('./gameHandlers');
+        for (const e of game.entrants ? Array.from(game.entrants.values()) : []) {
+            if (game.drawIDs.includes(e.socketId)) continue;
+            const name = e.isBot ? (botController.getBot(game.gameId, e.socketId)?.username || 'Bot') : (e.username || 'Player');
+            const d = autoDraw(io, game, e.socketId, name);
+            if (d && !e.isBot && e.presence === 'connected' && io.sockets.sockets.has(e.socketId)) {
+                // Same payload the drawer's own draw() would have sent
+                game.sendToPlayer(io, e.socketId, 'youDrew', { card: d.card, drawOrder: d.drawOrder });
+            }
+            socketLogger.info('Draw watchdog auto-drew', { gameId: game.gameId, socketId: e.socketId, presence: e.presence });
+        }
+        if (game.drawIndex === 4) {
+            return handleDrawComplete(io, game);
+        }
+    });
+}
+
 module.exports = {
     RECONNECT_GRACE_MS,
     ABANDON_MS,
@@ -457,5 +489,6 @@ module.exports = {
     leaveSeat,
     maybeAbort,
     reofferAfter,
-    replayPresenceTo
+    replayPresenceTo,
+    startDrawWatchdog
 };

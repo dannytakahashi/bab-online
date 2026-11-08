@@ -241,9 +241,7 @@ async function runSeed(seed) {
                 if (seat.presence === 'resignable' && game.hasPresentHuman()) return true;
             }
         }
-        if (game.stage === Phase.DRAWING) {
-            if (connectedHumans().some((h) => gameManager.playerGames.get(h.sid) === gameId && !game.drawIDs.includes(h.sid))) return true;
-        }
+        // (DRAWING needs no special case: the draw watchdog is a pending timer)
         return false;
     };
 

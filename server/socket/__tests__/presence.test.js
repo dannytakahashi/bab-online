@@ -22,6 +22,8 @@ const reconnectHandlers = require('../reconnectHandlers');
 const mainRoomHandlers = require('../mainRoomHandlers');
 const tournamentHandlers = require('../tournamentHandlers');
 const profileHandlers = require('../profileHandlers');
+const lobbyHandlers = require('../lobbyHandlers');
+const gameLifecycle = require('../gameLifecycle');
 const { botController, personalities } = require('../../game/bot');
 const { Phase } = require('../../game/GamePhase');
 const { makeIo, makeSocket, events, legalCards, resignedSeat } = require('../../testUtils/gameDriver');
@@ -617,5 +619,86 @@ describe('R21 joinAsSpectator by an owner returns them to their seat', () => {
         expect(t.game.seat(1)).toMatchObject({ controller: 'human', presence: 'connected', seatSocketId: s.id });
         expect(events(t.log, 'playerReconnected')).toHaveLength(1);
         expect(t.game.hasTimer('grace:1')).toBe(false);
+    });
+});
+
+describe('R13/R14 draw watchdog (srv-2)', () => {
+    /** 4 humans (+ optional lobby bots) through createGame + beginDraw. */
+    function drawTable(humans = 4) {
+        seq++;
+        const log = [];
+        const io = makeIo(log);
+        const ids = Array.from({ length: humans }, (_, i) => `dw${seq}-h${i + 1}`);
+        ids.forEach((id, i) => {
+            gameManager.registerUser(id, `dw${seq}u${i + 1}`);
+            mockDb.current.users._insert({ username: `dw${seq}u${i + 1}` });
+        });
+        const bots = Array.from({ length: 4 - humans }, (_, i) => botController.createBot(`🤖 W${i}`, ['mary', 'sharon', 'danny'][i]));
+        const game = gameManager.createGame([...ids, ...bots.map((b) => b.socketId)]);
+        bots.forEach((b) => botController.registerBot(game.gameId, b));
+        const sockets = ids.map((id) => makeSocket(id, log, io));
+        sockets.forEach((s) => s.join(game.roomName));
+        gameLifecycle.beginDraw(io, game);
+        return { log, io, game, ids, sockets };
+    }
+
+    test('R13 an idle connected human is auto-drawn at 30s, not before', async () => {
+        const d = drawTable();
+        expect(d.game.hasTimer('draw:watchdog')).toBe(true);
+        const pending = d.sockets.slice(1).map((s) => gameHandlers.draw(s, d.io, { num: 0 }));
+        await jest.advanceTimersByTimeAsync(29900);
+        expect(d.game.drawIDs).not.toContain(d.ids[0]);
+        expect(d.game.stage).toBe(Phase.DRAWING);
+        await jest.advanceTimersByTimeAsync(100);
+        const mine = d.log.filter((l) => l.to === `self:${d.ids[0]}` || l.to === d.ids[0]).filter((l) => l.event === 'youDrew');
+        expect(mine).toHaveLength(1);
+        expect(mine[0].data).toEqual({ card: expect.any(Object), drawOrder: 4 });
+        expect(events(d.log, 'playerDrew').filter((l) => l.data.socketId === d.ids[0])).toHaveLength(1);
+        await jest.advanceTimersByTimeAsync(7000);
+        await Promise.all(pending);
+        expect(d.game.stage).toBe(Phase.BIDDING);
+        expect(d.game.seatPresence(d.game.seatBySocket(d.ids[0]))).toBe('connected');
+        // A late click is refused by the duplicate guard
+        expect(d.game.recordDraw(d.ids[0], 0)).toBeNull();
+    });
+
+    test('R13 a draw everyone finished in time clears the watchdog; a disconnect still auto-draws at once', async () => {
+        const d = drawTable();
+        await drop({ io: d.io }, d.sockets[3]);
+        expect(d.game.drawIDs).toEqual([d.ids[3]]);
+        const pending = d.sockets.slice(0, 3).map((s) => gameHandlers.draw(s, d.io, { num: 0 }));
+        expect(d.game.hasTimer('draw:watchdog')).toBe(false);
+        await jest.advanceTimersByTimeAsync(40000);
+        await Promise.all(pending);
+        expect(d.game.stage).toBe(Phase.BIDDING);
+        expect(d.log.filter((l) => l.event === 'youDrew')).toHaveLength(3);
+    });
+
+    test('R14 the real lobby countdown: a CREATED disconnect ends in a grace seat announced after positionUpdate', async () => {
+        seq++;
+        const log = [];
+        const io = makeIo(log);
+        const ids = [1, 2, 3].map((n) => `lc${seq}-h${n}`);
+        ids.forEach((id, i) => {
+            gameManager.registerUser(id, `lc${seq}u${i}`);
+            mockDb.current.users._insert({ username: `lc${seq}u${i}` });
+        });
+        const sockets = ids.map((id) => makeSocket(id, log, io));
+        const lobby = gameManager.createLobby(ids);
+        gameManager.addBotToLobby(lobby.id);
+        const ready = sockets.map((s) => lobbyHandlers.playerReady(s, io));
+        await jest.advanceTimersByTimeAsync(1500 + 500); // game created, inside the 2s pause
+        const game = gameManager.getPlayerGame(ids[0]);
+        expect(game.stage).toBe(Phase.CREATED);
+        await drop({ io }, sockets[0]);
+        // Nobody else draws: the bot draws by itself, the watchdog does the rest
+        await jest.advanceTimersByTimeAsync(1600 + 30000 + 7000);
+        await Promise.all(ready);
+        expect(game.stage).toBe(Phase.BIDDING);
+        const pos = game.seatByUsername(`lc${seq}u0`);
+        expect(game.seatPresence(pos)).toBe('grace');
+        const names = log.map((l) => l.event);
+        expect(names.indexOf('playerDisconnected')).toBeGreaterThan(names.indexOf('positionUpdate'));
+        expect(events(log, 'playerDisconnected').map((l) => l.data.position)).toEqual([pos]);
     });
 });

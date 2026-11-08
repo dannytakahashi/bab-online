@@ -274,7 +274,9 @@ function autoDraw(io, game, socketId, username) {
  * call it; the DRAWING -> DRAW_RESOLVING latch makes it run exactly once.
  */
 async function handleDrawComplete(io, game) {
-    if (game.drawIDs.length !== 4 || !game.tryTransition(Phase.DRAWING, Phase.DRAW_RESOLVING)) return;
+    if (game.drawIDs.length !== 4) return;
+    game.clearTimer('draw:watchdog');
+    if (!game.tryTransition(Phase.DRAWING, Phase.DRAW_RESOLVING)) return;
     const alive = game.aliveCheck();
 
     // Fetch saved profile pics for all players
