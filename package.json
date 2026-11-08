@@ -40,7 +40,8 @@
     "jest": {
         "testEnvironment": "node",
         "roots": [
-            "<rootDir>/server"
+            "<rootDir>/server",
+            "<rootDir>/contract"
         ],
         "testMatch": [
             "**/__tests__/**/*.js",
