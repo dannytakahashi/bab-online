@@ -102,7 +102,7 @@ bab-online/
 1. **Auth**: `signIn`/`signUp` → `signInResponse` (includes `blockedUsers`; `deleteAccount` → `deleteAccountResponse` for in-app account deletion); `restoreSession` resumes a saved per-device token without a password
 2. **Lobby**: `joinQueue` → `lobbyCreated` → `playerReadyUpdate` → `allPlayersReady`
 3. **Draw**: `startDraw` → `draw` → `playerDrew` → `teamsAnnounced`
-4. **Bidding**: `gameStart` → `updateTurn` → `playerBid` → `bidReceived` → `doneBidding`
+4. **Bidding**: `gameStart` → `updateTurn` → `playerBid` → `bidReceived` → `doneBidding` (if both teams bid 0 there is no `doneBidding`: the server sends a log entry, `destroyHands` and a fresh `gameStart` for the redeal)
 5. **Play**: `updateTurn` → `playCard` → `cardPlayed` → `trickComplete` → `handComplete`
 6. **End**: `gameEnd` (payload always includes `tournamentId`, null for casual games)
 
@@ -141,7 +141,9 @@ npm run sim          # Bot-vs-bot simulation (tuning/regression; see server/game
 - Socket rooms: players join `game:{gameId}` for broadcasts; tournaments use `tournament:{tournamentId}`
 - Event constants in `client/src/constants/events.js` (web) and `iOSClient/.../Constants/SocketEvents.swift` (iOS) prevent typos — keep all three sides of the contract in sync
 - Card legality logic duplicated in `server/game/rules.js`, `client/src/rules/legality.js`, and `iOSClient/.../Rules/CardLegality.swift`
-- In-game leave is a chat command (`/leave`, `/lazy`, `/active`) routed through `chatMessage` — both clients' Leave buttons send `/leave`; it also works during the draw phase (before positions exist)
+- In-game leave is a chat command (`/leave`, `/lazy`, `/active`) routed through `chatMessage` — both clients' Leave buttons send `/leave`; it also works during the draw phase (before positions exist): when seats are assigned (`handleDrawComplete`) a draw-phase leaver's seat goes straight to a bot (recorded as resigned) and the game aborts if every human left; a draw-phase disconnect gets the normal 60s reconnect grace timer (`startReconnectGraceTimer`), after which the others get `resignationAvailable`
+- A resigned player who rejoins comes back as a lazy spectator; `/active` then makes the seat fully human again (clears `isBot` and the `resignedPlayers` entry, cancels the resign bot). `/active` re-sends `updateTurn` to the returning socket while a hand is in progress (not mid trick resolution; the spectator path sends `restorePlayerState` instead)
+- `users.username` has a unique index, created at startup (`ensureUsernameIndex`); if existing duplicates block it the server logs a warning and runs without it. `signUp` treats a duplicate-key error as "Username already taken". Active-game DB writes (`setActiveGame`, `clearActiveGameForAll`) skip bots and target the human behind lazy/resigned seats; `clearActiveGameForAll` only clears users whose `activeGameId` is still that game (a leaver may be in another game by then)
 - Account deletion (`authHandlers.deleteAccount`) requires an authenticated socket + password re-confirm; it anonymizes the username in `gameRecords`
 - Express pages: `/privacy`, `/support`, `/terms` (App Store compliance copy lives in `server/routes/index.js`)
 - Ambient bot activity (`server/demo/ambientBots.js`): keeps one spectatable bot-vs-bot game running and seeds main-room chat with bot-persona messages, so the app is never an empty room (added for App Review Guideline 2.1(a) — reviewers must see other users' chats and games). On by default in production; `AMBIENT_BOTS=true|false` overrides

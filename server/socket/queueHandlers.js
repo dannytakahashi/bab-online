@@ -88,9 +88,6 @@ const RECONNECT_GRACE_PERIOD = 60000;
 async function handleDisconnect(socket, io) {
     const result = gameManager.handleDisconnect(socket.id);
 
-    // Update queue display
-    io.emit('queueUpdate', { queuedUsers: gameManager.getQueueStatus().queuedUsers });
-
     // Leave main room Socket.IO room
     socket.leave('mainRoom');
 
@@ -174,8 +171,9 @@ async function handleDisconnect(socket, io) {
             if (!result.game._drawPhaseDisconnects) result.game._drawPhaseDisconnects = {};
             result.game._drawPhaseDisconnects[socket.id] = { username };
 
-            // Log disconnect
-            result.game.broadcast(io, 'playerDisconnected', { position: null, username });
+            // Log disconnect. No playerDisconnected here: there is no seat yet
+            // (iOS would file position:null under 0 and never clear it);
+            // handleDrawComplete sends it with the real position.
             const dcMessage = `${username} disconnected during card draw.`;
             result.game.addLogEntry(dcMessage, null, 'system');
             result.game.broadcast(io, 'gameLogEntry', { message: dcMessage, type: 'system' });
@@ -243,59 +241,70 @@ async function handleDisconnect(socket, io) {
             type: 'system'
         });
 
-        // Start a timer to abort if they don't reconnect
-        // Clear any existing timer for this game (in case multiple disconnects)
-        if (pendingAbortTimers.has(result.gameId)) {
-            clearTimeout(pendingAbortTimers.get(result.gameId));
-        }
+        startReconnectGraceTimer(io, result.gameId);
+    }
+}
 
-        const timer = setTimeout(async () => {
-            const checkResult = gameManager.checkGameAbort(result.gameId);
-            if (checkResult.shouldAbort) {
-                // Check if ALL human players are disconnected — if so, abort
-                const disconnectedPositions = checkResult.game.getDisconnectedPlayers();
-                const allHumansDisconnected = disconnectedPositions.length > 0 &&
-                    Array.from(checkResult.game.players.values()).every(
-                        p => p.isBot || disconnectedPositions.includes(p.position)
-                    );
+/**
+ * Start (or restart) the reconnect grace timer for a game. When it expires,
+ * an all-disconnected table is aborted; otherwise the connected players are
+ * offered a bot replacement (resignationAvailable) for each disconnected seat.
+ * Used for in-game disconnects and for seats whose player disconnected during
+ * the draw (started once positions are assigned).
+ */
+function startReconnectGraceTimer(io, gameId) {
+    // Start a timer to abort if they don't reconnect
+    // Clear any existing timer for this game (in case multiple disconnects)
+    if (pendingAbortTimers.has(gameId)) {
+        clearTimeout(pendingAbortTimers.get(gameId));
+    }
 
-                if (allHumansDisconnected) {
-                    socketLogger.warn('All humans disconnected, aborting game', { gameId: result.gameId });
-                    checkResult.game.broadcast(io, 'abortGame', { reason: 'All players disconnected' });
-                    await gameManager.clearActiveGameForAll(result.gameId);
-                    // Tournament games must still count toward round completion
-                    await handleAbortedTournamentGame(io, result.gameId);
-                    checkResult.game.leaveAllFromRoom(io);
-                    gameManager.abortGame(result.gameId);
-                    io.to('mainRoom').emit('lobbiesUpdated', {
-                        lobbies: gameManager.getAllLobbies(),
-                        inProgressGames: gameManager.getInProgressGames(),
-                        tournaments: gameManager.getAllTournaments()
+    const timer = setTimeout(async () => {
+        const checkResult = gameManager.checkGameAbort(gameId);
+        if (checkResult.shouldAbort) {
+            // Check if ALL human players are disconnected — if so, abort
+            const disconnectedPositions = checkResult.game.getDisconnectedPlayers();
+            const allHumansDisconnected = disconnectedPositions.length > 0 &&
+                Array.from(checkResult.game.players.values()).every(
+                    p => p.isBot || disconnectedPositions.includes(p.position)
+                );
+
+            if (allHumansDisconnected) {
+                socketLogger.warn('All humans disconnected, aborting game', { gameId });
+                checkResult.game.broadcast(io, 'abortGame', { reason: 'All players disconnected' });
+                await gameManager.clearActiveGameForAll(gameId);
+                // Tournament games must still count toward round completion
+                await handleAbortedTournamentGame(io, gameId);
+                checkResult.game.leaveAllFromRoom(io);
+                gameManager.abortGame(gameId);
+                io.to('mainRoom').emit('lobbiesUpdated', {
+                    lobbies: gameManager.getAllLobbies(),
+                    inProgressGames: gameManager.getInProgressGames(),
+                    tournaments: gameManager.getAllTournaments()
+                });
+            } else {
+                // Broadcast resignationAvailable to remaining connected players
+                for (const pos of disconnectedPositions) {
+                    const disconnectedPlayer = checkResult.game.getPlayerByPosition(pos);
+                    const dcUsername = disconnectedPlayer?.username || `Player ${pos}`;
+                    socketLogger.info('Grace period expired, resignation available', {
+                        gameId, position: pos, username: dcUsername
                     });
-                } else {
-                    // Broadcast resignationAvailable to remaining connected players
-                    for (const pos of disconnectedPositions) {
-                        const disconnectedPlayer = checkResult.game.getPlayerByPosition(pos);
-                        const dcUsername = disconnectedPlayer?.username || `Player ${pos}`;
-                        socketLogger.info('Grace period expired, resignation available', {
-                            gameId: result.gameId, position: pos, username: dcUsername
-                        });
-                        checkResult.game.broadcast(io, 'resignationAvailable', {
-                            position: pos,
-                            username: dcUsername
-                        });
+                    checkResult.game.broadcast(io, 'resignationAvailable', {
+                        position: pos,
+                        username: dcUsername
+                    });
 
-                        const expiredMsg = `${dcUsername} failed to reconnect. You may replace them with a bot.`;
-                        checkResult.game.addLogEntry(expiredMsg, null, 'system');
-                        checkResult.game.broadcast(io, 'gameLogEntry', { message: expiredMsg, type: 'system' });
-                    }
+                    const expiredMsg = `${dcUsername} failed to reconnect. You may replace them with a bot.`;
+                    checkResult.game.addLogEntry(expiredMsg, null, 'system');
+                    checkResult.game.broadcast(io, 'gameLogEntry', { message: expiredMsg, type: 'system' });
                 }
             }
-            pendingAbortTimers.delete(result.gameId);
-        }, RECONNECT_GRACE_PERIOD);
+        }
+        pendingAbortTimers.delete(gameId);
+    }, RECONNECT_GRACE_PERIOD);
 
-        pendingAbortTimers.set(result.gameId, timer);
-    }
+    pendingAbortTimers.set(gameId, timer);
 }
 
 /**
@@ -313,5 +322,6 @@ module.exports = {
     joinQueue,
     leaveQueue,
     handleDisconnect,
-    cancelAbortTimer
+    cancelAbortTimer,
+    startReconnectGraceTimer
 };

@@ -181,7 +181,6 @@ async function signUp(socket, io, data) {
         // Session token for reconnection (this device's first session)
         const session = issueSession(null);
         const sessionToken = session.token;
-        socket.data.sessionHash = session.hash;
 
         const hashedPassword = await bcrypt.hash(password, 10);
         // Generate random profile pic (1-82)
@@ -201,6 +200,7 @@ async function signUp(socket, io, data) {
                 totalTricksTaken: 0
             }
         });
+        socket.data.sessionHash = session.hash;
 
         // The name now belongs to a fresh account — stop anonymizing it in
         // new game records (only relevant if a deleted name is re-registered)
@@ -213,6 +213,13 @@ async function signUp(socket, io, data) {
         authLogger.info('New user registered and auto-logged in', { username, socketId: socket.id });
 
     } catch (error) {
+        // Lost a race with a concurrent sign-up for the same name: the unique
+        // index on users.username rejects the second insert
+        if (error && error.code === 11000) {
+            socket.emit('signUpResponse', { success: false, message: 'Username already taken!' });
+            authLogger.warn('Sign-up failed: username taken (duplicate key)', { username });
+            return;
+        }
         authLogger.error('Database error during sign-up', { username, error: error.message });
         socket.emit('signUpResponse', {
             success: false,

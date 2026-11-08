@@ -929,14 +929,18 @@ class GameManager {
     /**
      * Clear active game for a user in the database
      * Called when a game ends or is aborted
+     * @param {string} username
+     * @param {string} [gameId] - only clear if the user's activeGameId is
+     *   still this game (they may have moved on to another one since)
      */
-    async clearActiveGame(username) {
+    async clearActiveGame(username, gameId) {
         try {
             const usersCollection = getUsersCollection();
             if (!usersCollection) return;
 
+            const filter = gameId ? { username, activeGameId: gameId } : { username };
             await usersCollection.updateOne(
-                { username },
+                filter,
                 { $unset: { activeGameId: '', activeGameStartedAt: '' } }
             );
         } catch (error) {
@@ -967,9 +971,17 @@ class GameManager {
         const game = this.games.get(gameId);
         if (!game) return;
 
-        for (const [socketId, player] of game.players.entries()) {
-            if (player.username) {
-                await this.clearActiveGame(player.username);
+        for (let position = 1; position <= 4; position++) {
+            const player = game.getPlayerByPosition(position);
+            if (!player) continue;
+            // Lazy and resigned seats show the bot's name; clear the human
+            // behind them. Pure bots have no user document — skip the write.
+            // Scoped to this game: a leaver may already be in another game.
+            const username = (game.isLazy(position) || game.isResigned(position))
+                ? game.getOriginalPlayer(position)?.username
+                : (player.isBot || this.isBot(player.socketId) ? null : player.username);
+            if (username) {
+                await this.clearActiveGame(username, gameId);
             }
         }
     }
