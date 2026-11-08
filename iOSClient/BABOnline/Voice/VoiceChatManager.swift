@@ -1,11 +1,17 @@
 import Foundation
 import AVFoundation
 import Combine
-import WebRTC
+// WebRTC's ObjC types aren't annotated Sendable; its objects are thread-safe.
+@preconcurrency import WebRTC
 
 /// Manages WebRTC peer-to-peer voice chat.
 /// Full-mesh topology: one RTCPeerConnection per human peer.
 /// Server only relays signaling messages (SDP offers/answers, ICE candidates).
+///
+/// All state lives on the main actor. WebRTC calls its completion handlers and
+/// delegate methods on its own signaling thread, so every such callback hops back
+/// to main (`DispatchQueue.main.async`) before touching manager state.
+@MainActor
 final class VoiceChatManager: ObservableObject {
     static let shared = VoiceChatManager()
 
@@ -99,9 +105,11 @@ final class VoiceChatManager: ObservableObject {
         // Request mic permission
         let granted = await AVAudioSession.sharedInstance().requestRecordPermission()
         guard granted else {
-            await MainActor.run { micPermissionDenied = true }
+            micPermissionDenied = true
             throw VoiceError.micPermissionDenied
         }
+        // Another initialize() may have finished while we awaited the permission prompt
+        guard !isActive else { return }
 
         // Configure audio session
         try configureAudioSession()
@@ -112,19 +120,17 @@ final class VoiceChatManager: ObservableObject {
         audioTrack.isEnabled = true
         localAudioTrack = audioTrack
 
-        localUsername = await MainActor.run { SocketService.shared.authState?.username }
+        localUsername = SocketService.shared.authState?.username
 
-        await MainActor.run {
-            isActive = true
-            isSelfMuted = false
-            micPermissionDenied = false
-        }
+        isActive = true
+        isSelfMuted = false
+        micPermissionDenied = false
 
-        // Start speaking detection
+        // Start speaking detection (main run loop, since we're on the main actor)
         startSpeakingDetection()
 
         // Flush buffered events
-        await flushPendingEvents()
+        flushPendingEvents()
 
         print("[Voice] Initialized, username: \(localUsername ?? "nil")")
     }
@@ -160,12 +166,10 @@ final class VoiceChatManager: ObservableObject {
         localUsername = nil
         wasMutedBeforeBackground = false
 
-        DispatchQueue.main.async { [weak self] in
-            self?.isSelfMuted = false
-            self?.isSelfSpeaking = false
-            self?.speakingPeers.removeAll()
-            self?.peerInfos.removeAll()
-        }
+        isSelfMuted = false
+        isSelfSpeaking = false
+        speakingPeers.removeAll()
+        peerInfos.removeAll()
 
         print("[Voice] Shutdown complete")
     }
@@ -197,7 +201,7 @@ final class VoiceChatManager: ObservableObject {
 
         // Create and send offer
         pc.offer(for: offerAnswerConstraints) { [weak self] sdp, error in
-            guard let self, let sdp = sdp else {
+            guard let sdp = sdp else {
                 print("[Voice] Failed to create offer: \(error?.localizedDescription ?? "unknown")")
                 return
             }
@@ -208,11 +212,14 @@ final class VoiceChatManager: ObservableObject {
                     return
                 }
 
-                VoiceEmitter.sendOffer(
-                    targetSocketId: socketId,
-                    offer: sdp,
-                    username: self.localUsername
-                )
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    VoiceEmitter.sendOffer(
+                        targetSocketId: socketId,
+                        offer: sdp,
+                        username: self.localUsername
+                    )
+                }
             }
         }
     }
@@ -239,14 +246,14 @@ final class VoiceChatManager: ObservableObject {
             pc.add(track, streamIds: ["stream0"])
         }
 
-        pc.setRemoteDescription(offer) { [weak self] error in
-            guard let self else { return }
+        let answerConstraints = offerAnswerConstraints
+        pc.setRemoteDescription(offer) { error in
             if let error {
                 print("[Voice] Failed to set remote description: \(error.localizedDescription)")
                 return
             }
 
-            pc.answer(for: self.offerAnswerConstraints) { sdp, error in
+            pc.answer(for: answerConstraints) { sdp, error in
                 guard let sdp = sdp else {
                     print("[Voice] Failed to create answer: \(error?.localizedDescription ?? "unknown")")
                     return
@@ -258,7 +265,9 @@ final class VoiceChatManager: ObservableObject {
                         return
                     }
 
-                    VoiceEmitter.sendAnswer(targetSocketId: fromSocketId, answer: sdp)
+                    DispatchQueue.main.async {
+                        VoiceEmitter.sendAnswer(targetSocketId: fromSocketId, answer: sdp)
+                    }
                 }
             }
         }
@@ -360,9 +369,7 @@ final class VoiceChatManager: ObservableObject {
         objc_setAssociatedObject(pc, "delegate", delegate, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
 
         peers[socketId] = PeerState(connection: pc, username: username)
-        DispatchQueue.main.async { [weak self] in
-            self?.peerInfos[socketId] = PeerInfo(username: username)
-        }
+        peerInfos[socketId] = PeerInfo(username: username)
 
         return pc
     }
@@ -373,16 +380,14 @@ final class VoiceChatManager: ObservableObject {
         speakingLastActive.removeValue(forKey: socketId)
         speakingStates.removeValue(forKey: socketId)
 
-        DispatchQueue.main.async { [weak self] in
-            self?.peerInfos.removeValue(forKey: socketId)
-            self?.speakingPeers.remove(socketId)
-            self?.speakingChangedSubject.send((socketId, false))
-        }
+        peerInfos.removeValue(forKey: socketId)
+        speakingPeers.remove(socketId)
+        speakingChangedSubject.send((socketId, false))
 
         print("[Voice] Closed peer: \(socketId)")
     }
 
-    private func flushPendingEvents() async {
+    private func flushPendingEvents() {
         let offerPeerIds = Set(pendingOffers.map { $0.fromSocketId })
         let bufferedPeers = pendingPeers
         let bufferedOffers = pendingOffers
@@ -406,7 +411,10 @@ final class VoiceChatManager: ObservableObject {
     private func startSpeakingDetection() {
         speakingTimer?.invalidate()
         speakingTimer = Timer.scheduledTimer(withTimeInterval: Self.speakingPollInterval, repeats: true) { [weak self] _ in
-            self?.pollSpeakingLevels()
+            // Scheduled from the main actor, so the timer fires on the main run loop
+            MainActor.assumeIsolated {
+                self?.pollSpeakingLevels()
+            }
         }
     }
 
@@ -414,7 +422,6 @@ final class VoiceChatManager: ObservableObject {
         // Poll audio levels for all peers using WebRTC stats
         for (socketId, peer) in peers {
             peer.connection.statistics { [weak self] report in
-                guard let self else { return }
                 var maxLevel: Float = 0
 
                 for (_, stats) in report.statistics {
@@ -426,7 +433,9 @@ final class VoiceChatManager: ObservableObject {
                     }
                 }
 
-                self.updateSpeakingState(id: socketId, level: maxLevel)
+                DispatchQueue.main.async {
+                    self?.updateSpeakingState(id: socketId, level: maxLevel)
+                }
             }
         }
 
@@ -435,7 +444,6 @@ final class VoiceChatManager: ObservableObject {
             // Use a simple approach: check all peer connections for outbound audio stats
             if let firstPeer = peers.values.first {
                 firstPeer.connection.statistics { [weak self] report in
-                    guard let self else { return }
                     var maxLevel: Float = 0
 
                     for (_, stats) in report.statistics {
@@ -452,7 +460,9 @@ final class VoiceChatManager: ObservableObject {
                         }
                     }
 
-                    self.updateSpeakingState(id: "self", level: maxLevel)
+                    DispatchQueue.main.async {
+                        self?.updateSpeakingState(id: "self", level: maxLevel)
+                    }
                 }
             }
         } else {
@@ -462,6 +472,8 @@ final class VoiceChatManager: ObservableObject {
     }
 
     private func updateSpeakingState(id: String, level: Float) {
+        // Stats arrive asynchronously; drop results for a peer closed in the meantime
+        guard id == "self" || peers[id] != nil else { return }
         let now = Date()
         if level > Self.speakingThreshold {
             speakingLastActive[id] = now
@@ -474,19 +486,16 @@ final class VoiceChatManager: ObservableObject {
         if isSpeaking != wasSpeaking {
             speakingStates[id] = isSpeaking
 
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                if id == "self" {
-                    self.isSelfSpeaking = isSpeaking
+            if id == "self" {
+                isSelfSpeaking = isSpeaking
+            } else {
+                if isSpeaking {
+                    speakingPeers.insert(id)
                 } else {
-                    if isSpeaking {
-                        self.speakingPeers.insert(id)
-                    } else {
-                        self.speakingPeers.remove(id)
-                    }
+                    speakingPeers.remove(id)
                 }
-                self.speakingChangedSubject.send((id, isSpeaking))
             }
+            speakingChangedSubject.send((id, isSpeaking))
         }
     }
 
