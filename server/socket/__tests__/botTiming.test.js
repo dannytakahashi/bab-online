@@ -84,13 +84,40 @@ describe('actionKind (schedule time, no RNG)', () => {
         expect(botController.actionKind(base({ cardIndex: 44, getHand: () => [C('2', 'hearts')] }), 'play', bot)).toBe('afterTrick');
     });
 
-    test('follows: one legal card is forced, a choice is a follow', () => {
+    test('follows: only the hand\'s last card is forced; a singleton in the led suit is a follow', () => {
         const following = { playedCardsIndex: 1, cardIndex: 1, leadCard: C('9', 'hearts') };
-        expect(botController.actionKind(base(following), 'play', bot)).toBe('forced'); // must follow hearts
+        // one legal card (must follow hearts) but two in hand: not quick, or the
+        // table learns the bot just went void in hearts
+        expect(botController.actionKind(base(following), 'play', bot)).toBe('follow');
         const twoHearts = () => [C('2', 'hearts'), C('4', 'hearts'), C('3', 'clubs')];
         expect(botController.actionKind(base({ ...following, getHand: twoHearts }), 'play', bot)).toBe('follow');
         const voidHand = () => [C('2', 'diamonds'), C('3', 'clubs')];
         expect(botController.actionKind(base({ ...following, getHand: voidHand }), 'play', bot)).toBe('follow');
+        const lastCard = () => [C('2', 'diamonds')];
+        expect(botController.actionKind(base({ ...following, cardIndex: 45, getHand: lastCard }), 'play', bot)).toBe('forced');
+    });
+
+    test('no tempo tell: the kind depends on public state only (hand size, not contents)', () => {
+        const suits = ['hearts', 'clubs', 'diamonds', 'spades'];
+        const ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
+        let s = 7;
+        const rnd = () => { s = (s * 1103515245 + 12345) % 2147483648; return s / 2147483648; };
+        const card = () => C(ranks[Math.floor(rnd() * 13)], suits[Math.floor(rnd() * 4)]);
+        for (let n = 1; n <= 13; n++) {
+            for (let playedCardsIndex = 0; playedCardsIndex <= 3; playedCardsIndex++) {
+                const kinds = new Set();
+                for (let i = 0; i < 40; i++) {
+                    const hand = Array.from({ length: n }, card);
+                    const g = base({
+                        playedCardsIndex, cardIndex: playedCardsIndex === 0 ? 4 : 5,
+                        leadCard: playedCardsIndex === 0 ? null : card(), trump: card(),
+                        isTrumpBroken: rnd() < 0.5, getHand: () => hand,
+                    });
+                    kinds.add(botController.actionKind(g, 'play', bot));
+                }
+                expect({ n, playedCardsIndex, kinds: [...kinds] }).toEqual({ n, playedCardsIndex, kinds: [[...kinds][0]] });
+            }
+        }
     });
 });
 

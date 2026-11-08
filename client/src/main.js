@@ -44,6 +44,7 @@ import { createGameConfig, CARD_CONFIG, ANIMATION_CONFIG, TABLE_POSITIONS } from
 import { CardManager } from './phaser/managers/CardManager.js';
 import { OpponentManager } from './phaser/managers/OpponentManager.js';
 import { TrickManager } from './phaser/managers/TrickManager.js';
+import { flyInMs, FLIP } from './phaser/pacing.js';
 import { EffectsManager } from './phaser/managers/EffectsManager.js';
 import { DrawManager } from './phaser/managers/DrawManager.js';
 import { BidManager } from './phaser/managers/BidManager.js';
@@ -303,7 +304,7 @@ export function setGameScene(scene) {
                 targets: sprite,
                 x: playPos.x,
                 y: playPos.y,
-                duration: 500,
+                duration: flyInMs(data.resumeInMs),
                 ease: 'Power2',
                 rotation: 0,
                 scale: 1.5,
@@ -315,14 +316,14 @@ export function setGameScene(scene) {
               });
 
               // Flip animation runs in parallel, starting after a short delay
-              this.time.delayedCall(50, () => {
+              this.time.delayedCall(FLIP.DELAY, () => {
                 if (!sprite || !sprite.scene) return;
 
                 // Scale X to 0
                 this.tweens.add({
                   targets: sprite,
                   scaleX: 0,
-                  duration: 200,
+                  duration: FLIP.HALF,
                   ease: 'Power2',
                   onComplete: () => {
                     if (!sprite || !sprite.scene) return;
@@ -332,7 +333,7 @@ export function setGameScene(scene) {
                     this.tweens.add({
                       targets: sprite,
                       scaleX: 1.5,
-                      duration: 200,
+                      duration: FLIP.HALF,
                       ease: 'Power2',
                     });
                   },

@@ -5240,6 +5240,7 @@
       "emittedFrom": [
         "server/socket/gameHandlers.js:handlePostBid",
         "server/socket/gameHandlers.js:handlePostPlay",
+        "server/socket/gameHandlers.js:resumeTrick",
         "server/socket/gameHandlers.js:dealHand",
         "server/socket/seatLifecycle.js:goActive"
       ],
@@ -5462,7 +5463,7 @@
         ]
       },
       "emittedFrom": [
-        "server/socket/gameHandlers.js:handlePostPlay"
+        "server/socket/gameHandlers.js:resumeTrick"
       ]
     },
     "handComplete": {

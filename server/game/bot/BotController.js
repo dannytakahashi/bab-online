@@ -7,7 +7,6 @@ const BotPlayer = require('./BotPlayer');
 const { gameLogger } = require('../../utils/logger');
 const { Phase } = require('../GamePhase');
 const pacing = require('../pacing');
-const { getLegalCards } = require('./BotStrategy');
 
 const PLAY_STAGES = [Phase.PLAYING, Phase.TRICK_RESOLVING, Phase.HAND_RESOLVING];
 
@@ -99,16 +98,21 @@ class BotController {
      * time, which is always at or after the event that opened the turn):
      * bid 'firstBid' | 'bid'; play 'afterBidding' | 'afterTrick' (any lead
      * after a trick, the forced last card included) | 'forced' (a follow
-     * with exactly one legal card) | 'follow'.
+     * with the bot's last card) | 'follow'.
+     *
+     * Every kind depends on PUBLIC state only, so think time is never a
+     * tempo tell. In particular 'forced' is NOT "exactly one legal card":
+     * under follow-suit that almost always means a singleton in the led
+     * suit, and a fast play would tell the table the bot just went void.
+     * Only the hand's last card (everyone can see the bot holds one) is
+     * quick.
      */
     actionKind(game, actionType, bot) {
         if (actionType === 'bid') return game.getBidCount() === 0 ? 'firstBid' : 'bid';
         if (actionType !== 'play') return null;
         if (game.playedCardsIndex === 0) return game.cardIndex === 0 ? 'afterBidding' : 'afterTrick';
         const hand = game.getHand(bot.socketId) || [];
-        if (!game.trump || !game.leadCard) return 'follow';
-        const legal = getLegalCards(hand, game.leadCard, false, game.trump, game.isTrumpBroken, bot.position, game.leadPosition);
-        return legal.length === 1 ? 'forced' : 'follow';
+        return hand.length === 1 ? 'forced' : 'follow';
     }
 
     /**

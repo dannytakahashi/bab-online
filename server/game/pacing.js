@@ -9,7 +9,8 @@
  *
  * Profiles (env BAB_PACING):
  *   standard (default)  the tuned values below
- *   legacy              the values before the retune (owner rollback knob)
+ *   legacy              the values before the retune (owner rollback knob),
+ *                       ambient pre-game timing included (no overlay)
  *   fast                dev only: every value at its floor (ignored, with a
  *                       warning, when NODE_ENV=production)
  *   zero                tests only (throws outside Jest / NODE_ENV=test)
@@ -25,17 +26,21 @@
  * Store iOS build, cc9059f, has no resumeInMs handling; pacing.test.js
  * enforces it). Measured budget: server/socket/__tests__/pacingBudget.test.js
  * (BAB_PACING_REPORT=1 prints the components). A 1-human/3-bot game with
- * the human acting instantly: legacy ~595 s, standard ~306 s.
+ * the human acting instantly: legacy ~595 s, standard ~321 s (54%).
  *
- * Sensitivities (effect on that total; 91 tricks, ~127 choice follows,
- * ~73 forced follows, ~63 leads after a trick, ~10 opening leads, ~43 bot
- * bids per game):
+ * Sensitivities (effect on that total; 91 tricks, ~173 bot follows,
+ * ~29 bot last-card follows, ~59 leads after a trick, ~10 opening leads,
+ * ~43 bot bids per game):
  *   +100 ms TRICK_VIEW_MS                     +9.1 s
- *   +100 ms mean BOT_PLAY (follow)            +12.7 s
- *   +100 ms mean BOT_FORCED_PLAY              +7.3 s
- *   +100 ms mean lead (BOT_LEAD_AFTER_TRICK)  +6.3 s
+ *   +100 ms mean BOT_PLAY (follow)            +17.3 s
+ *   +100 ms mean BOT_FORCED_PLAY (last card)  +2.9 s
+ *   +100 ms mean lead (BOT_LEAD_AFTER_TRICK)  +5.9 s
  *   +100 ms mean bid (BOT_BID/BOT_FIRST_BID)  +4.3 s
- *   TRICK_VIEW_MS 1000                        about -50% vs legacy
+ *   TRICK_VIEW_MS 1000                        about -48% vs legacy
+ *
+ * Fairness: a bot's think range may depend on PUBLIC state only (see
+ * BotController.actionKind). A quicker range for "exactly one legal card"
+ * was tried and removed: it told the table the bot had just gone void.
  */
 
 'use strict';
@@ -93,9 +98,16 @@ const STANDARD = {
     BOT_FIRST_BID: [900, 400],          // gameStart runs iOS setupGameUI
     BOT_BID: [550, 400],                // iOS bubble fades in 0.2 s
     BOT_LEAD_AFTER_BIDDING: [700, 300], // doneBidding: iOS 0.3 s overlay transition
-    BOT_PLAY: [350, 400],               // a follow with a choice
-    BOT_FORCED_PLAY: [300, 100],        // a follow with exactly one legal card
-    BOT_LEAD_AFTER_TRICK: [600, 250],   // after trickComplete: collect 0.4 s iOS / 0.5 s web
+    // A follow (any follow but the hand's last card). Must not depend on
+    // hidden state: a quicker range for "one legal card" would reveal a
+    // void (BotController.actionKind).
+    BOT_PLAY: [350, 400],
+    // The hand's last card (public: everyone sees one card left); min 350
+    // leaves 50 ms over the web 300 ms fly-in for delivery jitter
+    BOT_FORCED_PLAY: [350, 100],
+    // After trickComplete: lands after the shipped iOS guarded clearTrick
+    // (0.7 s), i.e. 0.3 s of jitter margin over its 0.4 s collect (web 0.5 s)
+    BOT_LEAD_AFTER_TRICK: [700, 200],
     // The completed trick before it is collected (both shipped clients
     // collect on trickComplete); the 4th card lands at 0.25/0.3 s
     TRICK_VIEW_MS: 1100,
@@ -144,7 +156,7 @@ const FAST = {
     BOT_LEAD_AFTER_BIDDING: [600, 0],
     BOT_PLAY: [300, 0],
     BOT_FORCED_PLAY: [300, 0],
-    BOT_LEAD_AFTER_TRICK: [500, 0],
+    BOT_LEAD_AFTER_TRICK: [700, 0],
     TRICK_VIEW_MS: 900,
     HAND_END_MS: 800,
     GAME_END_MS: 1000,
@@ -173,9 +185,13 @@ const SHIPPED_IOS_FLOORS = Object.freeze({
     // LayoutConstants.playCardDuration 0.25 s fly-in (web 300 ms)
     BOT_PLAY: 300,
     BOT_FORCED_PLAY: 300,
-    // LayoutConstants.collectTrickDuration 0.4 s (web TrickManager 500 ms);
-    // an earlier lead takes handleCardPlayed's index-0 safety clearTrick
-    BOT_LEAD_AFTER_TRICK: 500,
+    // GameSocketHandler trickComplete: collect (collectTrickDuration 0.4 s)
+    // then asyncAfter(0.4 + 0.3) { guard playedCardIndex == 0; clearTrick() }.
+    // A lead at >= 0.7 s arrives after both; one between 0.4 and 0.7 s takes
+    // handleCardPlayed's index-0 safety clearTrick (handled), and one that
+    // jitter squeezes under 0.4 s snaps the collecting sprites away. 0.7 s
+    // keeps 0.3 s of jitter margin over the collect (web TrickManager 500 ms)
+    BOT_LEAD_AFTER_TRICK: 700,
     // trickComplete starts the collect on receipt: the full trick must have
     // been visible after the 4th card's 0.25 s fly-in
     TRICK_VIEW_MS: 900,
@@ -205,37 +221,43 @@ const PROFILES = {
 const isTest = () => process.env.NODE_ENV === 'test' || process.env.JEST_WORKER_ID !== undefined;
 const freeze = (p) => Object.freeze(Object.fromEntries(Object.entries(p).map(([k, v]) => [k, Array.isArray(v) ? Object.freeze([...v]) : v])));
 
-function profileFromEnv() {
+function profileNameFromEnv() {
     const name = process.env.BAB_PACING || 'standard';
     if (name === 'zero' && !isTest()) throw new Error('BAB_PACING=zero is test-only');
     if (name === 'fast' && process.env.NODE_ENV === 'production') {
         // eslint-disable-next-line no-console
         console.warn('BAB_PACING=fast is ignored in production; using standard');
-        return PROFILES.standard;
+        return 'standard';
     }
     if (!PROFILES[name]) {
         // eslint-disable-next-line no-console
         console.warn(`Unknown BAB_PACING=${name}; using standard`);
-        return PROFILES.standard;
+        return 'standard';
     }
-    return PROFILES[name];
+    return name;
 }
 
 let active = null;
+let activeName = null;
 let activePregame = null;
+
+// The ambient pre-game overlay is part of the retune: legacy keeps
+// df59149's ambient pre-deal timing exactly, and zero has nothing to shorten
+const NO_PREGAME_OVERLAY = new Set(['legacy', 'zero']);
 
 /**
  * The active pacing values (frozen).
  * @param {Object} [game] - an ambient (isDemo) game before the deal with no
- *   spectator gets AMBIENT_PREGAME on top (zero profile excepted)
+ *   spectator gets AMBIENT_PREGAME on top (legacy and zero excepted)
  */
 function pacing(game) {
     if (!active) {
-        active = freeze(profileFromEnv());
+        activeName = profileNameFromEnv();
+        active = freeze(PROFILES[activeName]);
         activePregame = null;
     }
     if (game && game.isDemo && PREGAME_STAGES.has(game.stage) && !(game.spectators && game.spectators.size > 0) &&
-        active.TRICK_VIEW_MS > 0) {
+        !NO_PREGAME_OVERLAY.has(activeName) && active.TRICK_VIEW_MS > 0) {
         if (!activePregame) activePregame = freeze({ ...active, ...AMBIENT_PREGAME });
         return activePregame;
     }
@@ -248,6 +270,7 @@ function setPacingForTests(nameOrOverrides) {
     if (typeof nameOrOverrides === 'string') {
         if (!PROFILES[nameOrOverrides]) throw new Error(`Unknown pacing profile ${nameOrOverrides}`);
         active = freeze(PROFILES[nameOrOverrides]);
+        activeName = nameOrOverrides;
     } else {
         active = freeze({ ...pacing(), ...nameOrOverrides });
     }
@@ -259,6 +282,7 @@ function setPacingForTests(nameOrOverrides) {
 function resetPacing() {
     if (!isTest()) throw new Error('resetPacing is test-only');
     active = null;
+    activeName = null;
     activePregame = null;
     tracer = null;
 }

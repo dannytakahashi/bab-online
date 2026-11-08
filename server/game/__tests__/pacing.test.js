@@ -43,6 +43,25 @@ describe('SHIPPED_IOS_FLOORS', () => {
     });
 });
 
+describe('ambient pre-game overlay', () => {
+    const demo = (stage) => ({ isDemo: true, stage, spectators: new Set() });
+
+    test('standard: an unwatched ambient game before the deal skips the hidden stages', () => {
+        pacing.setPacingForTests('standard');
+        expect(pacing(demo('DRAW_RESOLVING')).TEAMS_MS).toBe(0);
+        expect(pacing(demo('PLAYING')).TEAMS_MS).toBe(PROFILES.standard.TEAMS_MS);
+        expect(pacing({ ...demo('DRAWING'), spectators: new Set(['s']) }).TEAMS_MS).toBe(PROFILES.standard.TEAMS_MS);
+    });
+
+    test('legacy keeps df59149\'s ambient pre-deal timing exactly (rollback knob)', () => {
+        pacing.setPacingForTests('legacy');
+        for (const stage of ['CREATED', 'DRAWING', 'DRAW_RESOLVING', 'TEAMS_ANNOUNCED']) {
+            const p = pacing(demo(stage));
+            for (const k of Object.keys(pacing.AMBIENT_PREGAME)) expect([stage, k, p[k]]).toEqual([stage, k, PROFILES.legacy[k]]);
+        }
+    });
+});
+
 describe('profile selection', () => {
     const env = { ...process.env };
     // "Outside tests" = neither NODE_ENV=test nor a Jest worker

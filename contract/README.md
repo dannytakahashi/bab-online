@@ -169,11 +169,16 @@ Checked per receiver in every chaos seed and in contract F1/F2/F3
 The server holds the table for presentation at fixed points (all delays in
 `server/game/pacing.js`): the full trick before `trickComplete`, the last
 trick before `handComplete`, the team announcement before
-`createUI`/`gameStart`, and a few pre-game steps. While a hold is open the
-table state is authoritative and complete, every bid/play is rejected with
+`createUI`/`gameStart`, and a few pre-game steps. While a trick or hand
+hold (`trick`, `hand`) is open the table state is authoritative and
+complete, every bid/play is rejected with
 `actionRejected {reason: 'not_your_turn'}`, and nothing becomes actionable
 until the hold's resume event (`updateTurn` in the same tick as
-`trickComplete` / the next deal's `gameStart`).
+`trickComplete` / the next deal's `gameStart`). The `firstTurn` hold (the
+first hand's deal reveal) is the exception: the seat on turn may already
+bid during it (the bid ends the hold early), so a client must not disable
+bidding just because a snapshot's `resume` is non-null. No action exists in
+the pre-game holds (countdown, drawReveal, seating, teams).
 
 `resumeInMs` = the server holds the table this long from emission; clients
 may size animations to it, measured from receipt with a local monotonic

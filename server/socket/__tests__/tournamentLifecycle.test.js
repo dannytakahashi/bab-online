@@ -659,7 +659,10 @@ describe('seeded tournament chaos: cancel / leave / disconnect at random times',
             if (process.env.CHAOS_STATS) process.stdout.write(`tournament chaos ${JSON.stringify(stats)}\n`);
             // Coverage: cancels land on live tables, some inside the start
             expect(stats.cancelledTables).toBeGreaterThan(0);
-            if (SEEDS >= 20) expect(stats.cancelledInStart).toBeGreaterThan(0);
+            // (only when the round start has a timed window: the zero profile has none)
+            if (SEEDS >= 20 && pacing().ROUND_ANNOUNCE_MS + pacing().TABLE_COUNTDOWN_MS > 0) {
+                expect(stats.cancelledInStart).toBeGreaterThan(0);
+            }
         } finally {
             Math.random = realRandom;
         }

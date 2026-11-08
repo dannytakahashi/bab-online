@@ -380,7 +380,7 @@ const s2c = {
         status: 'active', to: ['room', 'socket'], seq: false,
         reserved: [{ key: 'turn', why: 'iOS reads currentTurn ?? turn' }],
         clientReads: reads(W.game, I.game('registerBiddingPhase')),
-        emittedFrom: ['server/socket/gameHandlers.js:handlePostBid', 'server/socket/gameHandlers.js:handlePostPlay', 'server/socket/gameHandlers.js:dealHand', 'server/socket/seatLifecycle.js:goActive'],
+        emittedFrom: ['server/socket/gameHandlers.js:handlePostBid', 'server/socket/gameHandlers.js:handlePostPlay', 'server/socket/gameHandlers.js:resumeTrick', 'server/socket/gameHandlers.js:dealHand', 'server/socket/seatLifecycle.js:goActive'],
         notes: 'private: goActive re-sends it to the returning owner socket only.',
     },
     rainbow: {
@@ -428,7 +428,7 @@ const s2c = {
         added: ['resumeInMs'],
         notes: 'Absent resumeInMs: the next trick is open now (updateTurn follows in the same tick).',
         clientReads: reads(W.game, I.game('registerPlayingPhase')),
-        emittedFrom: ['server/socket/gameHandlers.js:handlePostPlay'],
+        emittedFrom: ['server/socket/gameHandlers.js:resumeTrick'],
     },
     handComplete: {
         payload: obj({ score: ref('teamPair'), team1Tricks: int({ minimum: 0 }), team2Tricks: int({ minimum: 0 }), team1OldScore: int(), team2OldScore: int() }),
