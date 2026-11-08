@@ -2861,7 +2861,8 @@
       },
       "examples": [
         {}
-      ]
+      ],
+      "notes": "Throttled in-handler (rateLimiter key getLeaderboard); over the limit replies leaderboardResponse with the cached result, never error. Served from a 60 s cache invalidated on stats/picture/account changes."
     },
     "getRecords": {
       "payload": {
@@ -2879,7 +2880,8 @@
       },
       "examples": [
         {}
-      ]
+      ],
+      "notes": "Throttled in-handler (rateLimiter key getRecords); over the limit replies recordsResponse with the cached result, never error. Served from a 60 s cache (per month) invalidated when a game is recorded or an account deleted."
     },
     "searchPlayers": {
       "payload": {
@@ -2896,7 +2898,7 @@
       },
       "status": "active",
       "joi": null,
-      "rateLimit": null,
+      "rateLimit": "searchPlayers",
       "sentBy": {
         "web": true,
         "ios": false
@@ -2906,7 +2908,7 @@
           "query": "al"
         }
       ],
-      "notes": "asyncHandler(\"searchPlayers\") but validators has no schema: passes through with a warning."
+      "notes": "asyncHandler(\"searchPlayers\") but validators has no schema: passes through with a warning. A trimmed query longer than 50 (the username max) short-circuits to an empty list in the handler."
     },
     "getPlayerProfile": {
       "payload": {
@@ -2923,7 +2925,7 @@
       },
       "status": "active",
       "joi": null,
-      "rateLimit": null,
+      "rateLimit": "getPlayerProfile",
       "sentBy": {
         "web": true,
         "ios": false

@@ -225,6 +225,24 @@ function excludePath(obj, parts) {
     excludePath(obj[head], rest);
 }
 
+/**
+ * The one arrayFilters shape the server uses (account deletion anonymizing
+ * game records): `$set: { 'arr.$[p]': value }` with `[{ p: scalar }]`.
+ * Anything else throws.
+ */
+function applyArrayFilterSet(doc, update, arrayFilters) {
+    const ops = Object.keys(update);
+    if (ops.length !== 1 || ops[0] !== '$set') throw new Error('memoryDb: arrayFilters only with $set');
+    for (const [path, value] of Object.entries(update.$set)) {
+        const m = /^([\w.]+)\.\$\[(\w+)\]$/.exec(path);
+        const af = m && arrayFilters.find(f => Object.keys(f).length === 1 && m[2] in f);
+        if (!af || isPlainObject(af[m[2]])) throw new Error(`memoryDb: unsupported arrayFilters update ${path}`);
+        const [parent, key] = parentFor(doc, m[1], false);
+        if (!parent || !Array.isArray(parent[key])) continue;
+        parent[key] = parent[key].map(el => (equals(el, af[m[2]]) ? clone(value) : el));
+    }
+}
+
 class MemoryCollection {
     constructor(docs = []) {
         this.docs = [];
@@ -274,10 +292,10 @@ class MemoryCollection {
     async updateMany(filter, update, options = {}) {
         let modified = 0;
         const targets = this.docs.filter(d => matches(d, filter));
-        if (options.arrayFilters && targets.length) throw new Error('memoryDb: arrayFilters not supported');
         for (const doc of targets) {
             const before = JSON.stringify(doc);
-            applyUpdate(doc, update);
+            if (options.arrayFilters) applyArrayFilterSet(doc, update, options.arrayFilters);
+            else applyUpdate(doc, update);
             if (before !== JSON.stringify(doc)) modified++;
         }
         return { matchedCount: targets.length, modifiedCount: modified };

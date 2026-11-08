@@ -442,6 +442,11 @@ async function deleteAccount(socket, io, data) {
         // them too so nothing tied to this person remains
         await usersCollection.deleteMany({ mergedInto: username });
 
+        // The leaderboard row is gone and the records now say '[deleted]'
+        const { invalidateLeaderboard, invalidateRecords } = require('./profileHandlers');
+        invalidateLeaderboard?.();
+        invalidateRecords?.();
+
         // Keep an in-flight game from re-inserting this username into a new
         // game record after the anonymization above
         gameManager.deletedUsernames.add(username);
