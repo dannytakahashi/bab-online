@@ -13,6 +13,7 @@ import { OpponentManager } from '../managers/OpponentManager.js';
 import { TrickManager } from '../managers/TrickManager.js';
 import { EffectsManager } from '../managers/EffectsManager.js';
 import { DrawManager } from '../managers/DrawManager.js';
+import { flyInMs, FLIP } from '../pacing.js';
 import { BidManager } from '../managers/BidManager.js';
 import { LayoutManager } from '../managers/LayoutManager.js';
 import {
@@ -1007,6 +1008,8 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Update card legality
+    // Each updateTurn supersedes any deferred one (see below)
+    this._turnToken = (this._turnToken || 0) + 1;
     if (this.cardManager && !this.state.isBidding) {
       const canPlay = currentTurn === myPosition && !this.state.hasPlayedCard && !this.state.isLazy;
       const gameState = this.state;
@@ -1028,7 +1031,21 @@ export class GameScene extends Phaser.Scene {
         return true;
       };
 
-      this.cardManager.updateCardLegality(legalityChecker, canPlay);
+      if (canPlay && this.trickManager?.isCollecting?.()) {
+        // The previous trick is still flying to its stack: keep the hand
+        // dimmed until it lands, then apply THIS turn, unless another
+        // updateTurn came meanwhile or the turn moved on. Never derives a
+        // turn itself (the hand's last trick sends none: nothing enables)
+        const token = this._turnToken;
+        this.cardManager.updateCardLegality(legalityChecker, false);
+        this.trickManager.onCollected(() => {
+          if (this._turnToken !== token || !this.cardManager) return;
+          if (gameState.currentTurn !== currentTurn || gameState.hasPlayedCard || gameState.isBidding || gameState.isLazy) return;
+          this.cardManager.updateCardLegality(legalityChecker, true);
+        });
+      } else {
+        this.cardManager.updateCardLegality(legalityChecker, canPlay);
+      }
     }
 
     // Update bid UI visibility (only during bidding)
@@ -1131,11 +1148,15 @@ export class GameScene extends Phaser.Scene {
         // Animate move and flip simultaneously
         // Move to play position. Keep the handle: a tween added while the tab
         // is hidden is still queued, and killTweensOf cannot see it.
+        // The trick-completing card lands within a quarter of the server's
+        // hold (resumeInMs), so the full trick is visible before the collect
+        const flyMs = flyInMs(data.resumeInMs);
+        const flipHalf = Math.min(FLIP.HALF, flyMs / 2);
         const moveTween = this.tweens.add({
           targets: sprite,
           x: targetX,
           y: targetY,
-          duration: 500,
+          duration: flyMs,
           ease: 'Power2',
           rotation: 0,
           scale: 1.5,
@@ -1149,7 +1170,7 @@ export class GameScene extends Phaser.Scene {
 
         // Flip animation runs in parallel, starting after a short delay.
         // Keep the handle so completeTrick can cancel a flip that never ran.
-        const flipTimer = this.time.delayedCall(50, () => {
+        const flipTimer = this.time.delayedCall(FLIP.DELAY, () => {
           if (!sprite || !sprite.scene) return;
           sprite.setData('flipTimer', null);
 
@@ -1157,7 +1178,7 @@ export class GameScene extends Phaser.Scene {
           this.tweens.add({
             targets: sprite,
             scaleX: 0,
-            duration: 200,
+            duration: flipHalf,
             ease: 'Power2',
             onComplete: () => {
               if (!sprite || !sprite.scene) return;
@@ -1167,7 +1188,7 @@ export class GameScene extends Phaser.Scene {
               this.tweens.add({
                 targets: sprite,
                 scaleX: 1.5,
-                duration: 200,
+                duration: flipHalf,
                 ease: 'Power2',
               });
             },
@@ -1198,7 +1219,7 @@ export class GameScene extends Phaser.Scene {
           targets: sprite,
           x: targetPos.x,
           y: targetPos.y,
-          duration: 500,
+          duration: flyInMs(data.resumeInMs),
           ease: 'Power2',
           rotation: 0,
           scale: 1.5,
@@ -1316,7 +1337,7 @@ export class GameScene extends Phaser.Scene {
 
     // Animate cards to winner's stack via TrickManager
     if (this.trickManager) {
-      this.trickManager.completeTrick(winner, isMyTeam);
+      this.trickManager.completeTrick(winner, isMyTeam, data.resumeInMs);
     }
 
     // Update game log with current trick counts

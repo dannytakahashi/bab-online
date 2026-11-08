@@ -260,3 +260,28 @@ describe('helpers', () => {
     expect(STAGES).toHaveLength(12);
   });
 });
+
+describe('optional resume (never required)', () => {
+  it('a snapshot without resume still parses, and carries none', () => {
+    const raw = load('trick-resolving').snapshot;
+    const { resume, ...old } = raw;
+    expect(resume).toBeDefined();
+    const r = parseSnapshotV2(old);
+    expect(r.ok).toBe(true);
+    expect('resume' in r.snapshot).toBe(false);
+  });
+
+  it('copies a valid resume, frozen', () => {
+    const s = parsed('trick-resolving');
+    expect(s.resume).toEqual({ kind: 'trick', inMs: expect.any(Number) });
+    expect(Object.isFrozen(s.resume)).toBe(true);
+    expect(parsed('between-tricks').resume).toBeNull();
+  });
+
+  it('drops a malformed resume instead of failing the snapshot', () => {
+    const raw = { ...load('trick-resolving').snapshot, resume: { kind: 'nap', inMs: -1 } };
+    const r = parseSnapshotV2(raw);
+    expect(r.ok).toBe(true);
+    expect('resume' in r.snapshot).toBe(false);
+  });
+});

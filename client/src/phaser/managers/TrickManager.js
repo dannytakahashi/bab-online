@@ -6,6 +6,7 @@
 
 import { getCardImageKey } from '../../utils/cards.js';
 import { CARD_CONFIG, ANIMATION_CONFIG } from '../config.js';
+import { collectMs } from '../pacing.js';
 
 /**
  * Base design dimensions for scaling.
@@ -77,6 +78,55 @@ export class TrickManager {
 
     // True while animateTricksAway is whisking the history off the table
     this._animatingAway = false;
+
+    // Trick collect in flight (completeTrick's tweens): the next card is
+    // not made playable until it lands (GameScene.handleUpdateTurn)
+    this._collecting = false;
+    this._collectToken = 0;
+    this._collectFallback = null;
+    this._onCollected = [];
+  }
+
+  /** True while a trick is being collected to its stack. */
+  isCollecting() {
+    return this._collecting;
+  }
+
+  /** Run `cb` once the collect in flight lands (at once if none is). */
+  onCollected(cb) {
+    if (!this._collecting) {
+      cb();
+      return;
+    }
+    this._onCollected.push(cb);
+  }
+
+  _beginCollect(ms) {
+    this._collectToken++;
+    const token = this._collectToken;
+    this._collecting = true;
+    this._collectFallback?.remove?.(false);
+    // Fallback: a tween that is killed never completes
+    this._collectFallback = this._scene.time?.delayedCall?.(ms + 150, () => this._endCollect(token)) || null;
+    return token;
+  }
+
+  /** End the collect (token: only that collect; none: whatever is in flight). */
+  _endCollect(token) {
+    if (token !== undefined && token !== this._collectToken) return;
+    if (!this._collecting) return;
+    this._collecting = false;
+    this._collectFallback?.remove?.(false);
+    this._collectFallback = null;
+    const callbacks = this._onCollected;
+    this._onCollected = [];
+    for (const cb of callbacks) {
+      try {
+        cb();
+      } catch (err) {
+        console.error('onCollected callback failed', err);
+      }
+    }
   }
 
   /**
@@ -238,7 +288,7 @@ export class TrickManager {
         targets: sprite,
         x: playPos.x,
         y: playPos.y,
-        duration: 500,
+        duration: ANIMATION_CONFIG.CARD_PLAY,
         ease: 'Power2',
         rotation: 0,
         scale: 1.5,
@@ -263,9 +313,12 @@ export class TrickManager {
    *
    * @param {number} winnerPosition - Position of trick winner (1-4)
    * @param {boolean} isMyTeam - Whether winner is on player's team
+   * @param {number} [resumeInMs] - trickComplete.resumeInMs (a hand's last
+   *   trick only): the collect fits in half of the server's hold
    */
-  completeTrick(winnerPosition, isMyTeam) {
+  completeTrick(winnerPosition, isMyTeam, resumeInMs) {
     const scene = this._scene;
+    const duration = collectMs(resumeInMs);
 
     // Increment count and get position using new two-row layout
     let trickNumber;
@@ -281,6 +334,12 @@ export class TrickManager {
 
     // Copy trick cards for history
     const trickCards = [...this._currentTrick];
+
+    // A visible collect gates the next play until its last tween lands
+    const animated = this.isVisible() && trickCards.length > 0;
+    let pending = animated ? trickCards.length : 0;
+    const token = animated ? this._beginCollect(duration) : null;
+    if (!animated) this._endCollect();
 
     // Animate cards to stack position
     trickCards.forEach((card, index) => {
@@ -302,10 +361,12 @@ export class TrickManager {
           y: winningPosition.y,
           scale: TRICK_SCALE,
           rotation: 0,
-          duration: 500,
+          duration,
           ease: 'Power2',
           onComplete: () => {
             card.setDepth(200 + index);
+            pending--;
+            if (pending <= 0) this._endCollect(token);
           },
         });
       } else {
@@ -605,6 +666,8 @@ export class TrickManager {
    * Snap a trick-history card to its stack, cancelling any in-flight tween.
    */
   _snapToStack(card, pos) {
+    // A snapped collect has landed
+    this._endCollect();
     this._stopCardAnimations(card);
     card.x = pos.x;
     card.y = pos.y;
@@ -645,6 +708,7 @@ export class TrickManager {
    * Clear current trick sprites.
    */
   clearCurrentTrick() {
+    this._endCollect();
     this._currentTrick.forEach((sprite) => {
       if (sprite && sprite.destroy) {
         sprite.destroy();
@@ -657,6 +721,7 @@ export class TrickManager {
    * Clear all trick history sprites.
    */
   clearTrickHistory() {
+    this._endCollect();
     // Clear team tricks
     this._teamTrickHistory.forEach((trick) => {
       trick.cards.forEach((card) => {

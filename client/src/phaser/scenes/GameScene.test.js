@@ -155,3 +155,102 @@ describe('GameScene handleHandComplete', () => {
     }
   });
 });
+
+describe('GameScene handleUpdateTurn legality gate (collect before the next card is legal)', () => {
+  function sceneFor({ collecting }) {
+    const scene = new GameScene();
+    let pending = [];
+    scene.state = {
+      position: 1, currentTurn: 1, isSpectator: false, isLazy: false, isBidding: false, hasPlayedCard: false,
+      myCards: [], playedCardIndex: 0, trump: null, trumpBroken: false, leadCard: null, leadPosition: null,
+    };
+    scene.callbacks = {};
+    scene.cardManager = { updatePlayerTurnGlow: vi.fn(), updateCardLegality: vi.fn() };
+    scene.opponentManager = { updateTurnGlow: vi.fn() };
+    let isCollecting = collecting;
+    scene.trickManager = {
+      isCollecting: () => isCollecting,
+      onCollected: (cb) => { if (!isCollecting) cb(); else pending.push(cb); },
+    };
+    const land = () => { isCollecting = false; const cbs = pending; pending = []; cbs.forEach((cb) => cb()); };
+    return { scene, land };
+  }
+  const lastCanPlay = (scene) => scene.cardManager.updateCardLegality.mock.calls.at(-1)[1];
+
+  it('no collect in flight: the turn applies at once', () => {
+    const { scene } = sceneFor({ collecting: false });
+    scene.handleUpdateTurn({ currentTurn: 1 });
+    expect(scene.cardManager.updateCardLegality).toHaveBeenCalledTimes(1);
+    expect(lastCanPlay(scene)).toBe(true);
+  });
+
+  it('during the collect the hand stays dimmed, then the turn applies when it lands', () => {
+    const { scene, land } = sceneFor({ collecting: true });
+    scene.handleUpdateTurn({ currentTurn: 1 });
+    expect(lastCanPlay(scene)).toBe(false);
+    land();
+    expect(scene.cardManager.updateCardLegality).toHaveBeenCalledTimes(2);
+    expect(lastCanPlay(scene)).toBe(true);
+  });
+
+  it('a newer updateTurn or a moved turn cancels the deferred apply', () => {
+    const { scene, land } = sceneFor({ collecting: true });
+    scene.handleUpdateTurn({ currentTurn: 1 });
+    scene.state.currentTurn = 2;
+    scene.handleUpdateTurn({ currentTurn: 2 });
+    land();
+    expect(scene.cardManager.updateCardLegality.mock.calls.every((c) => c[1] === false)).toBe(true);
+
+    const b = sceneFor({ collecting: true });
+    b.scene.handleUpdateTurn({ currentTurn: 1 });
+    b.scene.state.currentTurn = 3; // turn moved on without an updateTurn here
+    b.land();
+    expect(b.scene.cardManager.updateCardLegality).toHaveBeenCalledTimes(1);
+  });
+
+  it('a card already played meanwhile is not re-enabled', () => {
+    const { scene, land } = sceneFor({ collecting: true });
+    scene.handleUpdateTurn({ currentTurn: 1 });
+    scene.state.hasPlayedCard = true;
+    land();
+    expect(scene.cardManager.updateCardLegality).toHaveBeenCalledTimes(1);
+  });
+
+  it('another seat\'s turn during the collect is applied at once (dimmed)', () => {
+    const { scene } = sceneFor({ collecting: true });
+    scene.state.currentTurn = 3;
+    scene.handleUpdateTurn({ currentTurn: 3 });
+    expect(scene.cardManager.updateCardLegality).toHaveBeenCalledTimes(1);
+    expect(lastCanPlay(scene)).toBe(false);
+  });
+});
+
+describe('GameScene handleCardPlayed fly-in timing', () => {
+  function opponentScene() {
+    const scene = new GameScene();
+    const sprite = { setData: vi.fn(), setDepth: vi.fn(), x: 0, y: 0, scene: {} };
+    scene.state = { position: 1, currentTrick: [{}, {}], isSpectator: false, isLazy: false };
+    scene.callbacks = {};
+    scene.tweens = { add: vi.fn(() => ({ stop: vi.fn() })) };
+    scene.time = { delayedCall: vi.fn(() => ({ remove: vi.fn() })) };
+    scene.opponentManager = { removeCard: vi.fn(() => sprite) };
+    scene.trickManager = {
+      setPlayerPosition: vi.fn(), updatePlayPositions: vi.fn(), getRelativePositionKey: vi.fn(() => 'opponent1'),
+      _playPositions: { opponent1: { x: 100, y: 200 } }, _stopCardAnimations: vi.fn(), _currentTrick: [],
+    };
+    return scene;
+  }
+
+  it('flies in over CARD_PLAY (300 ms) with a 30 ms flip delay', () => {
+    const scene = opponentScene();
+    scene.handleCardPlayed({ card: { suit: 'spades', rank: 'A' }, position: 2 });
+    expect(scene.tweens.add.mock.calls[0][0].duration).toBe(300);
+    expect(scene.time.delayedCall.mock.calls[0][0]).toBe(30);
+  });
+
+  it('the trick-completing card lands within a quarter of resumeInMs', () => {
+    const scene = opponentScene();
+    scene.handleCardPlayed({ card: { suit: 'spades', rank: 'A' }, position: 2, resumeInMs: 600 });
+    expect(scene.tweens.add.mock.calls[0][0].duration).toBe(150);
+  });
+});

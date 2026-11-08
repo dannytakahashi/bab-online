@@ -63,4 +63,14 @@ describe('DrawManager fade timer', () => {
     dm.cleanup();
     expect(timer.remove).not.toHaveBeenCalled();
   });
+
+  it('the fade ends when the server\'s hold does (teamsAnnounced.resumeInMs)', () => {
+    const dm = new DrawManager(scene);
+    dm.deckConfig = { startX: 0, startY: 100 };
+    dm.handleTeamsAnnounced({ team1: ['a', 'b'], team2: ['c', 'd'], resumeInMs: 2400 });
+    expect(scene.time.delayedCall).toHaveBeenCalledWith(1600, expect.any(Function));
+    fadeCallback();
+    expect(document.getElementById('transition-overlay').style.transition).toContain('800ms');
+    document.getElementById('transition-overlay').remove();
+  });
 });

@@ -385,7 +385,7 @@ export function setGameScene(scene) {
       // Use TrickManager for trick collection animation
       if (this.trickManager && gameState.position) {
         const isMyTeam = data.winner % 2 === gameState.position % 2;
-        this.trickManager.completeTrick(data.winner, isMyTeam);
+        this.trickManager.completeTrick(data.winner, isMyTeam, data.resumeInMs);
       }
 
       // Add to game feed
@@ -652,7 +652,7 @@ export function setGameScene(scene) {
             targets: sprite,
             x: targetPos.x,
             y: targetPos.y,
-            duration: 500,
+            duration: ANIMATION_CONFIG.CARD_PLAY,
             ease: 'Power2',
             rotation: 0,
             scale: 1.5,
