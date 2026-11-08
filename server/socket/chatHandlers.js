@@ -273,21 +273,18 @@ function handleLeaveCommand(socket, io, game, position) {
  */
 function handleDrawPhaseLeave(socket, io, game) {
     // Idempotent: a second leave from the same socket changes nothing
-    if (game._drawPhaseDisconnects?.[socket.id]?.left) return;
+    const entrant = game.entrant(socket.id);
+    if (!entrant || entrant.presence === 'left') return;
 
     const user = gameManager.getUserBySocketId(socket.id);
-    const username = user?.username || 'Player';
+    const username = entrant.username || user?.username || 'Player';
 
     // No-op if they already drew (or the draw is no longer open)
     const { autoDraw } = require('./gameHandlers');
     const drewNow = autoDraw(io, game, socket.id, username);
 
-    // Mark the seat for bot replacement once positions are assigned
-    // (handleDrawComplete seats a bot for `left` entries)
-    if (!game._pendingUsernames) game._pendingUsernames = {};
-    game._pendingUsernames[socket.id] = username;
-    if (!game._drawPhaseDisconnects) game._drawPhaseDisconnects = {};
-    game._drawPhaseDisconnects[socket.id] = { username, left: true };
+    // handleDrawComplete seats a bot for a 'left' entrant
+    game.markEntrantLeft(socket.id);
 
     const msg = `${username} left during card draw.`;
     game.addLogEntry(msg, null, 'system');
@@ -295,9 +292,8 @@ function handleDrawPhaseLeave(socket, io, game) {
 
     game.leaveRoom(io, socket.id);
     gameManager.playerGames.delete(socket.id);
-    if (user) {
-        gameManager.clearActiveGame(user.username);
-    }
+    const owner = entrant.username || user?.username;
+    if (owner) gameManager.clearActiveGame(owner, game.gameId);
     socket.emit('leftGame');
 
     socketLogger.info('Player left during draw phase', { gameId: game.gameId, username });
@@ -370,7 +366,7 @@ function chatMessage(socket, io, data) {
             return;
         }
         // /leave works during the draw phase too, before positions exist
-        if (!position && activeGame.isPreSeating() &&
+        if (!position && activeGame.entrant(socket.id) &&
             data.message.trim().toLowerCase() === '/leave') {
             handleDrawPhaseLeave(socket, io, activeGame);
             return;

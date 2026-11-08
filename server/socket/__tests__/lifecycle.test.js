@@ -728,7 +728,7 @@ describe('12. departures during the lobby countdown (CREATED)', () => {
         chatHandlers.chatMessage(sockets[0], io, { message: '/leave' });
         await queueHandlers.handleDisconnect(sockets[0], io);
         expect(events(log, 'leftGame')).toHaveLength(1);
-        expect(game._drawPhaseDisconnects[ids[0]].left).toBe(true);
+        expect(game.entrant(ids[0]).presence).toBe('left');
     });
 });
 

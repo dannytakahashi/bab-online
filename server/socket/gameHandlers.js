@@ -371,8 +371,7 @@ async function handleDrawComplete(io, game) {
             } while (usedPics.has(pic));
         } else {
             // Human players - fetch saved profile pic
-            const user = gameManager.getUserBySocketId(playerId);
-            pic = await getUserProfilePic(user?.username);
+            pic = await getUserProfilePic(game.entrant(playerId)?.username);
             const isCustomPic = typeof pic === 'string' && pic.startsWith('data:image');
 
             // Only check for duplicates on numbered pics (custom pics are always unique)
@@ -389,6 +388,10 @@ async function handleDrawComplete(io, game) {
     // Aborted while the profile pics loaded
     if (!alive()) return;
 
+    // Seat from the entrants as they are now (presence may have changed
+    // during the pic lookups); the 4th seat clears game.entrants
+    const entrants = game.entrants;
+
     // Assign positions based on cards drawn
     const positions = [];
     for (let i = 0; i < game.drawIDs.length; i++) {
@@ -404,8 +407,7 @@ async function handleDrawComplete(io, game) {
             const bot = botController.getBot(game.gameId, playerId);
             username = bot?.username || 'Bot';
         } else {
-            const user = gameManager.getUserBySocketId(playerId);
-            username = user?.username || game._pendingUsernames?.[playerId] || 'Player';
+            username = entrants?.get(playerId)?.username || 'Player';
         }
 
         game.addPlayer(playerId, username, position, pics[i], isBot);
@@ -421,7 +423,7 @@ async function handleDrawComplete(io, game) {
 
         // Only emit to human players still at the table (a draw-phase leaver
         // is back in the main room and must not pick up a seat position)
-        if (!isBot && !game._drawPhaseDisconnects?.[playerId]?.left) {
+        if (!isBot && entrants?.get(playerId)?.presence !== 'left') {
             game.sendToPlayer(io, playerId, 'playerAssigned', { playerId, position });
         }
     }
@@ -432,24 +434,23 @@ async function handleDrawComplete(io, game) {
     // grace timer, after which the others are offered a bot replacement.
     const drawPhaseDisconnects = [];
     let seatedBotForLeaver = false;
-    if (game._drawPhaseDisconnects) {
-        for (const [socketId, info] of Object.entries(game._drawPhaseDisconnects)) {
-            const pos = game.getPositionBySocketId(socketId);
-            if (!pos) continue;
-            if (info.left) {
-                const bot = replaceSeatWithBot(game, pos);
-                seatedBotForLeaver = true;
-                const msg = `${bot.username} is taking over for ${info.username}.`;
-                game.addLogEntry(msg, null, 'system');
-                game.broadcast(io, 'gameLogEntry', { message: msg, type: 'system' });
-            } else {
-                game.markPlayerDisconnected(pos);
-                drawPhaseDisconnects.push({ position: pos, username: info.username });
-            }
+    for (const info of entrants ? entrants.values() : []) {
+        if (info.isBot || info.presence === 'connected') continue;
+        const pos = game.getPositionBySocketId(info.socketId);
+        if (!pos) continue;
+        const username = info.username || 'Player';
+        if (info.presence === 'left') {
+            const bot = replaceSeatWithBot(game, pos);
+            seatedBotForLeaver = true;
+            const msg = `${bot.username} is taking over for ${username}.`;
+            game.addLogEntry(msg, null, 'system');
+            game.broadcast(io, 'gameLogEntry', { message: msg, type: 'system' });
+        } else {
+            game.markPlayerDisconnected(pos);
+            drawPhaseDisconnects.push({ position: pos, username });
         }
-        delete game._drawPhaseDisconnects;
-        delete game._pendingUsernames;
     }
+    game.entrants = null;
 
     // Every human left during the draw: nobody to play for, abort (same rule
     // as /leave once the game is under way). All-bot demo games never get here.

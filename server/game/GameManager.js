@@ -670,8 +670,16 @@ class GameManager {
             this.playerGames.set(socketId, gameId);
         });
 
-        // Store socket IDs for later position assignment
-        game.pendingPlayers = playerSocketIds;
+        // Pre-seating participants, with usernames captured now (a socket
+        // that drops before seating is no longer resolvable later)
+        game.initEntrants(playerSocketIds.map((socketId) => {
+            const isBot = this.isBot(socketId);
+            return {
+                socketId,
+                isBot,
+                username: isBot ? null : (this.getUserBySocketId(socketId)?.username ?? null)
+            };
+        }));
 
         // A seat whose socket no longer maps here (e.g. a /leave'd lazy
         // human now in the main room) must not be dealt private cards

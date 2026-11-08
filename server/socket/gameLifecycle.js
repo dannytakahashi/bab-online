@@ -81,9 +81,9 @@ function beginDraw(io, game, { announce = true } = {}) {
 
     // Sockets that left or disconnected during the countdown draw now
     const { autoDraw, handleDrawComplete } = require('./gameHandlers');
-    const departed = game._drawPhaseDisconnects || {};
-    for (const [socketId, info] of Object.entries(departed)) {
-        if (!game.drawIDs.includes(socketId)) autoDraw(io, game, socketId, info.username);
+    for (const e of game.entrants ? game.entrants.values() : []) {
+        if (e.presence === 'connected' || game.drawIDs.includes(e.socketId)) continue;
+        autoDraw(io, game, e.socketId, e.username || 'Player');
     }
     if (game.drawIndex === 4) {
         handleDrawComplete(io, game).catch(err =>

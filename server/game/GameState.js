@@ -49,6 +49,10 @@ class GameState {
         this._pauses = new Set();  // in-flight pause() entries
         this._history = shouldCheckInvariants() ? [Phase.CREATED] : null;
         this._isSeatReachable = null;   // set by GameManager.createGame
+        // Pre-seating participants: socketId -> {socketId, username, isBot,
+        // presence: 'connected'|'disconnected'|'left'}. Filled by
+        // GameManager.createGame, null once all four seats exist.
+        this.entrants = null;
         this.currentTurn = 1;
 
         // Bidding state
@@ -350,6 +354,44 @@ class GameState {
     addPlayer(socketId, username, position, pic, isBot = false) {
         this.players.set(socketId, { username, position, pic, isBot });
         this.positions[position] = socketId;
+        // Seating is complete: pre-seating bookkeeping is over
+        if (this.players.size === 4) this.entrants = null;
+    }
+
+    // ========================================
+    // Entrants (before seats exist)
+    // ========================================
+
+    /** @param {Array<{socketId, username, isBot}>} list */
+    initEntrants(list) {
+        this.entrants = new Map();
+        for (const e of list) {
+            this.entrants.set(e.socketId, {
+                socketId: e.socketId,
+                username: e.username ?? null,
+                isBot: !!e.isBot,
+                presence: 'connected'
+            });
+        }
+    }
+
+    /** The entrant record for a socket (null once seated, or unknown). */
+    entrant(socketId) {
+        return this.entrants?.get(socketId) || null;
+    }
+
+    /** Idempotent; never downgrades a 'left' entrant. */
+    markEntrantDisconnected(socketId) {
+        const e = this.entrant(socketId);
+        if (e && e.presence === 'connected') e.presence = 'disconnected';
+        return e;
+    }
+
+    /** Idempotent. */
+    markEntrantLeft(socketId) {
+        const e = this.entrant(socketId);
+        if (e) e.presence = 'left';
+        return e;
     }
 
     /**

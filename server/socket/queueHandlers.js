@@ -123,9 +123,9 @@ async function handleDisconnect(socket, io) {
         // Before seats exist (CREATED countdown, draw, draw resolution): no
         // seat to mark yet. A CREATED departure auto-draws when the draw opens
         // (gameLifecycle.beginDraw); handleDrawComplete seats it.
-        if (!position && result.game.isPreSeating()) {
-            const user = gameManager.getUserBySocketId(socket.id);
-            const username = user?.username || 'Player';
+        const entrant = result.game.entrant(socket.id);
+        if (entrant) {
+            const username = entrant.username || 'Player';
 
             // Auto-draw for the disconnected player (random card); a no-op
             // if they already drew or the draw is no longer open
@@ -137,16 +137,9 @@ async function handleDisconnect(socket, io) {
                 );
             }
 
-            // Store username for lookup during handleDrawComplete
-            if (!result.game._pendingUsernames) result.game._pendingUsernames = {};
-            result.game._pendingUsernames[socket.id] = username;
-
-            // Mark this socket as needing replacement after draw completes
-            if (!result.game._drawPhaseDisconnects) result.game._drawPhaseDisconnects = {};
-            // Never downgrade a /leave (left: true) to a plain disconnect
-            if (!result.game._drawPhaseDisconnects[socket.id]?.left) {
-                result.game._drawPhaseDisconnects[socket.id] = { username };
-            }
+            // handleDrawComplete seats it as a disconnected seat (never
+            // downgrades a /leave)
+            result.game.markEntrantDisconnected(socket.id);
 
             // Log disconnect. No playerDisconnected here: there is no seat yet
             // (iOS would file position:null under 0 and never clear it);
