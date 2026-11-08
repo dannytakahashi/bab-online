@@ -37,10 +37,13 @@ test('the username locks at 30 failures across IPs', () => {
     expect(throttle.check({ ip: '4.4.4.4', username: 'bea' }).ok).toBe(true); // usernames are case-sensitive accounts
 });
 
-test('a null IP skips the IP key but keeps the pair and username keys', () => {
+test('a null IP skips the IP and pair keys: only the username key (30) applies', () => {
     for (let i = 0; i < 60; i++) throttle.recordFailure({ ip: null, username: `x${i}` });
     expect(throttle.check({ ip: null, username: 'Cy' }).ok).toBe(true);
-    fail({ ip: null, username: 'Cy' }, 10);
+    // Not a shared 'unknown|Cy' key with a limit of 10
+    fail({ ip: null, username: 'Cy' }, 29);
+    expect(throttle.check({ ip: null, username: 'Cy' }).ok).toBe(true);
+    fail({ ip: null, username: 'Cy' }, 1);
     expect(throttle.check({ ip: null, username: 'Cy' }).ok).toBe(false);
 });
 
@@ -56,8 +59,58 @@ test('success clears the pair; release undoes one reservation', () => {
     expect(throttle.check(a).ok).toBe(true);
 });
 
-test('keys stay bounded under a flood', () => {
+test('keys stay bounded under a flood, and the flood never evicts a lockout', () => {
+    // Regression: insertion-order eviction dropped the oldest key, which was
+    // the account under attack, so 5000 junk failures reopened it
+    for (let i = 0; i < 30; i++) throttle.recordFailure({ ip: `9.9.${i}.1`, username: 'Alan' });
+    // Near the limit (29 of 30) is kept too
+    for (let i = 0; i < 29; i++) throttle.recordFailure({ ip: `9.8.${i}.1`, username: 'Bea' });
     for (let i = 0; i < 6000; i++) throttle.recordFailure({ ip: `10.${i >> 8}.${i & 255}.1`, username: `n${i}` });
-    // Nothing expired yet, so the oldest keys are evicted beyond 5000
+    expect(throttle.check({ ip: '4.4.4.4', username: 'Alan' }).ok).toBe(false);
+    throttle.recordFailure({ ip: '4.4.4.5', username: 'Bea' });
+    expect(throttle.check({ ip: '4.4.4.4', username: 'Bea' }).ok).toBe(false);
+    // Junk keys with one failure each were evicted to make room
     expect(throttle.check({ ip: '10.0.0.1', username: 'n0' }).ok).toBe(true);
+});
+
+test('a map full of lockouts refuses new keys instead of evicting one', () => {
+    const { MAX_KEYS, LIMITS } = throttle;
+    // Fill the username map with keys at their limit (each from fresh IPs)
+    let n = 0;
+    for (let u = 0; u < MAX_KEYS; u++) {
+        for (let k = 0; k < LIMITS.user; k++) throttle.recordFailure({ ip: `ip${n++ % 40000}`, username: `full${u}` });
+    }
+    expect(throttle.check({ ip: '4.4.4.4', username: 'full0' }).ok).toBe(false);
+    // A brand-new username cannot get a key: fail closed (and not stored)
+    const gate = throttle.check({ ip: '4.4.4.4', username: 'newcomer' });
+    expect(gate.ok).toBe(false);
+    expect(gate.retryAfterMs).toBeGreaterThan(0);
+    // Once the window passes everything expires and sign-in reopens
+    jest.advanceTimersByTime(throttle.WINDOW_MS + 1);
+    expect(throttle.check({ ip: '4.4.4.4', username: 'newcomer' }).ok).toBe(true);
+    expect(throttle.check({ ip: '4.4.4.4', username: 'full0' }).ok).toBe(true);
+});
+
+test('a known-good pair skips the username key; the pair and IP keys still apply', () => {
+    const home = { ip: '203.0.113.10', username: 'Mom' };
+    throttle.recordSuccess(home);
+    // An outsider locks the username from other IPs
+    for (let i = 0; i < 30; i++) throttle.recordFailure({ ip: `192.0.2.${i}`, username: 'Mom' });
+    expect(throttle.check({ ip: '198.51.100.1', username: 'Mom' }).ok).toBe(false);
+    // The household network still signs in
+    expect(throttle.check(home).ok).toBe(true);
+    // ...but its own typos still lock its pair
+    fail(home, 10);
+    expect(throttle.check(home).ok).toBe(false);
+});
+
+test('rememberGood (a restored session) marks the pair; it expires after 30 days; null IP never counts', () => {
+    throttle.rememberGood({ ip: '203.0.113.11', username: 'Dad' });
+    throttle.rememberGood({ ip: null, username: 'Dad' });
+    for (let i = 0; i < 30; i++) throttle.recordFailure({ ip: `192.0.2.${i}`, username: 'Dad' });
+    expect(throttle.check({ ip: '203.0.113.11', username: 'Dad' }).ok).toBe(true);
+    expect(throttle.check({ ip: null, username: 'Dad' }).ok).toBe(false);
+    jest.advanceTimersByTime(throttle.KNOWN_GOOD_MS + 1);
+    for (let i = 0; i < 30; i++) throttle.recordFailure({ ip: `192.0.3.${i}`, username: 'Dad' });
+    expect(throttle.check({ ip: '203.0.113.11', username: 'Dad' }).ok).toBe(false);
 });

@@ -3,16 +3,24 @@
  * wrong password), over a sliding 15 min window, on three keys:
  *
  * - (ip, username) pair: 10. One person's typos lock only that person on
- *   that network; a success clears the pair.
+ *   that network; a success clears the pair. Skipped when the IP is
+ *   unknown (null), so a missing IP never becomes one shared
+ *   'unknown|<username>' key for everyone.
  * - ip: 50 (skipped when the IP is unknown). A household behind one NAT has
  *   a lot of room before this applies.
  * - username, across all IPs: 30. Rotating (or spoofed) IPs still stop here.
+ *   Skipped for a KNOWN-GOOD pair: an (ip, username) that signed in (or
+ *   restored a session) in the last 30 days. Someone guessing from other
+ *   IPs can then lock the username for new devices and networks, but never
+ *   for the household that already uses it (the pair and IP keys still
+ *   apply there).
  *
  * Never counted or limited: restoreSession, rejoinGame, signUp, correct
  * sign-ins, database errors and a busy hash pool. Session tokens are
  * SHA-256 over a uuid v4, so guessing one is infeasible.
  * Accepted cost: someone who knows a username can block its PASSWORD
- * sign-in for 15 min; saved sessions keep working and a restart clears it.
+ * sign-in from new IPs for 15 min; saved sessions and known-good pairs keep
+ * working and a restart clears it.
  *
  * Concurrency: signIn reserve()s a failure on the pair and username keys
  * synchronously with check(), before its DB read and hash, so parallel
@@ -22,27 +30,57 @@
  * at the same moment from one NAT never block each other.
  *
  * In memory, no timers: entries are pruned lazily on access and in full
- * when a map grows past 5000 keys (then the oldest keys are evicted).
+ * when a map reaches 5000 keys. A flood never evicts a lockout: only keys
+ * below their limit are evicted (fewest failures first), and when every
+ * key is at its limit a NEW key is refused (check() fails closed for that
+ * attempt) instead of making room.
  */
 
 const WINDOW_MS = 15 * 60 * 1000;
+const KNOWN_GOOD_MS = 30 * 24 * 60 * 60 * 1000;
 const LIMITS = { pair: 10, ip: 50, user: 30 };
 const MAX_KEYS = 5000;
+/** Evict down to this many keys, so a flood does not rescan every insert. */
+const EVICT_TO = Math.floor(MAX_KEYS * 0.9);
+/** Retry hint when a map is full of lockouts (fail closed). */
+const SATURATED_RETRY_MS = 60 * 1000;
 
 const maps = { pair: new Map(), ip: new Map(), user: new Map() };
+/** `${ip}|${username}` -> last success time; insertion order = oldest first. */
+const knownGood = new Map();
 
 function normUser(username) {
     return String(username ?? '').trim();
 }
 
-/** [kind, key] for the pair and username keys (always present). */
-function accountKeys({ ip, username }) {
-    const user = normUser(username);
-    return [['pair', `${ip || 'unknown'}|${user}`], ['user', user]];
+function pairKey(ip, user) {
+    return `${ip}|${user}`;
 }
 
-function allKeys(who) {
-    const keys = accountKeys(who);
+/** [kind, key] for the reserved keys: the pair (only with an IP) and username. */
+function accountKeys({ ip, username }) {
+    const user = normUser(username);
+    const keys = [['user', user]];
+    if (ip) keys.unshift(['pair', pairKey(ip, user)]);
+    return keys;
+}
+
+function isKnownGood({ ip, username }, now) {
+    if (!ip) return false;
+    const key = pairKey(ip, normUser(username));
+    const at = knownGood.get(key);
+    if (at === undefined) return false;
+    if (at <= now - KNOWN_GOOD_MS) {
+        knownGood.delete(key);
+        return false;
+    }
+    return true;
+}
+
+/** The keys check() enforces for this attempt. */
+function checkedKeys(who, now) {
+    let keys = accountKeys(who);
+    if (isKnownGood(who, now)) keys = keys.filter(([kind]) => kind !== 'user');
     if (who.ip) keys.push(['ip', who.ip]);
     return keys;
 }
@@ -60,21 +98,37 @@ function live(kind, key, now) {
     return list;
 }
 
-function pruneAll(kind, now) {
+/**
+ * Make room for a new key: drop expired entries, then evict keys below
+ * their limit, fewest failures first. Never evicts a key at its limit.
+ * @returns {boolean} whether a new key fits
+ */
+function makeRoom(kind, now) {
     const map = maps[kind];
+    if (map.size < MAX_KEYS) return true;
     for (const key of Array.from(map.keys())) live(kind, key, now);
-    // Still too many (a flood): evict the oldest keys
-    for (const key of map.keys()) {
-        if (map.size <= MAX_KEYS) break;
+    if (map.size < MAX_KEYS) return true;
+    const evictable = [];
+    for (const [key, list] of map) {
+        if (list.length < LIMITS[kind]) evictable.push([key, list.length]);
+    }
+    evictable.sort((a, b) => a[1] - b[1]);
+    for (const [key] of evictable) {
+        if (map.size <= EVICT_TO) break;
         map.delete(key);
     }
+    return map.size < MAX_KEYS;
 }
 
 function push(kind, key, now) {
-    const list = live(kind, key, now) || [];
-    list.push(now);
-    maps[kind].set(key, list);
-    if (maps[kind].size > MAX_KEYS) pruneAll(kind, now);
+    const map = maps[kind];
+    const list = live(kind, key, now);
+    if (list) {
+        list.push(now);
+        return;
+    }
+    if (!makeRoom(kind, now)) return; // full of lockouts; check() refuses new keys
+    map.set(key, [now]);
 }
 
 function remove(kind, key, at) {
@@ -91,10 +145,15 @@ function remove(kind, key, at) {
 function check(who) {
     const now = Date.now();
     let retryAfterMs = 0;
-    for (const [kind, key] of allKeys(who)) {
+    for (const [kind, key] of checkedKeys(who, now)) {
         const list = live(kind, key, now);
-        if (list && list.length >= LIMITS[kind]) {
-            retryAfterMs = Math.max(retryAfterMs, list[0] + WINDOW_MS - now);
+        if (list) {
+            if (list.length >= LIMITS[kind]) {
+                retryAfterMs = Math.max(retryAfterMs, list[0] + WINDOW_MS - now);
+            }
+        } else if (!makeRoom(kind, now)) {
+            // A new key with no room left (every key is a lockout): fail closed
+            retryAfterMs = Math.max(retryAfterMs, SATURATED_RETRY_MS);
         }
     }
     return { ok: retryAfterMs === 0, retryAfterMs };
@@ -125,14 +184,31 @@ function recordFailure(who) {
     return token;
 }
 
-/** A correct password: drop its reservation (if any) and clear the pair. */
+/**
+ * This (ip, username) proved it is the account's owner (correct password
+ * or a valid saved session): remember the pair for 30 days.
+ */
+function rememberGood(who) {
+    if (!who.ip) return;
+    const key = pairKey(who.ip, normUser(who.username));
+    knownGood.delete(key); // re-insert so insertion order stays oldest-first
+    knownGood.set(key, Date.now());
+    while (knownGood.size > MAX_KEYS) knownGood.delete(knownGood.keys().next().value);
+}
+
+/** A correct password: drop its reservation (if any), clear the pair, remember it. */
 function recordSuccess(who, token) {
     release(who, token);
-    maps.pair.delete(accountKeys(who)[0][1]);
+    if (who.ip) maps.pair.delete(pairKey(who.ip, normUser(who.username)));
+    rememberGood(who);
 }
 
 function _reset() {
     for (const map of Object.values(maps)) map.clear();
+    knownGood.clear();
 }
 
-module.exports = { check, reserve, confirm, release, recordFailure, recordSuccess, _reset, LIMITS, WINDOW_MS };
+module.exports = {
+    check, reserve, confirm, release, recordFailure, recordSuccess, rememberGood, _reset,
+    LIMITS, WINDOW_MS, KNOWN_GOOD_MS, MAX_KEYS
+};

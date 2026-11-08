@@ -464,10 +464,33 @@ describe('failed sign-in throttle', () => {
     test('after a lockout, restoreSession with a saved token still works (never throttled)', async () => {
         const { sessionToken } = await signIn(from('198.51.100.4'), 'Alan', 'pw');
         for (let i = 0; i < 30; i++) await signIn(from(`192.0.2.${i + 100}`), 'Alan', 'wrong');
-        expect(await signIn(from('198.51.100.4'), 'Alan', 'pw')).toEqual(THROTTLED);
+        // A new network is refused...
+        expect(await signIn(from('198.51.100.40'), 'Alan', 'pw')).toEqual(THROTTLED);
+        // ...saved sessions are never throttled, from any network
         for (let i = 0; i < 20; i++) {
-            expect(await restore(from('198.51.100.4'), sessionToken)).toMatchObject({ success: true, username: 'Alan' });
+            expect(await restore(from(i % 2 ? '198.51.100.4' : '198.51.100.41'), sessionToken)).toMatchObject({ success: true, username: 'Alan' });
         }
+    });
+
+    test('a username lockout from other IPs never blocks the household that signed in before', async () => {
+        // Regression: the username key (30) applied before the hash, so an
+        // outsider could keep a family member's correct password refused
+        const home = '203.0.113.20';
+        expect(await signIn(from(home), 'Alan', 'pw')).toMatchObject({ success: true });
+        for (let i = 0; i < 30; i++) await signIn(from(`192.0.2.${i + 1}`), 'Alan', 'wrong');
+        expect(await signIn(from('198.51.100.60'), 'Alan', 'pw')).toEqual(THROTTLED);
+        expect(await signIn(from(home), 'Alan', 'pw')).toMatchObject({ success: true });
+        // The household's own typos still lock its pair at 10
+        for (let i = 0; i < 10; i++) await signIn(from(home), 'Alan', 'wrong');
+        expect(await signIn(from(home), 'Alan', 'pw')).toEqual(THROTTLED);
+    });
+
+    test('a restored session marks its network known-good for password sign-in', async () => {
+        const { sessionToken } = await signIn(from('198.51.100.70'), 'Alan', 'pw');
+        const phoneNet = '203.0.113.21';
+        expect(await restore(from(phoneNet), sessionToken)).toMatchObject({ success: true });
+        for (let i = 0; i < 30; i++) await signIn(from(`192.0.2.${i + 50}`), 'Alan', 'wrong');
+        expect(await signIn(from(phoneNet), 'Alan', 'pw')).toMatchObject({ success: true });
     });
 
     test('a success clears the pair', async () => {
@@ -487,8 +510,14 @@ describe('failed sign-in throttle', () => {
         expect(replies.filter(r => r.message === THROTTLED.message)).toHaveLength(15);
     });
 
-    test('no client IP: only the pair and username keys apply', async () => {
+    test('no client IP: only the username key applies', async () => {
         for (let i = 0; i < 60; i++) await signIn(from(null), `ghost${i}`, 'x');
         expect(await signIn(from(null), 'Alan', 'pw')).toMatchObject({ success: true });
+        // Regression: a null IP made one shared 'unknown|Alan' pair key with a
+        // limit of 10, so 10 failures from anyone locked every null-IP device
+        for (let i = 0; i < 10; i++) await signIn(from(null), 'Alan', 'wrong');
+        expect(await signIn(from(null), 'Alan', 'pw')).toMatchObject({ success: true });
+        for (let i = 0; i < 30; i++) await signIn(from(null), 'Alan', 'wrong');
+        expect(await signIn(from(null), 'Alan', 'pw')).toEqual(THROTTLED);
     });
 });

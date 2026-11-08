@@ -4,6 +4,7 @@
 
 const passwordHash = require('../utils/passwordHash');
 const signInThrottle = require('./signInThrottle');
+const { describeClientAddress } = require('../utils/clientIp');
 const { getUsersCollection, getGameRecordsCollection } = require('../database');
 const gameManager = require('../game/GameManager');
 const { authLogger } = require('../utils/logger');
@@ -119,6 +120,9 @@ async function signIn(socket, io, data) {
             return;
         }
         succeeded = true;
+        // Family scale: one line per password sign-in so the owner can check
+        // after a deploy that different networks get different IPs
+        authLogger.info('Sign-in client address', { username, ip: who.ip, ...describeClientAddress(socket) });
 
         // If user is already logged in, disconnect the old session
         disconnectPreviousSocket(io, user.socketId, socket.id, username);
@@ -337,6 +341,9 @@ async function restoreSession(socket, io, data) {
             authLogger.warn('Session restore failed: invalid token', { username });
             return;
         }
+        // A valid saved session proves this network is the account's own:
+        // its password sign-ins skip the username-wide limit (signInThrottle)
+        signInThrottle.rememberGood({ ip: socket.data?.clientIp ?? null, username });
 
         // A different device resuming its saved session takes over the one
         // live connection. The same device reconnecting (same token, e.g. a
