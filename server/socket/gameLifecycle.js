@@ -1,6 +1,6 @@
 /**
- * Game lifecycle entry points shared by every handler: the single abort
- * path and the main-room lobby refresh.
+ * Game lifecycle entry points shared by every handler: the single draw
+ * start, the single abort path and the main-room lobby refresh.
  *
  * abortGame is the only way a live game is aborted from a socket path. It is
  * idempotent (false on an already-terminal game) and does the teardown in a
@@ -11,6 +11,8 @@
  */
 
 const gameManager = require('../game/GameManager');
+const Deck = require('../game/Deck');
+const { botController } = require('../game/bot');
 const { Phase } = require('../game/GamePhase');
 const { socketLogger } = require('../utils/logger');
 
@@ -47,7 +49,52 @@ async function abortGame(io, game, reason) {
     return true;
 }
 
+/**
+ * Open the draw (CREATED -> DRAWING): shuffle a deck, announce startDraw,
+ * schedule every registered bot's draw, and replay departures that happened
+ * while the game sat in CREATED (lobby/tournament countdown): each departed
+ * socket auto-draws now, and handleDrawComplete later seats it as a resign
+ * bot (left) or a disconnected seat — or aborts if every human left.
+ * Used by the lobby, tournament and ambient start paths.
+ * @param {Object} io
+ * @param {GameState} game
+ * @param {Object} [opts]
+ * @param {boolean} [opts.announce=true] - broadcast startDraw (the ambient
+ *   bot game has no audience for it)
+ * @returns {boolean} false if the game was no longer in CREATED
+ */
+function beginDraw(io, game, { announce = true } = {}) {
+    if (!game.transition(Phase.CREATED, Phase.DRAWING)) return false;
+
+    const deck = new Deck();
+    deck.shuffle();
+    game.deck = deck;
+
+    if (announce) game.broadcast(io, 'startDraw', { start: true });
+
+    // Bots draw on staggered timers, in registration order
+    let drawOrder = 0;
+    for (const bot of botController.getGameBots(game.gameId)) {
+        drawOrder++;
+        botController.scheduleBotDraw(io, game, bot.socketId, drawOrder);
+    }
+
+    // Sockets that left or disconnected during the countdown draw now
+    const { autoDraw, handleDrawComplete } = require('./gameHandlers');
+    const departed = game._drawPhaseDisconnects || {};
+    for (const [socketId, info] of Object.entries(departed)) {
+        if (!game.drawIDs.includes(socketId)) autoDraw(io, game, socketId, info.username);
+    }
+    if (game.drawIndex === 4) {
+        handleDrawComplete(io, game).catch(err =>
+            socketLogger.error('handleDrawComplete failed', { gameId: game.gameId, error: err.message, stack: err.stack })
+        );
+    }
+    return true;
+}
+
 module.exports = {
     abortGame,
+    beginDraw,
     emitLobbiesUpdated
 };

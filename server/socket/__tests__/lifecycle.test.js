@@ -630,6 +630,88 @@ describe('11. draw re-entry', () => {
     });
 });
 
+describe('12. departures during the lobby countdown (CREATED)', () => {
+    /** A lobby of `humans` humans + bots, readied; resolves inside the 2s pre-draw pause. */
+    async function countdown(humans) {
+        const { io, log } = newIo();
+        seq++;
+        const ids = Array.from({ length: humans }, (_, i) => `c${seq}-h${i + 1}`);
+        registerHumans(ids);
+        const sockets = ids.map((id) => makeSocket(id, log, io));
+        const lobby = gameManager.createLobby(ids);
+        for (let i = humans; i < 4; i++) gameManager.addBotToLobby(lobby.id);
+        const ready = sockets.map((s) => lobbyHandlers.playerReady(s, io));
+        await jest.advanceTimersByTimeAsync(1500 + 500);
+        const game = gameManager.getPlayerGame(ids[0]);
+        expect(game.stage).toBe(Phase.CREATED);
+        return { io, log, ids, sockets, game, ready };
+    }
+    const nullPositionEvents = (log) => log.filter((l) => l.data && 'position' in l.data && l.data.position == null &&
+        ['playerDisconnected', 'playerReconnected', 'resignationAvailable'].includes(l.event));
+
+    test('a disconnect auto-draws when the draw opens and the seat waits for a reconnect', async () => {
+        const { io, log, ids, sockets, game } = await countdown(4);
+        await queueHandlers.handleDisconnect(sockets[0], io);
+        expect(nullPositionEvents(log)).toEqual([]);
+        expect(events(log, 'playerDisconnected')).toHaveLength(0);
+
+        await jest.advanceTimersByTimeAsync(1600); // beginDraw
+        expect(events(log, 'startDraw')).toHaveLength(1);
+        expect(events(log, 'playerDrew').map((l) => l.data.socketId)).toEqual([ids[0]]);
+        const pending = [1, 2, 3].map((i) => gameHandlers.draw(sockets[i], io, { num: 0 }));
+        await advanceUntil(() => game.stage === Phase.BIDDING, 50);
+        await jest.advanceTimersByTimeAsync(1000);
+        await Promise.all(pending);
+
+        const pos = game.getPositionBySocketId(ids[0]);
+        expect(pos).toBeTruthy();
+        expect(game.isPlayerDisconnected(pos)).toBe(true);
+        expect(events(log, 'playerDisconnected').map((l) => l.data.position)).toEqual([pos]);
+        expect(game.hasTimer('reconnectGrace')).toBe(true);
+        expect(nullPositionEvents(log)).toEqual([]);
+    });
+
+    test('a /leave is acknowledged, auto-draws at the draw and the seat goes to a bot', async () => {
+        const { io, log, ids, sockets, game } = await countdown(4);
+        chatHandlers.chatMessage(sockets[0], io, { message: '/leave' });
+        expect(log.some((l) => l.to === `self:${ids[0]}` && l.event === 'leftGame')).toBe(true);
+        expect(gameManager.playerGames.has(ids[0])).toBe(false);
+
+        await jest.advanceTimersByTimeAsync(1600);
+        const pending = [1, 2, 3].map((i) => gameHandlers.draw(sockets[i], io, { num: 0 }));
+        await advanceUntil(() => game.stage === Phase.BIDDING, 50);
+        await jest.advanceTimersByTimeAsync(1000);
+        await Promise.all(pending);
+
+        expect(Object.values(game.resignedPlayers).map((r) => r.username)).toEqual([`user_${ids[0]}`]);
+        const seat = Object.keys(game.resignedPlayers).map(Number)[0];
+        expect(game.getPlayerByPosition(seat).isBot).toBe(true);
+        expect(log.some((l) => l.to === ids[0] && l.event === 'playerAssigned')).toBe(false);
+        expect(nullPositionEvents(log)).toEqual([]);
+    });
+
+    test('if every human left during the countdown the game aborts exactly once', async () => {
+        const { io, log, sockets, game, ready } = await countdown(1);
+        chatHandlers.chatMessage(sockets[0], io, { message: '/leave' });
+        await jest.advanceTimersByTimeAsync(20000);
+        await Promise.all(ready);
+
+        expect(events(log, 'abortGame')).toHaveLength(1);
+        expect(game.stage).toBe(Phase.ABORTED);
+        expect(gameManager.getGameById(game.gameId)).toBeNull();
+        expect(Array.from(gameManager.playerGames.values())).not.toContain(game.gameId);
+    });
+
+    test('a second /leave or a disconnect after /leave changes nothing', async () => {
+        const { io, log, ids, sockets, game } = await countdown(4);
+        chatHandlers.chatMessage(sockets[0], io, { message: '/leave' });
+        chatHandlers.chatMessage(sockets[0], io, { message: '/leave' });
+        await queueHandlers.handleDisconnect(sockets[0], io);
+        expect(events(log, 'leftGame')).toHaveLength(1);
+        expect(game._drawPhaseDisconnects[ids[0]].left).toBe(true);
+    });
+});
+
 describe('14. redeal', () => {
     test('all-zero bids redeal in place: no doneBidding, destroyHands before gameStart, back in BIDDING', async () => {
         const { io, log } = newIo();

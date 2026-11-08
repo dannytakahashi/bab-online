@@ -4,7 +4,6 @@
 
 const gameManager = require('../game/GameManager');
 const { socketLogger } = require('../utils/logger');
-const { Phase } = require('../game/GamePhase');
 const { abortGame } = require('./gameLifecycle');
 const { botController, personalities } = require('../game/bot');
 const { PERSONALITY_LIST, getDisplayName } = personalities;
@@ -248,6 +247,9 @@ function handleLeaveCommand(socket, io, game, position) {
  * phase can complete, mark their seat for bot replacement, and send them out.
  */
 function handleDrawPhaseLeave(socket, io, game) {
+    // Idempotent: a second leave from the same socket changes nothing
+    if (game._drawPhaseDisconnects?.[socket.id]?.left) return;
+
     const user = gameManager.getUserBySocketId(socket.id);
     const username = user?.username || 'Player';
 
@@ -343,7 +345,7 @@ function chatMessage(socket, io, data) {
             return;
         }
         // /leave works during the draw phase too, before positions exist
-        if (!position && (activeGame.stage === Phase.DRAWING || activeGame.stage === Phase.DRAW_RESOLVING) &&
+        if (!position && activeGame.isPreSeating() &&
             data.message.trim().toLowerCase() === '/leave') {
             handleDrawPhaseLeave(socket, io, activeGame);
             return;

@@ -16,12 +16,10 @@
  */
 
 const gameManager = require('../game/GameManager');
-const Deck = require('../game/Deck');
 const { botController, personalities } = require('../game/bot');
 const { PERSONALITY_LIST, getDisplayName } = personalities;
 const { logger } = require('../utils/logger');
-const { Phase } = require('../game/GamePhase');
-const { abortGame } = require('../socket/gameLifecycle');
+const { abortGame, beginDraw } = require('../socket/gameLifecycle');
 
 const CHECK_INTERVAL_MS = 15 * 1000;        // poll cadence
 const RESTART_DELAY_MS = 30 * 1000;         // pause between games (keep the gap short)
@@ -150,15 +148,8 @@ function startBotGame(io) {
         botController.registerBot(game.gameId, bot);
     }
 
-    game.deck = new Deck();
-    game.deck.shuffle();
-    game.transition(Phase.CREATED, Phase.DRAWING);
-
-    let drawOrder = 0;
-    for (const bot of bots) {
-        drawOrder++;
-        botController.scheduleBotDraw(io, game, bot.socketId, drawOrder);
-    }
+    // No startDraw: there is nobody at the table to show it to
+    beginDraw(io, game, { announce: false });
 
     currentGameId = game.gameId;
     currentGameStartedAt = Date.now();

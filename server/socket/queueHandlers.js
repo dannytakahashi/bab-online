@@ -4,7 +4,6 @@
 
 const gameManager = require('../game/GameManager');
 const { socketLogger } = require('../utils/logger');
-const { Phase } = require('../game/GamePhase');
 const { abortGame, emitLobbiesUpdated } = require('./gameLifecycle');
 
 async function joinQueue(socket, io) {
@@ -121,7 +120,10 @@ async function handleDisconnect(socket, io) {
         const position = result.game.getPositionBySocketId(socket.id);
 
         // Handle disconnect during draw phase (player has no position yet)
-        if (!position && (result.game.stage === Phase.DRAWING || result.game.stage === Phase.DRAW_RESOLVING)) {
+        // Before seats exist (CREATED countdown, draw, draw resolution): no
+        // seat to mark yet. A CREATED departure auto-draws when the draw opens
+        // (gameLifecycle.beginDraw); handleDrawComplete seats it.
+        if (!position && result.game.isPreSeating()) {
             const user = gameManager.getUserBySocketId(socket.id);
             const username = user?.username || 'Player';
 
@@ -141,7 +143,10 @@ async function handleDisconnect(socket, io) {
 
             // Mark this socket as needing replacement after draw completes
             if (!result.game._drawPhaseDisconnects) result.game._drawPhaseDisconnects = {};
-            result.game._drawPhaseDisconnects[socket.id] = { username };
+            // Never downgrade a /leave (left: true) to a plain disconnect
+            if (!result.game._drawPhaseDisconnects[socket.id]?.left) {
+                result.game._drawPhaseDisconnects[socket.id] = { username };
+            }
 
             // Log disconnect. No playerDisconnected here: there is no seat yet
             // (iOS would file position:null under 0 and never clear it);

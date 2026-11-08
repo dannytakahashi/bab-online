@@ -5,9 +5,8 @@
 
 const gameManager = require('../game/GameManager');
 const TournamentState = require('../game/TournamentState');
-const Deck = require('../game/Deck');
 const { socketLogger } = require('../utils/logger');
-const { Phase } = require('../game/GamePhase');
+const { beginDraw } = require('./gameLifecycle');
 const { delay } = require('../utils/timing');
 const { botController, BotPlayer, personalities } = require('../game/bot');
 const { PERSONALITY_LIST, getDisplayName } = personalities;
@@ -460,17 +459,9 @@ async function startTournamentRound(io, tournament, roundNumber) {
         // Start draw phase after delay (false: the table aborted meanwhile)
         if (!(await game.pause(2000))) continue;
 
-        game.deck = new Deck();
-        game.deck.shuffle();
-        if (!game.transition(Phase.CREATED, Phase.DRAWING)) continue;
-        game.broadcast(io, 'startDraw', { start: true });
-
-        // Schedule bot draws
-        let botDrawOrder = 0;
-        for (const botInfo of botSocketIds) {
-            botDrawOrder++;
-            botController.scheduleBotDraw(io, game, botInfo.socketId, botDrawOrder);
-        }
+        // Deck, startDraw, bot draws, and auto-draws for anyone who left or
+        // disconnected during the countdown
+        beginDraw(io, game);
     }
 
     // If every table was skipped (everyone left during the start delays),
