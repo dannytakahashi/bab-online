@@ -130,6 +130,27 @@ describe('playCard validation', () => {
         expect(log.find((l) => l.event === 'actionRejected').data.reason).toBe('invalid_play');
         gameManager.abortGame(game.gameId);
     });
+
+    test('a card not in the hand resyncs the sender with its true seat state', async () => {
+        // iOS builds before the fix kept cards the lazy bot played after /active
+        const log = [];
+        const io = makeIo(log);
+        const { game, ids } = playingGame();
+
+        await gameHandlers.playCard(makeSocket(ids[0], log), io, { card: C('HI', 'joker') });
+
+        const mine = log.filter((l) => l.to === `self:${ids[0]}`).map((l) => l.event);
+        expect(mine).toEqual(['actionRejected', 'restorePlayerState']);
+        const restore = log.find((l) => l.event === 'restorePlayerState').data;
+        expect(restore.hand).toEqual([C('2', 'hearts'), C('3', 'hearts')]);
+        expect(restore.position).toBe(1);
+
+        // Other refusals (wrong turn) do not resync
+        const before = log.length;
+        await gameHandlers.playCard(makeSocket(ids[1], log), io, { card: C('4', 'hearts') });
+        expect(log.slice(before).map((l) => l.event)).toEqual(['actionRejected']);
+        gameManager.abortGame(game.gameId);
+    });
 });
 
 describe('playerBid validation', () => {

@@ -174,6 +174,17 @@ final class GameSocketHandler {
             }
         }
 
+        // actionRejected — the server refused our play: put the card back and
+        // unlock the hand instead of waiting forever for a cardPlayed
+        socket.on(SocketEvents.Server.actionRejected) { [weak self] data, _ in
+            guard let self, let dict = data.first as? [String: Any],
+                  dict["action"] as? String == "play" else { return }
+            DispatchQueue.main.async {
+                self.gameState.rollbackCardPlay()
+                self.gameState.hasPlayedCard = false
+            }
+        }
+
         socket.on(SocketEvents.Server.trickComplete) { [weak self] data, _ in
             guard let self, let dict = data.first as? [String: Any] else { return }
             DispatchQueue.main.async {
@@ -545,6 +556,12 @@ final class GameSocketHandler {
         }
 
         gameState.cardPlayedSubject.send(PlayedCard(card: card, position: position))
+
+        // Our seat, but not our optimistic play: the lazy bot played it.
+        // After the send so the scene animates it out of the hand first.
+        if position == gameState.position && !gameState.isSpectator {
+            gameState.removeCardPlayedForUs(card)
+        }
 
         // Confirm optimistic play
         gameState.confirmCardPlay()

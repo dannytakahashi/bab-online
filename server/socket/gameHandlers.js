@@ -639,6 +639,12 @@ async function playCard(socket, io, data) {
     const check = game.validateCardPlay(socket.id, data.card);
     if (!check.valid) {
         rejectAction(socket, game, 'play', 'invalid_play', { position, error: check.error });
+        if (check.error === 'Card not in hand') {
+            // The client's hand has drifted from ours (e.g. iOS builds that
+            // kept cards the lazy bot played after /active). Resend the full
+            // seat state so it redraws from the truth instead of freezing.
+            socket.emit('restorePlayerState', game.getClientState(socket.id));
+        }
         return;
     }
     if (game.playedCards[position - 1]) {

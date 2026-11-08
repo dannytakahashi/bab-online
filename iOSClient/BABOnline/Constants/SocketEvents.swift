@@ -113,6 +113,7 @@ enum SocketEvents {
         static let doneBidding = "doneBidding"
         static let updateTurn = "updateTurn"
         static let cardPlayed = "cardPlayed"
+        static let actionRejected = "actionRejected"
         static let trickComplete = "trickComplete"
         static let handComplete = "handComplete"
         static let gameEnd = "gameEnd"
