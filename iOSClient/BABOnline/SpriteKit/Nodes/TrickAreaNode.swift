@@ -19,14 +19,20 @@ class TrickAreaNode: SKNode {
         }
     }
 
-    /// Place a card in the trick area for a position
-    func placeCard(_ card: Card, position: Int, myPosition: Int, sceneSize: CGSize, animated: Bool = true) {
+    /// Place a card in the trick area for a position.
+    /// `startPoint` (in this node's coordinates) is where the card flies in from;
+    /// defaults to 3x the resting offset, i.e. from the player's side of the table.
+    func placeCard(_ card: Card, position: Int, myPosition: Int, sceneSize: CGSize, animated: Bool = true, from startPoint: CGPoint? = nil) {
         let relPos = Positions.getRelative(target: position, from: myPosition)
         let offset = cardOffset(for: relPos, sceneSize: sceneSize)
 
+        // One sprite per position: replacing (e.g. setup replaying the restored trick
+        // after a rejoin) must not orphan the old sprite as a permanent ghost card.
+        trickCards[position]?.removeFromParent()
+
         let texture = CardTextureGenerator.texture(for: card)
         let sprite = SKSpriteNode(texture: texture, size: CGSize(width: LayoutConstants.cardWidth * 0.8, height: LayoutConstants.cardHeight * 0.8))
-        sprite.position = animated ? CGPoint(x: offset.x * 3, y: offset.y * 3) : offset
+        sprite.position = animated ? (startPoint ?? CGPoint(x: offset.x * 3, y: offset.y * 3)) : offset
         sprite.zPosition = 100 + CGFloat(trickCards.count)
         sprite.name = "trick_\(position)"
 
@@ -55,8 +61,14 @@ class TrickAreaNode: SKNode {
         case .right:  collectPoint = CGPoint(x: 200 * scaleX, y: 0)
         }
 
+        // Hand the collected sprites off now so the dict only ever holds the current
+        // trick: a card placed (or a clear) during the collect animation then can't
+        // remove a collecting sprite and strand the group before it leaves.
+        let collecting = trickCards
+        trickCards.removeAll()
+
         let group = DispatchGroup()
-        for (_, sprite) in trickCards {
+        for (_, sprite) in collecting {
             group.enter()
             sprite.run(CardAnimations.collectToWinner(x: collectPoint.x, y: collectPoint.y)) {
                 sprite.removeFromParent()
@@ -64,8 +76,7 @@ class TrickAreaNode: SKNode {
             }
         }
 
-        group.notify(queue: .main) { [weak self] in
-            self?.trickCards.removeAll()
+        group.notify(queue: .main) {
             completion()
         }
     }
@@ -74,5 +85,8 @@ class TrickAreaNode: SKNode {
     func clearAllCards() {
         trickCards.values.forEach { $0.removeFromParent() }
         trickCards.removeAll()
+        // Also drop sprites still mid-collect (no longer in trickCards), so a cleanup
+        // that detaches this node can't carry them along as ghosts into the next setup.
+        children.filter { $0.name?.hasPrefix("trick_") == true }.forEach { $0.removeFromParent() }
     }
 }

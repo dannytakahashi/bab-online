@@ -26,9 +26,10 @@ class SKTrickManager {
         scene.addChild(trickHistory)
     }
 
-    func placeCard(_ card: Card, position: Int) {
+    /// `startPoint` is in scene coordinates (the trick area sits at the scene origin).
+    func placeCard(_ card: Card, position: Int, from startPoint: CGPoint? = nil) {
         guard let scene = scene, let myPos = gameState?.position else { return }
-        trickArea.placeCard(card, position: position, myPosition: myPos, sceneSize: scene.size)
+        trickArea.placeCard(card, position: position, myPosition: myPos, sceneSize: scene.size, from: startPoint.map { trickArea.convert($0, from: scene) })
     }
 
     func collectTrick(winner: Int, completion: @escaping () -> Void) {

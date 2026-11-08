@@ -250,7 +250,10 @@ class GameSKScene: SKScene {
 
         trickManager?.setup(gameState: gameState)
 
-        // Render any cards already played in the current trick (e.g. after reconnect)
+        // Render any cards already played in the current trick (e.g. after reconnect).
+        // Clear first so re-running setup (phase replay, rejoin into a live scene)
+        // renders exactly the restored trick, with no leftovers from before.
+        trickManager?.clearTrickArea()
         for played in gameState.playedCards {
             trickManager?.placeCard(played.card, position: played.position)
         }
@@ -267,22 +270,17 @@ class GameSKScene: SKScene {
             trickManager?.clearTrickArea()
         }
 
-        let trickPos = trickManager?.trickPosition(for: played.position) ?? .zero
-
         if played.position == myPos && !gameState.isSpectator {
             // Our card — animate from hand to trick area
+            let trickPos = trickManager?.trickPosition(for: played.position) ?? .zero
             cardManager?.animateCardToTrick(card: played.card, trickPosition: trickPos)
+            trickManager?.placeCard(played.card, position: played.position)
         } else {
-            // Opponent card (or any card in spectator mode) — animate from off-screen to trick area
-            opponentManager?.animateOpponentCard(
-                card: played.card,
-                fromPosition: played.position,
-                toTrickPoint: trickPos
-            )
+            // Opponent card (or any card in spectator mode) — the trick-area sprite itself
+            // flies in from off-screen in the opponent's direction (one sprite, not two)
+            let start = opponentManager?.trickEntryPoint(forPosition: played.position)
+            trickManager?.placeCard(played.card, position: played.position, from: start)
         }
-
-        // Place card face-up in trick area
-        trickManager?.placeCard(played.card, position: played.position)
     }
 
     private func handleTrickComplete(winner: Int) {
