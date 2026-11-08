@@ -6,6 +6,7 @@
 const BotPlayer = require('./BotPlayer');
 const { gameLogger } = require('../../utils/logger');
 const { Phase } = require('../GamePhase');
+const pacing = require('../pacing');
 
 const PLAY_STAGES = [Phase.PLAYING, Phase.TRICK_RESOLVING, Phase.HAND_RESOLVING];
 
@@ -118,6 +119,7 @@ class BotController {
         }
 
         const delay = bot.getActionDelay(actionType);
+        pacing.trace(actionType === 'bid' ? 'botBid' : 'botPlay', delay, game);
         const actionKey = `${game.gameId}:${player.socketId}:${actionType}`;
 
         // Clear any existing pending action
@@ -157,8 +159,9 @@ class BotController {
         if (!bot) return;
 
         // Stagger draws based on order
-        const baseDelay = drawOrder * 800;
+        const baseDelay = drawOrder * pacing(game).BOT_DRAW_STAGGER_MS;
         const delay = baseDelay + bot.getActionDelay('draw');
+        pacing.trace('botDraw', delay, game);
 
         const actionKey = `${game.gameId}:${botSocketId}:draw`;
 
@@ -407,7 +410,7 @@ class BotController {
      * @param {string} message - Chat message text
      */
     sendBotChat(io, game, bot, message, delayMs = null) {
-        const delay = delayMs !== null ? delayMs : 500 + Math.random() * 500; // default 500-1000ms
+        const delay = delayMs !== null ? delayMs : pacing.fromRange(pacing(game).BOT_CHAT, Math.random());
         // Unique key per message so queued messages don't orphan each other's
         // timers; cleanupGame clears by gameId prefix either way
         this.chatSeq = (this.chatSeq || 0) + 1;
@@ -445,9 +448,9 @@ class BotController {
         for (const bot of bots) {
             if (bot.personality === 'sharon') {
                 if (game.trump.suit === 'clubs') {
-                    this.sendBotChat(io, game, bot, "puppy's feet", 5000);
+                    this.sendBotChat(io, game, bot, "puppy's feet", pacing(game).BOT_TRUMP_QUIP_MS);
                 } else if (game.trump.suit === 'diamonds') {
-                    this.sendBotChat(io, game, bot, "diamonds are a girl's best friend", 5000);
+                    this.sendBotChat(io, game, bot, "diamonds are a girl's best friend", pacing(game).BOT_TRUMP_QUIP_MS);
                 }
             }
         }

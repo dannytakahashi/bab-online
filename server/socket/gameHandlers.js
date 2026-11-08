@@ -25,6 +25,7 @@ const { Controller, Presence } = require('../game/SeatState');
 const seatLifecycle = require('./seatLifecycle');
 const { emitLobbiesUpdated } = require('./gameLifecycle');
 const { snapshotFor } = require('./snapshotHandlers');
+const pacing = require('../game/pacing');
 
 const logContinuationError = (what, game) => (err) =>
     gameLogger.error(`${what} failed`, { gameId: game.gameId, error: err.message, stack: err.stack });
@@ -173,7 +174,9 @@ async function handlePostPlay(io, game) {
         // TRICK_RESOLVING rejects plays and makes a second resolution a no-op
         if (!game.transition(Phase.PLAYING, Phase.TRICK_RESOLVING)) return;
 
-        if (!(await game.pause(2000))) return;
+        const trickMs = pacing(game).TRICK_VIEW_MS;
+        pacing.trace('trickView', trickMs, game);
+        if (!(await game.pause(trickMs))) return;
 
         // Re-validate after the pause: if the trick array was corrupted by a
         // stale action, log loudly instead of crashing the whole game loop
@@ -223,7 +226,11 @@ async function handlePostPlay(io, game) {
         // Check if hand is complete
         if (game.cardIndex === game.currentHand * 4) {
             if (!game.transition(Phase.TRICK_RESOLVING, Phase.HAND_RESOLVING)) return;
-            if (!(await game.pause(2000))) return; // Brief pause after last trick stacks
+            // Brief pause after the last trick stacks (longer before gameEnd)
+            const lastHand = game.currentHand === 13;
+            const handMs = lastHand ? pacing(game).GAME_END_MS : pacing(game).HAND_END_MS;
+            pacing.trace(lastHand ? 'gameEnd' : 'handEnd', handMs, game);
+            if (!(await game.pause(handMs))) return;
             await handleHandComplete(game, io);
             return;
         }
@@ -413,7 +420,9 @@ async function handleDrawComplete(io, game) {
         }
     }
 
-    if (!(await game.pause(1000))) return;
+    const revealMs = pacing(game).DRAW_REVEAL_MS;
+    pacing.trace('drawReveal', revealMs, game);
+    if (!(await game.pause(revealMs))) return;
 
     game.broadcast(io, 'positionUpdate', {
         positions: orderedPositions,
@@ -466,7 +475,9 @@ async function handleDrawComplete(io, game) {
     const team2Player1 = game.getPlayerByPosition(2);
     const team2Player2 = game.getPlayerByPosition(4);
 
-    if (!(await game.pause(1000))) return;
+    const seatingMs = pacing(game).SEATING_TO_TEAMS_MS;
+    pacing.trace('seatingToTeams', seatingMs, game);
+    if (!(await game.pause(seatingMs))) return;
 
     if (!game.transition(Phase.DRAW_RESOLVING, Phase.TEAMS_ANNOUNCED)) return;
     game.broadcast(io, 'teamsAnnounced', {
@@ -474,8 +485,10 @@ async function handleDrawComplete(io, game) {
         team2: [team2Player1?.username || 'Player 2', team2Player2?.username || 'Player 4']
     });
 
-    // Wait for team announcement to be seen (3 seconds)
-    if (!(await game.pause(3000))) return;
+    // Wait for the team announcement to be seen
+    const teamsMs = pacing(game).TEAMS_MS;
+    pacing.trace('teams', teamsMs, game);
+    if (!(await game.pause(teamsMs))) return;
 
     if (!game.transition(Phase.TEAMS_ANNOUNCED, Phase.DEALING)) return;
 
@@ -603,7 +616,9 @@ async function dealHand(game, io, { dealer, handSize, firstHand = false }) {
     if (!game.transition(Phase.DEALING, Phase.BIDDING)) return;
 
     if (firstHand) {
-        if (!(await game.pause(1000))) return;
+        const firstMs = pacing(game).FIRST_HAND_TURN_MS;
+        pacing.trace('firstTurn', firstMs, game);
+        if (!(await game.pause(firstMs))) return;
         // A bid during the pause already sent updateTurn and triggered the
         // next bot; repeating them would double-schedule it
         if (game.stage !== Phase.BIDDING || game.dealSeq !== dealSeq || game.getBidCount() > 0) return;

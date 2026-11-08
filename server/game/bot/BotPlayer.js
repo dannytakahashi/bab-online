@@ -4,6 +4,7 @@
  */
 
 const { v4: uuidv4 } = require('uuid');
+const pacing = require('../pacing');
 const {
     calculateOptimalBid,
     selectOptimalCard
@@ -184,20 +185,24 @@ class BotPlayer {
     }
 
     /**
-     * Get random delay for actions (simulates thinking)
+     * Random think time for an action (server/game/pacing.js ranges).
+     * Exactly one Math.random() per call, on every path, so seeded games
+     * keep their RNG stream positions.
      * @param {string} actionType - 'draw', 'bid', or 'play'
      * @returns {number} - Delay in milliseconds
      */
     getActionDelay(actionType) {
+        const r = Math.random();
+        const p = pacing();
         switch (actionType) {
             case 'draw':
-                return 500 + Math.random() * 500; // 500-1000ms
+                return pacing.fromRange(p.BOT_DRAW, r);
             case 'bid':
-                return 1000 + Math.random() * 1000; // 1000-2000ms
+                return pacing.fromRange(p.BOT_BID, r);
             case 'play':
-                return 800 + Math.random() * 700; // 800-1500ms
+                return pacing.fromRange(p.BOT_PLAY, r);
             default:
-                return 500;
+                return pacing.fromRange(p.BOT_CHAT, r);
         }
     }
 
