@@ -51,6 +51,12 @@ test('one bump per room broadcast; private sends never bump; terminal drops neve
 });
 
 test('a real draw + deal: every room broadcast and each deal bump exactly once', async () => {
+    const payloads = [];
+    const real = GameState.prototype.broadcast;
+    jest.spyOn(GameState.prototype, 'broadcast').mockImplementation(function (io, event, data) {
+        payloads.push({ event, data });
+        return real.call(this, io, event, data);
+    });
     const log = [];
     const io = makeIo(log);
     const ids = [1, 2, 3, 4].map((n) => `seq-h${n}`);
@@ -74,4 +80,14 @@ test('a real draw + deal: every room broadcast and each deal bump exactly once',
     for (let i = 0; i < 4; i++) await gameHandlers.playerBid(sock(game.currentTurn), io, { bid: '0' });
     const room2 = log.filter((l) => l.to === game.roomName).length;
     expect(game.eventSeq).toBe(room2 + 2);
+    // Every broadcast payload is a plain object (so stamping seq is a
+    // shallow copy) and the stamped values are 1, 2, ... skipping the deals
+    expect(payloads.length).toBeGreaterThan(10);
+    for (const { event, data } of payloads) {
+        expect({ event, plain: Object.getPrototypeOf(data) === Object.prototype }).toEqual({ event, plain: true });
+        expect('seq' in data).toBe(false); // callers never pass seq themselves
+    }
+    const roomSeqs = log.filter((l) => l.to === game.roomName).map((l) => l.data.seq);
+    const dealSeqs = [...new Set(log.filter((l) => l.event === 'gameStart').map((l) => l.data.seq))];
+    expect([...roomSeqs, ...dealSeqs].sort((a, b) => a - b)).toEqual(Array.from({ length: game.eventSeq }, (_, i) => i + 1));
 });

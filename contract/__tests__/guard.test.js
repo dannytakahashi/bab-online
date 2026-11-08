@@ -12,9 +12,9 @@ afterEach(() => contractCheck.takeViolations());
 
 test('a valid emit passes, a bad one is reported with event and path', () => {
     const log = contractCheck.instrument([]);
-    log.push({ to: 'game:x', event: 'cardPlayed', data: { playerId: 'a', card, position: 1, trump: false } });
+    log.push({ to: 'game:x', event: 'cardPlayed', data: { playerId: 'a', card, position: 1, trump: false, seq: 1 } });
     expect(contractCheck.takeViolations()).toEqual([]);
-    log.push({ to: 'game:x', event: 'cardPlayed', data: { playerId: 'a', card, position: 5, trump: 'no' } });
+    log.push({ to: 'game:x', event: 'cardPlayed', data: { playerId: 'a', card, position: 5, trump: 'no', seq: 2 } });
     const [v] = contractCheck.takeViolations();
     expect(v.event).toBe('cardPlayed');
     expect(v.errors.map((e) => e.path)).toEqual(expect.arrayContaining(['$.position', '$.trump']));
@@ -23,7 +23,7 @@ test('a valid emit passes, a bad one is reported with event and path', () => {
 
 test('payloads are checked in wire form at push time (live refs mutated later do not matter)', () => {
     const log = contractCheck.instrument([]);
-    const data = { winner: 2 };
+    const data = { winner: 2, seq: 3 };
     log.push({ to: 'game:x', event: 'trickComplete', data });
     data.winner = 'garbage';
     expect(contractCheck.takeViolations()).toEqual([]);
@@ -43,6 +43,16 @@ test('unknown and clientOnly events are violations; bot: targets and __markers a
     expect(contractCheck.unknownEvents().has('noSuchEvent')).toBe(true);
 });
 
+test('room broadcasts and gameStart need seq; private emits must not carry one', () => {
+    const log = contractCheck.instrument([]);
+    log.push({ to: 'game:x', event: 'updateTurn', data: { currentTurn: 1 } });
+    log.push({ to: 's1', event: 'updateTurn', data: { currentTurn: 1, seq: 4 } });
+    log.push({ to: 's1', event: 'updateTurn', data: { currentTurn: 1 } });
+    log.push({ to: 'game:x', event: 'updateTurn', data: { currentTurn: 1, seq: 5 } });
+    const v = contractCheck.takeViolations();
+    expect(v.map((x) => x.to)).toEqual(['game:x', 's1']);
+});
+
 test('no-payload events must emit nothing', () => {
     const log = contractCheck.instrument([]);
     log.push({ to: 'self:s', event: 'leftGame', data: undefined });
@@ -58,4 +68,30 @@ test('instrument is idempotent', () => {
     contractCheck.instrument(log);
     expect(log.push).toBe(push);
     expect(Object.keys(log)).toEqual([]);
+});
+
+test('seqCheck: a receiver gap, a split deal and an emit after the end are caught', () => {
+    const { watchSeq } = require('../../server/testUtils/seqCheck');
+    const io = { rooms: new Map([['game:g', new Set(['a', 'b'])]]) };
+    const log = contractCheck.instrument([]);
+    const room = (event, data) => log.push({ to: 'game:g', event, data });
+    const start = (sid, seq) => log.push({ to: sid, event: 'gameStart', data: { gameId: 'g', seq } });
+
+    const ok = watchSeq(io);
+    room('trickComplete', { winner: 1, seq: 1 });
+    start('a', 2);
+    start('b', 2);
+    room('updateTurn', { currentTurn: 1, seq: 3 });
+    expect(ok.stop().failures).toEqual([]);
+
+    const bad = watchSeq(io);
+    room('trickComplete', { winner: 1, seq: 1 });
+    start('a', 2);
+    start('b', 3);                                  // one deal, two values
+    room('updateTurn', { currentTurn: 1, seq: 5 }); // a gap for both receivers
+    room('abortGame', { reason: 'x', seq: 6 });
+    room('updateTurn', { currentTurn: 1, seq: 7 }); // after the end
+    const why = bad.stop().failures.map((f) => f.why);
+    expect(why).toEqual(expect.arrayContaining(['gameStarts of one deal differ', 'gap or repeat for a receiver', 'emit after terminal']));
+    contractCheck.takeViolations(); // the synthetic gameStarts are not full payloads
 });

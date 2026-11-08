@@ -159,6 +159,7 @@ function cardNotIn(hand) {
 async function playF1({ errorLogs = [], hooks = {}, seed = 8 } = {}) {
     Math.random = mulberry32(seed);
     const w = world('f1');
+    if (hooks.onWorld) hooks.onWorld(w);
     const names = ['f1_ann', 'f1_bob', 'f1_cat', 'f1_dan'];
     const socks = names.map((n, i) => w.user(`f1-h${i}`, n));
     const owner = (game, pos) => w.sockets.get(game.seat(pos).ownerSocketId);

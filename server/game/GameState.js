@@ -29,6 +29,9 @@ const {
 } = require('./SeatState');
 const { buildSnapshotV2 } = require('./snapshotV2');
 
+const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v) &&
+    Object.getPrototypeOf(v) === Object.prototype;
+
 const IN_HAND_STAGES = new Set([
     Phase.DEALING, Phase.BIDDING, Phase.REDEAL, Phase.PLAYING,
     Phase.TRICK_RESOLVING, Phase.HAND_RESOLVING
@@ -1177,9 +1180,11 @@ class GameState {
             gameLogger.debug('emit dropped: terminal', { gameId: this.gameId, event });
             return;
         }
+        // Every room broadcast carries the game's next sequence number
+        // (additive top-level `seq`; contract/README.md R1-R5). A shallow
+        // copy: nested values are the same references as before.
         const seq = this.nextSeq();
-        void seq; // stamped on the wire later (snapshot v2 seq)
-        io.to(this.roomName).emit(event, data);
+        io.to(this.roomName).emit(event, isPlainObject(data) ? { ...data, seq } : data);
     }
 
     /**

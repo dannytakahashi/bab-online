@@ -53,13 +53,25 @@ function check(entry) {
     let key = null;
     const json = wire === undefined ? 'u' : JSON.stringify(wire);
     if (json.length < 2000) {
-        key = event + '\u0000' + json;
+        key = event + '\u0000' + (String(entry.to).startsWith('game:') ? 'room' : 'direct') + '\u0000' + json;
         if (memo.has(key)) return;
     }
     const r = contract.validateS2C(event, wire);
     let errors = r.errors;
     if (r.unknownEvent) state.unknownEvents.add(event);
     else if (r.status === 'clientOnly') errors = [{ path: '$', message: `'${event}' is clientOnly: the server must never emit it` }];
+    else if (errors.length === 0) {
+        // seq routing (variants alone cannot tell a room form from a private
+        // one): every room broadcast and every gameStart carries seq, nothing
+        // else carries a top-level seq
+        const roomOrDeal = String(entry.to).startsWith('game:') || event === 'gameStart';
+        const hasSeq = wire && typeof wire === 'object' && 'seq' in wire;
+        if (roomOrDeal && !(hasSeq && Number.isInteger(wire.seq) && wire.seq >= 1)) {
+            errors = [{ path: '$.seq', message: `room broadcast / gameStart '${event}' without an integer seq` }];
+        } else if (!roomOrDeal && hasSeq && event !== 'gameStart') {
+            errors = [{ path: '$.seq', message: `private '${event}' to ${entry.to} must not carry a top-level seq` }];
+        }
+    }
     if (errors.length === 0) {
         if (key) {
             if (memo.size > MEMO_MAX) memo.clear();

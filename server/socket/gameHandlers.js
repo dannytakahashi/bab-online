@@ -547,7 +547,6 @@ async function dealHand(game, io, { dealer, handSize, firstHand = false }) {
     // One sequence number for the whole deal: every seat and spectator
     // gameStart of this deal carries the same value
     const handSeq = game.nextSeq();
-    void handSeq; // stamped on the wire later (snapshot v2 seq)
 
     // Send each seat's hand to its connected owner (a lazy owner too, in
     // seat or watch view). Absent and /leave'd owners get nothing.
@@ -565,7 +564,8 @@ async function dealHand(game, io, { dealer, handSize, firstHand = false }) {
             position: playerPosition,  // Include player's position to avoid the bid UI race
             currentHand: game.currentHand,  // Hand index for hand indicator
             hsiValues,  // HSI for all players to display under avatars
-            playerInfo  // Current player info for avatar updates
+            playerInfo,  // Current player info for avatar updates
+            seq: handSeq  // additive: the deal's broadcast sequence number
         });
     }
 
@@ -579,7 +579,8 @@ async function dealHand(game, io, { dealer, handSize, firstHand = false }) {
             dealer: game.dealer,
             currentHand: game.currentHand,
             hand: [],
-            playerInfo
+            playerInfo,
+            seq: handSeq
         });
     }
 

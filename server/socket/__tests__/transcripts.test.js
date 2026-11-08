@@ -54,6 +54,28 @@ afterEach(() => {
     Math.random = realRandom;
 });
 
+/**
+ * Every room line and every gameStart carries an integer seq; per game it
+ * strictly increases over room lines, and each deal's gameStarts share one
+ * value above the room line before them.
+ */
+function expectSeqStamped(log) {
+    const last = new Map();
+    for (const l of log) {
+        const room = String(l.to).startsWith('game:');
+        if (!room && l.event !== 'gameStart') continue;
+        const gid = room ? l.to.slice(5) : l.data.gameId;
+        expect({ event: l.event, seq: Number.isInteger(l.data?.seq) }).toEqual({ event: l.event, seq: true });
+        const prev = last.get(gid);
+        if (prev) {
+            const sameDeal = l.event === 'gameStart' && prev.event === 'gameStart';
+            if (sameDeal) expect(l.data.seq).toBe(prev.seq);
+            else expect(l.data.seq).toBeGreaterThan(prev.seq);
+        }
+        last.set(gid, { event: l.event, seq: l.data.seq });
+    }
+}
+
 /** Socket ids are replaced by labels so transcripts are stable. */
 function recorder(log) {
     const labels = new Map();
@@ -70,10 +92,13 @@ function recorder(log) {
     return {
         name: (sid, l) => labels.set(sid, l),
         take(from = 0) {
+            expectSeqStamped(log);
             return log.slice(from)
                 .filter((l) => l.to !== 'mainRoom' && l.event !== 'lobbiesUpdated')
                 .map((l) => {
-                    const keys = l.data && typeof l.data === 'object' ? Object.keys(l.data).sort().join(',') : '';
+                    // seq: v2 additive; pinned by contract schema + additiveOnly
+                    // (checked separately by expectSeqStamped)
+                    const keys = l.data && typeof l.data === 'object' ? Object.keys(l.data).filter((k) => k !== 'seq').sort().join(',') : '';
                     const pos = l.data && typeof l.data === 'object' && 'position' in l.data ? `@${l.data.position}` : '';
                     return `${target(l.to)}:${l.event}{${keys}}${pos}`;
                 });

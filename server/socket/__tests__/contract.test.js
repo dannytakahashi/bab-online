@@ -47,6 +47,7 @@ const profileHandlers = require('../profileHandlers');
 const safetyHandlers = require('../safetyHandlers');
 const voiceHandlers = require('../voiceHandlers');
 const snapshotHandlers = require('../snapshotHandlers');
+const { watchSeq } = require('../../testUtils/seqCheck');
 const { asyncHandler, syncHandler, rateLimiter } = require('../errorHandler');
 const ambient = require('../../demo/ambientBots');
 const { Phase } = require('../../game/GamePhase');
@@ -170,6 +171,7 @@ describe('(a) client -> server events', () => {
 describe('(b) F1 full human game through the lobby', () => {
     test('13 hands with redeal, bore, lazy/active, watch rejoin, resign, rejects, spectator, /leave', async () => {
         let watcher = null;
+        let seqWatch = null;
         const asked = {};
         const ask = (w, s, data) => {
             const mark = w.log.length;
@@ -179,9 +181,12 @@ describe('(b) F1 full human game through the lobby', () => {
         const { w } = await playF1({
             errorLogs,
             hooks: {
+                onWorld(wd) {
+                    watcher = watchSnapshots(wd);
+                    seqWatch = watchSeq(wd.io);
+                },
                 // (f) requestSnapshot from a seat, a lazy watcher and a spectator
                 async onStep(wd, game, { hands, stage }) {
-                    if (!watcher) watcher = watchSnapshots(wd);
                     const own = (pos) => wd.sockets.get(game.seat(pos).ownerSocketId);
                     if (hands === 1 && stage === Phase.PLAYING && !asked.seat) {
                         asked.seat = ask(wd, own(1), { requestId: 'seat-1' });
@@ -209,6 +214,10 @@ describe('(b) F1 full human game through the lobby', () => {
         expect(result.failures).toEqual([]);
         expect(result.checked).toBeGreaterThan(5);
         expect(result.delivered).toBeGreaterThan(5);
+        // (g) seq: per game strictly increasing, one value per deal, no gap per receiver
+        const sq = seqWatch.stop();
+        expect(sq.failures).toEqual([]);
+        expect(sq.games).toBeGreaterThanOrEqual(1);
         const bySelf = (e) => events(w.log, e).filter((l) => l.to.startsWith('self:'));
         expect(bySelf('rejoinSuccess').length).toBeGreaterThanOrEqual(4);
         const chats = events(w.log, 'chatMessage').map((l) => l.data);
@@ -273,12 +282,14 @@ describe('(c) F2 ambient bot games', () => {
     test.each([11, 22, 33])('seed %i: a full bot game', async (seed) => {
         Math.random = mulberry32(seed);
         const w = world(`amb${seed}`);
+        const seqWatch = watchSeq(w.io);
         const game = ambient.startBotGame(w.io);
         for (let t = 0; t < 30 && gameManager.getGameById(game.gameId); t++) {
             await jest.advanceTimersByTimeAsync(60000);
             if (t === 0) ambient.announceGameVisible(w.io);
         }
         ambient.stopAmbientActivity();
+        expect(seqWatch.stop().failures).toEqual([]);
         expect(events(w.log, 'gameEnd')).toHaveLength(1);
         expectSilentAfterTerminal(w, game);
         expect(errorLogs).toEqual([]);
@@ -291,6 +302,8 @@ describe('(d) F3 tournament', () => {
     test('a full tournament with a mid-hand spectator', async () => {
         Math.random = mulberry32(5);
         const ctx = await setupTournament(1);
+        const seqWatch = watchSeq(ctx.io);
+        const snapWatch = watchSnapshots({ io: ctx.io, sockets: new Map(ctx.sockets.map((s) => [s.id, s])) });
         const watcher = newUser(ctx.io, ctx.log, 'f3_watcher');
         const { allTables } = await playTournament(ctx, {
             async round(round, c, tables) {
@@ -304,6 +317,8 @@ describe('(d) F3 tournament', () => {
         });
         expect(allTables).toHaveLength(4);
         expect(events(ctx.log, 'tournamentComplete')).toHaveLength(1);
+        expect(seqWatch.stop().failures).toEqual([]);
+        expect(snapWatch.stop().failures).toEqual([]);
         expect(errorLogs).toEqual([]);
     }, 120000);
 

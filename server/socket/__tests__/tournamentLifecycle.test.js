@@ -161,7 +161,8 @@ async function cancelAndCheck(ctx, { settle = 15000, release } = {}) {
     for (const g of tables) {
         const aborts = after.filter((l) => l.event === 'abortGame' && l.to === g.roomName);
         expect(aborts).toHaveLength(1);
-        expect(aborts[0].data).toEqual({ reason: 'Tournament cancelled' });
+        // CHANGED (snapshot v2 seq, additive): room broadcasts carry seq
+        expect(aborts[0].data).toEqual({ reason: 'Tournament cancelled', seq: expect.any(Number) });
         expect(after.indexOf(aborts[0])).toBeLessThan(cancelIdx);
         // Every player (and spectator) in the table's room got it
         expect(aborts[0].members.sort()).toEqual(roomsBefore.get(g.gameId).sort());

@@ -4101,16 +4101,20 @@
         "properties": {
           "start": {
             "const": true
+          },
+          "seq": {
+            "$ref": "#/$defs/seq"
           }
         },
         "required": [
-          "start"
+          "start",
+          "seq"
         ],
         "additionalProperties": false
       },
       "status": "active",
       "to": "room",
-      "seq": false,
+      "seq": true,
       "reserved": [
         {
           "key": "numCards",
@@ -4127,6 +4131,9 @@
       },
       "emittedFrom": [
         "server/socket/gameLifecycle.js:beginDraw"
+      ],
+      "added": [
+        "seq"
       ]
     },
     "youDrew": {
@@ -4187,19 +4194,23 @@
           },
           "socketId": {
             "type": "string"
+          },
+          "seq": {
+            "$ref": "#/$defs/seq"
           }
         },
         "required": [
           "username",
           "card",
           "drawOrder",
-          "socketId"
+          "socketId",
+          "seq"
         ],
         "additionalProperties": false
       },
       "status": "active",
       "to": "room",
-      "seq": false,
+      "seq": true,
       "reserved": [
         {
           "key": "cardIndex",
@@ -4218,6 +4229,9 @@
         "server/socket/gameHandlers.js:draw",
         "server/socket/gameHandlers.js:autoDraw",
         "server/game/bot/BotController.js:processBotDraw"
+      ],
+      "added": [
+        "seq"
       ]
     },
     "playerAssigned": {
@@ -4269,17 +4283,21 @@
             },
             "minItems": 2,
             "maxItems": 2
+          },
+          "seq": {
+            "$ref": "#/$defs/seq"
           }
         },
         "required": [
           "team1",
-          "team2"
+          "team2",
+          "seq"
         ],
         "additionalProperties": false
       },
       "status": "active",
       "to": "room",
-      "seq": false,
+      "seq": true,
       "clientReads": {
         "web": [
           "client/src/handlers/gameHandlers.js:registerGameHandlers"
@@ -4290,6 +4308,9 @@
       },
       "emittedFrom": [
         "server/socket/gameHandlers.js:handleDrawComplete"
+      ],
+      "added": [
+        "seq"
       ]
     },
     "positionUpdate": {
@@ -4336,19 +4357,23 @@
               "$ref": "#/$defs/pic"
             },
             "maxItems": 4
+          },
+          "seq": {
+            "$ref": "#/$defs/seq"
           }
         },
         "required": [
           "positions",
           "sockets",
           "usernames",
-          "pics"
+          "pics",
+          "seq"
         ],
         "additionalProperties": false
       },
       "status": "active",
       "to": "room",
-      "seq": false,
+      "seq": true,
       "reserved": [
         {
           "key": "yourPosition",
@@ -4365,17 +4390,27 @@
       },
       "emittedFrom": [
         "server/socket/gameHandlers.js:handleDrawComplete"
+      ],
+      "added": [
+        "seq"
       ]
     },
     "createUI": {
       "payload": {
         "type": "object",
-        "properties": {},
-        "additionalProperties": false
+        "properties": {
+          "seq": {
+            "$ref": "#/$defs/seq"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "seq"
+        ]
       },
       "status": "active",
       "to": "room",
-      "seq": false,
+      "seq": true,
       "clientReads": {
         "web": [
           "client/src/handlers/gameHandlers.js:registerGameHandlers"
@@ -4387,7 +4422,10 @@
       "emittedFrom": [
         "server/socket/gameHandlers.js:handleDrawComplete"
       ],
-      "notes": "Always before the first gameStart."
+      "notes": "Always before the first gameStart.",
+      "added": [
+        "seq"
+      ]
     },
     "gameStart": {
       "payload": {
@@ -4442,6 +4480,9 @@
                   "$ref": "#/$defs/playerInfoGameStart"
                 },
                 "maxItems": 4
+              },
+              "seq": {
+                "$ref": "#/$defs/seq"
               }
             },
             "required": [
@@ -4455,7 +4496,8 @@
               "position",
               "currentHand",
               "hsiValues",
-              "playerInfo"
+              "playerInfo",
+              "seq"
             ],
             "additionalProperties": false
           },
@@ -4496,6 +4538,9 @@
                   "$ref": "#/$defs/playerInfoGameStart"
                 },
                 "maxItems": 4
+              },
+              "seq": {
+                "$ref": "#/$defs/seq"
               }
             },
             "required": [
@@ -4506,7 +4551,8 @@
               "dealer",
               "currentHand",
               "hand",
-              "playerInfo"
+              "playerInfo",
+              "seq"
             ],
             "additionalProperties": false
           }
@@ -4514,7 +4560,7 @@
       },
       "status": "active",
       "to": "socket",
-      "seq": false,
+      "seq": true,
       "clientReads": {
         "web": [
           "client/src/handlers/gameHandlers.js:registerGameHandlers",
@@ -4527,7 +4573,10 @@
       "emittedFrom": [
         "server/socket/gameHandlers.js:dealHand"
       ],
-      "notes": "One per connected seat owner (seat) and per spectator (spectator), each deal. players: seat socket ids (unused; V1_REMOVALS #6). playerInfo rebuilds web avatars every hand (V1_REMOVALS #5)."
+      "notes": "One per connected seat owner (seat) and per spectator (spectator), each deal. players: seat socket ids (unused; V1_REMOVALS #6). playerInfo rebuilds web avatars every hand (V1_REMOVALS #5).",
+      "added": [
+        "seq"
+      ]
     },
     "bidReceived": {
       "payload": {
@@ -4541,18 +4590,22 @@
           },
           "bidArray": {
             "$ref": "#/$defs/bidArray"
+          },
+          "seq": {
+            "$ref": "#/$defs/seq"
           }
         },
         "required": [
           "bid",
           "position",
-          "bidArray"
+          "bidArray",
+          "seq"
         ],
         "additionalProperties": false
       },
       "status": "active",
       "to": "room",
-      "seq": false,
+      "seq": true,
       "reserved": [
         {
           "key": "team1Mult",
@@ -4575,7 +4628,10 @@
         "server/socket/gameHandlers.js:playerBid",
         "server/game/bot/BotController.js:processBotBid"
       ],
-      "notes": "bid echoes the client value: an Int from iOS numeric bids (ctr-22)."
+      "notes": "bid echoes the client value: an Int from iOS numeric bids (ctr-22).",
+      "added": [
+        "seq"
+      ]
     },
     "doneBidding": {
       "payload": {
@@ -4607,22 +4663,27 @@
               "team2"
             ],
             "additionalProperties": false
+          },
+          "seq": {
+            "$ref": "#/$defs/seq"
           }
         },
         "required": [
           "bids",
           "lead",
           "teamBids",
-          "mults"
+          "mults",
+          "seq"
         ],
         "additionalProperties": false
       },
       "status": "active",
       "to": "room",
-      "seq": false,
+      "seq": true,
       "added": [
         "teamBids",
-        "mults"
+        "mults",
+        "seq"
       ],
       "clientReads": {
         "web": [
@@ -4646,10 +4707,14 @@
             "properties": {
               "currentTurn": {
                 "$ref": "#/$defs/position"
+              },
+              "seq": {
+                "$ref": "#/$defs/seq"
               }
             },
             "required": [
-              "currentTurn"
+              "currentTurn",
+              "seq"
             ],
             "additionalProperties": false
           },
@@ -4670,7 +4735,7 @@
       },
       "status": "active",
       "to": "room",
-      "seq": false,
+      "seq": true,
       "reserved": [
         {
           "key": "turn",
@@ -4691,7 +4756,10 @@
         "server/socket/gameHandlers.js:dealHand",
         "server/socket/seatLifecycle.js:goActive"
       ],
-      "notes": "private: goActive re-sends it to the returning owner socket only."
+      "notes": "private: goActive re-sends it to the returning owner socket only.",
+      "added": [
+        "seq"
+      ]
     },
     "rainbow": {
       "payload": {
@@ -4699,16 +4767,20 @@
         "properties": {
           "position": {
             "$ref": "#/$defs/position"
+          },
+          "seq": {
+            "$ref": "#/$defs/seq"
           }
         },
         "required": [
-          "position"
+          "position",
+          "seq"
         ],
         "additionalProperties": false
       },
       "status": "active",
       "to": "room",
-      "seq": false,
+      "seq": true,
       "clientReads": {
         "web": [
           "client/src/handlers/gameHandlers.js:registerGameHandlers"
@@ -4719,17 +4791,27 @@
       },
       "emittedFrom": [
         "server/socket/gameHandlers.js:handlePostBid"
+      ],
+      "added": [
+        "seq"
       ]
     },
     "destroyHands": {
       "payload": {
         "type": "object",
-        "properties": {},
-        "additionalProperties": false
+        "properties": {
+          "seq": {
+            "$ref": "#/$defs/seq"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "seq"
+        ]
       },
       "status": "active",
       "to": "room",
-      "seq": false,
+      "seq": true,
       "clientReads": {
         "web": [
           "client/src/handlers/gameHandlers.js:registerGameHandlers"
@@ -4740,6 +4822,9 @@
       },
       "emittedFrom": [
         "server/socket/gameHandlers.js:handlePostBid"
+      ],
+      "added": [
+        "seq"
       ]
     },
     "cardPlayed": {
@@ -4758,19 +4843,23 @@
           "trump": {
             "type": "boolean",
             "description": "trumpBroken after this card"
+          },
+          "seq": {
+            "$ref": "#/$defs/seq"
           }
         },
         "required": [
           "playerId",
           "card",
           "position",
-          "trump"
+          "trump",
+          "seq"
         ],
         "additionalProperties": false
       },
       "status": "active",
       "to": "room",
-      "seq": false,
+      "seq": true,
       "reserved": [
         {
           "key": "trumpBroken",
@@ -4788,6 +4877,9 @@
       "emittedFrom": [
         "server/socket/gameHandlers.js:playCard",
         "server/game/bot/BotController.js:processBotPlay"
+      ],
+      "added": [
+        "seq"
       ]
     },
     "actionRejected": {
@@ -4843,16 +4935,20 @@
         "properties": {
           "winner": {
             "$ref": "#/$defs/position"
+          },
+          "seq": {
+            "$ref": "#/$defs/seq"
           }
         },
         "required": [
-          "winner"
+          "winner",
+          "seq"
         ],
         "additionalProperties": false
       },
       "status": "active",
       "to": "room",
-      "seq": false,
+      "seq": true,
       "clientReads": {
         "web": [
           "client/src/handlers/gameHandlers.js:registerGameHandlers"
@@ -4863,6 +4959,9 @@
       },
       "emittedFrom": [
         "server/socket/gameHandlers.js:handlePostPlay"
+      ],
+      "added": [
+        "seq"
       ]
     },
     "handComplete": {
@@ -4885,6 +4984,9 @@
           },
           "team2OldScore": {
             "type": "integer"
+          },
+          "seq": {
+            "$ref": "#/$defs/seq"
           }
         },
         "required": [
@@ -4892,13 +4994,14 @@
           "team1Tricks",
           "team2Tricks",
           "team1OldScore",
-          "team2OldScore"
+          "team2OldScore",
+          "seq"
         ],
         "additionalProperties": false
       },
       "status": "active",
       "to": "room",
-      "seq": false,
+      "seq": true,
       "clientReads": {
         "web": [
           "client/src/handlers/gameHandlers.js:registerGameHandlers"
@@ -4909,6 +5012,9 @@
       },
       "emittedFrom": [
         "server/socket/gameHandlers.js:handleHandComplete"
+      ],
+      "added": [
+        "seq"
       ]
     },
     "gameEnd": {
@@ -4961,18 +5067,22 @@
               "string",
               "null"
             ]
+          },
+          "seq": {
+            "$ref": "#/$defs/seq"
           }
         },
         "required": [
           "score",
           "playerStats",
-          "tournamentId"
+          "tournamentId",
+          "seq"
         ],
         "additionalProperties": false
       },
       "status": "active",
       "to": "room",
-      "seq": false,
+      "seq": true,
       "reserved": [
         {
           "key": "winner",
@@ -5010,6 +5120,9 @@
       },
       "emittedFrom": [
         "server/socket/gameHandlers.js:handleHandComplete (via GameState.terminate)"
+      ],
+      "added": [
+        "seq"
       ]
     },
     "abortGame": {
@@ -5018,16 +5131,20 @@
         "properties": {
           "reason": {
             "type": "string"
+          },
+          "seq": {
+            "$ref": "#/$defs/seq"
           }
         },
         "required": [
-          "reason"
+          "reason",
+          "seq"
         ],
         "additionalProperties": false
       },
       "status": "active",
       "to": "room",
-      "seq": false,
+      "seq": true,
       "clientReads": {
         "web": [
           "client/src/handlers/gameHandlers.js:registerGameHandlers"
@@ -5038,6 +5155,9 @@
       },
       "emittedFrom": [
         "server/socket/gameLifecycle.js:abortGame (via GameState.terminate)"
+      ],
+      "added": [
+        "seq"
       ]
     },
     "chatMessage": {
@@ -5071,6 +5191,9 @@
                   "player",
                   "spectator"
                 ]
+              },
+              "seq": {
+                "$ref": "#/$defs/seq"
               }
             },
             "required": [
@@ -5078,7 +5201,8 @@
               "message",
               "username",
               "isSpectator",
-              "type"
+              "type",
+              "seq"
             ],
             "additionalProperties": false
           },
@@ -5100,6 +5224,9 @@
               },
               "type": {
                 "const": "player"
+              },
+              "seq": {
+                "$ref": "#/$defs/seq"
               }
             },
             "required": [
@@ -5107,7 +5234,8 @@
               "message",
               "username",
               "isSpectator",
-              "type"
+              "type",
+              "seq"
             ],
             "additionalProperties": false
           }
@@ -5115,10 +5243,11 @@
       },
       "status": "active",
       "to": "room",
-      "seq": false,
+      "seq": true,
       "added": [
         "type",
-        "isSpectator"
+        "isSpectator",
+        "seq"
       ],
       "activates": [
         "type"
@@ -5147,17 +5276,21 @@
           },
           "type": {
             "const": "system"
+          },
+          "seq": {
+            "$ref": "#/$defs/seq"
           }
         },
         "required": [
           "message",
-          "type"
+          "type",
+          "seq"
         ],
         "additionalProperties": false
       },
       "status": "active",
       "to": "room",
-      "seq": false,
+      "seq": true,
       "clientReads": {
         "web": [
           "client/src/handlers/gameHandlers.js:registerGameHandlers"
@@ -5173,7 +5306,10 @@
         "server/socket/chatHandlers.js:handleDrawPhaseLeave",
         "server/socket/queueHandlers.js:routeGameDisconnect"
       ],
-      "notes": "Reserved: a type other than 'system' must carry playerPosition (schemaMeta.test.js pins type to 'system' unless playerPosition is required)."
+      "notes": "Reserved: a type other than 'system' must carry playerPosition (schemaMeta.test.js pins type to 'system' unless playerPosition is required).",
+      "added": [
+        "seq"
+      ]
     },
     "rejoinSuccess": {
       "payload": {
@@ -5827,11 +5963,15 @@
               },
               "username": {
                 "type": "string"
+              },
+              "seq": {
+                "$ref": "#/$defs/seq"
               }
             },
             "required": [
               "position",
-              "username"
+              "username",
+              "seq"
             ],
             "additionalProperties": false
           },
@@ -5856,7 +5996,7 @@
       },
       "status": "active",
       "to": "room",
-      "seq": false,
+      "seq": true,
       "clientReads": {
         "web": [
           "client/src/handlers/gameHandlers.js:registerGameHandlers"
@@ -5870,7 +6010,10 @@
         "server/socket/gameHandlers.js:handleDrawComplete",
         "server/socket/seatLifecycle.js:replayPresenceTo"
       ],
-      "notes": "private: the replay to a returning socket."
+      "notes": "private: the replay to a returning socket.",
+      "added": [
+        "seq"
+      ]
     },
     "playerReconnected": {
       "payload": {
@@ -5881,17 +6024,21 @@
           },
           "username": {
             "type": "string"
+          },
+          "seq": {
+            "$ref": "#/$defs/seq"
           }
         },
         "required": [
           "position",
-          "username"
+          "username",
+          "seq"
         ],
         "additionalProperties": false
       },
       "status": "active",
       "to": "room",
-      "seq": false,
+      "seq": true,
       "clientReads": {
         "web": [
           "client/src/handlers/gameHandlers.js:registerGameHandlers",
@@ -5904,6 +6051,9 @@
       "emittedFrom": [
         "server/socket/seatLifecycle.js:reconnectOwner",
         "server/socket/seatLifecycle.js:watchSeat"
+      ],
+      "added": [
+        "seq"
       ]
     },
     "leftGame": {
@@ -5968,11 +6118,15 @@
               },
               "username": {
                 "type": "string"
+              },
+              "seq": {
+                "$ref": "#/$defs/seq"
               }
             },
             "required": [
               "position",
-              "username"
+              "username",
+              "seq"
             ],
             "additionalProperties": false
           },
@@ -5997,7 +6151,7 @@
       },
       "status": "active",
       "to": "room",
-      "seq": false,
+      "seq": true,
       "clientReads": {
         "web": [
           "client/src/handlers/gameHandlers.js:registerGameHandlers"
@@ -6009,6 +6163,9 @@
       "emittedFrom": [
         "server/socket/seatLifecycle.js:offer",
         "server/socket/seatLifecycle.js:replayPresenceTo"
+      ],
+      "added": [
+        "seq"
       ]
     },
     "playerResigned": {
@@ -6026,19 +6183,23 @@
           },
           "botPic": {
             "$ref": "#/$defs/pic"
+          },
+          "seq": {
+            "$ref": "#/$defs/seq"
           }
         },
         "required": [
           "position",
           "oldUsername",
           "botUsername",
-          "botPic"
+          "botPic",
+          "seq"
         ],
         "additionalProperties": false
       },
       "status": "active",
       "to": "room",
-      "seq": false,
+      "seq": true,
       "clientReads": {
         "web": [
           "client/src/handlers/gameHandlers.js:registerGameHandlers"
@@ -6049,6 +6210,9 @@
       },
       "emittedFrom": [
         "server/socket/seatLifecycle.js:resignSeat"
+      ],
+      "added": [
+        "seq"
       ]
     },
     "playerLazyMode": {
@@ -6066,19 +6230,23 @@
           },
           "originalUsername": {
             "type": "string"
+          },
+          "seq": {
+            "$ref": "#/$defs/seq"
           }
         },
         "required": [
           "position",
           "botUsername",
           "botPic",
-          "originalUsername"
+          "originalUsername",
+          "seq"
         ],
         "additionalProperties": false
       },
       "status": "active",
       "to": "room",
-      "seq": false,
+      "seq": true,
       "clientReads": {
         "web": [
           "client/src/handlers/gameHandlers.js:registerGameHandlers"
@@ -6089,6 +6257,9 @@
       },
       "emittedFrom": [
         "server/socket/seatLifecycle.js:goLazy"
+      ],
+      "added": [
+        "seq"
       ]
     },
     "playerActiveMode": {
@@ -6103,18 +6274,22 @@
           },
           "pic": {
             "$ref": "#/$defs/pic"
+          },
+          "seq": {
+            "$ref": "#/$defs/seq"
           }
         },
         "required": [
           "position",
           "username",
-          "pic"
+          "pic",
+          "seq"
         ],
         "additionalProperties": false
       },
       "status": "active",
       "to": "room",
-      "seq": false,
+      "seq": true,
       "clientReads": {
         "web": [
           "client/src/handlers/gameHandlers.js:registerGameHandlers"
@@ -6125,6 +6300,9 @@
       },
       "emittedFrom": [
         "server/socket/seatLifecycle.js:goActive"
+      ],
+      "added": [
+        "seq"
       ]
     },
     "spectatorJoined": {
@@ -6256,11 +6434,15 @@
               "spectatorCount": {
                 "type": "integer",
                 "minimum": 0
+              },
+              "seq": {
+                "$ref": "#/$defs/seq"
               }
             },
             "required": [
               "username",
-              "spectatorCount"
+              "spectatorCount",
+              "seq"
             ],
             "additionalProperties": false
           }
@@ -6268,13 +6450,14 @@
       },
       "status": "active",
       "to": "room",
-      "seq": false,
+      "seq": true,
       "added": [
         "snapshot",
         "leadPosition",
         "trumpBroken",
         "teamTricks",
-        "oppTricks"
+        "oppTricks",
+        "seq"
       ],
       "activates": [
         "leadPosition",
@@ -7428,10 +7611,14 @@
             "properties": {
               "socketId": {
                 "type": "string"
+              },
+              "seq": {
+                "$ref": "#/$defs/seq"
               }
             },
             "required": [
-              "socketId"
+              "socketId",
+              "seq"
             ],
             "additionalProperties": false
           },
@@ -7452,7 +7639,7 @@
       },
       "status": "active",
       "to": "room",
-      "seq": false,
+      "seq": true,
       "clientReads": {
         "web": [
           "client/src/handlers/voiceHandlers.js:registerVoiceHandlers"
@@ -7466,7 +7653,10 @@
         "server/socket/lobbyHandlers.js:leaveLobby",
         "server/socket/queueHandlers.js:handleDisconnect"
       ],
-      "notes": "room: a game seat owner dropped (game.broadcast); private: lobby peers (io.to(socketId))."
+      "notes": "room: a game seat owner dropped (game.broadcast); private: lobby peers (io.to(socketId)).",
+      "added": [
+        "seq"
+      ]
     },
     "serverShutdown": {
       "payload": {

@@ -800,4 +800,40 @@ function tournamentStateProps() {
     return defs.tournamentClientState.properties;
 }
 
-module.exports = { s2c };
+// ---------- seq (contract/README.md R1-R5) ----------
+// Every room broadcast (GameState.broadcast / terminate) carries a required
+// top-level `seq`, and so does gameStart (one value per deal). Where an
+// event also has a private form, only the room variant has it. Derived from
+// observation: these are exactly the events emitted to game:<id> rooms.
+const SEQ_EVENTS = {
+    startDraw: null, playerDrew: null, positionUpdate: null, teamsAnnounced: null, createUI: null,
+    bidReceived: null, doneBidding: null, destroyHands: null, rainbow: null, cardPlayed: null,
+    trickComplete: null, handComplete: null, gameEnd: null, abortGame: null, gameLogEntry: null,
+    playerReconnected: null, playerResigned: null, playerLazyMode: null, playerActiveMode: null,
+    chatMessage: ['humanOrSpectator', 'bot'],
+    gameStart: ['seat', 'spectator'],
+    updateTurn: ['room'],
+    playerDisconnected: ['room'],
+    resignationAvailable: ['room'],
+    spectatorJoined: ['notice'],
+    voicePeerLeft: ['room'],
+};
+
+const withSeq = (s) => ({
+    ...s,
+    properties: { ...s.properties, seq: ref('seq') },
+    required: [...(s.required || []), 'seq'],
+});
+
+for (const [event, variants] of Object.entries(SEQ_EVENTS)) {
+    const entry = s2c[event];
+    if (variants === null) {
+        entry.payload = withSeq(entry.payload);
+    } else {
+        entry.payload = { ...entry.payload, anyOf: entry.payload.anyOf.map((v) => (variants.includes(v.variant) ? withSeq(v) : v)) };
+    }
+    entry.seq = true;
+    entry.added = [...(entry.added || []), 'seq'];
+}
+
+module.exports = { s2c, SEQ_EVENTS };
