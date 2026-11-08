@@ -149,6 +149,82 @@ function applyUpdate(doc, update) {
     }
 }
 
+/**
+ * Apply a find/findOne projection the way Mongo does: inclusion mode (any
+ * field other than _id set to 1/true) keeps only the listed paths plus _id
+ * unless `_id: 0`; exclusion mode (every value 0/false) drops the listed
+ * paths. Dotted paths reach into sub-documents (and arrays of them). Mixing
+ * the two modes (other than _id) throws, as the server does.
+ */
+function applyProjection(doc, projection) {
+    if (!projection || doc == null) return doc;
+    const entries = Object.entries(projection);
+    if (entries.length === 0) return doc;
+    for (const [, v] of entries) {
+        if (v !== 0 && v !== 1 && v !== true && v !== false) {
+            throw new Error(`memoryDb: unsupported projection value ${JSON.stringify(v)}`);
+        }
+    }
+    const others = entries.filter(([k]) => k !== '_id');
+    const included = others.filter(([, v]) => v === 1 || v === true);
+    const excluded = others.filter(([, v]) => v === 0 || v === false);
+    if (included.length && excluded.length) {
+        throw new Error('memoryDb: Cannot do exclusion in inclusion projection');
+    }
+    const idFlag = projection._id;
+    const inclusion = included.length > 0 || (others.length === 0 && (idFlag === 1 || idFlag === true));
+
+    if (inclusion) {
+        const out = {};
+        if (!(idFlag === 0 || idFlag === false) && doc._id !== undefined) out._id = doc._id;
+        for (const [path] of included) includePath(doc, out, path.split('.'));
+        return out;
+    }
+    const out = clone(doc);
+    for (const [path] of excluded) excludePath(out, path.split('.'));
+    if (idFlag === 0 || idFlag === false) delete out._id;
+    return out;
+}
+
+function includePath(src, dst, parts) {
+    const [head, ...rest] = parts;
+    if (src == null || typeof src !== 'object' || !(head in src)) return;
+    const value = src[head];
+    if (rest.length === 0) {
+        dst[head] = clone(value);
+        return;
+    }
+    if (Array.isArray(value)) {
+        const arr = Array.isArray(dst[head]) ? dst[head] : [];
+        value.forEach((el, i) => {
+            if (!isPlainObject(el)) return;
+            const target = isPlainObject(arr[i]) ? arr[i] : {};
+            includePath(el, target, rest);
+            arr[i] = target;
+        });
+        dst[head] = arr.filter(e => e !== undefined);
+        return;
+    }
+    if (!isPlainObject(value)) return;
+    const target = isPlainObject(dst[head]) ? dst[head] : {};
+    includePath(value, target, rest);
+    dst[head] = target;
+}
+
+function excludePath(obj, parts) {
+    if (obj == null || typeof obj !== 'object') return;
+    const [head, ...rest] = parts;
+    if (Array.isArray(obj)) {
+        obj.forEach(el => excludePath(el, parts));
+        return;
+    }
+    if (rest.length === 0) {
+        delete obj[head];
+        return;
+    }
+    excludePath(obj[head], rest);
+}
+
 class MemoryCollection {
     constructor(docs = []) {
         this.docs = [];
@@ -166,17 +242,19 @@ class MemoryCollection {
         return { acknowledged: true, insertedId: this._insert(doc) };
     }
 
-    async findOne(filter) {
+    async findOne(filter, options = {}) {
         const doc = this.docs.find(d => matches(d, filter));
-        return doc ? clone(doc) : null;
+        return doc ? applyProjection(clone(doc), options.projection) : null;
     }
 
-    find(filter) {
+    find(filter, options = {}) {
         let results = this.docs.filter(d => matches(d, filter));
+        let projection = options.projection;
         const cursor = {
             limit(n) { results = results.slice(0, n); return cursor; },
             sort() { return cursor; },
-            async toArray() { return results.map(clone); }
+            project(p) { projection = p; return cursor; },
+            async toArray() { return results.map(d => applyProjection(clone(d), projection)); }
         };
         return cursor;
     }
@@ -232,4 +310,4 @@ function createMemoryDb({ users = [], gameRecords = [], reports = [] } = {}) {
     };
 }
 
-module.exports = { MemoryCollection, createMemoryDb, matches };
+module.exports = { MemoryCollection, createMemoryDb, matches, applyProjection };
