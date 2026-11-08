@@ -244,12 +244,14 @@ export function showFinalScoreOverlay({ teamScore, oppScore, playerStats, onRetu
         font-size: 14px;
       `;
       playerRow.innerHTML = `
-        <div style="color: ${teamColor}; font-weight: 500;">${stats.username}</div>
+        <div class="score-modal-username" style="color: ${teamColor}; font-weight: 500;"></div>
         <div style="text-align: center;">${stats.totalBids}</div>
         <div style="text-align: center;">${stats.totalTricks}</div>
         <div style="text-align: center; color: ${stats.setsCaused > 0 ? '#ef4444' : 'inherit'};">${stats.setsCaused}</div>
         <div style="text-align: center;">${stats.avgHSI}</div>
       `;
+      // Username via textContent: it is user-controlled
+      playerRow.querySelector('.score-modal-username').textContent = stats.username ?? '';
       statsContainer.appendChild(playerRow);
     }
 

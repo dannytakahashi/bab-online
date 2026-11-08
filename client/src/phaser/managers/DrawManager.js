@@ -27,6 +27,10 @@ export class DrawManager {
     // Track clicked card for local player draw
     this.clickedCardSprite = null;
     this.clickedCardIndex = null;
+
+    // Pending fade-to-black timer (cancelled in cleanup so a stale one can't
+    // add an overlay after the game UI has been built)
+    this._fadeTimer = null;
   }
 
   /**
@@ -466,7 +470,8 @@ export class DrawManager {
     const fadeDelay = 2000; // Show teams for 2 seconds
     const fadeDuration = 1200;
 
-    this.scene.time.delayedCall(fadeDelay, () => {
+    this._fadeTimer = this.scene.time.delayedCall(fadeDelay, () => {
+      this._fadeTimer = null;
       // Create DOM overlay for fade to black (covers everything including DOM elements)
       const domOverlay = document.createElement('div');
       domOverlay.id = 'transition-overlay';
@@ -539,6 +544,11 @@ export class DrawManager {
    */
   cleanup() {
     console.log('🔥 DrawManager: Cleaning up draw phase...');
+
+    if (this._fadeTimer) {
+      this._fadeTimer.remove(false);
+      this._fadeTimer = null;
+    }
 
     // Destroy all deck cards and title
     this.allCards.forEach(card => {

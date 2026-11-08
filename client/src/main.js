@@ -1312,7 +1312,7 @@ function getSocket() {
   const socket = io(serverUrl, {
     transports: ['websocket'],
     reconnection: true,
-    reconnectionAttempts: 5,
+    reconnectionAttempts: Infinity, // keep retrying; see socket-init.js
     reconnectionDelay: 1000,
     reconnectionDelayMax: 5000,
   });
@@ -1341,12 +1341,18 @@ socket.on('disconnect', (reason) => {
   document.dispatchEvent(new CustomEvent('connectionLost', { detail: { reason } }));
 });
 
-socket.on('reconnect_attempt', (attemptNumber) => {
-  console.log(`Reconnection attempt ${attemptNumber}/5`);
+// Socket.IO v3+ emits reconnection events on the Manager (socket.io), not on
+// the Socket, so these must be registered on socket.io to ever fire
+socket.io.on('reconnect_attempt', (attemptNumber) => {
+  console.log(`Reconnection attempt ${attemptNumber}`);
   document.dispatchEvent(new CustomEvent('reconnecting', { detail: { attempt: attemptNumber } }));
 });
 
-socket.on('reconnect_failed', () => {
+socket.io.on('reconnect', (attemptNumber) => {
+  console.log(`Reconnected after ${attemptNumber} attempt(s)`);
+});
+
+socket.io.on('reconnect_failed', () => {
   console.log('Reconnection failed after all attempts');
 
   // Full cleanup on reconnect failure
@@ -1371,6 +1377,8 @@ socket.on('reconnect_failed', () => {
   // Clear chat bubbles
   clearChatBubbles();
 
+  // uiManager is local to initializeApp(); use the singleton accessor here
+  const uiManager = getUIManager();
   uiManager.removeWaitingScreen();
   uiManager.clearUI();
 
@@ -1471,6 +1479,8 @@ socket.on('rejoinFailed', (data) => {
   const reason = typeof data === 'string' ? data : data?.reason;
   if (reason !== 'Already connected') {
     sessionStorage.removeItem('gameId');
+    // A stale success flag would make onMainRoomJoined ignore the main room
+    rejoinSucceeded = false;
     // Return to main room
     socket.emit("joinMainRoom");
   }
@@ -1610,8 +1620,12 @@ function handleSocketError(error, socket) {
       message = error.message || 'Game error occurred';
       break;
     case 'server':
-    default:
       message = 'Server error. Please try again.';
+      break;
+    default:
+      // Most handler errors are untyped ({ message: 'Lobby is full' }) and
+      // their text is meant for the player
+      message = error.message || 'Server error. Please try again.';
       break;
   }
 
@@ -2946,6 +2960,8 @@ function initializeApp() {
       // Reset game state for next game
       resetGameState();
       sessionStorage.removeItem('spectatingGameId');
+      // Otherwise onMainRoomJoined ignores the main room after an earlier rejoin
+      rejoinSucceeded = false;
       socket.emit("joinMainRoom");
     },
     onRoomFull: (data) => {
@@ -3004,12 +3020,15 @@ function initializeApp() {
       `;
       dialog.innerHTML = `
         <h3 style="margin: 0 0 16px 0; color: #fff;">Player Disconnected</h3>
-        <p style="margin: 0 0 24px 0; color: #ccc;">${data.username} did not reconnect. Replace with a bot?</p>
+        <p id="resign-message" style="margin: 0 0 24px 0; color: #ccc;"></p>
         <div style="display: flex; gap: 12px; justify-content: flex-end;">
           <button id="resign-cancel-btn" style="padding: 8px 16px; border: none; border-radius: 6px; background: #444; color: #fff; cursor: pointer;">Wait</button>
           <button id="resign-confirm-btn" style="padding: 8px 16px; border: none; border-radius: 6px; background: #23782d; color: #fff; cursor: pointer;">Replace with Bot</button>
         </div>
       `;
+      // Username via textContent: it is user-controlled
+      dialog.querySelector('#resign-message').textContent =
+        `${data.username} did not reconnect. Replace with a bot?`;
       backdrop.appendChild(dialog);
       document.body.appendChild(backdrop);
 
@@ -3131,6 +3150,8 @@ function initializeApp() {
       // Clear gameId so mainRoomJoined handler doesn't ignore the transition
       sessionStorage.removeItem('gameId');
       sessionStorage.removeItem('spectatingGameId');
+      // Otherwise onMainRoomJoined ignores the main room after an earlier rejoin
+      rejoinSucceeded = false;
       socket.emit("joinMainRoom");
     },
     onRestorePlayerState: (data) => {

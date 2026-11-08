@@ -519,20 +519,27 @@ export function createGameLog({ onChatSubmit } = {}) {
     const teamDiv = container.querySelector('#teamScoreDisplay');
     const oppDiv = container.querySelector('#oppScoreDisplay');
 
+    // Names are usernames, so build with textContent rather than innerHTML
+    const fillScore = (div, names, score, bids, tricks) => {
+      const lines = [
+        ['font-size:12px;color:#888;', names],
+        ['font-size:20px;font-weight:bold;', score],
+        ['font-size:11px;color:#aaa;', `Bids: ${bids} | Tricks: ${tricks}`],
+      ];
+      div.replaceChildren(...lines.map(([css, text]) => {
+        const line = document.createElement('div');
+        line.style.cssText = css;
+        line.textContent = String(text);
+        return line;
+      }));
+    };
+
     if (teamDiv) {
-      teamDiv.innerHTML = `
-        <div style="font-size:12px;color:#888;">${teamNames}</div>
-        <div style="font-size:20px;font-weight:bold;">${teamScore}</div>
-        <div style="font-size:11px;color:#aaa;">Bids: ${teamBids} | Tricks: ${teamTricks}</div>
-      `;
+      fillScore(teamDiv, teamNames, teamScore, teamBids, teamTricks);
     }
 
     if (oppDiv) {
-      oppDiv.innerHTML = `
-        <div style="font-size:12px;color:#888;">${oppNames}</div>
-        <div style="font-size:20px;font-weight:bold;">${oppScore}</div>
-        <div style="font-size:11px;color:#aaa;">Bids: ${oppBids} | Tricks: ${oppTricks}</div>
-      `;
+      fillScore(oppDiv, oppNames, oppScore, oppBids, oppTricks);
     }
   };
 

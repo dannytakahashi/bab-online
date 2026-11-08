@@ -111,16 +111,21 @@ export class SocketManager {
       this._emitStateChange('disconnect', { reason });
     });
 
-    this._socket.on(SERVER_EVENTS.RECONNECT_ATTEMPT, (attemptNumber) => {
-      this._setState(CONNECTION_STATE.RECONNECTING);
-      this._emitStateChange('reconnecting', { attempt: attemptNumber });
-    });
+    // Socket.IO v3+ emits reconnection events on the Manager (socket.io),
+    // not on the Socket, so listeners on the Socket never fire
+    const ioManager = this._socket.io;
+    if (ioManager) {
+      ioManager.on(SERVER_EVENTS.RECONNECT_ATTEMPT, (attemptNumber) => {
+        this._setState(CONNECTION_STATE.RECONNECTING);
+        this._emitStateChange('reconnecting', { attempt: attemptNumber });
+      });
 
-    this._socket.on(SERVER_EVENTS.RECONNECT_FAILED, () => {
-      this._setState(CONNECTION_STATE.DISCONNECTED);
-      this.clearGameId();
-      this._emitStateChange('reconnectFailed');
-    });
+      ioManager.on(SERVER_EVENTS.RECONNECT_FAILED, () => {
+        this._setState(CONNECTION_STATE.DISCONNECTED);
+        this.clearGameId();
+        this._emitStateChange('reconnectFailed');
+      });
+    }
 
     this._setupVisibilityHandler();
   }

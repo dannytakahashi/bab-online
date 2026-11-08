@@ -400,6 +400,8 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
   // Player left game (via /leave command)
   socketManager.onGame(SERVER_EVENTS.LEFT_GAME, (data) => {
     console.log('🚪 Left game (lazy leave)');
+    // Clear the in-memory copy too, or the next reconnect rejoins the left game
+    socketManager.clearGameId();
     onLeftGame?.(data);
   });
 

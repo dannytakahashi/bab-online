@@ -123,7 +123,6 @@ export class GameScene extends Phaser.Scene {
 
     // Load other essential assets
     this.load.image('cardBack', 'assets/card_back.png');
-    this.load.image('background', 'assets/background.png');
     this.load.image('rainbow', 'assets/rainbow1.png');
     this.load.image('ot', 'assets/ot.png');
     this.load.image('b', 'assets/b.png');
@@ -131,12 +130,8 @@ export class GameScene extends Phaser.Scene {
     this.load.image('3b', 'assets/3b.png');
     this.load.image('4b', 'assets/4b.png');
 
-    // Load profile images
-    for (let i = 1; i <= 82; i++) {
-      // Skip missing profile numbers
-      if (i === 10 || i === 11) continue;
-      this.load.image(`profile${i}`, `assets/profile${i}.png`);
-    }
+    // Profile avatars are DOM <img> elements loaded on demand; they are not
+    // preloaded as Phaser textures (~18 MB download, ~120 MB of GPU memory)
   }
 
   create() {
@@ -159,10 +154,15 @@ export class GameScene extends Phaser.Scene {
 
     console.log('🎮 Managers instantiated');
 
-    // Set up resize handler
-    this.scale.on('resize', (gameSize) => {
+    // Set up resize handler. this.scale is the game-wide ScaleManager, which
+    // outlives scene restarts, so remove the listener on shutdown
+    const onScaleResize = (gameSize) => {
       console.log(`📐 Phaser resize: ${gameSize.width}x${gameSize.height}`);
       this.handleResize(gameSize.width, gameSize.height);
+    };
+    this.scale.on('resize', onScaleResize);
+    this.events.once('shutdown', () => {
+      this.scale.off('resize', onScaleResize);
     });
 
     // Initial position calculation
@@ -1116,13 +1116,22 @@ export class GameScene extends Phaser.Scene {
       if (sprite) {
         // Update texture to show the actual card
         const cardKey = getCardImageKey(card);
-        const targetPos = this.trickManager._playPositions[this.trickManager.getRelativePositionKey(playedPosition)];
+        const relativeKey = this.trickManager.getRelativePositionKey(playedPosition);
+        const targetPos = this.trickManager._playPositions[relativeKey];
         const targetX = targetPos?.x || sprite.x;
         const targetY = targetPos?.y || sprite.y;
 
+        // Stop any deal/hand-layout tween still on the sprite, and record its
+        // face and slot so TrickManager can finish an interrupted flip and
+        // reposition it on resize
+        this.trickManager._stopCardAnimations(sprite);
+        sprite.setData('faceKey', cardKey);
+        sprite.setData('playPosition', relativeKey);
+
         // Animate move and flip simultaneously
-        // Move to play position
-        this.tweens.add({
+        // Move to play position. Keep the handle: a tween added while the tab
+        // is hidden is still queued, and killTweensOf cannot see it.
+        const moveTween = this.tweens.add({
           targets: sprite,
           x: targetX,
           y: targetY,
@@ -1132,13 +1141,17 @@ export class GameScene extends Phaser.Scene {
           scale: 1.5,
           onComplete: () => {
             if (!sprite || !sprite.scene) return;
+            sprite.setData('moveTween', null);
             sprite.setDepth(200);
           },
         });
+        sprite.setData('moveTween', moveTween);
 
-        // Flip animation runs in parallel, starting after a short delay
-        this.time.delayedCall(50, () => {
+        // Flip animation runs in parallel, starting after a short delay.
+        // Keep the handle so completeTrick can cancel a flip that never ran.
+        const flipTimer = this.time.delayedCall(50, () => {
           if (!sprite || !sprite.scene) return;
+          sprite.setData('flipTimer', null);
 
           // Scale X to 0
           this.tweens.add({
@@ -1160,6 +1173,7 @@ export class GameScene extends Phaser.Scene {
             },
           });
         });
+        sprite.setData('flipTimer', flipTimer);
 
         this.trickManager._currentTrick.push(sprite);
       }
@@ -1180,7 +1194,7 @@ export class GameScene extends Phaser.Scene {
         this.trickManager.setPlayerPosition(myPosition);
         this.trickManager.updatePlayPositions();
         const targetPos = this.trickManager._playPositions.self;
-        this.tweens.add({
+        const moveTween = this.tweens.add({
           targets: sprite,
           x: targetPos.x,
           y: targetPos.y,
@@ -1189,9 +1203,12 @@ export class GameScene extends Phaser.Scene {
           rotation: 0,
           scale: 1.5,
           onComplete: () => {
-            if (sprite?.scene) sprite.setDepth(200);
+            if (!sprite?.scene) return;
+            sprite.setData('moveTween', null);
+            sprite.setDepth(200);
           },
         });
+        sprite.setData('moveTween', moveTween);
         sprite.setData('playPosition', 'self');
         this.trickManager._currentTrick.push(sprite);
       }
@@ -1364,58 +1381,55 @@ export class GameScene extends Phaser.Scene {
     const state = this.state;
     const myPosition = state.position;
 
-    // Only process scoring if it's a full hand (13 tricks)
-    if (data.team1Tricks + data.team2Tricks !== 13) {
-      // Calculate team/opp scores based on position parity
-      let teamScore, oppScore, teamTricksWon, oppTricksWon, teamOldScore, oppOldScore;
-      if (myPosition % 2 !== 0) {
-        // Player is on Team 1
-        teamScore = data.score.team1;
-        oppScore = data.score.team2;
-        teamTricksWon = data.team1Tricks;
-        oppTricksWon = data.team2Tricks;
-        teamOldScore = data.team1OldScore;
-        oppOldScore = data.team2OldScore;
-      } else {
-        // Player is on Team 2 - swap all team1/team2 values
-        teamScore = data.score.team2;
-        oppScore = data.score.team1;
-        teamTricksWon = data.team2Tricks;
-        oppTricksWon = data.team1Tricks;
-        teamOldScore = data.team2OldScore;
-        oppOldScore = data.team1OldScore;
-      }
+    // Calculate team/opp scores based on position parity
+    let teamScore, oppScore, teamTricksWon, oppTricksWon, teamOldScore, oppOldScore;
+    if (myPosition % 2 !== 0) {
+      // Player is on Team 1
+      teamScore = data.score.team1;
+      oppScore = data.score.team2;
+      teamTricksWon = data.team1Tricks;
+      oppTricksWon = data.team2Tricks;
+      teamOldScore = data.team1OldScore;
+      oppOldScore = data.team2OldScore;
+    } else {
+      // Player is on Team 2 - swap all team1/team2 values
+      teamScore = data.score.team2;
+      oppScore = data.score.team1;
+      teamTricksWon = data.team2Tricks;
+      oppTricksWon = data.team1Tricks;
+      teamOldScore = data.team2OldScore;
+      oppOldScore = data.team1OldScore;
+    }
 
-      // Update scores in state
-      state.teamScore = teamScore;
-      state.oppScore = oppScore;
+    // Update scores in state
+    state.teamScore = teamScore;
+    state.oppScore = oppScore;
 
-      // Add hand complete messages to game log
-      if (window.ModernUtils && window.ModernUtils.formatHandCompleteMessages) {
-        const messages = window.ModernUtils.formatHandCompleteMessages({
-          myPosition: myPosition,
-          playerData: state.playerData,
-          bids: state.bids,
-          teamScore: teamScore,
-          oppScore: oppScore,
-          teamOldScore: teamOldScore,
-          oppOldScore: oppOldScore,
-          teamTricks: teamTricksWon,
-          oppTricks: oppTricksWon,
-        });
-        messages.forEach((msg) => {
-          if (window.addToGameFeedFromLegacy) {
-            window.addToGameFeedFromLegacy(msg);
-          }
-        });
-      }
-
-      // Update game log score display
-      if (window.ModernUtils && window.ModernUtils.getTeamNames) {
-        const { teamName, oppName } = window.ModernUtils.getTeamNames(myPosition, state.playerData);
-        if (window.updateGameLogScoreFromLegacy) {
-          window.updateGameLogScoreFromLegacy(teamName, oppName, teamScore, oppScore);
+    // Add hand complete messages to game log
+    if (window.ModernUtils && window.ModernUtils.formatHandCompleteMessages) {
+      const messages = window.ModernUtils.formatHandCompleteMessages({
+        myPosition: myPosition,
+        playerData: state.playerData,
+        bids: state.bids,
+        teamScore: teamScore,
+        oppScore: oppScore,
+        teamOldScore: teamOldScore,
+        oppOldScore: oppOldScore,
+        teamTricks: teamTricksWon,
+        oppTricks: oppTricksWon,
+      });
+      messages.forEach((msg) => {
+        if (window.addToGameFeedFromLegacy) {
+          window.addToGameFeedFromLegacy(msg);
         }
+      });
+    }
+
+    // Update game log score display
+    if (window.ModernUtils && window.ModernUtils.getTeamNames) {
+      const { teamName, oppName } = window.ModernUtils.getTeamNames(myPosition, state.playerData);
+      if (window.updateGameLogScoreFromLegacy) {
+        window.updateGameLogScoreFromLegacy(teamName, oppName, teamScore, oppScore);
       }
     }
 

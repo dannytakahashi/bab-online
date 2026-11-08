@@ -5,7 +5,9 @@ var socket = io(location.hostname === 'localhost'
     : 'https://bab-online-production.up.railway.app', {
     transports: ['websocket'],
     reconnection: true,
-    reconnectionAttempts: 5,
+    // Keep retrying (Socket.IO's default): once reconnect_failed fires the
+    // client never reconnects again, so a long outage would strand the page
+    reconnectionAttempts: Infinity,
     reconnectionDelay: 1000,
     reconnectionDelayMax: 5000
 });

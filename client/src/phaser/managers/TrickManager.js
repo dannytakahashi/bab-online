@@ -74,6 +74,9 @@ export class TrickManager {
 
     // Spectator mode — allows inspecting opponent tricks
     this._isSpectatorMode = false;
+
+    // True while animateTricksAway is whisking the history off the table
+    this._animatingAway = false;
   }
 
   /**
@@ -281,9 +284,15 @@ export class TrickManager {
 
     // Animate cards to stack position
     trickCards.forEach((card, index) => {
+      // Cancel play/flip animations still pending on the card (they would
+      // replay after the tab becomes visible and pull it back mid-table)
+      this._stopCardAnimations(card);
+
       // If not our team's trick, show card backs (unless spectating)
       if (!isMyTeam && !this._isSpectatorMode) {
         card.setTexture('cardBack');
+      } else {
+        this._applyFaceTexture(card);
       }
 
       if (this.isVisible()) {
@@ -292,6 +301,7 @@ export class TrickManager {
           x: winningPosition.x,
           y: winningPosition.y,
           scale: TRICK_SCALE,
+          rotation: 0,
           duration: 500,
           ease: 'Power2',
           onComplete: () => {
@@ -303,6 +313,7 @@ export class TrickManager {
         card.y = winningPosition.y;
         card.setDepth(200 + index);
         card.setScale(TRICK_SCALE);
+        card.setRotation(0);
       }
 
       // Make interactive for hover
@@ -386,6 +397,38 @@ export class TrickManager {
       card.on('pointerover', fanOut);
       card.on('pointerout', resetStack);
     });
+  }
+
+  /**
+   * Stop tweens and the pending flip timer on a trick sprite before it is
+   * snapped or re-animated. Phaser pauses while the tab is hidden, so stale
+   * tweens otherwise resume later from wherever the card was snapped to.
+   */
+  _stopCardAnimations(card) {
+    if (!card) return;
+    // killTweensOf only finds tweens the manager has activated; one added while
+    // the loop is paused (hidden tab) is still queued, so stop the held handle
+    const moveTween = card.getData?.('moveTween');
+    if (moveTween) {
+      moveTween.stop();
+      card.setData('moveTween', null);
+    }
+    this._scene.tweens.killTweensOf(card);
+    const flipTimer = card.getData?.('flipTimer');
+    if (flipTimer) {
+      flipTimer.remove(false);
+      card.setData('flipTimer', null);
+    }
+  }
+
+  /**
+   * Show the card's face if a flip animation was cut short.
+   */
+  _applyFaceTexture(card) {
+    const faceKey = card.getData?.('faceKey');
+    if (faceKey) {
+      card.setTexture('cards', faceKey);
+    }
   }
 
   /**
@@ -519,6 +562,10 @@ export class TrickManager {
    * Reposition trick history cards during resize.
    */
   repositionTrickHistory() {
+    // Leave cards being whisked away alone: snapping them would kill the
+    // tweens whose onComplete destroys them and fires the hand-end callback
+    if (this._animatingAway) return;
+
     // Reposition team trick history
     this._teamTrickHistory.forEach((trick, index) => {
       const trickNumber = trick.trickNumber || index + 1;
@@ -531,8 +578,7 @@ export class TrickManager {
       // Move all cards in this trick
       trick.cards.forEach((card) => {
         if (card && card.active) {
-          card.x = newPos.x;
-          card.y = newPos.y;
+          this._snapToStack(card, newPos);
         }
       });
     });
@@ -549,11 +595,24 @@ export class TrickManager {
       // Move all cards in this trick
       trick.cards.forEach((card) => {
         if (card && card.active) {
-          card.x = newPos.x;
-          card.y = newPos.y;
+          this._snapToStack(card, newPos);
         }
       });
     });
+  }
+
+  /**
+   * Snap a trick-history card to its stack, cancelling any in-flight tween.
+   */
+  _snapToStack(card, pos) {
+    this._stopCardAnimations(card);
+    card.x = pos.x;
+    card.y = pos.y;
+    card.setScale(TRICK_SCALE);
+    card.setRotation(0);
+    if (card.originalDepth !== undefined) {
+      card.setDepth(card.originalDepth);
+    }
   }
 
   /**
@@ -568,8 +627,13 @@ export class TrickManager {
       const positionKey = card.getData('playPosition');
       if (!positionKey || !this._playPositions[positionKey]) return;
 
+      this._stopCardAnimations(card);
+      this._applyFaceTexture(card);
       card.x = this._playPositions[positionKey].x;
       card.y = this._playPositions[positionKey].y;
+      card.setScale(1.5);
+      card.setRotation(0);
+      card.setDepth(200);
     });
 
     // Also reposition trick history and backgrounds
@@ -614,6 +678,7 @@ export class TrickManager {
     });
     this._oppTrickHistory = [];
     this._oppTrickCount = 0;
+    this._animatingAway = false;
   }
 
   /**
@@ -696,6 +761,7 @@ export class TrickManager {
 
     // Clear backgrounds immediately
     this.clearBackgrounds();
+    this._animatingAway = true;
 
     // Animate cards staggered by trick number (both teams' trick N go together)
     let completedCount = 0;
@@ -723,6 +789,7 @@ export class TrickManager {
               this._oppTrickHistory = [];
               this._teamTrickCount = 0;
               this._oppTrickCount = 0;
+              this._animatingAway = false;
               if (onComplete) onComplete();
             }
           },

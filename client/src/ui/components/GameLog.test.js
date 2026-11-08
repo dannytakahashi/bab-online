@@ -130,6 +130,22 @@ describe('createGameLog', () => {
     expect(messageArea.textContent).toBe('');
   });
 
+  it('updateFullScore renders usernames as text, not markup', () => {
+    gameLog = createGameLog();
+
+    gameLog.updateFullScore('<b>x</b>/Bob', '<img src=x>/Eve', 120, -40, '3/2', '1/1', 4, 2);
+
+    const teamDiv = gameLog.container.querySelector('#teamScoreDisplay');
+    const oppDiv = gameLog.container.querySelector('#oppScoreDisplay');
+    expect(teamDiv.querySelector('b')).toBeNull();
+    expect(oppDiv.querySelector('img')).toBeNull();
+    expect(teamDiv.textContent).toContain('<b>x</b>/Bob');
+    expect(teamDiv.textContent).toContain('120');
+    expect(teamDiv.textContent).toContain('Bids: 3/2 | Tricks: 4');
+    expect(oppDiv.textContent).toContain('<img src=x>/Eve');
+    expect(oppDiv.textContent).toContain('-40');
+  });
+
   it('destroy removes container', () => {
     gameLog = createGameLog();
     document.body.appendChild(gameLog.container);

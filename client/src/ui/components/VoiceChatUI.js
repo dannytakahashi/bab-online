@@ -197,7 +197,9 @@ async function toggleDevicePopover() {
       align-items: center;
       gap: 8px;
     `;
-    item.innerHTML = `<span style="flex-shrink:0">${isActive ? '&#10003;' : '&nbsp;&nbsp;'}</span><span style="overflow:hidden;text-overflow:ellipsis">${device.label}</span>`;
+    item.innerHTML = `<span style="flex-shrink:0">${isActive ? '&#10003;' : '&nbsp;&nbsp;'}</span><span style="overflow:hidden;text-overflow:ellipsis"></span>`;
+    // Device labels come from hardware names (e.g. Bluetooth), so not markup
+    item.lastElementChild.textContent = device.label;
     item.addEventListener('mouseenter', () => { item.style.background = 'rgba(255,255,255,0.1)'; });
     item.addEventListener('mouseleave', () => { item.style.background = 'none'; });
     item.addEventListener('click', async (e) => {

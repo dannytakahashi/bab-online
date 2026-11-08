@@ -428,3 +428,44 @@ describe('singleton functions', () => {
     expect(sm1).not.toBe(sm2);
   });
 });
+
+describe('reconnection events', () => {
+  let manager;
+  let mockSocket;
+
+  beforeEach(() => {
+    sessionStorage.clear();
+    mockSocket = createMockSocket();
+    // Socket.IO v3+ emits reconnect_* on the Manager (socket.io), not the Socket
+    mockSocket.io = createMockSocket();
+    manager = new SocketManager();
+    manager.initialize(mockSocket);
+  });
+
+  it('listens for reconnect events on the Manager, not the Socket', () => {
+    expect(mockSocket.io.on).toHaveBeenCalledWith('reconnect_attempt', expect.any(Function));
+    expect(mockSocket.io.on).toHaveBeenCalledWith('reconnect_failed', expect.any(Function));
+    expect(mockSocket.on).not.toHaveBeenCalledWith('reconnect_attempt', expect.any(Function));
+    expect(mockSocket.on).not.toHaveBeenCalledWith('reconnect_failed', expect.any(Function));
+  });
+
+  it('reports reconnecting and reconnect failure from Manager events', () => {
+    const events = [];
+    manager.onStateChange((event, data) => events.push([event, data]));
+    manager.setGameId('game123');
+
+    mockSocket.io._trigger('reconnect_attempt', 2);
+    expect(manager.state).toBe(CONNECTION_STATE.RECONNECTING);
+    expect(events).toContainEqual(['reconnecting', { attempt: 2 }]);
+
+    mockSocket.io._trigger('reconnect_failed');
+    expect(manager.state).toBe(CONNECTION_STATE.DISCONNECTED);
+    expect(manager.gameId).toBeNull();
+    expect(events.map(([e]) => e)).toContain('reconnectFailed');
+  });
+
+  it('tolerates a socket without a Manager', () => {
+    const bare = createMockSocket();
+    expect(() => new SocketManager().initialize(bare)).not.toThrow();
+  });
+});

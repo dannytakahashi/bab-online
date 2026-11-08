@@ -227,27 +227,6 @@
     border-color: #4a90d9;
 }
 
-.bid-button {
-    width: 100px;
-    height: 36px;
-    font-size: 1.2em;
-    background: #4a90d9;
-    color: white;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    transition: background 0.2s;
-}
-
-.bid-button:hover {
-    background: #357abd;
-}
-
-.bid-button:disabled {
-    background: #555;
-    cursor: not-allowed;
-}
-
 .bid-bubble {
     position: absolute;
     padding: 8px 16px;
