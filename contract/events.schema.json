@@ -2643,6 +2643,7 @@
           },
           "sessionToken": {
             "type": "string",
+            "minLength": 1,
             "maxLength": 200
           }
         },
@@ -2682,6 +2683,11 @@
           "gameId": "6f1c2b8e-7f0a-4c55-9d3e-2a1b0c9d8e7f",
           "username": "alan",
           "sessionToken": "ttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt"
+        },
+        {
+          "gameId": "6f1c2b8e-7f0a-4c55-9d3e-2a1b0c9d8e7f",
+          "username": "alan",
+          "sessionToken": ""
         }
       ]
     },
@@ -2693,6 +2699,7 @@
             "anyOf": [
               {
                 "type": "string",
+                "minLength": 1,
                 "maxLength": 64
               },
               {
@@ -2731,6 +2738,9 @@
       "invalid": [
         {
           "requestId": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        },
+        {
+          "requestId": ""
         },
         {
           "requestId": 1.5
@@ -2804,7 +2814,8 @@
         "type": "object",
         "properties": {
           "imageData": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1
           }
         },
         "required": [
@@ -2828,6 +2839,9 @@
         {},
         {
           "imageData": 5
+        },
+        {
+          "imageData": ""
         }
       ]
     },

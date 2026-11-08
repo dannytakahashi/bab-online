@@ -68,20 +68,20 @@ const c2s = {
     playCard: { payload: open({ card: ref('cardIn'), position: ref('position') }), status: 'active', joi: 'playCard', rateLimit: 'playCard', sentBy: both, examples: [{ card: { suit: 'hearts', rank: 'A' }, position: 1 }, { card: { suit: 'joker', rank: 'HI', id: 'x', selected: true }, position: 3 }], invalid: [{ card: { suit: 'hearts', rank: 'A' } }, { card: { suit: 'hearts' }, position: 1 }, { card: { suit: 'stars', rank: 'A' }, position: 1 }, { card: { suit: 'hearts', rank: 'A' }, position: 0 }] },
     forceResign: { payload: open({ position: ref('position') }), status: 'active', joi: 'forceResign', rateLimit: null, sentBy: both, examples: [{ position: 2 }], invalid: [{ position: 0 }, { position: 5 }, {}] },
     chatMessage: { payload: open({ message: message() }), status: 'active', joi: 'chatMessage', rateLimit: 'chatMessage', sentBy: both, examples: [{ message: 'nice' }, { message: '/lazy' }, { message: '/active' }, { message: '/leave' }], invalid: [{ message: '' }, { message: 'x'.repeat(501) }, {}], notes: '/lazy, /active and /leave are seat commands.' },
-    rejoinGame: { payload: open({ gameId: uuid(), username: uname(), sessionToken: str({ maxLength: 200 }) }, { optional: ['sessionToken'] }), status: 'active', joi: 'rejoinGame', rateLimit: null, sentBy: both, examples: [{ gameId: '6f1c2b8e-7f0a-4c55-9d3e-2a1b0c9d8e7f', username: 'alan', sessionToken: 'tok' }, { gameId: '6f1c2b8e-7f0a-4c55-9d3e-2a1b0c9d8e7f', username: 'alan' }], invalid: [{ gameId: 'x', username: 'alan' }, { gameId: '6f1c2b8e-7f0a-4c55-9d3e-2a1b0c9d8e7f' }, { gameId: '6f1c2b8e-7f0a-4c55-9d3e-2a1b0c9d8e7f', username: 'alan', sessionToken: 't'.repeat(201) }] },
+    rejoinGame: { payload: open({ gameId: uuid(), username: uname(), sessionToken: str({ minLength: 1, maxLength: 200 }) }, { optional: ['sessionToken'] }), status: 'active', joi: 'rejoinGame', rateLimit: null, sentBy: both, examples: [{ gameId: '6f1c2b8e-7f0a-4c55-9d3e-2a1b0c9d8e7f', username: 'alan', sessionToken: 'tok' }, { gameId: '6f1c2b8e-7f0a-4c55-9d3e-2a1b0c9d8e7f', username: 'alan' }], invalid: [{ gameId: 'x', username: 'alan' }, { gameId: '6f1c2b8e-7f0a-4c55-9d3e-2a1b0c9d8e7f' }, { gameId: '6f1c2b8e-7f0a-4c55-9d3e-2a1b0c9d8e7f', username: 'alan', sessionToken: 't'.repeat(201) }, { gameId: '6f1c2b8e-7f0a-4c55-9d3e-2a1b0c9d8e7f', username: 'alan', sessionToken: '' }] },
 
     // Snapshot v2
     requestSnapshot: {
-        payload: open({ requestId: anyOf(str({ maxLength: 64 }), int()), customPics: { type: 'boolean' }, log: { type: 'boolean' } }, { optional: ['requestId', 'customPics', 'log'] }),
+        payload: open({ requestId: anyOf(str({ minLength: 1, maxLength: 64 }), int()), customPics: { type: 'boolean' }, log: { type: 'boolean' } }, { optional: ['requestId', 'customPics', 'log'] }),
         optionalPayload: true, status: 'active', joi: 'requestSnapshot', rateLimit: 'requestSnapshot', sentBy: { web: false, ios: false },
-        examples: [{}, { requestId: 'r1' }, { requestId: 7, customPics: false, log: false }], invalid: [{ requestId: 'x'.repeat(65) }, { requestId: 1.5 }, { customPics: 'yes' }],
+        examples: [{}, { requestId: 'r1' }, { requestId: 7, customPics: false, log: false }], invalid: [{ requestId: 'x'.repeat(65) }, { requestId: '' }, { requestId: 1.5 }, { customPics: 'yes' }],
         notes: 'New in snapshot v2 (no shipped client sends it yet). Answered by stateSnapshot to this socket only.',
     },
 
     // Profile
     getProfile: { ...noPayload, status: 'active', joi: null, rateLimit: null, sentBy: webOnly, examples: [{}] },
     updateProfilePic: { payload: open({ profilePic: int({ minimum: 1, maximum: 82 }) }), status: 'active', joi: 'updateProfilePic', rateLimit: null, sentBy: webOnly, examples: [{ profilePic: 12 }], invalid: [{ profilePic: 0 }, { profilePic: 83 }, { profilePic: 500 }, {}] },
-    uploadProfilePic: { payload: open({ imageData: str() }), status: 'active', joi: 'uploadProfilePic', rateLimit: null, sentBy: webOnly, examples: [{ imageData: 'data:image/png;base64,iVBORw0KGgo=' }], invalid: [{}, { imageData: 5 }] },
+    uploadProfilePic: { payload: open({ imageData: str({ minLength: 1 }) }), status: 'active', joi: 'uploadProfilePic', rateLimit: null, sentBy: webOnly, examples: [{ imageData: 'data:image/png;base64,iVBORw0KGgo=' }], invalid: [{}, { imageData: 5 }, { imageData: '' }] },
     getLeaderboard: { ...noPayload, status: 'active', joi: null, rateLimit: null, sentBy: both, examples: [{}] },
     getRecords: { ...noPayload, status: 'active', joi: null, rateLimit: null, sentBy: webOnly, examples: [{}] },
     searchPlayers: { payload: open({ query: str() }), status: 'active', joi: null, rateLimit: null, sentBy: webOnly, examples: [{ query: 'al' }], notes: 'asyncHandler("searchPlayers") but validators has no schema: passes through with a warning.' },

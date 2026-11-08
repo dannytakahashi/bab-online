@@ -196,7 +196,9 @@ export function isComplete(snapshot) {
  * Apply an incoming (parsed) snapshot over the previous one (contract/README.md
  * R5): the table is always replaced, but what `next.partial` says was left out
  * is kept from what the client already has instead of being wiped:
- *   - 'log': keep `prev.log` (same game only).
+ *   - 'log': keep `prev.log` (same game only). The caller must keep
+ *     `prev.log` current with the gameLogEntry events received since `prev`
+ *     arrived, or entries in between are lost.
  *   - 'customPics': for a seat with hasCustomPic and customPic null, keep the
  *     picture the client already holds for that displayed username, taken from
  *     `pics` ({username: dataUrl}, e.g. built from the same v1 payload's
