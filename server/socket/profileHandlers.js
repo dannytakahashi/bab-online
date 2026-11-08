@@ -275,11 +275,13 @@ async function recordGameStats(game) {
         { position: 4, player: game.getOriginalPlayer(4) }
     ];
 
-    for (const { position, player } of players) {
-        if (!player || !player.username) continue;
+    // One $inc per human seat, written in parallel; each keeps its own
+    // try/catch so one failure never hides the others
+    await Promise.all(players.map(async ({ position, player }) => {
+        if (!player || !player.username) return;
 
         // Skip seats without a human owner (they have no DB records)
-        if (!game.seat(position)?.ownerUsername) continue;
+        if (!game.seat(position)?.ownerUsername) return;
 
         const isTeam1 = position === 1 || position === 3;
         const isWinner = (isTeam1 && team1Won) || (!isTeam1 && !team1Won);
@@ -336,20 +338,26 @@ async function recordGameStats(game) {
                 error: error.message
             });
         }
-    }
+    }));
 }
 
 /**
  * Get user's saved profile pic from database
  * @param {string} username - Username to look up
- * @returns {Promise<number>} Profile pic number (1-82) or random if not set
+ * @param {Object} [options]
+ * @param {boolean} [options.randomFallback=true] - false: return null instead
+ *   of a random pic (no username, user not found, no pic, DB error), so a
+ *   caller running lookups in parallel can draw the random pics itself in a
+ *   fixed order
+ * @returns {Promise<number|string|null>} Profile pic number (1-82), custom
+ *   pic data URL, or random (null when randomFallback is false) if not set
  */
-async function getUserProfilePic(username) {
+async function getUserProfilePic(username, { randomFallback = true } = {}) {
     const usersCollection = getUsersCollection();
 
     if (!username) {
         authLogger.warn('getUserProfilePic called with no username, returning random pic');
-        return Math.floor(Math.random() * 82) + 1;
+        return randomFallback ? Math.floor(Math.random() * 82) + 1 : null;
     }
 
     try {
@@ -376,7 +384,7 @@ async function getUserProfilePic(username) {
 
     // Return random if not set or error
     authLogger.warn('getUserProfilePic: No profilePic found for user, returning random', { username });
-    return Math.floor(Math.random() * 82) + 1;
+    return randomFallback ? Math.floor(Math.random() * 82) + 1 : null;
 }
 
 /**

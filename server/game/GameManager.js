@@ -1027,9 +1027,8 @@ class GameManager {
                 if (!e.isBot && e.username) usernames.add(e.username);
             }
         }
-        for (const username of usernames) {
-            await this.clearActiveGame(username, gameId);
-        }
+        // In parallel (one round trip); each clear swallows its own error
+        await Promise.all([...usernames].map(u => this.clearActiveGame(u, gameId)));
     }
 
     // ==================== TOURNAMENT METHODS ====================
