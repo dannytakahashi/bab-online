@@ -14,6 +14,7 @@ const profileHandlers = require('./profileHandlers');
 const tournamentHandlers = require('./tournamentHandlers');
 const voiceHandlers = require('./voiceHandlers');
 const safetyHandlers = require('./safetyHandlers');
+const snapshotHandlers = require('./snapshotHandlers');
 const { asyncHandler, syncHandler, safeHandler, rateLimiter } = require('./errorHandler');
 const { socketLogger } = require('../utils/logger');
 
@@ -105,6 +106,11 @@ function setupSocketHandlers(io) {
         // Reconnection events
         socket.on('rejoinGame', (data) =>
             asyncHandler('rejoinGame', reconnectHandlers.rejoinGame)(socket, io, data)
+        );
+
+        // Snapshot v2: the table as this socket sees it (reply: stateSnapshot)
+        socket.on('requestSnapshot', (data) =>
+            syncHandler('requestSnapshot', snapshotHandlers.requestSnapshot)(socket, io, data)
         );
 
         // Profile events

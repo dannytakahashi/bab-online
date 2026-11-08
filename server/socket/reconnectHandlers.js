@@ -6,6 +6,7 @@ const gameManager = require('../game/GameManager');
 const { Controller, Presence } = require('../game/SeatState');
 const seatLifecycle = require('./seatLifecycle');
 const { socketLogger } = require('../utils/logger');
+const { snapshotFor } = require('./snapshotHandlers');
 const { getUsersCollection } = require('../database');
 const { verifySession } = require('../utils/sessionTokens');
 
@@ -131,7 +132,8 @@ async function rejoinGame(socket, io, data) {
         socket.emit('rejoinSuccess', {
             ...game.getClientState(seat.seatSocketId),
             isLazy: true,
-            tournamentId: tournamentId && gameManager.getTournamentById(tournamentId) ? tournamentId : null
+            tournamentId: tournamentId && gameManager.getTournamentById(tournamentId) ? tournamentId : null,
+            snapshot: snapshotFor(game, socket.id, { customPics: false }) // v2 (additive)
         });
         return;
     }

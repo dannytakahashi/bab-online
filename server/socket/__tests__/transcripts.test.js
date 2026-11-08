@@ -131,7 +131,8 @@ describe('seat transcripts (wire characterization)', () => {
             'room:playerDisconnected{position,username}@1',
             'room:voicePeerLeft{socketId}',
             'room:gameLogEntry{message,type}',
-            'self(r1):rejoinSuccess{bidding,bids,currentHand,currentTurn,dealer,gameId,gameLog,hand,hsiValues,isLazy,isTrumpBroken,lazyPositions,leadPosition,phase,playedCards,playerBids,players,position,resignedPositions,score,tournamentId,tricks,trump}@1',
+            // CHANGED (snapshot v2, additive): +snapshot
+            'self(r1):rejoinSuccess{bidding,bids,currentHand,currentTurn,dealer,gameId,gameLog,hand,hsiValues,isLazy,isTrumpBroken,lazyPositions,leadPosition,phase,playedCards,playerBids,players,position,resignedPositions,score,snapshot,tournamentId,tricks,trump}@1',
             'room:playerReconnected{position,username}@1',
             'h2:voicePeerJoined{socketId,username}',
             'h3:voicePeerJoined{socketId,username}',
@@ -161,12 +162,14 @@ describe('seat transcripts (wire characterization)', () => {
         const s = await rejoin(t, 0, 'r1');
         chat(t, s, '/active');
         expect(t.rec.take(mark)).toEqual([
-            'self(r1):rejoinSuccess{bidding,bids,currentHand,currentTurn,dealer,gameId,gameLog,hand,hsiValues,isLazy,isTrumpBroken,lazyPositions,leadPosition,phase,playedCards,playerBids,players,position,resignedPositions,score,tournamentId,tricks,trump}@1',
+            // CHANGED (snapshot v2, additive): +snapshot
+            'self(r1):rejoinSuccess{bidding,bids,currentHand,currentTurn,dealer,gameId,gameLog,hand,hsiValues,isLazy,isTrumpBroken,lazyPositions,leadPosition,phase,playedCards,playerBids,players,position,resignedPositions,score,snapshot,tournamentId,tricks,trump}@1',
             'room:playerReconnected{position,username}@1',
             'room:gameLogEntry{message,type}',
             'room:playerActiveMode{pic,position,username}@1',
             'room:gameLogEntry{message,type}',
-            'self(r1):restorePlayerState{bidding,bids,currentHand,currentTurn,dealer,gameId,gameLog,hand,hsiValues,isLazy,isTrumpBroken,lazyPositions,leadPosition,phase,playedCards,playerBids,players,position,resignedPositions,score,tricks,trump}@1',
+            // CHANGED (snapshot v2, additive): +snapshot
+            'self(r1):restorePlayerState{bidding,bids,currentHand,currentTurn,dealer,gameId,gameLog,hand,hsiValues,isLazy,isTrumpBroken,lazyPositions,leadPosition,phase,playedCards,playerBids,players,position,resignedPositions,score,snapshot,tricks,trump}@1',
         ]);
     });
 
@@ -304,12 +307,14 @@ describe('seat transcripts (wire characterization)', () => {
         const s = await rejoin(t, 0, 'r1');
         chat(t, s, '/active');
         expect(t.rec.take(mark)).toEqual([
-            'self(r1):rejoinSuccess{bidding,bids,currentHand,currentTurn,dealer,gameId,gameLog,hand,hsiValues,isLazy,isTrumpBroken,lazyPositions,leadPosition,phase,playedCards,playerBids,players,position,resignedPositions,score,tournamentId,tricks,trump}@1',
+            // CHANGED (snapshot v2, additive): +snapshot
+            'self(r1):rejoinSuccess{bidding,bids,currentHand,currentTurn,dealer,gameId,gameLog,hand,hsiValues,isLazy,isTrumpBroken,lazyPositions,leadPosition,phase,playedCards,playerBids,players,position,resignedPositions,score,snapshot,tournamentId,tricks,trump}@1',
             'room:playerReconnected{position,username}@1',
             'room:gameLogEntry{message,type}',
             'room:playerActiveMode{pic,position,username}@1',
             'room:gameLogEntry{message,type}',
-            'self(r1):restorePlayerState{bidding,bids,currentHand,currentTurn,dealer,gameId,gameLog,hand,hsiValues,isLazy,isTrumpBroken,lazyPositions,leadPosition,phase,playedCards,playerBids,players,position,resignedPositions,score,tricks,trump}@1',
+            // CHANGED (snapshot v2, additive): +snapshot
+            'self(r1):restorePlayerState{bidding,bids,currentHand,currentTurn,dealer,gameId,gameLog,hand,hsiValues,isLazy,isTrumpBroken,lazyPositions,leadPosition,phase,playedCards,playerBids,players,position,resignedPositions,score,snapshot,tricks,trump}@1',
         ]);
         expect(t.game.getClientState(s.id).resignedPositions).toEqual([]);
     });

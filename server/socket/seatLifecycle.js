@@ -23,6 +23,7 @@ const { botController, personalities } = require('../game/bot');
 const { Phase } = require('../game/GamePhase');
 const SeatState = require('../game/SeatState');
 const { socketLogger } = require('../utils/logger');
+const { snapshotFor } = require('./snapshotHandlers');
 
 const { PERSONALITY_LIST, getDisplayName } = personalities;
 const { Controller, Presence, RECONNECT_GRACE_MS, ABANDON_MS, DRAW_WATCHDOG_MS } = SeatState;
@@ -302,7 +303,8 @@ function reconnectOwner(io, game, pos, socket, username) {
     socketLogger.info('Player rejoined game', { username, gameId: game.gameId, position: pos });
     socket.emit('rejoinSuccess', {
         ...game.getClientState(socket.id),
-        tournamentId: tournament ? tournament.tournamentId : null
+        tournamentId: tournament ? tournament.tournamentId : null,
+        snapshot: snapshotFor(game, socket.id, { customPics: false }) // v2 (additive)
     });
     game.broadcast(io, 'playerReconnected', { position: pos, username });
 
@@ -357,6 +359,7 @@ function watchSeat(io, game, pos, socket, username, { via }) {
         const tournament = reattachTournament(io, socket, game.gameId, username);
         state.tournamentId = tournament ? tournament.tournamentId : null;
     }
+    state.snapshot = snapshotFor(game, socket.id, { customPics: false }); // v2 (additive)
     socketLogger.info('Owner watching bot-controlled seat', { username, gameId: game.gameId, position: pos, via });
     socket.emit('rejoinSuccess', state);
     if (via === 'rejoin') {
@@ -432,7 +435,10 @@ function goActive(io, game, pos, socket) {
 
     if (ownerView === 'watch') {
         // The watching client switches from its lazy view to the seat
-        socket.emit('restorePlayerState', game.getClientState(socket.id));
+        socket.emit('restorePlayerState', {
+            ...game.getClientState(socket.id),
+            snapshot: snapshotFor(game, socket.id, { customPics: false }) // v2 (additive)
+        });
         replayPresenceTo(game, socket, pos);
     } else if (game.acceptsTurnInput()) {
         // Only while a turn is open (the post-trick updateTurn follows otherwise)

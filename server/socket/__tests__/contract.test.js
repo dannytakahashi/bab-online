@@ -46,16 +46,18 @@ const authHandlers = require('../authHandlers');
 const profileHandlers = require('../profileHandlers');
 const safetyHandlers = require('../safetyHandlers');
 const voiceHandlers = require('../voiceHandlers');
+const snapshotHandlers = require('../snapshotHandlers');
 const { asyncHandler, syncHandler, rateLimiter } = require('../errorHandler');
 const ambient = require('../../demo/ambientBots');
-const Deck = require('../../game/Deck');
 const { Phase } = require('../../game/GamePhase');
-const { botController } = require('../../game/bot');
 const { gameLogger, socketLogger, authLogger, logger } = require('../../utils/logger');
-const { makeIo, makeSocket, events, legalCards, legalBids, mulberry32 } = require('../../testUtils/gameDriver');
+const { events, mulberry32 } = require('../../testUtils/gameDriver');
 const {
     setupTournament, playTournament, liveTables, advanceUntil, newUser, creatorSocket,
 } = require('../../testUtils/tournamentDriver');
+const {
+    world, selfEvents, expectSilentAfterTerminal, playF1, watchSnapshots,
+} = require('../../testUtils/contractScenarios');
 
 // Active / deprecated s2c events these scenarios do not reach, with why
 const NOT_EXERCISED = {
@@ -93,39 +95,6 @@ afterEach(() => {
     Math.random = realRandom;
 });
 
-/** A stub world: emit log, io, sockets by id, registered users. */
-function world(tag) {
-    const log = [];
-    const io = makeIo(log);
-    const sockets = new Map();
-    const w = {
-        log, io, sockets, pending: [],
-        socket(id) {
-            const s = makeSocket(id, log, io);
-            // authHandlers.disconnectPreviousSocket calls socket.disconnect()
-            s.disconnect = () => w.kill(s);
-            sockets.set(id, s);
-            return s;
-        },
-        user(id, username, { pic = 7, db = true } = {}) {
-            gameManager.registerUser(id, username);
-            if (db && !mockDb.current.users.docs.some((d) => d.username === username)) {
-                mockDb.current.users._insert({ username, profilePic: pic });
-            }
-            return w.socket(id);
-        },
-        kill(s) {
-            io.sockets.sockets.delete(s.id);
-            for (const members of io.rooms.values()) members.delete(s.id);
-            return queueHandlers.handleDisconnect(s, io);
-        },
-        tag,
-    };
-    return w;
-}
-
-const tick = () => jest.advanceTimersByTimeAsync(0);
-const selfEvents = (w, sid, from = 0) => w.log.slice(from).filter((l) => l.to === `self:${sid}`).map((l) => l.event);
 
 // ==================== (a) c2s registrations ====================
 
@@ -197,182 +166,103 @@ describe('(a) client -> server events', () => {
 
 // ==================== (b) F1: a full human game ====================
 
-/** Where nothing more may be emitted for `game` once it ended. */
-function expectSilentAfterTerminal(w, game) {
-    const idx = w.log.findIndex((l) => l.to === game.roomName && (l.event === 'gameEnd' || l.event === 'abortGame'));
-    expect(idx).toBeGreaterThanOrEqual(0);
-    expect(w.log.slice(idx + 1).filter((l) => l.to === game.roomName).map((l) => l.event)).toEqual([]);
-}
-
-/** Card that is not in `hand` (any of the 54). */
-function cardNotIn(hand) {
-    const deck = new Deck();
-    return deck.cards.find((c) => !hand.some((h) => h.suit === c.suit && h.rank === c.rank));
-}
-
-async function playF1() {
-    Math.random = mulberry32(8);
-    const w = world('f1');
-    const names = ['f1_ann', 'f1_bob', 'f1_cat', 'f1_dan'];
-    const socks = names.map((n, i) => w.user(`f1-h${i}`, n));
-    const owner = (game, pos) => w.sockets.get(game.seat(pos).ownerSocketId);
-    let rejoins = 0;
-    const rejoinAs = async (game, username, label) => {
-        rejoins++;
-        const s = w.user(`f1-${label}-${rejoins}`, username, { db: false });
-        await reconnectHandlers.rejoinGame(s, w.io, { gameId: game.gameId, username });
-        return s;
-    };
-
-    // Lobby
-    for (const s of socks) mainRoomHandlers.joinMainRoom(s, w.io);
-    mainRoomHandlers.createLobby(socks[0], w.io, { name: 'Contract table' });
-    const lobbyId = gameManager.getPlayerLobby(socks[0].id).id;
-    for (const s of socks.slice(1)) mainRoomHandlers.joinLobby(s, w.io, { lobbyId });
-    lobbyHandlers.lobbyChat(socks[1], w.io, { message: 'ready when you are' });
-    await lobbyHandlers.playerReady(socks[3], w.io);
-    lobbyHandlers.playerUnready(socks[3], w.io);
-    const starting = socks.map((s) => lobbyHandlers.playerReady(s, w.io));
-    await jest.advanceTimersByTimeAsync(1500);
-    const game = gameManager.getPlayerGame(socks[0].id);
-    expect(game.stage).toBe(Phase.CREATED);
-    await jest.advanceTimersByTimeAsync(2000);
-    expect(game.stage).toBe(Phase.DRAWING);
-
-    // A rejoin during the draw is refused (pinned: §8, items 16/23)
-    const early = await rejoinAs(game, names[0], 'draw');
-    expect(selfEvents(w, early.id)).toEqual(['rejoinFailed']);
-    expect(w.log.find((l) => l.to === `self:${early.id}`).data.reason).toBe('Not a player in this game');
-
-    for (const s of socks) w.pending.push(gameHandlers.draw(s, w.io, { num: 0 }));
-    await advanceUntil(() => game.stage === Phase.TEAMS_ANNOUNCED, 50);
-
-    // A rejoin during TEAMS_ANNOUNCED is accepted today (renders as a
-    // half-state on v1 clients); the payload must still validate
-    const firstPos = game.seatByUsername(names[0]);
-    const r0 = await rejoinAs(game, names[0], 'teams');
-    expect(game.seat(firstPos).ownerSocketId).toBe(r0.id);
-    await advanceUntil(() => game.stage === Phase.BIDDING, 50);
-
-    const done = {};
-    let spectator = null;
-    let bored = false;
-    let zeroBids = 0;
-    let guard = 0;
-    while (!game.isTerminal() && guard++ < 20000) {
-        const hands = game.handStats.totalHands;
-        const stage = game.stage;
-
-        if (hands === 1 && stage === Phase.BIDDING && !done.lazyActive) {
-            done.lazyActive = true;
-            const s = owner(game, 1);
-            chatHandlers.chatMessage(s, w.io, { message: '/lazy' });
-            chatHandlers.chatMessage(s, w.io, { message: '/lazy' }); // 'Already in lazy mode' error
-            chatHandlers.chatMessage(s, w.io, { message: '/active' });
-            chatHandlers.chatMessage(s, w.io, { message: '/bogus' });
-            chatHandlers.chatMessage(s, w.io, { message: 'nice hand' });
-        }
-        if (hands === 2 && stage === Phase.BIDDING && !done.lazyWatch) {
-            done.lazyWatch = true;
-            const pos = 2;
-            const username = game.seat(pos).ownerUsername;
-            chatHandlers.chatMessage(owner(game, pos), w.io, { message: '/lazy' });
-            const back = await rejoinAs(game, username, 'watch');
-            expect(selfEvents(w, back.id)[0]).toBe('rejoinSuccess');
-            await reconnectHandlers.rejoinGame(back, w.io, { gameId: game.gameId, username }); // idempotent
-            chatHandlers.chatMessage(back, w.io, { message: '/active' });
-            expect(game.seat(pos).controller).toBe('human');
-        }
-        if (hands === 3 && stage === Phase.PLAYING && !done.rejects) {
-            const seat = game.seat(game.currentTurn);
-            if (seat.controller === 'human' && seat.presence === 'connected') {
-                const s = owner(game, seat.position);
-                const hand = game.getHand(s.id);
-                const mark = w.log.length;
-                await gameHandlers.playCard(s, w.io, { card: cardNotIn(hand) });
-                expect(selfEvents(w, s.id, mark)).toEqual(['actionRejected', 'restorePlayerState']);
-                const legal = legalCards(game, s.id);
-                const illegal = hand.find((c) => !legal.some((l) => l.suit === c.suit && l.rank === c.rank));
-                if (illegal) {
-                    await gameHandlers.playCard(s, w.io, { card: illegal });
-                    done.rejects = true;
-                }
-                await gameHandlers.playerBid(s, w.io, { bid: '1' }); // not_your_turn (wrong stage)
-            }
-        }
-        if (hands === 4 && stage === Phase.BIDDING && !done.resign) {
-            done.resign = true;
-            const pos = 3;
-            const username = game.seat(pos).ownerUsername;
-            await w.kill(owner(game, pos));
-            await gameHandlers.forceResign(owner(game, 4), w.io, { position: pos }); // still in grace: error
-            await jest.advanceTimersByTimeAsync(61000);
-            expect(game.seat(pos).presence).toBe('resignable');
-            // A returning socket of another seat gets the offer replayed privately
-            const p4name = game.seat(4).ownerUsername;
-            await rejoinAs(game, p4name, 'replay');
-            await gameHandlers.forceResign(owner(game, 4), w.io, { position: pos });
-            expect(game.seat(pos).controller).toBe('resignBot');
-            const bot = game.seat(pos).bot;
-            botController.sendBotChat(w.io, game, botController.getBot(game.gameId, bot.socketId), 'gg', 0);
-            await rejoinAs(game, username, 'resigned');
-            expect(game.seat(pos).ownerView).toBe('watch');
-        }
-        if (hands === 5 && stage === Phase.BIDDING && !spectator) {
-            spectator = w.user('f1-spec', 'f1_fan');
-            mainRoomHandlers.joinMainRoom(spectator, w.io);
-            mainRoomHandlers.joinAsSpectator(spectator, w.io, { gameId: game.gameId });
-            chatHandlers.chatMessage(spectator, w.io, { message: 'go team' });
-            chatHandlers.chatMessage(spectator, w.io, { message: '/active' }); // an ordinary spectator: ignored
-        }
-        if (hands === 7 && stage === Phase.BIDDING && !done.leave) {
-            done.leave = true;
-            // The resigned owner (watch view) leaves for good; so does the spectator
-            chatHandlers.chatMessage(owner(game, 3), w.io, { message: '/leave' });
-            chatHandlers.chatMessage(spectator, w.io, { message: '/leave' });
-        }
-
-        if (stage === Phase.BIDDING || stage === Phase.PLAYING) {
-            const seat = game.seat(game.currentTurn);
-            if (seat.controller === 'human' && seat.presence === 'connected') {
-                const s = owner(game, seat.position);
-                if (stage === Phase.BIDDING) {
-                    let bid;
-                    if (zeroBids < 4) { bid = '0'; zeroBids++; }
-                    else if (!bored && hands >= 1 && legalBids(game).includes('B')) { bid = 'B'; bored = true; }
-                    else bid = legalBids(game).includes('1') ? '1' : '0';
-                    w.pending.push(gameHandlers.playerBid(s, w.io, { bid }));
-                } else {
-                    const [card] = legalCards(game, s.id);
-                    w.pending.push(gameHandlers.playCard(s, w.io, { card }));
-                }
-                await tick();
-                continue;
-            }
-        }
-        await jest.advanceTimersByTimeAsync(250);
-    }
-    if (game.stage !== Phase.ENDED) {
-        throw new Error('F1 did not finish: ' + JSON.stringify({ stage: game.stage, hands: game.handStats.totalHands, turn: game.currentTurn, seats: game.presenceSummary(), bids: game.playerBids, done, guard }));
-    }
-    expect(done).toMatchObject({ lazyActive: true, lazyWatch: true, rejects: true, resign: true, leave: true });
-    await Promise.all(w.pending);
-    await Promise.all(starting);
-    await jest.advanceTimersByTimeAsync(5000);
-    expectSilentAfterTerminal(w, game);
-    expect(events(w.log, 'destroyHands').length).toBeGreaterThan(0);
-    expect(errorLogs).toEqual([]);
-    return { w, game };
-}
 
 describe('(b) F1 full human game through the lobby', () => {
     test('13 hands with redeal, bore, lazy/active, watch rejoin, resign, rejects, spectator, /leave', async () => {
-        const { w } = await playF1();
+        let watcher = null;
+        const asked = {};
+        const ask = (w, s, data) => {
+            const mark = w.log.length;
+            snapshotHandlers.requestSnapshot(s, w.io, data);
+            return w.log.slice(mark).find((l) => l.to === `self:${s.id}` && l.event === 'stateSnapshot').data;
+        };
+        const { w } = await playF1({
+            errorLogs,
+            hooks: {
+                // (f) requestSnapshot from a seat, a lazy watcher and a spectator
+                async onStep(wd, game, { hands, stage }) {
+                    if (!watcher) watcher = watchSnapshots(wd);
+                    const own = (pos) => wd.sockets.get(game.seat(pos).ownerSocketId);
+                    if (hands === 1 && stage === Phase.PLAYING && !asked.seat) {
+                        asked.seat = ask(wd, own(1), { requestId: 'seat-1' });
+                        expect(asked.seat).toMatchObject({ requestId: 'seat-1', snapshot: { viewer: { role: 'seat', position: 1 } } });
+                        expect(asked.seat.snapshot.partial).toEqual([]);
+                    }
+                    const s3 = game.seat(3);
+                    if (s3.controller === 'resignBot' && s3.ownerSocketId && !asked.lazy) {
+                        asked.lazy = ask(wd, own(3), { requestId: 9, log: false });
+                        expect(asked.lazy.snapshot).toMatchObject({ viewer: { role: 'lazyWatcher', position: 3, ownerView: 'watch' }, partial: ['log'], log: [] });
+                        expect(asked.lazy.snapshot.hand).toHaveLength(game.getHand(s3.seatSocketId).length);
+                    }
+                    const specId = [...game.spectators.keys()][0];
+                    if (specId && !asked.spectator) {
+                        asked.spectator = ask(wd, wd.sockets.get(specId), undefined);
+                        expect(asked.spectator.snapshot).toMatchObject({ viewer: { role: 'spectator', position: null }, hand: null });
+                        expect('requestId' in asked.spectator).toBe(false);
+                    }
+                },
+            },
+        });
+        expect(Object.keys(asked).sort()).toEqual(['lazy', 'seat', 'spectator']);
+        // (h) snapshot invariants over the whole game
+        const result = watcher.stop();
+        expect(result.failures).toEqual([]);
+        expect(result.checked).toBeGreaterThan(5);
+        expect(result.delivered).toBeGreaterThan(5);
         const bySelf = (e) => events(w.log, e).filter((l) => l.to.startsWith('self:'));
         expect(bySelf('rejoinSuccess').length).toBeGreaterThanOrEqual(4);
         expect(events(w.log, 'chatMessage').some((l) => !('isSpectator' in l.data))).toBe(true); // bot chat
         expect(events(w.log, 'chatMessage').some((l) => l.data.isSpectator === true)).toBe(true);
     }, 120000);
+});
+
+// ==================== (f) requestSnapshot ====================
+
+describe('(f) requestSnapshot -> stateSnapshot', () => {
+    test('an entrant during DRAWING, an unmapped socket; Joi, rate limit and the index registration', async () => {
+        Math.random = mulberry32(3);
+        const w = world('f');
+        const socks = ['f_a', 'f_b', 'f_c', 'f_d'].map((n, i) => w.user(`f-h${i}`, n));
+        mainRoomHandlers.createLobby(socks[0], w.io, {});
+        const lobbyId = gameManager.getPlayerLobby(socks[0].id).id;
+        for (const s of socks.slice(1)) mainRoomHandlers.joinLobby(s, w.io, { lobbyId });
+        const starting = socks.map((s) => lobbyHandlers.playerReady(s, w.io));
+        await jest.advanceTimersByTimeAsync(3500);
+        const game = gameManager.getPlayerGame(socks[0].id);
+        expect(game.stage).toBe(Phase.DRAWING);
+        const watcher = watchSnapshots(w);
+        await gameHandlers.draw(socks[1], w.io, { num: 3 });
+        const before = w.log.length;
+        snapshotHandlers.requestSnapshot(socks[1], w.io, {});
+        const reply = w.log.slice(before).find((l) => l.event === 'stateSnapshot').data;
+        expect(reply.snapshot).toMatchObject({ stage: 'DRAWING', viewer: { role: 'entrant', position: null }, seats: [], hand: null });
+        expect(reply.snapshot.draw.viewerDrawOrder).toBe(1);
+        expect(reply.snapshot.draw.drawn).toHaveLength(1);
+        expect(reply.snapshot.entrants).toHaveLength(4);
+
+        // Through the real registration: Joi, rate limit, no payload
+        const handlers = new Map();
+        const fake = Object.assign(w.socket('f-reg'), { on: (ev, cb) => handlers.set(ev, cb) });
+        gameManager.registerUser(fake.id, 'f_reg');
+        require('../index').setupSocketHandlers({ on: (ev, cb) => cb(fake) });
+        const mark = w.log.length;
+        handlers.get('requestSnapshot')(undefined);
+        handlers.get('requestSnapshot')({ requestId: 'x'.repeat(65) });
+        for (let i = 0; i < 10; i++) handlers.get('requestSnapshot')({ requestId: i });
+        const mine = w.log.slice(mark).filter((l) => l.to === `self:${fake.id}`);
+        expect(mine[0]).toMatchObject({ event: 'stateSnapshot', data: { snapshot: null, reason: 'not_in_game' } });
+        expect(mine[1]).toMatchObject({ event: 'error', data: { type: 'validation', handler: 'requestSnapshot' } });
+        expect(mine.filter((l) => l.event === 'error' && l.data.type === 'rateLimit')).toHaveLength(2);
+        rateLimiter.clearSocket(fake.id);
+
+        // (the 4th draw awaits the seating pauses: never await it under fake timers)
+        const draws = [socks[0], socks[2], socks[3]].map((s) => gameHandlers.draw(s, w.io, { num: 0 }));
+        await advanceUntil(() => game.stage === Phase.BIDDING, 100);
+        await jest.advanceTimersByTimeAsync(2000); // the first-hand pause
+        expect(watcher.stop().failures).toEqual([]);
+        await Promise.all([...starting, ...draws]);
+        expect(errorLogs).toEqual([]);
+    });
 });
 
 // ==================== (c) F2: ambient bot games ====================

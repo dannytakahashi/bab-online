@@ -24,6 +24,7 @@ const { botController } = require('../game/bot');
 const { Controller, Presence } = require('../game/SeatState');
 const seatLifecycle = require('./seatLifecycle');
 const { emitLobbiesUpdated } = require('./gameLifecycle');
+const { snapshotFor } = require('./snapshotHandlers');
 
 const logContinuationError = (what, game) => (err) =>
     gameLogger.error(`${what} failed`, { gameId: game.gameId, error: err.message, stack: err.stack });
@@ -31,11 +32,16 @@ const logContinuationError = (what, game) => (err) =>
 /**
  * Tell the sender its action was refused (instead of failing silently) so a
  * client can resync rather than freeze. Clients that predate this event just
- * ignore it.
+ * ignore it. `snapshot` (v2, additive) is the table as the sender should
+ * redraw it (no log, no custom pictures: a v2 client already has those).
  */
 function rejectAction(socket, game, action, reason, extra = {}) {
     gameLogger.warn('Action rejected', { action, reason, gameId: game.gameId, socketId: socket.id, ...extra });
-    socket.emit('actionRejected', { action, reason });
+    socket.emit('actionRejected', {
+        action,
+        reason,
+        snapshot: snapshotFor(game, socket.id, { customPics: false, log: false })
+    });
 }
 
 /**
@@ -649,7 +655,12 @@ async function playCard(socket, io, data) {
             // The client's hand has drifted from ours (e.g. iOS builds that
             // kept cards the lazy bot played after /active). Resend the full
             // seat state so it redraws from the truth instead of freezing.
-            socket.emit('restorePlayerState', game.getClientState(socket.id));
+            // Always AFTER actionRejected (iOS rolls the card back first);
+            // never with tournamentId (web would route it as a rejoin)
+            socket.emit('restorePlayerState', {
+                ...game.getClientState(socket.id),
+                snapshot: snapshotFor(game, socket.id, { customPics: false }) // v2 (additive)
+            });
         }
         return;
     }

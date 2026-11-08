@@ -60,6 +60,14 @@ const c2s = {
     chatMessage: { payload: open({ message: str() }), status: 'active', joi: 'chatMessage', rateLimit: 'chatMessage', sentBy: both, examples: [{ message: 'nice' }, { message: '/lazy' }, { message: '/active' }, { message: '/leave' }], notes: '/lazy, /active and /leave are seat commands.' },
     rejoinGame: { payload: open({ gameId: str(), username: str(), sessionToken: str() }, { optional: ['sessionToken'] }), status: 'active', joi: 'rejoinGame', rateLimit: null, sentBy: both, examples: [{ gameId: '6f1c2b8e-7f0a-4c55-9d3e-2a1b0c9d8e7f', username: 'alan', sessionToken: 'tok' }, { gameId: '6f1c2b8e-7f0a-4c55-9d3e-2a1b0c9d8e7f', username: 'alan' }] },
 
+    // Snapshot v2
+    requestSnapshot: {
+        payload: open({ requestId: anyOf(str({ maxLength: 64 }), int()), customPics: { type: 'boolean' }, log: { type: 'boolean' } }, { optional: ['requestId', 'customPics', 'log'] }),
+        optionalPayload: true, status: 'active', joi: 'requestSnapshot', rateLimit: 'requestSnapshot', sentBy: { web: false, ios: false },
+        examples: [{}, { requestId: 'r1' }, { requestId: 7, customPics: false, log: false }],
+        notes: 'New in snapshot v2 (no shipped client sends it yet). Answered by stateSnapshot to this socket only.',
+    },
+
     // Profile
     getProfile: { ...noPayload, status: 'active', joi: null, rateLimit: null, sentBy: webOnly, examples: [{}] },
     updateProfilePic: { payload: open({ profilePic: int() }), status: 'active', joi: 'updateProfilePic', rateLimit: null, sentBy: webOnly, examples: [{ profilePic: 12 }] },

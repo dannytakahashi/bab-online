@@ -34,6 +34,10 @@ const LEGACY_SPECTATOR_KEYS = [
     'bids', 'playerBids', 'tricks', 'score', 'playedCards', 'isTrumpBroken', 'gameLog', 'spectatorCount'
 ].sort();
 
+// CHANGED (snapshot v2, additive): the full state gains `snapshot`. Read by
+// neither shipped client; the legacy keys above are unchanged.
+const ADDITIVE_SPECTATOR_KEYS = ['snapshot'];
+
 const GOLDEN = {
     CREATED: { phase: 'waiting', bidding: true },
     DRAWING: { phase: 'drawing', bidding: true },
@@ -105,7 +109,7 @@ describe('getClientState golden table (forcePhase fixtures)', () => {
         mainRoomHandlers.joinAsSpectator(spec, io, { gameId: game.gameId });
 
         const joined = log.find((l) => l.to === `self:${spec.id}` && l.event === 'spectatorJoined');
-        expect(Object.keys(joined.data).sort()).toEqual(LEGACY_SPECTATOR_KEYS);
+        expect(Object.keys(joined.data).sort()).toEqual([...LEGACY_SPECTATOR_KEYS, ...ADDITIVE_SPECTATOR_KEYS].sort());
         expect(joined.data.phase).toBe('bidding');
         expect(joined.data.bidding).toBe(false);
     });

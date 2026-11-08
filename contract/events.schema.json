@@ -2350,6 +2350,51 @@
         }
       ]
     },
+    "requestSnapshot": {
+      "payload": {
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "integer"
+              }
+            ]
+          },
+          "customPics": {
+            "type": "boolean"
+          },
+          "log": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": true
+      },
+      "optionalPayload": true,
+      "status": "active",
+      "joi": "requestSnapshot",
+      "rateLimit": "requestSnapshot",
+      "sentBy": {
+        "web": false,
+        "ios": false
+      },
+      "examples": [
+        {},
+        {
+          "requestId": "r1"
+        },
+        {
+          "requestId": 7,
+          "customPics": false,
+          "log": false
+        }
+      ],
+      "notes": "New in snapshot v2 (no shipped client sends it yet). Answered by stateSnapshot to this socket only."
+    },
     "getProfile": {
       "payload": {
         "type": "object",
@@ -4701,16 +4746,23 @@
               "already_played",
               "illegal_card"
             ]
+          },
+          "snapshot": {
+            "$ref": "#/$defs/snapshotV2"
           }
         },
         "required": [
           "action",
-          "reason"
+          "reason",
+          "snapshot"
         ],
         "additionalProperties": false
       },
       "status": "active",
       "to": "self",
+      "added": [
+        "snapshot"
+      ],
       "clientReads": {
         "web": [],
         "ios": [
@@ -5153,6 +5205,9 @@
                   "string",
                   "null"
                 ]
+              },
+              "snapshot": {
+                "$ref": "#/$defs/snapshotV2"
               }
             },
             "required": [
@@ -5178,7 +5233,8 @@
               "resignedPositions",
               "lazyPositions",
               "isLazy",
-              "tournamentId"
+              "tournamentId",
+              "snapshot"
             ],
             "additionalProperties": false
           },
@@ -5289,6 +5345,9 @@
               },
               "isLazy": {
                 "type": "boolean"
+              },
+              "snapshot": {
+                "$ref": "#/$defs/snapshotV2"
               }
             },
             "required": [
@@ -5313,7 +5372,8 @@
               "hsiValues",
               "resignedPositions",
               "lazyPositions",
-              "isLazy"
+              "isLazy",
+              "snapshot"
             ],
             "additionalProperties": false
           }
@@ -5321,6 +5381,9 @@
       },
       "status": "active",
       "to": "self",
+      "added": [
+        "snapshot"
+      ],
       "reserved": [
         {
           "key": "teamTricks",
@@ -5481,6 +5544,9 @@
           },
           "isLazy": {
             "type": "boolean"
+          },
+          "snapshot": {
+            "$ref": "#/$defs/snapshotV2"
           }
         },
         "required": [
@@ -5505,12 +5571,16 @@
           "hsiValues",
           "resignedPositions",
           "lazyPositions",
-          "isLazy"
+          "isLazy",
+          "snapshot"
         ],
         "additionalProperties": false
       },
       "status": "active",
       "to": "self",
+      "added": [
+        "snapshot"
+      ],
       "reserved": [
         {
           "key": "tournamentId",
@@ -5565,6 +5635,51 @@
         "server/socket/seatLifecycle.js:goActive"
       ],
       "notes": "After actionRejected on a \"Card not in hand\" play (#183), and on /active from the watch view."
+    },
+    "stateSnapshot": {
+      "payload": {
+        "type": "object",
+        "properties": {
+          "snapshot": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/snapshotV2"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "requestId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "integer"
+              }
+            ]
+          },
+          "reason": {
+            "const": "not_in_game"
+          }
+        },
+        "required": [
+          "snapshot"
+        ],
+        "additionalProperties": false
+      },
+      "status": "active",
+      "to": "self",
+      "clientReads": {
+        "web": [],
+        "ios": []
+      },
+      "emittedFrom": [
+        "server/socket/snapshotHandlers.js:requestSnapshot"
+      ],
+      "notes": "New in snapshot v2: the reply to requestSnapshot (full pictures and log unless the request opts out). snapshot null + reason not_in_game when the socket is in no game."
     },
     "rejoinFailed": {
       "payload": {
@@ -6001,6 +6116,9 @@
               "spectatorCount": {
                 "type": "integer",
                 "minimum": 0
+              },
+              "snapshot": {
+                "$ref": "#/$defs/snapshotV2"
               }
             },
             "required": [
@@ -6019,7 +6137,8 @@
               "playedCards",
               "isTrumpBroken",
               "gameLog",
-              "spectatorCount"
+              "spectatorCount",
+              "snapshot"
             ],
             "additionalProperties": false
           },
@@ -6046,6 +6165,9 @@
       "status": "active",
       "to": "room",
       "seq": false,
+      "added": [
+        "snapshot"
+      ],
       "reserved": [
         {
           "key": "players",

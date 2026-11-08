@@ -72,6 +72,13 @@ const schemas = {
         sessionToken: Joi.string().max(200).optional()
     }),
 
+    // Snapshot v2 (all optional; no payload at all is fine too)
+    requestSnapshot: Joi.object({
+        requestId: Joi.alternatives().try(Joi.string().max(64), Joi.number().integer()).optional(),
+        customPics: Joi.boolean().optional(),
+        log: Joi.boolean().optional()
+    }),
+
     // Resignation
     forceResign: Joi.object({
         position: Joi.number().integer().min(1).max(4).required()

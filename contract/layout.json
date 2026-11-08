@@ -528,7 +528,9 @@
       "restoreSessionResponse": "not listed at cc865b4; added by the wire-additive constants commit (C13)",
       "actionRejected": "not listed at cc865b4; added by the wire-additive constants commit (C13)",
       "profilePicUploadResponse": "not listed at cc865b4; added by the wire-additive constants commit (C13)",
-      "serverShutdown": "not listed at cc865b4; added by the wire-additive constants commit (C13)"
+      "serverShutdown": "not listed at cc865b4; added by the wire-additive constants commit (C13)",
+      "requestSnapshot": "not listed at cc865b4; added by the wire-additive constants commit (C13)",
+      "stateSnapshot": "not listed at cc865b4; added by the wire-additive constants commit (C13)"
     },
     "swift": {
       "getProfile": "iOS has no profile / records / search / upload / relay-audio screens yet (item 22)",
@@ -545,7 +547,9 @@
       "playerProfileResponse": "iOS has no profile / records / search / upload / relay-audio screens yet (item 22)",
       "recordsResponse": "iOS has no profile / records / search / upload / relay-audio screens yet (item 22)",
       "serverShutdown": "not listed at cc865b4; added by the wire-additive constants commit (C13)",
-      "error": "app-level 'error' collides with Socket.IO-Client-Swift's own client 'error' event; the rename to serverError is V1_REMOVALS #1"
+      "error": "app-level 'error' collides with Socket.IO-Client-Swift's own client 'error' event; the rename to serverError is V1_REMOVALS #1",
+      "requestSnapshot": "not listed at cc865b4; added by the wire-additive constants commit (C13)",
+      "stateSnapshot": "not listed at cc865b4; added by the wire-additive constants commit (C13)"
     }
   }
 }

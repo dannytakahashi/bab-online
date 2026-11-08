@@ -387,8 +387,13 @@ const s2c = {
         emittedFrom: ['server/socket/gameHandlers.js:playCard', 'server/game/bot/BotController.js:processBotPlay'],
     },
     actionRejected: {
-        payload: obj({ action: enm('bid', 'play'), reason: enm('not_your_turn', 'already_bid', 'invalid_bid', 'invalid_play', 'already_played', 'illegal_card') }),
+        payload: obj({
+            action: enm('bid', 'play'),
+            reason: enm('not_your_turn', 'already_bid', 'invalid_bid', 'invalid_play', 'already_played', 'illegal_card'),
+            snapshot: ref('snapshotV2'),
+        }),
         status: 'active', to: 'self',
+        added: ['snapshot'],
         clientReads: reads([], I.game('registerPlayingPhase')),
         emittedFrom: ['server/socket/gameHandlers.js:rejectAction'],
         notes: 'iOS reads action == "play" (rollbackCardPlay); web has no listener. Always BEFORE the restorePlayerState of a "Card not in hand" play.',
@@ -447,10 +452,11 @@ const s2c = {
     // ==================== Reconnection ====================
     rejoinSuccess: {
         payload: anyOf(
-            variant('withTournament', obj({ ...LEGACY_CLIENT_STATE_PROPS, tournamentId: orNull(str()) })),
-            variant('watchViaSpectate', obj({ ...LEGACY_CLIENT_STATE_PROPS })),
+            variant('withTournament', obj({ ...LEGACY_CLIENT_STATE_PROPS, tournamentId: orNull(str()), snapshot: ref('snapshotV2') })),
+            variant('watchViaSpectate', obj({ ...LEGACY_CLIENT_STATE_PROPS, snapshot: ref('snapshotV2') })),
         ),
         status: 'active', to: 'self',
+        added: ['snapshot'],
         reserved: ['teamTricks', 'oppTricks', 'teamScore', 'oppScore', 'isBidding', 'leadCard', 'playedCardIndex', 'trumpBroken']
             .map((key) => ({ key, why: 'iOS restoreFromRejoin reads it ahead of the legacy key and would take it as the viewer-relative value' })),
         clientReads: { ...LEGACY_STATE_READS, web: [...LEGACY_STATE_READS.web, W.main('rejoinSuccess')] },
@@ -458,13 +464,25 @@ const s2c = {
         notes: 'getClientState + tournamentId (string|null) on a rejoin; watchSeat via joinAsSpectator sends the bare state (web reads tournamentId !== undefined). Before playerReconnected and the presence replays.',
     },
     restorePlayerState: {
-        payload: obj({ ...LEGACY_CLIENT_STATE_PROPS }),
+        payload: obj({ ...LEGACY_CLIENT_STATE_PROPS, snapshot: ref('snapshotV2') }),
         status: 'active', to: 'self',
+        added: ['snapshot'],
         reserved: ['tournamentId', 'teamTricks', 'oppTricks', 'teamScore', 'oppScore', 'isBidding', 'leadCard', 'playedCardIndex', 'trumpBroken']
             .map((key) => ({ key, why: key === 'tournamentId' ? 'web routes a payload with tournamentId as a rejoin' : 'iOS restoreFromRejoin reads it ahead of the legacy key' })),
         clientReads: LEGACY_STATE_READS,
         emittedFrom: ['server/socket/gameHandlers.js:playCard', 'server/socket/seatLifecycle.js:goActive'],
         notes: 'After actionRejected on a "Card not in hand" play (#183), and on /active from the watch view.',
+    },
+    stateSnapshot: {
+        payload: obj({
+            snapshot: orNull(ref('snapshotV2')),
+            requestId: anyOf(str({ maxLength: 64 }), int()),
+            reason: konst('not_in_game'),
+        }, { optional: ['requestId', 'reason'] }),
+        status: 'active', to: 'self',
+        clientReads: reads([], []),
+        emittedFrom: ['server/socket/snapshotHandlers.js:requestSnapshot'],
+        notes: 'New in snapshot v2: the reply to requestSnapshot (full pictures and log unless the request opts out). snapshot null + reason not_in_game when the socket is in no game.',
     },
     rejoinFailed: {
         payload: obj({
@@ -536,10 +554,11 @@ const s2c = {
     },
     spectatorJoined: {
         payload: anyOf(
-            variant('fullState', obj({ ...SPECTATOR_STATE_V1_PROPS })),
+            variant('fullState', obj({ ...SPECTATOR_STATE_V1_PROPS, snapshot: ref('snapshotV2') })),
             variant('notice', obj({ username: str(), spectatorCount: int({ minimum: 0 }) })),
         ),
         status: 'active', to: 'room', seq: false,
+        added: ['snapshot'],
         reserved: [
             { key: 'players', why: 'notice only: both clients route a payload with players + trump as the full state' },
             { key: 'trump', why: 'notice only: both clients route a payload with players + trump as the full state' },
