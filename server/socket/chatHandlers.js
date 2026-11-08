@@ -6,7 +6,8 @@ const gameManager = require('../game/GameManager');
 const { socketLogger } = require('../utils/logger');
 const { abortGame } = require('./gameLifecycle');
 const { botController, personalities } = require('../game/bot');
-const { PERSONALITY_LIST, getDisplayName } = personalities;
+const { getDisplayName } = personalities;
+const { pickBotPersonality } = require('./seatLifecycle');
 
 /**
  * Process slash commands from chat input
@@ -47,11 +48,9 @@ function handleLazyCommand(socket, io, game, position) {
         return true;
     }
 
-    // Pick personality — reuse assigned one if exists, otherwise pick random
-    let personality = game.assignedPersonality[position];
-    if (!personality) {
-        personality = PERSONALITY_LIST[Math.floor(Math.random() * PERSONALITY_LIST.length)];
-    }
+    // Reuse the seat's last personality while its name is still free;
+    // never a name already at the table
+    const personality = pickBotPersonality(game, game.assignedPersonality[position]);
     const displayName = getDisplayName(personality);
     const botUsername = `🤖 ${displayName}`;
 

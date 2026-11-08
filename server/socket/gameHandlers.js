@@ -21,7 +21,7 @@ const {
 const { gameLogger } = require('../utils/logger');
 const { Phase, reportViolation } = require('../game/GamePhase');
 const { botController, personalities } = require('../game/bot');
-const { PERSONALITY_LIST } = personalities;
+const { pickBotPersonality } = require('./seatLifecycle');
 const { cancelAbortTimer, startReconnectGraceTimer } = require('./queueHandlers');
 const { abortGame, emitLobbiesUpdated } = require('./gameLifecycle');
 
@@ -1049,11 +1049,8 @@ async function handleHandComplete(game, io) {
  * @returns {BotPlayer} the new bot
  */
 function replaceSeatWithBot(game, position) {
-    // Pick a random personality not already used by a bot in this game
-    const usedPersonalities = botController.getGameBots(game.gameId).map(b => b.personality);
-    const availablePersonalities = PERSONALITY_LIST.filter(p => !usedPersonalities.includes(p));
-    const pool = availablePersonalities.length > 0 ? availablePersonalities : PERSONALITY_LIST;
-    const personality = pool[Math.floor(Math.random() * pool.length)];
+    // A personality whose name is not already at the table
+    const personality = pickBotPersonality(game);
     const displayName = personalities.getDisplayName(personality);
     const botUsername = `🤖 ${displayName}`;
 
