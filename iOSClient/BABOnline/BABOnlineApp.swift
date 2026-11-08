@@ -11,6 +11,10 @@ struct BABOnlineApp: App {
     @StateObject private var leaderboardState = LeaderboardState()
     @StateObject private var safetyState = SafetyState()
     @Environment(\.scenePhase) private var scenePhase
+    /// True once the scene has actually reached `.background`. Control Center, the
+    /// notification shade and system alerts (e.g. the mic permission prompt) only
+    /// move the scene to `.inactive`, and must not tear down the socket.
+    @State private var didEnterBackground = false
 
     private let socketService = SocketService.shared
 
@@ -58,6 +62,12 @@ struct BABOnlineApp: App {
     private func handleScenePhase(_ phase: ScenePhase) {
         switch phase {
         case .active:
+            // inactive -> active without a real background (Control Center, notification
+            // shade, permission alert): the socket was never at risk, so leave it alone.
+            // A reconnect here looks like a real disconnect to the server.
+            guard didEnterBackground else { return }
+            didEnterBackground = false
+
             // Restore voice mic state
             VoiceChatManager.shared.handleForeground()
 
@@ -78,6 +88,8 @@ struct BABOnlineApp: App {
                 socketService.forceReconnect()
             }
         case .background:
+            didEnterBackground = true
+
             // Mute voice mic for privacy while backgrounded
             VoiceChatManager.shared.handleBackground()
 

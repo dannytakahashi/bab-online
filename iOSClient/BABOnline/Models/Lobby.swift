@@ -47,7 +47,7 @@ struct LobbyPlayer: Identifiable, Equatable {
     static func from(_ dict: [String: Any]) -> LobbyPlayer? {
         guard let username = dict["username"] as? String else { return nil }
         let id = dict["socketId"] as? String ?? dict["id"] as? String ?? UUID().uuidString
-        let pic = dict["pic"] as? String
+        let pic = picString(from: dict["pic"])
         let isReady = dict["isReady"] as? Bool ?? dict["ready"] as? Bool ?? false
         let isBot = dict["isBot"] as? Bool ?? false
         return LobbyPlayer(id: id, username: username, pic: pic, isReady: isReady, isBot: isBot)

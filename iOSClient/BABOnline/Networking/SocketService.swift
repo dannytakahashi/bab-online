@@ -3,12 +3,20 @@ import UIKit
 import SocketIO
 import Combine
 
+/// A user-facing failure the server sent as an 'error' event ({ type?, message }).
+/// Each one gets its own id so repeating the same message re-shows the toast.
+struct ServerErrorNotice: Equatable {
+    let id = UUID()
+    let message: String
+}
+
 /// Singleton managing the Socket.IO connection.
 final class SocketService: ObservableObject {
     static let shared = SocketService()
 
     @Published var isConnected = false
     @Published var connectionError: String?
+    @Published var serverError: ServerErrorNotice?
 
     private var isForceReconnecting = false
     private var backgroundTaskId: UIBackgroundTaskIdentifier = .invalid
@@ -77,11 +85,19 @@ final class SocketService: ObservableObject {
             }
         }
 
+        // Fires for the server's app-level 'error' event (an object with `message`:
+        // lobby full, not ready, rate limit, ...) and for client transport errors (a String).
         socket?.on(clientEvent: .error) { [weak self] data, _ in
             DispatchQueue.main.async {
-                let msg = (data.first as? String) ?? "Unknown error"
-                self?.connectionError = msg
-                print("[Socket] Error: \(msg)")
+                if let dict = data.first as? [String: Any] {
+                    let msg = dict["message"] as? String ?? "Something went wrong"
+                    self?.serverError = ServerErrorNotice(message: msg)
+                    print("[Socket] Server error: \(msg)")
+                } else {
+                    let msg = (data.first as? String) ?? "Unknown error"
+                    self?.connectionError = msg
+                    print("[Socket] Error: \(msg)")
+                }
             }
         }
 

@@ -2,7 +2,8 @@ import Foundation
 import WebRTC
 
 /// Handles incoming voice signaling events from the server.
-/// Delegates all processing to VoiceChatManager.shared.
+/// Delegates all processing to VoiceChatManager.shared (main-actor isolated,
+/// so each call hops to the main queue).
 final class VoiceSocketHandler {
     private let socket: SocketService
 
@@ -19,7 +20,9 @@ final class VoiceSocketHandler {
             for peer in peers {
                 guard let socketId = peer["socketId"] as? String,
                       let username = peer["username"] as? String else { continue }
-                VoiceChatManager.shared.connectToPeer(socketId, username: username)
+                DispatchQueue.main.async {
+                    VoiceChatManager.shared.connectToPeer(socketId, username: username)
+                }
             }
         }
 
@@ -35,7 +38,9 @@ final class VoiceSocketHandler {
         socket.on(SocketEvents.Server.voicePeerLeft) { data, _ in
             guard let dict = data.first as? [String: Any],
                   let socketId = dict["socketId"] as? String else { return }
-            VoiceChatManager.shared.removePeer(socketId)
+            DispatchQueue.main.async {
+                VoiceChatManager.shared.removePeer(socketId)
+            }
         }
 
         // SDP offer from a peer
@@ -49,7 +54,9 @@ final class VoiceSocketHandler {
 
             let username = dict["username"] as? String ?? "Unknown"
             let sdp = RTCSessionDescription(type: sdpType, sdp: sdpString)
-            VoiceChatManager.shared.handleOffer(fromSocketId: fromSocketId, offer: sdp, username: username)
+            DispatchQueue.main.async {
+                VoiceChatManager.shared.handleOffer(fromSocketId: fromSocketId, offer: sdp, username: username)
+            }
         }
 
         // SDP answer from a peer
@@ -62,7 +69,9 @@ final class VoiceSocketHandler {
                   let sdpType = RTCSdpType(from: typeString) else { return }
 
             let sdp = RTCSessionDescription(type: sdpType, sdp: sdpString)
-            VoiceChatManager.shared.handleAnswer(fromSocketId: fromSocketId, answer: sdp)
+            DispatchQueue.main.async {
+                VoiceChatManager.shared.handleAnswer(fromSocketId: fromSocketId, answer: sdp)
+            }
         }
 
         // ICE candidate from a peer
@@ -75,7 +84,9 @@ final class VoiceSocketHandler {
 
             let sdpMid = candidateDict["sdpMid"] as? String
             let candidate = RTCIceCandidate(sdp: candidateString, sdpMLineIndex: sdpMLineIndex, sdpMid: sdpMid)
-            VoiceChatManager.shared.handleIceCandidate(fromSocketId: fromSocketId, candidate: candidate)
+            DispatchQueue.main.async {
+                VoiceChatManager.shared.handleIceCandidate(fromSocketId: fromSocketId, candidate: candidate)
+            }
         }
     }
 }

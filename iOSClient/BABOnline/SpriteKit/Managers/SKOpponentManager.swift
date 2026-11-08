@@ -118,12 +118,9 @@ class SKOpponentManager {
         // Bids are managed by SKBidManager — no-op here
     }
 
-    /// Animate a face-up card from the opponent's direction to the trick area.
-    func animateOpponentCard(card: Card, fromPosition position: Int, toTrickPoint trickPoint: CGPoint, completion: (() -> Void)? = nil) {
-        guard let scene = scene, let node = opponents[position] else {
-            completion?()
-            return
-        }
+    /// Scene point a played card flies in from: off-screen in the opponent's direction.
+    func trickEntryPoint(forPosition position: Int) -> CGPoint? {
+        guard let scene = scene, let node = opponents[position] else { return nil }
 
         let scaleX = scene.size.width / LayoutConstants.referenceWidth
         let scaleY = scene.size.height / LayoutConstants.referenceHeight
@@ -140,24 +137,7 @@ class SKOpponentManager {
         default:
             startPoint = node.position
         }
-
-        // Create face-up card sprite
-        let texture = CardTextureGenerator.texture(for: card)
-        let cardSprite = SKSpriteNode(texture: texture, size: CGSize(
-            width: LayoutConstants.cardWidth * 0.8,
-            height: LayoutConstants.cardHeight * 0.8
-        ))
-        cardSprite.position = startPoint
-        cardSprite.zPosition = 90
-        scene.addChild(cardSprite)
-
-        // Animate to trick area then remove
-        let move = SKAction.move(to: trickPoint, duration: LayoutConstants.playCardDuration)
-        move.timingMode = .easeOut
-        cardSprite.run(move) {
-            cardSprite.removeFromParent()
-            completion?()
-        }
+        return startPoint
     }
 
     func setDisconnected(position: Int, disconnected: Bool) {

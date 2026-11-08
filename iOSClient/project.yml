@@ -23,7 +23,8 @@ targets:
     info:
       path: BABOnline/Info.plist
       properties:
-        UILaunchScreen: {}
+        UILaunchScreen:
+          UIColorName: LaunchBackground
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
           NSExceptionDomains:

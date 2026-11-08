@@ -5,9 +5,34 @@ import UIKit
 /// Caches textures to avoid redundant rendering.
 enum CardTextureGenerator {
     private static var cache: [String: SKTexture] = [:]
+    /// Drawing canvas, in canvas units (not pixels). All drawing code below uses this
+    /// 300x435 coordinate space; `renderCard` maps it onto the output bitmap.
     private static let cardPixelWidth: CGFloat = 300
     private static let cardPixelHeight: CGFloat = 435
     private static let cornerRadius: CGFloat = 24
+
+    /// Output bitmap scale relative to the canvas: rendered pixels = the largest on-screen
+    /// card (the hand card, `LayoutConstants.cardWidth` pt; trick/draw cards are 0.8x,
+    /// opponent backs smaller) times the screen scale. On a 3x screen: 100pt x 3 = 300px
+    /// wide, so k = 1 and the bitmap is 300x435px, sampled 1:1 when shown in the hand.
+    /// The default renderer format would instead apply the screen scale on top of the
+    /// 300x435 canvas (900x1305px, 9x the pixels shown, minified with aliasing).
+    private static let canvasToPixels: CGFloat =
+        LayoutConstants.cardWidth * UIGraphicsImageRendererFormat.preferred().scale / cardPixelWidth
+
+    /// Render the 300x435 canvas into a bitmap sized for the largest on-screen card.
+    private static func renderCard(_ draw: (UIGraphicsImageRendererContext) -> Void) -> UIImage {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = false
+        let k = canvasToPixels
+        let pixelSize = CGSize(width: (cardPixelWidth * k).rounded(.up), height: (cardPixelHeight * k).rounded(.up))
+        let renderer = UIGraphicsImageRenderer(size: pixelSize, format: format)
+        return renderer.image { ctx in
+            ctx.cgContext.scaleBy(x: k, y: k)
+            draw(ctx)
+        }
+    }
 
     /// Returns a cached or freshly rendered texture for the given card.
     static func texture(for card: Card) -> SKTexture {
@@ -39,8 +64,7 @@ enum CardTextureGenerator {
     // MARK: - Standard Card
 
     private static func renderStandardCard(card: Card) -> SKTexture {
-        let renderer = UIGraphicsImageRenderer(size: CGSize(width: cardPixelWidth, height: cardPixelHeight))
-        let image = renderer.image { ctx in
+        let image = renderCard { ctx in
             let rect = CGRect(x: 0, y: 0, width: cardPixelWidth, height: cardPixelHeight)
             let gc = ctx.cgContext
 
@@ -115,8 +139,7 @@ enum CardTextureGenerator {
     // MARK: - Joker
 
     private static func renderJoker(card: Card) -> SKTexture {
-        let renderer = UIGraphicsImageRenderer(size: CGSize(width: cardPixelWidth, height: cardPixelHeight))
-        let image = renderer.image { ctx in
+        let image = renderCard { ctx in
             let rect = CGRect(x: 0, y: 0, width: cardPixelWidth, height: cardPixelHeight)
 
             // White background with rounded corners
@@ -183,8 +206,7 @@ enum CardTextureGenerator {
     // MARK: - Card Back
 
     private static func renderCardBack() -> SKTexture {
-        let renderer = UIGraphicsImageRenderer(size: CGSize(width: cardPixelWidth, height: cardPixelHeight))
-        let image = renderer.image { _ in
+        let image = renderCard { _ in
             let rect = CGRect(x: 0, y: 0, width: cardPixelWidth, height: cardPixelHeight)
 
             // Dark green background

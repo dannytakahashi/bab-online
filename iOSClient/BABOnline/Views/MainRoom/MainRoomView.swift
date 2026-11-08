@@ -7,6 +7,7 @@ struct MainRoomView: View {
     @State private var showLeaderboard = false
     @State private var showOnlineUsers = false
     @State private var showAccountSettings = false
+    @State private var didEnterBackground = false
 
     var body: some View {
         ZStack {
@@ -40,9 +41,13 @@ struct MainRoomView: View {
             LobbyEmitter.joinMainRoom()
         }
         .onChange(of: scenePhase) { _, newPhase in
-            if newPhase == .active {
-                // Re-join main room after foregrounding to re-establish the server-side
-                // room subscription. Safe to call redundantly — server just re-adds to the room.
+            if newPhase == .background {
+                didEnterBackground = true
+            } else if newPhase == .active && didEnterBackground {
+                // Re-join main room after a real background to re-establish the server-side
+                // room subscription. Skipped for inactive -> active (Control Center, alerts),
+                // where the socket and room subscription never went away.
+                didEnterBackground = false
                 LobbyEmitter.joinMainRoom()
             }
         }
