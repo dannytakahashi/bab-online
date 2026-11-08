@@ -483,19 +483,32 @@ async function handleDrawComplete(io, game) {
     });
 
     // Now that seats have positions, show draw-phase disconnects on the
-    // table and start their reconnect grace period
-    for (const dc of drawPhaseDisconnects) {
+    // table and start their reconnect grace period. Skip anyone who rejoined
+    // during the delays above (they already got playerReconnected).
+    const stillDisconnected = drawPhaseDisconnects.filter(dc => game.isPlayerDisconnected(dc.position));
+    for (const dc of stillDisconnected) {
         game.broadcast(io, 'playerDisconnected', dc);
     }
-    if (drawPhaseDisconnects.length > 0) {
+    if (stillDisconnected.length > 0) {
         startReconnectGraceTimer(io, game.gameId);
     }
 
     // Set active game for all human players (enables cross-browser
-    // reconnection). Bots have no user document.
-    for (const player of orderedUsernames) {
-        if (gameManager.isBot(player.socketId)) continue;
-        await gameManager.setActiveGame(player.username, game.gameId);
+    // reconnection). Resolved per seat now, not from the pre-delay snapshot:
+    // bots have no user document, and a seat that was resigned or /leave'd
+    // meanwhile must not have its human's activeGameId re-armed.
+    for (let pos = 1; pos <= 4; pos++) {
+        const player = game.getPlayerByPosition(pos);
+        if (!player || game.isResigned(pos)) continue;
+        let username;
+        if (game.isLazy(pos)) {
+            if (game.lazyPlayers[pos].permanentLeave) continue;
+            username = game.lazyPlayers[pos].originalUsername;
+        } else {
+            if (player.isBot || gameManager.isBot(player.socketId)) continue;
+            username = player.username;
+        }
+        await gameManager.setActiveGame(username, game.gameId);
     }
 
     // Announce teams (positions 1&3 vs 2&4)

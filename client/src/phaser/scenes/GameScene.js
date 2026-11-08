@@ -1521,6 +1521,14 @@ export class GameScene extends Phaser.Scene {
       this.trickManager.clearAll();
     }
 
+    // destroyHands means an all-zero redeal, which the server sends instead
+    // of doneBidding: drop the old bid grid here, or the next updateTurn
+    // re-shows it before the new hand and trump flip arrive
+    if (this.bidManager) {
+      this.bidManager.hideBidUI(false);
+    }
+    this.state.clearTempBids();
+
     // Delegate to callback
     this.callbacks.onDestroyHands?.(data);
   }

@@ -111,6 +111,81 @@ describe('draw-phase leave and disconnect', () => {
         expect(game.getPlayerByPosition(dropperPos).isBot).toBe(true);
     });
 
+    test('a draw-phase disconnect sends no position:null event', async () => {
+        const log = [];
+        const io = makeIo(log);
+        seq++;
+        const ids = [1, 2, 3, 4].map((n) => `n${seq}-h${n}`);
+        drawingGame(ids);
+        await queueHandlers.handleDisconnect(makeSocket(ids[0], log), io);
+        expect(events(log, 'playerDisconnected')).toHaveLength(0);
+        expect(events(log, 'gameLogEntry').some((l) => /disconnected during card draw/.test(l.data.message))).toBe(true);
+    });
+
+    test('a draw-phase disconnecter who rejoins before positionUpdate gets no stale playerDisconnected', async () => {
+        const log = [];
+        const io = makeIo(log);
+        seq++;
+        const ids = [1, 2, 3, 4].map((n) => `j${seq}-h${n}`);
+        const game = drawingGame(ids);
+        const s = ids.map((id) => makeSocket(id, log));
+
+        for (let i = 0; i < 3; i++) await gameHandlers.draw(s[i], io, { num: 0 });
+        await queueHandlers.handleDisconnect(s[3], io); // auto-draws the 4th card
+        await jest.advanceTimersByTimeAsync(300); // seats assigned, inside delay(1000)
+        expect(game.getPositionBySocketId(ids[3])).toBeTruthy();
+
+        const fresh = makeSocket(`${ids[3]}-again`, log);
+        gameManager.registerUser(fresh.id, `user_${ids[3]}`);
+        await reconnectHandlers.rejoinGame(fresh, io, { gameId: game.gameId, username: `user_${ids[3]}` });
+        await jest.advanceTimersByTimeAsync(7000);
+
+        expect(events(log, 'playerReconnected')).toHaveLength(1);
+        expect(events(log, 'playerDisconnected')).toHaveLength(0);
+        await jest.advanceTimersByTimeAsync(60000);
+        expect(events(log, 'resignationAvailable')).toHaveLength(0);
+    });
+
+    test('a /leave from someone who already drew does not run the draw completion twice', async () => {
+        const log = [];
+        const io = makeIo(log);
+        seq++;
+        const ids = [1, 2, 3, 4].map((n) => `w${seq}-h${n}`);
+        const game = drawingGame(ids);
+        const s = ids.map((id) => makeSocket(id, log));
+
+        for (let i = 0; i < 3; i++) await gameHandlers.draw(s[i], io, { num: 0 });
+        const completing = gameHandlers.draw(s[3], io, { num: 0 }); // starts handleDrawComplete
+        chatHandlers.chatMessage(s[0], io, { message: '/leave' }); // before seats exist
+        await jest.advanceTimersByTimeAsync(7000);
+        await completing;
+
+        expect(events(log, 'positionUpdate')).toHaveLength(1);
+        expect(events(log, 'teamsAnnounced')).toHaveLength(1);
+        // ...and the leaver's seat still goes to a bot
+        expect(Object.values(game.resignedPlayers).map((r) => r.username)).toEqual([`user_${ids[0]}`]);
+    });
+
+    test('a /leave while positions are being announced does not re-arm activeGameId', async () => {
+        const log = [];
+        const io = makeIo(log);
+        seq++;
+        const ids = [1, 2, 3, 4].map((n) => `v${seq}-h${n}`);
+        const game = drawingGame(ids);
+        const s = ids.map((id) => makeSocket(id, log));
+
+        for (let i = 0; i < 3; i++) await gameHandlers.draw(s[i], io, { num: 0 });
+        const completing = gameHandlers.draw(s[3], io, { num: 0 });
+        await jest.advanceTimersByTimeAsync(300); // seats assigned, inside delay(1000)
+        expect(game.getPositionBySocketId(ids[0])).toBeTruthy();
+        chatHandlers.chatMessage(s[0], io, { message: '/leave' });
+        await jest.advanceTimersByTimeAsync(7000);
+        await completing;
+
+        const sets = updateSpy.mock.calls.filter(([, u]) => u.$set && 'activeGameId' in u.$set);
+        expect(sets.map(([f]) => f.username).sort()).toEqual(ids.slice(1).map((id) => `user_${id}`).sort());
+    });
+
     test('the game aborts when every human left during the draw', async () => {
         const log = [];
         const io = makeIo(log);
@@ -203,6 +278,21 @@ describe('/active over a resigned seat', () => {
         expect(turn.data).toEqual({ currentTurn: 1 });
         expect(game.isLazy(1)).toBe(false);
     });
+
+    test('/active during trick resolution sends no updateTurn (the post-trick one follows)', () => {
+        const log = [];
+        const io = makeIo(log);
+        const { game, ids } = biddingGame();
+        const s0 = makeSocket(ids[0], log);
+
+        chatHandlers.chatMessage(s0, io, { message: '/lazy' });
+        game._trickResolving = true;
+        log.length = 0;
+        chatHandlers.chatMessage(s0, io, { message: '/active' });
+
+        expect(log.some((l) => l.event === 'updateTurn')).toBe(false);
+        expect(game.isLazy(1)).toBe(false);
+    });
 });
 
 describe('zero-bid redeal', () => {
@@ -260,5 +350,25 @@ describe('active-game DB writes skip bots', () => {
         await gameManager.clearActiveGameForAll(game.gameId);
 
         expect(updateSpy.mock.calls.map(([f]) => f.username).sort()).toEqual(['alice', 'bob', 'carol']);
+    });
+
+    test('a game ending does not clear the activeGameId of a leaver who is now in another game', async () => {
+        seq++;
+        const ids = [1, 2, 3, 4].map((n) => `g${seq}-h${n}`);
+        ids.forEach((id) => {
+            gameManager.registerUser(id, `user_${id}`);
+            mockDb.current.users._insert({ username: `user_${id}` });
+        });
+        const game = gameManager.createGame(ids);
+        ids.forEach((id, i) => game.addPlayer(id, `user_${id}`, i + 1, 1, false));
+        for (const id of ids) await gameManager.setActiveGame(`user_${id}`, game.gameId);
+
+        chatHandlers.chatMessage(makeSocket(ids[0], []), makeIo([]), { message: '/leave' });
+        await gameManager.setActiveGame(`user_${ids[0]}`, 'OTHER-GAME');
+        await gameManager.clearActiveGameForAll(game.gameId);
+
+        const doc = (u) => mockDb.current.users.docs.find((d) => d.username === u);
+        expect(doc(`user_${ids[0]}`).activeGameId).toBe('OTHER-GAME');
+        expect(doc(`user_${ids[1]}`).activeGameId).toBeUndefined();
     });
 });

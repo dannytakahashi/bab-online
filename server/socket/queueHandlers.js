@@ -171,8 +171,9 @@ async function handleDisconnect(socket, io) {
             if (!result.game._drawPhaseDisconnects) result.game._drawPhaseDisconnects = {};
             result.game._drawPhaseDisconnects[socket.id] = { username };
 
-            // Log disconnect
-            result.game.broadcast(io, 'playerDisconnected', { position: null, username });
+            // Log disconnect. No playerDisconnected here: there is no seat yet
+            // (iOS would file position:null under 0 and never clear it);
+            // handleDrawComplete sends it with the real position.
             const dcMessage = `${username} disconnected during card draw.`;
             result.game.addLogEntry(dcMessage, null, 'system');
             result.game.broadcast(io, 'gameLogEntry', { message: dcMessage, type: 'system' });
