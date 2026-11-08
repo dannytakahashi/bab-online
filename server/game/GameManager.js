@@ -967,9 +967,16 @@ class GameManager {
         const game = this.games.get(gameId);
         if (!game) return;
 
-        for (const [socketId, player] of game.players.entries()) {
-            if (player.username) {
-                await this.clearActiveGame(player.username);
+        for (let position = 1; position <= 4; position++) {
+            const player = game.getPlayerByPosition(position);
+            if (!player) continue;
+            // Lazy and resigned seats show the bot's name; clear the human
+            // behind them. Pure bots have no user document — skip the write.
+            const username = (game.isLazy(position) || game.isResigned(position))
+                ? game.getOriginalPlayer(position)?.username
+                : (player.isBot || this.isBot(player.socketId) ? null : player.username);
+            if (username) {
+                await this.clearActiveGame(username);
             }
         }
     }

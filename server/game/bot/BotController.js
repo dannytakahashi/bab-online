@@ -524,6 +524,21 @@ class BotController {
     }
 
     /**
+     * Cancel every pending timer (bid, play, draw, chat) for one bot
+     * @param {string} gameId
+     * @param {string} botSocketId
+     */
+    cancelBotActions(gameId, botSocketId) {
+        const prefix = `${gameId}:${botSocketId}:`;
+        for (const [key, timeoutId] of this.pendingActions) {
+            if (key.startsWith(prefix)) {
+                clearTimeout(timeoutId);
+                this.pendingActions.delete(key);
+            }
+        }
+    }
+
+    /**
      * Cleanup bots when a game ends
      * @param {string} gameId
      */

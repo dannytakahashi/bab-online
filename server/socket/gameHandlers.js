@@ -22,7 +22,7 @@ const { delay } = require('../utils/timing');
 const { gameLogger } = require('../utils/logger');
 const { botController, personalities } = require('../game/bot');
 const { PERSONALITY_LIST } = personalities;
-const { cancelAbortTimer } = require('./queueHandlers');
+const { cancelAbortTimer, startReconnectGraceTimer } = require('./queueHandlers');
 
 /**
  * Tell the sender its action was refused (instead of failing silently) so a
@@ -173,17 +173,22 @@ async function handlePostBid(io, game) {
 
         gameLogger.debug('Bidding complete', { team1: game.bids.team1, team2: game.bids.team2, gameId: game.gameId });
 
-        const lead = findHighestBidder(game.bidder, bids) + 1;
-
-        game.broadcast(io, 'doneBidding', { bids, lead });
-
-        // Check for zero bids (redeal)
+        // Check for zero bids (redeal) BEFORE doneBidding: clients treat
+        // doneBidding as "enter play", so sending it first flashes the play
+        // phase for a hand that is about to be torn down
         if (game.bids.team1 === 0 && game.bids.team2 === 0) {
             gameLogger.info('Zero bids, redealing', { gameId: game.gameId });
+            const redealMsg = 'All bids were zero. Redealing.';
+            game.addLogEntry(redealMsg, null, 'system');
+            game.broadcast(io, 'gameLogEntry', { message: redealMsg, type: 'system' });
             game.broadcast(io, 'destroyHands', {});
             await cleanupNextHand(game, io, game.dealer, game.currentHand);
             return;
         }
+
+        const lead = findHighestBidder(game.bidder, bids) + 1;
+
+        game.broadcast(io, 'doneBidding', { bids, lead });
 
         game.currentTurn = lead;
         game.leadPosition = lead;
@@ -400,22 +405,54 @@ async function handleDrawComplete(io, game) {
             }
         }
 
-        // Only emit to human players
-        if (!isBot) {
+        // Only emit to human players still at the table (a draw-phase leaver
+        // is back in the main room and must not pick up a seat position)
+        if (!isBot && !game._drawPhaseDisconnects?.[playerId]?.left) {
             io.to(playerId).emit('playerAssigned', { playerId, position });
         }
     }
 
-    // Handle players who disconnected during draw phase
+    // Players who left or disconnected during the draw now hold seats.
+    // Leavers are gone for good, so a bot takes the seat now (as if resigned)
+    // and the table never waits on them. Disconnects get the normal reconnect
+    // grace timer, after which the others are offered a bot replacement.
+    const drawPhaseDisconnects = [];
+    let seatedBotForLeaver = false;
     if (game._drawPhaseDisconnects) {
         for (const [socketId, info] of Object.entries(game._drawPhaseDisconnects)) {
             const pos = game.getPositionBySocketId(socketId);
-            if (pos) {
+            if (!pos) continue;
+            if (info.left) {
+                const bot = replaceSeatWithBot(game, pos);
+                seatedBotForLeaver = true;
+                const msg = `${bot.username} is taking over for ${info.username}.`;
+                game.addLogEntry(msg, null, 'system');
+                game.broadcast(io, 'gameLogEntry', { message: msg, type: 'system' });
+            } else {
                 game.markPlayerDisconnected(pos);
+                drawPhaseDisconnects.push({ position: pos, username: info.username });
             }
         }
         delete game._drawPhaseDisconnects;
         delete game._pendingUsernames;
+    }
+
+    // Every human left during the draw: nobody to play for, abort (same rule
+    // as /leave once the game is under way). All-bot demo games never get here.
+    if (seatedBotForLeaver && Array.from(game.players.values()).every(p => p.isBot)) {
+        gameLogger.warn('All humans left during draw, aborting game', { gameId: game.gameId });
+        game.broadcast(io, 'abortGame', { reason: 'All players left' });
+        await gameManager.clearActiveGameForAll(game.gameId);
+        const { handleAbortedTournamentGame } = require('./tournamentHandlers');
+        await handleAbortedTournamentGame(io, game.gameId);
+        game.leaveAllFromRoom(io);
+        gameManager.abortGame(game.gameId);
+        io.to('mainRoom').emit('lobbiesUpdated', {
+            lobbies: gameManager.getAllLobbies(),
+            inProgressGames: gameManager.getInProgressGames(),
+            tournaments: gameManager.getAllTournaments()
+        });
+        return;
     }
 
     // Build all arrays in position order (1, 2, 3, 4) for consistency
@@ -445,8 +482,19 @@ async function handleDrawComplete(io, game) {
         pics: orderedPics
     });
 
-    // Set active game for all players (enables cross-browser reconnection)
+    // Now that seats have positions, show draw-phase disconnects on the
+    // table and start their reconnect grace period
+    for (const dc of drawPhaseDisconnects) {
+        game.broadcast(io, 'playerDisconnected', dc);
+    }
+    if (drawPhaseDisconnects.length > 0) {
+        startReconnectGraceTimer(io, game.gameId);
+    }
+
+    // Set active game for all human players (enables cross-browser
+    // reconnection). Bots have no user document.
     for (const player of orderedUsernames) {
+        if (gameManager.isBot(player.socketId)) continue;
         await gameManager.setActiveGame(player.username, game.gameId);
     }
 
@@ -1019,6 +1067,52 @@ async function cleanupNextHand(game, io, dealer, handSize) {
 }
 
 /**
+ * Resign the human at `position` and seat a fresh bot there (hand, player
+ * entry and playerGames mapping move to the bot). Shared by forceResign and
+ * draw-phase leavers. Broadcasting is left to the caller.
+ * @returns {BotPlayer} the new bot
+ */
+function replaceSeatWithBot(game, position) {
+    // Pick a random personality not already used by a bot in this game
+    const usedPersonalities = botController.getGameBots(game.gameId).map(b => b.personality);
+    const availablePersonalities = PERSONALITY_LIST.filter(p => !usedPersonalities.includes(p));
+    const pool = availablePersonalities.length > 0 ? availablePersonalities : PERSONALITY_LIST;
+    const personality = pool[Math.floor(Math.random() * pool.length)];
+    const displayName = personalities.getDisplayName(personality);
+    const botUsername = `🤖 ${displayName}`;
+
+    // Create bot instance
+    const bot = botController.createBot(botUsername, personality);
+
+    // Assign random pic for bot
+    const botPic = Math.floor(Math.random() * 82) + 1;
+    bot.position = position;
+    bot.pic = botPic;
+
+    // Resign the player (transfers hand, replaces player entry)
+    game.resignPlayer(position, bot.socketId, bot.username, botPic);
+
+    // Register bot with controller
+    botController.registerBot(game.gameId, bot);
+
+    // Initialize bot card memory
+    bot.resetCardMemory(game.currentHand, game.trump);
+
+    // Update playerGames mapping: remove old socket (unless it has since
+    // moved on to another game), add bot
+    const oldSocketId = game.resignedPlayers[position]?.originalSocketId;
+    if (oldSocketId && gameManager.playerGames.get(oldSocketId) === game.gameId) {
+        gameManager.playerGames.delete(oldSocketId);
+    }
+    gameManager.playerGames.set(bot.socketId, game.gameId);
+
+    // Clear disconnected status
+    game.clearPlayerDisconnected(position);
+
+    return bot;
+}
+
+/**
  * Force-resign a disconnected player, replacing them with a bot
  */
 async function forceResign(socket, io, data) {
@@ -1047,40 +1141,8 @@ async function forceResign(socket, io, data) {
     const oldPlayer = game.getPlayerByPosition(position);
     const oldUsername = oldPlayer?.username || `Player ${position}`;
 
-    // Pick a random personality not already used by a bot in this game
-    const usedPersonalities = botController.getGameBots(game.gameId).map(b => b.personality);
-    const availablePersonalities = PERSONALITY_LIST.filter(p => !usedPersonalities.includes(p));
-    const pool = availablePersonalities.length > 0 ? availablePersonalities : PERSONALITY_LIST;
-    const personality = pool[Math.floor(Math.random() * pool.length)];
-    const displayName = personalities.getDisplayName(personality);
-    const botUsername = `🤖 ${displayName}`;
-
-    // Create bot instance
-    const bot = botController.createBot(botUsername, personality);
-
-    // Assign random pic for bot
-    const botPic = Math.floor(Math.random() * 82) + 1;
-    bot.position = position;
-    bot.pic = botPic;
-
-    // Resign the player (transfers hand, replaces player entry)
-    game.resignPlayer(position, bot.socketId, bot.username, botPic);
-
-    // Register bot with controller
-    botController.registerBot(game.gameId, bot);
-
-    // Initialize bot card memory
-    bot.resetCardMemory(game.currentHand, game.trump);
-
-    // Update playerGames mapping: remove old socket, add bot
-    const oldSocketId = game.resignedPlayers[position]?.originalSocketId;
-    if (oldSocketId) {
-        gameManager.playerGames.delete(oldSocketId);
-    }
-    gameManager.playerGames.set(bot.socketId, game.gameId);
-
-    // Clear disconnected status
-    game.clearPlayerDisconnected(position);
+    const bot = replaceSeatWithBot(game, position);
+    const botPic = bot.pic;
 
     // Cancel abort timer if no more disconnected players
     if (game.getDisconnectedPlayers().length === 0) {

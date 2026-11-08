@@ -100,7 +100,14 @@ function handleLazyCommand(socket, io, game, position) {
     return true;
 }
 
-function handleActiveCommand(socket, io, game, position) {
+/**
+ * @param {Object} [options]
+ * @param {boolean} [options.resendTurn=true] - re-send updateTurn to the
+ *   returning socket so it can act if it is already their turn (the pending
+ *   lazy-bot action is dropped). The spectator path sends restorePlayerState
+ *   instead, which carries the turn and hand.
+ */
+function handleActiveCommand(socket, io, game, position, { resendTurn = true } = {}) {
     // Check if player is a spectator
     if (game.isSpectator(socket.id)) {
         game.sendToPlayer(io, socket.id, 'error', { message: "Spectators can't use /active" });
@@ -128,6 +135,23 @@ function handleActiveCommand(socket, io, game, position) {
     // Disable lazy mode on game state (restores original player info)
     game.disableLazyMode(position);
 
+    // A resigned seat (converted to lazy on rejoin) carries the resign bot's
+    // player entry, which updatePlayerSocket moved onto this socket. Make the
+    // seat fully human again, or sendToPlayer skips it (no next-hand cards)
+    // and the resign bot's pending action could still fire for it.
+    if (game.isResigned(position)) {
+        const seatSocketId = game.positions[position];
+        const seat = game.players.get(seatSocketId);
+        if (seat) seat.isBot = false;
+        delete game.resignedPlayers[position];
+        if (lazyInfo?.botSocketId) {
+            botController.cancelBotActions(game.gameId, lazyInfo.botSocketId);
+            if (gameManager.playerGames.get(lazyInfo.botSocketId) === game.gameId) {
+                gameManager.playerGames.delete(lazyInfo.botSocketId);
+            }
+        }
+    }
+
     // Broadcast playerActiveMode event
     game.broadcast(io, 'playerActiveMode', {
         position,
@@ -145,6 +169,11 @@ function handleActiveCommand(socket, io, game, position) {
     socketLogger.info('Player returned to active mode', {
         gameId: game.gameId, position, username: originalUsername
     });
+
+    // Not during trick resolution: the post-trick updateTurn follows shortly
+    if (resendTurn && game.isHandInProgress() && !game._trickResolving) {
+        game.sendToPlayer(io, socket.id, 'updateTurn', { currentTurn: game.currentTurn });
+    }
 
     return true;
 }
@@ -227,7 +256,9 @@ function handleDrawPhaseLeave(socket, io, game) {
     const username = user?.username || 'Player';
 
     const alreadyDrew = game.drawIDs.includes(socket.id);
+    let drewNow = false;
     if (!alreadyDrew && game.deck && game.deck.cards.length > 0) {
+        drewNow = true;
         const drawIndex = Math.floor(Math.random() * game.deck.cards.length);
         const card = game.deck.cards[drawIndex];
         game.drawCards.push(card);
@@ -244,10 +275,11 @@ function handleDrawPhaseLeave(socket, io, game) {
     }
 
     // Mark the seat for bot replacement once positions are assigned
+    // (handleDrawComplete seats a bot for `left` entries)
     if (!game._pendingUsernames) game._pendingUsernames = {};
     game._pendingUsernames[socket.id] = username;
     if (!game._drawPhaseDisconnects) game._drawPhaseDisconnects = {};
-    game._drawPhaseDisconnects[socket.id] = { username };
+    game._drawPhaseDisconnects[socket.id] = { username, left: true };
 
     const msg = `${username} left during card draw.`;
     game.addLogEntry(msg, null, 'system');
@@ -262,7 +294,9 @@ function handleDrawPhaseLeave(socket, io, game) {
 
     socketLogger.info('Player left during draw phase', { gameId: game.gameId, username });
 
-    if (game.drawIndex === 4) {
+    // Only when this leave supplied the 4th card: if the leaver had already
+    // drawn, the 4th draw has already started handleDrawComplete
+    if (drewNow && game.drawIndex === 4) {
         const { handleDrawComplete } = require('./gameHandlers');
         handleDrawComplete(io, game);
     }
@@ -314,7 +348,7 @@ function chatMessage(socket, io, data) {
                     // Update game-player mapping
                     gameManager.updatePlayerGameMapping(null, socket.id, activeGame.gameId);
                     // Now run normal active command (disables lazy, broadcasts playerActiveMode)
-                    handleActiveCommand(socket, io, activeGame, position);
+                    handleActiveCommand(socket, io, activeGame, position, { resendTurn: false });
                     // Send full game state so client can transition from spectator to player
                     socket.emit('restorePlayerState', activeGame.getClientState(socket.id));
                 } else {

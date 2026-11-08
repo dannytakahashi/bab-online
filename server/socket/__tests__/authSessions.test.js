@@ -230,4 +230,35 @@ describe('sign-up', () => {
         expect(user.sessionTokens.map(e => e.hash)).toEqual([hashToken(sessionToken)]);
         expect(await restore(connect(), sessionToken, 'Newbie')).toMatchObject({ success: true });
     });
+
+    test('losing a concurrent sign-up race (duplicate key) reports the name as taken', async () => {
+        const socket = connect();
+        // Both sign-ups passed the findOne check; the unique index rejects this insert
+        jest.spyOn(mockDb.current.users, 'insertOne').mockRejectedValueOnce(
+            Object.assign(new Error('E11000 duplicate key error collection: babonline.users index: username_1'), { code: 11000 })
+        );
+        await auth.signUp(socket, io, { username: 'Racer', password: 'pw' });
+        expect(lastEmit(socket, 'signUpResponse')).toEqual({ success: false, message: 'Username already taken!' });
+        expect(gameManager.registerUser).not.toHaveBeenCalled();
+        expect(socket.data.sessionHash).toBeUndefined();
+    });
+});
+
+describe('users.username unique index', () => {
+    const { ensureUsernameIndex } = jest.requireActual('../../database');
+
+    test('is created unique on username', async () => {
+        const collection = { createIndex: jest.fn(async () => 'username_1') };
+        await ensureUsernameIndex(collection);
+        expect(collection.createIndex).toHaveBeenCalledWith({ username: 1 }, { unique: true });
+    });
+
+    test('existing duplicate usernames do not crash startup', async () => {
+        const collection = {
+            createIndex: jest.fn(async () => {
+                throw Object.assign(new Error('E11000 duplicate key error'), { code: 11000 });
+            })
+        };
+        await expect(ensureUsernameIndex(collection)).resolves.toBeUndefined();
+    });
 });
