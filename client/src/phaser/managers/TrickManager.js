@@ -74,6 +74,9 @@ export class TrickManager {
 
     // Spectator mode — allows inspecting opponent tricks
     this._isSpectatorMode = false;
+
+    // True while animateTricksAway is whisking the history off the table
+    this._animatingAway = false;
   }
 
   /**
@@ -403,6 +406,13 @@ export class TrickManager {
    */
   _stopCardAnimations(card) {
     if (!card) return;
+    // killTweensOf only finds tweens the manager has activated; one added while
+    // the loop is paused (hidden tab) is still queued, so stop the held handle
+    const moveTween = card.getData?.('moveTween');
+    if (moveTween) {
+      moveTween.stop();
+      card.setData('moveTween', null);
+    }
     this._scene.tweens.killTweensOf(card);
     const flipTimer = card.getData?.('flipTimer');
     if (flipTimer) {
@@ -552,6 +562,10 @@ export class TrickManager {
    * Reposition trick history cards during resize.
    */
   repositionTrickHistory() {
+    // Leave cards being whisked away alone: snapping them would kill the
+    // tweens whose onComplete destroys them and fires the hand-end callback
+    if (this._animatingAway) return;
+
     // Reposition team trick history
     this._teamTrickHistory.forEach((trick, index) => {
       const trickNumber = trick.trickNumber || index + 1;
@@ -664,6 +678,7 @@ export class TrickManager {
     });
     this._oppTrickHistory = [];
     this._oppTrickCount = 0;
+    this._animatingAway = false;
   }
 
   /**
@@ -746,6 +761,7 @@ export class TrickManager {
 
     // Clear backgrounds immediately
     this.clearBackgrounds();
+    this._animatingAway = true;
 
     // Animate cards staggered by trick number (both teams' trick N go together)
     let completedCount = 0;
@@ -773,6 +789,7 @@ export class TrickManager {
               this._oppTrickHistory = [];
               this._teamTrickCount = 0;
               this._oppTrickCount = 0;
+              this._animatingAway = false;
               if (onComplete) onComplete();
             }
           },

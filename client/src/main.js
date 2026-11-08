@@ -1479,6 +1479,8 @@ socket.on('rejoinFailed', (data) => {
   const reason = typeof data === 'string' ? data : data?.reason;
   if (reason !== 'Already connected') {
     sessionStorage.removeItem('gameId');
+    // A stale success flag would make onMainRoomJoined ignore the main room
+    rejoinSucceeded = false;
     // Return to main room
     socket.emit("joinMainRoom");
   }

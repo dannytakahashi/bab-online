@@ -85,3 +85,73 @@ describe('GameScene preload', () => {
     expect(keys).toEqual(expect.arrayContaining(['cardBack', 'rainbow', 'ot', 'b', '2b', '3b', '4b']));
   });
 });
+
+describe('GameScene handleCardPlayed (opponent)', () => {
+  it('records the slot and keeps the move tween handle so a trick can cancel it', () => {
+    const scene = new GameScene();
+    const sprite = { setData: vi.fn(), setDepth: vi.fn(), x: 0, y: 0, scene: {} };
+    const moveTween = { stop: vi.fn() };
+    const flipTimer = { remove: vi.fn() };
+    scene.state = { position: 1, currentTrick: [{}, {}], isSpectator: false, isLazy: false };
+    scene.callbacks = {};
+    scene.tweens = { add: vi.fn(() => moveTween) };
+    scene.time = { delayedCall: vi.fn(() => flipTimer) };
+    scene.opponentManager = { removeCard: vi.fn(() => sprite) };
+    scene.trickManager = {
+      setPlayerPosition: vi.fn(),
+      updatePlayPositions: vi.fn(),
+      getRelativePositionKey: vi.fn(() => 'opponent1'),
+      _playPositions: { opponent1: { x: 100, y: 200 } },
+      _stopCardAnimations: vi.fn(),
+      _currentTrick: [],
+    };
+
+    scene.handleCardPlayed({ card: { suit: 'spades', rank: 'A' }, position: 2 });
+
+    // Deal tweens queued while hidden are cancelled through the held handle too
+    expect(scene.trickManager._stopCardAnimations).toHaveBeenCalledWith(sprite);
+    expect(sprite.setData).toHaveBeenCalledWith('playPosition', 'opponent1');
+    expect(sprite.setData).toHaveBeenCalledWith('moveTween', moveTween);
+    expect(sprite.setData).toHaveBeenCalledWith('flipTimer', flipTimer);
+    expect(scene.trickManager._currentTrick).toEqual([sprite]);
+  });
+});
+
+describe('GameScene handleHandComplete', () => {
+  it('logs and scores the final 13-card hand', () => {
+    const scene = new GameScene();
+    scene.state = { position: 2, playerData: {}, bids: {} };
+    scene.callbacks = {};
+    const formatHandCompleteMessages = vi.fn(() => ['hand line 1', 'hand line 2']);
+    window.ModernUtils = {
+      formatHandCompleteMessages,
+      getTeamNames: vi.fn(() => ({ teamName: 'Us', oppName: 'Them' })),
+    };
+    window.addToGameFeedFromLegacy = vi.fn();
+    window.updateGameLogScoreFromLegacy = vi.fn();
+
+    try {
+      scene.handleHandComplete({
+        team1Tricks: 7,
+        team2Tricks: 6,
+        score: { team1: 120, team2: -40 },
+        team1OldScore: 50,
+        team2OldScore: 20,
+      });
+
+      // Position 2 is on team 2, so team/opp values are swapped
+      expect(scene.state.teamScore).toBe(-40);
+      expect(scene.state.oppScore).toBe(120);
+      expect(formatHandCompleteMessages).toHaveBeenCalledWith(
+        expect.objectContaining({ teamTricks: 6, oppTricks: 7, teamOldScore: 20, oppOldScore: 50 })
+      );
+      expect(window.addToGameFeedFromLegacy).toHaveBeenCalledWith('hand line 1');
+      expect(window.addToGameFeedFromLegacy).toHaveBeenCalledWith('hand line 2');
+      expect(window.updateGameLogScoreFromLegacy).toHaveBeenCalledWith('Us', 'Them', -40, 120);
+    } finally {
+      delete window.ModernUtils;
+      delete window.addToGameFeedFromLegacy;
+      delete window.updateGameLogScoreFromLegacy;
+    }
+  });
+});

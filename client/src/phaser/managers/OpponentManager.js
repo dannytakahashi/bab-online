@@ -191,7 +191,9 @@ export class OpponentManager {
           sprite.setAlpha(1);
           sprite.setRotation(0);
 
-          scene.tweens.add({
+          // Held so a play can cancel it even before the tween manager has
+          // activated it (killTweensOf misses tweens queued while hidden)
+          sprite.setData('moveTween', scene.tweens.add({
             targets: sprite,
             x,
             y,
@@ -201,7 +203,7 @@ export class OpponentManager {
             duration: 750,
             ease: 'Power2',
             delay: i * 30,
-          });
+          }));
         }
 
         this._cardSprites[opponentId].push(sprite);
@@ -273,7 +275,9 @@ export class OpponentManager {
           sprite.setAlpha(1);
           sprite.setRotation(0);
 
-          scene.tweens.add({
+          // Held so a play can cancel it even before the tween manager has
+          // activated it (killTweensOf misses tweens queued while hidden)
+          sprite.setData('moveTween', scene.tweens.add({
             targets: sprite,
             x,
             y,
@@ -283,7 +287,7 @@ export class OpponentManager {
             duration: 750,
             ease: 'Power2',
             delay: i * 30,
-          });
+          }));
         }
 
         this._cardSprites[opponentId].push(sprite);

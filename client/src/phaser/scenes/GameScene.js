@@ -1116,18 +1116,22 @@ export class GameScene extends Phaser.Scene {
       if (sprite) {
         // Update texture to show the actual card
         const cardKey = getCardImageKey(card);
-        const targetPos = this.trickManager._playPositions[this.trickManager.getRelativePositionKey(playedPosition)];
+        const relativeKey = this.trickManager.getRelativePositionKey(playedPosition);
+        const targetPos = this.trickManager._playPositions[relativeKey];
         const targetX = targetPos?.x || sprite.x;
         const targetY = targetPos?.y || sprite.y;
 
-        // Stop any hand-layout tween still running on the sprite, and record
-        // its face so TrickManager can finish an interrupted flip
-        this.tweens.killTweensOf(sprite);
+        // Stop any deal/hand-layout tween still on the sprite, and record its
+        // face and slot so TrickManager can finish an interrupted flip and
+        // reposition it on resize
+        this.trickManager._stopCardAnimations(sprite);
         sprite.setData('faceKey', cardKey);
+        sprite.setData('playPosition', relativeKey);
 
         // Animate move and flip simultaneously
-        // Move to play position
-        this.tweens.add({
+        // Move to play position. Keep the handle: a tween added while the tab
+        // is hidden is still queued, and killTweensOf cannot see it.
+        const moveTween = this.tweens.add({
           targets: sprite,
           x: targetX,
           y: targetY,
@@ -1137,9 +1141,11 @@ export class GameScene extends Phaser.Scene {
           scale: 1.5,
           onComplete: () => {
             if (!sprite || !sprite.scene) return;
+            sprite.setData('moveTween', null);
             sprite.setDepth(200);
           },
         });
+        sprite.setData('moveTween', moveTween);
 
         // Flip animation runs in parallel, starting after a short delay.
         // Keep the handle so completeTrick can cancel a flip that never ran.
@@ -1188,7 +1194,7 @@ export class GameScene extends Phaser.Scene {
         this.trickManager.setPlayerPosition(myPosition);
         this.trickManager.updatePlayPositions();
         const targetPos = this.trickManager._playPositions.self;
-        this.tweens.add({
+        const moveTween = this.tweens.add({
           targets: sprite,
           x: targetPos.x,
           y: targetPos.y,
@@ -1197,9 +1203,12 @@ export class GameScene extends Phaser.Scene {
           rotation: 0,
           scale: 1.5,
           onComplete: () => {
-            if (sprite?.scene) sprite.setDepth(200);
+            if (!sprite?.scene) return;
+            sprite.setData('moveTween', null);
+            sprite.setDepth(200);
           },
         });
+        sprite.setData('moveTween', moveTween);
         sprite.setData('playPosition', 'self');
         this.trickManager._currentTrick.push(sprite);
       }

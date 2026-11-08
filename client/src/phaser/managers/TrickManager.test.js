@@ -8,8 +8,8 @@ function createMockScene() {
   };
 }
 
-function createMockCard({ x = 960, y = 476, faceKey, flipTimer } = {}) {
-  const data = { faceKey, flipTimer, playPosition: 'partner' };
+function createMockCard({ x = 960, y = 476, faceKey, flipTimer, moveTween } = {}) {
+  const data = { faceKey, flipTimer, moveTween, playPosition: 'partner' };
   return {
     x,
     y,
@@ -81,6 +81,50 @@ describe('TrickManager stale animations', () => {
 
     expect(scene.tweens.killTweensOf).toHaveBeenCalledWith(card);
     expect(card.setDepth).toHaveBeenCalledWith(200);
+  });
+
+  it('completeTrick (hidden) stops a queued move tween that killTweensOf cannot see', () => {
+    setVisibility('hidden');
+    const moveTween = { stop: vi.fn() };
+    const card = createMockCard({ moveTween });
+    tm._currentTrick.push(card);
+
+    tm.completeTrick(2, false);
+
+    expect(moveTween.stop).toHaveBeenCalled();
+    expect(card.setData).toHaveBeenCalledWith('moveTween', null);
+  });
+
+  it('a resize during the end-of-hand whisk does not cancel it', () => {
+    // Tween list where killTweensOf really removes a target's tweens
+    const queued = [];
+    scene.tweens.add = vi.fn((cfg) => { queued.push(cfg); return cfg; });
+    scene.tweens.killTweensOf = vi.fn((target) => {
+      for (let i = queued.length - 1; i >= 0; i--) {
+        if (queued[i].targets === target) queued.splice(i, 1);
+      }
+    });
+    const cards = [createMockCard(), createMockCard(), createMockCard(), createMockCard()];
+    cards.forEach((card) => {
+      card.destroy = vi.fn(function () { this.active = false; });
+    });
+    tm._teamTrickHistory.push({ cards, position: { x: 0, y: 0 }, trickNumber: 1 });
+    const done = vi.fn();
+
+    tm.animateTricksAway(500, 500, done);
+    // Phaser scale 'resize' -> GameScene.handleResize -> repositionCurrentTrick
+    tm.repositionCurrentTrick();
+    queued.splice(0).forEach((tween) => tween.onComplete?.());
+
+    expect(cards.every((card) => card.destroy.mock.calls.length === 1)).toBe(true);
+    expect(done).toHaveBeenCalledTimes(1);
+    expect(tm._teamTrickHistory).toEqual([]);
+
+    // Once the whisk is over, resizes reposition the next hand's stacks again
+    const next = createMockCard();
+    tm._teamTrickHistory.push({ cards: [next], position: { x: 0, y: 0 }, trickNumber: 1 });
+    tm.repositionTrickHistory();
+    expect(scene.tweens.killTweensOf).toHaveBeenCalledWith(next);
   });
 
   it('repositionCurrentTrick cancels tweens and settles the card at its slot', () => {
