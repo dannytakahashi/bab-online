@@ -227,14 +227,14 @@ async function draw(socket, io, data) {
     const game = gameManager.getPlayerGame(socket.id);
     if (!game) return;
 
+    const username = game.entrant(socket.id)?.username || 'Player';
+
     // recordDraw refuses out-of-phase, duplicate and 5th draws
-    const d = game.recordDraw(socket.id, data && data.num);
+    const d = game.recordDraw(socket.id, data && data.num, username);
     if (!d) return;
     const { card, drawOrder } = d;
 
     gameLogger.debug('Player drew card', { socketId: socket.id, card: `${card.rank} of ${card.suit}` });
-
-    const username = game.entrant(socket.id)?.username || 'Player';
 
     // Tell the drawing player their card
     socket.emit('youDrew', { card, drawOrder });
@@ -261,7 +261,7 @@ async function draw(socket, io, data) {
  *   none was made
  */
 function autoDraw(io, game, socketId, username) {
-    const d = game.recordDraw(socketId, null);
+    const d = game.recordDraw(socketId, null, username);
     if (d) {
         game.broadcast(io, 'playerDrew', { username, card: d.card, drawOrder: d.drawOrder, socketId });
     }
@@ -456,6 +456,7 @@ async function handleDrawComplete(io, game) {
     game.drawCards = [];
     game.drawIndex = 0;
     game.drawIDs = [];
+    game.drawNames = [];
     game.deck = null;
 
     // Notify main room that a new in-progress game is available to spectate

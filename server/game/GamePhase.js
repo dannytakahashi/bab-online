@@ -6,10 +6,11 @@
  * legal edge; ENDED and ABORTED are absorbing (no ENDED -> ABORTED: the iOS
  * client resets its game on abortGame, so it must never follow gameEnd).
  *
- * The wire never sees these stage names. `game.phase` and `game.bidding` are
+ * v1 payloads never see stage names: `game.phase` and `game.bidding` are
  * getters that project the stage onto the legacy values both clients read
  * (WIRE_PHASE / NOT_BIDDING below), so getClientState, spectatorJoined and
- * every other payload are unchanged.
+ * every other v1 payload are unchanged. Snapshot v2 (snapshotV2.js) carries
+ * `stage` verbatim: renaming a stage breaks v2 clients.
  */
 
 const { gameLogger } = require('../utils/logger');

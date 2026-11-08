@@ -27,6 +27,7 @@ const {
     seatDisplay,
     validateSeats
 } = require('./SeatState');
+const { buildSnapshotV2 } = require('./snapshotV2');
 
 const IN_HAND_STAGES = new Set([
     Phase.DEALING, Phase.BIDDING, Phase.REDEAL, Phase.PLAYING,
@@ -108,6 +109,8 @@ class GameState {
         this.drawCards = [];
         this.drawIDs = [];
         this.drawIndex = 0;
+        // The name playerDrew showed for each draw, in draw order (snapshot v2)
+        this.drawNames = [];
 
         // Seat records (SeatState.js): position -> who controls the seat and
         // whether its owner is present. `players` / `positions` above are the
@@ -343,11 +346,12 @@ class GameState {
 
     /**
      * The only writer of draw state. Takes the card at `index` (null = random,
-     * clamped into the deck) for `socketId`.
+     * clamped into the deck) for `socketId`. `username` is the name the
+     * caller broadcasts in playerDrew (kept for snapshot v2).
      * @returns {{card: Object, drawOrder: number}|null} null when refused
      *   (not drawing, no deck, duplicate drawer, or 4 draws already in)
      */
-    recordDraw(socketId, index) {
+    recordDraw(socketId, index, username = null) {
         if (this._stage !== Phase.DRAWING || !this.deck || this.deck.cards.length === 0) return null;
         if (this.drawIDs.includes(socketId) || this.drawIDs.length >= 4) return null;
         const n = this.deck.cards.length;
@@ -357,6 +361,7 @@ class GameState {
         const [card] = this.deck.cards.splice(i, 1);
         this.drawCards.push(card);
         this.drawIDs.push(socketId);
+        this.drawNames.push(username);
         this.drawIndex++;
         return { card, drawOrder: this.drawIndex };
     }
@@ -925,6 +930,14 @@ class GameState {
             lazyPositions: this.seatList().filter(st => this.wireLazy(st.position)).map(st => st.position),
             isLazy: position ? this.wireLazy(position) : false
         };
+    }
+
+    /**
+     * Table snapshot v2 for the receiving socket `socketId` (see
+     * snapshotV2.js and contract/README.md). Pure, no socket ids.
+     */
+    getSnapshotV2(socketId, opts) {
+        return buildSnapshotV2(this, socketId, opts);
     }
 
     setHand(socketId, cards) {

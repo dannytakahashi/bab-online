@@ -1024,6 +1024,661 @@
       "type": "integer",
       "minimum": 1,
       "description": "Per-game broadcast sequence number (contract/README.md R1-R5)"
+    },
+    "snapshotV2": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "const": 2
+        },
+        "gameId": {
+          "type": "string"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "serverTime": {
+          "type": "integer"
+        },
+        "stage": {
+          "enum": [
+            "CREATED",
+            "DRAWING",
+            "DRAW_RESOLVING",
+            "TEAMS_ANNOUNCED",
+            "DEALING",
+            "BIDDING",
+            "REDEAL",
+            "PLAYING",
+            "TRICK_RESOLVING",
+            "HAND_RESOLVING",
+            "ENDED",
+            "ABORTED"
+          ]
+        },
+        "partial": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "customPics",
+              "log"
+            ]
+          },
+          "maxItems": 2
+        },
+        "viewer": {
+          "$ref": "#/$defs/viewerV2"
+        },
+        "hand": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/card"
+          },
+          "maxItems": 13
+        },
+        "deal": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "handNo": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 13
+            },
+            "handSize": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 13
+            },
+            "dealer": {
+              "$ref": "#/$defs/position"
+            },
+            "bidder": {
+              "$ref": "#/$defs/position"
+            },
+            "dealSeq": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1
+            }
+          },
+          "required": [
+            "handNo",
+            "handSize",
+            "dealer",
+            "bidder",
+            "dealSeq"
+          ],
+          "additionalProperties": false
+        },
+        "trump": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/card"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "trumpBroken": {
+          "type": "boolean"
+        },
+        "turn": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "position": {
+              "$ref": "#/$defs/position"
+            },
+            "action": {
+              "enum": [
+                "bid",
+                "play"
+              ]
+            }
+          },
+          "required": [
+            "position",
+            "action"
+          ],
+          "additionalProperties": false
+        },
+        "bids": {
+          "type": "object",
+          "properties": {
+            "byPosition": {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/bidString"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "minItems": 4,
+              "maxItems": 4
+            },
+            "order": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/position"
+              },
+              "minItems": 4,
+              "maxItems": 4
+            },
+            "teamBids": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/teamPair"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "mults": {
+              "type": "object",
+              "properties": {
+                "team1": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "team2": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "required": [
+                "team1",
+                "team2"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "byPosition",
+            "order",
+            "teamBids",
+            "mults"
+          ],
+          "additionalProperties": false
+        },
+        "trick": {
+          "type": "object",
+          "properties": {
+            "number": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1,
+              "maximum": 13
+            },
+            "leadPosition": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/position"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "cards": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "position": {
+                    "$ref": "#/$defs/position"
+                  },
+                  "card": {
+                    "$ref": "#/$defs/card"
+                  }
+                },
+                "required": [
+                  "position",
+                  "card"
+                ],
+                "additionalProperties": false
+              },
+              "maxItems": 4
+            }
+          },
+          "required": [
+            "number",
+            "leadPosition",
+            "cards"
+          ],
+          "additionalProperties": false
+        },
+        "tricks": {
+          "$ref": "#/$defs/teamPair"
+        },
+        "tricksByPosition": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "score": {
+          "$ref": "#/$defs/teamPair"
+        },
+        "rainbows": {
+          "$ref": "#/$defs/teamPair"
+        },
+        "hsi": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "seats": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/seatV2"
+          },
+          "maxItems": 4
+        },
+        "entrants": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "username": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "isBot": {
+                "type": "boolean"
+              },
+              "presence": {
+                "enum": [
+                  "connected",
+                  "disconnected",
+                  "left"
+                ]
+              },
+              "hasDrawn": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "username",
+              "isBot",
+              "presence",
+              "hasDrawn"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 4
+        },
+        "draw": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/drawV2"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "spectatorCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tournament": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/tournamentV2"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "log": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "message": {
+                "type": "string"
+              },
+              "type": {
+                "enum": [
+                  "system",
+                  "chat",
+                  "bid",
+                  "trick",
+                  "score",
+                  "rainbow"
+                ]
+              },
+              "position": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/position"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "at": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "message",
+              "type",
+              "position",
+              "at"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "v",
+        "gameId",
+        "seq",
+        "serverTime",
+        "stage",
+        "partial",
+        "viewer",
+        "hand",
+        "deal",
+        "trump",
+        "trumpBroken",
+        "turn",
+        "bids",
+        "trick",
+        "tricks",
+        "tricksByPosition",
+        "score",
+        "rainbows",
+        "hsi",
+        "seats",
+        "entrants",
+        "draw",
+        "spectatorCount",
+        "tournament",
+        "log"
+      ],
+      "additionalProperties": false
+    },
+    "viewerV2": {
+      "type": "object",
+      "properties": {
+        "role": {
+          "enum": [
+            "seat",
+            "lazyWatcher",
+            "spectator",
+            "entrant",
+            "none"
+          ]
+        },
+        "position": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/position"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ownerView": {
+          "anyOf": [
+            {
+              "enum": [
+                "seat",
+                "watch"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "canAct": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "role",
+        "position",
+        "ownerView",
+        "canAct"
+      ],
+      "additionalProperties": false
+    },
+    "seatV2": {
+      "type": "object",
+      "properties": {
+        "position": {
+          "$ref": "#/$defs/position"
+        },
+        "username": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "pic": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "hasCustomPic": {
+          "type": "boolean"
+        },
+        "customPic": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ownerUsername": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "controller": {
+          "enum": [
+            "human",
+            "lazyBot",
+            "resignBot",
+            "bot"
+          ]
+        },
+        "presence": {
+          "enum": [
+            "connected",
+            "grace",
+            "resignable",
+            "away",
+            "gone",
+            "none"
+          ]
+        },
+        "isBot": {
+          "type": "boolean"
+        },
+        "lazy": {
+          "type": "boolean"
+        },
+        "offered": {
+          "type": "boolean"
+        },
+        "graceDeadline": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "resignableAt": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "cardsInHand": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 13
+        }
+      },
+      "required": [
+        "position",
+        "username",
+        "pic",
+        "hasCustomPic",
+        "customPic",
+        "ownerUsername",
+        "controller",
+        "presence",
+        "isBot",
+        "lazy",
+        "offered",
+        "graceDeadline",
+        "resignableAt",
+        "cardsInHand"
+      ],
+      "additionalProperties": false
+    },
+    "drawV2": {
+      "type": "object",
+      "properties": {
+        "deckRemaining": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 54
+        },
+        "drawn": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "drawOrder": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 4
+              },
+              "username": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "isBot": {
+                "type": "boolean"
+              },
+              "card": {
+                "$ref": "#/$defs/card"
+              },
+              "position": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/position"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "drawOrder",
+              "username",
+              "isBot",
+              "card",
+              "position"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 4
+        },
+        "viewerDrawOrder": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "maximum": 4
+        }
+      },
+      "required": [
+        "deckRemaining",
+        "drawn",
+        "viewerDrawOrder"
+      ],
+      "additionalProperties": false
+    },
+    "tournamentV2": {
+      "type": "object",
+      "properties": {
+        "tournamentId": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "roundNumber": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "totalRounds": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "tournamentId",
+        "name",
+        "roundNumber",
+        "totalRounds"
+      ],
+      "additionalProperties": false
     }
   },
   "c2s": {

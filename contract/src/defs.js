@@ -54,6 +54,8 @@ const SUITS = ['spades', 'hearts', 'diamonds', 'clubs', 'joker'];
 const RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A', 'HI', 'LO'];
 const BID_STRINGS = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', 'B', '2B', '3B', '4B'];
 const LOG_TYPES = ['system', 'chat', 'bid', 'trick', 'score', 'rainbow'];
+const STAGES = ['CREATED', 'DRAWING', 'DRAW_RESOLVING', 'TEAMS_ANNOUNCED', 'DEALING', 'BIDDING', 'REDEAL', 'PLAYING',
+    'TRICK_RESOLVING', 'HAND_RESOLVING', 'ENDED', 'ABORTED'];
 
 /** getClientState() at cc865b4: exactly these 22 keys (wireProjection LEGACY_CLIENT_STATE_KEYS). */
 const LEGACY_CLIENT_STATE_PROPS = {
@@ -204,11 +206,99 @@ const defs = {
     legacyClientState: obj(LEGACY_CLIENT_STATE_PROPS),
     spectatorStateV1: obj(SPECTATOR_STATE_V1_PROPS),
     seq: int({ minimum: 1, description: 'Per-game broadcast sequence number (contract/README.md R1-R5)' }),
+
+    // ---------- snapshot v2 (server/game/snapshotV2.js; contract/README.md) ----------
+    snapshotV2: obj({
+        v: konst(2),
+        gameId: str(),
+        seq: int({ minimum: 0 }),
+        serverTime: int(),
+        stage: enm(...STAGES),
+        partial: arr(enm('customPics', 'log'), { maxItems: 2 }),
+        viewer: ref('viewerV2'),
+        hand: orNull(arr(ref('card'), { maxItems: 13 })),
+        deal: orNull(obj({
+            handNo: int({ minimum: 1, maximum: 13 }),
+            handSize: int({ minimum: 1, maximum: 13 }),
+            dealer: ref('position'),
+            bidder: ref('position'),
+            dealSeq: orNull(int({ minimum: 1 })),
+        })),
+        trump: orNull(ref('card')),
+        trumpBroken: bool(),
+        turn: orNull(obj({ position: ref('position'), action: enm('bid', 'play') })),
+        bids: obj({
+            byPosition: arr(orNull(ref('bidString')), { minItems: 4, maxItems: 4 }),
+            order: arr(ref('position'), { minItems: 4, maxItems: 4 }),
+            teamBids: orNull(ref('teamPair')),
+            mults: obj({ team1: int({ minimum: 1 }), team2: int({ minimum: 1 }) }),
+        }),
+        trick: obj({
+            number: orNull(int({ minimum: 1, maximum: 13 })),
+            leadPosition: orNull(ref('position')),
+            cards: arr(obj({ position: ref('position'), card: ref('card') }), { maxItems: 4 }),
+        }),
+        tricks: ref('teamPair'),
+        tricksByPosition: arr(int({ minimum: 0 }), { minItems: 4, maxItems: 4 }),
+        score: ref('teamPair'),
+        rainbows: ref('teamPair'),
+        hsi: orNull(arr(orNull(num()), { minItems: 4, maxItems: 4 })),
+        seats: arr(ref('seatV2'), { maxItems: 4 }),
+        entrants: orNull(arr(obj({
+            username: orNull(str()),
+            isBot: bool(),
+            presence: enm('connected', 'disconnected', 'left'),
+            hasDrawn: bool(),
+        }), { maxItems: 4 })),
+        draw: orNull(ref('drawV2')),
+        spectatorCount: int({ minimum: 0 }),
+        tournament: orNull(ref('tournamentV2')),
+        log: arr(obj({ message: str(), type: enm(...LOG_TYPES), position: orNull(ref('position')), at: int() })),
+    }),
+    viewerV2: obj({
+        role: enm('seat', 'lazyWatcher', 'spectator', 'entrant', 'none'),
+        position: orNull(ref('position')),
+        ownerView: orNull(enm('seat', 'watch')),
+        canAct: bool(),
+    }),
+    seatV2: obj({
+        position: ref('position'),
+        username: orNull(str()),
+        pic: orNull(int()),
+        hasCustomPic: bool(),
+        customPic: orNull(str()),
+        ownerUsername: orNull(str()),
+        controller: enm('human', 'lazyBot', 'resignBot', 'bot'),
+        presence: enm('connected', 'grace', 'resignable', 'away', 'gone', 'none'),
+        isBot: bool(),
+        lazy: bool(),
+        offered: bool(),
+        graceDeadline: orNull(int()),
+        resignableAt: orNull(int()),
+        cardsInHand: int({ minimum: 0, maximum: 13 }),
+    }),
+    drawV2: obj({
+        deckRemaining: orNull(int({ minimum: 0, maximum: 54 })),
+        drawn: arr(obj({
+            drawOrder: int({ minimum: 1, maximum: 4 }),
+            username: orNull(str()),
+            isBot: bool(),
+            card: ref('card'),
+            position: orNull(ref('position')),
+        }), { maxItems: 4 }),
+        viewerDrawOrder: orNull(int({ minimum: 1, maximum: 4 })),
+    }),
+    tournamentV2: obj({
+        tournamentId: str(),
+        name: str(),
+        roundNumber: orNull(int({ minimum: 1 })),
+        totalRounds: int(),
+    }),
 };
 
 module.exports = {
     str, int, num, bool, nul, konst, enm, arr, ref, anyOf, orNull, obj, variant, byPosition, nonEmpty,
-    SUITS, RANKS, BID_STRINGS, LOG_TYPES,
+    SUITS, RANKS, BID_STRINGS, LOG_TYPES, STAGES,
     LEGACY_CLIENT_STATE_PROPS, SPECTATOR_STATE_V1_PROPS,
     defs,
 };

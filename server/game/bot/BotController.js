@@ -190,7 +190,7 @@ class BotController {
     processBotDraw(io, game, bot) {
         if (game.stage !== Phase.DRAWING || !game.deck) return;
 
-        const d = game.recordDraw(bot.socketId, bot.decideDraw(game.deck.cards.length));
+        const d = game.recordDraw(bot.socketId, bot.decideDraw(game.deck.cards.length), bot.username);
         if (!d) return;
         const { card, drawOrder } = d;
 
