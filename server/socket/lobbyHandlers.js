@@ -90,8 +90,9 @@ async function playerReady(socket, io) {
                 }
             });
 
-            // After another delay, start the draw phase
-            await delay(2000);
+            // After another delay, start the draw phase (false: the game
+            // was aborted meanwhile)
+            if (!(await game.pause(2000))) return;
 
             // Create and shuffle deck for draw phase
             game.deck = new Deck();

@@ -125,8 +125,11 @@ class BotController {
             clearTimeout(this.pendingActions.get(actionKey));
         }
 
+        const epoch = game.epoch;
         const timeoutId = setTimeout(() => {
             this.pendingActions.delete(actionKey);
+            // Never act into a game that ended/aborted after scheduling
+            if (game.epoch !== epoch || game.isTerminal()) return;
             // Contain failures: an uncaughtException here would exit the
             // whole server (see utils/shutdown.js), dropping every game
             try {
@@ -161,8 +164,10 @@ class BotController {
             clearTimeout(this.pendingActions.get(actionKey));
         }
 
+        const epoch = game.epoch;
         const timeoutId = setTimeout(() => {
             this.pendingActions.delete(actionKey);
+            if (game.epoch !== epoch || game.isTerminal()) return;
             try {
                 this.processBotDraw(io, game, bot);
             } catch (err) {
@@ -405,8 +410,10 @@ class BotController {
         this.chatSeq = (this.chatSeq || 0) + 1;
         const actionKey = `${game.gameId}:${bot.socketId}:chat:${this.chatSeq}`;
 
+        const epoch = game.epoch;
         const timeoutId = setTimeout(() => {
             this.pendingActions.delete(actionKey);
+            if (game.epoch !== epoch || game.isTerminal()) return;
             game.addLogEntry(`${bot.username}: ${message}`, bot.position, 'chat');
             game.broadcast(io, 'chatMessage', {
                 position: bot.position,
@@ -539,15 +546,16 @@ class BotController {
      * @param {string} gameId
      */
     cleanupGame(gameId) {
+        // Clear any pending actions for this game, even if its bot registry
+        // is already gone (timers can outlive a partial cleanup)
+        for (const [key, timeoutId] of this.pendingActions) {
+            if (key.startsWith(`${gameId}:`)) {
+                clearTimeout(timeoutId);
+                this.pendingActions.delete(key);
+            }
+        }
         const gameBots = this.gamesBots.get(gameId);
         if (gameBots) {
-            // Clear any pending actions for this game
-            for (const [key, timeoutId] of this.pendingActions) {
-                if (key.startsWith(`${gameId}:`)) {
-                    clearTimeout(timeoutId);
-                    this.pendingActions.delete(key);
-                }
-            }
             this.gamesBots.delete(gameId);
             gameLogger.debug('Cleaned up bots for game', { gameId });
         }

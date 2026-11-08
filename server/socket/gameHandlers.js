@@ -18,12 +18,15 @@ const {
     isValidBid,
     BID_RANKS
 } = require('../game/rules');
-const { delay } = require('../utils/timing');
 const { gameLogger } = require('../utils/logger');
 const { Phase, reportViolation } = require('../game/GamePhase');
 const { botController, personalities } = require('../game/bot');
 const { PERSONALITY_LIST } = personalities;
 const { cancelAbortTimer, startReconnectGraceTimer } = require('./queueHandlers');
+const { abortGame, emitLobbiesUpdated } = require('./gameLifecycle');
+
+const logContinuationError = (what, game) => (err) =>
+    gameLogger.error(`${what} failed`, { gameId: game.gameId, error: err.message, stack: err.stack });
 
 /**
  * Tell the sender its action was refused (instead of failing silently) so a
@@ -63,10 +66,10 @@ function triggerBotIfNeeded(io, game, actionType) {
         const playerSocketId = currentPlayer.socketId;
         const delayMs = bot.getActionDelay(actionType);
 
-        setTimeout(() => {
-          // A throw in a timer callback is an uncaughtException, which the
-          // shutdown handler turns into process.exit — taking every game on
-          // the server down with it. Contain failures to this one action.
+        // One pending lazy action per seat, owned by the game: it never fires
+        // after the game ends/aborts, and /active clears it
+        game.setTimer('lazy:' + bot.position, delayMs, () => {
+          // Contain failures to this one action (setTimer also logs throws)
           try {
             // Re-validate before acting: the game may have moved on during the
             // delay (turn advanced, trick resolved, /active, game ended). A
@@ -93,7 +96,7 @@ function triggerBotIfNeeded(io, game, actionType) {
                 game.addLogEntry(`${currentPlayer.username} bid ${bid}.`, bot.position, 'bid');
                 game.broadcast(io, 'bidReceived', { bid, position: bot.position, bidArray: game.playerBids });
                 game.currentTurn = rotatePosition(game.currentTurn);
-                handlePostBid(io, game);
+                handlePostBid(io, game).catch(logContinuationError('handlePostBid', game));
             } else if (actionType === 'play') {
                 if (game.playedCardsIndex >= 4) return;
                 if (game.playedCards[bot.position - 1]) return;
@@ -116,12 +119,12 @@ function triggerBotIfNeeded(io, game, actionType) {
                 game.broadcast(io, 'cardPlayed', { playerId: playerSocketId, card, position: bot.position, trump: game.isTrumpBroken });
                 botController.notifyCardPlayed(game.gameId, card, bot.position, game.trump, game.leadPosition);
                 game.currentTurn = rotatePosition(game.currentTurn);
-                handlePostPlay(io, game);
+                handlePostPlay(io, game).catch(logContinuationError('handlePostPlay', game));
             }
           } catch (err) {
             gameLogger.error('Lazy-bot action failed', { gameId: game.gameId, actionType, error: err.message, stack: err.stack });
           }
-        }, delayMs);
+        });
         return;
     }
 
@@ -132,13 +135,13 @@ function triggerBotIfNeeded(io, game, actionType) {
             // after a stale-state bail wedges the game on a phantom turn
             if (!botController.processBotBid(io, game, bot)) return;
             game.currentTurn = rotatePosition(game.currentTurn);
-            handlePostBid(io, game);
+            handlePostBid(io, game).catch(logContinuationError('handlePostBid', game));
         });
     } else if (actionType === 'play') {
         botController.scheduleBotAction(io, game, 'play', (io, game, bot) => {
             if (!botController.processBotPlay(io, game, bot)) return;
             game.currentTurn = rotatePosition(game.currentTurn);
-            handlePostPlay(io, game);
+            handlePostPlay(io, game).catch(logContinuationError('handlePostPlay', game));
         });
     }
 }
@@ -235,7 +238,7 @@ async function handlePostPlay(io, game) {
         // TRICK_RESOLVING rejects plays and makes a second resolution a no-op
         if (!game.transition(Phase.PLAYING, Phase.TRICK_RESOLVING)) return;
 
-        await delay(2000);
+        if (!(await game.pause(2000))) return;
 
         // Re-validate after the pause: if the trick array was corrupted by a
         // stale action, log loudly instead of crashing the whole game loop
@@ -285,7 +288,7 @@ async function handlePostPlay(io, game) {
         // Check if hand is complete
         if (game.cardIndex === game.currentHand * 4) {
             if (!game.transition(Phase.TRICK_RESOLVING, Phase.HAND_RESOLVING)) return;
-            await delay(2000); // Brief pause after last trick stacks
+            if (!(await game.pause(2000))) return; // Brief pause after last trick stacks
             await handleHandComplete(game, io);
             return;
         }
@@ -351,6 +354,7 @@ function autoDraw(io, game, socketId, username) {
  */
 async function handleDrawComplete(io, game) {
     if (game.drawIDs.length !== 4 || !game.tryTransition(Phase.DRAWING, Phase.DRAW_RESOLVING)) return;
+    const alive = game.aliveCheck();
 
     // Fetch saved profile pics for all players
     const pics = [];
@@ -382,6 +386,8 @@ async function handleDrawComplete(io, game) {
         usedPics.add(pic);
         pics.push(pic);
     }
+    // Aborted while the profile pics loaded
+    if (!alive()) return;
 
     // Assign positions based on cards drawn
     const positions = [];
@@ -416,7 +422,7 @@ async function handleDrawComplete(io, game) {
         // Only emit to human players still at the table (a draw-phase leaver
         // is back in the main room and must not pick up a seat position)
         if (!isBot && !game._drawPhaseDisconnects?.[playerId]?.left) {
-            io.to(playerId).emit('playerAssigned', { playerId, position });
+            game.sendToPlayer(io, playerId, 'playerAssigned', { playerId, position });
         }
     }
 
@@ -449,17 +455,7 @@ async function handleDrawComplete(io, game) {
     // as /leave once the game is under way). All-bot demo games never get here.
     if (seatedBotForLeaver && Array.from(game.players.values()).every(p => p.isBot)) {
         gameLogger.warn('All humans left during draw, aborting game', { gameId: game.gameId });
-        game.broadcast(io, 'abortGame', { reason: 'All players left' });
-        await gameManager.clearActiveGameForAll(game.gameId);
-        const { handleAbortedTournamentGame } = require('./tournamentHandlers');
-        await handleAbortedTournamentGame(io, game.gameId);
-        game.leaveAllFromRoom(io);
-        gameManager.abortGame(game.gameId);
-        io.to('mainRoom').emit('lobbiesUpdated', {
-            lobbies: gameManager.getAllLobbies(),
-            inProgressGames: gameManager.getInProgressGames(),
-            tournaments: gameManager.getAllTournaments()
-        });
+        await abortGame(io, game, 'All players left');
         return;
     }
 
@@ -481,7 +477,7 @@ async function handleDrawComplete(io, game) {
         }
     }
 
-    await delay(1000);
+    if (!(await game.pause(1000))) return;
 
     game.broadcast(io, 'positionUpdate', {
         positions: orderedPositions,
@@ -505,6 +501,7 @@ async function handleDrawComplete(io, game) {
     // reconnection). Resolved per seat now, not from the pre-delay snapshot:
     // bots have no user document, and a seat that was resigned or /leave'd
     // meanwhile must not have its human's activeGameId re-armed.
+    const written = [];
     for (let pos = 1; pos <= 4; pos++) {
         const player = game.getPlayerByPosition(pos);
         if (!player || game.isResigned(pos)) continue;
@@ -516,7 +513,17 @@ async function handleDrawComplete(io, game) {
             if (player.isBot || gameManager.isBot(player.socketId)) continue;
             username = player.username;
         }
+        if (!alive()) break;
         await gameManager.setActiveGame(username, game.gameId);
+        written.push(username);
+    }
+    // Aborted mid-loop: the abort's own clear may have run before one of
+    // these writes landed, so re-clear (scoped to this game) what we wrote
+    if (!alive()) {
+        await Promise.all(written.map(u =>
+            gameManager.clearActiveGame(u, game.gameId).catch(logContinuationError('clearActiveGame', game))
+        ));
+        return;
     }
 
     // Announce teams (positions 1&3 vs 2&4)
@@ -525,7 +532,7 @@ async function handleDrawComplete(io, game) {
     const team2Player1 = game.getPlayerByPosition(2);
     const team2Player2 = game.getPlayerByPosition(4);
 
-    await delay(1000);
+    if (!(await game.pause(1000))) return;
 
     if (!game.transition(Phase.DRAW_RESOLVING, Phase.TEAMS_ANNOUNCED)) return;
     game.broadcast(io, 'teamsAnnounced', {
@@ -534,7 +541,7 @@ async function handleDrawComplete(io, game) {
     });
 
     // Wait for team announcement to be seen (3 seconds)
-    await delay(3000);
+    if (!(await game.pause(3000))) return;
 
     if (!game.transition(Phase.TEAMS_ANNOUNCED, Phase.DEALING)) return;
 
@@ -545,11 +552,7 @@ async function handleDrawComplete(io, game) {
     game.deck = null;
 
     // Notify main room that a new in-progress game is available to spectate
-    io.to('mainRoom').emit('lobbiesUpdated', {
-        lobbies: gameManager.getAllLobbies(),
-        inProgressGames: gameManager.getInProgressGames(),
-        tournaments: gameManager.getAllTournaments()
-    });
+    emitLobbiesUpdated(io);
 
     // createUI must come BEFORE gameStart (client expects this order)
     game.broadcast(io, 'createUI', {});
@@ -637,7 +640,7 @@ async function dealHand(game, io, { dealer, handSize, firstHand = false }) {
 
     // Send spectator-safe gameStart (no hand data) so spectators see updated trump/score/hand
     for (const spec of game.getSpectators()) {
-        io.to(spec.socketId).emit('gameStart', {
+        game.sendToPlayer(io, spec.socketId, 'gameStart', {
             gameId: game.gameId,
             trump: game.trump,
             score1: game.score.team1,
@@ -654,7 +657,7 @@ async function dealHand(game, io, { dealer, handSize, firstHand = false }) {
     if (!game.transition(Phase.DEALING, Phase.BIDDING)) return;
 
     if (firstHand) {
-        await delay(1000);
+        if (!(await game.pause(1000))) return;
         // A bid during the pause already sent updateTurn and triggered the
         // next bot; repeating them would double-schedule it
         if (game.stage !== Phase.BIDDING || game.getBidCount() > 0) return;
@@ -932,9 +935,6 @@ async function handleHandComplete(game, io) {
 
         gameLogger.info('Game ended', { gameId: game.gameId, finalScore: game.score });
 
-        // Record game stats for all players
-        await recordGameStats(game);
-
         // Build player stats with usernames for final score screen
         const playerStatsWithNames = {};
         const totalHands = game.handStats.totalHands;
@@ -948,16 +948,31 @@ async function handleHandComplete(game, io) {
         }
 
         // Check for tournament context
-        const tournamentId = gameManager.tournamentGames.get(game.gameId);
+        const tournamentId = gameManager.tournamentGames.get(game.gameId) || null;
 
-        game.broadcast(io, 'gameEnd', {
+        // gameEnd goes out first, then ENDED + epoch bump + timer
+        // cancellation (synchronously). False: the game was aborted
+        // meanwhile, so the tournament must not be resolved a second time.
+        if (!game.terminate(io, Phase.ENDED, 'gameEnd', {
             score: game.score,
             playerStats: playerStatsWithNames,
-            tournamentId: tournamentId || null
-        });
+            tournamentId
+        })) return;
+
+        // Retire: bots, room, every playerGames entry (players can create
+        // new lobbies / return to the tournament right away)
+        gameManager.endGame(game.gameId, io);
+
+        // Persist stats in the background: a slow DB must not hold up the
+        // end of the game for the players
+        recordGameStats(game).catch(logContinuationError('recordGameStats', game));
 
         // Clear active game for all players
-        await gameManager.clearActiveGameForAll(game.gameId);
+        try {
+            await gameManager.clearActiveGameForAll(game.gameId, game);
+        } catch (err) {
+            logContinuationError('clearActiveGameForAll', game)(err);
+        }
 
         // Tournament-specific: record scores and check round completion
         if (tournamentId) {
@@ -1011,19 +1026,8 @@ async function handleHandComplete(game, io) {
             }
         }
 
-        // Cleanup bots
-        botController.cleanupGame(game.gameId);
-        game.leaveAllFromRoom(io);
-        // Clear playerGames Map entries so players can create new lobbies/return to tournament
-        gameManager.endGame(game.gameId);
-        game.terminate(null, Phase.ENDED);
-
         // Notify main room that an in-progress game has ended
-        io.to('mainRoom').emit('lobbiesUpdated', {
-            lobbies: gameManager.getAllLobbies(),
-            inProgressGames: gameManager.getInProgressGames(),
-            tournaments: gameManager.getAllTournaments()
-        });
+        emitLobbiesUpdated(io);
     } else {
         gameLogger.debug('Starting next hand', { dealer: nextDealer, handSize: nextHandSize, gameId: game.gameId });
         if (!game.transition(Phase.HAND_RESOLVING, Phase.DEALING)) return;

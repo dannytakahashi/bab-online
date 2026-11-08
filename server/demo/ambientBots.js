@@ -21,6 +21,7 @@ const { botController, personalities } = require('../game/bot');
 const { PERSONALITY_LIST, getDisplayName } = personalities;
 const { logger } = require('../utils/logger');
 const { Phase } = require('../game/GamePhase');
+const { abortGame } = require('../socket/gameLifecycle');
 
 const CHECK_INTERVAL_MS = 15 * 1000;        // poll cadence
 const RESTART_DELAY_MS = 30 * 1000;         // pause between games (keep the gap short)
@@ -187,9 +188,10 @@ function tick(io) {
         }
         if (Date.now() - currentGameStartedAt > MAX_GAME_AGE_MS) {
             logger.warn('Ambient bot game exceeded max age, recycling', { gameId: currentGameId });
-            botController.cleanupGame(currentGameId);
-            game.leaveAllFromRoom(io);
-            gameManager.abortGame(currentGameId);
+            // Spectators get abortGame and are taken out of the room
+            abortGame(io, game, 'Game recycled').catch(err =>
+                logger.error('Ambient recycle failed', { gameId: game.gameId, error: err.message })
+            );
             currentGameId = null;
             nextGameAt = Date.now() + RESTART_DELAY_MS;
         }

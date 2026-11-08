@@ -5,6 +5,7 @@
 const gameManager = require('../game/GameManager');
 const { socketLogger } = require('../utils/logger');
 const { Phase } = require('../game/GamePhase');
+const { abortGame } = require('./gameLifecycle');
 const { botController, personalities } = require('../game/bot');
 const { PERSONALITY_LIST, getDisplayName } = personalities;
 
@@ -126,6 +127,9 @@ function handleActiveCommand(socket, io, game, position, { resendTurn = true } =
     const originalUsername = lazyInfo?.originalUsername || 'Unknown';
     const originalPic = lazyInfo?.originalPic;
 
+    // Drop the lazy bot's pending action for this seat
+    game.clearTimer('lazy:' + position);
+
     // Clean up the bot from controller
     if (lazyInfo?.botSocketId) {
         const gameBots = botController.gamesBots.get(game.gameId);
@@ -228,22 +232,11 @@ function handleLeaveCommand(socket, io, game, position) {
 
     if (!hasActiveHuman) {
         socketLogger.warn('All humans permanently left, aborting game', { gameId: game.gameId });
-        game.broadcast(io, 'abortGame', { reason: 'All players left' });
-        gameManager.clearActiveGameForAll(game.gameId);
-        // Tournament games must still count toward round completion
-        const { handleAbortedTournamentGame } = require('./tournamentHandlers');
-        handleAbortedTournamentGame(io, game.gameId).catch(err =>
-            socketLogger.error('Failed to resolve aborted tournament game', {
-                gameId: game.gameId, error: err.message
-            })
+        // The synchronous part (broadcast, retire, lobbiesUpdated) runs now;
+        // DB clears and tournament follow-up continue in the background
+        abortGame(io, game, 'All players left').catch(err =>
+            socketLogger.error('Abort failed', { gameId: game.gameId, error: err.message, stack: err.stack })
         );
-        game.leaveAllFromRoom(io);
-        gameManager.abortGame(game.gameId); // also releases bots via cleanupGame
-        io.to('mainRoom').emit('lobbiesUpdated', {
-            lobbies: gameManager.getAllLobbies(),
-            inProgressGames: gameManager.getInProgressGames(),
-            tournaments: gameManager.getAllTournaments()
-        });
     }
 
     return true;

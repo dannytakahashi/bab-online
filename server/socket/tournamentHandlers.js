@@ -430,6 +430,8 @@ async function startTournamentRound(io, tournament, roundNumber) {
         for (const username of presentHumans) {
             await gameManager.setActiveGame(username, game.gameId);
         }
+        // The table may have been aborted during those writes
+        if (!game.aliveCheck()()) continue;
 
         // Join human players to game room
         for (const socketId of humanSocketIds) {
@@ -455,8 +457,8 @@ async function startTournamentRound(io, tournament, roundNumber) {
             });
         }
 
-        // Start draw phase after delay
-        await delay(2000);
+        // Start draw phase after delay (false: the table aborted meanwhile)
+        if (!(await game.pause(2000))) continue;
 
         game.deck = new Deck();
         game.deck.shuffle();
@@ -810,8 +812,7 @@ async function broadcastRoundOutcome(io, tournament) {
  * Mark it complete with no scores recorded so the round can still advance —
  * otherwise the tournament is stuck in round_active forever.
  */
-async function handleAbortedTournamentGame(io, gameId) {
-    const game = gameManager.getGameById(gameId);
+async function handleAbortedTournamentGame(io, gameId, game = gameManager.getGameById(gameId)) {
     const result = gameManager.handleTournamentGameEnd(gameId);
     if (!result) return;
 

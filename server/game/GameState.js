@@ -45,6 +45,8 @@ class GameState {
         // Lifecycle (authoritative phase; `phase`/`bidding` are getters)
         this._stage = Phase.CREATED;
         this.epoch = 0;            // bumped once when the game ends or aborts
+        this._timers = new Map();  // key -> timeout (setTimer)
+        this._pauses = new Set();  // in-flight pause() entries
         this._history = shouldCheckInvariants() ? [Phase.CREATED] : null;
         this._isSeatReachable = null;   // set by GameManager.createGame
         this.currentTurn = 1;
@@ -229,13 +231,92 @@ class GameState {
             reportViolation('illegal-terminate', { gameId: this.gameId, from: this._stage, to });
             return false;
         }
+        // Steps below are synchronous: nothing can run between the final
+        // event and the epoch bump / timer cancellation
         if (io && event) this.broadcast(io, event, payload);
         const from = this._stage;
         this._stage = to;
         if (this._history) this._history.push(to);
         this.epoch++;
+        this._cancelAllTimers();
         gameLogger.info('Game terminated', { gameId: this.gameId, from, to, event });
         return true;
+    }
+
+    // ========================================
+    // Epoch-guarded pauses and timers
+    // ========================================
+
+    /** @returns {Function} true while the game is still in this epoch and live */
+    aliveCheck() {
+        const e = this.epoch;
+        return () => this.epoch === e && !this.isTerminal();
+    }
+
+    /**
+     * Lifecycle pause. Resolves true after `ms` if the game is still in the
+     * same epoch, false (immediately) when the game ends/aborts meanwhile or
+     * is already terminal. Every lifecycle continuation reads
+     * `if (!(await game.pause(ms))) return;`.
+     * @returns {Promise<boolean>}
+     */
+    pause(ms) {
+        if (this.isTerminal()) return Promise.resolve(false);
+        const e = this.epoch;
+        return new Promise((resolve) => {
+            const entry = { timer: null, resolve };
+            entry.timer = setTimeout(() => {
+                this._pauses.delete(entry);
+                resolve(this.epoch === e);
+            }, ms);
+            this._pauses.add(entry);
+        });
+    }
+
+    /**
+     * Named one-shot timer owned by this game (replaces any timer under the
+     * same key). The callback is skipped if the game ended/aborted meanwhile;
+     * sync throws and async rejections are logged, never uncaught.
+     */
+    setTimer(key, ms, fn) {
+        this.clearTimer(key);
+        if (this.isTerminal()) return false;
+        const e = this.epoch;
+        const timer = setTimeout(() => {
+            this._timers.delete(key);
+            if (this.epoch !== e || this.isTerminal()) return;
+            Promise.resolve().then(fn).catch(err =>
+                gameLogger.error('Game timer failed', { gameId: this.gameId, key, error: err.message, stack: err.stack })
+            );
+        }, ms);
+        this._timers.set(key, timer);
+        return true;
+    }
+
+    clearTimer(key) {
+        const timer = this._timers.get(key);
+        if (timer !== undefined) {
+            clearTimeout(timer);
+            this._timers.delete(key);
+        }
+    }
+
+    hasTimer(key) {
+        return this._timers.has(key);
+    }
+
+    get pendingTimerCount() {
+        return this._timers.size + this._pauses.size;
+    }
+
+    _cancelAllTimers() {
+        for (const timer of this._timers.values()) clearTimeout(timer);
+        this._timers.clear();
+        for (const entry of this._pauses) {
+            clearTimeout(entry.timer);
+            entry.resolve(false);
+        }
+        this._pauses.clear();
     }
 
     /** Test-only fixture helper: jump straight to a non-terminal stage. */
@@ -857,7 +938,9 @@ class GameState {
      * @param {Server} io - Socket.IO server instance
      */
     leaveAllFromRoom(io) {
-        for (const socketId of this.players.keys()) {
+        // Snapshot first: callers may mutate the maps afterwards
+        const ids = [...this.players.keys(), ...this.spectators.keys()];
+        for (const socketId of ids) {
             // Skip bots
             if (this.isBot(socketId)) continue;
             const socket = io.sockets.sockets.get(socketId);
@@ -869,12 +952,17 @@ class GameState {
     }
 
     /**
-     * Broadcast an event to all players in this game
+     * Broadcast an event to all players in this game. Dropped once the game
+     * is terminal (nothing is emitted from a dead game).
      * @param {Server} io - Socket.IO server instance
      * @param {string} event - Event name
      * @param {Object} data - Event data
      */
     broadcast(io, event, data) {
+        if (this.isTerminal()) {
+            gameLogger.debug('emit dropped: terminal', { gameId: this.gameId, event });
+            return;
+        }
         io.to(this.roomName).emit(event, data);
     }
 
@@ -887,6 +975,10 @@ class GameState {
      * @param {Object} data - Event data
      */
     sendToPlayer(io, socketId, event, data) {
+        if (this.isTerminal()) {
+            gameLogger.debug('emit dropped: terminal', { gameId: this.gameId, event });
+            return;
+        }
         // Skip bots - they don't have real socket connections
         if (this.isBot(socketId)) return;
         io.to(socketId).emit(event, data);

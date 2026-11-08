@@ -150,6 +150,131 @@ describe('terminate', () => {
         expect(g.stage).toBe(Phase.ENDED);
         expect(getViolations()).toEqual([]);
     });
+
+    function captureIo(game, log) {
+        return {
+            to: (room) => ({ emit: (event, data) => log.push({ room, event, data, stage: game.stage }) }),
+        };
+    }
+
+    test('the final event goes out while the game is still live', () => {
+        const g = gameIn(Phase.PLAYING);
+        const log = [];
+        g.terminate(captureIo(g, log), Phase.ABORTED, 'abortGame', { reason: 'x' });
+        expect(log).toEqual([{ room: g.roomName, event: 'abortGame', data: { reason: 'x' }, stage: Phase.PLAYING }]);
+    });
+
+    test('afterwards broadcast and sendToPlayer emit nothing', () => {
+        const g = gameIn(Phase.HAND_RESOLVING);
+        g.addPlayer('h1', 'u1', 1, 1, false);
+        const log = [];
+        const io = captureIo(g, log);
+        g.terminate(io, Phase.ENDED, 'gameEnd', {});
+        g.broadcast(io, 'updateTurn', { currentTurn: 1 });
+        g.sendToPlayer(io, 'h1', 'gameStart', {});
+        expect(log.map((l) => l.event)).toEqual(['gameEnd']);
+    });
+});
+
+describe('pause', () => {
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => jest.useRealTimers());
+
+    test('resolves true when the game stays alive', async () => {
+        const g = gameIn(Phase.BIDDING);
+        const p = g.pause(1000);
+        expect(g.pendingTimerCount).toBe(1);
+        await jest.advanceTimersByTimeAsync(1000);
+        await expect(p).resolves.toBe(true);
+        expect(g.pendingTimerCount).toBe(0);
+    });
+
+    test('resolves false immediately when the game terminates mid-pause', async () => {
+        const g = gameIn(Phase.BIDDING);
+        let result;
+        g.pause(5000).then((r) => { result = r; });
+        await jest.advanceTimersByTimeAsync(100);
+        g.terminate(null, Phase.ABORTED);
+        await Promise.resolve();
+        expect(result).toBe(false);
+        expect(g.pendingTimerCount).toBe(0);
+    });
+
+    test('resolves false at once on an already-terminal game', async () => {
+        const g = gameIn(Phase.ABORTED);
+        await expect(g.pause(1000)).resolves.toBe(false);
+        expect(g.pendingTimerCount).toBe(0);
+    });
+
+    test('aliveCheck flips when the game terminates', () => {
+        const g = gameIn(Phase.DRAW_RESOLVING);
+        const alive = g.aliveCheck();
+        expect(alive()).toBe(true);
+        g.terminate(null, Phase.ABORTED);
+        expect(alive()).toBe(false);
+    });
+});
+
+describe('setTimer', () => {
+    const { gameLogger } = require('../../utils/logger');
+    let errorSpy;
+    beforeEach(() => {
+        jest.useFakeTimers();
+        errorSpy = jest.spyOn(gameLogger, 'error').mockImplementation(() => {});
+    });
+    afterEach(() => {
+        errorSpy.mockRestore();
+        jest.useRealTimers();
+    });
+
+    test('the same key replaces the earlier timer', async () => {
+        const g = gameIn(Phase.PLAYING);
+        const calls = [];
+        g.setTimer('k', 1000, () => calls.push('first'));
+        g.setTimer('k', 1000, () => calls.push('second'));
+        expect(g.pendingTimerCount).toBe(1);
+        await jest.advanceTimersByTimeAsync(1000);
+        expect(calls).toEqual(['second']);
+        expect(g.pendingTimerCount).toBe(0);
+    });
+
+    test('the callback is skipped after terminate and the timer is cancelled', async () => {
+        const g = gameIn(Phase.PLAYING);
+        const fn = jest.fn();
+        g.setTimer('k', 1000, fn);
+        g.terminate(null, Phase.ABORTED);
+        expect(g.pendingTimerCount).toBe(0);
+        await jest.advanceTimersByTimeAsync(5000);
+        expect(fn).not.toHaveBeenCalled();
+        expect(g.setTimer('k2', 10, fn)).toBe(false);
+        await jest.advanceTimersByTimeAsync(100);
+        expect(fn).not.toHaveBeenCalled();
+    });
+
+    test('sync and async throws are logged, not thrown', async () => {
+        const g = gameIn(Phase.PLAYING);
+        g.setTimer('sync', 10, () => { throw new Error('boom-sync'); });
+        g.setTimer('async', 10, async () => { throw new Error('boom-async'); });
+        await jest.advanceTimersByTimeAsync(10);
+        const messages = errorSpy.mock.calls.map(([msg, meta]) => `${msg}:${meta.key}:${meta.error}`);
+        expect(messages).toEqual(expect.arrayContaining([
+            'Game timer failed:sync:boom-sync',
+            'Game timer failed:async:boom-async',
+        ]));
+    });
+
+    test('clearTimer and hasTimer', async () => {
+        const g = gameIn(Phase.PLAYING);
+        const fn = jest.fn();
+        g.setTimer('k', 1000, fn);
+        expect(g.hasTimer('k')).toBe(true);
+        g.clearTimer('k');
+        g.clearTimer('missing');
+        expect(g.hasTimer('k')).toBe(false);
+        expect(g.pendingTimerCount).toBe(0);
+        await jest.advanceTimersByTimeAsync(2000);
+        expect(fn).not.toHaveBeenCalled();
+    });
 });
 
 describe('wire projections', () => {
@@ -348,6 +473,14 @@ describe('validateGameState', () => {
             expect(result.valid).toBe(false);
             expect(result.errors.length).toBeGreaterThan(0);
         }
+    });
+
+    test('terminal stages require no pending timers', () => {
+        const g = gameIn(Phase.ABORTED);
+        expect(g.validateGameState().valid).toBe(true);
+        g._timers.set('leak', setTimeout(() => {}, 0));
+        expect(g.validateGameState().valid).toBe(false);
+        clearTimeout(g._timers.get('leak'));
     });
 
     test('BAB_FSM_CHECK=1 reports invariant violations on transition', () => {
