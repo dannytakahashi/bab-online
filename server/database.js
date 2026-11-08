@@ -124,7 +124,7 @@ async function ensureUsernameIndex(collection) {
     try {
         await collection.createIndex({ username: 1 }, { unique: true });
     } catch (error) {
-        dbLogger.warn("Could not create unique index on users.username; continuing without it. " +
+        dbLogger.warn("Could not create unique index on users.username; continuing (with a non-unique fallback index on duplicates). " +
             "Remove the duplicate username documents and restart to enable it.",
             { error: error.message, code: error.code });
         if (error.code === 11000) {

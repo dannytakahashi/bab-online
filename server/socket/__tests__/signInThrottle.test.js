@@ -91,6 +91,21 @@ test('a map full of lockouts refuses new keys instead of evicting one', () => {
     expect(throttle.check({ ip: '4.4.4.4', username: 'full0' }).ok).toBe(true);
 });
 
+test('a known-good pair still signs in when the pair map is full of lockouts', () => {
+    const { MAX_KEYS, LIMITS } = throttle;
+    const home = { ip: '5.5.5.5', username: 'Mom' };
+    throttle.recordSuccess(home); // signed in before; its pair key is cleared
+    // 1000 IPs x 5 junk usernames x 10 failures: every pair key at its limit
+    for (let i = 0; i < MAX_KEYS / 5; i++) {
+        for (let u = 0; u < 5; u++) fail({ ip: `198.18.${i >> 8}.${i & 255}`, username: `junk${u}` }, LIMITS.pair);
+    }
+    expect(throttle.check({ ip: '6.6.6.6', username: 'Dad' }).ok).toBe(false); // fail closed
+    expect(throttle.check(home).ok).toBe(true); // known-good goes through
+    // ...uncounted (no key stored), so its typos cannot add a lockout either
+    throttle.recordFailure(home);
+    expect(throttle.check(home).ok).toBe(true);
+});
+
 test('a known-good pair skips the username key; the pair and IP keys still apply', () => {
     const home = { ip: '203.0.113.10', username: 'Mom' };
     throttle.recordSuccess(home);

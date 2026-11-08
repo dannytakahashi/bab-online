@@ -33,7 +33,8 @@
  * when a map reaches 5000 keys. A flood never evicts a lockout: only keys
  * below their limit are evicted (fewest failures first), and when every
  * key is at its limit a NEW key is refused (check() fails closed for that
- * attempt) instead of making room.
+ * attempt) instead of making room. A known-good pair is never refused for
+ * saturation; its attempt just goes uncounted.
  */
 
 const WINDOW_MS = 15 * 60 * 1000;
@@ -78,9 +79,9 @@ function isKnownGood({ ip, username }, now) {
 }
 
 /** The keys check() enforces for this attempt. */
-function checkedKeys(who, now) {
+function checkedKeys(who, now, good = isKnownGood(who, now)) {
     let keys = accountKeys(who);
-    if (isKnownGood(who, now)) keys = keys.filter(([kind]) => kind !== 'user');
+    if (good) keys = keys.filter(([kind]) => kind !== 'user');
     if (who.ip) keys.push(['ip', who.ip]);
     return keys;
 }
@@ -144,15 +145,18 @@ function remove(kind, key, at) {
  */
 function check(who) {
     const now = Date.now();
+    const good = isKnownGood(who, now);
     let retryAfterMs = 0;
-    for (const [kind, key] of checkedKeys(who, now)) {
+    for (const [kind, key] of checkedKeys(who, now, good)) {
         const list = live(kind, key, now);
         if (list) {
             if (list.length >= LIMITS[kind]) {
                 retryAfterMs = Math.max(retryAfterMs, list[0] + WINDOW_MS - now);
             }
-        } else if (!makeRoom(kind, now)) {
-            // A new key with no room left (every key is a lockout): fail closed
+        } else if (!makeRoom(kind, now) && !good) {
+            // A new key with no room left (every key is a lockout): fail closed,
+            // except for a known-good pair, which goes through without a stored
+            // key so a flood can never lock out a household that signed in before
             retryAfterMs = Math.max(retryAfterMs, SATURATED_RETRY_MS);
         }
     }
