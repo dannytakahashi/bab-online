@@ -38,6 +38,7 @@ const gameLifecycle = require('../gameLifecycle');
 const ambient = require('../../demo/ambientBots');
 const { botController } = require('../../game/bot');
 const { Phase } = require('../../game/GamePhase');
+const pacing = require('../../game/pacing');
 const { makeIo, makeSocket, events, legalCards, resignedSeat } = require('../../testUtils/gameDriver');
 
 const C = (rank, suit) => ({ rank, suit });
@@ -159,7 +160,7 @@ describe('1. abort during trick resolution', () => {
         const plays = [];
         for (let i = 0; i < 4; i++) plays.push(gameHandlers.playCard(sockets[i], io, { card: game.getHand(ids[i])[0] }));
         expect(game.stage).toBe(Phase.TRICK_RESOLVING);
-        await jest.advanceTimersByTimeAsync(500);
+        await jest.advanceTimersByTimeAsync(pacing().TRICK_VIEW_MS / 2);
 
         const mark = log.length;
         await gameLifecycle.abortGame(io, game, 'test');
@@ -211,13 +212,14 @@ describe('2. abort in each handleDrawComplete window', () => {
         });
     });
 
+    // Midway through each hold (pacing.js), read at run time
     test.each([
-        ['the first 1s pause', 300, 'positionUpdate', 0],
-        ['the second 1s pause', 1300, 'positionUpdate', 1],
-        ['the 3s team announcement', 2500, 'teamsAnnounced', 1],
+        ['the draw reveal', (p) => p.DRAW_REVEAL_MS / 2, 'positionUpdate', 0],
+        ['the seating hold', (p) => p.DRAW_REVEAL_MS + p.SEATING_TO_TEAMS_MS / 2, 'positionUpdate', 1],
+        ['the team announcement', (p) => p.DRAW_REVEAL_MS + p.SEATING_TO_TEAMS_MS + p.TEAMS_MS / 2, 'teamsAnnounced', 1],
     ])('during %s', async (_name, at, event, count) => {
         const { log } = await runWindow(() => ({
-            reach: async () => { await jest.advanceTimersByTimeAsync(at); },
+            reach: async () => { await jest.advanceTimersByTimeAsync(at(pacing())); },
         }));
         expect(events(log, event)).toHaveLength(count);
     });
@@ -293,7 +295,7 @@ describe('3. abort during the lobby countdown', () => {
         gameManager.createLobby(ids);
         const ready = sockets.map((s) => lobbyHandlers.playerReady(s, io));
 
-        await jest.advanceTimersByTimeAsync(1500 + 500); // game created, inside the 2s pause
+        await jest.advanceTimersByTimeAsync(pacing().LOBBY_START_MS + pacing().PREDRAW_COUNTDOWN_MS / 2); // game created, inside the countdown
         const game = gameManager.getPlayerGame(ids[0]);
         expect(game.stage).toBe(Phase.CREATED);
 
@@ -699,7 +701,7 @@ describe('12. departures during the lobby countdown (CREATED)', () => {
         const lobby = gameManager.createLobby(ids);
         for (let i = humans; i < 4; i++) gameManager.addBotToLobby(lobby.id);
         const ready = sockets.map((s) => lobbyHandlers.playerReady(s, io));
-        await jest.advanceTimersByTimeAsync(1500 + 500);
+        await jest.advanceTimersByTimeAsync(pacing().LOBBY_START_MS + pacing().PREDRAW_COUNTDOWN_MS / 2);
         const game = gameManager.getPlayerGame(ids[0]);
         expect(game.stage).toBe(Phase.CREATED);
         return { io, log, ids, sockets, game, ready };
@@ -713,7 +715,7 @@ describe('12. departures during the lobby countdown (CREATED)', () => {
         expect(nullPositionEvents(log)).toEqual([]);
         expect(events(log, 'playerDisconnected')).toHaveLength(0);
 
-        await jest.advanceTimersByTimeAsync(1600); // beginDraw
+        await jest.advanceTimersByTimeAsync(pacing().PREDRAW_COUNTDOWN_MS / 2 + 100); // beginDraw
         expect(events(log, 'startDraw')).toHaveLength(1);
         expect(events(log, 'playerDrew').map((l) => l.data.socketId)).toEqual([ids[0]]);
         const pending = [1, 2, 3].map((i) => gameHandlers.draw(sockets[i], io, { num: 0 }));
@@ -735,7 +737,7 @@ describe('12. departures during the lobby countdown (CREATED)', () => {
         expect(log.some((l) => l.to === `self:${ids[0]}` && l.event === 'leftGame')).toBe(true);
         expect(gameManager.playerGames.has(ids[0])).toBe(false);
 
-        await jest.advanceTimersByTimeAsync(1600);
+        await jest.advanceTimersByTimeAsync(pacing().PREDRAW_COUNTDOWN_MS / 2 + 100);
         const pending = [1, 2, 3].map((i) => gameHandlers.draw(sockets[i], io, { num: 0 }));
         await advanceUntil(() => game.stage === Phase.BIDDING, 50);
         await jest.advanceTimersByTimeAsync(1000);

@@ -7,7 +7,7 @@
     "v": 2,
     "gameId": "00000000-0000-4000-8000-000000000002",
     "seq": 20,
-    "serverTime": 1767268871000,
+    "serverTime": 1767268870000,
     "stage": "BIDDING",
     "partial": [],
     "viewer": {
@@ -144,7 +144,7 @@
         "lazy": false,
         "offered": true,
         "graceDeadline": null,
-        "resignableAt": 1767268870000,
+        "resignableAt": 1767268869000,
         "cardsInHand": 12
       },
       {
@@ -159,7 +159,7 @@
         "isBot": false,
         "lazy": false,
         "offered": false,
-        "graceDeadline": 1767268931000,
+        "graceDeadline": 1767268930000,
         "resignableAt": null,
         "cardsInHand": 12
       },
@@ -205,31 +205,31 @@
         "message": "Game started!",
         "type": "system",
         "position": null,
-        "at": 1767268808500
+        "at": 1767268807500
       },
       {
         "message": "sid disconnected. Waiting for reconnection...",
         "type": "system",
         "position": null,
-        "at": 1767268810000
+        "at": 1767268809000
       },
       {
         "message": "sid failed to reconnect. You may replace them with a bot.",
         "type": "system",
         "position": null,
-        "at": 1767268870000
+        "at": 1767268869000
       },
       {
         "message": "quin disconnected. Waiting for reconnection...",
         "type": "system",
         "position": null,
-        "at": 1767268871000
+        "at": 1767268870000
       },
       {
         "message": "tess entered lazy mode. 🤖 Mary is playing.",
         "type": "system",
         "position": null,
-        "at": 1767268871000
+        "at": 1767268870000
       }
     ],
     "resume": null

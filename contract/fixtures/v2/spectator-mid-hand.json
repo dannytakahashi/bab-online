@@ -7,7 +7,7 @@
     "v": 2,
     "gameId": "00000000-0000-4000-8000-000000000002",
     "seq": 25,
-    "serverTime": 1767268810000,
+    "serverTime": 1767268809000,
     "stage": "PLAYING",
     "partial": [
       "customPics"
@@ -171,37 +171,37 @@
         "message": "kim reconnected.",
         "type": "system",
         "position": null,
-        "at": 1767268805500
+        "at": 1767268804500
       },
       {
         "message": "Game started!",
         "type": "system",
         "position": null,
-        "at": 1767268808500
+        "at": 1767268807500
       },
       {
         "message": "kim bid 1.",
         "type": "bid",
         "position": 2,
-        "at": 1767268810000
+        "at": 1767268809000
       },
       {
         "message": "hal bid 4.",
         "type": "bid",
         "position": 3,
-        "at": 1767268810000
+        "at": 1767268809000
       },
       {
         "message": "jon bid 1.",
         "type": "bid",
         "position": 4,
-        "at": 1767268810000
+        "at": 1767268809000
       },
       {
         "message": "ivy bid 2.",
         "type": "bid",
         "position": 1,
-        "at": 1767268810000
+        "at": 1767268809000
       }
     ],
     "resume": null

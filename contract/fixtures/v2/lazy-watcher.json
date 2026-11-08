@@ -7,7 +7,7 @@
     "v": 2,
     "gameId": "00000000-0000-4000-8000-000000000002",
     "seq": 18,
-    "serverTime": 1767268810000,
+    "serverTime": 1767268809000,
     "stage": "BIDDING",
     "partial": [],
     "viewer": {
@@ -205,31 +205,31 @@
         "message": "Game started!",
         "type": "system",
         "position": null,
-        "at": 1767268808500
+        "at": 1767268807500
       },
       {
         "message": "max bid B.",
         "type": "bid",
         "position": 2,
-        "at": 1767268810000
+        "at": 1767268809000
       },
       {
         "message": "pat bid 1.",
         "type": "bid",
         "position": 3,
-        "at": 1767268810000
+        "at": 1767268809000
       },
       {
         "message": "ora entered lazy mode. 🤖 Sharon is playing.",
         "type": "system",
         "position": null,
-        "at": 1767268810000
+        "at": 1767268809000
       },
       {
         "message": "max entered lazy mode. 🤖 Mary is playing.",
         "type": "system",
         "position": null,
-        "at": 1767268810000
+        "at": 1767268809000
       }
     ],
     "resume": null

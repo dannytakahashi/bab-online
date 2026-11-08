@@ -15,6 +15,7 @@ const mainRoomHandlers = require('../socket/mainRoomHandlers');
 const lobbyHandlers = require('../socket/lobbyHandlers');
 const Deck = require('../game/Deck');
 const { Phase } = require('../game/GamePhase');
+const pacing = require('../game/pacing');
 const { botController } = require('../game/bot');
 const { makeIo, makeSocket, events, legalCards, legalBids, mulberry32 } = require('./gameDriver');
 const { advanceUntil } = require('./tournamentDriver');
@@ -180,10 +181,10 @@ async function playF1({ errorLogs = [], hooks = {}, seed = 8 } = {}) {
     await lobbyHandlers.playerReady(socks[3], w.io);
     lobbyHandlers.playerUnready(socks[3], w.io);
     const starting = socks.map((s) => lobbyHandlers.playerReady(s, w.io));
-    await jest.advanceTimersByTimeAsync(1500);
+    await jest.advanceTimersByTimeAsync(pacing().LOBBY_START_MS);
     const game = gameManager.getPlayerGame(socks[0].id);
     expect(game.stage).toBe(Phase.CREATED);
-    await jest.advanceTimersByTimeAsync(2000);
+    await jest.advanceTimersByTimeAsync(pacing().PREDRAW_COUNTDOWN_MS);
     expect(game.stage).toBe(Phase.DRAWING);
 
     // A rejoin during the draw is refused (pinned: §8, items 16/23)

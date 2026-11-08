@@ -27,7 +27,6 @@ const pacing = require('../../game/pacing');
 const { instrument } = require('../../testUtils/contractCheck');
 
 const C = (rank, suit) => ({ rank, suit });
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function makeIo(log) {
     instrument(log);
@@ -57,13 +56,17 @@ function setupGame(handSize, hands) {
 
 describe('pre-hand window (positions assigned, no hand dealt yet)', () => {
     test('/leave during team announcement does not crash a bot timer or record a phantom bid', async () => {
+        jest.useFakeTimers();
         const log = [];
         const io = makeIo(log);
         const { game, ids } = setupGame(12, null);
         game.forcePhase('TEAMS_ANNOUNCED'); // handleDrawComplete window: trump still null
 
         chatHandlers.chatMessage(makeSocket(ids[0], log), io, { message: '/leave' });
-        await sleep(2600); // past the lazy/bot action delay
+        const p = pacing();
+        // past every bot think range (pacing.js)
+        await jest.advanceTimersByTimeAsync(Math.max(...[p.BOT_FIRST_BID, p.BOT_BID, p.BOT_PLAY, p.BOT_LEAD_AFTER_TRICK].map(([a, b]) => a + b)) + 100);
+        jest.useRealTimers();
 
         expect(game.playerBids.filter((b) => b != null)).toEqual([]);
         expect(log.some((l) => l.event === 'bidReceived')).toBe(false);

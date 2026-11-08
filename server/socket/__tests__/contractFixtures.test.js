@@ -42,6 +42,7 @@ const lobbyHandlers = require('../lobbyHandlers');
 const tournamentHandlers = require('../tournamentHandlers');
 const snapshotHandlers = require('../snapshotHandlers');
 const { Phase } = require('../../game/GamePhase');
+const pacing = require('../../game/pacing');
 const { gameLogger, socketLogger, authLogger, logger } = require('../../utils/logger');
 const { legalCards, mulberry32, events } = require('../../testUtils/gameDriver');
 const { world } = require('../../testUtils/contractScenarios');
@@ -107,16 +108,16 @@ async function lobbyTable(w, names, { bots = 0, customPicUser = null } = {}) {
     for (const s of socks.slice(1)) mainRoomHandlers.joinLobby(s, w.io, { lobbyId });
     for (let i = 0; i < bots; i++) lobbyHandlers.addBot(socks[0], w.io);
     const starting = socks.map((s) => lobbyHandlers.playerReady(s, w.io));
-    await jest.advanceTimersByTimeAsync(1500);
+    await jest.advanceTimersByTimeAsync(pacing().LOBBY_START_MS);
     const game = gameManager.getPlayerGame(socks[0].id);
     return { socks, game, starting };
 }
 
 async function toBidding(w, t) {
-    await jest.advanceTimersByTimeAsync(2000);
+    await jest.advanceTimersByTimeAsync(pacing().PREDRAW_COUNTDOWN_MS);
     t.draws = t.socks.map((s) => gameHandlers.draw(s, w.io, { num: 0 }));
     await advanceUntil(() => t.game.stage === Phase.BIDDING, 100);
-    await jest.advanceTimersByTimeAsync(1500);
+    await jest.advanceTimersByTimeAsync(pacing().FIRST_HAND_TURN_MS + 500);
 }
 
 const owner = (w, game, pos) => w.sockets.get(game.seat(pos).ownerSocketId);
@@ -149,7 +150,7 @@ describe('snapshot v2 fixtures from real games', () => {
         Math.random = mulberry32(102);
         const w = world('fx-draw');
         const t = await lobbyTable(w, ['eve', 'fay', 'gus'], { bots: 1 });
-        await jest.advanceTimersByTimeAsync(2000);
+        await jest.advanceTimersByTimeAsync(pacing().PREDRAW_COUNTDOWN_MS);
         expect(t.game.stage).toBe(Phase.DRAWING);
         // Bot entrants are named before they draw: the name playerDrew shows
         const early = snapshotHandlers.snapshotFor(t.game, t.socks[0].id);
@@ -176,7 +177,7 @@ describe('snapshot v2 fixtures from real games', () => {
         const w = world('fx-hand');
         const t = await lobbyTable(w, ['hal', 'ivy', 'jon', 'kim'], { customPicUser: 'kim' });
         const { game } = t;
-        await jest.advanceTimersByTimeAsync(2000);
+        await jest.advanceTimersByTimeAsync(pacing().PREDRAW_COUNTDOWN_MS);
         t.draws = t.socks.map((s) => gameHandlers.draw(s, w.io, { num: 0 }));
         await advanceUntil(() => game.stage === Phase.TEAMS_ANNOUNCED, 50);
         const who = game.seat(2).ownerUsername;
@@ -235,7 +236,8 @@ describe('snapshot v2 fixtures from real games', () => {
         const tr = ask(w, spec, 'trick-resolving', 'A spectator asks while the 4th card is on the table (TRICK_RESOLVING): 4 cards, no turn.');
         expect(tr.trick.cards).toHaveLength(4);
         expect(tr.turn).toBeNull();
-        await jest.advanceTimersByTimeAsync(2000);
+        expect(tr.resume).toEqual({ kind: 'trick', inMs: pacing().TRICK_VIEW_MS });
+        await jest.advanceTimersByTimeAsync(pacing().TRICK_VIEW_MS);
         expect(game.stage).toBe(Phase.PLAYING);
         const bt = ask(w, owner(w, game, 1), 'between-tricks', 'Seat 1 asks between tricks: no card down, no lead; turn = the last trick winner.');
         expect(bt.trick).toMatchObject({ cards: [], leadPosition: null });

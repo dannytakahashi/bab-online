@@ -172,10 +172,98 @@ async function measure(seeds, opts) {
     return { runs, mean: sum((r) => r.total) / runs.length, components };
 }
 
+/**
+ * The smallest observed gap (ms) of every transition a client renders,
+ * from the emit timestamps of one runGame result (room broadcasts plus the
+ * human's own gameStart). Keys match pacing.SHIPPED_IOS_FLOORS' reasons.
+ */
+function gapMins({ log, game, humanPos }) {
+    const mins = {};
+    const gap = (k, ms) => { mins[k] = Math.min(mins[k] ?? Infinity, ms); };
+    const isBot = (pos) => pos !== humanPos;
+    let draws = 0;
+    let lastDraw = null;
+    let teamsAt = null;
+    let dealAt = null;
+    let firstBidOfDeal = true;
+    let lastBidAt = null;
+    let doneBiddingAt = null;
+    let trickCards = 0;
+    let lastCardAt = null;
+    let fourthAt = null;
+    let trickDoneAt = null;
+    let lastTrickAt = null;
+    let handGap = null;
+    for (const l of log) {
+        const room = l.to === game.roomName;
+        const own = l.event === 'gameStart' && l.data && l.data.gameId === game.gameId && l.data.position !== undefined; // the seat variant (hands are live arrays)
+        if (!room && !own) continue;
+        const d = l.data || {};
+        switch (l.event) {
+            case 'playerDrew':
+                draws++;
+                if (draws === 4) lastDraw = l.at;
+                break;
+            case 'teamsAnnounced':
+                if (lastDraw !== null) gap('drawToTeams', l.at - lastDraw);
+                teamsAt = l.at;
+                break;
+            case 'gameStart':
+                if (teamsAt !== null) { gap('teamsToGameStart', l.at - teamsAt); teamsAt = null; }
+                if (handGap !== null) { gap('handEnd', handGap); handGap = null; }
+                dealAt = l.at;
+                firstBidOfDeal = true;
+                trickCards = 0;
+                break;
+            case 'bidReceived':
+                if (isBot(d.position)) {
+                    if (firstBidOfDeal && dealAt !== null) gap('firstBotBid', l.at - dealAt);
+                    else if (!firstBidOfDeal && lastBidAt !== null) gap('bidToBid', l.at - lastBidAt);
+                }
+                firstBidOfDeal = false;
+                lastBidAt = l.at;
+                break;
+            case 'doneBidding':
+                doneBiddingAt = l.at;
+                break;
+            case 'cardPlayed':
+                if (trickCards === 0) {
+                    if (isBot(d.position) && doneBiddingAt !== null) gap('doneBiddingToLead', l.at - doneBiddingAt);
+                    else if (isBot(d.position) && trickDoneAt !== null) gap('trickCompleteToLead', l.at - trickDoneAt);
+                } else if (isBot(d.position)) {
+                    gap('cardToBotCard', l.at - lastCardAt);
+                }
+                doneBiddingAt = null;
+                trickDoneAt = null;
+                trickCards++;
+                lastCardAt = l.at;
+                if (trickCards === 4) fourthAt = l.at;
+                break;
+            case 'trickComplete':
+                if (fourthAt !== null) gap('trickView', l.at - fourthAt);
+                trickCards = 0;
+                if (Number.isFinite(d.resumeInMs)) { lastTrickAt = l.at; trickDoneAt = null; } else trickDoneAt = l.at;
+                break;
+            case 'handComplete':
+                // handEnd or gameEnd, decided by what follows in the same tick
+                if (lastTrickAt !== null) handGap = l.at - lastTrickAt;
+                lastTrickAt = null;
+                break;
+            case 'gameEnd':
+                if (handGap !== null) gap('gameEnd', handGap);
+                handGap = null;
+                break;
+            default:
+                break;
+        }
+    }
+    return mins;
+}
+
 /** One printable row per component, in seconds. */
 function report(title, m) {
     const rows = Object.entries(m.components).map(([k, v]) => `  ${k.padEnd(22)} ${(v / 1000).toFixed(1).padStart(7)} s`);
     return `${title}: mean ${(m.mean / 1000).toFixed(1)} s over ${m.runs.length} games\n${rows.join('\n')}`;
 }
 
-module.exports = { runGame, measure, report };
+module.exports = { runGame, measure, report, gapMins };
