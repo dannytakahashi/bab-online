@@ -245,12 +245,15 @@ function joinAsSpectator(socket, io, data) {
         return;
     }
 
+    // A pure spectator (of one game at a time), in the game's room
+    if (!gameManager.addSpectator(io, game, socket.id, user.username, null)) {
+        socketLogger.warn('Spectate refused: socket is in a game', { socketId: socket.id, gameId });
+        return;
+    }
+
     // Leave main room
     socket.leave('mainRoom');
     gameManager.leaveMainRoom(socket.id);
-
-    // A pure spectator (of one game at a time), in the game's room
-    gameManager.addSpectator(io, game, socket.id, user.username, null);
 
     // Build player info for the spectator
     const playerInfo = [];

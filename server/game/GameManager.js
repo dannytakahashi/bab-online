@@ -731,15 +731,19 @@ class GameManager {
     }
 
     /**
-     * Make `socketId` a pure spectator of `game` (never a seat owner): it
-     * first stops spectating any other game, then joins this game's room.
+     * Make `socketId` a pure spectator of `game`: it first stops spectating
+     * any other game, then joins this game's room. Refused (false) for a
+     * socket mapped to a game (an entrant, a seat owner or a bot).
+     * @returns {boolean}
      */
     addSpectator(io, game, socketId, username, pic = null) {
+        if (this.playerGames.has(socketId)) return false;
         const current = this.spectatorGames.get(socketId);
         if (current && current !== game.gameId) this.leaveSpectating(io, socketId);
         game.addSpectator(socketId, username, pic);
         if (io) game.joinToRoom(io, socketId);
         this.spectatorGames.set(socketId, game.gameId);
+        return true;
     }
 
     /**

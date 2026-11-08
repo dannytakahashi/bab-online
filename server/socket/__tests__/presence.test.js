@@ -770,3 +770,16 @@ describe('lazy seat chat', () => {
         ]);
     });
 });
+
+describe('a socket in a game is never also a pure spectator', () => {
+    test('a seated owner asking to spectate its own (or another) game is refused', () => {
+        const t = table();
+        const other = table();
+        mainRoomHandlers.joinAsSpectator(t.sockets[1], t.io, { gameId: t.game.gameId });
+        mainRoomHandlers.joinAsSpectator(t.sockets[1], t.io, { gameId: other.game.gameId });
+        expect(t.game.isSpectator(t.sockets[1].id)).toBe(false);
+        expect(other.game.isSpectator(t.sockets[1].id)).toBe(false);
+        expect(gameManager.spectatorGames.has(t.sockets[1].id)).toBe(false);
+        expect(t.game.seat(1).ownerSocketId).toBe(t.sockets[1].id);
+    });
+});

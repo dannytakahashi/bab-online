@@ -606,7 +606,10 @@ function spectateTournamentGame(socket, io, data) {
     }
 
     // A pure spectator of this one game (leaves any other game it watched)
-    gameManager.addSpectator(io, game, socket.id, user.username, null);
+    if (!gameManager.addSpectator(io, game, socket.id, user.username, null)) {
+        socketLogger.warn('Spectate refused: socket is in a game', { socketId: socket.id, gameId });
+        return;
+    }
 
     // Build player info
     const playerInfo = [];
