@@ -18,8 +18,12 @@ class RateLimiter {
             chatMessage: { max: 10, windowMs: 10000 }, // 10 per 10 seconds
 
             // Game actions - reasonable limits for gameplay
-            playCard: { max: 20, windowMs: 60000 },    // 20 per minute
-            playerBid: { max: 10, windowMs: 60000 },   // 10 per minute
+            // An over-limit play gets `error` and no actionRejected, which loses
+            // the card on the shipped iOS app: keep these far above real play.
+            // The fastest trick (pacing.js) is about 2.4 s, so about 25 plays a
+            // minute per seat; 90 leaves room for a one-socket Duo (about 50)
+            playCard: { max: 90, windowMs: 60000 },
+            playerBid: { max: 30, windowMs: 60000 },
             draw: { max: 10, windowMs: 60000 },        // 10 per minute
 
             // Snapshot v2 resync requests (clients debounce; README R5)
