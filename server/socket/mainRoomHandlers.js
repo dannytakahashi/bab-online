@@ -7,6 +7,7 @@ const gameManager = require('../game/GameManager');
 const { socketLogger } = require('../utils/logger');
 const { Controller, Presence } = require('../game/SeatState');
 const seatLifecycle = require('./seatLifecycle');
+const { spectatorJoinState, snapshotFor } = require('./snapshotHandlers');
 
 /**
  * Handle player joining the main room
@@ -256,38 +257,11 @@ function joinAsSpectator(socket, io, data) {
     socket.leave('mainRoom');
     gameManager.leaveMainRoom(socket.id);
 
-    // Build player info for the spectator
-    const playerInfo = [];
-    for (let pos = 1; pos <= 4; pos++) {
-        const player = game.getPlayerByPosition(pos);
-        if (player) {
-            playerInfo.push({
-                position: pos,
-                username: player.username,
-                pic: player.pic,
-                socketId: player.socketId
-            });
-        }
-    }
-
-    // Send spectator join success with game state (but no hand!)
+    // Send spectator join success with game state (but no hand!), then the
+    // v2 snapshot (additive), BEFORE the room notice
     socket.emit('spectatorJoined', {
-        gameId: game.gameId,
-        players: playerInfo,
-        trump: game.trump,
-        currentHand: game.currentHand,
-        dealer: game.dealer,
-        phase: game.phase,
-        bidding: game.bidding,
-        currentTurn: game.currentTurn,
-        bids: game.bids,
-        playerBids: game.playerBids,
-        tricks: game.tricks,
-        score: game.score,
-        playedCards: game.playedCards,
-        isTrumpBroken: game.isTrumpBroken,
-        gameLog: game.getGameLog(),
-        spectatorCount: game.getSpectators().length
+        ...spectatorJoinState(game),
+        snapshot: snapshotFor(game, socket.id, { customPics: false })
     });
 
     // Notify other players

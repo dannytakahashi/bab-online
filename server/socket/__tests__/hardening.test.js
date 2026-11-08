@@ -22,11 +22,14 @@ const gameHandlers = require('../gameHandlers');
 const chatHandlers = require('../chatHandlers');
 const reconnectHandlers = require('../reconnectHandlers');
 const { isValidBid } = require('../../game/rules');
+// Every emit here is contract-checked like the gameDriver suites
+const { instrument } = require('../../testUtils/contractCheck');
 
 const C = (rank, suit) => ({ rank, suit });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function makeIo(log) {
+    instrument(log);
     return {
         to: (room) => ({ emit: (event, data) => log.push({ to: room, event, data }) }),
         emit: () => {},
@@ -35,6 +38,7 @@ function makeIo(log) {
 }
 
 function makeSocket(id, log) {
+    instrument(log);
     return { id, emit: (event, data) => log.push({ to: `self:${id}`, event, data }), join() {}, leave() {} };
 }
 

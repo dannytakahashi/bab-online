@@ -90,6 +90,7 @@ function leaveQueue(socket, io) {
 async function handleDisconnect(socket, io) {
     // Resolve the name before the socket's entry can go away
     const user = gameManager.getUserBySocketId(socket.id);
+    const onlineBefore = gameManager.getOnlineUsernames().length;
     const result = gameManager.handleDisconnect(socket.id);
 
     // Leave main room Socket.IO room
@@ -131,6 +132,18 @@ async function handleDisconnect(socket, io) {
     // Last: the routing above resolves names from the entrant / seat, not
     // from this (now dead) socket. Offline users drop out of the online list.
     gameManager.removeUserSocket(socket.id);
+
+    // The user's last socket is gone: the main room's online count and list
+    // shrink (new event; current clients keep their stale count, ctr-21). A
+    // sign-out that keeps the socket open is not covered.
+    const onlineUsers = gameManager.getOnlineUsernames();
+    if (user && onlineUsers.length < onlineBefore) {
+        io.to('mainRoom').emit('mainRoomPlayerLeft', {
+            username: user.username,
+            onlineCount: onlineUsers.length,
+            onlineUsers
+        });
+    }
 }
 
 /** Route an in-game socket's disconnect to its entrant or seat-owner transition. */

@@ -34,6 +34,14 @@ const LEGACY_SPECTATOR_KEYS = [
     'bids', 'playerBids', 'tricks', 'score', 'playedCards', 'isTrumpBroken', 'gameLog', 'spectatorCount'
 ].sort();
 
+// CHANGED (snapshot v2, additive): the full state gains `snapshot` (read by
+// neither shipped client) and leadPosition / trumpBroken / teamTricks /
+// oppTricks (iOS restoreFromSpectator reads them: the App Store build reads
+// the last three, so its spectator view changes as a fix; leadPosition only
+// from 10d1538 source builds; web reads none). The legacy keys above are
+// unchanged.
+const ADDITIVE_SPECTATOR_KEYS = ['snapshot', 'leadPosition', 'trumpBroken', 'teamTricks', 'oppTricks'];
+
 const GOLDEN = {
     CREATED: { phase: 'waiting', bidding: true },
     DRAWING: { phase: 'drawing', bidding: true },
@@ -105,9 +113,16 @@ describe('getClientState golden table (forcePhase fixtures)', () => {
         mainRoomHandlers.joinAsSpectator(spec, io, { gameId: game.gameId });
 
         const joined = log.find((l) => l.to === `self:${spec.id}` && l.event === 'spectatorJoined');
-        expect(Object.keys(joined.data).sort()).toEqual(LEGACY_SPECTATOR_KEYS);
+        expect(Object.keys(joined.data).sort()).toEqual([...LEGACY_SPECTATOR_KEYS, ...ADDITIVE_SPECTATOR_KEYS].sort());
         expect(joined.data.phase).toBe('bidding');
         expect(joined.data.bidding).toBe(false);
+        // The additive keys the shipped iOS spectator restore reads
+        expect(joined.data).toMatchObject({
+            leadPosition: game.leadPosition,
+            trumpBroken: game.isTrumpBroken,
+            teamTricks: game.tricks.team1,
+            oppTricks: game.tricks.team2,
+        });
     });
 });
 

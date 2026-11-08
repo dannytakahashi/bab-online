@@ -1,0 +1,103 @@
+{
+  "name": "created-countdown",
+  "description": "An entrant asks during the pre-draw countdown (CREATED): no seats yet, entrants listed, empty draw.",
+  "capturedFrom": "stateSnapshot",
+  "viewerRole": "entrant",
+  "snapshot": {
+    "v": 2,
+    "gameId": "00000000-0000-4000-8000-000000000002",
+    "seq": 0,
+    "serverTime": 1767268801500,
+    "stage": "CREATED",
+    "partial": [],
+    "viewer": {
+      "role": "entrant",
+      "position": null,
+      "ownerView": null,
+      "canAct": false
+    },
+    "hand": null,
+    "deal": null,
+    "trump": null,
+    "trumpBroken": false,
+    "turn": null,
+    "bids": {
+      "byPosition": [
+        null,
+        null,
+        null,
+        null
+      ],
+      "order": [
+        2,
+        3,
+        4,
+        1
+      ],
+      "teamBids": null,
+      "mults": {
+        "team1": 1,
+        "team2": 1
+      }
+    },
+    "trick": {
+      "number": null,
+      "leadPosition": null,
+      "cards": []
+    },
+    "tricks": {
+      "team1": 0,
+      "team2": 0
+    },
+    "tricksByPosition": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "score": {
+      "team1": 0,
+      "team2": 0
+    },
+    "rainbows": {
+      "team1": 0,
+      "team2": 0
+    },
+    "hsi": null,
+    "seats": [],
+    "entrants": [
+      {
+        "username": "ann",
+        "isBot": false,
+        "presence": "connected",
+        "hasDrawn": false
+      },
+      {
+        "username": "bob",
+        "isBot": false,
+        "presence": "connected",
+        "hasDrawn": false
+      },
+      {
+        "username": "cat",
+        "isBot": false,
+        "presence": "connected",
+        "hasDrawn": false
+      },
+      {
+        "username": "dan",
+        "isBot": false,
+        "presence": "connected",
+        "hasDrawn": false
+      }
+    ],
+    "draw": {
+      "deckRemaining": null,
+      "drawn": [],
+      "viewerDrawOrder": null
+    },
+    "spectatorCount": 0,
+    "tournament": null,
+    "log": []
+  }
+}

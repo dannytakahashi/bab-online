@@ -15,7 +15,11 @@
         "test:watch": "jest --watch",
         "test:coverage": "jest --coverage",
         "build:atlas": "node scripts/build-atlas.js",
-        "sim": "node server/game/bot/sim/simulate.js"
+        "sim": "node server/game/bot/sim/simulate.js",
+        "contract:gen": "node contract/gen.js",
+        "contract:check": "node contract/gen.js --check",
+        "contract:fixtures": "UPDATE_CONTRACT_FIXTURES=1 jest server/socket/__tests__/contractFixtures.test.js",
+        "test:contract": "CHAOS_SEEDS=1500 jest server/socket/__tests__/chaos.test.js server/socket/__tests__/tournamentLifecycle.test.js server/socket/__tests__/contract.test.js"
     },
     "dependencies": {
         "bcryptjs": "^3.0.2",
@@ -40,14 +44,16 @@
     "jest": {
         "testEnvironment": "node",
         "roots": [
-            "<rootDir>/server"
+            "<rootDir>/server",
+            "<rootDir>/contract"
         ],
         "testMatch": [
             "**/__tests__/**/*.js",
             "**/*.test.js"
         ],
         "setupFilesAfterEnv": [
-            "<rootDir>/server/testUtils/fsmGuard.js"
+            "<rootDir>/server/testUtils/fsmGuard.js",
+            "<rootDir>/server/testUtils/contractGuard.js"
         ],
         "coverageDirectory": "coverage",
         "collectCoverageFrom": [

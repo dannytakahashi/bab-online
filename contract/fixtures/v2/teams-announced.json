@@ -1,0 +1,186 @@
+{
+  "name": "teams-announced",
+  "description": "rejoinSuccess.snapshot of a rejoin during TEAMS_ANNOUNCED (v1 renders this window as a half-state; v2 has stage): draw positions filled, no deal yet.",
+  "capturedFrom": "rejoinSuccess",
+  "viewerRole": "seat",
+  "snapshot": {
+    "v": 2,
+    "gameId": "00000000-0000-4000-8000-000000000002",
+    "seq": 7,
+    "serverTime": 1767268805500,
+    "stage": "TEAMS_ANNOUNCED",
+    "partial": [
+      "customPics"
+    ],
+    "viewer": {
+      "role": "seat",
+      "position": 2,
+      "ownerView": "seat",
+      "canAct": false
+    },
+    "hand": [],
+    "deal": null,
+    "trump": null,
+    "trumpBroken": false,
+    "turn": null,
+    "bids": {
+      "byPosition": [
+        null,
+        null,
+        null,
+        null
+      ],
+      "order": [
+        2,
+        3,
+        4,
+        1
+      ],
+      "teamBids": null,
+      "mults": {
+        "team1": 1,
+        "team2": 1
+      }
+    },
+    "trick": {
+      "number": null,
+      "leadPosition": null,
+      "cards": []
+    },
+    "tricks": {
+      "team1": 0,
+      "team2": 0
+    },
+    "tricksByPosition": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "score": {
+      "team1": 0,
+      "team2": 0
+    },
+    "rainbows": {
+      "team1": 0,
+      "team2": 0
+    },
+    "hsi": null,
+    "seats": [
+      {
+        "position": 1,
+        "username": "ivy",
+        "pic": 11,
+        "hasCustomPic": false,
+        "customPic": null,
+        "ownerUsername": "ivy",
+        "controller": "human",
+        "presence": "connected",
+        "isBot": false,
+        "lazy": false,
+        "offered": false,
+        "graceDeadline": null,
+        "resignableAt": null,
+        "cardsInHand": 0
+      },
+      {
+        "position": 2,
+        "username": "kim",
+        "pic": null,
+        "hasCustomPic": true,
+        "customPic": null,
+        "ownerUsername": "kim",
+        "controller": "human",
+        "presence": "connected",
+        "isBot": false,
+        "lazy": false,
+        "offered": false,
+        "graceDeadline": null,
+        "resignableAt": null,
+        "cardsInHand": 0
+      },
+      {
+        "position": 3,
+        "username": "hal",
+        "pic": 10,
+        "hasCustomPic": false,
+        "customPic": null,
+        "ownerUsername": "hal",
+        "controller": "human",
+        "presence": "connected",
+        "isBot": false,
+        "lazy": false,
+        "offered": false,
+        "graceDeadline": null,
+        "resignableAt": null,
+        "cardsInHand": 0
+      },
+      {
+        "position": 4,
+        "username": "jon",
+        "pic": 12,
+        "hasCustomPic": false,
+        "customPic": null,
+        "ownerUsername": "jon",
+        "controller": "human",
+        "presence": "connected",
+        "isBot": false,
+        "lazy": false,
+        "offered": false,
+        "graceDeadline": null,
+        "resignableAt": null,
+        "cardsInHand": 0
+      }
+    ],
+    "entrants": null,
+    "draw": {
+      "deckRemaining": 50,
+      "drawn": [
+        {
+          "drawOrder": 1,
+          "username": "hal",
+          "isBot": false,
+          "card": {
+            "suit": "clubs",
+            "rank": "7"
+          },
+          "position": 3
+        },
+        {
+          "drawOrder": 2,
+          "username": "ivy",
+          "isBot": false,
+          "card": {
+            "suit": "diamonds",
+            "rank": "J"
+          },
+          "position": 1
+        },
+        {
+          "drawOrder": 3,
+          "username": "jon",
+          "isBot": false,
+          "card": {
+            "suit": "spades",
+            "rank": "2"
+          },
+          "position": 4
+        },
+        {
+          "drawOrder": 4,
+          "username": "kim",
+          "isBot": false,
+          "card": {
+            "suit": "clubs",
+            "rank": "4"
+          },
+          "position": 2
+        }
+      ],
+      "viewerDrawOrder": null
+    },
+    "spectatorCount": 0,
+    "tournament": null,
+    "log": []
+  }
+}

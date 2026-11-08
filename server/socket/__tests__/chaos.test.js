@@ -42,6 +42,8 @@ const GamePhase = require('../../game/GamePhase');
 const { botController } = require('../../game/bot');
 const { gameLogger, socketLogger, authLogger, logger } = require('../../utils/logger');
 const { makeIo, makeSocket, events, legalCards, legalBids, mulberry32 } = require('../../testUtils/gameDriver');
+const contractCheck = require('../../testUtils/contractCheck');
+const { watchSeq } = require('../../testUtils/seqCheck');
 
 const { Phase } = GamePhase;
 const SEEDS = Number(process.env.CHAOS_SEEDS) || 200;
@@ -103,8 +105,20 @@ function botPending(gameId) {
 /** Every (controller, presence, ownerSocketId) of the seats, for the "commands from outsiders change nothing" oracle. */
 const seatSnapshot = (game) => JSON.stringify(game.seatList().map((s) => [s.position, s.controller, s.presence, s.ownerSocketId]));
 
-/** One chaos run. Returns a failure description, or null. */
+/**
+ * One chaos run, with the seq invariants (testUtils/seqCheck.js) watched
+ * over all its emits. Returns a failure description, or {ok}.
+ */
 async function runSeed(seed) {
+    let seqWatch = null;
+    contractCheck.setContext(`chaos seed ${seed}`);
+    const result = await runSeedInner(seed, (io) => { seqWatch = watchSeq(io); });
+    const seqResult = seqWatch ? seqWatch.stop() : { failures: [] };
+    if (result.ok && seqResult.failures.length) return { seed, why: 'seq', failures: seqResult.failures.slice(0, 5) };
+    return result;
+}
+
+async function runSeedInner(seed, onIo) {
     errorLogs.length = 0;
     GamePhase.resetViolations();
     const rand = mulberry32(seed);
@@ -118,6 +132,7 @@ async function runSeed(seed) {
     io.to = (room) => ({
         emit: (event, data) => log.push({ to: room, members: [...(io.rooms.get(room) || [])], event, data, at: Date.now() }),
     });
+    onIo(io);
     const asyncErrors = [];
     const track = (p) => {
         if (p && typeof p.then === 'function') p.catch((err) => asyncErrors.push(err));
@@ -439,7 +454,7 @@ async function runSeed(seed) {
 
     const fail = (why, extra = {}) => ({
         seed, why, stage: game.stage, history: (game._history || []).join(' '),
-        seats: game.presenceSummary(), seatHistory: (game._seatHistory || []).slice(-20), timers: game.timerKeys(), ...extra,
+        seats: game.presenceSummary(), seatHistory: (game._seatHistory || []).slice(-20), timers: game.timerKeys(), eventSeq: game.eventSeq, ...extra,
     });
 
     const liveness = () => {

@@ -24,6 +24,7 @@ const { botController } = require('../game/bot');
 const { Controller, Presence } = require('../game/SeatState');
 const seatLifecycle = require('./seatLifecycle');
 const { emitLobbiesUpdated } = require('./gameLifecycle');
+const { snapshotFor } = require('./snapshotHandlers');
 
 const logContinuationError = (what, game) => (err) =>
     gameLogger.error(`${what} failed`, { gameId: game.gameId, error: err.message, stack: err.stack });
@@ -31,11 +32,16 @@ const logContinuationError = (what, game) => (err) =>
 /**
  * Tell the sender its action was refused (instead of failing silently) so a
  * client can resync rather than freeze. Clients that predate this event just
- * ignore it.
+ * ignore it. `snapshot` (v2, additive) is the table as the sender should
+ * redraw it (no log, no custom pictures: a v2 client already has those).
  */
 function rejectAction(socket, game, action, reason, extra = {}) {
     gameLogger.warn('Action rejected', { action, reason, gameId: game.gameId, socketId: socket.id, ...extra });
-    socket.emit('actionRejected', { action, reason });
+    socket.emit('actionRejected', {
+        action,
+        reason,
+        snapshot: snapshotFor(game, socket.id, { customPics: false, log: false })
+    });
 }
 
 /**
@@ -116,7 +122,14 @@ async function handlePostBid(io, game) {
         const lead = findHighestBidder(game.bidder, bids) + 1;
 
         if (!game.transition(Phase.BIDDING, Phase.PLAYING)) return;
-        game.broadcast(io, 'doneBidding', { bids, lead });
+        // teamBids / mults: additive (read by neither shipped client; v2
+        // and future clients use them instead of re-deriving the bores)
+        game.broadcast(io, 'doneBidding', {
+            bids,
+            lead,
+            teamBids: { team1: game.bids.team1, team2: game.bids.team2 },
+            mults: { team1: game.team1Mult, team2: game.team2Mult }
+        });
 
         game.currentTurn = lead;
         game.leadPosition = lead;
@@ -227,14 +240,14 @@ async function draw(socket, io, data) {
     const game = gameManager.getPlayerGame(socket.id);
     if (!game) return;
 
+    const username = game.entrant(socket.id)?.username || 'Player';
+
     // recordDraw refuses out-of-phase, duplicate and 5th draws
-    const d = game.recordDraw(socket.id, data && data.num);
+    const d = game.recordDraw(socket.id, data && data.num, username);
     if (!d) return;
     const { card, drawOrder } = d;
 
     gameLogger.debug('Player drew card', { socketId: socket.id, card: `${card.rank} of ${card.suit}` });
-
-    const username = game.entrant(socket.id)?.username || 'Player';
 
     // Tell the drawing player their card
     socket.emit('youDrew', { card, drawOrder });
@@ -261,7 +274,7 @@ async function draw(socket, io, data) {
  *   none was made
  */
 function autoDraw(io, game, socketId, username) {
-    const d = game.recordDraw(socketId, null);
+    const d = game.recordDraw(socketId, null, username);
     if (d) {
         game.broadcast(io, 'playerDrew', { username, card: d.card, drawOrder: d.drawOrder, socketId });
     }
@@ -456,6 +469,7 @@ async function handleDrawComplete(io, game) {
     game.drawCards = [];
     game.drawIndex = 0;
     game.drawIDs = [];
+    game.drawNames = [];
     game.deck = null;
 
     // Notify main room that a new in-progress game is available to spectate
@@ -530,6 +544,10 @@ async function dealHand(game, io, { dealer, handSize, firstHand = false }) {
         }
     }
 
+    // One sequence number for the whole deal: every seat and spectator
+    // gameStart of this deal carries the same value
+    const handSeq = game.nextSeq();
+
     // Send each seat's hand to its connected owner (a lazy owner too, in
     // seat or watch view). Absent and /leave'd owners get nothing.
     for (const seat of game.seatList()) {
@@ -546,7 +564,8 @@ async function dealHand(game, io, { dealer, handSize, firstHand = false }) {
             position: playerPosition,  // Include player's position to avoid the bid UI race
             currentHand: game.currentHand,  // Hand index for hand indicator
             hsiValues,  // HSI for all players to display under avatars
-            playerInfo  // Current player info for avatar updates
+            playerInfo,  // Current player info for avatar updates
+            seq: handSeq  // additive: the deal's broadcast sequence number
         });
     }
 
@@ -560,7 +579,8 @@ async function dealHand(game, io, { dealer, handSize, firstHand = false }) {
             dealer: game.dealer,
             currentHand: game.currentHand,
             hand: [],
-            playerInfo
+            playerInfo,
+            seq: handSeq
         });
     }
 
@@ -643,7 +663,12 @@ async function playCard(socket, io, data) {
             // The client's hand has drifted from ours (e.g. iOS builds that
             // kept cards the lazy bot played after /active). Resend the full
             // seat state so it redraws from the truth instead of freezing.
-            socket.emit('restorePlayerState', game.getClientState(socket.id));
+            // Always AFTER actionRejected (iOS rolls the card back first);
+            // never with tournamentId (web would route it as a rejoin)
+            socket.emit('restorePlayerState', {
+                ...game.getClientState(socket.id),
+                snapshot: snapshotFor(game, socket.id, { customPics: false }) // v2 (additive)
+            });
         }
         return;
     }

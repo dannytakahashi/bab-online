@@ -27,6 +27,10 @@ const {
     seatDisplay,
     validateSeats
 } = require('./SeatState');
+const { buildSnapshotV2 } = require('./snapshotV2');
+
+const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v) &&
+    Object.getPrototypeOf(v) === Object.prototype;
 
 const IN_HAND_STAGES = new Set([
     Phase.DEALING, Phase.BIDDING, Phase.REDEAL, Phase.PLAYING,
@@ -56,6 +60,9 @@ class GameState {
         // Lifecycle (authoritative phase; `phase`/`bidding` are getters)
         this._stage = Phase.CREATED;
         this.epoch = 0;            // bumped once when the game ends or aborts
+        // Broadcast sequence (contract/README.md R1-R5): +1 per room
+        // broadcast and per deal (the gameStart batch). Not dealSeq.
+        this.eventSeq = 0;
         this._timers = new Map();  // key -> timeout (setTimer)
         this._pauses = new Set();  // in-flight pause() entries
         this._history = shouldCheckInvariants() ? [Phase.CREATED] : null;
@@ -105,6 +112,8 @@ class GameState {
         this.drawCards = [];
         this.drawIDs = [];
         this.drawIndex = 0;
+        // The name playerDrew showed for each draw, in draw order (snapshot v2)
+        this.drawNames = [];
 
         // Seat records (SeatState.js): position -> who controls the seat and
         // whether its owner is present. `players` / `positions` above are the
@@ -340,11 +349,12 @@ class GameState {
 
     /**
      * The only writer of draw state. Takes the card at `index` (null = random,
-     * clamped into the deck) for `socketId`.
+     * clamped into the deck) for `socketId`. `username` is the name the
+     * caller broadcasts in playerDrew (kept for snapshot v2).
      * @returns {{card: Object, drawOrder: number}|null} null when refused
      *   (not drawing, no deck, duplicate drawer, or 4 draws already in)
      */
-    recordDraw(socketId, index) {
+    recordDraw(socketId, index, username = null) {
         if (this._stage !== Phase.DRAWING || !this.deck || this.deck.cards.length === 0) return null;
         if (this.drawIDs.includes(socketId) || this.drawIDs.length >= 4) return null;
         const n = this.deck.cards.length;
@@ -354,6 +364,7 @@ class GameState {
         const [card] = this.deck.cards.splice(i, 1);
         this.drawCards.push(card);
         this.drawIDs.push(socketId);
+        this.drawNames.push(username);
         this.drawIndex++;
         return { card, drawOrder: this.drawIndex };
     }
@@ -924,6 +935,14 @@ class GameState {
         };
     }
 
+    /**
+     * Table snapshot v2 for the receiving socket `socketId` (see
+     * snapshotV2.js and contract/README.md). Pure, no socket ids.
+     */
+    getSnapshotV2(socketId, opts) {
+        return buildSnapshotV2(this, socketId, opts);
+    }
+
     setHand(socketId, cards) {
         this.hands[socketId] = [...cards];
     }
@@ -1161,7 +1180,20 @@ class GameState {
             gameLogger.debug('emit dropped: terminal', { gameId: this.gameId, event });
             return;
         }
-        io.to(this.roomName).emit(event, data);
+        // Every room broadcast carries the game's next sequence number
+        // (additive top-level `seq`; contract/README.md R1-R5). A shallow
+        // copy: nested values are the same references as before.
+        const seq = this.nextSeq();
+        io.to(this.roomName).emit(event, isPlainObject(data) ? { ...data, seq } : data);
+    }
+
+    /**
+     * Next broadcast sequence number. Bumped once per room broadcast (here)
+     * and once per deal (dealHand, before the gameStart batch); private
+     * sends never bump it.
+     */
+    nextSeq() {
+        return ++this.eventSeq;
     }
 
     /**
@@ -1193,6 +1225,7 @@ class GameState {
             bidding: this.bidding,
             stage: this._stage,     // internal only (not in getClientState)
             epoch: this.epoch,
+            eventSeq: this.eventSeq,
             trump: this.trump,
             isTrumpBroken: this.isTrumpBroken,
             tricks: this.tricks,

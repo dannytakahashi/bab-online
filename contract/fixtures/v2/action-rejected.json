@@ -1,0 +1,226 @@
+{
+  "name": "action-rejected",
+  "description": "actionRejected.snapshot after a play out of turn: partial (no log, no custom pictures).",
+  "capturedFrom": "actionRejected",
+  "viewerRole": "seat",
+  "snapshot": {
+    "v": 2,
+    "gameId": "00000000-0000-4000-8000-000000000002",
+    "seq": 26,
+    "serverTime": 1767268810000,
+    "stage": "PLAYING",
+    "partial": [
+      "customPics",
+      "log"
+    ],
+    "viewer": {
+      "role": "seat",
+      "position": 2,
+      "ownerView": "seat",
+      "canAct": false
+    },
+    "hand": [
+      {
+        "suit": "clubs",
+        "rank": "A"
+      },
+      {
+        "suit": "clubs",
+        "rank": "2"
+      },
+      {
+        "suit": "hearts",
+        "rank": "2"
+      },
+      {
+        "suit": "spades",
+        "rank": "6"
+      },
+      {
+        "suit": "spades",
+        "rank": "7"
+      },
+      {
+        "suit": "diamonds",
+        "rank": "6"
+      },
+      {
+        "suit": "hearts",
+        "rank": "9"
+      },
+      {
+        "suit": "hearts",
+        "rank": "A"
+      },
+      {
+        "suit": "diamonds",
+        "rank": "J"
+      },
+      {
+        "suit": "clubs",
+        "rank": "9"
+      },
+      {
+        "suit": "hearts",
+        "rank": "10"
+      },
+      {
+        "suit": "diamonds",
+        "rank": "10"
+      }
+    ],
+    "deal": {
+      "handNo": 1,
+      "handSize": 12,
+      "dealer": 1,
+      "bidder": 2,
+      "dealSeq": 1
+    },
+    "trump": {
+      "suit": "hearts",
+      "rank": "8"
+    },
+    "trumpBroken": false,
+    "turn": {
+      "position": 1,
+      "action": "play"
+    },
+    "bids": {
+      "byPosition": [
+        "2",
+        "1",
+        "4",
+        "1"
+      ],
+      "order": [
+        2,
+        3,
+        4,
+        1
+      ],
+      "teamBids": {
+        "team1": 6,
+        "team2": 2
+      },
+      "mults": {
+        "team1": 1,
+        "team2": 1
+      }
+    },
+    "trick": {
+      "number": 1,
+      "leadPosition": 3,
+      "cards": [
+        {
+          "position": 3,
+          "card": {
+            "suit": "clubs",
+            "rank": "4"
+          }
+        },
+        {
+          "position": 4,
+          "card": {
+            "suit": "clubs",
+            "rank": "6"
+          }
+        }
+      ]
+    },
+    "tricks": {
+      "team1": 0,
+      "team2": 0
+    },
+    "tricksByPosition": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "score": {
+      "team1": 0,
+      "team2": 0
+    },
+    "rainbows": {
+      "team1": 0,
+      "team2": 0
+    },
+    "hsi": [
+      119.16666666666666,
+      143,
+      130,
+      115.91666666666666
+    ],
+    "seats": [
+      {
+        "position": 1,
+        "username": "ivy",
+        "pic": 11,
+        "hasCustomPic": false,
+        "customPic": null,
+        "ownerUsername": "ivy",
+        "controller": "human",
+        "presence": "connected",
+        "isBot": false,
+        "lazy": false,
+        "offered": false,
+        "graceDeadline": null,
+        "resignableAt": null,
+        "cardsInHand": 12
+      },
+      {
+        "position": 2,
+        "username": "kim",
+        "pic": null,
+        "hasCustomPic": true,
+        "customPic": null,
+        "ownerUsername": "kim",
+        "controller": "human",
+        "presence": "connected",
+        "isBot": false,
+        "lazy": false,
+        "offered": false,
+        "graceDeadline": null,
+        "resignableAt": null,
+        "cardsInHand": 12
+      },
+      {
+        "position": 3,
+        "username": "hal",
+        "pic": 10,
+        "hasCustomPic": false,
+        "customPic": null,
+        "ownerUsername": "hal",
+        "controller": "human",
+        "presence": "connected",
+        "isBot": false,
+        "lazy": false,
+        "offered": false,
+        "graceDeadline": null,
+        "resignableAt": null,
+        "cardsInHand": 11
+      },
+      {
+        "position": 4,
+        "username": "jon",
+        "pic": 12,
+        "hasCustomPic": false,
+        "customPic": null,
+        "ownerUsername": "jon",
+        "controller": "human",
+        "presence": "connected",
+        "isBot": false,
+        "lazy": false,
+        "offered": false,
+        "graceDeadline": null,
+        "resignableAt": null,
+        "cardsInHand": 11
+      }
+    ],
+    "entrants": null,
+    "draw": null,
+    "spectatorCount": 1,
+    "tournament": null,
+    "log": []
+  }
+}

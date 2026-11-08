@@ -1,0 +1,117 @@
+{
+  "snapshotVersion": 2,
+  "fixtures": [
+    {
+      "name": "action-rejected",
+      "file": "action-rejected.json",
+      "description": "actionRejected.snapshot after a play out of turn: partial (no log, no custom pictures).",
+      "capturedFrom": "actionRejected",
+      "viewerRole": "seat",
+      "stage": "PLAYING"
+    },
+    {
+      "name": "between-tricks",
+      "file": "between-tricks.json",
+      "description": "Seat 1 asks between tricks: no card down, no lead; turn = the last trick winner.",
+      "capturedFrom": "stateSnapshot",
+      "viewerRole": "seat",
+      "stage": "PLAYING"
+    },
+    {
+      "name": "bidding-mid",
+      "file": "bidding-mid.json",
+      "description": "The seat on turn asks with 2 bids in (one a bore): multipliers so far, no team bids yet.",
+      "capturedFrom": "stateSnapshot",
+      "viewerRole": "seat",
+      "stage": "BIDDING"
+    },
+    {
+      "name": "created-countdown",
+      "file": "created-countdown.json",
+      "description": "An entrant asks during the pre-draw countdown (CREATED): no seats yet, entrants listed, empty draw.",
+      "capturedFrom": "stateSnapshot",
+      "viewerRole": "entrant",
+      "stage": "CREATED"
+    },
+    {
+      "name": "draw-in-progress",
+      "file": "draw-in-progress.json",
+      "description": "An entrant who drew asks mid-draw: 2 of 4 cards drawn (one by a bot), no seats yet, viewerDrawOrder set.",
+      "capturedFrom": "stateSnapshot",
+      "viewerRole": "entrant",
+      "stage": "DRAWING"
+    },
+    {
+      "name": "hand-resolving",
+      "file": "hand-resolving.json",
+      "description": "Seat 4 asks after the last trick of the hand (HAND_RESOLVING): no turn, hand empty.",
+      "capturedFrom": "stateSnapshot",
+      "viewerRole": "seat",
+      "stage": "HAND_RESOLVING"
+    },
+    {
+      "name": "lazy-at-seat",
+      "file": "lazy-at-seat.json",
+      "description": "A /lazy owner still at the seat asks: lazyWatcher in seat view, hand shown.",
+      "capturedFrom": "stateSnapshot",
+      "viewerRole": "lazyWatcher",
+      "stage": "BIDDING"
+    },
+    {
+      "name": "lazy-watcher",
+      "file": "lazy-watcher.json",
+      "description": "rejoinSuccess.snapshot of a /lazy owner rejoining from another socket: lazyWatcher in watch view with the seat hand.",
+      "capturedFrom": "rejoinSuccess",
+      "viewerRole": "lazyWatcher",
+      "stage": "BIDDING"
+    },
+    {
+      "name": "presence-mixed",
+      "file": "presence-mixed.json",
+      "description": "Seat 4 asks with seat 1 resignable (offered), seat 2 in reconnect grace and seat 3 lazy.",
+      "capturedFrom": "stateSnapshot",
+      "viewerRole": "seat",
+      "stage": "BIDDING"
+    },
+    {
+      "name": "spectator-mid-hand",
+      "file": "spectator-mid-hand.json",
+      "description": "spectatorJoined (full state).snapshot of a spectator joining mid-hand: no hand, no HSI.",
+      "capturedFrom": "spectatorJoined",
+      "viewerRole": "spectator",
+      "stage": "PLAYING"
+    },
+    {
+      "name": "teams-announced",
+      "file": "teams-announced.json",
+      "description": "rejoinSuccess.snapshot of a rejoin during TEAMS_ANNOUNCED (v1 renders this window as a half-state; v2 has stage): draw positions filled, no deal yet.",
+      "capturedFrom": "rejoinSuccess",
+      "viewerRole": "seat",
+      "stage": "TEAMS_ANNOUNCED"
+    },
+    {
+      "name": "tournament-game",
+      "file": "tournament-game.json",
+      "description": "The human at a round-1 tournament table asks during bidding: tournament info filled in.",
+      "capturedFrom": "stateSnapshot",
+      "viewerRole": "seat",
+      "stage": "BIDDING"
+    },
+    {
+      "name": "trick-mid-lead3",
+      "file": "trick-mid-lead3.json",
+      "description": "Seat 1 asks mid-trick: seat 3 led, seat 4 followed; cards in play order.",
+      "capturedFrom": "stateSnapshot",
+      "viewerRole": "seat",
+      "stage": "PLAYING"
+    },
+    {
+      "name": "trick-resolving",
+      "file": "trick-resolving.json",
+      "description": "A spectator asks while the 4th card is on the table (TRICK_RESOLVING): 4 cards, no turn.",
+      "capturedFrom": "stateSnapshot",
+      "viewerRole": "spectator",
+      "stage": "TRICK_RESOLVING"
+    }
+  ]
+}

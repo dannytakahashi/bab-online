@@ -190,7 +190,7 @@ class BotController {
     processBotDraw(io, game, bot) {
         if (game.stage !== Phase.DRAWING || !game.deck) return;
 
-        const d = game.recordDraw(bot.socketId, bot.decideDraw(game.deck.cards.length));
+        const d = game.recordDraw(bot.socketId, bot.decideDraw(game.deck.cards.length), bot.username);
         if (!d) return;
         const { card, drawOrder } = d;
 
@@ -423,7 +423,11 @@ class BotController {
             game.broadcast(io, 'chatMessage', {
                 position: bot.position,
                 message,
-                username: bot.username
+                username: bot.username,
+                // additive: same shape as human chat (web treats a missing
+                // isSpectator as false; iOS reads type)
+                isSpectator: false,
+                type: 'player'
             });
         }, delay);
 

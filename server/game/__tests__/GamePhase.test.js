@@ -161,7 +161,8 @@ describe('terminate', () => {
         const g = gameIn(Phase.PLAYING);
         const log = [];
         g.terminate(captureIo(g, log), Phase.ABORTED, 'abortGame', { reason: 'x' });
-        expect(log).toEqual([{ room: g.roomName, event: 'abortGame', data: { reason: 'x' }, stage: Phase.PLAYING }]);
+        // CHANGED (snapshot v2 seq, additive): room broadcasts carry seq
+        expect(log).toEqual([{ room: g.roomName, event: 'abortGame', data: { reason: 'x', seq: 1 }, stage: Phase.PLAYING }]);
     });
 
     test('afterwards broadcast and sendToPlayer emit nothing', () => {

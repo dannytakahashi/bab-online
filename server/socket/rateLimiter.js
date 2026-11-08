@@ -22,6 +22,9 @@ class RateLimiter {
             playerBid: { max: 10, windowMs: 60000 },   // 10 per minute
             draw: { max: 10, windowMs: 60000 },        // 10 per minute
 
+            // Snapshot v2 resync requests (clients debounce; README R5)
+            requestSnapshot: { max: 10, windowMs: 10000 },
+
             // Queue - prevent queue spam
             joinQueue: { max: 5, windowMs: 30000 },    // 5 per 30 seconds
             leaveQueue: { max: 5, windowMs: 30000 },   // 5 per 30 seconds

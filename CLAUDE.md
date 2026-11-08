@@ -61,6 +61,8 @@ bab-online/
 │
 ├── scripts/                    # Owner-run CLIs: merge-accounts.js, set-password.js, build-atlas.js
 │
+├── contract/                   # Socket contract: schema source, generator, v1 baseline, v2 fixtures (dev/test only)
+│
 ├── iOSClient/                  # Native SwiftUI iOS app (Xcode project)
 │   └── BABOnline/             # Views, State, Networking (handlers/emitters), SpriteKit
 │
@@ -110,6 +112,7 @@ bab-online/
 4. **Bidding**: `gameStart` → `updateTurn` → `playerBid` → `bidReceived` → `doneBidding` (if both teams bid 0 there is no `doneBidding`: the server sends a log entry, `destroyHands` and a fresh `gameStart` for the redeal)
 5. **Play**: `updateTurn` → `playCard` → `cardPlayed` → `trickComplete` → `handComplete`
 6. **End**: `gameEnd` (payload always includes `tournamentId`, null for casual games)
+7. **Resync (snapshot v2)**: `requestSnapshot {requestId?, customPics?, log?}` → `stateSnapshot {snapshot, requestId?}` or `{snapshot: null, reason: 'not_in_game'}` (any seat owner, entrant or spectator; custom pictures only with `customPics: true`; `snapshot.partial` lists what was left out and the client keeps it — `mergeSnapshot`; `seq` on room broadcasts tells a v2 client when it missed something)
 
 **Tournaments**: `createTournament`/`joinTournament` → `tournamentJoined` → ready-up → `beginTournament` → 4 rounds of games (`tournamentGameAssignment`, results via `tournamentGameComplete`/`tournamentRoundComplete`) → `beginNextRound` between rounds → `tournamentComplete` (with `winners[]`). The creator may cancel in any phase (`cancelTournament` → `abortGame` at every running table, then `tournamentCancelled`). Disconnected players are marked `connected: false` and reattach by username (any phase); completed tournaments linger ~10 min so players can view results.
 
@@ -135,6 +138,13 @@ npm run build:client # Production build
 npm test             # Server tests (Jest)
 npm run test:client  # Client tests (Vitest)
 npm run sim          # Bot-vs-bot simulation (tuning/regression; see server/game/bot/sim/README.md)
+
+npm run contract:gen        # regenerate events.schema.json + web/Swift constants from contract/src
+npm run contract:check      # fail if a generated file is stale
+npm run contract:fixtures   # rewrite contract/fixtures/v2 from real games
+npm run test:contract       # 1500 chaos seeds + tournamentLifecycle + contract.test (also run with NODE_ENV=production)
+# iOS compile check after touching SocketEvents.swift:
+# xcodebuild -project iOSClient/BABOnline.xcodeproj -scheme BABOnline -destination 'id=<simulator>' -derivedDataPath <tmp>/dd CODE_SIGNING_ALLOWED=NO build
 ```
 
 ## Important Implementation Details
@@ -145,7 +155,9 @@ npm run sim          # Bot-vs-bot simulation (tuning/regression; see server/game
 - Web "stay signed in" (`client/src/utils/sessionPersistence.js`): the tab's session is in `sessionStorage` (so 4-tab local testing still works) and the latest sign-in is mirrored to `localStorage`, which a fresh tab adopts on load. Profile page has a Sign Out button (shared family computers). iOS keeps its token in the Keychain
 - Merged accounts: `scripts/merge-accounts.js` turns duplicate accounts into tombstones `{ username, mergedInto, mergedAt }` (no password/tokens/stats). Sign-in/sign-up/restore on a tombstone tell the player which account to use; leaderboard and player search exclude them; `getPlayerProfile` follows `mergedInto`; deleting the kept account deletes its tombstones. The kept account's `mergedFrom[]` is the audit log and the idempotency guard. Any new per-user data keyed by username must be added to `server/admin/accountMerge.js`
 - Socket rooms: players join `game:{gameId}` for broadcasts; tournaments use `tournament:{tournamentId}`
-- Event constants in `client/src/constants/events.js` (web) and `iOSClient/.../Constants/SocketEvents.swift` (iOS) prevent typos — keep all three sides of the contract in sync
+- Socket contract (`contract/`, dev/test only — production code never requires it; see `contract/README.md`): `contract/src` describes every event in both directions (payload JSON Schema, status, emittedFrom, clientReads, reserved keys); `npm run contract:gen` writes `contract/events.schema.json`, `client/src/constants/events.js` and `iOSClient/.../Constants/SocketEvents.swift` (from `contract/layout.json`; never hand-edit them; `generated.test.js` fails when stale). Every emit recorded through `gameDriver.makeIo`/`makeSocket` is validated by the always-on contract guard (`server/testUtils/contractCheck.js` + `contractGuard.js`; escape hatches `contractGuard.skip(reason)` / `BAB_CONTRACT=0`). **The wire is additive-only until the new iOS build ships** (the App Store build stays as is): never rename/remove an event or change a field's type/meaning/order — `additiveOnly.test.js` holds the schema to the frozen `contract/v1-baseline.schema.json`, `legacyConstants.test.js` pins every cc865b4 constant, `wireCompat.test.js` pins the values of the touched builders. The non-additive changes wait in `contract/V1_REMOVALS.md`
+- Snapshot v2 (`server/game/snapshotV2.js`, `game.getSnapshotV2(sid)`; `$defs.snapshotV2`): one normalized, versioned table view for the receiving socket (stage, viewer role, hand, bids, trick in play order, seats from the seat records, draw/entrants, tournament; no socket ids). Sent as an extra `snapshot` field on rejoinSuccess / restorePlayerState / actionRejected / the spectator full state and as the reply to `requestSnapshot`. Fixtures in `contract/fixtures/v2` (`npm run contract:fixtures`), web parser `client/src/state/snapshotV2.js` (not wired into rendering yet)
+- `seq`: `game.eventSeq` +1 per room broadcast (`GameState.broadcast` stamps `{...data, seq}`) and +1 per deal (every gameStart of a deal carries the same value); private emits carry none. Consumer rules R1–R5 in `contract/README.md`; `server/testUtils/seqCheck.js` checks them per receiver in chaos and contract tests
 - Card legality logic duplicated in `server/game/rules.js`, `client/src/rules/legality.js`, and `iOSClient/.../Rules/CardLegality.swift`
 - Seats (`server/game/SeatState.js`, `GameState.seats`, orchestration in `server/socket/seatLifecycle.js`): one record per position — `controller` human | lazyBot | resignBot | bot (native lobby/tournament/ambient bot, no owner) and `presence` connected | grace | resignable (human seat) / connected | away | gone (lazy/resigned seat) / none (native bot), plus `ownerUsername`/`ownerPic`, `ownerSocketId` (the owner's ONE live socket, set exactly when connected), `ownerView` ('seat' after /lazy at the seat, 'watch' after a rejoin/spectate), `seatSocketId`, `bot`, `lastPersonality` and timestamps. A bot-controlled seat's seat socket (positions/players/hands key) is the bot's `bot:` socket; the owner socket is separate, so lazy play goes through `BotController.scheduleBotAction` like any bot and the owner's socket can't bid/play over it. Seats change only through the GameState transitions (`createSeat`, `seatDisconnect` — a no-op unless the socket is the current owner socket — `seatGraceExpired`, `seatReconnect`, `seatWatch`, `seatGoLazy`, `seatGoActive`, `seatResign`, `seatLeave`; `forceSeat` is test-only), each checked against the SeatState edge table (illegal → 'seat-illegal' violation); `gone` is absorbing. `seatLifecycle` functions do transition → playerGames/room → emits → `maybeAbort`; handlers only dispatch. `pickBotPersonality` never reuses a name/personality already at the table (lazy, resign and draw-leaver bots)
 - `playerGames` maps exactly: connected entrants (before seating), every seat's `ownerSocketId`, and every bot-controlled seat's bot socket — never a dead or stale socket. Pure spectators live only in `gameManager.spectatorGames` (one game per socket; `addSpectator` / `leaveSpectating`, also on `joinMainRoom` and `returnToTournament`) and `game.spectators`; a socket mapped to a game is never a pure spectator. `chatMessage` resolves the sender's role (owner / entrant / spectator) first, so a spectator or stale socket can never /active, /lazy or /leave a seat — with one exception: a pure spectator recorded under the owner's name may `/active` a bot-controlled seat whose presence is `away` (no owner socket attached; `seatLifecycle.reclaimSeat`, e.g. the phone after the laptop that took the seat closed). The newest socket owns a seat: a rejoin while an older socket is attached moves the seat and unmaps the old one (a watched seat demotes it to a pure spectator). `rejoinGame` refuses a socket that dropped during its session lookup or is mapped to another game. A socket leaves spectating before it becomes a seat owner (the seat transition's invariants hold throughout). `game.offerPos` is the offer present clients hold, including one `replayPresenceTo` handed a returner, so `reofferAfter` moves it when that seat comes back
@@ -183,5 +195,5 @@ Merging is idempotent (re-running prints "Nothing to do") and refuses while a so
 | UI screens | `client/src/ui/screens/` |
 | Visual card display | `client/src/phaser/managers/CardManager.js` |
 | State management | `server/game/GameState.js`, `client/src/state/GameState.js` |
-| Socket events list | `client/src/constants/events.js` |
+| Socket events list / payloads | `contract/src/s2c.js`, `contract/src/c2s.js` (generated: `contract/events.schema.json`, `client/src/constants/events.js`, `SocketEvents.swift`) |
 | Sign-in sessions / account merge | `server/socket/authHandlers.js`, `server/utils/sessionTokens.js`, `server/admin/accountMerge.js` |

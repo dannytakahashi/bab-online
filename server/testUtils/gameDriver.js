@@ -5,12 +5,16 @@
  */
 
 const { isLegalMove, isTrumpTight, isValidBid } = require('../game/rules');
+const { instrument } = require('./contractCheck');
 
 /**
  * Stub Socket.IO server. `log` gets {to, event, data, at} for every emit;
  * `rooms` maps room name -> Set of socket ids joined through stub sockets.
  */
 function makeIo(log, rooms = new Map()) {
+    // Every emit recorded in `log` is checked against the socket contract
+    // (contractCheck.js; contractGuard.js fails the test on a violation)
+    instrument(log);
     const io = {
         rooms,
         to: (room) => ({ emit: (event, data) => log.push({ to: room, event, data, at: Date.now() }) }),
@@ -25,6 +29,7 @@ function makeIo(log, rooms = new Map()) {
  * join/leave update io.rooms.
  */
 function makeSocket(id, log, io = null) {
+    instrument(log);
     const socket = {
         id,
         data: {},
