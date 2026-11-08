@@ -6,7 +6,7 @@
 const gameManager = require('../game/GameManager');
 const TournamentState = require('../game/TournamentState');
 const { socketLogger } = require('../utils/logger');
-const { beginDraw } = require('./gameLifecycle');
+const { beginDraw, abortGame, emitLobbiesUpdated } = require('./gameLifecycle');
 const { delay } = require('../utils/timing');
 const { botController, BotPlayer, personalities } = require('../game/bot');
 const { PERSONALITY_LIST, getDisplayName } = personalities;
@@ -162,6 +162,17 @@ async function leaveTournament(socket, io) {
 
     const tournamentId = tournament.tournamentId;
 
+    // Leaving while their table is still before seating (the web client
+    // shows the tournament lobby until startDraw) leaves that table too,
+    // like /leave would: a bot takes the seat at the draw
+    const tableId = gameManager.playerGames.get(socket.id);
+    const table = tableId && gameManager.tournamentGames.get(tableId) === tournamentId
+        ? gameManager.getGameById(tableId)
+        : null;
+    if (table && table.isPreSeating() && table.entrant(socket.id)) {
+        require('./chatHandlers').handleDrawPhaseLeave(socket, io, table, { notify: false });
+    }
+
     // Leave tournament room
     tournament.leaveRoom(io, socket.id);
 
@@ -169,6 +180,12 @@ async function leaveTournament(socket, io) {
     if (!result.success) {
         socket.emit('error', { message: result.error });
         return;
+    }
+
+    // The last member left: no game of a deleted tournament keeps running
+    for (const game of result.orphanedGames || []) {
+        abortGame(io, game, 'All players left').catch(err =>
+            socketLogger.error('abortGame failed', { gameId: game.gameId, error: err.message }));
     }
 
     // Explicit leave is permanent — clear the DB pointer so future sign-ins
@@ -277,19 +294,29 @@ async function beginTournament(socket, io) {
         return;
     }
 
-    // Flip the phase synchronously before any awaits so a double-click or
-    // retry can't pass the phase guard and start round 1 twice.
-    tournament.phase = 'starting';
+    // Flip the phase (and the start generation) synchronously before any
+    // awaits so a double-click or retry can't pass the phase guard and start
+    // round 1 twice, and so a cancel during the writes is noticed.
+    const epoch = tournament.beginStart();
+    const tournamentId = tournament.tournamentId;
+    const usernames = Array.from(tournament.players.values(), p => p.username).filter(Boolean);
 
     try {
-        // Set active tournament in DB for all players
-        for (const [, player] of tournament.players) {
-            await gameManager.setActiveTournament(player.username, tournament.tournamentId);
-        }
+        // Set active tournament in DB for all players (one parallel batch)
+        await Promise.all(usernames.map(u => gameManager.setActiveTournament(u, tournamentId)));
 
-        await startTournamentRound(io, tournament, 1);
+        // A leave or cancel may have cleared before one of these writes
+        // landed: re-clear (scoped to this tournament) whoever is no longer in
+        const members = new Set(tournament.isLive(epoch)
+            ? Array.from(tournament.players.values(), p => p.username)
+            : []);
+        const gone = usernames.filter(u => !members.has(u));
+        if (gone.length) await Promise.all(gone.map(u => gameManager.clearActiveTournament(u, tournamentId)));
+        if (!tournament.isLive(epoch)) return;
+
+        await startTournamentRound(io, tournament, 1, epoch);
     } catch (error) {
-        if (tournament.phase === 'starting') {
+        if (tournament.phase === 'starting' && tournament.isLive(epoch)) {
             tournament.phase = 'lobby';
         }
         throw error;
@@ -328,22 +355,52 @@ async function beginNextRound(socket, io) {
     }
 
     // Same double-start protection as beginTournament
-    tournament.phase = 'starting';
+    const epoch = tournament.beginStart();
 
     try {
-        await startTournamentRound(io, tournament, nextRound);
+        await startTournamentRound(io, tournament, nextRound, epoch);
     } catch (error) {
-        if (tournament.phase === 'starting') {
+        if (tournament.phase === 'starting' && tournament.isLive(epoch)) {
             tournament.phase = 'between_rounds';
         }
         throw error;
     }
 }
 
+// Round start timing: tournamentRoundStart is on screen this long before
+// the tables exist, then every table shares one pre-draw countdown.
+const ROUND_ANNOUNCE_MS = 1500;
+const TABLE_COUNTDOWN_MS = 2000;
+
+/** True while `tournament` is registered and generation `epoch` is current. */
+function tournamentLive(tournament, epoch) {
+    return tournament.isLive(epoch) &&
+        gameManager.getTournamentById(tournament.tournamentId) === tournament;
+}
+
 /**
- * Start a tournament round — creates games, assigns players, starts draw phase
+ * Start a tournament round: create every table, assign players, start every
+ * draw together.
+ *
+ * Every table moves through each step at the same time:
+ *   1. announce (tournamentRoundStart), wait ROUND_ANNOUNCE_MS
+ *   2. create EVERY table synchronously (game, tournamentGames mapping, bots,
+ *      round entry, game-room joins). The round's game set is final before
+ *      any table can finish, and a cancel sees all of the tables or none
+ *   3. one parallel batch of setActiveGame writes
+ *   4. tournamentGameAssignment + allPlayersReady for every table
+ *   5. one shared TABLE_COUNTDOWN_MS countdown (each table's game.pause)
+ *   6. beginDraw for every table still alive
+ * After every await the start re-checks the tournament generation: a cancel
+ * or deletion stops it at once. The canceller has already aborted the tables
+ * (any table still alive is aborted here); nothing more is created or sent.
+ * @param {number} epoch - from tournament.beginStart()
+ * @returns {Promise<boolean>} true if the round started
  */
-async function startTournamentRound(io, tournament, roundNumber) {
+async function startTournamentRound(io, tournament, roundNumber, epoch = tournament.epoch) {
+    const live = () => tournamentLive(tournament, epoch);
+    if (!live()) return false;
+
     // Shuffle player usernames (connected players only — disconnected members
     // keep their scores but sit out rounds until they reattach)
     const usernames = [];
@@ -359,7 +416,7 @@ async function startTournamentRound(io, tournament, roundNumber) {
     }
 
     const assignments = TournamentState.distributePlayersIntoGames(usernames);
-    const roundData = tournament.startRound(roundNumber);
+    tournament.startRound(roundNumber);
 
     // Broadcast round start
     tournament.broadcast(io, 'tournamentRoundStart', {
@@ -368,79 +425,54 @@ async function startTournamentRound(io, tournament, roundNumber) {
         assignments: assignments.map(a => ({ humanCount: a.humans.length, botCount: a.botCount }))
     });
 
-    await delay(1500);
+    await delay(ROUND_ANNOUNCE_MS);
+    if (!live()) return false;
 
-    // Create each game
+    // Create every table, no await in between
+    const tables = [];
     for (const assignment of assignments) {
-        // Collect human socket IDs. A player may have left/disconnected during
-        // the delays above — back-fill their seat with a bot so the game still
-        // has 4 participants and the draw phase can complete.
-        const humanSocketIds = [];
-        const presentHumans = [];
-        for (const username of assignment.humans) {
-            const playerInfo = tournament.getPlayerByUsername(username);
-            if (playerInfo && playerInfo.connected !== false &&
-                io.sockets.sockets.get(playerInfo.socketId)) {
-                humanSocketIds.push(playerInfo.socketId);
-                presentHumans.push(username);
-            }
+        const table = createRoundTable(io, tournament, assignment, roundNumber);
+        if (table) tables.push(table);
+    }
+
+    // If every table was skipped (everyone left during the announce delay),
+    // roll the round back so the tournament isn't stuck in round_active
+    // waiting on games that don't exist.
+    if (tables.length === 0) {
+        rollbackRound(io, tournament, roundNumber);
+        return false;
+    }
+    emitLobbiesUpdated(io);
+
+    // The tournament is gone: abort whatever table is still alive (a cancel
+    // already did; deletion stripped the mappings, so no tournament
+    // follow-up runs) and stop
+    const stop = () => {
+        for (const { game } of tables) {
+            if (game.isTerminal()) continue;
+            abortGame(io, game, 'Tournament cancelled').catch(err =>
+                socketLogger.error('abortGame failed', { gameId: game.gameId, error: err.message }));
         }
-        const botCount = assignment.botCount + (assignment.humans.length - presentHumans.length);
+        socketLogger.info('Tournament round start stopped: tournament gone', {
+            tournamentId: tournament.tournamentId, roundNumber
+        });
+        return false;
+    };
 
-        if (humanSocketIds.length === 0) {
-            // Nobody from this table is still here — skip it entirely
-            socketLogger.warn('Skipping tournament game with no connected humans', {
-                tournamentId: tournament.tournamentId, roundNumber
-            });
-            continue;
-        }
+    // Set active game in DB for every table's humans, one parallel batch
+    await Promise.all(tables.flatMap(({ game, presentHumans }) =>
+        presentHumans.map(u => gameManager.setActiveGame(u, game.gameId))));
+    // A table aborted during the writes may have run its own clear before
+    // one of them landed: re-clear (scoped to that game)
+    const abortedTables = tables.filter(({ game }) => game.isTerminal());
+    if (abortedTables.length) {
+        await Promise.all(abortedTables.flatMap(({ game, presentHumans }) =>
+            presentHumans.map(u => gameManager.clearActiveGame(u, game.gameId))));
+    }
+    if (!live()) return stop();
 
-        // Create bot socket IDs
-        const botSocketIds = [];
-        const usedPersonalities = [];
-        for (let i = 0; i < botCount; i++) {
-            const available = PERSONALITY_LIST.filter(p => !usedPersonalities.includes(p));
-            const personality = available[Math.floor(Math.random() * available.length)];
-            usedPersonalities.push(personality);
-
-            const realName = `🤖 ${getDisplayName(personality)}`;
-            const bot = botController.createBot(realName, personality);
-            botSocketIds.push({ socketId: bot.socketId, personality, bot });
-        }
-
-        const allSocketIds = [...humanSocketIds, ...botSocketIds.map(b => b.socketId)];
-
-        // Create game via GameManager
-        const game = gameManager.createGame(allSocketIds);
-
-        // Map game to tournament
-        gameManager.tournamentGames.set(game.gameId, tournament.tournamentId);
-
-        // Register bots
-        for (const botInfo of botSocketIds) {
-            botInfo.bot.socketId = botInfo.socketId;
-            botController.registerBot(game.gameId, botInfo.bot);
-        }
-
-        // Add game to tournament round
-        tournament.addGameToRound(game.gameId, presentHumans, botCount);
-
-        // Set active game in DB for humans
-        for (const username of presentHumans) {
-            await gameManager.setActiveGame(username, game.gameId);
-        }
-        // The table may have been aborted during those writes
-        if (!game.aliveCheck()()) continue;
-
-        // Join human players to game room
-        for (const socketId of humanSocketIds) {
-            const playerSocket = io.sockets.sockets.get(socketId);
-            if (playerSocket) {
-                playerSocket.join(game.roomName);
-            }
-        }
-
-        // Emit game assignment to humans
+    for (const { game, humanSocketIds } of tables) {
+        if (game.isTerminal()) continue;
         for (const socketId of humanSocketIds) {
             io.to(socketId).emit('tournamentGameAssignment', {
                 gameId: game.gameId,
@@ -448,53 +480,119 @@ async function startTournamentRound(io, tournament, roundNumber) {
                 roundNumber
             });
         }
-
-        // Emit allPlayersReady to humans (triggers transition to draw)
+        // allPlayersReady to humans (iOS switches to the game screen)
         for (const socketId of humanSocketIds) {
             io.to(socketId).emit('allPlayersReady', {
                 gameId: game.gameId
             });
         }
-
-        // Start draw phase after delay (false: the table aborted meanwhile)
-        if (!(await game.pause(2000))) continue;
-
-        // Deck, startDraw, bot draws, and auto-draws for anyone who left or
-        // disconnected during the countdown
-        beginDraw(io, game);
     }
 
-    // If every table was skipped (everyone left during the start delays),
-    // roll the round back so the tournament isn't stuck in round_active
-    // waiting on games that don't exist.
-    const startedRound = tournament.getCurrentRound();
-    if (startedRound && startedRound.roundNumber === roundNumber && startedRound.games.size === 0) {
-        tournament.rounds.pop();
-        tournament.currentRound = roundNumber - 1;
-        tournament.phase = roundNumber === 1 ? 'lobby' : 'between_rounds';
-        tournament.broadcast(io, 'tournamentMessage', {
-            username: 'System',
-            message: 'Round could not start — no connected players.',
-            isSpectator: false,
-            timestamp: Date.now()
-        });
-        socketLogger.warn('Tournament round rolled back, no games created', {
-            tournamentId: tournament.tournamentId, roundNumber
-        });
-        return;
-    }
+    // One shared countdown (false: that table aborted meanwhile)
+    const counted = await Promise.all(tables.map(({ game }) => game.pause(TABLE_COUNTDOWN_MS)));
+    if (!live()) return stop();
 
-    // Update main room
-    io.to('mainRoom').emit('lobbiesUpdated', {
-        lobbies: gameManager.getAllLobbies(),
-        inProgressGames: gameManager.getInProgressGames(),
-        tournaments: gameManager.getAllTournaments()
+    // Deck, startDraw, bot draws, and auto-draws for anyone who left or
+    // disconnected during the countdown
+    tables.forEach(({ game }, i) => {
+        if (counted[i]) beginDraw(io, game);
     });
 
     socketLogger.info('Tournament round started', {
         tournamentId: tournament.tournamentId,
         roundNumber,
-        gameCount: assignments.length
+        gameCount: tables.length
+    });
+    return true;
+}
+
+/**
+ * Create one table of a round (synchronous). A player who left or
+ * disconnected during the announce delay is back-filled with a bot so the
+ * game still has 4 participants; a table with no present human is skipped.
+ * @returns {{ game: GameState, humanSocketIds: string[], presentHumans: string[] } | null}
+ */
+function createRoundTable(io, tournament, assignment, roundNumber) {
+    const humanSocketIds = [];
+    const presentHumans = [];
+    for (const username of assignment.humans) {
+        const playerInfo = tournament.getPlayerByUsername(username);
+        if (playerInfo && playerInfo.connected !== false &&
+            io.sockets.sockets.get(playerInfo.socketId) &&
+            // Never steal a socket that is already mapped to another game
+            !gameManager.playerGames.has(playerInfo.socketId)) {
+            humanSocketIds.push(playerInfo.socketId);
+            presentHumans.push(username);
+        }
+    }
+    const botCount = assignment.botCount + (assignment.humans.length - presentHumans.length);
+
+    if (humanSocketIds.length === 0) {
+        // Nobody from this table is still here — skip it entirely
+        socketLogger.warn('Skipping tournament game with no connected humans', {
+            tournamentId: tournament.tournamentId, roundNumber
+        });
+        return null;
+    }
+
+    // A pure spectator (e.g. watching another tournament table) stops
+    // spectating before it becomes an entrant
+    for (const socketId of humanSocketIds) gameManager.leaveSpectating(io, socketId);
+
+    // Create bot socket IDs
+    const botSocketIds = [];
+    const usedPersonalities = [];
+    for (let i = 0; i < botCount; i++) {
+        const available = PERSONALITY_LIST.filter(p => !usedPersonalities.includes(p));
+        const personality = available[Math.floor(Math.random() * available.length)];
+        usedPersonalities.push(personality);
+
+        const realName = `🤖 ${getDisplayName(personality)}`;
+        const bot = botController.createBot(realName, personality);
+        botSocketIds.push({ socketId: bot.socketId, personality, bot });
+    }
+
+    const allSocketIds = [...humanSocketIds, ...botSocketIds.map(b => b.socketId)];
+
+    // Create game via GameManager
+    const game = gameManager.createGame(allSocketIds);
+
+    // Map game to tournament
+    gameManager.tournamentGames.set(game.gameId, tournament.tournamentId);
+
+    // Register bots
+    for (const botInfo of botSocketIds) {
+        botInfo.bot.socketId = botInfo.socketId;
+        botController.registerBot(game.gameId, botInfo.bot);
+    }
+
+    // Add game to tournament round
+    tournament.addGameToRound(game.gameId, presentHumans, botCount);
+
+    // Join the game room now, so an abort at any later point (a cancel
+    // during the DB writes or the countdown) reaches every player here
+    for (const socketId of humanSocketIds) {
+        io.sockets.sockets.get(socketId)?.join(game.roomName);
+    }
+
+    return { game, humanSocketIds, presentHumans };
+}
+
+/** Undo startRound for a round that got no tables. */
+function rollbackRound(io, tournament, roundNumber) {
+    const startedRound = tournament.getCurrentRound();
+    if (!startedRound || startedRound.roundNumber !== roundNumber || startedRound.games.size !== 0) return;
+    tournament.rounds.pop();
+    tournament.currentRound = roundNumber - 1;
+    tournament.phase = roundNumber === 1 ? 'lobby' : 'between_rounds';
+    tournament.broadcast(io, 'tournamentMessage', {
+        username: 'System',
+        message: 'Round could not start — no connected players.',
+        isSpectator: false,
+        timestamp: Date.now()
+    });
+    socketLogger.warn('Tournament round rolled back, no games created', {
+        tournamentId: tournament.tournamentId, roundNumber
     });
 }
 
@@ -653,8 +751,24 @@ function spectateTournamentGame(socket, io, data) {
 }
 
 /**
- * Cancel a tournament (creator only).
- * Broadcasts tournamentCancelled to all players, clears DB state, deletes tournament.
+ * Cancel a tournament (creator only), in any phase. While a round's tables
+ * are starting or playing, the round's games end: every live table goes
+ * through the single abort path (gameLifecycle.abortGame).
+ *
+ * The whole in-memory teardown is synchronous, before the first await:
+ *   1. deleteTournament: retires the tournament (its epoch goes stale, so an
+ *      in-flight round start stops at its next check), drops the
+ *      tournamentGames / playerTournaments entries (so no abort follow-up or
+ *      late gameEnd can score or advance it) and the tournament itself (so a
+ *      returnToTournament gets tournamentLeft + mainRoomJoined)
+ *   2. abortGame to every live table (players at the table and its
+ *      spectators get abortGame { reason: 'Tournament cancelled' })
+ *   3. tournamentCancelled to the tournament room, then everyone leaves it
+ *   4. lobbiesUpdated
+ * Then the DB: activeTournamentId (scoped) and each abort's activeGameId.
+ * Clients: abortGame first and tournamentCancelled next leaves both web and
+ * iOS in the main room (iOS answers abortGame with returnToTournament, which
+ * now finds no tournament).
  */
 async function cancelTournament(socket, io) {
     const tournament = gameManager.getPlayerTournament(socket.id);
@@ -669,14 +783,18 @@ async function cancelTournament(socket, io) {
     }
 
     const tournamentId = tournament.tournamentId;
+    const phase = tournament.phase;
+    const usernames = Array.from(tournament.players.values(), p => p.username).filter(Boolean);
 
-    // Notify all players in tournament room
+    // 1. Unresolvable before anything can await
+    const tables = gameManager.deleteTournament(tournamentId);
+    cancelTournamentCleanup(tournamentId);
+
+    // 2. End the round's games
+    const aborts = tables.map(game => abortGame(io, game, 'Tournament cancelled'));
+
+    // 3. Notify everyone in the tournament room, then empty it
     tournament.broadcast(io, 'tournamentCancelled', {});
-
-    // Clear active tournament in DB for all players
-    await gameManager.clearActiveTournamentForAll(tournamentId);
-
-    // Remove all players and spectators from tournament room
     for (const [playerSocketId] of tournament.players) {
         tournament.leaveRoom(io, playerSocketId);
     }
@@ -684,20 +802,22 @@ async function cancelTournament(socket, io) {
         tournament.leaveRoom(io, spectatorSocketId);
     }
 
-    // Delete tournament and clean up maps
-    gameManager.deleteTournament(tournamentId);
-
-    // Update main room
-    io.to('mainRoom').emit('lobbiesUpdated', {
-        lobbies: gameManager.getAllLobbies(),
-        inProgressGames: gameManager.getInProgressGames(),
-        tournaments: gameManager.getAllTournaments()
-    });
+    // 4. Update main room
+    emitLobbiesUpdated(io);
 
     socketLogger.info('Tournament cancelled by creator', {
         socketId: socket.id,
-        tournamentId
+        tournamentId,
+        phase,
+        abortedGames: tables.length
     });
+
+    // DB: clear active tournament for all players (scoped: a player may
+    // already be in another one) while the aborts clear their games
+    await Promise.all([
+        ...aborts,
+        ...usernames.map(u => gameManager.clearActiveTournament(u, tournamentId))
+    ]);
 }
 
 /**
@@ -773,6 +893,15 @@ function scheduleTournamentCleanup(io, tournamentId, delayMs = COMPLETED_TOURNAM
     }, delayMs);
     if (timer.unref) timer.unref();
     cleanupTimers.set(tournamentId, timer);
+}
+
+/** Drop a pending results-window cleanup (the tournament is deleted now). */
+function cancelTournamentCleanup(tournamentId) {
+    const timer = cleanupTimers.get(tournamentId);
+    if (timer) {
+        clearTimeout(timer);
+        cleanupTimers.delete(tournamentId);
+    }
 }
 
 /**

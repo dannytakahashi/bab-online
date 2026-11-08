@@ -109,7 +109,7 @@ function spectatorCommand(socket, io, game, message) {
  * phase can complete, mark the entrant 'left' (handleDrawComplete seats a
  * bot for it), and send them out.
  */
-function handleDrawPhaseLeave(socket, io, game) {
+function handleDrawPhaseLeave(socket, io, game, { notify = true } = {}) {
     // Idempotent: a second leave from the same socket changes nothing
     const entrant = game.entrant(socket.id);
     if (!entrant || entrant.presence === 'left') return;
@@ -131,7 +131,7 @@ function handleDrawPhaseLeave(socket, io, game) {
     if (gameManager.playerGames.get(socket.id) === game.gameId) gameManager.playerGames.delete(socket.id);
     const owner = entrant.username || user?.username;
     if (owner) gameManager.clearActiveGame(owner, game.gameId);
-    socket.emit('leftGame');
+    if (notify) socket.emit('leftGame');
 
     socketLogger.info('Player left during draw phase', { gameId: game.gameId, username });
 
@@ -208,5 +208,6 @@ function chatMessage(socket, io, data) {
 }
 
 module.exports = {
-    chatMessage
+    chatMessage,
+    handleDrawPhaseLeave
 };

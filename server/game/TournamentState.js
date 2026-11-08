@@ -14,8 +14,16 @@ class TournamentState {
         this.creatorUsername = creatorUsername;
         this.createdAt = Date.now();
 
-        // Phase: 'lobby' | 'round_active' | 'between_rounds' | 'complete'
+        // Phase: 'lobby' | 'starting' (a round start is in flight) |
+        // 'round_active' | 'between_rounds' | 'complete'
         this.phase = 'lobby';
+        // Lifecycle generation, like GameState.epoch: bumped by every round
+        // start (beginStart) and once more when the tournament is deleted
+        // (retire). An async round start captures it and stops at its next
+        // await if it changed, so a cancelled / deleted tournament never
+        // gets tables, assignments or allPlayersReady.
+        this.epoch = 0;
+        this.retired = false;
         this.currentRound = 0; // 0 = not started, 1-4 = round number
         this.totalRounds = 4;
 
@@ -221,6 +229,26 @@ class TournamentState {
     // Round Management
     // ========================================
 
+    /** A round start begins: phase 'starting', new generation. @returns {number} the epoch */
+    beginStart() {
+        this.phase = 'starting';
+        this.epoch++;
+        return this.epoch;
+    }
+
+    /** True while no newer start or deletion superseded generation `epoch`. */
+    isLive(epoch) {
+        return !this.retired && this.epoch === epoch;
+    }
+
+    /** Deleted (cancel, cleanup, abandonment): every captured epoch goes stale. */
+    retire() {
+        if (this.retired) return;
+        this.retired = true;
+        this.epoch++;
+        this.logAction('retire', { epoch: this.epoch });
+    }
+
     startRound(roundNumber) {
         this.currentRound = roundNumber;
         this.phase = 'round_active';
@@ -289,8 +317,16 @@ class TournamentState {
         this.logAction('recordPlayerRoundScore', { username, roundScore, totalScore: entry.totalScore });
     }
 
+    /** The round a game was created in (null if it is not one of ours). */
+    roundOfGame(gameId) {
+        for (let i = this.rounds.length - 1; i >= 0; i--) {
+            if (this.rounds[i].games.has(gameId)) return this.rounds[i];
+        }
+        return null;
+    }
+
     markGameComplete(gameId) {
-        const round = this.getCurrentRound();
+        const round = this.roundOfGame(gameId) || this.getCurrentRound();
         if (!round) return;
 
         const gameData = round.games.get(gameId);
