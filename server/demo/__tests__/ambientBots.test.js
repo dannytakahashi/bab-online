@@ -139,3 +139,86 @@ describe('startBotGame', () => {
         botController.cleanupGame(game.gameId);
     });
 });
+
+describe('always-on lifecycle (pacing.js AMBIENT_CHECK_MS / AMBIENT_RESTART_MS / AMBIENT_PREGAME)', () => {
+    let pacing;
+    let io;
+    let log;
+    const demoGames = () => [...gameManager.games.values()].filter((g) => g.isDemo && !g.isTerminal());
+
+    beforeEach(() => {
+        jest.useFakeTimers();
+        pacing = require('../../game/pacing');
+        log = [];
+        io = require('../../testUtils/gameDriver').makeIo(log);
+        jest.spyOn(console, 'log').mockImplementation(() => {});
+        const { gameLogger, logger } = require('../../utils/logger');
+        for (const l of [gameLogger, logger]) for (const m of ['info', 'debug', 'warn']) jest.spyOn(l, m).mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+        for (const id of Array.from(gameManager.games.keys())) gameManager.abortGame(id);
+        jest.clearAllTimers();
+        jest.restoreAllMocks();
+    });
+
+    test('the poll and the gap between games are 5 s each', () => {
+        expect(pacing().AMBIENT_CHECK_MS).toBe(5000);
+        expect(pacing().AMBIENT_RESTART_MS).toBe(5000);
+    });
+
+    test('a new demo game is listed (lobbiesUpdated at DEALING) within 1 s of its start', async () => {
+        const game = ambient.startBotGame(io);
+        expect(pacing(game).TEAMS_MS).toBe(0);
+        await jest.advanceTimersByTimeAsync(1000);
+        expect(gameManager.getInProgressGames().some((g) => g.gameId === game.gameId)).toBe(true);
+        const listed = log.filter((l) => l.event === 'lobbiesUpdated' && l.data.inProgressGames.some((g) => g.gameId === game.gameId));
+        expect(listed.length).toBeGreaterThan(0);
+        // From the deal on (it is listed), the standard timing applies
+        expect(pacing(game).TEAMS_MS).toBe(pacing().TEAMS_MS);
+        expect(pacing(game).TRICK_VIEW_MS).toBe(pacing().TRICK_VIEW_MS);
+    });
+
+    test('a spectated demo game keeps the standard pre-game timing', () => {
+        const game = ambient.startBotGame(io);
+        game.spectators.set('watcher', { username: 'w' });
+        expect(pacing(game).TEAMS_MS).toBe(pacing().TEAMS_MS);
+        game.spectators.clear();
+    });
+
+    test('a finished game is replaced within AMBIENT_CHECK_MS + AMBIENT_RESTART_MS; never two at once', async () => {
+        ambient.startAmbientActivity(io);
+        const [first] = demoGames();
+        expect(first).toBeDefined();
+        await jest.advanceTimersByTimeAsync(1000);
+        gameManager.endGame(first.gameId, io);
+        expect(demoGames()).toHaveLength(0);
+        const P = pacing();
+        let max = 0;
+        for (let t = 0; t < P.AMBIENT_CHECK_MS + P.AMBIENT_RESTART_MS; t += 500) {
+            await jest.advanceTimersByTimeAsync(500);
+            max = Math.max(max, demoGames().length);
+        }
+        expect(demoGames()).toHaveLength(1);
+        expect(demoGames()[0].gameId).not.toBe(first.gameId);
+        // ...and over a while of play there is never a second one
+        for (let t = 0; t < 120000; t += 1000) {
+            await jest.advanceTimersByTimeAsync(1000);
+            max = Math.max(max, demoGames().length);
+        }
+        expect(max).toBe(1);
+    });
+
+    test('a recycled (wedged) game is replaced', async () => {
+        ambient.startAmbientActivity(io);
+        const [first] = demoGames();
+        await jest.advanceTimersByTimeAsync(1000);
+        jest.setSystemTime(Date.now() + 91 * 60 * 1000);
+        const P = pacing();
+        await jest.advanceTimersByTimeAsync(P.AMBIENT_CHECK_MS);
+        expect(first.isTerminal()).toBe(true);
+        await jest.advanceTimersByTimeAsync(P.AMBIENT_CHECK_MS + P.AMBIENT_RESTART_MS);
+        expect(demoGames()).toHaveLength(1);
+        expect(demoGames()[0].gameId).not.toBe(first.gameId);
+    });
+});

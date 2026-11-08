@@ -105,7 +105,28 @@ const STANDARD = {
     GAME_END_MS: 1500,
     // Sharon's trump quip lands while the hand's bidding is still on
     BOT_TRUMP_QUIP_MS: 2500,
+    // Ambient game (server/demo/ambientBots.js): the poll is O(1); the
+    // unlisted gap between two games is about 5-10 s (was 50-65 s)
+    AMBIENT_CHECK_MS: 5000,
+    AMBIENT_RESTART_MS: 5000,
 };
+
+/**
+ * Overlay for an ambient (demo) game before the deal while nobody watches
+ * it: it is unlisted (GameManager.getInProgressGames skips the 'waiting' /
+ * 'drawing' wire phases, i.e. CREATED through TEAMS_ANNOUNCED) and has no
+ * humans, so nobody can see these stages. It is listed ~0.1 s after start
+ * instead of ~7-9 s. The bot draw still draws its RNG (seeded runs keep
+ * their stream). Exempt from SHIPPED_IOS_FLOORS.
+ */
+const AMBIENT_PREGAME = Object.freeze({
+    BOT_DRAW_STAGGER_MS: 0,
+    BOT_DRAW: Object.freeze([50, 0]),
+    DRAW_REVEAL_MS: 0,
+    SEATING_TO_TEAMS_MS: 0,
+    TEAMS_MS: 0,
+});
+const PREGAME_STAGES = new Set(['CREATED', 'DRAWING', 'DRAW_RESOLVING', 'TEAMS_ANNOUNCED']);
 
 /** Dev only: every floored value at its floor, the rest short. */
 const FAST = {
@@ -200,14 +221,23 @@ function profileFromEnv() {
 }
 
 let active = null;
+let activePregame = null;
 
 /**
  * The active pacing values (frozen).
- * @param {Object} [game] - accepted for the per-game overlay (ambient demo
- *   games before the deal)
+ * @param {Object} [game] - an ambient (isDemo) game before the deal with no
+ *   spectator gets AMBIENT_PREGAME on top (zero profile excepted)
  */
-function pacing(game) { // eslint-disable-line no-unused-vars
-    if (!active) active = freeze(profileFromEnv());
+function pacing(game) {
+    if (!active) {
+        active = freeze(profileFromEnv());
+        activePregame = null;
+    }
+    if (game && game.isDemo && PREGAME_STAGES.has(game.stage) && !(game.spectators && game.spectators.size > 0) &&
+        active.TRICK_VIEW_MS > 0) {
+        if (!activePregame) activePregame = freeze({ ...active, ...AMBIENT_PREGAME });
+        return activePregame;
+    }
     return active;
 }
 
@@ -220,6 +250,7 @@ function setPacingForTests(nameOrOverrides) {
     } else {
         active = freeze({ ...pacing(), ...nameOrOverrides });
     }
+    activePregame = null;
     return active;
 }
 
@@ -227,6 +258,7 @@ function setPacingForTests(nameOrOverrides) {
 function resetPacing() {
     if (!isTest()) throw new Error('resetPacing is test-only');
     active = null;
+    activePregame = null;
     tracer = null;
 }
 
@@ -253,6 +285,7 @@ function setTracer(fn) {
 
 pacing.PROFILES = PROFILES;
 pacing.SHIPPED_IOS_FLOORS = SHIPPED_IOS_FLOORS;
+pacing.AMBIENT_PREGAME = AMBIENT_PREGAME;
 pacing.setPacingForTests = setPacingForTests;
 pacing.resetPacing = resetPacing;
 pacing.fromRange = fromRange;

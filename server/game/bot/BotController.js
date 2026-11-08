@@ -137,7 +137,7 @@ class BotController {
         }
 
         const kind = this.actionKind(game, actionType, bot);
-        const delay = bot.getActionDelay(actionType, { kind });
+        const delay = bot.getActionDelay(actionType, { kind, game });
         pacing.trace(`${actionType === 'bid' ? 'botBid' : 'botPlay'}:${kind}`, delay, game);
         const actionKey = `${game.gameId}:${player.socketId}:${actionType}`;
 
@@ -179,7 +179,7 @@ class BotController {
 
         // Stagger draws based on order
         const baseDelay = drawOrder * pacing(game).BOT_DRAW_STAGGER_MS;
-        const delay = baseDelay + bot.getActionDelay('draw');
+        const delay = baseDelay + bot.getActionDelay('draw', { game });
         pacing.trace('botDraw', delay, game);
 
         const actionKey = `${game.gameId}:${botSocketId}:draw`;

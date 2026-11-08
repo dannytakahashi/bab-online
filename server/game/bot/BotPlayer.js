@@ -194,11 +194,12 @@ class BotPlayer {
      *   play: 'afterBidding' (opening lead), 'afterTrick' (lead after a
      *   trick, the last card included), 'forced' (a follow with exactly one
      *   legal card); otherwise the ordinary range
+     * @param {Object} [opts.game] - for the per-game overlay (pacing(game))
      * @returns {number} - Delay in milliseconds
      */
-    getActionDelay(actionType, { kind } = {}) {
+    getActionDelay(actionType, { kind, game } = {}) {
         const r = Math.random();
-        const p = pacing();
+        const p = pacing(game);
         switch (actionType) {
             case 'draw':
                 return pacing.fromRange(p.BOT_DRAW, r);
