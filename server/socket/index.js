@@ -17,10 +17,15 @@ const safetyHandlers = require('./safetyHandlers');
 const snapshotHandlers = require('./snapshotHandlers');
 const { asyncHandler, syncHandler, safeHandler, rateLimiter } = require('./errorHandler');
 const { socketLogger } = require('../utils/logger');
+const { getClientIp } = require('../utils/clientIp');
 
 function setupSocketHandlers(io) {
     io.on('connection', (socket) => {
         socketLogger.debug('Player connected', { socketId: socket.id });
+
+        // Client IP for the failed-sign-in throttle, from the handshake
+        // (Railway edge: X-Real-IP behind a proxy peer; see utils/clientIp)
+        if (socket.data) socket.data.clientIp = getClientIp(socket);
 
         // Auth events - with validation
         socket.on('signIn', (data) =>

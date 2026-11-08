@@ -58,6 +58,7 @@ beforeEach(async () => {
     jest.clearAllMocks();
     mockDb.cold = false;
     mockDb.whenReady = null;
+    require('../signInThrottle')._reset();
     io = { sockets: { sockets: new Map() } };
     mockDb.current = createMemoryDb({
         users: [
@@ -391,5 +392,93 @@ describe('cold start (connectDB still running)', () => {
     test('database.whenReady times out to false before connectDB ever ran', async () => {
         const { whenReady } = jest.requireActual('../../database');
         await expect(whenReady(5)).resolves.toBe(false);
+    });
+});
+
+describe('failed sign-in throttle', () => {
+    const passwordHash = require('../../utils/passwordHash');
+    const THROTTLED = { success: false, message: 'Too many failed sign-in attempts. Please wait a few minutes and try again.' };
+    const from = (ip) => { const s = connect(); s.data.clientIp = ip; return s; };
+
+    afterEach(() => jest.restoreAllMocks());
+
+    test('the 11th wrong attempt for a pair is refused before any DB read or hash; another IP still works', async () => {
+        for (let i = 0; i < 10; i++) {
+            expect(await signIn(from('198.51.100.1'), 'Alan', 'wrong')).toEqual({ success: false, message: 'Invalid username or password!' });
+        }
+        const findOne = jest.spyOn(mockDb.current.users, 'findOne');
+        const compare = jest.spyOn(passwordHash, 'compare');
+        expect(await signIn(from('198.51.100.1'), 'Alan', 'pw')).toEqual(THROTTLED);
+        expect(findOne).not.toHaveBeenCalled();
+        expect(compare).not.toHaveBeenCalled();
+        // The same person on the phone network signs in fine
+        expect(await signIn(from('203.0.113.50'), 'Alan', 'pw')).toMatchObject({ success: true });
+    });
+
+    test('30 failures across 30 IPs lock the username, even with the right password', async () => {
+        for (let i = 0; i < 30; i++) await signIn(from(`192.0.2.${i + 1}`), 'Alan', 'wrong');
+        expect(await signIn(from('203.0.113.77'), 'Alan', 'pw')).toEqual(THROTTLED);
+        expect(gameManager.registerUser).not.toHaveBeenCalled();
+    });
+
+    test('family NAT: 49 failures from one IP, then 6 family members sign in from it', async () => {
+        const family = ['Mom', 'Dad', 'Kid1', 'Kid2', 'Gran', 'Pop'];
+        const hash = await bcrypt.hash('pw', 4);
+        for (const u of family) await mockDb.current.users.insertOne({ username: u, password: hash });
+        const nat = '203.0.113.10';
+        for (let i = 0; i < 49; i++) await signIn(from(nat), family[i % 6], 'typo');
+        const replies = await Promise.all(family.map(u => signIn(from(nat), u, 'pw')));
+        expect(replies.every(r => r.success === true)).toBe(true);
+    });
+
+    test('unknown usernames count; a merged-account redirect does not', async () => {
+        for (let i = 0; i < 10; i++) await signIn(from('198.51.100.9'), 'Nobody', 'x');
+        expect(await signIn(from('198.51.100.9'), 'Nobody', 'x')).toEqual(THROTTLED);
+        for (let i = 0; i < 15; i++) {
+            expect((await signIn(from('198.51.100.9'), 'Alan2', 'x')).message).toContain('Please sign in as Alan');
+        }
+    });
+
+    test('database errors and a busy hash pool are not counted', async () => {
+        jest.spyOn(mockDb.current.users, 'findOne').mockRejectedValue(new Error('db down'));
+        for (let i = 0; i < 12; i++) await signIn(from('198.51.100.3'), 'Alan', 'pw');
+        jest.restoreAllMocks();
+        jest.spyOn(passwordHash, 'compare').mockRejectedValue(Object.assign(new Error('full'), { code: 'HASH_BUSY' }));
+        for (let i = 0; i < 12; i++) {
+            expect(await signIn(from('198.51.100.3'), 'Alan', 'pw')).toEqual({ success: false, message: 'Server is busy. Try again in a moment.' });
+        }
+        jest.restoreAllMocks();
+        expect(await signIn(from('198.51.100.3'), 'Alan', 'pw')).toMatchObject({ success: true });
+    });
+
+    test('after a lockout, restoreSession with a saved token still works (never throttled)', async () => {
+        const { sessionToken } = await signIn(from('198.51.100.4'), 'Alan', 'pw');
+        for (let i = 0; i < 30; i++) await signIn(from(`192.0.2.${i + 100}`), 'Alan', 'wrong');
+        expect(await signIn(from('198.51.100.4'), 'Alan', 'pw')).toEqual(THROTTLED);
+        for (let i = 0; i < 20; i++) {
+            expect(await restore(from('198.51.100.4'), sessionToken)).toMatchObject({ success: true, username: 'Alan' });
+        }
+    });
+
+    test('a success clears the pair', async () => {
+        const ip = '198.51.100.5';
+        for (let i = 0; i < 9; i++) await signIn(from(ip), 'Alan', 'wrong');
+        expect(await signIn(from(ip), 'Alan', 'pw')).toMatchObject({ success: true });
+        for (let i = 0; i < 10; i++) {
+            expect(await signIn(from(ip), 'Alan', 'wrong')).toEqual({ success: false, message: 'Invalid username or password!' });
+        }
+        expect(await signIn(from(ip), 'Alan', 'pw')).toEqual(THROTTLED);
+    });
+
+    test('concurrent wrong attempts cannot overshoot the pair limit', async () => {
+        const ip = '198.51.100.6';
+        const replies = await Promise.all(Array.from({ length: 25 }, () => signIn(from(ip), 'Alan', 'wrong')));
+        expect(replies.filter(r => r.message === 'Invalid username or password!')).toHaveLength(10);
+        expect(replies.filter(r => r.message === THROTTLED.message)).toHaveLength(15);
+    });
+
+    test('no client IP: only the pair and username keys apply', async () => {
+        for (let i = 0; i < 60; i++) await signIn(from(null), `ghost${i}`, 'x');
+        expect(await signIn(from(null), 'Alan', 'pw')).toMatchObject({ success: true });
     });
 });

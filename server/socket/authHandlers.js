@@ -3,6 +3,7 @@
  */
 
 const passwordHash = require('../utils/passwordHash');
+const signInThrottle = require('./signInThrottle');
 const { getUsersCollection, getGameRecordsCollection } = require('../database');
 const gameManager = require('../game/GameManager');
 const { authLogger } = require('../utils/logger');
@@ -14,6 +15,7 @@ const { issueSession, verifySession } = require('../utils/sessionTokens');
  * of a generic "wrong password", since they likely forgot which one is theirs.
  */
 const BUSY_MESSAGE = 'Server is busy. Try again in a moment.';
+const THROTTLED_MESSAGE = 'Too many failed sign-in attempts. Please wait a few minutes and try again.';
 const isHashBusy = (error) => Boolean(error && error.code === 'HASH_BUSY');
 
 function mergedAccountMessage(username, mergedInto) {
@@ -61,10 +63,27 @@ async function usersCollectionWhenReady() {
 }
 
 async function signIn(socket, io, data) {
-    const usersCollection = await usersCollectionWhenReady();
     const { username, password } = data;
 
+    // Failed-attempt throttle (pair / ip / username), checked before any
+    // DB read or hash. Only failures count (signInThrottle.js).
+    const who = { ip: socket.data?.clientIp ?? null, username };
+    const gate = signInThrottle.check(who);
+    if (!gate.ok) {
+        authLogger.warn('Sign-in throttled after repeated failures', { username, ip: who.ip, retryAfterMs: gate.retryAfterMs });
+        socket.emit('signInResponse', { success: false, message: THROTTLED_MESSAGE });
+        return;
+    }
+
+    // Reserve a failure now, synchronously with the check, so concurrent
+    // attempts cannot overshoot the limits while their hashes run; settled
+    // in the finally below (kept for a real failure, released otherwise)
+    const reservation = signInThrottle.reserve(who);
+    let failed = false;
+    let succeeded = false;
+
     try {
+        const usersCollection = await usersCollectionWhenReady();
         const user = await usersCollection.findOne({ username }, { projection: SIGN_IN_PROJECTION });
 
         if (!user) {
@@ -73,6 +92,7 @@ async function signIn(socket, io, data) {
                 message: 'Invalid username or password!'
             });
             authLogger.warn('Sign-in failed: user not found', { username });
+            failed = true;
             return;
         }
 
@@ -95,8 +115,10 @@ async function signIn(socket, io, data) {
                 message: 'Invalid username or password!'
             });
             authLogger.warn('Sign-in failed: incorrect password', { username });
+            failed = true;
             return;
         }
+        succeeded = true;
 
         // If user is already logged in, disconnect the old session
         disconnectPreviousSocket(io, user.socketId, socket.id, username);
@@ -174,6 +196,12 @@ async function signIn(socket, io, data) {
             success: false,
             message: 'Database error. Try again.'
         });
+    } finally {
+        // Counted: unknown user, wrong password. Not counted: a merged
+        // account, a database error, a busy hash pool. Success clears the pair.
+        if (succeeded) signInThrottle.recordSuccess(who, reservation);
+        else if (failed) signInThrottle.confirm(who);
+        else signInThrottle.release(who, reservation);
     }
 }
 
