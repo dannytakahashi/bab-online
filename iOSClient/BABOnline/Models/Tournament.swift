@@ -11,10 +11,7 @@ struct TournamentPlayer: Identifiable, Equatable {
     static func from(_ dict: [String: Any]) -> TournamentPlayer? {
         guard let username = dict["username"] as? String else { return nil }
         let id = dict["socketId"] as? String ?? dict["id"] as? String ?? UUID().uuidString
-        let pic: String?
-        if let s = dict["pic"] as? String { pic = s }
-        else if let n = dict["pic"] as? Int { pic = String(n) }
-        else { pic = nil }
+        let pic = picString(from: dict["pic"])
         let isReady = dict["ready"] as? Bool ?? dict["isReady"] as? Bool ?? false
         let isCreator = dict["isCreator"] as? Bool ?? false
         let connected = dict["connected"] as? Bool ?? true

@@ -266,11 +266,7 @@ final class GameState: ObservableObject {
         // Pics can be Int (numbered 1-82) or String (base64 custom) from server
         let pics: [String?]
         if let rawPics = dict["pics"] as? [Any?] {
-            pics = rawPics.map { val -> String? in
-                if let s = val as? String { return s }
-                if let n = val as? Int { return String(n) }
-                return nil
-            }
+            pics = rawPics.map { picString(from: $0) }
         } else {
             pics = Array(repeating: nil, count: positions.count)
         }
@@ -487,21 +483,7 @@ final class GameState: ObservableObject {
 
         // Restore played cards
         if let pcArr = data["playedCards"] as? [[String: Any]?] {
-            playedCards = []
-            playedCardIndex = 0
-            leadCard = nil
-            leadPosition = nil
-            for (index, cardDict) in pcArr.enumerated() {
-                if let cd = cardDict, let card = Card.from(cd) {
-                    let cardPos = index + 1
-                    if leadCard == nil {
-                        leadCard = card
-                        leadPosition = cardPos
-                    }
-                    playedCards.append(PlayedCard(card: card, position: cardPos))
-                    playedCardIndex += 1
-                }
-            }
+            restorePlayedCards(pcArr, serverLeadPosition: data["leadPosition"] as? Int)
         }
 
         // Derive hasPlayedCard from restored trick state
@@ -521,7 +503,7 @@ final class GameState: ObservableObject {
                 positions.append(p["position"] as? Int ?? 0)
                 sockets.append(p["socketId"] as? String ?? "")
                 usernames.append(p["username"] as? String ?? "")
-                pics.append(p["pic"] as? String)
+                pics.append(picString(from: p["pic"]))
             }
             playerData = PlayerData(positions: positions, sockets: sockets, usernames: usernames, pics: pics)
             for (idx, pos) in positions.enumerated() {
@@ -543,6 +525,54 @@ final class GameState: ObservableObject {
 
         phase = bidding ? .bidding : .playing
         isUICreated = true
+    }
+
+    /// Rebuild the current trick from the server's `playedCards`, which is indexed by
+    /// position - 1 with nulls (e.g. `[null, 5H, null, KC]`), not by play order.
+    /// The lead comes from the server's `leadPosition` (rejoin payloads send it); without
+    /// it (spectator payloads), the lead is the played position whose predecessor has
+    /// no card, since a trick is played in consecutive seats.
+    private func restorePlayedCards(_ pcArr: [[String: Any]?], serverLeadPosition: Int?) {
+        playedCards = []
+        playedCardIndex = 0
+        leadCard = nil
+        leadPosition = nil
+
+        var cardsByPos: [Int: Card] = [:]
+        for (index, cardDict) in pcArr.prefix(4).enumerated() {
+            if let cd = cardDict, let card = Card.from(cd) {
+                cardsByPos[index + 1] = card
+            }
+        }
+        guard !cardsByPos.isEmpty else { return }
+
+        let lead: Int
+        if let serverLead = serverLeadPosition, cardsByPos[serverLead] != nil {
+            lead = serverLead
+        } else {
+            lead = cardsByPos.keys.sorted().first { pos in
+                cardsByPos[pos == 1 ? 4 : pos - 1] == nil
+            } ?? cardsByPos.keys.min()!
+        }
+
+        // Play order: lead, lead+1, ... wrapping 4 -> 1
+        for offset in 0..<4 {
+            let pos = (lead - 1 + offset) % 4 + 1
+            if let card = cardsByPos[pos] {
+                playedCards.append(PlayedCard(card: card, position: pos))
+            }
+        }
+
+        if playedCards.count >= 4 {
+            // Rejoined during the server's trick-resolution delay: mirror the live
+            // cardPlayed path (index back to 0, lead cleared) so trickComplete's
+            // delayed clearTrick runs and the next card starts a fresh trick.
+            playedCardIndex = 0
+        } else {
+            playedCardIndex = playedCards.count
+            leadCard = cardsByPos[lead]
+            leadPosition = lead
+        }
     }
 
     // MARK: - Restore from Spectator
@@ -593,21 +623,7 @@ final class GameState: ObservableObject {
 
         // Restore played cards
         if let pcArr = data["playedCards"] as? [[String: Any]?] {
-            playedCards = []
-            playedCardIndex = 0
-            leadCard = nil
-            leadPosition = nil
-            for (index, cardDict) in pcArr.enumerated() {
-                if let cd = cardDict, let card = Card.from(cd) {
-                    let cardPos = index + 1
-                    if leadCard == nil {
-                        leadCard = card
-                        leadPosition = cardPos
-                    }
-                    playedCards.append(PlayedCard(card: card, position: cardPos))
-                    playedCardIndex += 1
-                }
-            }
+            restorePlayedCards(pcArr, serverLeadPosition: data["leadPosition"] as? Int)
         }
 
         // Restore player data
@@ -620,7 +636,7 @@ final class GameState: ObservableObject {
                 positions.append(p["position"] as? Int ?? 0)
                 sockets.append(p["socketId"] as? String ?? "")
                 usernames.append(p["username"] as? String ?? "")
-                pics.append(p["pic"] as? String)
+                pics.append(picString(from: p["pic"]))
             }
             playerData = PlayerData(positions: positions, sockets: sockets, usernames: usernames, pics: pics)
             for (idx, pos) in positions.enumerated() {

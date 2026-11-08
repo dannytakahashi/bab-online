@@ -310,7 +310,7 @@ final class GameSocketHandler {
                 self.gameState.resignationAvailable = nil
 
                 if let botUsername = dict["botUsername"] as? String {
-                    let botPic: String? = (dict["botPic"] as? Int).map { String($0) } ?? dict["botPic"] as? String
+                    let botPic = picString(from: dict["botPic"])
                     self.gameState.players[pos] = GameState.PlayerInfo(username: botUsername, pic: botPic)
                     self.gameState.updatePlayerNames()
                 }
@@ -385,7 +385,7 @@ final class GameSocketHandler {
             DispatchQueue.main.async {
                 let pos = dict["position"] as? Int ?? 0
                 let botUsername = dict["botUsername"] as? String ?? "Bot"
-                let botPic: String? = (dict["botPic"] as? Int).map { String($0) } ?? dict["botPic"] as? String
+                let botPic = picString(from: dict["botPic"])
 
                 self.gameState.players[pos] = GameState.PlayerInfo(username: botUsername, pic: botPic)
                 self.gameState.updatePlayerNames()
@@ -402,7 +402,7 @@ final class GameSocketHandler {
             DispatchQueue.main.async {
                 let pos = dict["position"] as? Int ?? 0
                 let username = dict["username"] as? String ?? ""
-                let pic: String? = (dict["pic"] as? Int).map { String($0) } ?? dict["pic"] as? String
+                let pic = picString(from: dict["pic"])
 
                 self.gameState.players[pos] = GameState.PlayerInfo(username: username, pic: pic)
                 self.gameState.updatePlayerNames()
