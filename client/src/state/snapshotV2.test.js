@@ -5,7 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import {
-  SNAPSHOT_VERSION, STAGES, parseSnapshotV2, classifySeq, seatAt, relativeSeat, isComplete, teamOf,
+  SNAPSHOT_VERSION, STAGES, parseSnapshotV2, classifySeq, seatAt, relativeSeat, isComplete, teamOf, mergeSnapshot,
 } from './snapshotV2.js';
 
 // Server-generated fixtures (npm run contract:fixtures; contractFixtures.test.js)
@@ -139,6 +139,49 @@ describe('fixture semantics', () => {
     expect(isComplete(s)).toBe(false);
     expect(s.log).toEqual([]);
     expect(s.seats.some((x) => x.hasCustomPic && x.customPic === null)).toBe(true);
+  });
+});
+
+describe('mergeSnapshot: a partial snapshot keeps what it left out (README R5)', () => {
+  it('actionRejected (no log, no custom pictures) after a full snapshot keeps the log and the picture', () => {
+    const prev = parsed('trick-mid-lead3');
+    const next = parsed('action-rejected');
+    const m = mergeSnapshot(prev, next);
+    expect(m.partial).toEqual([]);
+    expect(m.log).toEqual(prev.log);
+    expect(m.log.length).toBeGreaterThan(0);
+    expect(seatAt(m, 2)).toMatchObject({ username: 'kim', hasCustomPic: true, customPic: seatAt(prev, 2).customPic });
+    // everything else is the new snapshot's
+    expect({ ...m, log: null, seats: null }).toEqual({ ...next, log: null, seats: null, partial: [] });
+    expect(Object.isFrozen(m)).toBe(true);
+    expect(isComplete(m)).toBe(true);
+  });
+
+  it('with nothing to keep (first snapshot, or another game) what is missing stays listed', () => {
+    const next = parsed('action-rejected');
+    expect(mergeSnapshot(null, next).partial).toEqual(['customPics', 'log']);
+    const other = { ...parsed('trick-mid-lead3'), gameId: 'another-game' };
+    const m = mergeSnapshot(other, next);
+    expect(m.partial).toEqual(['customPics', 'log']);
+    expect(m.log).toEqual([]);
+  });
+
+  it('pictures can come from the v1 payload the snapshot rode on (players[].pic by username)', () => {
+    const next = parsed('spectator-mid-hand');
+    expect(next.partial).toEqual(['customPics']);
+    const m = mergeSnapshot(null, next, { pics: { kim: 'data:image/png;base64,AAAA', ivy: 12 } });
+    expect(m.partial).toEqual([]);
+    expect(m.seats.find((x) => x.username === 'kim').customPic).toBe('data:image/png;base64,AAAA');
+    expect(m.log).toEqual(next.log);
+  });
+
+  it('a seat whose player changed does not inherit the old picture', () => {
+    const prev = parsed('trick-mid-lead3');
+    const next = JSON.parse(JSON.stringify(load('action-rejected').snapshot));
+    next.seats[1].username = 'someone-else';
+    const m = mergeSnapshot(prev, parseSnapshotV2(next).snapshot);
+    expect(m.partial).toEqual(['customPics']);
+    expect(m.seats[1].customPic).toBeNull();
   });
 });
 

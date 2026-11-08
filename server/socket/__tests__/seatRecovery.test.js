@@ -23,10 +23,13 @@ const queueHandlers = require('../queueHandlers');
 const reconnectHandlers = require('../reconnectHandlers');
 const { botController } = require('../../game/bot');
 const { lazySeat, resignedSeat } = require('../../testUtils/gameDriver');
+// Every emit here is contract-checked like the gameDriver suites
+const { instrument } = require('../../testUtils/contractCheck');
 
 const C = (rank, suit) => ({ rank, suit });
 
 function makeIo(log) {
+    instrument(log);
     return {
         to: (room) => ({ emit: (event, data) => log.push({ to: room, event, data }) }),
         emit: (event, data) => log.push({ to: '*', event, data }),
@@ -35,6 +38,7 @@ function makeIo(log) {
 }
 
 function makeSocket(id, log) {
+    instrument(log);
     return { id, data: {}, emit: (event, data) => log.push({ to: `self:${id}`, event, data }), join() {}, leave() {} };
 }
 
@@ -256,7 +260,7 @@ describe('/active over a resigned seat', () => {
 
         // Private events (e.g. next hand's cards) reach the seat again
         const before = log.length;
-        game.sendToPlayer(io, fresh.id, 'gameStart', {});
+        game.sendToPlayer(io, fresh.id, '__privateProbe', {}); // a test marker (not contract-checked)
         expect(log.length).toBe(before + 1);
 
         // And the human can act on their turn

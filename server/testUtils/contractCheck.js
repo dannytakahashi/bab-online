@@ -40,6 +40,30 @@ function enabled() {
     return process.env.BAB_CONTRACT !== '0';
 }
 
+/** The schema `to` kind of a logged emit target. */
+function targetKind(to) {
+    const t = String(to);
+    if (t.startsWith('self:')) return 'self';
+    if (t.startsWith('game:')) return 'room';
+    if (t.startsWith('tournament:')) return 'tournament';
+    if (t === 'mainRoom') return 'mainRoom';
+    if (t === '*') return 'all';
+    return 'socket';
+}
+
+/** Problems with `entry` reaching a kind of target its schema entry does not list. */
+function routeErrors(event, to) {
+    const entry = contract.schema.s2c[event];
+    if (!entry || entry.to === undefined) return [];
+    // self (socket.emit) and socket (io.to(socketId)) both reach exactly one
+    // client: the same thing on the wire
+    const norm = (k) => (k === 'self' || k === 'socket' ? 'private' : k);
+    const allowed = [].concat(entry.to);
+    const kind = targetKind(to);
+    return allowed.map(norm).includes(norm(kind)) ? []
+        : [{ path: '$', message: `'${event}' sent to ${kind} (${to}); the schema allows ${allowed.join(' | ')}` }];
+}
+
 function check(entry) {
     if (typeof entry.to === 'string' && entry.to.startsWith('bot:')) return;
     const { event, data } = entry;
@@ -53,14 +77,15 @@ function check(entry) {
     let key = null;
     const json = wire === undefined ? 'u' : JSON.stringify(wire);
     if (json.length < 2000) {
-        key = event + '\u0000' + (String(entry.to).startsWith('game:') ? 'room' : 'direct') + '\u0000' + json;
+        key = event + '\u0000' + targetKind(entry.to) + '\u0000' + json;
         if (memo.has(key)) return;
     }
     const r = contract.validateS2C(event, wire);
     let errors = r.errors;
     if (r.unknownEvent) state.unknownEvents.add(event);
     else if (r.status === 'clientOnly') errors = [{ path: '$', message: `'${event}' is clientOnly: the server must never emit it` }];
-    else if (errors.length === 0) {
+    else if (errors.length === 0) errors = routeErrors(event, entry.to);
+    if (!r.unknownEvent && r.status !== 'clientOnly' && errors.length === 0) {
         // seq routing (variants alone cannot tell a room form from a private
         // one): every room broadcast and every gameStart carries seq, nothing
         // else carries a top-level seq

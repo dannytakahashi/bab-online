@@ -37,14 +37,25 @@ One PR per entry:
 - Emit sites: ~50 `socket.emit('error', ...)` across server/socket/* plus
   errorHandler.js (asyncHandler, syncHandler, handleError), validators.js
   withValidation and chatHandlers.sendError.
-- Consumers: web `client/src/main.js` `socket.on('error')` (~line 1733). iOS has
-  no app-level listener: `SocketService.swift:90` listens to the transport's
-  `clientEvent: .error`, and Socket.IO-Client-Swift reserves the `error` name,
-  which is why iOS never shows these messages (the collision).
+- Consumers:
+  - web `client/src/main.js` `socket.on('error')` (setupSocketErrorHandler).
+  - iOS `SocketService.swift` `connect()`: Socket.IO-Client-Swift reserves the
+    `error` name, so the server's event arrives on `clientEvent: .error`
+    (mixed with transport errors, told apart by payload shape: a dictionary
+    with `message` vs a String). Since 0fd6ef1 (ctr-4) the iOS source shows
+    `message` as a toast (`serverError` → ConnectionStatusToast); the build
+    that ships with the iOS track WILL show these messages. Builds before
+    0fd6ef1 do not.
 - Phase A (additive, can run before the iOS build): an `emitError(socket,
   {code, message, handler})` helper that sends both `error` and `serverError`;
   a shared code enum in the contract.
+- **Prerequisite of Phase B:** the new iOS build listens to `serverError`
+  (not only `clientEvent: .error`); otherwise dropping `error` silently loses
+  the iOS error toast. Same for web.
 - Phase B (this entry): drop the `error` emit once no v1 client remains.
+- The `validation` variant (`{type:'validation', message}`, from
+  `validators.withValidation`) is dead today: nothing calls withValidation.
+  Delete withValidation and the variant with this entry.
 
 ### 2. The matchmaking queue
 
@@ -80,7 +91,13 @@ from it every hand. Prerequisite: item 16 renders seats from snapshot v2
 
 ### 6. `gameStart.players` (seat socket ids)
 
-Unused by both clients; leaks socket ids. Drop it.
+Leaks socket ids, but it is READ: web `main.js` gameStart handler stores it
+(`gameState.setPlayerData({ sockets: data.players })` → `playerData.socket`)
+and `startVoice` / `onSpeakingChange` maps a voice peer's socket id to a seat
+with `pd.socket.indexOf(id)` to highlight the speaking player. iOS does not
+read it. Prerequisite: a v2 seat ↔ voice-peer mapping (e.g. voice peers
+carry a position, or a voice-only id per seat) used by web; only then drop
+it. Until then dropping it silently breaks the web speaking indicator.
 
 ### 7. `playerAssigned`
 
@@ -117,7 +134,8 @@ reads `trumpBroken` first, then `trump`). Rename in the new builds; drop
 
 ### 11. `bidReceived.bid` always a string; `bidArray` → v2
 
-iOS sends numeric bids as Int and the server echoes them (ctr-22). v2
+iOS sends numeric bids as Int and the server echoes them (`$defs.bidWire`;
+not an audit finding: ctr-22 is iOS feature work, out of scope). v2
 `bids.byPosition` is already strings.
 
 ### 12. `chatMessage`: keep one of `isSpectator` / `type`

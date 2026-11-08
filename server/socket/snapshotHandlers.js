@@ -26,18 +26,36 @@ function tournamentInfo(gameId) {
     };
 }
 
+/**
+ * Display name of a bot entrant before it draws (entrant records hold no
+ * bot names; the BotController does, and playerDrew shows exactly this).
+ */
+function botNameFor(gameId) {
+    const { botController } = require('../game/bot'); // lazy: avoids a require cycle
+    return (socketId) => botController.getBot(gameId, socketId)?.username ?? null;
+}
+
 /** The v2 snapshot of `game` as socket `sid` sees it. */
 function snapshotFor(game, sid, opts = {}) {
-    return game.getSnapshotV2(sid, { tournament: tournamentInfo(game.gameId), ...opts });
+    return game.getSnapshotV2(sid, {
+        tournament: tournamentInfo(game.gameId),
+        botName: botNameFor(game.gameId),
+        ...opts,
+    });
 }
 
 /**
  * The spectator full state (spectatorJoined to the joining socket): the 16
- * cc865b4 keys in their order, then four additive keys the SHIPPED iOS app
- * already reads in GameState.restoreFromSpectator but never got (so its
- * spectators showed no lead, trump never broken and 0-0 tricks):
- * leadPosition (the same raw value getClientState sends), trumpBroken,
- * teamTricks / oppTricks (spectators view from seat 1: team 1 is "team").
+ * cc865b4 keys in their order, then four additive keys iOS
+ * GameState.restoreFromSpectator reads:
+ *   - trumpBroken, teamTricks, oppTricks: read by the App Store build (since
+ *     Feb 2026) but never sent, so its spectators saw trump never broken and
+ *     0-0 (or a previous game's) trick counts. Sending them CHANGES what the
+ *     shipped app shows - knowingly, as a fix (spectators view from seat 1:
+ *     team 1 is "team"; later trickComplete increments use position % 2).
+ *   - leadPosition (the same raw value getClientState sends): read only by
+ *     iOS source builds after 10d1538 (2026-11-07); the App Store build
+ *     ignores it and infers the lead from the first non-null card.
  * Web's spectator path reads none of them. Built after addSpectator
  * (spectatorCount includes the joiner).
  */
@@ -90,14 +108,16 @@ function gameOf(socketId) {
 /**
  * requestSnapshot {requestId?, customPics?, log?} -> stateSnapshot
  * {snapshot, requestId?, reason?}. A v2 client sends it on a seq gap
- * (README R2) or whenever it wants to redraw from the truth.
+ * (README R2) or whenever it wants to redraw from the truth. Custom
+ * (data-URL, up to ~500KB each) seat pictures are OPT-IN (customPics:
+ * true): a gap resync should not re-ship every picture.
  */
 function requestSnapshot(socket, io, data) {
     const req = data && typeof data === 'object' ? data : {};
     const game = gameOf(socket.id);
     const reply = {
         snapshot: game && !game.isTerminal()
-            ? snapshotFor(game, socket.id, { customPics: req.customPics !== false, log: req.log !== false })
+            ? snapshotFor(game, socket.id, { customPics: req.customPics === true, log: req.log !== false })
             : null,
     };
     if (req.requestId !== undefined) reply.requestId = req.requestId;
@@ -107,6 +127,7 @@ function requestSnapshot(socket, io, data) {
 
 module.exports = {
     tournamentInfo,
+    botNameFor,
     snapshotFor,
     spectatorJoinState,
     requestSnapshot

@@ -61,6 +61,29 @@ test('no-payload events must emit nothing', () => {
     expect(contractCheck.takeViolations()).toHaveLength(1);
 });
 
+test('an event reaching a kind of target its schema `to` does not list is a violation', () => {
+    const log = contractCheck.instrument([]);
+    const snap = { snapshot: null, reason: 'not_in_game' };
+    log.push({ to: 'self:s', event: 'stateSnapshot', data: snap });
+    log.push({ to: 's', event: 'stateSnapshot', data: snap }); // io.to(socketId): still one client
+    expect(contractCheck.takeViolations()).toEqual([]);
+    log.push({ to: 'mainRoom', event: 'stateSnapshot', data: snap });
+    log.push({ to: 'tournament:t', event: 'stateSnapshot', data: snap });
+    log.push({ to: 'game:x', event: 'trickComplete', data: { winner: 2, seq: 1 } });
+    log.push({ to: 'tournament:t', event: 'trickComplete', data: { winner: 2, seq: 2 } });
+    log.push({ to: '*', event: 'mainRoomMessage', data: { username: 'a', message: 'm', timestamp: 1 } });
+    const v = contractCheck.takeViolations();
+    expect(v.map((x) => `${x.event}@${x.to}`)).toEqual(['stateSnapshot@mainRoom', 'stateSnapshot@tournament:t', 'trickComplete@tournament:t', 'mainRoomMessage@*']);
+    expect(v[0].errors[0].message).toMatch(/schema allows self/);
+});
+
+test('stateSnapshot: a snapshot never comes with reason, and a null one always does', () => {
+    const { validateS2C } = require('..');
+    expect(validateS2C('stateSnapshot', { snapshot: null }).ok).toBe(false);
+    expect(validateS2C('stateSnapshot', { snapshot: null, reason: 'not_in_game', requestId: 3 }).ok).toBe(true);
+    expect(validateS2C('stateSnapshot', { snapshot: {}, reason: 'not_in_game' }).ok).toBe(false);
+});
+
 test('instrument is idempotent', () => {
     const log = [];
     contractCheck.instrument(log);

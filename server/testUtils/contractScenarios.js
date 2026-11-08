@@ -272,6 +272,22 @@ async function playF1({ errorLogs = [], hooks = {}, seed = 8 } = {}) {
             chatHandlers.chatMessage(spectator, w.io, { message: 'go team' });
             chatHandlers.chatMessage(spectator, w.io, { message: '/active' }); // an ordinary spectator: ignored
         }
+        if (hands === 6 && stage === Phase.BIDDING && !done.spectateOwn) {
+            done.spectateOwn = true;
+            // The resigned owner opens the game from the lobby list on another
+            // device: joinAsSpectator -> watchSeat via 'spectate' (rejoinSuccess
+            // without tournamentId); the older watching socket is demoted
+            const username = game.seat(3).ownerUsername;
+            const older = owner(game, 3);
+            const phone = w.user('f1-spectate-own', username, { db: false });
+            mainRoomHandlers.joinMainRoom(phone, w.io);
+            const mark = w.log.length;
+            mainRoomHandlers.joinAsSpectator(phone, w.io, { gameId: game.gameId });
+            expect(selfEvents(w, phone.id, mark)[0]).toBe('rejoinSuccess');
+            expect('tournamentId' in w.log.slice(mark).find((l) => l.to === `self:${phone.id}`).data).toBe(false);
+            expect(game.seat(3).ownerSocketId).toBe(phone.id);
+            expect(game.isSpectator(older.id)).toBe(true);
+        }
         if (hands === 7 && stage === Phase.BIDDING && !done.leave) {
             done.leave = true;
             // The resigned owner (watch view) leaves for good; so does the spectator
@@ -303,7 +319,7 @@ async function playF1({ errorLogs = [], hooks = {}, seed = 8 } = {}) {
     if (game.stage !== Phase.ENDED) {
         throw new Error('F1 did not finish: ' + JSON.stringify({ stage: game.stage, hands: game.handStats.totalHands, turn: game.currentTurn, seats: game.presenceSummary(), bids: game.playerBids, done, guard }));
     }
-    expect(done).toMatchObject({ lazyActive: true, lazyWatch: true, rejects: true, resign: true, leave: true });
+    expect(done).toMatchObject({ lazyActive: true, lazyWatch: true, rejects: true, resign: true, spectateOwn: true, leave: true });
     await Promise.all(w.pending);
     await Promise.all(starting);
     await jest.advanceTimersByTimeAsync(5000);

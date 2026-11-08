@@ -119,7 +119,7 @@ const defs = {
     cardIn: obj({ suit: enm(...SUITS), rank: enm(...RANKS) }, { open: true }),
     position: int({ minimum: 1, maximum: 4 }),
     bidString: enm(...BID_STRINGS),
-    // bidReceived.bid echoes what the client sent (ctr-22): iOS sends an
+    // bidReceived.bid echoes what the client sent (V1_REMOVALS #11): iOS sends an
     // Int for numeric bids, web a string; bot bids are strings
     bidWire: anyOf(int({ minimum: 0, maximum: 13 }), ref('bidString')),
     // playerBids after a JSON round-trip: holes are null, trailing holes absent
@@ -201,6 +201,18 @@ const defs = {
         stats: obj({}, { open: true }),
     }),
     leaderboardRow: obj({ username: str(), gamesPlayed: num(), winRate: num() }, { open: true }),
+    // getRecords: per period (allTime / thisYear / thisMonth) null when no
+    // game is recorded, else these five, each null until it has data (the
+    // bag records skip legacy games without bags). Rows open, core required.
+    recordsPeriod: orNull(obj({
+        highestScore: orNull(obj({ score: num(), players: arr(str()) }, { open: true })),
+        lowestScore: orNull(obj({ score: num(), players: arr(str()) }, { open: true })),
+        biggestWin: orNull(obj({
+            margin: num(), winnerScore: num(), loserScore: num(), winnerPlayers: arr(str()), loserPlayers: arr(str()),
+        }, { open: true })),
+        mostBags: orNull(obj({ bags: num(), players: arr(str()) }, { open: true })),
+        leastBags: orNull(obj({ bags: num(), players: arr(str()) }, { open: true })),
+    }, { open: true })),
     playerSearchRow: obj({ username: str(), profilePic: int(), customProfilePic: orNull(str()), gamesPlayed: int(), wins: int() }),
     voicePeer: obj({ socketId: str(), username: { type: ['string', 'null'] } }),
     legacyClientState: obj(LEGACY_CLIENT_STATE_PROPS),

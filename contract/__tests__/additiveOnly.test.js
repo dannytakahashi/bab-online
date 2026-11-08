@@ -8,10 +8,23 @@
  */
 
 const baseline = require('../v1-baseline.schema.json');
-const { schema } = require('..');
+const { schema, validateC2S } = require('..');
 const { deepEqual } = require('../lib/validate');
 
 const MSG = 'This would break the App Store iOS build or the web client; see contract/V1_REMOVALS.md';
+
+/**
+ * s2c properties the baseline left as a bare open object `{}` that the
+ * contract now spells out. Narrowing an s2c schema only adds promises to
+ * clients (the server always sent this shape), so it cannot break one; it
+ * is allowed only here, named, and only while the property stays an open
+ * object.
+ */
+const S2C_REFINED = {
+    's2c.recordsResponse|success.records': 'the documented allTime / thisYear / thisMonth periods (review fix: records content was never checked)',
+};
+const isBareOpenObject = (s) => s && s.type === 'object' && s.additionalProperties === true &&
+    Object.keys(s.properties || {}).length === 0 && !(s.required || []).length;
 
 /** Problems with `cur` keeping everything `base` (an object payload) had. */
 function objectKeeps(base, cur, where, out) {
@@ -28,7 +41,10 @@ function objectKeeps(base, cur, where, out) {
     }
     for (const [k, ps] of Object.entries(base.properties || {})) {
         if (!cur.properties || !(k in cur.properties)) out.push(`${where}.${k}: removed`);
-        else if (!deepEqual(ps, cur.properties[k])) out.push(`${where}.${k}: schema changed`);
+        else if (S2C_REFINED[`${where}.${k}`] && isBareOpenObject(ps)) {
+            const c = cur.properties[k];
+            if (!(c.type === 'object' && c.additionalProperties === true)) out.push(`${where}.${k}: refined, but no longer an open object`);
+        } else if (!deepEqual(ps, cur.properties[k])) out.push(`${where}.${k}: schema changed`);
     }
     for (const k of base.required || []) {
         if (!(cur.required || []).includes(k)) out.push(`${where}.${k}: no longer required`);
@@ -57,6 +73,36 @@ function payloadKeeps(base, cur, where, out) {
     objectKeeps(base, cur, where, out);
 }
 
+/**
+ * c2s: what the server ACCEPTS must not shrink. Acceptance is Joi's job
+ * (the `joi` key), so that must not change; the c2s schema documents Joi
+ * and may tighten toward it (bounds, required keys Joi already requires:
+ * contract.test.js checks negative examples against both). Every payload
+ * the baseline documented as sent by a client must still validate, and no
+ * documented key may disappear.
+ */
+function c2sKeeps(name, be, ce, out) {
+    const where = `c2s.${name}`;
+    if (be.joi !== ce.joi) out.push(`${where}: joi ${be.joi} -> ${ce.joi}`);
+    if (be.optionalPayload && !ce.optionalPayload) out.push(`${where}: a payload is now required`);
+    if ((be.payload === null) !== (ce.payload === null)) {
+        out.push(`${where}: payload presence changed`);
+        return;
+    }
+    if (!be.payload) return;
+    for (const k of Object.keys(be.payload.properties || {})) {
+        if (!(k in (ce.payload.properties || {}))) out.push(`${where}.${k}: removed`);
+    }
+    if (be.payload.additionalProperties !== ce.payload.additionalProperties) out.push(`${where}: additionalProperties changed`);
+    for (const k of ce.payload.required || []) {
+        if (!(be.payload.required || []).includes(k) && !ce.joi) out.push(`${where}.${k}: newly required without a Joi schema enforcing it`);
+    }
+    for (const ex of be.examples || []) {
+        const r = validateC2S(name, ex);
+        if (!r.ok) out.push(`${where}: baseline example ${JSON.stringify(ex)} no longer validates (${r.errors[0].path} ${r.errors[0].message})`);
+    }
+}
+
 test('the baseline is the cc865b4 contract (frozen)', () => {
     expect(baseline.title).toBe('BAB Online socket contract');
     expect(Object.keys(baseline.s2c).length).toBeGreaterThan(80);
@@ -73,7 +119,7 @@ test.each(['s2c', 'c2s'])('every baseline %s event is still there, with the same
             continue;
         }
         if (dir === 's2c') payloadKeeps(be.payload, ce.payload, `${dir}.${name}`, problems);
-        else if (!deepEqual(be.payload, ce.payload)) problems.push(`${dir}.${name}: payload schema changed`);
+        else c2sKeeps(name, be, ce, problems);
         if (be.status !== ce.status && !(be.status === 'active' && ce.status === 'deprecated')) {
             problems.push(`${dir}.${name}: status ${be.status} -> ${ce.status}`);
         }
@@ -92,4 +138,24 @@ test('every baseline $def is unchanged (new $defs are fine)', () => {
 
 test('the builtins are unchanged', () => {
     expect(schema.builtins).toEqual(baseline.builtins);
+});
+
+test('the c2s rule catches what would make the server refuse a shipped client', () => {
+    const base = baseline.c2s.playerBid;
+    const cur = JSON.parse(JSON.stringify(schema.c2s.playerBid));
+    const run = (c) => { const out = []; c2sKeeps('playerBid', base, c, out); return out.join('\n'); };
+    expect(run(cur)).toBe('');
+    expect(run({ ...cur, joi: null })).toMatch(/joi playerBid -> null/);
+    const noBid = JSON.parse(JSON.stringify(cur));
+    delete noBid.payload.properties.bid;
+    expect(run(noBid)).toMatch(/playerBid\.bid: removed/);
+});
+
+test('the s2c refinement exception is narrow: only named properties, only while still open', () => {
+    const out = [];
+    const base = { type: 'object', properties: { records: { type: 'object', properties: {}, additionalProperties: true } }, additionalProperties: false };
+    const closed = { ...base, properties: { records: { type: 'object', properties: { a: { type: 'string' } }, additionalProperties: false } } };
+    objectKeeps(base, closed, 's2c.recordsResponse|success', out);
+    objectKeeps(base, closed, 's2c.other|success', out);
+    expect(out).toEqual(['s2c.recordsResponse|success.records: refined, but no longer an open object', 's2c.other|success.records: schema changed']);
 });

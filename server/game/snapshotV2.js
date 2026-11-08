@@ -33,8 +33,10 @@ const isTeamShaped = (b) => !!b && typeof b.team1 === 'number' && typeof b.team2
  * @param {number} [opts.now]
  * @param {boolean} [opts.customPics=true] - include data:image seat pictures
  * @param {boolean} [opts.log=true] - include the game log
+ * @param {Function} [opts.botName] - socketId -> display name of a bot
+ *   entrant (entrant records carry no bot names)
  */
-function buildSnapshotV2(game, viewerSid, { tournament = null, now = Date.now(), customPics = true, log = true } = {}) {
+function buildSnapshotV2(game, viewerSid, { tournament = null, now = Date.now(), customPics = true, log = true, botName = null } = {}) {
     const stage = game.stage;
     const preDeal = PRE_DEAL.has(stage);
     const partial = [];
@@ -127,7 +129,7 @@ function buildSnapshotV2(game, viewerSid, { tournament = null, now = Date.now(),
     // ---- entrants (before seating) and the draw (until the deal resets it) ----
     const entrants = game.entrants === null || game.entrants === undefined ? null
         : Array.from(game.entrants.values(), (e) => ({
-            username: e.username ?? null,
+            username: e.username ?? (e.isBot && botName ? botName(e.socketId) : null),
             isBot: !!e.isBot,
             presence: e.presence,
             hasDrawn: game.drawIDs.includes(e.socketId),

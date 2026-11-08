@@ -743,6 +743,147 @@
       ],
       "additionalProperties": true
     },
+    "recordsPeriod": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "highestScore": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "score": {
+              "type": "number"
+            },
+            "players": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "score",
+            "players"
+          ],
+          "additionalProperties": true
+        },
+        "lowestScore": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "score": {
+              "type": "number"
+            },
+            "players": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "score",
+            "players"
+          ],
+          "additionalProperties": true
+        },
+        "biggestWin": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "margin": {
+              "type": "number"
+            },
+            "winnerScore": {
+              "type": "number"
+            },
+            "loserScore": {
+              "type": "number"
+            },
+            "winnerPlayers": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "loserPlayers": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "margin",
+            "winnerScore",
+            "loserScore",
+            "winnerPlayers",
+            "loserPlayers"
+          ],
+          "additionalProperties": true
+        },
+        "mostBags": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "bags": {
+              "type": "number"
+            },
+            "players": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "bags",
+            "players"
+          ],
+          "additionalProperties": true
+        },
+        "leastBags": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "bags": {
+              "type": "number"
+            },
+            "players": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "bags",
+            "players"
+          ],
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "highestScore",
+        "lowestScore",
+        "biggestWin",
+        "mostBags",
+        "leastBags"
+      ],
+      "additionalProperties": true
+    },
     "playerSearchRow": {
       "type": "object",
       "properties": {
@@ -1687,10 +1828,14 @@
         "type": "object",
         "properties": {
           "username": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50
           },
           "password": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
           }
         },
         "required": [
@@ -1711,6 +1856,19 @@
           "username": "alan",
           "password": "pw"
         }
+      ],
+      "invalid": [
+        {
+          "username": "",
+          "password": "pw"
+        },
+        {
+          "username": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "password": "pw"
+        },
+        {
+          "username": "alan"
+        }
       ]
     },
     "signUp": {
@@ -1718,10 +1876,14 @@
         "type": "object",
         "properties": {
           "username": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50
           },
           "password": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
           }
         },
         "required": [
@@ -1742,6 +1904,16 @@
           "username": "alan",
           "password": "pw"
         }
+      ],
+      "invalid": [
+        {
+          "username": "alan",
+          "password": ""
+        },
+        {
+          "username": "alan",
+          "password": "ppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp"
+        }
       ]
     },
     "restoreSession": {
@@ -1749,10 +1921,13 @@
         "type": "object",
         "properties": {
           "username": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50
           },
           "sessionToken": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
           }
         },
         "required": [
@@ -1773,6 +1948,15 @@
           "username": "alan",
           "sessionToken": "6f1c2b8e-7f0a-4c55-9d3e-2a1b0c9d8e7f"
         }
+      ],
+      "invalid": [
+        {
+          "username": "alan",
+          "sessionToken": "not-a-uuid"
+        },
+        {
+          "username": "alan"
+        }
       ]
     },
     "deleteAccount": {
@@ -1780,7 +1964,9 @@
         "type": "object",
         "properties": {
           "password": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
           }
         },
         "required": [
@@ -1799,6 +1985,12 @@
         {
           "password": "pw"
         }
+      ],
+      "invalid": [
+        {
+          "password": ""
+        },
+        {}
       ]
     },
     "joinQueue": {
@@ -1862,7 +2054,9 @@
         "type": "object",
         "properties": {
           "message": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
           }
         },
         "required": [
@@ -1881,6 +2075,14 @@
         {
           "message": "hi all"
         }
+      ],
+      "invalid": [
+        {
+          "message": ""
+        },
+        {
+          "message": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
       ]
     },
     "createLobby": {
@@ -1891,7 +2093,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "maxLength": 50
           }
         },
         "additionalProperties": true
@@ -1909,6 +2112,14 @@
           "name": "Family night"
         },
         {}
+      ],
+      "invalid": [
+        {
+          "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        },
+        {
+          "name": 7
+        }
       ]
     },
     "joinLobby": {
@@ -1961,7 +2172,8 @@
         "type": "object",
         "properties": {
           "gameId": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
           }
         },
         "required": [
@@ -1980,6 +2192,12 @@
         {
           "gameId": "6f1c2b8e-7f0a-4c55-9d3e-2a1b0c9d8e7f"
         }
+      ],
+      "invalid": [
+        {
+          "gameId": "x"
+        },
+        {}
       ]
     },
     "playerReady": {
@@ -2023,7 +2241,9 @@
         "type": "object",
         "properties": {
           "message": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
           }
         },
         "required": [
@@ -2041,6 +2261,11 @@
       "examples": [
         {
           "message": "ready?"
+        }
+      ],
+      "invalid": [
+        {
+          "message": ""
         }
       ]
     },
@@ -2117,7 +2342,9 @@
         "type": "object",
         "properties": {
           "num": {
-            "type": "integer"
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 53
           }
         },
         "required": [
@@ -2139,6 +2366,21 @@
         {
           "num": 53
         }
+      ],
+      "invalid": [
+        {
+          "num": -1
+        },
+        {
+          "num": 54
+        },
+        {
+          "num": 99
+        },
+        {
+          "num": 1.5
+        },
+        {}
       ]
     },
     "playerBid": {
@@ -2180,7 +2422,8 @@
           }
         },
         "required": [
-          "bid"
+          "bid",
+          "position"
         ],
         "additionalProperties": true
       },
@@ -2205,6 +2448,31 @@
           "position": 2
         }
       ],
+      "invalid": [
+        {
+          "bid": "3"
+        },
+        {
+          "bid": 13,
+          "position": 1
+        },
+        {
+          "bid": "13",
+          "position": 1
+        },
+        {
+          "bid": "5B",
+          "position": 1
+        },
+        {
+          "bid": "3",
+          "position": 5
+        },
+        {
+          "bid": 2.5,
+          "position": 1
+        }
+      ],
       "notes": "Web sends a string; iOS an Int for numeric bids and a string for bores."
     },
     "playCard": {
@@ -2219,7 +2487,8 @@
           }
         },
         "required": [
-          "card"
+          "card",
+          "position"
         ],
         "additionalProperties": true
       },
@@ -2247,6 +2516,34 @@
           },
           "position": 3
         }
+      ],
+      "invalid": [
+        {
+          "card": {
+            "suit": "hearts",
+            "rank": "A"
+          }
+        },
+        {
+          "card": {
+            "suit": "hearts"
+          },
+          "position": 1
+        },
+        {
+          "card": {
+            "suit": "stars",
+            "rank": "A"
+          },
+          "position": 1
+        },
+        {
+          "card": {
+            "suit": "hearts",
+            "rank": "A"
+          },
+          "position": 0
+        }
       ]
     },
     "forceResign": {
@@ -2273,6 +2570,15 @@
         {
           "position": 2
         }
+      ],
+      "invalid": [
+        {
+          "position": 0
+        },
+        {
+          "position": 5
+        },
+        {}
       ]
     },
     "chatMessage": {
@@ -2280,7 +2586,9 @@
         "type": "object",
         "properties": {
           "message": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
           }
         },
         "required": [
@@ -2309,6 +2617,15 @@
           "message": "/leave"
         }
       ],
+      "invalid": [
+        {
+          "message": ""
+        },
+        {
+          "message": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        },
+        {}
+      ],
       "notes": "/lazy, /active and /leave are seat commands."
     },
     "rejoinGame": {
@@ -2316,13 +2633,17 @@
         "type": "object",
         "properties": {
           "gameId": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
           },
           "username": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50
           },
           "sessionToken": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 200
           }
         },
         "required": [
@@ -2347,6 +2668,20 @@
         {
           "gameId": "6f1c2b8e-7f0a-4c55-9d3e-2a1b0c9d8e7f",
           "username": "alan"
+        }
+      ],
+      "invalid": [
+        {
+          "gameId": "x",
+          "username": "alan"
+        },
+        {
+          "gameId": "6f1c2b8e-7f0a-4c55-9d3e-2a1b0c9d8e7f"
+        },
+        {
+          "gameId": "6f1c2b8e-7f0a-4c55-9d3e-2a1b0c9d8e7f",
+          "username": "alan",
+          "sessionToken": "ttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt"
         }
       ]
     },
@@ -2393,6 +2728,17 @@
           "log": false
         }
       ],
+      "invalid": [
+        {
+          "requestId": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        },
+        {
+          "requestId": 1.5
+        },
+        {
+          "customPics": "yes"
+        }
+      ],
       "notes": "New in snapshot v2 (no shipped client sends it yet). Answered by stateSnapshot to this socket only."
     },
     "getProfile": {
@@ -2418,7 +2764,9 @@
         "type": "object",
         "properties": {
           "profilePic": {
-            "type": "integer"
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 82
           }
         },
         "required": [
@@ -2437,6 +2785,18 @@
         {
           "profilePic": 12
         }
+      ],
+      "invalid": [
+        {
+          "profilePic": 0
+        },
+        {
+          "profilePic": 83
+        },
+        {
+          "profilePic": 500
+        },
+        {}
       ]
     },
     "uploadProfilePic": {
@@ -2462,6 +2822,12 @@
       "examples": [
         {
           "imageData": "data:image/png;base64,iVBORw0KGgo="
+        }
+      ],
+      "invalid": [
+        {},
+        {
+          "imageData": 5
         }
       ]
     },
@@ -2578,7 +2944,8 @@
         "type": "object",
         "properties": {
           "tournamentId": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
           }
         },
         "required": [
@@ -2597,6 +2964,12 @@
         {
           "tournamentId": "6f1c2b8e-7f0a-4c55-9d3e-2a1b0c9d8e7f"
         }
+      ],
+      "invalid": [
+        {
+          "tournamentId": "x"
+        },
+        {}
       ]
     },
     "leaveTournament": {
@@ -2694,7 +3067,9 @@
         "type": "object",
         "properties": {
           "message": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
           }
         },
         "required": [
@@ -2713,6 +3088,11 @@
         {
           "message": "gl"
         }
+      ],
+      "invalid": [
+        {
+          "message": ""
+        }
       ]
     },
     "spectateTournament": {
@@ -2720,7 +3100,8 @@
         "type": "object",
         "properties": {
           "tournamentId": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
           }
         },
         "required": [
@@ -2739,6 +3120,11 @@
         {
           "tournamentId": "6f1c2b8e-7f0a-4c55-9d3e-2a1b0c9d8e7f"
         }
+      ],
+      "invalid": [
+        {
+          "tournamentId": "x"
+        }
       ]
     },
     "spectateTournamentGame": {
@@ -2746,7 +3132,8 @@
         "type": "object",
         "properties": {
           "gameId": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
           }
         },
         "required": [
@@ -2764,6 +3151,11 @@
       "examples": [
         {
           "gameId": "6f1c2b8e-7f0a-4c55-9d3e-2a1b0c9d8e7f"
+        }
+      ],
+      "invalid": [
+        {
+          "gameId": "x"
         }
       ]
     },
@@ -2808,13 +3200,18 @@
         "type": "object",
         "properties": {
           "username": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50
           },
           "reason": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
           },
           "context": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 1000
           }
         },
         "required": [
@@ -2840,6 +3237,20 @@
           "username": "x",
           "reason": "spam"
         }
+      ],
+      "invalid": [
+        {
+          "username": "x",
+          "reason": ""
+        },
+        {
+          "username": "x",
+          "reason": "spam",
+          "context": "ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        },
+        {
+          "reason": "spam"
+        }
       ]
     },
     "blockUser": {
@@ -2847,7 +3258,9 @@
         "type": "object",
         "properties": {
           "username": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50
           }
         },
         "required": [
@@ -2866,6 +3279,12 @@
         {
           "username": "x"
         }
+      ],
+      "invalid": [
+        {
+          "username": ""
+        },
+        {}
       ]
     },
     "unblockUser": {
@@ -2873,7 +3292,9 @@
         "type": "object",
         "properties": {
           "username": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50
           }
         },
         "required": [
@@ -2891,6 +3312,11 @@
       "examples": [
         {
           "username": "x"
+        }
+      ],
+      "invalid": [
+        {
+          "username": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
         }
       ]
     },
@@ -3638,7 +4064,10 @@
         "additionalProperties": false
       },
       "status": "active",
-      "to": "mainRoom",
+      "to": [
+        "mainRoom",
+        "self"
+      ],
       "reserved": [
         {
           "key": "lobbyName",
@@ -4564,7 +4993,8 @@
       "clientReads": {
         "web": [
           "client/src/handlers/gameHandlers.js:registerGameHandlers",
-          "client/src/main.js:gameStart"
+          "client/src/main.js:gameStart#reads:players",
+          "client/src/main.js:startVoice#reads:players"
         ],
         "ios": [
           "iOSClient/BABOnline/Networking/Handlers/GameSocketHandler.swift:handleGameStart"
@@ -4573,7 +5003,7 @@
       "emittedFrom": [
         "server/socket/gameHandlers.js:dealHand"
       ],
-      "notes": "One per connected seat owner (seat) and per spectator (spectator), each deal. players: seat socket ids (unused; V1_REMOVALS #6). playerInfo rebuilds web avatars every hand (V1_REMOVALS #5).",
+      "notes": "One per connected seat owner (seat) and per spectator (spectator), each deal. players: seat socket ids, read by web as playerData.socket to map a voice peer to a seat (the speaking indicator; V1_REMOVALS #6). playerInfo rebuilds web avatars every hand (V1_REMOVALS #5).",
       "added": [
         "seq"
       ]
@@ -4628,7 +5058,7 @@
         "server/socket/gameHandlers.js:playerBid",
         "server/game/bot/BotController.js:processBotBid"
       ],
-      "notes": "bid echoes the client value: an Int from iOS numeric bids (ctr-22).",
+      "notes": "bid echoes the client value: an Int from iOS numeric bids (bidWire; V1_REMOVALS #11).",
       "added": [
         "seq"
       ]
@@ -4734,7 +5164,10 @@
         ]
       },
       "status": "active",
-      "to": "room",
+      "to": [
+        "room",
+        "socket"
+      ],
       "seq": true,
       "reserved": [
         {
@@ -5860,37 +6293,60 @@
     },
     "stateSnapshot": {
       "payload": {
-        "type": "object",
-        "properties": {
-          "snapshot": {
-            "anyOf": [
-              {
+        "anyOf": [
+          {
+            "variant": "found",
+            "type": "object",
+            "properties": {
+              "snapshot": {
                 "$ref": "#/$defs/snapshotV2"
               },
-              {
+              "requestId": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 64
+                  },
+                  {
+                    "type": "integer"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "snapshot"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "variant": "notInGame",
+            "type": "object",
+            "properties": {
+              "snapshot": {
                 "type": "null"
-              }
-            ]
-          },
-          "requestId": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 64
               },
-              {
-                "type": "integer"
+              "requestId": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 64
+                  },
+                  {
+                    "type": "integer"
+                  }
+                ]
+              },
+              "reason": {
+                "const": "not_in_game"
               }
-            ]
-          },
-          "reason": {
-            "const": "not_in_game"
+            },
+            "required": [
+              "snapshot",
+              "reason"
+            ],
+            "additionalProperties": false
           }
-        },
-        "required": [
-          "snapshot"
-        ],
-        "additionalProperties": false
+        ]
       },
       "status": "active",
       "to": "self",
@@ -5901,7 +6357,7 @@
       "emittedFrom": [
         "server/socket/snapshotHandlers.js:requestSnapshot"
       ],
-      "notes": "New in snapshot v2: the reply to requestSnapshot (full pictures and log unless the request opts out). snapshot null + reason not_in_game when the socket is in no game."
+      "notes": "New in snapshot v2: the reply to requestSnapshot. The log is included unless the request sends log:false; custom (data-URL) seat pictures only with customPics:true (partial lists what was left out). notInGame: the socket is in no live game - also once its game ENDED or ABORTED (the terminal state arrives as gameEnd / abortGame, never as a snapshot)."
     },
     "rejoinFailed": {
       "payload": {
@@ -5995,7 +6451,10 @@
         ]
       },
       "status": "active",
-      "to": "room",
+      "to": [
+        "room",
+        "socket"
+      ],
       "seq": true,
       "clientReads": {
         "web": [
@@ -6150,7 +6609,10 @@
         ]
       },
       "status": "active",
-      "to": "room",
+      "to": [
+        "room",
+        "socket"
+      ],
       "seq": true,
       "clientReads": {
         "web": [
@@ -6449,7 +6911,10 @@
         ]
       },
       "status": "active",
-      "to": "room",
+      "to": [
+        "room",
+        "self"
+      ],
       "seq": true,
       "added": [
         "snapshot",
@@ -6490,7 +6955,7 @@
         "server/socket/tournamentHandlers.js:spectateTournamentGame",
         "server/socket/seatLifecycle.js:watchSeat"
       ],
-      "notes": "fullState goes to the joining socket only (socket.emit), BEFORE the room notice. The notice reaches the joiner too (ctr-17; V1_REMOVALS #8). leadPosition / trumpBroken / teamTricks / oppTricks switch on the shipped iOS restoreFromSpectator reads (ctr-1, ctr-8, ios-8d); web reads none of them."
+      "notes": "fullState goes to the joining socket only (socket.emit), BEFORE the room notice. The notice reaches the joiner too (ctr-17; V1_REMOVALS #8). trumpBroken / teamTricks / oppTricks switch on reads the App Store iOS build already has in restoreFromSpectator (since Feb 2026): its spectator view CHANGES visibly, knowingly, as a fix (real trump-broken state and trick counts instead of false and 0-0). leadPosition is read only by iOS source builds after 10d1538 (the App Store build infers the lead from the first card). ctr-1, ctr-8, ios-8d; web reads none of them."
     },
     "profileResponse": {
       "payload": {
@@ -6820,7 +7285,22 @@
               },
               "records": {
                 "type": "object",
-                "properties": {},
+                "properties": {
+                  "allTime": {
+                    "$ref": "#/$defs/recordsPeriod"
+                  },
+                  "thisYear": {
+                    "$ref": "#/$defs/recordsPeriod"
+                  },
+                  "thisMonth": {
+                    "$ref": "#/$defs/recordsPeriod"
+                  }
+                },
+                "required": [
+                  "allTime",
+                  "thisYear",
+                  "thisMonth"
+                ],
                 "additionalProperties": true
               },
               "totalGames": {
@@ -7638,7 +8118,10 @@
         ]
       },
       "status": "active",
-      "to": "room",
+      "to": [
+        "room",
+        "socket"
+      ],
       "seq": true,
       "clientReads": {
         "web": [
@@ -7748,7 +8231,9 @@
         "web": [
           "client/src/main.js:setupSocketErrorHandler"
         ],
-        "ios": []
+        "ios": [
+          "iOSClient/BABOnline/Networking/SocketService.swift:connect#reads:message"
+        ]
       },
       "emittedFrom": [
         "server/socket/errorHandler.js:asyncHandler",
@@ -7758,7 +8243,7 @@
         "server/socket/*.js:<many handlers> (socket.emit('error', {message}))",
         "server/socket/chatHandlers.js:sendError"
       ],
-      "notes": "App-level event (not the transport's error). Rename to serverError is V1_REMOVALS #1."
+      "notes": "App-level event (not the transport's error). iOS receives it through Socket.IO-Client-Swift's clientEvent .error (the reserved name) and, since 0fd6ef1, shows message as a toast. variant validation is dead today (validators.withValidation has no caller). Rename to serverError is V1_REMOVALS #1."
     }
   },
   "builtins": {

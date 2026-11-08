@@ -43,7 +43,7 @@ const tournamentHandlers = require('../tournamentHandlers');
 const snapshotHandlers = require('../snapshotHandlers');
 const { Phase } = require('../../game/GamePhase');
 const { gameLogger, socketLogger, authLogger, logger } = require('../../utils/logger');
-const { legalCards, mulberry32 } = require('../../testUtils/gameDriver');
+const { legalCards, mulberry32, events } = require('../../testUtils/gameDriver');
 const { world } = require('../../testUtils/contractScenarios');
 const { advanceUntil, setupTournament, liveTables } = require('../../testUtils/tournamentDriver');
 
@@ -89,8 +89,8 @@ function keep(w, name, description, sid, from, event = 'stateSnapshot') {
     return snapshot;
 }
 
-/** requestSnapshot from `s` and keep the reply. */
-function ask(w, s, name, description, data = {}) {
+/** requestSnapshot from `s` (custom pictures opted in) and keep the reply. */
+function ask(w, s, name, description, data = { customPics: true }) {
     const from = w.log.length;
     snapshotHandlers.requestSnapshot(s, w.io, data);
     return keep(w, name, description, s.id, from);
@@ -151,11 +151,18 @@ describe('snapshot v2 fixtures from real games', () => {
         const t = await lobbyTable(w, ['eve', 'fay', 'gus'], { bots: 1 });
         await jest.advanceTimersByTimeAsync(2000);
         expect(t.game.stage).toBe(Phase.DRAWING);
+        // Bot entrants are named before they draw: the name playerDrew shows
+        const early = snapshotHandlers.snapshotFor(t.game, t.socks[0].id);
+        const botEntrant = early.entrants.find((e) => e.isBot);
+        expect(botEntrant.username).toMatch(/^🤖 /);
         await gameHandlers.draw(t.socks[1], w.io, { num: 7 });
         await advanceUntil(() => t.game.drawIndex === 2, 50);
         const s = ask(w, t.socks[1], 'draw-in-progress', 'An entrant who drew asks mid-draw: 2 of 4 cards drawn (one by a bot), no seats yet, viewerDrawOrder set.');
         expect(s.draw.drawn).toHaveLength(2);
         expect(s.draw.drawn.some((d) => d.isBot)).toBe(true);
+        expect(s.entrants.find((e) => e.isBot).username).toBe(botEntrant.username);
+        expect(s.draw.drawn.find((d) => d.isBot).username).toBe(botEntrant.username);
+        expect(events(w.log, 'playerDrew').find((l) => l.data.username.startsWith('🤖')).data.username).toBe(botEntrant.username);
         expect(s.seats).toEqual([]);
         expect(s.draw.viewerDrawOrder).toBe(1);
         const rest = [t.socks[0], t.socks[2]].map((x) => gameHandlers.draw(x, w.io, { num: 0 }));
@@ -197,6 +204,16 @@ describe('snapshot v2 fixtures from real games', () => {
         const lead3 = ask(w, owner(w, game, 1), 'trick-mid-lead3', 'Seat 1 asks mid-trick: seat 3 led, seat 4 followed; cards in play order.');
         expect(lead3.trick).toMatchObject({ number: 1, leadPosition: 3 });
         expect(lead3.trick.cards.map((c) => c.position)).toEqual([3, 4]);
+        expect(lead3.partial).toEqual([]);
+        // Custom pictures are opt-in on requestSnapshot (a gap resync must not
+        // re-ship every data URL)
+        const plainFrom = w.log.length;
+        snapshotHandlers.requestSnapshot(owner(w, game, 1), w.io, {});
+        const plain = w.log.slice(plainFrom).find((l) => l.event === 'stateSnapshot').data.snapshot;
+        expect(plain.partial).toEqual(['customPics']);
+        const custom = plain.seats.find((x) => x.hasCustomPic);
+        expect(custom.customPic).toBeNull();
+        expect(lead3.seats.find((x) => x.position === custom.position).customPic).toMatch(/^data:image/);
 
         const spec = w.user('fx-hand-spec', 'lou');
         const sfrom = w.log.length;

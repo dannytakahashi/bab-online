@@ -192,6 +192,46 @@ export function isComplete(snapshot) {
   return snapshot.partial.length === 0;
 }
 
+/**
+ * Apply an incoming (parsed) snapshot over the previous one (contract/README.md
+ * R5): the table is always replaced, but what `next.partial` says was left out
+ * is kept from what the client already has instead of being wiped:
+ *   - 'log': keep `prev.log` (same game only).
+ *   - 'customPics': for a seat with hasCustomPic and customPic null, keep the
+ *     picture the client already holds for that displayed username, taken from
+ *     `pics` ({username: dataUrl}, e.g. built from the same v1 payload's
+ *     players[].pic) or from the same seat of `prev`.
+ * `partial` of the result lists only what is still missing.
+ * @param {Object|null} prev - the snapshot currently applied (parsed), or null
+ * @param {Object} next - the incoming snapshot (parsed)
+ * @param {{pics?: Object<string, string>}} [opts]
+ * @returns {Object} a deep-frozen snapshot
+ */
+export function mergeSnapshot(prev, next, { pics = {} } = {}) {
+  const same = !!prev && prev.gameId === next.gameId;
+  const out = JSON.parse(JSON.stringify(next));
+  const missing = new Set(out.partial);
+  if (missing.has('log') && same && !prev.partial.includes('log')) {
+    out.log = JSON.parse(JSON.stringify(prev.log));
+    missing.delete('log');
+  }
+  if (missing.has('customPics')) {
+    let still = false;
+    out.seats = out.seats.map((seat) => {
+      if (!seat.hasCustomPic || seat.customPic !== null) return seat;
+      const old = same ? seatAt(prev, seat.position) : null;
+      const known = (seat.username != null && typeof pics[seat.username] === 'string' && pics[seat.username].startsWith('data:image'))
+        ? pics[seat.username]
+        : (old && old.username === seat.username && old.customPic) || null;
+      if (!known) still = true;
+      return known ? { ...seat, customPic: known } : seat;
+    });
+    if (!still) missing.delete('customPics');
+  }
+  out.partial = out.partial.filter((p) => missing.has(p));
+  return deepFreeze(out);
+}
+
 /** 1 for seats 1 and 3, 2 for seats 2 and 4. */
 export function teamOf(pos) {
   return pos % 2 === 1 ? 1 : 2;

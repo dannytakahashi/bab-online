@@ -36,8 +36,10 @@ const LEGACY_SPECTATOR_KEYS = [
 
 // CHANGED (snapshot v2, additive): the full state gains `snapshot` (read by
 // neither shipped client) and leadPosition / trumpBroken / teamTricks /
-// oppTricks (the shipped iOS restoreFromSpectator already reads them; web
-// reads none). The legacy keys above are unchanged.
+// oppTricks (iOS restoreFromSpectator reads them: the App Store build reads
+// the last three, so its spectator view changes as a fix; leadPosition only
+// from 10d1538 source builds; web reads none). The legacy keys above are
+// unchanged.
 const ADDITIVE_SPECTATOR_KEYS = ['snapshot', 'leadPosition', 'trumpBroken', 'teamTricks', 'oppTricks'];
 
 const GOLDEN = {

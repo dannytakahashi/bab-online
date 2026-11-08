@@ -112,7 +112,7 @@ bab-online/
 4. **Bidding**: `gameStart` → `updateTurn` → `playerBid` → `bidReceived` → `doneBidding` (if both teams bid 0 there is no `doneBidding`: the server sends a log entry, `destroyHands` and a fresh `gameStart` for the redeal)
 5. **Play**: `updateTurn` → `playCard` → `cardPlayed` → `trickComplete` → `handComplete`
 6. **End**: `gameEnd` (payload always includes `tournamentId`, null for casual games)
-7. **Resync (snapshot v2)**: `requestSnapshot {requestId?, customPics?, log?}` → `stateSnapshot {snapshot, requestId?, reason?}` (any seat owner, entrant or spectator; `seq` on room broadcasts tells a v2 client when it missed something)
+7. **Resync (snapshot v2)**: `requestSnapshot {requestId?, customPics?, log?}` → `stateSnapshot {snapshot, requestId?}` or `{snapshot: null, reason: 'not_in_game'}` (any seat owner, entrant or spectator; custom pictures only with `customPics: true`; `snapshot.partial` lists what was left out and the client keeps it — `mergeSnapshot`; `seq` on room broadcasts tells a v2 client when it missed something)
 
 **Tournaments**: `createTournament`/`joinTournament` → `tournamentJoined` → ready-up → `beginTournament` → 4 rounds of games (`tournamentGameAssignment`, results via `tournamentGameComplete`/`tournamentRoundComplete`) → `beginNextRound` between rounds → `tournamentComplete` (with `winners[]`). The creator may cancel in any phase (`cancelTournament` → `abortGame` at every running table, then `tournamentCancelled`). Disconnected players are marked `connected: false` and reattach by username (any phase); completed tournaments linger ~10 min so players can view results.
 

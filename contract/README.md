@@ -40,6 +40,23 @@ casts `[String: Any]` keys one by one, web reads `data.x`), neither iterates
 top-level keys, and neither has an `onAny`. Keys in an event's `reserved`
 list must never be added (a shipped client would misread them).
 
+**Deliberate, visible changes to the App Store iOS build.** Two additive keys
+switch on read paths the shipped app already has, so its screen changes
+(as fixes; "exactly as today" is knowingly relaxed for these two):
+
+- Spectator full state `trumpBroken`, `teamTricks`, `oppTricks`: the App
+  Store build reads them in `GameState.restoreFromSpectator` (since Feb 2026)
+  but never got them, so a joining spectator saw trump unbroken and 0-0 (or a
+  previous game's) tricks. It now shows the real values (spectators view from
+  seat 1, so team 1 is "team"; later trickComplete increments use position % 2).
+  `leadPosition` on the same payload is read only by iOS source builds after
+  10d1538 (2026-11-07); the App Store build ignores it and infers the lead
+  from the first card.
+- `chatMessage.type`: the App Store build's ChatSocketHandler (since
+  ad956b2, 2026-02-16) styles `type == "spectator"` lines as spectator chat.
+  Unread counting treats player and spectator lines alike; bubbles still key
+  off `position` (null for spectators).
+
 Guards: the always-on contract guard (every emit), `additiveOnly.test.js`
 (against the frozen baseline), `legacyConstants.test.js` (every cc865b4
 constant), `wireCompat.test.js` (values and meaning of the touched
@@ -62,13 +79,32 @@ guard fails if it does); `unsent` (handled, no client sends it).
 ## The contract guard
 
 `server/testUtils/contractCheck.js` wraps the push of every
-`gameDriver.makeIo` / `makeSocket` log, so every suite that drives handlers
-through them (chaos, tournamentLifecycle, transcripts, presence,
-seatRecovery, lifecycle, hardening, wireProjection, contract, ...) validates
-every emit in its wire form (a synchronous JSON round-trip). It also checks
-seq routing: every room broadcast and gameStart carries `seq`, nothing else
-does. `server/testUtils/contractGuard.js` (jest `setupFilesAfterEnv`) fails
-the test.
+`gameDriver.makeIo` / `makeSocket` log (and of the local stubs in
+hardening and seatRecovery, which call `instrument(log)` themselves), so
+every suite that drives handlers through them (chaos, tournamentLifecycle,
+transcripts, presence, seatRecovery, lifecycle, hardening, wireProjection,
+contract, contractFixtures, wireCompat) validates every emit in its wire form
+(a synchronous JSON round-trip). `contract.test.js` fails if a suite adds a
+local stub io/socket without `instrument(log)`. The guard also checks:
+
+- routing: the kind of target (room, mainRoom, tournament, all, or one
+  client: self / socket) must be listed in the event's `to`;
+- seq: every room broadcast and gameStart carries `seq`, nothing else does.
+
+`server/testUtils/contractGuard.js` (jest `setupFilesAfterEnv`) fails the
+test. `contract.test.js` also asserts coverage per event AND per variant
+(`NOT_EXERCISED` / `NOT_EXERCISED_VARIANTS` list what is unreached, with a
+reason).
+
+Client → server: each c2s schema mirrors its Joi schema's bounds
+(`server/socket/validators.js`); `examples` must pass both, `invalid`
+examples must fail both, so a client generated from the schema never sends
+what the server refuses. `additiveOnly.test.js` holds c2s to "the server
+accepts what it accepted": the `joi` key is unchanged, no documented key
+disappears, and every baseline example still validates (the schema may
+tighten toward Joi). For s2c, a baseline property that was a bare open
+object may be spelled out (narrowing only adds promises) only when listed
+in `S2C_REFINED` (today: `recordsResponse.records`).
 
 Escape hatches:
 
@@ -101,14 +137,29 @@ skips exact repeats of a validated (event, target kind, payload).
   FIFO). `client/src/state/snapshotV2.js` has `classifySeq`.
 - **R3.** A snapshot with seq S reflects every event ≤ S. It may already
   reflect ABSOLUTE presence events sent right after it (playerReconnected,
-  the spectatorJoined notice, playerActiveMode, gameLogEntry): treat those as
-  idempotent setters.
+  the spectatorJoined notice, playerActiveMode, gameLogEntry, and, during
+  DRAW_RESOLVING, positionUpdate and the playerDisconnected of a draw-time
+  grace seat): treat those as idempotent setters. Some state changes carry
+  no broadcast and so no seq bump (seating at DRAW_RESOLVING is reflected
+  ~1s before positionUpdate; a watch-view owner's or a spectator's /leave
+  changes `presence` / `spectatorCount` silently), so **equal seq does not
+  mean an equal snapshot**: always apply a snapshot, never skip one because
+  its seq is not newer.
 - **R4.** DELTA events (playerDrew, bidReceived, doneBidding, rainbow,
   cardPlayed, trickComplete, handComplete, gameStart, destroyHands) are never
   reflected ahead of S (`contract.test.js` (h), `watchSnapshots`).
-- **R5.** On a snapshot: replace the whole table and log, set `lastSeq = S`.
-  A spurious gap costs one request, so debounce `requestSnapshot` (the
-  server rate-limits it to 10 per 10s).
+- **R5.** On a snapshot: replace the whole table, set `lastSeq = S`, except
+  what `snapshot.partial` says was left out, which the client keeps:
+  - `'log'` (actionRejected; `requestSnapshot {log:false}`): keep the log
+    it has (same gameId).
+  - `'customPics'` (every v1 carrier; requestSnapshot without
+    `customPics:true`): for a seat with `hasCustomPic` and `customPic: null`,
+    keep the picture it holds for that username, or take it from
+    `players[].pic` of the same v1 payload.
+  `mergeSnapshot(prev, next, {pics})` in `client/src/state/snapshotV2.js`
+  does exactly this. A spurious gap costs one request, so debounce
+  `requestSnapshot` (the server rate-limits it to 10 per 10s) and do not ask
+  for pictures on a gap resync.
 
 Checked per receiver in every chaos seed and in contract F1/F2/F3
 (`server/testUtils/seqCheck.js`).
@@ -121,11 +172,25 @@ order is fixed, no socket ids appear.
 
 Delivery (all additive): `snapshot` on rejoinSuccess, restorePlayerState,
 actionRejected (no log, no custom pictures) and the spectator full state;
-`requestSnapshot {requestId?, customPics?, log?}` → `stateSnapshot
-{snapshot, requestId?, reason?}` (`reason: 'not_in_game'`, snapshot null,
-when the socket is in no game). Snapshots attached to v1 payloads use
-`customPics: false` (`partial` lists `'customPics'`): the same payload
-already carries the pictures in `players[].pic`.
+`requestSnapshot {requestId?, customPics?, log?}` → `stateSnapshot`, one of
+`{snapshot, requestId?}` or `{snapshot: null, reason: 'not_in_game',
+requestId?}`. Snapshots attached to v1 payloads use `customPics: false`
+(`partial` lists `'customPics'`): the same payload already carries the
+pictures in `players[].pic`. requestSnapshot includes the log unless
+`log: false`, and custom (data-URL, up to ~500KB each) pictures only with
+`customPics: true` (ask once, not on every gap).
+
+The terminal moment is never a snapshot: once the socket's game is ENDED
+or ABORTED, requestSnapshot answers `not_in_game` (the same as a socket
+that was never in a game; ENDED / ABORTED are in the `stage` enum but never
+reach the wire). A v2 client takes the end from `gameEnd` / `abortGame`.
+
+Known gap for item 16: when `watchSeat` (a rejoin or joinAsSpectator by a
+lazy/resigned owner) moves the seat to a newer socket, the older live
+socket is demoted to a pure spectator and gets NO event (v1 behaviour: any
+v1 event would change what current clients show). Its client keeps the
+seat view, hand included. Item 16 should push a `stateSnapshot` to the
+demoted socket (`prev` in `seatLifecycle.watchSeat`).
 
 Semantics:
 
@@ -147,7 +212,9 @@ Semantics:
   records (#182): controller, presence, owner, lazy, offered, grace/resignable
   timestamps, card count.
 - `entrants` / `draw`: before seating; `draw` until the deal resets it (draw
-  names are exactly the names playerDrew showed).
+  names are exactly the names playerDrew showed). Bot entrants carry the
+  bot's display name before they draw (from the BotController, the name
+  playerDrew will show).
 - `tournament`: `{tournamentId, name, roundNumber, totalRounds}` or null.
 
 ### Draw-phase rejoin (for items 16 / 23)

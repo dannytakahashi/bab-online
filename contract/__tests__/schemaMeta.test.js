@@ -91,7 +91,7 @@ test('added keys: declared on the payload, and activated when a shipped client r
 });
 
 test('every server -> client payload is closed (except documented open DB rows and client-only events)', () => {
-    const OPEN_OK = /\.(stats|records|offer|answer|candidate|roundDetails\[\]|queuedUsers\[\])$|\$defs\.(scoreboardRow|leaderboardRow)$/;
+    const OPEN_OK = /\.(stats|records|offer|answer|candidate|roundDetails\[\]|queuedUsers\[\])$|\$defs\.(scoreboardRow|leaderboardRow|recordsPeriod(\.\w+)?)$/;
     for (const [name, e] of Object.entries(schema.s2c)) {
         if (e.status === 'clientOnly' || e.payload === null) continue;
         for (const [where, s] of walk(resolve(e.payload), `s2c.${name}`)) {
@@ -112,7 +112,8 @@ test('every server -> client payload is closed (except documented open DB rows a
 
 test('s2c metadata: to, emittedFrom (file:function, no line numbers), clientReads', () => {
     for (const [name, e] of Object.entries(schema.s2c)) {
-        expect({ name, to: ['room', 'self', 'socket', 'mainRoom', 'tournament', 'all'].includes(e.to) }).toEqual({ name, to: true });
+        const tos = [].concat(e.to);
+        expect({ name, to: tos.length > 0 && tos.every((t) => ['room', 'self', 'socket', 'mainRoom', 'tournament', 'all'].includes(t)) }).toEqual({ name, to: true });
         expect(Array.isArray(e.emittedFrom)).toBe(true);
         if (e.status !== 'clientOnly') expect({ name, n: e.emittedFrom.length > 0 }).toEqual({ name, n: true });
         for (const site of e.emittedFrom) expect({ name, site, ok: /^server\/[\w/.*]+\.js:/.test(site) && !/:\d+$/.test(site) }).toEqual({ name, site, ok: true });

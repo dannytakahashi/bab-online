@@ -68,7 +68,22 @@ const NOT_EXERCISED = {
 const realRandom = Math.random;
 let errorLogs;
 
-beforeAll(() => contractCheck.resetObserved());
+// Variants of anyOf payloads (event#variant) these scenarios do not reach, with why
+const NOT_EXERCISED_VARIANTS = {
+    'error#validation': 'dead: only validators.withValidation emits it, and nothing calls withValidation (the wrappers send error#handler)',
+};
+
+const observedVariants = new Map();
+let stopVariants = null;
+beforeAll(() => {
+    contractCheck.resetObserved();
+    stopVariants = contractCheck.onEmit((entry, wire) => {
+        for (const v of contract.variantsOf(entry.event, wire)) {
+            observedVariants.set(`${entry.event}#${v}`, (observedVariants.get(`${entry.event}#${v}`) || 0) + 1);
+        }
+    });
+});
+afterAll(() => stopVariants && stopVariants());
 // The rate limiter's cleanup interval would keep a single-file run alive
 afterAll(() => rateLimiter.shutdown());
 
@@ -140,11 +155,46 @@ describe('(a) client -> server events', () => {
         }
     });
 
+    test('every documented rejected payload fails BOTH the schema and Joi (the schema never admits what Joi refuses)', () => {
+        let n = 0;
+        for (const name of contract.c2sNames()) {
+            const entry = contract.schema.c2s[name];
+            for (const bad of entry.invalid || []) {
+                n++;
+                expect({ name, bad, schemaOk: contract.validateC2S(name, bad).ok }).toEqual({ name, bad, schemaOk: false });
+                expect(entry.joi).not.toBeNull();
+                expect(() => validators.validate(entry.joi, bad)).toThrow();
+            }
+        }
+        // Every Joi-wrapped event with a payload has negative examples
+        const withPayload = contract.c2sNames().filter((n2) => {
+            const e = contract.schema.c2s[n2];
+            return e.joi && Object.keys(e.payload?.properties || {}).length > 0;
+        });
+        expect(withPayload.filter((n2) => !(contract.schema.c2s[n2].invalid || []).length)).toEqual([]);
+        expect(n).toBeGreaterThan(50);
+        // Both clients always send position with bids and plays (Joi requires it)
+        expect(contract.schema.c2s.playerBid.payload.required).toEqual(expect.arrayContaining(['bid', 'position']));
+        expect(contract.schema.c2s.playCard.payload.required).toEqual(expect.arrayContaining(['card', 'position']));
+    });
+
     test('the c2s events without a Joi schema are a frozen list (hardening is a separate item)', () => {
         const noJoi = contract.c2sNames().filter((n) => contract.schema.c2s[n].joi === null &&
             contract.schema.c2s[n].payload && Object.keys(contract.schema.c2s[n].payload.properties || {}).length > 0);
         expect(noJoi.sort()).toEqual(['getPlayerProfile', 'joinLobby', 'removeBot', 'searchPlayers',
             'voiceAnswer', 'voiceIceCandidate', 'voiceOffer', 'voiceRelayAudio'].sort());
+    });
+
+    test('every test suite that records socket emits has them contract-checked', () => {
+        // A local stub io/socket (emit -> log.push) must call instrument(log),
+        // or come from gameDriver / tournamentDriver (which do)
+        const dir = __dirname;
+        const unguarded = fs.readdirSync(dir).filter((f) => f.endsWith('.test.js')).filter((f) => {
+            const src = fs.readFileSync(path.join(dir, f), 'utf8');
+            const localStub = /function makeIo\(|function makeSocket\(/.test(src);
+            return localStub && !/instrument\(log\)/.test(src);
+        });
+        expect(unguarded).toEqual([]);
     });
 
     test('production server code never requires contract/', () => {
@@ -364,6 +414,22 @@ describe('(e) non-game handlers', () => {
         await authHandlers.restoreSession(c, w.io, { username: 'e_alice', sessionToken: token });
         await authHandlers.restoreSession(c, w.io, { username: 'e_nobody', sessionToken: token });
 
+        // DB content, so the leaderboard rows and records periods are validated
+        // non-empty: a player with games, a game this month, an old one and a
+        // legacy record without bags
+        mockDb.current.users._insert({
+            username: 'e_vet', profilePic: 4, customProfilePic: null,
+            stats: { gamesPlayed: 5, wins: 3, totalPoints: 412, totalTricksBid: 30, totalTricksTaken: 33, totalHands: 65,
+                totalSets: 4, totalSetPoints: 120, totalFaults: 1, totalHSI: 310 },
+        });
+        const rec = (gameId, t1, t2, completedAt, bags = true) => ({
+            gameId, team1Score: t1, team2Score: t2, team1Players: ['e_vet', 'e_zed'], team2Players: ['e_bob', '[deleted]'],
+            ...(bags ? { team1Bags: 3, team2Bags: -1 } : {}), completedAt,
+        });
+        mockDb.current.gameRecords._insert(rec('g-now', 312, -40, new Date()));
+        mockDb.current.gameRecords._insert(rec('g-old', 150, 220, new Date('2020-03-01T00:00:00Z')));
+        mockDb.current.gameRecords._insert(rec('g-legacy', 90, 80, new Date('2019-05-01T00:00:00Z'), false));
+
         // Profile
         await profileHandlers.getProfile(c, w.io);
         await profileHandlers.updateProfilePic(c, w.io, { profilePic: 12 });
@@ -376,6 +442,16 @@ describe('(e) non-game handlers', () => {
         await profileHandlers.searchPlayers(c, w.io, {});
         await profileHandlers.getPlayerProfile(c, w.io, { username: 'e_alice' });
         await profileHandlers.getPlayerProfile(c, w.io, { username: 'e_ghost' });
+        await profileHandlers.getPlayerProfile(c, w.io, { username: 'e_vet' });
+        const board = events(w.log, 'leaderboardResponse').pop().data;
+        expect(board.leaderboard.map((r) => r.username)).toContain('e_vet');
+        expect(contract.validateS2C('leaderboardResponse', { ...board, leaderboard: board.leaderboard.map((r) => ({ ...r, winRate: String(r.winRate) })) }).ok).toBe(false);
+        const records = events(w.log, 'recordsResponse').pop().data;
+        expect(records).toMatchObject({ success: true, totalGames: 3 });
+        expect(records.records.allTime).toMatchObject({ highestScore: { score: 312 }, biggestWin: { margin: 352 }, mostBags: { bags: 3 } });
+        expect(records.records.thisMonth).not.toBeNull();
+        expect(contract.validateS2C('recordsResponse', { ...records, records: { ...records.records, allTime: { ...records.records.allTime, highestScore: { players: [] } } } }).ok).toBe(false);
+        expect(contract.validateS2C('recordsResponse', { ...records, records: { thisMonth: null } }).ok).toBe(false);
 
         // Safety
         await safetyHandlers.reportUser(c, w.io, { username: 'e_bob', reason: 'spam', context: '' });
@@ -443,6 +519,104 @@ describe('(e) non-game handlers', () => {
     }, 30000);
 });
 
+describe('(e) auth responses that drive auto-rejoin', () => {
+    test('signIn / restoreSession with a live activeGameId, then with a live activeTournamentId', async () => {
+        jest.useRealTimers();
+        const w = world('e2');
+        const a = w.socket('e2-a');
+        await authHandlers.signUp(a, w.io, { username: 'e2_ann', password: 'pw1' });
+        const token = events(w.log, 'signUpResponse').pop().data.sessionToken;
+        const users = mockDb.current.users;
+        const doc = () => users.docs.find((d) => d.username === 'e2_ann');
+
+        // A live game the user is recorded in
+        const game = gameManager.createGame(['e2-x1', 'e2-x2', 'e2-x3', 'e2-x4']);
+        doc().activeGameId = game.gameId;
+        const b = w.socket('e2-b');
+        await authHandlers.signIn(b, w.io, { username: 'e2_ann', password: 'pw1' });
+        const c = w.socket('e2-c');
+        await authHandlers.restoreSession(c, w.io, { username: 'e2_ann', sessionToken: token });
+        const signIn1 = events(w.log, 'signInResponse').pop().data;
+        const restore1 = events(w.log, 'restoreSessionResponse').pop().data;
+        expect(signIn1).toMatchObject({ success: true, activeGameId: game.gameId });
+        expect(restore1).toMatchObject({ success: true, activeGameId: game.gameId });
+        expect('activeTournamentId' in signIn1 || 'activeTournamentId' in restore1).toBe(false);
+
+        // The game is gone; a live tournament the user is in
+        gameManager.abortGame(game.gameId);
+        // (created by another player: the sign-ins below kick e2_ann's older sockets)
+        const host = w.user('e2-host', 'e2_host');
+        tournamentHandlers.createTournament(host, w.io);
+        const tid = gameManager.playerTournaments.get(host.id);
+        expect(tid).toBeTruthy();
+        doc().activeTournamentId = tid;
+        const d = w.socket('e2-d');
+        await authHandlers.signIn(d, w.io, { username: 'e2_ann', password: 'pw1' });
+        const e = w.socket('e2-e');
+        await authHandlers.restoreSession(e, w.io, { username: 'e2_ann', sessionToken: token });
+        const signIn2 = events(w.log, 'signInResponse').pop().data;
+        const restore2 = events(w.log, 'restoreSessionResponse').pop().data;
+        expect(signIn2).toMatchObject({ success: true, activeTournamentId: tid });
+        expect(restore2).toMatchObject({ success: true, activeTournamentId: tid });
+        expect('activeGameId' in signIn2 || 'activeGameId' in restore2).toBe(false);
+
+        // The guard validated them; a type change would not pass
+        for (const [ev, data] of [['signInResponse', signIn1], ['restoreSessionResponse', restore1]]) {
+            expect(contract.validateS2C(ev, data).ok).toBe(true);
+            expect(contract.validateS2C(ev, { ...data, activeGameId: 42 }).ok).toBe(false);
+        }
+        for (const [ev, data] of [['signInResponse', signIn2], ['restoreSessionResponse', restore2]]) {
+            expect(contract.validateS2C(ev, { ...data, activeTournamentId: 42 }).ok).toBe(false);
+        }
+        expect(errorLogs).toEqual([]);
+    });
+});
+
+describe('(e) failure variants and rarely reached emit sites', () => {
+    test('profile / leaderboard / records failures, an unexpected handler error, a lobby member dropping', async () => {
+        jest.useRealTimers();
+        const w = world('e3');
+        // Profile: a socket with no signed-in user
+        await profileHandlers.getProfile(w.socket('e3-anon'), w.io);
+        expect(events(w.log, 'profileResponse').pop().data).toEqual({ success: false, message: 'User not found' });
+        // Leaderboard: the DB query throws
+        const u = w.user('e3-u', 'e3_una');
+        const find = mockDb.current.users.find;
+        mockDb.current.users.find = () => { throw new Error('db down'); };
+        await profileHandlers.getLeaderboard(u, w.io);
+        mockDb.current.users.find = find;
+        expect(events(w.log, 'leaderboardResponse').pop().data).toEqual({ success: false, message: 'Database error' });
+        // Records: no gameRecords collection
+        const records = mockDb.current.gameRecords;
+        mockDb.current.gameRecords = null;
+        await profileHandlers.getRecords(u, w.io);
+        mockDb.current.gameRecords = records;
+        expect(events(w.log, 'recordsResponse').pop().data).toEqual({ success: false, message: 'Database not available' });
+
+        // A handler throwing something unexpected: error {type:'server', handler}
+        await asyncHandler('searchPlayers', async () => { throw new Error('boom'); })(u, w.io, { query: 'x' });
+        expect(events(w.log, 'error').pop()).toMatchObject({
+            to: `self:${u.id}`, data: { type: 'server', message: 'An error occurred processing your request', handler: 'searchPlayers' },
+        });
+        expect(contract.validateS2C('error', { type: 'server', message: 'm', handlr: 'searchPlayers' }).ok).toBe(false);
+        rateLimiter.clearSocket(u.id);
+
+        // A lobby member drops while others are still in the lobby:
+        // voicePeerLeft to each remaining human (queueHandlers.handleDisconnect)
+        const a = w.user('e3-a', 'e3_amy');
+        const b = w.user('e3-b', 'e3_ben');
+        mainRoomHandlers.createLobby(a, w.io, {});
+        mainRoomHandlers.joinLobby(b, w.io, { lobbyId: gameManager.getPlayerLobby(a.id).id });
+        lobbyHandlers.addBot(a, w.io);
+        const mark = w.log.length;
+        await w.kill(b);
+        const left = w.log.slice(mark).filter((l) => l.event === 'voicePeerLeft');
+        expect(left).toEqual([expect.objectContaining({ to: a.id, data: { socketId: b.id } })]);
+        expect(contract.validateS2C('voicePeerLeft', { socketID: b.id }).ok).toBe(false);
+        expect(errorLogs.map((x) => x.msg)).toEqual(['Error fetching leaderboard', 'boom']);
+    });
+});
+
 // ==================== coverage ====================
 
 describe('coverage', () => {
@@ -461,5 +635,22 @@ describe('coverage', () => {
         }
         expect({ missing, stale }).toEqual({ missing: [], stale: [] });
         expect([...contractCheck.unknownEvents()]).toEqual([]);
+    });
+
+    test('every variant of an active / deprecated s2c event was observed (or is NOT_EXERCISED_VARIANTS with a reason)', () => {
+        const missing = [];
+        const stale = [];
+        for (const key of contract.s2cVariants()) {
+            const [event] = key.split('#');
+            const { status } = contract.schema.s2c[event];
+            if (status !== 'active' && status !== 'deprecated') continue;
+            if (NOT_EXERCISED[event]) continue; // the whole event is unreached
+            if (observedVariants.has(key)) {
+                if (NOT_EXERCISED_VARIANTS[key]) stale.push(key);
+            } else if (!NOT_EXERCISED_VARIANTS[key]) {
+                missing.push(key);
+            }
+        }
+        expect({ missing, stale }).toEqual({ missing: [], stale: [] });
     });
 });

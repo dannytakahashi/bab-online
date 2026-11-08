@@ -5,9 +5,11 @@
  * Per event:
  *   payload     JSON Schema of the wire data (null = no payload: emit(event))
  *   status      active | deprecated | clientOnly | unsent
- *   to          who receives it: room (game:<id> via game.broadcast), self
- *               (the requesting socket), socket (io.to(<socketId>)), mainRoom,
- *               tournament (tournament:<id>), all (io.emit)
+ *   to          who receives it (one or a list): room (game:<id> via
+ *               game.broadcast), self (the requesting socket), socket
+ *               (io.to(<socketId>)), mainRoom, tournament (tournament:<id>),
+ *               all (io.emit). Enforced by the contract guard (self and
+ *               socket count as the same: one client)
  *   seq         true when room broadcasts of it carry `seq` (contract/README.md)
  *   added       payload keys added since cc865b4 (wire-additive)
  *   activates   added keys a SHIPPED client already reads (lights up a dormant
@@ -20,7 +22,7 @@
 'use strict';
 
 const {
-    str, int, num, bool, konst, enm, arr, ref, anyOf, orNull, obj, variant, byPosition,
+    str, int, num, bool, nul, konst, enm, arr, ref, anyOf, orNull, obj, variant, byPosition,
     LEGACY_CLIENT_STATE_PROPS, SPECTATOR_STATE_V1_PROPS,
 } = require('./defs');
 
@@ -178,7 +180,7 @@ const s2c = {
     },
     lobbiesUpdated: {
         payload: obj(lobbyLists),
-        status: 'active', to: 'mainRoom',
+        status: 'active', to: ['mainRoom', 'self'],
         reserved: [{ key: 'lobbyName', why: 'iOS reads lobbyName ?? name' }, { key: 'inProgress', why: 'reserved lobby key (iOS Lobby.from)' }],
         clientReads: reads(W.lobby, I.lobby),
         emittedFrom: ['server/socket/gameLifecycle.js:emitLobbiesUpdated', 'server/socket/mainRoomHandlers.js:createLobby', 'server/socket/mainRoomHandlers.js:joinLobby', 'server/socket/mainRoomHandlers.js:getLobbies', 'server/socket/lobbyHandlers.js:leaveLobby', 'server/socket/lobbyHandlers.js:addBot', 'server/socket/lobbyHandlers.js:removeBot', 'server/socket/tournamentHandlers.js:createTournament', 'server/socket/tournamentHandlers.js:joinTournament', 'server/socket/tournamentHandlers.js:leaveTournament', 'server/socket/tournamentHandlers.js:scheduleTournamentCleanup'],
@@ -341,9 +343,9 @@ const s2c = {
             })),
         ),
         status: 'active', to: 'socket', seq: false,
-        clientReads: reads([W.game, W.main('gameStart')], I.game('handleGameStart')),
+        clientReads: reads([W.game, W.main('gameStart#reads:players'), W.main('startVoice#reads:players')], I.game('handleGameStart')),
         emittedFrom: ['server/socket/gameHandlers.js:dealHand'],
-        notes: 'One per connected seat owner (seat) and per spectator (spectator), each deal. players: seat socket ids (unused; V1_REMOVALS #6). playerInfo rebuilds web avatars every hand (V1_REMOVALS #5).',
+        notes: 'One per connected seat owner (seat) and per spectator (spectator), each deal. players: seat socket ids, read by web as playerData.socket to map a voice peer to a seat (the speaking indicator; V1_REMOVALS #6). playerInfo rebuilds web avatars every hand (V1_REMOVALS #5).',
     },
     bidReceived: {
         payload: obj({ bid: ref('bidWire'), position: ref('position'), bidArray: ref('bidArray') }),
@@ -354,7 +356,7 @@ const s2c = {
         ],
         clientReads: reads(W.game, I.game('registerBiddingPhase')),
         emittedFrom: ['server/socket/gameHandlers.js:playerBid', 'server/game/bot/BotController.js:processBotBid'],
-        notes: 'bid echoes the client value: an Int from iOS numeric bids (ctr-22).',
+        notes: 'bid echoes the client value: an Int from iOS numeric bids (bidWire; V1_REMOVALS #11).',
     },
     doneBidding: {
         payload: obj({ bids: ref('bidArray'), lead: ref('position'), teamBids: ref('teamPair'), mults: obj({ team1: int({ minimum: 1 }), team2: int({ minimum: 1 }) }) }),
@@ -369,7 +371,7 @@ const s2c = {
             variant('room', obj({ currentTurn: ref('position') })),
             variant('private', obj({ currentTurn: ref('position') })),
         ),
-        status: 'active', to: 'room', seq: false,
+        status: 'active', to: ['room', 'socket'], seq: false,
         reserved: [{ key: 'turn', why: 'iOS reads currentTurn ?? turn' }],
         clientReads: reads(W.game, I.game('registerBiddingPhase')),
         emittedFrom: ['server/socket/gameHandlers.js:handlePostBid', 'server/socket/gameHandlers.js:handlePostPlay', 'server/socket/gameHandlers.js:dealHand', 'server/socket/seatLifecycle.js:goActive'],
@@ -487,15 +489,21 @@ const s2c = {
         notes: 'After actionRejected on a "Card not in hand" play (#183), and on /active from the watch view.',
     },
     stateSnapshot: {
-        payload: obj({
-            snapshot: orNull(ref('snapshotV2')),
-            requestId: anyOf(str({ maxLength: 64 }), int()),
-            reason: konst('not_in_game'),
-        }, { optional: ['requestId', 'reason'] }),
+        payload: anyOf(
+            variant('found', obj({
+                snapshot: ref('snapshotV2'),
+                requestId: anyOf(str({ maxLength: 64 }), int()),
+            }, { optional: ['requestId'] })),
+            variant('notInGame', obj({
+                snapshot: nul(),
+                requestId: anyOf(str({ maxLength: 64 }), int()),
+                reason: konst('not_in_game'),
+            }, { optional: ['requestId'] })),
+        ),
         status: 'active', to: 'self',
         clientReads: reads([], []),
         emittedFrom: ['server/socket/snapshotHandlers.js:requestSnapshot'],
-        notes: 'New in snapshot v2: the reply to requestSnapshot (full pictures and log unless the request opts out). snapshot null + reason not_in_game when the socket is in no game.',
+        notes: 'New in snapshot v2: the reply to requestSnapshot. The log is included unless the request sends log:false; custom (data-URL) seat pictures only with customPics:true (partial lists what was left out). notInGame: the socket is in no live game - also once its game ENDED or ABORTED (the terminal state arrives as gameEnd / abortGame, never as a snapshot).',
     },
     rejoinFailed: {
         payload: obj({
@@ -509,7 +517,7 @@ const s2c = {
     },
     playerDisconnected: {
         payload: anyOf(variant('room', seatNotice), variant('private', seatNotice)),
-        status: 'active', to: 'room', seq: false,
+        status: 'active', to: ['room', 'socket'], seq: false,
         clientReads: reads(W.game, I.game('registerReconnection')),
         emittedFrom: ['server/socket/seatLifecycle.js:disconnectOwner', 'server/socket/gameHandlers.js:handleDrawComplete', 'server/socket/seatLifecycle.js:replayPresenceTo'],
         notes: 'private: the replay to a returning socket.',
@@ -543,7 +551,7 @@ const s2c = {
     // ==================== Presence ====================
     resignationAvailable: {
         payload: anyOf(variant('room', seatNotice), variant('private', seatNotice)),
-        status: 'active', to: 'room', seq: false,
+        status: 'active', to: ['room', 'socket'], seq: false,
         clientReads: reads(W.game, I.game('registerSpecialEvents')),
         emittedFrom: ['server/socket/seatLifecycle.js:offer', 'server/socket/seatLifecycle.js:replayPresenceTo'],
     },
@@ -577,7 +585,7 @@ const s2c = {
             })),
             variant('notice', obj({ username: str(), spectatorCount: int({ minimum: 0 }) })),
         ),
-        status: 'active', to: 'room', seq: false,
+        status: 'active', to: ['room', 'self'], seq: false,
         added: ['snapshot', 'leadPosition', 'trumpBroken', 'teamTricks', 'oppTricks'],
         activates: ['leadPosition', 'trumpBroken', 'teamTricks', 'oppTricks'],
         reserved: [
@@ -586,7 +594,7 @@ const s2c = {
         ],
         clientReads: reads([W.lobby, W.main('onSpectatorJoined')], [I.game('registerSpectatorAndLazy'), I.state('restoreFromSpectator#reads:leadPosition,trumpBroken,teamTricks,oppTricks')]),
         emittedFrom: ['server/socket/mainRoomHandlers.js:joinAsSpectator', 'server/socket/tournamentHandlers.js:spectateTournamentGame', 'server/socket/seatLifecycle.js:watchSeat'],
-        notes: 'fullState goes to the joining socket only (socket.emit), BEFORE the room notice. The notice reaches the joiner too (ctr-17; V1_REMOVALS #8). leadPosition / trumpBroken / teamTricks / oppTricks switch on the shipped iOS restoreFromSpectator reads (ctr-1, ctr-8, ios-8d); web reads none of them.',
+        notes: 'fullState goes to the joining socket only (socket.emit), BEFORE the room notice. The notice reaches the joiner too (ctr-17; V1_REMOVALS #8). trumpBroken / teamTricks / oppTricks switch on reads the App Store iOS build already has in restoreFromSpectator (since Feb 2026): its spectator view CHANGES visibly, knowingly, as a fix (real trump-broken state and trick counts instead of false and 0-0). leadPosition is read only by iOS source builds after 10d1538 (the App Store build infers the lead from the first card). ctr-1, ctr-8, ios-8d; web reads none of them.',
     },
 
     // ==================== Profile ====================
@@ -627,7 +635,10 @@ const s2c = {
         emittedFrom: ['server/socket/profileHandlers.js:getLeaderboard'],
     },
     recordsResponse: {
-        payload: okFail({ records: obj({}, { open: true }), totalGames: int({ minimum: 0 }) }),
+        payload: okFail({
+            records: obj({ allTime: ref('recordsPeriod'), thisYear: ref('recordsPeriod'), thisMonth: ref('recordsPeriod') }, { open: true }),
+            totalGames: int({ minimum: 0 }),
+        }),
         status: 'active', to: 'self',
         clientReads: reads(W.records, []),
         emittedFrom: ['server/socket/profileHandlers.js:getRecords'],
@@ -767,7 +778,7 @@ const s2c = {
     },
     voicePeerLeft: {
         payload: anyOf(variant('room', obj({ socketId: str() })), variant('private', obj({ socketId: str() }))),
-        status: 'active', to: 'room', seq: false,
+        status: 'active', to: ['room', 'socket'], seq: false,
         clientReads: reads(W.voice, I.voice),
         emittedFrom: ['server/socket/seatLifecycle.js:disconnectOwner', 'server/socket/lobbyHandlers.js:leaveLobby', 'server/socket/queueHandlers.js:handleDisconnect'],
         notes: 'room: a game seat owner dropped (game.broadcast); private: lobby peers (io.to(socketId)).',
@@ -788,9 +799,9 @@ const s2c = {
             variant('message', obj({ message: str() })),
         ),
         status: 'active', to: 'self',
-        clientReads: reads(W.main('setupSocketErrorHandler'), []),
+        clientReads: reads(W.main('setupSocketErrorHandler'), ['iOSClient/BABOnline/Networking/SocketService.swift:connect#reads:message']),
         emittedFrom: ['server/socket/errorHandler.js:asyncHandler', 'server/socket/errorHandler.js:syncHandler', 'server/socket/errorHandler.js:handleError', 'server/socket/validators.js:withValidation', 'server/socket/*.js:<many handlers> (socket.emit(\'error\', {message}))', 'server/socket/chatHandlers.js:sendError'],
-        notes: "App-level event (not the transport's error). Rename to serverError is V1_REMOVALS #1.",
+        notes: "App-level event (not the transport's error). iOS receives it through Socket.IO-Client-Swift's clientEvent .error (the reserved name) and, since 0fd6ef1, shows message as a toast. variant validation is dead today (validators.withValidation has no caller). Rename to serverError is V1_REMOVALS #1.",
     },
 };
 
