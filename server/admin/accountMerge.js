@@ -23,6 +23,12 @@
  *   gameRecords.team1Players / team2Players
  *   reports.reporter / reports.reported
  * Tournament history is in-memory only (TournamentState), so nothing to move.
+ *
+ * Runs as a CLI in its own process: the running server's leaderboard and
+ * records caches (profileHandlers.js) cannot see a merge, so the pages show
+ * the pre-merge rows for at most their 60 s TTL. Its failed-sign-in counters
+ * (socket/signInThrottle.js) are keyed by the submitted name and expire on
+ * their own (15 min); nothing to move.
  */
 
 const STAT_KEYS = [
