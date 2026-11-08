@@ -248,6 +248,7 @@ function joinAsSpectator(socket, io, data) {
     // A pure spectator (of one game at a time), in the game's room
     if (!gameManager.addSpectator(io, game, socket.id, user.username, null)) {
         socketLogger.warn('Spectate refused: socket is in a game', { socketId: socket.id, gameId });
+        socket.emit('error', { message: 'Leave your current game before spectating another' });
         return;
     }
 

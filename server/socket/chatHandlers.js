@@ -14,7 +14,7 @@
 
 const gameManager = require('../game/GameManager');
 const { socketLogger } = require('../utils/logger');
-const { Controller } = require('../game/SeatState');
+const { Controller, Presence } = require('../game/SeatState');
 const seatLifecycle = require('./seatLifecycle');
 
 /** @returns {{game, role, pos}|null} */
@@ -69,12 +69,33 @@ function ownerCommand(socket, io, game, pos, message) {
     // Watch view: /lazy and unknown commands are ignored (spectator-shaped client)
 }
 
-/** A pure spectator: /leave stops spectating; everything else is ignored. */
+/**
+ * A pure spectator: /leave stops spectating. /active takes back the seat of
+ * the user this spectator was recorded as (server-side, at joinAsSpectator
+ * or when a newer socket demoted it) if that seat is bot-controlled with no
+ * owner socket attached; otherwise the owner is told why not. Everything else
+ * is ignored.
+ */
 function spectatorCommand(socket, io, game, message) {
-    if (message.trim().toLowerCase() !== '/leave') return;
-    gameManager.leaveSpectating(io, socket.id);
-    socket.emit('leftGame');
-    socket.emit('joinMainRoom');
+    const command = message.trim().toLowerCase();
+    if (command === '/leave') {
+        gameManager.leaveSpectating(io, socket.id);
+        socket.emit('leftGame');
+        socket.emit('joinMainRoom');
+        return;
+    }
+    if (command !== '/active') return;
+    const username = game.spectators.get(socket.id)?.username;
+    const authed = gameManager.getUserBySocketId(socket.id);
+    if (!username || (authed && authed.username !== username)) return;
+    const pos = game.seatByUsername(username);
+    const seat = pos ? game.seat(pos) : null;
+    if (!seat) return; // an ordinary spectator
+    if (seat.controller !== Controller.HUMAN && seat.presence === Presence.AWAY) {
+        seatLifecycle.reclaimSeat(io, game, pos, socket, username);
+    } else if (seat.presence !== Presence.GONE) {
+        sendError(io, game, socket, 'Your seat is controlled from another connection. Reconnect to take it back.');
+    }
 }
 
 /**

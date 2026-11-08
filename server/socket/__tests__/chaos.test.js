@@ -35,6 +35,7 @@ const queueHandlers = require('../queueHandlers');
 const reconnectHandlers = require('../reconnectHandlers');
 const mainRoomHandlers = require('../mainRoomHandlers');
 const lobbyHandlers = require('../lobbyHandlers');
+const tournamentHandlers = require('../tournamentHandlers');
 const gameLifecycle = require('../gameLifecycle');
 const ambient = require('../../demo/ambientBots');
 const GamePhase = require('../../game/GamePhase');
@@ -113,6 +114,10 @@ async function runSeed(seed) {
 
     const log = [];
     const io = makeIo(log);
+    // Record who was in a room at each room emit (for the resign-offer oracle)
+    io.to = (room) => ({
+        emit: (event, data) => log.push({ to: room, members: [...(io.rooms.get(room) || [])], event, data, at: Date.now() }),
+    });
     const asyncErrors = [];
     const track = (p) => {
         if (p && typeof p.then === 'function') p.catch((err) => asyncErrors.push(err));
@@ -184,19 +189,46 @@ async function runSeed(seed) {
     let note = '';
     let outsiderBroke = null;
 
-    async function rejoinAs(h, sid) {
-        const s = newSocket(sid);
+    /** `h`'s socket `sid` became the seat's owner: the previous one (if live) is stale now. */
+    function promote(h, sid) {
+        if (h.connected && h.current !== sid && io.sockets.sockets.has(h.current)) h.stale.push(h.current);
+        h.stale = h.stale.filter((x) => x !== sid);
+        h.current = sid;
+        h.connected = true;
+    }
+    const gotSelf = (before, sid, event) => log.slice(before).some((l) => l.to === `self:${sid}` && l.event === event);
+
+    /** rejoinGame from a fresh socket, or (with `existing`) from one of h's older live sockets. */
+    async function rejoinAs(h, sid, existing = false) {
+        const s = existing ? sockets.get(sid) : newSocket(sid);
         gameManager.registerUser(sid, h.username);
         const before = log.length;
         await track(reconnectHandlers.rejoinGame(s, io, { gameId, username: h.username }));
-        if (log.slice(before).some((l) => l.to === `self:${sid}` && l.event === 'rejoinSuccess')) {
-            if (h.connected && h.current !== sid && io.sockets.sockets.has(h.current)) h.stale.push(h.current);
-            h.current = sid;
-            h.connected = true;
-        } else {
+        if (gotSelf(before, sid, 'rejoinSuccess')) {
+            promote(h, sid);
+        } else if (!h.stale.includes(sid)) {
             h.stale.push(sid); // a live socket that owns nothing
         }
     }
+
+    /** The human whose (stale or current) socket `sid` is. */
+    const humanOf = (sid) => humans.find((h) => h.current === sid || h.stale.includes(sid));
+
+    // The resign offer each socket holds (its last resignationAvailable, room
+    // or private; any room playerResigned clears it, as both clients do)
+    const heldOffer = new Map();
+    let offersSeen = 0;
+    const updateOffers = () => {
+        for (; offersSeen < log.length; offersSeen++) {
+            const l = log[offersSeen];
+            if (l.event !== 'resignationAvailable' && l.event !== 'playerResigned') continue;
+            const to = l.members || [String(l.to).replace(/^self:/, '')];
+            for (const sid of to) {
+                if (l.event === 'resignationAvailable') heldOffer.set(sid, l.data.position);
+                else heldOffer.delete(sid);
+            }
+        }
+    };
 
     /** A command from a socket that owns no seat must not change any seat. */
     function asOutsider(label, fn) {
@@ -272,6 +304,30 @@ async function runSeed(seed) {
             note = 'rrejoin ' + h.username;
             await rejoinAs(h, `${h.username}-r${rejoinSeq}`);
         }],
+        [0.3, async function outage() {
+            // Everyone's wifi drops a few seconds apart; past grace they come
+            // back one by one (the first to return finds nobody to share offers with)
+            note = 'outage';
+            for (const h of connectedHumans()) {
+                h.connected = false;
+                kill(h.current);
+                await track(queueHandlers.handleDisconnect(sockets.get(h.current), io));
+                await jest.advanceTimersByTimeAsync(randInt(0, 8000));
+                if (!gameManager.getGameById(gameId)) return;
+            }
+            await jest.advanceTimersByTimeAsync(randInt(50000, 70000));
+            for (const h of humans.slice().sort(() => rand() - 0.5).slice(0, randInt(1, humans.length))) {
+                if (!gameManager.getGameById(gameId)) return;
+                rejoinSeq++;
+                await rejoinAs(h, `${h.username}-r${rejoinSeq}`);
+                await jest.advanceTimersByTimeAsync(randInt(0, 5000));
+            }
+            // ...and one of them may give up right away
+            const quitter = rand() < 0.5 && pick(connectedHumans());
+            if (quitter && gameManager.getGameById(gameId)) {
+                chatHandlers.chatMessage(sockets.get(quitter.current), io, { message: '/leave' });
+            }
+        }],
         [2, async function multiShadowRejoin() {
             // A fresh socket rejoins while the old one may still be live
             const h = pick(humans);
@@ -284,6 +340,17 @@ async function runSeed(seed) {
             const s = sockets.get(sid);
             const what = pick(['/active', '/leave', '/lazy', 'chat', 'draw', 'bid', 'play', 'forceResign']);
             note = `stale ${what} ${sid}`;
+            // A spectating socket of the owner may take back a bot-controlled
+            // seat that has no owner socket attached (phone -> laptop -> phone)
+            const h = humanOf(sid);
+            const pos = h && game.seatByUsername(h.username);
+            if (what === '/active' && pos && game.isBotControlled(pos) && game.seatPresence(pos) === 'away' &&
+                game.isSpectator(sid)) {
+                chatHandlers.chatMessage(s, io, { message: what });
+                if (game.seat(pos).ownerSocketId !== sid) outsiderBroke = outsiderBroke || { label: note + ' did not reclaim' };
+                else promote(h, sid);
+                return;
+            }
             asOutsider(note, () => {
                 if (what.startsWith('/')) return chatHandlers.chatMessage(s, io, { message: what });
                 if (what === 'chat') return chatHandlers.chatMessage(s, io, { message: 'psst' });
@@ -302,6 +369,29 @@ async function runSeed(seed) {
             gameManager.registerUser(sid, name);
             asOutsider('spectate ' + sid, () => mainRoomHandlers.joinAsSpectator(s, io, { gameId }));
             spectators.push(sid);
+        }],
+        [0.8, async function ownerSpectate() {
+            // Another tab of an owner spectates the owner's own game, from the
+            // main room or a tournament lobby (the latter is always a pure spectator)
+            const h = pick(humans);
+            specSeq++;
+            const sid = `${h.username}-os${specSeq}`;
+            const s = newSocket(sid);
+            gameManager.registerUser(sid, h.username);
+            const viaTournament = rand() < 0.4;
+            note = `ownerSpectate ${sid}${viaTournament ? ' (tournament)' : ''}`;
+            const before = log.length;
+            if (viaTournament) tournamentHandlers.spectateTournamentGame(s, io, { gameId });
+            else mainRoomHandlers.joinAsSpectator(s, io, { gameId });
+            if (gotSelf(before, sid, 'rejoinSuccess')) promote(h, sid);
+            else h.stale.push(sid);
+        }],
+        [1.2, async function staleRejoin() {
+            // An older live socket of the owner (demoted watcher, owner-named
+            // spectator, unmapped old seat socket) signs in again and rejoins
+            const sid = pick(liveStale()); if (!sid) return;
+            note = `staleRejoin ${sid}`;
+            await rejoinAs(humanOf(sid), sid, true);
         }],
         [1.5, function spectatorCommand() {
             const sid = pick(spectators.filter((x) => io.sockets.sockets.has(x))); if (!sid) return;
@@ -324,7 +414,10 @@ async function runSeed(seed) {
         }],
         [2, function forceResign() {
             const h = pick(connectedHumans()); if (!h) return;
-            const fp = randInt(1, 4); note = 'fr ' + h.current + ' ' + fp;
+            // Mostly the offer this client holds (what a real client sends)
+            updateOffers();
+            const held = heldOffer.get(h.current);
+            const fp = held != null && rand() < 0.7 ? held : randInt(1, 4); note = 'fr ' + h.current + ' ' + fp;
             track(gameHandlers.forceResign(sockets.get(h.current), io, { position: fp }));
         }],
         [0.05, function abort() {
@@ -356,8 +449,13 @@ async function runSeed(seed) {
             if (seat && seat.controller === 'human') {
                 // The owner is here to act
                 if (seat.presence === 'connected') return true;
-                // Its grace ran out: a connected owner can forceResign it
-                if (seat.presence === 'resignable' && game.hasPresentHuman()) return true;
+                // Its grace ran out: a connected owner holds an offer it can
+                // act on (for some resignable seat; resigning that one re-offers the next)
+                if (seat.presence === 'resignable') {
+                    updateOffers();
+                    const resignable = game.resignablePositions();
+                    if (game.seatList().some((s) => s.presence === 'connected' && resignable.includes(heldOffer.get(s.ownerSocketId)))) return true;
+                }
             }
         }
         // (DRAWING needs no special case: the draw watchdog is a pending timer)
@@ -403,6 +501,18 @@ async function runSeed(seed) {
         if (seats.length === 4 && seats.some((s) => s.ownerUsername) && !game.hasPresentHuman()) {
             const counting = game.hasTimer('abandon') || seats.some((s) => game.hasTimer(`grace:${s.position}`));
             if (!counting) return 'zombie: owned table, nobody connected, no abandon/grace timer';
+        }
+        // Resign offers: while a seat is resignable, every connected owner
+        // holds an offer for a seat that is still resignable (so forceResign
+        // can always unstick the table)
+        const resignable = game.resignablePositions();
+        if (seats.length === 4 && resignable.length > 0 && !game.isTerminal()) {
+            updateOffers();
+            for (const s of seats) {
+                if (s.presence !== 'connected') continue;
+                const held = heldOffer.get(s.ownerSocketId);
+                if (!resignable.includes(held)) return `owner ${s.ownerSocketId} of seat ${s.position} holds offer ${held}, resignable ${resignable.join(',')}`;
+            }
         }
         if (outsiderBroke) return `outsider changed a seat: ${JSON.stringify(outsiderBroke)}`;
         return null;

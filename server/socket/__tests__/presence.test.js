@@ -264,7 +264,7 @@ describe('R4/R5 resign offers', () => {
         const t = table();
         await drop(t, t.sockets[1]);
         await gameHandlers.forceResign(t.sockets[2], t.io, { position: 1 });
-        expect(events(t.log, 'error').map((l) => l.data.message)).toEqual(['Player is not disconnected']);
+        expect(events(t.log, 'error').map((l) => l.data.message)).toEqual(['Player is still reconnecting']);
         expect(t.game.seat(1)).toMatchObject({ controller: 'human', presence: 'grace' });
         expect(events(t.log, 'playerResigned')).toHaveLength(0);
     });
@@ -781,5 +781,186 @@ describe('a socket in a game is never also a pure spectator', () => {
         expect(other.game.isSpectator(t.sockets[1].id)).toBe(false);
         expect(gameManager.spectatorGames.has(t.sockets[1].id)).toBe(false);
         expect(t.game.seat(1).ownerSocketId).toBe(t.sockets[1].id);
+    });
+});
+
+describe('review fixes (seat records)', () => {
+    /** Record room membership at each room emit; heldOffer(sid) = the sid's last offer (cleared by playerResigned). */
+    function trackOffers(t) {
+        t.io.to = (room) => ({
+            emit: (event, data) => t.log.push({ to: room, members: [...(t.io.rooms.get(room) || [])], event, data, at: Date.now() }),
+        });
+        const held = new Map();
+        let seen = 0;
+        return (sid) => {
+            for (; seen < t.log.length; seen++) {
+                const l = t.log[seen];
+                if (l.event !== 'resignationAvailable' && l.event !== 'playerResigned') continue;
+                for (const to of l.members || [String(l.to).replace(/^self:/, '')]) {
+                    if (l.event === 'resignationAvailable') held.set(to, l.data.position);
+                    else held.delete(to);
+                }
+            }
+            return held.get(sid);
+        };
+    }
+
+    test('whole table drops, returners share offers: the offer moves when its seat comes back (no wedge)', async () => {
+        const t = table();
+        const heldOffer = trackOffers(t);
+        for (const pos of [1, 2, 3, 4]) {
+            await drop(t, t.sockets[pos]);
+            await jest.advanceTimersByTimeAsync(5000);
+        }
+        await jest.advanceTimersByTimeAsync(52000); // t = 72s: 1-3 resignable, 4 in grace
+        expect(t.game.resignablePositions()).toEqual([1, 2, 3]);
+        expect(roomOffers(t)).toEqual([]);
+
+        const u4 = await rejoin(t, 'user4');
+        expect(heldOffer(u4.id)).toBe(1);
+        expect(t.game.offerPos).toBe(1);
+
+        // The offered seat comes back: the room is re-offered the next one
+        const u1 = await rejoin(t, 'user1');
+        expect(heldOffer(u4.id)).toBe(2);
+        expect(heldOffer(u1.id)).toBe(2);
+
+        chat(t, 1, '/leave', u1);
+        await gameHandlers.forceResign(u4, t.io, { position: heldOffer(u4.id) });
+        expect(t.game.seatController(2)).toBe('resignBot');
+        expect(heldOffer(u4.id)).toBe(3);
+        await gameHandlers.forceResign(u4, t.io, { position: heldOffer(u4.id) });
+        expect(t.game.seatController(3)).toBe('resignBot');
+        expect(events(t.log, 'error')).toHaveLength(0);
+    });
+
+    test('a returner whose own seat was the standing offer: the room gets the next one', async () => {
+        const t = table();
+        await drop(t, t.sockets[1]);
+        await jest.advanceTimersByTimeAsync(10000);
+        await drop(t, t.sockets[2]);
+        await jest.advanceTimersByTimeAsync(60000);
+        expect(t.game.offerPos).toBe(2);
+        await rejoin(t, 'user2');
+        expect(t.game.offerPos).toBe(1);
+        expect(roomOffers(t)).toEqual([1, 2, 1]);
+    });
+
+    test('a demoted lazy socket takes the seat back with /active once the newer socket is gone', async () => {
+        const t = table();
+        chat(t, 2, '/lazy');                     // phone: seat view
+        const laptop = await rejoin(t, 'user2'); // phone demoted to a spectator
+        const phone = t.sockets[2];
+        expect(t.game.isSpectator(phone.id)).toBe(true);
+        await drop(t, laptop);
+        expect(t.game.seat(2)).toMatchObject({ controller: 'lazyBot', presence: 'away' });
+        const mark = t.log.length;
+        chat(t, 2, '/active', phone);
+        expect(t.game.seat(2)).toMatchObject({ controller: 'human', presence: 'connected', ownerSocketId: phone.id, seatSocketId: phone.id });
+        expect(t.game.isSpectator(phone.id)).toBe(false);
+        expect(gameManager.spectatorGames.has(phone.id)).toBe(false);
+        expect(gameManager.playerGames.get(phone.id)).toBe(t.game.gameId);
+        expect(inRoom(t, phone.id)).toBe(true);
+        expect(selfEvents(t, phone, mark)).toContain('restorePlayerState@2');
+        expect(events(t.log, 'playerActiveMode')).toHaveLength(1);
+        expect(t.game.validateGameState().errors).toEqual([]);
+    });
+
+    test('a demoted socket is told why /active does nothing while a newer socket holds the seat', async () => {
+        const t = table();
+        chat(t, 2, '/lazy');
+        await rejoin(t, 'user2');
+        const mark = t.log.length;
+        chat(t, 2, '/active', t.sockets[2]);
+        expect(t.game.seatController(2)).toBe('lazyBot');
+        expect(t.log.slice(mark).filter((l) => l.to === t.sockets[2].id).map((l) => l.event)).toEqual(['error']);
+        // An ordinary spectator still gets nothing
+        const fan = newSocket(t, 'fan');
+        mainRoomHandlers.joinAsSpectator(fan, t.io, { gameId: t.game.gameId });
+        const mark2 = t.log.length;
+        chat(t, 2, '/active', fan);
+        expect(t.log.slice(mark2).filter((l) => l.to === fan.id || l.to === `self:${fan.id}`)).toEqual([]);
+    });
+
+    test('a pure spectator under the owner\'s name rejoins its own seat without an invariant failure', async () => {
+        // Human seat: a second tab spectates (seat connected), then rejoins
+        const t = table();
+        const tab = newSocket(t, 'user1');
+        tournamentHandlers.spectateTournamentGame(tab, t.io, { gameId: t.game.gameId });
+        expect(t.game.isSpectator(tab.id)).toBe(true);
+        await reconnectHandlers.rejoinGame(tab, t.io, { gameId: t.game.gameId, username: 'user1' });
+        expect(t.game.seat(1)).toMatchObject({ presence: 'connected', ownerSocketId: tab.id });
+        expect(t.game.isSpectator(tab.id)).toBe(false);
+        expect(selfEvents(t, tab)).toContain('rejoinSuccess@1');
+
+        // Lazy seat: S1 demoted by S2, S2 drops, S1 rejoins
+        const u = table();
+        chat(u, 1, '/lazy');
+        const s2 = await rejoin(u, 'user1');
+        await drop(u, s2);
+        const s1 = u.sockets[1];
+        gameManager.registerUser(s1.id, 'user1');
+        await reconnectHandlers.rejoinGame(s1, u.io, { gameId: u.game.gameId, username: 'user1' });
+        expect(u.game.seat(1)).toMatchObject({ controller: 'lazyBot', presence: 'connected', ownerSocketId: s1.id, ownerView: 'watch' });
+        expect(u.game.isSpectator(s1.id)).toBe(false);
+        expect(gameManager.playerGames.get(s1.id)).toBe(u.game.gameId);
+        expect(selfEvents(u, s1)).toContain('rejoinSuccess@1');
+    });
+
+    test('a socket that drops during the rejoin session lookup is not seated', async () => {
+        const t = table();
+        await drop(t, t.sockets[1]);
+        const s = makeSocket('pr-dead', t.log, t.io);
+        const users = mockDb.current.users;
+        await users.updateOne({ username: 'user1' }, { $set: { sessionToken: 'tok' } }); // legacy token, accepted
+        const realFind = users.findOne.bind(users);
+        users.findOne = async (...args) => {
+            const r = await realFind(...args);
+            await drop(t, s); // the socket drops mid-lookup
+            return r;
+        };
+        await reconnectHandlers.rejoinGame(s, t.io, { gameId: t.game.gameId, username: 'user1', sessionToken: 'tok' });
+        users.findOne = realFind;
+        expect(t.game.seat(1)).toMatchObject({ presence: 'grace' });
+        expect(gameManager.playerGames.has('pr-dead')).toBe(false);
+        // The same rejoin from a live socket is authorized (the lookup itself works)
+        const live = makeSocket('pr-live', t.log, t.io);
+        await reconnectHandlers.rejoinGame(live, t.io, { gameId: t.game.gameId, username: 'user1', sessionToken: 'tok' });
+        expect(t.game.seat(1)).toMatchObject({ presence: 'connected', ownerSocketId: 'pr-live' });
+        await drop(t, live);
+        await jest.advanceTimersByTimeAsync(60000);
+        expect(t.game.seatPresence(1)).toBe('resignable');
+        expect(roomOffers(t)).toEqual([1]);
+    });
+
+    test('a socket seated in another game cannot rejoin a seat here', async () => {
+        const t = table();
+        const other = table();
+        await drop(t, t.sockets[1]);
+        const s = other.sockets[1];
+        gameManager.registerUser(s.id, 'user1');
+        await reconnectHandlers.rejoinGame(s, t.io, { gameId: t.game.gameId, username: 'user1' });
+        expect(other.log.filter((l) => l.to === `self:${s.id}` && l.event === 'rejoinFailed').map((l) => l.data.reason)).toEqual(['In another game']);
+        expect(gameManager.playerGames.get(s.id)).toBe(other.game.gameId);
+        expect(t.game.seatPresence(1)).toBe('grace');
+    });
+
+    test('a spectate request from a socket in a game gets an error back', () => {
+        const t = table();
+        const other = table();
+        gameManager.registerUser(t.sockets[1].id, 'user1');
+        mainRoomHandlers.joinAsSpectator(t.sockets[1], t.io, { gameId: other.game.gameId });
+        tournamentHandlers.spectateTournamentGame(t.sockets[1], t.io, { gameId: other.game.gameId });
+        expect(events(t.log, 'error').map((l) => l.data.message)).toEqual([
+            'Leave your current game before spectating another', 'Leave your current game before spectating another',
+        ]);
+    });
+
+    test('forceResign during grace says the player is still reconnecting; a connected seat is not disconnected', async () => {
+        const t = table();
+        await drop(t, t.sockets[1]);
+        await gameHandlers.forceResign(t.sockets[2], t.io, { position: 1 });
+        await gameHandlers.forceResign(t.sockets[2], t.io, { position: 3 });
+        expect(events(t.log, 'error').map((l) => l.data.message)).toEqual(['Player is still reconnecting', 'Player is not disconnected']);
     });
 });

@@ -608,6 +608,7 @@ function spectateTournamentGame(socket, io, data) {
     // A pure spectator of this one game (leaves any other game it watched)
     if (!gameManager.addSpectator(io, game, socket.id, user.username, null)) {
         socketLogger.warn('Spectate refused: socket is in a game', { socketId: socket.id, gameId });
+        socket.emit('error', { message: 'Leave your current game before spectating another' });
         return;
     }
 

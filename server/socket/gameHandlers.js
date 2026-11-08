@@ -968,8 +968,11 @@ async function forceResign(socket, io, data) {
     }
 
     // Validate: the target seat's grace period has run out
-    if (game.seatPresence(position) !== Presence.RESIGNABLE) {
-        socket.emit('error', { message: 'Player is not disconnected' });
+    const targetPresence = game.seatPresence(position);
+    if (targetPresence !== Presence.RESIGNABLE) {
+        socket.emit('error', {
+            message: targetPresence === Presence.GRACE ? 'Player is still reconnecting' : 'Player is not disconnected'
+        });
         return;
     }
 

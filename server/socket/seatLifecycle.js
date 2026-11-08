@@ -135,6 +135,11 @@ function reattachTournament(io, socket, gameId, username) {
 
 // ==================== presence replay & resign offers ====================
 
+/**
+ * game.offerPos: the resign offer the present clients currently hold (the
+ * last room-wide resignationAvailable, or the one replayPresenceTo handed a
+ * returning socket when nobody held one), or null.
+ */
 function offer(io, game, pos) {
     game.broadcast(io, 'resignationAvailable', { position: pos, username: game.seat(pos).ownerUsername });
     game.offerPos = pos;
@@ -157,6 +162,11 @@ function replayPresenceTo(game, socket, ownPos) {
     if (resignable.length > 0) {
         const p = resignable.includes(game.offerPos) ? game.offerPos : resignable[0];
         socket.emit('resignationAvailable', { position: p, username: game.seat(p).ownerUsername });
+        // Record the offer this socket now holds, so reofferAfter moves it
+        // when p's owner comes back (or p is resigned). Not when the standing
+        // offer is for the returner's own seat: reconnectOwner's
+        // reofferAfter(ownPos) moves that one room-wide right after.
+        if (game.offerPos !== ownPos) game.offerPos = p;
     }
 }
 
@@ -260,18 +270,30 @@ function onGraceExpired(io, game, pos) {
 // ==================== returning owners ====================
 
 /**
+ * A socket about to become seat `pos`'s owner stops being a pure spectator
+ * (of this or any other game) BEFORE the seat transition, so the transition's
+ * own invariant check (an owner socket is never in game.spectators) holds
+ * throughout. Only when the edge is legal: an illegal one fails closed
+ * without touching the socket's spectating.
+ */
+function leaveSpectatingFor(io, game, pos, sid, event) {
+    if (!SeatState.checkEdge(game.seat(pos), event).ok) return;
+    gameManager.leaveSpectating(io, sid);
+}
+
+/**
  * The owner of a human seat is back on `socket` (from grace / resignable,
  * or with an older socket still attached: the newest socket owns the seat;
  * the old one is unmapped and taken out of the room without an emit).
  */
 function reconnectOwner(io, game, pos, socket, username) {
+    leaveSpectatingFor(io, game, pos, socket.id, 'reconnect');
     const oldSid = game.seatReconnect(pos, socket.id);
     if (oldSid == null) return false;
     if (oldSid !== socket.id) {
         game.leaveRoom(io, oldSid);
         unmap(game, oldSid);
     }
-    gameManager.leaveSpectating(io, socket.id);
     gameManager.playerGames.set(socket.id, game.gameId);
     game.joinToRoom(io, socket.id);
     gameManager.registerUser(socket.id, username);
@@ -309,6 +331,7 @@ function reconnectOwner(io, game, pos, socket, username) {
  * @param {'rejoin'|'spectate'} opts.via
  */
 function watchSeat(io, game, pos, socket, username, { via }) {
+    leaveSpectatingFor(io, game, pos, socket.id, 'watch');
     const prev = game.seatWatch(pos, socket.id);
     const seat = game.seat(pos);
     if (seat?.ownerSocketId !== socket.id) return false;
@@ -320,7 +343,6 @@ function watchSeat(io, game, pos, socket, username, { via }) {
             game.leaveRoom(io, prev);
         }
     }
-    gameManager.leaveSpectating(io, socket.id);
     gameManager.playerGames.set(socket.id, game.gameId);
     game.joinToRoom(io, socket.id);
     gameManager.registerUser(socket.id, username);
@@ -346,6 +368,28 @@ function watchSeat(io, game, pos, socket, username, { via }) {
     replayPresenceTo(game, socket, pos);
     maybeAbort(io, game);
     return true;
+}
+
+/**
+ * /active from a pure spectator recorded under the owner's name (an older
+ * socket that watchSeat demoted when a newer one took the seat, or another
+ * tab of the owner) while the bot-controlled seat has NO live owner socket
+ * (presence 'away'): the socket attaches to the seat and takes it back, as a
+ * rejoin followed by /active would. With an owner socket attached the newest
+ * socket keeps the seat and this is refused.
+ */
+function reclaimSeat(io, game, pos, socket, username) {
+    const seat = game.seat(pos);
+    if (!seat || seat.controller === Controller.HUMAN || seat.presence !== Presence.AWAY) return false;
+    leaveSpectatingFor(io, game, pos, socket.id, 'watch');
+    if (game.seatWatch(pos, socket.id) !== null || seat.ownerSocketId !== socket.id) return false;
+    gameManager.playerGames.set(socket.id, game.gameId);
+    game.joinToRoom(io, socket.id);
+    gameManager.registerUser(socket.id, username);
+    socketLogger.info('Owner reclaimed bot-controlled seat from a spectating socket', { username, gameId: game.gameId, position: pos });
+    // ownerView is 'watch' now: goActive re-sends the seat's full state
+    // (restorePlayerState) and the presence replay to this socket
+    return goActive(io, game, pos, socket);
 }
 
 // ==================== lazy / active ====================
@@ -483,6 +527,7 @@ module.exports = {
     onGraceExpired,
     reconnectOwner,
     watchSeat,
+    reclaimSeat,
     goLazy,
     goActive,
     resignSeat,

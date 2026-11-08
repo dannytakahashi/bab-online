@@ -40,6 +40,11 @@ async function isAuthorizedForUser(socket, username, sessionToken) {
     }
 }
 
+/** Whether the socket is still connected (socket.io sets connected=false on disconnect). */
+function isLive(socket) {
+    return socket.connected !== false;
+}
+
 /**
  * Handle a player attempting to rejoin a game after disconnect
  */
@@ -54,6 +59,14 @@ async function rejoinGame(socket, io, data) {
         return;
     }
 
+    // The session lookup above awaits the DB: if the socket dropped meanwhile
+    // its disconnect found nothing to clean up, so seating it now would leave
+    // a 'connected' seat on a dead socket that never gets a grace timer
+    if (!isLive(socket)) {
+        socketLogger.info('Rejoin dropped: socket disconnected during auth', { username, gameId, socketId: socket.id });
+        return;
+    }
+
     // Find the game
     const game = gameManager.getGameById(gameId);
     if (!game) {
@@ -63,6 +76,16 @@ async function rejoinGame(socket, io, data) {
             await gameManager.clearActiveGame(username);
         }
         socket.emit('rejoinFailed', { reason: 'Game no longer exists' });
+        return;
+    }
+
+    // A socket seated (or entered) in another game keeps that game: taking
+    // this seat would overwrite its mapping and strand the other seat on a
+    // socket whose disconnect that game never hears
+    const mappedTo = gameManager.playerGames.get(socket.id);
+    if (mappedTo !== undefined && mappedTo !== gameId) {
+        socketLogger.warn('Rejoin refused: socket is in another game', { username, gameId, otherGameId: mappedTo });
+        socket.emit('rejoinFailed', { reason: 'In another game' });
         return;
     }
 

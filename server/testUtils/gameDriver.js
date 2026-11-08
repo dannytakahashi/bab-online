@@ -40,6 +40,10 @@ function makeSocket(id, log, io = null) {
             if (!io) return;
             io.rooms.get(room)?.delete(id);
         },
+        // Like socket.io: false once the socket is gone from io.sockets
+        get connected() {
+            return io ? io.sockets.sockets.has(id) : true;
+        },
     };
     if (io) io.sockets.sockets.set(id, socket);
     return socket;
