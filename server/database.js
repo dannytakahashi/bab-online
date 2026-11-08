@@ -96,19 +96,41 @@ async function ensureIndexes({
     ]);
 }
 
+/** Non-unique stand-in while legacy duplicates block the unique index. */
+const USERNAME_FALLBACK_INDEX = 'username_nonunique';
+
 /**
  * Unique index on users.username: every per-user lookup is by username, and
  * it makes signUp's check-then-insert race-safe (the loser gets E11000).
  * Idempotent. If legacy data already holds duplicate usernames the build
- * fails; that must not take startup down, so warn and run without it.
+ * fails; that must not take startup down, so warn and continue with a
+ * NON-unique index under its own name, so lookups and the active-game
+ * writes still use an index (IXSCAN) until the duplicates are merged. On a
+ * later boot the fallback is dropped first and the unique build retried
+ * (and the fallback rebuilt if it still fails). Never throws.
  */
 async function ensureUsernameIndex(collection) {
+    try {
+        const existing = await collection.indexes();
+        if (existing.some(i => i.name === USERNAME_FALLBACK_INDEX)) {
+            await collection.dropIndex(USERNAME_FALLBACK_INDEX);
+        }
+    } catch (error) {
+        // No collection yet (NamespaceNotFound): nothing to drop
+        if (error.code !== 26 && !(error instanceof TypeError)) {
+            dbLogger.warn(`Could not drop index users.${USERNAME_FALLBACK_INDEX}; continuing`, { error: error.message, code: error.code });
+        }
+    }
     try {
         await collection.createIndex({ username: 1 }, { unique: true });
     } catch (error) {
         dbLogger.warn("Could not create unique index on users.username; continuing without it. " +
             "Remove the duplicate username documents and restart to enable it.",
             { error: error.message, code: error.code });
+        if (error.code === 11000) {
+            await safeIndex(collection, { username: 1 }, { name: USERNAME_FALLBACK_INDEX },
+                `users.${USERNAME_FALLBACK_INDEX} (non-unique fallback)`);
+        }
     }
 }
 
@@ -118,6 +140,7 @@ module.exports = {
     whenReady,
     ensureIndexes,
     ensureUsernameIndex,
+    USERNAME_FALLBACK_INDEX,
     safeIndex,
     getDB: () => db,
     getUsersCollection: () => usersCollection,

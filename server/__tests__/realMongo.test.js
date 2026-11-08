@@ -213,10 +213,25 @@ describe('real mongod', () => {
         await expect(database.ensureIndexes({ users, gameRecords, reports })).resolves.toBeDefined();
         expect(warn).toHaveBeenCalledTimes(1);
         expect(warn.mock.calls[0][0]).toMatch(/unique index on users\.username/);
-        warn.mockRestore();
         expect((await users.indexes()).map(i => i.name)).not.toContain('username_1');
         expect((await gameRecords.indexes()).map(i => i.name)).toContain('completedAt_-1');
         expect((await reports.indexes()).map(i => i.name)).toContain('createdAt_-1');
+        // The non-unique fallback keeps username lookups on an index
+        const fallback = database.USERNAME_FALLBACK_INDEX;
+        expect((await users.indexes()).find(i => i.name === fallback)).toMatchObject({ key: { username: 1 } });
+        expect(usesIndex(planOf(await users.find({ username: 'Twin' }).explain('queryPlanner')), fallback)).toBe(true);
+        // Idempotent while the duplicates remain; once they are merged the
+        // next boot swaps the fallback for the unique index
+        await database.ensureIndexes({ users, gameRecords, reports });
+        expect((await users.indexes()).map(i => i.name)).toContain(fallback);
+        await users.deleteOne({ username: 'Twin' });
+        warn.mockClear();
+        await database.ensureIndexes({ users, gameRecords, reports });
+        expect(warn).not.toHaveBeenCalled();
+        warn.mockRestore();
+        const names = (await users.indexes()).map(i => i.name);
+        expect(names).toContain('username_1');
+        expect(names).not.toContain(fallback);
     });
 
     test('(d) projected reads on the real driver keep every reply field; tombstones stay hidden', async () => {

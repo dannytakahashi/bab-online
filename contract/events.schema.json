@@ -2862,7 +2862,7 @@
       "examples": [
         {}
       ],
-      "notes": "Throttled in-handler (rateLimiter key getLeaderboard); over the limit replies leaderboardResponse with the cached result, never error. Served from a 60 s cache invalidated on stats/picture/account changes."
+      "notes": "Throttled in-handler (rateLimiter key getLeaderboard); over the limit replies leaderboardResponse with the cached (possibly stale) result, else the fill in flight, else the existing {success:false, message} reply; never error. Served from a 60 s cache invalidated on stats/picture/account changes."
     },
     "getRecords": {
       "payload": {
@@ -2881,7 +2881,7 @@
       "examples": [
         {}
       ],
-      "notes": "Throttled in-handler (rateLimiter key getRecords); over the limit replies recordsResponse with the cached result, never error. Served from a 60 s cache (per month) invalidated when a game is recorded or an account deleted."
+      "notes": "Throttled in-handler (rateLimiter key getRecords); over the limit replies recordsResponse with the cached (possibly stale) result, else the fill in flight, else the existing {success:false, message} reply; never error. Served from a 60 s cache (per month) invalidated when a game is recorded or an account deleted."
     },
     "searchPlayers": {
       "payload": {

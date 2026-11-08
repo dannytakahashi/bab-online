@@ -266,6 +266,40 @@ describe('users.username unique index', () => {
         };
         await expect(ensureUsernameIndex(collection)).resolves.toBeUndefined();
     });
+
+    test('duplicates: a non-unique fallback keeps lookups indexed; a later boot drops it and retries unique', async () => {
+        const { USERNAME_FALLBACK_INDEX } = jest.requireActual('../../database');
+        let dups = true;
+        const names = new Set(['_id_']);
+        const collection = {
+            indexes: jest.fn(async () => [...names].map(name => ({ name }))),
+            dropIndex: jest.fn(async (name) => { names.delete(name); }),
+            createIndex: jest.fn(async (keys, opts) => {
+                if (opts.unique) {
+                    if (dups) throw Object.assign(new Error('E11000 duplicate key error'), { code: 11000 });
+                    names.add('username_1');
+                } else {
+                    names.add(opts.name);
+                }
+            })
+        };
+        await ensureUsernameIndex(collection);
+        expect([...names].sort()).toEqual(['_id_', USERNAME_FALLBACK_INDEX].sort());
+        await ensureUsernameIndex(collection); // still duplicated: rebuilt
+        expect([...names].sort()).toEqual(['_id_', USERNAME_FALLBACK_INDEX].sort());
+        dups = false;
+        await ensureUsernameIndex(collection);
+        expect([...names].sort()).toEqual(['_id_', 'username_1']);
+    });
+
+    test('a non-duplicate failure builds no fallback', async () => {
+        const collection = {
+            indexes: jest.fn(async () => []),
+            createIndex: jest.fn(async () => { throw Object.assign(new Error('not authorized'), { code: 13 }); })
+        };
+        await expect(ensureUsernameIndex(collection)).resolves.toBeUndefined();
+        expect(collection.createIndex).toHaveBeenCalledTimes(1);
+    });
 });
 
 describe('projected sign-in reads', () => {
