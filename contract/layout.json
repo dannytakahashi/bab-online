@@ -1,0 +1,551 @@
+{
+  "web": {
+    "header": [
+      "/**",
+      " * Socket event name constants for client-server communication.",
+      " *",
+      " * Using constants prevents typos and enables IDE autocomplete.",
+      " */"
+    ],
+    "CLIENT_EVENTS": [
+      {
+        "section": "Auth",
+        "events": [
+          "signIn",
+          "signUp"
+        ]
+      },
+      {
+        "section": "Main Room",
+        "events": [
+          "joinMainRoom",
+          "mainRoomChat"
+        ]
+      },
+      {
+        "section": "Lobby",
+        "events": [
+          "createLobby",
+          "joinLobby",
+          "leaveLobby",
+          "lobbyChat",
+          "playerReady",
+          "playerUnready"
+        ]
+      },
+      {
+        "section": "Game",
+        "events": [
+          "draw",
+          "playerBid",
+          "playCard",
+          "chatMessage",
+          "rejoinGame",
+          "forceResign",
+          "joinAsSpectator"
+        ]
+      },
+      {
+        "section": "Tournament",
+        "events": [
+          "createTournament",
+          "joinTournament",
+          "leaveTournament",
+          "tournamentReady",
+          "tournamentUnready",
+          "beginTournament",
+          "beginNextRound",
+          "tournamentChat",
+          "spectateTournament",
+          "spectateTournamentGame",
+          "returnToTournament",
+          "cancelTournament"
+        ]
+      },
+      {
+        "section": "Profile",
+        "events": [
+          "getProfile",
+          "updateProfilePic",
+          "searchPlayers",
+          "getPlayerProfile"
+        ]
+      },
+      {
+        "section": "Leaderboard",
+        "events": [
+          "getLeaderboard"
+        ]
+      },
+      {
+        "section": "Records",
+        "events": [
+          "getRecords"
+        ]
+      },
+      {
+        "section": "Voice Chat",
+        "events": [
+          "voiceOffer",
+          "voiceAnswer",
+          "voiceIceCandidate",
+          "voiceRelayAudio"
+        ]
+      },
+      {
+        "section": "Account management",
+        "events": [
+          "deleteAccount"
+        ]
+      },
+      {
+        "section": "Safety / moderation",
+        "events": [
+          "reportUser",
+          "blockUser",
+          "unblockUser"
+        ]
+      }
+    ],
+    "SERVER_EVENTS": [
+      {
+        "section": "Auth",
+        "events": [
+          "signInResponse",
+          "signUpResponse",
+          "forceLogout",
+          "activeGameFound",
+          "deleteAccountResponse"
+        ]
+      },
+      {
+        "section": "Safety / moderation",
+        "events": [
+          "reportUserResponse",
+          "blockListUpdated"
+        ]
+      },
+      {
+        "section": "Main Room",
+        "events": [
+          "mainRoomJoined",
+          "mainRoomMessage",
+          "mainRoomPlayerJoined",
+          "lobbiesUpdated"
+        ]
+      },
+      {
+        "section": "Lobby",
+        "events": [
+          "lobbyCreated",
+          "lobbyJoined",
+          "lobbyMessage",
+          "lobbyPlayerJoined",
+          "lobbyPlayerLeft",
+          "leftLobby",
+          "playerReadyUpdate",
+          "allPlayersReady"
+        ]
+      },
+      {
+        "section": "Draw Phase",
+        "events": [
+          "startDraw",
+          "youDrew",
+          "playerDrew",
+          "teamsAnnounced"
+        ]
+      },
+      {
+        "section": "Game",
+        "events": [
+          "positionUpdate",
+          "createUI",
+          "gameStart",
+          "bidReceived",
+          "doneBidding",
+          "updateTurn",
+          "cardPlayed",
+          "trickComplete",
+          "handComplete",
+          "gameEnd",
+          "rainbow",
+          "destroyHands"
+        ]
+      },
+      {
+        "section": "Chat",
+        "events": [
+          "chatMessage"
+        ]
+      },
+      {
+        "section": "Reconnection",
+        "events": [
+          "rejoinSuccess",
+          "rejoinFailed",
+          "playerDisconnected",
+          "playerReconnected",
+          "playerAssigned",
+          "abortGame",
+          "roomFull"
+        ]
+      },
+      {
+        "section": "Resignation & Lazy Mode",
+        "events": [
+          "resignationAvailable",
+          "playerResigned",
+          "playerLazyMode",
+          "playerActiveMode",
+          "gameLogEntry",
+          "leftGame",
+          "restorePlayerState",
+          "spectatorJoined"
+        ]
+      },
+      {
+        "section": "Connection",
+        "events": [
+          "connect",
+          "disconnect",
+          "reconnect_attempt",
+          "reconnect_failed",
+          "error"
+        ]
+      },
+      {
+        "section": "Profile",
+        "events": [
+          "profileResponse",
+          "profilePicUpdateResponse"
+        ]
+      },
+      {
+        "section": "Player Search & Profile Lookup",
+        "events": [
+          "searchPlayersResponse",
+          "playerProfileResponse"
+        ]
+      },
+      {
+        "section": "Leaderboard",
+        "events": [
+          "leaderboardResponse"
+        ]
+      },
+      {
+        "section": "Records",
+        "events": [
+          "recordsResponse"
+        ]
+      },
+      {
+        "section": "Tournament",
+        "events": [
+          "tournamentCreated",
+          "tournamentJoined",
+          "tournamentPlayerJoined",
+          "tournamentPlayerLeft",
+          "tournamentReadyUpdate",
+          "tournamentMessage",
+          "tournamentRoundStart",
+          "tournamentGameAssignment",
+          "tournamentGameComplete",
+          "tournamentRoundComplete",
+          "tournamentComplete",
+          "tournamentLeft",
+          "tournamentCancelled",
+          "activeTournamentFound"
+        ]
+      },
+      {
+        "section": "Voice Chat",
+        "events": [
+          "voiceOffer",
+          "voiceAnswer",
+          "voiceIceCandidate",
+          "voicePeerList",
+          "voicePeerJoined",
+          "voicePeerLeft",
+          "voiceRelayAudio"
+        ]
+      }
+    ],
+    "keyOverrides": {}
+  },
+  "swift": {
+    "header": [
+      "/// All socket event name constants — must match server's events.js exactly."
+    ],
+    "Client": [
+      {
+        "section": "Auth",
+        "events": [
+          "signIn",
+          "signUp",
+          "deleteAccount"
+        ]
+      },
+      {
+        "section": "Safety / moderation",
+        "events": [
+          "reportUser",
+          "blockUser",
+          "unblockUser"
+        ]
+      },
+      {
+        "section": "Main Room",
+        "events": [
+          "joinMainRoom",
+          "mainRoomChat"
+        ]
+      },
+      {
+        "section": "Lobby",
+        "events": [
+          "createLobby",
+          "joinLobby",
+          "leaveLobby",
+          "lobbyChat",
+          "playerReady",
+          "playerUnready"
+        ]
+      },
+      {
+        "section": "Session",
+        "events": [
+          "restoreSession"
+        ]
+      },
+      {
+        "section": "Game",
+        "events": [
+          "draw",
+          "playerBid",
+          "playCard",
+          "chatMessage",
+          "rejoinGame",
+          "forceResign"
+        ]
+      },
+      {
+        "section": "Spectator",
+        "events": [
+          "joinAsSpectator"
+        ]
+      },
+      {
+        "section": "Bots",
+        "events": [
+          "addBot",
+          "removeBot"
+        ]
+      },
+      {
+        "section": "Leaderboard",
+        "events": [
+          "getLeaderboard"
+        ]
+      },
+      {
+        "section": "Tournament",
+        "events": [
+          "createTournament",
+          "joinTournament",
+          "leaveTournament",
+          "tournamentReady",
+          "tournamentUnready",
+          "beginTournament",
+          "beginNextRound",
+          "tournamentChat",
+          "spectateTournament",
+          "spectateTournamentGame",
+          "returnToTournament",
+          "cancelTournament"
+        ]
+      },
+      {
+        "section": "Voice",
+        "events": [
+          "voiceOffer",
+          "voiceAnswer",
+          "voiceIceCandidate"
+        ]
+      }
+    ],
+    "Server": [
+      {
+        "section": "Auth",
+        "events": [
+          "signInResponse",
+          "signUpResponse",
+          "restoreSessionResponse",
+          "forceLogout",
+          "activeGameFound",
+          "deleteAccountResponse"
+        ]
+      },
+      {
+        "section": "Safety / moderation",
+        "events": [
+          "reportUserResponse",
+          "blockListUpdated"
+        ]
+      },
+      {
+        "section": "Main Room",
+        "events": [
+          "mainRoomJoined",
+          "mainRoomMessage",
+          "mainRoomPlayerJoined",
+          "lobbiesUpdated"
+        ]
+      },
+      {
+        "section": "Lobby",
+        "events": [
+          "lobbyCreated",
+          "lobbyJoined",
+          "lobbyMessage",
+          "lobbyPlayerJoined",
+          "lobbyPlayerLeft",
+          "leftLobby",
+          "playerReadyUpdate",
+          "allPlayersReady"
+        ]
+      },
+      {
+        "section": "Draw Phase",
+        "events": [
+          "startDraw",
+          "youDrew",
+          "playerDrew",
+          "teamsAnnounced"
+        ]
+      },
+      {
+        "section": "Game",
+        "events": [
+          "positionUpdate",
+          "createUI",
+          "gameStart",
+          "bidReceived",
+          "doneBidding",
+          "updateTurn",
+          "cardPlayed",
+          "actionRejected",
+          "trickComplete",
+          "handComplete",
+          "gameEnd",
+          "rainbow",
+          "destroyHands"
+        ]
+      },
+      {
+        "section": "Chat",
+        "events": [
+          "chatMessage",
+          "gameLogEntry"
+        ]
+      },
+      {
+        "section": "Reconnection",
+        "events": [
+          "rejoinSuccess",
+          "rejoinFailed",
+          "playerDisconnected",
+          "playerReconnected",
+          "playerAssigned",
+          "abortGame",
+          "roomFull"
+        ]
+      },
+      {
+        "section": "Resignation & Lazy Mode",
+        "events": [
+          "resignationAvailable",
+          "playerResigned",
+          "playerLazyMode",
+          "playerActiveMode",
+          "leftGame",
+          "restorePlayerState",
+          "spectatorJoined"
+        ]
+      },
+      {
+        "section": "Tournament",
+        "events": [
+          "tournamentCreated",
+          "tournamentJoined",
+          "tournamentPlayerJoined",
+          "tournamentPlayerLeft",
+          "tournamentReadyUpdate",
+          "tournamentMessage",
+          "tournamentRoundStart",
+          "tournamentGameAssignment",
+          "tournamentGameComplete",
+          "tournamentRoundComplete",
+          "tournamentComplete",
+          "tournamentLeft",
+          "tournamentCancelled",
+          "activeTournamentFound"
+        ]
+      },
+      {
+        "section": "Leaderboard",
+        "events": [
+          "leaderboardResponse"
+        ]
+      },
+      {
+        "section": "Voice",
+        "events": [
+          "voiceOffer",
+          "voiceAnswer",
+          "voiceIceCandidate",
+          "voicePeerList",
+          "voicePeerJoined",
+          "voicePeerLeft"
+        ]
+      },
+      {
+        "section": "Connection",
+        "events": [
+          "connect",
+          "disconnect"
+        ]
+      }
+    ]
+  },
+  "exclude": {
+    "web": {
+      "restoreSession": "not listed at cc865b4; added by the wire-additive constants commit (C13)",
+      "addBot": "not listed at cc865b4; added by the wire-additive constants commit (C13)",
+      "removeBot": "not listed at cc865b4; added by the wire-additive constants commit (C13)",
+      "uploadProfilePic": "not listed at cc865b4; added by the wire-additive constants commit (C13)",
+      "restoreSessionResponse": "not listed at cc865b4; added by the wire-additive constants commit (C13)",
+      "actionRejected": "not listed at cc865b4; added by the wire-additive constants commit (C13)",
+      "profilePicUploadResponse": "not listed at cc865b4; added by the wire-additive constants commit (C13)",
+      "serverShutdown": "not listed at cc865b4; added by the wire-additive constants commit (C13)"
+    },
+    "swift": {
+      "getProfile": "iOS has no profile / records / search / upload / relay-audio screens yet (item 22)",
+      "updateProfilePic": "iOS has no profile / records / search / upload / relay-audio screens yet (item 22)",
+      "uploadProfilePic": "iOS has no profile / records / search / upload / relay-audio screens yet (item 22)",
+      "getRecords": "iOS has no profile / records / search / upload / relay-audio screens yet (item 22)",
+      "searchPlayers": "iOS has no profile / records / search / upload / relay-audio screens yet (item 22)",
+      "getPlayerProfile": "iOS has no profile / records / search / upload / relay-audio screens yet (item 22)",
+      "voiceRelayAudio": "iOS has no profile / records / search / upload / relay-audio screens yet (item 22)",
+      "profileResponse": "iOS has no profile / records / search / upload / relay-audio screens yet (item 22)",
+      "profilePicUpdateResponse": "iOS has no profile / records / search / upload / relay-audio screens yet (item 22)",
+      "profilePicUploadResponse": "iOS has no profile / records / search / upload / relay-audio screens yet (item 22)",
+      "searchPlayersResponse": "iOS has no profile / records / search / upload / relay-audio screens yet (item 22)",
+      "playerProfileResponse": "iOS has no profile / records / search / upload / relay-audio screens yet (item 22)",
+      "recordsResponse": "iOS has no profile / records / search / upload / relay-audio screens yet (item 22)",
+      "serverShutdown": "not listed at cc865b4; added by the wire-additive constants commit (C13)",
+      "error": "app-level 'error' collides with Socket.IO-Client-Swift's own client 'error' event; the rename to serverError is V1_REMOVALS #1"
+    }
+  }
+}
