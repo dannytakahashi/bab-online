@@ -439,7 +439,7 @@ async function runSeed(seed) {
 
     const fail = (why, extra = {}) => ({
         seed, why, stage: game.stage, history: (game._history || []).join(' '),
-        seats: game.presenceSummary(), seatHistory: (game._seatHistory || []).slice(-20), timers: game.timerKeys(), ...extra,
+        seats: game.presenceSummary(), seatHistory: (game._seatHistory || []).slice(-20), timers: game.timerKeys(), eventSeq: game.eventSeq, ...extra,
     });
 
     const liveness = () => {

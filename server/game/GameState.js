@@ -56,6 +56,9 @@ class GameState {
         // Lifecycle (authoritative phase; `phase`/`bidding` are getters)
         this._stage = Phase.CREATED;
         this.epoch = 0;            // bumped once when the game ends or aborts
+        // Broadcast sequence (contract/README.md R1-R5): +1 per room
+        // broadcast and per deal (the gameStart batch). Not dealSeq.
+        this.eventSeq = 0;
         this._timers = new Map();  // key -> timeout (setTimer)
         this._pauses = new Set();  // in-flight pause() entries
         this._history = shouldCheckInvariants() ? [Phase.CREATED] : null;
@@ -1161,7 +1164,18 @@ class GameState {
             gameLogger.debug('emit dropped: terminal', { gameId: this.gameId, event });
             return;
         }
+        const seq = this.nextSeq();
+        void seq; // stamped on the wire later (snapshot v2 seq)
         io.to(this.roomName).emit(event, data);
+    }
+
+    /**
+     * Next broadcast sequence number. Bumped once per room broadcast (here)
+     * and once per deal (dealHand, before the gameStart batch); private
+     * sends never bump it.
+     */
+    nextSeq() {
+        return ++this.eventSeq;
     }
 
     /**
@@ -1193,6 +1207,7 @@ class GameState {
             bidding: this.bidding,
             stage: this._stage,     // internal only (not in getClientState)
             epoch: this.epoch,
+            eventSeq: this.eventSeq,
             trump: this.trump,
             isTrumpBroken: this.isTrumpBroken,
             tricks: this.tricks,

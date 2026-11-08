@@ -530,6 +530,11 @@ async function dealHand(game, io, { dealer, handSize, firstHand = false }) {
         }
     }
 
+    // One sequence number for the whole deal: every seat and spectator
+    // gameStart of this deal carries the same value
+    const handSeq = game.nextSeq();
+    void handSeq; // stamped on the wire later (snapshot v2 seq)
+
     // Send each seat's hand to its connected owner (a lazy owner too, in
     // seat or watch view). Absent and /leave'd owners get nothing.
     for (const seat of game.seatList()) {
