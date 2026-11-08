@@ -166,6 +166,9 @@ async function handleDisconnect(socket, io) {
             if (gameManager.playerGames.get(socket.id) === result.game.gameId) {
                 gameManager.playerGames.delete(socket.id);
             }
+            // A lazy human's shadow may have been the last human able to
+            // forceResign a disconnected seat
+            ensureGraceIfAbandoned(io, result.game);
             return;
         }
 
@@ -240,14 +243,11 @@ function startReconnectGraceTimer(io, gameId) {
         const checkResult = gameManager.checkGameAbort(gameId);
         if (!checkResult.shouldAbort) return;
 
-        // Check if ALL human players are disconnected — if so, abort
+        // Abort when no human is left who could reconnect the table or
+        // forceResign the disconnected seats (see isHumanPresent)
         const disconnectedPositions = checkResult.game.getDisconnectedPlayers();
-        const allHumansDisconnected = disconnectedPositions.length > 0 &&
-            Array.from(checkResult.game.players.values()).every(
-                p => p.isBot || disconnectedPositions.includes(p.position)
-            );
 
-        if (allHumansDisconnected) {
+        if (!hasPresentHuman(io, checkResult.game)) {
             socketLogger.warn('All humans disconnected, aborting game', { gameId });
             await abortGame(io, checkResult.game, 'All players disconnected');
         } else {
@@ -272,6 +272,39 @@ function startReconnectGraceTimer(io, gameId) {
 }
 
 /**
+ * Is the human behind this seat still at the table? Not for bots and
+ * resigned seats, disconnected seats, and lazy seats whose human left for
+ * good or whose watching socket (the seat socket or a rejoin shadow) is gone.
+ */
+function isHumanPresent(io, game, player) {
+    if (player.isBot || game.isResigned(player.position)) return false;
+    if (game.isPlayerDisconnected(player.position)) return false;
+    if (game.isLazy(player.position)) {
+        const info = game.lazyPlayers[player.position];
+        if (info.permanentLeave) return false;
+        return !!io.sockets.sockets.get(info.originalSocketId);
+    }
+    return true;
+}
+
+function hasPresentHuman(io, game) {
+    return Array.from(game.players.values()).some(p => isHumanPresent(io, game, p));
+}
+
+/**
+ * Call when a human silently stops being present (leave, shadow
+ * disconnect). If disconnected seats remain and nobody present could
+ * forceResign them, (re)start the grace period: their own may already have
+ * run out, and the game must abort rather than wait forever.
+ */
+function ensureGraceIfAbandoned(io, game) {
+    if (game.isTerminal() || hasPresentHuman(io, game)) return;
+    if (game.getDisconnectedPlayers().length > 0 && !game.hasTimer('reconnectGrace')) {
+        startReconnectGraceTimer(io, game.gameId);
+    }
+}
+
+/**
  * Cancel abort timer when player reconnects
  */
 function cancelAbortTimer(gameId) {
@@ -287,5 +320,6 @@ module.exports = {
     leaveQueue,
     handleDisconnect,
     cancelAbortTimer,
-    startReconnectGraceTimer
+    startReconnectGraceTimer,
+    ensureGraceIfAbandoned
 };

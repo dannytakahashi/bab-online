@@ -184,9 +184,34 @@ function handleActiveCommand(socket, io, game, position, { resendTurn = true } =
     return true;
 }
 
+/**
+ * After a permanent leave: abort if no human is left to play for; otherwise,
+ * if nobody present could forceResign the disconnected seats, give those a
+ * fresh grace period (theirs may already have run out while the leaver was
+ * still there) after which the game aborts unless one of them is back.
+ */
+function checkRemainingHumans(io, game) {
+    const goneForGood = (p) => p.isBot || game.isResigned(p.position) ||
+        (game.isLazy(p.position) && game.lazyPlayers[p.position].permanentLeave);
+    const seats = Array.from(game.players.values());
+
+    if (seats.every(goneForGood)) {
+        socketLogger.warn('All humans permanently left, aborting game', { gameId: game.gameId });
+        // The synchronous part (broadcast, retire, lobbiesUpdated) runs now;
+        // DB clears and tournament follow-up continue in the background
+        abortGame(io, game, 'All players left').catch(err =>
+            socketLogger.error('Abort failed', { gameId: game.gameId, error: err.message, stack: err.stack })
+        );
+    } else {
+        const { ensureGraceIfAbandoned } = require('./queueHandlers');
+        ensureGraceIfAbandoned(io, game);
+    }
+}
+
 function handleLeaveCommand(socket, io, game, position) {
     // Spectators just leave
     if (game.isSpectator(socket.id)) {
+        const spectator = game.spectators.get(socket.id);
         game.removeSpectator(socket.id);
         game.leaveRoom(io, socket.id);
         // A rejoin shadow is mapped to the game; free it for new lobbies
@@ -195,6 +220,18 @@ function handleLeaveCommand(socket, io, game, position) {
         }
         socket.emit('leftGame');
         socket.emit('joinMainRoom');
+
+        // The rejoin shadow of a lazy/resigned seat leaving is that human
+        // leaving for good: the bot keeps the seat and the table must not
+        // wait for them
+        const seat = spectator?.username ? game.getOriginalPlayerPosition(spectator.username) : null;
+        const lazyInfo = seat ? game.lazyPlayers[seat] : null;
+        if (lazyInfo && lazyInfo.originalSocketId === socket.id && !lazyInfo.permanentLeave) {
+            lazyInfo.permanentLeave = true;
+            gameManager.clearActiveGame(spectator.username, game.gameId);
+            socketLogger.info('Player left game from spectator view (permanent)', { gameId: game.gameId, position: seat });
+            checkRemainingHumans(io, game);
+        }
         return true;
     }
 
@@ -225,22 +262,7 @@ function handleLeaveCommand(socket, io, game, position) {
         gameId: game.gameId, position
     });
 
-    // Check if all human players have permanently left — if so, abort the game
-    const hasActiveHuman = Array.from(game.players.values()).some(p => {
-        if (p.isBot) return false;
-        if (game.isResigned(p.position)) return false;
-        if (game.isLazy(p.position) && game.lazyPlayers[p.position].permanentLeave) return false;
-        return true;
-    });
-
-    if (!hasActiveHuman) {
-        socketLogger.warn('All humans permanently left, aborting game', { gameId: game.gameId });
-        // The synchronous part (broadcast, retire, lobbiesUpdated) runs now;
-        // DB clears and tournament follow-up continue in the background
-        abortGame(io, game, 'All players left').catch(err =>
-            socketLogger.error('Abort failed', { gameId: game.gameId, error: err.message, stack: err.stack })
-        );
-    }
+    checkRemainingHumans(io, game);
 
     return true;
 }

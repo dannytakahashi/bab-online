@@ -789,6 +789,89 @@ describe('14. redeal', () => {
     });
 });
 
+describe('15. abandoned tables abort instead of waiting forever (found by the chaos run)', () => {
+    /** Seat 1 disconnects and its grace period runs out while seat 2 is still here. */
+    async function expiredGrace() {
+        const { io, log } = newIo();
+        const g = seatedGame('a', io);
+        g.game.forcePhase(Phase.BIDDING);
+        g.game.currentTurn = 1;
+        for (const i of [2, 3]) {
+            const bot = botController.createBot(`🤖 R${i}`, 'mary');
+            g.game.resignPlayer(i + 1, bot.socketId, bot.username, 1);
+            botController.registerBot(g.game.gameId, bot);
+        }
+        io.sockets.sockets.delete(g.ids[0]);
+        await queueHandlers.handleDisconnect(g.sockets[0], io);
+        await jest.advanceTimersByTimeAsync(60000);
+        expect(events(log, 'resignationAvailable')).toHaveLength(1);
+        expect(gameManager.getGameById(g.game.gameId)).toBe(g.game);
+        return { io, log, ...g };
+    }
+
+    test('the last present human /leaving re-arms the grace period, which then aborts', async () => {
+        const { io, log, game, sockets } = await expiredGrace();
+        chatHandlers.chatMessage(sockets[1], io, { message: '/leave' });
+        expect(game.hasTimer('reconnectGrace')).toBe(true);
+        await jest.advanceTimersByTimeAsync(60000);
+        expect(events(log, 'abortGame')).toHaveLength(1);
+        expect(game.stage).toBe(Phase.ABORTED);
+    });
+
+    test('a lazy human whose socket is gone does not count as present at grace expiry', async () => {
+        const { io, log } = newIo();
+        const { game, ids, sockets } = seatedGame('a', io);
+        game.forcePhase(Phase.BIDDING);
+        game.currentTurn = 1;
+        chatHandlers.chatMessage(sockets[1], io, { message: '/lazy' });
+        for (const i of [2, 3]) {
+            const bot = botController.createBot(`🤖 R${i}`, 'mary');
+            game.resignPlayer(i + 1, bot.socketId, bot.username, 1);
+            botController.registerBot(game.gameId, bot);
+        }
+        io.sockets.sockets.delete(ids[1]);
+        await queueHandlers.handleDisconnect(sockets[1], io); // lazy: bot keeps playing, no grace
+        io.sockets.sockets.delete(ids[0]);
+        await queueHandlers.handleDisconnect(sockets[0], io);
+        await jest.advanceTimersByTimeAsync(60000);
+
+        expect(events(log, 'resignationAvailable')).toHaveLength(0);
+        expect(events(log, 'abortGame')).toHaveLength(1);
+    });
+
+    test("a rejoin shadow's /leave is a permanent leave for its seat", async () => {
+        const { io, log, game, ids, sockets } = await expiredGrace();
+        chatHandlers.chatMessage(sockets[1], io, { message: '/lazy' });
+        const shadow = makeSocket(`${ids[1]}-again`, log, io);
+        gameManager.registerUser(shadow.id, `user_${ids[1]}`);
+        await reconnectHandlers.rejoinGame(shadow, io, { gameId: game.gameId, username: `user_${ids[1]}` });
+        expect(game.isSpectator(shadow.id)).toBe(true);
+
+        chatHandlers.chatMessage(shadow, io, { message: '/leave' });
+
+        expect(game.lazyPlayers[2].permanentLeave).toBe(true);
+        expect(game.hasTimer('reconnectGrace')).toBe(true);
+        await jest.advanceTimersByTimeAsync(60000);
+        expect(events(log, 'abortGame')).toHaveLength(1);
+    });
+
+    test('a rejoin shadow disconnecting as the last present human re-arms the grace period', async () => {
+        const { io, log, game, ids, sockets } = await expiredGrace();
+        chatHandlers.chatMessage(sockets[1], io, { message: '/lazy' });
+        const shadow = makeSocket(`${ids[1]}-again`, log, io);
+        gameManager.registerUser(shadow.id, `user_${ids[1]}`);
+        await reconnectHandlers.rejoinGame(shadow, io, { gameId: game.gameId, username: `user_${ids[1]}` });
+        io.sockets.sockets.delete(ids[1]); // the lazy seat's original socket is gone too
+        io.sockets.sockets.delete(shadow.id);
+
+        await queueHandlers.handleDisconnect(shadow, io);
+
+        expect(game.hasTimer('reconnectGrace')).toBe(true);
+        await jest.advanceTimersByTimeAsync(60000);
+        expect(events(log, 'abortGame')).toHaveLength(1);
+    });
+});
+
 describe('a real hand runs to the next deal under the FSM', () => {
     test('stages and invariants hold through a full hand', async () => {
         const { io, log } = newIo();
