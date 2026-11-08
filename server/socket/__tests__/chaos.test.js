@@ -233,19 +233,12 @@ async function runSeed(seed) {
     const liveness = () => {
         if (game.pendingTimerCount > 0 || botPending(gameId)) return true;
         if (game.stage === Phase.BIDDING || game.stage === Phase.PLAYING) {
-            const pos = game.currentTurn;
-            const sid = game.positions[pos];
-            if (sid && !game.isBot(sid) && !game.isLazy(pos)) {
-                if (isConnectedSid(sid) && !game.isPlayerDisconnected(pos)) return true;
-                // Seat on turn is disconnected and its grace period ran out:
-                // the table waits for a connected human mapped to the game
-                // (a seat can forceResign; a lazy rejoin shadow can /active
-                // and then forceResign)
-                if (game.isPlayerDisconnected(pos) &&
-                    connectedHumans().some((h) => gameManager.playerGames.get(h.sid) === gameId &&
-                        !game.isPlayerDisconnected(game.getPositionBySocketId(h.sid)))) {
-                    return true;
-                }
+            const seat = game.seat(game.currentTurn);
+            if (seat && seat.controller === 'human') {
+                // The owner is here to act
+                if (seat.presence === 'connected') return true;
+                // Its grace ran out: a connected owner can forceResign it
+                if (seat.presence === 'resignable' && game.hasPresentHuman()) return true;
             }
         }
         if (game.stage === Phase.DRAWING) {
@@ -266,7 +259,7 @@ async function runSeed(seed) {
 
         const { errors } = game.validateGameState();
         if (errors.length) return fail('invariant', { errors, trail: trail.slice(-15) });
-        if (!liveness()) return fail('hang', { trail: trail.filter(t => !/^(draw|validBid|legalPlay|randomBid|randomPlay|spectate)/.test(t)), turn: game.currentTurn, positions: game.positions, humans, disconnected: game.disconnectedPlayers, lazy: game.lazyPlayers, resigned: game.resignedPlayers, spectators: [...game.spectators.keys()], timers: [...game._timers.keys()] });
+        if (!liveness()) return fail('hang', { trail: trail.filter(t => !/^(draw|validBid|legalPlay|randomBid|randomPlay|spectate)/.test(t)), turn: game.currentTurn, humans, seats: game.presenceSummary(), spectators: [...game.spectators.keys()], timers: game.timerKeys() });
         if (asyncErrors.length) return fail('async error', { error: asyncErrors[0].stack });
     }
     // Still running after the step budget: tear it down to check teardown

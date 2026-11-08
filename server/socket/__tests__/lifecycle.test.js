@@ -38,7 +38,7 @@ const gameLifecycle = require('../gameLifecycle');
 const ambient = require('../../demo/ambientBots');
 const { botController } = require('../../game/bot');
 const { Phase } = require('../../game/GamePhase');
-const { makeIo, makeSocket, events, legalCards } = require('../../testUtils/gameDriver');
+const { makeIo, makeSocket, events, legalCards, resignedSeat } = require('../../testUtils/gameDriver');
 
 const C = (rank, suit) => ({ rank, suit });
 
@@ -333,13 +333,12 @@ describe('5. abort with bot and lazy timers pending', () => {
         game.currentTurn = 1;
         // A bot seat with a pending chat timer, a lazy seat with a pending bid
         const bot = botController.createBot('🤖 Pat', 'mary');
-        bot.position = 3;
-        game.resignPlayer(3, bot.socketId, bot.username, 1);
-        botController.registerBot(game.gameId, bot);
-        gameManager.playerGames.set(bot.socketId, game.gameId);
+        resignedSeat(game, 3, bot);
         botController.sendBotChat(io, game, bot, 'hello', 5000);
         chatHandlers.chatMessage(sockets[0], io, { message: '/lazy' });
-        expect(game.hasTimer('lazy:1')).toBe(true);
+        // Lazy play goes through BotController like every bot seat
+        const lazyBot = game.seat(1).bot.socketId;
+        expect(botController.pendingActions.has(`${game.gameId}:${lazyBot}:bid`)).toBe(true);
 
         const mark = log.length;
         await gameLifecycle.abortGame(io, game, 'test');
@@ -512,7 +511,7 @@ describe('9. reconnect grace timer', () => {
         const { game, sockets } = seatedGame('g', io);
         game.forcePhase(Phase.BIDDING);
         await queueHandlers.handleDisconnect(sockets[0], io);
-        expect(game.hasTimer('reconnectGrace')).toBe(true);
+        expect(game.hasTimer('grace:1')).toBe(true);
 
         await gameLifecycle.abortGame(io, game, 'test');
         await jest.advanceTimersByTimeAsync(60000);
@@ -599,7 +598,7 @@ describe('11. draw re-entry', () => {
             chatHandlers.chatMessage(sockets[0], io, { message: '/leave' });
             return pending;
         });
-        expect(Object.values(game.resignedPlayers).map((r) => r.username)).toEqual([`user_${ids[0]}`]);
+        expect(game.seatList().filter((st) => st.controller === 'resignBot').map((st) => st.ownerUsername)).toEqual([`user_${ids[0]}`]);
     });
 
     test('handleDrawComplete called twice', async () => {
@@ -685,9 +684,9 @@ describe('12. departures during the lobby countdown (CREATED)', () => {
 
         const pos = game.getPositionBySocketId(ids[0]);
         expect(pos).toBeTruthy();
-        expect(game.isPlayerDisconnected(pos)).toBe(true);
+        expect(game.seatPresence(pos)).toBe('grace');
         expect(events(log, 'playerDisconnected').map((l) => l.data.position)).toEqual([pos]);
-        expect(game.hasTimer('reconnectGrace')).toBe(true);
+        expect(game.hasTimer(`grace:${pos}`)).toBe(true);
         expect(nullPositionEvents(log)).toEqual([]);
     });
 
@@ -703,9 +702,10 @@ describe('12. departures during the lobby countdown (CREATED)', () => {
         await jest.advanceTimersByTimeAsync(1000);
         await Promise.all(pending);
 
-        expect(Object.values(game.resignedPlayers).map((r) => r.username)).toEqual([`user_${ids[0]}`]);
-        const seat = Object.keys(game.resignedPlayers).map(Number)[0];
-        expect(game.getPlayerByPosition(seat).isBot).toBe(true);
+        const resigned = game.seatList().filter((st) => st.controller === 'resignBot');
+        expect(resigned.map((st) => st.ownerUsername)).toEqual([`user_${ids[0]}`]);
+        expect(resigned[0].presence).toBe('gone');
+        expect(game.isBot(game.positions[resigned[0].position])).toBe(true);
         expect(log.some((l) => l.to === ids[0] && l.event === 'playerAssigned')).toBe(false);
         expect(nullPositionEvents(log)).toEqual([]);
     });
@@ -765,14 +765,16 @@ describe('13. leavers and watchers', () => {
         const { io, log } = newIo();
         const { game, shadow } = lazyShadow(io, log);
         await reconnectHandlers.rejoinGame(shadow, io, { gameId: game.gameId, username: `user_${shadow.id.replace('-again', '')}` });
-        expect(game.isSpectator(shadow.id)).toBe(true);
+        // The rejoin socket is the seat's owner socket (watching), not a spectator
+        expect(game.seat(1).ownerSocketId).toBe(shadow.id);
+        expect(game.isSpectator(shadow.id)).toBe(false);
 
         await queueHandlers.handleDisconnect(shadow, io);
 
         expect(events(log, 'playerDisconnected')).toHaveLength(0);
-        expect(game.isSpectator(shadow.id)).toBe(false);
+        expect(game.seat(1).presence).toBe('away');
         expect(gameManager.playerGames.has(shadow.id)).toBe(false);
-        expect(game.hasTimer('reconnectGrace')).toBe(false);
+        expect(game.hasTimer('abandon')).toBe(false);
     });
 
     test('a rejoin shadow that /leaves is unmapped and can queue again', async () => {
@@ -810,16 +812,17 @@ describe('14. redeal', () => {
 });
 
 describe('15. abandoned tables abort instead of waiting forever (found by the chaos run)', () => {
+    // One rule now (seatLifecycle.maybeAbort): once no seat has a connected
+    // owner the 'abandon' timer runs (60s) and aborts unless someone is back;
+    // a table where no owner can ever return aborts at once.
     /** Seat 1 disconnects and its grace period runs out while seat 2 is still here. */
     async function expiredGrace() {
         const { io, log } = newIo();
         const g = seatedGame('a', io);
         g.game.forcePhase(Phase.BIDDING);
         g.game.currentTurn = 1;
-        for (const i of [2, 3]) {
-            const bot = botController.createBot(`🤖 R${i}`, 'mary');
-            g.game.resignPlayer(i + 1, bot.socketId, bot.username, 1);
-            botController.registerBot(g.game.gameId, bot);
+        for (const [i, p] of [[2, 'sharon'], [3, 'danny']]) {
+            resignedSeat(g.game, i + 1, botController.createBot(`🤖 R${i}`, p));
         }
         io.sockets.sockets.delete(g.ids[0]);
         await queueHandlers.handleDisconnect(g.sockets[0], io);
@@ -832,7 +835,8 @@ describe('15. abandoned tables abort instead of waiting forever (found by the ch
     test('the last present human /leaving re-arms the grace period, which then aborts', async () => {
         const { io, log, game, sockets } = await expiredGrace();
         chatHandlers.chatMessage(sockets[1], io, { message: '/leave' });
-        expect(game.hasTimer('reconnectGrace')).toBe(true);
+        // Nobody connected, seat 1 can still return: abandon, then abort
+        expect(game.hasTimer('abandon')).toBe(true);
         await jest.advanceTimersByTimeAsync(60000);
         expect(events(log, 'abortGame')).toHaveLength(1);
         expect(game.stage).toBe(Phase.ABORTED);
@@ -844,13 +848,12 @@ describe('15. abandoned tables abort instead of waiting forever (found by the ch
         game.forcePhase(Phase.BIDDING);
         game.currentTurn = 1;
         chatHandlers.chatMessage(sockets[1], io, { message: '/lazy' });
-        for (const i of [2, 3]) {
-            const bot = botController.createBot(`🤖 R${i}`, 'mary');
-            game.resignPlayer(i + 1, bot.socketId, bot.username, 1);
-            botController.registerBot(game.gameId, bot);
+        for (const [i, p] of [[2, 'sharon'], [3, 'danny']]) {
+            resignedSeat(game, i + 1, botController.createBot(`🤖 R${i}`, p));
         }
         io.sockets.sockets.delete(ids[1]);
         await queueHandlers.handleDisconnect(sockets[1], io); // lazy: bot keeps playing, no grace
+        expect(events(log, 'abortGame')).toHaveLength(0); // seat 1 is still here
         io.sockets.sockets.delete(ids[0]);
         await queueHandlers.handleDisconnect(sockets[0], io);
         await jest.advanceTimersByTimeAsync(60000);
@@ -865,12 +868,12 @@ describe('15. abandoned tables abort instead of waiting forever (found by the ch
         const shadow = makeSocket(`${ids[1]}-again`, log, io);
         gameManager.registerUser(shadow.id, `user_${ids[1]}`);
         await reconnectHandlers.rejoinGame(shadow, io, { gameId: game.gameId, username: `user_${ids[1]}` });
-        expect(game.isSpectator(shadow.id)).toBe(true);
+        expect(game.seat(2).ownerSocketId).toBe(shadow.id);
 
         chatHandlers.chatMessage(shadow, io, { message: '/leave' });
 
-        expect(game.lazyPlayers[2].permanentLeave).toBe(true);
-        expect(game.hasTimer('reconnectGrace')).toBe(true);
+        expect(game.seat(2).presence).toBe('gone');
+        expect(game.hasTimer('abandon')).toBe(true);
         await jest.advanceTimersByTimeAsync(60000);
         expect(events(log, 'abortGame')).toHaveLength(1);
     });
@@ -886,7 +889,7 @@ describe('15. abandoned tables abort instead of waiting forever (found by the ch
 
         await queueHandlers.handleDisconnect(shadow, io);
 
-        expect(game.hasTimer('reconnectGrace')).toBe(true);
+        expect(game.hasTimer('abandon')).toBe(true);
         await jest.advanceTimersByTimeAsync(60000);
         expect(events(log, 'abortGame')).toHaveLength(1);
     });

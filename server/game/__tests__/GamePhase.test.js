@@ -412,7 +412,7 @@ describe('validateGameState', () => {
         },
         TEAMS_ANNOUNCED: () => {
             const g = seated(Phase.TEAMS_ANNOUNCED);
-            return [g, () => g.removePlayer('s4')];
+            return [g, () => { g.players.delete('s4'); delete g.positions[4]; }];
         },
         DEALING: () => {
             const g = seated(Phase.DEALING);
@@ -487,7 +487,8 @@ describe('validateGameState', () => {
         process.env.BAB_FSM_CHECK = '1';
         try {
             const g = seated(Phase.TEAMS_ANNOUNCED);
-            g.removePlayer('s4');
+            g.players.delete('s4');
+            delete g.positions[4];
             g.forcePhase(Phase.DRAW_RESOLVING);
             g.drawIndex = 4; g.drawIDs = ['a', 'b', 'c', 'd']; g.drawCards = hearts(4);
             expect(() => g.transition(Phase.DRAW_RESOLVING, Phase.TEAMS_ANNOUNCED)).toThrow(/invariant/);

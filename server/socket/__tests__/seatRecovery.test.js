@@ -22,6 +22,7 @@ const chatHandlers = require('../chatHandlers');
 const queueHandlers = require('../queueHandlers');
 const reconnectHandlers = require('../reconnectHandlers');
 const { botController } = require('../../game/bot');
+const { lazySeat, resignedSeat } = require('../../testUtils/gameDriver');
 
 const C = (rank, suit) => ({ rank, suit });
 
@@ -82,11 +83,11 @@ describe('draw-phase leave and disconnect', () => {
         await queueHandlers.handleDisconnect(s[3], io); // auto-draws the 4th card
         await jest.advanceTimersByTimeAsync(7000); // positions, teams, deal
 
-        const leaverPos = game.resignedPlayers && Object.keys(game.resignedPlayers).map(Number)[0];
-        expect(leaverPos).toBeDefined();
-        expect(game.resignedPlayers[leaverPos].username).toBe(`user_${leaver}`);
+        const leaverPos = game.seatByUsername(`user_${leaver}`);
+        expect(leaverPos).toBeTruthy();
+        expect(game.seat(leaverPos)).toMatchObject({ controller: 'resignBot', presence: 'gone' });
         const seat = game.getPlayerByPosition(leaverPos);
-        expect(seat.isBot).toBe(true);
+        expect(game.isBot(seat.socketId)).toBe(true);
         expect(botController.getBot(game.gameId, seat.socketId)).toBeDefined();
         // The leaver is in the main room: no seat assignment, no activeGameId
         expect(log.some((l) => l.to === leaver && l.event === 'playerAssigned')).toBe(false);
@@ -97,7 +98,7 @@ describe('draw-phase leave and disconnect', () => {
         expect(updateSpy.mock.calls.every(([f]) => f.username.startsWith('user_'))).toBe(true);
 
         const dropperPos = game.getPositionBySocketId(dropper);
-        expect(game.isPlayerDisconnected(dropperPos)).toBe(true);
+        expect(game.seatPresence(dropperPos)).toBe('grace');
         expect(events(log, 'playerDisconnected').some((l) => l.data.position === dropperPos)).toBe(true);
         expect(events(log, 'resignationAvailable')).toHaveLength(0);
 
@@ -108,7 +109,7 @@ describe('draw-phase leave and disconnect', () => {
         // The offer is actionable: a remaining player replaces the seat
         const requester = s[ids.indexOf(ids.find((id) => id !== leaver && id !== dropper))];
         await gameHandlers.forceResign(requester, io, { position: dropperPos });
-        expect(game.getPlayerByPosition(dropperPos).isBot).toBe(true);
+        expect(game.seat(dropperPos).controller).toBe('resignBot');
     });
 
     test('a draw-phase disconnect sends no position:null event', async () => {
@@ -163,7 +164,7 @@ describe('draw-phase leave and disconnect', () => {
         expect(events(log, 'positionUpdate')).toHaveLength(1);
         expect(events(log, 'teamsAnnounced')).toHaveLength(1);
         // ...and the leaver's seat still goes to a bot
-        expect(Object.values(game.resignedPlayers).map((r) => r.username)).toEqual([`user_${ids[0]}`]);
+        expect(game.seatList().filter((st) => st.controller === 'resignBot').map((st) => st.ownerUsername)).toEqual([`user_${ids[0]}`]);
     });
 
     test('a /leave while positions are being announced does not re-arm activeGameId', async () => {
@@ -227,22 +228,22 @@ describe('/active over a resigned seat', () => {
         const s = ids.map((id) => makeSocket(id, log));
 
         await queueHandlers.handleDisconnect(s[0], io);
+        await jest.advanceTimersByTimeAsync(60000); // grace runs out
         await gameHandlers.forceResign(s[1], io, { position: 1 }); // schedules the bot's bid
         const botSocketId = game.positions[1];
 
-        // Rejoin on a fresh socket: resignation turns into lazy, as a spectator
+        // Rejoin on a fresh socket: the owner watches the resign bot
         const fresh = makeSocket(`${ids[0]}-again`, log);
         gameManager.registerUser(fresh.id, `user_${ids[0]}`);
         await reconnectHandlers.rejoinGame(fresh, io, { gameId: game.gameId, username: `user_${ids[0]}` });
-        expect(game.isSpectator(fresh.id)).toBe(true);
+        expect(game.seat(1)).toMatchObject({ controller: 'resignBot', presence: 'connected', ownerSocketId: fresh.id, ownerView: 'watch' });
 
         chatHandlers.chatMessage(fresh, io, { message: '/active' });
 
         const seat = game.getPlayerByPosition(1);
         expect(seat.socketId).toBe(fresh.id);
-        expect(seat.isBot).toBe(false);
-        expect(game.isResigned(1)).toBe(false);
-        expect(game.isLazy(1)).toBe(false);
+        expect(game.seat(1)).toMatchObject({ controller: 'human', presence: 'connected', bot: null });
+        expect(game.getClientState(fresh.id)).toMatchObject({ resignedPositions: [], lazyPositions: [], isLazy: false });
         expect(botController.getBot(game.gameId, botSocketId)).toBeFalsy();
         expect(gameManager.playerGames.has(botSocketId)).toBe(false);
         const restored = events(log, 'restorePlayerState').find((l) => l.to === `self:${fresh.id}`);
@@ -275,7 +276,7 @@ describe('/active over a resigned seat', () => {
 
         const turn = log.find((l) => l.to === ids[0] && l.event === 'updateTurn');
         expect(turn.data).toEqual({ currentTurn: 1 });
-        expect(game.isLazy(1)).toBe(false);
+        expect(game.seatController(1)).toBe('human');
     });
 
     test('/active during trick resolution sends no updateTurn (the post-trick one follows)', () => {
@@ -290,7 +291,7 @@ describe('/active over a resigned seat', () => {
         chatHandlers.chatMessage(s0, io, { message: '/active' });
 
         expect(log.some((l) => l.event === 'updateTurn')).toBe(false);
-        expect(game.isLazy(1)).toBe(false);
+        expect(game.seatController(1)).toBe('human');
     });
 });
 
@@ -339,11 +340,11 @@ describe('active-game DB writes skip bots', () => {
         const bot = botController.createBot('🤖 Pat', 'mary');
         const game = gameManager.createGame([...ids, bot.socketId]);
         game.addPlayer(ids[0], 'alice', 1, 1, false);
-        game.addPlayer(ids[1], '🤖 Lazy', 2, 1, false);
-        game.lazyPlayers[2] = { botSocketId: 'bot:x', originalUsername: 'bob', originalSocketId: ids[1] };
-        game.addPlayer('bot:resign', '🤖 Res', 3, 1, true);
-        game.resignedPlayers[3] = { username: 'carol', pic: 1, originalSocketId: ids[2] };
+        game.addPlayer(ids[1], 'bob', 2, 1, false);
+        game.addPlayer(ids[2], 'carol', 3, 1, false);
         game.addPlayer(bot.socketId, bot.username, 4, 1, true);
+        lazySeat(game, 2, botController.createBot('🤖 Lazy', 'sharon'));
+        resignedSeat(game, 3, botController.createBot('🤖 Res', 'danny'));
 
         await gameManager.clearActiveGameForAll(game.gameId);
 

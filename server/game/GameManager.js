@@ -27,7 +27,8 @@ class GameManager {
 
         // Active games
         this.games = new Map();        // gameId → GameState
-        this.playerGames = new Map();  // socketId → gameId
+        this.playerGames = new Map();  // socketId → gameId (entrants, seat owners, seat bots)
+        this.spectatorGames = new Map(); // socketId → gameId (pure spectators: one game each)
 
         // Current users (logged in)
         this.currentUsers = [];        // [{ username, socketId }, ...]
@@ -681,10 +682,6 @@ class GameManager {
             };
         }));
 
-        // A seat whose socket no longer maps here (e.g. a /leave'd lazy
-        // human now in the main room) must not be dealt private cards
-        game._isSeatReachable = (sid) => this.playerGames.get(sid) === gameId;
-
         this.games.set(gameId, game);
 
         // Clear queued users who are now in game
@@ -729,6 +726,35 @@ class GameManager {
     }
 
     /**
+     * Make `socketId` a pure spectator of `game` (never a seat owner): it
+     * first stops spectating any other game, then joins this game's room.
+     */
+    addSpectator(io, game, socketId, username, pic = null) {
+        const current = this.spectatorGames.get(socketId);
+        if (current && current !== game.gameId) this.leaveSpectating(io, socketId);
+        game.addSpectator(socketId, username, pic);
+        if (io) game.joinToRoom(io, socketId);
+        this.spectatorGames.set(socketId, game.gameId);
+    }
+
+    /**
+     * Stop `socketId` spectating its game (spectator entry, spectatorGames
+     * entry and — with io — the room).
+     * @returns {GameState|null} the game it was spectating
+     */
+    leaveSpectating(io, socketId) {
+        const gameId = this.spectatorGames.get(socketId);
+        if (gameId === undefined) return null;
+        this.spectatorGames.delete(socketId);
+        const game = this.games.get(gameId) || null;
+        if (game) {
+            game.removeSpectator(socketId);
+            if (io) game.leaveRoom(io, socketId);
+        }
+        return game;
+    }
+
+    /**
      * Find game by ID (for reconnection)
      * @param {string} gameId - Game ID to find
      * @returns {GameState|null}
@@ -738,7 +764,10 @@ class GameManager {
     }
 
     /**
-     * Handle player disconnect - now with grace period for reconnection
+     * Socket-level disconnect bookkeeping: main room, lobby, tournament and
+     * spectating. Seat state is not touched here: the caller
+     * (queueHandlers.handleDisconnect) routes an in-game socket to its
+     * entrant / seat-owner transition.
      */
     handleDisconnect(socketId) {
         // Remove from main room (if in main room)
@@ -749,47 +778,11 @@ class GameManager {
         const lobbyResult = this.leaveLobby(socketId);
         const wasInLobby = lobbyResult.success;
 
-        // Handle in-game disconnect - DON'T immediately abort
-        const gameId = this.playerGames.get(socketId);
-        if (gameId) {
-            const game = this.games.get(gameId);
-            let wasLazy = false;
-            if (game) {
-                // Mark player as disconnected but keep their spot
-                const position = game.getPositionBySocketId(socketId);
-                wasLazy = position ? game.isLazy(position) : false;
-                if (position && !wasLazy) {
-                    game.markPlayerDisconnected(position);
-                }
-            }
-            // Mark disconnected in tournament (keeps membership/scores so the
-            // player can reattach with a new socket)
-            let wasInTournament = false;
-            let tournamentResult = null;
-            const tournamentId = this.playerTournaments.get(socketId);
-            if (tournamentId) {
-                const tournament = this.tournaments.get(tournamentId);
-                if (tournament) {
-                    tournamentResult = this.handleTournamentDisconnect(socketId, tournament);
-                    wasInTournament = true;
-                }
-            }
+        // A pure spectator watches at most one game
+        const spectatorGame = this.leaveSpectating(null, socketId);
 
-            return {
-                wasInLobby,
-                wasInMainRoom,
-                wasInGame: true,
-                wasLazy,
-                wasInTournament,
-                tournamentResult,
-                game,
-                gameId,
-                // Don't abort immediately - give time to reconnect
-                shouldAbort: false
-            };
-        }
-
-        // Handle tournament disconnect (not in a game)
+        // Mark disconnected in tournament (keeps membership/scores so the
+        // player can reattach with a new socket)
         let wasInTournament = false;
         let tournamentResult = null;
         const tournamentId = this.playerTournaments.get(socketId);
@@ -801,12 +794,20 @@ class GameManager {
             }
         }
 
-        // Handle spectator disconnect — remove from any game they're spectating
-        for (const [, game] of this.games) {
-            if (game.isSpectator(socketId)) {
-                game.removeSpectator(socketId);
-                break;
-            }
+        const gameId = this.playerGames.get(socketId);
+        if (gameId) {
+            return {
+                wasInLobby,
+                wasInMainRoom,
+                wasInGame: true,
+                wasInTournament,
+                tournamentResult,
+                game: this.games.get(gameId) || null,
+                gameId,
+                spectatorGame,
+                // The seat keeps its grace period: never an immediate abort
+                shouldAbort: false
+            };
         }
 
         // Handle tournament spectator disconnect
@@ -823,23 +824,9 @@ class GameManager {
         return {
             wasInLobby, wasInMainRoom, wasInGame: false,
             wasInTournament, tournamentResult,
-            lobby: lobbyResult.lobby
+            lobby: lobbyResult.lobby,
+            spectatorGame
         };
-    }
-
-    /**
-     * Check if game should be aborted (called after grace period)
-     */
-    checkGameAbort(gameId) {
-        const game = this.games.get(gameId);
-        if (!game) return { shouldAbort: false };
-
-        // Check if any player has been disconnected too long
-        const disconnectedPlayers = game.getDisconnectedPlayers();
-        if (disconnectedPlayers.length > 0) {
-            return { shouldAbort: true, game, gameId };
-        }
-        return { shouldAbort: false };
     }
 
     /**
@@ -871,6 +858,9 @@ class GameManager {
         }
 
         for (const sid of mapped) this.playerGames.delete(sid);
+        for (const [sid, gid] of this.spectatorGames) {
+            if (gid === id) this.spectatorGames.delete(sid);
+        }
         game.spectators.clear();
         this.games.delete(id);
     }
@@ -1017,17 +1007,12 @@ class GameManager {
     async clearActiveGameForAll(gameId, game = this.games.get(gameId)) {
         if (!game) return;
 
-        for (let position = 1; position <= 4; position++) {
-            const player = game.getPlayerByPosition(position);
-            if (!player) continue;
-            // Lazy and resigned seats show the bot's name; clear the human
-            // behind them. Pure bots have no user document — skip the write.
-            // Scoped to this game: a leaver may already be in another game.
-            const username = (game.isLazy(position) || game.isResigned(position))
-                ? game.getOriginalPlayer(position)?.username
-                : (player.isBot || this.isBot(player.socketId) ? null : player.username);
-            if (username) {
-                await this.clearActiveGame(username, gameId);
+        // The human behind every owned seat (human, lazy, resigned or gone);
+        // native bots have no user document. Scoped to this game: a leaver
+        // may already be in another game.
+        for (const seat of game.seatList()) {
+            if (seat.ownerUsername) {
+                await this.clearActiveGame(seat.ownerUsername, gameId);
             }
         }
     }

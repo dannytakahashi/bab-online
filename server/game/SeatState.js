@@ -231,14 +231,10 @@ function validateSeats(game) {
     // 9
     if (game.stage !== Phase.DRAWING && hasTimer('draw:watchdog')) errors.push(`draw watchdog armed in ${game.stage}`);
 
-    // 10
-    if (!terminal) {
-        if (game.entrants != null && (seats.length === 4 || !PRE_SEATING.has(game.stage))) {
-            errors.push(`entrants still set with ${seats.length} seats in ${game.stage}`);
-        }
-        if (game.entrants == null && seats.length < 4 && PRE_SEATING.has(game.stage) && seats.length > 0) {
-            errors.push(`${seats.length} seats and no entrants in ${game.stage}`);
-        }
+    // 10 (entrants exist only before seating is complete; the 4th seat
+    // clears them. Four seats from TEAMS_ANNOUNCED on is a stage invariant.)
+    if (!terminal && game.entrants != null && (seats.length === 4 || !PRE_SEATING.has(game.stage))) {
+        errors.push(`entrants still set with ${seats.length} seats in ${game.stage}`);
     }
 
     // 11

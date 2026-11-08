@@ -1,16 +1,51 @@
 /**
  * Seat lifecycle orchestration: who controls each seat and whether its
- * owner is present.
+ * owner is present (the records live on GameState, see game/SeatState.js).
+ *
+ * Every function here has the shape (io, game, ...) and does its work in the
+ * same order:
+ *   1. the GameState seat transition (the only writer of seat state),
+ *   2. playerGames / spectatorGames / room membership,
+ *   3. emits,
+ *   4. maybeAbort.
+ * Socket handlers (queue, chat, reconnect, main room, game) only decide which
+ * of these to call.
+ *
+ * playerGames contract for a game G: it maps exactly the connected entrants
+ * (before seating), every seat's ownerSocketId, and every bot-controlled
+ * seat's bot socket (incl. native bot seats). Dead and stale sockets are
+ * never mapped; pure spectators live only in gameManager.spectatorGames and
+ * game.spectators.
  */
 
+const gameManager = require('../game/GameManager');
 const { botController, personalities } = require('../game/bot');
+const SeatState = require('../game/SeatState');
+const { socketLogger } = require('../utils/logger');
+
 const { PERSONALITY_LIST, getDisplayName } = personalities;
+const { Controller, Presence, RECONNECT_GRACE_MS, ABANDON_MS, DRAW_WATCHDOG_MS } = SeatState;
+
+const logError = (what, game) => (err) =>
+    socketLogger.error(`${what} failed`, { gameId: game.gameId, error: err.message, stack: err.stack });
+
+function logEntry(io, game, message) {
+    game.addLogEntry(message, null, 'system');
+    game.broadcast(io, 'gameLogEntry', { message, type: 'system' });
+}
+
+/** Drop `sid` from playerGames if it still points at this game. */
+function unmap(game, sid) {
+    if (sid != null && gameManager.playerGames.get(sid) === game.gameId) gameManager.playerGames.delete(sid);
+}
+
+// ==================== bots for seats ====================
 
 /**
  * Pick a bot personality whose name is not already at the table: not used by
  * any bot registered for the game (lobby, tournament, ambient, resign and
- * lazy bots) and not shown as any seat's name. `preferred` (the seat's last
- * personality) is reused only while it is still free.
+ * lazy bots) or held by a seat, and not shown as any seat's name. `preferred`
+ * (the seat's last personality) is reused only while it is still free.
  * @param {GameState} game
  * @param {string|null} [preferred]
  * @returns {string} personality key
@@ -21,9 +56,10 @@ function pickBotPersonality(game, preferred = null) {
         if (bot.personality) used.add(bot.personality);
     }
     const names = new Set();
-    for (let pos = 1; pos <= 4; pos++) {
-        const player = game.getPlayerByPosition(pos);
-        if (player) names.add(player.username);
+    for (const s of game.seatList()) {
+        if (s.bot?.personality) used.add(s.bot.personality);
+        const shown = game.getPlayerByPosition(s.position);
+        if (shown) names.add(shown.username);
     }
     for (const p of PERSONALITY_LIST) {
         if (names.has(`🤖 ${getDisplayName(p)}`)) used.add(p);
@@ -35,6 +71,391 @@ function pickBotPersonality(game, preferred = null) {
     return pool[Math.floor(Math.random() * pool.length)];
 }
 
+/**
+ * A fresh bot for seat `pos` (lazy, resign or draw-phase leaver), registered
+ * with the controller and mapped to the game. The caller seats it.
+ * @returns {BotPlayer}
+ */
+function createSeatBot(game, pos, preferred = null) {
+    const personality = pickBotPersonality(game, preferred);
+    const bot = botController.createBot(`🤖 ${getDisplayName(personality)}`, personality);
+    bot.position = pos;
+    bot.pic = Math.floor(Math.random() * 82) + 1;
+    botController.registerBot(game.gameId, bot);
+    bot.resetCardMemory(game.currentHand, game.trump);
+    gameManager.playerGames.set(bot.socketId, game.gameId);
+    return bot;
+}
+
+/** Undo createSeatBot for a bot that never got its seat. */
+function discardSeatBot(game, bot) {
+    botController.unregisterBot(game.gameId, bot.socketId);
+    unmap(game, bot.socketId);
+}
+
+function triggerIfOnTurn(io, game, pos) {
+    const actionType = game.actionTypeForTurn();
+    if (game.currentTurn === pos && actionType) {
+        const { triggerBotIfNeeded } = require('./gameHandlers');
+        triggerBotIfNeeded(io, game, actionType);
+    }
+}
+
+// ==================== tournaments ====================
+
+/**
+ * If the game belongs to a tournament, reattach the player's tournament
+ * membership to their new socket and rejoin the tournament room.
+ * @returns {Object|null} the tournament, or null
+ */
+function reattachTournament(io, socket, gameId, username) {
+    const tournamentId = gameManager.tournamentGames.get(gameId);
+    if (!tournamentId) return null;
+
+    // Scope the reattach to THIS game's tournament — the same username can
+    // linger as a ghost entry in an older tournament
+    const tournament = gameManager.reattachTournamentPlayer(socket.id, username, tournamentId);
+    if (tournament) {
+        socket.join(tournament.roomName);
+        // Let lobby viewers see the reconnect (and any creator handoff)
+        tournament.broadcast(io, 'tournamentPlayerJoined', {
+            username,
+            players: tournament.getClientState().players
+        });
+        socketLogger.info('Tournament membership reattached on rejoin', {
+            username, tournamentId: tournament.tournamentId, gameId
+        });
+        return tournament;
+    }
+    // Game maps to a tournament but no membership entry matched (e.g. the
+    // tournament was deleted) — still return whatever exists for the id
+    return gameManager.getTournamentById(tournamentId);
+}
+
+// ==================== presence replay & resign offers ====================
+
+function offer(io, game, pos) {
+    game.broadcast(io, 'resignationAvailable', { position: pos, username: game.seat(pos).ownerUsername });
+    game.offerPos = pos;
+}
+
+/**
+ * Bring a socket that just (re)attached up to date on the other seats'
+ * absences: playerDisconnected for each absent human seat (oldest first),
+ * then the current resign offer. iOS shows its disconnect banner only while
+ * it has a playerDisconnected entry, so the order matters.
+ */
+function replayPresenceTo(game, socket, ownPos) {
+    const absent = game.seatList()
+        .filter(s => s.position !== ownPos && (s.presence === Presence.GRACE || s.presence === Presence.RESIGNABLE))
+        .sort((a, b) => (a.absentSince - b.absentSince) || (a.position - b.position));
+    for (const s of absent) {
+        socket.emit('playerDisconnected', { position: s.position, username: s.ownerUsername });
+    }
+    const resignable = game.resignablePositions().filter(p => p !== ownPos);
+    if (resignable.length > 0) {
+        const p = resignable.includes(game.offerPos) ? game.offerPos : resignable[0];
+        socket.emit('resignationAvailable', { position: p, username: game.seat(p).ownerUsername });
+    }
+}
+
+/**
+ * Clients hold one resign offer at a time (and clear it on ANY
+ * playerResigned): after a resign, or after the offered seat came back,
+ * offer the oldest remaining resignable seat, if anyone is here to act.
+ */
+function reofferAfter(io, game, pos, why) {
+    if (why !== 'resign' && game.offerPos !== pos) return;
+    const next = game.resignablePositions().find(p => p !== pos);
+    if (next && game.hasPresentHuman()) {
+        offer(io, game, next);
+    } else {
+        game.offerPos = null;
+    }
+}
+
+// ==================== abort ====================
+
+/**
+ * The single presence-driven abort decision (synchronous). A seated table
+ * with owners aborts at once when no owner can ever come back, and after
+ * ABANDON_MS when no owner is connected. Ambient / native-bot tables (no
+ * owners) are never presence-aborted. Pre-seating is handled by
+ * handleDrawComplete (which calls this right after seating).
+ * @returns {boolean} true if it aborted the game now
+ */
+function maybeAbort(io, game) {
+    if (game.isTerminal() || game.seatList().length < 4) return false;
+    const owned = game.seatList().filter(s => s.ownerUsername);
+    if (owned.length === 0) return false;
+    if (game.hasPresentHuman()) {
+        game.clearTimer('abandon');
+        return false;
+    }
+    const { abortGame } = require('./gameLifecycle');
+    if (!owned.some(s => game.isReturnable(s.position))) {
+        socketLogger.warn('All players left, aborting game', { gameId: game.gameId });
+        abortGame(io, game, 'All players left').catch(logError('abortGame', game));
+        return true;
+    }
+    if (!game.hasTimer('abandon')) {
+        game.setTimer('abandon', ABANDON_MS, () => {
+            if (game.hasPresentHuman()) return;
+            socketLogger.warn('All players disconnected, aborting game', { gameId: game.gameId });
+            return abortGame(io, game, 'All players disconnected');
+        });
+    }
+    return false;
+}
+
+// ==================== disconnects ====================
+
+/**
+ * The owner socket `sid` of seat `pos` dropped (the caller checked
+ * seatByOwnerSocket(sid) === pos).
+ */
+function disconnectOwner(io, game, pos, sid) {
+    const seat = game.seat(pos);
+    if (!seat) return;
+    const username = seat.ownerUsername;
+    if (seat.controller === Controller.HUMAN) {
+        if (!game.seatDisconnect(pos, sid, { onGraceExpire: () => onGraceExpired(io, game, pos) })) return;
+        unmap(game, sid);
+        socketLogger.info('Player disconnected from game, waiting for reconnection', {
+            username, position: pos, gameId: game.gameId, gracePeriod: RECONNECT_GRACE_MS / 1000
+        });
+        game.broadcast(io, 'playerDisconnected', { position: pos, username });
+        game.broadcast(io, 'voicePeerLeft', { socketId: sid });
+        logEntry(io, game, `${username} disconnected. Waiting for reconnection...`);
+    } else {
+        const view = seat.ownerView;
+        if (!game.seatDisconnect(pos, sid)) return;
+        unmap(game, sid);
+        game.leaveRoom(io, sid);
+        socketLogger.info('Bot-controlled seat owner disconnected, bot continues playing', {
+            username, position: pos, gameId: game.gameId, view
+        });
+        if (view === 'seat') logEntry(io, game, `${username} disconnected. Bot continues playing.`);
+    }
+    maybeAbort(io, game);
+}
+
+/** grace:<pos> fired: the seat becomes resignable. */
+function onGraceExpired(io, game, pos) {
+    const seat = game.seat(pos);
+    if (!seat || seat.presence !== Presence.GRACE) return;
+    if (!game.seatGraceExpired(pos)) return;
+    if (game.hasPresentHuman()) {
+        socketLogger.info('Grace period expired, resignation available', {
+            gameId: game.gameId, position: pos, username: seat.ownerUsername
+        });
+        offer(io, game, pos);
+        logEntry(io, game, `${seat.ownerUsername} failed to reconnect. You may replace them with a bot.`);
+    }
+    // Nobody here: a returning player gets the offer through replayPresenceTo
+    maybeAbort(io, game);
+}
+
+// ==================== returning owners ====================
+
+/**
+ * The owner of a human seat is back on `socket` (from grace / resignable,
+ * or with an older socket still attached: the newest socket owns the seat;
+ * the old one is unmapped and taken out of the room without an emit).
+ */
+function reconnectOwner(io, game, pos, socket, username) {
+    const oldSid = game.seatReconnect(pos, socket.id);
+    if (oldSid == null) return false;
+    if (oldSid !== socket.id) {
+        game.leaveRoom(io, oldSid);
+        unmap(game, oldSid);
+    }
+    gameManager.leaveSpectating(io, socket.id);
+    gameManager.playerGames.set(socket.id, game.gameId);
+    game.joinToRoom(io, socket.id);
+    gameManager.registerUser(socket.id, username);
+    const tournament = reattachTournament(io, socket, game.gameId, username);
+
+    socketLogger.info('Player rejoined game', { username, gameId: game.gameId, position: pos });
+    socket.emit('rejoinSuccess', {
+        ...game.getClientState(socket.id),
+        tournamentId: tournament ? tournament.tournamentId : null
+    });
+    game.broadcast(io, 'playerReconnected', { position: pos, username });
+
+    // Voice: the other connected owners at their seats
+    const peers = [];
+    for (const s of game.seatList()) {
+        if (s.position === pos || s.presence !== Presence.CONNECTED) continue;
+        if (s.controller !== Controller.HUMAN && s.ownerView !== 'seat') continue;
+        peers.push({ socketId: s.ownerSocketId, username: game.getPlayerByPosition(s.position).username });
+        io.to(s.ownerSocketId).emit('voicePeerJoined', { socketId: socket.id, username });
+    }
+    if (peers.length > 0) socket.emit('voicePeerList', { peers });
+
+    logEntry(io, game, `${username} reconnected.`);
+    replayPresenceTo(game, socket, pos);
+    reofferAfter(io, game, pos, 'reconnect');
+    maybeAbort(io, game);
+    return true;
+}
+
+/**
+ * The owner of a bot-controlled seat (lazy or resigned) attaches `socket` to
+ * watch it while the bot plays. An older owner socket is demoted to a pure
+ * spectator (keeps watching, loses /active and every other seat right).
+ * @param {Object} opts
+ * @param {'rejoin'|'spectate'} opts.via
+ */
+function watchSeat(io, game, pos, socket, username, { via }) {
+    const prev = game.seatWatch(pos, socket.id);
+    const seat = game.seat(pos);
+    if (seat?.ownerSocketId !== socket.id) return false;
+    if (prev) {
+        unmap(game, prev);
+        if (io.sockets.sockets.has(prev)) {
+            gameManager.addSpectator(io, game, prev, username, null);
+        } else {
+            game.leaveRoom(io, prev);
+        }
+    }
+    gameManager.leaveSpectating(io, socket.id);
+    gameManager.playerGames.set(socket.id, game.gameId);
+    game.joinToRoom(io, socket.id);
+    gameManager.registerUser(socket.id, username);
+    if (via === 'spectate') {
+        socket.leave('mainRoom');
+        gameManager.leaveMainRoom(socket.id);
+    }
+
+    // The seat's own view (position, hand) with the lazy flag
+    const state = { ...game.getClientState(seat.seatSocketId), isLazy: true };
+    if (via === 'rejoin') {
+        const tournament = reattachTournament(io, socket, game.gameId, username);
+        state.tournamentId = tournament ? tournament.tournamentId : null;
+    }
+    socketLogger.info('Owner watching bot-controlled seat', { username, gameId: game.gameId, position: pos, via });
+    socket.emit('rejoinSuccess', state);
+    if (via === 'rejoin') {
+        game.broadcast(io, 'playerReconnected', { position: pos, username });
+        logEntry(io, game, `${username} reconnected.`);
+    } else {
+        game.broadcast(io, 'spectatorJoined', { username, spectatorCount: game.getSpectators().length });
+    }
+    replayPresenceTo(game, socket, pos);
+    maybeAbort(io, game);
+    return true;
+}
+
+// ==================== lazy / active ====================
+
+/** /lazy: a bot plays the owner's (human, connected) seat. */
+function goLazy(io, game, pos) {
+    const seat = game.seat(pos);
+    const bot = createSeatBot(game, pos, seat.lastPersonality);
+    if (game.seatGoLazy(pos, bot) == null) {
+        discardSeatBot(game, bot);
+        return false;
+    }
+    game.broadcast(io, 'playerLazyMode', {
+        position: pos,
+        botUsername: bot.username,
+        botPic: bot.pic,
+        originalUsername: seat.ownerUsername
+    });
+    logEntry(io, game, `${seat.ownerUsername} entered lazy mode. ${bot.username} is playing.`);
+    socketLogger.info('Player entered lazy mode', { gameId: game.gameId, position: pos, botUsername: bot.username });
+    // Not while a trick or hand resolves: the next updateTurn re-triggers it
+    triggerIfOnTurn(io, game, pos);
+    return true;
+}
+
+/** /active from the owner socket: the seat is human again. */
+function goActive(io, game, pos, socket) {
+    const released = game.seatGoActive(pos, socket.id);
+    if (!released) return false;
+    const { bot, ownerView } = released;
+    const seat = game.seat(pos);
+    // Cancels its pending bid/play and chat timers too
+    botController.unregisterBot(game.gameId, bot.socketId);
+    unmap(game, bot.socketId);
+    gameManager.leaveSpectating(null, socket.id); // defensive: owners are never spectators
+
+    game.broadcast(io, 'playerActiveMode', { position: pos, username: seat.ownerUsername, pic: seat.ownerPic });
+    logEntry(io, game, `${seat.ownerUsername} is back in control.`);
+    socketLogger.info('Player returned to active mode', { gameId: game.gameId, position: pos, username: seat.ownerUsername });
+
+    if (ownerView === 'watch') {
+        // The watching client switches from its lazy view to the seat
+        socket.emit('restorePlayerState', game.getClientState(socket.id));
+        replayPresenceTo(game, socket, pos);
+    } else if (game.acceptsTurnInput()) {
+        // Only while a turn is open (the post-trick updateTurn follows otherwise)
+        game.sendToPlayer(io, socket.id, 'updateTurn', { currentTurn: game.currentTurn });
+    }
+    maybeAbort(io, game);
+    return true;
+}
+
+// ==================== resign / leave ====================
+
+/** forceResign of a resignable human seat: a bot takes it over. */
+function resignSeat(io, game, pos) {
+    const seat = game.seat(pos);
+    const oldUsername = seat.ownerUsername;
+    const bot = createSeatBot(game, pos, null);
+    const oldSid = game.seatResign(pos, bot);
+    if (oldSid == null) {
+        discardSeatBot(game, bot);
+        return false;
+    }
+    unmap(game, oldSid);
+    game.broadcast(io, 'playerResigned', {
+        position: pos,
+        oldUsername,
+        botUsername: bot.username,
+        botPic: bot.pic
+    });
+    logEntry(io, game, `${oldUsername} has been resigned. ${bot.username} is taking over.`);
+    reofferAfter(io, game, pos, 'resign');
+    triggerIfOnTurn(io, game, pos);
+    maybeAbort(io, game);
+    return true;
+}
+
+/** /leave from the owner socket: the bot keeps the seat, the owner is gone for good. */
+function leaveSeat(io, game, pos, socket) {
+    const seat = game.seat(pos);
+    if (seat.controller === Controller.HUMAN && !goLazy(io, game, pos)) return false;
+    const view = seat.ownerView;
+    if (!game.seatLeave(pos)) return false;
+    game.leaveRoom(io, socket.id);
+    unmap(game, socket.id);
+    // Lets them create / join new lobbies and tournaments
+    gameManager.clearActiveGame(seat.ownerUsername, game.gameId);
+    socket.emit('leftGame');
+    if (view === 'watch') socket.emit('joinMainRoom');
+    socketLogger.info('Player left game (permanent)', { gameId: game.gameId, position: pos });
+    maybeAbort(io, game);
+    return true;
+}
+
 module.exports = {
-    pickBotPersonality
+    RECONNECT_GRACE_MS,
+    ABANDON_MS,
+    DRAW_WATCHDOG_MS,
+    pickBotPersonality,
+    createSeatBot,
+    reattachTournament,
+    disconnectOwner,
+    onGraceExpired,
+    reconnectOwner,
+    watchSeat,
+    goLazy,
+    goActive,
+    resignSeat,
+    leaveSeat,
+    maybeAbort,
+    reofferAfter,
+    replayPresenceTo
 };

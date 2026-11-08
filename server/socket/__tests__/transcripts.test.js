@@ -236,6 +236,10 @@ describe('seat transcripts (wire characterization)', () => {
         // Seats are random; compare with positions masked
         const masked = rec.take().map((l) => l.replace(/@\d/, '@p'))
             .filter((l) => !/:(updateTurn)/.test(l));
+        // gameStart goes out in seat order (random here): compare as a set
+        const starts = masked.filter((l) => l.includes(':gameStart')).sort();
+        let k = 0;
+        for (let i = 0; i < masked.length; i++) if (masked[i].includes(':gameStart')) masked[i] = starts[k++];
         expect(pos4).toBeTruthy();
         expect(masked).toEqual([
             'room:playerDrew{card,drawOrder,socketId,username}',
@@ -249,7 +253,8 @@ describe('seat transcripts (wire characterization)', () => {
             'room:gameLogEntry{message,type}',
             'h2:playerAssigned{playerId,position}@p',
             'h3:playerAssigned{playerId,position}@p',
-            'h4:playerAssigned{playerId,position}@p',
+            // CHANGED (seat records): no playerAssigned to the dead socket of a
+            // draw-phase disconnect (it is seated in reconnect grace)
             'room:gameLogEntry{message,type}',
             'room:positionUpdate{pics,positions,sockets,usernames}',
             'room:playerDisconnected{position,username}@p',
@@ -257,7 +262,8 @@ describe('seat transcripts (wire characterization)', () => {
             'room:createUI{}',
             'h2:gameStart{currentHand,dealer,gameId,hand,hsiValues,playerInfo,players,position,score1,score2,trump}@p',
             'h3:gameStart{currentHand,dealer,gameId,hand,hsiValues,playerInfo,players,position,score1,score2,trump}@p',
-            'h4:gameStart{currentHand,dealer,gameId,hand,hsiValues,playerInfo,players,position,score1,score2,trump}@p',
+            // CHANGED (seat records): gameStart goes to connected owners only,
+            // not to the dead socket of a seat in grace
         ]);
     });
 
@@ -270,6 +276,9 @@ describe('seat transcripts (wire characterization)', () => {
         const at60 = t.rec.take();
         await jest.advanceTimersByTimeAsync(30000);
         const at90 = t.rec.take(0);
+        // CHANGED (seat records): each seat has its own 60s grace. On main
+        // the second drop restarted one game-wide timer, so both offers went
+        // out together at t=90s; now seat 1 is offered at t=60s, seat 2 at 90s.
         expect(at60).toEqual([
             'room:playerDisconnected{position,username}@1',
             'room:voicePeerLeft{socketId}',
@@ -277,10 +286,10 @@ describe('seat transcripts (wire characterization)', () => {
             'room:playerDisconnected{position,username}@2',
             'room:voicePeerLeft{socketId}',
             'room:gameLogEntry{message,type}',
-        ]);
-        expect(at90.slice(at60.length)).toEqual([
             'room:resignationAvailable{position,username}@1',
             'room:gameLogEntry{message,type}',
+        ]);
+        expect(at90.slice(at60.length)).toEqual([
             'room:resignationAvailable{position,username}@2',
             'room:gameLogEntry{message,type}',
         ]);
