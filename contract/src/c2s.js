@@ -47,7 +47,7 @@ const c2s = {
             build: str({ maxLength: 64 }),
             caps: arr(str({ minLength: 1, maxLength: 32 }), { maxItems: 16 }),
         }, { optional: ['build'] }),
-        status: 'active', joi: 'clientHello', rateLimit: 'clientHello', sentBy: { web: false, ios: false },
+        status: 'active', joi: 'clientHello', rateLimit: 'clientHello', sentBy: { web: true, ios: false },
         examples: [{ client: 'web', version: '1.0.0', build: 'abc1234', caps: ['avatarUrl'] }, { client: 'ios', version: '1.1.0', caps: [] }],
         invalid: [{ client: 'web', version: '1.0.0' }, { client: 'web', version: '1', caps: 'avatarUrl' }, { client: '', version: '1', caps: [] }, { client: 'Web!', version: '1', caps: [] }],
         notes: 'Sent on every connect by clients that read avatarUrl / avatarUrls ($defs.clientCap). No reply. Absent = legacy shape (the App Store iOS build, cached old web bundles). Unknown caps are ignored; the last hello wins (one without avatarUrl downgrades the socket). Over the rate limit it is dropped silently. Logged with the client version (telemetry for V1_REMOVALS).',

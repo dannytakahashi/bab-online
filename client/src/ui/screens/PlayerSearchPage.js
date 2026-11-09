@@ -4,6 +4,8 @@
  * Modal overlay with search input and results list for finding players.
  */
 
+import { profileAvatarSrc, applyAvatarImg } from '../../utils/avatar.js';
+
 let debounceTimer = null;
 let currentSocket = null;
 
@@ -14,13 +16,7 @@ let currentSocket = null;
  * @returns {string} Image source
  */
 function getProfilePicSrc(player) {
-  if (player.customProfilePic) {
-    return player.customProfilePic;
-  }
-  if (player.profilePic) {
-    return `assets/profile${player.profilePic}.png`;
-  }
-  return 'assets/profile1.png';
+  return profileAvatarSrc(player, 'assets/profile1.png');
 }
 
 /**
@@ -229,7 +225,7 @@ export function updatePlayerSearchResults(players) {
 
     // Avatar
     const avatar = document.createElement('img');
-    avatar.src = getProfilePicSrc(player);
+    applyAvatarImg(avatar, getProfilePicSrc(player), { lazy: true });
     avatar.style.width = '40px';
     avatar.style.height = '40px';
     avatar.style.borderRadius = '50%';

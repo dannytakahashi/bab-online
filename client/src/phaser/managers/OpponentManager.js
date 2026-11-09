@@ -4,6 +4,7 @@
  * Handles opponent card backs, avatars, dealer button, and turn glow.
  */
 
+import { avatarSrc, applyAvatarImg } from '../../utils/avatar.js';
 import { team, rotate } from '../../utils/positions.js';
 import { CARD_CONFIG, ANIMATION_CONFIG } from '../config.js';
 import { getSocketManager } from '../../socket/SocketManager.js';
@@ -310,7 +311,13 @@ export class OpponentManager {
     // Create DOM element
     const button = document.createElement('div');
     button.className = 'dealer-button';
-    button.innerHTML = '<img src="assets/frog.png" alt="Dealer">';
+    // 120 px WebP (immutable, versioned), the legacy PNG if WebP fails
+    const frog = document.createElement('img');
+    frog.alt = 'Dealer';
+    frog.decoding = 'async';
+    frog.onerror = () => { frog.onerror = null; frog.setAttribute('src', 'assets/frog.png'); };
+    frog.setAttribute('src', 'assets/avatars/v1/frog.webp');
+    button.appendChild(frog);
     button.style.left = `${x}px`;
     button.style.top = `${y}px`;
 
@@ -437,14 +444,8 @@ export class OpponentManager {
     // Avatar image
     const img = document.createElement('img');
     img.className = 'opponent-avatar-img';
-    // Handle both numbered pics (1-82) and custom base64 pics
-    if (pic && typeof pic === 'string' && pic.startsWith('data:image')) {
-      img.src = pic; // Custom base64 image
-    } else if (pic && typeof pic === 'number') {
-      img.src = `assets/profile${pic}.png`; // Numbered profile pic
-    } else {
-      img.src = 'assets/profile1.png'; // Default fallback
-    }
+    // Stock number, inline data URL or /avatar URL (utils/avatar.js)
+    applyAvatarImg(img, avatarSrc(pic));
     img.alt = username;
     img.style.cssText = `
       width: 80px !important;
@@ -563,13 +564,7 @@ export class OpponentManager {
     // Update the image
     const img = dom.querySelector('.opponent-avatar-img');
     if (img) {
-      if (pic && typeof pic === 'string' && pic.startsWith('data:image')) {
-        img.src = pic;
-      } else if (pic && typeof pic === 'number') {
-        img.src = `assets/profile${pic}.png`;
-      } else {
-        img.src = 'assets/profile1.png';
-      }
+      applyAvatarImg(img, avatarSrc(pic));
       img.alt = username;
     }
 

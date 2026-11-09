@@ -14,6 +14,7 @@ import { team, rotate, isSameTeam, getTeamNumber, getPlayerName, getRelativePosi
 import { getCardImageKey, getSuitOrder, sortHand, cardsEqual, isJoker, getCardDisplayName } from './utils/cards.js';
 import { adoptSavedSession, forgetSession, clearAllSessionData } from './utils/sessionPersistence.js';
 import { hashToHue, generateDistinctColor, getUsernameColor, extractHue } from './utils/colors.js';
+import { avatarSrc, applyAvatarImg, installAvatarSupport } from './utils/avatar.js';
 
 // Rules
 import { sameSuit, isVoid, isTrumpTight, isHighestTrump, isLegalMove, wouldBreakTrump, getLegalCards } from './rules/legality.js';
@@ -936,14 +937,8 @@ export function setGameScene(scene) {
 
       const avatarImg = document.createElement('img');
       avatarImg.className = 'player-avatar-img';
-      // Handle both numbered pics and custom base64 pics
-      if (pic && typeof pic === 'string' && pic.startsWith('data:image')) {
-        avatarImg.src = pic;
-      } else if (pic && typeof pic === 'number') {
-        avatarImg.src = `assets/profile${pic}.png`;
-      } else {
-        avatarImg.src = 'assets/profile1.png';
-      }
+      // Stock number, inline data URL or /avatar URL (utils/avatar.js)
+      applyAvatarImg(avatarImg, avatarSrc(pic));
       avatarImg.alt = username;
       avatarImg.style.cssText = `
         width: 80px;
@@ -1324,6 +1319,17 @@ function getSocket() {
 // Get socket (created in socket-init.js)
 const socket = getSocket();
 console.log('Using socket from window.socket');
+
+// Avatars over HTTP (docs/avatars.md): clientHello caps ['avatarUrl'] on
+// every connect (and right now: buffered ahead of any later emit while
+// disconnected), and avatarUrls folded into the pic fields as each message
+// arrives. Lives here, not in socket-init.js (cached separately, it could
+// pair with a stale bundle). Registered before the connect handler below.
+/* global __APP_VERSION__, __APP_BUILD__ */
+installAvatarSupport(socket, {
+  version: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0',
+  build: typeof __APP_BUILD__ !== 'undefined' ? __APP_BUILD__ : 'dev',
+});
 
 // ==================== RECONNECTION LOGIC ====================
 

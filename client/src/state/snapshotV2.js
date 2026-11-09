@@ -116,6 +116,8 @@ function validate(s, c) {
       c.nullable(st.pic, `${p}.pic`, c.int);
       c.bool(st.hasCustomPic, `${p}.hasCustomPic`);
       c.nullable(st.customPic, `${p}.customPic`, c.str);
+      // additive (docs/avatars.md): the seat's /avatar URL when it has one
+      if ('avatarUrl' in st) c.nullable(st.avatarUrl, `${p}.avatarUrl`, c.str);
       c.nullable(st.ownerUsername, `${p}.ownerUsername`, c.str);
       c.oneOf(st.controller, `${p}.controller`, CONTROLLERS);
       c.oneOf(st.presence, `${p}.presence`, PRESENCES);
@@ -222,6 +224,9 @@ export function isComplete(snapshot) {
  * @param {{pics?: Object<string, string>}} [opts]
  * @returns {Object} a deep-frozen snapshot
  */
+/** An inline data URL or an /avatar URL (utils/avatar.js isCustomPic; this file has no imports). */
+const CUSTOM_PIC = /^(data:image|\/avatar\/)/;
+
 export function mergeSnapshot(prev, next, { pics = {} } = {}) {
   const same = !!prev && prev.gameId === next.gameId;
   const out = JSON.parse(JSON.stringify(next));
@@ -235,7 +240,7 @@ export function mergeSnapshot(prev, next, { pics = {} } = {}) {
     out.seats = out.seats.map((seat) => {
       if (!seat.hasCustomPic || seat.customPic !== null) return seat;
       const old = same ? seatAt(prev, seat.position) : null;
-      const known = (seat.username != null && typeof pics[seat.username] === 'string' && pics[seat.username].startsWith('data:image'))
+      const known = (seat.username != null && typeof pics[seat.username] === 'string' && CUSTOM_PIC.test(pics[seat.username]))
         ? pics[seat.username]
         : (old && old.username === seat.username && old.customPic) || null;
       if (!known) still = true;

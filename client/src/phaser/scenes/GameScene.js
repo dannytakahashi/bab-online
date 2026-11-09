@@ -5,6 +5,7 @@
  * and all game-related visual updates.
  */
 
+import { avatarSrc, applyAvatarImg, isAvatarPic } from '../../utils/avatar.js';
 import { getGameState } from '../../state/GameState.js';
 import { getCardImageKey } from '../../utils/cards.js';
 import { team, rotate } from '../../utils/positions.js';
@@ -1645,11 +1646,7 @@ export class GameScene extends Phaser.Scene {
       // Update local player's avatar to show bot info
       if (this._playerInfo) {
         const pic = data.botPic;
-        if (pic && typeof pic === 'string' && pic.startsWith('data:image')) {
-          this._playerInfo.avatarImg.src = pic;
-        } else if (pic && typeof pic === 'number') {
-          this._playerInfo.avatarImg.src = `assets/profile${pic}.png`;
-        }
+        if (isAvatarPic(pic)) applyAvatarImg(this._playerInfo.avatarImg, avatarSrc(pic));
         this._playerInfo.nameLabel.textContent = data.botUsername;
       }
     } else if (this.opponentManager) {
@@ -1672,11 +1669,7 @@ export class GameScene extends Phaser.Scene {
       // Restore local player's avatar
       if (this._playerInfo) {
         const pic = data.pic;
-        if (pic && typeof pic === 'string' && pic.startsWith('data:image')) {
-          this._playerInfo.avatarImg.src = pic;
-        } else if (pic && typeof pic === 'number') {
-          this._playerInfo.avatarImg.src = `assets/profile${pic}.png`;
-        }
+        if (isAvatarPic(pic)) applyAvatarImg(this._playerInfo.avatarImg, avatarSrc(pic));
         this._playerInfo.nameLabel.textContent = data.username;
       }
     } else if (this.opponentManager) {

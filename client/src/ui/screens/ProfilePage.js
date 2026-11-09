@@ -5,6 +5,7 @@
  */
 
 import { clearAllSessionData } from '../../utils/sessionPersistence.js';
+import { avatarSrc, profileAvatarSrc, applyAvatarImg } from '../../utils/avatar.js';
 
 /**
  * Module state - tracks current profile data and UI state.
@@ -20,13 +21,7 @@ let currentSocket = null;
  * @returns {string} Image source (base64 or URL)
  */
 function getProfilePicSrc(profile) {
-  if (profile.customProfilePic) {
-    return profile.customProfilePic;
-  }
-  if (profile.profilePic) {
-    return `assets/profile${profile.profilePic}.png`;
-  }
-  return 'assets/default_avatar.png';
+  return profileAvatarSrc(profile, 'assets/default_avatar.png');
 }
 
 /**
@@ -107,7 +102,7 @@ async function handleFileUpload(event, socket) {
 
   try {
     // Resize and compress image
-    const resizedImage = await resizeImage(file, 200, 0.8);
+    const resizedImage = await resizeImage(file, 200);
 
     // Send to server
     socket.emit('uploadProfilePic', { imageData: resizedImage });
@@ -250,7 +245,7 @@ function createPictureSelector(socket, currentPic) {
     picBtn.style.transition = 'transform 0.2s, border-color 0.2s';
 
     const img = document.createElement('img');
-    img.src = `assets/profile${i}.png`;
+    applyAvatarImg(img, avatarSrc(i), { lazy: true });
     img.style.width = '100%';
     img.style.height = '100%';
     img.style.objectFit = 'cover';
@@ -392,7 +387,7 @@ export function showProfilePage(profile, socket) {
 
   const picImg = document.createElement('img');
   picImg.id = 'profilePicImage';
-  picImg.src = getProfilePicSrc(profile);
+  applyAvatarImg(picImg, getProfilePicSrc(profile), { fallback: 'assets/default_avatar.png' });
   picImg.style.width = '100%';
   picImg.style.height = '100%';
   picImg.style.objectFit = 'cover';
@@ -702,7 +697,7 @@ export function updateProfilePicDisplay(newPic) {
 
   const picImg = document.getElementById('profilePicImage');
   if (picImg) {
-    picImg.src = `assets/profile${newPic}.png`;
+    applyAvatarImg(picImg, avatarSrc(newPic, 'assets/default_avatar.png'), { fallback: 'assets/default_avatar.png' });
   }
 }
 
@@ -718,7 +713,7 @@ export function updateCustomProfilePicDisplay(customPic) {
 
   const picImg = document.getElementById('profilePicImage');
   if (picImg) {
-    picImg.src = customPic;
+    applyAvatarImg(picImg, avatarSrc(customPic, 'assets/default_avatar.png'), { fallback: 'assets/default_avatar.png' });
   }
 }
 
@@ -831,7 +826,7 @@ export function showPlayerProfilePage(profile, socket, options = {}) {
   picContainer.style.flexShrink = '0';
 
   const picImg = document.createElement('img');
-  picImg.src = getProfilePicSrc(profile);
+  applyAvatarImg(picImg, getProfilePicSrc(profile), { fallback: 'assets/default_avatar.png' });
   picImg.style.width = '100%';
   picImg.style.height = '100%';
   picImg.style.objectFit = 'cover';
