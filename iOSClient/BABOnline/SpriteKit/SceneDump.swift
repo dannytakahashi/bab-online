@@ -33,6 +33,8 @@ enum SceneDump {
         parts.append("pos=(\(r(node.position.x)),\(r(node.position.y))) z=\(r(node.zPosition))")
         if !(node.name?.hasPrefix("glow.") ?? false) { parts.append("a=\(r(node.alpha))") }  // glows pulse
         if node.isHidden { parts.append("hidden") }
+        // a scaled container (the hand at s < 1); sprites already print their on-screen size
+        if !(node is SKSpriteNode) && node.xScale != 1 { parts.append("scale=\(String(format: "%.2f", node.xScale))") }
         if let label = node as? SKLabelNode { parts.append("text=\(label.text ?? "")") }
         return parts.joined(separator: " ")
     }

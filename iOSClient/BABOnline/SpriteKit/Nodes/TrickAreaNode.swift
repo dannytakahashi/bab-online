@@ -5,8 +5,6 @@ import SpriteKit
 /// order (22.1c). Collected sprites leave for the scene's transient layer, so
 /// a reconcile never touches them.
 class TrickAreaNode: SKNode {
-    static let cardSize = CGSize(width: LayoutConstants.cardWidth * 0.8, height: LayoutConstants.cardHeight * 0.8)
-
     /// Collects in flight. While above 0 the hand is not playable, so the next
     /// card cannot be played into a table that is still being cleared (#187).
     private(set) var collectingCount = 0
@@ -37,7 +35,7 @@ class TrickAreaNode: SKNode {
     /// Make the layer show exactly `cards`. `adopt` supplies an existing
     /// sprite for a card (my hand's sprite).
     @discardableResult
-    func apply(cards: [TableRenderModel.TrickCard], key: TrickKey?, viewPosition: Int, geometry: TableGeometry,
+    func apply(cards: [TableRenderModel.TrickCard], key: TrickKey?, viewPosition: Int, layout: TableLayout,
                adopt: (TableRenderModel.TrickCard) -> SKSpriteNode?, animator: Animator) -> Changes {
         let wanted = Set(cards.map { Self.spriteName($0.position, $0.card) })
         for s in cardSprites where !wanted.contains(s.name ?? "") { s.removeFromParent() }
@@ -45,7 +43,7 @@ class TrickAreaNode: SKNode {
         var created: Set<String> = []
         for c in cards {
             let name = Self.spriteName(c.position, c.card)
-            let slot = geometry.trickSlot(Positions.getRelative(target: c.position, from: viewPosition))
+            let slot = layout.trickSlot(Positions.getRelative(target: c.position, from: viewPosition))
             let sprite: SKSpriteNode
             if let existing = self.sprite(named: name) {
                 sprite = existing
@@ -53,17 +51,22 @@ class TrickAreaNode: SKNode {
             } else if let moved = adopt(c) {
                 // keep the sprite where it is on screen, then fly it to the slot (22.7)
                 let world = moved.parent.map { $0.convert(moved.position, to: self) } ?? moved.position
+                // its on-screen size too: the hand may be scaled
+                let worldScale = moved.xScale * (moved.parent?.xScale ?? 1)
                 moved.removeAllActions()
                 moved.removeFromParent()
                 moved.position = world
+                moved.setScale(worldScale)
                 addChild(moved)
                 sprite = moved
                 adopted.insert(name)
                 animator.move(sprite, to: slot, duration: LayoutConstants.playCardDuration, completion: nil)
                 if let card = sprite as? CardSpriteNode { card.isUserInteractionEnabled = false; card.isLegal = true }
-                animator.run(sprite, SKAction.scale(to: 0.8, duration: LayoutConstants.playCardDuration)) { $0.setScale(0.8) }
+                animator.scale(sprite, to: layout.trickSpriteScale, duration: LayoutConstants.playCardDuration)
             } else {
-                sprite = SKSpriteNode(texture: CardTextureGenerator.texture(for: c.card), size: Self.cardSize)
+                // the hand card's base size at the trick scale, so a fresh sprite and an adopted one dump alike
+                sprite = SKSpriteNode(texture: CardTextureGenerator.texture(for: c.card), size: TableLayout.cardSize)
+                sprite.setScale(layout.trickSpriteScale)
                 sprite.position = slot
                 addChild(sprite)
                 created.insert(name)

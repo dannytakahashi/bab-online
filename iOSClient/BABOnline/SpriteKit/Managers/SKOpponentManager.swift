@@ -14,7 +14,7 @@ class SKOpponentManager {
         self.layer = layer
     }
 
-    func apply(_ model: TableRenderModel, geometry: TableGeometry) {
+    func apply(_ model: TableRenderModel, layout: TableLayout) {
         let key = "\(model.gameId ?? "-")|\(model.viewPosition)|\(model.isSpectator)"
         if key != layoutKey {
             cleanup()
@@ -28,7 +28,7 @@ class SKOpponentManager {
         }
         for o in model.opponents {
             guard let node = nodes[o.position] else { continue }
-            if !node.hasActions() { node.position = geometry.seatAnchor(o.rel) }
+            if !node.hasActions() { node.position = layout.seatAnchor(o.rel) }
             node.update(name: o.name, pic: o.pic.string, isTurn: o.isTurn)
         }
     }

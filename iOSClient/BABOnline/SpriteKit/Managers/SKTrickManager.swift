@@ -17,7 +17,7 @@ class SKTrickManager {
 
     /// Exit animation: trick `key`'s sprites leave for the transient layer and
     /// fly to the winner; the completion re-renders the latest model.
-    func collect(winner: Int, key: TrickKey, viewPosition: Int, geometry: TableGeometry, animator: Animator) {
+    func collect(winner: Int, key: TrickKey, viewPosition: Int, layout: TableLayout, animator: Animator) {
         guard let scene else { return }
         let sprites = trickArea.takeForCollect(key)
         guard !sprites.isEmpty else { return }
@@ -28,7 +28,8 @@ class SKTrickManager {
             scene.transientLayer.addChild(s)
         }
         HapticManager.success()
-        let point = geometry.collectPoint(Positions.getRelative(target: winner, from: viewPosition))
+        // in flight, a collect ends at this target even if the table relays out (0.4 s, fading)
+        let point = layout.collectPoint(Positions.getRelative(target: winner, from: viewPosition))
         animator.collect(sprites, to: point) { [weak self, weak scene] in
             self?.trickArea.collectFinished()
             scene?.renderLatest()

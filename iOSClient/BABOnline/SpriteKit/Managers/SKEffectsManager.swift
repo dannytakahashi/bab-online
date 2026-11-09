@@ -1,6 +1,7 @@
 import SpriteKit
 
-/// Manages visual effects: rainbow, bore badges, etc.
+/// Visual effects (rainbow, bore badge, over-trump badge) in the transient
+/// layer, placed from the table layout.
 class SKEffectsManager {
     weak var scene: GameSKScene?
 
@@ -8,24 +9,13 @@ class SKEffectsManager {
         self.scene = scene
     }
 
-    /// Show rainbow effect for a position using rainbow1 image
+    /// Rainbow over a seat (rainbow1, 128x118).
     func showRainbow(position: Int, myPosition: Int) {
         guard let scene = scene else { return }
-        let relPos = Positions.getRelative(target: position, from: myPosition)
-        let scaleX = scene.size.width / LayoutConstants.referenceWidth
-        let scaleY = scene.size.height / LayoutConstants.referenceHeight
-
-        let effectPos: CGPoint
-        switch relPos {
-        case .bottom: effectPos = CGPoint(x: 0, y: -scene.size.height / 2 + 200)
-        case .top:    effectPos = CGPoint(x: 0, y: scene.size.height / 2 - 150 * scaleY)
-        case .left:   effectPos = CGPoint(x: -scene.size.width / 2 + 120 * scaleX, y: 0)
-        case .right:  effectPos = CGPoint(x: scene.size.width / 2 - 120 * scaleX, y: 0)
-        }
-
-        let texture = SKTexture(imageNamed: "rainbow1")
-        let sprite = SKSpriteNode(texture: texture)
-        sprite.position = effectPos
+        let rel = Positions.getRelative(target: position, from: myPosition)
+        let sprite = SKSpriteNode(texture: SKTexture(imageNamed: "rainbow1"), size: TableLayout.rainbowSize)
+        sprite.name = "effect.rainbow"
+        sprite.position = scene.layout.rainbowCenter(rel)
         sprite.zPosition = 1000
         sprite.setScale(0)
         scene.transientLayer.addChild(sprite)
@@ -38,7 +28,7 @@ class SKEffectsManager {
         scene.animator.run(sprite, SKAction.sequence([scaleIn, wait, fadeOut, SKAction.removeFromParent()])) { $0.removeFromParent() }
     }
 
-    /// Show bore badge effect
+    /// Bore badge at the trick cluster's center.
     func showBoreBadge(_ level: String) {
         guard let scene = scene else { return }
 
@@ -53,7 +43,8 @@ class SKEffectsManager {
 
         let texture = SKTexture(imageNamed: textureName)
         let badge = SKSpriteNode(texture: texture, size: CGSize(width: 80, height: 80))
-        badge.position = CGPoint(x: -scene.size.width / 4, y: scene.size.height / 4)
+        badge.name = "effect.bore"
+        badge.position = scene.layout.boreBadgeCenter
         badge.zPosition = 500
         badge.alpha = 0
         badge.setScale(0.5)
@@ -73,14 +64,14 @@ class SKEffectsManager {
         ])) { $0.removeFromParent() }
     }
 
-    /// Show over-trump (OT) badge effect
+    /// Over-trump (OT) badge, top-left of the trick cluster.
     func showOverTrump() {
         guard let scene = scene else { return }
 
         let texture = SKTexture(imageNamed: "ot")
-        let badge = SKSpriteNode(texture: texture, size: CGSize(width: 120, height: 120))
-        // Top-left of play area
-        badge.position = CGPoint(x: -scene.size.width / 4, y: scene.size.height / 4)
+        let badge = SKSpriteNode(texture: texture, size: CGSize(width: TableLayout.overTrumpSize, height: TableLayout.overTrumpSize))
+        badge.name = "effect.overTrump"
+        badge.position = scene.layout.overTrumpCenter
         badge.zPosition = 999
         badge.setScale(0)
         scene.transientLayer.addChild(badge)

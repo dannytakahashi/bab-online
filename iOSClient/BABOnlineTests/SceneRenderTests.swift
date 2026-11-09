@@ -28,9 +28,10 @@ final class SceneRenderTests: XCTestCase {
     }
 
     /// A scene built offscreen (an SKView that is never in a window).
-    func makeScene(_ h: ReplayHarness, animator: Animator = InstantAnimator()) -> GameSKScene {
+    func makeScene(_ h: ReplayHarness, animator: Animator = InstantAnimator(), chrome: TableChrome = .init()) -> GameSKScene {
         let scene = GameSKScene(size: Self.size)
         scene.animator = animator
+        scene.chrome = chrome
         scene.configure(gameState: h.store, actions: h.actions)
         scene.didMove(to: SKView(frame: CGRect(origin: .zero, size: Self.size)))
         return scene
@@ -288,7 +289,7 @@ final class SceneRenderTests: XCTestCase {
         let ids = scene.opponentManager.nodes.mapValues { ObjectIdentifier($0) }
         scene.size = CGSize(width: 669, height: 951)  // Duo unfolded
         XCTAssertEqual(scene.opponentManager.nodes.mapValues { ObjectIdentifier($0) }, ids)
-        XCTAssertEqual(scene.opponentManager.nodes[3]?.position, TableGeometry(size: scene.size).seatAnchor(.top))
+        XCTAssertEqual(scene.opponentManager.nodes[3]?.position, TableLayout(size: scene.size, chrome: scene.chrome).seatAnchor(.top))
         _ = h
     }
 }

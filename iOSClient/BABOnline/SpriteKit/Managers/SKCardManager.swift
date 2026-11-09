@@ -15,8 +15,9 @@ class SKCardManager {
         handNode.onCardTapped = { [weak self] card in self?.handleCardPlay(card) }
     }
 
-    func apply(_ model: TableRenderModel, geometry: TableGeometry, arriving: Set<String>, animator: Animator) {
-        handNode.position = geometry.handBaseline
+    func apply(_ model: TableRenderModel, layout: TableLayout, arriving: Set<String>, animator: Animator) {
+        handNode.position = layout.handBaseline
+        handNode.setScale(layout.handScale)
         guard let hand = model.hand, model.showsTable else {
             interactive = false
             handNode.cleanup()
@@ -26,7 +27,7 @@ class SKCardManager {
         interactive = hand.interactive && !collecting
         // The legal set is empty while the previous trick flies; the collect completion re-renders
         let legal: Set<String> = collecting && hand.interactive ? [] : hand.legalIds
-        handNode.apply(cards: hand.cards, legalIds: legal, geometry: geometry, interactive: interactive, arriving: arriving, animator: animator)
+        handNode.apply(cards: hand.cards, legalIds: legal, layout: layout, interactive: interactive, arriving: arriving, animator: animator)
     }
 
     func handleCardPlay(_ card: Card) {

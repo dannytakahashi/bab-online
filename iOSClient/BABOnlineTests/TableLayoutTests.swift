@@ -1,5 +1,6 @@
 import XCTest
 import CoreGraphics
+import SpriteKit
 @testable import BAB_Online
 
 /// TableLayout (roadmap item 25): the pure layout, against the reference
@@ -291,6 +292,64 @@ final class TableLayoutTests: XCTestCase {
         XCTAssertEqual(w.minX, L.bidBand.minX + 233, accuracy: 0.001)
         XCTAssertEqual(w.maxY, 678 - (L.bidBand.minY + 339), accuracy: 0.001)
         XCTAssertEqual(L.bidPanelBottomInset, L.bidBand.minY + 339, accuracy: 0.001)
+    }
+
+    // MARK: scene
+
+    @MainActor
+    private func scene(_ h: ReplayHarness, size: CGSize, chrome: TableChrome) -> GameSKScene {
+        OpponentHandNode.avatarLoader = StubAvatarLoader()
+        let scene = GameSKScene(size: size)
+        scene.animator = InstantAnimator()
+        scene.chrome = chrome
+        scene.configure(gameState: h.store, actions: h.actions)
+        scene.didMove(to: SKView(frame: CGRect(origin: .zero, size: size)))
+        return scene
+    }
+
+    /// My played card (the hand's sprite, hand scaled 0.9) and a freshly built trick card have the same frame at k = 0.75.
+    @MainActor
+    func testTrickFrameSameForAdoptedAndFresh() throws {
+        let size = CGSize(width: 375, height: 667)
+        let chrome = Self.chrome(Self.insets(20, 0, 0, 0), bottomBar: 45)
+        let h = ReplayHarness()
+        let live = scene(h, size: size, chrome: chrome)
+        XCTAssertEqual(live.layout.trickScale, 0.75, accuracy: 0.001)
+        XCTAssertEqual(live.layout.handScale, 0.9, accuracy: 0.001)
+        h.store.apply(.snapshot(try T.snapshot("trick-mid-lead3"), .rejoin, hints: nil))
+        let hand = try XCTUnwrap(TableRenderModel(h.store.state).hand)
+        let card = try XCTUnwrap(hand.cards.first { hand.legalIds.contains($0.id) })
+        let handSprite = try XCTUnwrap(live.handNode.sprite(for: card.id))
+        XCTAssertTrue(h.actions.play(card))
+        let me = try XCTUnwrap(h.store.state.table.viewer.position)
+        let adopted = try XCTUnwrap(live.trickArea.sprite(named: TrickAreaNode.spriteName(me, card)))
+        XCTAssertTrue(adopted === handSprite)
+        let fresh = scene(ReplayHarness(), size: size, chrome: chrome)
+        fresh.render(TableRenderModel(h.store.state))
+        let built = try XCTUnwrap(fresh.trickArea.sprite(named: TrickAreaNode.spriteName(me, card)))
+        XCTAssertFalse(built === adopted)
+        XCTAssertEqual(adopted.frame.width, 60, accuracy: 0.01)
+        XCTAssertEqual(adopted.frame.height, 87, accuracy: 0.01)
+        XCTAssertEqual(adopted.frame.size, built.frame.size)
+        XCTAssertEqual(adopted.position, built.position)
+        let other = try XCTUnwrap(live.trickArea.cardSprites.first { $0 !== adopted })
+        XCTAssertEqual(other.frame.size, built.frame.size)
+        XCTAssertEqual(SceneDump.dump(live).filter { $0.hasPrefix("trick") }, SceneDump.dump(fresh).filter { $0.hasPrefix("trick") })
+    }
+
+    @MainActor
+    func testAllLayersAtOrigin() throws {
+        for (size, ins) in Self.scopeSizes {
+            let h = ReplayHarness()
+            let s = scene(h, size: size, chrome: Self.chrome(ins))
+            h.store.apply(.snapshot(try T.snapshot("trick-mid-lead3"), .rejoin, hints: nil))
+            for layer in [s.opponentsLayer, s.bidsLayer, s.trickArea, s.transientLayer, s.backgroundNode] as [SKNode] {
+                XCTAssertEqual(layer.position, .zero, "\(size) \(layer.name ?? "?")")
+            }
+            XCTAssertEqual(s.handNode.position, s.layout.handBaseline)
+            XCTAssertEqual(s.handNode.xScale, s.layout.handScale)
+            XCTAssertEqual(s.trickManager.trickHistory.position, s.layout.historyOrigin)
+        }
     }
 
     func testChatPositionsInsideAndOffCorners() {

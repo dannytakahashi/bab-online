@@ -1,17 +1,12 @@
 import Foundation
 
 enum LayoutConstants {
-    /// Reference scene size matching web client
-    static let referenceWidth: CGFloat = 1920
-    static let referenceHeight: CGFloat = 953
-
     /// Card dimensions (base)
     static let cardWidth: CGFloat = 100
     static let cardHeight: CGFloat = 145
 
     /// Card spacing in hand
     static let cardOverlap: CGFloat = 35
-    static let cardOverlapCompact: CGFloat = 25
 
     /// Card lift when selected
     static let cardLiftY: CGFloat = 20
@@ -19,10 +14,6 @@ enum LayoutConstants {
     /// Opponent card back size
     static let opponentCardWidth: CGFloat = 50
     static let opponentCardHeight: CGFloat = 72
-
-    /// Trick area offsets from center
-    static let trickOffsetX: CGFloat = 80
-    static let trickOffsetY: CGFloat = 80
 
     /// Avatar size
     static let avatarSize: CGFloat = 48

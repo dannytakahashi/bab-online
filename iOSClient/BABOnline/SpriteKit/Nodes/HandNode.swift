@@ -23,7 +23,7 @@ class HandNode: SKNode {
 
     /// `arriving`: ids just adopted from elsewhere, animated into their slot.
     /// `interactive`: taps may play now (my play turn, no collect in flight).
-    func apply(cards: [Card], legalIds: Set<String>, geometry: TableGeometry, interactive: Bool = false,
+    func apply(cards: [Card], legalIds: Set<String>, layout: TableLayout, interactive: Bool = false,
                arriving: Set<String> = [], animator: Animator = InstantAnimator()) {
         let ids = Set(cards.map(\.id))
         for (id, s) in sprites where !ids.contains(id) {
@@ -37,7 +37,8 @@ class HandNode: SKNode {
             sprites[lifted]?.removeAction(forKey: CardAnimations.liftKey)
         }
         wasInteractive = interactive
-        let slots = geometry.handSlots(count: cards.count)
+        // local (unscaled) units: the node itself carries the hand scale
+        let slots = layout.handSlots(count: cards.count)
         for (i, card) in cards.enumerated() {
             let s: CardSpriteNode
             if let existing = sprites[card.id] {

@@ -17,7 +17,11 @@ class GameSKScene: SKScene, TableRenderer {
     private(set) var isSetUp = false
 
     var animator: Animator = LiveAnimator()
-    private(set) var geometry = TableGeometry(size: .zero)
+    private(set) var layout = TableLayout(size: .zero)
+    /// Measured by GameContainerView (safe area, ScoreBar, corner buttons, pill, fold).
+    var chrome = TableChrome() {
+        didSet { if chrome != oldValue { layoutChanged() } }
+    }
     private(set) var lastModel: TableRenderModel?
 
     // Static layers (built once)
@@ -55,7 +59,7 @@ class GameSKScene: SKScene, TableRenderer {
     private func buildLayersOnce() {
         guard !isSetUp else { return }
         isSetUp = true
-        geometry = TableGeometry(size: size)
+        layout = TableLayout(size: size, chrome: chrome)
         backgroundNode.name = "background"
         backgroundNode.zPosition = -100
         backgroundNode.size = size
@@ -81,6 +85,12 @@ class GameSKScene: SKScene, TableRenderer {
         chatManager = SKChatBubbleManager(layer: transientLayer)
         effectsManager = SKEffectsManager(scene: self)
         subscribeSpeaking()
+        #if DEBUG
+        // TableLayout positions are scene coordinates: every layer stays at the origin
+        for layer in [opponentsLayer, bidsLayer, trickArea, transientLayer, backgroundNode] as [SKNode] {
+            assert(layer.position == .zero, "\(layer.name ?? "?") must stay at (0,0)")
+        }
+        #endif
     }
 
     /// Voice speaking indicators (the one Combine sink left): socket id -> seat.
@@ -106,9 +116,14 @@ class GameSKScene: SKScene, TableRenderer {
     override func didChangeSize(_ oldSize: CGSize) {
         super.didChangeSize(oldSize)
         guard isSetUp else { return }
-        geometry = TableGeometry(size: size)
+        layoutChanged()
+    }
+
+    private func layoutChanged() {
+        guard isSetUp else { return }
+        layout = TableLayout(size: size, chrome: chrome)
         backgroundNode.size = size
-        renderLatest()  // relays out every layer, opponents included
+        renderLatest()
     }
 
     /// Re-render the latest model (collect completion, resize).
@@ -127,7 +142,7 @@ class GameSKScene: SKScene, TableRenderer {
         for a in animations {
             switch a {
             case .trickCollected(let winner, let key):
-                trickManager.collect(winner: winner, key: key, viewPosition: view, geometry: geometry, animator: animator)
+                trickManager.collect(winner: winner, key: key, viewPosition: view, layout: layout, animator: animator)
             case .handsDestroyed:
                 for s in handNode.sprites.values {
                     _ = handNode.detach(s.card.id)
@@ -157,7 +172,7 @@ class GameSKScene: SKScene, TableRenderer {
                 // when a late cardPlayed confirms it
                 guard changes.created.contains(name) else { break }
                 let rel = Positions.getRelative(target: played.position, from: view)
-                trickArea.animateEntry(name, from: geometry.trickEntry(rel), slot: geometry.trickSlot(rel), animator: animator)
+                trickArea.animateEntry(name, from: layout.trickEntry(rel), slot: layout.trickSlot(rel), animator: animator)
             case .bidPlaced(let pos, _, _):
                 bidManager.pop(position: pos, animator: animator)
             case .bore(_, let bid, _):
@@ -169,7 +184,7 @@ class GameSKScene: SKScene, TableRenderer {
             case .chatBubble(let pos, let message):
                 // Not over my own hand (the bottom seat's spot): the log shows my line
                 guard model.showsTable, !(model.hand != nil && pos == model.viewPosition) else { break }
-                chatManager.show(position: pos, message: message, viewPosition: view, geometry: geometry, animator: animator)
+                chatManager.show(position: pos, message: message, viewPosition: view, layout: layout, animator: animator)
             default:
                 break
             }
@@ -192,15 +207,16 @@ class GameSKScene: SKScene, TableRenderer {
             Self.stopActions(transientLayer)
             transientLayer.removeAllChildren()
         }
-        handNode.position = geometry.handBaseline
-        trickManager.trickHistory.position = geometry.historyOrigin
+        handNode.position = layout.handBaseline
+        handNode.setScale(layout.handScale)
+        trickManager.trickHistory.position = layout.historyOrigin
         // Game over: the final table stays behind GameEndView (as before 23)
         if model.keepsLastTable { return .init() }
         guard model.showsTable else {
             opponentManager.cleanup()
             handNode.cleanup()
             trickArea.clearAllCards()
-            trickManager.trickHistory.setCounts(team: 0, opp: 0)
+            trickManager.trickHistory.setCounts(team: 0, opp: 0, spacing: layout.historySpacing)
             bidManager.cleanup()
             return .init()
         }
@@ -225,14 +241,14 @@ class GameSKScene: SKScene, TableRenderer {
             }
         }
 
-        opponentManager.apply(model, geometry: geometry)
-        cardManager.apply(model, geometry: geometry, arriving: toHand, animator: animator)
-        let changes = trickArea.apply(cards: model.trick, key: model.trickKey, viewPosition: me, geometry: geometry, adopt: { c in
+        opponentManager.apply(model, layout: layout)
+        cardManager.apply(model, layout: layout, arriving: toHand, animator: animator)
+        let changes = trickArea.apply(cards: model.trick, key: model.trickKey, viewPosition: me, layout: layout, adopt: { c in
             c.position == me ? toTrick.removeValue(forKey: c.card.id) : nil
         }, animator: animator)
         toTrick.values.forEach { $0.removeFromParent() }
-        trickManager.trickHistory.setCounts(team: model.history.team1, opp: model.history.team2)
-        bidManager.apply(bubbles: model.bidBubbles, viewPosition: me, geometry: geometry)
+        trickManager.trickHistory.setCounts(team: model.history.team1, opp: model.history.team2, spacing: layout.historySpacing)
+        bidManager.apply(bubbles: model.bidBubbles, viewPosition: me, layout: layout)
         return changes
     }
 
