@@ -202,9 +202,9 @@ Duo's hinge turns out to run: tabletop (a horizontal division, in portrait
 or in landscape) puts the table above it and the hand and bid panel below
 it (ignored when the window is too short to split, e.g. the closed Duo);
 in landscape the side panel stays and the table pane gets the same split.
-Book (a vertical division) docks the game log on the left page up to the
-hinge and the scene never spans it, when the left page is at least 240 pt
-and the right one 375 pt (the open Duo in landscape); otherwise (open
+Book (a vertical division) docks the game log on the right page from the
+hinge (the table takes the left page) and the scene never spans it, when the
+right page is at least 240 pt and the left one 375 pt (the open Duo in landscape); otherwise (open
 portrait, ~325 pt pages) the table spans both pages with its cluster and
 every seat on the wider page, or ignores the fold when that would crowd the
 seats. The open Duo in landscape without a fold docks the log as a 320 pt
@@ -235,9 +235,9 @@ window, insets top/left/bottom/right, size classes:
 |------|--------|--------|------------------------------------------|--------------|
 | Closed | 466 x 678 | 0/0/34/84 (status column on the right) | none | compact/regular |
 | Open portrait | 669 x 951 | 82/0/34/0 | none | regular/regular |
-| Open landscape | 951 x 669 | 0/0/34/84 | none (side log panel, table pane 630 x 669) | regular/regular |
+| Open landscape | 951 x 669 | 0/0/34/84 | none (side log panel on the right, table pane 546 x 669) | regular/regular |
 | Partially open, portrait | 669 x 951 | 82/0/34/0 | (0, 373.5, 669, 40): horizontal hinge, 40 pt, centred -> tabletop | regular/regular |
-| Partially open, landscape | 951 x 669 | 0/0/34/84 | vertical hinge -> book (log on the left page, table pane 455.5 x 669) | regular/regular |
+| Partially open, landscape | 951 x 669 | 0/0/34/84 | vertical hinge -> book (table on the left page, 455.5 x 669; log on the right page) | regular/regular |
 
 Results: the BABOnlineUI plan passes in closed, open-portrait and
 open-landscape (21 run, 0 failures; skips: the 2 opt-in PoseChangeTests,
@@ -269,8 +269,8 @@ a `watchSeat` demotes gets no event (item 16).
 ## Visible changes to review on the next build (items 26, 27)
 
 The open Duo turns to landscape (the closed Duo and other phones stay
-portrait); in landscape the game log is a side panel beside the table, in
-book pose the left page; in tabletop pose the table sits above the fold
+portrait); in landscape the game log is a side panel right of the table (like the
+drawer, the iPad and the web client), in book pose the right page; in tabletop pose the table sits above the fold
 and the hand and bid panel below it. The main room and tournament lobby go
 side by side on regular width (iPad, open Duo) instead of above 700 pt; the
 game lobby, sign-in and register scroll when the keyboard or a short window
