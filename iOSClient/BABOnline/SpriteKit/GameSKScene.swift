@@ -219,7 +219,7 @@ class GameSKScene: SKScene {
         handlePhaseChange(gameState.phase)
     }
 
-    private func handlePhaseChange(_ phase: GamePhase) {
+    private func handlePhaseChange(_ phase: LegacyGamePhase) {
         switch phase {
         case .draw:
             // Handled by SwiftUI DrawPhaseView

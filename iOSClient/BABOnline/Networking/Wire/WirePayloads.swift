@@ -161,6 +161,8 @@ enum WirePayload {
 struct LegacySeatHints: Equatable {
     var pics: [Int: Pic] = [:]
     var sockets: [Int: String] = [:]
+    /// rejoinSuccess always carries tournamentId (null for casual games); nil here = the key was absent.
+    var tournamentId: String?? = nil
 }
 
 /// Seat positions from the wire: 1...4, anything else is no position (21.7).

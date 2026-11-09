@@ -1,16 +1,8 @@
 import Foundation
 import Combine
 
-/// Draw result for draw phase
-struct DrawResult: Equatable {
-    let username: String
-    let position: Int
-    let cardIndex: Int
-    let card: Card?
-}
-
-/// Game phases
-enum GamePhase: String {
+/// Game phases (pre-store; replaced by State/Table GamePhase)
+enum LegacyGamePhase: String {
     case none, lobby, draw, bidding, playing, ended
 }
 
@@ -28,7 +20,7 @@ final class GameState: ObservableObject {
 
     @Published var gameId: String?
     @Published var tournamentId: String?
-    @Published var phase: GamePhase = .none
+    @Published var phase: LegacyGamePhase = .none
     @Published var currentHand: Int = 0
     @Published var dealer: Int?
 
