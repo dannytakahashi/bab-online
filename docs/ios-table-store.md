@@ -64,6 +64,70 @@ taps / bid overlay ──> ActionCoordinator.play / .bid ──> .local(.submitP
 - The contract v2 fixtures (folder reference `v2/`): strict decode, mapping,
   idempotent render.
 
+## Table layout (roadmap item 25)
+
+`SpriteKit/TableLayout.swift` is a pure function (CoreGraphics only) of the
+scene size and `TableChrome`, which GameContainerView measures:
+
+- `safeArea`: the table pane's insets (the SpriteView ignores the safe area,
+  so the scene size is the pane size plus these insets),
+- `topBar`: the measured ScoreBar height, `cornerButton`: max(Leave, Log),
+  placed `topBar + 8` below the safe top (an obstacle at both top corners),
+- `bottomBar`: the lazy / spectator pill + 12 padding,
+- `fold`: the active division region in scene coordinates (item 27),
+- `occlusions`: system UI over the app (`GeometryProxy.reservedRegions`,
+  iOS 27.1 SDK); one in the top quarter joins the corner obstacle on its side.
+
+Algorithm (reference model `layout_ref.py`, kept outside the repo; the
+Swift port is checked equal on 958 configurations): the bottom bar is
+honoured first and dropped only when nothing fits with it (then the pill
+overlays the bottom of a read-only hand); for the hand scale s = 1.0, 0.95
+... 0.80 and the trick scale k = 1.0 ... 0.70 the first pair that fits wins.
+The hand sits 12 pt (or bar + 6) above the safe bottom, its overlap is
+min(35s, (safe width - 16 - 100s) / (n - 1)), so 13 cards fit at 375 pt.
+The bid band (340 x 140, centered) is reserved above the lifted hand even
+while the panel is hidden. The trick cluster (cards 80k x 116k, offsets
+from the card size) is centered between the floor (lifted hand + 6, or the
+tabletop fold + 6) and the partner (below the top bar and the corner
+buttons); side seats sit at the table radius in a "row" (beside the
+cluster) or "raised" (above the side cards) mode; the history goes left of
+my trick slot (Q2), HSI + voice right of it (Q3, a 124 x 48 row or an 84 x 76
+stack), my bid bubble left of my slot. A book fold puts the cluster on the
+wider side and keeps side seats off the hinge. When nothing fits (windows
+under ~660-720 pt tall at narrow widths, 320x568, 678x466) the layout is
+`isDegraded`: s = 0.8, k = 0.7, positions clamped into the safe rect.
+
+Exempt pairs (never on screen together; `TableInvariantTests` proves the
+facts over every recorded log): the bid band vs the trick cards, history,
+accessory and my bid bubble (the panel shows only with an empty trick and
+history); my bid bubble vs the history; the other seats' bid bubbles vs
+trick cards other than my provisional one.
+
+Relayout (`GameSKScene.relayout(animated:)`): `didChangeSize` and every
+chrome change build a new layout and every manager's `apply(layout:)` moves
+the existing nodes: seats, hand cards (a running move is re-aimed, a lift
+or lower in flight is cut short, a lifted card stays lifted), trick cards
+and their scale, history place and spacing, bid bubbles (a pop keeps
+going), chat bubbles and effects in the transient layer; then the latest
+model re-renders (the game-over table too). Size changes are instant; a
+fold-only change glides with the scene animator. Trick collects and
+handsDestroyed fades in flight finish at their old target (<= 0.4 s,
+fading); the collect gate is untouched. An unchanged layout is a no-op,
+so the two relayouts of a rotation (size, then chrome) are idempotent.
+Every layer stays at the scene origin; the hand node carries the hand
+scale (`handSlots` are local units), trick sprites are 100 x 145 at 0.8k
+(an adopted hand sprite keeps its world scale and scales to it), and
+SceneDump tags a scaled container (`scale=`).
+
+Tests: `TableLayoutTests` (golden values, no intersections at the seven
+item sizes plus the SE / Duo at zero insets and the docked inner landscape,
+topBar 70 / 84, the pill, both folds; hand fit; fuzz 320...1400),
+`SceneLayoutTests` (the same with real node frames: a 13-card bid turn with
+lifts, trick with hand, spectator, chats from every seat; the bid panel
+<= 340 x 140 and ScoreBar <= 84 at capped Dynamic Type), `SceneResizeTests`
+(resize mid-replay equals a fresh render, the in-flight iPad rotation,
+transient, game end), `TableInvariantTests`.
+
 ## Items 21 / 22 status
 
 All bullets are done except these, which are follow-ups:
@@ -83,7 +147,22 @@ All bullets are done except these, which are follow-ups:
 Known server gaps left as they are: draw-phase rejoin is refused; the socket
 a `watchSeat` demotes gets no event (item 16).
 
-## Visible changes to review on the next build
+## Visible changes to review on the next build (item 25)
+
+The table is laid out from the screen instead of the web client's 1920 x 953
+ratios: seats, trick cards and the hand never overlap at 375-1180 pt (on
+375-393 pt phones the side seats rise above the side trick cards and the
+trick cards are 72 x 104 on the SE); cards fly in from their seat's side
+and a collected trick flies to the winner's seat; a long name is cut at
+96 pt with "…"; chat bubbles wrap to two lines and sit above (or below) the
+seat; the history moved left of my trick slot, my bid bubble left of my
+slot; HSI is "HSI 119.2" in 11 pt mono beside the voice button, right of my
+trick slot; the bid panel sits just above the lifted hand; the disconnect
+banner sits below the Leave / Log buttons; the ScoreBar, bid panel and the
+corner buttons stop growing past Dynamic Type xxLarge. Rotating an iPad or
+folding the Duo moves everything at once, cards in flight included.
+
+## Visible changes to review on the next build (item 23)
 
 The rejoin log is restored from the snapshot; bore "Nx" annotations and the
 ScoreBar bore badge work (real multipliers); the trick clears in state at
