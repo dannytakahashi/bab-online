@@ -26,7 +26,8 @@ COPY package*.json ./
 
 # Install production dependencies only
 RUN npm ci --only=production && \
-    npm cache clean --force
+    npm cache clean --force && \
+    node -e "require('sharp')"
 
 # Copy application code from builder
 COPY --from=builder /app/server ./server

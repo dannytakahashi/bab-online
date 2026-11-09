@@ -29,6 +29,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # The avatar pipeline (server/avatar) needs sharp's prebuilt libvips
+      # (@img/sharp-linux-x64); without it the server runs with the
+      # pipeline off, so fail here instead of silently in production
+      - name: sharp loads (prebuilt libvips)
+        run: node -e "const s=require('sharp'); console.log('sharp', s.versions.sharp, 'libvips', s.versions.vips)"
+
       - name: Run linter
         run: npm run lint --if-present
 
