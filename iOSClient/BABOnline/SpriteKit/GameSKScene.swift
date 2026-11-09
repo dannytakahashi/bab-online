@@ -75,6 +75,9 @@ class GameSKScene: SKScene, TableRenderer {
         guard !isSetUp else { return }
         isSetUp = true
         layout = TableLayout(size: size, chrome: chrome)
+        #if DEBUG
+        logLayout()
+        #endif
         backgroundNode.name = "background"
         backgroundNode.zPosition = -100
         backgroundNode.size = size
@@ -155,12 +158,8 @@ class GameSKScene: SKScene, TableRenderer {
         effectsManager.apply(layout: new)
         #if DEBUG
         relayoutCount += 1
-        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil {
-            let i = chrome.safeArea
-            print("[Layout] \(Int(size.width))x\(Int(size.height)) insets \(i.top)/\(i.left)/\(i.bottom)/\(i.right) topBar \(chrome.topBar) "
-                  + "corner \(chrome.cornerButton) bottomBar \(chrome.bottomBar) fold \(chrome.fold.map { "\($0)" } ?? "-") "
-                  + "occlusions \(chrome.occlusions.count) -> s \(new.handScale) k \(new.trickScale) \(new.mode) degraded \(new.isDegraded) usedBottomBar \(new.usedBottomBar)")
-        }
+        probe()
+        logLayout()
         #endif
         renderLatest()
     }
@@ -236,6 +235,9 @@ class GameSKScene: SKScene, TableRenderer {
     func render(_ model: TableRenderModel, reset: Bool = false) -> TrickAreaNode.Changes {
         guard isSetUp else { return .init() }
         lastModel = model
+        #if DEBUG
+        defer { probe() }
+        #endif
         if reset {
             // My own hand sprites stay (a rollback hands them back); everything else goes
             let mine = trickArea.cardSprites.compactMap { $0 as? CardSpriteNode }
@@ -290,6 +292,25 @@ class GameSKScene: SKScene, TableRenderer {
         bidManager.apply(bubbles: model.bidBubbles, viewPosition: me, layout: layout)
         return changes
     }
+
+    #if DEBUG
+    private func logLayout() {
+        guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
+        let i = chrome.safeArea, L = layout
+        print("[Layout] \(Int(size.width))x\(Int(size.height)) insets \(i.top)/\(i.left)/\(i.bottom)/\(i.right) topBar \(chrome.topBar) "
+              + "corner \(chrome.cornerButton) bottomBar \(chrome.bottomBar) fold \(chrome.fold.map { "\($0)" } ?? "-") "
+              + "occlusions \(chrome.occlusions.count) -> s \(L.handScale) k \(L.trickScale) \(L.mode) degraded \(L.isDegraded) usedBottomBar \(L.usedBottomBar)")
+    }
+
+    /// Fixture mode: refresh the UI tests' "table.layoutCheck" / "table.state" probes.
+    private func probe() {
+        guard UIFixture.isActive else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            TableDebugProbe.shared.update(scene: self)
+        }
+    }
+    #endif
 
     private static func stopActions(_ node: SKNode) {
         node.removeAllActions()

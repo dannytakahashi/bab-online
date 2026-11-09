@@ -162,6 +162,9 @@ struct GameContainerView: View {
         }
         .onChange(of: chrome, initial: true) { _, new in
             scene.chrome = new
+            #if DEBUG
+            if UIFixture.isActive { TableDebugProbe.shared.chrome = new }
+            #endif
         }
     }
 

@@ -49,6 +49,7 @@ struct MainRoomChatView: View {
             HStack(spacing: 8) {
                 TextField("Type a message...", text: $message)
                     .textFieldStyle(BABTextFieldStyle())
+                    .accessibilityIdentifier("mainRoomChatField")
                     .onSubmit(sendMessage)
 
                 Button(action: sendMessage) {

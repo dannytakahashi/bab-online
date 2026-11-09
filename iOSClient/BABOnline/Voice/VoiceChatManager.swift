@@ -145,6 +145,9 @@ final class VoiceChatManager: ObservableObject {
     /// buffered in `pendingPeers` and connected once active. Never under XCTest.
     func ensureStarted() {
         guard !isActive, ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
+        #if DEBUG
+        if UIFixture.isActive { return }
+        #endif
         Task { try? await initialize() }
     }
 

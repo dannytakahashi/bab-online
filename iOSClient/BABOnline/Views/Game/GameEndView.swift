@@ -74,6 +74,8 @@ struct GameEndView: View {
                 RoundedRectangle(cornerRadius: 20)
                     .fill(Color.Theme.surface)
             )
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("gameEnd")
             .padding(.horizontal, 24)
         }
     }
