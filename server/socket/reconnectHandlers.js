@@ -7,6 +7,8 @@ const { Controller, Presence } = require('../game/SeatState');
 const seatLifecycle = require('./seatLifecycle');
 const { socketLogger } = require('../utils/logger');
 const { snapshotFor } = require('./snapshotHandlers');
+const avatarWire = require('../avatar/avatarWire');
+const { hasCap } = require('./clientInfo');
 const { getUsersCollection } = require('../database');
 const { verifySession } = require('../utils/sessionTokens');
 
@@ -137,7 +139,7 @@ async function rejoinGame(socket, io, data) {
         // client drops its game on any rejoinFailed)
         const tournamentId = gameManager.tournamentGames.get(gameId) || null;
         socket.emit('rejoinSuccess', {
-            ...game.getClientState(seat.seatSocketId),
+            ...avatarWire.wireClientState(game, game.getClientState(seat.seatSocketId), hasCap(socket, 'avatarUrl')),
             isLazy: true,
             tournamentId: tournamentId && gameManager.getTournamentById(tournamentId) ? tournamentId : null,
             snapshot: snapshotFor(game, socket.id, { customPics: false }) // v2 (additive)

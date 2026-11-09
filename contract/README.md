@@ -197,6 +197,45 @@ client's view by the one-way delay. It appears on:
 The event order is unchanged; the shipped iOS app ignores the field and
 relies on the server's minimum gaps (`pacing.SHIPPED_IOS_FLOORS`).
 
+## Client capabilities (clientHello) and avatar fields
+
+`clientHello {client, version, build?, caps}` (c2s, no reply) tells the
+server what this socket can render. It is sent on every connect, before
+anything else the client emits (web: `client/src/utils/avatar.js`
+`installAvatarSupport`, called at the top of main.js; iOS: the iOS-track
+PR). The server keeps it on `socket.data.client`; the last hello wins (one
+without a cap downgrades the socket); unknown caps are ignored; over its
+rate limit (5 per 10 s) it is dropped silently. A socket that never says
+hello — the App Store iOS build, a web bundle cached before the change —
+gets the legacy shape of every payload. Caps (`$defs.clientCap`):
+
+- `avatarUrl`: the client renders `/avatar/<username>?v=<16 hex>` URLs
+  (same origin as the page; `server/routes/avatar.js`). It then gets, per
+  socket, `null` in custom-picture slots plus `avatarUrls` (by position for
+  seat payloads, by username for leaderboard / search rows) or `avatarUrl`
+  (profile replies). Send this cap ONLY from a client whose every avatar
+  render site resolves URLs (web: `avatarSrc` / `applyAvatarImg`; iOS:
+  AvatarStore); otherwise its custom pictures go blank.
+
+Avatar field rules (docs/avatars.md has the invariants I1-I6):
+
+1. Additive only: `avatarUrls`, `avatarUrl`, `seatV2.avatarUrl`
+   (`$defs.avatarUrl`, `avatarUrlsByPosition`, `avatarUrlsByUsername`), all
+   optional, at payload level. A pic slot never carries a URL: it stays
+   number | data URL | null (`$defs.pic` is unchanged).
+2. Omitted when there is no URL (no custom picture, rendition not ready,
+   pipeline off): such payloads are byte-identical to before.
+3. Legacy recipients: the slot carries a data URL the App Store app decodes
+   (`data:image/<fmt>;base64,<strict padded base64>`, in practice the small
+   WebP rendition), today's stored string, or the placeholder. Per-socket
+   legacy payloads carry exactly today's keys.
+4. Room broadcasts (positionUpdate, playerActiveMode) are never split per
+   capability: one emit, one seq, legacy slot + the additive URL field.
+5. A capable client must still render every legacy shape (a payload handled
+   before its hello was, or a rendition not ready yet): number, data URL,
+   null, URL. Web folds URLs into the existing pic fields as each message
+   arrives (`foldAvatarPayload`, socket.onAny).
+
 ## Snapshot v2
 
 `server/game/snapshotV2.js` (`$defs.snapshotV2`): one normalized table view

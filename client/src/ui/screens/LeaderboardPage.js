@@ -4,6 +4,8 @@
  * Modal overlay showing player stats in a sortable table.
  */
 
+import { profileAvatarSrc, applyAvatarImg } from '../../utils/avatar.js';
+
 /**
  * Module state - tracks current sort configuration.
  */
@@ -18,13 +20,7 @@ let currentSocket = null;
  * @returns {string} Image source (base64 or URL)
  */
 function getProfilePicSrc(player) {
-  if (player.customProfilePic) {
-    return player.customProfilePic;
-  }
-  if (player.profilePic) {
-    return `assets/profile${player.profilePic}.png`;
-  }
-  return 'assets/profile1.png';
+  return profileAvatarSrc(player, 'assets/profile1.png');
 }
 
 /**
@@ -176,7 +172,7 @@ function createPlayerCell(player) {
   container.style.overflow = 'hidden';
 
   const avatar = document.createElement('img');
-  avatar.src = getProfilePicSrc(player);
+  applyAvatarImg(avatar, getProfilePicSrc(player), { lazy: true });
   avatar.style.width = '24px';
   avatar.style.height = '24px';
   avatar.style.borderRadius = '50%';

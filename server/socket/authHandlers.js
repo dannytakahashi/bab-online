@@ -494,6 +494,7 @@ async function deleteAccount(socket, io, data) {
         const { invalidateLeaderboard, invalidateRecords } = require('./profileHandlers');
         invalidateLeaderboard?.();
         invalidateRecords?.();
+        require('../avatar/avatarStore').forgetUser(username);
 
         // Keep an in-flight game from re-inserting this username into a new
         // game record after the anonymization above

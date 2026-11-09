@@ -54,6 +54,7 @@ bab-online/
 │   │   ├── safetyHandlers.js  # Report / block / unblock users
 │   │   └── validators.js      # Joi validation schemas
 │   ├── admin/                 # Account admin logic used by scripts/ (merge, set password)
+│   ├── avatar/                # Custom-picture renditions (sharp), wire mapping (docs/avatars.md)
 │   ├── testUtils/memoryDb.js  # In-memory Mongo collection fake for Jest (no mongod needed)
 │   ├── utils/
 │   │   ├── profanityFilter.js # UGC filter (chat, usernames, lobby names)
@@ -63,7 +64,7 @@ bab-online/
 │   │   └── ttlCache.js        # Leaderboard/records caches
 │   └── __tests__/             # Jest tests
 │
-├── scripts/                    # Owner-run CLIs: merge-accounts.js, set-password.js, build-atlas.js
+├── scripts/                    # Owner-run CLIs: merge-accounts.js, set-password.js, avatar-report.js (read-only); build-atlas.js, build-avatars.js
 │
 ├── contract/                   # Socket contract: schema source, generator, v1 baseline, v2 fixtures (dev/test only)
 │
@@ -138,6 +139,7 @@ npm run dev          # Start server + client (hot reload)
 npm start            # Server only (port 3000)
 npm run dev:client   # Client Vite dev server (port 5173)
 npm run build:client # Production build
+npm run build:avatars # Re-encode stock avatar art from the fcdd885 masters (scripts/build-avatars.js)
 
 npm test             # Server tests (Jest)
 npm run test:client  # Client tests (Vitest)
@@ -183,6 +185,7 @@ npm run test:race           # BAB_PACING=zero: chaos (200) + tournamentLifecycle
 - Failed-sign-in throttle (`server/socket/signInThrottle.js`): failures only (unknown user, wrong password; not merged-account redirects, DB errors or HASH_BUSY), 15 min sliding window: (ip, username) pair 10, ip 50, username 30 (pair and ip skipped when the IP is unknown); a success clears the pair; an (ip, username) that signed in or restored a session in the last 30 days is known-good and skips the username key (an outsider's guesses cannot lock out the household); a flood never evicts a key at its limit (a map full of lockouts fails closed for new keys); checked before any DB read and answered with the usual `signInResponse` failure. The pair/username keys are reserved synchronously with the check (no overshoot from parallel guesses); the ip key counts confirmed failures only (a family signing in together behind one NAT never blocks itself). restoreSession/rejoinGame/signUp are never limited. Client IP (`server/utils/clientIp.js`, `socket.data.clientIp` at connection): a public handshake peer is used as-is (headers ignored); behind a proxy/private peer (Railway's edge is in 100/8) `X-Real-IP` when it is a non-proxy IP that appears in `X-Forwarded-For` (or XFF is absent); the leftmost XFF entry alone is never trusted; else null and only the username key applies (never one shared key). Every password sign-in logs 'Sign-in client address' (peer, X-Real-IP, XFF, chosen ip): check it after a deploy that different networks get different IPs
 - Account deletion (`authHandlers.deleteAccount`) requires an authenticated socket + password re-confirm; it anonymizes the username in `gameRecords`
 - Express pages: `/privacy`, `/support`, `/terms` (App Store compliance copy lives in `server/routes/index.js`)
+- Avatars (docs/avatars.md, invariants I1-I6): clients that send `clientHello {caps:['avatarUrl']}` (`server/socket/clientInfo.js`, `socket.data.client`; web sends it from `client/src/utils/avatar.js`) get null custom-picture slots plus additive `avatarUrls`/`avatarUrl` (`GET /avatar/:username?v=`, `server/routes/avatar.js`: immutable only on the current version, uniform 404, per-IP bucket via clientIp); every other socket (the App Store build, old web bundles) gets the small derived inline WebP in the same slot. Renditions are derived lazily in memory (`server/avatar/avatarStore.js`, sharp 0.34.5 pinned for Node 18; `warm` from getUserProfilePic, never blocking, no RNG) and mapped at emit time (`server/avatar/avatarWire.js`); room broadcasts (positionUpdate, playerActiveMode) stay ONE emit with inline + URL. Stored `customProfilePic` values are never rewritten; new uploads are stored as the canonical WebP. Kill switches: `AVATAR_LEGACY_INLINE=raw`, `AVATAR_PIPELINE=off` (default off under Jest: tests opt in with `avatarStore.configure({enabled:true})` + `_reset()`). Stock art: `client/assets/profileN.png` 192 px (same paths: the App Store app loads them) and `client/assets/avatars/v1/*.webp` (immutable; new art goes to v2); web renders every picture through `avatarSrc`/`applyAvatarImg` only. Removing the inline images waits in `contract/V1_REMOVALS.md` #19
 - Ambient bot activity (`server/demo/ambientBots.js`): keeps one spectatable bot-vs-bot game running and seeds main-room chat with bot-persona messages, so the app is never an empty room (added for App Review Guideline 2.1(a) — reviewers must see other users' chats and games). On by default in production; `AMBIENT_BOTS=true|false` overrides. A wedged game (older than 90 min) is recycled through `gameLifecycle.abortGame` (spectators get `abortGame { reason: 'Game recycled' }` and leave the room). Always on (occupancy gating was declined: three main-room join points, negligible saving): a finished game is replaced within `AMBIENT_CHECK_MS + AMBIENT_RESTART_MS` (5 + 5 s); before the deal and while unwatched a demo game uses `pacing.AMBIENT_PREGAME` (draw/reveal/seating/teams ~0: those stages are unlisted), so it is listed ~0.1 s after its start and then plays at the standard pacing App Store review sees
 - iOS builds: prebuilt WebRTC (stasel/WebRTC via SPM) ships no dSYM — the archive warning at upload is expected and safe to ignore
 
@@ -193,6 +196,7 @@ node scripts/merge-accounts.js --find-duplicates                  # list look-al
 node scripts/merge-accounts.js --into Alan alan2 AlanB            # dry run: prints every change
 node scripts/merge-accounts.js --into Alan alan2 AlanB --apply    # asks you to type MERGE
 node scripts/set-password.js Alan                                 # new friendly password, signs out all devices
+node scripts/avatar-report.js [--list]                            # read-only: stored custom pictures, sizes, how many derive (run before enabling the avatar pipeline)
 ```
 
 Merging is idempotent (re-running prints "Nothing to do") and refuses while a source account is in an active game or tournament. There is no in-app password reset by design (no emails are stored); the owner resets passwords for players who ask.

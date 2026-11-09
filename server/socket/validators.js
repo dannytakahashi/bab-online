@@ -32,6 +32,14 @@ const schemas = {
         sessionToken: Joi.string().uuid().required()
     }),
 
+    // Client capabilities (socket/clientInfo.js); mirrors contract c2s.clientHello
+    clientHello: Joi.object({
+        client: Joi.string().min(1).max(16).pattern(/^[a-z0-9-]+$/).required(),
+        version: Joi.string().min(1).max(32).required(),
+        build: Joi.string().max(64).allow('').optional(),
+        caps: Joi.array().items(Joi.string().min(1).max(32)).max(16).required()
+    }),
+
     // Game actions
     playCard: Joi.object({
         card: cardSchema.required(),
@@ -94,8 +102,10 @@ const schemas = {
         profilePic: Joi.number().integer().min(1).max(82).required()
     }),
 
+    // The handler refuses anything over ~682,666 chars (500 KB decoded)
+    // anyway; the cap stops Joi from walking a huge string first
     uploadProfilePic: Joi.object({
-        imageData: Joi.string().required()
+        imageData: Joi.string().max(682700).required()
     }),
 
     // Tournament

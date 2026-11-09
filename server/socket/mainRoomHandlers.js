@@ -8,6 +8,7 @@ const { socketLogger } = require('../utils/logger');
 const { Controller, Presence } = require('../game/SeatState');
 const seatLifecycle = require('./seatLifecycle');
 const { spectatorJoinState, snapshotFor } = require('./snapshotHandlers');
+const { hasCap } = require('./clientInfo');
 
 /**
  * Handle player joining the main room
@@ -260,7 +261,7 @@ function joinAsSpectator(socket, io, data) {
     // Send spectator join success with game state (but no hand!), then the
     // v2 snapshot (additive), BEFORE the room notice
     socket.emit('spectatorJoined', {
-        ...spectatorJoinState(game),
+        ...spectatorJoinState(game, { capable: hasCap(socket, 'avatarUrl') }),
         snapshot: snapshotFor(game, socket.id, { customPics: false })
     });
 

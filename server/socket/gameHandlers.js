@@ -26,6 +26,9 @@ const seatLifecycle = require('./seatLifecycle');
 const { emitLobbiesUpdated } = require('./gameLifecycle');
 const { snapshotFor } = require('./snapshotHandlers');
 const pacing = require('../game/pacing');
+const avatarStore = require('../avatar/avatarStore');
+const avatarWire = require('../avatar/avatarWire');
+const { socketHasCap, hasCap } = require('./clientInfo');
 
 const logContinuationError = (what, game) => (err) =>
     gameLogger.error(`${what} failed`, { gameId: game.gameId, error: err.message, stack: err.stack });
@@ -352,6 +355,20 @@ async function handleDrawComplete(io, game) {
         usedPics.add(pic);
         pics.push(pic);
     }
+    // Avatar URL versions of the humans' custom pictures (pure hashing, no
+    // RNG, not part of toJSON): avatarWire maps them at emit time. The
+    // lookups above already started deriving the renditions (warm), which
+    // finishes inside the drawReveal hold
+    game.avatarVersions = new Map();
+    if (avatarStore.available()) {
+        for (let i = 0; i < game.drawIDs.length; i++) {
+            const username = game.entrant(game.drawIDs[i])?.username;
+            const pic = pics[i];
+            if (username && typeof pic === 'string' && pic.startsWith('data:image')) {
+                game.avatarVersions.set(username, avatarStore.versionOf(pic));
+            }
+        }
+    }
     // Aborted while the profile pics loaded
     if (!alive()) return;
 
@@ -439,12 +456,25 @@ async function handleDrawComplete(io, game) {
 
     if (!(await game.hold('drawReveal', pacing(game).DRAW_REVEAL_MS))) return;
 
-    game.broadcast(io, 'positionUpdate', {
+    // ONE room broadcast for every recipient (never split: seq): pics carry
+    // the legacy value (the small derived inline image for a custom pic),
+    // avatarUrls (additive, only when a rendition exists) the HTTP URL a
+    // capable client prefers. Mapped now, after the reveal hold the
+    // renditions derive in.
+    let avatarUrls;
+    const wirePics = orderedPics.map((pic, i) => {
+        const r = avatarWire.seatResolve(game, pic, orderedUsernames[i].username);
+        if (r.url) (avatarUrls = avatarUrls || {})[orderedPositions[i]] = r.url;
+        return r.legacy;
+    });
+    const positionUpdate = {
         positions: orderedPositions,
         sockets: orderedSockets,
         usernames: orderedUsernames,
-        pics: orderedPics
-    });
+        pics: wirePics
+    };
+    if (avatarUrls) positionUpdate.avatarUrls = avatarUrls;
+    game.broadcast(io, 'positionUpdate', positionUpdate);
 
     // Now that seats have positions, show draw-phase disconnects on the
     // table (their grace began at seating). Skip anyone who rejoined during
@@ -589,11 +619,22 @@ async function dealHand(game, io, { dealer, handSize, firstHand = false }) {
     // gameStart of this deal carries the same value
     const handSeq = game.nextSeq();
 
+    // playerInfo per recipient kind (built at most once per deal): legacy
+    // sockets get today's keys with the small inline image, capable ones a
+    // null custom slot plus avatarUrls (docs/avatars.md)
+    const infos = {};
+    const infoFor = (socketId) => {
+        const kind = socketHasCap(io, socketId, 'avatarUrl') ? 'capable' : 'legacy';
+        if (!infos[kind]) infos[kind] = avatarWire.mapPlayers(game, playerInfo, kind);
+        return infos[kind];
+    };
+
     // Send each seat's hand to its connected owner (a lazy owner too, in
     // seat or watch view). Absent and /leave'd owners get nothing.
     for (const seat of game.seatList()) {
         if (seat.presence !== Presence.CONNECTED) continue;
         const playerPosition = seat.position;
+        const info = infoFor(seat.ownerSocketId);
         game.sendToPlayer(io, seat.ownerSocketId, 'gameStart', {
             gameId: game.gameId,
             players: socketIds,
@@ -605,13 +646,15 @@ async function dealHand(game, io, { dealer, handSize, firstHand = false }) {
             position: playerPosition,  // Include player's position to avoid the bid UI race
             currentHand: game.currentHand,  // Hand index for hand indicator
             hsiValues,  // HSI for all players to display under avatars
-            playerInfo,  // Current player info for avatar updates
-            seq: handSeq  // additive: the deal's broadcast sequence number
+            playerInfo: info.players,  // Current player info for avatar updates
+            seq: handSeq,  // additive: the deal's broadcast sequence number
+            ...(info.avatarUrls && { avatarUrls: info.avatarUrls })  // additive (capable sockets)
         });
     }
 
     // Send spectator-safe gameStart (no hand data) so spectators see updated trump/score/hand
     for (const spec of game.getSpectators()) {
+        const info = infoFor(spec.socketId);
         game.sendToPlayer(io, spec.socketId, 'gameStart', {
             gameId: game.gameId,
             trump: game.trump,
@@ -620,8 +663,9 @@ async function dealHand(game, io, { dealer, handSize, firstHand = false }) {
             dealer: game.dealer,
             currentHand: game.currentHand,
             hand: [],
-            playerInfo,
-            seq: handSeq
+            playerInfo: info.players,
+            seq: handSeq,
+            ...(info.avatarUrls && { avatarUrls: info.avatarUrls })
         });
     }
 
@@ -710,7 +754,7 @@ async function playCard(socket, io, data) {
             // Always AFTER actionRejected (iOS rolls the card back first);
             // never with tournamentId (web would route it as a rejoin)
             socket.emit('restorePlayerState', {
-                ...game.getClientState(socket.id),
+                ...avatarWire.wireClientState(game, game.getClientState(socket.id), hasCap(socket, 'avatarUrl')),
                 snapshot: snapshotFor(game, socket.id, { customPics: false }) // v2 (additive)
             });
         }

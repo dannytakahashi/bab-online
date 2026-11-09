@@ -33,10 +33,12 @@ const isTeamShaped = (b) => !!b && typeof b.team1 === 'number' && typeof b.team2
  * @param {number} [opts.now]
  * @param {boolean} [opts.customPics=true] - include data:image seat pictures
  * @param {boolean} [opts.log=true] - include the game log
+ * @param {Function} [opts.avatarResolve] - (pic, username) -> {legacy, url}
+ *   for a custom seat picture (avatarWire.seatResolve; null: raw, no URL)
  * @param {Function} [opts.botName] - socketId -> display name of a bot
  *   entrant (entrant records carry no bot names)
  */
-function buildSnapshotV2(game, viewerSid, { tournament = null, now = Date.now(), customPics = true, log = true, botName = null } = {}) {
+function buildSnapshotV2(game, viewerSid, { tournament = null, now = Date.now(), customPics = true, log = true, botName = null, avatarResolve = null } = {}) {
     const stage = game.stage;
     const preDeal = PRE_DEAL.has(stage);
     const partial = [];
@@ -106,12 +108,16 @@ function buildSnapshotV2(game, viewerSid, { tournament = null, now = Date.now(),
             const d = seatDisplay(s);
             const custom = typeof d.pic === 'string' && d.pic.startsWith('data:image');
             if (custom && !customPics) withheld = true;
-            return {
+            // avatars (docs/avatars.md; opts.avatarResolve = avatarWire.seatResolve
+            // from snapshotFor): customPic is the legacy inline value,
+            // avatarUrl (additive, only with a rendition) the HTTP URL
+            const r = custom && avatarResolve ? avatarResolve(d.pic, d.username) : null;
+            const seat = {
                 position: p,
                 username: d.username ?? null,
                 pic: typeof d.pic === 'number' ? d.pic : null,
                 hasCustomPic: custom,
-                customPic: custom && customPics ? d.pic : null,
+                customPic: custom && customPics ? (r ? r.legacy : d.pic) : null,
                 ownerUsername: s.ownerUsername ?? null,
                 controller: s.controller,
                 presence: s.presence,
@@ -122,6 +128,8 @@ function buildSnapshotV2(game, viewerSid, { tournament = null, now = Date.now(),
                 resignableAt: s.resignableAt ?? null,
                 cardsInHand: (game.hands[s.seatSocketId] || []).length,
             };
+            if (r && r.url) seat.avatarUrl = r.url;
+            return seat;
         });
         if (withheld) partial.push('customPics');
     }

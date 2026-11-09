@@ -8,8 +8,12 @@ const { httpLogger } = require('../utils/logger');
 function requestLogger(req, res, next) {
     const startTime = Date.now();
 
-    // Log request (only for non-static files in development)
-    const isStaticFile = req.url.match(/\.(js|css|png|jpg|ico|svg|woff|woff2)$/);
+    // Log request (only for non-static files in development). Decided on
+    // req.path (no query string: /avatar/x?v=... and dist/main.js?v= are
+    // static too); avatars and everything under /assets/ log only errors
+    const p = req.path || '';
+    const isStaticFile = /\.(js|css|png|jpg|webp|ico|svg|woff|woff2)$/.test(p) ||
+        p.startsWith('/avatar/') || p.startsWith('/assets/');
 
     if (!isStaticFile) {
         httpLogger.http('Request', {
