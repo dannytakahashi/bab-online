@@ -1,70 +1,169 @@
 import SpriteKit
 import UIKit
 
-/// Generates resolution-independent card textures at runtime using Core Graphics.
-/// Caches textures to avoid redundant rendering.
+/// Card face textures, drawn at runtime with Core Graphics and cached for the
+/// app's lifetime (54 faces at ~0.5 MB each on a 3x screen; never evicted).
+///
+/// Thread safety: the cache is guarded by a lock, so `prewarm()` renders every
+/// face on a background queue while the main thread may already ask for one
+/// (`texture(for:)` renders on demand and the first texture stored for a card
+/// wins, so a sprite never sees two textures for one card).
 enum CardTextureGenerator {
+    private static let lock = NSLock()
     private static var cache: [String: SKTexture] = [:]
+    private static var prewarmStarted = false
+    #if DEBUG
+    /// Renders done inside `texture(for:)` / `cardBackTexture()` (a cache miss on the
+    /// caller's thread, normally main) and by `prewarm()`: tests prove the scene hits the cache.
+    private(set) static var onDemandRenders = 0
+    private(set) static var prewarmRenders = 0
+    /// Card faces drawn on the main thread, by either path.
+    private(set) static var mainThreadRenders = 0
+    #endif
+
     /// Drawing canvas, in canvas units (not pixels). All drawing code below uses this
     /// 300x435 coordinate space; `renderCard` maps it onto the output bitmap.
     private static let cardPixelWidth: CGFloat = 300
     private static let cardPixelHeight: CGFloat = 435
     private static let cornerRadius: CGFloat = 24
 
-    /// Output bitmap scale relative to the canvas: rendered pixels = the largest on-screen
-    /// card (the hand card, `LayoutConstants.cardWidth` pt; trick/draw cards are 0.8x,
-    /// opponent backs smaller) times the screen scale. On a 3x screen: 100pt x 3 = 300px
-    /// wide, so k = 1 and the bitmap is 300x435px, sampled 1:1 when shown in the hand.
-    /// The default renderer format would instead apply the screen scale on top of the
-    /// 300x435 canvas (900x1305px, 9x the pixels shown, minified with aliasing).
-    private static let canvasToPixels: CGFloat =
-        LayoutConstants.cardWidth * UIGraphicsImageRendererFormat.preferred().scale / cardPixelWidth
+    /// The screen scale textures are rendered for. Read on the main thread first
+    /// (`prewarm()` and every scene build touch it there); a static let is initialized once.
+    static let displayScale: CGFloat = UIGraphicsImageRendererFormat.preferred().scale
 
-    /// Render the 300x435 canvas into a bitmap sized for the largest on-screen card.
-    private static func renderCard(_ draw: (UIGraphicsImageRendererContext) -> Void) -> UIImage {
+    /// Bitmap size of every card texture: the largest on-screen card
+    /// (`TableLayout.maxCardPoints`: a hand card at s = 1, 100 x 145 pt; trick cards
+    /// are at most 0.8 of it) times the screen scale, so hand cards sample 1:1
+    /// (300 x 435 px on 3x, 200 x 290 px on 2x).
+    static func pixelSize(scale: CGFloat = displayScale) -> CGSize {
+        let pts = TableLayout.maxCardPoints
+        return CGSize(width: (pts.width * scale).rounded(.up), height: (pts.height * scale).rounded(.up))
+    }
+
+    /// Every face the game deals: 52 + HI / LO jokers. (The card back is not prewarmed:
+    /// no table sprite uses it; the draw shows SwiftUI card shapes.)
+    static let allCards: [Card] = {
+        let ranks: [Rank] = [.two, .three, .four, .five, .six, .seven, .eight, .nine, .ten, .jack, .queen, .king, .ace]
+        let suits: [Suit] = [.spades, .hearts, .diamonds, .clubs]
+        return suits.flatMap { s in ranks.map { Card(suit: s, rank: $0) } }
+            + [Card(suit: .joker, rank: .hi), Card(suit: .joker, rank: .lo)]
+    }()
+
+    /// Render the 300x435 canvas into a bitmap of `pixelSize(scale:)`: scale 1 (one
+    /// image point = one pixel), 8-bit sRGB (the default `.automatic` range may pick a
+    /// 16-bit float extended-range bitmap on a wide-color screen, twice the bytes for
+    /// colors that are all sRGB), with alpha (rounded corners).
+    private static func renderCard(scale: CGFloat, _ draw: (UIGraphicsImageRendererContext) -> Void) -> UIImage {
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         format.opaque = false
-        let k = canvasToPixels
-        let pixelSize = CGSize(width: (cardPixelWidth * k).rounded(.up), height: (cardPixelHeight * k).rounded(.up))
+        format.preferredRange = .standard
+        let pixelSize = pixelSize(scale: scale)
         let renderer = UIGraphicsImageRenderer(size: pixelSize, format: format)
         return renderer.image { ctx in
-            ctx.cgContext.scaleBy(x: k, y: k)
+            ctx.cgContext.scaleBy(x: pixelSize.width / cardPixelWidth, y: pixelSize.height / cardPixelHeight)
             draw(ctx)
         }
     }
 
-    /// Returns a cached or freshly rendered texture for the given card.
-    static func texture(for card: Card) -> SKTexture {
-        let key = card.id
-        if let cached = cache[key] { return cached }
-
-        let tex: SKTexture
-        if card.isJoker {
-            tex = renderJoker(card: card)
-        } else {
-            tex = renderStandardCard(card: card)
-        }
+    /// Linear filtering, no mipmaps: the smallest static card is a trick card at
+    /// 0.8 x 0.6 = 0.48 of the hand size (tabletop), which bilinear filtering samples
+    /// without visible shimmer, and a mip level blended in would soften every trick
+    /// card's rank text (usesMipmaps also changed nothing measurable in SpriteKit on
+    /// the iOS 27.2 simulator, POT or not, and would add a third to the memory).
+    private static func makeTexture(_ image: UIImage) -> SKTexture {
+        let tex = SKTexture(image: image)
         tex.filteringMode = .linear
+        return tex
+    }
+
+    private static func cached(_ key: String) -> SKTexture? {
+        lock.lock(); defer { lock.unlock() }
+        return cache[key]
+    }
+
+    /// Store `tex` unless another thread stored one first; returns the one in the cache.
+    private static func store(_ tex: SKTexture, for key: String) -> SKTexture {
+        lock.lock(); defer { lock.unlock() }
+        if let existing = cache[key] { return existing }
         cache[key] = tex
         return tex
+    }
+
+    /// The texture for a card face: from the cache, or rendered now on the caller's thread.
+    static func texture(for card: Card) -> SKTexture {
+        if let hit = cached(card.id) { return hit }
+        let tex = makeTexture(renderFace(card, scale: displayScale))
+        #if DEBUG
+        lock.lock(); onDemandRenders += 1; lock.unlock()
+        #endif
+        return store(tex, for: card.id)
     }
 
     /// Returns a cached or freshly rendered card-back texture.
     static func cardBackTexture() -> SKTexture {
         let key = "__card_back__"
-        if let cached = cache[key] { return cached }
+        if let hit = cached(key) { return hit }
+        let tex = makeTexture(renderCardBack(scale: displayScale))
+        #if DEBUG
+        lock.lock(); onDemandRenders += 1; lock.unlock()
+        #endif
+        return store(tex, for: key)
+    }
 
-        let tex = renderCardBack()
-        tex.filteringMode = .linear
-        cache[key] = tex
-        return tex
+    /// Render every face the game deals on a background queue (once per process), so
+    /// the first deal finds them cached instead of drawing 13 cards on the main thread.
+    /// Called when a game lobby, tournament lobby or game screen shows. Faces already
+    /// rendered on demand are skipped (and kept). `completion` runs on the main queue
+    /// once every face is cached (at once when an earlier call already started).
+    @MainActor
+    static func prewarm(completion: (@Sendable () -> Void)? = nil) {
+        let scale = displayScale  // read on main
+        lock.lock()
+        let started = prewarmStarted
+        prewarmStarted = true
+        lock.unlock()
+        guard !started else {
+            if let completion { DispatchQueue.main.async(execute: completion) }
+            return
+        }
+        DispatchQueue.global(qos: .utility).async {
+            for card in allCards where cached(card.id) == nil {
+                _ = store(makeTexture(renderFace(card, scale: scale)), for: card.id)
+                #if DEBUG
+                lock.lock(); prewarmRenders += 1; lock.unlock()
+                #endif
+            }
+            if let completion { DispatchQueue.main.async(execute: completion) }
+        }
+    }
+
+    #if DEBUG
+    /// Tests only: forget every texture and counter (sprites keep the textures they hold).
+    static func resetForTesting() {
+        lock.lock(); defer { lock.unlock() }
+        cache = [:]
+        prewarmStarted = false
+        onDemandRenders = 0
+        prewarmRenders = 0
+        mainThreadRenders = 0
+    }
+
+    /// Tests only: the cached texture for a key (a card id), without rendering.
+    static func cachedTexture(_ id: String) -> SKTexture? { cached(id) }
+    #endif
+
+    private static func renderFace(_ card: Card, scale: CGFloat) -> UIImage {
+        #if DEBUG
+        if Thread.isMainThread { lock.lock(); mainThreadRenders += 1; lock.unlock() }
+        #endif
+        return card.isJoker ? renderJoker(card: card, scale: scale) : renderStandardCard(card: card, scale: scale)
     }
 
     // MARK: - Standard Card
 
-    private static func renderStandardCard(card: Card) -> SKTexture {
-        let image = renderCard { ctx in
+    private static func renderStandardCard(card: Card, scale: CGFloat) -> UIImage {
+        renderCard(scale: scale) { ctx in
             let rect = CGRect(x: 0, y: 0, width: cardPixelWidth, height: cardPixelHeight)
             let gc = ctx.cgContext
 
@@ -133,13 +232,12 @@ enum CardTextureGenerator {
                 withAttributes: bigAttrs
             )
         }
-        return SKTexture(image: image)
     }
 
     // MARK: - Joker
 
-    private static func renderJoker(card: Card) -> SKTexture {
-        let image = renderCard { ctx in
+    private static func renderJoker(card: Card, scale: CGFloat) -> UIImage {
+        renderCard(scale: scale) { ctx in
             let rect = CGRect(x: 0, y: 0, width: cardPixelWidth, height: cardPixelHeight)
 
             // White background with rounded corners
@@ -200,13 +298,12 @@ enum CardTextureGenerator {
                 withAttributes: jokerAttrs
             )
         }
-        return SKTexture(image: image)
     }
 
     // MARK: - Card Back
 
-    private static func renderCardBack() -> SKTexture {
-        let image = renderCard { _ in
+    private static func renderCardBack(scale: CGFloat) -> UIImage {
+        renderCard(scale: scale) { _ in
             let rect = CGRect(x: 0, y: 0, width: cardPixelWidth, height: cardPixelHeight)
 
             // Dark green background
@@ -244,7 +341,6 @@ enum CardTextureGenerator {
             diamond.lineWidth = 2
             diamond.stroke()
         }
-        return SKTexture(image: image)
     }
 
     // MARK: - Helpers

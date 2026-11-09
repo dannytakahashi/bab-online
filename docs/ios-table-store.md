@@ -192,7 +192,8 @@ foreground, Settings), no voice and no microphone prompt
 (`VoiceChatManager.voiceDisabled`, every start path, also in Xcode
 previews), avatars show initials, the sign-in screen shows the connected
 form. `-uiFold book|tabletop` fakes a 20 pt division at the window center
-(the composition only, not the API). Accessibility probes: `ui.pose` ("WxH
+(the composition only, not the API); `-uiEffect rainbow|b|2b|3b|4b|ot|all` holds
+the effects on the table. Accessibility probes: `ui.pose` ("WxH
 t/l/b/r topBar N fold F occlusions N sc H/V vbar E", the window's size
 classes and the vertical bar edge), `table.layoutCheck` ("ok" when every stable node is inside
 the safe rect), `table.state` (lifted card, refreshed on a tap too; hand and
@@ -286,6 +287,31 @@ PoseChangeTests passes (open landscape -> closed mid-bid keeps the selected
 bid, closed -> open mid-trick keeps the lifted card); live on a local server:
 draft survives rotation and fold, bid selection survives rotation, a lifted
 card survives fold and unfold, the trick collects across a fold.
+
+## Card textures, effect art, avatars (roadmap item 28)
+
+- Card faces (`CardTextureGenerator`): one texture per face, drawn at the largest
+  on-screen card (`TableLayout.maxCardPoints`, 100 x 145 pt: the hand at s = 1;
+  trick sprites are 0.8k) times the screen scale, 8-bit sRGB: 300 x 435 px
+  (522,000 bytes) on 3x, 200 x 290 on 2x; 54 faces = 28.19 MB on 3x, 12.53 MB on 2x (measured by
+  `AssetEfficiencyTests`; the pre-aea0ebb renderer drew 900 x 1305 px, 4.7 MB each).
+  Linear filtering, no mipmaps (the smallest static card is 0.48 of the texture;
+  `usesMipmaps` changed nothing in SpriteKit on the 27.2 simulator). The 54 faces
+  are rendered off the main thread when a game lobby, tournament lobby or the game
+  screen shows (`prewarm()`, once per process); the lock-guarded cache keeps the
+  first texture stored for a card, and a face not yet prewarmed renders on demand.
+  The card back is not prewarmed (no table sprite uses it; the draw is SwiftUI).
+- Effects: the rainbow, bore and OT sprites keep their art's aspect inside their
+  box (128 x 118, 80 x 80, 120 x 120). No larger art exists (client/assets has the
+  same PNGs): b/2b/3b/4b/ot are registered as 3x (their pixels are ~3x the box),
+  rainbow1 (128 x 118 px at 128 x 118 pt) stays 1x and is still upscaled.
+  Cards.xcassets (56 unused 64 x 64 PNGs) is gone; the launch screen uses
+  LaunchBackground (4af29fa).
+- Avatars (`AvatarTextureCache`): one pre-cut circular texture per picture (no
+  SKCropNode), one fetch per stock picture however many seats or games ask, a
+  generation token drops loads for a picture the seat no longer shows, one avatar
+  sprite per seat. Opponent seats are built once per layout and reload only when
+  the picture changes (item 23).
 
 ## Items 21 / 22 status
 

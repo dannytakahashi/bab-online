@@ -13,11 +13,34 @@ class SKEffectsManager {
         self.scene = scene
     }
 
+    /// The art's own aspect inside `box` (centered fit): the PNGs are not the
+    /// boxes' shape (b.png 218x193, 3b.png 262x296, ot.png 302x293).
+    static func fit(_ texture: SKTexture, in box: CGSize) -> CGSize {
+        let t = texture.size()
+        guard t.width > 0, t.height > 0 else { return box }
+        let k = min(box.width / t.width, box.height / t.height)
+        return CGSize(width: t.width * k, height: t.height * k)
+    }
+
+    /// The bore badge's box (it peaks at 1.2x in its animation).
+    static let boreBox = CGSize(width: 80, height: 80)
+
+    static func boreTextureName(_ level: String) -> String? {
+        switch level {
+        case "B": return "b"
+        case "2B": return "2b"
+        case "3B": return "3b"
+        case "4B": return "4b"
+        default: return nil
+        }
+    }
+
     /// Rainbow over a seat (rainbow1, 128x118).
     func showRainbow(position: Int, myPosition: Int) {
         guard let scene = scene else { return }
         let rel = Positions.getRelative(target: position, from: myPosition)
-        let sprite = SKSpriteNode(texture: SKTexture(imageNamed: "rainbow1"), size: TableLayout.rainbowSize)
+        let texture = SKTexture(imageNamed: "rainbow1")
+        let sprite = SKSpriteNode(texture: texture, size: Self.fit(texture, in: TableLayout.rainbowSize))
         sprite.name = "effect.rainbow"
         sprite.position = scene.layout.rainbowCenter(rel)
         sprite.zPosition = 1000
@@ -37,17 +60,9 @@ class SKEffectsManager {
     func showBoreBadge(_ level: String) {
         guard let scene = scene else { return }
 
-        let textureName: String
-        switch level {
-        case "B":  textureName = "b"
-        case "2B": textureName = "2b"
-        case "3B": textureName = "3b"
-        case "4B": textureName = "4b"
-        default: return
-        }
-
+        guard let textureName = Self.boreTextureName(level) else { return }
         let texture = SKTexture(imageNamed: textureName)
-        let badge = SKSpriteNode(texture: texture, size: CGSize(width: 80, height: 80))
+        let badge = SKSpriteNode(texture: texture, size: Self.fit(texture, in: Self.boreBox))
         badge.name = "effect.bore"
         badge.position = scene.layout.boreBadgeCenter
         badge.zPosition = 500
@@ -75,7 +90,7 @@ class SKEffectsManager {
         guard let scene = scene else { return }
 
         let texture = SKTexture(imageNamed: "ot")
-        let badge = SKSpriteNode(texture: texture, size: CGSize(width: TableLayout.overTrumpSize, height: TableLayout.overTrumpSize))
+        let badge = SKSpriteNode(texture: texture, size: Self.fit(texture, in: CGSize(width: TableLayout.overTrumpSize, height: TableLayout.overTrumpSize)))
         badge.name = "effect.overTrump"
         badge.position = scene.layout.overTrumpCenter
         badge.zPosition = 999
@@ -114,4 +129,21 @@ class SKEffectsManager {
         // Effects clean themselves up via removeFromParent
         live.removeAll()
     }
+
+    #if DEBUG
+    /// Fixture screenshots (`-uiEffect rainbow|b|2b|3b|4b|ot|all`): the effects held
+    /// at their peak (no animation, never removed), the rainbow over my seat.
+    func showFrozen(_ which: String, myPosition: Int) {
+        let all = which == "all"
+        if all || which == "rainbow" { showRainbow(position: myPosition, myPosition: myPosition) }
+        if all || which == "ot" { showOverTrump() }
+        let bore = all ? "3B" : which.uppercased()
+        if Self.boreTextureName(bore) != nil { showBoreBadge(bore) }
+        for e in live {
+            e.node.removeAllActions()
+            e.node.alpha = 1
+            if case .bore = e.anchor { e.node.setScale(1.2) } else { e.node.setScale(1) }
+        }
+    }
+    #endif
 }

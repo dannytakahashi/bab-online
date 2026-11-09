@@ -13,6 +13,15 @@ struct ContentView: View {
     @Environment(\.verticalSizeClass) private var vSizeClass
     @State private var showSplash = true
 
+    /// Card faces render off the main thread from the game / tournament lobby on (or a
+    /// rejoin straight into the game), so the first deal finds them cached (once per process).
+    static func prewarmCards(for screen: AppState.Screen) {
+        switch screen {
+        case .gameLobby, .tournamentLobby, .game: CardTextureGenerator.prewarm()
+        case .signIn, .register, .mainRoom: break
+        }
+    }
+
     var body: some View {
         ZStack {
             if showSplash {
@@ -64,9 +73,11 @@ struct ContentView: View {
         .onChange(of: appState.screen) { old, new in
             ChatDrafts.screenChanged(from: old, to: new, mainRoom: mainRoomState, lobby: lobbyState,
                                      tournament: tournamentState, game: gameState)
+            Self.prewarmCards(for: new)
         }
         .animation(.easeInOut(duration: 0.3), value: appState.screen)
         .onAppear {
+            Self.prewarmCards(for: appState.screen)
             #if DEBUG
             if UIFixture.isActive { showSplash = false; return }
             #endif
