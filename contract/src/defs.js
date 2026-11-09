@@ -218,6 +218,9 @@ const defs = {
     legacyClientState: obj(LEGACY_CLIENT_STATE_PROPS),
     spectatorStateV1: obj(SPECTATOR_STATE_V1_PROPS),
     seq: int({ minimum: 1, description: 'Per-game broadcast sequence number (contract/README.md R1-R5)' }),
+    // clientHello caps the server acts on (contract/README.md "Client
+    // capabilities"); unknown caps are ignored, so the list only grows
+    clientCap: enm('avatarUrl'),
 
     // ---------- snapshot v2 (server/game/snapshotV2.js; contract/README.md) ----------
     snapshotV2: obj({

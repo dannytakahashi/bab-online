@@ -1,0 +1,255 @@
+{
+  "oneHuman": {
+    "emits": 1008,
+    "bytes": 86201,
+    "wireSha256": "be18c888ca8bf7ea5b1db6a44c0ce3b3c72f32f7b7ae6eaaf0af0720491c5fa6",
+    "seatPics": [
+      5,
+      35,
+      43,
+      38
+    ],
+    "seatPicClasses": [
+      "number",
+      "number",
+      "number",
+      "number"
+    ],
+    "trumps": [
+      "Qd",
+      "7s",
+      "Jd",
+      "6c",
+      "7s",
+      "9d",
+      "3h",
+      "4s",
+      "7c",
+      "Jh",
+      "Ad",
+      "3d",
+      "3d",
+      "Jc"
+    ],
+    "hands": [
+      {
+        "1": "9c Jh 7d 8h 9h 6c 8d 2d 10h 7h Kd 2s",
+        "2": "2c Js HIj Jd 7s 8c 10s 4c Qc Jc Kc As",
+        "3": "4h 5d 9s 2h 9d 8s 3s 3c 10d 6s 6d Ks",
+        "4": "Ad Ah Kh 3h Ac 5s Qh 7c 5h LOj 6h 5c"
+      },
+      {
+        "1": "6s Kh 10h 4d 2d 3d 2h 8h 5c 3s",
+        "2": "Kd LOj Ks As 8c Ah 7h Ac 2c 10c",
+        "3": "Ad 7c Qs 6h 8s Kc Qh Jh 6d Jc",
+        "4": "5h 10d HIj 10s 5s 9c Qd 3c 2s 9s"
+      },
+      {
+        "1": "Qd 9c As 4d Kh 8s Jh LOj",
+        "2": "6c 4s 7s Qc 10d 7c 2c Jc",
+        "3": "10s 5s 3c 5h Qh 6s 2d Kd",
+        "4": "Ah 3s 2s 6h Qs Ks 3h 9s"
+      },
+      {
+        "1": "Qh 8s 5d 7h 3d 7d",
+        "2": "Ks 8c 6s Js 2c 8d",
+        "3": "6d 4h Qs 3s Ah Jd",
+        "4": "10d HIj Qd 9c 4c 5h"
+      },
+      {
+        "1": "Jh 10h Kc 3s",
+        "2": "7c Ac 7h Jc",
+        "3": "LOj 9d Ah 2d",
+        "4": "3h Js 6s 2h"
+      },
+      {
+        "1": "3s 5s",
+        "2": "10s 6c",
+        "3": "As Kc",
+        "4": "8h 2h"
+      },
+      {
+        "1": "LOj As",
+        "2": "10c 6c",
+        "3": "3d 5d",
+        "4": "Jh Ah"
+      },
+      {
+        "1": "Ac",
+        "2": "Kc",
+        "3": "3c",
+        "4": "2h"
+      },
+      {
+        "1": "3h Ac 7h",
+        "2": "5c 8h LOj",
+        "3": "10s Qs Ah",
+        "4": "9s 3c 2s"
+      },
+      {
+        "1": "LOj Qc 10c 7s Kd",
+        "2": "Ah 8s 2d Qd 5d",
+        "3": "HIj Ac 9s 4h 6c",
+        "4": "10d 4c 4s 8c Ad"
+      },
+      {
+        "1": "6c Kh Qh 3d 7d 6d HIj",
+        "2": "LOj Jc Jd 9s 6h 10d 7s",
+        "3": "7h 2s 3h 6s 2d 5c As",
+        "4": "5h 9d 3s 10h 7c 9c 5d"
+      },
+      {
+        "1": "Js 2h HIj As 7s Jc Jh 10s 3h",
+        "2": "Qh 9c Kh 6d 8d Ks 6h 9s 9h",
+        "3": "9d 4d 10c Ac 2c 8c 6s Jd 8h",
+        "4": "LOj 5h Ah 7d 10d Kd Ad 4s 2s"
+      },
+      {
+        "1": "Js 3h 3s 10c 10h Kc 5h Kd 4d 7d 9c",
+        "2": "Ac 4h Qc 8s 2c 6h 9h 2h 5d Jd 2d",
+        "3": "As 6s 2s 9s 7h 8h 10d 6c Qd Kh 9d",
+        "4": "5c 5s 8d 4s Qs Jc 6d Ad 7c Qh 4c"
+      },
+      {
+        "1": "4c 4d 7c 4h Ah 9d 7h 4s 10s Qh 2h 9s 10d",
+        "2": "Kd 6c 9c 5d Qs Kh Ad Js 8d Qd Jd 2d LOj",
+        "3": "As Jh 3s Qc 8h 5c 3h 6h 6d Ac 7s 7d 2c",
+        "4": "5h HIj 9h 3c 10h Ks Kc 6s 5s 3d 8s 2s 8c"
+      }
+    ],
+    "finalScore": {
+      "team1": 61,
+      "team2": 309
+    }
+  },
+  "collidingPics": {
+    "emits": 1048,
+    "bytes": 97060,
+    "wireSha256": "e5e99f7c8675b4b2ba069ee2a5364c56482fc135bfe03b3cc63fe717ae0f897d",
+    "seatPics": [
+      1,
+      5,
+      49,
+      3
+    ],
+    "seatPicClasses": [
+      "number",
+      "number",
+      "number",
+      "number"
+    ],
+    "trumps": [
+      "2d",
+      "Ac",
+      "2c",
+      "As",
+      "10c",
+      "5d",
+      "7d",
+      "10h",
+      "2d",
+      "3c",
+      "Ad",
+      "Jh",
+      "Qd",
+      "6s",
+      "6d"
+    ],
+    "hands": [
+      {
+        "1": "5h 7h 3h 5c 3s 10c Ah LOj 6h 4c HIj 8s",
+        "2": "8h Ad Kd 2s 6s 5d 6c Qs 6d Jd Jh Ac",
+        "3": "8d 7s 8c 10s 2c As 9d Jc Ks 10d 7c 3d",
+        "4": "2h Kh 5s 9h 9c 7d Kc 4h 9s Qd 3c Qc"
+      },
+      {
+        "1": "10c HIj 6c 3h 4d 5c 9c Jh 8s Kh",
+        "2": "Qc 4s Qs Ks 8c 6d 4h 5d Jd LOj",
+        "3": "7c 10h 8h 9h 3d Qh Kd 4c 2c Kc",
+        "4": "7d 9s Ad Js 3s 10s As Jc 9d 2d"
+      },
+      {
+        "1": "8d 5c 7s 10c 4h Jh 4c 7c",
+        "2": "Qc 4d Jc Kd 3h 7h 6s Ah",
+        "3": "10s 3c 10d 6d HIj As Qd 9d",
+        "4": "8s Ac Jd 9s 3d 2h 5d 9c"
+      },
+      {
+        "1": "9s 4s 9h 10h 8d HIj",
+        "2": "6d Kh Ah 6s Ac 10s",
+        "3": "2h 3d 4c Jc Ad 7d",
+        "4": "Jh 5h 7s 3h 2d 3s"
+      },
+      {
+        "1": "9s 2d Ac 7d",
+        "2": "4s 3h 8s 5s",
+        "3": "7c 6h Jh Qs",
+        "4": "5c 10d LOj HIj"
+      },
+      {
+        "1": "4s Jd",
+        "2": "3c 2h",
+        "3": "5s 2c",
+        "4": "6d 10s"
+      },
+      {
+        "1": "4s Kc",
+        "2": "5s 10d",
+        "3": "5c Qc",
+        "4": "9s 8d"
+      },
+      {
+        "1": "Jc Ah",
+        "2": "Ad HIj",
+        "3": "Ac Jh",
+        "4": "7c 3h"
+      },
+      {
+        "1": "8s",
+        "2": "Jh",
+        "3": "HIj",
+        "4": "6c"
+      },
+      {
+        "1": "5c Kd Ks",
+        "2": "6d 9s 9h",
+        "3": "Jc Jd 3h",
+        "4": "10c 8h Kc"
+      },
+      {
+        "1": "Ah Qh 7d 3s 2c",
+        "2": "Jh 4h 5s 5h 6s",
+        "3": "7c 3h Qs 9s HIj",
+        "4": "6d 8s 4d Qd 8h"
+      },
+      {
+        "1": "9s Kc 6d Jc Jd 5c 10h",
+        "2": "4h Kd 2s 5h 5d 10s 10d",
+        "3": "Qc 3d 9h Ac LOj 8s 7h",
+        "4": "7c Qh 10c 3h Ah 7d HIj"
+      },
+      {
+        "1": "2d 4d Ac Js 8h LOj 6d 10c 5d",
+        "2": "Kh 6s 2s Jd Kd Qh 7h 4h 3d",
+        "3": "9c 5s 8d 10s 4s 5c 3h Qc 7d",
+        "4": "5h Jc 3c 6h As 8s Ad 8c 7s"
+      },
+      {
+        "1": "2d 10d 9c Qh 3d 8d 3c Js 7c Qd 6d",
+        "2": "Jd Kc LOj 10s 2s 6c 10h 2h 8h 8s 9d",
+        "3": "Ah 4d As 7d 5s Jc Qc 3s 4h 2c Jh",
+        "4": "9h Ad Ac HIj Ks 7h 10c 5d Kh 8c 3h"
+      },
+      {
+        "1": "2d 4c 3h 8c 7c Jd 9h 5s Ad 8d 10s Kh Ks",
+        "2": "Qd 4d 6c Jc 6h 5d Kc 3s Ac 3c 7s 10c 2c",
+        "3": "2s Kd HIj 6s 4h 10h LOj 5h 4s Qh 10d 8h 9c",
+        "4": "2h 9s Js 7d 3d Qs 5c 9d Qc 8s As Ah Jh"
+      }
+    ],
+    "finalScore": {
+      "team1": 355,
+      "team2": 331
+    }
+  }
+}

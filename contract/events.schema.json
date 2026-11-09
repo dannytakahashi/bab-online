@@ -1166,6 +1166,11 @@
       "minimum": 1,
       "description": "Per-game broadcast sequence number (contract/README.md R1-R5)"
     },
+    "clientCap": {
+      "enum": [
+        "avatarUrl"
+      ]
+    },
     "snapshotV2": {
       "type": "object",
       "properties": {
@@ -1988,6 +1993,87 @@
           "username": "alan"
         }
       ]
+    },
+    "clientHello": {
+      "payload": {
+        "type": "object",
+        "properties": {
+          "client": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16,
+            "pattern": "^[a-z0-9-]+$"
+          },
+          "version": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32
+          },
+          "build": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "caps": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "maxItems": 16
+          }
+        },
+        "required": [
+          "client",
+          "version",
+          "caps"
+        ],
+        "additionalProperties": true
+      },
+      "status": "active",
+      "joi": "clientHello",
+      "rateLimit": "clientHello",
+      "sentBy": {
+        "web": false,
+        "ios": false
+      },
+      "examples": [
+        {
+          "client": "web",
+          "version": "1.0.0",
+          "build": "abc1234",
+          "caps": [
+            "avatarUrl"
+          ]
+        },
+        {
+          "client": "ios",
+          "version": "1.1.0",
+          "caps": []
+        }
+      ],
+      "invalid": [
+        {
+          "client": "web",
+          "version": "1.0.0"
+        },
+        {
+          "client": "web",
+          "version": "1",
+          "caps": "avatarUrl"
+        },
+        {
+          "client": "",
+          "version": "1",
+          "caps": []
+        },
+        {
+          "client": "Web!",
+          "version": "1",
+          "caps": []
+        }
+      ],
+      "notes": "Sent on every connect by clients that read avatarUrl / avatarUrls ($defs.clientCap). No reply. Absent = legacy shape (the App Store iOS build, cached old web bundles). Unknown caps are ignored; the last hello wins (one without avatarUrl downgrades the socket). Over the rate limit it is dropped silently. Logged with the client version (telemetry for V1_REMOVALS)."
     },
     "deleteAccount": {
       "payload": {

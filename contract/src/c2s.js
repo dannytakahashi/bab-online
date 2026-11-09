@@ -17,7 +17,7 @@
 
 'use strict';
 
-const { str, int, bool, enm, ref, anyOf, obj } = require('./defs');
+const { str, int, bool, enm, ref, anyOf, obj, arr } = require('./defs');
 
 const open = (props, o = {}) => obj(props, { ...o, open: true });
 const none = open({});
@@ -40,6 +40,18 @@ const c2s = {
     signIn: { payload: open({ username: uname(), password: password() }), status: 'active', joi: 'signIn', rateLimit: 'signIn', sentBy: both, examples: [{ username: 'alan', password: 'pw' }], invalid: [{ username: '', password: 'pw' }, { username: 'a'.repeat(51), password: 'pw' }, { username: 'alan' }] },
     signUp: { payload: open({ username: uname(), password: password() }), status: 'active', joi: 'signUp', rateLimit: 'signUp', sentBy: both, examples: [{ username: 'alan', password: 'pw' }], invalid: [{ username: 'alan', password: '' }, { username: 'alan', password: 'p'.repeat(101) }] },
     restoreSession: { payload: open({ username: uname(), sessionToken: uuid() }), status: 'active', joi: 'restoreSession', rateLimit: null, sentBy: both, examples: [{ username: 'alan', sessionToken: '6f1c2b8e-7f0a-4c55-9d3e-2a1b0c9d8e7f' }], invalid: [{ username: 'alan', sessionToken: 'not-a-uuid' }, { username: 'alan' }] },
+    clientHello: {
+        payload: open({
+            client: str({ minLength: 1, maxLength: 16, pattern: '^[a-z0-9-]+$' }),
+            version: str({ minLength: 1, maxLength: 32 }),
+            build: str({ maxLength: 64 }),
+            caps: arr(str({ minLength: 1, maxLength: 32 }), { maxItems: 16 }),
+        }, { optional: ['build'] }),
+        status: 'active', joi: 'clientHello', rateLimit: 'clientHello', sentBy: { web: false, ios: false },
+        examples: [{ client: 'web', version: '1.0.0', build: 'abc1234', caps: ['avatarUrl'] }, { client: 'ios', version: '1.1.0', caps: [] }],
+        invalid: [{ client: 'web', version: '1.0.0' }, { client: 'web', version: '1', caps: 'avatarUrl' }, { client: '', version: '1', caps: [] }, { client: 'Web!', version: '1', caps: [] }],
+        notes: 'Sent on every connect by clients that read avatarUrl / avatarUrls ($defs.clientCap). No reply. Absent = legacy shape (the App Store iOS build, cached old web bundles). Unknown caps are ignored; the last hello wins (one without avatarUrl downgrades the socket). Over the rate limit it is dropped silently. Logged with the client version (telemetry for V1_REMOVALS).',
+    },
     deleteAccount: { payload: open({ password: password() }), status: 'active', joi: 'deleteAccount', rateLimit: 'deleteAccount', sentBy: both, examples: [{ password: 'pw' }], invalid: [{ password: '' }, {}] },
 
     // Queue (no client sends these)

@@ -14,6 +14,10 @@ class RateLimiter {
             signIn: { max: 5, windowMs: 60000 },       // 5 per minute
             signUp: { max: 3, windowMs: 300000 },      // 3 per 5 minutes
 
+            // clientHello: one per connect; over the limit it is dropped
+            // silently inside the handler (socket/clientInfo.js)
+            clientHello: { max: 5, windowMs: 10000 },
+
             // Chat - moderate limits
             chatMessage: { max: 10, windowMs: 10000 }, // 10 per 10 seconds
 

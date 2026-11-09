@@ -15,6 +15,7 @@ const tournamentHandlers = require('./tournamentHandlers');
 const voiceHandlers = require('./voiceHandlers');
 const safetyHandlers = require('./safetyHandlers');
 const snapshotHandlers = require('./snapshotHandlers');
+const clientInfo = require('./clientInfo');
 const { asyncHandler, syncHandler, safeHandler, rateLimiter } = require('./errorHandler');
 const { socketLogger } = require('../utils/logger');
 const { getClientIp } = require('../utils/clientIp');
@@ -26,6 +27,12 @@ function setupSocketHandlers(io) {
         // Client IP for the failed-sign-in throttle, from the handshake
         // (Railway edge: X-Real-IP behind a proxy peer; see utils/clientIp)
         if (socket.data) socket.data.clientIp = getClientIp(socket);
+
+        // Client capabilities (avatarUrl): socket.data.client, no reply.
+        // Rate limited inside the handler (silently dropped over the limit)
+        socket.on('clientHello', (data) =>
+            syncHandler('clientHello', clientInfo.handle, { rateLimit: false })(socket, io, data)
+        );
 
         // Auth events - with validation
         socket.on('signIn', (data) =>
