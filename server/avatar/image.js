@@ -72,11 +72,11 @@ function parseDataUrl(str) {
 
 /** Format by magic bytes (never trust the data URL's MIME text), or null. */
 function sniff(buf) {
-    if (!Buffer.isBuffer(buf) || buf.length < 12) return null;
+    if (!Buffer.isBuffer(buf) || buf.length < 4) return null;
     if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return 'png';
     if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'jpeg';
     if (buf.toString('latin1', 0, 4) === 'GIF8') return 'gif';
-    if (buf.toString('latin1', 0, 4) === 'RIFF' && buf.toString('latin1', 8, 12) === 'WEBP') return 'webp';
+    if (buf.length >= 12 && buf.toString('latin1', 0, 4) === 'RIFF' && buf.toString('latin1', 8, 12) === 'WEBP') return 'webp';
     return null;
 }
 

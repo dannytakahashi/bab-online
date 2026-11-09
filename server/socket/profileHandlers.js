@@ -8,6 +8,7 @@ const gameManager = require('../game/GameManager');
 const { authLogger } = require('../utils/logger');
 const { createCache } = require('../utils/ttlCache');
 const rateLimiter = require('./rateLimiter');
+const avatarStore = require('../avatar/avatarStore');
 
 // Leaderboard and records pages: 60 s caches, invalidated on every write
 // this process makes that changes them (recordGameStats, deleteAccount,
@@ -123,6 +124,7 @@ async function updateProfilePic(socket, io, data) {
             { username: user.username },
             { $set: { profilePic: profilePic } }
         );
+        avatarStore.forgetUser(user.username);
         invalidateLeaderboard();
 
         socket.emit('profilePicUpdateResponse', {
@@ -196,6 +198,7 @@ async function uploadProfilePic(socket, io, data) {
             { username: user.username },
             { $set: { customProfilePic: imageData } }
         );
+        avatarStore.forgetUser(user.username);
         invalidateLeaderboard();
 
         socket.emit('profilePicUploadResponse', {
@@ -393,8 +396,11 @@ async function getUserProfilePic(username, { randomFallback = true } = {}) {
             hasCustomPic: !!user?.customProfilePic
         });
 
-        // Return custom profile pic (base64 string) if set
+        // Return custom profile pic (base64 string) if set. warm() only
+        // starts deriving its small rendition in the background (no await,
+        // no RNG): the value returned is unchanged
         if (user && user.customProfilePic) {
+            avatarStore.warm(username, user.customProfilePic);
             return user.customProfilePic;
         }
 

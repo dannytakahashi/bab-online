@@ -37,9 +37,7 @@ jest.mock('uuid', () => {
     };
 });
 
-const gameManager = require('../../game/GameManager');
-const { gameLogger, socketLogger, authLogger, logger } = require('../../utils/logger');
-const { runGame } = require('../../testUtils/avatarHarness');
+const fx = require('../../testUtils/avatarFixtures');
 
 const FILE = path.join(__dirname, '__golden__', 'wireGolden.fcdd885.json');
 const UPDATE = process.env.UPDATE_WIRE_GOLDEN === '1';
@@ -53,31 +51,50 @@ const SCENARIOS = {
 };
 
 beforeEach(() => {
-    require('uuid').__reset();
     jest.useFakeTimers();
-    jest.setSystemTime(Date.UTC(2026, 0, 1, 12));
-    mockDb.current = createMemoryDb({ users: [] });
-    for (const l of [gameLogger, socketLogger, authLogger, logger]) {
-        for (const m of ['error', 'warn', 'info', 'debug']) jest.spyOn(l, m).mockImplementation(() => {});
-    }
     jest.spyOn(console, 'log').mockImplementation(() => {});
     jest.spyOn(console, 'warn').mockImplementation(() => {});
 });
 
 afterEach(() => {
-    for (const id of Array.from(gameManager.games.keys())) gameManager.abortGame(id);
-    for (const id of Array.from(gameManager.lobbies.keys())) gameManager.lobbies.delete(id);
     jest.clearAllTimers();
     jest.useRealTimers();
     jest.restoreAllMocks();
 });
 
-afterAll(() => require('../errorHandler').rateLimiter.shutdown());
+let CUSTOM;
+beforeAll(async () => { CUSTOM = fx.dataUrl(await fx.avatarPng(200)); });
 
 const picClass = (p) => (typeof p === 'number' ? 'number' : typeof p === 'string' && p.startsWith('data:image') ? 'custom' : String(p));
 
-/** Play one scenario and reduce it to its golden record. */
-async function capture({ seed, opts }) {
+/**
+ * Play one scenario in a FRESH module registry (server singletons such as
+ * GameManager and BotController carry state from game to game, which would
+ * make a scenario depend on the ones before it) and reduce it to its golden
+ * record. `pipeline` switches the avatar pipeline on in that registry.
+ */
+async function capture(sc, { pipeline = false } = {}) {
+    let rec;
+    await jest.isolateModulesAsync(async () => {
+        require('uuid').__reset();
+        jest.setSystemTime(Date.UTC(2026, 0, 1, 12));
+        mockDb.current = createMemoryDb({ users: [] });
+        const { gameLogger, socketLogger, authLogger, logger } = require('../../utils/logger');
+        for (const l of [gameLogger, socketLogger, authLogger, logger]) {
+            for (const m of ['error', 'warn', 'info', 'debug']) jest.spyOn(l, m).mockImplementation(() => {});
+        }
+        if (pipeline) require('../../avatar/avatarStore').configure({ enabled: true });
+        try {
+            rec = await play(sc);
+        } finally {
+            require('../errorHandler').rateLimiter.shutdown();
+        }
+    });
+    return rec;
+}
+
+async function play({ seed, opts }) {
+    const { runGame } = require('../../testUtils/avatarHarness');
     const deals = [];
     const r = await runGame(seed, {
         ...opts,
@@ -97,7 +114,7 @@ async function capture({ seed, opts }) {
     const pu = r.wire.find((x) => x.event === 'positionUpdate');
     const hash = crypto.createHash('sha256');
     for (const x of r.wire) hash.update(`${x.to}|${(x.members || []).join(',')}|${x.event}|${JSON.stringify(x.data)}\n`);
-    return {
+    const rec = {
         emits: r.wire.length,
         bytes: r.wire.reduce((a, x) => a + x.bytes, 0),
         wireSha256: hash.digest('hex'),
@@ -107,20 +124,19 @@ async function capture({ seed, opts }) {
         hands: deals.map((d) => d.hands),
         finalScore: r.game.score,
     };
+    // not part of the golden (it did not exist at fcdd885)
+    Object.defineProperty(rec, 'avatarVersions', { value: r.game.avatarVersions ? Object.fromEntries(r.game.avatarVersions) : null });
+    return rec;
 }
 
 /** Golden of every scenario (run sequentially: one game world at a time). */
-async function captureAll() {
+async function captureAll(scenarios = SCENARIOS, o) {
     const out = {};
-    for (const [name, sc] of Object.entries(SCENARIOS)) {
-        require('uuid').__reset();
-        mockDb.current = createMemoryDb({ users: [] });
-        out[name] = await capture(sc);
+    for (const [name, sc] of Object.entries(scenarios)) {
+        out[name] = await capture(sc, o);
     }
     return out;
 }
-
-module.exports = { captureAll, FILE };
 
 test('seeded no-custom-picture games are byte-identical to the fcdd885 golden (wire + RNG)', async () => {
     const got = await captureAll();
@@ -134,4 +150,19 @@ test('seeded no-custom-picture games are byte-identical to the fcdd885 golden (w
         fs.writeFileSync(FILE, JSON.stringify(got, null, 2) + '\n');
     }
     expect(got).toEqual(JSON.parse(fs.readFileSync(FILE, 'utf8')));
+}, 60000);
+
+test('with the avatar pipeline ON and no clientHello the no-custom games are still byte-identical (I3, I4)', async () => {
+    const got = await captureAll(SCENARIOS, { pipeline: true });
+    expect(got).toEqual(JSON.parse(fs.readFileSync(FILE, 'utf8')));
+}, 60000);
+
+test('a custom picture: the pipeline never changes the RNG (same hands, trumps, seat pictures); versions are hashed at seating', async () => {
+    const sc = { custom: { seed: 12, opts: { humans: [{ username: 'gold_c', profilePic: 5, customProfilePic: CUSTOM }] } } };
+    const off = (await captureAll(sc)).custom;
+    const on = (await captureAll(sc, { pipeline: true })).custom;
+    for (const k of ['hands', 'trumps', 'seatPicClasses', 'finalScore']) expect({ k, v: on[k] }).toEqual({ k, v: off[k] });
+    expect(off.avatarVersions).toEqual({});
+    expect(on.avatarVersions).toEqual({ gold_c: require('../../avatar/avatarStore').versionOf(CUSTOM) });
+    expect(on.seatPicClasses.filter((c) => c === 'custom')).toHaveLength(1);
 }, 60000);

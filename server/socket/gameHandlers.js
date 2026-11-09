@@ -26,6 +26,7 @@ const seatLifecycle = require('./seatLifecycle');
 const { emitLobbiesUpdated } = require('./gameLifecycle');
 const { snapshotFor } = require('./snapshotHandlers');
 const pacing = require('../game/pacing');
+const avatarStore = require('../avatar/avatarStore');
 
 const logContinuationError = (what, game) => (err) =>
     gameLogger.error(`${what} failed`, { gameId: game.gameId, error: err.message, stack: err.stack });
@@ -351,6 +352,20 @@ async function handleDrawComplete(io, game) {
 
         usedPics.add(pic);
         pics.push(pic);
+    }
+    // Avatar URL versions of the humans' custom pictures (pure hashing, no
+    // RNG, not part of toJSON): avatarWire maps them at emit time. The
+    // lookups above already started deriving the renditions (warm), which
+    // finishes inside the drawReveal hold
+    game.avatarVersions = new Map();
+    if (avatarStore.available()) {
+        for (let i = 0; i < game.drawIDs.length; i++) {
+            const username = game.entrant(game.drawIDs[i])?.username;
+            const pic = pics[i];
+            if (username && typeof pic === 'string' && pic.startsWith('data:image')) {
+                game.avatarVersions.set(username, avatarStore.versionOf(pic));
+            }
+        }
     }
     // Aborted while the profile pics loaded
     if (!alive()) return;
