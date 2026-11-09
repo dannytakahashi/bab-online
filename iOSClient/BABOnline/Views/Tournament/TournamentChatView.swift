@@ -51,6 +51,8 @@ struct TournamentChatView: View {
             .padding(8)
         }
         .safetyAlerts(reportTarget: $reportTarget, reportContext: "tournament chat")
+        .onAppear { if message.isEmpty { message = tournamentState.chatDraft } }
+        .onChange(of: message) { tournamentState.chatDraft = message }
     }
 
     private func sendMessage() {
@@ -58,5 +60,6 @@ struct TournamentChatView: View {
         guard !text.isEmpty else { return }
         TournamentEmitter.tournamentChat(message: text)
         message = ""
+        tournamentState.chatDraft = ""
     }
 }

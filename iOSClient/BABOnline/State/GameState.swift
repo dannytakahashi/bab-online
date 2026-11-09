@@ -18,6 +18,9 @@ final class GameState: ObservableObject {
     @Published private(set) var log = LogSlice()
 
     private(set) var state = TableState()
+    /// The game log's unsent chat line: outside the reducer slices (TableState
+    /// is untouched) and not @Published, so typing never re-renders the table.
+    var chatDraft = ""
     /// +1 per applied snapshot or reset (the coordinator's resync debounce).
     private(set) var sceneResets = 0
 
@@ -80,7 +83,10 @@ final class GameState: ObservableObject {
         return decoded
     }
 
-    func reset() { apply(.local(.reset)) }
+    func reset() {
+        chatDraft = ""
+        apply(.local(.reset))
+    }
 
     // MARK: - Read-only compatibility accessors (views)
 

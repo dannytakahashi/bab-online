@@ -112,7 +112,9 @@ struct GameLogView: View {
                             .textFieldStyle(BABTextFieldStyle())
                             .onChange(of: chatMessage) {
                                 showAutocomplete = chatMessage.hasPrefix("/")
+                                gameState.chatDraft = chatMessage
                             }
+                            .onAppear { if chatMessage.isEmpty { chatMessage = gameState.chatDraft } }
                             .onSubmit(sendChat)
 
                         Button(action: sendChat) {
@@ -150,12 +152,14 @@ struct GameLogView: View {
 
         ChatEmitter.sendMessage(text)
         chatMessage = ""
+        gameState.chatDraft = ""
         showAutocomplete = false
     }
 
     private func submitCommand(_ command: String) {
         ChatEmitter.sendMessage(command)
         chatMessage = ""
+        gameState.chatDraft = ""
         showAutocomplete = false
     }
 }

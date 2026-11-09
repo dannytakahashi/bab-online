@@ -62,6 +62,9 @@ struct MainRoomChatView: View {
             .padding(10)
         }
         .safetyAlerts(reportTarget: $reportTarget, reportContext: "main room chat")
+        // the draft lives in the store: a rotation or fold that rebuilds this view keeps it
+        .onAppear { if message.isEmpty { message = mainRoomState.chatDraft } }
+        .onChange(of: message) { mainRoomState.chatDraft = message }
     }
 
     private func sendMessage() {
@@ -69,6 +72,7 @@ struct MainRoomChatView: View {
         guard !text.isEmpty else { return }
         LobbyEmitter.mainRoomChat(message: text)
         message = ""
+        mainRoomState.chatDraft = ""
     }
 }
 

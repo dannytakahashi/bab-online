@@ -7,6 +7,8 @@ final class LobbyState: ObservableObject {
     @Published var players: [LobbyPlayer] = []
     @Published var messages: [ChatMessage] = []
     @Published var isReady: Bool = false
+    /// The unsent chat line (survives a recreated view; not @Published).
+    var chatDraft = ""
 
     var playerCount: Int { players.count }
     var isFull: Bool { players.count >= 4 }
@@ -17,5 +19,6 @@ final class LobbyState: ObservableObject {
         players = []
         messages = []
         isReady = false
+        chatDraft = ""
     }
 }
