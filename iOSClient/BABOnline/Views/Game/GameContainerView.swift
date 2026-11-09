@@ -86,7 +86,7 @@ struct GameContainerView: View {
                     dock = m
                     if m != .none { showGameLog = false }
                 }
-                .onChange(of: tabletopFold(outer), initial: true) { _, fold in
+                .onChange(of: mode == .none ? sceneFold(outer) : nil, initial: true) { _, fold in
                     if chrome.fold != fold { chrome.fold = fold }
                     #if DEBUG
                     if let d = FoldReader.division(outer) { print("[Regions] division \(d) (proxy-local) -> dock \(mode) tabletop \(fold.map { "\($0)" } ?? "-")") }
@@ -137,7 +137,11 @@ struct GameContainerView: View {
     private func dockMode(_ p: GeometryProxy) -> Dock {
         guard showsTable || gameState.phase == .draw else { return .none }
         if let div = FoldReader.division(p), div.height > div.width, div.minX > 0, div.maxX < p.size.width {
-            return .book(hinge: div)
+            // the left page holds the log only when both pages are wide enough (a readable log,
+            // a table that needs no fallback); otherwise the table spans both pages and
+            // TableLayout keeps its cluster and seats off the hinge
+            let tablePage = p.size.width - div.maxX + p.safeAreaInsets.trailing
+            return div.minX >= 240 && tablePage >= 375 ? .book(hinge: div) : .none
         }
         let i = p.safeAreaInsets
         let w = p.size.width + i.leading + i.trailing, h = p.size.height + i.top + i.bottom
@@ -161,9 +165,10 @@ struct GameContainerView: View {
         return 320
     }
 
-    /// Tabletop (a division wider than tall), not docked: the fold in the scene's coordinates.
-    private func tabletopFold(_ p: GeometryProxy) -> CGRect? {
-        guard let div = FoldReader.division(p), div.width > div.height else { return nil }
+    /// The division in the scene's coordinates when nothing is docked: tabletop (table
+    /// above, hand below) or an undocked book fold (cluster on the wider page).
+    private func sceneFold(_ p: GeometryProxy) -> CGRect? {
+        guard let div = FoldReader.division(p) else { return nil }
         let i = p.safeAreaInsets
         let full = CGSize(width: p.size.width + i.leading + i.trailing, height: p.size.height + i.top + i.bottom)
         return FoldReader.toScene(div, in: full, insets: i)

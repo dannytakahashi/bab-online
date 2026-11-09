@@ -298,6 +298,21 @@ final class TableLayoutTests: XCTestCase {
         XCTAssertFalse(open.foldIgnored)
     }
 
+    /// An undocked book fold on a narrow window: the cluster fits its page or the fold is ignored; never off-screen.
+    func testBookFallbackStaysOnScreen() {
+        for (size, ins) in [(CGSize(width: 466, height: 678), Self.insets(0, 0, 34, 84)), (CGSize(width: 669, height: 951), Self.insets(24, 0, 20, 0)),
+                            (CGSize(width: 820, height: 1180), Self.insets(32, 0, 20, 0))] {
+            let fold = CGRect(x: -10, y: -size.height / 2, width: 20, height: size.height)
+            let L = TableLayout(size: size, chrome: Self.chrome(ins, fold: fold))
+            XCTAssertFalse(L.isDegraded, "\(size)")
+            for r in [Rel.top, .bottom, .left, .right] {
+                XCTAssertTrue(L.safeRect.insetBy(dx: -0.01, dy: -0.01).contains(L.trickRect(r)), "\(size) \(r)")
+                if !L.foldIgnored { XCTAssertFalse(L.trickRect(r).intersects(fold), "\(size) \(r) on the hinge") }
+            }
+            XCTAssertTrue(Self.problems(L).isEmpty, "\(size): \(Self.problems(L))")
+        }
+    }
+
     func testBookClusterOffHinge() {
         for dy in [CGFloat(-10), 0, 10] {
             let fold = CGRect(x: -10 + dy, y: -334.5, width: 20, height: 669)

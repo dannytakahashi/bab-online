@@ -163,7 +163,10 @@ Duo) turn to landscape; every other phone window, the closed Duo included,
 stays portrait (`AppDelegate.mask`). Folds (27-4): tabletop puts the table
 above the division and the hand and bid panel below it (ignored when the
 window is too short to split, e.g. the closed Duo); book docks the game log
-on the left page up to the hinge and the scene never spans it; the open
+on the left page up to the hinge and the scene never spans it, when the
+left page is at least 240 pt and the right one 375 pt; otherwise the table
+spans both pages with its cluster on the wider page and the seats off the
+hinge, or ignores the fold when that would crowd the seats; the open
 Duo in landscape docks the log as a 320 pt side panel (the Log button
 collapses it); the iPad keeps the drawer.
 

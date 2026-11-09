@@ -112,6 +112,8 @@ struct TableLayout: Equatable {
                 }
             }
         }
+        // an undocked book fold squeezed onto one page must still keep the seats apart
+        if let f = chrome.fold, f.height > f.width, let sol = found, !Self.seatsClear(sol) { found = nil }
         // a fold that leaves no room (tabletop on a short window) is ignored rather than degrading
         if found == nil, chrome.fold != nil {
             var unfolded = chrome
@@ -354,7 +356,10 @@ struct TableLayout: Equatable {
                 let left = (x0, f.minX - G), right = (f.maxX + G, x1)
                 let side = right.1 - right.0 >= left.1 - left.0 ? right : left
                 tcx = (side.0 + side.1) / 2
+                // the cluster must fit its page (else a smaller k, else the fold is ignored)
+                if strict && (tcx - ox - tw / 2 < side.0 - 0.01 || tcx + ox + tw / 2 > side.1 + 0.01) { continue }
             }
+            if strict && (tcx - ox - tw / 2 < x0 - 0.01 || tcx + ox + tw / 2 > x1 + 0.01) { continue }
             // partner
             var yP = topLimit - glowRadius
             let pbub: (CGFloat) -> CGRect = { y in rect(CGPoint(x: tcx + topBubbleDX, y: y), bubbleSize) }
@@ -438,6 +443,24 @@ struct TableLayout: Equatable {
             return sol
         }
         return nil
+    }
+
+    /// Seats (glow + name) clear of each other and of the four trick cards.
+    private static func seatsClear(_ s: Solution) -> Bool {
+        let tw = 80 * s.k, th = 116 * s.k
+        let seats = [CGPoint(x: s.tcx, y: s.yP), CGPoint(x: s.lx, y: s.yS), CGPoint(x: s.rx, y: s.yS)].map { [glowRect($0), nameRect($0)] }
+        let cards = [CGPoint(x: s.tcx, y: s.cc - s.oy), CGPoint(x: s.tcx, y: s.cc + s.oy), CGPoint(x: s.tcx - s.ox, y: s.cc),
+                     CGPoint(x: s.tcx + s.ox, y: s.cc)].map { rect($0, CGSize(width: tw, height: th)) }
+        func hit(_ a: CGRect, _ b: CGRect) -> Bool {
+            min(a.maxX, b.maxX) - max(a.minX, b.minX) > 0.01 && min(a.maxY, b.maxY) - max(a.minY, b.minY) > 0.01
+        }
+        for i in seats.indices {
+            for p in seats[i] {
+                if cards.contains(where: { hit(p, $0) }) { return false }
+                for j in seats.indices where j > i && seats[j].contains(where: { hit(p, $0) }) { return false }
+            }
+        }
+        return true
     }
 
     /// Degraded fallback: keep every anchor inside the safe rect (overlaps are possible).
