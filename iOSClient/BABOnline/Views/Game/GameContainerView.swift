@@ -23,8 +23,13 @@ struct GameContainerView: View {
     @State private var showLeaveConfirm = false
     @ObservedObject private var voiceManager = VoiceChatManager.shared
 
-    /// Everything but the size TableLayout needs, measured below.
-    @State private var chrome = TableChrome()
+    /// Everything but the size TableLayout needs, measured below. Each input
+    /// is its own @State and `chrome` is derived from them: several onChange
+    /// handlers fire in one update pass, and read-modify-writes of one shared
+    /// struct lost fields (a rejoin laid the table out with no corner buttons).
+    @State private var paneSafeArea = TableInsets.zero
+    @State private var paneOcclusions: [CGRect] = []
+    @State private var paneFoldRect: CGRect? = nil
     @State private var scoreBarHeight: CGFloat = 0
     @State private var cornerSize: CGSize = .zero
     @State private var pillHeight: CGFloat = 0
@@ -87,7 +92,7 @@ struct GameContainerView: View {
                     if m != .none { showGameLog = false }
                 }
                 .onChange(of: paneFold(mode, outer), initial: true) { _, fold in
-                    if chrome.fold != fold { chrome.fold = fold }
+                    if paneFoldRect != fold { paneFoldRect = fold }
                     #if DEBUG
                     if let d = FoldReader.division(outer) { print("[Regions] division \(d) (proxy-local) -> dock \(mode) tabletop \(fold.map { "\($0)" } ?? "-")") }
                     #endif
@@ -247,20 +252,15 @@ struct GameContainerView: View {
                 pills
             }
             .onChange(of: TableInsets(top: ins.top, left: ins.leading, bottom: ins.bottom, right: ins.trailing), initial: true) { _, new in
-                chrome.safeArea = new
+                paneSafeArea = new
             }
             .onChange(of: FoldReader.occlusions(proxy), initial: true) { _, rects in
                 // system UI over the app (25-4 step 6): joins the corner obstacles in TableLayout
-                chrome.occlusions = rects.map { FoldReader.toScene($0, in: full, insets: ins) }
+                paneOcclusions = rects.map { FoldReader.toScene($0, in: full, insets: ins) }
                 #if DEBUG
                 print("[Regions] occlusions \(rects) (proxy-local) pane \(full) insets \(ins)")
                 #endif
             }
-        }
-        .onChange(of: measuredChrome, initial: true) { _, new in
-            if chrome.topBar != new.topBar { chrome.topBar = new.topBar }
-            if chrome.cornerButton != new.cornerButton { chrome.cornerButton = new.cornerButton }
-            if chrome.bottomBar != new.bottomBar { chrome.bottomBar = new.bottomBar }
         }
         .onChange(of: chrome, initial: true) { _, new in
             scene.chrome = new
@@ -293,11 +293,14 @@ struct GameContainerView: View {
                 .frame(width: full.width, height: full.height, alignment: .topLeading)
     }
 
-    /// The measured parts of the chrome (0 when hidden).
-    private var measuredChrome: TableChrome {
-        TableChrome(topBar: showsTable ? scoreBarHeight : 0,
+    /// The table's chrome, derived from the measured inputs (0 when hidden).
+    private var chrome: TableChrome {
+        TableChrome(safeArea: paneSafeArea,
+                    topBar: showsTable ? scoreBarHeight : 0,
                     cornerButton: inGame ? cornerSize : .zero,
-                    bottomBar: showsPill && pillHeight > 0 ? pillHeight + 12 : 0)
+                    bottomBar: showsPill && pillHeight > 0 ? pillHeight + 12 : 0,
+                    fold: paneFoldRect,
+                    occlusions: paneOcclusions)
     }
 
     // MARK: - Corner buttons
