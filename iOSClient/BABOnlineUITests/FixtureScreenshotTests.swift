@@ -108,8 +108,9 @@ final class FixtureScreenshotTests: XCTestCase {
         XCTAssertTrue(app.buttons["leave"].waitForExistence(timeout: 20))
         let pose = Fixture.probe(app, "ui.pose")
         let state = Fixture.settledState(app)
-        app.buttons["log"].tap()
+        // the log is a drawer, except where it is docked open (open-Duo landscape, book pose)
         let field = app.textFields["Chat..."]
+        if !field.exists { app.buttons["log"].tap() }
         XCTAssertTrue(field.waitForExistence(timeout: 5))
         field.tap()
         field.typeText("hello table")
