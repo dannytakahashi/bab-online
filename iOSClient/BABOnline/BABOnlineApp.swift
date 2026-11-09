@@ -2,6 +2,8 @@ import SwiftUI
 
 @main
 struct BABOnlineApp: App {
+    /// Orientation policy per window scene (item 27-1).
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var appState: AppState
     @StateObject private var authState: AuthState
     @StateObject private var mainRoomState: MainRoomState

@@ -5,6 +5,8 @@ struct ContentView: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var authState: AuthState
     @EnvironmentObject var socketService: SocketService
+    @Environment(\.horizontalSizeClass) private var hSizeClass
+    @Environment(\.verticalSizeClass) private var vSizeClass
     @State private var showSplash = true
 
     var body: some View {
@@ -51,6 +53,9 @@ struct ContentView: View {
         }
         #endif
         .preferredColorScheme(.dark)
+        // the orientation mask follows the window scene's size classes (Duo fold / unfold)
+        .onChange(of: hSizeClass) { OrientationLock.refresh() }
+        .onChange(of: vSizeClass) { OrientationLock.refresh() }
         .animation(.easeInOut(duration: 0.3), value: appState.screen)
         .onAppear {
             #if DEBUG
