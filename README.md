@@ -65,14 +65,20 @@ The committed `iOSClient/BABOnline.xcodeproj` is the only source of project conf
 - `Info.plist` and `BABOnline.entitlements` are in that exception set (`membershipExceptions` of the `PBXFileSystemSynchronizedBuildFileExceptionSet`). They are used through `INFOPLIST_FILE` / `CODE_SIGN_ENTITLEMENTS` and are never bundle resources. Keep them there.
 - Swift packages: socket.io-client-swift (up to next major from 16.1.1) and stasel/WebRTC (exactly 140.0.0). `Package.resolved` is generated under `BABOnline.xcodeproj/project.xcworkspace/` and is not committed.
 
-#### Adding test targets
+#### Tests (BABOnlineTests)
 
-The project has no test targets yet. To add one:
+`BABOnlineTests` is a unit-test bundle hosted in the app, in its own synchronized folder `iOSClient/BABOnlineTests/` (a new test file there needs no project edit). The shared scheme `BABOnline.xcodeproj/xcshareddata/xcschemes/BABOnline.xcscheme` runs it:
 
-1. In Xcode, choose File > New > Target… > **Unit Testing Bundle** (or **UI Testing Bundle**). Name it `BABOnlineTests` (or `BABOnlineUITests`), with Project `BABOnline` and Target to be Tested `BABOnline`. Xcode creates `iOSClient/BABOnlineTests/` as its own synchronized folder, so test files added there later also need no project edit. Keep test sources out of `iOSClient/BABOnline/`, or they become part of the app.
-2. Unit tests reach app code with `@testable import BAB_Online` (the module name comes from the product name "BAB Online"). Debug builds already set `ENABLE_TESTABILITY = YES`.
-3. Share the scheme so the test action is in git: Product > Scheme > Manage Schemes…, tick **Shared** for `BABOnline`, and check that the new bundles are in its Test action. Commit `BABOnline.xcodeproj/xcshareddata/xcschemes/BABOnline.xcscheme` with the `project.pbxproj` change. Until then, Xcode generates the `BABOnline` scheme automatically.
-4. Run the tests with `xcodebuild test -project iOSClient/BABOnline.xcodeproj -scheme BABOnline -destination 'platform=iOS Simulator,name=<simulator>'`.
+```bash
+xcodebuild -project iOSClient/BABOnline.xcodeproj -scheme BABOnline \
+  -destination 'platform=iOS Simulator,name=<simulator>' -derivedDataPath /tmp/bab-dd \
+  CODE_SIGNING_ALLOWED=NO test
+```
+
+- Tests reach app code with `@testable import BAB_Online` (module name from the product name "BAB Online"). Only Debug sets `ENABLE_TESTABILITY = YES`, so tests run in Debug.
+- Hosted tests launch the whole app. `BABOnlineApp.setupSocket()` returns early when `XCTestConfigurationFilePath` is set, so a test run never connects or signs in. `xcodebuild test` replaces the installed `com.bab-online.BABOnline` on the chosen simulator.
+- Fixtures: the contract snapshot fixtures are bundled through a **folder reference** to `contract/fixtures/v2` (it keeps the `v2/` subdirectory: `Bundle(for:).url(forResource:withExtension:subdirectory: "v2")`). Files under `iOSClient/BABOnlineTests/` (e.g. the recorded event logs in `Fixtures/events/`, `npm run ios:fixtures`) are flattened into the bundle root, so **every fixture basename must be unique**; a duplicate fails the build with "Multiple commands produce".
+- A UI-test bundle (`BABOnlineUITests`) would be added the same way: File > New > Target, a sibling synchronized folder, and a Testable entry in the shared scheme.
 
 ### Environment Variables
 

@@ -40,6 +40,9 @@ struct BABOnlineApp: App {
     }
 
     private func setupSocket() {
+        // Hosted unit tests launch the whole app: never connect (a running dev
+        // server plus the simulator keychain would sign in and play).
+        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil { return }
         socketService.authState = authState
         socketService.connect()
 
