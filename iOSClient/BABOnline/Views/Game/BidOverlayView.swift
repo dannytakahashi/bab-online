@@ -92,7 +92,11 @@ struct BidOverlayView: View {
                 .shadow(color: .black.opacity(0.4), radius: 10)
         )
         .padding(.horizontal, 8)
-        .padding(.bottom, 4)
+        // capped so the panel fits the layout's 340 x 140 bid band
+        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("bidOverlay")
+        .accessibilityValue(selectedBid ?? "-")
     }
 
     private func submitBid() {

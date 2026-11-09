@@ -183,7 +183,9 @@ struct TableLayout: Equatable {
         case .top: return CGPoint(x: tcx, y: yP)
         case .left: return CGPoint(x: lx, y: yS)
         case .right: return CGPoint(x: rx, y: yS)
-        case .bottom: return handBaseline
+        case .bottom:
+            // a spectator's seat 1..4 sits on the hand baseline, its name kept clear of the bottom pill
+            return CGPoint(x: handBaseline.x, y: max(handBaseline.y, safeRect.minY + chrome.bottomBar - Self.nameLo + 1))
         }
     }
 
