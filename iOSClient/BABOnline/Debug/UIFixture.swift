@@ -142,12 +142,14 @@ final class TableDebugProbe: ObservableObject {
     @Published var tableState = "-"
     /// The window's size classes ("compact/regular" = h/v), recorded with the pose.
     @Published var sizeClasses = "-"
+    /// The system's vertical bar edge ("trailing" / "leading"), "-" where none is used.
+    @Published var verticalBar = "-"
 
     var pose: String {
         let i = insets
         let fold = chrome.fold.map { "\(Int($0.width))x\(Int($0.height))@\(Int($0.minX)),\(Int($0.minY))" } ?? "-"
         return "\(Int(window.width))x\(Int(window.height)) \(Int(i.top))/\(Int(i.left))/\(Int(i.bottom))/\(Int(i.right)) "
-            + "topBar \(Int(chrome.topBar)) fold \(fold) occlusions \(chrome.occlusions.count) sc \(sizeClasses)"
+            + "topBar \(Int(chrome.topBar)) fold \(fold) occlusions \(chrome.occlusions.count) sc \(sizeClasses) vbar \(verticalBar)"
     }
 
     /// The scene after a render or relayout: are the stable nodes inside the safe rect?
