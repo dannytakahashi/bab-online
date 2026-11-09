@@ -5,6 +5,7 @@ import SpriteKit
 struct GameContainerView: View {
     @EnvironmentObject var gameState: GameState
     @EnvironmentObject var appState: AppState
+    @EnvironmentObject var actions: ActionCoordinator
 
     @State private var scene: GameSKScene = {
         let s = GameSKScene()
@@ -21,6 +22,18 @@ struct GameContainerView: View {
         gameState.isSpectator && !gameState.isLazy
     }
 
+    /// The bid overlay: my bid turn, and kept (disabled) while my bid is in flight.
+    private var showsBidOverlay: Bool {
+        guard !gameState.isReadOnly else { return false }
+        switch gameState.myTurn {
+        case .choosing(.bid), .submitted(.bid, _): return true
+        default: return false
+        }
+    }
+
+    private var showsTable: Bool { gameState.table.phase.showsTable }
+    private var inGame: Bool { gameState.phase == .draw || showsTable }
+
     var body: some View {
         ZStack {
             // SpriteKit scene
@@ -30,14 +43,14 @@ struct GameContainerView: View {
             // SwiftUI overlays
             VStack(spacing: 0) {
                 // Score bar pinned to top of safe area
-                if gameState.phase == .bidding || gameState.phase == .playing {
+                if showsTable {
                     ScoreBarView()
                 }
 
                 Spacer()
 
                 // Bid overlay above cards
-                if gameState.isBidding && gameState.isMyTurn && !gameState.isReadOnly {
+                if showsBidOverlay {
                     BidOverlayView()
                         .padding(.bottom, 200)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -47,8 +60,7 @@ struct GameContainerView: View {
             // HSI display and voice mute button (bottom-right, above card hand)
             // Placed before game log in ZStack so it renders underneath
             // Hide when bid overlay is visible to avoid overlap
-            if (gameState.phase == .bidding || gameState.phase == .playing)
-                && !(gameState.isBidding && gameState.isMyTurn && !gameState.isReadOnly) {
+            if showsTable && !showsBidOverlay {
                 VStack {
                     Spacer()
                     HStack {
@@ -85,7 +97,7 @@ struct GameContainerView: View {
             }
 
             // Leave/exit game button (always visible during play — Guideline 4)
-            if gameState.phase == .draw || gameState.phase == .bidding || gameState.phase == .playing {
+            if inGame {
                 VStack {
                     HStack {
                         Button(action: handleLeaveTapped) {
@@ -109,7 +121,7 @@ struct GameContainerView: View {
             }
 
             // Game log toggle button
-            if gameState.phase == .draw || gameState.phase == .bidding || gameState.phase == .playing {
+            if inGame {
                 VStack {
                     HStack {
                         Spacer()
@@ -117,7 +129,7 @@ struct GameContainerView: View {
                             withAnimation {
                                 showGameLog.toggle()
                                 if showGameLog {
-                                    gameState.unreadChatCount = 0
+                                    gameState.apply(.local(.chatRead))
                                 }
                             }
                         }) {
@@ -156,7 +168,7 @@ struct GameContainerView: View {
             if !gameState.disconnectedPlayers.isEmpty {
                 VStack {
                     DisconnectBannerView()
-                        .padding(.top, gameState.phase == .bidding || gameState.phase == .playing ? 50 : 0)
+                        .padding(.top, showsTable ? 50 : 0)
                     Spacer()
                 }
             }
@@ -211,7 +223,7 @@ struct GameContainerView: View {
                     .transition(.opacity)
             }
         }
-        .animation(.easeInOut(duration: 0.3), value: gameState.isBidding)
+        .animation(.easeInOut(duration: 0.3), value: showsBidOverlay)
         .animation(.easeInOut(duration: 0.3), value: gameState.phase)
         .alert("Leave game?", isPresented: $showLeaveConfirm) {
             Button("Leave Game", role: .destructive) {
@@ -222,7 +234,9 @@ struct GameContainerView: View {
             Text("A bot will finish your hand for you.")
         }
         .onAppear {
-            scene.configure(gameState: gameState)
+            scene.configure(gameState: gameState, actions: actions)
+            // 21.14: a seat talks in every game (lobby, queue, tournament, rejoin); idempotent
+            if !gameState.isSpectator { VoiceChatManager.shared.ensureStarted() }
         }
         .onDisappear {
             scene.cleanupAll()

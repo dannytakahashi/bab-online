@@ -52,7 +52,7 @@ struct DrawPhaseView: View {
                 }
             }
         }
-        .onChange(of: gameState.teamsAnnouncedData != nil) { _, hasTeams in
+        .onChange(of: gameState.teamsAnnounced != nil) { _, hasTeams in
             guard hasTeams else { return }
             // Show teams overlay after a brief pause
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
@@ -159,9 +159,9 @@ struct DrawPhaseView: View {
                 .ignoresSafeArea()
 
             VStack(spacing: 20) {
-                if let data = gameState.teamsAnnouncedData {
-                    let team1 = data["team1"] as? [String] ?? []
-                    let team2 = data["team2"] as? [String] ?? []
+                if let teams = gameState.teamsAnnounced {
+                    let team1 = teams.team1
+                    let team2 = teams.team2
 
                     Text("Team 1")
                         .font(.system(size: 26, weight: .bold))

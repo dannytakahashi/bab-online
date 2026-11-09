@@ -81,8 +81,8 @@ struct ScoreBarView: View {
 
     private var team1Label: String {
         if gameState.isSpectator {
-            let p1 = gameState.players[1]?.username.prefix(1) ?? "?"
-            let p3 = gameState.players[3]?.username.prefix(1) ?? "?"
+            let p1 = gameState.players.seats[1]?.username?.prefix(1) ?? "?"
+            let p3 = gameState.players.seats[3]?.username?.prefix(1) ?? "?"
             return "\(p1) & \(p3)"
         }
         return "Your Team"
@@ -90,8 +90,8 @@ struct ScoreBarView: View {
 
     private var team2Label: String {
         if gameState.isSpectator {
-            let p2 = gameState.players[2]?.username.prefix(1) ?? "?"
-            let p4 = gameState.players[4]?.username.prefix(1) ?? "?"
+            let p2 = gameState.players.seats[2]?.username?.prefix(1) ?? "?"
+            let p4 = gameState.players.seats[4]?.username?.prefix(1) ?? "?"
             return "\(p2) & \(p4)"
         }
         return "Opponents"

@@ -1,105 +1,40 @@
 import SpriteKit
-import Combine
 
-/// Manages the player's hand display, deal animations, and legality tinting.
+/// The player's hand: reconciles HandNode from TableRenderModel.hand and
+/// gates taps (my turn, not read-only, not submitted, not while a trick is
+/// still being collected — #187) before ActionCoordinator.play.
 class SKCardManager {
     weak var scene: GameSKScene?
-    private let handNode = HandNode()
-    private var gameState: GameState?
+    let handNode = HandNode()
+    /// actions.play: false when refused
+    var onPlay: ((Card) -> Bool)?
+    private var interactive = false
 
     init(scene: GameSKScene) {
         self.scene = scene
+        handNode.onCardTapped = { [weak self] card in self?.handleCardPlay(card) }
     }
 
-    func setup(gameState: GameState) {
-        self.gameState = gameState
-        guard let scene = scene else { return }
-
-        handNode.removeFromParent()
-        scene.addChild(handNode)
-        positionHand()
-
-        handNode.onCardTapped = { [weak self] card in
-            self?.handleCardPlay(card)
-        }
-    }
-
-    func positionHand() {
-        guard let scene = scene else { return }
-        // Raise hand above bottom edge to leave room for bid overlay
-        let bottomY = -scene.size.height / 2 + LayoutConstants.cardHeight / 2 + 60
-        handNode.position = CGPoint(x: 0, y: bottomY)
-    }
-
-    func updateHand() {
-        guard let scene = scene, let gs = gameState else { return }
-        guard !gs.isSpectator else { return }  // Spectators have no hand
-
-        let sortedCards = gs.sortedHand
-        let legalCards: [Card]
-        // The collect completion calls updateHand again
-        let collecting = scene.trickManager?.isCollecting ?? false
-
-        if gs.isMyTurn && gs.phase == .playing && !gs.hasPlayedCard && !collecting {
-            legalCards = CardLegality.getLegalCards(
-                hand: sortedCards,
-                lead: gs.leadCard,
-                isLeading: gs.isLeading,
-                trump: gs.trump,
-                trumpBroken: gs.trumpBroken,
-                myPosition: gs.position ?? 0,
-                leadPosition: gs.leadPosition ?? 0
-            )
-        } else {
-            // Not our turn — all cards shown as non-interactive
-            legalCards = gs.isMyTurn && gs.isBidding ? sortedCards : []
-        }
-
-        handNode.updateHand(cards: sortedCards, legalCards: legalCards, sceneSize: scene.size)
-    }
-
-    private func handleCardPlay(_ card: Card) {
-        guard let gs = gameState, gs.isMyTurn, !gs.hasPlayedCard, gs.phase == .playing, !gs.isReadOnly else { return }
-        // Not while the previous trick is still flying to its winner
-        guard !(scene?.trickManager?.isCollecting ?? false) else { return }
-
-        // Legality check
-        let result = CardLegality.isLegalMove(
-            card: card,
-            hand: gs.sortedHand,
-            lead: gs.leadCard,
-            isLeading: gs.isLeading,
-            trump: gs.trump,
-            trumpBroken: gs.trumpBroken,
-            myPosition: gs.position ?? 0,
-            leadPosition: gs.leadPosition ?? 0
-        )
-
-        guard result.legal else {
-            HapticManager.warning()
+    func apply(_ model: TableRenderModel, geometry: TableGeometry, arriving: Set<String>, animator: Animator) {
+        handNode.position = geometry.handBaseline
+        guard let hand = model.hand, model.showsTable else {
+            interactive = false
+            handNode.cleanup()
             return
         }
-
-        // Optimistic update
-        gs.hasPlayedCard = true
-        _ = gs.optimisticPlayCard(card)
-
-        HapticManager.lightImpact()
-
-        // Emit to server
-        GameEmitter.playCard(card: card, position: gs.position ?? 0)
-
-        // Update hand display
-        updateHand()
+        let collecting = scene?.trickManager.isCollecting ?? false
+        interactive = hand.interactive && !collecting
+        // The legal set is empty while the previous trick flies; the collect completion re-renders
+        let legal: Set<String> = collecting && hand.interactive ? [] : hand.legalIds
+        handNode.apply(cards: hand.cards, legalIds: legal, geometry: geometry, interactive: interactive, arriving: arriving, animator: animator)
     }
 
-    /// Animate card from hand to trick area
-    func animateCardToTrick(card: Card, trickPosition: CGPoint) {
-        handNode.removeCard(card, animateTo: trickPosition, in: scene!)
-    }
-
-    func cleanup() {
-        handNode.cleanup()
-        handNode.removeFromParent()
+    func handleCardPlay(_ card: Card) {
+        guard interactive, !(scene?.trickManager.isCollecting ?? false) else { return }
+        if onPlay?(card) == true {
+            HapticManager.lightImpact()
+        } else {
+            HapticManager.warning()
+        }
     }
 }

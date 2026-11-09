@@ -427,6 +427,13 @@ function parseArgs(argv) {
         else if (a === '--team') args.team = argv[++i].split(',');
         else if (a === '--vs') args.vs = argv[++i].split(',');
         else if (a === '--baseline') args.baseline = argv[++i];
+        else if (a === '--record-ios') {
+            // iOS event-log fixtures: runs the scripted real-handler games of
+            // iosEventLogs.test.js (the sim has no wire); nothing is simulated
+            const dir = argv[++i];
+            if (!dir || dir.startsWith('--')) throw new Error('--record-ios needs a directory (npm run ios:fixtures)');
+            args.recordIos = dir;
+        }
         else if (/^\d+$/.test(a)) args.games = parseInt(a, 10); // bare number = games
         else throw new Error(`Unknown argument: ${a}`);
     }
@@ -435,6 +442,11 @@ function parseArgs(argv) {
 
 function main() {
     const args = parseArgs(process.argv);
+    if (args.recordIos) {
+        // Dev only: record the iOS reducer fixtures from real handler-driven games (Jest-hosted: memoryDb, fake timers, seeded RNG)
+        const r = require('child_process').spawnSync(process.execPath, [require.resolve('jest/bin/jest'), 'server/socket/__tests__/iosEventLogs.test.js'], { stdio: 'inherit', cwd: require('path').join(__dirname, '..', '..', '..', '..'), env: { ...process.env, UPDATE_IOS_FIXTURES: '1', IOS_FIXTURE_DIR: require('path').resolve(args.recordIos) } });
+        process.exit(r.status ?? 1);
+    }
     if (args.baseline) baselineStrategy = require(require('path').resolve(args.baseline));
     const N = args.games;
     const t0 = Date.now();

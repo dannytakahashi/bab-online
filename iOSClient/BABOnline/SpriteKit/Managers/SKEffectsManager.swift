@@ -28,14 +28,14 @@ class SKEffectsManager {
         sprite.position = effectPos
         sprite.zPosition = 1000
         sprite.setScale(0)
-        scene.addChild(sprite)
+        scene.transientLayer.addChild(sprite)
 
         let scaleIn = SKAction.scale(to: 1.0, duration: 0.5)
         scaleIn.timingMode = .easeOut
         let wait = SKAction.wait(forDuration: 2.0)
         let fadeOut = SKAction.fadeOut(withDuration: 1.0)
 
-        sprite.run(SKAction.sequence([scaleIn, wait, fadeOut, SKAction.removeFromParent()]))
+        scene.animator.run(sprite, SKAction.sequence([scaleIn, wait, fadeOut, SKAction.removeFromParent()])) { $0.removeFromParent() }
     }
 
     /// Show bore badge effect
@@ -57,9 +57,9 @@ class SKEffectsManager {
         badge.zPosition = 500
         badge.alpha = 0
         badge.setScale(0.5)
-        scene.addChild(badge)
+        scene.transientLayer.addChild(badge)
 
-        badge.run(SKAction.sequence([
+        scene.animator.run(badge, SKAction.sequence([
             SKAction.group([
                 SKAction.fadeIn(withDuration: 0.3),
                 SKAction.scale(to: 1.2, duration: 0.3),
@@ -70,7 +70,7 @@ class SKEffectsManager {
                 SKAction.scale(to: 0.8, duration: 0.5),
             ]),
             SKAction.removeFromParent(),
-        ]))
+        ])) { $0.removeFromParent() }
     }
 
     /// Show over-trump (OT) badge effect
@@ -83,14 +83,14 @@ class SKEffectsManager {
         badge.position = CGPoint(x: -scene.size.width / 4, y: scene.size.height / 4)
         badge.zPosition = 999
         badge.setScale(0)
-        scene.addChild(badge)
+        scene.transientLayer.addChild(badge)
 
         let scaleIn = SKAction.scale(to: 1.0, duration: 0.5)
         scaleIn.timingMode = .easeOut
         let wait = SKAction.wait(forDuration: 1.5)
         let fadeOut = SKAction.fadeOut(withDuration: 1.0)
 
-        badge.run(SKAction.sequence([scaleIn, wait, fadeOut, SKAction.removeFromParent()]))
+        scene.animator.run(badge, SKAction.sequence([scaleIn, wait, fadeOut, SKAction.removeFromParent()])) { $0.removeFromParent() }
     }
 
     func cleanup() {

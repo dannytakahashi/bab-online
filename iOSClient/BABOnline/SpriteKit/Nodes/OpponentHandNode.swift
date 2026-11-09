@@ -1,5 +1,25 @@
 import SpriteKit
 
+/// Loads numbered avatars (stubbed in tests so a render is deterministic).
+protocol AvatarLoading {
+    func load(_ picNumber: Int, completion: @escaping (UIImage?) -> Void)
+}
+
+struct HTTPAvatarLoader: AvatarLoading {
+    func load(_ picNumber: Int, completion: @escaping (UIImage?) -> Void) {
+        #if targetEnvironment(simulator)
+        let baseURL = "http://localhost:3000"
+        #else
+        let baseURL = "https://babonline.io"
+        #endif
+        guard let url = URL(string: "\(baseURL)/assets/profile\(picNumber).png") else { return completion(nil) }
+        URLSession.shared.dataTask(with: url) { data, _, _ in
+            let image = data.flatMap { UIImage(data: $0) }
+            DispatchQueue.main.async { completion(image) }
+        }.resume()
+    }
+}
+
 /// Displays an opponent's name label, turn glow, avatar, and bid bubble.
 /// Card-back fans are removed; opponents are lightweight anchors.
 class OpponentHandNode: SKNode {
@@ -11,6 +31,8 @@ class OpponentHandNode: SKNode {
     private var avatarNode: SKShapeNode?
     private var avatarSprite: SKSpriteNode?
     private let avatarRadius: CGFloat = 20
+    private(set) var pic: String?
+    static var avatarLoader: AvatarLoading = HTTPAvatarLoader()
 
     init(position: Positions.RelativePosition, username: String, pic: String? = nil) {
         self.relativePosition = position
@@ -22,7 +44,8 @@ class OpponentHandNode: SKNode {
 
         super.init()
 
-        self.name = "opponent_\(position.rawValue)"
+        self.name = "seat.\(position.rawValue)"
+        self.pic = pic
 
         // Avatar circle
         let circle = SKShapeNode(circleOfRadius: avatarRadius)
@@ -58,14 +81,45 @@ class OpponentHandNode: SKNode {
     }
 
     func updateUsername(_ name: String) {
+        guard nameLabel.text != name else { return }
         nameLabel.text = name
+        (avatarNode?.childNode(withName: "avatar_initial") as? SKLabelNode)?.text = String(name.prefix(1)).uppercased()
     }
+
+    /// In-place update from the model (22.8): the avatar reloads only when the picture changes.
+    func update(name: String, pic newPic: String?, isTurn: Bool) {
+        updateUsername(name)
+        if newPic != pic {
+            pic = newPic
+            if let p = newPic { updatePic(p) } else { clearPic(initial: name) }
+        }
+        if isTurn { showTurnGlow() } else { hideTurnGlow() }
+    }
+
+    private func clearPic(initial name: String) {
+        guard let circle = avatarNode else { return }
+        circle.children.filter { $0 is SKCropNode }.forEach { $0.removeFromParent() }
+        avatarSprite = nil
+        if circle.childNode(withName: "avatar_initial") == nil {
+            let initial = SKLabelNode(text: String(name.prefix(1)).uppercased())
+            initial.fontName = "Helvetica-Bold"
+            initial.fontSize = avatarRadius * 0.9
+            initial.fontColor = .white
+            initial.verticalAlignmentMode = .center
+            initial.horizontalAlignmentMode = .center
+            initial.name = "avatar_initial"
+            circle.addChild(initial)
+        }
+    }
+
+    var hasTurnGlow: Bool { turnGlow != nil }
 
     // MARK: - Turn Glow
 
     func showTurnGlow() {
         guard turnGlow == nil else { return }
         let glow = SKShapeNode(circleOfRadius: 30)
+        glow.name = "glow.turn"
         glow.fillColor = UIColor(red: 0.2, green: 0.8, blue: 0.4, alpha: 0.5)
         glow.strokeColor = .clear
         glow.zPosition = -1
@@ -84,6 +138,7 @@ class OpponentHandNode: SKNode {
     func showSpeakingGlow() {
         guard speakingGlow == nil else { return }
         let glow = SKShapeNode(circleOfRadius: 28)
+        glow.name = "glow.speaking"
         glow.fillColor = UIColor(red: 0.1, green: 0.9, blue: 0.3, alpha: 0.4)
         glow.strokeColor = UIColor(red: 0.1, green: 0.9, blue: 0.3, alpha: 0.7)
         glow.lineWidth = 1.5
@@ -99,15 +154,8 @@ class OpponentHandNode: SKNode {
     }
 
     func updatePic(_ pic: String) {
-        guard let circle = avatarNode else { return }
-        // Remove existing avatar content (initial letter or crop node)
-        circle.childNode(withName: "avatar_initial")?.removeFromParent()
-        for child in circle.children {
-            if child is SKCropNode {
-                child.removeFromParent()
-            }
-        }
-        avatarSprite = nil
+        // Back to the initial letter (as a new node starts) until the new picture loads
+        clearPic(initial: nameLabel.text ?? "")
         loadProfilePic(pic)
     }
 
@@ -132,19 +180,11 @@ class OpponentHandNode: SKNode {
 
         // Numbered pic — load from server
         if let picNum = Int(pic) {
-            #if targetEnvironment(simulator)
-            let baseURL = "http://localhost:3000"
-            #else
-            let baseURL = "https://babonline.io"
-            #endif
-            guard let url = URL(string: "\(baseURL)/assets/profile\(picNum).png") else { return }
-
-            URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-                guard let data, let image = UIImage(data: data) else { return }
-                DispatchQueue.main.async {
-                    self?.applyAvatarImage(image)
-                }
-            }.resume()
+            let expected = pic
+            Self.avatarLoader.load(picNum) { [weak self] image in
+                guard let self, let image, self.pic == expected else { return }
+                self.applyAvatarImage(image)
+            }
         }
     }
 

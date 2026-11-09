@@ -39,6 +39,13 @@ const W = {
     records: 'client/src/handlers/recordsHandlers.js:registerRecordsHandlers',
     main: (fn) => `client/src/main.js:${fn}`,
 };
+// iOS read sites cite the App Store build's source (cc9059f), the client the
+// additive-only rule protects: GameSocketHandler's handle*/register* functions
+// and GameState.restoreFromRejoin no longer exist on main. The next iOS build
+// (item 23, docs/ios-table-store.md) reads through Networking/Wire and
+// State/Table/TableReducer*.swift and adds three reads: error.handler,
+// doneBidding.mults (recomputed when absent) and chatMessage.isSpectator
+// (falling back to type).
 const I = {
     auth: 'iOSClient/BABOnline/Networking/Handlers/AuthSocketHandler.swift:register',
     lobby: 'iOSClient/BABOnline/Networking/Handlers/LobbySocketHandler.swift:register',

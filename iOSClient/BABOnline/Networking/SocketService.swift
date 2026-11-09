@@ -15,6 +15,17 @@ final class SocketService: ObservableObject {
     static let shared = SocketService()
 
     @Published var isConnected = false
+
+    /// The table part of the server's 'error' (also driven by the replay tests):
+    /// a refused play/bid/resync makes the table resync instead of waiting (21.10).
+    @MainActor
+    static func routeTableError(_ dict: [String: Any], to store: GameState) {
+        if let handler = dict["handler"] as? String, ["playCard", "playerBid", "requestSnapshot"].contains(handler) {
+            store.apply(.local(.transportError(handler: handler)))
+        }
+    }
+    /// The table store (set by BABOnlineApp) for transport errors of game actions.
+    weak var gameState: GameState?
     @Published var connectionError: String?
     @Published var serverError: ServerErrorNotice?
 
@@ -52,15 +63,19 @@ final class SocketService: ObservableObject {
         }
 
         let url = URL(string: serverURL)!
-        manager = SocketManager(socketURL: url, config: [
-            .log(true),
+        var config: SocketIOClientConfiguration = [
             .compress,
             .reconnects(true),
             .reconnectAttempts(-1),
             .reconnectWait(1),
             .reconnectWaitMax(5),
             .forceWebsockets(false),
-        ])
+        ]
+        #if DEBUG
+        // Verbose transport logging only in development builds
+        config.insert(.log(true))
+        #endif
+        manager = SocketManager(socketURL: url, config: config)
 
         socket = manager?.defaultSocket
 
@@ -93,6 +108,7 @@ final class SocketService: ObservableObject {
                     let msg = dict["message"] as? String ?? "Something went wrong"
                     self?.serverError = ServerErrorNotice(message: msg)
                     print("[Socket] Server error: \(msg)")
+                    if let store = self?.gameState { Self.routeTableError(dict, to: store) }
                 } else {
                     let msg = (data.first as? String) ?? "Unknown error"
                     self?.connectionError = msg

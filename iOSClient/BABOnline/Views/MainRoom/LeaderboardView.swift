@@ -79,7 +79,7 @@ struct LeaderboardView: View {
                     } else {
                         List {
                             ForEach(Array(sortedEntries.enumerated()), id: \.element.id) { index, entry in
-                                leaderboardRow(rank: index + 1, entry: entry)
+                                leaderboardRow(rank: LeaderboardEntry.rank(at: index, in: sortedEntries), entry: entry)
                                     .listRowBackground(Color.Theme.background)
                             }
                         }
@@ -101,16 +101,16 @@ struct LeaderboardView: View {
         }
     }
 
-    private func leaderboardRow(rank: Int, entry: LeaderboardEntry) -> some View {
+    private func leaderboardRow(rank: Int?, entry: LeaderboardEntry) -> some View {
         HStack(spacing: 12) {
             // Rank
-            Text("#\(rank)")
+            Text(rank.map { "#\($0)" } ?? "\u{2014}")
                 .font(.callout.bold())
-                .foregroundColor(rankColor(rank))
+                .foregroundColor(rank.map { rankColor($0) } ?? Color.Theme.textSecondary)
                 .frame(width: 36, alignment: .leading)
 
             // Username
-            Text(entry.username)
+            Text(entry.isPopulation ? "Population" : entry.username)
                 .font(.callout.bold())
                 .foregroundColor(Color.Theme.textPrimary)
                 .lineLimit(1)

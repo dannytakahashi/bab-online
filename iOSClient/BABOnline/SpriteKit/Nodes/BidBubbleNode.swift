@@ -4,8 +4,10 @@ import SpriteKit
 class BidBubbleNode: SKNode {
     private let background: SKShapeNode
     private let label: SKLabelNode
+    let bid: String
 
     init(bid: String) {
+        self.bid = bid
         background = SKShapeNode(rectOf: CGSize(width: LayoutConstants.bidBubbleWidth, height: LayoutConstants.bidBubbleHeight), cornerRadius: 8)
         background.fillColor = UIColor(red: 0.15, green: 0.25, blue: 0.15, alpha: 0.9)
         background.strokeColor = UIColor(red: 0.3, green: 0.6, blue: 0.3, alpha: 1)
@@ -25,9 +27,5 @@ class BidBubbleNode: SKNode {
 
     required init?(coder: NSCoder) {
         fatalError()
-    }
-
-    func updateBid(_ bid: String) {
-        label.text = bid
     }
 }

@@ -13,11 +13,22 @@ struct LeaderboardEntry: Identifiable {
     let drag: Double
     let faultsPerGame: Double
     let avgHSI: Double
+    /// The server's population-average row (profileHandlers getLeaderboard): shown, never ranked.
+    let isPopulation: Bool
+
+    /// 1-based rank of the row at `index`, counting only player rows (the
+    /// population row is unranked, like the web LeaderboardPage).
+    static func rank(at index: Int, in rows: [LeaderboardEntry]) -> Int? {
+        guard index < rows.count, !rows[index].isPopulation else { return nil }
+        return rows[...index].filter { !$0.isPopulation }.count
+    }
 
     static func from(_ dict: [String: Any]) -> LeaderboardEntry? {
         guard let username = dict["username"] as? String else { return nil }
+        let isPopulation = dict["isPopulation"] as? Bool ?? false
         return LeaderboardEntry(
-            id: username,
+            // A player may be called "Population": keep the ids distinct
+            id: isPopulation ? "\u{0}population" : username,
             username: username,
             profilePic: dict["profilePic"] as? Int ?? 1,
             gamesPlayed: dict["gamesPlayed"] as? Int ?? 0,
@@ -28,7 +39,8 @@ struct LeaderboardEntry: Identifiable {
             setRate: dict["setRate"] as? Double ?? 0,
             drag: dict["drag"] as? Double ?? 0,
             faultsPerGame: dict["faultsPerGame"] as? Double ?? 0,
-            avgHSI: dict["avgHSI"] as? Double ?? 0
+            avgHSI: dict["avgHSI"] as? Double ?? 0,
+            isPopulation: isPopulation
         )
     }
 }

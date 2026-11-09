@@ -39,8 +39,10 @@ enum LobbyEmitter {
         socket.emit(SocketEvents.Client.addBot, ["personality": personality])
     }
 
-    static func removeBot() {
-        socket.emit(SocketEvents.Client.removeBot)
+    /// The server needs the bot's socket id (lobbyHandlers.removeBot); a
+    /// payload-less removeBot is answered with an error.
+    static func removeBot(botSocketId: String) {
+        socket.emit(SocketEvents.Client.removeBot, ["botSocketId": botSocketId])
     }
 
     static func joinAsSpectator(gameId: String) {

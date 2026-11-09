@@ -62,8 +62,7 @@ final class AuthSocketHandler {
                 self.authState.error = nil
                 self.authState.saveCredentials()
 
-                self.gameState.username = username
-                self.gameState.playerId = self.socket.socketId
+                self.gameState.apply(.local(.identity(username: username, playerId: self.socket.socketId)))
 
                 if let blocked = data["blockedUsers"] as? [String] {
                     self.safetyState.setBlockedUsers(blocked)
@@ -102,7 +101,7 @@ final class AuthSocketHandler {
                 self.authState.error = nil
                 self.authState.saveCredentials()
 
-                self.gameState.username = username
+                self.gameState.apply(.local(.identity(username: username, playerId: self.socket.socketId)))
 
                 self.appState.screen = .mainRoom
                 print("[Auth] Registered as: \(username)")
@@ -135,8 +134,7 @@ final class AuthSocketHandler {
                 self.authState.isAuthenticated = true
                 self.authState.error = nil
 
-                self.gameState.username = username
-                self.gameState.playerId = self.socket.socketId
+                self.gameState.apply(.local(.identity(username: username, playerId: self.socket.socketId)))
 
                 if let blocked = data["blockedUsers"] as? [String] {
                     self.safetyState.setBlockedUsers(blocked)
