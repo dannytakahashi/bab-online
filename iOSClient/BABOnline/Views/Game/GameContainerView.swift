@@ -1,13 +1,63 @@
 import SwiftUI
 import SpriteKit
 
+/// The game screen. Where the system shows the vertical bar (the iPhone Duo's
+/// side column with the status bar: closed, open in landscape, book pose),
+/// Leave and the game log toggle are standard toolbar items that the system
+/// lays out in that column (iOS 27.1 SDK); everywhere else they are the table's
+/// own corner buttons and no navigation bar is shown.
+struct GameContainerView: View {
+    var body: some View {
+        if #available(iOS 27.1, *) {
+            VerticalBarGameHost()
+        } else {
+            GameScreen(usesVerticalBar: false, windowTopInset: nil)
+        }
+    }
+}
+
+/// A navigation container for the toolbar items, which go into the vertical bar.
+/// It wraps the game on every iOS 27.1 device (the bar is hidden where no
+/// vertical bar is used), so a fold or unfold never rebuilds the game screen.
+/// `toolbarVerticalEdge` is nil where the system never places a vertical bar
+/// (other phones, the iPad, the open Duo in portrait).
+@available(iOS 27.1, *)
+private struct VerticalBarGameHost: View {
+    @Environment(\.toolbarVerticalEdge) private var verticalEdge
+    @State private var windowTopInset: CGFloat = 0
+
+    var body: some View {
+        NavigationStack {
+            GameScreen(usesVerticalBar: verticalEdge != nil, windowTopInset: windowTopInset)
+        }
+        .onGeometryChange(for: CGFloat.self, of: { $0.safeAreaInsets.top }) { windowTopInset = $0 }
+        #if DEBUG
+        .onChange(of: verticalEdge, initial: true) { _, edge in
+            print("[Regions] vertical bar \(edge.map { "\($0)" } ?? "none")")
+            if UIFixture.isActive { TableDebugProbe.shared.verticalBar = edge.map { "\($0)" } ?? "-" }
+        }
+        #endif
+    }
+}
+
 /// Hosts the SpriteKit game scene with SwiftUI overlay panels.
 ///
 /// Item 25: the table pane measures its chrome (safe-area insets, ScoreBar
 /// height, the Leave / Log buttons, the bottom pill) into `TableChrome`, the
 /// scene lays itself out from it (TableLayout), and the bid panel and the
 /// HSI / voice accessory are placed from the same layout.
-struct GameContainerView: View {
+///
+/// All of the screen's state lives here, inside the navigation container: the
+/// container hosts its root in its own controller, and state owned outside it
+/// stopped reaching the table's measurements after the root's first (zero-size)
+/// layout pass.
+private struct GameScreen: View {
+    /// The system shows the vertical bar: Leave / Log are toolbar items there.
+    let usesVerticalBar: Bool
+    /// The window's top safe-area inset, measured outside the navigation
+    /// container; nil without one (before iOS 27.1).
+    let windowTopInset: CGFloat?
+
     @EnvironmentObject var gameState: GameState
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var actions: ActionCoordinator
@@ -36,6 +86,7 @@ struct GameContainerView: View {
 
     // Item 27-4: the fold and the docked log
     @Environment(\.horizontalSizeClass) private var hSizeClass
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverOn
     @Environment(\.verticalSizeClass) private var vSizeClass
     /// Bumped by every hinge change so the fold is read again at the same size.
     @State private var hingeTick = 0
@@ -67,7 +118,30 @@ struct GameContainerView: View {
     private var inGame: Bool { gameState.phase == .draw || showsTable }
     private var showsPill: Bool { gameState.isSpectator || gameState.isLazy }
 
+    /// Leave / Log as toolbar items in the vertical bar instead of the corner buttons.
+    private var showsBarControls: Bool { usesVerticalBar && inGame }
+
     var body: some View {
+        gameContent
+            // The table keeps the window's own top inset: with the vertical bar the
+            // navigation bar has no height but UIKit still places it 24 pt down, and
+            // the content's top safe area would end there; without it the bar is
+            // hidden, but it takes its full height for the first pass after launch
+            .safeAreaPadding(.top, windowTopInset ?? 0)
+            .ignoresSafeArea(.container, edges: windowTopInset == nil ? [] : .top)
+            .toolbar {
+                if showsBarControls {
+                    ToolbarItem(placement: .topBarLeading) { leaveBarButton }
+                    if showsLogButton {
+                        ToolbarItem(placement: .topBarTrailing) { logBarButton }
+                    }
+                }
+            }
+            .toolbar(showsBarControls ? .automatic : .hidden, for: .navigationBar)
+            .toolbarBackground(.hidden, for: .navigationBar)
+    }
+
+    private var gameContent: some View {
         ZStack {
             GeometryReader { outer in
                 let _ = hingeTick  // re-read the regions after a hinge change
@@ -87,7 +161,9 @@ struct GameContainerView: View {
                         }
                         GameLogPanel(style: .docked)
                             .frame(width: dockWidth(mode))
-                            .background(Color.Theme.surface.ignoresSafeArea())
+                            // only up and down: the side insets are the Duo's vertical bar (the
+                            // status column and the Leave / Log items), which shows the felt
+                            .background(Color.Theme.surface.ignoresSafeArea(edges: .vertical))
                     }
                 }
                 .onChange(of: mode, initial: true) { _, m in
@@ -102,6 +178,8 @@ struct GameContainerView: View {
                 }
             }
             .modifier(HingeTick(tick: $hingeTick))
+            // the felt behind everything: what the vertical bar shows beside the docked log
+            .background(Color(red: 0.05, green: 0.22, blue: 0.08).ignoresSafeArea())
 
             // Draw phase overlay
             if gameState.phase == .draw {
@@ -236,11 +314,19 @@ struct GameContainerView: View {
 
     /// One GeometryReader measures the pane: its size plus the safe-area
     /// insets is the scene size (the SpriteView ignores the safe area).
+    ///
+    /// Nothing is measured before the pane has a size: a navigation container's
+    /// root is first laid out at zero size, where the ScoreBar wraps to 120-170 pt
+    /// and the insets are 0, and those reports could land after the real ones.
     private var tableLayer: some View {
         GeometryReader { proxy in
             let ins = proxy.safeAreaInsets
             let full = CGSize(width: proxy.size.width + ins.leading + ins.trailing, height: proxy.size.height + ins.top + ins.bottom)
             let layout = TableLayout(size: full, chrome: chrome)
+            // NavigationStack lays its root out once at 0 x 0 first: measure nothing until the
+            // pane has a size. The pane must never pass through 0 x 0 later (it would rebuild the
+            // SpriteView and re-run didMove); no dock or fold width reaches 0 today.
+            if proxy.size.width > 0 && proxy.size.height > 0 {
             ZStack {
                 // The scene and the layout-placed overlays share the full pane's
                 // coordinates (an overlay of the safe-area-ignoring SpriteView, so
@@ -258,7 +344,7 @@ struct GameContainerView: View {
                     Spacer()
                 }
 
-                if inGame { cornerButtons(layout) }
+                if inGame && !usesVerticalBar { cornerButtons(layout) }
 
                 pills
             }
@@ -271,6 +357,7 @@ struct GameContainerView: View {
                 #if DEBUG
                 print("[Regions] occlusions \(rects) (proxy-local) pane \(full) insets \(ins)")
                 #endif
+            }
             }
         }
         .onChange(of: chrome, initial: true) { _, new in
@@ -308,7 +395,7 @@ struct GameContainerView: View {
     private var chrome: TableChrome {
         TableChrome(safeArea: paneSafeArea,
                     topBar: showsTable ? scoreBarHeight : 0,
-                    cornerButton: inGame ? cornerSize : .zero,
+                    cornerButton: inGame && !usesVerticalBar ? cornerSize : .zero,
                     bottomBar: showsPill && pillHeight > 0 ? pillHeight + 12 : 0,
                     fold: paneFoldRect,
                     occlusions: paneOcclusions)
@@ -319,7 +406,8 @@ struct GameContainerView: View {
     private func cornerButtons(_ layout: TableLayout) -> some View {
         VStack {
             HStack(alignment: .top) {
-                // Leave/exit game button (always visible during play — Guideline 4)
+                // Leave/exit game button (always on screen during play — Guideline 4; in the
+                // Duo's vertical bar the system may fold it into the bar's overflow menu)
                 Button(action: handleLeaveTapped) {
                     HStack(spacing: 4) {
                         Image(systemName: "rectangle.portrait.and.arrow.right")
@@ -342,19 +430,8 @@ struct GameContainerView: View {
 
                 // Game log toggle button: the drawer, or the docked panel in inner landscape
                 // (hidden in book pose: the log is the right page)
-                if case .book = dock {} else {
-                Button(action: {
-                    withAnimation {
-                        if dock == .side {
-                            logCollapsed.toggle()
-                        } else {
-                            showGameLog.toggle()
-                            if showGameLog {
-                                gameState.apply(.local(.chatRead))
-                            }
-                        }
-                    }
-                }) {
+                if showsLogButton {
+                Button(action: toggleLog) {
                     Image(systemName: logIsOpen ? "xmark.circle.fill" : "text.bubble.fill")
                         .font(.title2)
                         .foregroundColor(Color.Theme.textSecondary)
@@ -386,6 +463,53 @@ struct GameContainerView: View {
         }
         .onChange(of: CGSize(width: max(leaveSize.width, logSize.width), height: max(leaveSize.height, logSize.height)), initial: true) { _, s in
             cornerSize = s
+        }
+    }
+
+    // MARK: - Leave / Log in the vertical bar (iOS 27.1)
+
+    private var leaveBarButton: some View {
+        Button(action: handleLeaveTapped) {
+            Label(isPureSpectator ? "Exit" : "Leave", systemImage: "rectangle.portrait.and.arrow.right")
+        }
+        .disabled(gameState.phase == .draw)  // as the corner button under the draw overlay
+        .accessibilityIdentifier("leave")
+    }
+
+    /// The unread count is the standard toolbar badge. The vertical bar (seen with
+    /// the iOS 27.2 SDK) draws a badge only when it builds the item, not when the
+    /// count changes, so the item's identity follows the count. With VoiceOver on
+    /// the item keeps its identity (a rebuild would drop VoiceOver focus on every
+    /// chat line) and the count is spoken as the button's value instead.
+    private var logBarButton: some View {
+        let unread = logIsOpen ? 0 : gameState.unreadChatCount
+        return Button(action: toggleLog) {
+            Label("Game log", systemImage: logIsOpen ? "xmark.circle.fill" : "text.bubble.fill")
+        }
+        .disabled(gameState.phase == .draw)
+        .accessibilityIdentifier("log")
+        .accessibilityValue(unread > 0 ? "\(unread) unread" : "")
+        .badge(unread)
+        .id(voiceOverOn ? 0 : unread)
+    }
+
+    /// The Log button is hidden in book pose: the log is the right page.
+    private var showsLogButton: Bool {
+        if case .book = dock { return false }
+        return true
+    }
+
+    /// The drawer, or the docked panel in inner landscape.
+    private func toggleLog() {
+        withAnimation {
+            if dock == .side {
+                logCollapsed.toggle()
+            } else {
+                showGameLog.toggle()
+                if showGameLog {
+                    gameState.apply(.local(.chatRead))
+                }
+            }
         }
     }
 

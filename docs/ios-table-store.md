@@ -72,7 +72,8 @@ scene size and `TableChrome`, which GameContainerView measures:
 - `safeArea`: the table pane's insets (the SpriteView ignores the safe area,
   so the scene size is the pane size plus these insets),
 - `topBar`: the measured ScoreBar height, `cornerButton`: max(Leave, Log),
-  placed `topBar + 8` below the safe top (an obstacle at both top corners),
+  placed `topBar + 8` below the safe top (an obstacle at both top corners);
+  `.zero` where Leave / Log are in the vertical bar (below),
 - `bottomBar`: the lazy / spectator pill + 12 padding,
 - `fold`: the active division region in scene coordinates (item 27),
 - `occlusions`: system UI over the app (`GeometryProxy.reservedRegions`,
@@ -155,6 +156,32 @@ at capped Dynamic Type), `SceneResizeTests` (resize mid-replay equals a
 fresh render, the in-flight iPad rotation, transient, game end),
 `TableInvariantTests`.
 
+### Leave / Log in the vertical bar (iOS 27.1)
+
+Where the system shows the vertical bar (the Duo's side column with the status
+bar: closed, open in landscape, book pose) Leave and the game log toggle are
+standard toolbar items (`.topBarLeading` / `.topBarTrailing`) that the system
+lays out in that column under the status bar (and folds into its overflow menu
+when Live Activities need the room); the corner buttons are not drawn there and
+`chrome.cornerButton` is `.zero`, so the table uses the corners. Everywhere else
+(open portrait, other phones, the iPad, iOS < 27.1) nothing changes: corner
+buttons, no navigation bar. Detection: `EnvironmentValues.toolbarVerticalEdge`
+(nil where the system never places a vertical bar; UIKit's
+`traitCollection.verticalBarEdge`), not the window size; `ui.pose` ends with
+`vbar trailing|-`. `GameContainerView` is a small iOS 27.1 host
+(`NavigationStack` + `toolbarVerticalEdge`) around `GameScreen`, which owns all
+the state and adds the toolbar; the stack wraps the game on every iOS 27.1
+device, with the bar hidden where no vertical bar is used, so a fold never
+rebuilds the screen. Two UIKit details: the hidden navigation bar still sits 24
+pt down in vertical-bar mode (zero height) and would end the content's top safe
+area there, and it takes its full height for the first pass after launch, so
+`GameScreen` ignores the container's top safe area and re-adds the window's top
+inset (measured outside the stack); and the stack lays its root out once at zero
+size (the ScoreBar wraps to 120-170 pt there), so the table pane measures
+nothing until it has a size. The vertical bar draws a toolbar badge only when it
+builds the item, so the Log item's identity follows the unread count. During the
+draw both items are disabled (the corner buttons sat under the draw overlay).
+
 ## Fixture mode and Duo poses (roadmap items 26, 27)
 
 Fixture mode (Debug only): `-uiFixture <name>` seeds the app from a v2
@@ -166,8 +193,8 @@ foreground, Settings), no voice and no microphone prompt
 previews), avatars show initials, the sign-in screen shows the connected
 form. `-uiFold book|tabletop` fakes a 20 pt division at the window center
 (the composition only, not the API). Accessibility probes: `ui.pose` ("WxH
-t/l/b/r topBar N fold F occlusions N sc H/V", the last field the window's
-size classes), `table.layoutCheck` ("ok" when every stable node is inside
+t/l/b/r topBar N fold F occlusions N sc H/V vbar E", the window's size
+classes and the vertical bar edge), `table.layoutCheck` ("ok" when every stable node is inside
 the safe rect), `table.state` (lifted card, refreshed on a tap too; hand and
 trick counts; the scene's didMove count). The UI tests are their own test
 plan (`-testPlan BABOnlineUI`); the default plan is unit tests only. README
@@ -183,8 +210,10 @@ Measured in fixture mode (Xcode 27.2 simulators, `ui.pose` and the
 | iPad Air 11-inch (M4), landscape | 1180 x 820 | 32 / 0 / 20 / 0 | 75.5 | 80 x 50.5 | s 1, k 1, row |
 
 The closed Duo reports no top inset and an 84 pt trailing inset for the
-whole height (the clock / Wi-Fi cluster on the right edge): the table, the
-ScoreBar and the Log button stay left of it. `reservedRegions(kind:
+whole height (the clock / Wi-Fi cluster on the right edge): the table and the
+ScoreBar stay left of it. (The Leave / Log column of this table was measured
+before they moved into the vertical bar; the closed Duo now lays out with
+corner 0 x 0: s 1, k 1, raised.) `reservedRegions(kind:
 .occlusion)` is empty there, so `chrome.occlusions` stays empty (the code
 path merges an occlusion in the top quarter into the corner obstacle). The
 rows are in TableLayoutTests. The open poses (669 x 951, 951 x 669) are
@@ -238,6 +267,17 @@ window, insets top/left/bottom/right, size classes:
 | Open landscape | 951 x 669 | 0/0/34/84 | none (side log panel on the right, table pane 546 x 669) | regular/regular |
 | Partially open, portrait | 669 x 951 | 82/0/34/0 | (0, 373.5, 669, 40): horizontal hinge, 40 pt, centred -> tabletop | regular/regular |
 | Partially open, landscape | 951 x 669 | 0/0/34/84 | vertical hinge -> book (table on the left page, 455.5 x 669; log on the right page) | regular/regular |
+
+Open portrait cannot be ruled out by the app: on the inner display iOS 27.2
+ignores a landscape-only `supportedInterfaceOrientationsFor` mask (the window
+stays portrait) and refuses `requestGeometryUpdate` with UISceneErrorDomain 101
+"The current windowing mode does not allow for programmatic changes to interface
+orientation" (tried 2026-11-09). In open portrait iOS reserves an 82 pt band
+across the top for the status bar and reports no frame for the clock (status bar
+frame 2 pt tall, no active occlusion region), so the score bar stays below it,
+as the home screen's icons do. The band shows the felt: the score bar's
+background stays inside the safe area on every device (owner decision 2026-11-09),
+so system zones (status band, Dynamic Island, the Duo's vertical bar) read as table.
 
 Results: the BABOnlineUI plan passes in closed, open-portrait and
 open-landscape (21 run, 0 failures; skips: the 2 opt-in PoseChangeTests,

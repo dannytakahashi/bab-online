@@ -76,7 +76,9 @@ struct ScoreBarView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(Color.Theme.surface.opacity(0.9))
+        // never into a safe-area inset: the system's zones (the status band on top, the
+        // Duo's vertical bar on the side) show the felt, like the table
+        .background(Color.Theme.surface.opacity(0.9), ignoresSafeAreaEdges: [])
         // capped so the table layout's top bar stays <= 84 pt (TableLayoutTests)
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
     }
