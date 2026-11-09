@@ -161,7 +161,9 @@ private struct GameScreen: View {
                         }
                         GameLogPanel(style: .docked)
                             .frame(width: dockWidth(mode))
-                            .background(Color.Theme.surface.ignoresSafeArea())
+                            // only up and down: the side insets are the Duo's vertical bar (the
+                            // status column and the Leave / Log items), which shows the felt
+                            .background(Color.Theme.surface.ignoresSafeArea(edges: .vertical))
                     }
                 }
                 .onChange(of: mode, initial: true) { _, m in
@@ -176,6 +178,8 @@ private struct GameScreen: View {
                 }
             }
             .modifier(HingeTick(tick: $hingeTick))
+            // the felt behind everything: what the vertical bar shows beside the docked log
+            .background(Color(red: 0.05, green: 0.22, blue: 0.08).ignoresSafeArea())
 
             // Draw phase overlay
             if gameState.phase == .draw {

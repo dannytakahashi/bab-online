@@ -77,7 +77,7 @@ struct GameLogPanel: View {
                     }
                     .padding(12)
 
-                    Divider().background(Color.Theme.inputBorder)
+                    Divider().background(Color.Theme.inputBorder, ignoresSafeAreaEdges: [])  // not into the vertical bar
 
                     // Messages
                     ScrollViewReader { proxy in
@@ -106,7 +106,7 @@ struct GameLogPanel: View {
                         }
                     }
 
-                    Divider().background(Color.Theme.inputBorder)
+                    Divider().background(Color.Theme.inputBorder, ignoresSafeAreaEdges: [])  // not into the vertical bar
 
                     // Slash command autocomplete
                     if showAutocomplete && !filteredCommands.isEmpty {
@@ -127,7 +127,7 @@ struct GameLogPanel: View {
                                 }
                             }
                         }
-                        .background(Color.Theme.surface)
+                        .background(Color.Theme.surface, ignoresSafeAreaEdges: .bottom)
                     }
 
                     // Chat input
