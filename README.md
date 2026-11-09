@@ -78,7 +78,23 @@ xcodebuild -project iOSClient/BABOnline.xcodeproj -scheme BABOnline \
 - Tests reach app code with `@testable import BAB_Online` (module name from the product name "BAB Online"). Only Debug sets `ENABLE_TESTABILITY = YES`, so tests run in Debug.
 - Hosted tests launch the whole app. `BABOnlineApp.setupSocket()` returns early when `XCTestConfigurationFilePath` is set, so a test run never connects or signs in. `xcodebuild test` replaces the installed `com.bab-online.BABOnline` on the chosen simulator.
 - Fixtures: the contract snapshot fixtures are bundled through a **folder reference** to `contract/fixtures/v2` (it keeps the `v2/` subdirectory: `Bundle(for:).url(forResource:withExtension:subdirectory: "v2")`). Files under `iOSClient/BABOnlineTests/` (e.g. the recorded event logs in `Fixtures/events/`, `npm run ios:fixtures`) are flattened into the bundle root, so **every fixture basename must be unique**; a duplicate fails the build with "Multiple commands produce".
-- A UI-test bundle (`BABOnlineUITests`) would be added the same way: File > New > Target, a sibling synchronized folder, and a Testable entry in the shared scheme.
+- The UI-test bundle `BABOnlineUITests` was added the same way (a sibling synchronized folder, `TEST_TARGET_NAME = BABOnline`, a non-parallel Testable in the shared scheme), so a plain `xcodebuild test` runs it too (about 4-5 minutes more). For unit tests only add `-skip-testing:BABOnlineUITests`.
+
+#### UI tests and screenshots (BABOnlineUITests)
+
+Debug builds have a fixture mode: `-uiFixture <name>` (a launch argument) seeds the app from `contract/fixtures/v2/<name>.json` (bundled into the Debug app only), or from the `UI_FIXTURE_SNAPSHOT` environment JSON, and never connects (no socket, no voice, avatars show initials). `game-end` adds a gameEnd to `hand-resolving`; `main-room`, `game-lobby`, `tournament-lobby` and `sign-in` show static screens; `-uiFold book|tabletop` simulates a Duo fold region. Release builds compile it out (`#if DEBUG`, and `EXCLUDED_SOURCE_FILE_NAMES = v2`).
+
+`FixtureScreenshotTests` launches each fixture and keeps an XCUIScreen screenshot of every display, named `<pose>-<fixture>-screen<i>-<WxH>`; the pose comes from the app's `ui.pose` probe (466x678 `closed`, 669x951 `open-portrait`, 951x669 `open-landscape` on the iPhone Duo). The Duo's pose cannot be scripted: set it by hand in Device Hub (Xcode > Open Developer Tool > Device Hub, posture control), then run with the expected pose:
+
+```bash
+TEST_RUNNER_BAB_POSE=closed xcodebuild -project iOSClient/BABOnline.xcodeproj -scheme BABOnline \
+  -destination 'id=<duo udid>' -derivedDataPath /tmp/bab-dd CODE_SIGNING_ALLOWED=NO \
+  test -only-testing:BABOnlineUITests -resultBundlePath /tmp/ui-closed.xcresult
+iOSClient/scripts/ios-screenshots.sh /tmp/ui-closed.xcresult /tmp/shots/closed      # export + rename the attachments
+iOSClient/scripts/ios-screenshots.sh --simctl <udid> /tmp/shots/raw trick-mid-lead3 bidding-mid   # no XCTest: simctl io of both displays
+```
+
+`RotationTests` (iPad only) rotates mid-hand and checks the `table.layoutCheck` / `table.state` probes. `PoseChangeTests` is opt-in (`TEST_RUNNER_BAB_POSE_CHANGE=1`): it lifts a card or selects a bid, then waits up to 120 s for you to fold or unfold the Duo in Device Hub and checks that the state survived. Screenshots are review material; keep them out of the repo.
 
 ### Environment Variables
 

@@ -11,10 +11,18 @@
 		DD000000000000000000000E /* WebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = DD000000000000000000000D /* WebRTC */; };
 		4EF92272C101B39C24BB9972 /* v2 in Resources */ = {isa = PBXBuildFile; fileRef = 2BA20620A62B98BCB5D1E377 /* v2 */; };
 		FDC572703109F34CDB93BDCA /* v2 in Resources */ = {isa = PBXBuildFile; fileRef = 2BA20620A62B98BCB5D1E377 /* v2 */; };
+		8DC9CDEA789D3F46F57F753A /* v2 in Resources */ = {isa = PBXBuildFile; fileRef = 2BA20620A62B98BCB5D1E377 /* v2 */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
 		552D05BFDEF47418A7EDF87F /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = FC2182A22377A1A66C0AA437 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 2AC5F2EA7EC758EF4B1916F8;
+			remoteInfo = BABOnline;
+		};
+		1E9E5C8DB420D382EF978469 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = FC2182A22377A1A66C0AA437 /* Project object */;
 			proxyType = 1;
@@ -27,6 +35,7 @@
 		7F8955A183A4B54328782B3C /* BAB Online.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "BAB Online.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		2BA20620A62B98BCB5D1E377 /* v2 */ = {isa = PBXFileReference; lastKnownFileType = folder; name = v2; path = ../contract/fixtures/v2; sourceTree = "<group>"; };
 		CB6673F173D877D263761CA0 /* BABOnlineTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BABOnlineTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		D86098882E56D3227C823026 /* BABOnlineUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BABOnlineUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -54,6 +63,11 @@
 			path = BABOnlineTests;
 			sourceTree = "<group>";
 		};
+		775D590CC4D30F0172AC47AE /* BABOnlineUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = BABOnlineUITests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -73,6 +87,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		2F359F4313AE68E59D966C50 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -81,6 +102,7 @@
 			children = (
 				7E2AB04501AE19CA1AA49906 /* BABOnline */,
 				E3DA42946C51C830BFA25C85 /* BABOnlineTests */,
+				775D590CC4D30F0172AC47AE /* BABOnlineUITests */,
 				2BA20620A62B98BCB5D1E377 /* v2 */,
 				E80216038A0F001B2BEA7D32 /* Products */,
 			);
@@ -91,6 +113,7 @@
 			children = (
 				7F8955A183A4B54328782B3C /* BAB Online.app */,
 				CB6673F173D877D263761CA0 /* BABOnlineTests.xctest */,
+				D86098882E56D3227C823026 /* BABOnlineUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -145,6 +168,29 @@
 			productReference = CB6673F173D877D263761CA0 /* BABOnlineTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		29A61173821D71C3CF4364EE /* BABOnlineUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C352E38E496B685D97022814 /* Build configuration list for PBXNativeTarget "BABOnlineUITests" */;
+			buildPhases = (
+				91779DEF4866BA7DA05DD873 /* Sources */,
+				2F359F4313AE68E59D966C50 /* Frameworks */,
+				62E7F223B10823A4CC22CB68 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				973FB7F057658A34C9BBE798 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				775D590CC4D30F0172AC47AE /* BABOnlineUITests */,
+			);
+			name = BABOnlineUITests;
+			packageProductDependencies = (
+			);
+			productName = BABOnlineUITests;
+			productReference = D86098882E56D3227C823026 /* BABOnlineUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -158,6 +204,10 @@
 						ProvisioningStyle = Automatic;
 					};
 					BBD38828D56B3437DE82F9E0 = {
+						CreatedOnToolsVersion = 16.0;
+						TestTargetID = 2AC5F2EA7EC758EF4B1916F8;
+					};
+					29A61173821D71C3CF4364EE = {
 						CreatedOnToolsVersion = 16.0;
 						TestTargetID = 2AC5F2EA7EC758EF4B1916F8;
 					};
@@ -182,6 +232,7 @@
 			targets = (
 				2AC5F2EA7EC758EF4B1916F8 /* BABOnline */,
 				BBD38828D56B3437DE82F9E0 /* BABOnlineTests */,
+				29A61173821D71C3CF4364EE /* BABOnlineUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -203,6 +254,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		62E7F223B10823A4CC22CB68 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8DC9CDEA789D3F46F57F753A /* v2 in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -220,6 +279,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		91779DEF4866BA7DA05DD873 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -227,6 +293,11 @@
 			isa = PBXTargetDependency;
 			target = 2AC5F2EA7EC758EF4B1916F8 /* BABOnline */;
 			targetProxy = 552D05BFDEF47418A7EDF87F /* PBXContainerItemProxy */;
+		};
+		973FB7F057658A34C9BBE798 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 2AC5F2EA7EC758EF4B1916F8 /* BABOnline */;
+			targetProxy = 1E9E5C8DB420D382EF978469 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -449,6 +520,42 @@
 			};
 			name = Release;
 		};
+		42332E29F8EB40B3FFD63252 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 9SYNY7K2HE;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.bab-online.BABOnlineUITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_ENABLE_EXPLICIT_MODULES = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = BABOnline;
+			};
+			name = Debug;
+		};
+		7B27ED57913E33CF637CC34B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 9SYNY7K2HE;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.bab-online.BABOnlineUITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_ENABLE_EXPLICIT_MODULES = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = BABOnline;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -475,6 +582,15 @@
 			buildConfigurations = (
 				3F66CE1214A165E7038FBBC2 /* Debug */,
 				05E307C4B17A2AA34892D2C2 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		C352E38E496B685D97022814 /* Build configuration list for PBXNativeTarget "BABOnlineUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				42332E29F8EB40B3FFD63252 /* Debug */,
+				7B27ED57913E33CF637CC34B /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

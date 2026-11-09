@@ -41,6 +41,17 @@
                ReferencedContainer = "container:BABOnline.xcodeproj">
             </BuildableReference>
          </TestableReference>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "29A61173821D71C3CF4364EE"
+               BuildableName = "BABOnlineUITests.xctest"
+               BlueprintName = "BABOnlineUITests"
+               ReferencedContainer = "container:BABOnline.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
       </Testables>
    </TestAction>
    <LaunchAction
