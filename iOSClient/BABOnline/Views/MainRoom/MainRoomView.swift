@@ -62,39 +62,13 @@ struct MainRoomView: View {
 
     private var lobbyBrowserPanel: some View {
         VStack(spacing: 0) {
-            // Header
-            HStack {
-                Button(action: { LobbyEmitter.createLobby() }) {
-                    Label("New Game", systemImage: "suit.spade.fill")
-                        .font(.callout.bold())
-                        .foregroundColor(Color.Theme.primary)
-                }
-
-                Button(action: { TournamentEmitter.createTournament() }) {
-                    Label("Tournament", systemImage: "trophy.fill")
-                        .font(.callout.bold())
-                        .foregroundColor(Color.Theme.warning)
-                }
-
-                Button(action: { showLeaderboard = true }) {
-                    Label("Stats", systemImage: "chart.bar.fill")
-                        .font(.callout.bold())
-                        .foregroundColor(Color.Theme.textSecondary)
-                }
-
-                Spacer()
-
-                Button(action: { showOnlineUsers = true }) {
-                    Text("\(mainRoomState.onlineCount) online")
-                        .font(.caption)
-                        .foregroundColor(Color.Theme.textSecondary)
-                }
-
-                Button(action: { showAccountSettings = true }) {
-                    Image(systemName: "gearshape.fill")
-                        .font(.callout)
-                        .foregroundColor(Color.Theme.textSecondary)
-                }
+            // Header: words when the whole row fits on one line, icons only
+            // when it doesn't (the closed Duo, the open Duo's 55% panel, large
+            // Dynamic Type). Measured, not size-class based, so no label ever
+            // wraps mid-word. Icon-only labels keep their title for VoiceOver.
+            ViewThatFits(in: .horizontal) {
+                lobbyHeader(iconsOnly: false)
+                lobbyHeader(iconsOnly: true)
             }
             .padding()
 
@@ -102,6 +76,62 @@ struct MainRoomView: View {
 
             // Lobby list
             LobbyListView()
+        }
+    }
+
+    private func lobbyHeader(iconsOnly: Bool) -> some View {
+        HStack(spacing: iconsOnly ? 4 : 8) {
+            headerButton("New Game", icon: "suit.spade.fill", color: Color.Theme.primary,
+                         iconsOnly: iconsOnly) { LobbyEmitter.createLobby() }
+            headerButton("Tournament", icon: "trophy.fill", color: Color.Theme.warning,
+                         iconsOnly: iconsOnly) { TournamentEmitter.createTournament() }
+            headerButton("Stats", icon: "chart.bar.fill", color: Color.Theme.textSecondary,
+                         iconsOnly: iconsOnly) { showLeaderboard = true }
+
+            Spacer(minLength: 8)
+
+            Button(action: { showOnlineUsers = true }) {
+                Text("\(mainRoomState.onlineCount) online")
+                    .font(.caption)
+                    .lineLimit(1)
+                    .fixedSize()
+                    .foregroundColor(Color.Theme.textSecondary)
+            }
+
+            Button(action: { showAccountSettings = true }) {
+                Image(systemName: "gearshape.fill")
+                    .font(.callout)
+                    .foregroundColor(Color.Theme.textSecondary)
+                    .frame(minWidth: 32, minHeight: 32)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel("Account settings")
+        }
+    }
+
+    private func headerButton(_ title: String, icon: String, color: Color, iconsOnly: Bool,
+                              action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: icon)
+                .labelStyle(HeaderLabelStyle(iconsOnly: iconsOnly))
+                .font(.callout.bold())
+                .foregroundColor(color)
+                .lineLimit(1)
+                .fixedSize()
+                .frame(minWidth: iconsOnly ? 44 : nil, minHeight: 32)
+                .contentShape(Rectangle())
+        }
+    }
+}
+
+/// Title + icon, or icon only (the title stays the accessibility label).
+private struct HeaderLabelStyle: LabelStyle {
+    let iconsOnly: Bool
+    func makeBody(configuration: Configuration) -> some View {
+        if iconsOnly {
+            IconOnlyLabelStyle().makeBody(configuration: configuration)
+        } else {
+            TitleAndIconLabelStyle().makeBody(configuration: configuration)
         }
     }
 
