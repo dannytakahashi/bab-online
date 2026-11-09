@@ -38,8 +38,9 @@ function resolve(pic, username, v) {
         avatarStore.warm(username, pic);
         return { legacy: pic, url: null };
     }
-    if (e.status === 'undecodable') return { legacy: pic, url: null };   // today's shape
     if (e.status === 'hostile') return { legacy: PLACEHOLDER_INLINE, url: null };
+    // undecodable, or a transient 'error' (retried after 60 s): today's shape
+    if (e.status !== 'ok') return { legacy: pic, url: null };
     avatarStore.markOwner(ver, username);
     return {
         legacy: avatarStore.legacyInlineMode() === 'raw' ? pic : e.inline,

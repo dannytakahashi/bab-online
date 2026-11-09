@@ -240,6 +240,8 @@ describe('uploads', () => {
         ['SVG behind image/png', () => fx.dataUrl(fx.SVG)],
         ['garbage', () => 'data:image/png;base64,' + Buffer.from('not an image at all, sorry').toString('base64')],
         ['a truncated PNG', async () => fx.dataUrl((await fx.avatarPng(200)).subarray(0, 3000))],
+        ['a progressive-JPEG scan bomb', async () => 'data:image/jpeg;base64,' + (await fx.scanBombJpeg(4096)).toString('base64')],
+        ['a 3000x3000 PNG (over the 2048^2 upload cap)', async () => fx.dataUrl(await sharp({ create: { width: 3000, height: 3000, channels: 3, background: '#0a0' } }).png().toBuffer())],
     ])('%s is refused with a message and the DB is unchanged', async (name, make) => {
         await upload(s, { imageData: await make() });
         expect(lastTo(s, 'profilePicUploadResponse')).toEqual({ success: false, message: 'Could not read that image. Please try a PNG, JPEG, GIF or WebP.' });
@@ -255,6 +257,45 @@ describe('uploads', () => {
         rateLimiter.clearSocket(s.id);
         await upload(s, { imageData: 'data:image/png;base64,' + 'A'.repeat(682700) });
         expect(log.filter((l) => l.to === `self:${s.id}` && l.event === 'error').pop().data.type).toBe('validation');
+    });
+
+    test('upload decodes run under the store semaphore: full queue or a second upload of the same account -> "Busy, try again"', async () => {
+        const image = require('../../avatar/image');
+        const img = fx.dataUrl(await fx.avatarPng(64));
+        const real = image.derive;
+        let release;
+        let active = 0;
+        let maxActive = 0;
+        jest.spyOn(image, 'derive').mockImplementation(async (...a) => {
+            active++;
+            maxActive = Math.max(maxActive, active);
+            await new Promise((r) => { release = r; });
+            active--;
+            return real(...a);
+        });
+        avatarStore.configure({ maxConcurrent: 1, maxQueue: 0 });
+        const first = upload(s, { imageData: img });
+        for (let i = 0; i < 100 && !release; i++) await new Promise((r) => setTimeout(r, 1));
+        // the same account again while its decode runs
+        await upload(s, { imageData: img });
+        expect(lastTo(s, 'profilePicUploadResponse')).toEqual({ success: false, message: 'Busy, try again' });
+        // another account while the only slot is taken and nothing may queue
+        const other = sock(true, 'player04');
+        await upload(other, { imageData: img });
+        expect(lastTo(other, 'profilePicUploadResponse')).toEqual({ success: false, message: 'Busy, try again' });
+        expect(maxActive).toBe(1);
+        release();
+        await first;
+        expect(lastTo(s, 'profilePicUploadResponse').success).toBe(true);
+        expect(stored()).toMatch(/^data:image\/webp;base64,/);
+        rateLimiter.clearSocket(other.id);
+        // the account's in-flight mark is cleared: the next upload goes through
+        release = null;
+        const again = upload(s, { imageData: fx.dataUrl(await fx.avatarPng(64, 9)) });
+        for (let i = 0; i < 100 && !release; i++) await new Promise((r) => setTimeout(r, 1));
+        release();
+        await again;
+        expect(lastTo(s, 'profilePicUploadResponse').success).toBe(true);
     });
 
     test('with the pipeline off the stored value and the echo are byte-identical to the upload', async () => {

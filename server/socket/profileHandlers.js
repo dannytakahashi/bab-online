@@ -147,6 +147,9 @@ async function updateProfilePic(socket, io, data) {
  * @param {Server} io - Socket.IO server instance
  * @param {Object} data - Contains imageData (base64 string)
  */
+/** Usernames whose upload is being decoded (one at a time per account). */
+const uploadsInFlight = new Set();
+
 async function uploadProfilePic(socket, io, data) {
     const usersCollection = getUsersCollection();
     const user = gameManager.getUserBySocketId(socket.id);
@@ -199,8 +202,27 @@ async function uploadProfilePic(socket, io, data) {
     let stored = imageData;
     let rendition = null;
     if (avatarStore.available()) {
+        // One decode per account at a time, under avatarStore's shared
+        // semaphore (at most 2 decodes process-wide; docs/avatars.md)
+        if (uploadsInFlight.has(user.username)) {
+            socket.emit('profilePicUploadResponse', { success: false, message: 'Busy, try again' });
+            return;
+        }
         const buf = image.parseDataUrl(imageData);
-        const r = buf ? await image.derive(buf, { strict: true }) : { status: 'undecodable' };
+        let r = { status: 'undecodable' };
+        if (buf) {
+            uploadsInFlight.add(user.username);
+            try {
+                r = await avatarStore.deriveUpload(buf);
+            } finally {
+                uploadsInFlight.delete(user.username);
+            }
+        }
+        if (r.status === 'busy' || r.status === 'error') {
+            authLogger.warn('Custom profile picture not processed (busy)', { username: user.username, status: r.status });
+            socket.emit('profilePicUploadResponse', { success: false, message: 'Busy, try again' });
+            return;
+        }
         if (r.status !== 'ok') {
             authLogger.warn('Custom profile picture refused', { username: user.username, status: r.status, reason: r.reason });
             socket.emit('profilePicUploadResponse', {

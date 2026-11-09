@@ -22,8 +22,16 @@
  * per name (avatarStore.markMissing). Per client IP (utils/clientIp trust
  * rules: X-Real-IP only behind a proxy peer; unknown -> no per-IP key) a
  * token bucket of 120 requests refilling 2/s; globally at most 8 DB
- * lookups at once and the bounded derive queue (503 when full). No file
- * system access: there is no path to traverse.
+ * lookups at once. Concurrent requests for one name share one lookup, and a
+ * request waits up to 1.5 s for a lookup slot (at most 256 waiting) before
+ * a 503; the derive queue is bounded too (503 when full). No file system
+ * access: there is no path to traverse.
+ *
+ * Format: WebP, except when the request's Accept lists image types but not
+ * image/webp (Safari 14/15 on macOS 10.15 and older send
+ * "image/png,image/svg+xml,image/*;q=0.8,..."): then a PNG of the same
+ * rendition. Every image response says Vary: Accept. No Accept, or a bare
+ * * / *, gets WebP (curl, native clients).
  *
  * Mounted BEFORE express.static(client) in server/index.js. The response's
  * own Content-Security-Policy (sandbox) replaces the page CSP; the page's
@@ -43,6 +51,15 @@ const CONTROL_RE = /[\x00-\x1f\x7f]/; // eslint-disable-line no-control-regex
 const OWNER_RECHECK_MS = 10 * 60 * 1000;
 const BUCKET = { burst: 120, perSec: 2, maxIps: 10000 };
 const MAX_LOOKUPS = 8;
+const LOOKUP_WAIT_MS = 1500;
+const MAX_LOOKUP_WAITERS = 256;
+
+/** Does this Accept header ask for images but not WebP (a browser that cannot decode it)? */
+function wantsPng(accept) {
+    if (typeof accept !== 'string' || accept.length === 0) return false;
+    const a = accept.toLowerCase();
+    return a.includes('image/') && !a.includes('image/webp');
+}
 
 const IMMUTABLE = 'public, max-age=31536000, immutable';
 const REVALIDATE = 'public, max-age=60, must-revalidate';
@@ -52,14 +69,67 @@ const REVALIDATE = 'public, max-age=60, must-revalidate';
  * @param {Function} deps.getUsersCollection
  * @param {Object} deps.avatarStore - server/avatar/avatarStore
  * @param {Function} [deps.now]
- * @param {Object} [deps.limits] - {burst, perSec, maxIps, maxLookups} overrides (tests)
+ * @param {Object} [deps.limits] - {burst, perSec, maxIps, maxLookups, lookupWaitMs, maxLookupWaiters} overrides (tests)
  */
 function createAvatarRouter({ getUsersCollection, avatarStore, now = () => Date.now(), limits = {} }) {
     const router = express.Router();
     const bucketCfg = { ...BUCKET, ...limits };
     const maxLookups = limits.maxLookups ?? MAX_LOOKUPS;
+    const lookupWaitMs = limits.lookupWaitMs ?? LOOKUP_WAIT_MS;
+    const maxWaiters = limits.maxLookupWaiters ?? MAX_LOOKUP_WAITERS;
     const buckets = new Map(); // ip -> {tokens, at} (Map order = LRU)
     let lookups = 0;
+    const waiters = [];        // {grant, timer} waiting for a lookup slot (FIFO)
+    const pending = new Map(); // username -> Promise<doc|null> (one findOne per name at a time)
+
+    /** A lookup slot: true when granted (now or within lookupWaitMs), false otherwise. */
+    function acquire() {
+        if (lookups < maxLookups) {
+            lookups++;
+            return Promise.resolve(true);
+        }
+        if (waiters.length >= maxWaiters) return Promise.resolve(false);
+        return new Promise((resolve) => {
+            const w = { grant: resolve, timer: null };
+            w.timer = setTimeout(() => {
+                const i = waiters.indexOf(w);
+                if (i >= 0) waiters.splice(i, 1);
+                resolve(false);
+            }, lookupWaitMs);
+            if (w.timer.unref) w.timer.unref();
+            waiters.push(w);
+        });
+    }
+
+    function release() {
+        const w = waiters.shift();
+        if (w) {
+            clearTimeout(w.timer);
+            w.grant(true); // the slot passes straight to the next waiter
+        } else {
+            lookups--;
+        }
+    }
+
+    const busy = () => Object.assign(new Error('lookup busy'), { code: 'LOOKUP_BUSY' });
+
+    /** The user's doc (projection), shared by concurrent requests for the same name. */
+    function lookup(users, username) {
+        let p = pending.get(username);
+        if (p) return p;
+        p = (async () => {
+            if (!(await acquire())) throw busy();
+            try {
+                return await users.findOne({ username }, { projection: { customProfilePic: 1, mergedInto: 1 } });
+            } finally {
+                release();
+            }
+        })();
+        pending.set(username, p);
+        const clear = () => { if (pending.get(username) === p) pending.delete(username); };
+        p.then(clear, clear);
+        return p;
+    }
 
     function take(ip) {
         if (!ip) return true; // unknown client address: global bounds only
@@ -104,20 +174,29 @@ function createAvatarRouter({ getUsersCollection, avatarStore, now = () => Date.
         res.end(body);
     }
 
-    function serve(req, res, entry, cur, immutable) {
+    async function serve(req, res, entry, cur, immutable) {
+        const png = wantsPng(req.headers.accept);
+        let body = entry.webp;
+        if (png) {
+            body = await avatarStore.pngFor(cur, entry);
+            if (!body) return unavailable(res, 503, 5, 'Service unavailable');
+        }
+        const etag = png ? `"${cur}-png"` : `"${cur}"`;
         common(res);
-        res.setHeader('Content-Type', 'image/webp');
-        res.setHeader('Content-Length', String(entry.webp.length));
-        res.setHeader('ETag', `"${cur}"`);
-        res.setHeader('Content-Disposition', 'inline; filename="avatar.webp"');
+        res.setHeader('Vary', 'Accept');
+        res.setHeader('Content-Type', png ? 'image/png' : 'image/webp');
+        res.setHeader('Content-Length', String(body.length));
+        res.setHeader('ETag', etag);
+        res.setHeader('Content-Disposition', `inline; filename="avatar.${png ? 'png' : 'webp'}"`);
         res.setHeader('Cache-Control', immutable ? IMMUTABLE : REVALIDATE);
-        if (req.headers['if-none-match'] === `"${cur}"`) {
+        if (req.headers['if-none-match'] === etag) {
             res.status(304);
             res.end();
-            return;
+            return undefined;
         }
         res.status(200);
-        res.end(req.method === 'HEAD' ? undefined : entry.webp);
+        res.end(req.method === 'HEAD' ? undefined : body);
+        return undefined;
     }
 
     router.use('/avatar', async (req, res, next) => {
@@ -144,22 +223,18 @@ function createAvatarRouter({ getUsersCollection, avatarStore, now = () => Date.
             if (v) {
                 const e = avatarStore.peek(v);
                 const seen = e && e.status === 'ok' ? e.owners.get(username) : undefined;
-                if (seen !== undefined && now() - seen < OWNER_RECHECK_MS) return serve(req, res, e, v, true);
+                if (seen !== undefined && now() - seen < OWNER_RECHECK_MS) return await serve(req, res, e, v, true);
             }
 
             if (avatarStore.isMissing(username)) return notFound(res);
             const users = getUsersCollection();
             if (!users) return unavailable(res, 503, 5, 'Service unavailable');
-            if (lookups >= maxLookups) return unavailable(res, 503, 5, 'Service unavailable');
-            lookups++;
             let doc;
             try {
-                doc = await users.findOne({ username }, { projection: { customProfilePic: 1, mergedInto: 1 } });
+                doc = await lookup(users, username);
             } catch (e) {
-                logger.warn('avatar lookup failed', { error: e.message });
+                if (e.code !== 'LOOKUP_BUSY') logger.warn('avatar lookup failed', { error: e.message });
                 return unavailable(res, 503, 5, 'Service unavailable');
-            } finally {
-                lookups--;
             }
             const raw = doc && !doc.mergedInto ? doc.customProfilePic : null;
             if (typeof raw !== 'string' || !raw.startsWith('data:image')) {
@@ -174,9 +249,11 @@ function createAvatarRouter({ getUsersCollection, avatarStore, now = () => Date.
                 if (err.code === 'AVATAR_BUSY') return unavailable(res, 503, 5, 'Service unavailable');
                 throw err;
             }
+            // a transient derive failure (retried after 60 s) is not a miss
+            if (e && e.status === 'error') return unavailable(res, 503, 5, 'Service unavailable');
             if (!e || e.status !== 'ok') return notFound(res);
             avatarStore.markOwner(cur, username);
-            return serve(req, res, e, cur, v === cur);
+            return await serve(req, res, e, cur, v === cur);
         } catch (err) {
             logger.error('avatar route error', { error: err.message });
             if (!res.headersSent) return unavailable(res, 503, 5, 'Service unavailable');
@@ -184,8 +261,8 @@ function createAvatarRouter({ getUsersCollection, avatarStore, now = () => Date.
         }
     });
 
-    router._stats = () => ({ ips: buckets.size, lookups });
+    router._stats = () => ({ ips: buckets.size, lookups, waiting: waiters.length, pending: pending.size });
     return router;
 }
 
-module.exports = { createAvatarRouter, OWNER_RECHECK_MS };
+module.exports = { createAvatarRouter, wantsPng, OWNER_RECHECK_MS };

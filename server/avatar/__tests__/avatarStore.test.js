@@ -158,3 +158,64 @@ test('real sharp: a stored PNG becomes an inline WebP the shipped app decodes; h
     // no raw string is retained by any entry
     expect(JSON.stringify(Object.keys(e))).not.toMatch(/raw/);
 });
+
+test('uploads decode under the same semaphore: never more than 2 decodes at once, busy when the queue is full', async () => {
+    const gates = [];
+    const seen = fakeDerive(1000, { gate: () => new Promise((r) => gates.push(r)) });
+    // 6 stored-picture warms + 6 uploads compete for the same 2 slots
+    for (let i = 0; i < 6; i++) store.warm(`u${i}`, fakePic(i));
+    const uploads = Array.from({ length: 6 }, () => store.deriveUpload(Buffer.from('x')));
+    for (let i = 0; i < 50 && gates.length < 2; i++) await new Promise((r) => setTimeout(r, 1));
+    expect(seen.maxActive).toBe(2);
+    expect(store.stats()).toMatchObject({ running: 2, queued: 10 });
+    while (seen.calls < 12) {
+        gates.splice(0).forEach((g) => g());
+        await new Promise((r) => setTimeout(r, 1));
+    }
+    gates.splice(0).forEach((g) => g());
+    expect((await Promise.all(uploads)).map((r) => r.status)).toEqual(Array(6).fill('ok'));
+    expect(seen.maxActive).toBe(2);
+    expect(image.derive.mock.calls.slice(-1)[0][1]).toEqual({ strict: true });
+
+    store.configure({ maxConcurrent: 1, maxQueue: 0 });
+    let release;
+    image.derive.mockImplementation(() => new Promise((r) => { release = () => r({ status: 'undecodable' }); }));
+    const running = store.deriveUpload(Buffer.from('a'));
+    expect(await store.deriveUpload(Buffer.from('b'))).toEqual({ status: 'busy' });
+    await new Promise((r) => setImmediate(r));
+    release();
+    expect(await running).toEqual({ status: 'undecodable' });
+    image.derive.mockRejectedValueOnce(new Error('boom'));
+    expect(await store.deriveUpload(Buffer.from('c'))).toEqual({ status: 'error' });
+});
+
+test('a transient failure (timeout, thrown derive) is cached for 60 s only, then derived again; verdicts stay cached', async () => {
+    let t = 5_000_000;
+    store.configure({ now: () => t });
+    const spy = jest.spyOn(image, 'derive')
+        .mockResolvedValueOnce({ status: 'error' })
+        .mockRejectedValueOnce(new Error('VipsImage: out of memory'))
+        .mockResolvedValue({ status: 'ok', webp: Buffer.alloc(500, 1), width: 200, height: 200 });
+    const pic = fakePic(1);
+    const v = store.versionOf(pic);
+    expect((await store.ensure('kim', pic)).status).toBe('error');
+    expect(store.peek(v).status).toBe('error');
+    store.warm('kim', pic); // inside the window: no new derive
+    expect(spy).toHaveBeenCalledTimes(1);
+    t += store.ERROR_TTL_MS;
+    expect(store.peek(v)).toBeUndefined();
+    expect((await store.ensure('kim', pic)).status).toBe('error'); // the thrown one: transient too
+    t += store.ERROR_TTL_MS;
+    store.warm('kim', pic);
+    await new Promise((r) => setTimeout(r, 5));
+    expect(store.peek(v).status).toBe('ok');
+    expect(spy).toHaveBeenCalledTimes(3);
+    expect(store.stats().errors).toBe(2);
+
+    spy.mockResolvedValue({ status: 'undecodable' });
+    const bad = fakePic(2);
+    await store.ensure('ivy', bad);
+    t += 10 * store.ERROR_TTL_MS;
+    expect(store.peek(store.versionOf(bad)).status).toBe('undecodable');
+    expect(spy).toHaveBeenCalledTimes(4);
+});

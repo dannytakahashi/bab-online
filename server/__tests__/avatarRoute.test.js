@@ -84,6 +84,7 @@ test('200: sharp WebP <= 256 px with the exact headers; immutable only when v is
         'content-type': 'image/webp',
         'content-length': String(body.length),
         etag: `"${V()}"`,
+        vary: 'Accept',
         'x-content-type-options': 'nosniff',
         'cross-origin-resource-policy': 'same-site',
         'content-security-policy': "default-src 'none'; sandbox",
@@ -193,7 +194,8 @@ test('per-IP token bucket: the 121st burst request from one client gets 429; an 
     expect(router._stats().ips).toBe(2);
 });
 
-test('saturation: more than 8 concurrent DB lookups, or a full derive queue, answer 503 (no-store)', async () => {
+test('saturation: more than 8 concurrent DB lookups (after a short wait), or a full derive queue, answer 503 (no-store)', async () => {
+    await start({ limits: { lookupWaitMs: 100 } });
     let open = [];
     jest.spyOn(db.users, 'findOne').mockImplementation(() => new Promise((r) => open.push(() => r(null))));
     const pending = Array.from({ length: 8 }, (_, i) => get(`/avatar/u${i}`));
@@ -227,4 +229,66 @@ test('no database yet: 503, never a 404 that a client could cache', async () => 
     const r = await get('/avatar/kim');
     expect(r.status).toBe(503);
     expect(r.headers.get('cache-control')).toBe('no-store');
+});
+
+test('a lookup waits for a free slot instead of failing; concurrent requests for one name share one findOne', async () => {
+    await start({ limits: { maxLookups: 1 } });
+    const real = db.users.findOne.bind(db.users);
+    const spy = jest.spyOn(db.users, 'findOne').mockImplementation(async (...a) => {
+        await new Promise((r) => setTimeout(r, 30));
+        return real(...a);
+    });
+    // 30 requests for kim (no v: no fast path) plus one for ivy behind them, one slot
+    const kims = Array.from({ length: 30 }, () => get('/avatar/kim'));
+    const ivy = get('/avatar/ivy');
+    expect((await Promise.all(kims)).map((r) => r.status)).toEqual(Array(30).fill(200));
+    expect((await ivy).status).toBe(404); // waited for the slot, then a real answer
+    expect(spy.mock.calls.map((c) => c[0].username).sort()).toEqual(['ivy', 'kim']);
+    expect(router._stats()).toMatchObject({ lookups: 0, waiting: 0, pending: 0 });
+
+    // stale owner marks (a leaderboard left open 11 minutes): one shared re-check, no 503s
+    spy.mockClear();
+    t += 11 * 60 * 1000;
+    const again = await Promise.all(Array.from({ length: 30 }, () => get(`/avatar/kim?v=${V()}`)));
+    expect(again.map((r) => r.status)).toEqual(Array(30).fill(200));
+    expect(spy).toHaveBeenCalledTimes(1);
+});
+
+test('a browser whose Accept lacks image/webp (Safari on macOS 10.15) gets a PNG of the same rendition; Vary: Accept', async () => {
+    const SAFARI_CATALINA = 'image/png,image/svg+xml,image/*;q=0.8,video/*;q=0.8,*/*;q=0.5';
+    const res = await get(`/avatar/kim?v=${V()}`, { headers: { Accept: SAFARI_CATALINA } });
+    expect(res.status).toBe(200);
+    const body = Buffer.from(await res.arrayBuffer());
+    expect(res.headers.get('content-type')).toBe('image/png');
+    expect(res.headers.get('vary')).toBe('Accept');
+    expect(res.headers.get('etag')).toBe(`"${V()}-png"`);
+    expect(res.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(res.headers.get('content-disposition')).toBe('inline; filename="avatar.png"');
+    const m = await sharp(body).metadata();
+    expect([m.format, m.width, m.height, m.hasAlpha]).toEqual(['png', 256, 256, true]);
+    const r304 = await get(`/avatar/kim?v=${V()}`, { headers: { Accept: SAFARI_CATALINA, 'If-None-Match': `"${V()}-png"` } });
+    expect(r304.status).toBe(304);
+    // cached: a second PNG request encodes nothing new
+    const toPng = jest.spyOn(image, 'toPng');
+    expect((await get(`/avatar/kim?v=${V()}`, { headers: { Accept: SAFARI_CATALINA } })).status).toBe(200);
+    expect(toPng).not.toHaveBeenCalled();
+    // Chrome, Firefox, Safari 14+ on macOS 11+, no Accept, */*: WebP
+    for (const accept of ['image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8', 'image/avif,image/webp,*/*',
+        'image/webp,image/png,image/svg+xml,image/*;q=0.8,video/*;q=0.8,*/*;q=0.5', '*/*', undefined]) {
+        const r = await get(`/avatar/kim?v=${V()}`, accept ? { headers: { Accept: accept } } : undefined);
+        expect({ accept, type: r.headers.get('content-type'), vary: r.headers.get('vary') }).toEqual({ accept, type: 'image/webp', vary: 'Accept' });
+    }
+});
+
+test('a transient derive failure (libvips timeout) answers 503, is not cached as a miss, and is derived again after 60 s', async () => {
+    const derive = jest.spyOn(image, 'derive').mockResolvedValueOnce({ status: 'error' });
+    const first = await get('/avatar/kim');
+    expect(first.status).toBe(503);
+    expect(first.headers.get('cache-control')).toBe('no-store');
+    expect((await get('/avatar/kim')).status).toBe(503); // within the 60 s retry window: no derive storm
+    expect(derive).toHaveBeenCalledTimes(1);
+    t += avatarStore.ERROR_TTL_MS + 1;
+    expect((await get('/avatar/kim')).status).toBe(200);
+    expect(derive).toHaveBeenCalledTimes(2);
 });

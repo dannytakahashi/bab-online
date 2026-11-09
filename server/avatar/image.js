@@ -7,13 +7,26 @@
  * at most 256 px, metadata (EXIF, GPS) stripped. Safety, in order:
  *   1. a synchronous magic-byte sniff: PNG / JPEG / GIF / WebP only (SVG,
  *      HEIC, TIFF, garbage never reach libvips) -> hostile 'format';
- *   2. the header (sharp metadata, ~1 ms even for a 12000x12000 bomb):
- *      format allowlist again, width x height <= 4096^2 -> else hostile
- *      'pixels'; smaller than 8 px -> undecodable;
- *   3. the decode itself under limitInputPixels (4096^2), first frame only
+ *   2. JPEG only, also synchronous: more than 64 SOS markers -> hostile
+ *      'scans'. libjpeg walks every block of the image once per scan, so a
+ *      progressive JPEG that repeats a tiny Ah=0/Al=0 scan ~28,000 times
+ *      inside the 500 KB budget costs 5-9 s of CPU at 4096^2 (no libjpeg
+ *      warning, and libvips' timeout is only checked between scanlines,
+ *      after the whole scan run). Real files carry ~10 scans (plus ~10 for
+ *      an EXIF thumbnail). The count is of raw FF DA byte pairs, an upper
+ *      bound on the SOS markers libjpeg can see (entropy data stuffs FF);
+ *   3. the header (sharp metadata, ~1 ms even for a 12000x12000 bomb):
+ *      format allowlist again, width x height <= 4096^2 (2048^2 for new
+ *      uploads: the web client sends 200 px) -> else hostile 'pixels';
+ *      smaller than 8 px -> undecodable;
+ *   4. the decode itself under limitInputPixels, first frame only
  *      (pages: 1), a 3 s libvips timeout, and failOn 'error' for new
  *      uploads (strict) / 'none' for stored pictures (lenient: a slightly
  *      truncated stored PNG still renders today, so it should still derive).
+ *      A timeout is reported as status 'error' (transient: avatarStore
+ *      retries it later), never as undecodable.
+ * Callers run derive() through avatarStore's semaphore (2 at once), so at
+ * most 2 of libuv's 4 threadpool threads ever decode.
  *
  * sharp (prebuilt libvips, pinned 0.34.5: the last release whose engines
  * include Node 18) is optional at runtime: if it fails to load the whole
@@ -43,6 +56,10 @@ try {
 const available = () => !!sharp;
 
 const MAX_PIXELS = 4096 * 4096;
+/** New uploads (strict): the web client uploads 200 px squares (older bundles 612 px). */
+const MAX_UPLOAD_PIXELS = 2048 * 2048;
+/** More SOS markers than this in a JPEG is a scan bomb (real files: ~10, ~20 with an EXIF thumbnail). */
+const MAX_JPEG_SCANS = 64;
 const MIN_SIDE = 8;
 /** Rendition edge (px): iOS 40 pt @3x needs 120, web in-game 80 CSS px @3x 240. */
 const RENDITION_PX = 256;
@@ -81,20 +98,36 @@ function sniff(buf) {
 }
 
 /**
+ * Upper bound on the SOS (start of scan) markers in a JPEG: raw FF DA byte
+ * pairs anywhere after SOI. Stops counting past `stopAfter`.
+ */
+function jpegScanCount(buf, stopAfter = Infinity) {
+    let n = 0;
+    for (let i = buf.indexOf(0xff, 2); i !== -1 && i + 1 < buf.length; i = buf.indexOf(0xff, i + 1)) {
+        if (buf[i + 1] === 0xda && ++n > stopAfter) break;
+    }
+    return n;
+}
+
+/**
  * Derive the canonical rendition of untrusted image bytes.
  * @param {Buffer} buf
  * @param {Object} [opts]
  * @param {boolean} [opts.strict=false] - fail on any decode warning (uploads)
  * @returns {Promise<{status:'ok', webp:Buffer, width:number, height:number, ms:number}
- *   | {status:'hostile', reason:'format'|'pixels'} | {status:'undecodable'}>}
+ *   | {status:'hostile', reason:'format'|'pixels'|'scans'} | {status:'undecodable'}
+ *   | {status:'error'}>} 'error' = transient (libvips timeout): try again later
  */
 async function derive(buf, { strict = false } = {}) {
     if (!sharp) return { status: 'undecodable' };
-    if (!sniff(buf)) return { status: 'hostile', reason: 'format' };
+    const fmt = sniff(buf);
+    if (!fmt) return { status: 'hostile', reason: 'format' };
+    if (fmt === 'jpeg' && jpegScanCount(buf, MAX_JPEG_SCANS) > MAX_JPEG_SCANS) return { status: 'hostile', reason: 'scans' };
+    const maxPixels = strict ? MAX_UPLOAD_PIXELS : MAX_PIXELS;
     const t0 = process.hrtime.bigint();
     try {
         const input = () => sharp(buf, {
-            limitInputPixels: MAX_PIXELS,
+            limitInputPixels: maxPixels,
             failOn: strict ? 'error' : 'none',
             pages: 1,
             sequentialRead: true,
@@ -108,7 +141,7 @@ async function derive(buf, { strict = false } = {}) {
         if (!ALLOWED.has(meta.format)) return { status: 'hostile', reason: 'format' };
         const w = meta.width || 0;
         const h = meta.pageHeight || meta.height || 0;
-        if (w * h > MAX_PIXELS) return { status: 'hostile', reason: 'pixels' };
+        if (w * h > maxPixels) return { status: 'hostile', reason: 'pixels' };
         if (w < MIN_SIDE || h < MIN_SIDE) return { status: 'undecodable' };
         // EXIF orientation: the upright size decides the square edge
         const upright = (meta.orientation || 1) >= 5 ? [h, w] : [w, h];
@@ -123,8 +156,22 @@ async function derive(buf, { strict = false } = {}) {
         return { status: 'ok', webp: data, width: info.width, height: info.height, ms };
     } catch (e) {
         if (/pixel limit/i.test(e.message)) return { status: 'hostile', reason: 'pixels' };
+        // sharp's .timeout() kills the pipeline: "VipsImage: killed for image ..."
+        if (/killed|timeout/i.test(e.message)) return { status: 'error' };
         return { status: 'undecodable' };
     }
+}
+
+/**
+ * A PNG of a rendition, for browsers that cannot show WebP (Safari 14/15
+ * on macOS 10.15 and older): GET /avatar picks it by the Accept header.
+ */
+async function toPng(webp) {
+    if (!sharp) throw new Error('sharp unavailable');
+    return sharp(webp, { limitInputPixels: RENDITION_PX * RENDITION_PX, failOn: 'error' })
+        .timeout({ seconds: 3 })
+        .png({ compressionLevel: 9, adaptiveFiltering: true })
+        .toBuffer();
 }
 
 /** The data URL a legacy client gets inline (standard padded base64, no newlines). */
@@ -137,8 +184,12 @@ module.exports = {
     parseDataUrl,
     sniff,
     derive,
+    jpegScanCount,
     toInline,
+    toPng,
     MAX_PIXELS,
+    MAX_UPLOAD_PIXELS,
+    MAX_JPEG_SCANS,
     RENDITION_PX,
     MAX_B64_CHARS,
     MAX_DECODED_BYTES,

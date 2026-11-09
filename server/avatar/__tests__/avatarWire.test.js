@@ -129,6 +129,21 @@ test('mapPlayers / wireClientState per recipient kind; keys omitted without a UR
     expect(JSON.stringify(players)).toBe(frozen);
 });
 
+test('a transient derive failure resolves to today\'s stored value with no URL, and gets its URL once re-derived', async () => {
+    let t = 1_000_000;
+    store.configure({ enabled: true, now: () => t });
+    const image = require('../image');
+    jest.spyOn(image, 'derive').mockResolvedValueOnce({ status: 'error' });
+    await store.ensure('kim', OK);
+    expect(wire.resolve(OK, 'kim')).toEqual({ legacy: OK, url: null });
+    expect(wire.mapPlayers(null, [{ position: 1, username: 'kim', pic: OK }], 'capable'))
+        .toEqual({ players: [{ position: 1, username: 'kim', pic: OK }], avatarUrls: undefined });
+    t += store.ERROR_TTL_MS;
+    expect(wire.resolve(OK, 'kim').url).toBeNull(); // expired: warm restarts the derive
+    await store.ensure('kim', OK);
+    expect(wire.resolve(OK, 'kim').url).toBe(`/avatar/kim?v=${store.versionOf(OK)}`);
+});
+
 test('names are percent-encoded in URLs', async () => {
     store.configure({ enabled: true });
     await store.ensure('Zoë & co', OK);

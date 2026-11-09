@@ -155,6 +155,38 @@ function bombPng(width = 12000, height = 12000) {
     return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IDAT', idat), chunk('IEND', Buffer.alloc(0))]);
 }
 
+/**
+ * A progressive-JPEG scan bomb: a solid side x side progressive JPEG whose
+ * single-component AC scan (rewritten to Ah=0, Al=0, so libjpeg never
+ * warns about the progression) is repeated `scans` times (default: as many
+ * as fit `budget` bytes). libjpeg walks every block once per scan: at
+ * 4096^2 the full-budget bomb costs 5-9 s of CPU.
+ */
+async function scanBombJpeg(side = 4096, { scans, budget = 489000 } = {}) {
+    const base = await sharp({ create: { width: side, height: side, channels: 3, background: { r: 120, g: 80, b: 40 } } })
+        .jpeg({ progressive: true, quality: 50 }).toBuffer();
+    const segs = [];
+    for (let i = 2; i < base.length;) {
+        const start = i;
+        const m = base[i + 1];
+        i += 2;
+        if (m === 0xd9) break;
+        const len = base.readUInt16BE(i);
+        const hdr = base.subarray(i + 2, i + len);
+        i += len;
+        if (m === 0xda) {
+            while (i + 1 < base.length && !(base[i] === 0xff && base[i + 1] !== 0 && !(base[i + 1] >= 0xd0 && base[i + 1] <= 0xd7))) i++;
+        }
+        segs.push({ m, start, end: i, hdr });
+    }
+    const ac = segs.find((s) => s.m === 0xda && s.hdr[0] === 1 && s.hdr[3] >= 1); // Ns=1, Ss>=1
+    const one = Buffer.from(base.subarray(ac.start, ac.end));
+    one[4 + 1 + 2 + 2] = 0; // Ah/Al byte -> 0/0
+    const head = base.subarray(0, segs[segs.length - 1].end);
+    const n = scans ?? Math.floor((budget - head.length - 2) / one.length);
+    return Buffer.concat([head, ...Array(n).fill(one), Buffer.from([0xff, 0xd9])]);
+}
+
 const SVG = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><script>alert(1)</script><rect width="64" height="64"/></svg>');
 const HTML = Buffer.from('<!doctype html><html><body><script>alert(document.cookie)</script></body></html>');
 
@@ -165,6 +197,7 @@ module.exports = {
     exifRotatedJpeg,
     animatedGif,
     bombPng,
+    scanBombJpeg,
     SVG,
     HTML,
     I1_RE: /^data:image\/[a-z]+;base64,[A-Za-z0-9+/]+={0,2}$/,

@@ -68,6 +68,60 @@ test('a 12000x12000 PNG header (under 100 B) is hostile/pixels, read from the he
     expect(await image.derive(fx.bombPng(4097, 4096))).toEqual({ status: 'hostile', reason: 'pixels' });
 });
 
+test('a progressive-JPEG scan bomb that passes every upload gate is hostile/scans, synchronously, without a decode', async () => {
+    const bomb = await fx.scanBombJpeg(4096);
+    // the upload gates (Joi max, the handler's 500 KB check, parseDataUrl) all pass
+    const url = 'data:image/jpeg;base64,' + bomb.toString('base64');
+    expect(bomb.length).toBeLessThanOrEqual(image.MAX_DECODED_BYTES);
+    expect((url.length * 3) / 4).toBeLessThanOrEqual(500 * 1024);
+    expect(image.parseDataUrl(url)).not.toBeNull();
+    expect(image.jpegScanCount(bomb)).toBeGreaterThan(10000);
+    const sharpSpy = jest.spyOn(image._sharp().prototype, 'metadata');
+    for (const strict of [true, false]) {
+        const t0 = Date.now();
+        expect(await image.derive(bomb, { strict })).toEqual({ status: 'hostile', reason: 'scans' });
+        expect(Date.now() - t0).toBeLessThan(100);
+    }
+    expect(sharpSpy).not.toHaveBeenCalled(); // never reaches libvips
+    sharpSpy.mockRestore();
+    // just over the cap is hostile; real progressive / mozjpeg / baseline files are far below it
+    const over = await fx.scanBombJpeg(256, { scans: image.MAX_JPEG_SCANS }); // 10 + 64 scans
+    expect((await image.derive(over)).status).toBe('hostile');
+    const under = await fx.scanBombJpeg(256, { scans: image.MAX_JPEG_SCANS - 10 }); // exactly 64
+    expect(image.jpegScanCount(under)).toBe(image.MAX_JPEG_SCANS);
+    expect((await image.derive(under)).status).toBe('ok');
+    for (const opts of [{ progressive: true }, { progressive: true, mozjpeg: true }, {}]) {
+        const j = await sharp({ create: { width: 300, height: 300, channels: 3, background: '#358' } }).jpeg(opts).toBuffer();
+        expect(image.jpegScanCount(j)).toBeLessThanOrEqual(10);
+        expect((await image.derive(j, { strict: true })).status).toBe('ok');
+    }
+    expect((await image.derive(await fx.exifRotatedJpeg(), { strict: true })).status).toBe('ok');
+});
+
+test('new uploads (strict) stop at 2048^2 pixels; stored pictures (lenient) keep the 4096^2 cap', async () => {
+    const big = await sharp({ create: { width: 3000, height: 3000, channels: 3, background: '#0a0' } }).png().toBuffer();
+    expect(await image.derive(big, { strict: true })).toEqual({ status: 'hostile', reason: 'pixels' });
+    expect((await image.derive(big, { strict: false })).status).toBe('ok');
+    const ok = await sharp({ create: { width: 2048, height: 2048, channels: 3, background: '#0a0' } }).png().toBuffer();
+    expect((await image.derive(ok, { strict: true })).status).toBe('ok');
+});
+
+test('a libvips timeout is a transient error, not an undecodable verdict', async () => {
+    const proto = image._sharp().prototype;
+    const spy = jest.spyOn(proto, 'toBuffer').mockRejectedValueOnce(new Error('VipsImage: killed for image "temp-60"'));
+    expect(await image.derive(png200, { strict: true })).toEqual({ status: 'error' });
+    spy.mockRejectedValueOnce(new Error('VipsJpeg: Premature end of input file'));
+    expect(await image.derive(png200, { strict: true })).toEqual({ status: 'undecodable' });
+    spy.mockRestore();
+});
+
+test('toPng: the PNG rendition (non-WebP browsers) keeps size and alpha', async () => {
+    const r = await image.derive(png200, { strict: true });
+    const png = await image.toPng(r.webp);
+    const m = await sharp(png).metadata();
+    expect([m.format, m.width, m.height, m.hasAlpha]).toEqual(['png', 200, 200, true]);
+});
+
 test('SVG (or HTML) behind an image/png prefix is hostile/format; garbage is rejected synchronously', async () => {
     const svg = image.parseDataUrl(fx.dataUrl(fx.SVG));
     expect(svg).not.toBeNull();

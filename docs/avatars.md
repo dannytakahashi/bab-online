@@ -89,8 +89,27 @@ is the current version, else `public, max-age=60, must-revalidate`. 304 on
 picture, invalid name, hostile/undecodable, pipeline off) is the same 404
 (`text/plain`, `max-age=60`). 429 (`Retry-After: 30`) past a per-IP token
 bucket of 120 burst / 2 per s (client IP by `server/utils/clientIp.js`; an
-unknown IP is not bucketed); 503 (`Retry-After: 5`, `no-store`) when 8 DB
-lookups are in flight, the derive queue is full or the DB is not up.
+unknown IP is not bucketed); 503 (`Retry-After: 5`, `no-store`) when no DB
+lookup slot frees up within 1.5 s (8 at once, at most 256 waiting;
+concurrent requests for one name share one lookup), the derive queue is full,
+a derive failed transiently (retried after 60 s) or the DB is not up.
+
+Format: WebP, `Vary: Accept` on every image response. A request whose
+`Accept` lists image types but not `image/webp` gets a PNG of the same
+rendition (`ETag "<version>-png"`, encoded on demand under the derive
+semaphore, 4 MB LRU). That is Safari 14/15 on macOS 10.15 Catalina or older
+(WebKit only advertises `image/webp` where it can decode it); Chrome,
+Firefox, Safari on macOS 11+, iOS, and requests without `Accept` or with a
+bare `*/*` get WebP. Known loss: those old Safaris on a web bundle cached
+from before this change (at most a day) and the inline WebP renditions sent
+to legacy sockets — a new bundle on such a Safari uses the URLs.
+
+Web client fallback (`client/src/utils/avatar.js` `applyAvatarImg`): when an
+`/avatar` URL fails (429, 503, a 404 after a mid-game picture change) it
+shows the inline copy of the same version if a room broadcast carried one
+(positionUpdate, playerActiveMode), else retries the URL once after 3 s, and
+only then the neutral `assets/default_avatar.png` — never another player's
+stock animal.
 
 Exposure: nothing a socket cannot already read without signing in
 (getLeaderboard / searchPlayers / getPlayerProfile return every custom
@@ -167,6 +186,22 @@ GETs of a cached versioned avatar: p50 0.76 ms, p99 3.36 ms (local), RSS
 
 Derive: ~6 ms for a 200 px PNG, ~15 ms for 612 px; a 12000x12000 PNG
 header is refused in < 1 ms. Memory: renditions <= 32 MB (bytes-bounded
-LRU); at most 2 decodes at once (worst case ~67 MB each at the 4096^2 cap);
-the derive queue (at most 64) references the stored strings it will
-derive (<= ~683 K chars each, already held by the caller) until each runs.
+LRU) plus PNG renditions <= 4 MB; at most 2 decodes at once in the whole
+process — stored pictures, new uploads (`avatarStore.deriveUpload`, one per
+account at a time; a full queue answers the upload with "Busy, try again")
+and PNG renditions all share the one semaphore — worst case ~70-135 MB each
+at the 4096^2 cap for stored pictures, 2048^2 for uploads; so at most 2 of
+libuv's 4 threadpool threads ever decode and express.static / fs / dns keep
+the rest. The derive queue (at most 64) references the stored strings it
+will derive (<= ~683 K chars each, already held by the caller) until each
+runs.
+
+CPU: libjpeg walks the whole image once per progressive scan, and libvips
+checks the 3 s timeout only between scanlines, so a JPEG repeating a tiny
+scan ~28,000 times in the 500 KB budget took 5-9 s per derive at 4096^2
+(no libjpeg warning, so `failOn` does not catch it). `image.derive` counts
+FF DA (SOS) byte pairs before libvips sees the file and refuses more than
+64 as hostile ('scans'); real files carry ~10 (~20 with an EXIF thumbnail).
+64 scans at 4096^2 decode in ~70 ms. A timeout still reported is a
+transient 'error' (cached 60 s, then derived again), never a permanent
+"undecodable".

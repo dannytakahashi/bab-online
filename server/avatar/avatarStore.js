@@ -13,6 +13,13 @@
  * Each version is derived at most once at a time (inflight), by at most 2
  * concurrent derives with a queue of at most 64 (full: warm is a no-op and
  * the payload keeps today's value; ensure rejects with code AVATAR_BUSY).
+ * EVERY decode in the process runs under that semaphore: stored pictures
+ * (warm/ensure), new uploads (deriveUpload) and the PNG renditions for
+ * non-WebP browsers (pngFor). So at most 2 libvips decodes run at once
+ * (2 of libuv's 4 threadpool threads; fs, dns and zlib keep the rest).
+ * A transient failure (libvips timeout, a thrown derive) is cached for 60 s
+ * only (status 'error'), then derived again; 'hostile' and 'undecodable'
+ * are verdicts on the bytes and stay cached.
  *
  * Memory: renditions live in an LRU bounded by BYTES (webp + inline data
  * URL, default 32 MB, AVATAR_CACHE_MB); raw stored strings are never kept
@@ -38,8 +45,12 @@ const logger = createModuleLogger('avatar');
 const RENDITION_REV = 'r1';
 const MISSING_TTL_MS = 60000;
 const MISSING_MAX = 5000;
-/** Bytes charged for an entry without a rendition (hostile / undecodable). */
+/** Bytes charged for an entry without a rendition (hostile / undecodable / error). */
 const NEGATIVE_ENTRY_BYTES = 256;
+/** A transient derive failure is retried after this long. */
+const ERROR_TTL_MS = 60000;
+/** PNG renditions (non-WebP browsers only): a small byte-bounded LRU of their own. */
+const PNG_CACHE_BYTES = 4 * 1024 * 1024;
 
 const defaults = () => ({
     enabled: config.avatar.pipeline === 'on',
@@ -54,11 +65,14 @@ let opts = defaults();
 let byV = new Map();        // v -> entry (Map order = LRU order, oldest first)
 let bytes = 0;
 let inflight = new Map();   // v -> Promise<entry>
+let pngByV = new Map();     // v -> Buffer (LRU)
+let pngBytes = 0;
+let pngInflight = new Map(); // v -> Promise<Buffer|null>
 let missing = new Map();    // username -> expiresAt
 let running = 0;
 let queue = [];             // thunks waiting for a derive slot
 let gen = 0;                // bumped by _reset: late completions are ignored
-let stats = { derives: 0, deriveMs: 0, hits: 0, evictions: 0, busy: 0 };
+let stats = { derives: 0, deriveMs: 0, hits: 0, evictions: 0, busy: 0, errors: 0 };
 
 /** Is the pipeline on (switch on and sharp loaded)? */
 function available() {
@@ -73,6 +87,17 @@ function versionOf(raw) {
 function busyError() {
     const e = new Error('Avatar renderer busy');
     e.code = 'AVATAR_BUSY';
+    return e;
+}
+
+/** The cached entry for v (LRU order untouched); an expired 'error' entry is dropped. */
+function get(v) {
+    const e = byV.get(v);
+    if (e && e.expiresAt !== undefined && e.expiresAt <= opts.now()) {
+        byV.delete(v);
+        bytes -= e.bytes;
+        return undefined;
+    }
     return e;
 }
 
@@ -111,6 +136,10 @@ function schedule(fn) {
     });
 }
 
+function errorEntry() {
+    return { status: 'error', owners: new Map(), bytes: NEGATIVE_ENTRY_BYTES, expiresAt: opts.now() + ERROR_TTL_MS };
+}
+
 async function deriveEntry(raw) {
     const t0 = Date.now();
     let r;
@@ -124,6 +153,7 @@ async function deriveEntry(raw) {
     }
     stats.derives++;
     stats.deriveMs += Date.now() - t0;
+    if (r.status === 'error') return errorEntry();
     const entry = { status: r.status, owners: new Map(), bytes: NEGATIVE_ENTRY_BYTES };
     if (r.status === 'ok') {
         entry.webp = r.webp;
@@ -146,7 +176,9 @@ function start(v, raw) {
     }
     const startedWith = inflight;
     const done = p.then((entry) => {
-        const e = entry || { status: 'undecodable', owners: new Map(), bytes: NEGATIVE_ENTRY_BYTES };
+        // null: the derive threw (schedule turns that into null): transient
+        const e = entry || errorEntry();
+        if (e.status === 'error') stats.errors++;
         if (e.status === 'hostile') logger.warn('Stored avatar is not a safe image (placeholder shown)', { v, reason: e.reason });
         // A reset (tests) while deriving: drop the result
         if (inflight === startedWith) {
@@ -161,7 +193,7 @@ function start(v, raw) {
 
 /** Record that `username` was seen holding version v (now). */
 function markOwner(v, username) {
-    const e = byV.get(v);
+    const e = get(v);
     if (e && username) e.owners.set(username, opts.now());
 }
 
@@ -173,7 +205,7 @@ function warm(username, raw) {
     try {
         if (!available() || typeof raw !== 'string') return null;
         const v = versionOf(raw);
-        if (byV.has(v)) markOwner(v, username);
+        if (get(v)) markOwner(v, username);
         else start(v, raw);
         return v;
     } catch (e) {
@@ -190,7 +222,7 @@ function warm(username, raw) {
 async function ensure(username, raw) {
     if (!available() || typeof raw !== 'string') return null;
     const v = versionOf(raw);
-    let e = byV.get(v);
+    let e = get(v);
     if (e) {
         touch(v, e);
         stats.hits++;
@@ -199,7 +231,7 @@ async function ensure(username, raw) {
         if (!p) throw busyError();
         e = await p;
     }
-    if (byV.has(v)) markOwner(v, username);
+    if (get(v)) markOwner(v, username);
     else if (username) e.owners.set(username, opts.now());
     return e;
 }
@@ -211,7 +243,7 @@ function touch(v, e) {
 
 /** The entry for version v, {status:'pending'} while deriving, or undefined. */
 function peek(v) {
-    const e = byV.get(v);
+    const e = get(v);
     if (e) {
         touch(v, e);
         return e;
@@ -231,6 +263,58 @@ function seed(username, inline, webp) {
     store(v, e);
     markOwner(v, username);
     return v;
+}
+
+/**
+ * Decode a NEW upload (image.derive strict) under the shared semaphore.
+ * {status:'busy'} when the queue is full; {status:'error'} if it threw.
+ */
+async function deriveUpload(buf) {
+    const p = schedule(() => image.derive(buf, { strict: true }));
+    if (!p) {
+        stats.busy++;
+        return { status: 'busy' };
+    }
+    return (await p) || { status: 'error' };
+}
+
+/**
+ * The PNG rendition of an 'ok' entry of version v (derived from its WebP
+ * under the semaphore, cached in a 4 MB LRU). Null when the queue is full
+ * or the encode failed.
+ */
+async function pngFor(v, entry) {
+    const hit = pngByV.get(v);
+    if (hit) {
+        pngByV.delete(v);
+        pngByV.set(v, hit);
+        return hit;
+    }
+    if (pngInflight.has(v)) return pngInflight.get(v);
+    if (!entry || entry.status !== 'ok' || !entry.webp) return null;
+    const p = schedule(() => image.toPng(entry.webp));
+    if (!p) {
+        stats.busy++;
+        return null;
+    }
+    const startedWith = pngInflight;
+    const done = p.then((png) => {
+        if (pngInflight === startedWith) {
+            pngInflight.delete(v);
+            if (png && png.length <= PNG_CACHE_BYTES) {
+                pngByV.set(v, png);
+                pngBytes += png.length;
+                while (pngBytes > PNG_CACHE_BYTES) {
+                    const [oldV, old] = pngByV.entries().next().value;
+                    pngByV.delete(oldV);
+                    pngBytes -= old.length;
+                }
+            }
+        }
+        return png || null;
+    });
+    pngInflight.set(v, done);
+    return done;
 }
 
 /** A picture change or account deletion: no version is `username`'s any more. */
@@ -268,14 +352,18 @@ function _reset() {
     byV = new Map();
     bytes = 0;
     inflight = new Map();
+    pngByV = new Map();
+    pngBytes = 0;
+    pngInflight = new Map();
     missing = new Map();
     running = 0;
     queue = [];
-    stats = { derives: 0, deriveMs: 0, hits: 0, evictions: 0, busy: 0 };
+    stats = { derives: 0, deriveMs: 0, hits: 0, evictions: 0, busy: 0, errors: 0 };
 }
 
 module.exports = {
     RENDITION_REV,
+    ERROR_TTL_MS,
     available,
     versionOf,
     warm,
@@ -283,6 +371,8 @@ module.exports = {
     peek,
     markOwner,
     seed,
+    deriveUpload,
+    pngFor,
     forgetUser,
     markMissing,
     isMissing,
@@ -290,5 +380,5 @@ module.exports = {
     _reset,
     legacyInlineMode: () => opts.legacyInline,
     now: () => opts.now(),
-    stats: () => ({ ...stats, entries: byV.size, bytes, inflight: inflight.size, running, queued: queue.length, missing: missing.size }),
+    stats: () => ({ ...stats, entries: byV.size, bytes, inflight: inflight.size, running, queued: queue.length, missing: missing.size, pngEntries: pngByV.size, pngBytes }),
 };
