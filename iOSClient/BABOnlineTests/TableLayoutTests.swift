@@ -38,7 +38,9 @@ final class TableLayoutTests: XCTestCase {
     static let listedSizes: [(CGSize, TableInsets)] = scopeSizes + [
         (CGSize(width: 375, height: 667), .zero),
         (CGSize(width: 466, height: 678), .zero),
-        (CGSize(width: 572, height: 669), insets(0, 0, 21, 59)),   // inner landscape, log docked
+        (CGSize(width: 546, height: 669), insets(0, 0, 34, 0)),    // measured: open-Duo landscape pane, log docked on the right
+        (CGSize(width: 455.5, height: 669), insets(0, 0, 34, 0)),  // measured: book pose, table on the left page
+        (CGSize(width: 455.5, height: 669), insets(0, 84, 34, 0)), // book pose, other landscape (status column on the left)
         (CGSize(width: 466, height: 678), insets(0, 0, 34, 84)),   // measured: the closed Duo ("ui.pose"; status cluster on the right)
         (CGSize(width: 820, height: 1180), insets(32, 0, 20, 0)),  // measured: iPad Air 11-inch (M4) portrait
         (CGSize(width: 1180, height: 820), insets(32, 0, 20, 0)),  // measured: iPad Air 11-inch (M4) landscape
@@ -226,7 +228,7 @@ final class TableLayoutTests: XCTestCase {
         // folds TableLayout really receives (GameContainerView docks the log on a book fold
         // at 951 x 669, so that one never reaches it): whichever way the Duo's hinge runs,
         // portrait 669 x 951 is tabletop or an undocked book, landscape 951 x 669 (and the
-        // 572 x 669 pane beside the side panel) is tabletop. Seated and spectating.
+        // pane beside the side panel) is tabletop. Seated and spectating.
         for (fold, size, ins, topBar) in Self.reachableFolds {
             for spectator in [false, true] {
                 let L = TableLayout(size: size, chrome: Self.chrome(ins, topBar: topBar, bottomBar: spectator ? 45 : 0, fold: fold))
@@ -252,6 +254,8 @@ final class TableLayoutTests: XCTestCase {
                 out.append((CGRect(x: -10 + dy, y: -475.5, width: 20, height: 951), portrait, pIns, topBar))   // book, undocked
             }
             out.append((CGRect(x: -475.5, y: -10, width: 951, height: 20), CGSize(width: 951, height: 669), insets(0, 59, 21, 59), topBar))
+            // synthetic: on the Duo a landscape division is vertical (book, measured 2026-11-09), so this
+            // landscape tabletop beside the side panel is not reachable there; kept to exercise the split
             out.append((CGRect(x: -286, y: -10, width: 572, height: 20), CGSize(width: 572, height: 669), insets(0, 0, 21, 59), topBar))
         }
         return out

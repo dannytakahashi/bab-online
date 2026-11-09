@@ -44,7 +44,7 @@ struct GameContainerView: View {
     @State private var logCollapsed = false
 
     /// Where the game log goes: the drawer (`none`), a side panel in the open
-    /// Duo's landscape (`side`), or the left page in book pose (`book`, up to the hinge).
+    /// Duo's landscape (`side`, on the right), or the right page in book pose (`book`, from the hinge).
     enum Dock: Equatable {
         case none, side
         case book(hinge: CGRect)
@@ -72,20 +72,23 @@ struct GameContainerView: View {
             GeometryReader { outer in
                 let _ = hingeTick  // re-read the regions after a hinge change
                 let mode = dockMode(outer)
-                // The docked panel comes first and is optional, so the table
-                // pane (and its SpriteView) keeps its identity in every pose
+                // The table pane is always the first child and the docked panel an
+                // optional one after it (on the right, like the drawer, the iPad
+                // and the web client), so the table pane (and its SpriteView)
+                // keeps its identity in every pose
                 HStack(spacing: 0) {
+                    tablePane
+                        .frame(width: tablePaneWidth(mode))
                     if showsDocked(mode) {
-                        GameLogPanel(style: .docked)
-                            .frame(width: dockWidth(mode))
-                            .background(Color.Theme.surface.ignoresSafeArea())
                         if case .book(let hinge) = mode {
                             Color.black.frame(width: hinge.width).ignoresSafeArea()  // the scene never spans the hinge
                         } else {
                             Separator(vertical: true)
                         }
+                        GameLogPanel(style: .docked)
+                            .frame(width: dockWidth(mode))
+                            .background(Color.Theme.surface.ignoresSafeArea())
                     }
-                    tablePane
                 }
                 .onChange(of: mode, initial: true) { _, m in
                     dock = m
@@ -142,11 +145,12 @@ struct GameContainerView: View {
     private func dockMode(_ p: GeometryProxy) -> Dock {
         guard showsTable || gameState.phase == .draw else { return .none }
         if let div = FoldReader.division(p), div.height > div.width, div.minX > 0, div.maxX < p.size.width {
-            // the left page holds the log only when both pages are wide enough (a readable log,
+            // the right page holds the log only when both pages are wide enough (a readable log,
             // a table that needs no fallback); otherwise the table spans both pages and
             // TableLayout keeps its cluster and seats off the hinge
-            let tablePage = p.size.width - div.maxX + p.safeAreaInsets.trailing
-            return div.minX >= 240 && tablePage >= 375 ? .book(hinge: div) : .none
+            let tablePage = div.minX + p.safeAreaInsets.leading
+            let logPage = p.size.width - div.maxX
+            return logPage >= 240 && tablePage >= 375 ? .book(hinge: div) : .none
         }
         let i = p.safeAreaInsets
         let w = p.size.width + i.leading + i.trailing, h = p.size.height + i.top + i.bottom
@@ -165,9 +169,16 @@ struct GameContainerView: View {
         }
     }
 
-    private func dockWidth(_ mode: Dock) -> CGFloat {
-        if case .book(let hinge) = mode { return max(0, hinge.minX) }
+    /// The side panel is 320 wide; in book pose the log takes the rest of the right page.
+    private func dockWidth(_ mode: Dock) -> CGFloat? {
+        if case .book = mode { return nil }
         return 320
+    }
+
+    /// In book pose the table pane is the left page, up to the hinge; otherwise it is flexible.
+    private func tablePaneWidth(_ mode: Dock) -> CGFloat? {
+        if case .book(let hinge) = mode { return max(0, hinge.minX) }
+        return nil
     }
 
     /// The fold TableLayout sees in the table pane: undocked, the division as it is
@@ -330,7 +341,7 @@ struct GameContainerView: View {
                 Spacer()
 
                 // Game log toggle button: the drawer, or the docked panel in inner landscape
-                // (hidden in book pose: the log is the left page)
+                // (hidden in book pose: the log is the right page)
                 if case .book = dock {} else {
                 Button(action: {
                     withAnimation {
