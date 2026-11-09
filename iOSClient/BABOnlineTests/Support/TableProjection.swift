@@ -4,10 +4,23 @@ import Foundation
 /// The comparable part of a table: built from a server snapshot or from the
 /// client's TableState, then diffed field by field.
 ///
-/// Excluded (never derivable from deltas, or display-only): serverTime,
-/// resume, log, graceDeadline/resignableAt, partial, customPic/avatarUrl,
-/// offered, ownerUsername, spectatorCount (silent leaves), draw.deckRemaining,
-/// draw.viewerDrawOrder, entrants, tournament, viewer.ownerView.
+/// Excluded, with the reason a mismatch there is acceptable:
+///   serverTime, resume, partial     transport metadata
+///   graceDeadline / resignableAt    absolute server times, never sent as deltas
+///   customPic / avatarUrl           left out of the recorded snapshots (customPics:false)
+///   log                             the snapshot carries the server's game log
+///                                   ("🤖 Mary bid 2."), live play appends the
+///                                   client's own lines ("🤖 Mary bid 2", as the
+///                                   App Store build does): a rejoined client
+///                                   shows both formats, by design
+///   draw.deckRemaining / viewerDrawOrder, entrants, tournament (other than
+///   its id), viewer.ownerView       not kept by the client
+/// Compared with an allowance: R3's seating lead (the DRAW_RESOLVING snapshot
+/// shows the seats ~1 s before positionUpdate; the entrant then is already a
+/// seat), spectatorCount only moves with a notice (a spectator's /leave is
+/// silent; no recording has one), and a lazy / resigned seat's away vs
+/// connected (its owner's socket dropping or coming back sends nothing; the
+/// client shows no presence for a bot-controlled seat).
 struct TableProjection: Equatable {
     var phase: String
     var role: String
@@ -30,7 +43,11 @@ struct TableProjection: Equatable {
     var score: [Int]
     var rainbows: [Int]
     var hsi: [Int: Double]
-    var seats: [String]              // "pos username pic controller presence isBot lazy cards"
+    var seats: [String]              // "pos username pic owner controller presence isBot lazy cards"
+    var offered: Int?                // the resignation offer's seat
+    var spectatorCount: Int
+    var draw: [String]               // "drawOrder username card", draw stages only
+    var tournamentId: String?
     var seq: Int?
 
     static func phaseName(stage: TableSnapshot.Stage, hasDeal: Bool) -> String {
@@ -56,7 +73,7 @@ struct TableProjection: Equatable {
         trumpBroken = s.trumpBroken
         turn = s.turn?.position
         byPosition = s.bids.byPosition.map { $0?.uppercased() }
-        order = s.bids.order
+        order = ["bidding", "playing", "handResolving"].contains(phase) ? s.bids.order : []  // no bid book before the deal
         teamBids = s.bids.teamBids.map { [$0.team1, $0.team2] }
         mults = [s.bids.mults.team1, s.bids.mults.team2]
         let inTrick = s.stage == .playing || s.stage == .trickResolving
@@ -70,7 +87,12 @@ struct TableProjection: Equatable {
         var h: [Int: Double] = [:]
         for (i, v) in (s.hsi ?? []).enumerated() { if let v { h[i + 1] = v } }
         hsi = h
-        seats = s.seats.map { "\($0.position) \($0.username ?? "-") \($0.pic.map(String.init) ?? "-") \($0.controller.rawValue) \($0.presence.rawValue) \($0.isBot) \($0.lazy) \($0.cardsInHand)" }
+        seats = s.seats.map { "\($0.position) \($0.username ?? "-") \($0.pic.map(String.init) ?? "-") \($0.ownerUsername ?? "-") \($0.controller.rawValue) \(Self.presence($0.presence.rawValue, $0.controller.rawValue)) \($0.isBot) \($0.lazy) \($0.cardsInHand)" }
+        offered = s.seats.first(where: \.offered)?.position
+        spectatorCount = s.spectatorCount
+        let drawStage = [.drawing, .drawResolving, .teamsAnnounced].contains(s.stage)
+        draw = drawStage ? (s.draw?.drawn ?? []).sorted { $0.drawOrder < $1.drawOrder }.map { "\($0.drawOrder) \($0.username ?? "-") \($0.card.id)" } : []
+        tournamentId = s.tournament?.tournamentId
         seq = s.seq
     }
 
@@ -100,13 +122,32 @@ struct TableProjection: Equatable {
         hsi = t.table.viewer.role == .spectator ? [:] : t.table.hsi
         seats = t.players.seats.keys.sorted().map { pos in
             let x = t.players.seats[pos]!
-            return "\(pos) \(x.username ?? "-") \(x.pic.number.map(String.init) ?? "-") \(x.controller.rawValue) \(x.presence.rawValue) \(x.isBot) \(x.lazy) \(x.cardsInHand)"
+            return "\(pos) \(x.username ?? "-") \(x.pic.number.map(String.init) ?? "-") \(x.ownerUsername ?? "-") \(x.controller.rawValue) \(Self.presence(x.presence.rawValue, x.controller.rawValue)) \(x.isBot) \(x.lazy) \(x.cardsInHand)"
         }
+        offered = t.players.resignationOffer?.position
+        spectatorCount = t.players.spectatorCount
+        if let d = t.table.phase.draw, d.stage != .dealing {
+            draw = d.results.sorted { $0.drawOrder < $1.drawOrder }.map { "\($0.drawOrder) \($0.username) \($0.card?.id ?? "-")" }
+        } else {
+            draw = []
+        }
+        tournamentId = t.table.tournamentId
         seq = t.sync.lastSeq
     }
 
+    /// A lazy / resigned seat's owner presence (away / connected) is not on the wire.
+    static func presence(_ p: String, _ controller: String) -> String {
+        (controller == "lazyBot" || controller == "resignBot") && (p == "away" || p == "connected") ? "connected|away" : p
+    }
+
     /// "field: client != server" lines (empty when equal).
-    func diff(_ server: TableProjection) -> [String] {
+    func diff(_ snapshot: TableProjection) -> [String] {
+        var server = snapshot
+        // R3: seating shows in the snapshot before positionUpdate reaches the client
+        if phase == "draw" && seats.isEmpty && !server.seats.isEmpty {
+            server.seats = []
+            if role == "entrant" && server.role == "seat" { server.role = role; server.position = position }
+        }
         let mirror = Mirror(reflecting: self)
         let other = Mirror(reflecting: server)
         var out: [String] = []

@@ -135,16 +135,16 @@ class GameSKScene: SKScene, TableRenderer {
                     transientLayer.addChild(s)
                     animator.fadeAndRemove(s, after: 0)
                 }
-            case .handCleared(let dealSeq):
-                // anything left of the previous deal's tricks goes now
-                for s in trickArea.cardSprites where (s.userData?["key"] as? String)?.hasPrefix("\(dealSeq):") == true { s.removeFromParent() }
             default:
+                // .handCleared needs nothing here: the reconcile below removes
+                // every trick sprite the model no longer has, and a collect in
+                // flight lives in the transient layer
                 break
             }
         }
 
         // 2. reconcile
-        let moved = render(model, reset: animations.contains(.sceneReset))
+        let changes = render(model, reset: animations.contains(.sceneReset))
 
         // 3. entrances
         for a in animations {
@@ -152,7 +152,10 @@ class GameSKScene: SKScene, TableRenderer {
             case .cardPlayed(let played, let key, _):
                 guard key == model.trickKey || model.trick.contains(where: { $0.position == played.position && $0.card == played.card }) else { break }
                 let name = TrickAreaNode.spriteName(played.position, played.card)
-                guard !moved.contains(name) else { break }  // my hand's own sprite is already flying in
+                // Only a sprite this render built flies in: my hand's sprite flies
+                // itself (adopted), and my submitted card is already in its slot
+                // when a late cardPlayed confirms it
+                guard changes.created.contains(name) else { break }
                 let rel = Positions.getRelative(target: played.position, from: view)
                 trickArea.animateEntry(name, from: geometry.trickEntry(rel), slot: geometry.trickSlot(rel), animator: animator)
             case .bidPlaced(let pos, _, _):
@@ -164,7 +167,8 @@ class GameSKScene: SKScene, TableRenderer {
             case .overTrump:
                 effectsManager.showOverTrump()
             case .chatBubble(let pos, let message):
-                guard model.showsTable else { break }
+                // Not over my own hand (the bottom seat's spot): the log shows my line
+                guard model.showsTable, !(model.hand != nil && pos == model.viewPosition) else { break }
                 chatManager.show(position: pos, message: message, viewPosition: view, geometry: geometry, animator: animator)
             default:
                 break
@@ -172,28 +176,33 @@ class GameSKScene: SKScene, TableRenderer {
         }
     }
 
-    /// Idempotent: the stable layers show exactly `model`. Returns the trick
-    /// sprites that came from my hand this render (they animate themselves).
+    /// Idempotent: the stable layers show exactly `model`. Returns what the
+    /// trick reconcile changed (entrances fly only sprites it created).
     @discardableResult
-    func render(_ model: TableRenderModel, reset: Bool = false) -> Set<String> {
-        guard isSetUp else { return [] }
+    func render(_ model: TableRenderModel, reset: Bool = false) -> TrickAreaNode.Changes {
+        guard isSetUp else { return .init() }
         lastModel = model
         if reset {
             // My own hand sprites stay (a rollback hands them back); everything else goes
             let mine = trickArea.cardSprites.compactMap { $0 as? CardSpriteNode }
             trickArea.clearAllCards()  // also zeroes collectingCount
             mine.forEach { trickArea.addChild($0) }
+            // Stop what flies in transient first: its completions (collect,
+            // fades) hold the nodes, and a cut-off collect must not run later
+            Self.stopActions(transientLayer)
             transientLayer.removeAllChildren()
         }
         handNode.position = geometry.handBaseline
         trickManager.trickHistory.position = geometry.historyOrigin
+        // Game over: the final table stays behind GameEndView (as before 23)
+        if model.keepsLastTable { return .init() }
         guard model.showsTable else {
             opponentManager.cleanup()
             handNode.cleanup()
             trickArea.clearAllCards()
             trickManager.trickHistory.setCounts(team: 0, opp: 0)
             bidManager.cleanup()
-            return []
+            return .init()
         }
         let me = model.viewPosition
 
@@ -218,13 +227,18 @@ class GameSKScene: SKScene, TableRenderer {
 
         opponentManager.apply(model, geometry: geometry)
         cardManager.apply(model, geometry: geometry, arriving: toHand, animator: animator)
-        let moved = trickArea.apply(cards: model.trick, key: model.trickKey, viewPosition: me, geometry: geometry, adopt: { c in
+        let changes = trickArea.apply(cards: model.trick, key: model.trickKey, viewPosition: me, geometry: geometry, adopt: { c in
             c.position == me ? toTrick.removeValue(forKey: c.card.id) : nil
         }, animator: animator)
         toTrick.values.forEach { $0.removeFromParent() }
         trickManager.trickHistory.setCounts(team: model.history.team1, opp: model.history.team2)
         bidManager.apply(bubbles: model.bidBubbles, viewPosition: me, geometry: geometry)
-        return moved
+        return changes
+    }
+
+    private static func stopActions(_ node: SKNode) {
+        node.removeAllActions()
+        node.children.forEach { stopActions($0) }
     }
 
     // MARK: - Cleanup

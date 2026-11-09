@@ -12,11 +12,13 @@ final class ReducerReplayTests: XCTestCase {
                 var replay = ReducerReplay(viewer: viewer)
                 var next = 0
                 var lastSeq = 0
+                var gameId: String?
                 var failures = 0
                 for check in game.checks(for: viewer.label) {
                     while next < check.afterIndex {
                         try replay.apply(log[next])
                         next += 1
+                        if replay.state.table.gameId != gameId { gameId = replay.state.table.gameId; lastSeq = 0 }  // a tournament's next table
                         if let s = replay.state.sync.lastSeq {
                             XCTAssertGreaterThanOrEqual(s, lastSeq, "\(game.name)/\(viewer.label): seq went backwards")
                             lastSeq = s

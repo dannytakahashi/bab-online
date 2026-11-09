@@ -122,6 +122,7 @@ enum TableReducer {
                 s.table.gameId = gameId
                 s.table.tournamentId = tournamentId ?? keepTournament
                 s.table.phase = .waiting
+                s.table.viewer.role = .entrant  // as the server's snapshot says until seating (positionUpdate / gameStart)
             } else if tournamentId != nil {
                 s.table.tournamentId = tournamentId
             }
@@ -153,7 +154,10 @@ enum TableReducer {
         case .resyncNeeded:
             requestResync(&s, &fx)
         case .snapshotUnavailable(let requestId):
-            if let id = requestId, id == s.sync.resyncId { flushBuffer(&s, &fx) }
+            // No snapshot is coming for this request. Flush a pending gap buffer
+            // whichever request it was: a gap request suppressed behind this one
+            // (ActionCoordinator debounce) would otherwise never be answered
+            if (requestId != nil && requestId == s.sync.resyncId) || !s.sync.buffered.isEmpty { flushBuffer(&s, &fx) }
             if let id = requestId, id.hasPrefix("ack-"), let p = s.pending, id == "ack-\(p.reqId)" {
                 s.pending = nil
             }

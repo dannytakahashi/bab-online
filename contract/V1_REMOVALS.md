@@ -129,9 +129,23 @@ changing shape mid-hand, sparse `playedCards`, `phase` / `bidding`,
 aliases (`leadPosition`, `trumpBroken`, `teamTricks`, `oppTricks` on the
 spectator state). Replacement: rejoinSuccess / restorePlayerState / the
 spectator state carry only `{snapshot}` (and `tournamentId` while web needs
-it). Prerequisite: items 16 and 23 render from v2. iOS (item 23) does: its
-store restores only from `snapshot` (+ `players[].socketId` / `pic` hints and
-`isLazy` / `tournamentId`); web (item 16) does not yet.
+it). Prerequisite: items 16 and 23 render from v2. iOS (item 23) restores
+the table only from `snapshot`, but the new build still READS two legacy keys
+of these carriers, so #9 as written would break it (blockers):
+
+- `players[].socketId`: its only socket-id source for the voice speaking
+  glows after a rejoin / restore / spectate (v2 has no socket ids; live play
+  gets them from `positionUpdate.sockets`).
+- `players[].pic`: its custom-picture fallback, because every server-built
+  rejoin / restore / spectator snapshot uses `customPics: false`
+  (gameHandlers.js, seatLifecycle.js, mainRoomHandlers.js,
+  tournamentHandlers.js).
+
+Before #9: either keep `players[].socketId` and `pic` in the replacement, or
+have iOS follow a restore with `requestSnapshot {customPics: true}` (or
+avatar URLs, C10) and take socket ids from another source (e.g. a voice peer
+list). It also reads `tournamentId` (kept while web needs it); `isLazy` is
+decoded but never read. Web (item 16) does not render from v2 yet.
 
 ### 10. `cardPlayed.trump` → `trumpBroken`; drop `playerId`
 
@@ -147,8 +161,10 @@ not an audit finding: ctr-22 is iOS feature work, out of scope). v2
 
 ### 12. `chatMessage`: keep one of `isSpectator` / `type`
 
-Web reads `isSpectator` (main.js:3217), iOS reads `type`
-(ChatSocketHandler.swift). Item 8 sends both; keep one.
+Web reads `isSpectator` (main.js:3217); the App Store iOS build reads `type`
+(ChatSocketHandler.swift at cc9059f) and the new iOS build reads
+`isSpectator ?? (type == 'spectator')` (TableReducer+Events.swift). Item 8
+sends both; once the App Store build is gone either can go.
 
 ### 13. `mainRoomJoined.recentMessages`
 

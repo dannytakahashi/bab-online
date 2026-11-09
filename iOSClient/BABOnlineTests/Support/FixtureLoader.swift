@@ -32,7 +32,7 @@ enum FixtureLoader {
         return try XCTUnwrap(try json(url: url) as? [String: Any])
     }
 
-    static let eventLogNames = ["events-bots-s12", "events-bots-s14", "events-humans-s13"]
+    static let eventLogNames = ["events-bots-s12", "events-bots-s14", "events-humans-s13", "events-presence-s21", "events-tournament-s15"]
 
     static func json(url: URL) throws -> Any {
         try JSONSerialization.jsonObject(with: Data(contentsOf: url), options: [.fragmentsAllowed])

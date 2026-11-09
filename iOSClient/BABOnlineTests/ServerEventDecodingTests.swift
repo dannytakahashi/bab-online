@@ -3,8 +3,9 @@ import XCTest
 
 /// Every recorded server → client event decodes into the typed wire layer.
 final class ServerEventDecodingTests: XCTestCase {
-    /// Events the table store does not consume (voice signalling, the 'error' toast).
-    static let notStoreEvents: Set<String> = ["voicePeerJoined", "voicePeerList", "error"]
+    /// Events the table store does not decode (voice signalling, the 'error'
+    /// toast, the tournament handler's assignment: a local enterGameContext).
+    static let notStoreEvents: Set<String> = ["voicePeerJoined", "voicePeerList", "error", "tournamentGameAssignment"]
 
     func testEveryRecordedEventDecodesStrictly() throws {
         var counts: [String: Int] = [:]

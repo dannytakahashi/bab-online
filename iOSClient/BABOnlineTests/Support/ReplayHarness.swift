@@ -21,6 +21,8 @@ final class ManualClock: AckClock {
     }
     private var timers: [Timer] = []
     private(set) var now: TimeInterval = 0
+    /// Timers that fired (the replay checks that no ack timeout ever does).
+    private(set) var fired = 0
 
     func after(_ s: TimeInterval, _ f: @escaping @MainActor () -> Void) -> AckCancellable {
         let t = Timer(at: now + s, fire: f)
@@ -35,9 +37,14 @@ final class ManualClock: AckClock {
         now += s
         while let t = timers.filter({ !$0.cancelled && $0.at <= now }).min(by: { $0.at < $1.at }) {
             t.cancelled = true
+            fired += 1
             t.fire()
         }
     }
+
+    /// Advance to an absolute time (a recorded entry's `t`, in seconds).
+    @MainActor
+    func advance(to t: TimeInterval) { if t > now { advance(t - now) } }
 }
 
 final class RecordingRenderer: TableRenderer {
@@ -45,7 +52,10 @@ final class RecordingRenderer: TableRenderer {
     func apply(model: TableRenderModel, animations: [TableAnimation]) { calls.append((model, animations)) }
 }
 
-/// The whole client path: GameSocketHandler.handle + the store + ActionCoordinator.
+/// The whole client path: GameSocketHandler.handle, the chat / voice / error /
+/// lobby / tournament handlers' table routes, the store and ActionCoordinator
+/// (my recorded plays and bids go through ActionCoordinator.play / bid when it
+/// would send them, with the clock following the recording's timestamps).
 @MainActor
 final class ReplayHarness {
     let store = GameState()
@@ -65,8 +75,12 @@ final class ReplayHarness {
         if let v = viewer { store.apply(.local(.identity(username: v.username, playerId: v.sid))) }
     }
 
+    /// Plays / bids that went through ActionCoordinator (the rest were ones the app would not send).
+    private(set) var coordinated = 0
+
     /// One recorded entry, routed the way the app's handlers route it.
     func apply(_ e: RecordedGame.Entry) throws {
+        clock.advance(to: TimeInterval(e.t) / 1000)
         if e.dir == "c2s" {
             guard let d = e.data as? [String: Any] else { return }
             switch e.event {
@@ -74,12 +88,14 @@ final class ReplayHarness {
                 guard let cd = d["card"] as? [String: Any], let card = Card.from(cd) else { return }  // Joi-invalid: never built by the app
                 let built = LiveGameEmitter.playCardPayload(card, position: d["position"] as! Int)
                 XCTAssertTrue(NSDictionary(dictionary: built).isEqual(to: d), "playCard payload \(built) != recorded \(d)")
+                if actions.play(card) { coordinated += 1; return }
                 reqId += 1
                 store.apply(.local(.submitPlay(card, reqId: reqId)))
             case "playerBid":
                 let bid = (d["bid"] as? String) ?? (d["bid"] as? Int).map(String.init) ?? "0"
                 let built = LiveGameEmitter.playerBidPayload(bid, position: d["position"] as! Int)
                 XCTAssertTrue(NSDictionary(dictionary: built).isEqual(to: d), "playerBid payload \(built) != recorded \(d)")
+                if actions.bid(bid) { coordinated += 1; return }
                 reqId += 1
                 store.apply(.local(.submitBid(bid, reqId: reqId)))
             default:
@@ -90,17 +106,16 @@ final class ReplayHarness {
         let payload: [Any] = e.data.map { [$0] } ?? []
         let dict = e.data as? [String: Any]
         switch e.event {
-        case "allPlayersReady":  // LobbySocketHandler
-            if let gid = dict?["gameId"] as? String { store.apply(.local(.enterGameContext(gameId: gid, tournamentId: nil))) }
-        case "chatMessage":      // ChatSocketHandler
-            let u = dict?["username"] as? String ?? ""
-            store.apply(serverEvent: "chatMessage", payload: payload, chatBlocked: false, chatMine: u == store.username)
-        case "voicePeerLeft":    // VoiceSocketHandler
-            if dict?["seq"] != nil { store.apply(serverEvent: "voicePeerLeft", payload: payload) }
-        case "error":            // SocketService .error
-            if let h = dict?["handler"] as? String, ["playCard", "playerBid", "requestSnapshot"].contains(h) {
-                store.apply(.local(.transportError(handler: h)))
-            }
+        case "allPlayersReady":
+            LobbySocketHandler.routeAllPlayersReady(dict, to: store)
+        case "tournamentGameAssignment":
+            TournamentSocketHandler.routeGameAssignment(dict ?? [:], to: store)
+        case "chatMessage":
+            ChatSocketHandler.route(payload, to: store, isBlocked: { _ in false })
+        case "voicePeerLeft":
+            VoiceSocketHandler.routeTable(payload, to: store)
+        case "error":
+            SocketService.routeTableError(dict ?? [:], to: store)
         case "voicePeerJoined", "voicePeerList":
             break
         default:

@@ -7,6 +7,7 @@ import XCTest
 final class HandlerReplayTests: XCTestCase {
     func testEveryViewerMatchesEveryCheckpointThroughTheHandlers() throws {
         var compared = 0
+        var coordinated = 0
         for game in try RecordedGame.all() {
             for viewer in game.viewers {
                 let log = game.logs[viewer.label] ?? []
@@ -27,7 +28,8 @@ final class HandlerReplayTests: XCTestCase {
                 }
                 while next < log.count { try h.apply(log[next]); next += 1 }
                 XCTAssertEqual(h.badEffects, [], "\(game.name)/\(viewer.label)")
-                XCTAssertEqual(h.emitter.snapshotRequests, [], "\(game.name)/\(viewer.label): no resync was needed")
+                XCTAssertEqual(h.emitter.snapshotRequests, [], "\(game.name)/\(viewer.label): no resync (and no ack timeout) was needed")
+                coordinated += h.coordinated
                 if game.final[viewer.label] != nil {
                     XCTAssertEqual(h.store.phase, .ended, "\(game.name)/\(viewer.label)")
                     XCTAssertNotNil(h.store.gameEndData)
@@ -37,6 +39,7 @@ final class HandlerReplayTests: XCTestCase {
             }
         }
         XCTAssertGreaterThan(compared, 300)
+        XCTAssertGreaterThan(coordinated, 300, "the recorded plays and bids went through ActionCoordinator")
     }
 }
 

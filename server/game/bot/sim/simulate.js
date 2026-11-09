@@ -427,7 +427,13 @@ function parseArgs(argv) {
         else if (a === '--team') args.team = argv[++i].split(',');
         else if (a === '--vs') args.vs = argv[++i].split(',');
         else if (a === '--baseline') args.baseline = argv[++i];
-        else if (a === '--record-ios') args.recordIos = argv[++i]; // iOS event-log fixtures (iosEventLogs.test.js), nothing simulated
+        else if (a === '--record-ios') {
+            // iOS event-log fixtures: runs the scripted real-handler games of
+            // iosEventLogs.test.js (the sim has no wire); nothing is simulated
+            const dir = argv[++i];
+            if (!dir || dir.startsWith('--')) throw new Error('--record-ios needs a directory (npm run ios:fixtures)');
+            args.recordIos = dir;
+        }
         else if (/^\d+$/.test(a)) args.games = parseInt(a, 10); // bare number = games
         else throw new Error(`Unknown argument: ${a}`);
     }

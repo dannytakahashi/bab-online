@@ -9,6 +9,15 @@ final class LobbySocketHandler {
     private let gameState: GameState
     private let safetyState: SafetyState
 
+    /// The table part of allPlayersReady (also driven by the replay tests).
+    /// 21.4: entering a game context resets the table (lobbyCreated carried the lobby id).
+    @MainActor
+    static func routeAllPlayersReady(_ dict: [String: Any]?, to store: GameState) {
+        if let gameId = dict?["gameId"] as? String {
+            store.apply(.local(.enterGameContext(gameId: gameId, tournamentId: nil)))
+        }
+    }
+
     init(socket: SocketService, mainRoomState: MainRoomState, lobbyState: LobbyState, appState: AppState, gameState: GameState, safetyState: SafetyState) {
         self.socket = socket
         self.mainRoomState = mainRoomState
@@ -182,10 +191,7 @@ final class LobbySocketHandler {
             let dict = data.first as? [String: Any]
             DispatchQueue.main.async {
                 print("[Lobby] All players ready — transitioning to game")
-                // 21.4: entering a game context resets the table (lobbyCreated carried the lobby id)
-                if let gameId = dict?["gameId"] as? String {
-                    self.gameState.apply(.local(.enterGameContext(gameId: gameId, tournamentId: nil)))
-                }
+                Self.routeAllPlayersReady(dict, to: self.gameState)
                 self.appState.screen = .game
             }
         }

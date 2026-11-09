@@ -62,9 +62,13 @@ final class SceneRenderTests: XCTestCase {
         }
     }
 
-    // 2: Done-when (b)
+    // 2: Done-when (b). Also after EVERY recorded event: a no-op re-render
+    // changes nothing (so each entrance / exit animation ended where the
+    // reconcile puts it), nothing is left in transient and no collect is open
+    // (InstantAnimator finishes everything at once)
     func testLiveReplayTreeEqualsFixtureRenderAtEveryCheckpoint() throws {
         var compared = 0
+        var events = 0
         for game in try RecordedGame.all() {
             for viewer in game.viewers {
                 let log = game.logs[viewer.label] ?? []
@@ -72,8 +76,24 @@ final class SceneRenderTests: XCTestCase {
                 let liveScene = makeScene(live)
                 var next = 0
                 var failures = 0
+                var eventFailures = 0
                 for check in game.checks(for: viewer.label) {
-                    while next < check.afterIndex { try live.apply(log[next]); next += 1 }
+                    while next < check.afterIndex {
+                        let e = log[next]
+                        try live.apply(e)
+                        next += 1
+                        guard e.dir == "s2c" else { continue }
+                        events += 1
+                        let after = SceneDump.dump(liveScene)
+                        liveScene.renderLatest()
+                        let again = SceneDump.dump(liveScene)
+                        let transient = liveScene.transientLayer.children.count, collecting = liveScene.trickArea.collectingCount
+                        if (after != again || transient + collecting != 0) && eventFailures < 2 {
+                            eventFailures += 1
+                            let d = zip(after, again).first { $0.0 != $0.1 }
+                            XCTFail("\(game.name)/\(viewer.label) after #\(e.i) \(e.event): transient \(transient), collecting \(collecting); a re-render changed \(d.map { "\($0.0)  ->  \($0.1)" } ?? (after == again ? "nothing" : "the line count"))")
+                        }
+                    }
                     let fresh = ReplayHarness(viewer: viewer)
                     let freshScene = makeScene(fresh)
                     let snap = try TableSnapshot.decode(check.snapshot, strict: true)
@@ -90,6 +110,7 @@ final class SceneRenderTests: XCTestCase {
             }
         }
         XCTAssertGreaterThan(compared, 300)
+        XCTAssertGreaterThan(events, 5000)
     }
 
     // 3
@@ -110,6 +131,15 @@ final class SceneRenderTests: XCTestCase {
         scene.configure(gameState: h.store, actions: h.actions)
         view.presentScene(scene)
         scene.speed = 20
+        // Skip only when SpriteKit demonstrably does not tick in this host
+        let probe = SKNode()
+        var ticked = false
+        scene.addChild(probe)
+        probe.run(SKAction.sequence([SKAction.wait(forDuration: 0.1), SKAction.run { ticked = true }]))
+        let probeDeadline = Date().addingTimeInterval(3)
+        while !ticked && Date() < probeDeadline { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
+        probe.removeFromParent()
+        if !ticked { throw XCTSkip("SpriteKit actions do not run in the hosted test window") }
         // One hand: up to the first handComplete checkpoint
         let check = try XCTUnwrap(game.checks(for: "seat1").first { ($0.snapshot["stage"] as? String) == "HAND_RESOLVING" })
         for e in log.prefix(check.afterIndex) {
@@ -122,7 +152,9 @@ final class SceneRenderTests: XCTestCase {
                 || scene.trickArea.children.contains { $0.hasActions() } || scene.handNode.children.contains { $0.hasActions() }
         }
         while busy() && Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
-        if busy() { throw XCTSkip("SpriteKit actions did not run in the hosted test window (scene.speed path untested here)") }
+        // SpriteKit ticks (the probe ran), so anything still busy is a real
+        // regression: a collect gate that never releases (#187), a stuck sprite
+        XCTAssertFalse(busy(), "did not converge: collectingCount \(scene.trickArea.collectingCount), transient \(scene.transientLayer.children.map { $0.name ?? "?" }), trick sprites with actions \(scene.trickArea.children.filter { $0.hasActions() }.count), hand sprites with actions \(scene.handNode.children.filter { $0.hasActions() }.count)")
         let fresh = ReplayHarness(viewer: viewer)
         let freshScene = makeScene(fresh)
         fresh.store.apply(.snapshot(try TableSnapshot.decode(check.snapshot, strict: true), .requested("f"), hints: nil))

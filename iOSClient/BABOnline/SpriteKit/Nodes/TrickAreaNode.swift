@@ -26,15 +26,23 @@ class TrickAreaNode: SKNode {
 
     func sprite(named name: String) -> SKSpriteNode? { cardSprites.first { $0.name == name } }
 
+    /// What one reconcile changed: `adopted` moved in from another container
+    /// (my hand's sprite, flying itself), `created` are new sprites (the only
+    /// ones a cardPlayed entrance may fly in).
+    struct Changes: Equatable {
+        var adopted: Set<String> = []
+        var created: Set<String> = []
+    }
+
     /// Make the layer show exactly `cards`. `adopt` supplies an existing
-    /// sprite for a card (my hand's sprite); the names it returns are the ones
-    /// that moved containers this render.
+    /// sprite for a card (my hand's sprite).
     @discardableResult
     func apply(cards: [TableRenderModel.TrickCard], key: TrickKey?, viewPosition: Int, geometry: TableGeometry,
-               adopt: (TableRenderModel.TrickCard) -> SKSpriteNode?, animator: Animator) -> Set<String> {
+               adopt: (TableRenderModel.TrickCard) -> SKSpriteNode?, animator: Animator) -> Changes {
         let wanted = Set(cards.map { Self.spriteName($0.position, $0.card) })
         for s in cardSprites where !wanted.contains(s.name ?? "") { s.removeFromParent() }
         var adopted: Set<String> = []
+        var created: Set<String> = []
         for c in cards {
             let name = Self.spriteName(c.position, c.card)
             let slot = geometry.trickSlot(Positions.getRelative(target: c.position, from: viewPosition))
@@ -58,13 +66,14 @@ class TrickAreaNode: SKNode {
                 sprite = SKSpriteNode(texture: CardTextureGenerator.texture(for: c.card), size: Self.cardSize)
                 sprite.position = slot
                 addChild(sprite)
+                created.insert(name)
             }
             sprite.name = name
             sprite.zPosition = 100 + CGFloat(c.playIndex)
             if sprite.userData == nil { sprite.userData = [:] }
             sprite.userData?["key"] = Self.keyString(key)
         }
-        return adopted
+        return Changes(adopted: adopted, created: created)
     }
 
     /// Fly a newly placed card in from `start` (scene-local coordinates of this node).

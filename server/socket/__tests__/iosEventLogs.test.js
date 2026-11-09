@@ -9,7 +9,14 @@
  *                          rewrites them
  *   otherwise              the regenerated logs must equal the committed
  *                          files (the drift guard: a server change to these
- *                          event shapes or the game log needs a re-record)
+ *                          event shapes, the game-log text, bot decisions
+ *                          (BotStrategy) or RNG use needs a re-record, and
+ *                          then `xcodebuild test`: only the iOS replay tests
+ *                          say whether the client still matches the new logs)
+ *
+ * The games are scripted real-handler scenarios (server/testUtils/iosScenarios.js),
+ * not the bot sim: simulate.js never touches handlers or io, so it has no
+ * wire to record. `simulate.js --record-ios <dir>` only runs this file.
  */
 
 const fs = require('fs');
@@ -35,7 +42,7 @@ const { gameLogger, socketLogger, authLogger, logger } = require('../../utils/lo
 const { mulberry32 } = require('../../testUtils/gameDriver');
 const { world } = require('../../testUtils/contractScenarios');
 const { createEventRecorder, serialize } = require('../../testUtils/eventRecorder');
-const { scenarioBots, scenarioHumans } = require('../../testUtils/iosScenarios');
+const { scenarioBots, scenarioHumans, scenarioPresence, scenarioTournament } = require('../../testUtils/iosScenarios');
 
 const ROOT = path.join(__dirname, '..', '..', '..');
 const DIR = path.resolve(ROOT, process.env.IOS_FIXTURE_DIR || 'iOSClient/BABOnlineTests/Fixtures/events');
@@ -100,12 +107,16 @@ async function recordHumans(name, from) {
     throw new Error('no rainbow in 40 seeds');
 }
 
+const SCENARIOS = { bots: scenarioBots, presence: scenarioPresence, tournament: scenarioTournament };
+
 test.each([
     ['events-bots-s12', 'bots', 12],
     ['events-bots-s14', 'bots', 14],
     ['events-humans-s13', 'humans', 13],
+    ['events-presence-s21', 'presence', 21],
+    ['events-tournament-s15', 'tournament', 15],
 ])('%s matches the committed iOS fixture (run npm run ios:fixtures)', async (name, kind, seed) => {
-    const rec = kind === 'bots' ? (await record(name, scenarioBots, seed)).rec : await recordHumans(name, seed);
+    const rec = kind === 'humans' ? await recordHumans(name, seed) : (await record(name, SCENARIOS[kind], seed)).rec;
     // Sanity: every open viewer reached gameEnd with a final snapshot, and there are checkpoints
     expect(Object.keys(rec.final).length).toBeGreaterThan(0);
     expect(rec.checkpoints.length).toBeGreaterThan(20);
@@ -114,9 +125,22 @@ test.each([
         for (const e of ['destroyHands', 'actionRejected', 'restorePlayerState', 'error', 'rejoinSuccess', 'playerLazyMode', 'playerActiveMode', 'playerResigned', 'rainbow']) {
             expect({ e, present: hasEvent(rec, e) }).toEqual({ e, present: true });
         }
-    } else {
+    } else if (kind === 'bots') {
         expect(Object.keys(rec.logs).sort()).toEqual(['seat1', 'seat1-rejoin', 'spectator']);
+    } else if (kind === 'presence') {
+        expect(Object.keys(rec.final).sort()).toEqual(['seat1-rejoin', 'seat3-rejoin', 'spectator']);
+        for (const e of ['playerDisconnected', 'resignationAvailable', 'playerLazyMode', 'playerActiveMode', 'playerResigned']) {
+            expect({ e, present: hasEvent(rec, e) }).toEqual({ e, present: true });
+        }
+    } else {
+        // two tables, each with its own tournament snapshot and seq from 1
+        const games = new Set(rec.checkpoints.map((c) => c.snapshot.gameId));
+        expect(games.size).toBe(2);
+        expect(rec.checkpoints.every((c) => c.snapshot.tournament && c.snapshot.tournament.tournamentId)).toBe(true);
+        expect(rec.logs.seat1.filter((e) => e.event === 'tournamentGameAssignment')).toHaveLength(2);
     }
+    // the draw phase is checkpointed too
+    expect(rec.checkpoints.some((c) => c.snapshot.stage === 'DRAWING')).toBe(true);
     const content = serialize(rec);
     const file = path.join(DIR, `${name}.json`);
     if (UPDATE) {
@@ -126,6 +150,7 @@ test.each([
     }
     const committed = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
     if (committed !== content) {
-        throw new Error(`${path.relative(ROOT, file)} is out of date: run npm run ios:fixtures (server event shapes or game log text changed)`);
+        throw new Error(`${path.relative(ROOT, file)} is out of date: run npm run ios:fixtures, then xcodebuild test `
+            + '(server event shapes, game-log text, bot decisions or RNG use changed)');
     }
 }, 120000);

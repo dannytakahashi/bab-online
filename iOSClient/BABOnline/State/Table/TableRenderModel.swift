@@ -32,6 +32,7 @@ struct TableRenderModel: Equatable {
     var viewPosition: Int
     var isSpectator: Bool
     var showsTable: Bool
+    var keepsLastTable: Bool       // game over: the scene leaves its last table up behind GameEndView
     var dealSeq: Int
     var trickKey: TrickKey?
     var opponents: [Opponent]
@@ -48,6 +49,7 @@ struct TableRenderModel: Equatable {
         viewPosition = view
         isSpectator = viewer.role == .spectator
         showsTable = s.table.phase.showsTable
+        keepsLastTable = s.table.phase.kind == .ended
         dealSeq = s.table.deal?.dealSeq ?? 0
         turn = s.table.phase.turn
         trickKey = s.table.phase.kind == .playing ? TableReducer.currentKey(s) : nil

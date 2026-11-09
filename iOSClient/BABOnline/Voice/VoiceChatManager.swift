@@ -94,6 +94,9 @@ final class VoiceChatManager: ObservableObject {
         optionalConstraints: nil
     )
 
+    /// Bumped by every shutdown(), so a start that was in flight does not finish after it.
+    private var startGeneration = 0
+
     private init() {}
 
     // MARK: - Lifecycle
@@ -101,6 +104,7 @@ final class VoiceChatManager: ObservableObject {
     /// Initialize voice chat: request mic, configure audio session, start capture.
     func initialize() async throws {
         guard !isActive else { return }
+        let generation = startGeneration
 
         // Request mic permission
         let granted = await AVAudioSession.sharedInstance().requestRecordPermission()
@@ -108,8 +112,9 @@ final class VoiceChatManager: ObservableObject {
             micPermissionDenied = true
             throw VoiceError.micPermissionDenied
         }
-        // Another initialize() may have finished while we awaited the permission prompt
-        guard !isActive else { return }
+        // Another initialize() may have finished while we awaited the permission
+        // prompt, or shutdown() ran meanwhile (the player left the game): no mic then
+        guard !isActive, generation == startGeneration else { return }
 
         // Configure audio session
         try configureAudioSession()
@@ -145,6 +150,7 @@ final class VoiceChatManager: ObservableObject {
 
     /// Shut down all voice connections and clean up.
     func shutdown() {
+        startGeneration &+= 1  // an initialize() still awaiting the permission prompt gives up
         guard isActive else { return }
         isActive = false
 

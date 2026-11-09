@@ -72,13 +72,16 @@ struct TableGeometry: Equatable {
 
     var historyOrigin: CGPoint { CGPoint(x: -halfW + 20, y: -halfH + 100) }
 
-    /// Bid bubble (and chat bubble) anchor of a seat.
+    /// Bid bubble anchor of a seat. Bubbles stay up for the whole bidding, so
+    /// they sit clear of the seat's avatar, turn glow and name label (the name
+    /// is 36 below the avatar's center): beside the top seat, below the side
+    /// seats' names; mine beside my trick slot.
     func bubbleAnchor(_ rel: Positions.RelativePosition) -> CGPoint {
+        let seat = seatAnchor(rel)
         switch rel {
         case .bottom: return CGPoint(x: 80, y: -halfH + 280)
-        case .top: return CGPoint(x: 0, y: halfH - 250)
-        case .left: return CGPoint(x: -halfW + 60, y: -30)
-        case .right: return CGPoint(x: halfW - 60, y: -30)
+        case .top: return CGPoint(x: seat.x + 75, y: seat.y)
+        case .left, .right: return CGPoint(x: seat.x, y: seat.y - 66)
         }
     }
 

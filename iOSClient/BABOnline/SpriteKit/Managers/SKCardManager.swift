@@ -26,7 +26,7 @@ class SKCardManager {
         interactive = hand.interactive && !collecting
         // The legal set is empty while the previous trick flies; the collect completion re-renders
         let legal: Set<String> = collecting && hand.interactive ? [] : hand.legalIds
-        handNode.apply(cards: hand.cards, legalIds: legal, geometry: geometry, arriving: arriving, animator: animator)
+        handNode.apply(cards: hand.cards, legalIds: legal, geometry: geometry, interactive: interactive, arriving: arriving, animator: animator)
     }
 
     func handleCardPlay(_ card: Card) {

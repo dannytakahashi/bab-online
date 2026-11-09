@@ -81,7 +81,13 @@ extension TableReducer {
         // MARK: presence
         case .playerDisconnected(let p):
             guard let pos = Position.valid(p.position) else { break }  // 21.7: a null position is ignored (seq still advanced)
-            mutateSeat(&s, pos) { $0.presence = .grace }
+            // R3: an idempotent setter. replayPresenceTo re-sends it privately for
+            // every absent seat on a rejoin / lazy rejoin / /active, resignable
+            // ones included (then one resignationAvailable): never downgrade a
+            // resignable or away seat to grace
+            mutateSeat(&s, pos) { seat in
+                if seat.presence == .connected || seat.presence == .none { seat.presence = .grace }
+            }
         case .playerReconnected(let p):
             guard let pos = Position.valid(p.position) else { break }
             mutateSeat(&s, pos) { $0.presence = .connected }

@@ -19,6 +19,9 @@ enum CardAnimations {
         return SKAction.group([move, fade, scale])
     }
 
+    /// Action key of a hand card's lift / lower.
+    static let liftKey = "lift"
+
     /// Lift card slightly (selected state)
     static func lift(by amount: CGFloat = LayoutConstants.cardLiftY) -> SKAction {
         let move = SKAction.moveBy(x: 0, y: amount, duration: 0.15)

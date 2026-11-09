@@ -62,6 +62,7 @@ final class ActionCoordinator: ObservableObject {
     /// requestSnapshot debounce: at most one in flight (the server allows 10 per 10 s).
     private var inFlight: (id: String, resets: Int)?
     private var inFlightTimer: AckCancellable?
+    private var deferred: (id: String, log: Bool)?
 
     init(store: GameState, emitter: GameActionEmitting = LiveGameEmitter(), clock: AckClock = DispatchAckClock()) {
         self.store = store
@@ -117,16 +118,33 @@ final class ActionCoordinator: ObservableObject {
             timers[id]?.cancel()
             timers[id] = nil
         case .requestSnapshot(let id, let log):
-            // An ack resync always goes out; a gap resync waits for the one in flight
-            if let f = inFlight, f.resets == store.sceneResets, !id.hasPrefix("ack-") { return }
-            inFlight = (id, store.sceneResets)
-            inFlightTimer?.cancel()
-            inFlightTimer = clock.after(AckPolicy.timeout) { [weak self] in self?.inFlight = nil }
-            emitter.requestSnapshot(requestId: id, log: log)
+            // An ack resync always goes out; a gap resync waits for the one in
+            // flight, and goes out when that one lapses if the table still
+            // waits for it (else a gap could stall behind an unanswered request)
+            if let f = inFlight, f.resets == store.sceneResets, !id.hasPrefix("ack-") {
+                deferred = (id, log)
+                return
+            }
+            send(id, log: log)
         case .haptic:
             HapticManager.error()
         default:
             break
         }
+    }
+
+    private func send(_ id: String, log: Bool) {
+        inFlight = (id, store.sceneResets)
+        if deferred?.id == id { deferred = nil }
+        inFlightTimer?.cancel()
+        inFlightTimer = clock.after(AckPolicy.timeout) { [weak self] in
+            guard let self else { return }
+            self.inFlight = nil
+            if let d = self.deferred {
+                self.deferred = nil
+                if self.store.state.sync.resyncId == d.id { self.send(d.id, log: d.log) }
+            }
+        }
+        emitter.requestSnapshot(requestId: id, log: log)
     }
 }

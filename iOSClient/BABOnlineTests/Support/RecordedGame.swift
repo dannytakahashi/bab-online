@@ -5,7 +5,7 @@ import XCTest
 /// One recorded fixture (server/testUtils/eventRecorder.js), typed for the tests.
 struct RecordedGame {
     struct Viewer { let label: String; let sid: String; let role: String; let position: Int?; let username: String? }
-    struct Entry { let i: Int; let dir: String; let event: String; let data: Any? }
+    struct Entry { let i: Int; let dir: String; let event: String; let t: Int; let data: Any? }
     struct Checkpoint { let viewer: String; let afterIndex: Int; let snapshot: [String: Any] }
     struct Final { let afterIndex: Int; let snapshot: [String: Any]; let gameEnd: [String: Any] }
 
@@ -25,7 +25,7 @@ struct RecordedGame {
         var logs: [String: [Entry]] = [:]
         for (label, list) in try XCTUnwrap(raw["logs"] as? [String: [[String: Any]]]) {
             logs[label] = list.map { Entry(i: $0["i"] as! Int, dir: $0["dir"] as! String, event: $0["event"] as! String,
-                                           data: ($0["data"] is NSNull) ? nil : $0["data"]) }
+                                           t: $0["t"] as? Int ?? 0, data: ($0["data"] is NSNull) ? nil : $0["data"]) }
         }
         self.logs = logs
         checkpoints = try XCTUnwrap(raw["checkpoints"] as? [[String: Any]]).map {
@@ -82,6 +82,12 @@ struct ReducerReplay {
         let payload: [Any] = e.data.map { [$0] } ?? []
         switch e.event {
         case "voicePeerJoined", "voicePeerList":
+            return
+        case "tournamentGameAssignment":
+            let d = e.data as? [String: Any]
+            if let gid = d?["gameId"] as? String {
+                effects += TableReducer.reduce(&state, .local(.enterGameContext(gameId: gid, tournamentId: d?["tournamentId"] as? String)))
+            }
             return
         case "error":
             let err = try Wire.decode(WirePayload.ServerError.self, e.data)

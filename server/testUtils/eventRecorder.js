@@ -21,9 +21,10 @@
 
 const contractCheck = require('./contractCheck');
 const { snapshotFor } = require('../socket/snapshotHandlers');
+const gameManager = require('../game/GameManager');
 
 const START_EVENTS = {
-    seat: ['allPlayersReady'],
+    seat: ['allPlayersReady', 'tournamentGameAssignment'],
     rejoin: ['rejoinSuccess'],
     spectator: ['spectatorJoined'],
 };
@@ -72,8 +73,9 @@ function createEventRecorder(w, { t0 = Date.now(), getGame } = {}) {
         // handComplete goes out with the table final (HAND_RESOLVING, scores
         // in); the next deal or gameEnd follows in the same tick, so this is
         // the only moment to checkpoint it
-        if (event === 'handComplete' && room && getGame) {
-            const game = getGame();
+        if (event === 'handComplete' && room) {
+            // the game of that room (a tournament records one table per round)
+            const game = gameManager.getGameById(String(entry.to).slice(5)) || (getGame && getGame());
             if (game) {
                 lastHandComplete = snapshotAllOf(game);
                 for (const [label, c] of lastHandComplete) checkpoints.push({ viewer: label, afterIndex: c.afterIndex, snapshot: c.snapshot });
@@ -125,7 +127,7 @@ function createEventRecorder(w, { t0 = Date.now(), getGame } = {}) {
         finalize() {
             for (const v of viewers.values()) {
                 if (!v.open || !v.started) continue;
-                const end = v.log.find((e) => e.event === 'gameEnd');
+                const end = [...v.log].reverse().find((e) => e.event === 'gameEnd'); // the last game's (tournament rounds)
                 const snap = lastHandComplete && lastHandComplete.get(v.label);
                 if (!end || !snap) throw new Error(`recorder: viewer '${v.label}' has no final hand snapshot or gameEnd`);
                 final[v.label] = { afterIndex: snap.afterIndex, snapshot: snap.snapshot, gameEnd: end.data };

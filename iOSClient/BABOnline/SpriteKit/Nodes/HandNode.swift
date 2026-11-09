@@ -2,10 +2,14 @@ import SpriteKit
 
 /// The player's hand as a reconciled fan: one CardSpriteNode per card id
 /// (`hand.card.<id>`), created or removed only when the hand changes,
-/// legality toggled in place, the lifted card kept while it is held (22.9).
+/// legality toggled in place, the lifted card kept while it is held (22.9)
+/// within one play window: a lift from before the window (my bid turn, the
+/// other seats' turns, a collect) is dropped when the hand becomes playable,
+/// so a card is always played by lift-then-confirm inside the window.
 class HandNode: SKNode {
     private(set) var sprites: [String: CardSpriteNode] = [:]
     private(set) var liftedCardId: String?
+    private var wasInteractive = false
     var onCardTapped: ((Card) -> Void)?
 
     override init() {
@@ -18,7 +22,8 @@ class HandNode: SKNode {
     func sprite(for id: String) -> CardSpriteNode? { sprites[id] }
 
     /// `arriving`: ids just adopted from elsewhere, animated into their slot.
-    func apply(cards: [Card], legalIds: Set<String>, geometry: TableGeometry,
+    /// `interactive`: taps may play now (my play turn, no collect in flight).
+    func apply(cards: [Card], legalIds: Set<String>, geometry: TableGeometry, interactive: Bool = false,
                arriving: Set<String> = [], animator: Animator = InstantAnimator()) {
         let ids = Set(cards.map(\.id))
         for (id, s) in sprites where !ids.contains(id) {
@@ -26,6 +31,12 @@ class HandNode: SKNode {
             sprites[id] = nil
         }
         if let lifted = liftedCardId, !ids.contains(lifted) { liftedCardId = nil }
+        // A new play window starts unlifted; an illegal card never stays lifted in it
+        if let lifted = liftedCardId, interactive && (!wasInteractive || !legalIds.contains(lifted)) {
+            liftedCardId = nil
+            sprites[lifted]?.removeAction(forKey: CardAnimations.liftKey)
+        }
+        wasInteractive = interactive
         let slots = geometry.handSlots(count: cards.count)
         for (i, card) in cards.enumerated() {
             let s: CardSpriteNode
@@ -59,11 +70,11 @@ class HandNode: SKNode {
         } else {
             if let prev = liftedCardId.flatMap({ sprites[$0] }) {
                 prev.isLifted = false
-                prev.run(CardAnimations.lower())
+                prev.run(CardAnimations.lower(), withKey: CardAnimations.liftKey)
             }
             liftedCardId = card.id
             sprite.isLifted = true
-            sprite.run(CardAnimations.lift())
+            sprite.run(CardAnimations.lift(), withKey: CardAnimations.liftKey)
             HapticManager.selection()
         }
     }
@@ -92,5 +103,6 @@ class HandNode: SKNode {
         sprites.values.forEach { $0.removeFromParent() }
         sprites = [:]
         liftedCardId = nil
+        wasInteractive = false
     }
 }

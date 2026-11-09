@@ -111,11 +111,14 @@ final class ActionCoordinatorTests: XCTestCase {
 
     func testSecondTimeoutRollsBackLocally() throws {
         let h = try store(fixture: "trick-mid-lead3")
-        h.actions.play(try legalCard(h))
+        let card = try legalCard(h)
+        h.actions.play(card)
+        XCTAssertFalse(TableRenderModel(h.store.state).hand!.cards.contains(card), "hidden while submitted")
         h.clock.advance(AckPolicy.timeout)
         h.clock.advance(AckPolicy.timeout)
         XCTAssertEqual(h.emitter.snapshotRequests, ["ack-1"], "one resync (maxResyncs), then a local rollback")
         XCTAssertEqual(h.store.myTurn, .choosing(.play))
+        XCTAssertTrue(TableRenderModel(h.store.state).hand!.cards.contains(card), "the card is back in the hand")
         XCTAssertEqual(h.clock.pending, 0)
     }
 

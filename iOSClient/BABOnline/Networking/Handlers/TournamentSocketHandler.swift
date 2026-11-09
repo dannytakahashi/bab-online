@@ -8,6 +8,15 @@ final class TournamentSocketHandler {
     private let appState: AppState
     private let safetyState: SafetyState
 
+    /// The table part of tournamentGameAssignment (also driven by the replay
+    /// tests): the tournament context goes on the table so game end knows to return here.
+    @MainActor
+    static func routeGameAssignment(_ dict: [String: Any], to store: GameState) {
+        if let gameId = dict["gameId"] as? String {
+            store.apply(.local(.enterGameContext(gameId: gameId, tournamentId: dict["tournamentId"] as? String)))
+        }
+    }
+
     init(socket: SocketService, tournamentState: TournamentState, gameState: GameState, appState: AppState, safetyState: SafetyState) {
         self.socket = socket
         self.tournamentState = tournamentState
@@ -102,10 +111,7 @@ final class TournamentSocketHandler {
         socket.on(SocketEvents.Server.tournamentGameAssignment) { [weak self] data, _ in
             guard let self, let dict = data.first as? [String: Any] else { return }
             DispatchQueue.main.async {
-                // Store tournament context on game state so game-end knows to return here
-                if let gameId = dict["gameId"] as? String {
-                    self.gameState.apply(.local(.enterGameContext(gameId: gameId, tournamentId: dict["tournamentId"] as? String)))
-                }
+                Self.routeGameAssignment(dict, to: self.gameState)
                 print("[Tournament] Game assigned: \(dict["gameId"] as? String ?? "")")
             }
         }

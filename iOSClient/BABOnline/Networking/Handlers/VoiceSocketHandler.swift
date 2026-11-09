@@ -13,6 +13,14 @@ final class VoiceSocketHandler {
         self.gameState = gameState
     }
 
+    /// The table part of voicePeerLeft (also driven by the replay tests): the
+    /// room form carries seq, and the table's gate must see it.
+    @MainActor
+    static func routeTable(_ data: [Any], to store: GameState) {
+        guard let dict = data.first as? [String: Any], dict["seq"] != nil else { return }
+        store.apply(serverEvent: SocketEvents.Server.voicePeerLeft, payload: data)
+    }
+
     func register() {
         // Peer list — server tells us which humans are already in voice
         socket.on(SocketEvents.Server.voicePeerList) { data, _ in
@@ -41,8 +49,7 @@ final class VoiceSocketHandler {
             guard let dict = data.first as? [String: Any],
                   let socketId = dict["socketId"] as? String else { return }
             DispatchQueue.main.async {
-                // The room form carries seq: the table's gate must see it
-                if dict["seq"] != nil { gameState.apply(serverEvent: SocketEvents.Server.voicePeerLeft, payload: data) }
+                Self.routeTable(data, to: gameState)
                 VoiceChatManager.shared.removePeer(socketId)
             }
         }

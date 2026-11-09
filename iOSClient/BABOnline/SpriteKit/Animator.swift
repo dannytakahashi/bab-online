@@ -21,16 +21,18 @@ struct LiveAnimator: Animator {
 
     func collect(_ nodes: [SKNode], to point: CGPoint, completion: @escaping () -> Void) {
         guard !nodes.isEmpty else { return completion() }
-        let group = DispatchGroup()
+        // A counter, not a DispatchGroup: a scene reset stops these actions
+        // (their closures are released and never run), and a group freed
+        // with an unbalanced enter would trap
+        var remaining = nodes.count
         for n in nodes {
-            group.enter()
             n.removeAllActions()
-            n.run(CardAnimations.collectToWinner(x: point.x, y: point.y)) {
-                n.removeFromParent()
-                group.leave()
+            n.run(CardAnimations.collectToWinner(x: point.x, y: point.y)) { [weak n] in
+                n?.removeFromParent()
+                remaining -= 1
+                if remaining == 0 { DispatchQueue.main.async(execute: completion) }
             }
         }
-        group.notify(queue: .main, execute: completion)
     }
 
     func pop(_ node: SKNode) {
