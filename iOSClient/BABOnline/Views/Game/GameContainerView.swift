@@ -86,6 +86,7 @@ private struct GameScreen: View {
 
     // Item 27-4: the fold and the docked log
     @Environment(\.horizontalSizeClass) private var hSizeClass
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverOn
     @Environment(\.verticalSizeClass) private var vSizeClass
     /// Bumped by every hinge change so the fold is read again at the same size.
     @State private var hingeTick = 0
@@ -318,6 +319,9 @@ private struct GameScreen: View {
             let ins = proxy.safeAreaInsets
             let full = CGSize(width: proxy.size.width + ins.leading + ins.trailing, height: proxy.size.height + ins.top + ins.bottom)
             let layout = TableLayout(size: full, chrome: chrome)
+            // NavigationStack lays its root out once at 0 x 0 first: measure nothing until the
+            // pane has a size. The pane must never pass through 0 x 0 later (it would rebuild the
+            // SpriteView and re-run didMove); no dock or fold width reaches 0 today.
             if proxy.size.width > 0 && proxy.size.height > 0 {
             ZStack {
                 // The scene and the layout-placed overlays share the full pane's
@@ -398,7 +402,8 @@ private struct GameScreen: View {
     private func cornerButtons(_ layout: TableLayout) -> some View {
         VStack {
             HStack(alignment: .top) {
-                // Leave/exit game button (always visible during play — Guideline 4)
+                // Leave/exit game button (always on screen during play — Guideline 4; in the
+                // Duo's vertical bar the system may fold it into the bar's overflow menu)
                 Button(action: handleLeaveTapped) {
                     HStack(spacing: 4) {
                         Image(systemName: "rectangle.portrait.and.arrow.right")
@@ -467,9 +472,11 @@ private struct GameScreen: View {
         .accessibilityIdentifier("leave")
     }
 
-    /// The unread count is the standard toolbar badge. The vertical bar (iOS 27.2
-    /// SDK) draws a badge only when it builds the item, not when the count changes,
-    /// so the item's identity follows the count.
+    /// The unread count is the standard toolbar badge. The vertical bar (seen with
+    /// the iOS 27.2 SDK) draws a badge only when it builds the item, not when the
+    /// count changes, so the item's identity follows the count. With VoiceOver on
+    /// the item keeps its identity (a rebuild would drop VoiceOver focus on every
+    /// chat line) and the count is spoken as the button's value instead.
     private var logBarButton: some View {
         let unread = logIsOpen ? 0 : gameState.unreadChatCount
         return Button(action: toggleLog) {
@@ -477,8 +484,9 @@ private struct GameScreen: View {
         }
         .disabled(gameState.phase == .draw)
         .accessibilityIdentifier("log")
+        .accessibilityValue(unread > 0 ? "\(unread) unread" : "")
         .badge(unread)
-        .id(unread)
+        .id(voiceOverOn ? 0 : unread)
     }
 
     /// The Log button is hidden in book pose: the log is the right page.
