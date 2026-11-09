@@ -8,7 +8,7 @@ struct TournamentChatView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Divider().background(Color.Theme.inputBorder)
+            Divider().background(Color.Theme.inputBorder, ignoresSafeAreaEdges: .vertical)
 
             // Messages
             ScrollViewReader { proxy in
@@ -33,7 +33,7 @@ struct TournamentChatView: View {
                 }
             }
 
-            Divider().background(Color.Theme.inputBorder)
+            Divider().background(Color.Theme.inputBorder, ignoresSafeAreaEdges: .vertical)
 
             // Input
             HStack(spacing: 8) {

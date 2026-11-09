@@ -1,6 +1,10 @@
 import SwiftUI
 
 struct MainRoomChatView: View {
+    /// The online count beside the title: the main room's header row is not
+    /// shown in the vertical bar, whose Online button shows a symbol only.
+    var showsOnlineCount = false
+
     @EnvironmentObject var mainRoomState: MainRoomState
     @EnvironmentObject var authState: AuthState
     @State private var message = ""
@@ -14,11 +18,17 @@ struct MainRoomChatView: View {
                     .font(.headline)
                     .foregroundColor(Color.Theme.textPrimary)
                 Spacer()
+                if showsOnlineCount {
+                    Text("\(mainRoomState.onlineCount) online")
+                        .font(.caption)
+                        .lineLimit(1)
+                        .foregroundColor(Color.Theme.textSecondary)
+                }
             }
             .padding(.horizontal)
             .padding(.vertical, 10)
 
-            Divider().background(Color.Theme.inputBorder)
+            Divider().background(Color.Theme.inputBorder, ignoresSafeAreaEdges: .vertical)
 
             // Messages
             ScrollViewReader { proxy in
@@ -43,7 +53,7 @@ struct MainRoomChatView: View {
                 }
             }
 
-            Divider().background(Color.Theme.inputBorder)
+            Divider().background(Color.Theme.inputBorder, ignoresSafeAreaEdges: .vertical)
 
             // Input
             HStack(spacing: 8) {
