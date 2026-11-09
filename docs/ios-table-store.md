@@ -128,6 +128,59 @@ lifts, trick with hand, spectator, chats from every seat; the bid panel
 (resize mid-replay equals a fresh render, the in-flight iPad rotation,
 transient, game end), `TableInvariantTests`.
 
+## Fixture mode and Duo poses (roadmap items 26, 27)
+
+Fixture mode (Debug only): `-uiFixture <name>` seeds the app from a v2
+snapshot (or `UI_FIXTURE_SNAPSHOT`), or shows a static screen (`main-room`,
+`game-lobby`, `tournament-lobby`, `sign-in`); `game-end` adds a gameEnd.
+No socket, no voice, avatars show initials. `-uiFold book|tabletop` fakes a
+20 pt division at the window center (the composition only, not the API).
+Accessibility probes: `ui.pose` ("WxH t/l/b/r topBar N fold F occlusions
+N"), `table.layoutCheck` ("ok" when every stable node is inside the safe
+rect), `table.state` (lifted card, hand and trick counts, the scene's
+didMove count). README "UI tests and screenshots" has the commands.
+
+Measured in fixture mode (Xcode 27.2 simulators, `ui.pose` and the
+`[Layout]` line):
+
+| Device / pose | Window | Insets t/l/b/r | ScoreBar | Leave/Log | Layout |
+|---|---|---|---|---|---|
+| iPhone Duo, closed | 466 x 678 | 0 / 0 / 34 / 84 | 75.3 | 79.7 x 50.3 | s 1, k 0.85, raised |
+| iPad Air 11-inch (M4), portrait | 820 x 1180 | 32 / 0 / 20 / 0 | 75.5 | 80 x 50.5 | s 1, k 1, row |
+| iPad Air 11-inch (M4), landscape | 1180 x 820 | 32 / 0 / 20 / 0 | 75.5 | 80 x 50.5 | s 1, k 1, row |
+
+The closed Duo reports no top inset and an 84 pt trailing inset for the
+whole height (the clock / Wi-Fi cluster on the right edge): the table, the
+ScoreBar and the Log button stay left of it. `reservedRegions(kind:
+.occlusion)` is empty there, so `chrome.occlusions` stays empty (the code
+path merges an occlusion in the top quarter into the corner obstacle). The
+rows are in TableLayoutTests. The open poses (669 x 951, 951 x 669) are
+covered by the layout tests with assumed insets (24/0/20/0 and 0/59/21/59);
+their real insets still have to be read from `ui.pose` (below).
+
+Orientation: iPhone windows that are regular in both size classes (the open
+Duo) turn to landscape; every other phone window, the closed Duo included,
+stays portrait (`AppDelegate.mask`). Folds (27-4): tabletop puts the table
+above the division and the hand and bid panel below it (ignored when the
+window is too short to split, e.g. the closed Duo); book docks the game log
+on the left page up to the hinge and the scene never spans it; the open
+Duo in landscape docks the log as a 320 pt side panel (the Log button
+collapses it); the iPad keeps the drawer.
+
+Pose procedure (the Duo's pose cannot be scripted): open Device Hub, pick
+the iPhone Duo, use its posture control (closed; open portrait / landscape;
+partially open for tabletop and book), then run
+`TEST_RUNNER_BAB_POSE=<closed|open-portrait|open-landscape> xcodebuild ...
+test -only-testing:BABOnlineUITests -resultBundlePath <r>` and
+`iOSClient/scripts/ios-screenshots.sh <r> <dir>` (screen 0 is the outer
+1398 x 2034 display, screen 1 the inner 2006 x 2852; `--simctl` gives the
+exact 2007 x 2853). `TEST_RUNNER_BAB_POSE_CHANGE=1` runs PoseChangeTests,
+which wait 120 s for a fold or unfold with a lifted card / a selected bid.
+In this run only the closed pose and the iPad were exercised: Device Hub's
+window could not be captured in the background and full-screen control was
+not approved, so the open-pose screenshots, the open-pose `ui.pose` values
+and PoseChangeTests are still to do (owner).
+
 ## Items 21 / 22 status
 
 All bullets are done except these, which are follow-ups:
@@ -146,6 +199,18 @@ All bullets are done except these, which are follow-ups:
 
 Known server gaps left as they are: draw-phase rejoin is refused; the socket
 a `watchSeat` demotes gets no event (item 16).
+
+## Visible changes to review on the next build (items 26, 27)
+
+The open Duo turns to landscape (the closed Duo and other phones stay
+portrait); in landscape the game log is a side panel beside the table, in
+book pose the left page; in tabletop pose the table sits above the fold
+and the hand and bid panel below it. The main room and tournament lobby go
+side by side on regular width (iPad, open Duo) instead of above 700 pt; the
+game lobby, sign-in and register scroll when the keyboard or a short window
+leaves no room, and are capped at 560 / 440 pt wide, the game-end card at
+460 pt; the bid grid has fixed 36 pt buttons. A chat line being typed
+survives a rotation or a fold. Debug builds only: `-uiFixture`.
 
 ## Visible changes to review on the next build (item 25)
 

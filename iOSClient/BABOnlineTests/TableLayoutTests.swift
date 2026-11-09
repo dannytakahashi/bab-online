@@ -29,12 +29,16 @@ final class TableLayoutTests: XCTestCase {
         (CGSize(width: 375, height: 667), .zero),
         (CGSize(width: 466, height: 678), .zero),
         (CGSize(width: 572, height: 669), insets(0, 0, 21, 59)),   // inner landscape, log docked
+        (CGSize(width: 466, height: 678), insets(0, 0, 34, 84)),   // measured: the closed Duo ("ui.pose"; status cluster on the right)
+        (CGSize(width: 820, height: 1180), insets(32, 0, 20, 0)),  // measured: iPad Air 11-inch (M4) portrait
+        (CGSize(width: 1180, height: 820), insets(32, 0, 20, 0)),  // measured: iPad Air 11-inch (M4) landscape
     ]
 
     // MARK: golden (layout_ref.py output)
 
     func testGoldenValues() {
         struct Row { let w, h: CGFloat; let ins: TableInsets; var topBar: CGFloat = 70; var bottomBar: CGFloat = 0
+            var corner = CGSize(width: 96, height: 52)
             let s, k: CGFloat; let mode: TableLayout.SeatMode?; let overlap: CGFloat? }
         let rows: [Row] = [
             Row(w: 375, h: 667, ins: Self.insets(20, 0, 0, 0), s: 1, k: 0.90, mode: .raised, overlap: 21.6),
@@ -49,9 +53,19 @@ final class TableLayoutTests: XCTestCase {
             Row(w: 375, h: 667, ins: Self.insets(20, 0, 0, 0), topBar: 84, s: 1, k: 0.80, mode: nil, overlap: nil),
             Row(w: 466, h: 678, ins: Self.insets(59, 0, 34, 0), topBar: 84, s: 0.90, k: 1, mode: nil, overlap: nil),
             Row(w: 375, h: 667, ins: Self.insets(20, 0, 0, 0), bottomBar: 45, s: 0.90, k: 0.75, mode: nil, overlap: nil),
+            // measured in fixture mode (ui.pose and the [Layout] line): the closed Duo and the iPad
+            Row(w: 466, h: 678, ins: Self.insets(0, 0, 34, 84), topBar: 75.333, corner: CGSize(width: 79.667, height: 50.333),
+                s: 1, k: 0.85, mode: .raised, overlap: 22.2),
+            Row(w: 466, h: 678, ins: Self.insets(0, 0, 34, 84), topBar: 75.333, bottomBar: 45, corner: CGSize(width: 79.667, height: 50.333),
+                s: 0.85, k: 0.75, mode: .raised, overlap: nil),
+            Row(w: 820, h: 1180, ins: Self.insets(32, 0, 20, 0), topBar: 75.5, corner: CGSize(width: 80, height: 50.5),
+                s: 1, k: 1, mode: .row, overlap: 35),
+            Row(w: 1180, h: 820, ins: Self.insets(32, 0, 20, 0), topBar: 75.5, corner: CGSize(width: 80, height: 50.5),
+                s: 1, k: 1, mode: .row, overlap: 35),
         ]
         for row in rows {
-            let L = TableLayout(size: CGSize(width: row.w, height: row.h), chrome: Self.chrome(row.ins, topBar: row.topBar, bottomBar: row.bottomBar))
+            let L = TableLayout(size: CGSize(width: row.w, height: row.h),
+                                chrome: Self.chrome(row.ins, topBar: row.topBar, corner: row.corner, bottomBar: row.bottomBar))
             let tag = "\(row.w)x\(row.h) \(row.ins) topBar \(row.topBar) bottomBar \(row.bottomBar)"
             XCTAssertFalse(L.isDegraded, tag)
             XCTAssertEqual(L.handScale, row.s, accuracy: 0.001, tag)
