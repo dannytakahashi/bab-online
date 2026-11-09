@@ -17,12 +17,14 @@ const { Server } = require('socket.io');
 const path = require('path');
 
 const config = require('./config');
-const { connectDB } = require('./database');
+const { connectDB, getUsersCollection } = require('./database');
 const { setupSocketHandlers } = require('./socket');
 const routes = require('./routes');
 const { logger } = require('./utils/logger');
 const { setupGracefulShutdown } = require('./utils/shutdown');
 const requestLogger = require('./middleware/requestLogger');
+const { createAvatarRouter } = require('./routes/avatar');
+const avatarStore = require('./avatar/avatarStore');
 
 // Initialize Express
 const app = express();
@@ -43,6 +45,10 @@ app.use((req, res, next) => {
     );
     next();
 });
+
+// Custom avatars over HTTP (GET /avatar/:username?v=): before the static
+// handlers; sets its own CSP/CORP/nosniff and cache headers
+app.use(createAvatarRouter({ getUsersCollection, avatarStore }));
 
 // Static files with caching
 app.use(express.static(path.join(__dirname, '..', 'client'), {
