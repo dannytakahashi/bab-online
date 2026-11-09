@@ -124,7 +124,11 @@ struct GameContainerView: View {
             let full = CGSize(width: proxy.size.width + ins.leading + ins.trailing, height: proxy.size.height + ins.top + ins.bottom)
             let layout = TableLayout(size: full, chrome: chrome)
             ZStack {
+                // The scene and the layout-placed overlays share the full pane's
+                // coordinates (an overlay of the safe-area-ignoring SpriteView, so
+                // the full-size layer never resizes this ZStack)
                 SpriteView(scene: scene)
+                    .overlay(alignment: .topLeading) { layoutOverlays(layout, full: full) }
                     .ignoresSafeArea()
 
                 // Score bar pinned to the top of the safe area
@@ -137,28 +141,6 @@ struct GameContainerView: View {
                 }
 
                 if inGame { cornerButtons }
-
-                // Layout-placed overlays, in the full pane's coordinates
-                ZStack(alignment: .topLeading) {
-                    Color.clear
-                    if showsBidOverlay {
-                        // bottom at layout.bidBand.minY, centered on the band (replaces padding 200)
-                        VStack(spacing: 0) {
-                            Spacer(minLength: 0)
-                            BidOverlayView()
-                                .frame(maxWidth: layout.bidBand.width)
-                            Color.clear.frame(height: max(0, layout.bidPanelBottomInset))
-                        }
-                        .frame(width: full.width, height: full.height)
-                        .offset(x: layout.window(layout.bidBand).midX - full.width / 2)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                    }
-                    if showsTable && !showsBidOverlay {
-                        accessory(layout)
-                    }
-                }
-                .frame(width: full.width, height: full.height)
-                .ignoresSafeArea()
 
                 pills
             }
@@ -178,7 +160,32 @@ struct GameContainerView: View {
             if chrome.cornerButton != new.cornerButton { chrome.cornerButton = new.cornerButton }
             if chrome.bottomBar != new.bottomBar { chrome.bottomBar = new.bottomBar }
         }
-        .onChange(of: chrome, initial: true) { _, new in scene.chrome = new }
+        .onChange(of: chrome, initial: true) { _, new in
+            scene.chrome = new
+        }
+    }
+
+    /// The bid panel and HSI / voice, placed from the layout in the full pane's coordinates.
+    private func layoutOverlays(_ layout: TableLayout, full: CGSize) -> some View {
+                ZStack(alignment: .topLeading) {
+                    Color.clear.allowsHitTesting(false)
+                    if showsBidOverlay {
+                        // bottom at layout.bidBand.minY, centered on the band (replaces padding 200)
+                        VStack(spacing: 0) {
+                            Spacer(minLength: 0)
+                            BidOverlayView()
+                                .frame(maxWidth: layout.bidBand.width)
+                            Color.clear.frame(height: max(0, layout.bidPanelBottomInset))
+                        }
+                        .frame(width: full.width, height: full.height)
+                        .offset(x: layout.window(layout.bidBand).midX - full.width / 2)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                    if showsTable && !showsBidOverlay {
+                        accessory(layout)
+                    }
+                }
+                .frame(width: full.width, height: full.height, alignment: .topLeading)
     }
 
     /// The measured parts of the chrome (0 when hidden).
