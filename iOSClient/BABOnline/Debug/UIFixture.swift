@@ -18,6 +18,9 @@ enum UIFixture {
     /// Synthetic 20 pt division at the window center (screenshots only; the real API is FoldReader's).
     static let fold: Fold? = UserDefaults.standard.string(forKey: "uiFold").flatMap(Fold.init(rawValue:))
 
+    /// `-uiEffect rainbow|b|2b|3b|4b|ot|all`: effects held on the table (screenshots of the art).
+    static let effect: String? = UserDefaults.standard.string(forKey: "uiEffect")
+
     static let screenFixtures: Set<String> = ["main-room", "game-lobby", "tournament-lobby", "sign-in"]
 
     @MainActor

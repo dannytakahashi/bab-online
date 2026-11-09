@@ -30,7 +30,9 @@ class OpponentHandNode: SKNode {
     private var speakingGlow: SKShapeNode?
     private var avatarNode: SKShapeNode?
     private var avatarSprite: SKSpriteNode?
-    private let avatarRadius: CGFloat = 20
+    private let avatarRadius: CGFloat = AvatarTextureCache.diameter / 2
+    /// Bumped by every picture change: a load that answers for an older picture is dropped.
+    private var avatarGeneration = 0
     private(set) var pic: String?
     /// The untruncated username (the label shows at most TableLayout.nameMaxWidth).
     private(set) var fullName: String
@@ -114,9 +116,9 @@ class OpponentHandNode: SKNode {
     }
 
     private func clearPic(initial name: String) {
+        avatarGeneration += 1
         guard let circle = avatarNode else { return }
-        circle.children.filter { $0 is SKCropNode }.forEach { $0.removeFromParent() }
-        avatarSprite = nil
+        removeAvatarImage(from: circle)
         if circle.childNode(withName: "avatar_initial") == nil {
             let initial = SKLabelNode(text: String(name.prefix(1)).uppercased())
             initial.fontName = "Helvetica-Bold"
@@ -185,44 +187,42 @@ class OpponentHandNode: SKNode {
 
     // MARK: - Profile Pic
 
+    /// Shows `pic` from AvatarTextureCache: at once when it is cached (or a data URL),
+    /// else when its load answers, unless the seat's picture changed meanwhile.
     private func loadProfilePic(_ pic: String) {
-        // Base64 custom pic
-        if pic.starts(with: "data:image"), let commaIndex = pic.firstIndex(of: ",") {
-            let base64 = String(pic[pic.index(after: commaIndex)...])
-            if let data = Data(base64Encoded: base64), let image = UIImage(data: data) {
-                applyAvatarImage(image)
-            }
-            return
-        }
-
-        // Numbered pic — load from server
-        if let picNum = Int(pic) {
-            let expected = pic
-            Self.avatarLoader.load(picNum) { [weak self] image in
-                guard let self, let image, self.pic == expected else { return }
-                self.applyAvatarImage(image)
-            }
+        avatarGeneration += 1
+        let generation = avatarGeneration
+        AvatarTextureCache.texture(for: pic, loader: Self.avatarLoader) { [weak self] texture in
+            guard let self, let texture, self.avatarGeneration == generation, self.pic == pic else { return }
+            self.applyAvatar(texture)
         }
     }
 
-    private func applyAvatarImage(_ image: UIImage) {
+    /// The avatar sprite off the circle.
+    private func removeAvatarImage(from circle: SKShapeNode) {
+        circle.children.filter { $0.name == Self.avatarImageName }.forEach { $0.removeFromParent() }
+        avatarSprite = nil
+    }
+
+    static let avatarImageName = "avatar.image"
+
+    /// One pre-cut circular sprite per seat: any earlier one is replaced.
+    private func applyAvatar(_ texture: SKTexture) {
         guard let circle = avatarNode else { return }
-
-        // Remove initial letter
+        removeAvatarImage(from: circle)
         circle.childNode(withName: "avatar_initial")?.removeFromParent()
-
-        // Create texture and crop to circle
-        let texture = SKTexture(image: image)
         let sprite = SKSpriteNode(texture: texture, size: CGSize(width: avatarRadius * 2, height: avatarRadius * 2))
+        sprite.name = Self.avatarImageName
         sprite.position = .zero
-
-        // Use a crop node for circular masking
-        let mask = SKShapeNode(circleOfRadius: avatarRadius)
-        mask.fillColor = .white
-        let crop = SKCropNode()
-        crop.maskNode = mask
-        crop.addChild(sprite)
-        circle.addChild(crop)
+        circle.addChild(sprite)
         avatarSprite = sprite
     }
+
+    #if DEBUG
+    /// Tests: avatar images and crop nodes on this seat (never more than one image, no crop node).
+    var avatarImageCount: Int { avatarNode?.children.filter { $0.name == Self.avatarImageName }.count ?? 0 }
+    var avatarCropNodeCount: Int { avatarNode?.children.filter { $0 is SKCropNode }.count ?? 0 }
+    var avatarTexture: SKTexture? { avatarSprite?.texture }
+    #endif
 }
+

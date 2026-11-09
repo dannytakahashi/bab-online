@@ -69,6 +69,15 @@ class GameSKScene: SKScene, TableRenderer {
         scaleMode = .resizeFill
         buildLayersOnce()
         renderLatestFromStore(reset: true)
+        #if DEBUG
+        if let effect = UIFixture.effect, didMoveCount == 1 {
+            // after the chrome relayouts of the first second (a reset render clears transient)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                guard let self else { return }
+                self.effectsManager.showFrozen(effect, myPosition: self.lastModel?.viewPosition ?? 1)
+            }
+        }
+        #endif
     }
 
     private func buildLayersOnce() {

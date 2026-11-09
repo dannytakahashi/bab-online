@@ -41,6 +41,11 @@ struct TableLayout: Equatable {
     static let gap: CGFloat = 6                // G
     static let margin: CGFloat = 8             // M
     static let cardSize = CGSize(width: 100, height: 145)
+    /// The largest hand scale the search tries (s = 1.0, 0.95 ... 0.80). Trick sprites
+    /// are trickBase * k <= 0.8, so no card is ever drawn larger than `maxCardPoints`.
+    static let maxHandScale: CGFloat = 1.0
+    /// The largest on-screen card, in points: what CardTextureGenerator renders for.
+    static var maxCardPoints: CGSize { CGSize(width: cardSize.width * maxHandScale, height: cardSize.height * maxHandScale) }
     static let lift: CGFloat = 20
     static let trickBase: CGFloat = 0.8
     static let bidBandSize = CGSize(width: 340, height: 140)
@@ -109,7 +114,7 @@ struct TableLayout: Equatable {
         var found: Solution?
         search: for bar in bars {
             for si in 0..<5 {
-                let s = 1.0 - 0.05 * CGFloat(si)
+                let s = Self.maxHandScale - 0.05 * CGFloat(si)
                 if let sol = Self.solve(size: size, chrome: chrome, s: s, bottomBar: bar, strict: true) {
                     found = sol
                     break search
@@ -124,7 +129,7 @@ struct TableLayout: Equatable {
             unfolded.fold = nil
             search: for bar in bars {
                 for si in 0..<5 {
-                    if let sol = Self.solve(size: size, chrome: unfolded, s: 1.0 - 0.05 * CGFloat(si), bottomBar: bar, strict: true) {
+                    if let sol = Self.solve(size: size, chrome: unfolded, s: Self.maxHandScale - 0.05 * CGFloat(si), bottomBar: bar, strict: true) {
                         found = sol
                         break search
                     }
