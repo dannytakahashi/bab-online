@@ -14,7 +14,8 @@ and the iOS app, checked against the real server in every test run.
 | `events.schema.json` | GENERATED from `src/` (`npm run contract:gen`). The artifact other tools read (e.g. a future Swift Codable generator) |
 | `v1-baseline.schema.json` | FROZEN copy of the contract at cc865b4. Edited by hand only when a `V1_REMOVALS.md` entry is executed |
 | `layout.json` | Which events each platform's constants file lists, in which section and order, plus `exclude` reasons |
-| `gen.js` | Writes `events.schema.json`, `client/src/constants/events.js`, `iOSClient/BABOnline/Constants/SocketEvents.swift` |
+| `gen.js` | Writes `events.schema.json`, `client/src/constants/events.js`, `iOSClient/BABOnline/Constants/SocketEvents.swift`, `iOSClient/BABOnline/Generated/TableSnapshot.swift` |
+| `swift/snapshotSwift.js` | Renders `$defs.snapshotV2` as the Swift `TableSnapshot` Codable (+ `ContractSeq.events` from `SEQ_EVENTS`); throws on an unnamed inline object/enum or an unsupported keyword |
 | `lib/validate.js` | Dependency-free validator for the JSON Schema subset used here (throws on any other keyword) |
 | `index.js` | `schema`, `validateS2C(event, data)`, `validateC2S`, `s2cNames()`, `c2sNames()` |
 | `fixtures/v2/` | Server-generated snapshot v2 fixtures (`npm run contract:fixtures`) |
@@ -323,13 +324,19 @@ Consumers:
 - Web: `client/src/state/snapshotV2.js` (`parseSnapshotV2`, `classifySeq`,
   `seatAt`, `relativeSeat`, `isComplete`, `teamOf`), tested over every fixture
   by `snapshotV2.test.js`. Not wired into rendering yet (item 16).
-- iOS (item 23; no test target yet): a `Codable TableSnapshotV2`, later
-  generated from `$defs.snapshotV2` by extending `gen.js`. Enums get an
-  unknown-case fallback. An XCTest target adds `contract/fixtures/v2` as a
-  folder reference and decodes each file with `JSONDecoder`. The live path
-  re-serializes the `[String: Any]` payload value via
-  `JSONSerialization.data(withJSONObject:)` before decoding. Explicit nulls
-  and the length-4 arrays decode cleanly into `[Card?]` / `[String?]`.
+- iOS (item 23): `struct TableSnapshot` in
+  `iOSClient/BABOnline/Generated/TableSnapshot.swift`, GENERATED from
+  `$defs.snapshotV2` by `contract/swift/snapshotSwift.js` (part of
+  `npm run contract:gen`, so `contract:check` / `generated.test.js` catch a
+  stale file). All types are nested (`TableSnapshot.Seat`, `.Viewer`, ...);
+  a required non-null key is non-optional, a nullable or optional one is
+  Optional. String enums decode an unknown value as `.unknown(raw)` (or throw
+  with `userInfo[.contractStrict] = true`). The live path
+  (`TableSnapshot.decode(_:strict:)`, `Models/TableSnapshot+Decode.swift`)
+  re-serializes the `[String: Any]` payload value with `JSONSerialization`
+  and runs `JSONDecoder`. The `BABOnlineTests` target bundles
+  `contract/fixtures/v2` as a folder reference and strict-decodes every file
+  (`TableSnapshotDecodingTests`).
 
 ## Constants
 

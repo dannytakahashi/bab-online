@@ -11,6 +11,8 @@
  *   contract/events.schema.json                    from contract/src
  *   client/src/constants/events.js                 from layout.json (web)
  *   iOSClient/BABOnline/Constants/SocketEvents.swift  from layout.json (swift)
+ *   iOSClient/BABOnline/Generated/TableSnapshot.swift Swift Codable of $defs.snapshotV2
+ *                                                   + ContractSeq (contract/swift/snapshotSwift.js)
  *
  * layout.json fixes which events each platform lists, in which section and
  * order, so existing names and values never move (the shipped iOS app was
@@ -25,11 +27,14 @@
 const fs = require('fs');
 const path = require('path');
 const { buildSchema } = require('./src');
+const { SEQ_EVENTS } = require('./src/s2c');
+const { renderSwiftSnapshot } = require('./swift/snapshotSwift');
 
 const ROOT = path.join(__dirname, '..');
 const LAYOUT = path.join(__dirname, 'layout.json');
 const WEB = 'client/src/constants/events.js';
 const SWIFT = 'iOSClient/BABOnline/Constants/SocketEvents.swift';
+const SWIFT_SNAPSHOT = 'iOSClient/BABOnline/Generated/TableSnapshot.swift';
 
 const SWIFT_KEYWORDS = new Set(['associatedtype', 'class', 'deinit', 'enum', 'extension', 'fileprivate', 'func', 'import',
     'init', 'inout', 'internal', 'let', 'open', 'operator', 'private', 'protocol', 'public', 'rethrows', 'static', 'struct',
@@ -158,6 +163,7 @@ function outputs() {
         'contract/events.schema.json': JSON.stringify(schema, null, 2) + '\n',
         [WEB]: renderWeb(layout),
         [SWIFT]: renderSwift(layout),
+        [SWIFT_SNAPSHOT]: renderSwiftSnapshot(schema, SEQ_EVENTS),
     };
 }
 
@@ -173,6 +179,7 @@ function check() {
 
 function write() {
     for (const [rel, content] of Object.entries(outputs())) {
+        fs.mkdirSync(path.dirname(path.join(ROOT, rel)), { recursive: true });
         fs.writeFileSync(path.join(ROOT, rel), content);
         console.log(`wrote ${rel}`);
     }
