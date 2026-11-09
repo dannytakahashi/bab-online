@@ -1,103 +1,92 @@
 import SpriteKit
 
-/// Center area where trick cards are played.
+/// The cards on the table, reconciled from the model: one sprite per played
+/// card, named `trick.<pos>.<cardId>`, tagged with its TrickKey, z by play
+/// order (22.1c). Collected sprites leave for the scene's transient layer, so
+/// a reconcile never touches them.
 class TrickAreaNode: SKNode {
-    private var trickCards: [Int: SKSpriteNode] = [:]  // position → sprite
+    static let cardSize = CGSize(width: LayoutConstants.cardWidth * 0.8, height: LayoutConstants.cardHeight * 0.8)
 
-    /// Collects in flight (collectTrick until its group completes). While it is
-    /// above 0 the hand is not playable, so the next card cannot be played into
-    /// a table that is still being cleared (server pacing: the winner's
-    /// updateTurn arrives in the same tick as trickComplete).
+    /// Collects in flight. While above 0 the hand is not playable, so the next
+    /// card cannot be played into a table that is still being cleared (#187).
     private(set) var collectingCount = 0
 
-    var cardCount: Int { trickCards.count }
-
-    /// Positions for each player's card in the trick area (relative to center)
-    private func cardOffset(for relPos: Positions.RelativePosition, sceneSize: CGSize) -> CGPoint {
-        let scaleX = sceneSize.width / LayoutConstants.referenceWidth
-        let scaleY = sceneSize.height / LayoutConstants.referenceHeight
-        let ox = LayoutConstants.trickOffsetX * scaleX
-        let oy = LayoutConstants.trickOffsetY * scaleY
-
-        switch relPos {
-        case .bottom: return CGPoint(x: 0, y: -oy)
-        case .top:    return CGPoint(x: 0, y: oy)
-        case .left:   return CGPoint(x: -ox, y: 0)
-        case .right:  return CGPoint(x: ox, y: 0)
-        }
+    override init() {
+        super.init()
+        name = "trick"
     }
 
-    /// Place a card in the trick area for a position.
-    /// `startPoint` (in this node's coordinates) is where the card flies in from;
-    /// defaults to 3x the resting offset, i.e. from the player's side of the table.
-    func placeCard(_ card: Card, position: Int, myPosition: Int, sceneSize: CGSize, animated: Bool = true, from startPoint: CGPoint? = nil) {
-        let relPos = Positions.getRelative(target: position, from: myPosition)
-        let offset = cardOffset(for: relPos, sceneSize: sceneSize)
+    required init?(coder aDecoder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-        // One sprite per position: replacing (e.g. setup replaying the restored trick
-        // after a rejoin) must not orphan the old sprite as a permanent ghost card.
-        trickCards[position]?.removeFromParent()
+    static func spriteName(_ position: Int, _ card: Card) -> String { "trick.\(position).\(card.id)" }
+    static func keyString(_ key: TrickKey?) -> String { key.map { "\($0.dealSeq):\($0.trick)" } ?? "-" }
 
-        let texture = CardTextureGenerator.texture(for: card)
-        let sprite = SKSpriteNode(texture: texture, size: CGSize(width: LayoutConstants.cardWidth * 0.8, height: LayoutConstants.cardHeight * 0.8))
-        sprite.position = animated ? (startPoint ?? CGPoint(x: offset.x * 3, y: offset.y * 3)) : offset
-        sprite.zPosition = 100 + CGFloat(trickCards.count)
-        sprite.name = "trick_\(position)"
+    var cardSprites: [SKSpriteNode] { children.compactMap { $0 as? SKSpriteNode }.filter { $0.name?.hasPrefix("trick.") == true } }
+    var cardCount: Int { cardSprites.count }
 
-        addChild(sprite)
-        trickCards[position] = sprite
+    func sprite(named name: String) -> SKSpriteNode? { cardSprites.first { $0.name == name } }
 
-        if animated {
-            let move = SKAction.move(to: offset, duration: LayoutConstants.playCardDuration)
-            move.timingMode = .easeOut
-            sprite.run(move)
-        }
-    }
-
-    /// Collect all trick cards to winner
-    func collectTrick(winner: Int, myPosition: Int, sceneSize: CGSize, completion: @escaping () -> Void) {
-        let winnerRelPos = Positions.getRelative(target: winner, from: myPosition)
-
-        // Determine where to collect to (off toward winner)
-        let scaleX = sceneSize.width / LayoutConstants.referenceWidth
-        let scaleY = sceneSize.height / LayoutConstants.referenceHeight
-        let collectPoint: CGPoint
-        switch winnerRelPos {
-        case .bottom: collectPoint = CGPoint(x: 0, y: -200 * scaleY)
-        case .top:    collectPoint = CGPoint(x: 0, y: 200 * scaleY)
-        case .left:   collectPoint = CGPoint(x: -200 * scaleX, y: 0)
-        case .right:  collectPoint = CGPoint(x: 200 * scaleX, y: 0)
-        }
-
-        // Hand the collected sprites off now so the dict only ever holds the current
-        // trick: a card placed (or a clear) during the collect animation then can't
-        // remove a collecting sprite and strand the group before it leaves.
-        let collecting = trickCards
-        trickCards.removeAll()
-
-        collectingCount += 1
-        let group = DispatchGroup()
-        for (_, sprite) in collecting {
-            group.enter()
-            sprite.run(CardAnimations.collectToWinner(x: collectPoint.x, y: collectPoint.y)) {
-                sprite.removeFromParent()
-                group.leave()
+    /// Make the layer show exactly `cards`. `adopt` supplies an existing
+    /// sprite for a card (my hand's sprite); the names it returns are the ones
+    /// that moved containers this render.
+    @discardableResult
+    func apply(cards: [TableRenderModel.TrickCard], key: TrickKey?, viewPosition: Int, geometry: TableGeometry,
+               adopt: (TableRenderModel.TrickCard) -> SKSpriteNode?, animator: Animator) -> Set<String> {
+        let wanted = Set(cards.map { Self.spriteName($0.position, $0.card) })
+        for s in cardSprites where !wanted.contains(s.name ?? "") { s.removeFromParent() }
+        var adopted: Set<String> = []
+        for c in cards {
+            let name = Self.spriteName(c.position, c.card)
+            let slot = geometry.trickSlot(Positions.getRelative(target: c.position, from: viewPosition))
+            let sprite: SKSpriteNode
+            if let existing = self.sprite(named: name) {
+                sprite = existing
+                if !sprite.hasActions() { sprite.position = slot }
+            } else if let moved = adopt(c) {
+                // keep the sprite where it is on screen, then fly it to the slot (22.7)
+                let world = moved.parent.map { $0.convert(moved.position, to: self) } ?? moved.position
+                moved.removeAllActions()
+                moved.removeFromParent()
+                moved.position = world
+                addChild(moved)
+                sprite = moved
+                adopted.insert(name)
+                animator.move(sprite, to: slot, duration: LayoutConstants.playCardDuration, completion: nil)
+                if let card = sprite as? CardSpriteNode { card.isUserInteractionEnabled = false; card.isLegal = true }
+                animator.run(sprite, SKAction.scale(to: 0.8, duration: LayoutConstants.playCardDuration)) { $0.setScale(0.8) }
+            } else {
+                sprite = SKSpriteNode(texture: CardTextureGenerator.texture(for: c.card), size: Self.cardSize)
+                sprite.position = slot
+                addChild(sprite)
             }
+            sprite.name = name
+            sprite.zPosition = 100 + CGFloat(c.playIndex)
+            if sprite.userData == nil { sprite.userData = [:] }
+            sprite.userData?["key"] = Self.keyString(key)
         }
-
-        group.notify(queue: .main) { [weak self] in
-            if let self = self { self.collectingCount = max(0, self.collectingCount - 1) }
-            completion()
-        }
+        return adopted
     }
 
-    /// Remove all trick cards immediately
+    /// Fly a newly placed card in from `start` (scene-local coordinates of this node).
+    func animateEntry(_ name: String, from start: CGPoint, slot: CGPoint, animator: Animator) {
+        guard let s = sprite(named: name), !s.hasActions() else { return }
+        s.position = start
+        animator.move(s, to: slot, duration: LayoutConstants.playCardDuration, completion: nil)
+    }
+
+    /// The sprites of trick `key` (all of them when nil), taken out for a collect.
+    func takeForCollect(_ key: TrickKey?) -> [SKSpriteNode] {
+        let k = Self.keyString(key)
+        let taken = cardSprites.filter { key == nil || ($0.userData?["key"] as? String) == k }
+        if !taken.isEmpty { collectingCount += 1 }
+        return taken
+    }
+
+    func collectFinished() { collectingCount = max(0, collectingCount - 1) }
+
+    /// Remove all trick cards immediately (a reset).
     func clearAllCards() {
         collectingCount = 0
-        trickCards.values.forEach { $0.removeFromParent() }
-        trickCards.removeAll()
-        // Also drop sprites still mid-collect (no longer in trickCards), so a cleanup
-        // that detaches this node can't carry them along as ghosts into the next setup.
-        children.filter { $0.name?.hasPrefix("trick_") == true }.forEach { $0.removeFromParent() }
+        cardSprites.forEach { $0.removeFromParent() }
     }
 }

@@ -1,112 +1,46 @@
 import SpriteKit
 
-/// Manages opponent hand displays, turn indicators, and card animations.
+/// Opponent seats: created once per layout (game, view seat, spectator) and
+/// updated in place after that (22.8); the turn glow is re-applied on every
+/// render (22.5) and the speaking glow survives renders.
 class SKOpponentManager {
     weak var scene: GameSKScene?
-    private var opponents: [Int: OpponentHandNode] = [:]  // position → node
-    private var names: [Int: (name: String, pic: Pic)] = [:]
+    let layer: SKNode
+    private(set) var nodes: [Int: OpponentHandNode] = [:]  // position -> node
+    private var layoutKey: String?
 
-    init(scene: GameSKScene) {
+    init(scene: GameSKScene, layer: SKNode) {
         self.scene = scene
+        self.layer = layer
     }
 
-    /// Create the opponent nodes for the model's seats (3 around me, or all 4 for a spectator).
-    func setup(_ model: TableRenderModel) {
-        cleanup()
-        guard let scene = scene else { return }
+    func apply(_ model: TableRenderModel, geometry: TableGeometry) {
+        let key = "\(model.gameId ?? "-")|\(model.viewPosition)|\(model.isSpectator)"
+        if key != layoutKey {
+            cleanup()
+            layoutKey = key
+            for o in model.opponents {
+                let node = OpponentHandNode(position: o.rel, username: o.name, pic: o.pic.string)
+                node.zPosition = 10
+                layer.addChild(node)
+                nodes[o.position] = node
+            }
+        }
         for o in model.opponents {
-            let node = OpponentHandNode(position: o.rel, username: o.name, pic: o.pic.string)
-            switch o.rel {
-            case .bottom: node.position = CGPoint(x: 0, y: -scene.size.height / 2 + 140)
-            case .top: node.position = CGPoint(x: 0, y: scene.size.height / 2 - 220)
-            case .left: node.position = CGPoint(x: -scene.size.width / 2 + 60, y: 0)
-            case .right: node.position = CGPoint(x: scene.size.width / 2 - 60, y: 0)
-            }
-            node.zPosition = 10
-            scene.addChild(node)
-            opponents[o.position] = node
-            names[o.position] = (o.name, o.pic)
-        }
-    }
-
-    /// Names, pictures and the turn glow from the model (re-applied every render).
-    func update(_ model: TableRenderModel) {
-        for o in model.opponents {
-            if let prev = names[o.position], prev.name != o.name || prev.pic != o.pic {
-                updatePlayerInfo(position: o.position, username: o.name, pic: o.pic.string)
-                names[o.position] = (o.name, o.pic)
-            }
-        }
-        updateTurn(currentTurn: model.turn)
-    }
-
-    /// Update player info when lazy/active/resign changes identity
-    func updatePlayerInfo(position: Int, username: String, pic: String?) {
-        guard let node = opponents[position] else { return }
-        node.updateUsername(username)
-        if let pic = pic {
-            node.updatePic(pic)
-        }
-    }
-
-    /// No-op — card-back fans are removed.
-    func setCardCounts(_ count: Int) {}
-
-    func updateTurn(currentTurn: Int?) {
-        for (pos, node) in opponents {
-            if pos == currentTurn {
-                node.showTurnGlow()
-            } else {
-                node.hideTurnGlow()
-            }
+            guard let node = nodes[o.position] else { continue }
+            if !node.hasActions() { node.position = geometry.seatAnchor(o.rel) }
+            node.update(name: o.name, pic: o.pic.string, isTurn: o.isTurn)
         }
     }
 
     func setSpeaking(position: Int, speaking: Bool) {
-        guard let node = opponents[position] else { return }
-        if speaking {
-            node.showSpeakingGlow()
-        } else {
-            node.hideSpeakingGlow()
-        }
-    }
-
-    func clearAllBids() {
-        // Bids are managed by SKBidManager — no-op here
-    }
-
-    /// Scene point a played card flies in from: off-screen in the opponent's direction.
-    func trickEntryPoint(forPosition position: Int) -> CGPoint? {
-        guard let scene = scene, let node = opponents[position] else { return nil }
-
-        let scaleX = scene.size.width / LayoutConstants.referenceWidth
-        let scaleY = scene.size.height / LayoutConstants.referenceHeight
-
-        // Start point: off-screen in the opponent's direction
-        let startPoint: CGPoint
-        switch node.relativePosition {
-        case .top:
-            startPoint = CGPoint(x: 0, y: scene.size.height / 2 + 100 * scaleY)
-        case .left:
-            startPoint = CGPoint(x: -scene.size.width / 2 - 100 * scaleX, y: 0)
-        case .right:
-            startPoint = CGPoint(x: scene.size.width / 2 + 100 * scaleX, y: 0)
-        default:
-            startPoint = node.position
-        }
-        return startPoint
-    }
-
-    func setDisconnected(position: Int, disconnected: Bool) {
-        // visual feedback on opponent nodes
+        guard let node = nodes[position] else { return }
+        if speaking { node.showSpeakingGlow() } else { node.hideSpeakingGlow() }
     }
 
     func cleanup() {
-        opponents.values.forEach {
-            $0.cleanup()
-            $0.removeFromParent()
-        }
-        opponents.removeAll()
-        names.removeAll()
+        nodes.values.forEach { $0.cleanup(); $0.removeFromParent() }
+        nodes.removeAll()
+        layoutKey = nil
     }
 }

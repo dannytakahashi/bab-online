@@ -1,87 +1,96 @@
 import SpriteKit
 
-/// Displays the player's hand as a fan of cards at the bottom of the screen.
+/// The player's hand as a reconciled fan: one CardSpriteNode per card id
+/// (`hand.card.<id>`), created or removed only when the hand changes,
+/// legality toggled in place, the lifted card kept while it is held (22.9).
 class HandNode: SKNode {
-    private var cardSprites: [CardSpriteNode] = []
-    private var liftedCard: CardSpriteNode?
-
+    private(set) var sprites: [String: CardSpriteNode] = [:]
+    private(set) var liftedCardId: String?
     var onCardTapped: ((Card) -> Void)?
 
-    func updateHand(cards: [Card], legalCards: [Card], sceneSize: CGSize) {
-        // Remove old sprites
-        cardSprites.forEach { $0.removeFromParent() }
-        cardSprites = []
-        liftedCard = nil
+    override init() {
+        super.init()
+        name = "hand"
+    }
 
-        guard !cards.isEmpty else { return }
+    required init?(coder aDecoder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-        let isCompact = sceneSize.width < LayoutConstants.compactWidthThreshold
-        let overlap = isCompact ? LayoutConstants.cardOverlapCompact : LayoutConstants.cardOverlap
-        let cardWidth = LayoutConstants.cardWidth
-        let totalWidth = cardWidth + overlap * CGFloat(cards.count - 1)
-        let startX = -totalWidth / 2 + cardWidth / 2
+    func sprite(for id: String) -> CardSpriteNode? { sprites[id] }
 
-        for (index, card) in cards.enumerated() {
-            let sprite = CardSpriteNode(card: card)
-            sprite.position = CGPoint(x: startX + CGFloat(index) * overlap, y: 0)
-            sprite.zPosition = CGFloat(index)
-            sprite.isLegal = legalCards.contains(card)
-
-            sprite.onTap = { [weak self] tappedCard in
-                self?.handleCardTap(tappedCard)
+    /// `arriving`: ids just adopted from elsewhere, animated into their slot.
+    func apply(cards: [Card], legalIds: Set<String>, geometry: TableGeometry,
+               arriving: Set<String> = [], animator: Animator = InstantAnimator()) {
+        let ids = Set(cards.map(\.id))
+        for (id, s) in sprites where !ids.contains(id) {
+            s.removeFromParent()
+            sprites[id] = nil
+        }
+        if let lifted = liftedCardId, !ids.contains(lifted) { liftedCardId = nil }
+        let slots = geometry.handSlots(count: cards.count)
+        for (i, card) in cards.enumerated() {
+            let s: CardSpriteNode
+            if let existing = sprites[card.id] {
+                s = existing
+            } else {
+                s = CardSpriteNode(card: card)
+                s.onTap = { [weak self] c in self?.handleCardTap(c) }
+                addChild(s)
+                sprites[card.id] = s
             }
-
-            addChild(sprite)
-            cardSprites.append(sprite)
+            s.name = "hand.card.\(card.id)"
+            s.zPosition = CGFloat(i)
+            s.isLegal = legalIds.contains(card.id)
+            s.isUserInteractionEnabled = true
+            s.isLifted = card.id == liftedCardId
+            let target = CGPoint(x: slots[i].x, y: slots[i].y + (s.isLifted ? LayoutConstants.cardLiftY : 0))
+            if arriving.contains(card.id) {
+                animator.move(s, to: target, duration: LayoutConstants.playCardDuration, completion: nil)
+            } else if !s.hasActions() {
+                s.position = target
+            }
         }
     }
 
     private func handleCardTap(_ card: Card) {
-        guard let sprite = cardSprites.first(where: { $0.card == card }) else { return }
-
-        if liftedCard == sprite {
-            // Second tap on lifted card — confirm play
+        guard let sprite = sprites[card.id] else { return }
+        if liftedCardId == card.id {
+            // Second tap on the lifted card: play it
             onCardTapped?(card)
-            liftedCard = nil
         } else {
-            // Lower previously lifted card
-            if let prev = liftedCard, prev.isLifted {
-                prev.run(CardAnimations.lower())
+            if let prev = liftedCardId.flatMap({ sprites[$0] }) {
                 prev.isLifted = false
+                prev.run(CardAnimations.lower())
             }
-            // Lift this card
-            sprite.run(CardAnimations.lift())
+            liftedCardId = card.id
             sprite.isLifted = true
-            liftedCard = sprite
+            sprite.run(CardAnimations.lift())
             HapticManager.selection()
         }
     }
 
-    /// Remove a specific card from the hand with animation
-    func removeCard(_ card: Card, animateTo point: CGPoint, in scene: SKScene, completion: (() -> Void)? = nil) {
-        guard let sprite = cardSprites.first(where: { $0.card == card }) else {
-            completion?()
-            return
-        }
+    /// Hand a card's sprite over to another container (my card going to the trick).
+    func detach(_ id: String) -> CardSpriteNode? {
+        guard let s = sprites.removeValue(forKey: id) else { return nil }
+        if liftedCardId == id { liftedCardId = nil }
+        s.isLifted = false
+        return s
+    }
 
-        let worldPos = convert(sprite.position, to: scene)
-        sprite.removeFromParent()
-        sprite.position = worldPos
-        scene.addChild(sprite)
-        sprite.isUserInteractionEnabled = false
-
-        sprite.run(CardAnimations.playToTrickArea(x: point.x, y: point.y)) {
-            sprite.removeFromParent()
-            completion?()
-        }
-
-        cardSprites.removeAll { $0 === sprite }
-        liftedCard = nil
+    /// Take a sprite back (a rolled-back play), keeping its world position.
+    func adopt(_ s: CardSpriteNode) {
+        let world = s.parent.map { $0.convert(s.position, to: self) } ?? s.position
+        s.removeAllActions()
+        s.removeFromParent()
+        s.position = world
+        s.setScale(1)
+        s.onTap = { [weak self] c in self?.handleCardTap(c) }
+        addChild(s)
+        sprites[s.card.id] = s
     }
 
     func cleanup() {
-        cardSprites.forEach { $0.removeFromParent() }
-        cardSprites = []
-        liftedCard = nil
+        sprites.values.forEach { $0.removeFromParent() }
+        sprites = [:]
+        liftedCardId = nil
     }
 }

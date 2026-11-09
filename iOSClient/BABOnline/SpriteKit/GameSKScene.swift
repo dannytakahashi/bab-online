@@ -1,55 +1,91 @@
 import SpriteKit
 import Combine
 
-/// Main SpriteKit scene. The store calls `apply(model:animations:)`
-/// synchronously after every commit (no Combine subjects, no `$phase` sinks).
-/// Interim adapter: one rebuild path over the existing managers.
+/// The table scene, rendered from state. The store calls
+/// `apply(model:animations:)` synchronously after every commit:
+///   1. exit animations (trick collect, cleared/destroyed hands) move their
+///      sprites to `transient`,
+///   2. `render(model)`: idempotent reconcile of the stable layers
+///      (opponents, hand, trick, history, turn glow, bid bubbles),
+///   3. entrance animations (card fly-in, bid pop, bore, rainbow, OT, chat).
+/// Animations carry their deal / trick generation and only touch nodes of
+/// that generation. No Combine subjects, no `$phase` sinks (22.2, 22.3).
 class GameSKScene: SKScene, TableRenderer {
-    private var gameState: GameState!
-    private var actions: ActionCoordinator!
+    private(set) var gameState: GameState?
+    private var actions: ActionCoordinator?
     private var cancellables = Set<AnyCancellable>()
-    private var isSetUp = false
-    private var didMoveToView = false
-    private(set) var lastModel: TableRenderModel?
-    private var builtFor: (gameId: String?, view: Int, spectator: Bool, table: Bool)?
+    private(set) var isSetUp = false
 
-    // Managers
+    var animator: Animator = LiveAnimator()
+    private(set) var geometry = TableGeometry(size: .zero)
+    private(set) var lastModel: TableRenderModel?
+
+    // Static layers (built once)
+    let backgroundNode = SKSpriteNode(color: UIColor(red: 0.05, green: 0.22, blue: 0.08, alpha: 1), size: .zero)
+    let opponentsLayer = SKNode()
+    let bidsLayer = SKNode()
+    let transientLayer = SKNode()
     private(set) var cardManager: SKCardManager!
     private(set) var opponentManager: SKOpponentManager!
     private(set) var trickManager: SKTrickManager!
     private(set) var bidManager: SKBidManager!
+    private(set) var chatManager: SKChatBubbleManager!
     private(set) var effectsManager: SKEffectsManager!
 
-    private var backgroundNode: SKSpriteNode?
+    var handNode: HandNode { cardManager.handNode }
+    var trickArea: TrickAreaNode { trickManager.trickArea }
 
-    /// Configure with the store and the action sender. Call once.
+    /// Configure with the store and the action sender (sets itself as the store's renderer).
     func configure(gameState: GameState, actions: ActionCoordinator) {
         self.gameState = gameState
         self.actions = actions
         gameState.renderer = self
-        if didMoveToView && !isSetUp { performSetup() }
+        if isSetUp && cancellables.isEmpty { subscribeSpeaking() }
+        if view != nil || isSetUp { renderLatestFromStore(reset: true) }
     }
 
     override func didMove(to view: SKView) {
-        didMoveToView = true
         backgroundColor = UIColor(red: 0.05, green: 0.15, blue: 0.05, alpha: 1)
         anchorPoint = CGPoint(x: 0.5, y: 0.5)
         scaleMode = .resizeFill
-        if gameState != nil && !isSetUp { performSetup() }
+        buildLayersOnce()
+        renderLatestFromStore(reset: true)
     }
 
-    private func performSetup() {
-        guard gameState != nil, !isSetUp else { return }
+    private func buildLayersOnce() {
+        guard !isSetUp else { return }
         isSetUp = true
-        setupBackground()
-        cardManager = SKCardManager(scene: self)
-        cardManager.onPlay = { [weak self] card in self?.actions.play(card) ?? false }
-        opponentManager = SKOpponentManager(scene: self)
-        trickManager = SKTrickManager(scene: self)
-        bidManager = SKBidManager(scene: self)
-        effectsManager = SKEffectsManager(scene: self)
+        geometry = TableGeometry(size: size)
+        backgroundNode.name = "background"
+        backgroundNode.zPosition = -100
+        backgroundNode.size = size
+        addChild(backgroundNode)
+        opponentsLayer.name = "opponents"
+        opponentsLayer.zPosition = 10
+        addChild(opponentsLayer)
+        bidsLayer.name = "bids"
+        bidsLayer.zPosition = 60
+        addChild(bidsLayer)
+        transientLayer.name = "transient"
+        transientLayer.zPosition = 500
+        addChild(transientLayer)
 
-        // Voice speaking indicators: socket id -> seat
+        cardManager = SKCardManager(scene: self)
+        cardManager.onPlay = { [weak self] card in self?.actions?.play(card) ?? false }
+        addChild(cardManager.handNode)
+        trickManager = SKTrickManager(scene: self)
+        addChild(trickManager.trickArea)
+        addChild(trickManager.trickHistory)
+        opponentManager = SKOpponentManager(scene: self, layer: opponentsLayer)
+        bidManager = SKBidManager(layer: bidsLayer)
+        chatManager = SKChatBubbleManager(layer: transientLayer)
+        effectsManager = SKEffectsManager(scene: self)
+        subscribeSpeaking()
+    }
+
+    /// Voice speaking indicators (the one Combine sink left): socket id -> seat.
+    private func subscribeSpeaking() {
+        cancellables.removeAll()
         VoiceChatManager.shared.speakingChangedSubject
             .receive(on: DispatchQueue.main)
             .sink { [weak self] (socketId, isSpeaking) in
@@ -58,102 +94,143 @@ class GameSKScene: SKScene, TableRenderer {
                 self.opponentManager?.setSpeaking(position: pos, speaking: isSpeaking)
             }
             .store(in: &cancellables)
+    }
 
-        apply(model: TableRenderModel(gameState.state), animations: [.sceneReset])
+    private func renderLatestFromStore(reset: Bool) {
+        guard isSetUp, let gs = gameState else { return }
+        let model = TableRenderModel(gs.state)
+        lastModel = model
+        render(model, reset: reset)
     }
 
     override func didChangeSize(_ oldSize: CGSize) {
         super.didChangeSize(oldSize)
         guard isSetUp else { return }
-        setupBackground()
-        if let m = lastModel { rebuild(m) }
+        geometry = TableGeometry(size: size)
+        backgroundNode.size = size
+        renderLatest()  // relays out every layer, opponents included
     }
 
-    private func setupBackground() {
-        backgroundNode?.removeFromParent()
-        let bg = SKSpriteNode(color: UIColor(red: 0.05, green: 0.22, blue: 0.08, alpha: 1), size: size)
-        bg.position = .zero
-        bg.zPosition = -100
-        addChild(bg)
-        backgroundNode = bg
+    /// Re-render the latest model (collect completion, resize).
+    func renderLatest() {
+        if let m = lastModel { render(m) }
     }
 
     // MARK: - TableRenderer
 
     func apply(model: TableRenderModel, animations: [TableAnimation]) {
         guard isSetUp else { lastModel = model; return }
-        let key = (gameId: model.gameId, view: model.viewPosition, spectator: model.isSpectator, table: model.showsTable)
-        let needsRebuild = animations.contains(.sceneReset) || builtFor.map { $0 != key } ?? true
         lastModel = model
-        if needsRebuild { rebuild(model) }
+        let view = model.viewPosition
 
+        // 1. exits
         for a in animations {
             switch a {
-            case .cardPlayed(let played, _, let byMe):
-                guard model.showsTable else { break }
-                if trickManager.trickCount >= 4 || (trickManager.trickCount > 0 && model.trick.count <= 1) { trickManager.clearTrickArea() }
-                if byMe {
-                    trickManager.placeCard(played.card, position: played.position)
-                } else {
-                    trickManager.placeCard(played.card, position: played.position, from: opponentManager.trickEntryPoint(forPosition: played.position))
+            case .trickCollected(let winner, let key):
+                trickManager.collect(winner: winner, key: key, viewPosition: view, geometry: geometry, animator: animator)
+            case .handsDestroyed:
+                for s in handNode.sprites.values {
+                    _ = handNode.detach(s.card.id)
+                    s.removeFromParent()
+                    transientLayer.addChild(s)
+                    animator.fadeAndRemove(s, after: 0)
                 }
-            case .trickCollected(let winner, _):
-                trickManager.collectTrick(winner: winner) { [weak self] in
-                    guard let self, let m = self.lastModel else { return }
-                    self.cardManager.updateHand(m)
-                }
-            case .handCleared, .handsDestroyed:
-                bidManager.clearAll()
-                trickManager.clearHistory()
-                trickManager.clearTrickArea()
-            case .bidPlaced(let pos, let bid, _):
-                bidManager.showBid(position: pos, bid: bid, myPosition: model.viewPosition)
-            case .bore(_, let bid, _):
-                effectsManager.showBoreBadge(bid)
-            case .rainbow(let pos, _):
-                effectsManager.showRainbow(position: pos, myPosition: model.viewPosition)
-            case .overTrump:
-                effectsManager.showOverTrump()
-            case .chatBubble, .sceneReset:
+            case .handCleared(let dealSeq):
+                // anything left of the previous deal's tricks goes now
+                for s in trickArea.cardSprites where (s.userData?["key"] as? String)?.hasPrefix("\(dealSeq):") == true { s.removeFromParent() }
+            default:
                 break
             }
         }
 
-        if model.showsTable {
-            cardManager.updateHand(model)
-            opponentManager.update(model)
+        // 2. reconcile
+        let moved = render(model, reset: animations.contains(.sceneReset))
+
+        // 3. entrances
+        for a in animations {
+            switch a {
+            case .cardPlayed(let played, let key, _):
+                guard key == model.trickKey || model.trick.contains(where: { $0.position == played.position && $0.card == played.card }) else { break }
+                let name = TrickAreaNode.spriteName(played.position, played.card)
+                guard !moved.contains(name) else { break }  // my hand's own sprite is already flying in
+                let rel = Positions.getRelative(target: played.position, from: view)
+                trickArea.animateEntry(name, from: geometry.trickEntry(rel), slot: geometry.trickSlot(rel), animator: animator)
+            case .bidPlaced(let pos, _, _):
+                bidManager.pop(position: pos, animator: animator)
+            case .bore(_, let bid, _):
+                effectsManager.showBoreBadge(bid)
+            case .rainbow(let pos, _):
+                effectsManager.showRainbow(position: pos, myPosition: view)
+            case .overTrump:
+                effectsManager.showOverTrump()
+            case .chatBubble(let pos, let message):
+                guard model.showsTable else { break }
+                chatManager.show(position: pos, message: message, viewPosition: view, geometry: geometry, animator: animator)
+            default:
+                break
+            }
         }
     }
 
-    /// The one setup path: idempotent from the model.
-    private func rebuild(_ model: TableRenderModel) {
-        builtFor = (gameId: model.gameId, view: model.viewPosition, spectator: model.isSpectator, table: model.showsTable)
-        cardManager.cleanup()
-        opponentManager.cleanup()
-        trickManager.cleanup()
-        bidManager.cleanup()
-        guard model.showsTable else { return }
-        if model.hand != nil { cardManager.setup() }
-        opponentManager.setup(model)
-        trickManager.setup(viewPosition: model.viewPosition)
-        for c in model.trick where !c.provisional {
-            trickManager.placeCard(c.card, position: c.position, animated: false)
+    /// Idempotent: the stable layers show exactly `model`. Returns the trick
+    /// sprites that came from my hand this render (they animate themselves).
+    @discardableResult
+    func render(_ model: TableRenderModel, reset: Bool = false) -> Set<String> {
+        guard isSetUp else { return [] }
+        lastModel = model
+        if reset {
+            // My own hand sprites stay (a rollback hands them back); everything else goes
+            let mine = trickArea.cardSprites.compactMap { $0 as? CardSpriteNode }
+            trickArea.clearAllCards()  // also zeroes collectingCount
+            mine.forEach { trickArea.addChild($0) }
+            transientLayer.removeAllChildren()
         }
-        for (pos, bid) in model.bidBubbles { bidManager.showBid(position: pos, bid: bid, myPosition: model.viewPosition) }
-        cardManager.updateHand(model)
-        opponentManager.update(model)
+        handNode.position = geometry.handBaseline
+        trickManager.trickHistory.position = geometry.historyOrigin
+        guard model.showsTable else {
+            opponentManager.cleanup()
+            handNode.cleanup()
+            trickArea.clearAllCards()
+            trickManager.trickHistory.setCounts(team: 0, opp: 0)
+            bidManager.cleanup()
+            return []
+        }
+        let me = model.viewPosition
+
+        // Cross-container moves of my own card (22.4 / 22.7): hand -> trick on a
+        // submit or a lazy-bot play, trick -> hand on a rollback
+        var toHand: Set<String> = []
+        if let hand = model.hand {
+            for card in hand.cards where handNode.sprite(for: card.id) == nil {
+                if let s = trickArea.sprite(named: TrickAreaNode.spriteName(me, card)) as? CardSpriteNode {
+                    handNode.adopt(s)
+                    toHand.insert(card.id)
+                }
+            }
+        }
+
+        var toTrick: [String: CardSpriteNode] = [:]
+        if model.hand != nil {
+            for c in model.trick where c.position == me && trickArea.sprite(named: TrickAreaNode.spriteName(me, c.card)) == nil {
+                if let s = handNode.detach(c.card.id) { toTrick[c.card.id] = s }
+            }
+        }
+
+        opponentManager.apply(model, geometry: geometry)
+        cardManager.apply(model, geometry: geometry, arriving: toHand, animator: animator)
+        let moved = trickArea.apply(cards: model.trick, key: model.trickKey, viewPosition: me, geometry: geometry, adopt: { c in
+            c.position == me ? toTrick.removeValue(forKey: c.card.id) : nil
+        }, animator: animator)
+        toTrick.values.forEach { $0.removeFromParent() }
+        trickManager.trickHistory.setCounts(team: model.history.team1, opp: model.history.team2)
+        bidManager.apply(bubbles: model.bidBubbles, viewPosition: me, geometry: geometry)
+        return moved
     }
 
     // MARK: - Cleanup
 
     func cleanupAll() {
         cancellables.removeAll()
-        cardManager?.cleanup()
-        opponentManager?.cleanup()
-        trickManager?.cleanup()
-        bidManager?.cleanup()
-        effectsManager?.cleanup()
-        builtFor = nil
-        isSetUp = false
+        if gameState?.renderer === self { gameState?.renderer = nil }
     }
 }
