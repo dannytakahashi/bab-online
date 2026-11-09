@@ -42,6 +42,8 @@ class RateLimiter {
             getRecords: { max: 10, windowMs: 10000 },
             searchPlayers: { max: 30, windowMs: 10000 },
             getPlayerProfile: { max: 30, windowMs: 10000 },
+            // Custom picture uploads (each one is decoded + re-encoded)
+            uploadProfilePic: { max: 5, windowMs: 60000 },
 
             // Queue - prevent queue spam
             joinQueue: { max: 5, windowMs: 30000 },    // 5 per 30 seconds

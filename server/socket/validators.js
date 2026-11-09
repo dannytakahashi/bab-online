@@ -102,8 +102,10 @@ const schemas = {
         profilePic: Joi.number().integer().min(1).max(82).required()
     }),
 
+    // The handler refuses anything over ~682,666 chars (500 KB decoded)
+    // anyway; the cap stops Joi from walking a huge string first
     uploadProfilePic: Joi.object({
-        imageData: Joi.string().required()
+        imageData: Joi.string().max(682700).required()
     }),
 
     // Tournament

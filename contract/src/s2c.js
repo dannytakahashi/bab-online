@@ -624,8 +624,9 @@ const s2c = {
 
     // ==================== Profile ====================
     profileResponse: {
-        payload: okFail({ profile: ref('profile') }),
+        payload: okFail({ profile: ref('profile'), avatarUrl: ref('avatarUrl') }, { optional: ['avatarUrl'] }),
         status: 'active', to: 'self',
+        added: ['avatarUrl'],
         clientReads: reads(W.profile, []),
         emittedFrom: ['server/socket/profileHandlers.js:getProfile'],
     },
@@ -636,26 +637,31 @@ const s2c = {
         emittedFrom: ['server/socket/profileHandlers.js:updateProfilePic'],
     },
     profilePicUploadResponse: {
-        payload: okFail({ customProfilePic: str() }),
+        payload: okFail({ customProfilePic: str(), avatarUrl: ref('avatarUrl') }, { optional: ['avatarUrl'] }),
         status: 'active', to: 'self',
+        added: ['avatarUrl'],
         clientReads: reads(W.profile, []),
         emittedFrom: ['server/socket/profileHandlers.js:uploadProfilePic'],
     },
     searchPlayersResponse: {
-        payload: okFail({ players: arr(ref('playerSearchRow')) }),
+        payload: okFail({ players: arr(ref('playerSearchRow')), avatarUrls: ref('avatarUrlsByUsername') }, { optional: ['avatarUrls'] }),
         status: 'active', to: 'self',
+        added: ['avatarUrls'],
         clientReads: reads(W.profile, []),
         emittedFrom: ['server/socket/profileHandlers.js:searchPlayers'],
     },
     playerProfileResponse: {
-        payload: okFail({ profile: ref('profile') }),
+        payload: okFail({ profile: ref('profile'), avatarUrl: ref('avatarUrl') }, { optional: ['avatarUrl'] }),
         status: 'active', to: 'self',
+        added: ['avatarUrl'],
         clientReads: reads(W.profile, []),
         emittedFrom: ['server/socket/profileHandlers.js:getPlayerProfile'],
     },
     leaderboardResponse: {
-        payload: okFail({ leaderboard: arr(ref('leaderboardRow')) }),
+        payload: okFail({ leaderboard: arr(ref('leaderboardRow')), avatarUrls: ref('avatarUrlsByUsername') }, { optional: ['avatarUrls'] }),
         status: 'active', to: 'self',
+        added: ['avatarUrls'],
+        notes: 'Rows by recipient (docs/avatars.md): a capable socket gets customProfilePic null + avatarUrls {username: url}; a legacy one the small inline rendition. The App Store iOS build reads neither.',
         clientReads: reads(W.board, I.board),
         emittedFrom: ['server/socket/profileHandlers.js:getLeaderboard'],
     },

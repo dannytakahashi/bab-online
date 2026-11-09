@@ -87,4 +87,50 @@ function wireClientState(game, state, capable) {
     return out;
 }
 
-module.exports = { isCustom, avatarPath, resolve, slot, seatResolve, mapPlayers, wireClientState };
+/**
+ * resolve() for a stored users.customProfilePic read for a profile reply
+ * (leaderboard, search, profiles): the rendition is awaited (derived now
+ * if needed). A full derive queue falls back to today's value, no URL.
+ */
+async function resolveStored(raw, username) {
+    if (!avatarStore.available() || !isCustom(raw) || !username) return { legacy: raw, url: null };
+    try {
+        await avatarStore.ensure(username, raw);
+    } catch (e) {
+        if (e.code !== 'AVATAR_BUSY') throw e;
+        return { legacy: raw, url: null };
+    }
+    return resolve(raw, username);
+}
+
+/**
+ * Profile rows ({username, customProfilePic, ...}) in both shapes:
+ * legacy (customProfilePic = the inline rendition / placeholder / today's
+ * value) and capable (customProfilePic null where there is a URL), plus
+ * avatarUrls {username: url} (undefined when empty). At most 2 rows derive
+ * at once, so a fill never overflows the derive queue by itself. Rows
+ * without a custom picture are shared, never copied.
+ */
+async function mapProfileRows(rows) {
+    const legacy = rows.slice();
+    const capable = rows.slice();
+    let avatarUrls;
+    const todo = rows.map((row, i) => [row, i]).filter(([row]) => isCustom(row.customProfilePic));
+    const worker = async () => {
+        for (let next = todo.shift(); next; next = todo.shift()) {
+            const [row, i] = next;
+            const r = await resolveStored(row.customProfilePic, row.username);
+            if (r.legacy !== row.customProfilePic) legacy[i] = { ...row, customProfilePic: r.legacy };
+            if (r.url) {
+                capable[i] = { ...row, customProfilePic: null };
+                (avatarUrls = avatarUrls || {})[row.username] = r.url;
+            } else {
+                capable[i] = legacy[i];
+            }
+        }
+    };
+    await Promise.all([worker(), worker()]);
+    return { legacy, capable, avatarUrls };
+}
+
+module.exports = { isCustom, avatarPath, resolve, resolveStored, slot, seatResolve, mapPlayers, wireClientState, mapProfileRows };

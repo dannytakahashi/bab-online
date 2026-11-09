@@ -2958,7 +2958,8 @@
         "properties": {
           "imageData": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "maxLength": 682700
           }
         },
         "required": [
@@ -2968,7 +2969,8 @@
       },
       "status": "active",
       "joi": "uploadProfilePic",
-      "rateLimit": null,
+      "rateLimit": "uploadProfilePic",
+      "notes": "Pipeline on (docs/avatars.md): decoded and re-encoded server-side; stored as a WebP data URL <= 256 px; undecodable or unsafe images are refused with the usual {success:false, message}.",
       "sentBy": {
         "web": true,
         "ios": false
@@ -7183,6 +7185,9 @@
               },
               "profile": {
                 "$ref": "#/$defs/profile"
+              },
+              "avatarUrl": {
+                "$ref": "#/$defs/avatarUrl"
               }
             },
             "required": [
@@ -7212,6 +7217,9 @@
       },
       "status": "active",
       "to": "self",
+      "added": [
+        "avatarUrl"
+      ],
       "clientReads": {
         "web": [
           "client/src/handlers/profileHandlers.js:registerProfileHandlers"
@@ -7287,6 +7295,9 @@
               },
               "customProfilePic": {
                 "type": "string"
+              },
+              "avatarUrl": {
+                "$ref": "#/$defs/avatarUrl"
               }
             },
             "required": [
@@ -7316,6 +7327,9 @@
       },
       "status": "active",
       "to": "self",
+      "added": [
+        "avatarUrl"
+      ],
       "clientReads": {
         "web": [
           "client/src/handlers/profileHandlers.js:registerProfileHandlers"
@@ -7341,6 +7355,9 @@
                 "items": {
                   "$ref": "#/$defs/playerSearchRow"
                 }
+              },
+              "avatarUrls": {
+                "$ref": "#/$defs/avatarUrlsByUsername"
               }
             },
             "required": [
@@ -7370,6 +7387,9 @@
       },
       "status": "active",
       "to": "self",
+      "added": [
+        "avatarUrls"
+      ],
       "clientReads": {
         "web": [
           "client/src/handlers/profileHandlers.js:registerProfileHandlers"
@@ -7392,6 +7412,9 @@
               },
               "profile": {
                 "$ref": "#/$defs/profile"
+              },
+              "avatarUrl": {
+                "$ref": "#/$defs/avatarUrl"
               }
             },
             "required": [
@@ -7421,6 +7444,9 @@
       },
       "status": "active",
       "to": "self",
+      "added": [
+        "avatarUrl"
+      ],
       "clientReads": {
         "web": [
           "client/src/handlers/profileHandlers.js:registerProfileHandlers"
@@ -7446,6 +7472,9 @@
                 "items": {
                   "$ref": "#/$defs/leaderboardRow"
                 }
+              },
+              "avatarUrls": {
+                "$ref": "#/$defs/avatarUrlsByUsername"
               }
             },
             "required": [
@@ -7475,6 +7504,10 @@
       },
       "status": "active",
       "to": "self",
+      "added": [
+        "avatarUrls"
+      ],
+      "notes": "Rows by recipient (docs/avatars.md): a capable socket gets customProfilePic null + avatarUrls {username: url}; a legacy one the small inline rendition. The App Store iOS build reads neither.",
       "clientReads": {
         "web": [
           "client/src/handlers/leaderboardHandlers.js:registerLeaderboardHandlers"

@@ -9,6 +9,9 @@ const { authLogger } = require('../utils/logger');
 const { createCache } = require('../utils/ttlCache');
 const rateLimiter = require('./rateLimiter');
 const avatarStore = require('../avatar/avatarStore');
+const avatarWire = require('../avatar/avatarWire');
+const image = require('../avatar/image');
+const { hasCap } = require('./clientInfo');
 
 // Leaderboard and records pages: 60 s caches, invalidated on every write
 // this process makes that changes them (recordGameStats, deleteAccount,
@@ -21,6 +24,22 @@ let recordsCacheKey = null;
 
 /** Longest possible username (validators.js): a longer query matches nobody. */
 const MAX_USERNAME_LENGTH = 50;
+
+/** A profile's stats before its first game. */
+const emptyStats = () => ({
+    wins: 0,
+    losses: 0,
+    draws: 0,
+    gamesPlayed: 0,
+    totalPoints: 0,
+    totalTricksBid: 0,
+    totalTricksTaken: 0,
+    totalHands: 0,
+    totalSets: 0,
+    totalSetPoints: 0,
+    totalFaults: 0,
+    totalHSI: 0
+});
 
 /** Fields a profile reply is built from (plus mergedInto for the redirect). */
 const PROFILE_PROJECTION = { username: 1, profilePic: 1, customProfilePic: 1, stats: 1, mergedInto: 1 };
@@ -55,29 +74,9 @@ async function getProfile(socket, io) {
             return;
         }
 
-        // Return profile data with stats
-        socket.emit('profileResponse', {
-            success: true,
-            profile: {
-                username: dbUser.username,
-                profilePic: dbUser.profilePic || 1,
-                customProfilePic: dbUser.customProfilePic || null,
-                stats: dbUser.stats || {
-                    wins: 0,
-                    losses: 0,
-                    draws: 0,
-                    gamesPlayed: 0,
-                    totalPoints: 0,
-                    totalTricksBid: 0,
-                    totalTricksTaken: 0,
-                    totalHands: 0,
-                    totalSets: 0,
-                    totalSetPoints: 0,
-                    totalFaults: 0,
-                    totalHSI: 0
-                }
-            }
-        });
+        // Return profile data with stats (custom picture per recipient:
+        // docs/avatars.md)
+        socket.emit('profileResponse', await profileReply(socket, dbUser));
 
         authLogger.debug('Profile fetched', { username: user.username });
     } catch (error) {
@@ -193,18 +192,39 @@ async function uploadProfilePic(socket, io, data) {
         return;
     }
 
+    // Pipeline on: only images we can decode safely are accepted, and what
+    // is stored is our canonical rendition (WebP <= 256 px, metadata
+    // stripped; a data URL the App Store iOS build decodes too). Existing
+    // documents are never rewritten (docs/avatars.md). Off: today's bytes.
+    let stored = imageData;
+    let rendition = null;
+    if (avatarStore.available()) {
+        const buf = image.parseDataUrl(imageData);
+        const r = buf ? await image.derive(buf, { strict: true }) : { status: 'undecodable' };
+        if (r.status !== 'ok') {
+            authLogger.warn('Custom profile picture refused', { username: user.username, status: r.status, reason: r.reason });
+            socket.emit('profilePicUploadResponse', {
+                success: false,
+                message: 'Could not read that image. Please try a PNG, JPEG, GIF or WebP.'
+            });
+            return;
+        }
+        rendition = r.webp;
+        stored = image.toInline(r.webp);
+    }
+
     try {
         await usersCollection.updateOne(
             { username: user.username },
-            { $set: { customProfilePic: imageData } }
+            { $set: { customProfilePic: stored } }
         );
         avatarStore.forgetUser(user.username);
         invalidateLeaderboard();
 
-        socket.emit('profilePicUploadResponse', {
-            success: true,
-            customProfilePic: imageData
-        });
+        const reply = { success: true, customProfilePic: stored };
+        const v = rendition ? avatarStore.seed(user.username, stored, rendition) : null;
+        if (v) reply.avatarUrl = avatarWire.avatarPath(user.username, v); // additive
+        socket.emit('profilePicUploadResponse', reply);
 
         authLogger.info('Custom profile picture uploaded', { username: user.username });
     } catch (error) {
@@ -484,7 +504,42 @@ async function fillLeaderboard() {
     // Sort by win rate descending by default
     leaderboard.sort((a, b) => b.winRate - a.winRate);
 
-    return leaderboard;
+    // Both reply shapes, cached together (docs/avatars.md): legacy rows
+    // carry the small inline rendition, capable rows null + avatarUrls.
+    // With the pipeline off both are exactly today's rows.
+    return avatarWire.mapProfileRows(leaderboard);
+}
+
+/** The leaderboard reply for `socket` from a cached fill. */
+function leaderboardPayload(socket, value) {
+    if (hasCap(socket, 'avatarUrl')) {
+        const out = { success: true, leaderboard: value.capable };
+        if (value.avatarUrls) out.avatarUrls = value.avatarUrls;
+        return out;
+    }
+    return { success: true, leaderboard: value.legacy };
+}
+
+/**
+ * A profile reply (profileResponse / playerProfileResponse) for `socket`:
+ * today's shape, the custom picture as the recipient can render it, plus
+ * avatarUrl (additive) for a capable one.
+ */
+async function profileReply(socket, dbUser) {
+    const raw = dbUser.customProfilePic || null;
+    const r = raw ? await avatarWire.resolveStored(raw, dbUser.username) : { legacy: null, url: null };
+    const capable = hasCap(socket, 'avatarUrl') && !!r.url;
+    const out = {
+        success: true,
+        profile: {
+            username: dbUser.username,
+            profilePic: dbUser.profilePic || 1,
+            customProfilePic: capable ? null : r.legacy,
+            stats: dbUser.stats || emptyStats()
+        }
+    };
+    if (capable) out.avatarUrl = r.url;
+    return out;
 }
 
 /**
@@ -496,19 +551,16 @@ async function getLeaderboard(socket, io) {
     // Soft limit: over it, the (possibly stale) cached rows, never 'error'
     if (!rateLimiter.check(socket.id, 'getLeaderboard')) {
         await replyThrottled(socket, 'leaderboardResponse', leaderboardCache,
-            (leaderboard) => ({ success: true, leaderboard }));
+            (value) => leaderboardPayload(socket, value));
         return;
     }
 
     try {
-        const leaderboard = await leaderboardCache.get(fillLeaderboard);
+        const value = await leaderboardCache.get(fillLeaderboard);
 
-        socket.emit('leaderboardResponse', {
-            success: true,
-            leaderboard
-        });
+        socket.emit('leaderboardResponse', leaderboardPayload(socket, value));
 
-        authLogger.debug('Leaderboard fetched', { playerCount: leaderboard.length });
+        authLogger.debug('Leaderboard fetched', { playerCount: value.legacy.length });
     } catch (error) {
         authLogger.error('Error fetching leaderboard', { error: error.message });
         socket.emit('leaderboardResponse', {
@@ -552,15 +604,20 @@ async function searchPlayers(socket, io, data) {
             { projection: { username: 1, profilePic: 1, customProfilePic: 1, 'stats.gamesPlayed': 1, 'stats.wins': 1 } }
         ).limit(20).toArray();
 
-        const players = users.map(u => ({
+        const rows = users.map(u => ({
             username: u.username,
             profilePic: u.profilePic || 1,
             customProfilePic: u.customProfilePic || null,
             gamesPlayed: u.stats?.gamesPlayed || 0,
             wins: u.stats?.wins || 0
         }));
+        const mapped = await avatarWire.mapProfileRows(rows);
+        const capable = hasCap(socket, 'avatarUrl');
+        const players = capable ? mapped.capable : mapped.legacy;
+        const reply = { success: true, players };
+        if (capable && mapped.avatarUrls) reply.avatarUrls = mapped.avatarUrls;
 
-        socket.emit('searchPlayersResponse', { success: true, players });
+        socket.emit('searchPlayersResponse', reply);
         authLogger.debug('Player search', { query: query.trim(), resultCount: players.length });
     } catch (error) {
         authLogger.error('Error searching players', { query, error: error.message });
@@ -603,28 +660,7 @@ async function getPlayerProfile(socket, io, data) {
             return;
         }
 
-        socket.emit('playerProfileResponse', {
-            success: true,
-            profile: {
-                username: dbUser.username,
-                profilePic: dbUser.profilePic || 1,
-                customProfilePic: dbUser.customProfilePic || null,
-                stats: dbUser.stats || {
-                    wins: 0,
-                    losses: 0,
-                    draws: 0,
-                    gamesPlayed: 0,
-                    totalPoints: 0,
-                    totalTricksBid: 0,
-                    totalTricksTaken: 0,
-                    totalHands: 0,
-                    totalSets: 0,
-                    totalSetPoints: 0,
-                    totalFaults: 0,
-                    totalHSI: 0
-                }
-            }
-        });
+        socket.emit('playerProfileResponse', await profileReply(socket, dbUser));
 
         authLogger.debug('Player profile fetched', { username: username.trim() });
     } catch (error) {
@@ -819,6 +855,7 @@ module.exports = {
     invalidateLeaderboard,
     invalidateRecords,
     _resetCachesForTests,
+    _peekLeaderboardCache: () => leaderboardCache.peek(),
     getProfile,
     updateProfilePic,
     uploadProfilePic,

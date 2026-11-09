@@ -218,6 +218,20 @@ function peek(v) {
     return inflight.has(v) ? { status: 'pending' } : undefined;
 }
 
+/**
+ * A new upload, already derived (profileHandlers.uploadProfilePic stores
+ * the canonical WebP data URL `inline` whose bytes are `webp`): its own
+ * rendition, so the first fetch needs no derive. Returns the version.
+ */
+function seed(username, inline, webp) {
+    if (!available()) return null;
+    const v = versionOf(inline);
+    const e = { status: 'ok', webp, inline, owners: new Map(), bytes: webp.length + inline.length };
+    store(v, e);
+    markOwner(v, username);
+    return v;
+}
+
 /** A picture change or account deletion: no version is `username`'s any more. */
 function forgetUser(username) {
     for (const e of byV.values()) e.owners.delete(username);
@@ -267,6 +281,7 @@ module.exports = {
     ensure,
     peek,
     markOwner,
+    seed,
     forgetUser,
     markMissing,
     isMissing,
