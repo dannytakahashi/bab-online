@@ -2,12 +2,12 @@
  * utils/avatar.js: src mapping, the <img> helper, the ingress fold of
  * avatarUrls into pic fields, and the clientHello wiring (docs/avatars.md).
  */
-import { describe, test, expect, beforeEach, vi } from 'vitest';
+import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import {
   avatarSrc, profileAvatarSrc, applyAvatarImg, foldAvatarPayload, foldUrls, isAvatarPic,
-  installAvatarSupport, clientHello,
+  installAvatarSupport, clientHello, inlineFor, CUSTOM_FALLBACK, AVATAR_RETRY_MS,
 } from './avatar.js';
 import { parseSnapshotV2, mergeSnapshot } from '../state/snapshotV2.js';
 
@@ -66,9 +66,64 @@ describe('applyAvatarImg', () => {
     img.onerror();
     expect(img.getAttribute('src')).toBe('assets/default_avatar.png');
     expect(img.onerror).toBeNull();
-    const custom = applyAvatarImg(document.createElement('img'), URL1);
-    custom.onerror();
-    expect(custom.getAttribute('src')).toBe('assets/profile1.png');
+    // an invalid pic still gets the caller's fallback
+    const none = applyAvatarImg(document.createElement('img'), avatarSrc(null));
+    expect(none.getAttribute('src')).toBe('assets/profile1.png');
+  });
+
+  describe('a failed custom picture never shows another player\'s stock animal', () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    test('/avatar URL with an inline copy from a room broadcast: the inline copy at once', () => {
+      const url = '/avatar/kim?v=1111111111111111';
+      foldAvatarPayload('positionUpdate', { positions: [1, 2], pics: [DATA, 5], avatarUrls: { 1: url } });
+      expect(inlineFor(url)).toBe(DATA);
+      const img = applyAvatarImg(document.createElement('img'), url);
+      img.onerror(); // e.g. 503 from the lookup cap
+      expect(img.getAttribute('src')).toBe(DATA);
+      // the inline copy fails too (no WebP decoder): neutral, then the URL once more
+      img.onerror();
+      expect(img.getAttribute('src')).toBe(CUSTOM_FALLBACK);
+      vi.advanceTimersByTime(AVATAR_RETRY_MS);
+      expect(img.getAttribute('src')).toBe(url);
+      img.onerror();
+      expect(img.getAttribute('src')).toBe(CUSTOM_FALLBACK);
+      vi.advanceTimersByTime(10 * AVATAR_RETRY_MS);
+      expect(img.getAttribute('src')).toBe(CUSTOM_FALLBACK); // one retry only
+    });
+
+    test('/avatar URL without an inline copy (per-socket payload): neutral, one retry after 3 s', () => {
+      const img = applyAvatarImg(document.createElement('img'), URL1); // default fallback is profile1
+      img.onerror(); // 429 / 503 / 404
+      expect(img.getAttribute('src')).toBe(CUSTOM_FALLBACK);
+      expect(img.getAttribute('src')).not.toBe('assets/profile1.png');
+      vi.advanceTimersByTime(AVATAR_RETRY_MS - 1);
+      expect(img.getAttribute('src')).toBe(CUSTOM_FALLBACK);
+      vi.advanceTimersByTime(1);
+      expect(img.getAttribute('src')).toBe(URL1); // the retry loads
+      img.onerror();
+      expect(img.getAttribute('src')).toBe(CUSTOM_FALLBACK);
+    });
+
+    test('a newer src cancels a pending retry; re-applying the same src keeps the pending retry', () => {
+      const img = applyAvatarImg(document.createElement('img'), URL1);
+      img.onerror();
+      applyAvatarImg(img, CUSTOM_FALLBACK); // same as shown: no-op
+      vi.advanceTimersByTime(AVATAR_RETRY_MS);
+      expect(img.getAttribute('src')).toBe(URL1);
+      img.onerror();
+      applyAvatarImg(img, 'assets/avatars/v1/profile9.webp'); // the seat changed meanwhile
+      vi.advanceTimersByTime(AVATAR_RETRY_MS);
+      expect(img.getAttribute('src')).toBe('assets/avatars/v1/profile9.webp');
+    });
+
+    test('a failed inline data URL gets the neutral fallback', () => {
+      const img = applyAvatarImg(document.createElement('img'), DATA);
+      img.onerror();
+      expect(img.getAttribute('src')).toBe(CUSTOM_FALLBACK);
+      expect(img.onerror).toBeNull();
+    });
   });
 });
 
@@ -129,15 +184,24 @@ describe('clientHello wiring', () => {
     };
   }
 
-  test('hello goes out before anything else, and again on every reconnect', () => {
+  test('installed while disconnected: one hello, buffered ahead of anything else; again on every reconnect', () => {
     const s = mockSocket();
+    s.connected = false;
     installAvatarSupport(s, { version: '1.0.0', build: 'abc1234' });
     s.emit('restoreSession', { username: 'kim' });
-    s.fire('connect');
+    s.fire('connect'); // flushes the buffered hello + restoreSession: no second hello
     s.emit('rejoinGame', {});
     s.fire('connect');
-    expect(s.sent.map(([ev]) => ev)).toEqual(['clientHello', 'restoreSession', 'clientHello', 'rejoinGame', 'clientHello']);
+    expect(s.sent.map(([ev]) => ev)).toEqual(['clientHello', 'restoreSession', 'rejoinGame', 'clientHello']);
     expect(s.sent[0][1]).toEqual({ client: 'web', version: '1.0.0', build: 'abc1234', caps: ['avatarUrl'] });
+  });
+
+  test('installed while connected: hello now, and on every reconnect', () => {
+    const s = mockSocket();
+    s.connected = true;
+    installAvatarSupport(s, {});
+    s.fire('connect');
+    expect(s.sent.map(([ev]) => ev)).toEqual(['clientHello', 'clientHello']);
   });
 
   test('incoming messages are folded before the listeners see them', () => {
@@ -149,11 +213,11 @@ describe('clientHello wiring', () => {
     expect(seen).toBe(URL1);
   });
 
-  test('a socket without onAny (very old client lib) still says hello', () => {
+  test('a socket without onAny (very old client lib) cannot fold URLs: it says hello with no caps (legacy shape)', () => {
     const s = mockSocket();
     delete s.onAny;
     expect(() => installAvatarSupport(s, {})).not.toThrow();
-    expect(s.sent[0][0]).toBe('clientHello');
+    expect(s.sent[0]).toEqual(['clientHello', { client: 'web', version: '0.0.0', build: '', caps: [] }]);
     expect(clientHello(undefined, undefined)).toEqual({ client: 'web', version: '0.0.0', build: '', caps: ['avatarUrl'] });
   });
 });

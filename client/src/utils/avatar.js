@@ -17,14 +17,39 @@
  * every existing reader keeps reading one pic field. Capable or not, every
  * shape above renders (invariant I6): a payload the server built before
  * our hello was handled is just bigger, never broken.
+ *
+ * A failed /avatar URL (429, 503, a 404 after a mid-game picture change)
+ * never shows another player's stock animal: the inline copy a room
+ * broadcast carried for the same URL (remembered by the fold), else one
+ * retry after 3 s, else the neutral assets/default_avatar.png.
  */
 
 export const STOCK_MIN = 1;
 export const STOCK_MAX = 82;
 const STOCK_WEBP = /avatars\/v1\/profile(\d+)\.webp$/;
+/** What a custom picture that cannot load shows (a neutral silhouette, nobody's face). */
+export const CUSTOM_FALLBACK = 'assets/default_avatar.png';
+export const AVATAR_RETRY_MS = 3000;
+const INLINE_MAX = 64;
+/** /avatar URL -> the inline data URL a room broadcast carried for it (newest last). */
+const inlineByUrl = new Map();
 
 const isStock = (pic) => Number.isInteger(pic) && pic >= STOCK_MIN && pic <= STOCK_MAX;
 const isAvatarUrl = (v) => typeof v === 'string' && v.startsWith('/avatar/');
+const isDataUrl = (v) => typeof v === 'string' && v.startsWith('data:image');
+
+/** Remember the inline copy of `url` (same version: the URL is content-addressed). */
+function rememberInline(url, inline) {
+  if (!isAvatarUrl(url) || !isDataUrl(inline)) return;
+  inlineByUrl.delete(url);
+  inlineByUrl.set(url, inline);
+  while (inlineByUrl.size > INLINE_MAX) inlineByUrl.delete(inlineByUrl.keys().next().value);
+}
+
+/** The inline copy remembered for an /avatar URL, if any. */
+export function inlineFor(url) {
+  return inlineByUrl.get(url);
+}
 
 /** A custom picture value (inline data URL or avatar URL). */
 export function isCustomPic(pic) {
@@ -50,27 +75,60 @@ export function profileAvatarSrc({ customProfilePic, profilePic } = {}, fallback
 
 /**
  * Point `img` at `src`: decoded off the main thread, optionally lazy (long
- * lists), with the WebP -> legacy PNG -> fallback chain on error. Setting
- * the same src again is a no-op (no refetch, no flicker).
+ * lists), with an error chain: stock WebP -> legacy PNG -> `fallback`;
+ * /avatar URL -> its remembered inline copy -> the URL again after 3 s ->
+ * CUSTOM_FALLBACK; inline data URL -> CUSTOM_FALLBACK. Setting the same src
+ * again is a no-op (no refetch, no flicker).
  */
 export function applyAvatarImg(img, src, { lazy = false, fallback = 'assets/profile1.png' } = {}) {
   img.setAttribute('decoding', 'async');
   if (lazy) img.setAttribute('loading', 'lazy');
+  // the same src again: keep the image, its error chain and any pending retry
+  if (img.__avatarState && img.getAttribute('src') === src) return img;
+  // per-request state; a later applyAvatarImg with another src replaces it
+  const state = { url: isAvatarUrl(src) ? src : null, inlineTried: false, retried: false };
   img.onerror = () => {
-    const m = STOCK_WEBP.exec(img.getAttribute('src') || '');
+    const cur = img.getAttribute('src') || '';
+    const m = STOCK_WEBP.exec(cur);
     if (m) {
       img.setAttribute('src', `assets/profile${m[1]}.png`);
       return;
     }
+    if (state.url) {
+      if (cur === CUSTOM_FALLBACK) return; // the neutral image itself failed: nothing better to show
+      const inline = inlineByUrl.get(state.url);
+      if (!state.inlineTried && inline) {
+        state.inlineTried = true;
+        img.setAttribute('src', inline);
+        return;
+      }
+      img.setAttribute('src', CUSTOM_FALLBACK);
+      if (!state.retried) {
+        state.retried = true;
+        setTimeout(() => {
+          if (img.__avatarState === state) img.setAttribute('src', state.url);
+        }, AVATAR_RETRY_MS);
+      }
+      return;
+    }
     img.onerror = null;
-    if (img.getAttribute('src') !== fallback) img.setAttribute('src', fallback);
+    const last = isDataUrl(cur) ? CUSTOM_FALLBACK : fallback;
+    if (cur !== last) img.setAttribute('src', last);
   };
-  if (img.getAttribute('src') !== src) img.setAttribute('src', src);
+  img.__avatarState = state;
+  img.setAttribute('src', src);
   return img;
 }
 
-/** The URL wins over the inline/legacy value (ingress only). */
-export const foldUrls = (pic, url) => (isAvatarUrl(url) ? url : pic);
+/**
+ * The URL wins over the inline/legacy value (ingress only); an inline value
+ * next to it is remembered as the URL's fallback.
+ */
+export const foldUrls = (pic, url) => {
+  if (!isAvatarUrl(url)) return pic;
+  rememberInline(url, pic);
+  return url;
+};
 
 const foldPlayers = (players, urls) => {
   if (!Array.isArray(players) || !urls) return;
@@ -127,21 +185,33 @@ export function foldAvatarPayload(event, data) {
   return data;
 }
 
-/** The clientHello this bundle sends on every connect. */
-export function clientHello(version, build) {
-  return { client: 'web', version: String(version || '0.0.0').slice(0, 32), build: String(build || '').slice(0, 64), caps: ['avatarUrl'] };
+/**
+ * The clientHello this bundle sends on every connect. `capable` false (no
+ * ingress fold possible): caps [] so the server keeps the legacy shape.
+ */
+export function clientHello(version, build, capable = true) {
+  return { client: 'web', version: String(version || '0.0.0').slice(0, 32), build: String(build || '').slice(0, 64), caps: capable ? ['avatarUrl'] : [] };
 }
 
 /**
  * Wire the avatar capability onto a socket.io-client socket: the ingress
- * fold (onAny listeners run before every regular listener) and the hello,
- * sent now (buffered ahead of anything emitted later while disconnected)
- * and on every (re)connect.
+ * fold (onAny listeners run before every regular listener) and the hello
+ * on every connect. Installed while disconnected, the first hello is
+ * emitted at once (socket.io buffers it ahead of anything emitted later,
+ * e.g. restoreSession) and that first 'connect' sends no second copy.
  */
 export function installAvatarSupport(socket, { version, build } = {}) {
-  if (typeof socket.onAny === 'function') socket.onAny((event, data) => { foldAvatarPayload(event, data); });
-  const sendHello = () => socket.emit('clientHello', clientHello(version, build));
-  socket.on('connect', sendHello);
+  const capable = typeof socket.onAny === 'function';
+  if (capable) socket.onAny((event, data) => { foldAvatarPayload(event, data); });
+  const sendHello = () => socket.emit('clientHello', clientHello(version, build, capable));
+  let buffered = !socket.connected;
+  socket.on('connect', () => {
+    if (buffered) {
+      buffered = false; // the buffered hello is flushed by this connect
+      return;
+    }
+    sendHello();
+  });
   sendHello();
   return sendHello;
 }
