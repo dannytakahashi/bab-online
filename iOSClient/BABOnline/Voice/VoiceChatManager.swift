@@ -549,7 +549,9 @@ private class PeerConnectionDelegate: NSObject, RTCPeerConnectionDelegate {
     func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceGatheringState) {}
 
     func peerConnection(_ peerConnection: RTCPeerConnection, didGenerate candidate: RTCIceCandidate) {
-        VoiceEmitter.sendIceCandidate(targetSocketId: socketId, candidate: candidate)
+        // WebRTC calls this on its signaling thread: emit from main like every other voice emit
+        let target = socketId
+        Task { @MainActor in VoiceEmitter.sendIceCandidate(targetSocketId: target, candidate: candidate) }
     }
 
     func peerConnection(_ peerConnection: RTCPeerConnection, didRemove candidates: [RTCIceCandidate]) {}

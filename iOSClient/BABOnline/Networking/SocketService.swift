@@ -52,15 +52,19 @@ final class SocketService: ObservableObject {
         }
 
         let url = URL(string: serverURL)!
-        manager = SocketManager(socketURL: url, config: [
-            .log(true),
+        var config: SocketIOClientConfiguration = [
             .compress,
             .reconnects(true),
             .reconnectAttempts(-1),
             .reconnectWait(1),
             .reconnectWaitMax(5),
             .forceWebsockets(false),
-        ])
+        ]
+        #if DEBUG
+        // Verbose transport logging only in development builds
+        config.insert(.log(true))
+        #endif
+        manager = SocketManager(socketURL: url, config: config)
 
         socket = manager?.defaultSocket
 
