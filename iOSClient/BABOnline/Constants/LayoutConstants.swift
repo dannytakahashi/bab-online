@@ -34,7 +34,4 @@ enum LayoutConstants {
 
     /// How long a chat bubble stays up (the bid bubble's old 5 s hold; no new delay)
     static let bubbleLifetime: TimeInterval = 5.0
-
-    /// iPhone vs iPad thresholds
-    static let compactWidthThreshold: CGFloat = 700
 }

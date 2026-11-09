@@ -28,8 +28,8 @@ struct BidOverlayView: View {
 
     var body: some View {
         VStack(spacing: 6) {
-            // Compact bid grid
-            let columns = Array(repeating: GridItem(.flexible(), spacing: 4), count: min(maxBid + 1, 7))
+            // Fixed-width bid grid: 36 pt buttons, at most 7 a row (fits the 340 pt bid band)
+            let columns = Array(repeating: GridItem(.fixed(36), spacing: 4), count: min(maxBid + 1, 7))
 
             LazyVGrid(columns: columns, spacing: 4) {
                 ForEach(0...maxBid, id: \.self) { bid in

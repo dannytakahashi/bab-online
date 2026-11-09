@@ -4,13 +4,16 @@ struct TournamentLobbyView: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var authState: AuthState
     @EnvironmentObject var tournamentState: TournamentState
+    @Environment(\.horizontalSizeClass) private var hSizeClass
 
     var body: some View {
         ZStack {
             Color.Theme.background.ignoresSafeArea()
 
+            // Two branches on purpose (their children differ); the chat draft
+            // lives in TournamentState, so a size-class change keeps it.
             GeometryReader { geo in
-                if geo.size.width > LayoutConstants.compactWidthThreshold {
+                if hSizeClass == .regular {
                     // iPad: side-by-side
                     HStack(spacing: 0) {
                         leftPanel
@@ -52,9 +55,17 @@ struct TournamentLobbyView: View {
 
     private var leftPanel: some View {
         VStack(spacing: 0) {
-            headerBar
-            TournamentPlayerListView()
+            // header and players scroll on short heights; the buttons stay pinned
+            ScrollView {
+                VStack(spacing: 0) {
+                    headerBar
+                    TournamentPlayerListView()
+                }
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .frame(maxHeight: 360)
             TournamentChatView()
+                .frame(minHeight: 160)
             bottomButtons
         }
     }

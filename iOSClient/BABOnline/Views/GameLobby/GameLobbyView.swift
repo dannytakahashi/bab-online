@@ -7,13 +7,22 @@ struct GameLobbyView: View {
 
     @State private var isReady = false
     @State private var showVoicePanel = false
+    /// Measured heights of the fixed parts: the lobby scrolls when they plus a 120 pt chat do not fit.
+    @State private var topHeight: CGFloat = 0
+    @State private var readyHeight: CGFloat = 0
     @ObservedObject private var voiceManager = VoiceChatManager.shared
 
     var body: some View {
         ZStack {
             Color.Theme.background.ignoresSafeArea()
 
+            // One always-present ScrollView (stable identity: the keyboard never
+            // swaps layouts): the content fills the height, and scrolls once the
+            // fixed parts plus a 120 pt chat do not fit; 560 pt readable width.
+            GeometryReader { g in
+            ScrollView {
             VStack(spacing: 0) {
+                VStack(spacing: 0) {
                 // Header
                 HStack {
                     Button(action: leaveLobby) {
@@ -74,10 +83,12 @@ struct GameLobbyView: View {
                     }
                     .padding(.bottom, 8)
                 }
+                }
+                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { topHeight = $0 }
 
                 // Chat - takes remaining space
                 LobbyChatView()
-                    .frame(minHeight: 120)
+                    .frame(minHeight: 120, maxHeight: .infinity)
 
                 // Ready button
                 Button(action: toggleReady) {
@@ -91,6 +102,14 @@ struct GameLobbyView: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.bottom, 4)
+                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { readyHeight = $0 }
+            }
+            .frame(maxWidth: 560)
+            .frame(maxWidth: .infinity)
+            .frame(height: max(g.size.height, topHeight + 120 + readyHeight))
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .scrollDismissesKeyboard(.interactively)
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 Color.clear.frame(height: 0)

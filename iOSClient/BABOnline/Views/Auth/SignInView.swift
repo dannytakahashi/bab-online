@@ -13,8 +13,11 @@ struct SignInView: View {
         ZStack {
             Color.Theme.background.ignoresSafeArea()
 
+            // Scrolls on short heights (keyboard, landscape), capped at a readable width
+            GeometryReader { g in
+            ScrollView {
             VStack(spacing: 32) {
-                Spacer()
+                Spacer(minLength: 24)
 
                 // Logo / Title
                 VStack(spacing: 8) {
@@ -86,7 +89,13 @@ struct SignInView: View {
                 }
                 .font(.callout)
 
-                Spacer()
+                Spacer(minLength: 24)
+            }
+            .frame(maxWidth: 440)
+            .frame(maxWidth: .infinity, minHeight: g.size.height)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .scrollDismissesKeyboard(.interactively)
             }
         }
         .onAppear {
