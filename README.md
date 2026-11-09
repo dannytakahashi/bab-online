@@ -14,7 +14,7 @@ For complete game rules including bidding, scoring, and special mechanics, see [
 |-------|------------|
 | Web Frontend | Phaser 3.55.2, ES6 Modules, Socket.IO Client 4.0.1 |
 | iOS Client | SwiftUI, SpriteKit, Socket.IO-Client-Swift 16, Combine |
-| Build | Vite (web), Xcode 15+ (iOS) |
+| Build | Vite (web), Xcode 16+ (iOS) |
 | Backend | Node.js 18+, Express.js 4.21.2, Socket.IO 4.8.1 |
 | Database | MongoDB (native driver) — `users`, `gameRecords`, `reports` collections |
 | Security | Helmet, bcryptjs |
@@ -26,7 +26,7 @@ For complete game rules including bidding, scoring, and special mechanics, see [
 ### Prerequisites
 - Node.js 18+
 - MongoDB (local or Atlas)
-- Xcode 15+ (for iOS client)
+- Xcode 16+ (for iOS client)
 
 ### Installation
 
@@ -48,7 +48,31 @@ npm run dev
 
 ### iOS Client
 
-Open `iOSClient/BABOnline.xcodeproj` in Xcode, select your target device (iOS 17+), and build.
+Open `iOSClient/BABOnline.xcodeproj` in Xcode 16 or later, select your target device (iOS 17+), and build. Command-line compile check (no signing):
+
+```bash
+xcodebuild -project iOSClient/BABOnline.xcodeproj -scheme BABOnline \
+  -destination 'platform=iOS Simulator,name=<simulator>' -derivedDataPath /tmp/bab-dd \
+  CODE_SIGNING_ALLOWED=NO build
+```
+
+#### iOS project layout
+
+The committed `iOSClient/BABOnline.xcodeproj` is the only source of project configuration (signing team, bundle id, versions, entitlements, Info.plist keys, Swift packages). There is no XcodeGen or other generator. Change settings in Xcode or in `project.pbxproj`, and commit the result.
+
+- `iOSClient/BABOnline/` is a **folder synchronized with the BABOnline target** (Xcode 16 `PBXFileSystemSynchronizedRootGroup`, project format `objectVersion = 77`). To add Swift files, folders or asset catalogs, put them under that folder. They are part of the app with no project-file edit.
+- Every file in that folder becomes a target member by type. `.swift` files are compiled, and anything else (asset catalogs, JSON, images, even a stray `README.md`) is copied into the app bundle. To keep a file out of the target, put it outside `iOSClient/BABOnline/` (like `iOSClient/generate_icon.swift`), or untick its Target Membership in Xcode's File inspector. That adds it to the folder's exception set.
+- `Info.plist` and `BABOnline.entitlements` are in that exception set (`membershipExceptions` of the `PBXFileSystemSynchronizedBuildFileExceptionSet`). They are used through `INFOPLIST_FILE` / `CODE_SIGN_ENTITLEMENTS` and are never bundle resources. Keep them there.
+- Swift packages: socket.io-client-swift (up to next major from 16.1.1) and stasel/WebRTC (exactly 140.0.0). `Package.resolved` is generated under `BABOnline.xcodeproj/project.xcworkspace/` and is not committed.
+
+#### Adding test targets
+
+The project has no test targets yet. To add one:
+
+1. In Xcode, choose File > New > Target… > **Unit Testing Bundle** (or **UI Testing Bundle**). Name it `BABOnlineTests` (or `BABOnlineUITests`), with Project `BABOnline` and Target to be Tested `BABOnline`. Xcode creates `iOSClient/BABOnlineTests/` as its own synchronized folder, so test files added there later also need no project edit. Keep test sources out of `iOSClient/BABOnline/`, or they become part of the app.
+2. Unit tests reach app code with `@testable import BAB_Online` (the module name comes from the product name "BAB Online"). Debug builds already set `ENABLE_TESTABILITY = YES`.
+3. Share the scheme so the test action is in git: Product > Scheme > Manage Schemes…, tick **Shared** for `BABOnline`, and check that the new bundles are in its Test action. Commit `BABOnline.xcodeproj/xcshareddata/xcschemes/BABOnline.xcscheme` with the `project.pbxproj` change. Until then, Xcode generates the `BABOnline` scheme automatically.
+4. Run the tests with `xcodebuild test -project iOSClient/BABOnline.xcodeproj -scheme BABOnline -destination 'platform=iOS Simulator,name=<simulator>'`.
 
 ### Environment Variables
 
