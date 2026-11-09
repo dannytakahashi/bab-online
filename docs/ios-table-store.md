@@ -268,6 +268,15 @@ window, insets top/left/bottom/right, size classes:
 | Partially open, portrait | 669 x 951 | 82/0/34/0 | (0, 373.5, 669, 40): horizontal hinge, 40 pt, centred -> tabletop | regular/regular |
 | Partially open, landscape | 951 x 669 | 0/0/34/84 | vertical hinge -> book (table on the left page, 455.5 x 669; log on the right page) | regular/regular |
 
+Open portrait cannot be ruled out by the app: on the inner display iOS 27.2
+ignores a landscape-only `supportedInterfaceOrientationsFor` mask (the window
+stays portrait) and refuses `requestGeometryUpdate` with UISceneErrorDomain 101
+"The current windowing mode does not allow for programmatic changes to interface
+orientation" (tried 2026-11-09). In open portrait iOS reserves an 82 pt band
+across the top for the status bar and reports no frame for the clock (status bar
+frame 2 pt tall, no active occlusion region), so the score bar stays below it,
+as the home screen's icons do.
+
 Results: the BABOnlineUI plan passes in closed, open-portrait and
 open-landscape (21 run, 0 failures; skips: the 2 opt-in PoseChangeTests,
 RotationTests (iPad only) and DraftRotationTests (see above));
