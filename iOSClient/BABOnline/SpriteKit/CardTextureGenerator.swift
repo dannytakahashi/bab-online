@@ -117,7 +117,7 @@ enum CardTextureGenerator {
     /// rendered on demand are skipped (and kept). `completion` runs on the main queue
     /// once every face is cached (at once when an earlier call already started).
     @MainActor
-    static func prewarm(completion: (() -> Void)? = nil) {
+    static func prewarm(completion: (@Sendable () -> Void)? = nil) {
         let scale = displayScale  // read on main
         lock.lock()
         let started = prewarmStarted
