@@ -44,9 +44,11 @@ class CardSpriteNode: SKSpriteNode {
             colorBlendFactor = 0
             alpha = 1.0
         } else {
+            // Opaque dimming (like the web client's 0xaaaaaa tint): a translucent card
+            // let the overlapped cards' centre pips show through it.
             color = .black
-            colorBlendFactor = 0.5
-            alpha = 0.6
+            colorBlendFactor = 0.4
+            alpha = 1.0
         }
     }
 

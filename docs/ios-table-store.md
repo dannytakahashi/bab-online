@@ -221,13 +221,31 @@ xcodebuild ... test -testPlan BABOnlineUI -resultBundlePath <r>` and
 1398 x 2034 display, screen 1 the inner 2006 x 2852; `--simctl` gives the
 exact 2007 x 2853). `TEST_RUNNER_BAB_POSE_CHANGE=1` runs PoseChangeTests,
 which wait 120 s for a fold or unfold with a lifted card / a selected bid.
-Record from `ui.pose` in each open pose: the window, the insets, the
-division rect (which way the hinge runs) and the size classes. So far only
-the closed pose and the iPad were exercised (Device Hub's posture control
-needs a person or approved full-screen control), so items 26 and 27 stay
-open until the owner has: the open-portrait (2007 x 2853) and
-open-landscape screenshots, the open-pose `ui.pose` values, and a
-PoseChangeTests run (fold / unfold mid-trick and mid-bid).
+Device Hub's posture buttons (Closed / Partially Open / Open) answer
+background accessibility presses, so an agent with a Device Hub grant can run
+this without taking over the screen. Orientation: `XCUIDevice.orientation`
+does not turn the Duo's window (DraftRotationTests skips there); the
+simulator's own rotate (Device Hub "Rotate", or the iOS Simulator tool's
+quarter turn) does.
+
+Recorded 2026-11-09 (iOS 27.2 simulator), `ui.pose` as
+window, insets top/left/bottom/right, size classes:
+
+| Pose | Window | Insets | Fold (`[Regions] division`, proxy-local) | Size classes |
+|------|--------|--------|------------------------------------------|--------------|
+| Closed | 466 x 678 | 0/0/34/84 (status column on the right) | none | compact/regular |
+| Open portrait | 669 x 951 | 82/0/34/0 | none | regular/regular |
+| Open landscape | 951 x 669 | 0/0/34/84 | none (side log panel, table pane 630 x 669) | regular/regular |
+| Partially open, portrait | 669 x 951 | 82/0/34/0 | (0, 373.5, 669, 40): horizontal hinge, 40 pt, centred -> tabletop | regular/regular |
+| Partially open, landscape | 951 x 669 | 0/0/34/84 | vertical hinge -> book (log on the left page, table pane 455.5 x 669) | regular/regular |
+
+Results: the BABOnlineUI plan passes in closed, open-portrait and
+open-landscape (21 run, 0 failures; skips: the 2 opt-in PoseChangeTests,
+RotationTests (iPad only) and DraftRotationTests (see above));
+PoseChangeTests passes (open landscape -> closed mid-bid keeps the selected
+bid, closed -> open mid-trick keeps the lifted card); live on a local server:
+draft survives rotation and fold, bid selection survives rotation, a lifted
+card survives fold and unfold, the trick collects across a fold.
 
 ## Items 21 / 22 status
 
@@ -264,7 +282,7 @@ and Submit buttons are 40 pt tall with a 44 pt hit area; the capped corner
 and bid buttons show the large content viewer on a long press at
 accessibility text sizes. A chat line being typed survives a rotation or a
 fold, but not a sign-out, a forced logout, account deletion or leaving its
-lobby / game. Debug builds only: `-uiFixture`.
+lobby / game. Cards you cannot play are dimmed with an opaque gray (they were translucent, so the overlapped cards' centre pips showed through them). Debug builds only: `-uiFixture`.
 
 ## Visible changes to review on the next build (item 25)
 
