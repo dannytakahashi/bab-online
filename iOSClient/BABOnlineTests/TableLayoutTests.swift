@@ -3,8 +3,18 @@ import CoreGraphics
 import SpriteKit
 @testable import BAB_Online
 
-/// TableLayout (roadmap item 25): the pure layout, against the reference
-/// model's golden values, plus no-intersection, fit and fuzz checks.
+/// TableLayout (roadmap item 25): the pure layout, against golden values,
+/// plus no-intersection, fit and fuzz checks. The rect model here (glow, name,
+/// bubble, hand, history rects) is TableLayout's own; SceneLayoutTests checks
+/// the same configurations, folds included, with the real nodes' frames.
+///
+/// The goldens are FROZEN values: they were produced by the item-25 reference
+/// model (`layout_ref.py`, a planning tool kept outside the repo, which the
+/// port matched when it was written) and are pinned here so a
+/// change to the solver shows up as a diff. TableLayout.swift is the source of
+/// truth now (item 27 added the tabletop k range, the edge-occlusion insets and
+/// the 13-card step floor, which the reference model does not have); to change
+/// a golden, change the solver on purpose and update the value here.
 final class TableLayoutTests: XCTestCase {
     typealias Rel = Positions.RelativePosition
 
@@ -34,7 +44,7 @@ final class TableLayoutTests: XCTestCase {
         (CGSize(width: 1180, height: 820), insets(32, 0, 20, 0)),  // measured: iPad Air 11-inch (M4) landscape
     ]
 
-    // MARK: golden (layout_ref.py output)
+    // MARK: golden (frozen; see the type comment)
 
     func testGoldenValues() {
         struct Row { let w, h: CGFloat; let ins: TableInsets; var topBar: CGFloat = 70; var bottomBar: CGFloat = 0
@@ -109,8 +119,9 @@ final class TableLayoutTests: XCTestCase {
 
     struct Item { let group: String; let rect: CGRect; let kind: String }
 
-    /// Every rect of the table at `L` (a 13-card hand, its card lifted).
-    static func items(_ L: TableLayout) -> [Item] {
+    /// Every rect of the table at `L`: a seated player (a 13-card hand, its card lifted),
+    /// or a spectator (a fourth seat at the bottom instead of the hand and HSI / voice).
+    static func items(_ L: TableLayout, spectator: Bool = false) -> [Item] {
         var out: [Item] = []
         for (g, r) in [("partner", Rel.top), ("left", .left), ("right", .right)] {
             let a = L.seatAnchor(r)
@@ -119,12 +130,22 @@ final class TableLayoutTests: XCTestCase {
             out.append(Item(group: g, rect: L.bubbleRect(r), kind: "bubble"))
         }
         for r in [Rel.top, .bottom, .left, .right] { out.append(Item(group: "trick.\(r)", rect: L.trickRect(r), kind: "trick")) }
+        if spectator {
+            let a = L.seatAnchor(.bottom)
+            out.append(Item(group: "bottomSeat", rect: TableLayout.glowRect(a), kind: "glow"))
+            out.append(Item(group: "bottomSeat", rect: TableLayout.nameRect(a), kind: "name"))
+            out.append(Item(group: "history", rect: historyRect(L, count: 13), kind: "history"))
+            for (i, c) in L.cornerRects.enumerated() { out.append(Item(group: "corner\(i)", rect: c, kind: "corner")) }
+            if let f = L.chrome.fold, !L.foldIgnored { out.append(Item(group: "fold", rect: f, kind: "fold")) }
+            return out
+        }
         out.append(Item(group: "handLifted", rect: handRect(L, count: 13, lifted: true), kind: "hand"))
         out.append(Item(group: "myBubble", rect: L.bubbleRect(.bottom), kind: "bubble"))
         out.append(Item(group: "history", rect: historyRect(L, count: 13), kind: "history"))
         out.append(Item(group: "accessory", rect: L.accessory, kind: "accessory"))
         out.append(Item(group: "bidBand", rect: L.bidBand, kind: "bid"))
         for (i, c) in L.cornerRects.enumerated() { out.append(Item(group: "corner\(i)", rect: c, kind: "corner")) }
+        if let f = L.chrome.fold, !L.foldIgnored { out.append(Item(group: "fold", rect: f, kind: "fold")) }
         return out
     }
 
@@ -145,10 +166,19 @@ final class TableLayoutTests: XCTestCase {
         let pair = Set([a.group, b.group])
         if a.group == b.group { return true }
         if a.kind == "corner" && b.kind == "corner" { return true }
+        if pair.contains("fold") {
+            // a fold may cross the corner buttons' strip; in book pose (an undocked vertical
+            // hinge) the hand, the bid band, the history and HSI / voice may span it: only
+            // the trick cluster and the seats (the bottom one included) must avoid it
+            let fold = a.group == "fold" ? a : b, other = a.group == "fold" ? b : a
+            if other.kind == "corner" { return true }
+            if fold.rect.height > fold.rect.width,
+               ["hand", "bid", "history", "accessory"].contains(other.kind) || other.group == "myBubble" { return true }
+        }
         // never on screen together: the bid panel shows only before the hand's first card (trick empty, history 0)
         if pair.contains("bidBand") && (pair.contains { $0.hasPrefix("trick.") } || pair.contains("history") || pair.contains("accessory") || pair.contains("myBubble")) { return true }
-        // my bid bubble shows only while the history is 0
-        if pair == ["myBubble", "history"] { return true }
+        // every bid bubble shows only while the history is 0 (TableInvariantTests)
+        if pair.contains("history") && (a.kind == "bubble" || b.kind == "bubble") { return true }
         // bid bubbles coexist only with my provisional card
         let bubble = a.kind == "bubble" ? a : (b.kind == "bubble" ? b : nil)
         let trick = a.kind == "trick" ? a : (b.kind == "trick" ? b : nil)
@@ -156,9 +186,9 @@ final class TableLayoutTests: XCTestCase {
         return false
     }
 
-    static func problems(_ L: TableLayout) -> [String] {
+    static func problems(_ L: TableLayout, spectator: Bool = false) -> [String] {
         var out: [String] = []
-        let all = items(L)
+        let all = items(L, spectator: spectator)
         for i in all.indices {
             for j in (i + 1)..<all.count where !exempt(all[i], all[j]) {
                 let x = all[i].rect.intersection(all[j].rect)
@@ -168,12 +198,13 @@ final class TableLayoutTests: XCTestCase {
             }
         }
         let safe = L.safeRect.insetBy(dx: -0.01, dy: -0.01)
-        for it in all where it.kind != "corner" {
+        for it in all where it.kind != "corner" && it.kind != "fold" {
             let r = it.rect
             if r.minX < safe.minX || r.maxX > safe.maxX || r.minY < safe.minY || (r.maxY > L.topLimit + 0.01 && it.group != "bidBand") {
                 out.append("outside \(it.group).\(it.kind) \(r)")
             }
         }
+        if spectator { return out }
         let a = L.accessory
         if !((a.width >= 123.99 && a.height >= 47.99) || (a.width >= 83.99 && a.height >= 75.99)) { out.append("accessory \(a.size)") }
         return out
@@ -192,17 +223,38 @@ final class TableLayoutTests: XCTestCase {
                 }
             }
         }
-        // folds: tabletop (horizontal division) and book (vertical), moved +-10
-        for dy in [CGFloat(-10), 0, 10] {
-            let table = TableLayout(size: CGSize(width: 669, height: 951),
-                                    chrome: Self.chrome(Self.insets(24, 0, 20, 0), fold: CGRect(x: -334.5, y: -10 + dy, width: 669, height: 20)))
-            XCTAssertTrue(Self.problems(table).isEmpty, "tabletop \(dy): \(Self.problems(table))")
-            let book = TableLayout(size: CGSize(width: 951, height: 669),
-                                   chrome: Self.chrome(Self.insets(0, 59, 21, 59), fold: CGRect(x: -10 + dy, y: -334.5, width: 20, height: 669)))
-            XCTAssertTrue(Self.problems(book).isEmpty, "book \(dy): \(Self.problems(book))")
-            checked += 2
+        // folds TableLayout really receives (GameContainerView docks the log on a book fold
+        // at 951 x 669, so that one never reaches it): whichever way the Duo's hinge runs,
+        // portrait 669 x 951 is tabletop or an undocked book, landscape 951 x 669 (and the
+        // 572 x 669 pane beside the side panel) is tabletop. Seated and spectating.
+        for (fold, size, ins, topBar) in Self.reachableFolds {
+            for spectator in [false, true] {
+                let L = TableLayout(size: size, chrome: Self.chrome(ins, topBar: topBar, bottomBar: spectator ? 45 : 0, fold: fold))
+                let tag = "\(size) fold \(fold) topBar \(topBar) spectator \(spectator)"
+                XCTAssertFalse(L.isDegraded, tag)
+                XCTAssertFalse(L.foldIgnored, tag)
+                let p = Self.problems(L, spectator: spectator)
+                XCTAssertTrue(p.isEmpty, "\(tag): \(p)")
+                checked += 1
+            }
         }
-        XCTAssertEqual(checked, Self.listedSizes.count * 4 + 6)
+        XCTAssertEqual(checked, Self.listedSizes.count * 4 + Self.reachableFolds.count * 2)
+    }
+
+    /// (fold, size, insets, topBar): the folds the app hands TableLayout, the hinge moved +-10
+    /// in portrait; topBar 70 and the measured 75.5 (at 84 a landscape tabletop is ignored, below).
+    static var reachableFolds: [(CGRect, CGSize, TableInsets, CGFloat)] {
+        var out: [(CGRect, CGSize, TableInsets, CGFloat)] = []
+        let portrait = CGSize(width: 669, height: 951), pIns = insets(24, 0, 20, 0)
+        for topBar in [CGFloat(70), 75.5] {
+            for dy in [CGFloat(-10), 0, 10] {
+                out.append((CGRect(x: -334.5, y: -10 + dy, width: 669, height: 20), portrait, pIns, topBar))   // tabletop
+                out.append((CGRect(x: -10 + dy, y: -475.5, width: 20, height: 951), portrait, pIns, topBar))   // book, undocked
+            }
+            out.append((CGRect(x: -475.5, y: -10, width: 951, height: 20), CGSize(width: 951, height: 669), insets(0, 59, 21, 59), topBar))
+            out.append((CGRect(x: -286, y: -10, width: 572, height: 20), CGSize(width: 572, height: 669), insets(0, 0, 21, 59), topBar))
+        }
+        return out
     }
 
     func testNotDegradedAtListedSizes() {
@@ -273,10 +325,10 @@ final class TableLayoutTests: XCTestCase {
     }
 
     func testTabletopTableAboveHandBelow() {
-        for dy in [CGFloat(-10), 0, 10] {
-            let fold = CGRect(x: -334.5, y: -10 + dy, width: 669, height: 20)
-            let L = TableLayout(size: CGSize(width: 669, height: 951), chrome: Self.chrome(Self.insets(24, 0, 20, 0), fold: fold))
+        for (fold, size, ins, topBar) in Self.reachableFolds where fold.width > fold.height {
+            let L = TableLayout(size: size, chrome: Self.chrome(ins, topBar: topBar, fold: fold))
             XCTAssertFalse(L.isDegraded)
+            XCTAssertFalse(L.foldIgnored, "\(size) \(fold)")
             for r in [Rel.top, .bottom, .left, .right] {
                 XCTAssertGreaterThanOrEqual(L.trickRect(r).minY, fold.maxY + TableLayout.gap - 0.01, "trick \(r) above the fold")
                 XCTAssertGreaterThanOrEqual(TableLayout.nameRect(L.seatAnchor(r == .bottom ? .top : r)).minY, fold.maxY, "seat above the fold")
@@ -284,7 +336,16 @@ final class TableLayoutTests: XCTestCase {
             XCTAssertLessThanOrEqual(L.liftTop, fold.minY, "hand below the fold")
             XCTAssertLessThanOrEqual(L.bidBand.maxY, fold.minY - TableLayout.gap + 0.01, "bid controls below the fold")
             XCTAssertGreaterThanOrEqual(L.accessory.minY, fold.maxY)
+            if size.width > size.height {
+                // the short landscape split takes the smaller trick cards, never below k = 0.6
+                XCTAssertGreaterThanOrEqual(L.trickScale, 0.6 - 0.001)
+            }
         }
+        // the largest capped ScoreBar (84) leaves no room above a landscape hinge: the fold is ignored, not degraded
+        let tall = TableLayout(size: CGSize(width: 951, height: 669),
+                               chrome: Self.chrome(Self.insets(0, 59, 21, 59), topBar: 84, fold: CGRect(x: -475.5, y: -10, width: 951, height: 20)))
+        XCTAssertFalse(tall.isDegraded)
+        XCTAssertTrue(tall.foldIgnored)
     }
 
     /// A tabletop fold with no room for table-above / hand-below (the closed Duo's height) is ignored, not degraded.
@@ -313,17 +374,54 @@ final class TableLayoutTests: XCTestCase {
         }
     }
 
+    /// The undocked book fold (open portrait, pages too narrow to dock the log): the
+    /// cluster and every seat, a spectator's bottom seat included, stay off the hinge.
     func testBookClusterOffHinge() {
-        for dy in [CGFloat(-10), 0, 10] {
-            let fold = CGRect(x: -10 + dy, y: -334.5, width: 20, height: 669)
-            let L = TableLayout(size: CGSize(width: 951, height: 669), chrome: Self.chrome(Self.insets(0, 59, 21, 59), fold: fold))
-            XCTAssertFalse(L.isDegraded)
-            let hinge = fold.insetBy(dx: -TableLayout.gap + 0.01, dy: 0)
-            for r in [Rel.top, .bottom, .left, .right] {
-                XCTAssertFalse(L.trickRect(r).intersects(hinge), "trick \(r) on the hinge")
-                if r != .bottom { XCTAssertFalse(L.seatFootprint(r).intersects(fold), "seat \(r) on the hinge") }
+        for (fold, size, ins, topBar) in Self.reachableFolds where fold.height > fold.width {
+            for pill in [CGFloat(0), 45] {
+                let L = TableLayout(size: size, chrome: Self.chrome(ins, topBar: topBar, bottomBar: pill, fold: fold))
+                XCTAssertFalse(L.isDegraded)
+                XCTAssertFalse(L.foldIgnored)
+                let hinge = fold.insetBy(dx: -TableLayout.gap + 0.01, dy: 0)
+                for r in [Rel.top, .bottom, .left, .right] {
+                    XCTAssertFalse(L.trickRect(r).intersects(hinge), "\(fold) trick \(r) on the hinge")
+                    XCTAssertFalse(L.seatFootprint(r).intersects(fold), "\(fold) seat \(r) on the hinge")
+                }
+                // the bottom seat sits under the cluster, on the same page
+                XCTAssertEqual(L.seatAnchor(.bottom).x, L.trickSlot(.bottom).x, accuracy: 0.001)
             }
         }
+    }
+
+    /// A full-height system strip on an edge (the iPad's 32 pt occlusion in landscape) is an
+    /// inset, not a corner obstacle; an occlusion in the top quarter joins the corner only there.
+    func testOcclusions() {
+        let size = CGSize(width: 1180, height: 820), ins = Self.insets(32, 0, 20, 0)
+        let plain = TableLayout(size: size, chrome: Self.chrome(ins, topBar: 75.5, corner: CGSize(width: 80, height: 50.5)))
+        var c = Self.chrome(ins, topBar: 75.5, corner: CGSize(width: 80, height: 50.5))
+        c.occlusions = [CGRect(x: -590, y: -410, width: 32, height: 820)]
+        let strip = TableLayout(size: size, chrome: c)
+        XCTAssertEqual(strip.occludedLeft, 32, accuracy: 0.001)
+        XCTAssertEqual(strip.occludedRight, 0)
+        XCTAssertEqual(strip.safeRect.minX, plain.safeRect.minX + 32, accuracy: 0.001)
+        XCTAssertEqual(strip.cornerRects[0].minX, plain.cornerRects[0].minX + 32, accuracy: 0.001)
+        XCTAssertEqual(strip.cornerRects[0].height, plain.cornerRects[0].height, accuracy: 0.001, "the strip does not grow the corner")
+        XCTAssertFalse(strip.isDegraded)
+        XCTAssertTrue(Self.problems(strip).isEmpty, "\(Self.problems(strip))")
+        // a small occlusion near the top right: only its part in the top quarter counts
+        c.occlusions = [CGRect(x: 400, y: 0, width: 60, height: 400)]
+        let top = TableLayout(size: size, chrome: c)
+        XCTAssertEqual(top.occludedRight, 0)
+        let quarterBottom = top.safeRect.maxY - top.safeRect.height / 4
+        XCTAssertEqual(top.cornerRects[1].minY, min(plain.cornerRects[1].minY, quarterBottom), accuracy: 0.001)
+    }
+
+    /// A 320 pt window (iPad Slide Over) takes a smaller hand scale before the 13-card step drops under 18 s.
+    func testNarrowWindowKeepsTheHandStep() {
+        let L = TableLayout(size: CGSize(width: 320, height: 1180), chrome: Self.chrome(Self.insets(32, 0, 20, 0)))
+        XCTAssertFalse(L.isDegraded)
+        XCTAssertLessThan(L.handScale, 1)
+        XCTAssertGreaterThanOrEqual(L.handOverlap(count: 13), 18 * L.handScale - 0.001)
     }
 
     func testWindowAndBidInset() {

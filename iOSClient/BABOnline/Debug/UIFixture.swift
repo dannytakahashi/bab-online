@@ -117,6 +117,8 @@ enum UIFixture {
             tournament.messages = chat
             appState.screen = .tournamentLobby
         default:
+            // no socket in fixture mode: show the connected form (emits go nowhere), not the spinner
+            SocketService.shared.isConnected = true
             appState.screen = .signIn
         }
     }
@@ -138,12 +140,14 @@ final class TableDebugProbe: ObservableObject {
     @Published var chrome = TableChrome()
     @Published var layoutCheck = "-"
     @Published var tableState = "-"
+    /// The window's size classes ("compact/regular" = h/v), recorded with the pose.
+    @Published var sizeClasses = "-"
 
     var pose: String {
         let i = insets
         let fold = chrome.fold.map { "\(Int($0.width))x\(Int($0.height))@\(Int($0.minX)),\(Int($0.minY))" } ?? "-"
         return "\(Int(window.width))x\(Int(window.height)) \(Int(i.top))/\(Int(i.left))/\(Int(i.bottom))/\(Int(i.right)) "
-            + "topBar \(Int(chrome.topBar)) fold \(fold) occlusions \(chrome.occlusions.count)"
+            + "topBar \(Int(chrome.topBar)) fold \(fold) occlusions \(chrome.occlusions.count) sc \(sizeClasses)"
     }
 
     /// The scene after a render or relayout: are the stable nodes inside the safe rect?
@@ -205,11 +209,23 @@ struct FixtureProbes: View {
 
 /// Measures the window (size + safe-area insets) for "ui.pose".
 struct FixtureWindowProbe: View {
+    @Environment(\.horizontalSizeClass) private var h
+    @Environment(\.verticalSizeClass) private var v
+
+    private static func name(_ c: UserInterfaceSizeClass?) -> String {
+        switch c {
+        case .compact: return "compact"
+        case .regular: return "regular"
+        default: return "-"
+        }
+    }
+
     var body: some View {
         GeometryReader { p in
             let i = p.safeAreaInsets
             let full = CGSize(width: p.size.width + i.leading + i.trailing, height: p.size.height + i.top + i.bottom)
             Color.clear
+                .onChange(of: "\(Self.name(h))/\(Self.name(v))", initial: true) { _, s in TableDebugProbe.shared.sizeClasses = s }
                 .onChange(of: full, initial: true) { _, s in TableDebugProbe.shared.window = s }
                 .onChange(of: TableInsets(top: i.top, left: i.leading, bottom: i.bottom, right: i.trailing), initial: true) { _, v in
                     TableDebugProbe.shared.insets = v

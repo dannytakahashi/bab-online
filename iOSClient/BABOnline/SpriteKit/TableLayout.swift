@@ -28,11 +28,12 @@ struct TableChrome: Equatable {
 /// places every seat, trick card, the hand, the history, the bid band and the
 /// SwiftUI accessories so none of them intersect (roadmap item 25).
 ///
-/// Scene coordinates: origin at the center, y up. The algorithm is the
+/// Scene coordinates: origin at the center, y up. The algorithm was first the
 /// reference model `layout_ref.py` (see docs/ios-table-store.md, "Table
-/// layout"): it searches the hand scale s (1.0 ... 0.80) and the trick scale k
-/// (1.0 ... 0.70) for the first pair that fits; the bottom pill is honoured
-/// first and dropped only when nothing fits with it.
+/// layout"); this file is the source of truth now. It searches the hand scale
+/// s (1.0 ... 0.80) and the trick scale k (1.0 ... 0.70; 0.60 in a tabletop
+/// split) for the first pair that fits; the bottom pill is honoured first and
+/// dropped only when nothing fits with it.
 struct TableLayout: Equatable {
     enum SeatMode: Equatable { case row, raised }
 
@@ -61,7 +62,7 @@ struct TableLayout: Equatable {
     let chrome: TableChrome
     /// Hand scale s in {1.0, 0.95 ... 0.80}, never above 1.
     let handScale: CGFloat
-    /// Trick scale k in {1.0 ... 0.70}: a trick card is 80k x 116k.
+    /// Trick scale k in {1.0 ... 0.70} (down to 0.60 in a tabletop split): a trick card is 80k x 116k.
     let trickScale: CGFloat
     let mode: SeatMode
     /// Nothing fit: s = 0.8, k = 0.7, positions clamped into the safe rect.
@@ -75,6 +76,9 @@ struct TableLayout: Equatable {
     let topLimit: CGFloat
     /// Leave (left) and Log (right) obstacles, occlusions merged in.
     let cornerRects: [CGRect]
+    /// Extra left / right inset from a full-height system occlusion on that edge
+    /// (e.g. the iPad's 32 pt strip in landscape): the corner buttons move in by it too.
+    let occludedLeft: CGFloat, occludedRight: CGFloat
     let handBaseline: CGPoint
     let handTop: CGFloat
     let liftTop: CGFloat
@@ -135,6 +139,7 @@ struct TableLayout: Equatable {
         self.isDegraded = degraded
         handScale = sol.s; trickScale = sol.k; mode = sol.mode; usedBottomBar = sol.bottomBar
         safeRect = sol.safe; topLimit = sol.topLimit; cornerRects = sol.corners
+        (occludedLeft, occludedRight) = Self.edgeOcclusions(size: size, chrome: chrome)
         handBaseline = sol.handBaseline; handTop = sol.handTop; liftTop = sol.liftTop
         trickCardSize = CGSize(width: 80 * sol.k, height: 116 * sol.k)
         tcx = sol.tcx; cc = sol.cc; ox = sol.ox; oy = sol.oy
@@ -204,8 +209,9 @@ struct TableLayout: Equatable {
         case .left: return CGPoint(x: lx, y: yS)
         case .right: return CGPoint(x: rx, y: yS)
         case .bottom:
-            // a spectator's seat 1..4 sits on the hand baseline, its name kept clear of the bottom pill
-            return CGPoint(x: handBaseline.x, y: max(handBaseline.y, safeRect.minY + chrome.bottomBar - Self.nameLo + 1))
+            // a spectator's seat 1..4 sits on the hand baseline, its name kept clear of the bottom pill;
+            // below the cluster (tcx: the window center, or the cluster's page in an undocked book fold)
+            return CGPoint(x: tcx, y: max(handBaseline.y, safeRect.minY + chrome.bottomBar - Self.nameLo + 1))
         }
     }
 
@@ -304,7 +310,10 @@ struct TableLayout: Equatable {
     // swiftlint:disable:next function_body_length cyclomatic_complexity
     private static func solve(size: CGSize, chrome: TableChrome, s: CGFloat, bottomBar P: CGFloat, strict: Bool) -> Solution? {
         let G = gap, M = margin
-        let ins = chrome.safeArea
+        var ins = chrome.safeArea
+        let (occL, occR) = edgeOcclusions(size: size, chrome: chrome)
+        ins.left += occL
+        ins.right += occR
         let x0 = -size.width / 2 + ins.left, x1 = size.width / 2 - ins.right
         let y0 = -size.height / 2 + ins.bottom, y1 = size.height / 2 - ins.top
         let safe = CGRect(x: x0, y: y0, width: max(0, x1 - x0), height: max(0, y1 - y0))
@@ -316,13 +325,17 @@ struct TableLayout: Equatable {
         let cornerBottom = y1 - S - 8 - bh - G
         var cornerL = CGRect(x: x0, y: cornerBottom, width: 12 + bw + G, height: (y1 - S) - cornerBottom)
         var cornerR = CGRect(x: x1 - 12 - bw - G, y: cornerBottom, width: 12 + bw + G, height: (y1 - S) - cornerBottom)
-        // occlusions in the top quarter join the corner obstacle on their side
+        // occlusions in the top quarter join the corner obstacle on their side (only their
+        // part inside the quarter; a full-height edge strip is an inset instead, above)
         let topQuarter = CGRect(x: x0, y: y1 - safe.height / 4, width: safe.width, height: safe.height / 4)
-        for o in chrome.occlusions where o.intersects(topQuarter) {
-            if o.midX < cx { cornerL = cornerL.union(o) } else { cornerR = cornerR.union(o) }
+        for o in chrome.occlusions where !isEdgeStrip(o, size: size) && o.intersects(topQuarter) {
+            let part = o.intersection(topQuarter)
+            if part.midX < cx { cornerL = cornerL.union(part) } else { cornerR = cornerR.union(part) }
         }
         let corners = [cornerL, cornerR]
 
+        // a 13-card hand keeps an 18 s step (narrow windows take a smaller s first)
+        if strict && (safeW - 2 * M - cardSize.width * s) / 12 < 18 * s - 0.01 { return nil }
         // hand
         let yHB = y0 + max(12, P + G)
         let handTop = yHB + cardSize.height * s
@@ -344,7 +357,9 @@ struct TableLayout: Equatable {
 
         func parts(_ x: CGFloat, _ y: CGFloat, bubble: CGRect) -> [CGRect] { [glowRect(CGPoint(x: x, y: y)), nameRect(CGPoint(x: x, y: y)), bubble] }
 
-        let ks: [Int] = strict ? Array(0..<7) : [6]
+        // a tabletop split on a short window (the open Duo in landscape: ~260 pt above the fold
+        // for the partner and the cluster) may take the trick cards down to k = 0.6
+        let ks: [Int] = strict ? Array(0..<(tabletop ? 9 : 7)) : [6]
         for ki in ks {
             let k = 1.0 - 0.05 * CGFloat(ki)
             let tw = 80 * k, th = 116 * k
@@ -405,14 +420,20 @@ struct TableLayout: Equatable {
                 ySHi = min(ySHi, yP - 18 - G + 26)
             }
             var cc: CGFloat, yS: CGFloat
+            // tabletop: the cluster rises (up to its cap) until the history fits below the left
+            // card and the HSI / voice row below the right one
+            let histMin = yLo + max(historyHeight, accessoryRow.height) + G + th / 2
             if row {
                 cc = (ccMin + ccMax) / 2
+                if tabletop { cc = min(max(cc, histMin), ccMax) }
                 yP = min(yP, cc + hc + 45 + 60)
                 if partnerBubbleOverSides { ySHi = min(ySHi, yP - 18 - G + 26) }
                 yS = min(max(cc, ySLo), ySHi)
                 if strict && yS < ySLo - 0.01 { continue }
             } else {
-                cc = min((ccMin + ccMax) / 2, ySHi - 84 - G - th / 2)
+                let raisedCap = ySHi - 84 - G - th / 2
+                cc = min((ccMin + ccMax) / 2, raisedCap)
+                if tabletop { cc = min(max(cc, histMin), min(ccMax, raisedCap)) }
                 if strict && cc < ccMin - 0.01 { continue }
                 yS = max(ySLo, cc + th / 2 + G + 84)
                 if strict && yS > ySHi + 0.01 { continue }
@@ -425,24 +446,50 @@ struct TableLayout: Equatable {
             if strict && (yLo + historyHeight > leftCardBottom - G + 0.01 || hw < historyIcon.width) { continue }
             let ax0 = bottomSlot.maxX + G
             var aw = min(140, x1 - M - ax0)
-            if aw < accessoryRow.width - 0.01 { aw = min(aw, accessoryStack.width) }
             let ah = min(accessoryStack.height, rightCardBottom - G - yLo)
+            // the right seat's bid bubble shows beside HSI / voice (other seats' bid turns): stop short of it
+            let rBubble = rect(CGPoint(x: rx, y: yS + sideBubbleDY), bubbleSize)
+            if rBubble.intersects(CGRect(x: ax0, y: yLo, width: max(0, aw), height: max(0, ah)).insetBy(dx: 0.01, dy: 0.01)) {
+                aw = min(aw, rBubble.minX - G - ax0)
+            }
+            if aw < accessoryRow.width - 0.01 { aw = min(aw, accessoryStack.width) }
             let fits = (aw >= accessoryRow.width - 0.01 && ah >= accessoryRow.height - 0.01)
                 || (aw >= accessoryStack.width - 0.01 && ah >= accessoryStack.height - 0.01)
             if strict && !fits { continue }
+            // the side seats' bid bubbles show beside HSI / voice (other seats' bid turns)
+            let accRect = CGRect(x: ax0, y: yLo, width: max(0, aw), height: max(0, ah))
+            if strict && [lx, rx].contains(where: { rect(CGPoint(x: $0, y: yS + sideBubbleDY), bubbleSize).intersects(accRect.insetBy(dx: 0.01, dy: 0.01)) }) { continue }
 
             var sol = Solution(
                 s: s, k: k, mode: row ? .row : .raised, bottomBar: P,
                 safe: safe, topLimit: topLimit, corners: corners,
                 handBaseline: CGPoint(x: cx, y: yHB + cardSize.height * s / 2), handTop: handTop, liftTop: liftTop,
                 tcx: tcx, cc: cc, ox: ox, oy: oy, yP: yP, yS: yS, lx: lx, rx: rx, yLo: yLo,
-                bid: bid, accessory: CGRect(x: ax0, y: yLo, width: max(0, aw), height: max(0, ah)),
+                bid: bid, accessory: accRect,
                 historyOrigin: CGPoint(x: regRight - max(0, hw) + historyIcon.width / 2, y: yLo + historyHeight - historyIcon.height / 2),
                 historySpacing: max(0, min(14, (hw - historyIcon.width) / 12)))
             if !strict { clampDegraded(&sol, tw: tw, th: th) }
             return sol
         }
         return nil
+    }
+
+    /// A system occlusion along a whole side edge (at least half the height, touching the edge).
+    private static func isEdgeStrip(_ o: CGRect, size: CGSize) -> Bool {
+        o.height >= size.height / 2 && o.width < size.width / 4 && (o.minX <= -size.width / 2 + 1 || o.maxX >= size.width / 2 - 1)
+    }
+
+    /// How far full-height edge occlusions reach past the safe area on the left and right.
+    static func edgeOcclusions(size: CGSize, chrome: TableChrome) -> (CGFloat, CGFloat) {
+        var l: CGFloat = 0, r: CGFloat = 0
+        for o in chrome.occlusions where isEdgeStrip(o, size: size) {
+            if o.midX < 0 {
+                l = max(l, o.maxX + size.width / 2 - chrome.safeArea.left)
+            } else {
+                r = max(r, size.width / 2 - o.minX - chrome.safeArea.right)
+            }
+        }
+        return (max(0, l), max(0, r))
     }
 
     /// Seats (glow + name) clear of each other and of the four trick cards.

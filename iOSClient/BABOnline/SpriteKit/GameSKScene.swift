@@ -95,6 +95,9 @@ class GameSKScene: SKScene, TableRenderer {
         cardManager = SKCardManager(scene: self)
         cardManager.onPlay = { [weak self] card in self?.actions?.play(card) ?? false }
         addChild(cardManager.handNode)
+        #if DEBUG
+        cardManager.handNode.onLiftChanged = { [weak self] in self?.probe() }  // "table.state" lifted= after a tap
+        #endif
         trickManager = SKTrickManager(scene: self)
         addChild(trickManager.trickArea)
         addChild(trickManager.trickHistory)
@@ -182,9 +185,18 @@ class GameSKScene: SKScene, TableRenderer {
             case .trickCollected(let winner, let key):
                 trickManager.collect(winner: winner, key: key, viewPosition: view, layout: layout, animator: animator)
             case .handsDestroyed:
+                // the sprites fade where they are: convert from the scaled hand node
+                // into the transient layer (as TrickAreaNode's adopt does)
                 for s in handNode.sprites.values {
+                    let world = handNode.convert(s.position, to: transientLayer)
+                    let ws = s.xScale * handNode.xScale, hs = s.yScale * handNode.yScale
+                    let rot = s.zRotation + handNode.zRotation
                     _ = handNode.detach(s.card.id)
                     s.removeFromParent()
+                    s.position = world
+                    s.xScale = ws
+                    s.yScale = hs
+                    s.zRotation = rot
                     transientLayer.addChild(s)
                     animator.fadeAndRemove(s, after: 0)
                 }

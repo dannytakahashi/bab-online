@@ -1,0 +1,24 @@
+{
+  "configurations" : [
+    {
+      "id" : "74B8C22D-DDEC-40F2-BFD8-3B42E028EB63",
+      "name" : "Default",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+
+  },
+  "testTargets" : [
+    {
+      "target" : {
+        "containerPath" : "container:BABOnline.xcodeproj",
+        "identifier" : "29A61173821D71C3CF4364EE",
+        "name" : "BABOnlineUITests"
+      }
+    }
+  ],
+  "version" : 1
+}

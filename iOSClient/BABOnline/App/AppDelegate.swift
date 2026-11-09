@@ -2,27 +2,36 @@ import UIKit
 
 /// Orientation policy (item 27-1). Info.plist allows Portrait and both
 /// landscapes on iPhone; the mask narrows it per window scene: an iPad turns
-/// freely, a phone window that is regular in both size classes (the open
-/// iPhone Duo's inner display) turns except upside down, every other phone
-/// window (a compact phone, the Duo's outer display) stays portrait.
+/// freely; a phone turns (except upside down) only when its display is at
+/// least `landscapeMinSide` on its short side (the open iPhone Duo's 669 x 951
+/// inner display); every other phone (a compact phone, the Duo's 466 x 678
+/// outer display) stays portrait.
+///
+/// The test is the display's short side, not the size classes: the short side
+/// is the same in portrait and landscape, so the mask cannot change because of
+/// the rotation it allowed (a size-class rule could flip back and forth when a
+/// landscape window reports compact height).
 final class AppDelegate: NSObject, UIApplicationDelegate {
+    static let landscapeMinSide: CGFloat = 600
+
     func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
-        let traits = window?.windowScene?.traitCollection ?? window?.traitCollection
-        return Self.mask(idiom: traits?.userInterfaceIdiom ?? UIDevice.current.userInterfaceIdiom,
-                         h: traits?.horizontalSizeClass ?? .unspecified,
-                         v: traits?.verticalSizeClass ?? .unspecified)
+        let scene = window?.windowScene
+        let idiom = scene?.traitCollection.userInterfaceIdiom ?? window?.traitCollection.userInterfaceIdiom ?? UIDevice.current.userInterfaceIdiom
+        let screen = scene?.screen.bounds.size ?? window?.bounds.size ?? .zero
+        return Self.mask(idiom: idiom, screen: screen)
     }
 
-    static func mask(idiom: UIUserInterfaceIdiom, h: UIUserInterfaceSizeClass, v: UIUserInterfaceSizeClass) -> UIInterfaceOrientationMask {
+    static func mask(idiom: UIUserInterfaceIdiom, screen: CGSize) -> UIInterfaceOrientationMask {
         switch idiom {
         case .pad: return .all
-        case .phone where h == .regular && v == .regular: return .allButUpsideDown
+        case .phone where min(screen.width, screen.height) >= landscapeMinSide: return .allButUpsideDown
         default: return .portrait
         }
     }
 }
 
-/// Asks UIKit to re-read the mask after the size classes change.
+/// Asks UIKit to re-read the mask after the display changes (a Duo fold or
+/// unfold changes the size classes and the screen together).
 enum OrientationLock {
     @MainActor
     static func refresh() {

@@ -11,6 +11,8 @@ class HandNode: SKNode {
     private(set) var liftedCardId: String?
     private var wasInteractive = false
     var onCardTapped: ((Card) -> Void)?
+    /// A tap lifted or swapped the lifted card (no render runs for it).
+    var onLiftChanged: (() -> Void)?
 
     override init() {
         super.init()
@@ -93,6 +95,7 @@ class HandNode: SKNode {
             sprite.isLifted = true
             sprite.run(CardAnimations.lift(), withKey: CardAnimations.liftKey)
             HapticManager.selection()
+            onLiftChanged?()
         }
     }
 

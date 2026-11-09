@@ -1,0 +1,24 @@
+{
+  "configurations" : [
+    {
+      "id" : "8BDCEB6C-59D1-45FA-B721-2C72A959617B",
+      "name" : "Default",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+
+  },
+  "testTargets" : [
+    {
+      "target" : {
+        "containerPath" : "container:BABOnline.xcodeproj",
+        "identifier" : "BBD38828D56B3437DE82F9E0",
+        "name" : "BABOnlineTests"
+      }
+    }
+  ],
+  "version" : 1
+}

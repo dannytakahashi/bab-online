@@ -20,8 +20,18 @@ final class SceneLayoutTests: XCTestCase {
         for (size, ins) in TableLayoutTests.listedSizes {
             for topBar in [CGFloat(70), 84] { out.append((size, TableLayoutTests.chrome(ins, topBar: topBar))) }
         }
-        return out
+        return out + measured
     }
+
+    /// The chrome measured in fixture mode (docs/ios-table-store.md table): the closed Duo and the iPad Air.
+    static let measured: [(CGSize, TableChrome)] = [
+        (CGSize(width: 466, height: 678), TableLayoutTests.chrome(TableLayoutTests.insets(0, 0, 34, 84), topBar: 75.333,
+                                                                 corner: CGSize(width: 79.667, height: 50.333))),
+        (CGSize(width: 820, height: 1180), TableLayoutTests.chrome(TableLayoutTests.insets(32, 0, 20, 0), topBar: 75.5,
+                                                                  corner: CGSize(width: 80, height: 50.5))),
+        (CGSize(width: 1180, height: 820), TableLayoutTests.chrome(TableLayoutTests.insets(32, 0, 20, 0), topBar: 75.5,
+                                                                  corner: CGSize(width: 80, height: 50.5))),
+    ]
 
     func makeScene(_ h: ReplayHarness, size: CGSize, chrome: TableChrome) -> GameSKScene {
         let scene = GameSKScene(size: size)
@@ -170,6 +180,89 @@ final class SceneLayoutTests: XCTestCase {
                     XCTAssertGreaterThanOrEqual(sceneFrame(bottom, scene).minY, scene.layout.safeRect.minY + pill, "\(size) \(c.topBar)")
                 }
             }
+        }
+    }
+
+    // (C2) a lazy player at the seat: a read-only hand with the green pill
+    func testLazyAtSeatWithPill() throws {
+        for (size, chrome) in Self.configs {
+            var c = chrome
+            c.bottomBar = 45
+            let h = ReplayHarness()
+            let scene = makeScene(h, size: size, chrome: c)
+            h.store.apply(.snapshot(try T.snapshot("lazy-at-seat"), .rejoin, hints: nil))
+            XCTAssertFalse(scene.handNode.sprites.isEmpty, "\(size)")
+            check(scene, "\(size) \(c.topBar) lazy pill", expectTrick: scene.trickArea.cardSprites.count)
+            let L = scene.layout
+            if L.usedBottomBar > 0 {
+                XCTAssertGreaterThanOrEqual(sceneFrame(scene.handNode, scene).minY, L.safeRect.minY + 45 - 0.5, "\(size) hand above the pill")
+            }
+        }
+    }
+
+    // (F) folds with the real nodes: whichever way the Duo's hinge runs, the trick cards and
+    // every seat (a spectator's bottom seat included) stay off it; in tabletop pose the hand
+    // and the bid panel's band sit below it and the table above it
+    func testFoldsWithRealNodes() throws {
+        var checked = 0
+        for (fold, size, ins, topBar) in TableLayoutTests.reachableFolds {
+            for fixture in ["trick-mid-lead3", "spectator-mid-hand", "bidding-mid", "lazy-at-seat"] {
+                let pill: CGFloat = fixture == "spectator-mid-hand" || fixture == "lazy-at-seat" ? 45 : 0
+                let chrome = TableChrome(safeArea: ins, topBar: topBar, cornerButton: CGSize(width: 80, height: 50.5), bottomBar: pill, fold: fold)
+                let h = ReplayHarness()
+                let scene = makeScene(h, size: size, chrome: chrome)
+                h.store.apply(.snapshot(try T.snapshot(fixture), .rejoin, hints: nil))
+                let L = scene.layout
+                let tag = "\(size) fold \(fold) topBar \(topBar) \(fixture)"
+                XCTAssertFalse(L.foldIgnored, tag)
+                XCTAssertFalse(L.isDegraded, tag)
+                for s in scene.trickArea.cardSprites {
+                    XCTAssertFalse(sceneFrame(s, scene).intersects(fold), "\(tag) trick \(s.name!) on the fold")
+                }
+                for (pos, node) in scene.opponentManager.nodes {
+                    XCTAssertFalse(sceneFrame(node, scene).intersects(fold), "\(tag) seat \(pos) (\(node.relativePosition)) on the fold")
+                }
+                for (pos, b) in scene.bidManager.bubbles {
+                    XCTAssertFalse(sceneFrame(b, scene).intersects(fold), "\(tag) bid bubble \(pos) on the fold")
+                }
+                if fold.width > fold.height {
+                    if !scene.handNode.sprites.isEmpty {
+                        XCTAssertLessThanOrEqual(sceneFrame(scene.handNode, scene).maxY, fold.minY + 0.5, "\(tag) hand below the fold")
+                        XCTAssertLessThanOrEqual(L.liftTop, fold.minY + 0.5, "\(tag) lifted card below the fold")
+                    }
+                    XCTAssertLessThanOrEqual(L.bidBand.maxY, fold.minY + 0.5, "\(tag) bid panel below the fold")
+                    if !scene.trickManager.trickHistory.children.isEmpty {
+                        XCTAssertGreaterThanOrEqual(sceneFrame(scene.trickManager.trickHistory, scene).minY, fold.maxY - 0.5, "\(tag) history above")
+                    }
+                }
+                check(scene, tag, expectTrick: scene.trickArea.cardSprites.count)
+                checked += 1
+            }
+        }
+        XCTAssertEqual(checked, TableLayoutTests.reachableFolds.count * 4)
+    }
+
+    // (G) a redeal's handsDestroyed fades the cards where they are, at their size
+    func testHandsDestroyedFadesInPlace() throws {
+        let holding = HoldingAnimator()
+        let h = ReplayHarness()
+        let chrome = TableChrome(safeArea: TableLayoutTests.insets(20, 0, 0, 0), topBar: 70, cornerButton: CGSize(width: 96, height: 52), bottomBar: 45)
+        let scene = makeScene(h, size: CGSize(width: 375, height: 667), chrome: chrome)
+        scene.animator = holding
+        h.store.apply(.snapshot(try T.snapshot("bidding-mid"), .rejoin, hints: nil))
+        XCTAssertLessThan(scene.layout.handScale, 1, "a scaled hand (the case that used to jump)")
+        let before = Dictionary(uniqueKeysWithValues: scene.handNode.sprites.map { ($0.key, sceneFrame($0.value, scene)) })
+        XCTAssertFalse(before.isEmpty)
+        h.store.apply(T.ev("destroyHands", ["seq": h.store.state.sync.lastSeq! + 1]))
+        XCTAssertTrue(scene.handNode.sprites.isEmpty)
+        let fading = scene.transientLayer.children.compactMap { $0 as? CardSpriteNode }
+        XCTAssertEqual(fading.count, before.count)
+        for s in fading {
+            let now = sceneFrame(s, scene), was = try XCTUnwrap(before[s.card.id])
+            XCTAssertEqual(now.midX, was.midX, accuracy: 0.5, s.card.id)
+            XCTAssertEqual(now.midY, was.midY, accuracy: 0.5, s.card.id)
+            XCTAssertEqual(now.width, was.width, accuracy: 0.5, s.card.id)
+            XCTAssertEqual(now.height, was.height, accuracy: 0.5, s.card.id)
         }
     }
 

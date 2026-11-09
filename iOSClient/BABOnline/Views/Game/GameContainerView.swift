@@ -86,7 +86,7 @@ struct GameContainerView: View {
                     dock = m
                     if m != .none { showGameLog = false }
                 }
-                .onChange(of: mode == .none ? sceneFold(outer) : nil, initial: true) { _, fold in
+                .onChange(of: paneFold(mode, outer), initial: true) { _, fold in
                     if chrome.fold != fold { chrome.fold = fold }
                     #if DEBUG
                     if let d = FoldReader.division(outer) { print("[Regions] division \(d) (proxy-local) -> dock \(mode) tabletop \(fold.map { "\($0)" } ?? "-")") }
@@ -165,8 +165,25 @@ struct GameContainerView: View {
         return 320
     }
 
-    /// The division in the scene's coordinates when nothing is docked: tabletop (table
-    /// above, hand below) or an undocked book fold (cluster on the wider page).
+    /// The fold TableLayout sees in the table pane: undocked, the division as it is
+    /// (tabletop: table above, hand below; book: cluster on the wider page); beside the
+    /// inner-landscape side panel, a horizontal (tabletop) division only, which spans
+    /// the pane (only its y matters); in book dock none (the scene never spans the hinge).
+    private func paneFold(_ mode: Dock, _ p: GeometryProxy) -> CGRect? {
+        switch mode {
+        case .none:
+            return sceneFold(p)
+        case .side:
+            guard let f = sceneFold(p), f.width > f.height else { return nil }
+            let i = p.safeAreaInsets
+            let fullWidth = p.size.width + i.leading + i.trailing
+            return CGRect(x: -fullWidth / 2, y: f.minY, width: fullWidth, height: f.height)
+        case .book:
+            return nil
+        }
+    }
+
+    /// The division in the scene's coordinates of the full window.
     private func sceneFold(_ p: GeometryProxy) -> CGRect? {
         guard let div = FoldReader.division(p) else { return nil }
         let i = p.safeAreaInsets
@@ -225,7 +242,7 @@ struct GameContainerView: View {
                     Spacer()
                 }
 
-                if inGame { cornerButtons }
+                if inGame { cornerButtons(layout) }
 
                 pills
             }
@@ -285,7 +302,7 @@ struct GameContainerView: View {
 
     // MARK: - Corner buttons
 
-    private var cornerButtons: some View {
+    private func cornerButtons(_ layout: TableLayout) -> some View {
         VStack {
             HStack(alignment: .top) {
                 // Leave/exit game button (always visible during play — Guideline 4)
@@ -303,8 +320,9 @@ struct GameContainerView: View {
                 }
                 .accessibilityIdentifier("leave")
                 .dynamicTypeSize(...DynamicTypeSize.xxLarge)
+                .accessibilityShowsLargeContentViewer()  // text stops growing at xxLarge
                 .onGeometryChange(for: CGSize.self, of: { $0.size }) { leaveSize = $0 }
-                .padding(.leading, 12)
+                .padding(.leading, 12 + layout.occludedLeft)  // clear of a full-height system strip
 
                 Spacer()
 
@@ -342,9 +360,11 @@ struct GameContainerView: View {
                         }
                 }
                 .accessibilityIdentifier("log")
+                .accessibilityLabel("Game log")
                 .dynamicTypeSize(...DynamicTypeSize.xxLarge)
+                .accessibilityShowsLargeContentViewer()
                 .onGeometryChange(for: CGSize.self, of: { $0.size }) { logSize = $0 }
-                .padding(.trailing, 12)
+                .padding(.trailing, 12 + layout.occludedRight)
                 }
             }
             .padding(.top, showsTable ? chrome.topBar + 8 : 80)

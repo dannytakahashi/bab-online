@@ -12,14 +12,32 @@
 #       displays (primary = the Duo's outer 1398x2034, primary-1 = the inner
 #       2007x2853). Set EXTRA="-uiFold book" for more launch arguments.
 #
+#   ios-screenshots.sh --status-bar <udid> set|clear
+#       The App Store status bar (9:41, full bars) for an XCTest screenshot run, and
+#       back to the live one afterwards (--simctl sets and clears it itself).
+#
 # The Duo's pose (closed / open / partially open) is set by hand in Device Hub.
 # Screenshots are review material: keep them out of the repo.
 set -u
 
+status_bar() {
+  if [[ "$2" == "set" ]]; then
+    xcrun simctl status_bar "$1" override --time 9:41 --dataNetwork wifi --wifiBars 3 --cellularBars 4 --batteryState charged --batteryLevel 100 >/dev/null 2>&1
+  else
+    xcrun simctl status_bar "$1" clear >/dev/null 2>&1
+  fi
+}
+
+if [[ "${1:-}" == "--status-bar" ]]; then
+  status_bar "${2:?udid}" "${3:?set|clear}"
+  exit 0
+fi
+
 if [[ "${1:-}" == "--simctl" ]]; then
   udid=$2; out=$3; shift 3
   mkdir -p "$out"
-  xcrun simctl status_bar "$udid" override --time 9:41 >/dev/null 2>&1
+  status_bar "$udid" set
+  trap 'status_bar "$udid" clear' EXIT
   for fx in "$@"; do
     xcrun simctl terminate "$udid" com.bab-online.BABOnline >/dev/null 2>&1
     xcrun simctl launch "$udid" com.bab-online.BABOnline -uiFixture "$fx" ${=EXTRA:-} >/dev/null || exit 1

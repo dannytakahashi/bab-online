@@ -26,25 +26,35 @@ struct BidOverlayView: View {
         return levels
     }
 
-    var body: some View {
-        VStack(spacing: 6) {
-            // Fixed-width bid grid: 36 pt buttons, at most 7 a row (fits the 340 pt bid band)
-            let columns = Array(repeating: GridItem(.fixed(36), spacing: 4), count: min(maxBid + 1, 7))
+    /// Every control gets a 44 x 44 pt hit area (HIG): the grid cells are 44 pt
+    /// squares with a 40 pt face, so neighbouring faces keep a 4 pt gap; the bore
+    /// and Submit row is 40 pt tall with its hit area reaching 2 pt beyond it.
+    static let cell: CGFloat = 44
+    static let face: CGFloat = 40
+    static let rowHeight: CGFloat = 40
 
-            LazyVGrid(columns: columns, spacing: 4) {
+    var body: some View {
+        VStack(spacing: 2) {
+            // Fixed-width bid grid: at most 7 cells a row (7 x 44 + padding fits the 340 x 140 bid band)
+            let columns = Array(repeating: GridItem(.fixed(Self.cell), spacing: 0), count: min(maxBid + 1, 7))
+
+            LazyVGrid(columns: columns, spacing: 0) {
                 ForEach(0...maxBid, id: \.self) { bid in
                     let bidStr = String(bid)
                     Button(action: { selectedBid = bidStr }) {
                         Text("\(bid)")
                             .font(.callout.bold())
-                            .frame(minWidth: 36, minHeight: 36)
+                            .frame(width: Self.face, height: Self.face)
                             .background(selectedBid == bidStr ? Color.Theme.primary : Color.Theme.surfaceLight)
                             .foregroundColor(selectedBid == bidStr ? .black : Color.Theme.textPrimary)
                             .cornerRadius(6)
+                            .frame(width: Self.cell, height: Self.cell)
+                            .contentShape(Rectangle())
                     }
+                    .accessibilityShowsLargeContentViewer()
                 }
             }
-            .padding(.horizontal, 8)
+            .padding(.horizontal, 6)
 
             HStack(spacing: 8) {
                 // Bore buttons inline with submit
@@ -53,12 +63,15 @@ struct BidOverlayView: View {
                         Button(action: { selectedBid = level }) {
                             Text(level)
                                 .font(.caption.bold())
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 6)
+                                .frame(minWidth: Self.cell - 4)
+                                .padding(.horizontal, 8)
+                                .frame(height: Self.rowHeight)
                                 .background(selectedBid == level ? Color.Theme.oppColor : Color.Theme.surfaceLight)
                                 .foregroundColor(selectedBid == level ? .white : Color.Theme.textPrimary)
                                 .cornerRadius(6)
+                                .contentShape(Rectangle().inset(by: -2))
                         }
+                        .accessibilityShowsLargeContentViewer()
                     }
                 }
 
@@ -75,16 +88,18 @@ struct BidOverlayView: View {
                     }
                     .font(.callout.bold())
                     .padding(.horizontal, 24)
-                    .padding(.vertical, 8)
+                    .frame(height: Self.rowHeight)
                     .background(selectedBid != nil && !isSubmitted ? Color.Theme.buttonBackground : Color.Theme.buttonDisabled)
                     .foregroundColor(.white)
                     .cornerRadius(8)
+                    .contentShape(Rectangle().inset(by: -2))
                 }
                 .disabled(selectedBid == nil || isSubmitted)
+                .accessibilityShowsLargeContentViewer()
             }
             .padding(.horizontal, 8)
         }
-        .padding(.vertical, 8)
+        .padding(.vertical, 4)
         .disabled(isSubmitted)
         .background(
             RoundedRectangle(cornerRadius: 14)
@@ -96,7 +111,9 @@ struct BidOverlayView: View {
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("bidOverlay")
-        .accessibilityValue(selectedBid ?? "-")
+        #if DEBUG
+        .accessibilityValue(selectedBid ?? "-")  // the fixture UI tests read the selection
+        #endif
     }
 
     private func submitBid() {
