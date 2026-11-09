@@ -337,6 +337,12 @@ Consumers:
   and runs `JSONDecoder`. The `BABOnlineTests` target bundles
   `contract/fixtures/v2` as a folder reference and strict-decodes every file
   (`TableSnapshotDecodingTests`).
+- iOS conformance (item 23, `docs/ios-table-store.md`): the store applies
+  R1-R5 (seq gate over every sequenced event, chat and voicePeerLeft
+  included; buffered gaps; snapshot replay above S; `partial` merge), and
+  replays of recorded real games (`npm run ios:fixtures`, drift-checked by
+  `server/socket/__tests__/iosEventLogs.test.js`) must equal the server's
+  snapshot at every checkpoint.
 
 ## Constants
 

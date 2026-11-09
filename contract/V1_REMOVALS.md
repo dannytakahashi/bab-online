@@ -53,6 +53,9 @@ One PR per entry:
   (not only `clientEvent: .error`); otherwise dropping `error` silently loses
   the iOS error toast. Same for web.
 - Phase B (this entry): drop the `error` emit once no v1 client remains.
+- Item 23 note (21.10b): the iOS source does not listen to `serverError` yet
+  (nothing emits it); it waits for Phase A. Its `error` path now also resyncs
+  the table for playCard / playerBid / requestSnapshot.
 - The `validation` variant (`{type:'validation', message}`, from
   `validators.withValidation`) is dead today: nothing calls withValidation.
   Delete withValidation and the variant with this entry.
@@ -113,8 +116,10 @@ it. Until then dropping it silently breaks the web speaking indicator.
 - Replacement: a self-only `spectateState` (or just the v2 snapshot) plus the
   notice via `socket.to(room)`; stop the notice from watchSeat 'spectate'.
 - Consumers: web lobbyHandlers.js + main.js onSpectatorJoined (routes on
-  `players && trump`), iOS GameSocketHandler.swift:377 (routes on
-  `players != nil && trump != nil`).
+  `players && trump`), the App Store iOS build (routes on
+  `players != nil && trump != nil`); iOS source after item 23 routes on the
+  `snapshot` key (ServerEvent.decode), so a self-only snapshot carrier works
+  for it. `spectateState` still does not exist.
 
 ### 9. Legacy client-state keys → snapshot-only rejoin / restore
 
@@ -124,7 +129,9 @@ changing shape mid-hand, sparse `playedCards`, `phase` / `bidding`,
 aliases (`leadPosition`, `trumpBroken`, `teamTricks`, `oppTricks` on the
 spectator state). Replacement: rejoinSuccess / restorePlayerState / the
 spectator state carry only `{snapshot}` (and `tournamentId` while web needs
-it). Prerequisite: items 16 and 23 render from v2.
+it). Prerequisite: items 16 and 23 render from v2. iOS (item 23) does: its
+store restores only from `snapshot` (+ `players[].socketId` / `pic` hints and
+`isLazy` / `tournamentId`); web (item 16) does not yet.
 
 ### 10. `cardPlayed.trump` → `trumpBroken`; drop `playerId`
 
@@ -216,7 +223,8 @@ is logged per socket (server/socket/clientInfo.js).
   previous hand's "B" badge on screen through the next deal until its first
   bid: a new visible glitch. Ship only once the new iOS build resets them per
   hand, or on an explicit owner call. The multipliers already go out in
-  `doneBidding.mults` (read by neither client) and in snapshot v2.
+  `doneBidding.mults` (read by the iOS source since item 23; not by web) and
+  in snapshot v2; the iOS source computes them from the bids per deal.
 - **Re-sending `mainRoomPlayerJoined` on leave.** Would fix the stale online
   count on both current clients, but changes the event's meaning. Item 8 sends
   the new `mainRoomPlayerLeft` instead (current builds keep a stale count).
