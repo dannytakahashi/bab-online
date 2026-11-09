@@ -68,6 +68,8 @@ struct TableLayout: Equatable {
     let isDegraded: Bool
     /// The bottom bar the solve honoured (0 when the pill had to overlay the hand).
     let usedBottomBar: CGFloat
+    /// The fold left no room and was ignored (the layout is the unfolded one).
+    let foldIgnored: Bool
     let safeRect: CGRect
     /// Nothing but the corner buttons may reach above this line.
     let topLimit: CGFloat
@@ -109,6 +111,22 @@ struct TableLayout: Equatable {
                     break search
                 }
             }
+        }
+        // a fold that leaves no room (tabletop on a short window) is ignored rather than degrading
+        if found == nil, chrome.fold != nil {
+            var unfolded = chrome
+            unfolded.fold = nil
+            search: for bar in bars {
+                for si in 0..<5 {
+                    if let sol = Self.solve(size: size, chrome: unfolded, s: 1.0 - 0.05 * CGFloat(si), bottomBar: bar, strict: true) {
+                        found = sol
+                        break search
+                    }
+                }
+            }
+            foldIgnored = found != nil
+        } else {
+            foldIgnored = false
         }
         let degraded = found == nil
         let sol = found ?? Self.solve(size: size, chrome: chrome, s: 0.8, bottomBar: 0, strict: false)!

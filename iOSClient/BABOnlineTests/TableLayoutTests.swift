@@ -273,6 +273,17 @@ final class TableLayoutTests: XCTestCase {
         }
     }
 
+    /// A tabletop fold with no room for table-above / hand-below (the closed Duo's height) is ignored, not degraded.
+    func testTabletopIgnoredWhenNoRoom() {
+        let fold = CGRect(x: -233, y: -10, width: 466, height: 20)
+        let L = TableLayout(size: CGSize(width: 466, height: 678), chrome: Self.chrome(Self.insets(0, 0, 34, 84), fold: fold))
+        XCTAssertFalse(L.isDegraded)
+        XCTAssertTrue(L.foldIgnored)
+        XCTAssertEqual(L.trickSlot(.top), TableLayout(size: CGSize(width: 466, height: 678), chrome: Self.chrome(Self.insets(0, 0, 34, 84))).trickSlot(.top))
+        let open = TableLayout(size: CGSize(width: 669, height: 951), chrome: Self.chrome(Self.insets(24, 0, 20, 0), fold: CGRect(x: -334.5, y: -10, width: 669, height: 20)))
+        XCTAssertFalse(open.foldIgnored)
+    }
+
     func testBookClusterOffHinge() {
         for dy in [CGFloat(-10), 0, 10] {
             let fold = CGRect(x: -10 + dy, y: -334.5, width: 20, height: 669)

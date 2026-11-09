@@ -29,6 +29,22 @@ struct GameContainerView: View {
     @State private var cornerSize: CGSize = .zero
     @State private var pillHeight: CGFloat = 0
 
+    // Item 27-4: the fold and the docked log
+    @Environment(\.horizontalSizeClass) private var hSizeClass
+    @Environment(\.verticalSizeClass) private var vSizeClass
+    /// Bumped by every hinge change so the fold is read again at the same size.
+    @State private var hingeTick = 0
+    @State private var dock = Dock.none
+    /// Inner landscape: the Log button hides / shows the docked panel.
+    @State private var logCollapsed = false
+
+    /// Where the game log goes: the drawer (`none`), a side panel in the open
+    /// Duo's landscape (`side`), or the left page in book pose (`book`, up to the hinge).
+    enum Dock: Equatable {
+        case none, side
+        case book(hinge: CGRect)
+    }
+
     private var isPureSpectator: Bool {
         gameState.isSpectator && !gameState.isLazy
     }
@@ -48,9 +64,36 @@ struct GameContainerView: View {
 
     var body: some View {
         ZStack {
-            HStack(spacing: 0) {
-                tablePane
+            GeometryReader { outer in
+                let _ = hingeTick  // re-read the regions after a hinge change
+                let mode = dockMode(outer)
+                // The docked panel comes first and is optional, so the table
+                // pane (and its SpriteView) keeps its identity in every pose
+                HStack(spacing: 0) {
+                    if showsDocked(mode) {
+                        GameLogPanel(style: .docked)
+                            .frame(width: dockWidth(mode))
+                            .background(Color.Theme.surface.ignoresSafeArea())
+                        if case .book(let hinge) = mode {
+                            Color.black.frame(width: hinge.width).ignoresSafeArea()  // the scene never spans the hinge
+                        } else {
+                            Separator(vertical: true)
+                        }
+                    }
+                    tablePane
+                }
+                .onChange(of: mode, initial: true) { _, m in
+                    dock = m
+                    if m != .none { showGameLog = false }
+                }
+                .onChange(of: tabletopFold(outer), initial: true) { _, fold in
+                    if chrome.fold != fold { chrome.fold = fold }
+                    #if DEBUG
+                    if let d = FoldReader.division(outer) { print("[Regions] division \(d) (proxy-local) -> dock \(mode) tabletop \(fold.map { "\($0)" } ?? "-")") }
+                    #endif
+                }
             }
+            .modifier(HingeTick(tick: $hingeTick))
 
             // Draw phase overlay
             if gameState.phase == .draw {
@@ -87,6 +130,43 @@ struct GameContainerView: View {
             VoicePanelSheet()
                 .presentationDetents([.medium])
         }
+    }
+
+    // MARK: - Fold and dock (27-4)
+
+    private func dockMode(_ p: GeometryProxy) -> Dock {
+        guard showsTable || gameState.phase == .draw else { return .none }
+        if let div = FoldReader.division(p), div.height > div.width, div.minX > 0, div.maxX < p.size.width {
+            return .book(hinge: div)
+        }
+        let i = p.safeAreaInsets
+        let w = p.size.width + i.leading + i.trailing, h = p.size.height + i.top + i.bottom
+        if UIDevice.current.userInterfaceIdiom == .phone, hSizeClass == .regular, vSizeClass == .regular,
+           w > h, w - 320 >= 560 {
+            return .side
+        }
+        return .none
+    }
+
+    private func showsDocked(_ mode: Dock) -> Bool {
+        switch mode {
+        case .none: return false
+        case .side: return !logCollapsed
+        case .book: return true
+        }
+    }
+
+    private func dockWidth(_ mode: Dock) -> CGFloat {
+        if case .book(let hinge) = mode { return max(0, hinge.minX) }
+        return 320
+    }
+
+    /// Tabletop (a division wider than tall), not docked: the fold in the scene's coordinates.
+    private func tabletopFold(_ p: GeometryProxy) -> CGRect? {
+        guard let div = FoldReader.division(p), div.width > div.height else { return nil }
+        let i = p.safeAreaInsets
+        let full = CGSize(width: p.size.width + i.leading + i.trailing, height: p.size.height + i.top + i.bottom)
+        return FoldReader.toScene(div, in: full, insets: i)
     }
 
     // MARK: - Panes
@@ -223,23 +303,29 @@ struct GameContainerView: View {
 
                 Spacer()
 
-                // Game log toggle button
+                // Game log toggle button: the drawer, or the docked panel in inner landscape
+                // (hidden in book pose: the log is the left page)
+                if case .book = dock {} else {
                 Button(action: {
                     withAnimation {
-                        showGameLog.toggle()
-                        if showGameLog {
-                            gameState.apply(.local(.chatRead))
+                        if dock == .side {
+                            logCollapsed.toggle()
+                        } else {
+                            showGameLog.toggle()
+                            if showGameLog {
+                                gameState.apply(.local(.chatRead))
+                            }
                         }
                     }
                 }) {
-                    Image(systemName: showGameLog ? "xmark.circle.fill" : "text.bubble.fill")
+                    Image(systemName: logIsOpen ? "xmark.circle.fill" : "text.bubble.fill")
                         .font(.title2)
                         .foregroundColor(Color.Theme.textSecondary)
                         .padding(12)
                         .background(Color.Theme.surface.opacity(0.8))
                         .clipShape(Circle())
                         .overlay(alignment: .topTrailing) {
-                            if !showGameLog && gameState.unreadChatCount > 0 {
+                            if !logIsOpen && gameState.unreadChatCount > 0 {
                                 Text("\(gameState.unreadChatCount)")
                                     .font(.system(size: 11, weight: .bold))
                                     .foregroundStyle(.white)
@@ -254,12 +340,21 @@ struct GameContainerView: View {
                 .dynamicTypeSize(...DynamicTypeSize.xxLarge)
                 .onGeometryChange(for: CGSize.self, of: { $0.size }) { logSize = $0 }
                 .padding(.trailing, 12)
+                }
             }
             .padding(.top, showsTable ? chrome.topBar + 8 : 80)
             Spacer()
         }
         .onChange(of: CGSize(width: max(leaveSize.width, logSize.width), height: max(leaveSize.height, logSize.height)), initial: true) { _, s in
             cornerSize = s
+        }
+    }
+
+    private var logIsOpen: Bool {
+        switch dock {
+        case .none: return showGameLog
+        case .side: return !logCollapsed
+        case .book: return true
         }
     }
 
