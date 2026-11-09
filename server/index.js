@@ -14,7 +14,6 @@ require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const path = require('path');
 
 const config = require('./config');
 const { connectDB, getUsersCollection } = require('./database');
@@ -25,6 +24,7 @@ const { setupGracefulShutdown } = require('./utils/shutdown');
 const requestLogger = require('./middleware/requestLogger');
 const { createAvatarRouter } = require('./routes/avatar');
 const avatarStore = require('./avatar/avatarStore');
+const { mountStatic } = require('./staticAssets');
 
 // Initialize Express
 const app = express();
@@ -50,27 +50,9 @@ app.use((req, res, next) => {
 // handlers; sets its own CSP/CORP/nosniff and cache headers
 app.use(createAvatarRouter({ getUsersCollection, avatarStore }));
 
-// Static files with caching
-app.use(express.static(path.join(__dirname, '..', 'client'), {
-    maxAge: config.isProduction ? '1d' : 0, // Cache for 1 day in production
-    etag: true,
-    lastModified: true
-}));
-
-// Assets with longer cache (images don't change often)
-app.use('/assets', express.static(path.join(__dirname, '..', 'client', 'assets'), {
-    maxAge: config.isProduction ? '7d' : 0, // Cache for 7 days in production
-    etag: true,
-    lastModified: true,
-    setHeaders: (res, filePath) => {
-        // Set immutable for sprite atlas files (they're versioned by content)
-        if (filePath.includes('sprites/')) {
-            res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-        }
-    }
-}));
-
-app.use('/assets-debug', express.static(path.join(__dirname, '..', 'client', 'assets')));
+// Static files: versioned avatar art (immutable), the client, /assets
+// (server/staticAssets.js)
+mountStatic(app, config);
 
 // Routes
 app.use('/', routes);
