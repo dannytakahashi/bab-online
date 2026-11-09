@@ -10,6 +10,8 @@ class TrickAreaNode: SKNode {
     /// updateTurn arrives in the same tick as trickComplete).
     private(set) var collectingCount = 0
 
+    var cardCount: Int { trickCards.count }
+
     /// Positions for each player's card in the trick area (relative to center)
     private func cardOffset(for relPos: Positions.RelativePosition, sceneSize: CGSize) -> CGPoint {
         let scaleX = sceneSize.width / LayoutConstants.referenceWidth

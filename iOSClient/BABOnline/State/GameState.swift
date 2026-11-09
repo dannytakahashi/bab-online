@@ -1,665 +1,167 @@
 import Foundation
 import Combine
 
-/// Game phases (pre-store; replaced by State/Table GamePhase)
-enum LegacyGamePhase: String {
-    case none, lobby, draw, bidding, playing, ended
+/// The table's renderer (GameSKScene), called synchronously after every commit.
+@MainActor
+protocol TableRenderer: AnyObject {
+    func apply(model: TableRenderModel, animations: [TableAnimation])
 }
 
-/// Core game state — mirrors the web client's GameState.js
+/// The table store: four published slices over the pure TableReducer.
+/// Every change goes through `apply`; views read the slices or the read-only
+/// accessors below, the scene gets `TableRenderModel` + animations.
+@MainActor
 final class GameState: ObservableObject {
+    @Published private(set) var table = TableSlice()
+    @Published private(set) var scores = ScoreSlice()
+    @Published private(set) var players = PlayersSlice()
+    @Published private(set) var log = LogSlice()
 
-    // MARK: - Player Identity
+    private(set) var state = TableState()
+    /// +1 per applied snapshot or reset (the coordinator's resync debounce).
+    private(set) var sceneResets = 0
 
-    @Published var playerId: String?
-    @Published var username: String?
-    @Published var position: Int?
-    @Published var pic: String?
+    weak var renderer: TableRenderer?
+    /// Non-animation effects (requestSnapshot / cancelAck / haptic) for ActionCoordinator.
+    let ioRequests = PassthroughSubject<TableEffect, Never>()
 
-    // MARK: - Game Info
-
-    @Published var gameId: String?
-    @Published var tournamentId: String?
-    @Published var phase: LegacyGamePhase = .none
-    @Published var currentHand: Int = 0
-    @Published var dealer: Int?
-
-    // MARK: - Trump
-
-    @Published var trump: Card?
-    @Published var trumpBroken: Bool = false
-
-    // MARK: - Turn
-
-    @Published var currentTurn: Int?
-    @Published var isBidding: Bool = false
-
-    // MARK: - Cards
-
-    @Published var myCards: [Card] = []
-    @Published var playedCards: [PlayedCard] = []
-
-    // MARK: - Trick State
-
-    @Published var leadCard: Card?
-    @Published var leadPosition: Int?
-    @Published var playedCardIndex: Int = 0
-    @Published var trickWinner: Int?
-
-    // MARK: - Bids
-
-    @Published var bids: [Int: String] = [:]  // position → bid string (e.g. "5", "B", "2B")
-    @Published var teamBids: String?
-    @Published var oppBids: String?
-    @Published var team1Mult: Int = 1
-    @Published var team2Mult: Int = 1
-    @Published var tempBids: [String] = []
-
-    // MARK: - Scores
-
-    @Published var teamTricks: Int = 0
-    @Published var oppTricks: Int = 0
-    @Published var teamScore: Int = 0
-    @Published var oppScore: Int = 0
-    @Published var teamRainbows: Int = 0
-    @Published var oppRainbows: Int = 0
-
-    // MARK: - Trick History
-
-    @Published var teamTrickHistory: [[PlayedCard]] = []
-    @Published var oppTrickHistory: [[PlayedCard]] = []
-
-    // MARK: - Players
-
-    @Published var playerData: PlayerData?
-    @Published var players: [Int: PlayerInfo] = [:]
-    @Published var partnerName: String?
-    @Published var opp1Name: String?
-    @Published var opp2Name: String?
-
-    // MARK: - Spectator / Lazy
-
-    @Published var isSpectator: Bool = false
-    @Published var isLazy: Bool = false
-
-    var isReadOnly: Bool { isSpectator || isLazy }
-
-    // MARK: - UI Flags
-
-    @Published var hasPlayedCard: Bool = false
-    @Published var hasDrawn: Bool = false
-    @Published var isUICreated: Bool = false
-
-    // MARK: - Draw Phase
-
-    @Published var drawCardCount: Int = 0
-    @Published var drawnCard: Card?
-    @Published var drawResults: [DrawResult] = []
-    @Published var teamsAnnouncedData: [String: Any]?
-
-    // MARK: - HSI
-
-    @Published var hsiValues: [Int: Double] = [:]
-
-    // MARK: - Disconnection
-
-    @Published var disconnectedPlayers: [Int: String] = [:]  // pos → username
-    @Published var resignationAvailable: (position: Int, username: String)?
-
-    // MARK: - Game Log / Chat
-
-    @Published var gameLog: [ChatMessage] = []
-    @Published var unreadChatCount: Int = 0
-
-    // MARK: - Game End
-
-    @Published var gameEndData: GameEndData?
-
-    // MARK: - Error
-
-    @Published var errorMessage: String?
-
-    // MARK: - Combine Subjects (one-shot events for SpriteKit)
-
-    let cardPlayedSubject = PassthroughSubject<PlayedCard, Never>()
-    let trickCompleteSubject = PassthroughSubject<Int, Never>()    // winner position
-    let handCompleteSubject = PassthroughSubject<[String: Any], Never>()
-    let destroyHandsSubject = PassthroughSubject<Void, Never>()
-    let rainbowSubject = PassthroughSubject<Int, Never>()          // position
-    let chatBubbleSubject = PassthroughSubject<(message: String, position: Int), Never>()
-    let bidReceivedSubject = PassthroughSubject<(position: Int, bid: String), Never>()
-    let overTrumpSubject = PassthroughSubject<Void, Never>()
-
-    // MARK: - Optimistic Update State
-
-    private var pendingCard: Card?
-    private var previousCards: [Card]?
-    private var pendingBid: String?
-
-    // MARK: - Init
+    private var applying = false
+    /// Sees every effect list (tests: drops, gaps).
+    var effectObserver: (([TableEffect]) -> Void)?
 
     init() {}
 
-    // MARK: - Reset
+    @discardableResult
+    func apply(_ e: TableEvent) -> [TableEffect] {
+        #if DEBUG
+        precondition(!applying, "GameState.apply re-entered")
+        #endif
+        applying = true
+        defer { applying = false }
 
-    func reset() {
-        playerId = nil
-        // Don't clear username — preserved for reconnection
-        position = nil
-        pic = nil
+        var s = state
+        let effects = TableReducer.reduce(&s, e)
+        state = s
+        if table != s.table { table = s.table }
+        if scores != s.scores { scores = s.scores }
+        if players != s.players { players = s.players }
+        if log != s.log { log = s.log }
 
-        gameId = nil
-        tournamentId = nil
-        phase = .none
-        currentHand = 0
-        dealer = nil
-        trump = nil
-        trumpBroken = false
-        currentTurn = nil
-        isBidding = false
-        myCards = []
-        playedCards = []
-        leadCard = nil
-        leadPosition = nil
-        playedCardIndex = 0
-        trickWinner = nil
-        bids = [:]
-        teamBids = nil
-        oppBids = nil
-        team1Mult = 1
-        team2Mult = 1
-        tempBids = []
-        teamTricks = 0
-        oppTricks = 0
-        teamScore = 0
-        oppScore = 0
-        teamRainbows = 0
-        oppRainbows = 0
-        teamTrickHistory = []
-        oppTrickHistory = []
-        playerData = nil
-        players = [:]
-        partnerName = nil
-        opp1Name = nil
-        opp2Name = nil
-        isSpectator = false
-        isLazy = false
-        hasPlayedCard = false
-        hasDrawn = false
-        isUICreated = false
-        drawCardCount = 0
-        drawnCard = nil
-        drawResults = []
-        teamsAnnouncedData = nil
-        hsiValues = [:]
-        disconnectedPlayers = [:]
-        resignationAvailable = nil
-        gameLog = []
-        unreadChatCount = 0
-        gameEndData = nil
-        errorMessage = nil
-        pendingCard = nil
-        previousCards = nil
-        pendingBid = nil
+        effectObserver?(effects)
+        let animations = effects.animations
+        if animations.contains(.sceneReset) { sceneResets += 1 }
+        renderer?.apply(model: TableRenderModel(s), animations: animations)
+        for fx in effects {
+            switch fx {
+            case .animate: break
+            #if DEBUG
+            case .dropped(let event, let seq): print("[Table] dropped \(event) seq \(seq)")
+            case .gap(let expected, let got): print("[Table] seq gap: expected \(expected), got \(got)")
+            #endif
+            default: ioRequests.send(fx)
+            }
+        }
+        return effects
     }
 
-    /// Reset state for a new hand within the same game.
-    func resetForNewHand() {
-        playedCards = []
-        playedCardIndex = 0
-        leadCard = nil
-        leadPosition = nil
-        trumpBroken = false
-        trickWinner = nil
-        bids = [:]
-        teamBids = nil
-        oppBids = nil
-        isBidding = true
-        tempBids = []
-        teamTricks = 0
-        oppTricks = 0
-        teamTrickHistory = []
-        oppTrickHistory = []
-        hasPlayedCard = false
-        hasDrawn = false
-        teamRainbows = 0
-        oppRainbows = 0
+    /// Decode and apply a raw server event (handlers and tests).
+    @discardableResult
+    func apply(serverEvent name: String, payload: [Any], chatBlocked: Bool = false, chatMine: Bool = false) -> Result<SequencedEvent, WireError> {
+        let decoded = ServerEvent.decode(name: name, payload: payload, chatBlocked: chatBlocked, chatMine: chatMine)
+        switch decoded {
+        case .success(let ev):
+            apply(.server(ev))
+        case .failure(let err):
+            #if DEBUG
+            print("[Table] could not decode \(name): \(err)")
+            #endif
+            apply(.local(.resyncNeeded))
+        }
+        return decoded
     }
 
-    // MARK: - Player Data
+    func reset() { apply(.local(.reset)) }
 
-    struct PlayerData {
-        var positions: [Int]
-        var sockets: [String]
-        var usernames: [String]
-        var pics: [String?]
-    }
+    // MARK: - Read-only compatibility accessors (views)
 
     struct PlayerInfo: Equatable {
         let username: String
         var pic: String?
     }
 
-    func setPlayerData(_ dict: [String: Any]) {
-        let positions = dict["positions"] as? [Int] ?? dict["position"] as? [Int] ?? []
-        let sockets = dict["sockets"] as? [String] ?? dict["socket"] as? [String] ?? []
+    var playerId: String? { table.me.playerId }
+    var username: String? { table.me.username }
+    var position: Int? { table.viewer.position }
+    var viewPosition: Int { table.viewer.viewPosition }
+    var gameId: String? { table.gameId }
+    var tournamentId: String? { table.tournamentId }
+    var phase: PhaseKind { table.phase.kind }
+    var myTurn: MyTurnState { table.myTurn }
+    var myCards: [Card] { table.hand }
+    var sortedHand: [Card] { CardUtils.sortHand(table.hand, trump: table.deal?.trump) }
+    var currentTurn: Int? { table.phase.turn }
+    var isMyTurn: Bool { currentTurn != nil && currentTurn == position }
+    var trump: Card? { table.deal?.trump }
+    var trumpBroken: Bool { table.deal?.trumpBroken ?? false }
+    var currentHand: Int { table.deal?.handSize ?? 0 }
+    var leadPosition: Int? { table.phase.lead }
+    var playedCards: [PlayedCard] { table.phase.trick }
+    var isBidding: Bool { table.phase.isBidding }
 
-        var usernames: [String] = []
-        if let uArr = dict["usernames"] as? [[String: Any]] {
-            usernames = uArr.compactMap { $0["username"] as? String }
-        } else if let uArr = dict["username"] as? [[String: Any]] {
-            usernames = uArr.compactMap { $0["username"] as? String }
-        } else if let uArr = dict["usernames"] as? [String] {
-            usernames = uArr
-        } else if let uArr = dict["username"] as? [String] {
-            usernames = uArr
-        }
+    var bidBook: BidBook? { table.phase.bids }
+    var bids: [Int: String] {
+        var out: [Int: String] = [:]
+        for pos in 1...4 { if let b = bidBook?.bid(at: pos) { out[pos] = b } }
+        return out
+    }
+    var tempBids: [String] { bidBook?.tempBids ?? [] }
+    /// "my/partner" bids ("-" until bid) once a seat is known.
+    var teamBids: String? {
+        guard let me = position, let book = bidBook else { return nil }
+        return "\(book.bid(at: me) ?? "-")/\(book.bid(at: Positions.team(me)) ?? "-")"
+    }
+    var oppBids: String? {
+        guard let me = position, let book = bidBook else { return nil }
+        let opp = me % 2 == 1 ? [2, 4] : [1, 3]
+        return "\(book.bid(at: opp[0]) ?? "-")/\(book.bid(at: opp[1]) ?? "-")"
+    }
+    var team1Mult: Int { bidBook?.mults.team1 ?? 1 }
+    var team2Mult: Int { bidBook?.mults.team2 ?? 1 }
 
-        // Pics can be Int (numbered 1-82) or String (base64 custom) from server
-        let pics: [String?]
-        if let rawPics = dict["pics"] as? [Any?] {
-            pics = rawPics.map { picString(from: $0) }
-        } else {
-            pics = Array(repeating: nil, count: positions.count)
-        }
+    var teamTricks: Int { scores.tricks.relative(to: viewPosition).mine }
+    var oppTricks: Int { scores.tricks.relative(to: viewPosition).theirs }
+    var teamScore: Int { scores.score.relative(to: viewPosition).mine }
+    var oppScore: Int { scores.score.relative(to: viewPosition).theirs }
+    var teamRainbows: Int { scores.rainbows.relative(to: viewPosition).mine }
+    var oppRainbows: Int { scores.rainbows.relative(to: viewPosition).theirs }
 
-        playerData = PlayerData(positions: positions, sockets: sockets, usernames: usernames, pics: pics)
+    var playerInfos: [Int: PlayerInfo] {
+        var out: [Int: PlayerInfo] = [:]
+        for (pos, seat) in players.seats { out[pos] = PlayerInfo(username: seat.username ?? "P\(pos)", pic: seat.pic.string) }
+        return out
+    }
+    /// Socket id per seat (voice speaking indicators).
+    var playerSockets: [Int: String] { players.socketBySeat }
 
-        // Derive normalized players
-        for (idx, pos) in positions.enumerated() {
-            let uname = idx < usernames.count ? usernames[idx] : "P\(pos)"
-            let p = idx < pics.count ? pics[idx] : nil
-            players[pos] = PlayerInfo(username: uname, pic: p)
-        }
+    var isSpectator: Bool { table.viewer.role == .spectator }
+    var isLazy: Bool { table.viewer.role == .lazyWatcher }
+    var isReadOnly: Bool { state.isReadOnly }
+    var hasPlayedCard: Bool { if case .submitted(.play, _) = table.myTurn { return true } else { return false } }
 
-        if position != nil {
-            updatePlayerNames()
-        }
+    var hasDrawn: Bool { table.phase.draw?.hasDrawn ?? false }
+    var drawnCard: Card? { table.phase.draw?.drawnCard }
+    var drawResults: [DrawResult] { table.phase.draw?.results ?? [] }
+    var teamsAnnounced: TeamsAnnounced? { table.phase.draw?.teams }
+    var hsiValues: [Int: Double] { table.hsi }
+
+    var disconnectedPlayers: [Int: String] { players.disconnected }
+    var resignationAvailable: (position: Int, username: String)? {
+        players.resignationOffer.map { (position: $0.position, username: $0.username) }
     }
 
-    func updatePlayerNames() {
-        guard let myPos = position else { return }
-        let rel = Positions.getRelativePositions(myPos: myPos)
-        partnerName = players[rel.partner]?.username ?? "Partner"
-        opp1Name = players[rel.opp1]?.username ?? "Opp1"
-        opp2Name = players[rel.opp2]?.username ?? "Opp2"
-    }
+    var gameLog: [ChatMessage] { log.entries }
+    var unreadChatCount: Int { log.unread }
+    var gameEndData: GameEndData? { if case .ended(let d) = table.phase { return d } else { return nil } }
 
-    func getPlayerName(position pos: Int) -> String {
-        players[pos]?.username ?? "P\(pos)"
-    }
-
-    func updatePlayerUsername(position pos: Int, username: String) {
-        players[pos] = PlayerInfo(username: username, pic: players[pos]?.pic)
-        updatePlayerNames()
-    }
-
-    // MARK: - Bids
-
-    /// Per-seat bids from a rejoin/restore payload. The server sends them as
-    /// `playerBids` (array indexed by position - 1; `bids` holds team totals
-    /// {team1, team2}), so reading only `bids` showed "-/-" after a rejoin and
-    /// offered the wrong bore levels when rejoining mid-bidding. A
-    /// position-keyed `bids` dictionary is still accepted as a fallback.
-    private func restoreBids(from data: [String: Any]) {
-        func bidString(_ val: Any?) -> String? {
-            if let s = val as? String { return s }
-            if let i = val as? Int { return String(i) }
-            return nil
-        }
-        var restored: [Int: String] = [:]
-        if let arr = data["playerBids"] as? [Any] {
-            for (i, val) in arr.enumerated() where i < 4 {
-                if let b = bidString(val) { restored[i + 1] = b }
-            }
-        } else if let dict = data["bids"] as? [String: Any] {
-            for (key, val) in dict {
-                if let pos = Int(key), let b = bidString(val) { restored[pos] = b }
-            }
-        } else {
-            return  // payload carries no bids; keep what we have
-        }
-        bids = restored
-        // Bore availability only checks membership, so seat order is fine here
-        tempBids = (1...4).compactMap { restored[$0]?.uppercased() }
-        updateTeamBids()
-    }
-
-    func recordBid(position pos: Int, bid: String) {
-        bids[pos] = bid
-        tempBids.append(bid.uppercased())
-        updateTeamBids()
-        bidReceivedSubject.send((position: pos, bid: bid))
-    }
-
-    private func updateTeamBids() {
-        guard let myPos = position else { return }
-        let partnerPos = Positions.team(myPos)
-        let myBid = bids[myPos]
-        let partnerBid = bids[partnerPos]
-
-        let oppPositions = myPos % 2 == 1 ? [2, 4] : [1, 3]
-        let opp1Bid = bids[oppPositions[0]]
-        let opp2Bid = bids[oppPositions[1]]
-
-        teamBids = "\(myBid ?? "-")/\(partnerBid ?? "-")"
-        oppBids = "\(opp1Bid ?? "-")/\(opp2Bid ?? "-")"
-    }
-
-    // MARK: - Trick
-
-    func clearTrick() {
-        playedCards = []
-        playedCardIndex = 0
-        leadCard = nil
-        leadPosition = nil
-        hasPlayedCard = false
-        trickWinner = nil
-    }
-
-    // MARK: - Queries
-
-    var isMyTurn: Bool {
-        currentTurn == position
-    }
-
-    var partnerPosition: Int? {
-        guard let pos = position else { return nil }
-        return Positions.team(pos)
-    }
-
-    func isTeammate(_ pos: Int) -> Bool {
-        guard let myPos = position else { return false }
-        return Positions.team(myPos) == pos
-    }
-
-    var isLeading: Bool {
-        leadCard == nil
-    }
-
-    var sortedHand: [Card] {
-        CardUtils.sortHand(myCards, trump: trump)
-    }
-
-    // MARK: - Optimistic Updates
-
-    func optimisticPlayCard(_ card: Card) -> Bool {
-        guard let index = myCards.firstIndex(of: card) else { return false }
-        previousCards = myCards
-        pendingCard = card
-        myCards.remove(at: index)
-        return true
-    }
-
-    /// A card left our seat without us playing it (the lazy bot played it).
-    /// Drop it from the hand, or the next redraw brings it back and a tap on
-    /// it is refused by the server.
-    func removeCardPlayedForUs(_ card: Card) {
-        guard pendingCard != card, let index = myCards.firstIndex(of: card) else { return }
-        myCards.remove(at: index)
-    }
-
-    func confirmCardPlay() {
-        pendingCard = nil
-        previousCards = nil
-    }
-
-    func rollbackCardPlay() {
-        if let prev = previousCards {
-            myCards = prev
-            previousCards = nil
-            pendingCard = nil
-        }
-    }
-
-    func optimisticBid(_ bid: String) {
-        pendingBid = bid
-    }
-
-    func confirmBid() {
-        if let bid = pendingBid, let pos = position {
-            recordBid(position: pos, bid: bid)
-            pendingBid = nil
-        }
-    }
-
-    func rollbackBid() {
-        pendingBid = nil
-    }
-
-    // MARK: - Game Log
-
-    func addSystemLog(_ message: String) {
-        let entry = ChatMessage(username: "System", message: message, type: .system)
-        gameLog.append(entry)
-    }
-
-    // MARK: - Restore from Rejoin
-
-    func restoreFromRejoin(_ data: [String: Any]) {
-        gameId = data["gameId"] as? String
-        // rejoinSuccess always carries tournamentId (null for casual games) —
-        // assigning clears stale tournament context. restorePlayerState reuses
-        // this parser but omits the key, so only overwrite when it's present.
-        if data.keys.contains("tournamentId") {
-            tournamentId = data["tournamentId"] as? String
-        }
-        position = data["position"] as? Int
-        currentHand = data["currentHand"] as? Int ?? 0
-        dealer = data["dealer"] as? Int
-
-        if let trumpDict = data["trump"] as? [String: Any] {
-            trump = Card.from(trumpDict)
-        }
-        trumpBroken = data["trumpBroken"] as? Bool ?? data["isTrumpBroken"] as? Bool ?? false
-
-        let bidding = data["isBidding"] as? Bool ?? data["bidding"] as? Bool ?? false
-        isBidding = bidding
-        currentTurn = data["currentTurn"] as? Int
-
-        if let handArr = data["hand"] as? [[String: Any]] {
-            myCards = Card.arrayFrom(handArr)
-        }
-
-        // Restore bids
-        restoreBids(from: data)
-
-        if let tt = data["teamTricks"] as? Int { teamTricks = tt }
-        if let ot = data["oppTricks"] as? Int { oppTricks = ot }
-
-        // Restore tricks from alternate format (server sends "tricks": { team1, team2 })
-        if let tricks = data["tricks"] as? [String: Any],
-           let myPos = position {
-            let t1 = tricks["team1"] as? Int ?? 0
-            let t2 = tricks["team2"] as? Int ?? 0
-            if myPos % 2 != 0 {
-                teamTricks = t1
-                oppTricks = t2
-            } else {
-                teamTricks = t2
-                oppTricks = t1
-            }
-        }
-
-        if let ts = data["teamScore"] as? Int { teamScore = ts }
-        if let os = data["oppScore"] as? Int { oppScore = os }
-
-        // Restore scores from alternate format
-        if let score = data["score"] as? [String: Any],
-           let myPos = position {
-            let t1 = score["team1"] as? Int ?? 0
-            let t2 = score["team2"] as? Int ?? 0
-            if myPos % 2 != 0 {
-                teamScore = t1
-                oppScore = t2
-            } else {
-                teamScore = t2
-                oppScore = t1
-            }
-        }
-
-        // Restore played cards
-        if let pcArr = data["playedCards"] as? [[String: Any]?] {
-            restorePlayedCards(pcArr, serverLeadPosition: data["leadPosition"] as? Int)
-        }
-
-        // Derive hasPlayedCard from restored trick state
-        if let pos = position {
-            hasPlayedCard = playedCards.contains { $0.position == pos }
-        } else {
-            hasPlayedCard = false
-        }
-
-        // Restore player data
-        if let playersArr = data["players"] as? [[String: Any]] {
-            var positions: [Int] = []
-            var sockets: [String] = []
-            var usernames: [String] = []
-            var pics: [String?] = []
-            for p in playersArr {
-                positions.append(p["position"] as? Int ?? 0)
-                sockets.append(p["socketId"] as? String ?? "")
-                usernames.append(p["username"] as? String ?? "")
-                pics.append(picString(from: p["pic"]))
-            }
-            playerData = PlayerData(positions: positions, sockets: sockets, usernames: usernames, pics: pics)
-            for (idx, pos) in positions.enumerated() {
-                players[pos] = PlayerInfo(username: usernames[idx], pic: pics[idx])
-            }
-            updatePlayerNames()
-        }
-
-        // Restore HSI values
-        if let hsi = data["hsiValues"] as? [String: Any] {
-            var parsed: [Int: Double] = [:]
-            for (key, val) in hsi {
-                if let pos = Int(key), let v = val as? Double {
-                    parsed[pos] = v
-                }
-            }
-            hsiValues = parsed
-        }
-
-        phase = bidding ? .bidding : .playing
-        isUICreated = true
-    }
-
-    /// Rebuild the current trick from the server's `playedCards`, which is indexed by
-    /// position - 1 with nulls (e.g. `[null, 5H, null, KC]`), not by play order.
-    /// The lead comes from the server's `leadPosition` (rejoin payloads send it); without
-    /// it (spectator payloads), the lead is the played position whose predecessor has
-    /// no card, since a trick is played in consecutive seats.
-    private func restorePlayedCards(_ pcArr: [[String: Any]?], serverLeadPosition: Int?) {
-        playedCards = []
-        playedCardIndex = 0
-        leadCard = nil
-        leadPosition = nil
-
-        var cardsByPos: [Int: Card] = [:]
-        for (index, cardDict) in pcArr.prefix(4).enumerated() {
-            if let cd = cardDict, let card = Card.from(cd) {
-                cardsByPos[index + 1] = card
-            }
-        }
-        guard !cardsByPos.isEmpty else { return }
-
-        let lead: Int
-        if let serverLead = serverLeadPosition, cardsByPos[serverLead] != nil {
-            lead = serverLead
-        } else {
-            lead = cardsByPos.keys.sorted().first { pos in
-                cardsByPos[pos == 1 ? 4 : pos - 1] == nil
-            } ?? cardsByPos.keys.min()!
-        }
-
-        // Play order: lead, lead+1, ... wrapping 4 -> 1
-        for offset in 0..<4 {
-            let pos = (lead - 1 + offset) % 4 + 1
-            if let card = cardsByPos[pos] {
-                playedCards.append(PlayedCard(card: card, position: pos))
-            }
-        }
-
-        if playedCards.count >= 4 {
-            // Rejoined during the server's trick-resolution delay: mirror the live
-            // cardPlayed path (index back to 0, lead cleared) so trickComplete's
-            // delayed clearTrick runs and the next card starts a fresh trick.
-            playedCardIndex = 0
-        } else {
-            playedCardIndex = playedCards.count
-            leadCard = cardsByPos[lead]
-            leadPosition = lead
-        }
-    }
-
-    // MARK: - Restore from Spectator
-
-    func restoreFromSpectator(_ data: [String: Any]) {
-        gameId = data["gameId"] as? String
-        position = 1  // Spectators always view from position 1
-        isSpectator = true
-        myCards = []
-
-        currentHand = data["currentHand"] as? Int ?? 0
-        dealer = data["dealer"] as? Int
-
-        if let trumpDict = data["trump"] as? [String: Any] {
-            trump = Card.from(trumpDict)
-        }
-        trumpBroken = data["trumpBroken"] as? Bool ?? false
-
-        let bidding = data["isBidding"] as? Bool ?? data["bidding"] as? Bool ?? false
-        isBidding = bidding
-        currentTurn = data["currentTurn"] as? Int
-
-        // Restore bids
-        restoreBids(from: data)
-
-        // Restore scores
-        if let score = data["score"] as? [String: Any] {
-            let t1 = score["team1"] as? Int ?? 0
-            let t2 = score["team2"] as? Int ?? 0
-            // Spectator views from position 1 (team 1)
-            teamScore = t1
-            oppScore = t2
-        }
-        if let tt = data["teamTricks"] as? Int { teamTricks = tt }
-        if let ot = data["oppTricks"] as? Int { oppTricks = ot }
-
-        // Restore played cards
-        if let pcArr = data["playedCards"] as? [[String: Any]?] {
-            restorePlayedCards(pcArr, serverLeadPosition: data["leadPosition"] as? Int)
-        }
-
-        // Restore player data
-        if let playersArr = data["players"] as? [[String: Any]] {
-            var positions: [Int] = []
-            var sockets: [String] = []
-            var usernames: [String] = []
-            var pics: [String?] = []
-            for p in playersArr {
-                positions.append(p["position"] as? Int ?? 0)
-                sockets.append(p["socketId"] as? String ?? "")
-                usernames.append(p["username"] as? String ?? "")
-                pics.append(picString(from: p["pic"]))
-            }
-            playerData = PlayerData(positions: positions, sockets: sockets, usernames: usernames, pics: pics)
-            for (idx, pos) in positions.enumerated() {
-                players[pos] = PlayerInfo(username: usernames[idx], pic: pics[idx])
-            }
-            updatePlayerNames()
-        }
-
-        // Restore game log
-        if let logArr = data["gameLog"] as? [[String: Any]] {
-            for entry in logArr {
-                let message = entry["message"] as? String ?? ""
-                let type = entry["type"] as? String ?? "system"
-                gameLog.append(ChatMessage(username: "System", message: message, type: ChatMessage.MessageType(rawValue: type) ?? .system))
-            }
-        }
-
-        phase = bidding ? .bidding : .playing
-        isUICreated = true
-    }
+    func getPlayerName(position pos: Int) -> String { players.name(pos) }
 }

@@ -3,8 +3,12 @@ import SwiftUI
 /// Bidding UI — bottom sheet with bid grid and bore buttons.
 struct BidOverlayView: View {
     @EnvironmentObject var gameState: GameState
+    @EnvironmentObject var actions: ActionCoordinator
 
     @State private var selectedBid: String?
+
+    /// Sent, waiting for bidReceived (or a reject): no second submit.
+    private var isSubmitted: Bool { gameState.myTurn.isSubmitted }
 
     private var maxBid: Int {
         gameState.myCards.count
@@ -62,19 +66,26 @@ struct BidOverlayView: View {
 
                 // Submit button
                 Button(action: submitBid) {
-                    Text("Submit")
-                        .font(.callout.bold())
-                        .padding(.horizontal, 24)
-                        .padding(.vertical, 8)
-                        .background(selectedBid != nil ? Color.Theme.buttonBackground : Color.Theme.buttonDisabled)
-                        .foregroundColor(.white)
-                        .cornerRadius(8)
+                    Group {
+                        if isSubmitted {
+                            ProgressView().tint(.white)
+                        } else {
+                            Text("Submit")
+                        }
+                    }
+                    .font(.callout.bold())
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 8)
+                    .background(selectedBid != nil && !isSubmitted ? Color.Theme.buttonBackground : Color.Theme.buttonDisabled)
+                    .foregroundColor(.white)
+                    .cornerRadius(8)
                 }
-                .disabled(selectedBid == nil)
+                .disabled(selectedBid == nil || isSubmitted)
             }
             .padding(.horizontal, 8)
         }
         .padding(.vertical, 8)
+        .disabled(isSubmitted)
         .background(
             RoundedRectangle(cornerRadius: 14)
                 .fill(Color.Theme.surface.opacity(0.95))
@@ -85,18 +96,10 @@ struct BidOverlayView: View {
     }
 
     private func submitBid() {
-        guard let bid = selectedBid, let pos = gameState.position else { return }
-        HapticManager.mediumImpact()
-
-        let boreLevels = ["B", "2B", "3B", "4B"]
-        if boreLevels.contains(bid) {
-            gameState.optimisticBid(bid)
-            GameEmitter.playerBidBore(bid: bid, position: pos)
-        } else if let numericBid = Int(bid) {
-            gameState.optimisticBid(bid)
-            GameEmitter.playerBid(bid: numericBid, position: pos)
+        guard let bid = selectedBid else { return }
+        if actions.bid(bid) {
+            HapticManager.mediumImpact()
+            selectedBid = nil
         }
-
-        selectedBid = nil
     }
 }

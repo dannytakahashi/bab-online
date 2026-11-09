@@ -1,70 +1,76 @@
 import SpriteKit
 import Combine
 
-/// Main SpriteKit scene — coordinates all game visual managers.
-/// Subscribes to GameState via Combine for reactive updates.
-class GameSKScene: SKScene {
+/// Main SpriteKit scene. The store calls `apply(model:animations:)`
+/// synchronously after every commit (no Combine subjects, no `$phase` sinks).
+/// Interim adapter: one rebuild path over the existing managers.
+class GameSKScene: SKScene, TableRenderer {
     private var gameState: GameState!
+    private var actions: ActionCoordinator!
     private var cancellables = Set<AnyCancellable>()
     private var isSetUp = false
     private var didMoveToView = false
+    private(set) var lastModel: TableRenderModel?
+    private var builtFor: (gameId: String?, view: Int, spectator: Bool, table: Bool)?
 
     // Managers
-    private(set) var drawManager: SKDrawManager!
     private(set) var cardManager: SKCardManager!
     private(set) var opponentManager: SKOpponentManager!
     private(set) var trickManager: SKTrickManager!
     private(set) var bidManager: SKBidManager!
     private(set) var effectsManager: SKEffectsManager!
 
-    // Background
     private var backgroundNode: SKSpriteNode?
 
-    /// Configure with game state. Call once.
-    func configure(gameState: GameState) {
+    /// Configure with the store and the action sender. Call once.
+    func configure(gameState: GameState, actions: ActionCoordinator) {
         self.gameState = gameState
-        // If didMove already fired, run setup now
-        if didMoveToView && !isSetUp {
-            performSetup()
-        }
+        self.actions = actions
+        gameState.renderer = self
+        if didMoveToView && !isSetUp { performSetup() }
     }
 
     override func didMove(to view: SKView) {
         didMoveToView = true
         backgroundColor = UIColor(red: 0.05, green: 0.15, blue: 0.05, alpha: 1)
-        anchorPoint = CGPoint(x: 0.5, y: 0.5) // Center-origin coordinate system
+        anchorPoint = CGPoint(x: 0.5, y: 0.5)
         scaleMode = .resizeFill
-
-        // If gameState is already configured, set up now
-        if gameState != nil && !isSetUp {
-            performSetup()
-        }
+        if gameState != nil && !isSetUp { performSetup() }
     }
 
     private func performSetup() {
         guard gameState != nil, !isSetUp else { return }
         isSetUp = true
-        print("[GameSKScene] Setting up scene, phase: \(gameState.phase)")
-
         setupBackground()
-        initializeManagers()
-        subscribeToState()
-        handleCurrentPhase()
+        cardManager = SKCardManager(scene: self)
+        cardManager.onPlay = { [weak self] card in self?.actions.play(card) ?? false }
+        opponentManager = SKOpponentManager(scene: self)
+        trickManager = SKTrickManager(scene: self)
+        bidManager = SKBidManager(scene: self)
+        effectsManager = SKEffectsManager(scene: self)
+
+        // Voice speaking indicators: socket id -> seat
+        VoiceChatManager.shared.speakingChangedSubject
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] (socketId, isSpeaking) in
+                guard let self, socketId != "self",
+                      let pos = self.lastModel?.opponents.first(where: { $0.socketId == socketId })?.position else { return }
+                self.opponentManager?.setSpeaking(position: pos, speaking: isSpeaking)
+            }
+            .store(in: &cancellables)
+
+        apply(model: TableRenderModel(gameState.state), animations: [.sceneReset])
     }
 
     override func didChangeSize(_ oldSize: CGSize) {
         super.didChangeSize(oldSize)
-        guard gameState != nil else { return }
-
+        guard isSetUp else { return }
         setupBackground()
-        repositionAll()
+        if let m = lastModel { rebuild(m) }
     }
-
-    // MARK: - Setup
 
     private func setupBackground() {
         backgroundNode?.removeFromParent()
-        // Programmatic green felt background — no asset needed
         let bg = SKSpriteNode(color: UIColor(red: 0.05, green: 0.22, blue: 0.08, alpha: 1), size: size)
         bg.position = .zero
         bg.zPosition = -100
@@ -72,247 +78,82 @@ class GameSKScene: SKScene {
         backgroundNode = bg
     }
 
-    private func initializeManagers() {
-        drawManager = SKDrawManager(scene: self)
-        cardManager = SKCardManager(scene: self)
-        opponentManager = SKOpponentManager(scene: self)
-        trickManager = SKTrickManager(scene: self)
-        bidManager = SKBidManager(scene: self)
-        effectsManager = SKEffectsManager(scene: self)
-    }
+    // MARK: - TableRenderer
 
-    private func repositionAll() {
-        cardManager?.positionHand()
-        // Opponent and trick positions recalculate from scene.size automatically
-        if gameState.phase == .playing || gameState.phase == .bidding {
-            cardManager?.updateHand()
-        }
-    }
+    func apply(model: TableRenderModel, animations: [TableAnimation]) {
+        guard isSetUp else { lastModel = model; return }
+        let key = (gameId: model.gameId, view: model.viewPosition, spectator: model.isSpectator, table: model.showsTable)
+        let needsRebuild = animations.contains(.sceneReset) || builtFor.map { $0 != key } ?? true
+        lastModel = model
+        if needsRebuild { rebuild(model) }
 
-    // MARK: - State Subscriptions
-
-    private func subscribeToState() {
-        // Phase changes
-        gameState.$phase
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] phase in
-                self?.handlePhaseChange(phase)
-            }
-            .store(in: &cancellables)
-
-        // Hand changes
-        gameState.$myCards
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                guard let self, self.gameState.phase == .bidding || self.gameState.phase == .playing else { return }
-                self.cardManager?.updateHand()
-            }
-            .store(in: &cancellables)
-
-        // Turn changes
-        gameState.$currentTurn
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] turn in
-                self?.opponentManager?.updateTurn(currentTurn: turn)
-                if self?.gameState.phase == .playing {
-                    self?.cardManager?.updateHand()
+        for a in animations {
+            switch a {
+            case .cardPlayed(let played, _, let byMe):
+                guard model.showsTable else { break }
+                if trickManager.trickCount >= 4 || (trickManager.trickCount > 0 && model.trick.count <= 1) { trickManager.clearTrickArea() }
+                if byMe {
+                    trickManager.placeCard(played.card, position: played.position)
+                } else {
+                    trickManager.placeCard(played.card, position: played.position, from: opponentManager.trickEntryPoint(forPosition: played.position))
                 }
-            }
-            .store(in: &cancellables)
-
-        // Card played events
-        gameState.cardPlayedSubject
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] played in
-                self?.handleCardPlayed(played)
-            }
-            .store(in: &cancellables)
-
-        // Trick complete events
-        gameState.trickCompleteSubject
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] winner in
-                self?.handleTrickComplete(winner: winner)
-            }
-            .store(in: &cancellables)
-
-        // Hand complete events
-        gameState.handCompleteSubject
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.handleHandComplete()
-            }
-            .store(in: &cancellables)
-
-        // Destroy hands
-        gameState.destroyHandsSubject
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] in
-                self?.handleDestroyHands()
-            }
-            .store(in: &cancellables)
-
-        // Rainbow
-        gameState.rainbowSubject
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] position in
-                guard let self, let myPos = self.gameState.position else { return }
-                self.effectsManager?.showRainbow(position: position, myPosition: myPos)
-            }
-            .store(in: &cancellables)
-
-        // Bid received
-        gameState.bidReceivedSubject
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] (position, bid) in
-                guard let self, let myPos = self.gameState.position else { return }
-                self.bidManager?.showBid(position: position, bid: bid, myPosition: myPos)
-                // Trigger bore badge animation for bore bids
-                if bid == "B" || bid == "2B" || bid == "3B" || bid == "4B" {
-                    self.effectsManager?.showBoreBadge(bid)
+            case .trickCollected(let winner, _):
+                trickManager.collectTrick(winner: winner) { [weak self] in
+                    guard let self, let m = self.lastModel else { return }
+                    self.cardManager.updateHand(m)
                 }
+            case .handCleared, .handsDestroyed:
+                bidManager.clearAll()
+                trickManager.clearHistory()
+                trickManager.clearTrickArea()
+            case .bidPlaced(let pos, let bid, _):
+                bidManager.showBid(position: pos, bid: bid, myPosition: model.viewPosition)
+            case .bore(_, let bid, _):
+                effectsManager.showBoreBadge(bid)
+            case .rainbow(let pos, _):
+                effectsManager.showRainbow(position: pos, myPosition: model.viewPosition)
+            case .overTrump:
+                effectsManager.showOverTrump()
+            case .chatBubble, .sceneReset:
+                break
             }
-            .store(in: &cancellables)
+        }
 
-        // Over-trump detection (fired from socket handler where data is consistent)
-        gameState.overTrumpSubject
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] in
-                self?.effectsManager?.showOverTrump()
-            }
-            .store(in: &cancellables)
-
-        // Player info changes (lazy mode, bot replacement, active mode)
-        gameState.$players
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] players in
-                guard let self else { return }
-                for (pos, info) in players {
-                    self.opponentManager?.updatePlayerInfo(position: pos, username: info.username, pic: info.pic)
-                }
-            }
-            .store(in: &cancellables)
-
-        // Draw phase results and teams announced — handled by SwiftUI DrawPhaseView
-
-        // Voice speaking indicators
-        VoiceChatManager.shared.speakingChangedSubject
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] (socketId, isSpeaking) in
-                guard let self, socketId != "self" else { return }
-                // Map socketId → position using playerData
-                guard let playerData = self.gameState.playerData else { return }
-                for (index, sid) in playerData.sockets.enumerated() {
-                    if sid == socketId, index < playerData.positions.count {
-                        let position = playerData.positions[index]
-                        self.opponentManager?.setSpeaking(position: position, speaking: isSpeaking)
-                        break
-                    }
-                }
-            }
-            .store(in: &cancellables)
-    }
-
-    // MARK: - Phase Handling
-
-    private func handleCurrentPhase() {
-        handlePhaseChange(gameState.phase)
-    }
-
-    private func handlePhaseChange(_ phase: LegacyGamePhase) {
-        switch phase {
-        case .draw:
-            // Handled by SwiftUI DrawPhaseView
-            break
-        case .bidding:
-            setupGameUI()
-        case .playing:
-            setupGameUI()
-        case .ended:
-            // Handled by SwiftUI overlay
-            break
-        default:
-            break
+        if model.showsTable {
+            cardManager.updateHand(model)
+            opponentManager.update(model)
         }
     }
 
-    private func setupGameUI() {
-        drawManager?.cleanup()
-
-        if gameState.isSpectator {
-            opponentManager?.setupForSpectator(gameState: gameState)
-            // No card manager setup — spectators have no hand
-        } else {
-            cardManager?.setup(gameState: gameState)
-            opponentManager?.setup(gameState: gameState)
-            cardManager?.updateHand()
+    /// The one setup path: idempotent from the model.
+    private func rebuild(_ model: TableRenderModel) {
+        builtFor = (gameId: model.gameId, view: model.viewPosition, spectator: model.isSpectator, table: model.showsTable)
+        cardManager.cleanup()
+        opponentManager.cleanup()
+        trickManager.cleanup()
+        bidManager.cleanup()
+        guard model.showsTable else { return }
+        if model.hand != nil { cardManager.setup() }
+        opponentManager.setup(model)
+        trickManager.setup(viewPosition: model.viewPosition)
+        for c in model.trick where !c.provisional {
+            trickManager.placeCard(c.card, position: c.position, animated: false)
         }
-
-        trickManager?.setup(gameState: gameState)
-
-        // Render any cards already played in the current trick (e.g. after reconnect).
-        // Clear first so re-running setup (phase replay, rejoin into a live scene)
-        // renders exactly the restored trick, with no leftovers from before.
-        trickManager?.clearTrickArea()
-        for played in gameState.playedCards {
-            trickManager?.placeCard(played.card, position: played.position)
-        }
-    }
-
-    // MARK: - Event Handlers
-
-    private func handleCardPlayed(_ played: PlayedCard) {
-        guard let myPos = gameState.position else { return }
-
-        // If first card of a new trick, ensure trick area is visually clear
-        // (safety net for trickComplete's delayed clear being skipped)
-        if gameState.playedCards.count <= 1 {
-            trickManager?.clearTrickArea()
-        }
-
-        if played.position == myPos && !gameState.isSpectator {
-            // Our card — animate from hand to trick area
-            let trickPos = trickManager?.trickPosition(for: played.position) ?? .zero
-            cardManager?.animateCardToTrick(card: played.card, trickPosition: trickPos)
-            trickManager?.placeCard(played.card, position: played.position)
-        } else {
-            // Opponent card (or any card in spectator mode) — the trick-area sprite itself
-            // flies in from off-screen in the opponent's direction (one sprite, not two)
-            let start = opponentManager?.trickEntryPoint(forPosition: played.position)
-            trickManager?.placeCard(played.card, position: played.position, from: start)
-        }
-    }
-
-    private func handleTrickComplete(winner: Int) {
-        trickManager?.collectTrick(winner: winner) { [weak self] in
-            // Trick collected — ready for next trick
-            self?.cardManager?.updateHand()
-        }
-    }
-
-    private func handleHandComplete() {
-        // Clear bids and trick history for next hand
-        bidManager?.clearAll()
-        opponentManager?.clearAllBids()
-        trickManager?.clearHistory()
-    }
-
-    private func handleDestroyHands() {
-        cardManager?.cleanup()
-        opponentManager?.cleanup()
-        trickManager?.cleanup()
-        bidManager?.cleanup()
+        for (pos, bid) in model.bidBubbles { bidManager.showBid(position: pos, bid: bid, myPosition: model.viewPosition) }
+        cardManager.updateHand(model)
+        opponentManager.update(model)
     }
 
     // MARK: - Cleanup
 
     func cleanupAll() {
         cancellables.removeAll()
-        drawManager?.cleanup()
         cardManager?.cleanup()
         opponentManager?.cleanup()
         trickManager?.cleanup()
         bidManager?.cleanup()
         effectsManager?.cleanup()
+        builtFor = nil
+        isSetUp = false
     }
 }

@@ -92,7 +92,7 @@ final class LobbySocketHandler {
                 let lobbyId = dict["lobbyId"] as? String ?? ""
                 self.lobbyState.lobbyId = lobbyId
                 self.lobbyState.lobbyName = dict["lobbyName"] as? String ?? dict["name"] as? String ?? ""
-                self.gameState.gameId = lobbyId
+                self.gameState.apply(.local(.enterLobby(lobbyId: lobbyId)))
 
                 if let players = dict["players"] as? [[String: Any]] {
                     self.lobbyState.players = players.compactMap { LobbyPlayer.from($0) }
@@ -113,7 +113,7 @@ final class LobbySocketHandler {
                 let lobbyId = dict["lobbyId"] as? String ?? ""
                 self.lobbyState.lobbyId = lobbyId
                 self.lobbyState.lobbyName = dict["lobbyName"] as? String ?? dict["name"] as? String ?? ""
-                self.gameState.gameId = lobbyId
+                self.gameState.apply(.local(.enterLobby(lobbyId: lobbyId)))
 
                 if let players = dict["players"] as? [[String: Any]] {
                     self.lobbyState.players = players.compactMap { LobbyPlayer.from($0) }
@@ -182,7 +182,10 @@ final class LobbySocketHandler {
             let dict = data.first as? [String: Any]
             DispatchQueue.main.async {
                 print("[Lobby] All players ready — transitioning to game")
-                _ = dict  // data available if needed
+                // 21.4: entering a game context resets the table (lobbyCreated carried the lobby id)
+                if let gameId = dict?["gameId"] as? String {
+                    self.gameState.apply(.local(.enterGameContext(gameId: gameId, tournamentId: nil)))
+                }
                 self.appState.screen = .game
             }
         }

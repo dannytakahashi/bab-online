@@ -135,6 +135,14 @@ final class VoiceChatManager: ObservableObject {
         print("[Voice] Initialized, username: \(localUsername ?? "nil")")
     }
 
+    /// Start voice if it is not running (idempotent): game entry as a seat and
+    /// rejoin (21.14). Peers that arrive during the permission prompt are
+    /// buffered in `pendingPeers` and connected once active. Never under XCTest.
+    func ensureStarted() {
+        guard !isActive, ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
+        Task { try? await initialize() }
+    }
+
     /// Shut down all voice connections and clean up.
     func shutdown() {
         guard isActive else { return }

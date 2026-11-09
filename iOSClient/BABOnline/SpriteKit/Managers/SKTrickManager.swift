@@ -5,14 +5,14 @@ class SKTrickManager {
     weak var scene: GameSKScene?
     private let trickArea = TrickAreaNode()
     private let trickHistory = TrickHistoryNode()
-    private var gameState: GameState?
+    private var viewPosition = 1
 
     init(scene: GameSKScene) {
         self.scene = scene
     }
 
-    func setup(gameState: GameState) {
-        self.gameState = gameState
+    func setup(viewPosition: Int) {
+        self.viewPosition = viewPosition
         guard let scene = scene else { return }
 
         trickArea.removeFromParent()
@@ -27,16 +27,20 @@ class SKTrickManager {
     }
 
     /// `startPoint` is in scene coordinates (the trick area sits at the scene origin).
-    func placeCard(_ card: Card, position: Int, from startPoint: CGPoint? = nil) {
-        guard let scene = scene, let myPos = gameState?.position else { return }
-        trickArea.placeCard(card, position: position, myPosition: myPos, sceneSize: scene.size, from: startPoint.map { trickArea.convert($0, from: scene) })
+    func placeCard(_ card: Card, position: Int, from startPoint: CGPoint? = nil, animated: Bool = true) {
+        guard let scene = scene else { return }
+        trickArea.placeCard(card, position: position, myPosition: viewPosition, sceneSize: scene.size, animated: animated,
+                            from: startPoint.map { trickArea.convert($0, from: scene) })
     }
 
+    var trickCount: Int { trickArea.cardCount }
+
     func collectTrick(winner: Int, completion: @escaping () -> Void) {
-        guard let scene = scene, let myPos = gameState?.position else {
+        guard let scene = scene else {
             completion()
             return
         }
+        let myPos = viewPosition
 
         // Add to history
         if Positions.getTeamNumber(winner) == Positions.getTeamNumber(myPos) {
@@ -62,7 +66,8 @@ class SKTrickManager {
 
     /// Get the trick area position for a given player position
     func trickPosition(for position: Int) -> CGPoint {
-        guard let scene = scene, let myPos = gameState?.position else { return .zero }
+        guard let scene = scene else { return .zero }
+        let myPos = viewPosition
         let relPos = Positions.getRelative(target: position, from: myPos)
         let scaleX = scene.size.width / LayoutConstants.referenceWidth
         let scaleY = scene.size.height / LayoutConstants.referenceHeight

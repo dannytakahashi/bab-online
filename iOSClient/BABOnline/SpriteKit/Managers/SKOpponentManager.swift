@@ -4,83 +4,40 @@ import SpriteKit
 class SKOpponentManager {
     weak var scene: GameSKScene?
     private var opponents: [Int: OpponentHandNode] = [:]  // position → node
-    private var gameState: GameState?
+    private var names: [Int: (name: String, pic: Pic)] = [:]
 
     init(scene: GameSKScene) {
         self.scene = scene
     }
 
-    func setup(gameState: GameState) {
-        self.gameState = gameState
+    /// Create the opponent nodes for the model's seats (3 around me, or all 4 for a spectator).
+    func setup(_ model: TableRenderModel) {
         cleanup()
-
-        guard let scene = scene, let myPos = gameState.position else { return }
-        let rel = Positions.getRelativePositions(myPos: myPos)
-
-        // Create opponent nodes
-        let positions: [(pos: Int, relPos: Positions.RelativePosition)] = [
-            (rel.partner, .top),
-            (rel.opp1, .left),
-            (rel.opp2, .right),
-        ]
-
-        for (absPos, relPos) in positions {
-            let username = gameState.getPlayerName(position: absPos)
-            let pic = gameState.players[absPos]?.pic
-            let node = OpponentHandNode(position: relPos, username: username, pic: pic)
-
-            // Position on screen — partner well below score bar, opponents centered vertically
-            switch relPos {
-            case .top:
-                node.position = CGPoint(x: 0, y: scene.size.height / 2 - 220)
-            case .left:
-                node.position = CGPoint(x: -scene.size.width / 2 + 60, y: 0)
-            case .right:
-                node.position = CGPoint(x: scene.size.width / 2 - 60, y: 0)
-            default:
-                break
+        guard let scene = scene else { return }
+        for o in model.opponents {
+            let node = OpponentHandNode(position: o.rel, username: o.name, pic: o.pic.string)
+            switch o.rel {
+            case .bottom: node.position = CGPoint(x: 0, y: -scene.size.height / 2 + 140)
+            case .top: node.position = CGPoint(x: 0, y: scene.size.height / 2 - 220)
+            case .left: node.position = CGPoint(x: -scene.size.width / 2 + 60, y: 0)
+            case .right: node.position = CGPoint(x: scene.size.width / 2 - 60, y: 0)
             }
-
             node.zPosition = 10
             scene.addChild(node)
-            opponents[absPos] = node
+            opponents[o.position] = node
+            names[o.position] = (o.name, o.pic)
         }
     }
 
-    /// Setup for spectator mode — show all 4 positions (spectator has no "self")
-    func setupForSpectator(gameState: GameState) {
-        self.gameState = gameState
-        cleanup()
-
-        guard let scene = scene else { return }
-
-        let allPositions: [(absPos: Int, relPos: Positions.RelativePosition)] = [
-            (1, .bottom),
-            (2, .left),
-            (3, .top),
-            (4, .right),
-        ]
-
-        for (absPos, relPos) in allPositions {
-            let username = gameState.getPlayerName(position: absPos)
-            let pic = gameState.players[absPos]?.pic
-            let node = OpponentHandNode(position: relPos, username: username, pic: pic)
-
-            switch relPos {
-            case .bottom:
-                node.position = CGPoint(x: 0, y: -scene.size.height / 2 + 140)
-            case .top:
-                node.position = CGPoint(x: 0, y: scene.size.height / 2 - 220)
-            case .left:
-                node.position = CGPoint(x: -scene.size.width / 2 + 60, y: 0)
-            case .right:
-                node.position = CGPoint(x: scene.size.width / 2 - 60, y: 0)
+    /// Names, pictures and the turn glow from the model (re-applied every render).
+    func update(_ model: TableRenderModel) {
+        for o in model.opponents {
+            if let prev = names[o.position], prev.name != o.name || prev.pic != o.pic {
+                updatePlayerInfo(position: o.position, username: o.name, pic: o.pic.string)
+                names[o.position] = (o.name, o.pic)
             }
-
-            node.zPosition = 10
-            scene.addChild(node)
-            opponents[absPos] = node
         }
+        updateTurn(currentTurn: model.turn)
     }
 
     /// Update player info when lazy/active/resign changes identity
@@ -150,5 +107,6 @@ class SKOpponentManager {
             $0.removeFromParent()
         }
         opponents.removeAll()
+        names.removeAll()
     }
 }

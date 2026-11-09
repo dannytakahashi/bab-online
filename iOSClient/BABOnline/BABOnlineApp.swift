@@ -6,7 +6,8 @@ struct BABOnlineApp: App {
     @StateObject private var authState = AuthState()
     @StateObject private var mainRoomState = MainRoomState()
     @StateObject private var lobbyState = LobbyState()
-    @StateObject private var gameState = GameState()
+    @StateObject private var gameState: GameState
+    @StateObject private var actions: ActionCoordinator
     @StateObject private var tournamentState = TournamentState()
     @StateObject private var leaderboardState = LeaderboardState()
     @StateObject private var safetyState = SafetyState()
@@ -18,6 +19,12 @@ struct BABOnlineApp: App {
 
     private let socketService = SocketService.shared
 
+    init() {
+        let store = GameState()
+        _gameState = StateObject(wrappedValue: store)
+        _actions = StateObject(wrappedValue: ActionCoordinator(store: store))
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()
@@ -26,6 +33,7 @@ struct BABOnlineApp: App {
                 .environmentObject(mainRoomState)
                 .environmentObject(lobbyState)
                 .environmentObject(gameState)
+                .environmentObject(actions)
                 .environmentObject(tournamentState)
                 .environmentObject(leaderboardState)
                 .environmentObject(safetyState)
@@ -44,6 +52,7 @@ struct BABOnlineApp: App {
         // server plus the simulator keychain would sign in and play).
         if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil { return }
         socketService.authState = authState
+        socketService.gameState = gameState
         socketService.connect()
 
         // Register event router — stored on socketService so handlers stay alive

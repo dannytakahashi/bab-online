@@ -22,6 +22,7 @@ enum LocalAction: Equatable {
     case transportError(handler: String)   // the server 'error' dictionary
     case chatRead
     case snapshotUnavailable(requestId: String?)
+    case resyncNeeded                        // an undecodable event: ask for a snapshot (debounced)
 }
 
 enum TableEffect: Equatable {
@@ -149,6 +150,8 @@ enum TableReducer {
             }
         case .chatRead:
             s.log.unread = 0
+        case .resyncNeeded:
+            requestResync(&s, &fx)
         case .snapshotUnavailable(let requestId):
             if let id = requestId, id == s.sync.resyncId { flushBuffer(&s, &fx) }
             if let id = requestId, id.hasPrefix("ack-"), let p = s.pending, id == "ack-\(p.reqId)" {

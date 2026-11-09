@@ -31,7 +31,7 @@ final class SocketEventRouter {
         self.chatHandler = ChatSocketHandler(socket: socket, gameState: gameState, safetyState: safetyState)
         self.tournamentHandler = TournamentSocketHandler(socket: socket, tournamentState: tournamentState, gameState: gameState, appState: appState, safetyState: safetyState)
         self.leaderboardHandler = LeaderboardSocketHandler(socket: socket, leaderboardState: leaderboardState)
-        self.voiceHandler = VoiceSocketHandler(socket: socket)
+        self.voiceHandler = VoiceSocketHandler(socket: socket, gameState: gameState)
         self.safetyHandler = SafetySocketHandler(socket: socket, safetyState: safetyState)
     }
 

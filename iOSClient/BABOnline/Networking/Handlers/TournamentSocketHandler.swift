@@ -103,8 +103,8 @@ final class TournamentSocketHandler {
             guard let self, let dict = data.first as? [String: Any] else { return }
             DispatchQueue.main.async {
                 // Store tournament context on game state so game-end knows to return here
-                if let tournamentId = dict["tournamentId"] as? String {
-                    self.gameState.tournamentId = tournamentId
+                if let gameId = dict["gameId"] as? String {
+                    self.gameState.apply(.local(.enterGameContext(gameId: gameId, tournamentId: dict["tournamentId"] as? String)))
                 }
                 print("[Tournament] Game assigned: \(dict["gameId"] as? String ?? "")")
             }

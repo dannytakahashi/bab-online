@@ -15,6 +15,8 @@ final class SocketService: ObservableObject {
     static let shared = SocketService()
 
     @Published var isConnected = false
+    /// The table store (set by BABOnlineApp) for transport errors of game actions.
+    weak var gameState: GameState?
     @Published var connectionError: String?
     @Published var serverError: ServerErrorNotice?
 
@@ -97,6 +99,10 @@ final class SocketService: ObservableObject {
                     let msg = dict["message"] as? String ?? "Something went wrong"
                     self?.serverError = ServerErrorNotice(message: msg)
                     print("[Socket] Server error: \(msg)")
+                    // A refused play/bid/resync: the table resyncs instead of waiting (21.10)
+                    if let handler = dict["handler"] as? String, ["playCard", "playerBid", "requestSnapshot"].contains(handler) {
+                        self?.gameState?.apply(.local(.transportError(handler: handler)))
+                    }
                 } else {
                     let msg = (data.first as? String) ?? "Unknown error"
                     self?.connectionError = msg

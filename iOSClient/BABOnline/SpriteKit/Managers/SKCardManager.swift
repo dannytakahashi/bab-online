@@ -1,24 +1,22 @@
 import SpriteKit
-import Combine
 
-/// Manages the player's hand display, deal animations, and legality tinting.
+/// The player's hand, from TableRenderModel.hand. Taps go to ActionCoordinator.
 class SKCardManager {
     weak var scene: GameSKScene?
     private let handNode = HandNode()
-    private var gameState: GameState?
+    /// actions.play: false when refused (not my turn, illegal, already submitted)
+    var onPlay: ((Card) -> Bool)?
+    private var interactive = false
 
     init(scene: GameSKScene) {
         self.scene = scene
     }
 
-    func setup(gameState: GameState) {
-        self.gameState = gameState
+    func setup() {
         guard let scene = scene else { return }
-
         handNode.removeFromParent()
         scene.addChild(handNode)
         positionHand()
-
         handNode.onCardTapped = { [weak self] card in
             self?.handleCardPlay(card)
         }
@@ -31,71 +29,23 @@ class SKCardManager {
         handNode.position = CGPoint(x: 0, y: bottomY)
     }
 
-    func updateHand() {
-        guard let scene = scene, let gs = gameState else { return }
-        guard !gs.isSpectator else { return }  // Spectators have no hand
-
-        let sortedCards = gs.sortedHand
-        let legalCards: [Card]
-        // The collect completion calls updateHand again
+    func updateHand(_ model: TableRenderModel) {
+        guard let scene = scene, let hand = model.hand, handNode.parent != nil else { return }
+        // Not while the previous trick is still flying to its winner (#187);
+        // the collect completion calls updateHand again
         let collecting = scene.trickManager?.isCollecting ?? false
-
-        if gs.isMyTurn && gs.phase == .playing && !gs.hasPlayedCard && !collecting {
-            legalCards = CardLegality.getLegalCards(
-                hand: sortedCards,
-                lead: gs.leadCard,
-                isLeading: gs.isLeading,
-                trump: gs.trump,
-                trumpBroken: gs.trumpBroken,
-                myPosition: gs.position ?? 0,
-                leadPosition: gs.leadPosition ?? 0
-            )
-        } else {
-            // Not our turn — all cards shown as non-interactive
-            legalCards = gs.isMyTurn && gs.isBidding ? sortedCards : []
-        }
-
-        handNode.updateHand(cards: sortedCards, legalCards: legalCards, sceneSize: scene.size)
+        interactive = hand.interactive && !collecting
+        let legal = collecting && hand.interactive ? [] : hand.cards.filter { hand.legalIds.contains($0.id) }
+        handNode.updateHand(cards: hand.cards, legalCards: legal, sceneSize: scene.size)
     }
 
     private func handleCardPlay(_ card: Card) {
-        guard let gs = gameState, gs.isMyTurn, !gs.hasPlayedCard, gs.phase == .playing, !gs.isReadOnly else { return }
-        // Not while the previous trick is still flying to its winner
-        guard !(scene?.trickManager?.isCollecting ?? false) else { return }
-
-        // Legality check
-        let result = CardLegality.isLegalMove(
-            card: card,
-            hand: gs.sortedHand,
-            lead: gs.leadCard,
-            isLeading: gs.isLeading,
-            trump: gs.trump,
-            trumpBroken: gs.trumpBroken,
-            myPosition: gs.position ?? 0,
-            leadPosition: gs.leadPosition ?? 0
-        )
-
-        guard result.legal else {
+        guard interactive, !(scene?.trickManager?.isCollecting ?? false) else { return }
+        if onPlay?(card) == true {
+            HapticManager.lightImpact()
+        } else {
             HapticManager.warning()
-            return
         }
-
-        // Optimistic update
-        gs.hasPlayedCard = true
-        _ = gs.optimisticPlayCard(card)
-
-        HapticManager.lightImpact()
-
-        // Emit to server
-        GameEmitter.playCard(card: card, position: gs.position ?? 0)
-
-        // Update hand display
-        updateHand()
-    }
-
-    /// Animate card from hand to trick area
-    func animateCardToTrick(card: Card, trickPosition: CGPoint) {
-        handNode.removeCard(card, animateTo: trickPosition, in: scene!)
     }
 
     func cleanup() {

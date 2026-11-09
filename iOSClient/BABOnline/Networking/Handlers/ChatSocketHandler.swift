@@ -14,26 +14,13 @@ final class ChatSocketHandler {
 
     func register() {
         socket.on(SocketEvents.Server.chatMessage) { [weak self] data, _ in
-            guard let self, let dict = data.first as? [String: Any] else { return }
+            guard let self else { return }
             DispatchQueue.main.async {
-                let username = dict["username"] as? String ?? ""
-                guard !self.safetyState.isBlocked(username) else { return }
-                let message = dict["message"] as? String ?? ""
-                let position = dict["position"] as? Int
-                let type: ChatMessage.MessageType = (dict["type"] as? String) == "spectator" ? .spectator : .player
-
-                let chatMsg = ChatMessage(username: username, message: message, type: type, position: position)
-                self.gameState.gameLog.append(chatMsg)
-
-                // Increment unread count for player/spectator messages
-                if (type == .player || type == .spectator) && username != self.gameState.username {
-                    self.gameState.unreadChatCount += 1
-                }
-
-                // Trigger chat bubble
-                if let pos = position {
-                    self.gameState.chatBubbleSubject.send((message: message, position: pos))
-                }
+                let username = (data.first as? [String: Any])?["username"] as? String ?? ""
+                // Always to the store: a blocked line is not shown but its seq still counts (R2)
+                self.gameState.apply(serverEvent: SocketEvents.Server.chatMessage, payload: data,
+                                     chatBlocked: self.safetyState.isBlocked(username),
+                                     chatMine: username == self.gameState.username)
             }
         }
     }

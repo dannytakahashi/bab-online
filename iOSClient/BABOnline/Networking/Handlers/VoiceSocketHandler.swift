@@ -6,9 +6,11 @@ import WebRTC
 /// so each call hops to the main queue).
 final class VoiceSocketHandler {
     private let socket: SocketService
+    private let gameState: GameState
 
-    init(socket: SocketService) {
+    init(socket: SocketService, gameState: GameState) {
         self.socket = socket
+        self.gameState = gameState
     }
 
     func register() {
@@ -35,10 +37,12 @@ final class VoiceSocketHandler {
         }
 
         // Peer left
-        socket.on(SocketEvents.Server.voicePeerLeft) { data, _ in
+        socket.on(SocketEvents.Server.voicePeerLeft) { [gameState] data, _ in
             guard let dict = data.first as? [String: Any],
                   let socketId = dict["socketId"] as? String else { return }
             DispatchQueue.main.async {
+                // The room form carries seq: the table's gate must see it
+                if dict["seq"] != nil { gameState.apply(serverEvent: SocketEvents.Server.voicePeerLeft, payload: data) }
                 VoiceChatManager.shared.removePeer(socketId)
             }
         }
