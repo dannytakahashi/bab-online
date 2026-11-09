@@ -275,7 +275,9 @@ stays portrait) and refuses `requestGeometryUpdate` with UISceneErrorDomain 101
 orientation" (tried 2026-11-09). In open portrait iOS reserves an 82 pt band
 across the top for the status bar and reports no frame for the clock (status bar
 frame 2 pt tall, no active occlusion region), so the score bar stays below it,
-as the home screen's icons do.
+as the home screen's icons do. The band shows the felt: the score bar's
+background stays inside the safe area on every device (owner decision 2026-11-09),
+so system zones (status band, Dynamic Island, the Duo's vertical bar) read as table.
 
 Results: the BABOnlineUI plan passes in closed, open-portrait and
 open-landscape (21 run, 0 failures; skips: the 2 opt-in PoseChangeTests,

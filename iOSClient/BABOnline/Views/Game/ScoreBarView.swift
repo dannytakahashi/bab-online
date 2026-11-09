@@ -76,9 +76,9 @@ struct ScoreBarView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        // under the status bar on top, never into a side inset (the Duo's vertical bar,
-        // where the status column and the Leave / Log items sit on the felt)
-        .background(Color.Theme.surface.opacity(0.9), ignoresSafeAreaEdges: .top)
+        // never into a safe-area inset: the system's zones (the status band on top, the
+        // Duo's vertical bar on the side) show the felt, like the table
+        .background(Color.Theme.surface.opacity(0.9), ignoresSafeAreaEdges: [])
         // capped so the table layout's top bar stays <= 84 pt (TableLayoutTests)
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
     }
