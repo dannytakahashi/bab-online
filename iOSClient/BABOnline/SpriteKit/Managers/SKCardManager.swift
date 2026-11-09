@@ -30,6 +30,13 @@ class SKCardManager {
         handNode.apply(cards: hand.cards, legalIds: legal, layout: layout, interactive: interactive, arriving: arriving, animator: animator)
     }
 
+    /// Relayout: the hand node's place and scale, then every card to its slot.
+    func apply(layout: TableLayout, animator: Animator) {
+        handNode.position = layout.handBaseline
+        handNode.setScale(layout.handScale)
+        handNode.apply(layout: layout, animator: animator)
+    }
+
     func handleCardPlay(_ card: Card) {
         guard interactive, !(scene?.trickManager.isCollecting ?? false) else { return }
         if onPlay?(card) == true {

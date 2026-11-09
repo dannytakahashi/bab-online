@@ -33,6 +33,19 @@ class SKOpponentManager {
         }
     }
 
+    /// Relayout: every seat to its new anchor (a fold change glides).
+    func apply(layout: TableLayout, animator: Animator, animated: Bool) {
+        for node in nodes.values {
+            let target = layout.seatAnchor(node.relativePosition)
+            if animated {
+                animator.move(node, to: target, duration: LayoutConstants.playCardDuration, completion: nil)
+            } else {
+                node.removeAction(forKey: "move")
+                node.position = target
+            }
+        }
+    }
+
     func setSpeaking(position: Int, speaking: Bool) {
         guard let node = nodes[position] else { return }
         if speaking { node.showSpeakingGlow() } else { node.hideSpeakingGlow() }

@@ -79,6 +79,19 @@ class TrickAreaNode: SKNode {
         return Changes(adopted: adopted, created: created)
     }
 
+    /// Relayout: every card to its seat's new slot (a fly in flight is
+    /// re-aimed) at the new trick scale.
+    func apply(layout: TableLayout, viewPosition: Int, animator: Animator) {
+        for s in cardSprites {
+            let parts = (s.name ?? "").split(separator: ".")
+            guard parts.count >= 2, let pos = Int(parts[1]) else { continue }
+            let slot = layout.trickSlot(Positions.getRelative(target: pos, from: viewPosition))
+            if s.action(forKey: "move") != nil { animator.retarget(s, to: slot) } else { s.position = slot }
+            s.removeAction(forKey: "scale")
+            s.setScale(layout.trickSpriteScale)
+        }
+    }
+
     /// Fly a newly placed card in from `start` (scene-local coordinates of this node).
     func animateEntry(_ name: String, from start: CGPoint, slot: CGPoint, animator: Animator) {
         guard let s = sprite(named: name), !s.hasActions() else { return }

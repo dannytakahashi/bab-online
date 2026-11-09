@@ -3,7 +3,11 @@ import SpriteKit
 /// Visual effects (rainbow, bore badge, over-trump badge) in the transient
 /// layer, placed from the table layout.
 class SKEffectsManager {
+    enum EffectAnchor { case rainbow(Positions.RelativePosition), bore, overTrump }
+
     weak var scene: GameSKScene?
+    /// Effects still up, so a relayout can move them.
+    private(set) var live: [(node: SKNode, anchor: EffectAnchor)] = []
 
     init(scene: GameSKScene) {
         self.scene = scene
@@ -19,6 +23,7 @@ class SKEffectsManager {
         sprite.zPosition = 1000
         sprite.setScale(0)
         scene.transientLayer.addChild(sprite)
+        track(sprite, .rainbow(rel))
 
         let scaleIn = SKAction.scale(to: 1.0, duration: 0.5)
         scaleIn.timingMode = .easeOut
@@ -49,6 +54,7 @@ class SKEffectsManager {
         badge.alpha = 0
         badge.setScale(0.5)
         scene.transientLayer.addChild(badge)
+        track(badge, .bore)
 
         scene.animator.run(badge, SKAction.sequence([
             SKAction.group([
@@ -75,6 +81,7 @@ class SKEffectsManager {
         badge.zPosition = 999
         badge.setScale(0)
         scene.transientLayer.addChild(badge)
+        track(badge, .overTrump)
 
         let scaleIn = SKAction.scale(to: 1.0, duration: 0.5)
         scaleIn.timingMode = .easeOut
@@ -84,7 +91,27 @@ class SKEffectsManager {
         scene.animator.run(badge, SKAction.sequence([scaleIn, wait, fadeOut, SKAction.removeFromParent()])) { $0.removeFromParent() }
     }
 
+    private func track(_ node: SKNode, _ anchor: EffectAnchor) {
+        live.removeAll { $0.node.parent == nil }
+        live.append((node, anchor))
+    }
+
+    static func point(_ anchor: EffectAnchor, in layout: TableLayout) -> CGPoint {
+        switch anchor {
+        case .rainbow(let rel): return layout.rainbowCenter(rel)
+        case .bore: return layout.boreBadgeCenter
+        case .overTrump: return layout.overTrumpCenter
+        }
+    }
+
+    /// Relayout: effects still up move to their new layout point.
+    func apply(layout: TableLayout) {
+        live.removeAll { $0.node.parent == nil }
+        for e in live { e.node.position = Self.point(e.anchor, in: layout) }
+    }
+
     func cleanup() {
         // Effects clean themselves up via removeFromParent
+        live.removeAll()
     }
 }

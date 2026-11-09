@@ -20,8 +20,20 @@ class GameSKScene: SKScene, TableRenderer {
     private(set) var layout = TableLayout(size: .zero)
     /// Measured by GameContainerView (safe area, ScoreBar, corner buttons, pill, fold).
     var chrome = TableChrome() {
-        didSet { if chrome != oldValue { layoutChanged() } }
+        didSet {
+            guard chrome != oldValue else { return }
+            var sameButFold = chrome
+            sameButFold.fold = oldValue.fold
+            // a fold toggling at the same size glides; everything else snaps
+            relayout(animated: sameButFold == oldValue)
+        }
     }
+    #if DEBUG
+    /// Relayouts that moved something (fixture probes).
+    private(set) var relayoutCount = 0
+    /// didMove(to:) calls (fixture probe: a SpriteView identity change shows as 2).
+    private(set) var didMoveCount = 0
+    #endif
     private(set) var lastModel: TableRenderModel?
 
     // Static layers (built once)
@@ -49,6 +61,9 @@ class GameSKScene: SKScene, TableRenderer {
     }
 
     override func didMove(to view: SKView) {
+        #if DEBUG
+        didMoveCount += 1
+        #endif
         backgroundColor = UIColor(red: 0.05, green: 0.15, blue: 0.05, alpha: 1)
         anchorPoint = CGPoint(x: 0.5, y: 0.5)
         scaleMode = .resizeFill
@@ -115,14 +130,38 @@ class GameSKScene: SKScene, TableRenderer {
 
     override func didChangeSize(_ oldSize: CGSize) {
         super.didChangeSize(oldSize)
-        guard isSetUp else { return }
-        layoutChanged()
+        relayout(animated: false)
     }
 
-    private func layoutChanged() {
+    /// Full relayout (item 25): a new TableLayout moves every existing node,
+    /// in-flight ones included (a running move is re-aimed or snapped, a lift
+    /// is cut short, a pop keeps going), then the latest model re-renders.
+    /// Size changes are instant; a fold-only change uses the scene animator.
+    /// Collects and handsDestroyed fades in flight finish at their old
+    /// target (<= 0.4 s, fading). Idempotent: an unchanged layout is a no-op.
+    func relayout(animated: Bool) {
         guard isSetUp else { return }
-        layout = TableLayout(size: size, chrome: chrome)
+        let new = TableLayout(size: size, chrome: chrome)
+        if new == layout && backgroundNode.size == size { return }
+        layout = new
         backgroundNode.size = size
+        let a: Animator = animated ? animator : InstantAnimator()
+        let v = lastModel?.viewPosition ?? 1
+        opponentManager.apply(layout: new, animator: a, animated: animated)
+        cardManager.apply(layout: new, animator: a)
+        trickManager.apply(layout: new, viewPosition: v, animator: a)
+        bidManager.apply(layout: new, viewPosition: v, animator: a, animated: animated)
+        chatManager.apply(layout: new)
+        effectsManager.apply(layout: new)
+        #if DEBUG
+        relayoutCount += 1
+        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil {
+            let i = chrome.safeArea
+            print("[Layout] \(Int(size.width))x\(Int(size.height)) insets \(i.top)/\(i.left)/\(i.bottom)/\(i.right) topBar \(chrome.topBar) "
+                  + "corner \(chrome.cornerButton) bottomBar \(chrome.bottomBar) fold \(chrome.fold.map { "\($0)" } ?? "-") "
+                  + "occlusions \(chrome.occlusions.count) -> s \(new.handScale) k \(new.trickScale) \(new.mode) degraded \(new.isDegraded) usedBottomBar \(new.usedBottomBar)")
+        }
+        #endif
         renderLatest()
     }
 

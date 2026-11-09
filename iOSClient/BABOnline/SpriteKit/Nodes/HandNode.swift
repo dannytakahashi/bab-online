@@ -63,6 +63,22 @@ class HandNode: SKNode {
         }
     }
 
+    /// Relayout: each card to its slot in the new layout (lifted cards stay
+    /// lifted); a running move is re-aimed, a lift / lower in flight is cut short.
+    func apply(layout: TableLayout, animator: Animator) {
+        let ordered = sprites.values.sorted { $0.zPosition < $1.zPosition }
+        let slots = layout.handSlots(count: ordered.count)
+        for (i, s) in ordered.enumerated() {
+            let target = CGPoint(x: slots[i].x, y: slots[i].y + (s.isLifted ? LayoutConstants.cardLiftY : 0))
+            if s.action(forKey: "move") != nil {
+                animator.retarget(s, to: target)
+            } else {
+                s.removeAction(forKey: CardAnimations.liftKey)
+                s.position = target
+            }
+        }
+    }
+
     private func handleCardTap(_ card: Card) {
         guard let sprite = sprites[card.id] else { return }
         if liftedCardId == card.id {

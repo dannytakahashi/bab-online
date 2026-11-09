@@ -15,6 +15,13 @@ class SKTrickManager {
     /// True while a trick is being collected (the hand is not playable).
     var isCollecting: Bool { trickArea.collectingCount > 0 }
 
+    /// Relayout: the trick cards and the history (place and icon spacing).
+    func apply(layout: TableLayout, viewPosition: Int, animator: Animator) {
+        trickArea.apply(layout: layout, viewPosition: viewPosition, animator: animator)
+        trickHistory.position = layout.historyOrigin
+        trickHistory.setCounts(team: trickHistory.counts.team, opp: trickHistory.counts.opp, spacing: layout.historySpacing)
+    }
+
     /// Exit animation: trick `key`'s sprites leave for the transient layer and
     /// fly to the winner; the completion re-renders the latest model.
     func collect(winner: Int, key: TrickKey, viewPosition: Int, layout: TableLayout, animator: Animator) {

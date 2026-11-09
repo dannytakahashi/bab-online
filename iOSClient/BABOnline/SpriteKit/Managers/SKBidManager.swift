@@ -25,8 +25,23 @@ class SKBidManager {
                 bubbles[pos] = node
             }
             node.name = "bid.\(pos)"
-            // a pop animates only alpha and scale, so the position is always set
-            node.position = layout.bubbleAnchor(Positions.getRelative(target: pos, from: viewPosition))
+            // a pop animates only alpha and scale, so the position is set (unless a fold glide moves it)
+            if node.action(forKey: "move") == nil {
+                node.position = layout.bubbleAnchor(Positions.getRelative(target: pos, from: viewPosition))
+            }
+        }
+    }
+
+    /// Relayout: every bubble to its seat's new anchor; a pop keeps going.
+    func apply(layout: TableLayout, viewPosition: Int, animator: Animator, animated: Bool) {
+        for (pos, node) in bubbles {
+            let target = layout.bubbleAnchor(Positions.getRelative(target: pos, from: viewPosition))
+            if animated {
+                animator.move(node, to: target, duration: LayoutConstants.playCardDuration, completion: nil)
+            } else {
+                node.removeAction(forKey: "move")
+                node.position = target
+            }
         }
     }
 
@@ -78,5 +93,13 @@ class SKChatBubbleManager {
         layer.addChild(bubble)
         bubbles[position] = (bubble, rel, size)
         animator.fadeAndRemove(bubble, after: LayoutConstants.bubbleLifetime)
+    }
+
+    /// Relayout: live bubbles to their new place; gone ones are forgotten.
+    func apply(layout: TableLayout) {
+        for (pos, b) in bubbles {
+            guard b.node.parent != nil else { bubbles[pos] = nil; continue }
+            b.node.position = layout.chatPosition(b.rel, bubbleSize: b.size)
+        }
     }
 }
