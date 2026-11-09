@@ -177,6 +177,36 @@ Joi schemas for `searchPlayers`, `getPlayerProfile`, `joinLobby`,
 relays (today any socket can relay to any socket id). Note iOS
 `LobbyEmitter.removeBot` sends no payload at all.
 
+### 19. Inline avatar images (roadmap item 10; docs/avatars.md)
+
+Precondition (on top of step 0): the App Store build that sends
+`clientHello caps ['avatarUrl']` has shipped AND the `clientHello` log shows
+no socket without the cap for 2+ weeks (old web bundles are gone after one
+day of the 1-day bundle cache; the App Store build is the long tail). Step 0
+above is now partly in place: `clientHello {client, version, build, caps}`
+is logged per socket (server/socket/clientInfo.js).
+
+- **A. Seat payloads without inline pictures.** positionUpdate.pics,
+  gameStart.playerInfo[].pic, rejoinSuccess / restorePlayerState /
+  spectatorJoined players[].pic, playerActiveMode.pic: `null` for a custom
+  picture plus `avatarUrls` / `avatarUrl` for everyone; narrow `$defs.pic`
+  to integer | null (baseline edit).
+- **B. Profile rows without customProfilePic.** leaderboard / search rows
+  and profile / playerProfile replies drop `customProfilePic` (or always
+  null) in favour of `avatarUrls` / `avatarUrl`; `$defs.profile`,
+  `leaderboardRow`, `playerSearchRow` baseline edits.
+- **C. Snapshot v2 `seatV2.customPic`, the `customPics` request option and
+  `partial: 'customPics'`** go; `avatarUrl` is the only custom picture.
+- **D. Server code:** the legacy branches of `server/avatar/avatarWire.js`
+  (`slot`, the per-kind playerInfo variants, the leaderboard `legacy`
+  rows), `AVATAR_LEGACY_INLINE`, the placeholder inline image.
+- **E. Delete `client/assets/profileN.png` and `frog.png`** (keep
+  `avatars/v1`). Needs every App Store build older than the new one gone:
+  the shipped app loads `/assets/profile<N>.png` directly.
+- **F. The cap check becomes unconditional** (`hasCap` / `socketHasCap`
+  always true for avatars); clientHello stays for version prompts and
+  future caps.
+
 ## Deferred additive (not removals; held back on purpose)
 
 - **`bidReceived` team1Mult / team2Mult.** The shipped iOS app reads them

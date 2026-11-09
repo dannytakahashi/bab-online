@@ -16,7 +16,8 @@
  *
  * Memory: renditions live in an LRU bounded by BYTES (webp + inline data
  * URL, default 32 MB, AVATAR_CACHE_MB); raw stored strings are never kept
- * (a queued derive holds its decoded bytes, <= 512 KB, until it runs).
+ * (a queued derive references the stored string, which its caller holds
+ * anyway, until it runs; at most 64 are queued).
  * `owners` records which usernames were seen holding a version and when:
  * the HTTP fast path serves a versioned hit without a DB read only while
  * that check is younger than 10 minutes. `missing` is the HTTP negative
