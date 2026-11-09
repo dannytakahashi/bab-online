@@ -32,6 +32,8 @@ class OpponentHandNode: SKNode {
     private var avatarSprite: SKSpriteNode?
     private let avatarRadius: CGFloat = 20
     private(set) var pic: String?
+    /// The untruncated username (the label shows at most TableLayout.nameMaxWidth).
+    private(set) var fullName: String
     static var avatarLoader: AvatarLoading = HTTPAvatarLoader()
 
     init(position: Positions.RelativePosition, username: String, pic: String? = nil) {
@@ -41,8 +43,10 @@ class OpponentHandNode: SKNode {
         nameLabel.fontName = "Helvetica-Bold"
         nameLabel.fontSize = 14
         nameLabel.fontColor = .white
+        fullName = username
 
         super.init()
+        Self.fit(nameLabel, username)
 
         self.name = "seat.\(position.rawValue)"
         self.pic = pic
@@ -81,9 +85,22 @@ class OpponentHandNode: SKNode {
     }
 
     func updateUsername(_ name: String) {
-        guard nameLabel.text != name else { return }
-        nameLabel.text = name
+        guard fullName != name else { return }
+        fullName = name
+        Self.fit(nameLabel, name)
         (avatarNode?.childNode(withName: "avatar_initial") as? SKLabelNode)?.text = String(name.prefix(1)).uppercased()
+    }
+
+    /// The name, truncated with "…" to TableLayout.nameMaxWidth (the layout reserves that width).
+    static func fit(_ label: SKLabelNode, _ name: String) {
+        label.text = name
+        guard label.frame.width > TableLayout.nameMaxWidth else { return }
+        var chars = Array(name)
+        while !chars.isEmpty {
+            chars.removeLast()
+            label.text = String(chars).trimmingCharacters(in: .whitespaces) + "\u{2026}"
+            if label.frame.width <= TableLayout.nameMaxWidth { return }
+        }
     }
 
     /// In-place update from the model (22.8): the avatar reloads only when the picture changes.
@@ -155,7 +172,7 @@ class OpponentHandNode: SKNode {
 
     func updatePic(_ pic: String) {
         // Back to the initial letter (as a new node starts) until the new picture loads
-        clearPic(initial: nameLabel.text ?? "")
+        clearPic(initial: fullName)
         loadProfilePic(pic)
     }
 

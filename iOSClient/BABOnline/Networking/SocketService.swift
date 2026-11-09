@@ -53,7 +53,18 @@ final class SocketService: ObservableObject {
 
     // MARK: - Connection
 
+    /// Debug fixture mode (`-uiFixture`, item 26) never opens a socket, on any
+    /// path (launch, foreground, settings): every connect funnels through here.
+    static var connectionsDisabled: Bool {
+        #if DEBUG
+        return UIFixture.isActive
+        #else
+        return false
+        #endif
+    }
+
     func connect() {
+        if Self.connectionsDisabled { return }
         // If socket already exists, just reconnect it (preserves registered handlers)
         if let socket = socket {
             if socket.status != .connected {
@@ -125,6 +136,7 @@ final class SocketService: ObservableObject {
     /// leaving `isConnected` stale. This tears down and re-establishes the connection so
     /// Socket.IO fires `.connect` and the `restoreSession` flow runs.
     func forceReconnect() {
+        if Self.connectionsDisabled { return }
         guard !isForceReconnecting else {
             print("[Socket] forceReconnect already in progress, skipping")
             return

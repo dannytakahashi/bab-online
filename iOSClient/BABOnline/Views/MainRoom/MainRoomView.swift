@@ -4,6 +4,7 @@ struct MainRoomView: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var mainRoomState: MainRoomState
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.horizontalSizeClass) private var hSizeClass
     @State private var showLeaderboard = false
     @State private var showOnlineUsers = false
     @State private var showAccountSettings = false
@@ -13,24 +14,19 @@ struct MainRoomView: View {
         ZStack {
             Color.Theme.background.ignoresSafeArea()
 
+            // Regular width (iPad, the open Duo): side by side; compact: stacked.
+            // One AnyLayout keeps the children's identity (and the chat field's
+            // focus and draft) across a size-class change.
             GeometryReader { geo in
-                if geo.size.width > LayoutConstants.compactWidthThreshold {
-                    // iPad: side-by-side
-                    HStack(spacing: 0) {
-                        lobbyBrowserPanel
-                            .frame(width: geo.size.width * 0.55)
-                        Divider().background(Color.Theme.inputBorder)
-                        MainRoomChatView()
-                            .frame(maxWidth: .infinity)
-                    }
-                } else {
-                    // iPhone: tabs or stacked
-                    VStack(spacing: 0) {
-                        lobbyBrowserPanel
-                            .frame(maxHeight: geo.size.height * 0.55)
-                        Divider().background(Color.Theme.inputBorder)
-                        MainRoomChatView()
-                    }
+                let wide = hSizeClass == .regular
+                let layout = wide ? AnyLayout(HStackLayout(spacing: 0)) : AnyLayout(VStackLayout(spacing: 0))
+                layout {
+                    lobbyBrowserPanel
+                        .frame(width: wide ? geo.size.width * 0.55 : nil)
+                        .frame(maxHeight: wide ? .infinity : geo.size.height * 0.55)
+                    Separator(vertical: wide)
+                    MainRoomChatView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
         }

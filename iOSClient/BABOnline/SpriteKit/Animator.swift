@@ -9,6 +9,23 @@ protocol Animator {
     func pop(_ node: SKNode)
     func fadeAndRemove(_ node: SKNode, after delay: TimeInterval)
     func run(_ node: SKNode, _ action: SKAction, final: (SKNode) -> Void)
+    /// A relayout: re-aim a node's running "move" at `point` (or put it there).
+    func retarget(_ node: SKNode, to point: CGPoint)
+    /// Scale to `scale` (keyed "scale").
+    func scale(_ node: SKNode, to scale: CGFloat, duration: TimeInterval)
+}
+
+/// Instant defaults (InstantAnimator and the tests' animators).
+extension Animator {
+    func retarget(_ node: SKNode, to point: CGPoint) {
+        node.removeAction(forKey: "move")
+        node.position = point
+    }
+
+    func scale(_ node: SKNode, to scale: CGFloat, duration: TimeInterval) {
+        node.removeAction(forKey: "scale")
+        node.setScale(scale)
+    }
 }
 
 struct LiveAnimator: Animator {
@@ -47,6 +64,21 @@ struct LiveAnimator: Animator {
 
     func run(_ node: SKNode, _ action: SKAction, final: (SKNode) -> Void) {
         node.run(action)
+    }
+
+    /// A move in flight is re-issued toward the new target (0.15 s, its
+    /// completion is nil at every call site); a node at rest just moves.
+    func retarget(_ node: SKNode, to point: CGPoint) {
+        if node.action(forKey: "move") != nil {
+            move(node, to: point, duration: 0.15, completion: nil)
+        } else {
+            node.position = point
+        }
+    }
+
+    func scale(_ node: SKNode, to scale: CGFloat, duration: TimeInterval) {
+        node.removeAction(forKey: "scale")
+        node.run(SKAction.scale(to: scale, duration: duration), withKey: "scale")
     }
 }
 

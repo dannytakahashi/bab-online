@@ -14,8 +14,11 @@ struct RegisterView: View {
         ZStack {
             Color.Theme.background.ignoresSafeArea()
 
+            // Scrolls on short heights (keyboard, landscape), capped at a readable width
+            GeometryReader { g in
+            ScrollView {
             VStack(spacing: 32) {
-                Spacer()
+                Spacer(minLength: 24)
 
                 Text("Create Account")
                     .font(.system(size: 32, weight: .bold, design: .rounded))
@@ -86,7 +89,13 @@ struct RegisterView: View {
                 }
                 .font(.callout)
 
-                Spacer()
+                Spacer(minLength: 24)
+            }
+            .frame(maxWidth: 440)
+            .frame(maxWidth: .infinity, minHeight: g.size.height)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .scrollDismissesKeyboard(.interactively)
             }
         }
         .onAppear {

@@ -74,6 +74,9 @@ struct GameEndView: View {
                 RoundedRectangle(cornerRadius: 20)
                     .fill(Color.Theme.surface)
             )
+            .frame(maxWidth: 460)  // readable on the open Duo and the iPad
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("gameEnd")
             .padding(.horizontal, 24)
         }
     }

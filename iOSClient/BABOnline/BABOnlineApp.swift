@@ -2,13 +2,15 @@ import SwiftUI
 
 @main
 struct BABOnlineApp: App {
-    @StateObject private var appState = AppState()
-    @StateObject private var authState = AuthState()
-    @StateObject private var mainRoomState = MainRoomState()
-    @StateObject private var lobbyState = LobbyState()
+    /// Orientation policy per window scene (item 27-1).
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    @StateObject private var appState: AppState
+    @StateObject private var authState: AuthState
+    @StateObject private var mainRoomState: MainRoomState
+    @StateObject private var lobbyState: LobbyState
     @StateObject private var gameState: GameState
     @StateObject private var actions: ActionCoordinator
-    @StateObject private var tournamentState = TournamentState()
+    @StateObject private var tournamentState: TournamentState
     @StateObject private var leaderboardState = LeaderboardState()
     @StateObject private var safetyState = SafetyState()
     @Environment(\.scenePhase) private var scenePhase
@@ -21,6 +23,15 @@ struct BABOnlineApp: App {
 
     init() {
         let store = GameState()
+        let app = AppState(), auth = AuthState(), mainRoom = MainRoomState(), lobby = LobbyState(), tournament = TournamentState()
+        #if DEBUG
+        UIFixture.seed(store, app, mainRoom: mainRoom, lobby: lobby, tournament: tournament, auth: auth)
+        #endif
+        _appState = StateObject(wrappedValue: app)
+        _authState = StateObject(wrappedValue: auth)
+        _mainRoomState = StateObject(wrappedValue: mainRoom)
+        _lobbyState = StateObject(wrappedValue: lobby)
+        _tournamentState = StateObject(wrappedValue: tournament)
         _gameState = StateObject(wrappedValue: store)
         _actions = StateObject(wrappedValue: ActionCoordinator(store: store))
     }
@@ -51,6 +62,9 @@ struct BABOnlineApp: App {
         // Hosted unit tests launch the whole app: never connect (a running dev
         // server plus the simulator keychain would sign in and play).
         if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil { return }
+        #if DEBUG
+        if UIFixture.isActive { return }  // fixture mode: never connect
+        #endif
         socketService.authState = authState
         socketService.gameState = gameState
         socketService.connect()

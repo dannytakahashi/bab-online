@@ -103,7 +103,7 @@ final class VoiceChatManager: ObservableObject {
 
     /// Initialize voice chat: request mic, configure audio session, start capture.
     func initialize() async throws {
-        guard !isActive else { return }
+        guard !isActive, !Self.voiceDisabled else { return }
         let generation = startGeneration
 
         // Request mic permission
@@ -146,6 +146,17 @@ final class VoiceChatManager: ObservableObject {
     func ensureStarted() {
         guard !isActive, ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
         Task { try? await initialize() }
+    }
+
+    /// No microphone (no permission prompt, no audio session) in Debug fixture
+    /// mode (`-uiFixture`, item 26) or in an Xcode preview, on every start path
+    /// (game entry, rejoin, the game and tournament lobbies).
+    static var voiceDisabled: Bool {
+        #if DEBUG
+        return UIFixture.isActive || ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1"
+        #else
+        return false
+        #endif
     }
 
     /// Shut down all voice connections and clean up.

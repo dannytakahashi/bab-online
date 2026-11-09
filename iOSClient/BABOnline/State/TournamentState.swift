@@ -15,8 +15,11 @@ final class TournamentState: ObservableObject {
     @Published var creatorUsername: String = ""
     @Published var isSpectator: Bool = false
     @Published var isReady: Bool = false
+    /// The unsent chat line (survives a recreated view; not @Published).
+    var chatDraft = ""
 
     func reset() {
+        chatDraft = ""
         tournamentId = ""
         name = ""
         phase = "lobby"

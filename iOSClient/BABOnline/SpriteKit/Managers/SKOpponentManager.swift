@@ -14,7 +14,7 @@ class SKOpponentManager {
         self.layer = layer
     }
 
-    func apply(_ model: TableRenderModel, geometry: TableGeometry) {
+    func apply(_ model: TableRenderModel, layout: TableLayout) {
         let key = "\(model.gameId ?? "-")|\(model.viewPosition)|\(model.isSpectator)"
         if key != layoutKey {
             cleanup()
@@ -28,8 +28,21 @@ class SKOpponentManager {
         }
         for o in model.opponents {
             guard let node = nodes[o.position] else { continue }
-            if !node.hasActions() { node.position = geometry.seatAnchor(o.rel) }
+            if !node.hasActions() { node.position = layout.seatAnchor(o.rel) }
             node.update(name: o.name, pic: o.pic.string, isTurn: o.isTurn)
+        }
+    }
+
+    /// Relayout: every seat to its new anchor (a fold change glides).
+    func apply(layout: TableLayout, animator: Animator, animated: Bool) {
+        for node in nodes.values {
+            let target = layout.seatAnchor(node.relativePosition)
+            if animated {
+                animator.move(node, to: target, duration: LayoutConstants.playCardDuration, completion: nil)
+            } else {
+                node.removeAction(forKey: "move")
+                node.position = target
+            }
         }
     }
 

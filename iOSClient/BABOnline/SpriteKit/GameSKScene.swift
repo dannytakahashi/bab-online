@@ -17,7 +17,23 @@ class GameSKScene: SKScene, TableRenderer {
     private(set) var isSetUp = false
 
     var animator: Animator = LiveAnimator()
-    private(set) var geometry = TableGeometry(size: .zero)
+    private(set) var layout = TableLayout(size: .zero)
+    /// Measured by GameContainerView (safe area, ScoreBar, corner buttons, pill, fold).
+    var chrome = TableChrome() {
+        didSet {
+            guard chrome != oldValue else { return }
+            var sameButFold = chrome
+            sameButFold.fold = oldValue.fold
+            // a fold toggling at the same size glides; everything else snaps
+            relayout(animated: sameButFold == oldValue)
+        }
+    }
+    #if DEBUG
+    /// Relayouts that moved something (fixture probes).
+    private(set) var relayoutCount = 0
+    /// didMove(to:) calls (fixture probe: a SpriteView identity change shows as 2).
+    private(set) var didMoveCount = 0
+    #endif
     private(set) var lastModel: TableRenderModel?
 
     // Static layers (built once)
@@ -45,6 +61,9 @@ class GameSKScene: SKScene, TableRenderer {
     }
 
     override func didMove(to view: SKView) {
+        #if DEBUG
+        didMoveCount += 1
+        #endif
         backgroundColor = UIColor(red: 0.05, green: 0.15, blue: 0.05, alpha: 1)
         anchorPoint = CGPoint(x: 0.5, y: 0.5)
         scaleMode = .resizeFill
@@ -55,7 +74,10 @@ class GameSKScene: SKScene, TableRenderer {
     private func buildLayersOnce() {
         guard !isSetUp else { return }
         isSetUp = true
-        geometry = TableGeometry(size: size)
+        layout = TableLayout(size: size, chrome: chrome)
+        #if DEBUG
+        logLayout()
+        #endif
         backgroundNode.name = "background"
         backgroundNode.zPosition = -100
         backgroundNode.size = size
@@ -73,6 +95,9 @@ class GameSKScene: SKScene, TableRenderer {
         cardManager = SKCardManager(scene: self)
         cardManager.onPlay = { [weak self] card in self?.actions?.play(card) ?? false }
         addChild(cardManager.handNode)
+        #if DEBUG
+        cardManager.handNode.onLiftChanged = { [weak self] in self?.probe() }  // "table.state" lifted= after a tap
+        #endif
         trickManager = SKTrickManager(scene: self)
         addChild(trickManager.trickArea)
         addChild(trickManager.trickHistory)
@@ -81,6 +106,12 @@ class GameSKScene: SKScene, TableRenderer {
         chatManager = SKChatBubbleManager(layer: transientLayer)
         effectsManager = SKEffectsManager(scene: self)
         subscribeSpeaking()
+        #if DEBUG
+        // TableLayout positions are scene coordinates: every layer stays at the origin
+        for layer in [opponentsLayer, bidsLayer, trickArea, transientLayer, backgroundNode] as [SKNode] {
+            assert(layer.position == .zero, "\(layer.name ?? "?") must stay at (0,0)")
+        }
+        #endif
     }
 
     /// Voice speaking indicators (the one Combine sink left): socket id -> seat.
@@ -105,10 +136,35 @@ class GameSKScene: SKScene, TableRenderer {
 
     override func didChangeSize(_ oldSize: CGSize) {
         super.didChangeSize(oldSize)
+        relayout(animated: false)
+    }
+
+    /// Full relayout (item 25): a new TableLayout moves every existing node,
+    /// in-flight ones included (a running move is re-aimed or snapped, a lift
+    /// is cut short, a pop keeps going), then the latest model re-renders.
+    /// Size changes are instant; a fold-only change uses the scene animator.
+    /// Collects and handsDestroyed fades in flight finish at their old
+    /// target (<= 0.4 s, fading). Idempotent: an unchanged layout is a no-op.
+    func relayout(animated: Bool) {
         guard isSetUp else { return }
-        geometry = TableGeometry(size: size)
+        let new = TableLayout(size: size, chrome: chrome)
+        if new == layout && backgroundNode.size == size { return }
+        layout = new
         backgroundNode.size = size
-        renderLatest()  // relays out every layer, opponents included
+        let a: Animator = animated ? animator : InstantAnimator()
+        let v = lastModel?.viewPosition ?? 1
+        opponentManager.apply(layout: new, animator: a, animated: animated)
+        cardManager.apply(layout: new, animator: a)
+        trickManager.apply(layout: new, viewPosition: v, animator: a)
+        bidManager.apply(layout: new, viewPosition: v, animator: a, animated: animated)
+        chatManager.apply(layout: new)
+        effectsManager.apply(layout: new)
+        #if DEBUG
+        relayoutCount += 1
+        probe()
+        logLayout()
+        #endif
+        renderLatest()
     }
 
     /// Re-render the latest model (collect completion, resize).
@@ -127,11 +183,20 @@ class GameSKScene: SKScene, TableRenderer {
         for a in animations {
             switch a {
             case .trickCollected(let winner, let key):
-                trickManager.collect(winner: winner, key: key, viewPosition: view, geometry: geometry, animator: animator)
+                trickManager.collect(winner: winner, key: key, viewPosition: view, layout: layout, animator: animator)
             case .handsDestroyed:
+                // the sprites fade where they are: convert from the scaled hand node
+                // into the transient layer (as TrickAreaNode's adopt does)
                 for s in handNode.sprites.values {
+                    let world = handNode.convert(s.position, to: transientLayer)
+                    let ws = s.xScale * handNode.xScale, hs = s.yScale * handNode.yScale
+                    let rot = s.zRotation + handNode.zRotation
                     _ = handNode.detach(s.card.id)
                     s.removeFromParent()
+                    s.position = world
+                    s.xScale = ws
+                    s.yScale = hs
+                    s.zRotation = rot
                     transientLayer.addChild(s)
                     animator.fadeAndRemove(s, after: 0)
                 }
@@ -157,7 +222,7 @@ class GameSKScene: SKScene, TableRenderer {
                 // when a late cardPlayed confirms it
                 guard changes.created.contains(name) else { break }
                 let rel = Positions.getRelative(target: played.position, from: view)
-                trickArea.animateEntry(name, from: geometry.trickEntry(rel), slot: geometry.trickSlot(rel), animator: animator)
+                trickArea.animateEntry(name, from: layout.trickEntry(rel), slot: layout.trickSlot(rel), animator: animator)
             case .bidPlaced(let pos, _, _):
                 bidManager.pop(position: pos, animator: animator)
             case .bore(_, let bid, _):
@@ -169,7 +234,7 @@ class GameSKScene: SKScene, TableRenderer {
             case .chatBubble(let pos, let message):
                 // Not over my own hand (the bottom seat's spot): the log shows my line
                 guard model.showsTable, !(model.hand != nil && pos == model.viewPosition) else { break }
-                chatManager.show(position: pos, message: message, viewPosition: view, geometry: geometry, animator: animator)
+                chatManager.show(position: pos, message: message, viewPosition: view, layout: layout, animator: animator)
             default:
                 break
             }
@@ -182,6 +247,9 @@ class GameSKScene: SKScene, TableRenderer {
     func render(_ model: TableRenderModel, reset: Bool = false) -> TrickAreaNode.Changes {
         guard isSetUp else { return .init() }
         lastModel = model
+        #if DEBUG
+        defer { probe() }
+        #endif
         if reset {
             // My own hand sprites stay (a rollback hands them back); everything else goes
             let mine = trickArea.cardSprites.compactMap { $0 as? CardSpriteNode }
@@ -192,15 +260,16 @@ class GameSKScene: SKScene, TableRenderer {
             Self.stopActions(transientLayer)
             transientLayer.removeAllChildren()
         }
-        handNode.position = geometry.handBaseline
-        trickManager.trickHistory.position = geometry.historyOrigin
+        handNode.position = layout.handBaseline
+        handNode.setScale(layout.handScale)
+        trickManager.trickHistory.position = layout.historyOrigin
         // Game over: the final table stays behind GameEndView (as before 23)
         if model.keepsLastTable { return .init() }
         guard model.showsTable else {
             opponentManager.cleanup()
             handNode.cleanup()
             trickArea.clearAllCards()
-            trickManager.trickHistory.setCounts(team: 0, opp: 0)
+            trickManager.trickHistory.setCounts(team: 0, opp: 0, spacing: layout.historySpacing)
             bidManager.cleanup()
             return .init()
         }
@@ -225,16 +294,35 @@ class GameSKScene: SKScene, TableRenderer {
             }
         }
 
-        opponentManager.apply(model, geometry: geometry)
-        cardManager.apply(model, geometry: geometry, arriving: toHand, animator: animator)
-        let changes = trickArea.apply(cards: model.trick, key: model.trickKey, viewPosition: me, geometry: geometry, adopt: { c in
+        opponentManager.apply(model, layout: layout)
+        cardManager.apply(model, layout: layout, arriving: toHand, animator: animator)
+        let changes = trickArea.apply(cards: model.trick, key: model.trickKey, viewPosition: me, layout: layout, adopt: { c in
             c.position == me ? toTrick.removeValue(forKey: c.card.id) : nil
         }, animator: animator)
         toTrick.values.forEach { $0.removeFromParent() }
-        trickManager.trickHistory.setCounts(team: model.history.team1, opp: model.history.team2)
-        bidManager.apply(bubbles: model.bidBubbles, viewPosition: me, geometry: geometry)
+        trickManager.trickHistory.setCounts(team: model.history.team1, opp: model.history.team2, spacing: layout.historySpacing)
+        bidManager.apply(bubbles: model.bidBubbles, viewPosition: me, layout: layout)
         return changes
     }
+
+    #if DEBUG
+    private func logLayout() {
+        guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
+        let i = chrome.safeArea, L = layout
+        print("[Layout] \(Int(size.width))x\(Int(size.height)) insets \(i.top)/\(i.left)/\(i.bottom)/\(i.right) topBar \(chrome.topBar) "
+              + "corner \(chrome.cornerButton) bottomBar \(chrome.bottomBar) fold \(chrome.fold.map { "\($0)" } ?? "-") "
+              + "occlusions \(chrome.occlusions.count) -> s \(L.handScale) k \(L.trickScale) \(L.mode) degraded \(L.isDegraded) usedBottomBar \(L.usedBottomBar)")
+    }
+
+    /// Fixture mode: refresh the UI tests' "table.layoutCheck" / "table.state" probes.
+    private func probe() {
+        guard UIFixture.isActive else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            TableDebugProbe.shared.update(scene: self)
+        }
+    }
+    #endif
 
     private static func stopActions(_ node: SKNode) {
         node.removeAllActions()

@@ -64,6 +64,171 @@ taps / bid overlay ──> ActionCoordinator.play / .bid ──> .local(.submitP
 - The contract v2 fixtures (folder reference `v2/`): strict decode, mapping,
   idempotent render.
 
+## Table layout (roadmap item 25)
+
+`SpriteKit/TableLayout.swift` is a pure function (CoreGraphics only) of the
+scene size and `TableChrome`, which GameContainerView measures:
+
+- `safeArea`: the table pane's insets (the SpriteView ignores the safe area,
+  so the scene size is the pane size plus these insets),
+- `topBar`: the measured ScoreBar height, `cornerButton`: max(Leave, Log),
+  placed `topBar + 8` below the safe top (an obstacle at both top corners),
+- `bottomBar`: the lazy / spectator pill + 12 padding,
+- `fold`: the active division region in scene coordinates (item 27),
+- `occlusions`: system UI over the app (`GeometryProxy.reservedRegions`,
+  iOS 27.1 SDK); a full-height strip on a side edge (the iPad Air reports a
+  32 pt one on the left in landscape) widens that side's inset, and the
+  Leave / Log button moves in by the same amount (`occludedLeft/Right`);
+  any other occlusion joins the corner obstacle on its side with its part
+  inside the top quarter.
+
+Algorithm (first written as the reference model `layout_ref.py`, a planning
+tool kept outside the repo; the golden values in TableLayoutTests are frozen
+from it and TableLayout.swift is the source of truth since item 27): the
+bottom bar is honoured first and dropped only when nothing fits with it
+(then the pill overlays the bottom of a read-only hand); for the hand scale
+s = 1.0, 0.95 ... 0.80 and the trick scale k = 1.0 ... 0.70 (0.60 in a
+tabletop split) the first pair that fits wins. The hand sits 12 pt (or bar
++ 6) above the safe bottom, its overlap is min(35s, (safe width - 16 - 100s)
+/ (n - 1)), so 13 cards fit at 375 pt; a window too narrow for an 18s step
+(320 pt Slide Over) takes a smaller s first.
+The bid band (340 x 140, centered) is reserved above the lifted hand even
+while the panel is hidden. The trick cluster (cards 80k x 116k, offsets
+from the card size) is centered between the floor (lifted hand + 6, or the
+tabletop fold + 6) and the partner (below the top bar and the corner
+buttons); side seats sit at the table radius in a "row" (beside the
+cluster) or "raised" (above the side cards) mode; the history goes left of
+my trick slot (Q2), HSI + voice right of it (Q3, a 124 x 48 row or an 84 x 76
+stack, kept clear of the right seat's bid bubble), my bid bubble left of my
+slot. A book fold puts the cluster on the wider page and keeps the seats off
+the hinge, a spectator's bottom seat included (it sits under the cluster);
+a seated player's 13-card hand and the bid band are wider than a page and
+span the hinge. A tabletop fold puts the table above it (the cluster rises
+until the history and HSI / voice fit under the side cards) and the hand
+and bid band below it; on the open Duo in landscape (951 x 669, or the
+572 x 669 pane beside the side panel) that takes s 0.85-0.9 and k 0.6-0.65,
+and with the largest ScoreBar (84 pt) or a hinge over ~20 pt the fold is
+ignored instead. When nothing fits (windows under ~660-720 pt tall at narrow
+widths, 320x568, 678x466, an iPad Stage Manager window around 700 x 500) the
+layout is `isDegraded`: s = 0.8, k = 0.7, positions clamped into the safe
+rect, and parts may overlap.
+
+Exempt pairs (never on screen together; `TableInvariantTests` proves the
+facts over every recorded log): the bid band vs the trick cards, history,
+accessory and my bid bubble (the panel shows only with an empty trick and
+history); every bid bubble vs the history; the other seats' bid bubbles vs
+trick cards other than my provisional one.
+
+Relayout (`GameSKScene.relayout(animated:)`): `didChangeSize` and every
+chrome change build a new layout and every manager's `apply(layout:)` moves
+the existing nodes: seats, hand cards (a running move is re-aimed, a lift
+or lower in flight is cut short, a lifted card stays lifted), trick cards
+and their scale, history place and spacing, bid bubbles (a pop keeps
+going), chat bubbles and effects in the transient layer; then the latest
+model re-renders (the game-over table too). Size changes are instant; a
+fold-only change glides with the scene animator. Trick collects and
+handsDestroyed fades in flight finish at their old target (<= 0.4 s,
+fading); the collect gate is untouched. A redeal's handsDestroyed moves the
+hand sprites into the transient layer at their on-screen place and size
+(converted from the scaled hand node) and fades them there. An unchanged
+layout is a no-op,
+so the two relayouts of a rotation (size, then chrome) are idempotent.
+Every layer stays at the scene origin; the hand node carries the hand
+scale (`handSlots` are local units), trick sprites are 100 x 145 at 0.8k
+(an adopted hand sprite keeps its world scale and scales to it), and
+SceneDump tags a scaled container (`scale=`).
+
+Tests: `TableLayoutTests` (frozen golden values; no intersections in
+TableLayout's own rect model at the seven item sizes plus the SE / Duo at
+zero insets, the docked inner landscape and the measured Duo / iPad chrome,
+topBar 70 / 84, the pill; the folds the app really hands TableLayout, seated
+and spectating: tabletop and undocked book at 669 x 951, tabletop at 951 x
+669 and 572 x 669 (a book fold at 951 x 669 is always docked, so it is not
+a TableLayout case); occlusions; hand fit; fuzz 320...1400),
+`SceneLayoutTests` (real node frames: a 13-card bid turn with lifts, trick
+with hand, spectator, a lazy player's hand with the pill, chats from every
+seat, all at the listed sizes plus the measured chrome; the reachable folds
+with every seat, a spectator's bottom one included, trick cards and bid
+bubbles off the fold and, in tabletop, the hand and bid band below it; the
+handsDestroyed fade in place; the bid panel <= 340 x 140 and ScoreBar <= 84
+at capped Dynamic Type), `SceneResizeTests` (resize mid-replay equals a
+fresh render, the in-flight iPad rotation, transient, game end),
+`TableInvariantTests`.
+
+## Fixture mode and Duo poses (roadmap items 26, 27)
+
+Fixture mode (Debug only): `-uiFixture <name>` seeds the app from a v2
+snapshot (or `UI_FIXTURE_SNAPSHOT`), or shows a static screen (`main-room`,
+`game-lobby`, `tournament-lobby`, `sign-in`); `game-end` adds a gameEnd.
+No socket on any path (`SocketService.connectionsDisabled`: launch,
+foreground, Settings), no voice and no microphone prompt
+(`VoiceChatManager.voiceDisabled`, every start path, also in Xcode
+previews), avatars show initials, the sign-in screen shows the connected
+form. `-uiFold book|tabletop` fakes a 20 pt division at the window center
+(the composition only, not the API). Accessibility probes: `ui.pose` ("WxH
+t/l/b/r topBar N fold F occlusions N sc H/V", the last field the window's
+size classes), `table.layoutCheck` ("ok" when every stable node is inside
+the safe rect), `table.state` (lifted card, refreshed on a tap too; hand and
+trick counts; the scene's didMove count). The UI tests are their own test
+plan (`-testPlan BABOnlineUI`); the default plan is unit tests only. README
+"UI tests and screenshots" has the commands.
+
+Measured in fixture mode (Xcode 27.2 simulators, `ui.pose` and the
+`[Layout]` line):
+
+| Device / pose | Window | Insets t/l/b/r | ScoreBar | Leave/Log | Layout |
+|---|---|---|---|---|---|
+| iPhone Duo, closed | 466 x 678 | 0 / 0 / 34 / 84 | 75.3 | 79.7 x 50.3 | s 1, k 0.85, raised |
+| iPad Air 11-inch (M4), portrait | 820 x 1180 | 32 / 0 / 20 / 0 | 75.5 | 80 x 50.5 | s 1, k 1, row |
+| iPad Air 11-inch (M4), landscape | 1180 x 820 | 32 / 0 / 20 / 0 | 75.5 | 80 x 50.5 | s 1, k 1, row |
+
+The closed Duo reports no top inset and an 84 pt trailing inset for the
+whole height (the clock / Wi-Fi cluster on the right edge): the table, the
+ScoreBar and the Log button stay left of it. `reservedRegions(kind:
+.occlusion)` is empty there, so `chrome.occlusions` stays empty (the code
+path merges an occlusion in the top quarter into the corner obstacle). The
+rows are in TableLayoutTests. The open poses (669 x 951, 951 x 669) are
+covered by the layout tests with assumed insets (24/0/20/0 and 0/59/21/59);
+their real insets still have to be read from `ui.pose` (below).
+
+Orientation: a phone whose display is at least 600 pt on its short side
+(the open Duo's 669 x 951) turns to landscape; every other phone, the closed
+Duo (466 x 678) included, stays portrait; the iPad turns freely
+(`AppDelegate.mask`). The rule reads the display, not the size classes: the
+short side is the same in both orientations, so the mask cannot flip back
+after the rotation it allowed (a size-class rule would, if the open Duo's
+landscape window reports compact height). Folds (27-4), whichever way the
+Duo's hinge turns out to run: tabletop (a horizontal division, in portrait
+or in landscape) puts the table above it and the hand and bid panel below
+it (ignored when the window is too short to split, e.g. the closed Duo);
+in landscape the side panel stays and the table pane gets the same split.
+Book (a vertical division) docks the game log on the left page up to the
+hinge and the scene never spans it, when the left page is at least 240 pt
+and the right one 375 pt (the open Duo in landscape); otherwise (open
+portrait, ~325 pt pages) the table spans both pages with its cluster and
+every seat on the wider page, or ignores the fold when that would crowd the
+seats. The open Duo in landscape without a fold docks the log as a 320 pt
+side panel (the Log button collapses it); the iPad keeps the drawer.
+
+Pose procedure (the Duo's pose cannot be scripted: the iOS 27.2 SDK has no
+posture API in XCTest, `simctl` has no posture command, and powering the
+outer display off with `simctl io ... screenConfig` leaves the app in the
+closed pose): open Device Hub, pick the iPhone Duo, use its posture control
+(closed; open portrait / landscape; partially open for tabletop and book),
+then run `TEST_RUNNER_BAB_POSE=<closed|open-portrait|open-landscape>
+xcodebuild ... test -testPlan BABOnlineUI -resultBundlePath <r>` and
+`iOSClient/scripts/ios-screenshots.sh <r> <dir>` (screen 0 is the outer
+1398 x 2034 display, screen 1 the inner 2006 x 2852; `--simctl` gives the
+exact 2007 x 2853). `TEST_RUNNER_BAB_POSE_CHANGE=1` runs PoseChangeTests,
+which wait 120 s for a fold or unfold with a lifted card / a selected bid.
+Record from `ui.pose` in each open pose: the window, the insets, the
+division rect (which way the hinge runs) and the size classes. So far only
+the closed pose and the iPad were exercised (Device Hub's posture control
+needs a person or approved full-screen control), so items 26 and 27 stay
+open until the owner has: the open-portrait (2007 x 2853) and
+open-landscape screenshots, the open-pose `ui.pose` values, and a
+PoseChangeTests run (fold / unfold mid-trick and mid-bid).
+
 ## Items 21 / 22 status
 
 All bullets are done except these, which are follow-ups:
@@ -83,7 +248,40 @@ All bullets are done except these, which are follow-ups:
 Known server gaps left as they are: draw-phase rejoin is refused; the socket
 a `watchSeat` demotes gets no event (item 16).
 
-## Visible changes to review on the next build
+## Visible changes to review on the next build (items 26, 27)
+
+The open Duo turns to landscape (the closed Duo and other phones stay
+portrait); in landscape the game log is a side panel beside the table, in
+book pose the left page; in tabletop pose the table sits above the fold
+and the hand and bid panel below it. The main room and tournament lobby go
+side by side on regular width (iPad, open Duo) instead of above 700 pt; the
+game lobby, sign-in and register scroll when the keyboard or a short window
+leaves no room, and are capped at 560 / 440 pt wide, the game-end card at
+460 pt; in the tournament lobby on regular width the header (Leave, title,
+round) stays pinned and only the player list scrolls, on short windows; the
+bid grid has fixed 44 pt cells (40 pt faces, 44 x 44 hit areas), the bore
+and Submit buttons are 40 pt tall with a 44 pt hit area; the capped corner
+and bid buttons show the large content viewer on a long press at
+accessibility text sizes. A chat line being typed survives a rotation or a
+fold, but not a sign-out, a forced logout, account deletion or leaving its
+lobby / game. Debug builds only: `-uiFixture`.
+
+## Visible changes to review on the next build (item 25)
+
+The table is laid out from the screen instead of the web client's 1920 x 953
+ratios: seats, trick cards and the hand never overlap at 375-1180 pt (on
+375-393 pt phones the side seats rise above the side trick cards and the
+trick cards are 72 x 104 on the SE); cards fly in from their seat's side
+and a collected trick flies to the winner's seat; a long name is cut at
+96 pt with "…"; chat bubbles wrap to two lines and sit above (or below) the
+seat; the history moved left of my trick slot, my bid bubble left of my
+slot; HSI is "HSI 119.2" in 11 pt mono beside the voice button, right of my
+trick slot; the bid panel sits just above the lifted hand; the disconnect
+banner sits below the Leave / Log buttons; the ScoreBar, bid panel and the
+corner buttons stop growing past Dynamic Type xxLarge. Rotating an iPad or
+folding the Duo moves everything at once, cards in flight included.
+
+## Visible changes to review on the next build (item 23)
 
 The rejoin log is restored from the snapshot; bore "Nx" annotations and the
 ScoreBar bore badge work (real multipliers); the trick clears in state at

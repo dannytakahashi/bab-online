@@ -4,16 +4,19 @@ struct TournamentLobbyView: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var authState: AuthState
     @EnvironmentObject var tournamentState: TournamentState
+    @Environment(\.horizontalSizeClass) private var hSizeClass
 
     var body: some View {
         ZStack {
             Color.Theme.background.ignoresSafeArea()
 
+            // Two branches on purpose (their children differ); the chat draft
+            // lives in TournamentState, so a size-class change keeps it.
             GeometryReader { geo in
-                if geo.size.width > LayoutConstants.compactWidthThreshold {
+                if hSizeClass == .regular {
                     // iPad: side-by-side
                     HStack(spacing: 0) {
-                        leftPanel
+                        leftPanel(height: geo.size.height)
                             .frame(width: geo.size.width * 0.55)
                         Divider().background(Color.Theme.inputBorder)
                         rightPanel
@@ -50,14 +53,31 @@ struct TournamentLobbyView: View {
 
     // MARK: - iPad Layout
 
-    private var leftPanel: some View {
-        VStack(spacing: 0) {
+    /// The header (Leave, title, round) and the buttons stay pinned; the player
+    /// list takes its natural height and scrolls only when the chat would get
+    /// less than its minimum (short windows), so the chat fills the rest.
+    private func leftPanel(height: CGFloat) -> some View {
+        let listCap = max(96, height - headerHeight - buttonsHeight - Self.chatMinHeight)
+        return VStack(spacing: 0) {
             headerBar
-            TournamentPlayerListView()
+                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { headerHeight = $0 }
+            ScrollView {
+                TournamentPlayerListView()
+                    .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { playerListHeight = $0 }
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .frame(height: min(playerListHeight, listCap))
             TournamentChatView()
+                .frame(minHeight: Self.chatMinHeight)
             bottomButtons
+                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { buttonsHeight = $0 }
         }
     }
+
+    private static let chatMinHeight: CGFloat = 160
+    @State private var headerHeight: CGFloat = 0
+    @State private var buttonsHeight: CGFloat = 0
+    @State private var playerListHeight: CGFloat = 0
 
     private var rightPanel: some View {
         VStack(spacing: 0) {

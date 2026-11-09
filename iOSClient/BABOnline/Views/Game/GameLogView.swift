@@ -6,10 +6,36 @@ private struct SlashCommand {
     let description: String
 }
 
-/// Collapsible game log + chat panel.
+/// The game log drawer (iPhone portrait, iPad): the log panel floating at the
+/// trailing edge, closed with its button.
 struct GameLogView: View {
-    @EnvironmentObject var gameState: GameState
     @Binding var isShowing: Bool
+
+    var body: some View {
+        GeometryReader { geo in
+            HStack {
+                Spacer()
+
+                GameLogPanel(style: .drawer, onClose: { withAnimation { isShowing = false } })
+                    .frame(width: min(320, geo.size.width * 0.8))
+                    .background(Color.Theme.surface.opacity(0.95))
+                    .cornerRadius(12)
+                    .shadow(color: .black.opacity(0.5), radius: 10)
+                    .padding(.trailing, 8)
+                    .padding(.vertical, 60)
+            }
+        }
+    }
+}
+
+/// Game log + chat: the drawer's content, or a side panel docked beside the
+/// table (the Duo's inner display in landscape or book pose, item 27-4).
+struct GameLogPanel: View {
+    enum Style { case drawer, docked }
+
+    @EnvironmentObject var gameState: GameState
+    var style: Style = .drawer
+    var onClose: (() -> Void)?
     @State private var chatMessage = ""
     @State private var showAutocomplete = false
     @State private var reportTarget: String?
@@ -35,10 +61,6 @@ struct GameLogView: View {
     }
 
     var body: some View {
-        GeometryReader { geo in
-            HStack {
-                Spacer()
-
                 VStack(spacing: 0) {
                     // Header
                     HStack {
@@ -46,9 +68,11 @@ struct GameLogView: View {
                             .font(.headline)
                             .foregroundColor(Color.Theme.textPrimary)
                         Spacer()
-                        Button(action: { withAnimation { isShowing = false } }) {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundColor(Color.Theme.textDim)
+                        if style == .drawer {
+                            Button(action: { onClose?() }) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(Color.Theme.textDim)
+                            }
                         }
                     }
                     .padding(12)
@@ -112,7 +136,9 @@ struct GameLogView: View {
                             .textFieldStyle(BABTextFieldStyle())
                             .onChange(of: chatMessage) {
                                 showAutocomplete = chatMessage.hasPrefix("/")
+                                gameState.chatDraft = chatMessage
                             }
+                            .onAppear { if chatMessage.isEmpty { chatMessage = gameState.chatDraft } }
                             .onSubmit(sendChat)
 
                         Button(action: sendChat) {
@@ -124,14 +150,9 @@ struct GameLogView: View {
                     }
                     .padding(8)
                 }
-                .frame(width: min(320, geo.size.width * 0.8))
-                .background(Color.Theme.surface.opacity(0.95))
-                .cornerRadius(12)
-                .shadow(color: .black.opacity(0.5), radius: 10)
-                .padding(.trailing, 8)
-                .padding(.vertical, 60)
-            }
-        }
+        // docked and visible: what it shows is read
+        .onAppear { if style == .docked { gameState.apply(.local(.chatRead)) } }
+        .onChange(of: gameState.gameLog.count) { if style == .docked { gameState.apply(.local(.chatRead)) } }
         .safetyAlerts(reportTarget: $reportTarget, reportContext: "game chat")
     }
 
@@ -150,12 +171,14 @@ struct GameLogView: View {
 
         ChatEmitter.sendMessage(text)
         chatMessage = ""
+        gameState.chatDraft = ""
         showAutocomplete = false
     }
 
     private func submitCommand(_ command: String) {
         ChatEmitter.sendMessage(command)
         chatMessage = ""
+        gameState.chatDraft = ""
         showAutocomplete = false
     }
 }

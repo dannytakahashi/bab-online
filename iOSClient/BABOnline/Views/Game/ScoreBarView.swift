@@ -77,6 +77,8 @@ struct ScoreBarView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(Color.Theme.surface.opacity(0.9))
+        // capped so the table layout's top bar stays <= 84 pt (TableLayoutTests)
+        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
     }
 
     private var team1Label: String {

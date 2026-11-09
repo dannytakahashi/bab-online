@@ -15,7 +15,7 @@ enum CardAnimations {
         let move = SKAction.move(to: CGPoint(x: x, y: y), duration: duration)
         move.timingMode = .easeIn
         let fade = SKAction.fadeOut(withDuration: duration)
-        let scale = SKAction.scale(to: 0.5, duration: duration)
+        let scale = SKAction.scale(by: 0.5, duration: duration)  // relative: trick sprites carry their layout scale
         return SKAction.group([move, fade, scale])
     }
 

@@ -51,6 +51,8 @@ struct LobbyChatView: View {
             .padding(8)
         }
         .safetyAlerts(reportTarget: $reportTarget, reportContext: "lobby chat")
+        .onAppear { if message.isEmpty { message = lobbyState.chatDraft } }
+        .onChange(of: message) { lobbyState.chatDraft = message }
     }
 
     private func sendMessage() {
@@ -58,5 +60,6 @@ struct LobbyChatView: View {
         guard !text.isEmpty else { return }
         LobbyEmitter.lobbyChat(message: text)
         message = ""
+        lobbyState.chatDraft = ""
     }
 }
