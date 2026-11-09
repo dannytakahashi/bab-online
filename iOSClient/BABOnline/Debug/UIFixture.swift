@@ -24,6 +24,13 @@ enum UIFixture {
     static func seed(_ store: GameState, _ appState: AppState, mainRoom: MainRoomState, lobby: LobbyState,
                      tournament: TournamentState, auth: AuthState) {
         guard let name else { return }
+        seed(fixture: name, store, appState, mainRoom: mainRoom, lobby: lobby, tournament: tournament, auth: auth)
+    }
+
+    /// Seeds the stores from the fixture `name` (also used by the #Preview blocks).
+    @MainActor
+    static func seed(fixture name: String, _ store: GameState, _ appState: AppState, mainRoom: MainRoomState, lobby: LobbyState,
+                     tournament: TournamentState, auth: AuthState) {
         OpponentHandNode.avatarLoader = FixtureAvatarLoader()
         if screenFixtures.contains(name) {
             seedScreen(name, appState, mainRoom: mainRoom, lobby: lobby, tournament: tournament, auth: auth)
