@@ -221,6 +221,12 @@ const defs = {
     // clientHello caps the server acts on (contract/README.md "Client
     // capabilities"); unknown caps are ignored, so the list only grows
     clientCap: enm('avatarUrl'),
+    // Avatars over HTTP (server/routes/avatar.js; contract/README.md "Client
+    // capabilities"): a same-origin path, versioned. Additive fields only;
+    // a pic slot never carries one (it stays number | data URL | null)
+    avatarUrl: str({ minLength: 1, maxLength: 512, pattern: '^/avatar/[^/?#\\s]+\\?v=[0-9a-f]{16}$' }),
+    avatarUrlsByPosition: byPosition(ref('avatarUrl')),
+    avatarUrlsByUsername: { type: 'object', patternProperties: { '^.{1,50}$': ref('avatarUrl') }, additionalProperties: false },
 
     // ---------- snapshot v2 (server/game/snapshotV2.js; contract/README.md) ----------
     snapshotV2: obj({
@@ -295,7 +301,9 @@ const defs = {
         graceDeadline: orNull(int()),
         resignableAt: orNull(int()),
         cardsInHand: int({ minimum: 0, maximum: 13 }),
-    }),
+        // additive: present only for a custom picture with a rendition
+        avatarUrl: ref('avatarUrl'),
+    }, { optional: ['avatarUrl'] }),
     drawV2: obj({
         deckRemaining: orNull(int({ minimum: 0, maximum: 54 })),
         drawn: arr(obj({

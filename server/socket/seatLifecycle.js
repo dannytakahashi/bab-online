@@ -24,6 +24,11 @@ const { Phase } = require('../game/GamePhase');
 const SeatState = require('../game/SeatState');
 const { socketLogger } = require('../utils/logger');
 const { snapshotFor } = require('./snapshotHandlers');
+const avatarWire = require('../avatar/avatarWire');
+const { hasCap } = require('./clientInfo');
+
+/** getClientState of seat socket `sid` as `socket` should receive it (avatars: docs/avatars.md). */
+const stateFor = (game, sid, socket) => avatarWire.wireClientState(game, game.getClientState(sid), hasCap(socket, 'avatarUrl'));
 
 const { PERSONALITY_LIST, getDisplayName } = personalities;
 const { Controller, Presence, RECONNECT_GRACE_MS, ABANDON_MS, DRAW_WATCHDOG_MS } = SeatState;
@@ -302,7 +307,7 @@ function reconnectOwner(io, game, pos, socket, username) {
 
     socketLogger.info('Player rejoined game', { username, gameId: game.gameId, position: pos });
     socket.emit('rejoinSuccess', {
-        ...game.getClientState(socket.id),
+        ...stateFor(game, socket.id, socket),
         tournamentId: tournament ? tournament.tournamentId : null,
         snapshot: snapshotFor(game, socket.id, { customPics: false }) // v2 (additive)
     });
@@ -354,7 +359,7 @@ function watchSeat(io, game, pos, socket, username, { via }) {
     }
 
     // The seat's own view (position, hand) with the lazy flag
-    const state = { ...game.getClientState(seat.seatSocketId), isLazy: true };
+    const state = { ...stateFor(game, seat.seatSocketId, socket), isLazy: true };
     if (via === 'rejoin') {
         const tournament = reattachTournament(io, socket, game.gameId, username);
         state.tournamentId = tournament ? tournament.tournamentId : null;
@@ -429,14 +434,19 @@ function goActive(io, game, pos, socket) {
     unmap(game, bot.socketId);
     gameManager.leaveSpectating(null, socket.id); // defensive: owners are never spectators
 
-    game.broadcast(io, 'playerActiveMode', { position: pos, username: seat.ownerUsername, pic: seat.ownerPic });
+    // One room broadcast: the legacy pic (small inline image for a custom
+    // one) for everyone, plus the additive avatarUrl capable clients prefer
+    const r = avatarWire.seatResolve(game, seat.ownerPic, seat.ownerUsername);
+    const activeMode = { position: pos, username: seat.ownerUsername, pic: r.legacy };
+    if (r.url) activeMode.avatarUrl = r.url;
+    game.broadcast(io, 'playerActiveMode', activeMode);
     logEntry(io, game, `${seat.ownerUsername} is back in control.`);
     socketLogger.info('Player returned to active mode', { gameId: game.gameId, position: pos, username: seat.ownerUsername });
 
     if (ownerView === 'watch') {
         // The watching client switches from its lazy view to the seat
         socket.emit('restorePlayerState', {
-            ...game.getClientState(socket.id),
+            ...stateFor(game, socket.id, socket),
             snapshot: snapshotFor(game, socket.id, { customPics: false }) // v2 (additive)
         });
         replayPresenceTo(game, socket, pos);

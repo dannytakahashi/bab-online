@@ -1171,6 +1171,30 @@
         "avatarUrl"
       ]
     },
+    "avatarUrl": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^/avatar/[^/?#\\s]+\\?v=[0-9a-f]{16}$"
+    },
+    "avatarUrlsByPosition": {
+      "type": "object",
+      "patternProperties": {
+        "^[1-4]$": {
+          "$ref": "#/$defs/avatarUrl"
+        }
+      },
+      "additionalProperties": false
+    },
+    "avatarUrlsByUsername": {
+      "type": "object",
+      "patternProperties": {
+        "^.{1,50}$": {
+          "$ref": "#/$defs/avatarUrl"
+        }
+      },
+      "additionalProperties": false
+    },
     "snapshotV2": {
       "type": "object",
       "properties": {
@@ -1737,6 +1761,9 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 13
+        },
+        "avatarUrl": {
+          "$ref": "#/$defs/avatarUrl"
         }
       },
       "required": [
@@ -4927,6 +4954,9 @@
             },
             "maxItems": 4
           },
+          "avatarUrls": {
+            "$ref": "#/$defs/avatarUrlsByPosition"
+          },
           "seq": {
             "$ref": "#/$defs/seq"
           }
@@ -4943,6 +4973,11 @@
       "status": "active",
       "to": "room",
       "seq": true,
+      "added": [
+        "avatarUrls",
+        "seq"
+      ],
+      "notes": "pics: the legacy value for every recipient (one room broadcast): number, null, or for a custom picture the small derived inline WebP data URL (docs/avatars.md). avatarUrls (additive, only when a rendition exists): {position: /avatar URL}, preferred by capable clients; the shipped iOS app and old web ignore it.",
       "reserved": [
         {
           "key": "yourPosition",
@@ -4959,9 +4994,6 @@
       },
       "emittedFrom": [
         "server/socket/gameHandlers.js:handleDrawComplete"
-      ],
-      "added": [
-        "seq"
       ]
     },
     "createUI": {
@@ -5050,6 +5082,9 @@
                 },
                 "maxItems": 4
               },
+              "avatarUrls": {
+                "$ref": "#/$defs/avatarUrlsByPosition"
+              },
               "seq": {
                 "$ref": "#/$defs/seq"
               }
@@ -5108,6 +5143,9 @@
                 },
                 "maxItems": 4
               },
+              "avatarUrls": {
+                "$ref": "#/$defs/avatarUrlsByPosition"
+              },
               "seq": {
                 "$ref": "#/$defs/seq"
               }
@@ -5130,6 +5168,10 @@
       "status": "active",
       "to": "socket",
       "seq": true,
+      "added": [
+        "avatarUrls",
+        "seq"
+      ],
       "clientReads": {
         "web": [
           "client/src/handlers/gameHandlers.js:registerGameHandlers",
@@ -5143,10 +5185,7 @@
       "emittedFrom": [
         "server/socket/gameHandlers.js:dealHand"
       ],
-      "notes": "One per connected seat owner (seat) and per spectator (spectator), each deal. players: seat socket ids, read by web as playerData.socket to map a voice peer to a seat (the speaking indicator; V1_REMOVALS #6). playerInfo rebuilds web avatars every hand (V1_REMOVALS #5).",
-      "added": [
-        "seq"
-      ]
+      "notes": "One per connected seat owner (seat) and per spectator (spectator), each deal. players: seat socket ids, read by web as playerData.socket to map a voice peer to a seat (the speaking indicator; V1_REMOVALS #6). playerInfo rebuilds web avatars every hand (V1_REMOVALS #5)."
     },
     "bidReceived": {
       "payload": {
@@ -6018,6 +6057,9 @@
               },
               "snapshot": {
                 "$ref": "#/$defs/snapshotV2"
+              },
+              "avatarUrls": {
+                "$ref": "#/$defs/avatarUrlsByPosition"
               }
             },
             "required": [
@@ -6158,6 +6200,9 @@
               },
               "snapshot": {
                 "$ref": "#/$defs/snapshotV2"
+              },
+              "avatarUrls": {
+                "$ref": "#/$defs/avatarUrlsByPosition"
               }
             },
             "required": [
@@ -6192,7 +6237,8 @@
       "status": "active",
       "to": "self",
       "added": [
-        "snapshot"
+        "snapshot",
+        "avatarUrls"
       ],
       "reserved": [
         {
@@ -6357,6 +6403,9 @@
           },
           "snapshot": {
             "$ref": "#/$defs/snapshotV2"
+          },
+          "avatarUrls": {
+            "$ref": "#/$defs/avatarUrlsByPosition"
           }
         },
         "required": [
@@ -6389,7 +6438,8 @@
       "status": "active",
       "to": "self",
       "added": [
-        "snapshot"
+        "snapshot",
+        "avatarUrls"
       ],
       "reserved": [
         {
@@ -6892,6 +6942,9 @@
           "pic": {
             "$ref": "#/$defs/pic"
           },
+          "avatarUrl": {
+            "$ref": "#/$defs/avatarUrl"
+          },
           "seq": {
             "$ref": "#/$defs/seq"
           }
@@ -6907,6 +6960,11 @@
       "status": "active",
       "to": "room",
       "seq": true,
+      "added": [
+        "avatarUrl",
+        "seq"
+      ],
+      "notes": "One room broadcast: pic is the legacy value (the small inline WebP for a custom picture); avatarUrl (additive, only with a rendition) is preferred by capable clients.",
       "clientReads": {
         "web": [
           "client/src/handlers/gameHandlers.js:registerGameHandlers"
@@ -6917,9 +6975,6 @@
       },
       "emittedFrom": [
         "server/socket/seatLifecycle.js:goActive"
-      ],
-      "added": [
-        "seq"
       ]
     },
     "spectatorJoined": {
@@ -7014,6 +7069,9 @@
               },
               "snapshot": {
                 "$ref": "#/$defs/snapshotV2"
+              },
+              "avatarUrls": {
+                "$ref": "#/$defs/avatarUrlsByPosition"
               }
             },
             "required": [
@@ -7077,6 +7135,7 @@
         "trumpBroken",
         "teamTricks",
         "oppTricks",
+        "avatarUrls",
         "seq"
       ],
       "activates": [

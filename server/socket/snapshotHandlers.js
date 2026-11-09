@@ -12,6 +12,7 @@
 'use strict';
 
 const gameManager = require('../game/GameManager');
+const avatarWire = require('../avatar/avatarWire');
 
 /** Tournament context of a game for the snapshot, or null. */
 function tournamentInfo(gameId) {
@@ -40,6 +41,7 @@ function snapshotFor(game, sid, opts = {}) {
     return game.getSnapshotV2(sid, {
         tournament: tournamentInfo(game.gameId),
         botName: botNameFor(game.gameId),
+        avatarResolve: (pic, username) => avatarWire.seatResolve(game, pic, username),
         ...opts,
     });
 }
@@ -57,9 +59,11 @@ function snapshotFor(game, sid, opts = {}) {
  *     iOS source builds after 10d1538 (2026-11-07); the App Store build
  *     ignores it and infers the lead from the first non-null card.
  * Web's spectator path reads none of them. Built after addSpectator
- * (spectatorCount includes the joiner).
+ * (spectatorCount includes the joiner). `capable`: the joiner announced
+ * the avatarUrl capability (players[].pic null for a custom picture with a
+ * URL, plus avatarUrls); otherwise the legacy pic values (docs/avatars.md).
  */
-function spectatorJoinState(game) {
+function spectatorJoinState(game, { capable = false } = {}) {
     const playerInfo = [];
     for (let pos = 1; pos <= 4; pos++) {
         const player = game.getPlayerByPosition(pos);
@@ -72,9 +76,10 @@ function spectatorJoinState(game) {
             });
         }
     }
-    return {
+    const mapped = avatarWire.wireClientState(game, { players: playerInfo }, capable);
+    const state = {
         gameId: game.gameId,
-        players: playerInfo,
+        players: mapped.players,
         trump: game.trump,
         currentHand: game.currentHand,
         dealer: game.dealer,
@@ -94,6 +99,8 @@ function spectatorJoinState(game) {
         teamTricks: game.tricks.team1,
         oppTricks: game.tricks.team2
     };
+    if (mapped.avatarUrls) state.avatarUrls = mapped.avatarUrls;
+    return state;
 }
 
 /** The game a socket belongs to: mapped (seat owner, entrant) or spectating. */

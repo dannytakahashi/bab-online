@@ -10,6 +10,7 @@ const { beginDraw, abortGame, emitLobbiesUpdated } = require('./gameLifecycle');
 const { delay } = require('../utils/timing');
 const pacing = require('../game/pacing');
 const { spectatorJoinState, snapshotFor } = require('./snapshotHandlers');
+const { hasCap } = require('./clientInfo');
 const { botController, BotPlayer, personalities } = require('../game/bot');
 const { PERSONALITY_LIST, getDisplayName } = personalities;
 
@@ -720,7 +721,7 @@ function spectateTournamentGame(socket, io, data) {
     // Send spectator join success with game state, then the v2 snapshot
     // (additive), BEFORE the room notice
     socket.emit('spectatorJoined', {
-        ...spectatorJoinState(game),
+        ...spectatorJoinState(game, { capable: hasCap(socket, 'avatarUrl') }),
         snapshot: snapshotFor(game, socket.id, { customPics: false })
     });
 

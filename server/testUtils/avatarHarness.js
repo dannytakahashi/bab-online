@@ -41,6 +41,9 @@ const sameCard = (a, b) => a && b && a.suit === b.suit && a.rank === b.rank;
  * @param {Function} [opts.onSocket] - (socket, role, index) when a socket
  *   is created (e.g. to send clientHello)
  * @param {Function} [opts.onEmit] - (rec, ctx) for every recorded emit
+ * @param {Function} [opts.onStep] - async (ctx) once per driver step, between
+ *   emits (no timer runs meanwhile): e.g. disconnect / rejoin / lazy; a test
+ *   that moves a human to a new socket sets ctx.seats[i].sock
  * @returns {Promise<{wire, log, game, socks, specs, io}>} wire: [{to,
  *   members, event, data, bytes}] in emit order (bot targets left out)
  */
@@ -98,6 +101,7 @@ async function runGame(seed, opts = {}) {
             drew: false,
             turn: null,
         }));
+        ctx.seats = seats;
         const withRng = (rand, fn) => {
             const r = Math.random;
             Math.random = rand;
@@ -124,6 +128,7 @@ async function runGame(seed, opts = {}) {
         while (endAt === null && steps++ < 200000) {
             scan();
             if (endAt !== null) break;
+            if (opts.onStep) await opts.onStep(ctx);
             if (spectated === 'due') {
                 spectated = true;
                 for (const [i, sp] of spectators.entries()) {
