@@ -1,6 +1,17 @@
 import SwiftUI
 
+/// The tournament lobby. Where the system shows the vertical bar (the iPhone
+/// Duo), Leave is the leading toolbar item in that column (VerticalBarHost);
+/// the title and the Ready / Begin / Cancel buttons stay in the content.
 struct TournamentLobbyView: View {
+    var body: some View {
+        VerticalBarHost { TournamentLobbyScreen(bar: $0) }
+    }
+}
+
+private struct TournamentLobbyScreen: View {
+    let bar: VerticalBarContext
+
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var authState: AuthState
     @EnvironmentObject var tournamentState: TournamentState
@@ -49,6 +60,18 @@ struct TournamentLobbyView: View {
         .onTapGesture {
             UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         }
+        .verticalBarChrome(bar, showsBarControls: bar.usesVerticalBar)
+        .toolbar {
+            if bar.usesVerticalBar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(action: leaveTournament) {
+                        Label("Leave", systemImage: "chevron.left")
+                    }
+                    // the results overlay covers the header's Leave too; it has its own way out
+                    .disabled(tournamentState.phase == "complete")
+                }
+            }
+        }
     }
 
     // MARK: - iPad Layout
@@ -92,17 +115,20 @@ struct TournamentLobbyView: View {
     private var headerBar: some View {
         VStack(spacing: 0) {
             HStack {
-                Button(action: leaveTournament) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "chevron.left")
-                        Text("Leave")
+                // in the vertical bar Leave is a toolbar item and the title leads
+                if !bar.usesVerticalBar {
+                    Button(action: leaveTournament) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "chevron.left")
+                            Text("Leave")
+                        }
+                        .foregroundColor(Color.Theme.textSecondary)
                     }
-                    .foregroundColor(Color.Theme.textSecondary)
+
+                    Spacer()
                 }
 
-                Spacer()
-
-                VStack(spacing: 2) {
+                VStack(alignment: bar.usesVerticalBar ? .leading : .center, spacing: 2) {
                     HStack(spacing: 6) {
                         Image(systemName: "trophy.fill")
                             .foregroundColor(Color.Theme.warning)
@@ -123,7 +149,7 @@ struct TournamentLobbyView: View {
             }
             .padding()
 
-            Divider().background(Color.Theme.inputBorder)
+            Divider().background(Color.Theme.inputBorder, ignoresSafeAreaEdges: .vertical)
         }
     }
 

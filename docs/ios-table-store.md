@@ -168,19 +168,39 @@ when Live Activities need the room); the corner buttons are not drawn there and
 buttons, no navigation bar. Detection: `EnvironmentValues.toolbarVerticalEdge`
 (nil where the system never places a vertical bar; UIKit's
 `traitCollection.verticalBarEdge`), not the window size; `ui.pose` ends with
-`vbar trailing|-`. `GameContainerView` is a small iOS 27.1 host
-(`NavigationStack` + `toolbarVerticalEdge`) around `GameScreen`, which owns all
-the state and adds the toolbar; the stack wraps the game on every iOS 27.1
-device, with the bar hidden where no vertical bar is used, so a fold never
-rebuilds the screen. Two UIKit details: the hidden navigation bar still sits 24
-pt down in vertical-bar mode (zero height) and would end the content's top safe
-area there, and it takes its full height for the first pass after launch, so
-`GameScreen` ignores the container's top safe area and re-adds the window's top
-inset (measured outside the stack); and the stack lays its root out once at zero
+`vbar trailing|-`. `GameContainerView` is `VerticalBarHost`
+(`Views/Components/VerticalBarHost.swift`: an iOS 27.1 `NavigationStack` +
+`toolbarVerticalEdge`) around `GameScreen`, which owns all the state and adds the
+toolbar; the stack wraps the game on every iOS 27.1 device, with the bar hidden
+where no vertical bar is used, so a fold never rebuilds the screen. Two UIKit
+details: the hidden navigation bar still sits 24 pt down in vertical-bar mode
+(zero height) and would end the content's top safe area there, and it takes its
+full height for the first pass after launch, so the screen ignores the
+container's top safe area and re-adds the window's top inset (measured outside
+the stack; `verticalBarChrome`); and the stack lays its root out once at zero
 size (the ScoreBar wraps to 120-170 pt there), so the table pane measures
 nothing until it has a size. The vertical bar draws a toolbar badge only when it
 builds the item, so the Log item's identity follows the unread count. During the
 draw both items are disabled (the corner buttons sat under the draw overlay).
+
+The main room and the two lobbies use the same host (each view is a
+`VerticalBarHost` around a private `…Screen` that owns the state). In the
+vertical bar: the main room's header row is not drawn and its controls are
+toolbar items, New Game / Tournament / Stats (`.topBarLeading`, tinted like the
+header) and Online / Account settings (`.topBarTrailing`); the online count moves
+to the chat header, because the vertical bar lays out symbols only (a text or a
+custom-view label lands outside the column, seen with the 27.2 SDK) and a badge
+reads as an alert. The game and tournament lobbies' "‹ Leave" is the leading
+toolbar item and the title leads the header row; Ready, Begin, Cancel and Add Bot
+stay in the content (the tournament's Leave is disabled under the results
+overlay, which covered the header button). Elsewhere these screens are
+pixel-identical to before. Their dividers and the lobby list's rows paint their
+backgrounds only up and down (`ignoresSafeAreaEdges: .vertical`), so nothing
+runs under the status column. `LobbyControlsTests` (UI plan) checks that each
+control exists once, sits in the column when `ui.pose` reports a vertical bar
+(and that one is reported in `TEST_RUNNER_BAB_POSE` closed / open-landscape),
+that no content button reaches into the column, and that Stats opens the
+leaderboard.
 
 ## Fixture mode and Duo poses (roadmap items 26, 27)
 

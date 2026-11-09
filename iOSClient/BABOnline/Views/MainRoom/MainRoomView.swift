@@ -1,6 +1,17 @@
 import SwiftUI
 
+/// The main room. Where the system shows the vertical bar (the iPhone Duo), the
+/// header's controls are toolbar items in that column (VerticalBarHost) and the
+/// lobby list starts at the top; everywhere else the header row is unchanged.
 struct MainRoomView: View {
+    var body: some View {
+        VerticalBarHost { MainRoomScreen(bar: $0) }
+    }
+}
+
+private struct MainRoomScreen: View {
+    let bar: VerticalBarContext
+
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var mainRoomState: MainRoomState
     @Environment(\.scenePhase) private var scenePhase
@@ -25,10 +36,14 @@ struct MainRoomView: View {
                         .frame(width: wide ? geo.size.width * 0.55 : nil)
                         .frame(maxHeight: wide ? .infinity : geo.size.height * 0.55)
                     Separator(vertical: wide)
-                    MainRoomChatView()
+                    MainRoomChatView(showsOnlineCount: bar.usesVerticalBar)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
+        }
+        .verticalBarChrome(bar, showsBarControls: bar.usesVerticalBar)
+        .toolbar {
+            if bar.usesVerticalBar { barControls }
         }
         .onTapGesture {
             UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
@@ -66,13 +81,16 @@ struct MainRoomView: View {
             // when it doesn't (the closed Duo, the open Duo's 55% panel, large
             // Dynamic Type). Measured, not size-class based, so no label ever
             // wraps mid-word. Icon-only labels keep their title for VoiceOver.
-            ViewThatFits(in: .horizontal) {
-                lobbyHeader(iconsOnly: false)
-                lobbyHeader(iconsOnly: true)
-            }
-            .padding()
+            // In the vertical bar the same controls are toolbar items.
+            if !bar.usesVerticalBar {
+                ViewThatFits(in: .horizontal) {
+                    lobbyHeader(iconsOnly: false)
+                    lobbyHeader(iconsOnly: true)
+                }
+                .padding()
 
-            Divider().background(Color.Theme.inputBorder)
+                Divider().background(Color.Theme.inputBorder, ignoresSafeAreaEdges: .vertical)
+            }
 
             // Lobby list
             LobbyListView()
@@ -107,6 +125,36 @@ struct MainRoomView: View {
             }
             .accessibilityLabel("Account settings")
         }
+    }
+
+    // MARK: - Vertical bar (iOS 27.1)
+
+    /// The header's controls as toolbar items: the actions on top, the online
+    /// count and the account settings as the trailing group.
+    @ToolbarContentBuilder
+    private var barControls: some ToolbarContent {
+        ToolbarItemGroup(placement: .topBarLeading) {
+            barButton("New Game", icon: "suit.spade.fill", color: Color.Theme.primary) { LobbyEmitter.createLobby() }
+            barButton("Tournament", icon: "trophy.fill", color: Color.Theme.warning) { TournamentEmitter.createTournament() }
+            barButton("Stats", icon: "chart.bar.fill", color: Color.Theme.textSecondary) { showLeaderboard = true }
+        }
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            // The vertical bar lays out symbols only (a text or custom label lands outside
+            // the column), and a badge reads as an alert: the count is in the chat header.
+            Button(action: { showOnlineUsers = true }) {
+                Label("\(mainRoomState.onlineCount) online", systemImage: "person.2.fill")
+            }
+            Button(action: { showAccountSettings = true }) {
+                Label("Account settings", systemImage: "gearshape.fill")
+            }
+        }
+    }
+
+    private func barButton(_ title: String, icon: String, color: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: icon)
+        }
+        .tint(color)
     }
 
     private func headerButton(_ title: String, icon: String, color: Color, iconsOnly: Bool,

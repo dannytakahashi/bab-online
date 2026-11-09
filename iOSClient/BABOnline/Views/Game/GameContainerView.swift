@@ -8,35 +8,9 @@ import SpriteKit
 /// own corner buttons and no navigation bar is shown.
 struct GameContainerView: View {
     var body: some View {
-        if #available(iOS 27.1, *) {
-            VerticalBarGameHost()
-        } else {
-            GameScreen(usesVerticalBar: false, windowTopInset: nil)
+        VerticalBarHost { bar in
+            GameScreen(usesVerticalBar: bar.usesVerticalBar, windowTopInset: bar.windowTopInset)
         }
-    }
-}
-
-/// A navigation container for the toolbar items, which go into the vertical bar.
-/// It wraps the game on every iOS 27.1 device (the bar is hidden where no
-/// vertical bar is used), so a fold or unfold never rebuilds the game screen.
-/// `toolbarVerticalEdge` is nil where the system never places a vertical bar
-/// (other phones, the iPad, the open Duo in portrait).
-@available(iOS 27.1, *)
-private struct VerticalBarGameHost: View {
-    @Environment(\.toolbarVerticalEdge) private var verticalEdge
-    @State private var windowTopInset: CGFloat = 0
-
-    var body: some View {
-        NavigationStack {
-            GameScreen(usesVerticalBar: verticalEdge != nil, windowTopInset: windowTopInset)
-        }
-        .onGeometryChange(for: CGFloat.self, of: { $0.safeAreaInsets.top }) { windowTopInset = $0 }
-        #if DEBUG
-        .onChange(of: verticalEdge, initial: true) { _, edge in
-            print("[Regions] vertical bar \(edge.map { "\($0)" } ?? "none")")
-            if UIFixture.isActive { TableDebugProbe.shared.verticalBar = edge.map { "\($0)" } ?? "-" }
-        }
-        #endif
     }
 }
 
@@ -123,12 +97,9 @@ private struct GameScreen: View {
 
     var body: some View {
         gameContent
-            // The table keeps the window's own top inset: with the vertical bar the
-            // navigation bar has no height but UIKit still places it 24 pt down, and
-            // the content's top safe area would end there; without it the bar is
-            // hidden, but it takes its full height for the first pass after launch
-            .safeAreaPadding(.top, windowTopInset ?? 0)
-            .ignoresSafeArea(.container, edges: windowTopInset == nil ? [] : .top)
+            // the table keeps the window's own top inset (VerticalBarHost)
+            .verticalBarChrome(VerticalBarContext(usesVerticalBar: usesVerticalBar, windowTopInset: windowTopInset),
+                               showsBarControls: showsBarControls)
             .toolbar {
                 if showsBarControls {
                     ToolbarItem(placement: .topBarLeading) { leaveBarButton }
@@ -137,8 +108,6 @@ private struct GameScreen: View {
                     }
                 }
             }
-            .toolbar(showsBarControls ? .automatic : .hidden, for: .navigationBar)
-            .toolbarBackground(.hidden, for: .navigationBar)
     }
 
     private var gameContent: some View {

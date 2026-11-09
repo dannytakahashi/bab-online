@@ -112,7 +112,7 @@ struct LobbyRowView: View {
         }
         .padding(.horizontal)
         .padding(.vertical, 12)
-        .background(Color.Theme.surface)
+        .background(Color.Theme.surface, ignoresSafeAreaEdges: .vertical)
     }
 }
 
@@ -186,6 +186,6 @@ struct TournamentRowView: View {
         }
         .padding(.horizontal)
         .padding(.vertical, 12)
-        .background(Color.Theme.surface)
+        .background(Color.Theme.surface, ignoresSafeAreaEdges: .vertical)
     }
 }

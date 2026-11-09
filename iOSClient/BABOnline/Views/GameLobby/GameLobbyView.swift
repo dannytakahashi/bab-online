@@ -1,6 +1,17 @@
 import SwiftUI
 
+/// The game lobby. Where the system shows the vertical bar (the iPhone Duo),
+/// Leave is the leading toolbar item in that column (VerticalBarHost); the
+/// title, the count and the Ready button stay in the content.
 struct GameLobbyView: View {
+    var body: some View {
+        VerticalBarHost { GameLobbyScreen(bar: $0) }
+    }
+}
+
+private struct GameLobbyScreen: View {
+    let bar: VerticalBarContext
+
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var authState: AuthState
     @EnvironmentObject var lobbyState: LobbyState
@@ -25,15 +36,18 @@ struct GameLobbyView: View {
                 VStack(spacing: 0) {
                 // Header
                 HStack {
-                    Button(action: leaveLobby) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "chevron.left")
-                            Text("Leave")
+                    // in the vertical bar Leave is a toolbar item and the title leads
+                    if !bar.usesVerticalBar {
+                        Button(action: leaveLobby) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "chevron.left")
+                                Text("Leave")
+                            }
+                            .foregroundColor(Color.Theme.textSecondary)
                         }
-                        .foregroundColor(Color.Theme.textSecondary)
-                    }
 
-                    Spacer()
+                        Spacer()
+                    }
 
                     Text(lobbyState.lobbyName.isEmpty ? "Game Lobby" : lobbyState.lobbyName)
                         .font(.headline)
@@ -55,7 +69,7 @@ struct GameLobbyView: View {
                 }
                 .padding()
 
-                Divider().background(Color.Theme.inputBorder)
+                Divider().background(Color.Theme.inputBorder, ignoresSafeAreaEdges: .vertical)
 
                 // Player slots
                 VStack(spacing: 12) {
@@ -116,6 +130,16 @@ struct GameLobbyView: View {
             }
             .onTapGesture {
                 UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+            }
+        }
+        .verticalBarChrome(bar, showsBarControls: bar.usesVerticalBar)
+        .toolbar {
+            if bar.usesVerticalBar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(action: leaveLobby) {
+                        Label("Leave", systemImage: "chevron.left")
+                    }
+                }
             }
         }
         .onAppear {
