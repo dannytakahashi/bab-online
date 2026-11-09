@@ -22,7 +22,7 @@ struct HandResult {
     var team2Rainbows: Int = 0
 }
 
-struct GameEndData {
+struct GameEndData: Equatable {
     let winningTeam: Int
     let team1Score: Int
     let team2Score: Int
@@ -55,7 +55,7 @@ struct GameEndData {
            let playerStats = dict["playerStats"] as? [String: Any] {
             var team1Names: [String] = []
             var team2Names: [String] = []
-            for (posStr, value) in playerStats {
+            for (posStr, value) in playerStats.sorted(by: { $0.key < $1.key }) {  // seat order, deterministic
                 guard let pos = Int(posStr),
                       let info = value as? [String: Any],
                       let username = info["username"] as? String else { continue }
@@ -72,5 +72,13 @@ struct GameEndData {
         let history = dict["handHistory"] as? [[String: Any]] ?? []
         return GameEndData(winningTeam: winner, team1Score: t1Score, team2Score: t2Score,
                            team1Players: t1Players, team2Players: t2Players, handHistory: history)
+    }
+}
+
+extension GameEndData {
+    /// handHistory is opaque (`[String: Any]`) and display-only: equality ignores it.
+    static func == (a: GameEndData, b: GameEndData) -> Bool {
+        a.winningTeam == b.winningTeam && a.team1Score == b.team1Score && a.team2Score == b.team2Score
+            && a.team1Players == b.team1Players && a.team2Players == b.team2Players
     }
 }
