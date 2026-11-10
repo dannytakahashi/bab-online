@@ -362,7 +362,7 @@ const s2c = {
         ),
         status: 'active', to: 'socket', seq: false,
         added: ['avatarUrls'],
-        clientReads: reads([W.game, W.main('gameStart#reads:players'), W.main('startVoice#reads:players')], I.game('handleGameStart')),
+        clientReads: reads([W.game, W.main('onGameStart#reads:players'), W.main('startVoice#reads:players')], I.game('handleGameStart')),
         emittedFrom: ['server/socket/gameHandlers.js:dealHand'],
         notes: 'One per connected seat owner (seat) and per spectator (spectator), each deal. players: seat socket ids, read by web as playerData.socket to map a voice peer to a seat (the speaking indicator; V1_REMOVALS #6). playerInfo rebuilds web avatars every hand (V1_REMOVALS #5).',
     },
@@ -460,7 +460,7 @@ const s2c = {
         status: 'active', to: 'room', seq: false,
         reserved: ['winner', 'winningTeam', 'team1Score', 'team1Players', 'team2Players', 'handHistory']
             .map((key) => ({ key, why: 'the iOS game-end screen reads it ahead of score/playerStats' })),
-        clientReads: reads([W.game, W.main('gameEnd')], I.game('registerGameEnd')),
+        clientReads: reads([W.game, W.main('onGameEnd')], I.game('registerGameEnd')),
         emittedFrom: ['server/socket/gameHandlers.js:handleHandComplete (via GameState.terminate)'],
     },
     abortGame: {
@@ -503,7 +503,7 @@ const s2c = {
         added: ['snapshot', 'avatarUrls'],
         reserved: ['teamTricks', 'oppTricks', 'teamScore', 'oppScore', 'isBidding', 'leadCard', 'playedCardIndex', 'trumpBroken']
             .map((key) => ({ key, why: 'iOS restoreFromRejoin reads it ahead of the legacy key and would take it as the viewer-relative value' })),
-        clientReads: { ...LEGACY_STATE_READS, web: [...LEGACY_STATE_READS.web, W.main('rejoinSuccess')] },
+        clientReads: { ...LEGACY_STATE_READS, web: [...LEGACY_STATE_READS.web, W.main('onRejoinSuccess')] },
         emittedFrom: ['server/socket/seatLifecycle.js:reconnectOwner', 'server/socket/seatLifecycle.js:watchSeat', 'server/socket/reconnectHandlers.js:rejoinGame'],
         notes: 'getClientState + tournamentId (string|null) on a rejoin; watchSeat via joinAsSpectator sends the bare state (web reads tournamentId !== undefined). Before playerReconnected and the presence replays.',
     },
@@ -540,7 +540,7 @@ const s2c = {
             debug: obj({ lookingFor: str(), playersInGame: arr(str()) }),
         }, { optional: ['debug'] }),
         status: 'active', to: 'self',
-        clientReads: reads([W.game, W.main('rejoinFailed')], I.game('registerReconnection')),
+        clientReads: reads([W.game, W.main('onRejoinFailed')], I.game('registerReconnection')),
         emittedFrom: ['server/socket/reconnectHandlers.js:rejoinGame'],
         notes: 'Web drops its game on ANY rejoinFailed.',
     },
@@ -554,7 +554,7 @@ const s2c = {
     playerReconnected: {
         payload: seatNotice,
         status: 'active', to: 'room', seq: false,
-        clientReads: reads([W.game, W.main('playerReconnected')], I.game('registerReconnection')),
+        clientReads: reads([W.game, W.main('onPlayerReconnected')], I.game('registerReconnection')),
         emittedFrom: ['server/socket/seatLifecycle.js:reconnectOwner', 'server/socket/seatLifecycle.js:watchSeat'],
     },
     leftGame: {
