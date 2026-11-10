@@ -159,6 +159,7 @@ export class ClientSession {
     this._pendingLobbyRejoin = null; // lobbyId
     this._pendingSpectate = null; // gameId
     this._pendingTournamentRejoin = null; // { tournamentId, spectator }
+    this._tournamentWatchSocket = null; // socket id the server knows as the tournament's spectator
   }
 
   // ============================================
@@ -256,8 +257,18 @@ export class ClientSession {
 
   _noteTournamentLobby(data) {
     this._storage.setItem(STORAGE.TOURNAMENT, data.tournamentId);
-    if (data.isSpectator) this._storage.setItem(STORAGE.TOURNAMENT_SPECTATE, data.tournamentId);
-    else if (!this.isTournamentSpectator(data.tournamentId)) this._storage.removeItem(STORAGE.TOURNAMENT_SPECTATE);
+    if (data.isSpectator) {
+      this._storage.setItem(STORAGE.TOURNAMENT_SPECTATE, data.tournamentId);
+      // The server knows THIS socket as the tournament's spectator
+      this._tournamentWatchSocket = this._socketManager?.id || null;
+    } else if (!this.isTournamentSpectator(data.tournamentId)) {
+      this._storage.removeItem(STORAGE.TOURNAMENT_SPECTATE);
+    }
+  }
+
+  /** The tournament this tab only watches (kept across the TABLE it watches). */
+  get watchedTournamentId() {
+    return this._storage.getItem(STORAGE.TOURNAMENT_SPECTATE) || null;
   }
 
   _forgetTournamentLobby() {
@@ -357,6 +368,11 @@ export class ClientSession {
     this._clearPersistedIds();
 
     if (!route) return null;
+    // A tab that watches a tournament goes back to watching it, also after
+    // a reload (gameState.tournamentId is gone then; the key is not)
+    if (!this.tournamentId && this.watchedTournamentId && this._gameState) {
+      this._gameState.tournamentId = this.watchedTournamentId;
+    }
     const dest = to || (this.tournamentId ? SCREEN.TOURNAMENT_LOBBY : SCREEN.MAIN_ROOM);
     if (!this.transition(dest, undefined)) return null;
     if (dest === SCREEN.MAIN_ROOM) this.requestMainRoom();
@@ -431,6 +447,15 @@ export class ClientSession {
   requestTournament() {
     if (this._routeBusy()) return false;
     this._routeInFlight = { kind: 'tournament', at: Date.now() };
+    const tournamentId = this.tournamentId;
+    // Only watching it, from a socket the server does not know as its
+    // spectator (a reload or reconnect since): watch again.
+    // returnToTournament would find nothing and land in the main room
+    if (this.isTournamentSpectator(tournamentId) && this._tournamentWatchSocket !== (this._socketManager?.id || null)) {
+      this._pendingTournamentRejoin = { tournamentId, spectator: true };
+      this._emit(CLIENT_EVENTS.SPECTATE_TOURNAMENT, { tournamentId });
+      return true;
+    }
     this._emit(CLIENT_EVENTS.RETURN_TO_TOURNAMENT);
     return true;
   }

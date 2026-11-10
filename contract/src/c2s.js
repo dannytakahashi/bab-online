@@ -87,7 +87,7 @@ const c2s = {
         payload: open({ requestId: anyOf(str({ minLength: 1, maxLength: 64 }), int()), customPics: { type: 'boolean' }, log: { type: 'boolean' } }, { optional: ['requestId', 'customPics', 'log'] }),
         optionalPayload: true, status: 'active', joi: 'requestSnapshot', rateLimit: 'requestSnapshot', sentBy: { web: true, ios: false },
         examples: [{}, { requestId: 'r1' }, { requestId: 7, customPics: false, log: false }], invalid: [{ requestId: 'x'.repeat(65) }, { requestId: '' }, { requestId: 1.5 }, { customPics: 'yes' }],
-        notes: 'New in snapshot v2 (no shipped iOS client sends it yet). Answered by stateSnapshot to this socket only. Web (item 15) sends {requestId, customPics:false, log:false} as its liveness ping after the tab was hidden > 5 s and forces a reconnect only when no reply arrives; the snapshot is not rendered yet (item 16).',
+        notes: 'New in snapshot v2 (no shipped iOS client sends it yet). Answered by stateSnapshot to this socket only. Web always sends {requestId, customPics:false, log:false}: "ping-*" its liveness ping after the tab was hidden > 5 s (item 15; a reconnect only when no reply arrives), "gap-*" on a seq gap (debounced: one in flight), "ack-*" when its bid/play got no answer for 5 s (item 16); every reply with a snapshot of its table is applied and rendered.',
     },
 
     // Profile

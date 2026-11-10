@@ -9,6 +9,8 @@
  */
 import { describe, it, expect, beforeAll, afterEach, vi } from 'vitest';
 import mainSource from './main.js?raw';
+import { readFileSync, existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 // One fake socket for the page: records every listener, fires them on demand
 const listeners = new Map();
@@ -75,6 +77,19 @@ describe('server event -> handler map', () => {
     }
   });
 
+  it('every sequenced event (contract seq: true) has a handler, registered through the seq gate', async () => {
+    const root = existsSync(resolve(process.cwd(), 'contract')) ? process.cwd() : resolve(process.cwd(), '..');
+    const schema = JSON.parse(readFileSync(resolve(root, 'contract/events.schema.json'), 'utf8'));
+    const sequenced = Object.entries(schema.s2c).filter(([, e]) => e.seq).map(([name]) => name);
+    expect(sequenced.length).toBeGreaterThan(20);
+    // an unhandled one would leave a hole in the count: every next event a gap
+    expect(sequenced.filter((e) => !managed.has(e))).toEqual([]);
+    const { getSocketManager } = await import('./socket/SocketManager.js');
+    expect(getSocketManager()._gate).toBeTruthy();
+    // the replies that carry a snapshot reach one handler each too
+    for (const e of ['stateSnapshot', 'actionRejected', 'rejoinSuccess', 'restorePlayerState']) expect(managed.get(e), e).toBe(1);
+  });
+
   it('main.js direct listeners are server events and never overlap the handler modules', () => {
     const known = new Set(Object.values(SERVER_EVENTS));
     for (const event of direct) expect(known.has(event), event).toBe(true);
@@ -137,6 +152,8 @@ describe('server event -> handler map', () => {
       const scene = new GameScene();
       scene.scene = { restart: vi.fn() };
       scene.children = { removeAll: vi.fn() };
+      // A created scene has its managers: the director runs table work only then
+      scene.cardManager = { clearAll: vi.fn() };
       window.ModernUtils.setGameScene(scene);
       return scene;
     }

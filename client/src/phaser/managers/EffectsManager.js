@@ -5,6 +5,7 @@
  */
 
 import { team, rotate } from '../../utils/positions.js';
+import { sceneDelay, sceneTween } from '../TableDirector.js';
 
 /**
  * Base design dimensions for scaling.
@@ -79,7 +80,7 @@ export class EffectsManager {
     this._impactSprites.push(impactImage);
 
     // Tween for impact effect (scale up + bounce)
-    scene.tweens.add({
+    sceneTween(scene, {
       targets: impactImage,
       scale: { from: 0, to: targetScale },
       ease: 'Back.Out',
@@ -87,8 +88,8 @@ export class EffectsManager {
     });
 
     // Remove the image after 1.5 seconds with fade
-    scene.time.delayedCall(1500, () => {
-      scene.tweens.add({
+    sceneDelay(scene, 1500, () => {
+      sceneTween(scene, {
         targets: impactImage,
         alpha: { from: 1, to: 0 },
         duration: 1000,
@@ -148,15 +149,15 @@ export class EffectsManager {
     this._rainbowSprites.push(rainbowSprite);
 
     // Scale up animation
-    scene.tweens.add({
+    sceneTween(scene, {
       targets: rainbowSprite,
       scale: { from: 0, to: 1 },
       ease: 'Power2',
       duration: 500,
       onComplete: () => {
         // Fade out after delay
-        scene.time.delayedCall(2000, () => {
-          scene.tweens.add({
+        sceneDelay(scene, 2000, () => {
+          sceneTween(scene, {
             targets: rainbowSprite,
             alpha: { from: 1, to: 0 },
             duration: 1000,

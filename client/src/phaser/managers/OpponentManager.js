@@ -8,6 +8,7 @@ import { avatarSrc, applyAvatarImg } from '../../utils/avatar.js';
 import { team, rotate } from '../../utils/positions.js';
 import { CARD_CONFIG, ANIMATION_CONFIG } from '../config.js';
 import { getSocketManager } from '../../socket/SocketManager.js';
+import { sceneTween } from '../TableDirector.js';
 
 /**
  * Base design dimensions for scaling.
@@ -194,7 +195,7 @@ export class OpponentManager {
 
           // Held so a play can cancel it even before the tween manager has
           // activated it (killTweensOf misses tweens queued while hidden)
-          sprite.setData('moveTween', scene.tweens.add({
+          sprite.setData('moveTween', sceneTween(scene, {
             targets: sprite,
             x,
             y,
@@ -278,7 +279,7 @@ export class OpponentManager {
 
           // Held so a play can cancel it even before the tween manager has
           // activated it (killTweensOf misses tweens queued while hidden)
-          sprite.setData('moveTween', scene.tweens.add({
+          sprite.setData('moveTween', sceneTween(scene, {
             targets: sprite,
             x,
             y,
@@ -294,6 +295,61 @@ export class OpponentManager {
         this._cardSprites[opponentId].push(sprite);
       }
     });
+  }
+
+  /** Game position of each slot relative to the viewer ({partner, opp1, opp2[, bottom]}). */
+  slotPositions() {
+    const me = this._playerPosition;
+    if (!me) return {};
+    const map = { partner: team(me), opp1: rotate(me), opp2: rotate(rotate(rotate(me))) };
+    if (this._isSpectatorMode) map.bottom = me;
+    return map;
+  }
+
+  /**
+   * Card backs per seat, placed at once (GameScene.render): each opponent
+   * shows what the table says it holds (webclient-8).
+   * @param {Object} countsByPosition - {1..4: cards in hand}
+   */
+  displayOpponentCardsBySeat(countsByPosition = {}) {
+    this.clearCards();
+    const scene = this._scene;
+    const positions = this.getOpponentPositions();
+    const { x: scaleX } = this.getScaleFactors();
+    const cardSpacing = 10 * scaleX;
+    const slots = this.slotPositions();
+    this._getSlotKeys().forEach((opponentId) => {
+      const pos = positions[opponentId];
+      const count = countsByPosition[slots[opponentId]] || 0;
+      if (!pos || count <= 0) return;
+      const isHorizontal = opponentId === 'partner' || opponentId === 'bottom';
+      for (let i = 0; i < count; i++) {
+        let x;
+        let y;
+        let rotation;
+        if (isHorizontal) {
+          const totalWidth = (count - 1) * cardSpacing;
+          x = pos.cardX - totalWidth / 2 + i * cardSpacing;
+          y = pos.cardY;
+          rotation = 0;
+        } else {
+          const totalHeight = (count - 1) * cardSpacing;
+          x = pos.cardX;
+          y = pos.cardY - totalHeight / 2 + i * cardSpacing;
+          rotation = opponentId === 'opp1' ? -Math.PI / 2 : Math.PI / 2;
+        }
+        const sprite = scene.add.image(x, y, 'cardBack');
+        sprite.setScale(1.2);
+        sprite.setRotation(rotation);
+        sprite.setDepth(100 + i);
+        this._cardSprites[opponentId].push(sprite);
+      }
+    });
+  }
+
+  /** Card backs left per slot (render checks). */
+  cardCounts() {
+    return Object.fromEntries(Object.entries(this._cardSprites).map(([k, v]) => [k, v.length]));
   }
 
   /**
@@ -643,7 +699,8 @@ export class OpponentManager {
    * Clear all card sprites.
    */
   clearCards() {
-    this._getSlotKeys().forEach((opponentId) => {
+    // Every slot, the spectator's bottom one too (a role change keeps none)
+    Object.keys(this._cardSprites).forEach((opponentId) => {
       if (this._cardSprites[opponentId]) {
         this._cardSprites[opponentId].forEach((sprite) => {
           if (sprite && sprite.destroy) {

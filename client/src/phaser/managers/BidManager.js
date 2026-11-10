@@ -88,11 +88,19 @@ export class BidManager {
     // Animate in if it's our turn
     if (this.state.isBidding && currentTurn === position) {
       // Use requestAnimationFrame to ensure the initial styles are applied first
-      requestAnimationFrame(() => {
-        this.bidContainer.style.visibility = 'visible';
-        this.bidContainer.style.opacity = '1';
-        this.bidContainer.style.transform = 'translate(-50%, -50%) scale(1)';
-      });
+      // (the panel may be gone or replaced by then: a doneBidding, a render).
+      // A timer too: a hidden tab runs no animation frames, and the panel
+      // must be there for my turn when the tab comes back
+      const container = this.bidContainer;
+      const reveal = () => {
+        if (this.bidContainer !== container) return;
+        if (!this.state.isBidding || this.state.currentTurn !== this.state.position || this.state.isLazy) return;
+        container.style.visibility = 'visible';
+        container.style.opacity = '1';
+        container.style.transform = 'translate(-50%, -50%) scale(1)';
+      };
+      requestAnimationFrame(reveal);
+      setTimeout(reveal, 50);
     }
 
     // Header

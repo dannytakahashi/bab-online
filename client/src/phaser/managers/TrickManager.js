@@ -7,6 +7,7 @@
 import { getCardImageKey } from '../../utils/cards.js';
 import { CARD_CONFIG, ANIMATION_CONFIG } from '../config.js';
 import { collectMs } from '../pacing.js';
+import { sceneTween } from '../TableDirector.js';
 
 /**
  * Base design dimensions for scaling.
@@ -76,8 +77,10 @@ export class TrickManager {
     // Spectator mode — allows inspecting opponent tricks
     this._isSpectatorMode = false;
 
-    // True while animateTricksAway is whisking the history off the table
+    // True while animateTricksAway is whisking the history off the table;
+    // the whisked cards belong to the finished hand (no longer history)
     this._animatingAway = false;
+    this._whisking = [];
 
     // Trick collect in flight (completeTrick's tweens): the next card is
     // not made playable until it lands (GameScene.handleUpdateTurn)
@@ -107,7 +110,10 @@ export class TrickManager {
     this._collecting = true;
     this._collectFallback?.remove?.(false);
     // Fallback: a tween that is killed never completes
-    this._collectFallback = this._scene.time?.delayedCall?.(ms + 150, () => this._endCollect(token)) || null;
+    const end = () => this._endCollect(token);
+    this._collectFallback = (this._scene.director
+      ? this._scene.director.delay(ms + 150, end)
+      : this._scene.time?.delayedCall?.(ms + 150, end)) || null;
     return token;
   }
 
@@ -285,7 +291,7 @@ export class TrickManager {
     // Animate to position (only when asked: `animate && x || y` used to
     // tween a restored card whose y differed)
     if (animate && (sprite.x !== playPos.x || sprite.y !== playPos.y)) {
-      scene.tweens.add({
+      sceneTween(scene, {
         targets: sprite,
         x: playPos.x,
         y: playPos.y,
@@ -356,7 +362,7 @@ export class TrickManager {
       }
 
       if (this.isVisible()) {
-        scene.tweens.add({
+        sceneTween(scene, {
           targets: card,
           x: winningPosition.x,
           y: winningPosition.y,
@@ -416,7 +422,7 @@ export class TrickManager {
       card.getData?.('hoverTween')?.stop();
       card.setData?.('hoverTween', null);
       if (this.isVisible()) {
-        const tween = scene.tweens.add({
+        const tween = sceneTween(scene, {
           targets: card,
           x,
           y,
@@ -521,7 +527,7 @@ export class TrickManager {
       this._backgroundGraphics.setAlpha(0);
       this._backgroundGraphics.setScale(0.9);
 
-      this._scene.tweens.add({
+      sceneTween(this._scene, {
         targets: this._backgroundGraphics,
         alpha: 1,
         scale: 1,
@@ -624,9 +630,9 @@ export class TrickManager {
    * Reposition trick history cards during resize.
    */
   repositionTrickHistory() {
-    // Leave cards being whisked away alone: snapping them would kill the
-    // tweens whose onComplete destroys them and fires the hand-end callback
-    if (this._animatingAway) return;
+    // Cards being whisked away are not in the history (animateTricksAway
+    // moved them out): snapping them would kill the tweens whose onComplete
+    // destroys them and fires the hand-end callback
 
     // Reposition team trick history
     this._teamTrickHistory.forEach((trick, index) => {
@@ -723,6 +729,9 @@ export class TrickManager {
    */
   clearTrickHistory() {
     this._endCollect();
+    // The finished hand's cards still flying to the trump
+    this._whisking.forEach((card) => card?.destroy?.());
+    this._whisking = [];
     // Clear team tricks
     this._teamTrickHistory.forEach((trick) => {
       trick.cards.forEach((card) => {
@@ -790,26 +799,22 @@ export class TrickManager {
 
     // Group cards by trick number so both teams' same-numbered tricks animate together
     const cardsByTrickNumber = {};
-
-    this._teamTrickHistory.forEach((trick) => {
+    const collect = (trick) => {
       const num = trick.trickNumber;
       if (!cardsByTrickNumber[num]) cardsByTrickNumber[num] = [];
       trick.cards.forEach((card) => {
-        if (card && card.active) {
-          cardsByTrickNumber[num].push(card);
-        }
+        if (card && card.active) cardsByTrickNumber[num].push(card);
       });
-    });
+    };
+    this._teamTrickHistory.forEach(collect);
+    this._oppTrickHistory.forEach(collect);
 
-    this._oppTrickHistory.forEach((trick) => {
-      const num = trick.trickNumber;
-      if (!cardsByTrickNumber[num]) cardsByTrickNumber[num] = [];
-      trick.cards.forEach((card) => {
-        if (card && card.active) {
-          cardsByTrickNumber[num].push(card);
-        }
-      });
-    });
+    // The stacks leave the history now: they belong to the finished hand,
+    // and the next hand's tricks start a fresh history even while these fly
+    this._teamTrickHistory = [];
+    this._oppTrickHistory = [];
+    this._teamTrickCount = 0;
+    this._oppTrickCount = 0;
 
     // Count total cards
     let totalCards = 0;
@@ -819,7 +824,6 @@ export class TrickManager {
 
     if (totalCards === 0) {
       // No cards to animate, just clear and callback
-      this.clearTrickHistory();
       this.clearBackgrounds();
       if (onComplete) onComplete();
       return;
@@ -836,7 +840,11 @@ export class TrickManager {
     trickNumbers.forEach((trickNum, trickIndex) => {
       const cards = cardsByTrickNumber[trickNum];
       cards.forEach((card) => {
-        scene.tweens.add({
+        // No more hover on a card that is leaving
+        card.removeAllListeners?.('pointerover');
+        card.removeAllListeners?.('pointerout');
+        this._whisking.push(card);
+        sceneTween(scene, {
           targets: card,
           x: targetX,
           y: targetY,
@@ -847,14 +855,11 @@ export class TrickManager {
           delay: trickIndex * 30, // Stagger by trick number
           onComplete: () => {
             card.destroy();
+            this._whisking = this._whisking.filter((c) => c !== card);
             completedCount++;
 
-            // When all cards are done, clear history and callback
+            // When all cards are done, callback
             if (completedCount === totalCards) {
-              this._teamTrickHistory = [];
-              this._oppTrickHistory = [];
-              this._teamTrickCount = 0;
-              this._oppTrickCount = 0;
               this._animatingAway = false;
               if (onComplete) onComplete();
             }
@@ -910,6 +915,52 @@ export class TrickManager {
     if (this._backgroundGraphics) {
       this._drawBackgrounds();
     }
+  }
+
+  /**
+   * Restore this hand's completed tricks with their real cards (a render
+   * from the client's own model): my team's face up, the opponents' face
+   * down unless spectating, exactly as completeTrick leaves them. A trick
+   * whose cards are unknown (only a snapshot's count: cards null) is a
+   * placeholder stack, as restoreTrickPlaceholders draws it.
+   * @param {Array} history - [{winner, team, cards: [{position, card}] | null}]
+   * @param {Function} isMyTeam - (trick) => boolean
+   */
+  restoreTrickHistory(history, isMyTeam) {
+    const scene = this._scene;
+    for (const trick of history || []) {
+      const mine = isMyTeam(trick);
+      const trickNumber = mine ? ++this._teamTrickCount : ++this._oppTrickCount;
+      const pos = this._getTrickPosition(trickNumber, mine);
+      const cards = !trick.cards ? this._createPlaceholderStack(scene, pos) : trick.cards.map((c, index) => {
+        const faceUp = mine || this._isSpectatorMode;
+        const sprite = faceUp
+          ? scene.add.image(pos.x, pos.y, 'cards', getCardImageKey(c.card))
+          : scene.add.image(pos.x, pos.y, 'cardBack');
+        sprite.setData?.('faceKey', getCardImageKey(c.card));
+        sprite.setScale(TRICK_SCALE);
+        sprite.setDepth(200 + index);
+        sprite.setInteractive();
+        sprite.originalDepth = 200 + index;
+        return sprite;
+      });
+      const entry = { cards, position: { ...pos }, trickNumber };
+      (mine ? this._teamTrickHistory : this._oppTrickHistory).push(entry);
+      this._setupTrickHover(cards, entry.position);
+    }
+    if (this._backgroundGraphics) this._drawBackgrounds();
+  }
+
+  /** Sprite counts (render checks): current trick, team and opponent stacks. */
+  spriteCounts() {
+    const stacked = (h) => h.reduce((n, t) => n + t.cards.filter((c) => c && c.active !== false).length, 0);
+    return {
+      trick: this._currentTrick.length,
+      teamStacks: this._teamTrickHistory.length,
+      oppStacks: this._oppTrickHistory.length,
+      stackCards: stacked(this._teamTrickHistory) + stacked(this._oppTrickHistory),
+      whisking: this._whisking.filter((c) => c && c.active !== false).length,
+    };
   }
 
   /**

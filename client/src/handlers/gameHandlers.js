@@ -4,12 +4,22 @@
  * Handles: positionUpdate, gameStart, startDraw, youDrew, playerDrew, teamsAnnounced,
  *          createUI, bidReceived, doneBidding, updateTurn, cardPlayed, trickComplete,
  *          handComplete, gameEnd, rainbow, destroyHands, abortGame, roomFull,
- *          playerDisconnected, playerReconnected, rejoinSuccess, rejoinFailed
+ *          playerDisconnected, playerReconnected, rejoinSuccess, rejoinFailed,
+ *          actionRejected, stateSnapshot
+ *
+ * Each handler applies its event to GameState (the one writer of table
+ * state; sequenced events reach it in seq order through SocketManager's
+ * SeqGate) and to MyAction (my own bid/play is confirmed by its echo), keeps
+ * the TableDirector's key current, then calls the view callback. Snapshots
+ * (rejoin, restore, rejected actions, resyncs) go through
+ * state/tableSync.applyTableSnapshot, in main.js's callbacks.
  */
 
 import { SERVER_EVENTS } from '../constants/events.js';
 import { getGameState, PHASE } from '../state/GameState.js';
 import { getClientSession } from '../state/ClientSession.js';
+import { getMyAction } from '../state/MyAction.js';
+import { getTableDirector } from '../phaser/TableDirector.js';
 
 /**
  * Register game event handlers.
@@ -55,9 +65,21 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
     onGameLogEntry,
     onLeftGame,
     onRestorePlayerState,
+    // Acked actions and resyncs
+    onActionRejected,
+    onStateSnapshot,
   } = callbacks;
 
   const state = getGameState();
+  const myAction = getMyAction();
+  const director = getTableDirector();
+
+  // The director's key follows the table: {gameId, handNo, deal, trickNo}
+  const touched = () => {
+    director.setKey({ gameId: state.gameId, handNo: state.handNo, deal: state.dealSeq ?? 0, trickNo: state.trickNo });
+    director.noteChange();
+  };
+  const mine = (position) => !!position && position === state.position && !state.isSpectator;
 
   // ==================== SETUP PHASE ====================
 
@@ -81,37 +103,14 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
   socketManager.onGame(SERVER_EVENTS.GAME_START, (data) => {
     console.log('🎮 Game start:', data);
 
-    // Set position from data if provided
-    if (data.position) {
-      state.position = data.position;
-    }
-
-    // Store game info
-    state.setGameInfo(data.gameId, data.currentHand, data.dealer);
-    state.setTrump(data.trump);
-    state.setCards(data.hand);
-    state.setBidding(true);
-    state.setPhase(PHASE.BIDDING);
-
-    // Store HSI values for all players
-    if (data.hsiValues) {
-      state.setHsiValues(data.hsiValues);
-    }
+    // A new deal: whatever I had pending belonged to the last one
+    myAction.reset();
+    state.applyDeal(data);
 
     // Persist the gameId for a reconnect: a seat's gameStart only (a
     // spectator's has no position; spectators re-spectate instead)
     getClientSession().noteDeal(data);
-
-    // Update scores from data
-    if (data.score1 !== undefined && data.score2 !== undefined) {
-      if (state.position % 2 !== 0) {
-        // Odd positions (1, 3) are Team 1
-        state.setGameScores(data.score1, data.score2);
-      } else {
-        // Even positions (2, 4) are Team 2
-        state.setGameScores(data.score2, data.score1);
-      }
-    }
+    touched();
 
     onGameStart?.(data);
   });
@@ -120,6 +119,7 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
   socketManager.onGame(SERVER_EVENTS.START_DRAW, (data) => {
     console.log('🎴 Start draw:', data);
     state.setPhase(PHASE.DRAW);
+    state.stage = 'DRAWING';
     state.setHasDrawn(false);
     onStartDraw?.(data);
   });
@@ -140,6 +140,7 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
   // Teams announced after draw
   socketManager.onGame(SERVER_EVENTS.TEAMS_ANNOUNCED, (data) => {
     console.log('🏆 Teams announced:', data);
+    state.stage = 'TEAMS_ANNOUNCED';
     onTeamsAnnounced?.(data);
   });
 
@@ -154,42 +155,17 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
   // Bid received from any player
   socketManager.onGame(SERVER_EVENTS.BID_RECEIVED, (data) => {
     console.log('💰 Bid received:', data);
-
-    // Record bid in state
-    state.recordBid(data.position, data.bid);
-
-    // Update multipliers if provided
-    if (data.team1Mult !== undefined) {
-      state.team1Mult = data.team1Mult;
-    }
-    if (data.team2Mult !== undefined) {
-      state.team2Mult = data.team2Mult;
-    }
-
+    state.applyBid(data);
+    if (mine(data.position)) myAction.confirm('bid', data);
+    touched();
     onBidReceived?.(data);
   });
 
   // Done bidding - transition to playing
   socketManager.onGame(SERVER_EVENTS.DONE_BIDDING, (data) => {
     console.log('🎯 Done bidding:', data);
-
-    state.setBidding(false);
-    state.setPhase(PHASE.PLAYING);
-
-    // Reset play state
-    state.playedCardIndex = 0;
-    state.leadCard = null;
-    state.leadPosition = null;
-    state.trumpBroken = false;
-    state.hasPlayedCard = false;
-    state.playedCards = [];
-    state.currentTrick = [];
-
-    // Set first player from lead
-    if (data.lead !== undefined) {
-      state.setCurrentTurn(data.lead);
-    }
-
+    state.applyDoneBidding(data);
+    touched();
     onDoneBidding?.(data);
   });
 
@@ -198,76 +174,41 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
   // Turn update
   socketManager.onGame(SERVER_EVENTS.UPDATE_TURN, (data) => {
     console.log('🔄 Update turn:', data);
-
-    state.setCurrentTurn(data.currentTurn || data.turn);
-    state.setHasPlayedCard(false);
-
+    state.applyTurn(data);
+    touched();
     onUpdateTurn?.(data);
   });
 
   // Card played by any player
   socketManager.onGame(SERVER_EVENTS.CARD_PLAYED, (data) => {
-    console.log(`🃏 Card played: ${data.card.rank} of ${data.card.suit} by P${data.position}`);
-
-    // Track if this is the lead card
-    if (state.playedCardIndex === 0) {
-      state.leadCard = data.card;
-      state.leadPosition = data.position;
-    }
-
-    // Update trump broken status
-    if (data.trump !== undefined) {
-      state.trumpBroken = data.trump;
-    }
-    if (data.trumpBroken !== undefined) {
-      state.trumpBroken = data.trumpBroken;
-    }
-
-    // Add to played cards
-    state.addPlayedCard(data.card, data.position);
-
-    // Confirm optimistic play if it was our card
-    state.confirmCardPlay();
-
-    // Reset index if trick complete (4 cards)
-    if (state.playedCardIndex >= 4) {
-      state.playedCardIndex = 0;
-    }
-
+    console.log(`🃏 Card played: ${data.card?.rank} of ${data.card?.suit} by P${data.position}`);
+    state.applyCardPlayed(data);
+    // My own play's echo confirms it (the 4th card of a trick comes at once)
+    if (mine(data.position)) myAction.confirm('play', data);
+    touched();
     onCardPlayed?.(data);
   });
 
   // Trick complete
   socketManager.onGame(SERVER_EVENTS.TRICK_COMPLETE, (data) => {
     console.log('🏆 Trick complete, winner:', data.winner);
-
-    // Note: trick counts are updated in GameScene.handleTrickComplete
-    // to avoid double-counting
-
-    // Clear trick state
-    state.clearTrick();
-
+    // The counts are kept here (cli-8), never in the scene
+    state.applyTrickComplete(data);
+    touched();
     onTrickComplete?.(data);
   });
 
   // Hand complete
   socketManager.onGame(SERVER_EVENTS.HAND_COMPLETE, (data) => {
     console.log('🏁 Hand complete:', data);
+    state.applyHandComplete(data);
 
-    // Update scores
-    if (data.score) {
-      if (state.position % 2 !== 0) {
-        state.setGameScores(data.score.team1, data.score.team2);
-      } else {
-        state.setGameScores(data.score.team2, data.score.team1);
-      }
-    }
-
-    // Call callback BEFORE reset so handlers can access current state (e.g., bids)
+    // Callback BEFORE the reset: it reads the hand's bids and tricks
     onHandComplete?.(data);
 
     // Reset for next hand (clears bids, tricks, etc.)
     state.resetForNewHand();
+    touched();
   });
 
   // ==================== GAME END ====================
@@ -275,7 +216,8 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
   socketManager.onGame(SERVER_EVENTS.GAME_END, (data) => {
     console.log('🎮 Game end:', data);
 
-    state.setPhase(PHASE.ENDED);
+    myAction.reset();
+    state.applyGameEnd(data);
 
     // Nothing to rejoin any more (onGameEnd -> the client session's endGame
     // clears the spectatingGameId too)
@@ -302,9 +244,12 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
     onRainbow?.(data);
   });
 
-  // Destroy hands (cleanup between hands)
+  // Destroy hands (the all-zero redeal)
   socketManager.onGame(SERVER_EVENTS.DESTROY_HANDS, (data) => {
     console.log('🗑️ Destroy hands');
+    myAction.reset();
+    state.applyDestroyHands();
+    touched();
     onDestroyHands?.(data);
   });
 
@@ -314,6 +259,7 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
 
     // onAbortGame -> the client session's exitTable does the teardown, the
     // per-game state reset and the route out; the gameId goes first
+    myAction.reset();
     socketManager.clearGameId();
 
     onAbortGame?.(data);
@@ -339,13 +285,9 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
     onPlayerReconnected?.(data);
   });
 
-  // Rejoin success
+  // Rejoin success: the table comes back from its snapshot (onRejoinSuccess)
   socketManager.on(SERVER_EVENTS.REJOIN_SUCCESS, (data) => {
     console.log('✅ Rejoin success:', data);
-
-    // Restore full game state (the client session persists the gameId)
-    state.restoreFromRejoin(data);
-
     onRejoinSuccess?.(data);
   });
 
@@ -362,6 +304,20 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
     onRejoinFailed?.(data);
   });
 
+  // ==================== ACKED ACTIONS & RESYNC ====================
+
+  // My bid or play was refused: its snapshot is the truth (onActionRejected)
+  socketManager.on(SERVER_EVENTS.ACTION_REJECTED, (data) => {
+    console.log(`⛔ ${data?.action} rejected: ${data?.reason}`);
+    myAction.reject(data || {});
+    onActionRejected?.(data || {});
+  });
+
+  // The reply to requestSnapshot (a seq gap, an ack timeout, the liveness ping)
+  socketManager.on(SERVER_EVENTS.STATE_SNAPSHOT, (data) => {
+    onStateSnapshot?.(data || {});
+  });
+
   // ==================== RESIGNATION & LAZY MODE ====================
 
   // Resignation available (disconnected player's grace period expired)
@@ -373,18 +329,29 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
   // Player resigned (bot taking over)
   socketManager.onGame(SERVER_EVENTS.PLAYER_RESIGNED, (data) => {
     console.log(`🔄 Player resigned: P${data.position} ${data.oldUsername} → ${data.botUsername}`);
+    state.applySeatDisplay(data.position, { username: data.botUsername, pic: data.botPic });
+    touched();
     onPlayerResigned?.(data);
   });
 
   // Player entered lazy mode
   socketManager.onGame(SERVER_EVENTS.PLAYER_LAZY_MODE, (data) => {
     console.log(`😴 Player entered lazy mode: P${data.position}`);
+    if (mine(data.position)) {
+      myAction.reset();
+      state.applyMyLazy(true);
+    }
+    state.applySeatDisplay(data.position, { username: data.botUsername, pic: data.botPic });
+    touched();
     onPlayerLazyMode?.(data);
   });
 
   // Player returned to active mode
   socketManager.onGame(SERVER_EVENTS.PLAYER_ACTIVE_MODE, (data) => {
     console.log(`🎮 Player returned to active: P${data.position}`);
+    if (mine(data.position)) state.applyMyLazy(false);
+    state.applySeatDisplay(data.position, { username: data.username, pic: data.avatarUrl || data.pic });
+    touched();
     onPlayerActiveMode?.(data);
   });
 
@@ -398,11 +365,13 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
     console.log('🚪 Left game (lazy leave)');
     // Every gameId copy goes (here and in onLeftGame -> exitTable), or the
     // next reconnect would rejoin the left game
+    myAction.reset();
     socketManager.clearGameId();
     onLeftGame?.(data);
   });
 
-  // Restore player state (spectator → active player transition)
+  // Restore player state (spectator → active player transition, or the
+  // resync after a refused play)
   socketManager.onGame(SERVER_EVENTS.RESTORE_PLAYER_STATE, (data) => {
     console.log('🔄 Restoring player state from spectator mode');
     onRestorePlayerState?.(data);

@@ -258,12 +258,14 @@ or ABORTED, requestSnapshot answers `not_in_game` (the same as a socket
 that was never in a game; ENDED / ABORTED are in the `stage` enum but never
 reach the wire). A v2 client takes the end from `gameEnd` / `abortGame`.
 
-Known gap for item 16: when `watchSeat` (a rejoin or joinAsSpectator by a
-lazy/resigned owner) moves the seat to a newer socket, the older live
-socket is demoted to a pure spectator and gets NO event (v1 behaviour: any
-v1 event would change what current clients show). Its client keeps the
-seat view, hand included. Item 16 should push a `stateSnapshot` to the
-demoted socket (`prev` in `seatLifecycle.watchSeat`).
+Known gap (still open after item 16, it needs the server): when
+`watchSeat` (a rejoin or joinAsSpectator by a lazy/resigned owner) moves the
+seat to a newer socket, the older live socket is demoted to a pure spectator
+and gets NO event (v1 behaviour: any v1 event would change what current
+clients show). Its client keeps the seat view, hand included. The web
+client renders any `stateSnapshot` it receives for its table, so pushing one
+to the demoted socket (`prev` in `seatLifecycle.watchSeat`) is all that is
+left; item 16 changed no server code.
 
 Semantics:
 
@@ -323,7 +325,13 @@ Consumers:
 
 - Web: `client/src/state/snapshotV2.js` (`parseSnapshotV2`, `classifySeq`,
   `seatAt`, `relativeSeat`, `isComplete`, `teamOf`), tested over every fixture
-  by `snapshotV2.test.js`. Not wired into rendering yet (item 16).
+  by `snapshotV2.test.js`. Wired in item 16: every snapshot carrier goes
+  through `state/tableSync.applyTableSnapshot` (GameState.applySnapshot,
+  MyAction.reconcile, the render, then `state/SeqGate.onSnapshot`: R1-R5 over
+  every sequenced event, SocketManager wraps the handlers), and
+  `GameScene.render` draws it; `client/src/table/*.test.js` replays the
+  recorded games (`npm run ios:fixtures`, read in place) and every fixture
+  here through the real page and scene.
 - iOS (item 23): `struct TableSnapshot` in
   `iOSClient/BABOnline/Generated/TableSnapshot.swift`, GENERATED from
   `$defs.snapshotV2` by `contract/swift/snapshotSwift.js` (part of

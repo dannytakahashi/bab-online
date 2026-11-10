@@ -45,6 +45,21 @@ export class SocketManager {
     this._isForceReconnecting = false;
     this._probe = null;
     this._probeSeq = 0;
+
+    // The seq gate (state/SeqGate.js): every listener registered here runs
+    // through it, so sequenced events apply in seq order. One handler per
+    // event (eventHandlerMap.test.js), so per listener is per event
+    this._gate = null;
+    this._wrapped = new Map(); // callback -> the socket listener
+  }
+
+  /**
+   * Route every listener registered from now on through a seq gate
+   * ({admit(event, data, apply)}).
+   * @param {Object|null} gate
+   */
+  setGate(gate) {
+    this._gate = gate;
   }
 
   /**
@@ -239,6 +254,12 @@ export class SocketManager {
    * Force a clean disconnect/reconnect cycle; the next connect is resumed
    * by the client session (restoreSession, then rejoin/re-enter).
    */
+  /** A dead-looking connection (an unanswered ack resync): reconnect cleanly. */
+  forceReconnect() {
+    if (!this._socket) return;
+    this._forceReconnect();
+  }
+
   _forceReconnect() {
     if (this._isForceReconnecting) return;
     this._isForceReconnecting = true;
@@ -311,8 +332,15 @@ export class SocketManager {
     }
     listenerMap.get(event).add(callback);
 
-    // Register with socket
-    this._socket.on(event, callback);
+    // Register with socket, through the seq gate when there is one (set
+    // before the handler modules register: main.js initializeApp)
+    let listener = callback;
+    if (this._gate) {
+      const gate = this._gate;
+      listener = (data) => gate.admit(event, data, () => callback(data));
+      this._wrapped.set(callback, listener);
+    }
+    this._socket.on(event, listener);
 
     // Return unsubscribe function
     return () => this._removeListener(event, callback, listenerMap);
@@ -328,7 +356,7 @@ export class SocketManager {
     }
 
     if (this._socket) {
-      this._socket.off(event, callback);
+      this._socket.off(event, this._wrapped.get(callback) || callback);
     }
   }
 
@@ -355,7 +383,7 @@ export class SocketManager {
     const listeners = listenerMap.get(event);
     if (listeners && this._socket) {
       listeners.forEach((callback) => {
-        this._socket.off(event, callback);
+        this._socket.off(event, this._wrapped.get(callback) || callback);
       });
       listenerMap.delete(event);
     }
@@ -369,7 +397,7 @@ export class SocketManager {
     this._gameListeners.forEach((listeners, event) => {
       listeners.forEach((callback) => {
         if (this._socket) {
-          this._socket.off(event, callback);
+          this._socket.off(event, this._wrapped.get(callback) || callback);
         }
       });
     });
