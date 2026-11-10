@@ -1,79 +1,57 @@
 /**
  * Main entry point for the modular client.
  *
- * All game logic is now in the modular codebase in src/.
- * The window.ModernUtils bridge provides utilities for external access.
+ * Wires the socket, the handler modules (handlers/) and the DOM screens
+ * together; the table itself is drawn by GameScene and its managers.
  */
 
 // Phaser global: must stay the FIRST import (see vendor.js)
 import './vendor.js';
 
 // Constants
-import { CLIENT_EVENTS, SERVER_EVENTS } from './constants/events.js';
-import { RANK_VALUES, RANK_ORDER, SUITS, JOKER_SUIT, HAND_PROGRESSION } from './constants/ranks.js';
+import { RANK_VALUES } from './constants/ranks.js';
 
 // Utilities
-import { team, rotate, isSameTeam, getTeamNumber, getPlayerName, getRelativePosition } from './utils/positions.js';
-import { getCardImageKey, getSuitOrder, sortHand, cardsEqual, isJoker, getCardDisplayName } from './utils/cards.js';
+import { getPlayerName } from './utils/positions.js';
 import { adoptSavedSession, forgetSession, clearAllSessionData } from './utils/sessionPersistence.js';
-import { hashToHue, generateDistinctColor, getUsernameColor, extractHue } from './utils/colors.js';
-import { avatarSrc, applyAvatarImg, installAvatarSupport } from './utils/avatar.js';
+import { installAvatarSupport } from './utils/avatar.js';
 
 // Rules
-import { sameSuit, isVoid, isTrumpTight, isHighestTrump, isLegalMove, wouldBreakTrump, getLegalCards } from './rules/legality.js';
+import { isLegalMove } from './rules/legality.js';
 
 // State
-import { GameState, PHASE, getGameState, resetGameState } from './state/GameState.js';
+import { PHASE, getGameState, resetGameState } from './state/GameState.js';
 
 // Socket
-import { SocketManager, CONNECTION_STATE, getSocketManager, initializeSocketManager, resetSocketManager } from './socket/SocketManager.js';
+import { getSocketManager, initializeSocketManager } from './socket/SocketManager.js';
 import { createSocket } from './socket/createSocket.js';
 import { installConnectionBanner } from './ui/components/ConnectionBanner.js';
 import { getTransitionOverlay, removeTransitionOverlay, transitionGeneration } from './ui/transitionOverlay.js';
 import { speakingSlotFor } from './voice/speakingSlot.js';
 
 // UI Components
-import { createModal, confirm as confirmDialog, alert as alertDialog } from './ui/components/Modal.js';
-import { showToast, showError, showSuccess, showWarning, showInfo } from './ui/components/Toast.js';
-import { createSignInScreen, showSignInScreen } from './ui/screens/SignIn.js';
-import { createRegisterScreen, showRegisterScreen } from './ui/screens/Register.js';
-import { showMainRoom, addMainRoomChatMessage, updateLobbyList, removeMainRoom, updateMainRoomOnlineCount, getMainRoomUserColors } from './ui/screens/MainRoom.js';
-import { showGameLobby, updateLobbyPlayersList, addLobbyChatMessage, removeGameLobby, getCurrentLobbyId, getIsPlayerReady, getLobbyUserColors } from './ui/screens/GameLobby.js';
-import { showProfilePage, updateProfilePicDisplay, updateCustomProfilePicDisplay, removeProfilePage, isProfilePageVisible, showPlayerProfilePage, showDeleteAccountError } from './ui/screens/ProfilePage.js';
-import { showLeaderboardPage, removeLeaderboardPage, isLeaderboardPageVisible } from './ui/screens/LeaderboardPage.js';
-import { showRecordsPage, removeRecordsPage } from './ui/screens/RecordsPage.js';
+import { showError, showSuccess, showWarning, showInfo } from './ui/components/Toast.js';
+import { showSignInScreen } from './ui/screens/SignIn.js';
+import { showRegisterScreen } from './ui/screens/Register.js';
+import { showMainRoom, addMainRoomChatMessage, updateLobbyList, removeMainRoom, updateMainRoomOnlineCount } from './ui/screens/MainRoom.js';
+import { showGameLobby, updateLobbyPlayersList, addLobbyChatMessage, removeGameLobby } from './ui/screens/GameLobby.js';
+import { showProfilePage, updateProfilePicDisplay, updateCustomProfilePicDisplay, showPlayerProfilePage, showDeleteAccountError } from './ui/screens/ProfilePage.js';
+import { showLeaderboardPage } from './ui/screens/LeaderboardPage.js';
+import { showRecordsPage } from './ui/screens/RecordsPage.js';
 import { updatePlayerSearchResults } from './ui/screens/PlayerSearchPage.js';
-import { showTournamentLobby, removeTournamentLobby, addTournamentChatMessage, updateTournamentPlayers, updateTournamentScoreboardUI, updateTournamentRoundIndicator, updateTournamentActiveGames, setTournamentPhase } from './ui/screens/TournamentLobby.js';
-import { showTournamentResultsOverlay, removeTournamentResultsOverlay } from './ui/components/TournamentScoreboard.js';
-import { UIManager, SCREENS, getUIManager, initializeUIManager, resetUIManager } from './ui/UIManager.js';
+import { removeTournamentLobby, addTournamentChatMessage, updateTournamentPlayers, updateTournamentScoreboardUI, updateTournamentRoundIndicator, updateTournamentActiveGames, setTournamentPhase } from './ui/screens/TournamentLobby.js';
+import { showTournamentResultsOverlay } from './ui/components/TournamentScoreboard.js';
+import { SCREENS, getUIManager, initializeUIManager } from './ui/UIManager.js';
 
 // Phaser
-import { createGameConfig, CARD_CONFIG, ANIMATION_CONFIG, TABLE_POSITIONS } from './phaser/config.js';
-import { CardManager } from './phaser/managers/CardManager.js';
-import { OpponentManager } from './phaser/managers/OpponentManager.js';
-import { TrickManager } from './phaser/managers/TrickManager.js';
-import { flyInMs, FLIP } from './phaser/pacing.js';
-import { EffectsManager } from './phaser/managers/EffectsManager.js';
-import { DrawManager } from './phaser/managers/DrawManager.js';
-import { BidManager } from './phaser/managers/BidManager.js';
-import { LayoutManager } from './phaser/managers/LayoutManager.js';
-import { GameScene } from './phaser/scenes/GameScene.js';
-import { createPhaserGame, getPhaserGame, destroyPhaserGame } from './phaser/PhaserGame.js';
+import { createPhaserGame } from './phaser/PhaserGame.js';
 
 // Handlers
-import {
-  registerAllHandlers,
-  registerAuthHandlers,
-  registerLobbyHandlers,
-  registerGameHandlers,
-  registerChatHandlers,
-  registerProfileHandlers,
-  cleanupGameHandlers,
-} from './handlers/index.js';
+import { registerAllHandlers } from './handlers/index.js';
 
 // Voice Chat
 import { getVoiceChatManager } from './voice/VoiceChatManager.js';
-import { createMuteButton, removeMuteButton, reattachMuteButton, showVoiceOverlay, removeVoiceOverlay } from './ui/components/VoiceChatUI.js';
+import { createMuteButton, removeMuteButton, showVoiceOverlay, removeVoiceOverlay } from './ui/components/VoiceChatUI.js';
 
 // ============================================
 // Game Scene Access
@@ -86,8 +64,8 @@ let gameSceneRef = null;
 let gameLogInstance = null;
 
 /**
- * Set the game scene reference (called when scene is created).
- * Also attaches DrawManager to the scene for draw phase handling.
+ * Set the game scene reference (GameScene.create() calls it, through
+ * window.ModernUtils, after creating its managers).
  * @param {Phaser.Scene} scene - The active game scene
  */
 export function setGameScene(scene) {
@@ -116,942 +94,7 @@ export function setGameScene(scene) {
     });
   }
 
-  // Attach DrawManager to the scene if not already present
-  if (!scene.drawManager) {
-    scene.drawManager = new DrawManager(scene);
-    console.log('🎮 DrawManager attached to scene');
-  }
-
-  // Attach CardManager to the scene if not already present
-  if (!scene.cardManager) {
-    scene.cardManager = new CardManager(scene);
-    console.log('🎮 CardManager attached to scene');
-  }
-
-  // Attach OpponentManager to the scene if not already present
-  if (!scene.opponentManager) {
-    scene.opponentManager = new OpponentManager(scene);
-    console.log('🎮 OpponentManager attached to scene');
-  }
-
-  // Add handler methods to the scene for draw phase
-  if (!scene.handleStartDraw) {
-    scene.handleStartDraw = function(data) {
-      console.log('🎮 Legacy scene handleStartDraw');
-      if (this.drawManager) {
-        this.drawManager.showDrawUI();
-      }
-    };
-  }
-
-  if (!scene.handleYouDrew) {
-    scene.handleYouDrew = function(data) {
-      console.log('🎮 Legacy scene handleYouDrew');
-      if (this.drawManager) {
-        this.drawManager.handleYouDrew(data);
-      }
-    };
-  }
-
-  if (!scene.handlePlayerDrew) {
-    scene.handlePlayerDrew = function(data) {
-      console.log('🎮 Legacy scene handlePlayerDrew');
-      if (this.drawManager) {
-        this.drawManager.handlePlayerDrew(data);
-      }
-    };
-  }
-
-  if (!scene.handleTeamsAnnounced) {
-    scene.handleTeamsAnnounced = function(data) {
-      console.log('🎮 Legacy scene handleTeamsAnnounced');
-      if (this.drawManager) {
-        this.drawManager.handleTeamsAnnounced(data);
-      }
-    };
-  }
-
-  if (!scene.handleCreateUI) {
-    scene.handleCreateUI = function(data) {
-      console.log('🎮 Legacy scene handleCreateUI');
-      if (this.drawManager) {
-        this.drawManager.cleanup();
-      }
-    };
-  }
-
-  // Attach BidManager to the scene if not already present
-  if (!scene.bidManager) {
-    scene.bidManager = new BidManager(scene);
-    console.log('🎮 BidManager attached to scene');
-  }
-
-  // Add handler methods to the scene for bidding phase
-  if (!scene.handleBidReceived) {
-    scene.handleBidReceived = function(data) {
-      console.log('🎮 Legacy scene handleBidReceived');
-      // Add to temp bids for bore button state
-      const gameState = getGameState();
-      gameState.addTempBid(data.bid);
-      // Update bore button states
-      if (this.bidManager) {
-        this.bidManager.updateBoreButtonStates();
-      }
-      // Also update legacy bore buttons if they exist
-      if (window.updateBoreButtons) {
-        window.updateBoreButtons();
-      }
-      // Update game log trick indicator
-      if (gameLogInstance && gameLogInstance.updateTrickIndicator) {
-        gameLogInstance.updateTrickIndicator();
-      }
-    };
-  }
-
-  if (!scene.handleDoneBidding) {
-    scene.handleDoneBidding = function(data) {
-      console.log('🎮 Legacy scene handleDoneBidding');
-      // Clear temp bids
-      const gameState = getGameState();
-      gameState.clearTempBids();
-      // Hide bid UI
-      if (this.bidManager) {
-        this.bidManager.hideBidUI();
-      }
-      // Keep game log trick indicator visible through playing phase
-    };
-  }
-
-  if (!scene.handleUpdateTurn) {
-    scene.handleUpdateTurn = function(data) {
-      console.log('🎮 Legacy scene handleUpdateTurn');
-      const gameState = getGameState();
-      const currentTurn = data.currentTurn || data.turn;
-
-      // Update player turn glow via CardManager
-      if (this.cardManager && gameState.position) {
-        this.cardManager.updatePlayerTurnGlow(currentTurn, gameState.position);
-      }
-
-      // Update opponent turn glow via OpponentManager
-      if (this.opponentManager && gameState.position) {
-        this.opponentManager.setPlayerPosition(gameState.position);
-        this.opponentManager.updateTurnGlow(currentTurn);
-      }
-
-      // Update bid UI visibility during bidding phase
-      if (this.bidManager && gameState.isBidding) {
-        this.bidManager.updateVisibility();
-      }
-
-      // Update card legality via CardManager
-      if (this.cardManager && gameState.position) {
-        const canPlay = !gameState.isBidding &&
-                        currentTurn === gameState.position &&
-                        !gameState.hasPlayedCard;
-
-        // Create legality checker using game state
-        const legalityChecker = (card) => {
-          const result = isLegalMove(
-            card,
-            gameState.myCards,
-            gameState.leadCard,
-            gameState.playedCardIndex === 0,
-            gameState.trump,
-            gameState.trumpBroken,
-            gameState.position,
-            gameState.leadPosition
-          );
-          return result.legal;
-        };
-
-        this.cardManager.updateCardLegality(legalityChecker, canPlay);
-      }
-    };
-  }
-
-  // Attach TrickManager to the scene if not already present
-  if (!scene.trickManager) {
-    scene.trickManager = new TrickManager(scene);
-    console.log('🎮 TrickManager attached to scene');
-  }
-
-  // Add handler methods to the scene for card play
-  if (!scene.handleCardPlayed) {
-    scene.handleCardPlayed = function(data) {
-      console.log('🎮 Legacy scene handleCardPlayed');
-      const gameState = getGameState();
-
-      // Initialize TrickManager position if needed
-      if (this.trickManager && gameState.position) {
-        this.trickManager.setPlayerPosition(gameState.position);
-        this.trickManager.updatePlayPositions();
-      }
-
-      // Handle card animation via TrickManager
-      if (this.trickManager && this.opponentManager && gameState.position) {
-        const cardKey = getCardImageKey(data.card);
-        const relativeKey = this.trickManager.getRelativePositionKey(data.position);
-
-        if (relativeKey === 'self') {
-          // Self play - just add card at play position (card already removed from hand)
-          this.trickManager.addPlayedCard(data.card, data.position, null, true);
-        } else if (relativeKey) {
-          // Opponent play - get sprite from OpponentManager, animate to center, reveal card
-          const opponentId = relativeKey === 'opponent1' ? 'opp1' :
-                             relativeKey === 'opponent2' ? 'opp2' : 'partner';
-          const sprite = this.opponentManager.removeCard(opponentId);
-
-          if (sprite) {
-            const playPos = this.trickManager.getPlayPosition(relativeKey);
-
-            // Animate card back to play position with flip animation
-            if (this.trickManager.isVisible()) {
-              // Move animation
-              this.tweens.add({
-                targets: sprite,
-                x: playPos.x,
-                y: playPos.y,
-                duration: flyInMs(data.resumeInMs),
-                ease: 'Power2',
-                rotation: 0,
-                scale: 1.5,
-                onComplete: () => {
-                  // Guard against destroyed sprite
-                  if (!sprite || !sprite.scene) return;
-                  sprite.setDepth(200);
-                },
-              });
-
-              // Flip animation runs in parallel, starting after a short delay
-              this.time.delayedCall(FLIP.DELAY, () => {
-                if (!sprite || !sprite.scene) return;
-
-                // Scale X to 0
-                this.tweens.add({
-                  targets: sprite,
-                  scaleX: 0,
-                  duration: FLIP.HALF,
-                  ease: 'Power2',
-                  onComplete: () => {
-                    if (!sprite || !sprite.scene) return;
-                    sprite.setTexture('cards', cardKey);
-
-                    // Scale X back to 1.5
-                    this.tweens.add({
-                      targets: sprite,
-                      scaleX: 1.5,
-                      duration: FLIP.HALF,
-                      ease: 'Power2',
-                    });
-                  },
-                });
-              });
-            } else {
-              sprite.x = playPos.x;
-              sprite.y = playPos.y;
-              sprite.setTexture('cards', cardKey);
-              sprite.setDepth(200);
-              sprite.setScale(1.5);
-              sprite.setRotation(0);
-            }
-
-            sprite.setData('playPosition', relativeKey);
-            this.trickManager._currentTrick.push(sprite);
-          }
-        }
-      }
-
-      // Update card legality when lead card is set (first card of trick)
-      if (this.cardManager && gameState.position && gameState.playedCardIndex === 1) {
-        // Lead card was just played, update legality for following cards
-        const canPlay = gameState.currentTurn === gameState.position && !gameState.hasPlayedCard;
-
-        const legalityChecker = (card) => {
-          const result = isLegalMove(
-            card,
-            gameState.myCards,
-            gameState.leadCard,
-            false, // Not leading since lead was just played
-            gameState.trump,
-            gameState.trumpBroken,
-            gameState.position,
-            gameState.leadPosition
-          );
-          return result.legal;
-        };
-
-        this.cardManager.updateCardLegality(legalityChecker, canPlay);
-      }
-    };
-  }
-
-  if (!scene.handleTrickComplete) {
-    scene.handleTrickComplete = function(data) {
-      console.log('🎮 Legacy scene handleTrickComplete');
-      const gameState = getGameState();
-
-      // Use TrickManager for trick collection animation
-      if (this.trickManager && gameState.position) {
-        const isMyTeam = data.winner % 2 === gameState.position % 2;
-        this.trickManager.completeTrick(data.winner, isMyTeam, data.resumeInMs);
-      }
-
-      // Add to game feed
-      if (this.handleAddToGameFeed) {
-        this.handleAddToGameFeed(`Trick won by ${getPlayerName(data.winner)}.`);
-      }
-
-      // Update game log scores (trick counts)
-      if (this.handleUpdateGameLogTricks) {
-        this.handleUpdateGameLogTricks(gameState.teamTricks, gameState.oppTricks);
-      }
-    };
-  }
-
-  // Attach EffectsManager to the scene if not already present
-  if (!scene.effectsManager) {
-    scene.effectsManager = new EffectsManager(scene);
-    console.log('🎮 EffectsManager attached to scene');
-  }
-
-  // Add handler methods for hand/game end events
-  if (!scene.handleHandComplete) {
-    scene.handleHandComplete = function(data) {
-      console.log('🎮 Legacy scene handleHandComplete');
-      const gameState = getGameState();
-      // Reset effects for new hand
-      if (this.effectsManager) {
-        this.effectsManager.resetForNewHand();
-      }
-      // Reset trick manager for new hand
-      if (this.trickManager) {
-        this.trickManager.resetForNewHand();
-      }
-    };
-  }
-
-  if (!scene.handleGameEnd) {
-    scene.handleGameEnd = function(data) {
-      console.log('🎮 Legacy scene handleGameEnd');
-      // Clear effects
-      if (this.effectsManager) {
-        this.effectsManager.clearAll();
-      }
-    };
-  }
-
-  if (!scene.handleRainbow) {
-    scene.handleRainbow = function(data) {
-      console.log('🎮 Legacy scene handleRainbow');
-      const gameState = getGameState();
-      // Set player position in effects manager if needed
-      if (this.effectsManager && gameState.position) {
-        this.effectsManager.setPlayerPosition(gameState.position);
-        this.effectsManager.showRainbow(data.position);
-      }
-    };
-  }
-
-  if (!scene.handleDestroyHands) {
-    scene.handleDestroyHands = function(data) {
-      console.log('🎮 Legacy scene handleDestroyHands');
-      // Clear player hand
-      if (this.cardManager) {
-        this.cardManager.clearHand();
-      }
-      // Clear opponent displays
-      if (this.opponentManager) {
-        this.opponentManager.clearAll();
-      }
-      // Clear trick displays
-      if (this.trickManager) {
-        this.trickManager.clearAll();
-      }
-    };
-  }
-
-  // Add handler methods for reconnection/error events
-  if (!scene.handlePlayerDisconnected) {
-    scene.handlePlayerDisconnected = function(data) {
-      console.log('🎮 handlePlayerDisconnected:', data.username);
-      // Add message to game feed
-      if (this.handleAddToGameFeed) {
-        this.handleAddToGameFeed(`${data.username} disconnected - waiting for reconnection...`);
-      } else if (window.addToGameFeedFromLegacy) {
-        window.addToGameFeedFromLegacy(`${data.username} disconnected - waiting for reconnection...`);
-      }
-    };
-  }
-
-  if (!scene.handlePlayerReconnected) {
-    scene.handlePlayerReconnected = function(data) {
-      console.log('🎮 handlePlayerReconnected:', data.username);
-      // Add message to game feed
-      if (window.addToGameFeedFromLegacy) {
-        window.addToGameFeedFromLegacy(`${data.username} reconnected`);
-      }
-    };
-  }
-
-  if (!scene.handleRejoinSuccess) {
-    scene.handleRejoinSuccess = function(data) {
-      console.log('🎮 Legacy scene handleRejoinSuccess');
-      // Game.js handles this via CustomEvent listener calling processRejoin()
-    };
-  }
-
-  if (!scene.handleRejoinFailed) {
-    scene.handleRejoinFailed = function(data) {
-      console.log('🎮 Legacy scene handleRejoinFailed');
-      // Game.js handles this via CustomEvent listener for now
-    };
-  }
-
-  if (!scene.handleAbortGame) {
-    scene.handleAbortGame = function(data) {
-      console.log('🎮 Legacy scene handleAbortGame');
-      // Clear all managers
-      if (this.effectsManager) {
-        this.effectsManager.clearAll();
-      }
-      if (this.trickManager) {
-        this.trickManager.clearAll();
-      }
-      if (this.drawManager) {
-        this.drawManager.cleanup();
-      }
-      // Game.js socket.on handler does the rest (restart scene, return to main room)
-    };
-  }
-
-  // Attach LayoutManager to the scene if not already present
-  if (!scene.layoutManager) {
-    scene.layoutManager = new LayoutManager(scene);
-    console.log('🎮 LayoutManager attached to scene');
-  }
-
-  // Add resize handler that updates LayoutManager
-  if (!scene.handleResize) {
-    scene.handleResize = function(width, height) {
-      console.log('🎮 Legacy scene handleResize');
-      if (this.layoutManager) {
-        this.layoutManager.update();
-        // Update TrickManager play positions from LayoutManager
-        if (this.trickManager) {
-          const playPos = this.layoutManager.getPlayPositions();
-          this.trickManager.playPositions = playPos;
-        }
-        // Update CardManager hand positions from LayoutManager
-        if (this.cardManager) {
-          this.cardManager.repositionHand();
-        }
-      }
-      // Update player info position
-      if (this.repositionPlayerInfo) {
-        this.repositionPlayerInfo();
-      }
-    };
-  }
-
-  // Add card display handlers
-  if (!scene.handleClearHand) {
-    scene.handleClearHand = function() {
-      console.log('🎮 Legacy scene handleClearHand');
-      if (this.cardManager) {
-        this.cardManager.clearHand();
-      }
-    };
-  }
-
-  if (!scene.handleUpdateCardLegality) {
-    scene.handleUpdateCardLegality = function(legalityChecker, canPlay) {
-      console.log('🎮 Legacy scene handleUpdateCardLegality');
-      if (this.cardManager) {
-        this.cardManager.updateCardLegality(legalityChecker, canPlay);
-      }
-    };
-  }
-
-  if (!scene.handlePlayCard) {
-    scene.handlePlayCard = function(card, position, targetX, targetY) {
-      console.log('🎮 Legacy scene handlePlayCard');
-      if (this.cardManager) {
-        this.cardManager.playCard(card, position, targetX, targetY);
-      }
-    };
-  }
-
-  if (!scene.handleCollectTrick) {
-    scene.handleCollectTrick = function(winnerPosition) {
-      console.log('🎮 Legacy scene handleCollectTrick');
-      if (this.cardManager) {
-        this.cardManager.collectTrick(winnerPosition);
-      }
-    };
-  }
-
-  // Add hand display handler that wires CardManager with game logic
-  if (!scene.handleDisplayHand) {
-    scene.handleDisplayHand = function(cards, skipAnimation = false) {
-      console.log('🎮 Legacy scene handleDisplayHand', cards?.length, 'cards, skipAnimation:', skipAnimation);
-      if (!this.cardManager || !cards || cards.length === 0) return;
-
-      const gameState = getGameState();
-      const socket = window.socket;
-
-      // Sort cards by trump before displaying
-      const sortedCards = sortHand([...cards], gameState.trump);
-
-      // Set up click handler for playing cards
-      const scene = this;
-      this.cardManager.setCardClickHandler((card, clickedSprite) => {
-        console.log(`🃏 Card clicked: ${card.rank} of ${card.suit}`);
-
-        // Only allow playing if the card is marked as legal
-        if (!clickedSprite.getData('isLegal')) {
-          console.log('Illegal move - card is disabled!');
-          return;
-        }
-
-        // Set lead card if first play of trick
-        if (gameState.playedCardIndex === 0) {
-          gameState.leadCard = card;
-          gameState.leadPosition = gameState.position;
-        }
-
-        // Play the card via socket
-        if (socket) {
-          socket.emit('playCard', { card, position: gameState.position });
-        }
-
-        // Mark that we've played a card (for legality checks)
-        gameState.hasPlayedCard = true;
-
-        // Update trump broken status
-        if (card.suit === gameState.trump?.suit || card.suit === 'joker') {
-          gameState.trumpBroken = true;
-        }
-
-        // Capture the current (hovered) position before any operations that might reset it
-        const startX = clickedSprite.x;
-        const startY = clickedSprite.y;
-
-        // Extract card sprite for animation (don't destroy it)
-        const sprite = this.cardManager.extractCard(card);
-        if (sprite && this.trickManager) {
-          // Remove event listeners to prevent pointerout from resetting position
-          sprite.removeAllListeners();
-
-          // Restore the hovered position (in case it was reset)
-          sprite.x = startX;
-          sprite.y = startY;
-
-          // Get target position
-          this.trickManager.setPlayerPosition(gameState.position);
-          this.trickManager.updatePlayPositions();
-          const targetPos = this.trickManager._playPositions.self;
-
-          // Disable interactions during animation
-          sprite.disableInteractive();
-          // Its pointerout will never fire now: drop the hand cursor
-          scene.input?.setDefaultCursor?.('default');
-          // Stop the hover tween (it would pull the card back toward the
-          // hand) and keep the move handle so a trick can cancel it
-          this.trickManager._stopCardAnimations(sprite);
-
-          // Animate from hovered position to play position
-          // No flip needed since player's cards are already face-up
-          const moveTween = scene.tweens.add({
-            targets: sprite,
-            x: targetPos.x,
-            y: targetPos.y,
-            duration: ANIMATION_CONFIG.CARD_PLAY,
-            ease: 'Power2',
-            rotation: 0,
-            scale: 1.5,
-            onComplete: () => {
-              if (!sprite || !sprite.scene) return;
-              sprite.setData('moveTween', null);
-              sprite.setDepth(200);
-            },
-          });
-          sprite.setData('moveTween', moveTween);
-
-          // Add to trick manager's current trick
-          sprite.setData('playPosition', 'self');
-          this.trickManager._currentTrick.push(sprite);
-        }
-
-        // Also remove from gameState using optimistic update
-        gameState.optimisticPlayCard(card);
-
-        // Immediately dim all remaining cards since player can't play again this trick
-        this.cardManager.updateCardLegality(() => true, false);
-      });
-
-      // Display the sorted hand
-      this.cardManager.displayHand(sortedCards, { animate: !skipAnimation });
-
-      // Update card legality based on current game state
-      const canPlay = !gameState.isBidding &&
-                      gameState.currentTurn === gameState.position &&
-                      !gameState.hasPlayedCard;
-
-      console.log('🎮 handleDisplayHand legality check:', {
-        isBidding: gameState.isBidding,
-        currentTurn: gameState.currentTurn,
-        position: gameState.position,
-        hasPlayedCard: gameState.hasPlayedCard,
-        canPlay,
-        scaleWidth: this._scene?.scale?.width,
-      });
-
-      const legalityChecker = (card) => {
-        const result = isLegalMove(
-          card,
-          gameState.myCards,
-          gameState.leadCard,
-          gameState.playedCardIndex === 0,
-          gameState.trump,
-          gameState.trumpBroken,
-          gameState.position,
-          gameState.leadPosition
-        );
-        return result.legal;
-      };
-
-      this.cardManager.updateCardLegality(legalityChecker, canPlay);
-    };
-  }
-
-  // Add trump card display handler
-  if (!scene.handleDisplayTrump) {
-    scene.handleDisplayTrump = function(card) {
-      console.log('🎮 Legacy scene handleDisplayTrump');
-      // Get position from LayoutManager
-      let trumpX, trumpY;
-      if (this.layoutManager) {
-        this.layoutManager.update();
-        const trumpPos = this.layoutManager.getTrumpPosition();
-        trumpX = trumpPos.x;
-        trumpY = trumpPos.y;
-      } else {
-        // Fallback positioning
-        const scaleX = this.scale.width / 1920;
-        const scaleY = this.scale.height / 953;
-        trumpX = this.scale.width / 2 + 500 * scaleX;
-        trumpY = this.scale.height / 2 - 300 * scaleY;
-      }
-
-      // Clean up existing trump display
-      if (this.tableCardBackground) this.tableCardBackground.destroy();
-      if (this.tableCardSprite) this.tableCardSprite.destroy();
-      if (this.tableCardLabel) this.tableCardLabel.destroy();
-
-      const scaleX = this.scale.width / 1920;
-      const scaleY = this.scale.height / 953;
-
-      // Create background
-      this.tableCardBackground = this.add.rectangle(trumpX, trumpY, 120 * scaleX, 160 * scaleY, 0x8B4513)
-        .setStrokeStyle(4, 0x654321)
-        .setDepth(-1);
-
-      // Create card sprite
-      const cardKey = getCardImageKey(card);
-      this.tableCardSprite = this.add.image(trumpX, trumpY, 'cards', cardKey).setScale(1.5);
-
-      // Create label
-      this.tableCardLabel = this.add.text(trumpX, trumpY - 100, 'TRUMP', {
-        fontSize: '24px',
-        fontStyle: 'bold',
-        color: '#FFFFFF',
-        backgroundColor: '#000000AA',
-        padding: { x: 10, y: 5 },
-        align: 'center'
-      }).setOrigin(0.5);
-    };
-  }
-
-  // Add opponent display handlers
-  if (!scene.handleDisplayOpponentHands) {
-    scene.handleDisplayOpponentHands = function(cardCount, dealerPosition, playerData, skipAnimation) {
-      console.log('🎮 Legacy scene handleDisplayOpponentHands');
-      if (this.opponentManager) {
-        const gameState = getGameState();
-        if (gameState.position) {
-          this.opponentManager.setPlayerPosition(gameState.position);
-        }
-        this.opponentManager.displayOpponentHands(cardCount, dealerPosition, playerData, skipAnimation);
-      }
-      // Create player info box at the same time as opponent avatars
-      // Skip for pure spectators — they see all 4 players as opponent avatars
-      const gameState2 = getGameState();
-      const isPureSpectator = gameState2.isSpectator && !gameState2.isLazy;
-      if (this.createPlayerInfoBox && !this._playerInfo && !isPureSpectator) {
-        if (gameState2.position && gameState2.playerData) {
-          this.createPlayerInfoBox(gameState2.playerData, gameState2.position);
-        }
-      }
-    };
-  }
-
-  if (!scene.handleOpponentTurnGlow) {
-    scene.handleOpponentTurnGlow = function(opponentId) {
-      console.log('🎮 Legacy scene handleOpponentTurnGlow');
-      if (this.opponentManager) {
-        this.opponentManager.removeTurnGlow();
-        if (opponentId) {
-          this.opponentManager.addTurnGlow(opponentId);
-        }
-      }
-    };
-  }
-
-  if (!scene.handleClearOpponents) {
-    scene.handleClearOpponents = function() {
-      console.log('🎮 Legacy scene handleClearOpponents');
-      if (this.opponentManager) {
-        this.opponentManager.clearAll();
-      }
-    };
-  }
-
-  if (!scene.handleRepositionOpponents) {
-    scene.handleRepositionOpponents = function() {
-      console.log('🎮 Legacy scene handleRepositionOpponents');
-      if (this.opponentManager) {
-        this.opponentManager.reposition();
-      }
-    };
-  }
-
-  // Add game log handlers
-  if (!scene.handleShowGameLog) {
-    scene.handleShowGameLog = function(options = {}) {
-      console.log('🎮 Legacy scene handleShowGameLog');
-      // Store log instance on scene for later use
-      if (!this._gameLog) {
-        this._gameLog = showGameLog({
-          onChatSubmit: options.onChatSubmit || ((msg) => {
-            if (window.socket) {
-              window.socket.emit('chatMessage', { message: msg });
-            }
-          }),
-        });
-      }
-      return this._gameLog;
-    };
-  }
-
-  if (!scene.handleAddToGameFeed) {
-    scene.handleAddToGameFeed = function(message, playerPosition = null) {
-      console.log('🎮 Legacy scene handleAddToGameFeed');
-      // Use modular GameLog if available
-      if (this._gameLog && this._gameLog.addGameMessage) {
-        this._gameLog.addGameMessage(message, playerPosition);
-      } else if (window.addToGameFeedFromLegacy) {
-        // Fall back to legacy function
-        window.addToGameFeedFromLegacy(message, playerPosition);
-      }
-    };
-  }
-
-  if (!scene.handleUpdateGameLogScores) {
-    scene.handleUpdateGameLogScores = function(teamScore, oppScore) {
-      console.log('🎮 Legacy scene handleUpdateGameLogScores');
-      if (this._gameLog) {
-        this._gameLog.updateScores(teamScore, oppScore);
-      }
-    };
-  }
-
-  if (!scene.handleUpdateGameLogTricks) {
-    scene.handleUpdateGameLogTricks = function(teamTricks, oppTricks) {
-      console.log('🎮 Legacy scene handleUpdateGameLogTricks');
-      if (this._gameLog && this._gameLog.updateTricks) {
-        this._gameLog.updateTricks(teamTricks, oppTricks);
-      }
-    };
-  }
-
-  if (!scene.handleHideGameLog) {
-    scene.handleHideGameLog = function() {
-      console.log('🎮 Legacy scene handleHideGameLog');
-      if (this._gameLog) {
-        this._gameLog.destroy();
-        this._gameLog = null;
-      }
-    };
-  }
-
-  // Add chat bubble handler
-  if (!scene.handleShowChatBubble) {
-    scene.handleShowChatBubble = function(playerPosition, messagePosition, message, color, duration) {
-      console.log('🎮 Legacy scene handleShowChatBubble', { playerPosition, messagePosition, message });
-      const bubblePos = getBubblePosition(playerPosition, messagePosition);
-      if (bubblePos) {
-        showChatBubble(bubblePos.positionKey, bubblePos.x, bubblePos.y, message, color, duration);
-      }
-    };
-  }
-
-  // Player info box (avatar, name, position text)
-  if (!scene._playerInfo) {
-    scene._playerInfo = null;
-  }
-
-  if (!scene.createPlayerInfoBox) {
-    scene.createPlayerInfoBox = function(playerData, myPosition) {
-      // Safety check
-      if (!playerData?.username || !playerData?.position || !playerData?.pics) {
-        console.warn('⚠️ createPlayerInfoBox: playerData not ready');
-        return null;
-      }
-
-      const positionIndex = playerData.position.indexOf(myPosition);
-      if (positionIndex === -1 || !playerData.username[positionIndex]) {
-        console.warn('⚠️ createPlayerInfoBox: position not found in playerData');
-        return null;
-      }
-
-      const screenWidth = this.scale.width;
-      const screenHeight = this.scale.height;
-      const scaleX = screenWidth / 1920;
-      const scaleY = screenHeight / 953;
-
-      const boxX = screenWidth - 420 * scaleX;
-      const boxY = screenHeight - 150 * scaleY;
-
-      // Player Avatar - use DOM for consistent sizing with opponent avatars
-      const pic = playerData.pics[positionIndex];
-      const username = playerData.username[positionIndex].username || playerData.username[positionIndex];
-
-      // Create DOM-based avatar (same approach as opponent avatars)
-      const avatarContainer = document.createElement('div');
-      avatarContainer.id = 'player-avatar-container';
-      avatarContainer.style.cssText = `
-        position: absolute;
-        left: ${boxX}px;
-        top: ${boxY - 60 * scaleY}px;
-        transform: translate(-50%, -50%);
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        pointer-events: auto;
-        cursor: pointer;
-        z-index: 100;
-      `;
-
-      avatarContainer.addEventListener('click', () => {
-        if (socket) {
-          socket.emit('getPlayerProfile', { username });
-        }
-      });
-
-      const avatarImg = document.createElement('img');
-      avatarImg.className = 'player-avatar-img';
-      // Stock number, inline data URL or /avatar URL (utils/avatar.js)
-      applyAvatarImg(avatarImg, avatarSrc(pic));
-      avatarImg.alt = username;
-      avatarImg.style.cssText = `
-        width: 80px;
-        height: 80px;
-        min-width: 80px;
-        min-height: 80px;
-        max-width: 80px;
-        max-height: 80px;
-        object-fit: cover;
-        border-radius: 50%;
-        border: 3px solid #333;
-        background: #1a1a1a;
-      `;
-      avatarContainer.appendChild(avatarImg);
-
-      // Add username label
-      const nameLabel = document.createElement('div');
-      nameLabel.textContent = username;
-      nameLabel.style.cssText = `
-        margin-top: 5px;
-        padding: 2px 8px;
-        background: rgba(0, 0, 0, 0.7);
-        border: 1px solid #666;
-        border-radius: 4px;
-        font-size: 14px;
-        font-family: Arial, sans-serif;
-        color: #aaa;
-        text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
-      `;
-      avatarContainer.appendChild(nameLabel);
-
-      // Add HSI display box
-      const hsiBox = document.createElement('div');
-      hsiBox.id = 'player-hsi-box';
-      hsiBox.style.cssText = `
-        margin-top: 4px;
-        padding: 2px 8px;
-        background: rgba(0, 0, 0, 0.7);
-        border: 1px solid #666;
-        border-radius: 4px;
-        font-size: 12px;
-        color: #aaa;
-        white-space: nowrap;
-      `;
-      hsiBox.textContent = 'HSI: --';
-      avatarContainer.appendChild(hsiBox);
-
-      // Add avatar to DOM
-      document.body.appendChild(avatarContainer);
-
-      // Move voice mute button into avatar container if voice is active
-      reattachMuteButton();
-
-      this._playerInfo = { avatarContainer, avatarImg, nameLabel, hsiBox };
-      return this._playerInfo;
-    };
-  }
-
-
-  if (!scene.repositionPlayerInfo) {
-    scene.repositionPlayerInfo = function() {
-      if (!this._playerInfo?.avatarContainer) return;
-
-      const screenWidth = this.scale.width;
-      const screenHeight = this.scale.height;
-      const scaleX = screenWidth / 1920;
-      const scaleY = screenHeight / 953;
-
-      const boxX = screenWidth - 420 * scaleX;
-      const boxY = screenHeight - 150 * scaleY;
-
-      // Reposition DOM avatar container (position text is inside container)
-      this._playerInfo.avatarContainer.style.left = `${boxX}px`;
-      this._playerInfo.avatarContainer.style.top = `${boxY - 60 * scaleY}px`;
-
-      // Reposition mute button to follow HSI box
-      reattachMuteButton();
-    };
-  }
-
-  if (!scene.clearPlayerInfo) {
-    scene.clearPlayerInfo = function() {
-      // Remove DOM avatar container (includes position text)
-      if (this._playerInfo?.avatarContainer) {
-        this._playerInfo.avatarContainer.remove();
-      }
-      this._playerInfo = null;
-    };
-  }
-
-  if (!scene.updatePlayerHsi) {
-    scene.updatePlayerHsi = function(hsi) {
-      if (this._playerInfo?.hsiBox && hsi !== undefined) {
-        this._playerInfo.hsiBox.textContent = `HSI: ${hsi.toFixed(1)}`;
-      }
-    };
-  }
-
-  console.log('🎮 Game scene reference set with all handlers');
+  console.log('🎮 Game scene reference set');
 }
 
 /**
@@ -1070,161 +113,21 @@ export function clearGameScene() {
   console.log('🎮 Game scene reference cleared');
 }
 
-// UI Components - Bid & Game Log
-import { createBidUI, showBidUI, createBidBubble } from './ui/components/BidUI.js';
-import { createGameLog, showGameLog } from './ui/components/GameLog.js';
-import { showChatBubble, clearChatBubbles, getBubblePosition, getActiveChatBubbles, repositionBubbles } from './ui/components/ChatBubble.js';
-import { showPlayerQueue, updatePlayerQueue, removePlayerQueue, isPlayerQueueVisible } from './ui/components/PlayerQueue.js';
-import { getTeamNames, formatHandCompleteMessages, formatGameEndMessages, showFinalScoreOverlay, removeFinalScoreOverlay } from './ui/components/ScoreModal.js';
+// UI Components - Game Log
+import { showGameLog } from './ui/components/GameLog.js';
+import { clearChatBubbles } from './ui/components/ChatBubble.js';
+import { getTeamNames, formatHandCompleteMessages, formatGameEndMessages, showFinalScoreOverlay } from './ui/components/ScoreModal.js';
 
-// Bridge module - exposes new modules to legacy code
+// Bridge for GameScene (phaser/scenes/GameScene.js), its only reader: it
+// registers itself through setGameScene and reads the rest from here
 window.ModernUtils = {
-  // Scene Access
   setGameScene,
-  getGameScene,
-  clearGameScene,
-
-  // Constants
-  CLIENT_EVENTS,
-  SERVER_EVENTS,
   RANK_VALUES,
-  RANK_ORDER,
-  SUITS,
-  JOKER_SUIT,
-  HAND_PROGRESSION,
-
-  // Position utilities
-  team,
-  rotate,
-  isSameTeam,
-  getTeamNumber,
   getPlayerName,
-  getRelativePosition,
-
-  // Card utilities
-  getCardImageKey,
-  getSuitOrder,
-  sortHand,
-  cardsEqual,
-  isJoker,
-  getCardDisplayName,
-
-  // Color utilities
-  hashToHue,
-  generateDistinctColor,
-  getUsernameColor,
-  extractHue,
-
-  // Rules
-  sameSuit,
-  isVoid,
-  isTrumpTight,
-  isHighestTrump,
   isLegalMove,
-  wouldBreakTrump,
-  getLegalCards,
-
-  // State
-  GameState,
-  PHASE,
-  getGameState,
-  resetGameState,
-
-  // Socket
-  SocketManager,
-  CONNECTION_STATE,
-  getSocketManager,
-  initializeSocketManager,
-  resetSocketManager,
-
-  // UI Components
-  createModal,
-  confirmDialog,
-  alertDialog,
-  showToast,
-  showError,
-  showSuccess,
-  showWarning,
-  showInfo,
-  createSignInScreen,
-  showSignInScreen,
-  createRegisterScreen,
-  showRegisterScreen,
-  showMainRoom,
-  addMainRoomChatMessage,
-  updateLobbyList,
-  removeMainRoom,
-  updateMainRoomOnlineCount,
-  getMainRoomUserColors,
-  showGameLobby,
-  updateLobbyPlayersList,
-  addLobbyChatMessage,
-  removeGameLobby,
-  getCurrentLobbyId,
-  getIsPlayerReady,
-  getLobbyUserColors,
-  showProfilePage,
-  updateProfilePicDisplay,
-  updateCustomProfilePicDisplay,
-  removeProfilePage,
-  isProfilePageVisible,
-  UIManager,
-  SCREENS,
-  getUIManager,
-  initializeUIManager,
-  resetUIManager,
-
-  // Phaser
-  createGameConfig,
-  CARD_CONFIG,
-  ANIMATION_CONFIG,
-  TABLE_POSITIONS,
-  CardManager,
-  OpponentManager,
-  TrickManager,
-  EffectsManager,
-  DrawManager,
-  BidManager,
-  LayoutManager,
-  GameScene,
-  createPhaserGame,
-  getPhaserGame,
-  destroyPhaserGame,
-
-  // Handlers
-  registerAllHandlers,
-  registerAuthHandlers,
-  registerLobbyHandlers,
-  registerGameHandlers,
-  registerChatHandlers,
-  registerProfileHandlers,
-  cleanupGameHandlers,
-
-  // UI Components - Bid & Game Log
-  createBidUI,
-  showBidUI,
-  createBidBubble,
-  createGameLog,
-  showGameLog,
-  showChatBubble,
-  clearChatBubbles,
-  getBubblePosition,
-  getActiveChatBubbles,
-  repositionBubbles,
-  showPlayerQueue,
-  updatePlayerQueue,
-  removePlayerQueue,
-  isPlayerQueueVisible,
-
-  // Score Modal
   getTeamNames,
   formatHandCompleteMessages,
-  formatGameEndMessages,
-  showFinalScoreOverlay,
-  removeFinalScoreOverlay,
 };
-
-console.log('Modular client initialized - All utilities available via window.ModernUtils');
 
 // ============================================
 // Game Log Bridges (window functions for external access)
@@ -1291,20 +194,6 @@ window.updateHandIndicatorFromLegacy = function(handSize) {
     gameLogInstance.updateHandIndicator(handSize);
   }
 };
-
-// Export getter for game log instance
-export function getGameLogInstance() {
-  return gameLogInstance;
-}
-
-// Export function to destroy game log (for cleanup)
-export function destroyGameLog() {
-  if (gameLogInstance) {
-    gameLogInstance.destroy();
-    gameLogInstance = null;
-  }
-  document.getElementById('game-container')?.classList.remove('in-game');
-}
 
 // ============================================
 // Application Initialization
@@ -1565,32 +454,8 @@ socket.on('gameEnd', (data) => {
 
 // ==================== END RECONNECTION LOGIC ====================
 
-// Also create a socketManager shim for legacy compatibility
-window.socketManager = {
-  setGameId: (id) => {
-    sessionStorage.setItem('gameId', id);
-  },
-  clearGameId: () => {
-    sessionStorage.removeItem('gameId');
-  },
-  getGameId: () => sessionStorage.getItem('gameId'),
-  getUsername: () => sessionStorage.getItem('username'),
-  showErrorToast: (message, duration) => {
-    const existing = document.querySelector('.error-toast');
-    if (existing) existing.remove();
-    const toast = document.createElement('div');
-    toast.className = 'error-toast';
-    toast.textContent = message;
-    document.body.appendChild(toast);
-    setTimeout(() => {
-      toast.classList.add('fade-out');
-      setTimeout(() => toast.remove(), 300);
-    }, duration || 5000);
-  },
-};
-
 /**
- * Show error toast notification (same as legacy socketManager.js).
+ * Show error toast notification.
  */
 function showErrorToast(message, duration = 5000) {
   // Remove existing toast
@@ -2013,11 +878,6 @@ function initializeApp() {
 
       // Add reconnected message to game feed
       window.addToGameFeedFromLegacy("Reconnected to game!");
-
-      // Call scene handler for any additional rejoin logic
-      if (scene && scene.handleRejoinSuccess) {
-        scene.handleRejoinSuccess(data);
-      }
 
       // Handle lazy mode — player is spectating while bot plays their hand
       if (data.isLazy) {
@@ -2797,11 +1657,6 @@ function initializeApp() {
               window.updateHandIndicatorFromLegacy(gameState.currentHand);
             }
           }
-
-          // Initialize scene handElements if needed
-          if (scene && !scene.handElements) {
-            scene.handElements = [];
-          }
         });
       }
     },
@@ -2995,11 +1850,6 @@ function initializeApp() {
           }
         }
       });
-
-      // Also call scene handler if it exists
-      if (scene && scene.handleGameEnd) {
-        scene.handleGameEnd(data);
-      }
     },
     onRainbow: (data) => {
       const scene = getGameScene();
@@ -3075,18 +1925,6 @@ function initializeApp() {
       socket.emit("joinMainRoom");
     },
     // Reconnection handlers
-    onPlayerDisconnected: (data) => {
-      const scene = getGameScene();
-      if (scene && scene.handlePlayerDisconnected) {
-        scene.handlePlayerDisconnected(data);
-      }
-    },
-    onPlayerReconnected: (data) => {
-      const scene = getGameScene();
-      if (scene && scene.handlePlayerReconnected) {
-        scene.handlePlayerReconnected(data);
-      }
-    },
     onRejoinSuccess: (data) => {
       processRejoinOrRestore(data);
       // Re-establish voice on reconnect
@@ -3095,10 +1933,6 @@ function initializeApp() {
       }
     },
     onRejoinFailed: (data) => {
-      const scene = getGameScene();
-      if (scene && scene.handleRejoinFailed) {
-        scene.handleRejoinFailed(data);
-      }
       // The game this page was showing is gone (e.g. the server restarted
       // during a reconnect): take its table down; the module-level
       // rejoinFailed handler sends the player to the main room
@@ -3487,7 +2321,7 @@ function initializeApp() {
     },
   });
 
-  // Note: window.socket and window.socketManager are already set at module level above
+  // Note: window.socket is already set at module level above
 
   console.log('App initialization complete');
 }

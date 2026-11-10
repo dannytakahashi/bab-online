@@ -10,6 +10,7 @@ vi.mock('../managers/TrickManager.js', () => ({ TrickManager: class {} }));
 vi.mock('../managers/EffectsManager.js', () => ({ EffectsManager: class {} }));
 vi.mock('../managers/DrawManager.js', () => ({ DrawManager: class {} }));
 vi.mock('../managers/BidManager.js', () => ({ BidManager: class {} }));
+vi.mock('../../ui/components/VoiceChatUI.js', () => ({ reattachMuteButton: vi.fn() }));
 
 // Minimal event emitter with the on/off/once/emit surface Phaser exposes
 function createEmitter(extra = {}) {
@@ -378,5 +379,227 @@ describe('GameScene handleCardPlayed (lazy: the bot played my card)', () => {
     expect(scene.trickManager._stopCardAnimations.mock.invocationCallOrder[0])
       .toBeLessThan(scene.tweens.add.mock.invocationCallOrder[0]);
     expect(sprite.setData).toHaveBeenCalledWith('playPosition', 'self');
+  });
+});
+
+describe('GameScene handleDestroyHands (all-zero redeal)', () => {
+  it('clears the hand and the trick through the managers and drops the bid grid', () => {
+    const scene = new GameScene();
+    scene.state = { clearTempBids: vi.fn() };
+    scene.cardManager = { clearHand: vi.fn() };
+    scene.trickManager = { clearAll: vi.fn() };
+    scene.bidManager = { hideBidUI: vi.fn() };
+
+    scene.handleDestroyHands({});
+
+    expect(scene.cardManager.clearHand).toHaveBeenCalledTimes(1);
+    expect(scene.trickManager.clearAll).toHaveBeenCalledTimes(1);
+    expect(scene.bidManager.hideBidUI).toHaveBeenCalledWith(false);
+    expect(scene.state.clearTempBids).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('GameScene cleanup (Return to Lobby, abortGame)', () => {
+  it('resets every manager, hand before trick, and destroys the trump display', () => {
+    const scene = new GameScene();
+    const order = [];
+    const rec = (name) => vi.fn(() => order.push(name));
+    scene.cardManager = { clearAll: rec('card') };
+    scene.opponentManager = { clearAll: rec('opponent') };
+    scene.trickManager = { clearAll: rec('trick') };
+    scene.effectsManager = { clearAll: rec('effects') };
+    scene.drawManager = { cleanup: rec('draw') };
+    const trump = ['tableCardSprite', 'tableCardBackground', 'tableCardLabel'].map((k) => {
+      scene[k] = { destroy: vi.fn() };
+      return scene[k];
+    });
+
+    scene.cleanup();
+
+    expect(order).toEqual(['card', 'opponent', 'trick', 'effects', 'draw']);
+    trump.forEach((t) => expect(t.destroy).toHaveBeenCalledTimes(1));
+    expect(scene.tableCardSprite).toBeNull();
+    expect(scene.tableCardBackground).toBeNull();
+    expect(scene.tableCardLabel).toBeNull();
+  });
+
+  it('handleAbortGame runs it; a scene before create() (no managers) does not throw', () => {
+    const scene = new GameScene();
+    expect(() => scene.handleAbortGame({ reason: 'x' })).not.toThrow();
+  });
+});
+
+describe('GameScene own avatar box (moved from main.js setGameScene)', () => {
+  let getGameState;
+  beforeAll(async () => {
+    ({ getGameState } = await import('../../state/GameState.js'));
+  });
+  afterEach(() => {
+    document.getElementById('player-avatar-container')?.remove();
+    getGameState().reset();
+  });
+
+  const playerData = {
+    position: [1, 2, 3, 4],
+    username: [{ username: 'me' }, { username: 'b' }, { username: 'c' }, { username: 'd' }],
+    pics: [3, 4, 5, 6],
+  };
+  function sceneAt(width = 1920, height = 953) {
+    const scene = new GameScene();
+    scene.scale = { width, height };
+    return scene;
+  }
+
+  it('creates the box at the bottom right with avatar, name and HSI, and clicking it asks for the profile', () => {
+    const scene = sceneAt(960, 953);
+    window.socket = { emit: vi.fn() };
+    try {
+      const info = scene.createPlayerInfoBox(playerData, 1);
+      const el = document.getElementById('player-avatar-container');
+      expect(info.avatarContainer).toBe(el);
+      expect(scene._playerInfo).toBe(info);
+      // left = w - 420 * w/1920; top = h - 150*sy - 60*sy
+      expect(el.style.left).toBe(`${960 - 420 * 0.5}px`);
+      expect(el.style.top).toBe(`${953 - 150 - 60}px`);
+      expect(info.avatarImg.className).toBe('player-avatar-img');
+      expect(info.avatarImg.alt).toBe('me');
+      expect(info.nameLabel.textContent).toBe('me');
+      expect(info.hsiBox.id).toBe('player-hsi-box');
+      expect(info.hsiBox.textContent).toBe('HSI: --');
+      el.click();
+      expect(window.socket.emit).toHaveBeenCalledWith('getPlayerProfile', { username: 'me' });
+    } finally {
+      delete window.socket;
+    }
+  });
+
+  it('refuses playerData that is not ready or lacks the seat', () => {
+    const scene = sceneAt();
+    expect(scene.createPlayerInfoBox({}, 1)).toBeNull();
+    expect(scene.createPlayerInfoBox(playerData, 9)).toBeNull();
+    expect(document.getElementById('player-avatar-container')).toBeNull();
+  });
+
+  it('repositions on resize, shows the HSI, and clears', () => {
+    const scene = sceneAt();
+    scene.createPlayerInfoBox(playerData, 1);
+    scene.scale = { width: 960, height: 476.5 };
+    scene.repositionPlayerInfo();
+    const el = document.getElementById('player-avatar-container');
+    expect(el.style.left).toBe(`${960 - 210}px`);
+    expect(el.style.top).toBe(`${476.5 - 75 - 30}px`);
+    scene.updatePlayerHsi(12.345);
+    expect(scene._playerInfo.hsiBox.textContent).toBe('HSI: 12.3');
+    scene.updatePlayerHsi(undefined);
+    expect(scene._playerInfo.hsiBox.textContent).toBe('HSI: 12.3');
+    scene.clearPlayerInfo();
+    expect(document.getElementById('player-avatar-container')).toBeNull();
+    expect(scene._playerInfo).toBeNull();
+    expect(() => scene.repositionPlayerInfo()).not.toThrow();
+  });
+
+  it('handleDisplayOpponentHands draws the opponents and the own box once, never for a pure spectator', () => {
+    const state = getGameState();
+    state.position = 1;
+    state.playerData = playerData;
+    const scene = sceneAt();
+    scene.opponentManager = { setPlayerPosition: vi.fn(), displayOpponentHands: vi.fn() };
+
+    scene.handleDisplayOpponentHands(5, 2, playerData, true);
+    expect(scene.opponentManager.setPlayerPosition).toHaveBeenCalledWith(1);
+    expect(scene.opponentManager.displayOpponentHands).toHaveBeenCalledWith(5, 2, playerData, true);
+    const first = scene._playerInfo;
+    expect(first).not.toBeNull();
+    scene.handleDisplayOpponentHands(5, 2, playerData, true);
+    expect(scene._playerInfo).toBe(first);
+    expect(document.querySelectorAll('#player-avatar-container')).toHaveLength(1);
+
+    scene.clearPlayerInfo();
+    state.isSpectator = true;
+    scene.handleDisplayOpponentHands(5, 2, playerData, true);
+    expect(scene._playerInfo).toBeNull();
+    // a lazy owner watching the seat still gets the box
+    state.isLazy = true;
+    scene.handleDisplayOpponentHands(5, 2, playerData, true);
+    expect(scene._playerInfo).not.toBeNull();
+  });
+});
+
+describe('GameScene handleDisplayHand (moved from main.js setGameScene)', () => {
+  let getGameState;
+  beforeAll(async () => {
+    ({ getGameState } = await import('../../state/GameState.js'));
+  });
+  afterEach(() => getGameState().reset());
+
+  function handScene() {
+    const scene = new GameScene();
+    let clickHandler;
+    scene.cardManager = {
+      setCardClickHandler: vi.fn((fn) => { clickHandler = fn; }),
+      displayHand: vi.fn(),
+      updateCardLegality: vi.fn(),
+      extractCard: vi.fn(() => null),
+    };
+    return { scene, click: (...a) => clickHandler(...a) };
+  }
+
+  it('displays the hand sorted by trump, with the deal animation unless skipped', () => {
+    const state = getGameState();
+    state.trump = { suit: 'hearts', rank: '2' };
+    const { scene } = handScene();
+    const cards = [{ suit: 'spades', rank: 'A' }, { suit: 'hearts', rank: 'K' }];
+    scene.handleDisplayHand(cards, false);
+    const [shown, opts] = scene.cardManager.displayHand.mock.calls[0];
+    expect(shown).toHaveLength(2);
+    expect(shown).toEqual(expect.arrayContaining(cards));
+    expect(opts).toEqual({ animate: true });
+    scene.handleDisplayHand(cards, true);
+    expect(scene.cardManager.displayHand.mock.calls[1][1]).toEqual({ animate: false });
+  });
+
+  it('nothing without cards', () => {
+    const { scene } = handScene();
+    scene.handleDisplayHand([], false);
+    scene.handleDisplayHand(null, false);
+    expect(scene.cardManager.displayHand).not.toHaveBeenCalled();
+  });
+
+  it('legality: playable on my turn after bidding, dimmed during bidding', () => {
+    const state = getGameState();
+    state.position = 1;
+    state.currentTurn = 1;
+    state.isBidding = false;
+    const { scene } = handScene();
+    scene.handleDisplayHand([{ suit: 'spades', rank: 'A' }], true);
+    expect(scene.cardManager.updateCardLegality.mock.calls.at(-1)[1]).toBe(true);
+    state.isBidding = true;
+    scene.handleDisplayHand([{ suit: 'spades', rank: 'A' }], true);
+    expect(scene.cardManager.updateCardLegality.mock.calls.at(-1)[1]).toBe(false);
+  });
+
+  it('a click on a legal card plays it once and dims the hand; an illegal one is ignored', () => {
+    const state = getGameState();
+    state.position = 3;
+    state.playedCardIndex = 0;
+    window.socket = { emit: vi.fn() };
+    try {
+      const { scene, click } = handScene();
+      const card = { suit: 'spades', rank: 'A' };
+      state.setCards([card]);
+      scene.handleDisplayHand([card], true);
+
+      click(card, { getData: () => false, x: 0, y: 0 });
+      expect(window.socket.emit).not.toHaveBeenCalled();
+
+      click(card, { getData: () => true, x: 0, y: 0 });
+      expect(window.socket.emit).toHaveBeenCalledWith('playCard', { card, position: 3 });
+      expect(state.leadCard).toEqual(card);
+      expect(state.leadPosition).toBe(3);
+      expect(state.hasPlayedCard).toBe(true);
+      expect(scene.cardManager.updateCardLegality.mock.calls.at(-1)[1]).toBe(false);
+    } finally {
+      delete window.socket;
+    }
   });
 });

@@ -137,7 +137,7 @@ bab-online/
 │   │   │   └── managers/              # CardManager, TrickManager, BidManager, etc.
 │   │   └── ui/
 │   │       ├── UIManager.js           # DOM lifecycle management
-│   │       ├── components/            # Modal, Toast, BidUI, GameLog, TournamentScoreboard
+│   │       ├── components/            # Toast, GameLog, ScoreModal, ChatBubble, TournamentScoreboard
 │   │       └── screens/               # SignIn, Register, MainRoom, GameLobby, TournamentLobby, ProfilePage, LeaderboardPage
 │   ├── styles/
 │   │   └── components.css             # UI component styles
