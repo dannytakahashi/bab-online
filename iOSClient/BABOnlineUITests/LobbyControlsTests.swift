@@ -82,6 +82,46 @@ final class LobbyControlsTests: XCTestCase {
         lobbyLeave("tournament-lobby")
     }
 
+    /// Regular width (the iPad, the open Duo): the lobby chat is the right-hand
+    /// column, its field right of the player list; compact: under the players.
+    func testGameLobbyChatPlacement() {
+        chatPlacement("game-lobby", players: "lobby.players", field: "lobbyChatField")
+    }
+
+    func testTournamentLobbyChatPlacement() {
+        chatPlacement("tournament-lobby", players: "tournament.players", field: "tournamentChatField")
+        chatPlacement("tournament-round", players: "tournament.players", field: "tournamentChatField")
+    }
+
+    private func chatPlacement(_ fixture: String, players playersId: String, field fieldId: String) {
+        let app = Fixture.launch(fixture)
+        XCTAssertTrue(Fixture.readyElement(app, fixture).waitForExistence(timeout: 20))
+        sleep(1)
+        let pose = Fixture.probe(app, "ui.pose")
+        let players = app.descendants(matching: .any)[playersId]
+        let field = app.textFields[fieldId]
+        XCTAssertTrue(players.waitForExistence(timeout: 5), "\(fixture): no \(playersId)")
+        XCTAssertTrue(field.waitForExistence(timeout: 5), "\(fixture): no \(fieldId)")
+        let p = players.frame, f = field.frame
+        let wide = pose.contains(" sc regular/")
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            XCTAssertTrue(wide, "the iPad reports regular width: \(pose)")
+        }
+        if wide {
+            XCTAssertGreaterThanOrEqual(f.minX, p.maxX - 1, "\(fixture) \(pose): the chat field \(f) is not right of the players \(p)")
+            if let size = Fixture.windowSize(pose) {
+                XCTAssertLessThanOrEqual(f.maxX, size.width + 1, "\(fixture): the chat field \(f) leaves the window \(size)")
+            }
+        } else {
+            XCTAssertGreaterThanOrEqual(f.minY, p.maxY - 1, "\(fixture) \(pose): the chat field \(f) is not under the players \(p)")
+        }
+        let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        shot.name = "\(Fixture.poseName(pose))-\(fixture)-chat-placement"
+        shot.lifetime = .keepAlways
+        add(shot)
+        app.terminate()
+    }
+
     private func lobbyLeave(_ fixture: String) {
         let app = Fixture.launch(fixture)
         XCTAssertTrue(Fixture.readyElement(app, fixture).waitForExistence(timeout: 20))

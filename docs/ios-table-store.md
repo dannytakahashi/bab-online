@@ -202,6 +202,32 @@ control exists once, sits in the column when `ui.pose` reports a vertical bar
 that no content button reaches into the column, and that Stats opens the
 leaderboard.
 
+### Lobby chat on the right (regular width)
+
+Owner decision 2026-11-09: on regular width (`horizontalSizeClass == .regular`:
+the iPad in both orientations, the open Duo in every pose, which reports
+regular/regular) both lobbies put the chat in a right-hand column, as the main
+room does; compact (other phones, the closed Duo) is pixel-identical to before.
+Game lobby: one `ScrollView` and one `AnyLayout` (`VStackLayout` compact,
+`LobbySplitLayout` wide) over the same three children (header + players + Add
+Bot, chat, Ready), so a size-class change keeps the chat field's identity, focus
+and draft; wide = the header, players and Add Bot at the top of the left 55%,
+Ready at its bottom, the chat (with a "Chat" row as tall as the header) filling
+the right column. Tournament lobby: two branches as before (the compact chat
+sits inside the ScrollView; the draft lives in `TournamentState`); wide = header,
+player list (the rest of the height, scrolls) and the buttons on the left; on
+the right the scoreboard and the active tables when there are any, sized to
+their content, then the chat with a 240 pt minimum: when both no longer fit (8
+players and two tables in landscape with the keyboard up) the standings scroll
+in what is left. Keyboard: in the wide layouts only the chat column makes room
+for it (game lobby: the layout ignores the keyboard and the chat is padded by
+the measured overlap; tournament: the left column ignores it), so typing never
+moves the players or Ready. Fixtures `tournament-round` (round 3 in play:
+scoreboard, two active tables) and `tournament-between` (round 2 complete).
+`LobbyControlsTests.test…ChatPlacement` asserts the chat field is right of the
+player list on regular width (and that the iPad reports it) and under it on
+compact.
+
 ## Fixture mode and Duo poses (roadmap items 26, 27)
 
 Fixture mode (Debug only): `-uiFixture <name>` seeds the app from a v2
@@ -351,6 +377,14 @@ All bullets are done except these, which are follow-ups:
 
 Known server gaps left as they are: draw-phase rejoin is refused; the socket
 a `watchSeat` demotes gets no event (item 16).
+
+## Visible changes to review on the next build (lobby chat)
+
+On the iPad and the open Duo the game lobby and the tournament lobby show the
+chat in a right-hand column, like the main room: the players and Ready (and the
+tournament's Begin / Cancel) on the left, the scoreboard and active tables above
+the tournament chat on the right. Typing there no longer moves the left column.
+Phones and the closed Duo are unchanged.
 
 ## Visible changes to review on the next build (items 26, 27)
 
