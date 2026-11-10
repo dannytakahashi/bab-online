@@ -88,21 +88,24 @@ final class LobbyControlsTests: XCTestCase {
         chatPlacement("game-lobby", players: "lobby.players", field: "lobbyChatField")
     }
 
+    /// Compact: the chat is pinned under the players, which scroll above it when
+    /// they are taller than their share (their frame then runs on under the chat).
     func testTournamentLobbyChatPlacement() {
-        chatPlacement("tournament-lobby", players: "tournament.players", field: "tournamentChatField")
-        chatPlacement("tournament-round", players: "tournament.players", field: "tournamentChatField")
+        chatPlacement("tournament-lobby", players: "tournament.players", field: "tournamentChatField", playersScroll: true)
+        chatPlacement("tournament-round", players: "tournament.players", field: "tournamentChatField", playersScroll: true)
     }
 
     /// On regular width a second launch with a synthetic book fold (`-uiFold book`,
     /// 20 pt at the window center) checks that neither column spans the hinge.
-    private func chatPlacement(_ fixture: String, players playersId: String, field fieldId: String) {
-        if chatPlacement(fixture, players: playersId, field: fieldId, book: false) {
-            _ = chatPlacement(fixture, players: playersId, field: fieldId, book: true)
+    private func chatPlacement(_ fixture: String, players playersId: String, field fieldId: String, playersScroll: Bool = false) {
+        if chatPlacement(fixture, players: playersId, field: fieldId, playersScroll: playersScroll, book: false) {
+            _ = chatPlacement(fixture, players: playersId, field: fieldId, playersScroll: playersScroll, book: true)
         }
     }
 
     /// Returns whether the window reports regular width.
-    private func chatPlacement(_ fixture: String, players playersId: String, field fieldId: String, book: Bool) -> Bool {
+    private func chatPlacement(_ fixture: String, players playersId: String, field fieldId: String,
+                               playersScroll: Bool, book: Bool) -> Bool {
         let app = Fixture.launch(fixture, extra: book ? ["-uiFold", "book"] : [])
         XCTAssertTrue(Fixture.readyElement(app, fixture).waitForExistence(timeout: 20))
         sleep(1)
@@ -126,6 +129,11 @@ final class LobbyControlsTests: XCTestCase {
                     XCTAssertGreaterThanOrEqual(f.minX, hinge.upperBound - 1, "\(fixture) book: the chat field \(f) starts in the hinge \(hinge)")
                 }
             }
+        } else if playersScroll && p.maxY > f.minY + 1 {
+            // the players scroll in their capped section: they start above the
+            // chat and run on under it, clipped, never over the field
+            XCTAssertLessThan(p.minY, f.minY - 40, "\(fixture) \(pose): the chat field \(f) is not under the players \(p)")
+            XCTAssertTrue(field.isHittable, "\(fixture) \(pose): the players \(p) cover the chat field \(f)")
         } else {
             XCTAssertGreaterThanOrEqual(f.minY, p.maxY - 1, "\(fixture) \(pose): the chat field \(f) is not under the players \(p)")
         }
@@ -135,6 +143,51 @@ final class LobbyControlsTests: XCTestCase {
         add(shot)
         app.terminate()
         return wide
+    }
+
+    /// Compact (phones, the closed Duo): the chat is pinned under the players, so
+    /// with 8 players and the standings (`tournament-round`) its field is inside
+    /// the window and hittable without scrolling; after typing it stays hittable,
+    /// above the software keyboard when one shows (none where the simulator has
+    /// a hardware keyboard attached), and keeps the draft. Regular width too.
+    func testTournamentChatFieldOnScreen() {
+        let fixture = "tournament-round"
+        let app = Fixture.launch(fixture)
+        XCTAssertTrue(Fixture.readyElement(app, fixture).waitForExistence(timeout: 20))
+        sleep(1)
+        let pose = Fixture.probe(app, "ui.pose")
+        guard let size = Fixture.windowSize(pose), let insets = Fixture.insets(pose) else {
+            return XCTFail("no window size in \(pose)")
+        }
+        let window = CGRect(origin: .zero, size: size)
+        let visible = CGRect(x: insets.left, y: insets.top, width: size.width - insets.left - insets.right,
+                             height: size.height - insets.top - insets.bottom)
+        let field = app.textFields["tournamentChatField"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5), "no tournamentChatField")
+        let f = field.frame
+        XCTAssertTrue(window.contains(f), "\(pose): the chat field \(f) is not inside the window \(window)")
+        XCTAssertTrue(visible.insetBy(dx: -1, dy: -1).contains(f), "\(pose): the chat field \(f) leaves the safe area \(visible)")
+        XCTAssertTrue(field.isHittable, "\(pose): the chat field \(f) is not hittable")
+        // the players are still there above it (compact) or beside it (wide)
+        XCTAssertTrue(app.descendants(matching: .any)["tournament.players"].exists)
+
+        field.tap()
+        field.typeText("gl all")
+        sleep(1)
+        let kb = app.keyboards.firstMatch
+        let typed = app.textFields["tournamentChatField"]
+        let t = typed.frame
+        XCTAssertTrue(typed.isHittable, "\(pose): with the keyboard up the chat field \(t) is not hittable")
+        XCTAssertTrue(window.contains(t), "\(pose): with the keyboard up the chat field \(t) leaves the window")
+        if kb.exists && !kb.frame.isEmpty {
+            XCTAssertLessThanOrEqual(t.maxY, kb.frame.minY + 1, "\(pose): the keyboard \(kb.frame) covers the chat field \(t)")
+        }
+        XCTAssertEqual(typed.value as? String, "gl all", "the draft")
+        let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        shot.name = "\(Fixture.poseName(pose))-\(fixture)-chat-keyboard"
+        shot.lifetime = .keepAlways
+        add(shot)
+        app.terminate()
     }
 
     private func lobbyLeave(_ fixture: String) {

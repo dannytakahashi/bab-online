@@ -213,13 +213,34 @@ Game lobby: one `ScrollView` and one `AnyLayout` (`VStackLayout` compact,
 Bot, chat, Ready), so a size-class change keeps the chat field's identity, focus
 and draft; wide = the header, players and Add Bot at the top of the left 55%,
 Ready at its bottom, the chat (with a "Chat" row as tall as the header) filling
-the right column. Tournament lobby: two branches as before (the compact chat
-sits inside the ScrollView; the draft lives in `TournamentState`); wide = header,
-player list (the rest of the height, scrolls) and the buttons on the left; on
-the right the scoreboard and the active tables when there are any, sized to
-their content, then the chat with a 240 pt minimum: when both no longer fit (8
-players and two tables in landscape with the keyboard up) the standings scroll
-in what is left. Keyboard: in the wide layouts only the chat column makes room
+the right column. Tournament lobby: two branches (the draft lives in
+`TournamentState`); wide = header, player list (the rest of the height,
+scrolls) and the buttons on the left; on the right the scoreboard and the
+active tables when there are any, sized to their content, then the chat with a
+240 pt minimum: when both no longer fit (8 players and two tables in landscape
+with the keyboard up) the standings scroll in what is left. Both use
+`CappedAboveChat` (content above a chat that fills the rest, capped so the
+chat keeps its minimum, scrolling inside the cap).
+
+Compact tournament lobby (owner follow-up 2026-11-09; phones, the closed Duo):
+the chat is pinned and always on screen, as in the game lobby. Header, then
+the players, scoreboard and active tables in one ScrollView sized to its
+content, then `TournamentChatView` filling the rest (its field never below the
+fold, its messages no longer nested in an outer ScrollView), then the buttons.
+Rule: the chat keeps `min(220, 0.55 × H)`, H = the height between the header
+and the buttons (closed Duo / iPhone 17 / 17e portrait: 220 pt, the players
+above it scroll; at accessibility sizes ~150-200 pt); with few players and no
+standings the top takes its natural height and the chat the rest. When H would
+be under 200 pt (a short compact window, accessibility sizes with the host's
+three buttons) the buttons scroll with the players instead of staying pinned,
+so the field keeps its room. Compact iPhones stay portrait (`AppDelegate`
+mask), so a landscape phone is not a compact case here. Keyboard (compact):
+the screen's GeometryReader ignores the keyboard and a clear view in the
+ZStack (compact only: in the wide layout it changed the system chrome's
+pixels) measures the room above it; the chat is padded so its field sits on
+the keyboard's top, the top section shrinks, and the keyboard covers the
+buttons (as Messages does; tap outside or drag the messages to dismiss it).
+Keyboard: in the wide layouts only the chat column makes room
 for it (game lobby: the layout ignores the keyboard and the chat is padded by
 the measured overlap; tournament: the left column ignores it), so typing never
 moves the players or Ready. Book pose (a vertical division with both pages at
@@ -232,8 +253,15 @@ at the same window size. Fixtures `tournament-round` (round 3 in play:
 scoreboard, two active tables) and `tournament-between` (round 2 complete).
 `LobbyControlsTests.test…ChatPlacement` asserts the chat field is right of the
 player list on regular width (and that the iPad reports it) and under it on
-compact; on regular width it relaunches with `-uiFold book` and asserts the
+compact (the tournament's player list may run on, scrolled and clipped, under
+the pinned chat: it must start above the field and leave it hittable); on regular width it relaunches with `-uiFold book` and asserts the
 players end before the synthetic hinge and the chat field starts after it.
+`LobbyControlsTests.testTournamentChatFieldOnScreen` (`tournament-round`, 8
+players and the standings) asserts the chat field is inside the window and the
+safe area and hittable without scrolling, then types and asserts it is still
+hittable, above the software keyboard when one shows (the simulator panel can
+attach a hardware keyboard, as on the closed Duo here; the iPhone 17 shows the
+software one) and keeps the draft.
 
 ## Fixture mode and Duo poses (roadmap items 26, 27)
 
@@ -391,7 +419,10 @@ On the iPad and the open Duo the game lobby and the tournament lobby show the
 chat in a right-hand column, like the main room: the players and Ready (and the
 tournament's Begin / Cancel) on the left, the scoreboard and active tables above
 the tournament chat on the right. Typing there no longer moves the left column.
-Phones and the closed Duo are unchanged.
+On phones and the closed Duo the tournament lobby's chat and its field are now
+always on screen under the players (the players, scoreboard and active tables
+scroll above it); with the keyboard up the field sits on the keyboard and the
+keyboard covers Ready / Begin / Cancel. The game lobby is unchanged.
 
 ## Visible changes to review on the next build (items 26, 27)
 
