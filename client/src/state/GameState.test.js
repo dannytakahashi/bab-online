@@ -89,66 +89,43 @@ describe('GameState', () => {
     });
   });
 
-  describe('optimisticPlayCard', () => {
+  // A pending play/bid lives in MyAction now (MyAction.test.js): the hand
+  // in GameState is the server's, edited only by the cardPlayed echo
+  describe('a pending play never edits the hand (renderModel hides it)', () => {
     beforeEach(() => {
       state.setCards([
         { rank: 'A', suit: 'spades' },
         { rank: 'K', suit: 'hearts' },
         { rank: 'Q', suit: 'diamonds' },
       ]);
+      state.position = 1;
+      state.trump = { suit: 'clubs', rank: '2' };
+      state.handNo = 1;
     });
 
-    it('removes card from hand', () => {
-      const result = state.optimisticPlayCard({ rank: 'K', suit: 'hearts' });
-      expect(result).toBe(true);
-      expect(state.myCards).toHaveLength(2);
-      expect(state.myCards.find((c) => c.rank === 'K')).toBeUndefined();
-    });
-
-    it('returns false for card not in hand', () => {
-      const result = state.optimisticPlayCard({ rank: '2', suit: 'clubs' });
-      expect(result).toBe(false);
+    it('the model moves the pending card from the hand to my trick slot', () => {
+      const m = state.renderModel({ pendingCard: { rank: 'K', suit: 'hearts' } });
+      expect(m.hand).toHaveLength(2);
+      expect(m.hand.find((c) => c.rank === 'K')).toBeUndefined();
+      expect(m.trick).toEqual([{ position: 1, card: { rank: 'K', suit: 'hearts' }, pending: true }]);
       expect(state.myCards).toHaveLength(3);
     });
 
-    it('stores previous state for rollback', () => {
-      state.optimisticPlayCard({ rank: 'A', suit: 'spades' });
-      expect(state._previousCards).toHaveLength(3);
-      expect(state._pendingCard).toEqual({ rank: 'A', suit: 'spades' });
+    it('a pending card not in the hand changes nothing', () => {
+      const m = state.renderModel({ pendingCard: { rank: '2', suit: 'clubs' } });
+      expect(m.hand).toHaveLength(3);
+      expect(m.trick).toEqual([]);
     });
-  });
 
-  describe('rollbackCardPlay', () => {
-    it('restores hand after rejected play', () => {
-      state.setCards([
-        { rank: 'A', suit: 'spades' },
-        { rank: 'K', suit: 'hearts' },
-      ]);
-      state.optimisticPlayCard({ rank: 'A', suit: 'spades' });
-      expect(state.myCards).toHaveLength(1);
+    it('rollback is just the model without the pending card', () => {
+      expect(state.renderModel().hand).toHaveLength(3);
+    });
 
-      state.rollbackCardPlay();
+    it('the echo (applyCardPlayed at my seat) takes the card out of the hand', () => {
+      state.applyCardPlayed({ card: { rank: 'A', suit: 'spades' }, position: 1 });
       expect(state.myCards).toHaveLength(2);
-    });
-
-    it('emits cardPlayRolledBack event', () => {
-      state.setCards([{ rank: 'A', suit: 'spades' }]);
-      state.optimisticPlayCard({ rank: 'A', suit: 'spades' });
-
-      const handler = vi.fn();
-      state.on('cardPlayRolledBack', handler);
-      state.rollbackCardPlay();
-      expect(handler).toHaveBeenCalled();
-    });
-  });
-
-  describe('confirmCardPlay', () => {
-    it('clears pending state', () => {
-      state.setCards([{ rank: 'A', suit: 'spades' }]);
-      state.optimisticPlayCard({ rank: 'A', suit: 'spades' });
-      state.confirmCardPlay();
-      expect(state._pendingCard).toBeNull();
-      expect(state._previousCards).toBeNull();
+      expect(state.hasPlayedCard).toBe(true);
+      expect(state.renderModel().trick).toEqual([{ position: 1, card: { rank: 'A', suit: 'spades' } }]);
     });
   });
 
@@ -243,20 +220,27 @@ describe('GameState', () => {
     });
   });
 
-  describe('hasPendingAction', () => {
-    it('returns false initially', () => {
-      expect(state.hasPendingAction()).toBe(false);
-    });
-
-    it('returns true with pending card', () => {
-      state.setCards([{ rank: 'A', suit: 'spades' }]);
-      state.optimisticPlayCard({ rank: 'A', suit: 'spades' });
-      expect(state.hasPendingAction()).toBe(true);
-    });
-
-    it('returns true with pending bid', () => {
-      state.optimisticBid('3');
-      expect(state.hasPendingAction()).toBe(true);
+  describe('canAct', () => {
+    it('my turn to bid until I bid; to play until I played; never lazy, spectating or pending', () => {
+      state.position = 2;
+      state.currentTurn = 2;
+      state.stage = 'BIDDING';
+      state.isBidding = true;
+      expect(state.canAct()).toBe(true);
+      expect(state.canAct({ pending: true })).toBe(false);
+      state.bids[2] = '3';
+      expect(state.canAct()).toBe(false);
+      state.stage = 'PLAYING';
+      state.isBidding = false;
+      expect(state.canAct()).toBe(true);
+      state.hasPlayedCard = true;
+      expect(state.canAct()).toBe(false);
+      state.hasPlayedCard = false;
+      state.isLazy = true;
+      expect(state.canAct()).toBe(false);
+      state.isLazy = false;
+      state.stage = 'TRICK_RESOLVING';
+      expect(state.canAct()).toBe(false);
     });
   });
 
@@ -332,38 +316,127 @@ describe('GameState', () => {
     });
   });
 
-  describe('restoreFromRejoin', () => {
-    it('restores state from rejoin data', () => {
-      const rejoinData = {
-        gameId: 'game123',
-        position: 2,
-        currentHand: 8,
-        trump: { suit: 'hearts' },
-        trumpBroken: true,
-        dealer: 1,
-        isBidding: false,
-        currentTurn: 3,
-        hand: [
-          { rank: 'A', suit: 'spades' },
-          { rank: 'K', suit: 'hearts' },
-        ],
-        bids: { 1: '3', 2: '2', 3: '4', 4: '1' },
-        teamTricks: 3,
-        oppTricks: 2,
-        teamScore: 50,
-        oppScore: 30,
-      };
+  describe('event appliers (the one writer)', () => {
+    const deal = (extra = {}) => ({
+      gameId: 'g1', position: 2, seq: 7, currentHand: 3, dealer: 1, score1: 10, score2: 20,
+      trump: { suit: 'hearts', rank: '9' },
+      hand: [{ suit: 'spades', rank: 'A' }, { suit: 'clubs', rank: '4' }, { suit: 'hearts', rank: 'K' }],
+      hsiValues: { 1: 1, 2: 2, 3: 3, 4: 4 },
+      ...extra,
+    });
 
-      state.restoreFromRejoin(rejoinData);
+    it('a deal opens bidding with every seat holding the hand size', () => {
+      state.applyDeal(deal());
+      expect(state.handNo).toBe(1);
+      expect(state.dealSeq).toBe(7);
+      expect(state.stage).toBe('BIDDING');
+      expect(state.isBidding).toBe(true);
+      expect(state.seatCards).toEqual({ 1: 3, 2: 3, 3: 3, 4: 3 });
+      // seat 2 is team 2: score2 is mine
+      expect([state.teamScore, state.oppScore]).toEqual([20, 10]);
+    });
 
+    it('bids, doneBidding, plays and the trick count are kept here, not in the scene (cli-8)', () => {
+      state.applyDeal(deal());
+      [[2, '1'], [3, '0'], [4, '2'], [1, 'B']].forEach(([position, bid]) => state.applyBid({ position, bid }));
+      expect(state.tempBids).toEqual(['1', '0', '2', 'B']);
+      expect(state.teamBids).toBe('1/2');
+      state.applyDoneBidding({ bids: ['B', '1', '0', '2'], lead: 2 });
+      expect(state.stage).toBe('PLAYING');
+      expect(state.currentTurn).toBe(2);
+      state.applyCardPlayed({ card: { suit: 'clubs', rank: '4' }, position: 2 });
+      state.applyCardPlayed({ card: { suit: 'clubs', rank: 'Q' }, position: 3, trumpBroken: false });
+      state.applyCardPlayed({ card: { suit: 'hearts', rank: '2' }, position: 4, trumpBroken: true });
+      state.applyCardPlayed({ card: { suit: 'clubs', rank: '5' }, position: 1 });
+      expect(state.stage).toBe('TRICK_RESOLVING');
+      expect(state.trumpBroken).toBe(true);
+      expect(state.myCards).toHaveLength(2);
+      expect(state.seatCards).toEqual({ 1: 2, 2: 2, 3: 2, 4: 2 });
+      state.applyTrickComplete({ winner: 4 });
+      expect([state.teamTricks, state.oppTricks]).toEqual([1, 0]);
+      expect(state.trickNo).toBe(2);
+      expect(state.trickHistory).toHaveLength(1);
+      expect(state.playedCards).toEqual([]);
+      state.applyTrickComplete({ winner: 1, resumeInMs: 1000 });
+      expect(state.stage).toBe('HAND_RESOLVING');
+    });
+
+    it('a zero-bid redeal keeps the hand number; the next deal is the next hand', () => {
+      state.applyDeal(deal());
+      state.applyDestroyHands();
+      expect(state.stage).toBe('REDEAL');
+      expect(state.myCards).toEqual([]);
+      state.applyDeal(deal({ seq: 12 }));
+      expect(state.handNo).toBe(1);
+      expect(state.dealSeq).toBe(12);
+      state.applyDeal(deal({ seq: 30 }));
+      expect(state.handNo).toBe(2);
+    });
+  });
+
+  describe('applySnapshot (the only restore path)', () => {
+    const seat = (position, cardsInHand, extra = {}) => ({
+      position, username: `p${position}`, pic: position, hasCustomPic: false, customPic: null, ownerUsername: `p${position}`,
+      controller: 'human', presence: 'connected', isBot: false, lazy: false, offered: false, graceDeadline: null,
+      resignableAt: null, cardsInHand, ...extra,
+    });
+    const snap = (extra = {}) => ({
+      v: 2, gameId: 'game123', seq: 40, stage: 'PLAYING', partial: [],
+      viewer: { role: 'seat', position: 2, ownerView: 'seat', canAct: false },
+      hand: [{ rank: 'A', suit: 'spades' }, { rank: 'K', suit: 'hearts' }],
+      deal: { handNo: 3, handSize: 8, dealer: 1, bidder: 2, dealSeq: 3 },
+      trump: { suit: 'hearts', rank: '4' }, trumpBroken: true,
+      turn: { position: 3, action: 'play' },
+      bids: { byPosition: ['3', '2', '4', '1'], order: [2, 3, 4, 1], teamBids: { team1: 7, team2: 3 }, mults: { team1: 1, team2: 1 } },
+      trick: { number: 6, leadPosition: 1, cards: [{ position: 1, card: { suit: 'clubs', rank: '9' } }, { position: 2, card: { suit: 'clubs', rank: 'J' } }] },
+      tricks: { team1: 3, team2: 2 }, tricksByPosition: [2, 1, 1, 1],
+      score: { team1: 50, team2: 30 }, rainbows: { team1: 0, team2: 0 }, hsi: [1, 2, 3, 4],
+      seats: [seat(1, 2), seat(2, 2), seat(3, 3), seat(4, 3)],
+      entrants: null, draw: null, spectatorCount: 0, tournament: null, log: [],
+      ...extra,
+    });
+
+    it('replaces the table, relative to my seat', () => {
+      state.applySnapshot(snap());
       expect(state.gameId).toBe('game123');
       expect(state.position).toBe(2);
+      expect(state.handNo).toBe(3);
       expect(state.currentHand).toBe(8);
-      expect(state.trump).toEqual({ suit: 'hearts' });
+      expect(state.trump).toEqual({ suit: 'hearts', rank: '4' });
       expect(state.trumpBroken).toBe(true);
       expect(state.isBidding).toBe(false);
-      expect(state.myCards).toHaveLength(2);
       expect(state.phase).toBe(PHASE.PLAYING);
+      expect(state.myCards).toHaveLength(2);
+      expect(state.currentTurn).toBe(3);
+      expect(state.leadPosition).toBe(1);
+      expect(state.hasPlayedCard).toBe(true);
+      expect(state.trickNo).toBe(6);
+      // seat 2 is team 2
+      expect([state.teamTricks, state.oppTricks]).toEqual([2, 3]);
+      expect([state.teamScore, state.oppScore]).toEqual([30, 50]);
+      expect(state.seatCards).toEqual({ 1: 2, 2: 2, 3: 3, 4: 3 });
+      expect(state.bids).toEqual({ 1: '3', 2: '2', 3: '4', 4: '1' });
+      expect(state.partnerName).toBe('p4');
+      // only counts are known: face-down stacks
+      expect(state.trickHistory).toBeNull();
+    });
+
+    it('a spectator views from seat 1; a lazy watcher keeps the hand', () => {
+      state.applySnapshot(snap({ viewer: { role: 'spectator', position: null, ownerView: null, canAct: false }, hand: null }));
+      expect([state.isSpectator, state.position, state.myCards]).toEqual([true, 1, []]);
+      expect(state.renderModel().hand).toBeNull();
+      state.applySnapshot(snap({ viewer: { role: 'lazyWatcher', position: 2, ownerView: 'watch', canAct: false } }));
+      expect([state.isSpectator, state.isLazy, state.myCards.length]).toEqual([false, true, 2]);
+    });
+
+    it('keeps the face-up trick history of the same deal when the counts agree', () => {
+      state.applySnapshot(snap({ tricks: { team1: 0, team2: 0 }, trick: { number: 1, leadPosition: null, cards: [] } }));
+      expect(state.trickHistory).toEqual([]);
+      state.trickHistory = [{ winner: 1, cards: [] }];
+      state.applySnapshot(snap({ tricks: { team1: 1, team2: 0 } }));
+      expect(state.trickHistory).toHaveLength(1);
+      state.applySnapshot(snap({ tricks: { team1: 2, team2: 0 } }));
+      expect(state.trickHistory).toBeNull();
     });
   });
 

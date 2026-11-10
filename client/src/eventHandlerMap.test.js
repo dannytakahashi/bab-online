@@ -137,6 +137,8 @@ describe('server event -> handler map', () => {
       const scene = new GameScene();
       scene.scene = { restart: vi.fn() };
       scene.children = { removeAll: vi.fn() };
+      // A created scene has its managers: the director runs table work only then
+      scene.cardManager = { clearAll: vi.fn() };
       window.ModernUtils.setGameScene(scene);
       return scene;
     }

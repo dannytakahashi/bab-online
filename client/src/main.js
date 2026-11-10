@@ -27,7 +27,11 @@ import { getClientSession, SCREEN, ROLE, EXIT } from './state/ClientSession.js';
 import { getSocketManager, initializeSocketManager } from './socket/SocketManager.js';
 import { createSocket } from './socket/createSocket.js';
 import { installConnectionBanner } from './ui/components/ConnectionBanner.js';
-import { getTransitionOverlay, removeTransitionOverlay, transitionGeneration } from './ui/transitionOverlay.js';
+import { removeTransitionOverlay } from './ui/transitionOverlay.js';
+import { getTableDirector } from './phaser/TableDirector.js';
+import { getSeqGate } from './state/SeqGate.js';
+import { getMyAction } from './state/MyAction.js';
+import { applyTableSnapshot, snapshotSource } from './state/tableSync.js';
 import { speakingSlotFor } from './voice/speakingSlot.js';
 
 // UI Components
@@ -64,6 +68,9 @@ let gameSceneRef = null;
 // Reference to the modular game log instance
 let gameLogInstance = null;
 
+// The table's timed work, scene readiness and fast-forward (TableDirector)
+const director = getTableDirector();
+
 /**
  * Set the game scene reference (GameScene.create() calls it, through
  * window.ModernUtils, after creating its managers).
@@ -75,9 +82,9 @@ export function setGameScene(scene) {
   // Also set window.gameScene for global access
   window.gameScene = scene;
 
-  // Table events that arrived while the scene was restarting (an exit's
-  // teardown restarts it; a new table can start right after)
-  flushSceneQueue(scene);
+  // Table events that arrived while the scene was missing or restarting
+  // (before create(), or an exit's teardown) run now (webclient-2)
+  director.attach(scene);
 
   // Handle tab visibility change - reposition elements when tab becomes visible
   // This fixes card positioning issues on background tabs during game start
@@ -115,36 +122,19 @@ export function getGameScene() {
  */
 export function clearGameScene() {
   gameSceneRef = null;
+  // Nothing the old scene owned may run; new work waits for the next one
+  director.detach();
   console.log('🎮 Game scene reference cleared');
 }
 
-// Scene work deferred until the restarted scene registers, tagged with the
-// table generation it belongs to (an exit or a new table drops it)
-let sceneQueue = [];
-
 /**
- * Run fn(scene) now, or once the restarting scene has registered.
+ * Run fn(scene) now, or once the scene is ready (TableDirector.run: events
+ * are buffered in order, tagged with the table generation; an exit or a
+ * newer rebuild drops them). kind 'draw': replayed as is; 'table': a late
+ * flush ends with one render of the model.
  */
-function withScene(fn) {
-  const scene = getGameScene();
-  if (scene) {
-    fn(scene);
-    return;
-  }
-  sceneQueue.push({ fn, generation: session.tableGeneration });
-}
-
-function flushSceneQueue(scene) {
-  const queued = sceneQueue;
-  sceneQueue = [];
-  for (const { fn, generation } of queued) {
-    if (generation !== session.tableGeneration) continue;
-    try {
-      fn(scene);
-    } catch (err) {
-      console.error('Deferred scene work failed:', err);
-    }
-  }
+function withScene(fn, kind = 'table') {
+  director.run(fn, { kind });
 }
 
 // UI Components - Game Log
@@ -167,7 +157,8 @@ window.ModernUtils = {
 // Game Log Bridges (window functions for external access)
 // ============================================
 
-// Bridge for creating game feed - now uses modular GameLog
+// Bridge for creating game feed - now uses modular GameLog. A replay of the
+// server's log brings its own 'Game started!' (pass true)
 window.createGameFeedFromLegacy = function(isReconnection = false) {
   // The log is a .ui-element, so uiManager.clearUI() (removeWaitingScreen,
   // which every rejoin runs) removes its element without forgetting the
@@ -205,9 +196,9 @@ window.createGameFeedFromLegacy = function(isReconnection = false) {
 };
 
 // Bridge for adding messages to game feed
-window.addToGameFeedFromLegacy = function(message, playerPosition = null) {
+window.addToGameFeedFromLegacy = function(message, playerPosition = null, at = null) {
   if (gameLogInstance && gameLogInstance.addGameMessage) {
-    gameLogInstance.addGameMessage(message, playerPosition);
+    gameLogInstance.addGameMessage(message, playerPosition, at);
   } else {
     console.warn('Game log not initialized, message dropped:', message);
   }
@@ -479,6 +470,23 @@ function initializeApp() {
   // Initialize socket manager with the existing socket
   const socketMgr = initializeSocketManager(socket);
 
+  // Sequenced events reach their handlers in seq order (contract R1-R5): a
+  // gap asks for a snapshot (log and custom pictures left out). Set before
+  // the handler modules register: SocketManager wraps them as they do
+  const seqGate = getSeqGate();
+  const requestSnapshot = (requestId) => socket.emit('requestSnapshot', { requestId, log: false, customPics: false });
+  seqGate.configure({ requestSnapshot });
+  socketMgr.setGate(seqGate);
+
+  // My bid / play: pending until its echo, rolled back by actionRejected,
+  // reconciled from a snapshot after an unanswered 5 s (MyAction)
+  const myAction = getMyAction();
+  myAction.configure({
+    emit: (event, payload) => socket.emit(event, payload),
+    requestSnapshot,
+    forceReconnect: () => socketMgr.forceReconnect(),
+  });
+
   // Visible connection state while the socket is down
   installConnectionBanner(socketMgr);
 
@@ -490,6 +498,14 @@ function initializeApp() {
 
   // The client session drives the screens; SocketManager's connect resumes it
   session.attach({ socketManager: socketMgr, gameState });
+
+  // The director buffers scene work by table generation and, after a hidden
+  // tab or a late scene, renders the current model (no log replay)
+  director.configure({
+    generation: () => session.tableGeneration,
+    isLive: () => session.isAtTable && gameState.renderModel().live,
+    render: (scene) => renderTable(scene, {}),
+  });
 
   // Voice chat lifecycle helpers
   const voiceManager = getVoiceChatManager();
@@ -526,20 +542,19 @@ function initializeApp() {
 
   /**
    * Take the whole table UI down: every exit (session.exitTable runs it as
-   * its teardown hook) and a rebuild in place (a re-spectate after a
-   * reconnect, restorePlayerState) use this one list. It never touches the
+   * its teardown hook). A rebuild of the same table (rejoin, re-spectate,
+   * restorePlayerState, a resync) is a render instead (renderTable): the
+   * scene draws the snapshot over whatever was there. It never touches the
    * game state or the gameId copies (exitTable resets those after it).
-   * inPlace (a rebuild): voice and an open 'Replace with Bot?' offer stay.
    */
-  function teardownTableUI({ inPlace = false } = {}) {
-    if (!inPlace) stopVoice();
-    // A rebuild in place supersedes any earlier rebuild still waiting for
-    // the scene (exitTable bumps the generation itself)
-    if (inPlace) session.supersedeTableWork();
+  function teardownTableUI() {
+    stopVoice();
     removeTransitionOverlay();
-    window._readyForGameUI = false;
-    window._tricksAnimating = false;
-    sceneQueue = [];
+    // Nothing queued, owned or pending of this table may run later
+    director.clearQueue();
+    director.reset();
+    seqGate.reset();
+    myAction.reset();
     const scene = getGameScene();
 
     if (scene) {
@@ -553,7 +568,7 @@ function initializeApp() {
     // Game-owned DOM outside the scene (a rebuild in place keeps the
     // table's open 'Replace with Bot?' offer: the server does not resend it)
     document.getElementById('spectating-indicator')?.remove();
-    if (!inPlace) dismissResignationDialog();
+    dismissResignationDialog();
     clearChatBubbles();
     document.querySelectorAll('.chat-bubble').forEach((el) => el.remove());
     removeFinalScoreOverlay();
@@ -690,327 +705,112 @@ function initializeApp() {
     handleSocketError(error, socket);
   });
 
-  // Shared rejoin/restore logic — used by both onRejoinSuccess and onRestorePlayerState
-  function processRejoinOrRestore(data) {
-    console.log("🔄 Processing rejoin/restore with data:", data);
-    // A later rejoin, re-entry or exit supersedes this one while it waits
-    // for the scene (two waits must never both replay the game log)
-    const generation = session.tableGeneration;
+  /**
+   * The spectating pill: 'lazy' (my seat is played by a bot), 'spectator',
+   * or null (none).
+   */
+  function setSpectatingIndicator(kind) {
+    let indicator = document.getElementById('spectating-indicator');
+    if (!kind) {
+      indicator?.remove();
+      return;
+    }
+    const color = kind === 'lazy' ? '#4ade80' : '#60a5fa';
+    const text = kind === 'lazy' ? 'Spectating — type /active to take back control' : 'Spectating — type /leave to exit';
+    if (!indicator) {
+      indicator = document.createElement('div');
+      indicator.id = 'spectating-indicator';
+      document.body.appendChild(indicator);
+    }
+    indicator.style.cssText = `
+      position: fixed;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.8);
+      color: ${color};
+      padding: 8px 20px;
+      border-radius: 20px;
+      font-size: 14px;
+      z-index: 500;
+      border: 1px solid ${color};
+    `;
+    indicator.dataset.kind = kind;
+    indicator.textContent = text;
+  }
 
-    // Clear any sign-in/lobby screens first
+  /** The game log, created if missing (no local 'Game started!': a replay brings the server's). */
+  function ensureGameLog() {
+    window.createGameFeedFromLegacy(true);
+    document.getElementById('game-container')?.classList.add('in-game');
+    return gameLogInstance;
+  }
+
+  /**
+   * Draw the whole table from GameState (scene.render) plus what lives in
+   * the DOM around it: the game log (replaced by `log`, the snapshot's
+   * server log, when given; then one `suffix` line), the score header, the
+   * hand and trick indicators and the spectating pill. Idempotent: a
+   * rebuild on a live scene equals a fresh render of the same snapshot.
+   * @param {Phaser.Scene} scene
+   * @param {Object} [opts]
+   * @param {Array|null} [opts.log] - snapshot.log entries to replay (null: keep the log)
+   * @param {string|null} [opts.suffix] - a line after the replay ('Reconnected to game!')
+   */
+  function renderTable(scene, { log = null, suffix = null } = {}) {
+    const model = gameState.renderModel({ pendingCard: myAction.pendingCard, pendingBid: myAction.isPending('bid') });
+    scene.render(model);
+    const feed = ensureGameLog();
+    if (log && feed?.replaceMessages) {
+      feed.replaceMessages(log.map((e) => ({ message: e.message, position: e.position ?? null, at: e.at ?? null })));
+    }
+    if (suffix) window.addToGameFeedFromLegacy(suffix);
+    if (model.live && model.handSize) {
+      window.updateHandIndicatorFromLegacy(model.handSize);
+      feed?.showTrickIndicator?.(model.handSize);
+    } else {
+      feed?.hideTrickIndicator?.();
+    }
+    scene.renderScoreHeader?.();
+    const role = model.viewer?.role;
+    setSpectatingIndicator(role === 'lazyWatcher' ? 'lazy' : (role === 'spectator' ? 'spectator' : null));
+    return model;
+  }
+
+  /**
+   * Render once the scene is ready (now if it is), unless the table was left
+   * or rebuilt again meanwhile (the director drops queued work of an older
+   * table generation; a gameEnd first means no rebuild under the score modal).
+   */
+  function scheduleRender(opts) {
+    withScene((scene) => {
+      if (!session.isAtTable) return;
+      renderTable(scene, opts);
+    }, 'render');
+  }
+
+  /** The server log to replay from a snapshot, or null when it was left out (R5: keep ours). */
+  const logOf = (snap) => (snap && !snap.partial?.includes('log') ? snap.log || [] : null);
+
+  /**
+   * A rebuild from a snapshot carrier (rejoinSuccess, restorePlayerState,
+   * the spectator full state): the snapshot is the table; the scene is
+   * drawn once it is ready.
+   */
+  function rebuildTable(data, { source, role, suffix }) {
+    // Sign-in / lobby screens and overlays go (a rejoin inside the teams
+    // fade never gets createUI, which is what lifts the black overlay)
     uiManager.removeAllVignettes();
-    const signInContainer = document.getElementById("signInContainer");
-    if (signInContainer) signInContainer.remove();
-    const lobbyContainer = document.getElementById("lobbyContainer");
-    if (lobbyContainer) lobbyContainer.remove();
-    const signInContainer2 = document.getElementById("sign-in-container");
-    if (signInContainer2) signInContainer2.remove();
-
-    // Remove any overlays (a rejoin inside the teams fade never gets
-    // createUI, which is what normally lifts the black transition overlay)
+    ['signInContainer', 'lobbyContainer', 'sign-in-container'].forEach((id) => document.getElementById(id)?.remove());
     uiManager.removeWaitingScreen();
     removeTransitionOverlay();
-
-    // Helper function to process rejoin after scene is ready
-    const processRejoinData = () => {
-      console.log("🔄 Scene ready, processing rejoin UI...");
-      const scene = getGameScene();
-
-      // Clean up draw phase via DrawManager (if present)
-      if (scene && scene.drawManager) {
-        scene.drawManager.cleanup();
-      }
-
-      // Create game UI elements (pass true to indicate reconnection)
-      window.createGameFeedFromLegacy(true);
-
-      // Restore game log history from server
-      if (data.gameLog && data.gameLog.length > 0) {
-        data.gameLog.forEach(entry => {
-          window.addToGameFeedFromLegacy(entry.message, entry.playerPosition, entry.timestamp);
-        });
-      }
-
-      // Calculate player names and update game log score
-      const position = gameState.position;
-      const playerData = gameState.playerData;
-      if (playerData && position) {
-        const { teamName, oppName } = getTeamNames(position, playerData);
-        window.updateGameLogScoreFromLegacy(
-          teamName, oppName,
-          gameState.teamScore, gameState.oppScore,
-          gameState.teamBids || '-/-', gameState.oppBids || '-/-',
-          gameState.teamTricks, gameState.oppTricks
-        );
-      }
-
-      // Update hand indicator
-      if (data.currentHand !== undefined) {
-        window.updateHandIndicatorFromLegacy(data.currentHand);
-      }
-
-      // Initialize managers with player position for reconnection
-      if (scene && gameState.position) {
-        if (scene.trickManager) {
-          scene.trickManager.setPlayerPosition(gameState.position);
-          scene.trickManager.updatePlayPositions();
-        }
-        if (scene.opponentManager) {
-          scene.opponentManager.setPlayerPosition(gameState.position);
-        }
-        if (scene.effectsManager) {
-          scene.effectsManager.setPlayerPosition(gameState.position);
-        }
-      }
-
-      // Display trump card
-      if (scene && data.trump && scene.displayTrumpCard) {
-        scene.displayTrumpCard(data.trump);
-      }
-
-      // Display player hand via CardManager (skip animation on rejoin)
-      if (scene && scene.handleDisplayHand && data.hand) {
-        scene.handleDisplayHand(data.hand, true);
-      }
-
-      // Display opponent hands via OpponentManager (skip animation on rejoin)
-      if (scene && scene.handleDisplayOpponentHands) {
-        const cardCount = data.currentHand || data.hand?.length;
-        if (cardCount) {
-          scene.handleDisplayOpponentHands(
-            cardCount,
-            data.dealer,
-            gameState.playerData,
-            true
-          );
-        }
-      }
-
-      // Create DOM backgrounds via LayoutManager
-      if (scene && scene.layoutManager) {
-        scene.layoutManager.update();
-        scene.layoutManager.createDomBackgrounds({ skipHandArea: gameState.isSpectator });
-      }
-
-      // Add .in-game class for game log layout
-      document.getElementById('game-container')?.classList.add('in-game');
-
-      // Create player info box (own avatar)
-      if (scene && scene.createPlayerInfoBox && !scene._playerInfo && !gameState.isSpectator && gameState.playerData && gameState.position) {
-        scene.createPlayerInfoBox(gameState.playerData, gameState.position);
-      }
-
-      // Restore HSI display
-      if (scene && data.hsiValues && scene.updatePlayerHsi && gameState.position && !gameState.isSpectator) {
-        scene.updatePlayerHsi(data.hsiValues[gameState.position]);
-      }
-
-      // Restore trick backgrounds if bidding is complete
-      if (scene && scene.trickManager && data.playerBids && data.playerBids.length > 0 && !gameState.isBidding) {
-        const parseBid = (bid) => {
-          const bidStr = String(bid);
-          return bidStr.includes('B') ? 0 : parseInt(bidStr, 10) || 0;
-        };
-        const team1Bid = parseBid(data.playerBids[0]) + parseBid(data.playerBids[2]);
-        const team2Bid = parseBid(data.playerBids[1]) + parseBid(data.playerBids[3]);
-        const isTeam1 = gameState.position === 1 || gameState.position === 3;
-        const teamBid = isTeam1 ? team1Bid : team2Bid;
-        const oppBid = isTeam1 ? team2Bid : team1Bid;
-
-        scene.trickManager.setBidTotals(teamBid, oppBid);
-        scene.trickManager._teamTrickCount = gameState.teamTricks || 0;
-        scene.trickManager._oppTrickCount = gameState.oppTricks || 0;
-        scene.trickManager.createTrickBackgrounds(false);
-
-        // Restore visual trick stacks (card-back placeholders for won tricks)
-        if (gameState.teamTricks > 0 || gameState.oppTricks > 0) {
-          // Reset counts before restoreTrickPlaceholders (it increments them)
-          scene.trickManager._teamTrickCount = 0;
-          scene.trickManager._oppTrickCount = 0;
-          scene.trickManager.restoreTrickPlaceholders(gameState.teamTricks, gameState.oppTricks);
-        }
-      }
-
-      // Restore played cards in current trick via TrickManager
-      if (scene && data.playedCards && data.playedCards.length > 0 && scene.trickManager) {
-        scene.trickManager.restorePlayedCards(data.playedCards);
-      }
-
-      // Update card legality after restoring state
-      if (scene && scene.cardManager && !gameState.isSpectator) {
-        const canPlay = !gameState.isBidding &&
-                        gameState.currentTurn === gameState.position &&
-                        !gameState.hasPlayedCard;
-        const legalityChecker = (card) => {
-          const result = isLegalMove(
-            card,
-            gameState.myCards,
-            gameState.leadCard,
-            gameState.playedCardIndex === 0,
-            gameState.trump,
-            gameState.trumpBroken,
-            gameState.position,
-            gameState.leadPosition
-          );
-          return result.legal;
-        };
-        scene.cardManager.updateCardLegality(legalityChecker, canPlay);
-      }
-
-      // Show game log trick indicator on reconnect (persists through entire hand)
-      if (gameLogInstance && gameLogInstance.showTrickIndicator) {
-        const handSize = data.hand?.length || data.currentHand;
-        if (handSize) {
-          gameLogInstance.showTrickIndicator(handSize);
-        }
-      }
-
-      // Re-apply bidding state (scene creation may have reset it)
-      if (isBiddingOnRejoin) {
-        gameState.isBidding = true;
-        gameState.phase = PHASE.BIDDING;
-      }
-
-      // Create bid UI via BidManager (only if still in bidding phase)
-      if (scene && scene.bidManager && data.hand && isBiddingOnRejoin && !gameState.isSpectator) {
-        scene.bidManager.showBidUI(data.hand.length, (bid) => {
-          if (window.socket) {
-            window.socket.emit('playerBid', { position: gameState.position, bid });
-          }
-        });
-      }
-
-      // Add reconnected message to game feed
-      window.addToGameFeedFromLegacy("Reconnected to game!");
-
-      // Handle lazy mode — player is spectating while bot plays their hand
-      if (data.isLazy) {
-        gameState.isLazy = true;
-
-        // Disable card interaction
-        if (scene.cardManager) {
-          scene.cardManager.setInteractive(false);
-        }
-
-        // Hide bid UI if it was shown
-        if (scene.bidManager) {
-          scene.bidManager.hideBidUI();
-        }
-
-        // Show spectating indicator
-        let indicator = document.getElementById('spectating-indicator');
-        if (!indicator) {
-          indicator = document.createElement('div');
-          indicator.id = 'spectating-indicator';
-          indicator.style.cssText = `
-            position: fixed;
-            top: 10px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(0, 0, 0, 0.8);
-            color: #4ade80;
-            padding: 8px 20px;
-            border-radius: 20px;
-            font-size: 14px;
-            z-index: 500;
-            border: 1px solid #4ade80;
-          `;
-          indicator.textContent = 'Spectating — type /active to take back control';
-          document.body.appendChild(indicator);
-        }
-      }
-    };
-
-    // Wait for scene to be ready before processing UI
-    const waitForScene = () => {
-      // Superseded, or the game ended (score modal) or was left meanwhile
-      if (session.tableGeneration !== generation || !session.isAtTable) return;
-      const scene = getGameScene();
-      if (scene && scene.cardManager) {
-        processRejoinData();
-      } else {
-        setTimeout(waitForScene, 100);
-      }
-    };
-
-    // Update GameState from rejoin data first (synchronously)
-    if (data.position) gameState.position = data.position;
-    if (data.hand) gameState.setCards(data.hand);
-    if (data.trump) gameState.setTrump(data.trump);
-    if (data.dealer !== undefined) gameState.dealer = data.dealer;
-    if (data.currentTurn !== undefined) gameState.setCurrentTurn(data.currentTurn);
-
-    const bidding = data.isBidding !== undefined ? data.isBidding : data.bidding;
-    const isBiddingOnRejoin = !!bidding;
-    if (bidding !== undefined) {
-      gameState.isBidding = bidding;
-      gameState.phase = bidding ? PHASE.BIDDING : PHASE.PLAYING;
-    }
-
-    if (data.playedCards && Array.isArray(data.playedCards)) {
-      let playedCount = 0;
-      data.playedCards.forEach((card) => {
-        if (card) playedCount++;
-      });
-      gameState.playedCardIndex = playedCount;
-
-      // Use server-provided leadPosition (position-indexed array can't reliably infer lead order)
-      if (data.leadPosition !== undefined) {
-        gameState.leadPosition = data.leadPosition;
-        const leadCard = data.playedCards[data.leadPosition - 1];
-        if (leadCard) gameState.leadCard = leadCard;
-      } else {
-        // Fallback: infer from first non-null card (legacy)
-        data.playedCards.forEach((card, index) => {
-          if (card && !gameState.leadCard) {
-            gameState.leadCard = card;
-            gameState.leadPosition = index + 1;
-          }
-        });
-      }
-    } else {
-      if (data.leadCard) gameState.leadCard = data.leadCard;
-      if (data.leadPosition !== undefined) gameState.leadPosition = data.leadPosition;
-      if (data.playedCardIndex !== undefined) gameState.playedCardIndex = data.playedCardIndex;
-    }
-
-    const trumpBroken = data.trumpBroken !== undefined ? data.trumpBroken : data.isTrumpBroken;
-    if (trumpBroken !== undefined) gameState.trumpBroken = trumpBroken;
-    gameState.hasPlayedCard = false;
-
-    if (data.score) {
-      const position = gameState.position;
-      if (position % 2 !== 0) {
-        gameState.setGameScores(data.score.team1, data.score.team2);
-      } else {
-        gameState.setGameScores(data.score.team2, data.score.team1);
-      }
-    }
-
-    // Restore trick counts from server format (team1/team2 → team/opp)
-    if (data.tricks) {
-      if (gameState.position % 2 !== 0) {
-        gameState.teamTricks = data.tricks.team1;
-        gameState.oppTricks = data.tricks.team2;
-      } else {
-        gameState.teamTricks = data.tricks.team2;
-        gameState.oppTricks = data.tricks.team1;
-      }
-    }
-
-    // Restore position-keyed bids from playerBids array
-    // (data.bids is {team1, team2} after bidding completes, but _updateTeamBids needs position keys)
-    if (data.playerBids && data.playerBids.length > 0) {
-      for (let i = 0; i < data.playerBids.length; i++) {
-        if (data.playerBids[i] !== undefined && data.playerBids[i] !== null) {
-          gameState.bids[i + 1] = data.playerBids[i];
-        }
-      }
-      gameState._updateTeamBids();
-    }
-
-    // Wait for scene to be ready before processing UI
-    waitForScene();
+    // Whatever was in flight belongs to the table being replaced
+    director.reset();
+    return applyTableSnapshot(data, {
+      source,
+      role,
+      render: (snap) => scheduleRender({ log: logOf(snap), suffix }),
+    });
   }
 
   // Register all handlers with UI callbacks
@@ -1159,187 +959,15 @@ function initializeApp() {
     onSpectatorJoined: (data) => {
       // If this is the full game state (not just a notification about another spectator)
       if (data.players && data.trump) {
-        try {
-        const spectatedGameId = data.gameId || session.takePendingSpectate();
-        // A re-spectate after a reconnect rebuilds the table from this state
-        if (session.isAtTable) teardownTableUI({ inPlace: true });
+        const spectatedGameId = data.gameId || data.snapshot?.gameId || session.takePendingSpectate();
         session.routeArrived();
         // Spectators persist spectatingGameId only (a reconnect re-spectates)
         session.enterTable(ROLE.SPECTATOR, spectatedGameId);
-        const generation = session.tableGeneration;
-
-        // Mark as spectator in game state
-        gameState.isSpectator = true;
-        gameState.phase = PHASE.PLAYING;
-
-        // Build player data structure from spectator data
-        const positions = data.players.map(p => p.position);
-        const sockets = data.players.map(p => p.socketId);
-        const usernames = data.players.map(p => ({ username: p.username, socketId: p.socketId }));
-        const pics = data.players.map(p => p.pic);
-
-        gameState.setPlayerData({
-          position: positions,
-          sockets: sockets,
-          username: usernames,
-          pics: pics
-        });
-
-        // Use position 1 as the spectator's "view position" (they see from P1's perspective)
-        gameState.position = 1;
-
-        // Set up the game scene for spectating
-        const waitForScene = () => {
-          // Superseded, or the game ended (score modal) or was left meanwhile
-          if (session.tableGeneration !== generation || !session.isAtTable) return;
-          const scene = getGameScene();
-          if (scene && scene.cardManager) {
-            try {
-              // Create game UI (game log panel)
-              window.createGameFeedFromLegacy(false);
-
-              // Restore game log
-              if (data.gameLog && data.gameLog.length > 0) {
-                data.gameLog.forEach(entry => {
-                  window.addToGameFeedFromLegacy(entry.message, entry.playerPosition, entry.timestamp);
-                });
-              }
-
-              // Update scores
-              gameState.setGameScores(data.score.team1, data.score.team2);
-
-              // Restore trick counts
-              if (data.tricks) {
-                gameState.teamTricks = data.tricks.team1;
-                gameState.oppTricks = data.tricks.team2;
-              }
-
-              // Restore bids from playerBids array
-              if (data.playerBids && data.playerBids.length > 0) {
-                for (let i = 0; i < data.playerBids.length; i++) {
-                  if (data.playerBids[i] !== undefined && data.playerBids[i] !== null) {
-                    gameState.bids[i + 1] = data.playerBids[i];
-                  }
-                }
-                gameState._updateTeamBids();
-              }
-
-              // Update game log score with bids
-              const { teamName, oppName } = getTeamNames(1, gameState.playerData);
-              window.updateGameLogScoreFromLegacy(
-                teamName, oppName,
-                data.score.team1, data.score.team2,
-                gameState.teamBids || '-/-', gameState.oppBids || '-/-',
-                gameState.teamTricks || 0, gameState.oppTricks || 0
-              );
-
-              // Update hand indicator
-              if (data.currentHand !== undefined) {
-                window.updateHandIndicatorFromLegacy(data.currentHand);
-              }
-
-              // Set up managers
-              if (scene.trickManager) {
-                scene.trickManager.setPlayerPosition(1);
-                scene.trickManager.setSpectatorMode(true);
-                scene.trickManager.updatePlayPositions();
-              }
-              if (scene.opponentManager) {
-                scene.opponentManager.setPlayerPosition(1);
-                scene.opponentManager.setSpectatorMode(true);
-              }
-
-              // Restore trick backgrounds if bidding is complete
-              const isBidding = data.bidding !== undefined ? data.bidding : false;
-              if (scene.trickManager && data.playerBids && data.playerBids.length > 0 && !isBidding) {
-                const parseBid = (bid) => {
-                  const bidStr = String(bid);
-                  return bidStr.includes('B') ? 0 : parseInt(bidStr, 10) || 0;
-                };
-                const team1Bid = parseBid(data.playerBids[0]) + parseBid(data.playerBids[2]);
-                const team2Bid = parseBid(data.playerBids[1]) + parseBid(data.playerBids[3]);
-                // Spectator views from position 1 (team 1)
-                scene.trickManager.setBidTotals(team1Bid, team2Bid);
-                scene.trickManager._teamTrickCount = gameState.teamTricks || 0;
-                scene.trickManager._oppTrickCount = gameState.oppTricks || 0;
-                scene.trickManager.createTrickBackgrounds(false);
-
-                // Create card-back placeholder stacks for already-won tricks
-                // (server only sends counts, not actual cards)
-                if (gameState.teamTricks > 0 || gameState.oppTricks > 0) {
-                  // Reset counts first — restoreTrickPlaceholders increments them
-                  scene.trickManager._teamTrickCount = 0;
-                  scene.trickManager._oppTrickCount = 0;
-                  scene.trickManager.restoreTrickPlaceholders(
-                    gameState.teamTricks || 0,
-                    gameState.oppTricks || 0
-                  );
-                }
-              }
-
-              // Display trump card
-              if (data.trump && scene.displayTrumpCard) {
-                scene.displayTrumpCard(data.trump);
-              }
-
-              // Display opponent hands (no player hand for spectators)
-              if (scene.handleDisplayOpponentHands) {
-                scene.handleDisplayOpponentHands(
-                  data.currentHand, // approximate card count
-                  data.dealer,
-                  gameState.playerData,
-                  true // skip animation
-                );
-              }
-
-              if (scene.layoutManager) {
-                scene.layoutManager.update();
-                scene.layoutManager.createDomBackgrounds({ skipHandArea: true });
-              }
-
-              // Restore played cards
-              if (data.playedCards && data.playedCards.length > 0 && scene.trickManager) {
-                scene.trickManager.restorePlayedCards(data.playedCards);
-              }
-
-              // Show spectating indicator
-              let indicator = document.getElementById('spectating-indicator');
-              if (!indicator) {
-                indicator = document.createElement('div');
-                indicator.id = 'spectating-indicator';
-                indicator.style.cssText = `
-                  position: fixed;
-                  top: 10px;
-                  left: 50%;
-                  transform: translateX(-50%);
-                  background: rgba(0, 0, 0, 0.8);
-                  color: #60a5fa;
-                  padding: 8px 20px;
-                  border-radius: 20px;
-                  font-size: 14px;
-                  z-index: 500;
-                  border: 1px solid #60a5fa;
-                `;
-                indicator.textContent = 'Spectating — type /leave to exit';
-                document.body.appendChild(indicator);
-              }
-
-              // Add game container in-game class
-              document.getElementById('game-container')?.classList.add('in-game');
-
-              window.addToGameFeedFromLegacy?.("Joined as spectator!");
-            } catch (err) {
-              console.error('👁️ Error setting up spectator view:', err);
-            }
-          } else {
-            setTimeout(waitForScene, 100);
-          }
-        };
-
-        waitForScene();
-        } catch (outerErr) {
-          console.error('👁️ Error in spectator setup (outer):', outerErr);
-        }
+        // A re-spectate after a reconnect supersedes one still waiting for the scene
+        session.supersedeTableWork();
+        // The snapshot is the table (cli-20: names, turn glow, trump face up,
+        // each opponent's cards); the log is the server's (one 'Game started!')
+        rebuildTable(data, { source: 'spectate', role: 'spectator', suffix: 'Joined as spectator!' });
       } else if (data.username) {
         // Notification that another spectator joined — show in game log
         window.addToGameFeedFromLegacy?.(`${data.username} joined as a spectator.`, null);
@@ -1359,168 +987,96 @@ function initializeApp() {
       // A seat's deal always finds the table entered (startDraw/rejoin);
       // a stray one enters it
       if (!session.hasTable && data.position) session.enterTable(ROLE.PLAYER, data.gameId);
-      // Update modular GameState
-      if (data.position) {
-        gameState.position = data.position;
-        gameState._updatePlayerNames();
-      }
-      if (data.hand) {
-        gameState.setCards(data.hand);
-      }
-      if (data.trump) {
-        gameState.setTrump(data.trump);
-      }
-      if (data.dealer !== undefined) {
-        gameState.dealer = data.dealer;
-      }
-      gameState.phase = PHASE.BIDDING;
-      gameState.isBidding = true;
-
-      // Initialize all managers with player position
-      const scene = getGameScene();
-      if (!scene) return;
-
-      // Initialize managers with player position
-      if (gameState.position) {
-        if (scene.trickManager) {
-          scene.trickManager.setPlayerPosition(gameState.position);
-          scene.trickManager.updatePlayPositions();
-          // Note: trick backgrounds are created after bidding completes (in onDoneBidding)
-        }
-        if (scene.opponentManager) {
-          scene.opponentManager.setPlayerPosition(gameState.position);
-        }
-        if (scene.effectsManager) {
-          scene.effectsManager.setPlayerPosition(gameState.position);
-        }
-      }
-
-      // Update player data if included (reflects bot takeovers)
-      if (data.playerInfo) {
-        gameState.setPlayerData({
-          positions: data.playerInfo.map(p => p.position),
-          sockets: data.players,
-          usernames: data.playerInfo.map(p => ({ username: p.username })),
-          pics: data.playerInfo.map(p => p.pic),
-        });
-      }
-
-      // Display avatars and dealer button immediately
-      if (scene.opponentManager) {
-        scene.opponentManager.displayDealerButton(data.dealer);
-        if (gameState.playerData) {
-          scene.opponentManager.displayAvatars(gameState.playerData);
-        }
-      }
-
-      // Create player info box (own avatar) immediately
-      if (scene.createPlayerInfoBox && !scene._playerInfo && !gameState.isSpectator) {
-        if (gameState.position && gameState.playerData) {
-          scene.createPlayerInfoBox(gameState.playerData, gameState.position);
-        }
-      }
-
-      // Update player's HSI display (only shown for self, not opponents)
-      if (data.hsiValues && scene.updatePlayerHsi && gameState.position) {
-        scene.updatePlayerHsi(data.hsiValues[gameState.position]);
-      }
-
-      // Create DOM backgrounds via LayoutManager (show immediately)
-      if (scene.layoutManager) {
-        scene.layoutManager.update();
-        scene.layoutManager.createDomBackgrounds({ skipHandArea: gameState.isSpectator });
-      }
-
-      // Display trump card via scene method (show immediately)
-      if (data.trump && scene.displayTrumpCard) {
-        scene.displayTrumpCard(data.trump);
-      }
-
-      // Function to display cards (delayed until fade complete)
-      const showCards = () => {
-        // Display player hand via CardManager
-        if (scene.handleDisplayHand && data.hand) {
-          scene.handleDisplayHand(data.hand, false);
-        }
-
-        // In lazy mode, disable card interaction after dealing
-        if (gameState.isLazy && scene.cardManager) {
-          scene.cardManager.setInteractive(false);
-        }
-
-        // Display opponent card backs (skip avatars since already shown)
-        if (scene.opponentManager) {
-          const cardCount = data.currentHand || data.hand?.length;
-          if (cardCount) {
-            scene.opponentManager.displayOpponentCards(cardCount);
+      // GameState applied the deal (handlers/gameHandlers.js); the scene
+      // shows it, now or once it is ready
+      withScene((scene) => {
+        // Initialize managers with player position
+        if (gameState.position) {
+          if (scene.trickManager) {
+            scene.trickManager.setPlayerPosition(gameState.position);
+            scene.trickManager.updatePlayPositions();
+            // Note: trick backgrounds are created after bidding completes (in onDoneBidding)
+          }
+          if (scene.opponentManager) {
+            scene.opponentManager.setPlayerPosition(gameState.position);
+          }
+          if (scene.effectsManager) {
+            scene.effectsManager.setPlayerPosition(gameState.position);
           }
         }
 
-        // Show game log trick indicator as cards are dealt
-        if (gameLogInstance && gameLogInstance.showTrickIndicator && data.hand) {
-          gameLogInstance.showTrickIndicator(data.hand.length);
+        // Display avatars and dealer button immediately
+        if (scene.opponentManager) {
+          scene.opponentManager.displayDealerButton(data.dealer);
+          if (gameState.playerData) {
+            scene.opponentManager.displayAvatars(gameState.playerData);
+          }
         }
-      };
 
-      // Function to show bid UI (delayed until trump flip complete)
-      const showBidUIAfterFlip = () => {
-        if (gameState.isLazy || gameState.isSpectator) return;
-        if (scene.bidManager && data.hand) {
-          scene.bidManager.showBidUI(data.hand.length, (bid) => {
-            console.log(`📩 Sending bid: ${bid}`);
-            if (window.socket) {
-              window.socket.emit('playerBid', { position: gameState.position, bid });
+        // Create player info box (own avatar) immediately
+        if (scene.createPlayerInfoBox && !scene._playerInfo && !gameState.isSpectator) {
+          if (gameState.position && gameState.playerData) {
+            scene.createPlayerInfoBox(gameState.playerData, gameState.position);
+          }
+        }
+
+        // Update player's HSI display (only shown for self, not opponents)
+        if (data.hsiValues && scene.updatePlayerHsi && gameState.position) {
+          scene.updatePlayerHsi(data.hsiValues[gameState.position]);
+        }
+
+        // Create DOM backgrounds via LayoutManager (show immediately)
+        if (scene.layoutManager) {
+          scene.layoutManager.update();
+          scene.layoutManager.createDomBackgrounds({ skipHandArea: gameState.isSpectator });
+        }
+
+        // Show the bid panel once the trump is face up (this deal only: the
+        // flip is the director's, keyed to the deal; cli-19, ui-22)
+        const showBidUIAfterFlip = () => {
+          if (gameState.isLazy || gameState.isSpectator) return;
+          if (gameState.bids[gameState.position] !== undefined) return;
+          if (scene.bidManager && data.hand) {
+            scene.bidManager.showBidUI(data.hand.length, (bid) => scene.submitBid(bid));
+          }
+        };
+
+        // Display trump card face down; it flips after the deal
+        if (data.trump && scene.displayTrumpCard) {
+          scene.displayTrumpCard(data.trump, { onFlipped: showBidUIAfterFlip });
+        }
+
+        // Deal the cards once the first hand's fade or the previous hand's
+        // trick whisk is over (director.afterTransition)
+        const showCards = () => {
+          // Display player hand via CardManager
+          if (scene.handleDisplayHand && data.hand) {
+            scene.handleDisplayHand(data.hand, false);
+          }
+
+          // In lazy mode, disable card interaction after dealing
+          if (gameState.isLazy && scene.cardManager) {
+            scene.cardManager.setInteractive(false);
+          }
+
+          // Display opponent card backs (skip avatars since already shown)
+          if (scene.opponentManager) {
+            const cardCount = data.currentHand || data.hand?.length;
+            if (cardCount) {
+              scene.opponentManager.displayOpponentCards(cardCount);
             }
-          });
-        }
-      };
+          }
 
-      // Wait for transition to complete before showing cards
-      // If no transition overlay exists, wait for tricks to clear (subsequent hands)
-      const hasTransition = getTransitionOverlay();
-      if (hasTransition) {
-        // First hand - wait for fade transition
-        if (window._readyForGameUI) {
-          showCards();
-        } else {
-          const gen = transitionGeneration();
-          window.addEventListener('gameUIReady', function onReady() {
-            window.removeEventListener('gameUIReady', onReady);
-            // The overlay was removed by a rejoin/exit since: not this deal's fade
-            if (transitionGeneration() !== gen) return;
-            showCards();
-          });
-        }
-      } else {
-        // Subsequent hands - wait for tricks to clear first
-        if (window._tricksAnimating) {
-          window.addEventListener('tricksCleared', function onCleared() {
-            window.removeEventListener('tricksCleared', onCleared);
-            showCards();
-          });
-        } else {
-          showCards();
-        }
-      }
+          // Show game log trick indicator as cards are dealt
+          if (gameLogInstance && gameLogInstance.showTrickIndicator && data.hand) {
+            gameLogInstance.showTrickIndicator(data.hand.length);
+          }
+        };
+        director.afterTransition(showCards);
 
-      // Wait for trump flip to complete before showing bid UI
-      window.addEventListener('trumpFlipComplete', function onFlip() {
-        window.removeEventListener('trumpFlipComplete', onFlip);
-        showBidUIAfterFlip();
-      });
-
-      // Update game log score display
-      if (data.hand && data.hand.length > 0) {
-        const position = gameState.position;
-        const playerData = gameState.playerData;
-        if (playerData && position) {
-          const { teamName, oppName } = getTeamNames(position, playerData);
-          // Get scores from data, adjusted for player's team
-          const teamScore = position % 2 !== 0 ? (data.score1 || 0) : (data.score2 || 0);
-          const oppScore = position % 2 !== 0 ? (data.score2 || 0) : (data.score1 || 0);
-          window.updateGameLogScoreFromLegacy(teamName, oppName, teamScore, oppScore);
-        }
-      }
+        // Update game log score display (projected from GameState)
+        scene.renderScoreHeader?.();
+      }, 'deal');
 
       // Update hand indicator
       if (data.currentHand !== undefined) {
@@ -1543,16 +1099,16 @@ function initializeApp() {
       removeTournamentLobby();
 
       // Use DrawManager via scene handler (the scene may be restarting)
-      withScene((scene) => scene.handleStartDraw(data));
+      withScene((scene) => scene.handleStartDraw(data), 'draw');
     },
     onYouDrew: (data) => {
-      withScene((scene) => scene.handleYouDrew(data));
+      withScene((scene) => scene.handleYouDrew(data), 'draw');
     },
     onPlayerDrew: (data) => {
-      withScene((scene) => scene.handlePlayerDrew(data));
+      withScene((scene) => scene.handlePlayerDrew(data), 'draw');
     },
     onTeamsAnnounced: (data) => {
-      withScene((scene) => scene.handleTeamsAnnounced(data));
+      withScene((scene) => scene.handleTeamsAnnounced(data), 'draw');
     },
     onCreateUI: (data) => {
       console.log('🎨 onCreateUI callback');
@@ -1562,9 +1118,9 @@ function initializeApp() {
       removeGameLobby();
       removeTournamentLobby();
 
-      // Clean up draw phase via DrawManager with fade transition
-      const scene = getGameScene();
-      if (scene && scene.handleCreateUI) {
+      // Clean up draw phase via DrawManager with fade transition (once the
+      // scene is ready: before create() it is buffered, never dropped)
+      withScene((scene) => {
         // Pass UI creation as callback - it will be called after fade to black
         scene.handleCreateUI(data, () => {
           // Create game feed using modular GameLog (a detached one, e.g.
@@ -1607,89 +1163,57 @@ function initializeApp() {
             }
           }
         });
-      }
+      }, 'draw');
     },
-    // Bidding phase - call GameScene handlers plus legacy code
+    // Bidding and play: GameState applied the event (handlers/gameHandlers.js);
+    // the scene animates it, now or once it is ready
     onBidReceived: (data) => {
-      // Update GameState with bid
-      if (data.position !== undefined && data.bid !== undefined) {
-        gameState.recordBid(data.position, data.bid);
-      }
-      const scene = getGameScene();
-      if (scene && scene.handleBidReceived) {
+      withScene((scene) => {
         scene.handleBidReceived(data);
-      }
-      // Update game log trick indicator
-      if (gameLogInstance && gameLogInstance.updateTrickIndicator) {
-        gameLogInstance.updateTrickIndicator();
-      }
-      // Note: Legacy code in displayCards() also handles bidReceived for bubbles/impact events
+        // Update game log trick indicator
+        gameLogInstance?.updateTrickIndicator?.();
+      });
     },
     onDoneBidding: (data) => {
-      // Update GameState - transition from bidding to playing
-      gameState.phase = PHASE.PLAYING;
-      gameState.isBidding = false;
-      const scene = getGameScene();
-      if (scene && scene.handleDoneBidding) {
+      withScene((scene) => {
         scene.handleDoneBidding(data);
-      }
 
-      // Create trick backgrounds now that bidding is complete
-      if (scene && scene.trickManager && data.bids) {
-        const myPosition = gameState.position;
-        // Bids array is indexed by position-1 (so position 1 is index 0)
-        // Team 1 is positions 1 & 3, Team 2 is positions 2 & 4
-        const parseBid = (bid) => {
-          const bidStr = String(bid);
-          return bidStr.includes('B') ? 0 : parseInt(bidStr, 10) || 0;
-        };
-        const team1Bid = parseBid(data.bids[0]) + parseBid(data.bids[2]); // positions 1 & 3
-        const team2Bid = parseBid(data.bids[1]) + parseBid(data.bids[3]); // positions 2 & 4
+        // Create trick backgrounds now that bidding is complete
+        if (scene.trickManager && data.bids) {
+          const myPosition = gameState.position || 1;
+          // Bids array is indexed by position-1 (so position 1 is index 0)
+          // Team 1 is positions 1 & 3, Team 2 is positions 2 & 4
+          const parseBid = (bid) => {
+            const bidStr = String(bid);
+            return bidStr.includes('B') ? 0 : parseInt(bidStr, 10) || 0;
+          };
+          const team1Bid = parseBid(data.bids[0]) + parseBid(data.bids[2]); // positions 1 & 3
+          const team2Bid = parseBid(data.bids[1]) + parseBid(data.bids[3]); // positions 2 & 4
 
-        // Determine which team is mine based on position parity
-        const isTeam1 = myPosition === 1 || myPosition === 3;
-        const teamBid = isTeam1 ? team1Bid : team2Bid;
-        const oppBid = isTeam1 ? team2Bid : team1Bid;
+          // Determine which team is mine based on position parity
+          const isTeam1 = myPosition === 1 || myPosition === 3;
+          const teamBid = isTeam1 ? team1Bid : team2Bid;
+          const oppBid = isTeam1 ? team2Bid : team1Bid;
 
-        scene.trickManager.setBidTotals(teamBid, oppBid);
-        scene.trickManager.createTrickBackgrounds();
-      }
-      // Note: Legacy code in displayCards() also handles doneBidding
+          scene.trickManager.setBidTotals(teamBid, oppBid);
+          scene.trickManager.createTrickBackgrounds();
+        }
+      });
     },
     onUpdateTurn: (data) => {
-      // Update GameState with current turn
-      if (data.currentTurn !== undefined) {
-        gameState.setCurrentTurn(data.currentTurn);
-      }
-      const scene = getGameScene();
-      if (scene && scene.handleUpdateTurn) {
-        scene.handleUpdateTurn(data);
-      }
-      // Note: Legacy code in displayCards() also handles updateTurn for glow effects
+      withScene((scene) => scene.handleUpdateTurn(data));
     },
-    // Card play & tricks - call GameScene handlers (legacy still runs in displayCards)
     onCardPlayed: (data) => {
-      // Update GameState
-      if (data.trumpBroken) {
-        gameState.breakTrump();
-      }
-      const scene = getGameScene();
-      if (scene && scene.handleCardPlayed) {
-        scene.handleCardPlayed(data);
-      }
+      withScene((scene) => scene.handleCardPlayed(data));
     },
     onTrickComplete: (data) => {
-      const scene = getGameScene();
-      if (scene && scene.handleTrickComplete) {
-        scene.handleTrickComplete(data);
-      }
+      withScene((scene) => scene.handleTrickComplete(data));
     },
     // Hand & game end - call GameScene handlers
     onHandComplete: (data) => {
-      const scene = getGameScene();
-      if (scene && scene.handleHandComplete) {
-        scene.handleHandComplete(data);
-      }
+      // The hand's bids, for its log lines (GameState resets them next)
+      const bids = { ...gameState.bids };
+      withScene((scene) => scene.handleHandComplete(data, { bids }));
       // Hide game log trick indicator at end of hand
       if (gameLogInstance && gameLogInstance.hideTrickIndicator) {
         gameLogInstance.hideTrickIndicator();
@@ -1758,16 +1282,10 @@ function initializeApp() {
       });
     },
     onRainbow: (data) => {
-      const scene = getGameScene();
-      if (scene && scene.handleRainbow) {
-        scene.handleRainbow(data);
-      }
+      withScene((scene) => scene.handleRainbow(data));
     },
     onDestroyHands: (data) => {
-      const scene = getGameScene();
-      if (scene && scene.handleDestroyHands) {
-        scene.handleDestroyHands(data);
-      }
+      withScene((scene) => scene.handleDestroyHands(data));
     },
     // Error & connection handlers
     onAbortGame: (data) => {
@@ -1800,7 +1318,9 @@ function initializeApp() {
       if (data.tournamentId !== undefined) {
         gameState.tournamentId = data.tournamentId;
       }
-      processRejoinOrRestore(data);
+      // The snapshot is the table: a rejoin onto a live scene draws exactly
+      // what a fresh page would (cli-4)
+      rebuildTable(data, { source: 'rejoin', role: data.isLazy ? 'lazyWatcher' : 'seat', suffix: 'Reconnected to game!' });
       // Re-establish voice on reconnect
       if (!voiceManager.active) {
         startVoice();
@@ -1880,69 +1400,37 @@ function initializeApp() {
       window.addToGameFeedFromLegacy?.(`${data.oldUsername} has been resigned. ${data.botUsername} is taking over.`, null);
     },
     onPlayerLazyMode: (data) => {
-      const scene = getGameScene();
-      if (scene && scene.handlePlayerLazyMode) {
-        scene.handlePlayerLazyMode(data);
-      }
-
-      // If it's the local player entering lazy mode, disable card interaction
-      if (data.position === gameState.position && !gameState.isSpectator) {
-        gameState.isLazy = true;
+      // GameState marked my seat lazy (handlers/gameHandlers.js)
+      const mine = data.position === gameState.position && !gameState.isSpectator;
+      if (mine) {
         session.setRole(ROLE.LAZY);
-        if (scene && scene.cardManager) {
-          scene.cardManager.setInteractive(false);
-        }
-        // Hide bid UI if it's showing
-        if (scene && scene.bidManager) {
-          scene.bidManager.hideBidUI();
-        }
-        // Show spectating indicator
-        let indicator = document.getElementById('spectating-indicator');
-        if (!indicator) {
-          indicator = document.createElement('div');
-          indicator.id = 'spectating-indicator';
-          indicator.style.cssText = `
-            position: fixed;
-            top: 10px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(0, 0, 0, 0.8);
-            color: #4ade80;
-            padding: 8px 20px;
-            border-radius: 20px;
-            font-size: 14px;
-            z-index: 500;
-            border: 1px solid #4ade80;
-          `;
-          indicator.textContent = 'Spectating — type /active to take back control';
-          document.body.appendChild(indicator);
-        }
+        setSpectatingIndicator('lazy');
       }
-
+      withScene((scene) => {
+        scene.handlePlayerLazyMode(data);
+        // My cards and bid panel are the bot's now
+        if (mine) {
+          scene.cardManager?.setInteractive(false);
+          scene.bidManager?.hideBidUI();
+        }
+      });
     },
     onPlayerActiveMode: (data) => {
-      const scene = getGameScene();
-      if (scene && scene.handlePlayerActiveMode) {
-        scene.handlePlayerActiveMode(data);
-      }
-
-      // If it's the local player returning to active mode, re-enable card interaction
-      if (data.position === gameState.position && !gameState.isSpectator) {
-        gameState.isLazy = false;
+      const mine = data.position === gameState.position && !gameState.isSpectator;
+      if (mine) {
         session.setRole(ROLE.PLAYER);
-        if (scene && scene.cardManager) {
-          scene.cardManager.setInteractive(true);
-        }
-        // Lazy mode left every card dimmed and the bid UI hidden: recompute
-        // legality for the open turn, and hand the bid back mid-bid
-        scene?.refreshControlAfterActive?.((bid) => {
-          socket.emit('playerBid', { position: gameState.position, bid });
-        });
-        // Remove spectating indicator
-        const indicator = document.getElementById('spectating-indicator');
-        if (indicator) indicator.remove();
+        setSpectatingIndicator(null);
       }
-
+      withScene((scene) => {
+        scene.handlePlayerActiveMode(data);
+        // The seat is mine again: lazy mode had dimmed every card and hidden
+        // the bid UI; recompute legality for the open turn, and hand the bid
+        // back mid-bid (cli-1)
+        if (mine) {
+          scene.cardManager?.setInteractive(true);
+          scene.refreshControlAfterActive?.((bid) => scene.submitBid(bid));
+        }
+      });
     },
     onLeftGame: (data) => {
       // /leave (seat or spectating): out to the tournament for a tournament
@@ -1950,28 +1438,53 @@ function initializeApp() {
       session.exitTable(EXIT.LEFT_GAME);
     },
     onRestorePlayerState: (data) => {
-      // Spectator → active player transition (or a resync after a refused
-      // play): rebuild the table in place, then reuse the rejoin path
-      // Clean up the current table first (voice stays)
-      teardownTableUI({ inPlace: true });
-
-      gameState.isSpectator = false;
-      gameState.isLazy = false;
-
-      // Rebuild playerData from server's players array
-      if (data.players && data.players.length > 0) {
-        const positions = data.players.map(p => p.position);
-        const sockets = data.players.map(p => p.socketId);
-        const usernames = data.players.map(p => ({ username: p.username, socketId: p.socketId }));
-        const pics = data.players.map(p => p.pic);
-        gameState.setPlayerData({ position: positions, sockets, username: usernames, pics });
-      }
-
+      // Spectator → active player (/active from the watch view), or the
+      // resync after a refused play: the snapshot is the table, drawn over
+      // the live scene (voice and an open offer stay)
       // A seat now: its gameId persists for a reconnect
-      session.enterTable(ROLE.PLAYER, data.gameId || session.gameId);
-
-      // Reuse the proven rejoin path — same data format (getClientState)
-      processRejoinOrRestore(data);
+      session.enterTable(ROLE.PLAYER, data.gameId || data.snapshot?.gameId || session.gameId);
+      session.supersedeTableWork();
+      rebuildTable(data, { source: 'restore', role: 'seat', suffix: 'Reconnected to game!' });
+    },
+    // My bid or play was refused: the card returns to the hand (its snapshot
+    // has it; the log is kept: partial 'log')
+    onActionRejected: (data) => {
+      if (!session.isAtTable) return;
+      const applied = applyTableSnapshot(data, {
+        source: 'rejected',
+        render: (snap) => scheduleRender({ log: logOf(snap) }),
+      });
+      // No snapshot: GameState never lost the card; draw it back from the state
+      if (!applied) scheduleRender({});
+      const reasons = {
+        not_your_turn: 'Not your turn',
+        illegal_card: "That card can't be played now",
+        invalid_play: "That card can't be played",
+        already_played: 'You already played this trick',
+        already_bid: 'You already bid',
+        invalid_bid: "That bid isn't allowed",
+      };
+      showWarning(reasons[data.reason] || 'Action not accepted');
+    },
+    // The reply to requestSnapshot: a seq gap, an ack timeout, the liveness
+    // ping. Any snapshot of this table is applied (R3); not_in_game applies
+    // what the gap buffer holds (no snapshot is coming)
+    onStateSnapshot: (data) => {
+      const source = snapshotSource(data.requestId);
+      if (!data.snapshot) {
+        if (seqGate.buffered > 0) seqGate.flushBuffer();
+        return;
+      }
+      if (!session.isAtTable) return;
+      if (gameState.gameId && data.snapshot.gameId && data.snapshot.gameId !== gameState.gameId) return;
+      applyTableSnapshot(data, {
+        source,
+        render: (snap) => {
+          const live = !!snap.deal && !['ENDED', 'ABORTED'].includes(snap.stage);
+          // Before the deal the draw / teams screens stay as they are
+          if (live) scheduleRender({ log: logOf(snap) });
+        },
+      });
     },
     onGameLogEntry: (data) => {
       if (data.type === 'system') {

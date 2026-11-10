@@ -6,6 +6,7 @@
 
 import { getCardImageKey } from '../../utils/cards.js';
 import { CARD_CONFIG, ANIMATION_CONFIG } from '../config.js';
+import { sceneDelay, sceneTween } from '../TableDirector.js';
 
 /**
  * CardManager handles all card-related sprite operations.
@@ -20,6 +21,7 @@ export class CardManager {
     this._playedSprites = {};
     this._onCardClick = null;
     this._isDealing = false; // Flag to prevent repositionHand during deal animation
+    this._dealToken = 0;
   }
 
   /**
@@ -92,9 +94,10 @@ export class CardManager {
     const { scale } = scene;
 
     // Set dealing flag to prevent repositionHand from interrupting animation
-    if (animate) {
-      this._isDealing = true;
-    }
+    // (a later displayHand owns it: the token keeps an older deal's timer
+    // from clearing it early, webclient-17)
+    this._isDealing = !!animate;
+    const dealToken = ++this._dealToken;
 
     const positions = this.calculateHandPositions(cards.length, scale.width);
 
@@ -129,7 +132,8 @@ export class CardManager {
     // This ensures cards are positioned correctly even if container width changes
     // Delay must be longer than base delay (200ms) + deal animation (750ms) + stagger (cards * 50ms)
     const animationDelay = animate ? 200 + 750 + (cards.length * 50) + 100 : 50;
-    scene.time.delayedCall(animationDelay, () => {
+    sceneDelay(scene, animationDelay, () => {
+      if (dealToken !== this._dealToken) return;
       this._isDealing = false; // Clear dealing flag so resize can work again
       this.repositionHand();
     });
@@ -169,7 +173,7 @@ export class CardManager {
       // Animate to position with staggered delay (750ms to match opponents)
       // Add base delay so cards are visible at trump position first
       // Use explicit from/to values to ensure starting position is correct
-      scene.tweens.add({
+      sceneTween(scene, {
         targets: sprite,
         x: { from: startX, to: x },
         y: { from: startY, to: y },
@@ -204,7 +208,7 @@ export class CardManager {
       // Quick in/out hovers queued competing tweens (the card could end up
       // stuck raised): only the newest hover tween runs
       scene.tweens.killTweensOf(sprite);
-      scene.tweens.add({
+      sceneTween(scene, {
         targets: sprite,
         y: baseY - 20,
         duration: ANIMATION_CONFIG.CARD_HOVER,
@@ -223,7 +227,7 @@ export class CardManager {
       const baseY = sprite.getData('baseY') ?? sprite.y;
       scene.tweens.killTweensOf(sprite);
       if (sprite.y === baseY) return;
-      scene.tweens.add({
+      sceneTween(scene, {
         targets: sprite,
         y: baseY,
         duration: ANIMATION_CONFIG.CARD_HOVER,
@@ -271,7 +275,7 @@ export class CardManager {
     const sprite = this._handSprites.splice(spriteIndex, 1)[0];
 
     // Animate to table position
-    this._scene.tweens.add({
+    sceneTween(this._scene, {
       targets: sprite,
       x: targetX,
       y: targetY,
@@ -306,7 +310,7 @@ export class CardManager {
 
     // Animate all played cards to winner
     Object.values(this._playedSprites).forEach((sprite) => {
-      scene.tweens.add({
+      sceneTween(scene, {
         targets: sprite,
         x: target.x,
         y: target.y,
@@ -326,6 +330,8 @@ export class CardManager {
    * Clear all hand sprites.
    */
   clearHand() {
+    this._dealToken++;
+    this._isDealing = false;
     this._handSprites.forEach((sprite) => {
       if (sprite && sprite.destroy) {
         sprite.destroy();

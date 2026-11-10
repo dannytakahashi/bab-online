@@ -9,6 +9,8 @@ import { getGameState } from '../../state/GameState.js';
 import { getCardImageKey } from '../../utils/cards.js';
 import { getSocketManager } from '../../socket/SocketManager.js';
 import { teamsFade } from '../pacing.js';
+import { sceneDelay, sceneTween } from '../TableDirector.js';
+import { createTransitionOverlay } from '../../ui/transitionOverlay.js';
 
 // Base design dimensions for scaling
 const BASE_WIDTH = 1920;
@@ -108,7 +110,7 @@ export class DrawManager {
       ).setScale(1.2).setDepth(100);
 
       if (this.isVisible()) {
-        this.scene.tweens.add({
+        sceneTween(this.scene, {
           targets: cardSprite,
           x: startX + i * overlap,
           y: startY,
@@ -255,7 +257,7 @@ export class DrawManager {
     const flipDuration = 250;
 
     // Phase 1: Move toward midpoint and scale X to 0 (flip start)
-    this.scene.tweens.add({
+    sceneTween(this.scene, {
       targets: drawnCard,
       x: midX,
       y: midY,
@@ -271,7 +273,7 @@ export class DrawManager {
         drawnCard.setTexture('cards', textureKey);
 
         // Phase 2: Scale X back and complete movement
-        this.scene.tweens.add({
+        sceneTween(this.scene, {
           targets: drawnCard,
           x: slotX,
           y: this.drawDisplayConfig.y,
@@ -308,7 +310,7 @@ export class DrawManager {
     this.allCards.forEach((card, index) => {
       if (index === 0 || !card || card.type !== 'Image') return; // Skip title, null, and non-sprite elements
 
-      this.scene.tweens.add({
+      sceneTween(this.scene, {
         targets: card,
         x: targetX,
         y: targetY,
@@ -329,7 +331,7 @@ export class DrawManager {
       // Check if it's a card sprite (Image type) vs a text label
       if (item.type === 'Image') {
         // Phase 1: Move toward deck row and scale X to 0 (flip start)
-        this.scene.tweens.add({
+        sceneTween(this.scene, {
           targets: item,
           y: deckY,
           scaleX: 0,
@@ -343,7 +345,7 @@ export class DrawManager {
             item.setTexture('cardBack');
 
             // Phase 2: Complete flip (scale X back)
-            this.scene.tweens.add({
+            sceneTween(this.scene, {
               targets: item,
               scaleX: 1.2,
               duration: flipDuration,
@@ -352,7 +354,7 @@ export class DrawManager {
                 if (!item || !item.scene) return;
 
                 // Phase 3: Whisk off-screen with the rest
-                this.scene.tweens.add({
+                sceneTween(this.scene, {
                   targets: item,
                   x: targetX,
                   y: targetY,
@@ -367,7 +369,7 @@ export class DrawManager {
         });
       } else if (item.type === 'Text') {
         // This is a text label - fade it out
-        this.scene.tweens.add({
+        sceneTween(this.scene, {
           targets: item,
           alpha: 0,
           duration: flipDuration * 2,
@@ -378,7 +380,7 @@ export class DrawManager {
 
     // Hide the title text
     if (this.titleText) {
-      this.scene.tweens.add({
+      sceneTween(this.scene, {
         targets: this.titleText,
         alpha: 0,
         duration: animationDuration / 2,
@@ -472,27 +474,13 @@ export class DrawManager {
     // forces the overlay opaque)
     const { fadeDelay, fadeDuration } = teamsFade(data.resumeInMs);
 
-    this._fadeTimer = this.scene.time.delayedCall(fadeDelay, () => {
+    // The first deal waits for this fade (TableDirector.uiReady)
+    this.scene.director?.beginFade();
+    this._fadeTimer = sceneDelay(this.scene, fadeDelay, () => {
       this._fadeTimer = null;
-      // Create DOM overlay for fade to black (covers everything including DOM elements)
-      const domOverlay = document.createElement('div');
-      domOverlay.id = 'transition-overlay';
-      domOverlay.style.cssText = `
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100vw;
-        height: 100vh;
-        background: black;
-        opacity: 0;
-        z-index: 99999;
-        pointer-events: none;
-        transition: opacity ${fadeDuration}ms ease-out;
-      `;
-      document.body.appendChild(domOverlay);
-
-      // Store globally for handleCreateUI to find
-      window._transitionOverlay = domOverlay;
+      // DOM overlay for the fade to black (covers the DOM UI too);
+      // handleCreateUI finds it through transitionOverlay.js
+      const domOverlay = createTransitionOverlay({ opacity: 0, transitionMs: fadeDuration });
 
       // Force reflow and start fade
       domOverlay.offsetHeight;
@@ -523,7 +511,7 @@ export class DrawManager {
 
     // Fade all visible elements
     visibleElements.forEach((item, index) => {
-      this.scene.tweens.add({
+      sceneTween(this.scene, {
         targets: item,
         alpha: 0,
         duration: fadeDuration,

@@ -1,8 +1,11 @@
 /**
  * Main game scene for the Phaser game.
  *
- * Handles card display, opponent visuals, trick animations,
- * and all game-related visual updates.
+ * A view of GameState: render(model) draws the whole table from the
+ * snapshot-shaped model (GameState.renderModel) and is idempotent; the
+ * handle* methods animate one applied event. The scene never writes table
+ * state (handlers/gameHandlers.js does); every delayedCall and tween goes
+ * through the TableDirector (this.director), which owns and cancels them.
  */
 
 import { avatarSrc, applyAvatarImg, isAvatarPic } from '../../utils/avatar.js';
@@ -18,7 +21,9 @@ import { TrickManager } from '../managers/TrickManager.js';
 import { EffectsManager } from '../managers/EffectsManager.js';
 import { DrawManager } from '../managers/DrawManager.js';
 import { flyInMs, FLIP } from '../pacing.js';
-import { transitionGeneration } from '../../ui/transitionOverlay.js';
+import { transitionGeneration, getTransitionOverlay, createTransitionOverlay, releaseTransitionOverlay } from '../../ui/transitionOverlay.js';
+import { getTableDirector, sceneDelay, sceneTween, UI_READY_DELAY_MS, FLIP_AFTER_DEAL_MS, FLIP_AFTER_FADE_MS } from '../TableDirector.js';
+import { getMyAction } from '../../state/MyAction.js';
 import { BidManager } from '../managers/BidManager.js';
 import { LayoutManager } from '../managers/LayoutManager.js';
 import { showChatBubble as showChatBubbleUI } from '../../ui/components/ChatBubble.js';
@@ -102,6 +107,10 @@ export class GameScene extends Phaser.Scene {
     // Get state reference
     this.state = getGameState();
 
+    // The director owns every timer and tween of this scene's table work
+    // (main.js attaches it in setGameScene; a shutdown cancels it all)
+    this.director = getTableDirector();
+
     // Instantiate managers
     this.layoutManager = new LayoutManager(this);
     this.cardManager = new CardManager(this);
@@ -125,6 +134,7 @@ export class GameScene extends Phaser.Scene {
     this.scale.on('resize', onScaleResize);
     this.events.once('shutdown', () => {
       this.scale.off('resize', onScaleResize);
+      if (this.director?.scene === this) this.director.detach();
     });
 
     // Register this scene with main.js for external access
@@ -197,28 +207,37 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  /** Destroy the trump card, its box and its label. */
+  clearTrumpDisplay() {
+    for (const k of ['tableCardSprite', 'tableCardBackground', 'tableCardLabel']) {
+      if (this[k]) {
+        this[k].destroy();
+        this[k] = null;
+      }
+    }
+  }
+
   /**
    * Display trump card on table.
+   * @param {Object} trumpCard
+   * @param {Object} [options]
+   * @param {boolean} [options.faceUp=false] - already revealed (a render): no flip
+   * @param {number} [options.flipDelay] - ms until the flip (default: after the deal)
+   * @param {Function} [options.onFlipped] - after the flip, for this deal only
    */
-  displayTrumpCard(trumpCard) {
+  displayTrumpCard(trumpCard, { faceUp = false, flipDelay, onFlipped } = {}) {
     const { x: scaleX, y: scaleY, screenWidth, screenHeight } = this.getScaleFactors();
     const trumpX = screenWidth / 2 + 500 * scaleX;
     const trumpY = screenHeight / 2 - 300 * scaleY;
 
     // Clear existing
-    if (this.tableCardSprite) {
-      this.tableCardSprite.destroy();
-    }
-    if (this.tableCardBackground) {
-      this.tableCardBackground.destroy();
-    }
-    if (this.tableCardLabel) {
-      this.tableCardLabel.destroy();
-    }
+    this.clearTrumpDisplay();
 
-    // Card - start face down, same scale as player hand cards (1.5)
+    // Card - face down until the deal reveals it, same scale as player hand cards (1.5)
     const cardKey = getCardImageKey(trumpCard);
-    this.tableCardSprite = this.add.image(trumpX, trumpY, 'cardBack');
+    this.tableCardSprite = faceUp
+      ? this.add.image(trumpX, trumpY, 'cards', cardKey)
+      : this.add.image(trumpX, trumpY, 'cardBack');
     this.tableCardSprite.setScale(1.5);
     this.tableCardSprite.setDepth(100);
 
@@ -238,18 +257,20 @@ export class GameScene extends Phaser.Scene {
     this.tableCardLabel.setOrigin(0.5);
     this.tableCardLabel.setDepth(100);
 
-    // Flip the trump card face up after all players receive their cards
-    // Card deal: 200ms delay + 750ms duration + stagger (~550ms for 12 cards) = ~1500ms
-    // First hand has fade transition, so add extra delay to compensate
-    // This keeps the flip timing consistent relative to when cards finish dealing
-    const hasTransition = window._transitionOverlay || document.getElementById('transition-overlay');
-    const flipDelay = hasTransition ? 3500 : 2000;
+    if (faceUp) return;
+
+    // Flip the trump face up once every hand is dealt (the first hand also
+    // waits for createUI's fade). The flip belongs to this deal: a later
+    // deal, a render or a teardown cancels it, so onFlipped (the bid panel)
+    // never fires for another hand (cli-19, ui-22)
+    const delay = flipDelay ?? (this.director && !this.director.uiReady ? FLIP_AFTER_FADE_MS : FLIP_AFTER_DEAL_MS);
     const flipDuration = 300;
     const sprite = this.tableCardSprite;
 
-    this.time.delayedCall(flipDelay, () => {
+    sceneDelay(this, delay, () => {
+      if (!sprite || !sprite.scene) return;
       // Phase 1: Scale X to 0 (flip start)
-      this.tweens.add({
+      sceneTween(this, {
         targets: sprite,
         scaleX: 0,
         duration: flipDuration / 2,
@@ -259,19 +280,18 @@ export class GameScene extends Phaser.Scene {
           // Change to face up texture
           sprite.setTexture('cards', cardKey);
           // Phase 2: Scale X back (flip complete)
-          this.tweens.add({
+          sceneTween(this, {
             targets: sprite,
             scaleX: 1.5,
             duration: flipDuration / 2,
             ease: 'Power2',
             onComplete: () => {
-              // Signal that trump flip is complete for bid UI timing
-              window.dispatchEvent(new Event('trumpFlipComplete'));
+              if (sprite.scene) onFlipped?.();
             },
-          });
+          }, { scope: 'deal' });
         },
-      });
-    });
+      }, { scope: 'deal' });
+    }, { scope: 'deal' });
   }
 
   // ============================================
@@ -384,31 +404,17 @@ export class GameScene extends Phaser.Scene {
 
     const fadeDuration = 1200;
     const scene = this;
+    const director = this.director;
 
-    // Reset the ready flag for this new game
-    window._readyForGameUI = false;
+    // The first deal waits for this fade (director.uiReady), whether or not
+    // the teams fade put an overlay up
+    director?.beginFade();
 
-    // Check if overlay already exists (created by teamsAnnounced fade)
-    let overlay = window._transitionOverlay || document.getElementById('transition-overlay');
+    // The overlay the teams fade created, else an opaque one now
+    let overlay = getTransitionOverlay();
 
     if (!overlay) {
-      // Create overlay if it doesn't exist (fallback)
-      overlay = document.createElement('div');
-      overlay.id = 'transition-overlay';
-      overlay.style.cssText = `
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100vw;
-        height: 100vh;
-        background: black;
-        opacity: 1;
-        z-index: 99999;
-        pointer-events: all;
-      `;
-      document.body.appendChild(overlay);
-      window._transitionOverlay = overlay;
-
+      overlay = createTransitionOverlay({ opacity: 1, blocking: true });
       // Overlay is already opaque, proceed immediately
       proceedWithTransition();
     } else {
@@ -453,15 +459,13 @@ export class GameScene extends Phaser.Scene {
             clearTimeout(fallback);
             // A rejoin or exit removed the overlay meanwhile and owns the UI
             if (transitionGeneration() !== gen) return;
-            overlay.remove();
-            if (window._transitionOverlay === overlay) window._transitionOverlay = null;
+            releaseTransitionOverlay(overlay);
 
-            // Signal that UI can now be shown (after a short delay)
+            // The first deal may show now (after a short delay)
             setTimeout(() => {
               if (transitionGeneration() !== gen) return;
-              window._readyForGameUI = true;
-              window.dispatchEvent(new Event('gameUIReady'));
-            }, 500);
+              director?.endFade();
+            }, UI_READY_DELAY_MS);
           };
           overlay.addEventListener('transitionend', onFadeComplete);
           const fallback = setTimeout(onFadeComplete, fadeDuration + 250);
@@ -479,6 +483,7 @@ export class GameScene extends Phaser.Scene {
 
   /**
    * Handle bidReceived event - show bid bubble, impact events, update game log.
+   * (GameState already recorded the bid.)
    * @param {Object} data - { position, bid, bidArray }
    */
   handleBidReceived(data) {
@@ -494,10 +499,7 @@ export class GameScene extends Phaser.Scene {
       if (bidStr === '4B') this.effectsManager.showImpactEvent('4b');
     }
 
-    // Add bid to state history for bore button updates
-    this.state.addTempBid(data.bid);
-
-    // Update bore button states
+    // Update bore button states (from state.tempBids)
     if (this.bidManager) {
       this.bidManager.updateBoreButtonStates();
     }
@@ -516,7 +518,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Update game log score with bid info
-    this.updateGameLogWithBids(data.bidArray);
+    this.renderScoreHeader();
   }
 
   /**
@@ -530,40 +532,33 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Update game log with current bid info.
+   * The game log's score header, projected from GameState: names, scores,
+   * bids (mine/partner vs the opponents, '-' until placed) and tricks. Every
+   * change redraws all of it, so no field can go stale (the spectator's
+   * "Bids: 0/2" after a re-spectate).
    */
-  updateGameLogWithBids(bidArray) {
-    if (!bidArray || !this.state.position) return;
-
-    const pos = this.state.position;
-    const myBids = ['-', '-', '-', '-'];
-
-    for (let i = 0; i < bidArray.length; i++) {
-      if (bidArray[i] !== undefined && bidArray[i] !== null) {
-        myBids[i] = bidArray[i];
-      }
-    }
-
-    const teamBids = `${myBids[pos - 1]}/${myBids[team(pos) - 1]}`;
-    const oppBids = `${myBids[rotate(pos) - 1]}/${myBids[rotate(rotate(rotate(pos))) - 1]}`;
-
-    // Store for later use
-    this.state.currentTeamBids = teamBids;
-    this.state.currentOppBids = oppBids;
-
-    // Update game log score
-    // state.teamScore and state.oppScore are already adjusted for player's perspective
-    if (window.ModernUtils && this.state.playerData) {
-      const { teamName, oppName } = window.ModernUtils.getTeamNames(pos, this.state.playerData);
-
-      if (window.updateGameLogScoreFromLegacy) {
-        window.updateGameLogScoreFromLegacy(teamName, oppName, this.state.teamScore, this.state.oppScore, teamBids, oppBids);
-      }
-    }
+  renderScoreHeader() {
+    const state = this.state;
+    if (!window.updateGameLogScoreFromLegacy || !state) return;
+    const pos = state.position || 1;
+    const names = window.ModernUtils?.getTeamNames?.(pos, state.playerData);
+    const teamName = names?.teamName ?? `${state.username}/${state.partnerName}`;
+    const oppName = names?.oppName ?? `${state.opp1Name}/${state.opp2Name}`;
+    const bid = (p) => state.bids?.[p] ?? '-';
+    const anyBid = Object.keys(state.bids || {}).length > 0;
+    const teamBids = anyBid ? `${bid(pos)}/${bid(team(pos))}` : '-/-';
+    const oppBids = anyBid ? `${bid(rotate(pos))}/${bid(rotate(rotate(rotate(pos))))}` : '-/-';
+    window.updateGameLogScoreFromLegacy(
+      teamName, oppName,
+      state.teamScore || 0, state.oppScore || 0,
+      teamBids, oppBids,
+      state.teamTricks || 0, state.oppTricks || 0
+    );
   }
 
   /**
-   * Handle doneBidding event - transition to playing phase.
+   * Handle doneBidding event - transition to playing phase (the state is
+   * already in PLAYING).
    * @param {Object} data - { bids, lead }
    */
   handleDoneBidding(data) {
@@ -574,37 +569,10 @@ export class GameScene extends Phaser.Scene {
       this.bidManager.hideBidUI();
     }
 
-    // Clear temp bids and update state
-    this.state.clearTempBids();
-    this.state.isBidding = false;
-    this.state.hasPlayedCard = false;
-
-    // Reset play state for new hand - critical for isLegalMove checks
-    this.state.playedCardIndex = 0;
-    this.state.leadCard = null;
-    this.state.leadPosition = null;
-    this.state.trumpBroken = false;
-    this.state.currentTrick = [];
-
-    // Set currentTurn from lead player data
-    if (data.lead !== undefined) {
-      this.state.currentTurn = data.lead;
-    }
-
-    // Store bids data in state for game log
-    // Server sends bids as 0-indexed array, convert to position-keyed object (1-4)
-    if (data.bids && Array.isArray(data.bids)) {
-      for (let i = 0; i < data.bids.length; i++) {
-        this.state.bids[i + 1] = data.bids[i];
-      }
-    } else if (data.bids) {
-      this.state.bids = data.bids;
-    }
-
     // Update card legality now that bidding is over
     // The lead player can play any card, others are dimmed
     if (this.cardManager) {
-      const canPlay = this.state.currentTurn === this.state.position && !this.state.isLazy;
+      const canPlay = this.state.currentTurn === this.state.position && !this.state.isLazy && !this.state.isSpectator;
       // No lead card yet, so all cards are legal for the lead player
       this.cardManager.updateCardLegality(() => true, canPlay);
     }
@@ -617,6 +585,34 @@ export class GameScene extends Phaser.Scene {
     if (this.opponentManager) {
       this.opponentManager.updateTurnGlow(this.state.currentTurn);
     }
+    this.renderScoreHeader();
+  }
+
+  /** Legality of a card in my hand for the trick in play (GameState). */
+  legalityChecker() {
+    const gameState = this.state;
+    const myPosition = gameState.position;
+    return (card) => {
+      if (window.ModernUtils && window.ModernUtils.isLegalMove) {
+        const result = window.ModernUtils.isLegalMove(
+          card,
+          gameState.myCards,
+          gameState.leadCard,
+          gameState.playedCardIndex === 0,
+          gameState.trump,
+          gameState.trumpBroken,
+          myPosition,
+          gameState.leadPosition
+        );
+        return result.legal;
+      }
+      return true;
+    };
+  }
+
+  /** My bid or play is out and not answered yet (MyAction). */
+  _myActionPending() {
+    return getMyAction().isPending();
   }
 
   /**
@@ -644,25 +640,10 @@ export class GameScene extends Phaser.Scene {
     // Each updateTurn supersedes any deferred one (see below)
     this._turnToken = (this._turnToken || 0) + 1;
     if (this.cardManager && !this.state.isBidding) {
-      const canPlay = currentTurn === myPosition && !this.state.hasPlayedCard && !this.state.isLazy;
+      const canPlay = currentTurn === myPosition && !this.state.hasPlayedCard && !this.state.isLazy &&
+        !isPureSpectator && !this._myActionPending();
       const gameState = this.state;
-
-      const legalityChecker = (card) => {
-        if (window.ModernUtils && window.ModernUtils.isLegalMove) {
-          const result = window.ModernUtils.isLegalMove(
-            card,
-            gameState.myCards,
-            gameState.leadCard,
-            gameState.playedCardIndex === 0,
-            gameState.trump,
-            gameState.trumpBroken,
-            myPosition,
-            gameState.leadPosition
-          );
-          return result.legal;
-        }
-        return true;
-      };
+      const legalityChecker = this.legalityChecker();
 
       if (canPlay && this.trickManager?.isCollecting?.()) {
         // The previous trick is still flying to its stack: keep the hand
@@ -674,6 +655,7 @@ export class GameScene extends Phaser.Scene {
         this.trickManager.onCollected(() => {
           if (this._turnToken !== token || !this.cardManager) return;
           if (gameState.currentTurn !== currentTurn || gameState.hasPlayedCard || gameState.isBidding || gameState.isLazy) return;
+          if (this._myActionPending()) return;
           this.cardManager.updateCardLegality(legalityChecker, true);
         });
       } else {
@@ -713,7 +695,8 @@ export class GameScene extends Phaser.Scene {
   // ============================================
 
   /**
-   * Handle cardPlayed event - animate card to play area, update state.
+   * Handle cardPlayed event - animate card to play area (GameState already
+   * holds the card in the trick).
    * @param {Object} data - { card, position, trump/trumpBroken }
    */
   handleCardPlayed(data) {
@@ -723,28 +706,13 @@ export class GameScene extends Phaser.Scene {
     const playedPosition = data.position;
     const card = data.card;
 
-    // Note: leadCard is already set by gameHandlers.js via addPlayedCard()
     // Update card legality when lead card is first played
     if (this.state.currentTrick.length === 1) {
       this.updateCardLegalityAfterPlay();
     }
 
-    // Update trump broken
-    if (data.trump !== undefined) {
-      this.state.trumpBroken = data.trump;
-    }
-    if (data.trumpBroken !== undefined) {
-      this.state.trumpBroken = data.trumpBroken;
-    }
-
-    // Note: currentTrick is already updated by gameHandlers.js via addPlayedCard()
-    // Do NOT push here to avoid double-counting
-
     // Detect over-trump and show effect
     this.detectOverTrump();
-
-    // Note: playedCardIndex is already incremented by gameHandlers.js via addPlayedCard()
-    // Do NOT increment here to avoid double-counting
 
     // Initialize TrickManager if needed
     if (this.trickManager && myPosition) {
@@ -782,7 +750,7 @@ export class GameScene extends Phaser.Scene {
         // hold (resumeInMs), so the full trick is visible before the collect
         const flyMs = flyInMs(data.resumeInMs);
         const flipHalf = Math.min(FLIP.HALF, flyMs / 2);
-        const moveTween = this.tweens.add({
+        const moveTween = sceneTween(this, {
           targets: sprite,
           x: targetX,
           y: targetY,
@@ -800,12 +768,12 @@ export class GameScene extends Phaser.Scene {
 
         // Flip animation runs in parallel, starting after a short delay.
         // Keep the handle so completeTrick can cancel a flip that never ran.
-        const flipTimer = this.time.delayedCall(FLIP.DELAY, () => {
+        const flipTimer = sceneDelay(this, FLIP.DELAY, () => {
           if (!sprite || !sprite.scene) return;
           sprite.setData('flipTimer', null);
 
           // Scale X to 0
-          this.tweens.add({
+          sceneTween(this, {
             targets: sprite,
             scaleX: 0,
             duration: flipHalf,
@@ -815,7 +783,7 @@ export class GameScene extends Phaser.Scene {
               sprite.setTexture('cards', cardKey);
 
               // Scale X back to 1.5
-              this.tweens.add({
+              sceneTween(this, {
                 targets: sprite,
                 scaleX: 1.5,
                 duration: flipHalf,
@@ -828,51 +796,54 @@ export class GameScene extends Phaser.Scene {
 
         this.trickManager._currentTrick.push(sprite);
       }
+    } else if (playedPosition === myPosition && this.trickManager) {
+      // My seat's card: my own click already flew it in; otherwise (lazy:
+      // the bot played it, or a play acknowledged after a render) fly it
+      // from the hand now
+      const already = this.trickManager._currentTrick.some((s) => s?.getData?.('playPosition') === 'self');
+      if (!already) this._flyMyCard(card, data.resumeInMs);
     }
-    // Handle lazy mode: bot played a card at our position, animate it
-    else if (playedPosition === myPosition && this.state.isLazy && this.trickManager) {
-      // Remove card from state
-      this.state.optimisticPlayCard(card);
-      this.state.confirmCardPlay();
+  }
 
-      // Extract sprite from hand
-      let sprite = this.cardManager?.extractCard(card);
-      if (sprite) {
-        sprite.removeAllListeners();
-        sprite.disableInteractive();
-        // A hand-layout or hover tween still on the sprite would fight the
-        // move (and replay after a hidden tab)
-        this.trickManager._stopCardAnimations(sprite);
-
-        // Animate to self play position
-        this.trickManager.setPlayerPosition(myPosition);
-        this.trickManager.updatePlayPositions();
-        const targetPos = this.trickManager._playPositions.self;
-        const moveTween = this.tweens.add({
-          targets: sprite,
-          x: targetPos.x,
-          y: targetPos.y,
-          duration: flyInMs(data.resumeInMs),
-          ease: 'Power2',
-          rotation: 0,
-          scale: 1.5,
-          onComplete: () => {
-            if (!sprite?.scene) return;
-            sprite.setData('moveTween', null);
-            sprite.setDepth(200);
-          },
-        });
-        sprite.setData('moveTween', moveTween);
-        sprite.setData('playPosition', 'self');
-        this.trickManager._currentTrick.push(sprite);
-      }
-
-      // Reposition remaining cards
-      this.cardManager?.repositionHand();
-      this.state.hasPlayedCard = true;
+  /** Move my card from the hand to my trick slot (the bot played it, or the click path did not run). */
+  _flyMyCard(card, resumeInMs) {
+    const myPosition = this.state.position;
+    const sprite = this.cardManager?.extractCard(card);
+    if (!sprite) {
+      // Not in the hand display (a render showed it played already): place it
+      this.trickManager.addPlayedCard(card, myPosition, null, false);
+      return;
     }
-    // Note: Normal self play animation is handled by the card click handler in main.js
-    // which extracts the sprite and animates it to the play position with a flip effect
+    sprite.removeAllListeners();
+    sprite.disableInteractive();
+    // A hand-layout or hover tween still on the sprite would fight the
+    // move (and replay after a hidden tab)
+    this.trickManager._stopCardAnimations(sprite);
+
+    // Animate to self play position
+    this.trickManager.setPlayerPosition(myPosition);
+    this.trickManager.updatePlayPositions();
+    const targetPos = this.trickManager._playPositions.self;
+    const moveTween = sceneTween(this, {
+      targets: sprite,
+      x: targetPos.x,
+      y: targetPos.y,
+      duration: flyInMs(resumeInMs),
+      ease: 'Power2',
+      rotation: 0,
+      scale: 1.5,
+      onComplete: () => {
+        if (!sprite?.scene) return;
+        sprite.setData('moveTween', null);
+        sprite.setDepth(200);
+      },
+    });
+    sprite.setData('moveTween', moveTween);
+    sprite.setData('playPosition', 'self');
+    this.trickManager._currentTrick.push(sprite);
+
+    // Reposition remaining cards
+    this.cardManager?.repositionHand();
   }
 
   /**
@@ -944,37 +915,20 @@ export class GameScene extends Phaser.Scene {
 
     const myPosition = this.state.position;
     const currentTurn = this.state.currentTurn;
-    const canPlay = currentTurn === myPosition && !this.state.hasPlayedCard;
-    const gameState = this.state;
-
-    const legalityChecker = (card) => {
-      if (window.ModernUtils && window.ModernUtils.isLegalMove) {
-        const result = window.ModernUtils.isLegalMove(
-          card,
-          gameState.myCards,
-          gameState.leadCard,
-          gameState.playedCardIndex === 0,
-          gameState.trump,
-          gameState.trumpBroken,
-          myPosition,
-          gameState.leadPosition
-        );
-        return result.legal;
-      }
-      return true;
-    };
-
-    this.cardManager.updateCardLegality(legalityChecker, canPlay);
+    // A lazy seat's hand stays dimmed (the bot plays it; cli-1's side note)
+    const canPlay = currentTurn === myPosition && !this.state.hasPlayedCard && !this.state.isLazy &&
+      !this.state.isSpectator && !this._myActionPending();
+    this.cardManager.updateCardLegality(this.legalityChecker(), canPlay);
   }
 
   /**
-   * Handle trickComplete event.
+   * Handle trickComplete event (GameState already counted it).
    * @param {Object} data - { winner }
    */
   handleTrickComplete(data) {
     console.log('🎮 GameScene.handleTrickComplete()', data);
 
-    const myPosition = this.state.position;
+    const myPosition = this.state.position || 1;
     const winner = data.winner;
 
     // Add to game feed
@@ -986,60 +940,13 @@ export class GameScene extends Phaser.Scene {
     // Determine if winner is on my team (same parity = same team)
     const isMyTeam = winner % 2 === myPosition % 2;
 
-    // Update trick counts in state
-    if (isMyTeam) {
-      this.state.teamTricks++;
-    } else {
-      this.state.oppTricks++;
-    }
-
     // Animate cards to winner's stack via TrickManager
     if (this.trickManager) {
       this.trickManager.completeTrick(winner, isMyTeam, data.resumeInMs);
     }
 
     // Update game log with current trick counts
-    this.updateGameLogAfterTrick();
-
-    // Reset trick state for next trick
-    this.state.leadCard = null;
-    this.state.leadPosition = null;
-    this.state.playedCardIndex = 0;
-    this.state.currentTrick = [];
-    this.state.hasPlayedCard = false;
-  }
-
-  /**
-   * Update game log score display after a trick.
-   */
-  updateGameLogAfterTrick() {
-    const state = this.state;
-    if (!window.updateGameLogScoreFromLegacy) return;
-
-    // Team/opponent names from the seats (a spectator's view position is
-    // someone else's seat, and it has no partner/opponent names)
-    const names = window.ModernUtils?.getTeamNames?.(state.position, state.playerData);
-    const myTeamNames = names?.teamName ?? `${state.username}/${state.partnerName}`;
-    const oppNames = names?.oppName ?? `${state.opp1Name}/${state.opp2Name}`;
-
-    // state.teamScore and state.oppScore are already adjusted for player's perspective
-    const teamScore = state.teamScore;
-    const oppScore = state.oppScore;
-
-    // Get bids - use stored values or empty string
-    const teamBids = state.teamBids || '';
-    const oppBids = state.oppBids || '';
-
-    window.updateGameLogScoreFromLegacy(
-      myTeamNames,
-      oppNames,
-      teamScore,
-      oppScore,
-      teamBids,
-      oppBids,
-      state.teamTricks,
-      state.oppTricks
-    );
+    this.renderScoreHeader();
   }
 
   // ============================================
@@ -1049,15 +956,16 @@ export class GameScene extends Phaser.Scene {
   /**
    * Handle handComplete event.
    * @param {Object} data - Scoring and hand completion data
+   * @param {Object} [hand] - the hand's bids, captured when the event applied
    */
-  handleHandComplete(data) {
+  handleHandComplete(data, { bids } = {}) {
     console.log('🎮 GameScene.handleHandComplete()', data);
 
     // Start trick animation immediately (before score processing)
     this._animateTricksAndTrumpAway();
 
     const state = this.state;
-    const myPosition = state.position;
+    const myPosition = state.position || 1;
 
     // Calculate team/opp scores based on position parity
     let teamScore, oppScore, teamTricksWon, oppTricksWon, teamOldScore, oppOldScore;
@@ -1079,16 +987,12 @@ export class GameScene extends Phaser.Scene {
       oppOldScore = data.team1OldScore;
     }
 
-    // Update scores in state
-    state.teamScore = teamScore;
-    state.oppScore = oppScore;
-
     // Add hand complete messages to game log
     if (window.ModernUtils && window.ModernUtils.formatHandCompleteMessages) {
       const messages = window.ModernUtils.formatHandCompleteMessages({
         myPosition: myPosition,
         playerData: state.playerData,
-        bids: state.bids,
+        bids: bids || state.bids,
         teamScore: teamScore,
         oppScore: oppScore,
         teamOldScore: teamOldScore,
@@ -1111,11 +1015,6 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    // Reset state for new hand
-    state.teamTricks = 0;
-    state.oppTricks = 0;
-    state.trumpBroken = false;
-
     // Clear hand cards
     if (this.cardManager) {
       this.cardManager.clearHand();
@@ -1124,20 +1023,21 @@ export class GameScene extends Phaser.Scene {
 
   /**
    * Animate tricks back to trump card and flip trump face down.
-   * Extracted to run immediately at start of handleHandComplete.
+   * Extracted to run immediately at start of handleHandComplete. The next
+   * deal waits for it (director.beginWhisk / endWhisk).
    */
   _animateTricksAndTrumpAway() {
     if (this.trickManager && this.tableCardSprite) {
       const trumpX = this.tableCardSprite.x;
       const trumpY = this.tableCardSprite.y;
 
-      // Set flag to delay next hand's card dealing
-      window._tricksAnimating = true;
+      // The next hand's deal waits until the stacks are gone
+      this.director?.beginWhisk();
 
       // Flip trump card face down while tricks are whisked
       const trumpSprite = this.tableCardSprite;
       const flipDuration = 150;
-      this.tweens.add({
+      sceneTween(this, {
         targets: trumpSprite,
         scaleX: 0,
         duration: flipDuration,
@@ -1145,7 +1045,7 @@ export class GameScene extends Phaser.Scene {
         onComplete: () => {
           if (trumpSprite && trumpSprite.scene) {
             trumpSprite.setTexture('cardBack');
-            this.tweens.add({
+            sceneTween(this, {
               targets: trumpSprite,
               scaleX: 1.5,
               duration: flipDuration,
@@ -1160,9 +1060,8 @@ export class GameScene extends Phaser.Scene {
         this.trickManager._teamBidTotal = 0;
         this.trickManager._oppBidTotal = 0;
 
-        // Signal that tricks are done animating
-        window._tricksAnimating = false;
-        window.dispatchEvent(new Event('tricksCleared'));
+        // The next deal may come in
+        this.director?.endWhisk();
       });
     } else if (this.trickManager) {
       // Fallback if no trump card - just reset immediately
@@ -1184,7 +1083,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Handle destroyHands event.
+   * Handle destroyHands event (GameState cleared the hand and the bids).
    * @param {Object} data - Event data
    */
   handleDestroyHands(data) {
@@ -1203,7 +1102,7 @@ export class GameScene extends Phaser.Scene {
     if (this.bidManager) {
       this.bidManager.hideBidUI(false);
     }
-    this.state.clearTempBids();
+    this.renderScoreHeader();
   }
 
   // ============================================
@@ -1286,7 +1185,9 @@ export class GameScene extends Phaser.Scene {
 
   /**
    * Display the local player's hand via CardManager and wire card clicks
-   * to playCard (sorted by trump; legality from the game state).
+   * to MyAction.submitPlay (sorted by trump; legality from the game state).
+   * A click never edits GameState: the card leaves the hand when its
+   * cardPlayed echo applies, and returns with the snapshot of a refusal.
    * @param {Array} cards - Hand from the server
    * @param {boolean} skipAnimation - true on rejoin (no deal animation)
    */
@@ -1295,7 +1196,6 @@ export class GameScene extends Phaser.Scene {
     if (!this.cardManager || !cards || cards.length === 0) return;
 
     const gameState = getGameState();
-    const socket = window.socket;
 
     // Sort cards by trump before displaying
     const sortedCards = sortHand([...cards], gameState.trump);
@@ -1310,25 +1210,15 @@ export class GameScene extends Phaser.Scene {
         console.log('Illegal move - card is disabled!');
         return;
       }
-
-      // Set lead card if first play of trick
-      if (gameState.playedCardIndex === 0) {
-        gameState.leadCard = card;
-        gameState.leadPosition = gameState.position;
+      // A dead socket would buffer the play and flush it ahead of the
+      // rejoin, where the server drops it (cli-18): wait for the reconnect
+      if (window.socket && window.socket.connected === false) {
+        console.log('Not connected: play ignored');
+        return;
       }
 
-      // Play the card via socket
-      if (socket) {
-        socket.emit('playCard', { card, position: gameState.position });
-      }
-
-      // Mark that we've played a card (for legality checks)
-      gameState.hasPlayedCard = true;
-
-      // Update trump broken status
-      if (card.suit === gameState.trump?.suit || card.suit === 'joker') {
-        gameState.trumpBroken = true;
-      }
+      // One outstanding action at a time (MyAction: pending until the echo)
+      if (!getMyAction().submitPlay(card, gameState.position)) return;
 
       // Capture the current (hovered) position before any operations that might reset it
       const startX = clickedSprite.x;
@@ -1359,7 +1249,7 @@ export class GameScene extends Phaser.Scene {
 
         // Animate from hovered position to play position
         // No flip needed since player's cards are already face-up
-        const moveTween = scene.tweens.add({
+        const moveTween = sceneTween(scene, {
           targets: sprite,
           x: targetPos.x,
           y: targetPos.y,
@@ -1377,11 +1267,9 @@ export class GameScene extends Phaser.Scene {
 
         // Add to trick manager's current trick
         sprite.setData('playPosition', 'self');
+        sprite.setData('pending', true);
         this.trickManager._currentTrick.push(sprite);
       }
-
-      // Also remove from gameState using optimistic update
-      gameState.optimisticPlayCard(card);
 
       // Immediately dim all remaining cards since player can't play again this trick
       this.cardManager.updateCardLegality(() => true, false);
@@ -1393,7 +1281,8 @@ export class GameScene extends Phaser.Scene {
     // Update card legality based on current game state
     const canPlay = !gameState.isBidding &&
                     gameState.currentTurn === gameState.position &&
-                    !gameState.hasPlayedCard;
+                    !gameState.hasPlayedCard && !gameState.isLazy && !gameState.isSpectator &&
+                    !getMyAction().isPending();
 
     const legalityChecker = (card) => {
       const result = isLegalMove(
@@ -1410,6 +1299,11 @@ export class GameScene extends Phaser.Scene {
     };
 
     this.cardManager.updateCardLegality(legalityChecker, canPlay);
+  }
+
+  /** The bid panel's choice: MyAction sends it (one outstanding at a time). */
+  submitBid(bid) {
+    return getMyAction().submitBid(bid, this.state.position);
   }
 
   /**
@@ -1431,6 +1325,122 @@ export class GameScene extends Phaser.Scene {
         this.createPlayerInfoBox(gameState.playerData, gameState.position);
       }
     }
+  }
+
+  // ============================================
+  // Render (the whole table from the model)
+  // ============================================
+
+  /** The model render() draws by default: GameState plus my pending action. */
+  currentModel() {
+    const action = getMyAction();
+    return this.state.renderModel({ pendingCard: action.pendingCard, pendingBid: action.isPending('bid') });
+  }
+
+  /**
+   * Draw the whole table from a snapshot-shaped model
+   * (GameState.renderModel, after applySnapshot for a snapshot): cancel the
+   * director's work, clear every manager, then draw. Idempotent: the same
+   * model gives the same sprites, however many times and over whatever was
+   * on the table (cli-4: no doubled trick cards or log, no card backs over
+   * real stacks; webclient-8: each opponent shows the cards it holds; the
+   * trump is face up, never re-flipped).
+   * @param {Object} [model] - default currentModel()
+   * @returns {Object} the model drawn
+   */
+  render(model = null) {
+    const m = model || this.currentModel();
+    this.director?.reset();
+
+    // Clear: the hand before the tricks (a collect cleared in flight runs
+    // its onCollected callbacks, which must find no hand)
+    this.cardManager?.clearAll();
+    this.trickManager?.clearAll();
+    this.opponentManager?.clearAll();
+    this.effectsManager?.clearAll();
+    this.drawManager?.cleanup();
+    this.clearTrumpDisplay();
+    this.bidManager?.hideBidUI(false);
+    this._turnToken = (this._turnToken || 0) + 1;
+
+    const role = m.viewer?.role || 'seat';
+    const spectator = role === 'spectator';
+    const lazy = role === 'lazyWatcher';
+    const pos = m.viewer?.position || 1;
+
+    this.trickManager?.setPlayerPosition(pos);
+    this.trickManager?.setSpectatorMode(spectator);
+    this.trickManager?.updatePlayPositions();
+    this.opponentManager?.setPlayerPosition(pos);
+    this.opponentManager?.setSpectatorMode(spectator);
+    this.effectsManager?.setPlayerPosition(pos);
+
+    if (this.layoutManager) {
+      this.layoutManager.update();
+      this.layoutManager.cleanupDomBackgrounds();
+      this.layoutManager.createDomBackgrounds({ skipHandArea: spectator });
+    }
+    if (spectator) this.clearPlayerInfo();
+    if (m.playerData) this.opponentManager?.displayAvatars(m.playerData);
+    if (!spectator && !this._playerInfo && m.playerData) this.createPlayerInfoBox(m.playerData, pos);
+    if (!spectator) this.updatePlayerHsi(m.hsi);
+    this.renders = (this.renders || 0) + 1;
+
+    if (!m.live) {
+      this.renderScoreHeader();
+      return m;
+    }
+
+    this.opponentManager?.displayDealerButton(m.dealer);
+    this.opponentManager?.displayOpponentCardsBySeat(m.seatCards);
+    if (m.trump) this.displayTrumpCard(m.trump, { faceUp: true });
+    if (m.hand && m.hand.length) this.handleDisplayHand(m.hand, true);
+
+    if (!m.isBidding && this.trickManager) {
+      const num = (b) => (b === undefined || String(b).includes('B') ? 0 : parseInt(b, 10) || 0);
+      const teamBid = num(m.bids[pos]) + num(m.bids[team(pos)]);
+      const oppBid = num(m.bids[rotate(pos)]) + num(m.bids[rotate(rotate(rotate(pos)))]);
+      this.trickManager.setBidTotals(teamBid, oppBid);
+      this.trickManager.createTrickBackgrounds(false);
+      if (m.history) {
+        this.trickManager.restoreTrickHistory(m.history, (winner) => winner % 2 === pos % 2);
+      } else {
+        this.trickManager.restoreTrickPlaceholders(m.tricks.team, m.tricks.opp);
+      }
+    }
+    for (const c of m.trick || []) {
+      const sprite = this.trickManager?.addPlayedCard(c.card, c.position, null, false);
+      if (sprite && c.pending) sprite.setData('pending', true);
+    }
+
+    if (!spectator) this.cardManager?.updatePlayerTurnGlow(m.turn, pos);
+    this.opponentManager?.updateTurnGlow(m.turn);
+    if (lazy) this.cardManager?.setInteractive(false);
+
+    if (m.isBidding && role === 'seat' && m.hand?.length && m.bids[pos] === undefined &&
+        !getMyAction().isPending('bid') && this.bidManager) {
+      this.bidManager.showBidUI(m.hand.length, (bid) => this.submitBid(bid));
+    }
+
+    this.renderScoreHeader();
+    return m;
+  }
+
+  /** What is on the table (render checks and tests). */
+  tableCounts() {
+    const opp = this.opponentManager?.cardCounts?.() || {};
+    const tricks = this.trickManager?.spriteCounts?.() || {};
+    return {
+      hand: this.cardManager?.getHandCount?.() ?? 0,
+      opponentBacks: Object.values(opp).reduce((a, b) => a + b, 0),
+      opponentBySlot: opp,
+      trick: tricks.trick ?? 0,
+      teamStacks: tricks.teamStacks ?? 0,
+      oppStacks: tricks.oppStacks ?? 0,
+      stackCards: tricks.stackCards ?? 0,
+      trump: this.tableCardSprite ? (this.tableCardSprite.frame?.name ?? this.tableCardSprite.texture?.key ?? 'set') : null,
+      bidPanel: !!this.bidManager?.bidContainer,
+    };
   }
 
   /**

@@ -1,8 +1,12 @@
 /**
  * Client-side game state container with event emitter.
  *
- * Replaces 50+ global variables with structured state management.
- * Provides optimistic updates with rollback capability.
+ * The ONE writer of table state (roadmap item 16): the socket handlers
+ * (handlers/gameHandlers.js) apply each server event through the apply*
+ * methods below, and every snapshot (rejoin, restore, spectate, a rejected
+ * action, a resync) through applySnapshot. The scene never writes here; it
+ * renders renderModel() (GameScene.render) or animates one event from it.
+ * A pending bid or play is not table state: state/MyAction.js holds it.
  */
 
 import { team, rotate } from '../utils/positions.js';
@@ -94,9 +98,6 @@ export class GameState {
     this.teamRainbows = 0;
     this.oppRainbows = 0;
 
-    // Trick history (for game log)
-    this.teamTrickHistory = [];
-    this.oppTrickHistory = [];
 
     // Players data - raw format from server
     // { position: [], socket: [], username: [{username}], pics: [] }
@@ -142,10 +143,20 @@ export class GameState {
     // Rainbow positions received during bidding
     this.rainbows = [];
 
-    // Optimistic update state
-    this._pendingCard = null;
-    this._pendingBid = null;
-    this._previousCards = null;
+    // Table model (snapshot v2 shaped, kept by the appliers below)
+    this.stage = null; // server stage name (v2), or derived from events
+    this.handNo = 0;
+    this.dealSeq = null; // the deal's seq (gameStart.seq / snapshot.deal.dealSeq)
+    this.trickNo = 0; // 1-based number of the trick in play
+    this.seatCards = { 1: 0, 2: 0, 3: 0, 4: 0 }; // cards left per seat
+    // Completed tricks of this hand [{winner, cards: [{position, card}]}], or
+    // null when only their counts are known (a snapshot: face-down stacks)
+    this.trickHistory = [];
+    this.seats = []; // snapshot v2 seat records, when known
+    this.resume = null;
+    this._redealPending = false;
+    // Bumped by every applied change (renderers compare it)
+    this.version = 0;
 
     this._emit('reset');
   }
@@ -557,8 +568,12 @@ export class GameState {
     // Clear trick counts
     this.teamTricks = 0;
     this.oppTricks = 0;
-    this.teamTrickHistory = [];
-    this.oppTrickHistory = [];
+    this.trickHistory = [];
+
+    // The hand is over: nothing left to hold or play
+    this.myCards = [];
+    this._setHandSizeForAll(0);
+    this.version++;
 
     // Clear UI flags
     this.hasPlayedCard = false;
@@ -569,90 +584,6 @@ export class GameState {
     this.rainbows = [];
 
     this._emit('newHandReset');
-  }
-
-  // ============================================
-  // Optimistic Updates
-  // ============================================
-
-  /**
-   * Optimistically play a card (instant UI feedback).
-   * Call confirmCardPlay() on success or rollbackCardPlay() on failure.
-   *
-   * @param {Object} card - Card to play
-   * @returns {boolean} Whether card was found and removed
-   */
-  optimisticPlayCard(card) {
-    const index = this.myCards.findIndex(
-      (c) => c.suit === card.suit && c.rank === card.rank
-    );
-
-    if (index === -1) {
-      return false;
-    }
-
-    // Store for potential rollback
-    this._previousCards = [...this.myCards];
-    this._pendingCard = card;
-
-    // Remove card
-    this.myCards.splice(index, 1);
-    this._emit('handChanged', this.myCards);
-
-    return true;
-  }
-
-  /**
-   * Confirm optimistic card play was accepted.
-   */
-  confirmCardPlay() {
-    this._pendingCard = null;
-    this._previousCards = null;
-  }
-
-  /**
-   * Rollback optimistic card play (server rejected).
-   */
-  rollbackCardPlay() {
-    if (this._previousCards) {
-      this.myCards = this._previousCards;
-      this._previousCards = null;
-      this._pendingCard = null;
-      this._emit('handChanged', this.myCards);
-      this._emit('cardPlayRolledBack');
-    }
-  }
-
-  /**
-   * Optimistically record a bid.
-   */
-  optimisticBid(bid) {
-    this._pendingBid = bid;
-  }
-
-  /**
-   * Confirm bid was accepted.
-   */
-  confirmBid() {
-    if (this._pendingBid !== null) {
-      this.recordBid(this.position, this._pendingBid);
-      this._pendingBid = null;
-    }
-  }
-
-  /**
-   * Rollback bid (server rejected).
-   */
-  rollbackBid() {
-    this._pendingBid = null;
-    this._emit('bidRolledBack');
-  }
-
-  /**
-   * Check if there's a pending action.
-   */
-  hasPendingAction() {
-    return this._pendingCard !== null || this._pendingBid !== null;
   }
 
   // ============================================
@@ -694,102 +625,412 @@ export class GameState {
     return this.playedCards.length;
   }
 
-  /**
-   * Restore state from rejoin data.
-   */
-  restoreFromRejoin(data) {
-    this.gameId = data.gameId;
-    this.position = data.position;
-    this.currentHand = data.currentHand;
-    this.trump = data.trump;
-    this.trumpBroken = data.trumpBroken || data.isTrumpBroken || false;
-    this.dealer = data.dealer;
-    this.isBidding = data.isBidding !== undefined ? data.isBidding : (data.bidding || false);
-    this.currentTurn = data.currentTurn;
+  // ============================================
+  // Event appliers (the socket handlers' only way in)
+  // ============================================
 
-    if (data.hand) {
-      this.setCards(data.hand);
+  _changed() {
+    this.version++;
+  }
+
+  /** The viewer's team is team 1 (seats 1/3; a spectator views from seat 1). */
+  _myTeamIsOne() {
+    return (this.position || 1) % 2 !== 0;
+  }
+
+  /** Per-team values {team1, team2} as [mine, theirs]. */
+  _mine(pair) {
+    if (!pair) return [0, 0];
+    return this._myTeamIsOne() ? [pair.team1 || 0, pair.team2 || 0] : [pair.team2 || 0, pair.team1 || 0];
+  }
+
+  _setHandSizeForAll(n) {
+    this.seatCards = { 1: n, 2: n, 3: n, 4: n };
+  }
+
+  _clearTrickState() {
+    this.playedCards = [];
+    this.currentTrick = [];
+    this.playedCardIndex = 0;
+    this.leadCard = null;
+    this.leadPosition = null;
+    this.hasPlayedCard = false;
+  }
+
+  /** gameStart: a new deal (a zero-bid redeal keeps the hand number). */
+  applyDeal(data) {
+    if (data.position) this.position = data.position;
+    if (data.gameId) this.gameId = data.gameId;
+    this.currentHand = data.currentHand ?? (data.hand?.length || 0);
+    if (data.dealer !== undefined) this.dealer = data.dealer;
+    if (!this._redealPending || !this.handNo) this.handNo = (this.handNo || 0) + 1;
+    this._redealPending = false;
+    this.dealSeq = Number.isInteger(data.seq) ? data.seq : (this.dealSeq || 0) + 1;
+    this.trump = data.trump || null;
+    this.trumpBroken = false;
+    this.myCards = Array.isArray(data.hand) ? [...data.hand] : [];
+    this.isBidding = true;
+    this.phase = PHASE.BIDDING;
+    this.stage = 'BIDDING';
+    this.currentTurn = null;
+    this.bids = {};
+    this.teamBids = null;
+    this.oppBids = null;
+    this.tempBids = [];
+    this.team1Mult = 1;
+    this.team2Mult = 1;
+    this._clearTrickState();
+    this.trickNo = 1;
+    this.teamTricks = 0;
+    this.oppTricks = 0;
+    this.trickHistory = [];
+    this.rainbows = [];
+    this._setHandSizeForAll(this.currentHand);
+    if (data.hsiValues) this.hsiValues = { ...data.hsiValues };
+    if (data.score1 !== undefined && data.score2 !== undefined) {
+      const [mine, theirs] = this._mine({ team1: data.score1, team2: data.score2 });
+      this.teamScore = mine;
+      this.oppScore = theirs;
     }
+    if (Array.isArray(data.playerInfo) && data.playerInfo.length) {
+      this.setPlayerData({
+        positions: data.playerInfo.map((p) => p.position),
+        sockets: data.players,
+        usernames: data.playerInfo.map((p) => ({ username: p.username })),
+        pics: data.playerInfo.map((p) => p.pic),
+      });
+    } else if (this.position) {
+      this._updatePlayerNames();
+    }
+    this._changed();
+    this._emit('handChanged', this.myCards);
+  }
 
-    if (data.bids) {
-      this.bids = { ...data.bids };
+  /** bidReceived */
+  applyBid(data) {
+    if (data.position === undefined || data.bid === undefined) return;
+    const bid = String(data.bid).toUpperCase();
+    this.bids[data.position] = bid;
+    this._updateTeamBids();
+    this.tempBids.push(bid);
+    if (data.team1Mult !== undefined) this.team1Mult = data.team1Mult;
+    if (data.team2Mult !== undefined) this.team2Mult = data.team2Mult;
+    this._changed();
+    this._emit('bidReceived', { position: data.position, bid });
+  }
+
+  /** doneBidding: play opens at the lead. */
+  applyDoneBidding(data) {
+    this.isBidding = false;
+    this.phase = PHASE.PLAYING;
+    this.stage = 'PLAYING';
+    this._clearTrickState();
+    this.trumpBroken = false;
+    this.trickNo = 1;
+    this.tempBids = [];
+    if (Array.isArray(data.bids)) {
+      data.bids.forEach((b, i) => {
+        if (b !== undefined && b !== null) this.bids[i + 1] = String(b).toUpperCase();
+      });
       this._updateTeamBids();
     }
+    if (data.lead !== undefined) this.currentTurn = data.lead;
+    this._changed();
+  }
 
-    if (data.teamTricks !== undefined) {
-      this.teamTricks = data.teamTricks;
-      this.oppTricks = data.oppTricks;
-    } else if (data.tricks) {
-      if (this.position % 2 !== 0) {
-        this.teamTricks = data.tricks.team1;
-        this.oppTricks = data.tricks.team2;
-      } else {
-        this.teamTricks = data.tricks.team2;
-        this.oppTricks = data.tricks.team1;
-      }
+  /** updateTurn */
+  applyTurn(data) {
+    const turn = data.currentTurn ?? data.turn;
+    if (turn !== undefined) this.currentTurn = turn;
+    this.hasPlayedCard = false;
+    if (this.stage === 'TRICK_RESOLVING' || this.stage === 'DEALING') this.stage = this.isBidding ? 'BIDDING' : 'PLAYING';
+    this._changed();
+    this._emit('turnChanged', this.currentTurn);
+  }
+
+  /** cardPlayed (mine included: the card leaves my hand only now). */
+  applyCardPlayed(data) {
+    const { card, position } = data;
+    if (!card || !position) return;
+    if (this.playedCards.length >= 4) this._clearTrickState();
+    if (this.playedCards.length === 0) {
+      this.leadCard = card;
+      this.leadPosition = position;
     }
-
-    if (data.teamScore !== undefined) {
-      this.teamScore = data.teamScore;
-      this.oppScore = data.oppScore;
+    if (data.trump !== undefined) this.trumpBroken = !!data.trump;
+    if (data.trumpBroken !== undefined) this.trumpBroken = !!data.trumpBroken;
+    this.playedCards.push({ card, position });
+    this.currentTrick.push({ card, position });
+    this.playedCardIndex = this.playedCards.length % 4;
+    if (this.seatCards[position] > 0) this.seatCards[position]--;
+    if (position === this.position && !this.isSpectator) {
+      const i = this.myCards.findIndex((c) => c.suit === card.suit && c.rank === card.rank);
+      if (i !== -1) this.myCards.splice(i, 1);
+      this.hasPlayedCard = true;
+      this._emit('handChanged', this.myCards);
     }
+    if (this.playedCards.length === 4) {
+      this.stage = 'TRICK_RESOLVING';
+      this.currentTurn = null;
+    }
+    this._changed();
+    this._emit('cardPlayed', { card, position, playedCardIndex: this.playedCardIndex });
+  }
 
-    // Restore scores from alternate format (score.team1/team2)
+  /** trickComplete: count it (cli-8: here, not in the scene) and open the next trick. */
+  applyTrickComplete(data) {
+    const winner = data.winner;
+    const mineTeam = winner % 2 === (this.position || 1) % 2;
+    if (mineTeam) this.teamTricks++;
+    else this.oppTricks++;
+    if (Array.isArray(this.trickHistory)) {
+      this.trickHistory.push({ winner, cards: this.playedCards.map((p) => ({ position: p.position, card: p.card })) });
+    }
+    this._clearTrickState();
+    this.trickNo = (this.trickNo || 1) + 1;
+    // A hand's last trick carries resumeInMs: the hand resolves next
+    this.stage = data.resumeInMs !== undefined ? 'HAND_RESOLVING' : 'PLAYING';
+    this._changed();
+    this._emit('trickScoresChanged', { teamTricks: this.teamTricks, oppTricks: this.oppTricks });
+  }
+
+  /** handComplete: the scores (the hand's bids and tricks reset with resetForNewHand). */
+  applyHandComplete(data) {
     if (data.score) {
-      if (this.position % 2 !== 0) {
-        // Odd position: team1 is my team
-        this.teamScore = data.score.team1;
-        this.oppScore = data.score.team2;
-      } else {
-        // Even position: team2 is my team
-        this.teamScore = data.score.team2;
-        this.oppScore = data.score.team1;
-      }
+      const [mine, theirs] = this._mine(data.score);
+      this.setGameScores(mine, theirs);
     }
+    this.stage = 'HAND_RESOLVING';
+    this._changed();
+  }
 
-    // Restore played cards in current trick
-    if (data.playedCards && data.playedCards.length > 0) {
-      this.playedCardIndex = 0;
-      this.playedCards = [];
-      this.currentTrick = [];
-      this.leadCard = null;
-      this.leadPosition = null;
+  /** destroyHands: the all-zero redeal (its gameStart deals the same hand again). */
+  applyDestroyHands() {
+    this.myCards = [];
+    this.bids = {};
+    this.teamBids = null;
+    this.oppBids = null;
+    this.tempBids = [];
+    this._clearTrickState();
+    this._setHandSizeForAll(0);
+    this._redealPending = true;
+    this.stage = 'REDEAL';
+    this._changed();
+  }
 
-      // Use server-provided leadPosition when available
-      if (data.leadPosition !== undefined) {
-        this.leadPosition = data.leadPosition;
-        const leadCard = data.playedCards[data.leadPosition - 1];
-        if (leadCard) this.leadCard = leadCard;
-      }
-
-      data.playedCards.forEach((card, index) => {
-        if (card) {
-          const cardPosition = index + 1; // Convert to 1-4 position
-          // Fallback: infer lead from first non-null card if server didn't provide it
-          if (!this.leadCard) {
-            this.leadCard = card;
-            this.leadPosition = cardPosition;
-          }
-          this.playedCards.push({ card, position: cardPosition });
-          this.currentTrick.push({ card, position: cardPosition });
-          this.playedCardIndex++;
-        }
-      });
+  /** gameEnd */
+  applyGameEnd(data) {
+    if (data?.score) {
+      const [mine, theirs] = this._mine(data.score);
+      this.teamScore = mine;
+      this.oppScore = theirs;
     }
+    this.stage = 'ENDED';
+    this.setPhase(PHASE.ENDED);
+    this._changed();
+  }
 
-    // Restore player data if provided
-    if (data.players) {
+  /** playerLazyMode / playerActiveMode for my seat. */
+  applyMyLazy(isLazy) {
+    this.isLazy = !!isLazy;
+    this._changed();
+  }
+
+  // ============================================
+  // Snapshots (the only restore path)
+  // ============================================
+
+  /**
+   * Replace the table with a snapshot v2 (parsed, or snapshotFromLegacy of a
+   * v1 payload). Kept: the session identity, the game log (main.js), and
+   * the face-up trick history of this same deal when the snapshot agrees
+   * with it on the trick count (a snapshot only counts tricks).
+   * @param {Object} snap
+   * @param {Object} [opts]
+   * @param {Array} [opts.players] - the v1 payload's players[] (pictures already folded)
+   */
+  applySnapshot(snap, { players = null } = {}) {
+    if (!snap) return;
+    const role = snap.viewer?.role || 'none';
+    const sameDeal = snap.gameId === this.gameId && !!snap.deal && snap.deal.handNo === this.handNo &&
+      (snap.deal.dealSeq ?? null) === (this.dealSeq ?? null);
+    const prevHistory = this.trickHistory;
+
+    if (snap.gameId) this.gameId = snap.gameId;
+    this.stage = snap.stage || null;
+    this.isSpectator = role === 'spectator';
+    this.isLazy = role === 'lazyWatcher';
+    if (snap.viewer?.position) this.position = snap.viewer.position;
+    else if (this.isSpectator) this.position = 1;
+
+    this._seatsToPlayerData(snap.seats || [], players);
+    this.seats = Array.isArray(snap.seats) ? snap.seats.map((s) => ({ ...s })) : [];
+
+    const deal = snap.deal;
+    this.handNo = deal ? (deal.handNo || this.handNo || 1) : 0;
+    this.dealSeq = deal ? (deal.dealSeq ?? null) : null;
+    this.currentHand = deal?.handSize || 0;
+    this.dealer = deal?.dealer ?? null;
+    this._redealPending = snap.stage === 'REDEAL';
+
+    this.trump = snap.trump || null;
+    this.trumpBroken = !!snap.trumpBroken;
+    this.myCards = Array.isArray(snap.hand) ? snap.hand.map((c) => ({ suit: c.suit, rank: c.rank })) : [];
+    this.currentTurn = snap.turn?.position ?? null;
+    this.isBidding = ['DEALING', 'BIDDING', 'REDEAL'].includes(snap.stage);
+    if (deal) this.phase = this.isBidding ? PHASE.BIDDING : PHASE.PLAYING;
+    else if (['CREATED', 'DRAWING', 'DRAW_RESOLVING'].includes(snap.stage)) this.phase = PHASE.DRAW;
+
+    this.bids = {};
+    const byPos = snap.bids?.byPosition || [];
+    byPos.forEach((b, i) => {
+      if (b !== null && b !== undefined) this.bids[i + 1] = String(b).toUpperCase();
+    });
+    if (Object.keys(this.bids).length) {
+      this._updateTeamBids();
+    } else {
+      this.teamBids = null;
+      this.oppBids = null;
+    }
+    const order = Array.isArray(snap.bids?.order) && snap.bids.order.length ? snap.bids.order : [1, 2, 3, 4];
+    this.tempBids = this.isBidding ? order.map((p) => this.bids[p]).filter((b) => b !== undefined) : [];
+    this.team1Mult = snap.bids?.mults?.team1 || 1;
+    this.team2Mult = snap.bids?.mults?.team2 || 1;
+
+    this._clearTrickState();
+    const cards = Array.isArray(snap.trick?.cards) ? snap.trick.cards : [];
+    for (const c of cards) {
+      this.playedCards.push({ card: { ...c.card }, position: c.position });
+      this.currentTrick.push({ card: { ...c.card }, position: c.position });
+    }
+    this.playedCardIndex = this.playedCards.length % 4;
+    if (cards.length) {
+      this.leadPosition = snap.trick.leadPosition ?? cards[0].position;
+      this.leadCard = { ...cards[0].card };
+    }
+    this.hasPlayedCard = !this.isSpectator && !!this.position && cards.some((c) => c.position === this.position);
+
+    const [teamTricks, oppTricks] = this._mine(snap.tricks);
+    this.teamTricks = teamTricks;
+    this.oppTricks = oppTricks;
+    const total = teamTricks + oppTricks;
+    this.trickNo = snap.trick?.number || (deal ? (this.isBidding ? 1 : total + 1) : 0);
+    this.trickHistory = sameDeal && Array.isArray(prevHistory) && prevHistory.length === total ? prevHistory : (total ? null : []);
+
+    const [teamScore, oppScore] = this._mine(snap.score);
+    this.teamScore = teamScore;
+    this.oppScore = oppScore;
+    const [teamRainbows, oppRainbows] = this._mine(snap.rainbows);
+    this.teamRainbows = teamRainbows;
+    this.oppRainbows = oppRainbows;
+
+    this.hsiValues = {};
+    if (Array.isArray(snap.hsi)) snap.hsi.forEach((v, i) => { if (typeof v === 'number') this.hsiValues[i + 1] = v; });
+
+    this.seatCards = { 1: 0, 2: 0, 3: 0, 4: 0 };
+    for (const s of this.seats) this.seatCards[s.position] = s.cardsInHand || 0;
+    this.resume = snap.resume || null;
+    this._changed();
+    this._emit('stateRestored', snap);
+  }
+
+  /** playerData (names, pictures) from the snapshot's seats; a v1 players[] wins for pictures. */
+  _seatsToPlayerData(seats, players) {
+    if (Array.isArray(players) && players.length) {
       this.setPlayerData({
-        positions: data.players.map((p) => p.position),
-        sockets: data.players.map((p) => p.socketId),
-        usernames: data.players.map((p) => ({ username: p.username })),
-        pics: data.players.map((p) => p.pic),
+        position: players.map((p) => p.position),
+        sockets: players.map((p) => p.socketId),
+        username: players.map((p) => ({ username: p.username, socketId: p.socketId })),
+        pics: players.map((p) => p.pic),
+      });
+      return;
+    }
+    if (!Array.isArray(seats) || seats.length !== 4) {
+      if (this.position && this.playerData) this._updatePlayerNames();
+      return;
+    }
+    // A custom picture already held for the same username stays (gap
+    // snapshots carry none: partial 'customPics')
+    const held = {};
+    if (this.playerData?.position) {
+      this.playerData.position.forEach((pos, i) => {
+        const name = this.playerData.username?.[i]?.username || this.playerData.username?.[i];
+        if (name) held[name] = this.playerData.pics?.[i];
       });
     }
+    const picFor = (s) => {
+      if (s.avatarUrl) return s.avatarUrl;
+      if (s.customPic) return s.customPic;
+      if (s.hasCustomPic && typeof held[s.username] === 'string') return held[s.username];
+      return s.pic ?? held[s.username] ?? null;
+    };
+    const oldSockets = this.playerData?.position
+      ? Object.fromEntries(this.playerData.position.map((pos, i) => [pos, this.playerData.socket?.[i] ?? null]))
+      : {};
+    this.setPlayerData({
+      position: seats.map((s) => s.position),
+      sockets: seats.map((s) => oldSockets[s.position] ?? null),
+      username: seats.map((s) => ({ username: s.username })),
+      pics: seats.map(picFor),
+    });
+  }
 
-    this.phase = data.isBidding || data.bidding ? PHASE.BIDDING : PHASE.PLAYING;
+  /**
+   * The table as the scene draws it (snapshot v2 shaped). `pendingCard`:
+   * my play in flight (MyAction): out of the hand, at my trick slot.
+   */
+  renderModel({ pendingCard = null, pendingBid = false } = {}) {
+    const role = this.isSpectator ? 'spectator' : (this.isLazy ? 'lazyWatcher' : 'seat');
+    const position = this.position || (this.isSpectator ? 1 : null);
+    const same = (a, b) => a && b && a.suit === b.suit && a.rank === b.rank;
+    const hand = this.isSpectator ? null : [...this.myCards];
+    const trick = this.playedCards.map((p) => ({ position: p.position, card: { ...p.card } }));
+    if (pendingCard && hand && !trick.some((c) => c.position === position)) {
+      const i = hand.findIndex((c) => same(c, pendingCard));
+      if (i !== -1) {
+        hand.splice(i, 1);
+        trick.push({ position, card: { ...pendingCard }, pending: true });
+      }
+    }
+    const live = !!this.trump && this.handNo > 0 && !['ENDED', 'ABORTED'].includes(this.stage);
+    const seatCards = { ...this.seatCards };
+    if (hand && position) seatCards[position] = hand.length;
+    return {
+      gameId: this.gameId,
+      stage: this.stage,
+      live,
+      viewer: { role, position, canAct: this.canAct({ pending: !!pendingCard || pendingBid }) },
+      hand,
+      handSize: this.currentHand,
+      handNo: this.handNo,
+      dealSeq: this.dealSeq,
+      trickNo: this.trickNo,
+      dealer: this.dealer,
+      trump: this.trump,
+      trumpBroken: this.trumpBroken,
+      turn: this.currentTurn,
+      isBidding: this.isBidding,
+      bids: { ...this.bids },
+      trick,
+      leadPosition: this.leadPosition,
+      tricks: { team: this.teamTricks, opp: this.oppTricks },
+      history: Array.isArray(this.trickHistory)
+        ? this.trickHistory.map((t) => ({ winner: t.winner, cards: t.cards.map((c) => ({ ...c })) }))
+        : null,
+      seatCards,
+      score: { team: this.teamScore, opp: this.oppScore },
+      hsi: position ? this.hsiValues[position] : undefined,
+      playerData: this.playerData,
+    };
+  }
 
-    this._emit('stateRestored', data);
+  /** My seat may bid / play now (and no action of mine is pending). */
+  canAct({ pending = false } = {}) {
+    if (pending || this.isSpectator || this.isLazy || !this.position) return false;
+    if (this.currentTurn !== this.position) return false;
+    if (this.stage && !['BIDDING', 'PLAYING'].includes(this.stage)) return false;
+    if (this.isBidding) return this.bids[this.position] === undefined;
+    return !this.hasPlayedCard;
   }
 
   /**

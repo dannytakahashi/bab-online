@@ -7,6 +7,9 @@
 import { getUsernameColor } from '../../utils/colors.js';
 import { getGameState } from '../../state/GameState.js';
 
+/** Rendered rows are capped (the server keeps 500 log entries). */
+export const MAX_LOG_ROWS = 500;
+
 /**
  * Create game log component.
  *
@@ -389,32 +392,47 @@ export function createGameLog({ onChatSubmit } = {}) {
     messageArea.scrollTop = messageArea.scrollHeight;
   };
 
-  const addSystemMessage = (message, color = '#888') => {
+  // One log row: [time] text, colored by team / spectator / system
+  const timeLabel = (at) => {
+    const when = at !== undefined && at !== null && Number.isFinite(Number(at)) ? new Date(Number(at)) : new Date();
+    return when.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+  const buildRow = (message, playerPosition = null, at = null, color = '#888') => {
     const msgDiv = document.createElement('div');
-    msgDiv.style.cssText = `
-      margin-bottom: 8px;
-      font-style: italic;
-    `;
-
-    // Add timestamp
-    const now = new Date();
-    const timestamp = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const system = playerPosition === null || playerPosition === undefined;
+    msgDiv.style.cssText = system
+      ? 'margin-bottom: 8px; font-style: italic;'
+      : 'margin-bottom: 8px; word-wrap: break-word;';
     const timeSpan = document.createElement('span');
-    timeSpan.textContent = `[${timestamp}] `;
+    timeSpan.textContent = `[${timeLabel(at)}] `;
     timeSpan.style.cssText = `
       color: #888;
       font-size: 11px;
       margin-right: 4px;
     `;
     msgDiv.appendChild(timeSpan);
-
     const textSpan = document.createElement('span');
     textSpan.textContent = message;
-    textSpan.style.color = color;
+    if (system) {
+      textSpan.style.color = color;
+    } else if (playerPosition === 'spectator') {
+      textSpan.style.color = '#4ade80'; // Green for spectators
+    } else {
+      // Team 1 (positions 1, 3) = blue, Team 2 (positions 2, 4) = red
+      textSpan.style.color = (playerPosition === 1 || playerPosition === 3) ? '#63b3ed' : '#fc8181';
+    }
     msgDiv.appendChild(textSpan);
-
-    messageArea.appendChild(msgDiv);
+    return msgDiv;
+  };
+  // Live rows: one append and one scroll each; the list is capped
+  const append = (row) => {
+    messageArea.appendChild(row);
+    while (messageArea.childElementCount > MAX_LOG_ROWS) messageArea.firstElementChild.remove();
     messageArea.scrollTop = messageArea.scrollHeight;
+  };
+
+  const addSystemMessage = (message, color = '#888', at = null) => {
+    append(buildRow(message, null, at, color));
   };
 
   const addTrickResult = (winner, teamTricks, oppTricks) => {
@@ -465,44 +483,27 @@ export function createGameLog({ onChatSubmit } = {}) {
    * @param {string} message - The full message (may include "username: text" format)
    * @param {number|null} playerPosition - Player position (1-4) for color coding, or null for system messages
    */
-  const addGameMessage = (message, playerPosition = null) => {
-    if (playerPosition === null) {
-      addSystemMessage(message);
-    } else {
-      // Message is already formatted, add it with position coloring
-      const msgDiv = document.createElement('div');
-      msgDiv.style.cssText = `
-        margin-bottom: 8px;
-        word-wrap: break-word;
-      `;
-
-      // Add timestamp
-      const now = new Date();
-      const timestamp = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      const timeSpan = document.createElement('span');
-      timeSpan.textContent = `[${timestamp}] `;
-      timeSpan.style.cssText = `
-        color: #888;
-        font-size: 11px;
-        margin-right: 4px;
-      `;
-      msgDiv.appendChild(timeSpan);
-
-      // Message text with team/spectator coloring
-      const textSpan = document.createElement('span');
-      textSpan.textContent = message;
-      if (playerPosition === 'spectator') {
-        textSpan.style.color = '#4ade80'; // Green for spectators
-      } else {
-        // Team 1 (positions 1, 3) = blue, Team 2 (positions 2, 4) = red
-        textSpan.style.color = (playerPosition === 1 || playerPosition === 3) ? '#63b3ed' : '#fc8181';
-      }
-      msgDiv.appendChild(textSpan);
-
-      messageArea.appendChild(msgDiv);
-      messageArea.scrollTop = messageArea.scrollHeight;
-    }
+  const addGameMessage = (message, playerPosition = null, at = null) => {
+    append(buildRow(message, playerPosition, at));
   };
+
+  /**
+   * Replace every row with `entries` ({message, position, at}; the server
+   * log of a snapshot), built off-document and scrolled once (webclient-9:
+   * one layout for the whole replay, not one per line).
+   */
+  const replaceMessages = (entries = []) => {
+    const frag = document.createDocumentFragment();
+    const rows = entries.slice(-MAX_LOG_ROWS);
+    for (const e of rows) {
+      frag.appendChild(buildRow(e.message, e.position ?? null, e.at ?? null));
+    }
+    messageArea.replaceChildren(frag);
+    messageArea.scrollTop = messageArea.scrollHeight;
+  };
+
+  /** Row count (tests, render checks). */
+  const messageCount = () => messageArea.childElementCount;
 
   /**
    * Update full score display (matches legacy updateGameLogScore signature).
@@ -557,6 +558,8 @@ export function createGameLog({ onChatSubmit } = {}) {
     hideTrickIndicator,
     updateTrickIndicator,
     clearMessages,
+    replaceMessages,
+    messageCount,
     destroy,
     chatInput,
   };

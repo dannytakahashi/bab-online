@@ -42,7 +42,7 @@ describe('rejoin waits for the scene', () => {
     page.scene.cardManager = managers; // the tab is visible again
     await vi.waitFor(() => expect(document.getElementById('gameFeed')).not.toBeNull());
     await tick(250);
-    expect(page.scene.handleDisplayHand).toHaveBeenCalledTimes(1);
+    expect(page.scene.render).toHaveBeenCalledTimes(1);
     expect(logLines('Reconnected to game!')).toBe(1);
     expect(logLines('Hand 1 started')).toBe(1);
     expect(document.querySelectorAll('#spectating-indicator')).toHaveLength(1);
@@ -50,7 +50,7 @@ describe('rejoin waits for the scene', () => {
 
   it('a gameEnd before the scene is ready stops the rebuild (no pill over the score modal)', async () => {
     const managers = page.scene.cardManager;
-    page.scene.handleDisplayHand.mockClear();
+    page.scene.render.mockClear();
     page.scene.cardManager = null;
     socket.reconnect('sock-3');
     socket.fire('restoreSessionResponse', { success: true, username: 'me', activeGameId: 'g1', blockedUsers: [] });
@@ -63,7 +63,7 @@ describe('rejoin waits for the scene', () => {
 
     page.scene.cardManager = managers;
     await tick(300);
-    expect(page.scene.handleDisplayHand).not.toHaveBeenCalled();
+    expect(page.scene.render).not.toHaveBeenCalled();
     expect(document.getElementById('spectating-indicator')).toBeNull();
   });
 });

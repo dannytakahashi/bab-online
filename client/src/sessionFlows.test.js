@@ -246,7 +246,10 @@ describe('table entry and exit', () => {
     const { scene } = page;
     expect(scene.createPlayerInfoBox).toHaveBeenCalled();
     expect(scene.layoutManager.createDomBackgrounds).toHaveBeenLastCalledWith({ skipHandArea: false });
-    window.dispatchEvent(new Event('trumpFlipComplete'));
+    // the bid grid comes with this deal's trump flip (no window event)
+    expect(scene.bidManager.showBidUI).not.toHaveBeenCalled();
+    const [, { onFlipped }] = scene.displayTrumpCard.mock.calls.at(-1);
+    onFlipped();
     expect(scene.bidManager.showBidUI).toHaveBeenCalledWith(1, expect.any(Function));
     expect(sessionStorage.getItem('gameId')).toBe('g3');
     expect(sessionStorage.getItem('spectatingGameId')).toBeNull();
@@ -499,7 +502,7 @@ describe('identity and errors', () => {
     expect(page.gameState.username).toBe('me');
     const { GameScene } = await import('./phaser/scenes/GameScene.js');
     const spy = vi.spyOn(window, 'updateGameLogScoreFromLegacy');
-    GameScene.prototype.updateGameLogAfterTrick.call({ state: page.gameState });
+    GameScene.prototype.renderScoreHeader.call({ state: page.gameState });
     const [teamNames, oppNames] = spy.mock.calls.at(-1);
     expect(teamNames).toBe('ann/cat');
     expect(oppNames).toBe('bob/dan');

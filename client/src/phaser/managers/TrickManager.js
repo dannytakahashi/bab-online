@@ -7,6 +7,7 @@
 import { getCardImageKey } from '../../utils/cards.js';
 import { CARD_CONFIG, ANIMATION_CONFIG } from '../config.js';
 import { collectMs } from '../pacing.js';
+import { sceneTween } from '../TableDirector.js';
 
 /**
  * Base design dimensions for scaling.
@@ -107,7 +108,10 @@ export class TrickManager {
     this._collecting = true;
     this._collectFallback?.remove?.(false);
     // Fallback: a tween that is killed never completes
-    this._collectFallback = this._scene.time?.delayedCall?.(ms + 150, () => this._endCollect(token)) || null;
+    const end = () => this._endCollect(token);
+    this._collectFallback = (this._scene.director
+      ? this._scene.director.delay(ms + 150, end)
+      : this._scene.time?.delayedCall?.(ms + 150, end)) || null;
     return token;
   }
 
@@ -285,7 +289,7 @@ export class TrickManager {
     // Animate to position (only when asked: `animate && x || y` used to
     // tween a restored card whose y differed)
     if (animate && (sprite.x !== playPos.x || sprite.y !== playPos.y)) {
-      scene.tweens.add({
+      sceneTween(scene, {
         targets: sprite,
         x: playPos.x,
         y: playPos.y,
@@ -356,7 +360,7 @@ export class TrickManager {
       }
 
       if (this.isVisible()) {
-        scene.tweens.add({
+        sceneTween(scene, {
           targets: card,
           x: winningPosition.x,
           y: winningPosition.y,
@@ -416,7 +420,7 @@ export class TrickManager {
       card.getData?.('hoverTween')?.stop();
       card.setData?.('hoverTween', null);
       if (this.isVisible()) {
-        const tween = scene.tweens.add({
+        const tween = sceneTween(scene, {
           targets: card,
           x,
           y,
@@ -521,7 +525,7 @@ export class TrickManager {
       this._backgroundGraphics.setAlpha(0);
       this._backgroundGraphics.setScale(0.9);
 
-      this._scene.tweens.add({
+      sceneTween(this._scene, {
         targets: this._backgroundGraphics,
         alpha: 1,
         scale: 1,
@@ -836,7 +840,7 @@ export class TrickManager {
     trickNumbers.forEach((trickNum, trickIndex) => {
       const cards = cardsByTrickNumber[trickNum];
       cards.forEach((card) => {
-        scene.tweens.add({
+        sceneTween(scene, {
           targets: card,
           x: targetX,
           y: targetY,
@@ -910,6 +914,49 @@ export class TrickManager {
     if (this._backgroundGraphics) {
       this._drawBackgrounds();
     }
+  }
+
+  /**
+   * Restore this hand's completed tricks with their real cards (a render
+   * from the client's own model): my team's face up, the opponents' face
+   * down unless spectating, exactly as completeTrick leaves them.
+   * @param {Array} history - [{winner, cards: [{position, card}]}]
+   * @param {Function} isMyTeam - (winnerPosition) => boolean
+   */
+  restoreTrickHistory(history, isMyTeam) {
+    const scene = this._scene;
+    for (const trick of history || []) {
+      const mine = isMyTeam(trick.winner);
+      const trickNumber = mine ? ++this._teamTrickCount : ++this._oppTrickCount;
+      const pos = this._getTrickPosition(trickNumber, mine);
+      const cards = trick.cards.map((c, index) => {
+        const faceUp = mine || this._isSpectatorMode;
+        const sprite = faceUp
+          ? scene.add.image(pos.x, pos.y, 'cards', getCardImageKey(c.card))
+          : scene.add.image(pos.x, pos.y, 'cardBack');
+        sprite.setData?.('faceKey', getCardImageKey(c.card));
+        sprite.setScale(TRICK_SCALE);
+        sprite.setDepth(200 + index);
+        sprite.setInteractive();
+        sprite.originalDepth = 200 + index;
+        return sprite;
+      });
+      const entry = { cards, position: { ...pos }, trickNumber };
+      (mine ? this._teamTrickHistory : this._oppTrickHistory).push(entry);
+      this._setupTrickHover(cards, entry.position);
+    }
+    if (this._backgroundGraphics) this._drawBackgrounds();
+  }
+
+  /** Sprite counts (render checks): current trick, team and opponent stacks. */
+  spriteCounts() {
+    const stacked = (h) => h.reduce((n, t) => n + t.cards.filter((c) => c && c.active !== false).length, 0);
+    return {
+      trick: this._currentTrick.length,
+      teamStacks: this._teamTrickHistory.length,
+      oppStacks: this._oppTrickHistory.length,
+      stackCards: stacked(this._teamTrickHistory) + stacked(this._oppTrickHistory),
+    };
   }
 
   /**

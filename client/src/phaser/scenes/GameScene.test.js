@@ -119,9 +119,9 @@ describe('GameScene handleCardPlayed (opponent)', () => {
 });
 
 describe('GameScene handleHandComplete', () => {
-  it('logs and scores the final 13-card hand', () => {
+  it('logs and scores the final 13-card hand (a view: GameState is not written)', () => {
     const scene = new GameScene();
-    scene.state = { position: 2, playerData: {}, bids: {} };
+    scene.state = Object.freeze({ position: 2, playerData: {}, bids: {} });
     scene.callbacks = {};
     const formatHandCompleteMessages = vi.fn(() => ['hand line 1', 'hand line 2']);
     window.ModernUtils = {
@@ -141,8 +141,9 @@ describe('GameScene handleHandComplete', () => {
       });
 
       // Position 2 is on team 2, so team/opp values are swapped
-      expect(scene.state.teamScore).toBe(-40);
-      expect(scene.state.oppScore).toBe(120);
+      expect(formatHandCompleteMessages).toHaveBeenCalledWith(
+        expect.objectContaining({ teamScore: -40, oppScore: 120 })
+      );
       expect(formatHandCompleteMessages).toHaveBeenCalledWith(
         expect.objectContaining({ teamTricks: 6, oppTricks: 7, teamOldScore: 20, oppOldScore: 50 })
       );
@@ -321,41 +322,45 @@ describe('GameScene handleCreateUI fade-out', () => {
     raf.mockRestore();
     vi.useRealTimers();
     document.getElementById('transition-overlay')?.remove();
-    window._transitionOverlay = null;
-    window._readyForGameUI = false;
   });
 
-  function sceneWithDraw() {
+  async function sceneWithDraw() {
+    const { TableDirector } = await import('../TableDirector.js');
     const scene = new GameScene();
     scene.drawManager = { cleanup: vi.fn() };
+    scene.director = new TableDirector();
     return scene;
   }
 
-  it('lifts the overlay and signals gameUIReady even when transitionend never fires', () => {
-    const ready = vi.fn();
-    window.addEventListener('gameUIReady', ready, { once: true });
+  it('lifts the overlay and lets the first deal show (director.uiReady) even when transitionend never fires', async () => {
+    const scene = await sceneWithDraw();
+    const dealt = vi.fn();
     const onUIReady = vi.fn();
-    sceneWithDraw().handleCreateUI({}, onUIReady);
+    scene.handleCreateUI({}, onUIReady);
     expect(onUIReady).toHaveBeenCalled();
+    expect(scene.director.uiReady).toBe(false);
+    scene.director.afterTransition(dealt); // the deal waits for the fade
     expect(document.getElementById('transition-overlay')).not.toBeNull();
     vi.advanceTimersByTime(1200 + 250);
     expect(document.getElementById('transition-overlay')).toBeNull();
-    expect(window._transitionOverlay).toBeNull();
+    expect(dealt).not.toHaveBeenCalled();
     vi.advanceTimersByTime(500);
-    expect(window._readyForGameUI).toBe(true);
-    expect(ready).toHaveBeenCalledTimes(1);
+    expect(scene.director.uiReady).toBe(true);
+    expect(dealt).toHaveBeenCalledTimes(1);
   });
 
-  it('a rejoin/exit that removed the overlay mid-fade owns the UI: no late gameUIReady', async () => {
+  it('a rejoin/exit that removed the overlay mid-fade owns the UI: the waiting deal is dropped, no late endFade', async () => {
     const { removeTransitionOverlay } = await import('../../ui/transitionOverlay.js');
-    const ready = vi.fn();
-    window.addEventListener('gameUIReady', ready);
-    sceneWithDraw().handleCreateUI({}, vi.fn());
+    const scene = await sceneWithDraw();
+    const dealt = vi.fn();
+    const endFade = vi.spyOn(scene.director, 'endFade');
+    scene.handleCreateUI({}, vi.fn());
+    scene.director.afterTransition(dealt);
     removeTransitionOverlay();
     vi.advanceTimersByTime(5000);
-    expect(ready).not.toHaveBeenCalled();
-    expect(window._readyForGameUI).toBe(false);
-    window.removeEventListener('gameUIReady', ready);
+    expect(endFade).not.toHaveBeenCalled();
+    expect(dealt).not.toHaveBeenCalled();
+    expect(scene.director.uiReady).toBe(true);
   });
 });
 
@@ -385,7 +390,8 @@ describe('GameScene handleCardPlayed (lazy: the bot played my card)', () => {
 describe('GameScene handleDestroyHands (all-zero redeal)', () => {
   it('clears the hand and the trick through the managers and drops the bid grid', () => {
     const scene = new GameScene();
-    scene.state = { clearTempBids: vi.fn() };
+    // a view: GameState (the handler) already cleared the bids
+    scene.state = Object.freeze({ bids: {}, position: 1 });
     scene.cardManager = { clearHand: vi.fn() };
     scene.trickManager = { clearAll: vi.fn() };
     scene.bidManager = { hideBidUI: vi.fn() };
@@ -395,7 +401,6 @@ describe('GameScene handleDestroyHands (all-zero redeal)', () => {
     expect(scene.cardManager.clearHand).toHaveBeenCalledTimes(1);
     expect(scene.trickManager.clearAll).toHaveBeenCalledTimes(1);
     expect(scene.bidManager.hideBidUI).toHaveBeenCalledWith(false);
-    expect(scene.state.clearTempBids).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -578,11 +583,13 @@ describe('GameScene handleDisplayHand (moved from main.js setGameScene)', () => 
     expect(scene.cardManager.updateCardLegality.mock.calls.at(-1)[1]).toBe(false);
   });
 
-  it('a click on a legal card plays it once and dims the hand; an illegal one is ignored', () => {
+  it('a click on a legal card plays it once (pending in MyAction) and dims the hand; an illegal one is ignored', async () => {
+    const { resetMyAction } = await import('../../state/MyAction.js');
+    const myAction = resetMyAction();
     const state = getGameState();
     state.position = 3;
     state.playedCardIndex = 0;
-    window.socket = { emit: vi.fn() };
+    window.socket = { emit: vi.fn(), connected: true };
     try {
       const { scene, click } = handScene();
       const card = { suit: 'spades', rank: 'A' };
@@ -594,12 +601,25 @@ describe('GameScene handleDisplayHand (moved from main.js setGameScene)', () => 
 
       click(card, { getData: () => true, x: 0, y: 0 });
       expect(window.socket.emit).toHaveBeenCalledWith('playCard', { card, position: 3 });
-      expect(state.leadCard).toEqual(card);
-      expect(state.leadPosition).toBe(3);
-      expect(state.hasPlayedCard).toBe(true);
+      expect(myAction.pendingCard).toEqual(card);
+      // the click never writes the table: the echo does
+      expect(state.leadCard).toBeNull();
+      expect(state.hasPlayedCard).toBe(false);
+      expect(state.myCards).toEqual([card]);
       expect(scene.cardManager.updateCardLegality.mock.calls.at(-1)[1]).toBe(false);
+
+      // a second click while the first is pending sends nothing
+      click(card, { getData: () => true, x: 0, y: 0 });
+      expect(window.socket.emit).toHaveBeenCalledTimes(1);
+
+      // a dead socket would buffer the play ahead of the rejoin: ignored
+      myAction.reset();
+      window.socket.connected = false;
+      click(card, { getData: () => true, x: 0, y: 0 });
+      expect(window.socket.emit).toHaveBeenCalledTimes(1);
     } finally {
       delete window.socket;
+      myAction.reset();
     }
   });
 });

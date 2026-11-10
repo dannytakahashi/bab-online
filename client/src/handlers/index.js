@@ -76,6 +76,8 @@ export function registerAllHandlers(socketManager, callbacks = {}) {
     onGameLogEntry,
     onLeftGame,
     onRestorePlayerState,
+    onActionRejected,
+    onStateSnapshot,
     // Chat callbacks
     onChatMessage,
     // Profile callbacks
@@ -168,6 +170,8 @@ export function registerAllHandlers(socketManager, callbacks = {}) {
     onGameLogEntry,
     onLeftGame,
     onRestorePlayerState,
+    onActionRejected,
+    onStateSnapshot,
   });
 
   // Register chat handlers

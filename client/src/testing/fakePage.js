@@ -292,7 +292,7 @@ export function litterTableDom() {
     document.body.appendChild(el);
     return el;
   };
-  window._transitionOverlay = make('transition-overlay');
+  make('transition-overlay');
   make('spectating-indicator');
   make('resignation-dialog').dataset.position = '2';
   make(null, 'chat-bubble');
@@ -302,7 +302,7 @@ export function litterTableDom() {
 /** What an exit must leave: no table DOM, no gameId copy anywhere. */
 export function tableLeftovers(page) {
   return {
-    transitionOverlay: !!document.getElementById('transition-overlay') || !!window._transitionOverlay,
+    transitionOverlay: !!document.getElementById('transition-overlay'),
     spectatingIndicator: !!document.getElementById('spectating-indicator'),
     resignationDialog: !!document.getElementById('resignation-dialog'),
     bubbles: document.querySelectorAll('.chat-bubble').length,
