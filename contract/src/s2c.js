@@ -428,9 +428,9 @@ const s2c = {
         }),
         status: 'active', to: 'self',
         added: ['snapshot'],
-        clientReads: reads([], I.game('registerPlayingPhase')),
+        clientReads: reads([W.game, W.main('onActionRejected')], I.game('registerPlayingPhase')),
         emittedFrom: ['server/socket/gameHandlers.js:rejectAction'],
-        notes: 'iOS reads action == "play" (rollbackCardPlay); web has no listener. Always BEFORE the restorePlayerState of a "Card not in hand" play.',
+        notes: 'iOS reads action == "play" (rollbackCardPlay); web (item 16) rolls its pending bid/play back (state/MyAction.js) and renders the snapshot (the card returns to the hand; partial log: the log is kept). Always BEFORE the restorePlayerState of a "Card not in hand" play.',
     },
     trickComplete: {
         payload: obj({
@@ -530,7 +530,7 @@ const s2c = {
             }, { optional: ['requestId'] })),
         ),
         status: 'active', to: 'self',
-        clientReads: reads([], []),
+        clientReads: reads([W.game, W.main('onStateSnapshot'), 'client/src/socket/SocketManager.js:probeConnection'], []),
         emittedFrom: ['server/socket/snapshotHandlers.js:requestSnapshot'],
         notes: 'New in snapshot v2: the reply to requestSnapshot. The log is included unless the request sends log:false; custom (data-URL) seat pictures only with customPics:true (partial lists what was left out). notInGame: the socket is in no live game - also once its game ENDED or ABORTED (the terminal state arrives as gameEnd / abortGame, never as a snapshot).',
     },

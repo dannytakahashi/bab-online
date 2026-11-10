@@ -2892,7 +2892,7 @@
           "customPics": "yes"
         }
       ],
-      "notes": "New in snapshot v2 (no shipped iOS client sends it yet). Answered by stateSnapshot to this socket only. Web (item 15) sends {requestId, customPics:false, log:false} as its liveness ping after the tab was hidden > 5 s and forces a reconnect only when no reply arrives; the snapshot is not rendered yet (item 16)."
+      "notes": "New in snapshot v2 (no shipped iOS client sends it yet). Answered by stateSnapshot to this socket only. Web always sends {requestId, customPics:false, log:false}: \"ping-*\" its liveness ping after the tab was hidden > 5 s (item 15; a reconnect only when no reply arrives), \"gap-*\" on a seq gap (debounced: one in flight), \"ack-*\" when its bid/play got no answer for 5 s (item 16); every reply with a snapshot of its table is applied and rendered."
     },
     "getProfile": {
       "payload": {
@@ -5541,7 +5541,10 @@
         "snapshot"
       ],
       "clientReads": {
-        "web": [],
+        "web": [
+          "client/src/handlers/gameHandlers.js:registerGameHandlers",
+          "client/src/main.js:onActionRejected"
+        ],
         "ios": [
           "iOSClient/BABOnline/Networking/Handlers/GameSocketHandler.swift:registerPlayingPhase"
         ]
@@ -5549,7 +5552,7 @@
       "emittedFrom": [
         "server/socket/gameHandlers.js:rejectAction"
       ],
-      "notes": "iOS reads action == \"play\" (rollbackCardPlay); web has no listener. Always BEFORE the restorePlayerState of a \"Card not in hand\" play."
+      "notes": "iOS reads action == \"play\" (rollbackCardPlay); web (item 16) rolls its pending bid/play back (state/MyAction.js) and renders the snapshot (the card returns to the hand; partial log: the log is kept). Always BEFORE the restorePlayerState of a \"Card not in hand\" play."
     },
     "trickComplete": {
       "payload": {
@@ -6558,7 +6561,11 @@
       "status": "active",
       "to": "self",
       "clientReads": {
-        "web": [],
+        "web": [
+          "client/src/handlers/gameHandlers.js:registerGameHandlers",
+          "client/src/main.js:onStateSnapshot",
+          "client/src/socket/SocketManager.js:probeConnection"
+        ],
         "ios": []
       },
       "emittedFrom": [

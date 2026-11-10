@@ -7,8 +7,9 @@
  * contract/events.schema.json $defs.snapshotV2; consumer rules (seq, gaps,
  * presence): contract/README.md.
  *
- * Not wired into rendering yet (roadmap item 16) and not imported by
- * main.js, so it is not in the bundle. No imports: safe anywhere.
+ * The restore path (item 16): state/tableSync.js parses every carrier with
+ * parseSnapshotV2, GameState.applySnapshot takes it, state/SeqGate.js
+ * applies classifySeq. No imports: safe anywhere.
  */
 
 export const SNAPSHOT_VERSION = 2;
