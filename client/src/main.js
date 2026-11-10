@@ -400,14 +400,15 @@ function handleSocketError(error, socket) {
   }
 
   // Re-entering a tournament after a reload or reconnect: it is gone
-  if (session.takePendingTournamentRejoin()) {
+  const pendingTournament = session.takePendingTournamentRejoin();
+  if (pendingTournament) {
     console.log('Tournament re-entry failed:', error.message);
     getGameState().tournamentId = null;
     showErrorToast('The tournament is no longer available');
     if (!session.hasTable) session.transition(SCREEN.MAIN_ROOM);
     // The server follows a failed joinTournament with the main room, except
-    // for 'Already in a tournament'
-    if (error.message === 'Already in a tournament') session.requestMainRoom();
+    // for 'Already in a tournament'; a failed spectateTournament with nothing
+    if (pendingTournament.spectator || error.message === 'Already in a tournament') session.requestMainRoom();
     return;
   }
 
@@ -915,7 +916,8 @@ function initializeApp() {
 
     // Wait for scene to be ready before processing UI
     const waitForScene = () => {
-      if (session.tableGeneration !== generation) return;
+      // Superseded, or the game ended (score modal) or was left meanwhile
+      if (session.tableGeneration !== generation || !session.isAtTable) return;
       const scene = getGameScene();
       if (scene && scene.cardManager) {
         processRejoinData();
@@ -1016,6 +1018,8 @@ function initializeApp() {
       // Check if user has an active game to rejoin
       if (data.activeGameId) {
         console.log(`Active game found: ${data.activeGameId}, attempting to rejoin...`);
+        // A failed rejoin then routes back to the tournament
+        if (data.activeTournamentId) gameState.tournamentId = data.activeTournamentId;
         session.rejoin(data.activeGameId);
       } else if (data.activeTournamentId) {
         console.log(`Active tournament found: ${data.activeTournamentId}, rejoining...`);
@@ -1179,7 +1183,8 @@ function initializeApp() {
 
         // Set up the game scene for spectating
         const waitForScene = () => {
-          if (session.tableGeneration !== generation) return;
+          // Superseded, or the game ended (score modal) or was left meanwhile
+          if (session.tableGeneration !== generation || !session.isAtTable) return;
           const scene = getGameScene();
           if (scene && scene.cardManager) {
             try {
@@ -2045,6 +2050,12 @@ function initializeApp() {
 
     onTournamentJoined: (data) => {
       gameState.tournamentId = data.tournamentId;
+      // A tab that only watches this tournament: the server's reply to
+      // returnToTournament (after watching one of its tables) carries no
+      // isSpectator flag, and a spectator gets no player controls
+      if (!data.isSpectator && session.isTournamentSpectator(data.tournamentId)) {
+        data = { ...data, isSpectator: true };
+      }
       if (data.messages) {
         data.messages = data.messages.filter(m => !isUserBlocked(m.username));
       }

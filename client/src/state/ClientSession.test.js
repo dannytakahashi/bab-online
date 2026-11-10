@@ -264,11 +264,43 @@ describe('session resume', () => {
     expect(page.session.onSessionRestored({ username: 'me' })).toBe('tournament');
     expect(page.emitted('joinTournament')).toEqual([{ tournamentId: 't9' }]);
     expect(page.gameState.tournamentId).toBe('t9');
-    expect(page.session.takePendingTournamentRejoin()).toBe('t9');
+    expect(page.session.takePendingTournamentRejoin()).toEqual({ tournamentId: 't9', spectator: false });
     expect(page.session.takePendingTournamentRejoin()).toBeNull();
     // leaving for the main room forgets it
     page.session.transition(SCREEN.MAIN_ROOM);
     expect(sessionStorage.getItem('tournamentId')).toBeNull();
+  });
+
+  it('restored after a reload of a watched tournament lobby: watches again, never joins', () => {
+    t.session.transition(SCREEN.MAIN_ROOM);
+    t.session.transition(SCREEN.TOURNAMENT_LOBBY, { tournamentId: 't9', isSpectator: true });
+    expect(sessionStorage.getItem('tournamentSpectate')).toBe('t9');
+    // the reply to returnToTournament (no flag) keeps it
+    t.session.transition(SCREEN.TOURNAMENT_LOBBY, { tournamentId: 't9' });
+    expect(t.session.isTournamentSpectator('t9')).toBe(true);
+    const page = setup();
+    sessionStorage.setItem('username', 'me');
+    sessionStorage.setItem('sessionToken', 'tok');
+    sessionStorage.setItem('tournamentId', 't9');
+    sessionStorage.setItem('tournamentSpectate', 't9');
+    expect(page.session.onSessionRestored({ username: 'me' })).toBe('tournamentSpectate');
+    expect(page.emitted('spectateTournament')).toEqual([{ tournamentId: 't9' }]);
+    expect(page.emitted('joinTournament')).toEqual([]);
+    expect(page.session.takePendingTournamentRejoin()).toEqual({ tournamentId: 't9', spectator: true });
+    page.session.transition(SCREEN.MAIN_ROOM);
+    expect(sessionStorage.getItem('tournamentSpectate')).toBeNull();
+  });
+
+  it('restored with a saved gameId and an activeTournamentId: a failed rejoin routes to the tournament', () => {
+    const page = setup();
+    sessionStorage.setItem('username', 'me');
+    sessionStorage.setItem('sessionToken', 'tok');
+    sessionStorage.setItem('gameId', 'g7');
+    expect(page.session.onSessionRestored({ username: 'me', activeTournamentId: 't1' })).toBe('rejoin');
+    expect(page.gameState.tournamentId).toBe('t1');
+    expect(page.session.exitTable(EXIT.REJOIN_FAILED)).toBe(SCREEN.TOURNAMENT_LOBBY);
+    expect(page.emitted('returnToTournament')).toHaveLength(1);
+    expect(page.emitted('joinMainRoom')).toEqual([]);
   });
 
   it('restored in the main room never re-enters a tournament the tab left', () => {

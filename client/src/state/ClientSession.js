@@ -91,8 +91,15 @@ const ROLES = new Set(Object.values(ROLE));
 export const ROUTE_TIMEOUT_MS = 5000;
 
 // TOURNAMENT: the tournament lobby this tab shows (a reload re-enters it;
-// the server records activeTournamentId only once a tournament begins)
-const STORAGE = { GAME: 'gameId', SPECTATE: 'spectatingGameId', USER: 'username', TOKEN: 'sessionToken', TOURNAMENT: 'tournamentId' };
+// the server records activeTournamentId only once a tournament begins).
+// TOURNAMENT_SPECTATE: that tournament's id when this tab only watches it
+// (spectateTournament): a reload re-spectates, and the lobby shows no
+// player controls (the server's returnToTournament reply carries no
+// isSpectator flag)
+const STORAGE = {
+  GAME: 'gameId', SPECTATE: 'spectatingGameId', USER: 'username', TOKEN: 'sessionToken',
+  TOURNAMENT: 'tournamentId', TOURNAMENT_SPECTATE: 'tournamentSpectate',
+};
 
 function isTestRun() {
   try {
@@ -151,7 +158,7 @@ export class ClientSession {
     this._routeInFlight = null; // { kind, at }
     this._pendingLobbyRejoin = null; // lobbyId
     this._pendingSpectate = null; // gameId
-    this._pendingTournamentRejoin = null; // tournamentId
+    this._pendingTournamentRejoin = null; // { tournamentId, spectator }
   }
 
   // ============================================
@@ -239,12 +246,28 @@ export class ClientSession {
     this._screen = to;
     if (to !== SCREEN.TABLE && to !== SCREEN.GAME_END) this._role = null;
     if (to !== SCREEN.LOBBY) this.lobbyId = null;
-    if (to === SCREEN.TOURNAMENT_LOBBY && data?.tournamentId) this._storage.setItem(STORAGE.TOURNAMENT, data.tournamentId);
-    else if (to === SCREEN.MAIN_ROOM || to === SCREEN.SIGN_IN) this._storage.removeItem(STORAGE.TOURNAMENT);
+    if (to === SCREEN.TOURNAMENT_LOBBY && data?.tournamentId) this._noteTournamentLobby(data);
+    else if (to === SCREEN.MAIN_ROOM || to === SCREEN.SIGN_IN) this._forgetTournamentLobby();
     this.history.push(reenter ? `${to}*` : to);
     if (this.history.length > 50) this.history.shift();
     this._runHook(to, 'enter', ctx);
     return true;
+  }
+
+  _noteTournamentLobby(data) {
+    this._storage.setItem(STORAGE.TOURNAMENT, data.tournamentId);
+    if (data.isSpectator) this._storage.setItem(STORAGE.TOURNAMENT_SPECTATE, data.tournamentId);
+    else if (!this.isTournamentSpectator(data.tournamentId)) this._storage.removeItem(STORAGE.TOURNAMENT_SPECTATE);
+  }
+
+  _forgetTournamentLobby() {
+    this._storage.removeItem(STORAGE.TOURNAMENT);
+    this._storage.removeItem(STORAGE.TOURNAMENT_SPECTATE);
+  }
+
+  /** This tab watches that tournament (spectateTournament) rather than playing in it. */
+  isTournamentSpectator(tournamentId) {
+    return !!tournamentId && this._storage.getItem(STORAGE.TOURNAMENT_SPECTATE) === tournamentId;
   }
 
   _illegal(from, to, why = 'illegal transition') {
@@ -460,32 +483,42 @@ export class ClientSession {
   /**
    * restoreSessionResponse {success: true}: rejoin, re-spectate, or
    * re-enter the current screen.
-   * @returns {string} what it did: 'rejoin' | 'spectate' | 'tournament' | 'lobby' | 'mainRoom' | 'stay' | 'none'
+   * @returns {string} what it did: 'rejoin' | 'spectate' | 'tournament' | 'tournamentSpectate' | 'lobby' | 'mainRoom' | 'stay' | 'none'
    */
   onSessionRestored(data) {
     this.noteSignedIn(data.username);
+    // The server's pointer to a tournament this player is in (one that has
+    // begun) first: a rejoin below that fails, or a table with nothing to
+    // rejoin, then routes back to it (returnToTournament reattaches by
+    // username), not to the main room
+    const activeTournamentId = data.activeTournamentId || null;
+    if (activeTournamentId && this._gameState) this._gameState.tournamentId = activeTournamentId;
     const activeGameId = data.activeGameId || null;
     if (activeGameId) return this.rejoin(activeGameId) ? 'rejoin' : 'none';
     const seatedGameId = this.persistedGameId;
     if (seatedGameId) return this.rejoin(seatedGameId) ? 'rejoin' : 'none';
     const watching = this.persistedSpectateId;
     if (watching) return this.spectate(watching) ? 'spectate' : 'none';
-    // The server's pointer (a tournament that has begun), else the
-    // tournament lobby this tab was showing (a reload or a reconnect)
+    if (this._screen === SCREEN.TABLE) {
+      // Nothing to rejoin (a draw before seating, a lost pointer): the
+      // tournament lobby for a tournament player, else the main room
+      return this.exitTable(EXIT.TABLE_LOST) === SCREEN.TOURNAMENT_LOBBY ? 'tournament' : 'mainRoom';
+    }
+    // The server's pointer, else the tournament lobby this tab was showing
+    // (a reload or a reconnect)
     const showingTournament = this._screen === SCREEN.BOOT || this._screen === SCREEN.TOURNAMENT_LOBBY;
-    const tournamentId = data.activeTournamentId ||
+    const tournamentId = activeTournamentId ||
       (showingTournament ? this.persistedTournamentId || this.tournamentId : null);
     if (tournamentId) {
       if (this._gameState) this._gameState.tournamentId = tournamentId;
-      this._pendingTournamentRejoin = tournamentId;
-      this._emit(CLIENT_EVENTS.JOIN_TOURNAMENT, { tournamentId });
-      return 'tournament';
+      // Only watching it (and not a player the server knows of): watch
+      // again; joinTournament would make this tab an entrant
+      const spectator = !activeTournamentId && this.isTournamentSpectator(tournamentId);
+      this._pendingTournamentRejoin = { tournamentId, spectator };
+      this._emit(spectator ? CLIENT_EVENTS.SPECTATE_TOURNAMENT : CLIENT_EVENTS.JOIN_TOURNAMENT, { tournamentId });
+      return spectator ? 'tournamentSpectate' : 'tournament';
     }
     switch (this._screen) {
-      case SCREEN.TABLE:
-        // Nothing to rejoin (a draw before seating, a lost pointer)
-        this.exitTable(EXIT.TABLE_LOST);
-        return 'mainRoom';
       case SCREEN.GAME_END:
         // The score modal stays; its Return button routes
         return 'stay';
@@ -540,6 +573,9 @@ export class ClientSession {
     this._rejoinSucceededFor = key;
     this.rejoinSucceeded = true;
     this._routeInFlight = null;
+    // This rejoin rebuilds the table: an earlier rebuild still waiting for
+    // the scene (a rejoin on a previous socket of this same game) stops
+    this.tableGeneration++;
     return true;
   }
 
@@ -556,7 +592,10 @@ export class ClientSession {
     return id;
   }
 
-  /** An error while re-entering a tournament after a reload or reconnect: it is gone. */
+  /**
+   * An error while re-entering a tournament after a reload or reconnect: it
+   * is gone. @returns {{tournamentId: string, spectator: boolean}|null}
+   */
   takePendingTournamentRejoin() {
     const id = this._pendingTournamentRejoin;
     this._pendingTournamentRejoin = null;
@@ -572,7 +611,7 @@ export class ClientSession {
   /** Sign-out / forceLogout: forget the identity too. */
   clearIdentity() {
     this._gameState?.resetSession?.();
-    this._storage.removeItem(STORAGE.TOURNAMENT);
+    this._forgetTournamentLobby();
     this._restoredSocketId = null;
     this._restoreSentFor = null;
     this._rejoinSentFor = null;

@@ -300,6 +300,46 @@ describe('table entry and exit', () => {
     expect(socket.emitted('joinMainRoom').length + socket.emitted('returnToTournament').length).toBe(1);
   });
 
+  it('a reconnect at a tournament draw whose table ended offline returns to the tournament lobby', async () => {
+    socket.fire('tournamentJoined', tournamentPayload());
+    socket.fire('tournamentGameAssignment', { gameId: 'g7', tournamentId: 't1', roundNumber: 1 });
+    socket.fire('allPlayersReady', { gameId: 'g7' });
+    socket.fire('startDraw', { start: true });
+    expect(page.session.screen).toBe(SCREEN.TABLE);
+    expect(sessionStorage.getItem('gameId')).toBeNull(); // persisted at the deal only
+
+    socket.reconnect(nextSocketId());
+    socket.fire('restoreSessionResponse', { success: true, username: 'me', activeTournamentId: 't1', blockedUsers: [] });
+    expect(socket.emitted('joinTournament')).toHaveLength(0);
+    expect(socket.emitted('returnToTournament')).toHaveLength(1);
+    expect(page.session.screen).toBe(SCREEN.TOURNAMENT_LOBBY);
+    socket.fire('tournamentJoined', tournamentPayload({ phase: 'round_active' }));
+    expect(document.getElementById('tournamentLobbyContainer')).not.toBeNull();
+    expect(tableLeftovers(page)).toEqual(CLEAN);
+  });
+
+  it('a tournament spectator who watches a table and types /leave gets the lobby without player controls', async () => {
+    socket.fire('tournamentJoined', { ...tournamentPayload({ creator: 'bob' }), players: [{ username: 'bob', isReady: false, isCreator: true }], isSpectator: true });
+    expect(document.getElementById('tournamentReadyBtn')).toBeNull();
+    socket.fire('spectatorJoined', spectatorState({ gameId: 'g7' }));
+    await vi.waitFor(() => expect(document.getElementById('gameFeed')).not.toBeNull());
+    socket.clearEmits();
+
+    socket.fire('leftGame');
+    expect(socket.emitted('returnToTournament')).toHaveLength(1);
+    // the server's reply to returnToTournament carries no isSpectator flag
+    socket.fire('tournamentJoined', { ...tournamentPayload({ creator: 'bob', phase: 'round_active' }), players: [{ username: 'bob', isReady: false, isCreator: true }] });
+    expect(document.getElementById('tournamentLobbyContainer')).not.toBeNull();
+    expect(document.getElementById('tournamentReadyBtn')).toBeNull();
+
+    // leaving it forgets the spectator flag: a later real join is a player's
+    socket.fire('tournamentLeft', {});
+    socket.fire('mainRoomJoined', mainRoomPayload());
+    expect(sessionStorage.getItem('tournamentSpectate')).toBeNull();
+    socket.fire('tournamentJoined', tournamentPayload({ creator: 'bob' }));
+    expect(document.getElementById('tournamentReadyBtn')).not.toBeNull();
+  });
+
   it('tournamentCancelled in the tournament lobby sends exactly one joinMainRoom', () => {
     socket.fire('tournamentJoined', tournamentPayload());
     socket.fire('tournamentCancelled', {});
