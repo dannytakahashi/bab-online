@@ -324,6 +324,35 @@ describe('TrickManager trick-stack hover', () => {
     expect(scene.tweens.add).not.toHaveBeenCalled();
   });
 
+  it('another trick\'s collect does not stop an older fanned stack from closing', () => {
+    const older = [hoverableCard(), hoverableCard()];
+    tm._currentTrick.push(...older);
+    tm.completeTrick(1, true);
+    tm._endCollect();
+    const entry = tm._teamTrickHistory[0];
+    handlers.get(older[0]).pointerover(); // fanned
+
+    // The next trick starts collecting while the older stack is fanned
+    const next = [hoverableCard()];
+    tm._currentTrick.push(...next);
+    tm.completeTrick(1, true);
+    expect(tm.isCollecting()).toBe(true);
+    scene.tweens.add.mockClear();
+
+    handlers.get(older[0]).pointerout();
+    expect(scene.tweens.add.mock.calls.map(([cfg]) => cfg.targets)).toEqual(older);
+    expect(scene.tweens.add.mock.calls.every(([cfg]) => cfg.x === entry.position.x && cfg.y === entry.position.y)).toBe(true);
+    expect(older.map((c) => c.originalDepth)).toEqual([200, 201]);
+
+    // The collecting trick's own cards stay untouched until it lands
+    scene.tweens.add.mockClear();
+    handlers.get(next[0]).pointerover();
+    expect(scene.tweens.add).not.toHaveBeenCalled();
+    tm._endCollect();
+    handlers.get(next[0]).pointerover();
+    expect(scene.tweens.add).toHaveBeenCalled();
+  });
+
   it('restored placeholder stacks hover from their history entry too', () => {
     scene.add = { image: vi.fn(() => hoverableCard()) };
     tm.restoreTrickPlaceholders(1, 0);

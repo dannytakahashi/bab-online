@@ -20,7 +20,13 @@ export const BANNER_TEXT = {
   reconnecting: 'Reconnecting to the server…',
   unreachable: "Can't reach the server. Retrying…",
   failed: 'Connection lost. Reload the page to reconnect.',
+  // The server closed the socket (forceLogout after a sign-in elsewhere,
+  // or an account deletion on another device): Socket.IO never reconnects
+  ended: 'Disconnected by the server. Reload the page to reconnect.',
 };
+
+// Socket.IO's disconnect reason when the server called socket.disconnect()
+export const SERVER_DISCONNECT_REASON = 'io server disconnect';
 
 /**
  * @param {import('../../socket/SocketManager.js').SocketManager} socketManager
@@ -74,11 +80,22 @@ export function installConnectionBanner(socketManager, { doc = document, showDel
     }, showDelayMs);
   };
 
+  const showNow = (text) => {
+    clearTimeout(timer);
+    timer = null;
+    pendingText = null;
+    show(text);
+  };
+
   const onState = (event, data = {}) => {
     if (event === 'reconnectFailed') {
-      clearTimeout(timer);
-      timer = null;
-      show(BANNER_TEXT.failed);
+      showNow(BANNER_TEXT.failed);
+      return;
+    }
+    // Follows the DISCONNECTED stateChanged: no reconnect is coming, so the
+    // 'Reconnecting…' text queued for it would never be true
+    if (event === 'disconnect') {
+      if (data.reason === SERVER_DISCONNECT_REASON) showNow(BANNER_TEXT.ended);
       return;
     }
     if (event !== 'stateChanged') return;

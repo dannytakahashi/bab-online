@@ -392,7 +392,7 @@ export class TrickManager {
       trickNumber,
     };
     (isMyTeam ? this._teamTrickHistory : this._oppTrickHistory).push(entry);
-    this._setupTrickHover(trickCards, entry.position);
+    this._setupTrickHover(trickCards, entry.position, token);
 
     // Clear current trick
     this._currentTrick = [];
@@ -406,7 +406,7 @@ export class TrickManager {
   /**
    * Set up hover effects for a completed trick.
    */
-  _setupTrickHover(trickCards, position) {
+  _setupTrickHover(trickCards, position, collectToken = null) {
     const scene = this._scene;
 
     // Move one card for the hover. Only the previous hover tween is stopped:
@@ -430,8 +430,12 @@ export class TrickManager {
       }
     };
 
-    // Cards still flying to the stack (or whisked away) are not hoverable
-    const busy = () => this.isCollecting() || this._animatingAway;
+    // This stack's cards still flying to it (its own collect), or every
+    // stack being whisked away: a hover tween would fight that flight.
+    // Another trick's collect does not touch this stack, so it does not
+    // block a fan or (more importantly) the reset when the pointer leaves
+    const busy = () => this._animatingAway ||
+      (collectToken !== null && this._collecting && this._collectToken === collectToken);
 
     const fanOut = () => {
       if (busy()) return;

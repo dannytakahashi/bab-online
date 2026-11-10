@@ -1352,6 +1352,8 @@ let rejoinSucceeded = false;
 // answers "User not found" until a reload. restoreSessionResponse then
 // routes to the active game, the tournament or the main room
 let hadConnected = socket.connected;
+// Socket id whose session was last restored: a reconnect gets a new id
+let sessionRestoredSocketId = null;
 
 function restoreSessionAfterReconnect() {
   if (sessionStorage.getItem('gameId') || sessionStorage.getItem('spectatingGameId')) return;
@@ -1515,8 +1517,13 @@ socket.on('rejoinFailed', (data) => {
     // Return to main room. rejoinGame checks the token but does not register
     // the socket as the user, so after a server restart joinMainRoom alone
     // answers "User not registered yet" (and ends on the sign-in screen):
-    // restore the session, whose reply joins the main room
-    if (sessionStorage.getItem('username') && sessionStorage.getItem('sessionToken')) {
+    // restore the session, whose reply joins the main room. Once per socket:
+    // restoreSessionResponse rejoins any activeGameId, and a live game that
+    // refuses it (a tournament table before its seats exist) would loop
+    // restore -> rejoin -> rejoinFailed; the restored socket can join the
+    // main room directly
+    const canRestore = sessionStorage.getItem('username') && sessionStorage.getItem('sessionToken');
+    if (canRestore && sessionRestoredSocketId !== socket.id) {
       attemptSessionRestore();
     } else {
       socket.emit("joinMainRoom");
@@ -2203,6 +2210,10 @@ function initializeApp() {
       // Remove UI elements
       uiManager.removeWaitingScreen();
       uiManager.clearUI();
+      // DOM overlays outlive the scene restart; the server disconnects this
+      // socket next, so createUI never comes to fade the overlay out
+      removeTransitionOverlay();
+      document.getElementById('spectating-indicator')?.remove();
 
       // Remove game log
       let gameFeed = document.getElementById("gameFeed");
@@ -3586,6 +3597,8 @@ function attemptSessionRestore() {
 socket.on('restoreSessionResponse', (data) => {
   if (data.success) {
     console.log('Session restored successfully');
+    // The server now knows this socket as the user (see rejoinFailed)
+    sessionRestoredSocketId = socket.id;
     const gameState = getGameState();
     gameState.username = data.username;
     setBlockedUsers(data.blockedUsers);

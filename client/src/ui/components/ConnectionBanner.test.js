@@ -100,6 +100,16 @@ describe('ConnectionBanner', () => {
     expect([shown(), el().textContent]).toEqual([true, BANNER_TEXT.failed]);
   });
 
+  it('a server-side disconnect (forceLogout) says to reload, never "Reconnecting"', () => {
+    socket.fire('disconnect', 'io server disconnect');
+    expect([shown(), el().textContent]).toEqual([true, BANNER_TEXT.ended]);
+    vi.advanceTimersByTime(SHOW_DELAY_MS * 3);
+    expect(el().textContent).toBe(BANNER_TEXT.ended);
+    // A later manual connect still clears it
+    socket.fire('connect');
+    expect(shown()).toBe(false);
+  });
+
   it('destroy unsubscribes and removes the element', () => {
     banner.destroy();
     expect(el()).toBeNull();
