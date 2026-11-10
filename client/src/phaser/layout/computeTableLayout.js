@@ -50,8 +50,19 @@ export function logWidthFor(vw) {
   return LOG_WIDTH_MAX;
 }
 
-/** The bid sheet's natural size at scale 1 (BidManager fixes its width; 13 cards is the tallest). */
-export const BID_SHEET = { w: 240, h: 330 };
+/**
+ * The bid sheet's trick chips (BidManager): a row of 18 px chips 3 px
+ * apart, one per trick (up to 16 when the bids overbid the hand).
+ */
+export const BID_CHIP = { w: 18, gap: 3 };
+/** The sheet's padding (12 px) and border (2 px), both sides. */
+export const BID_SHEET_CHROME = 2 * (12 + 2);
+/**
+ * The bid sheet's size at scale 1 (BidManager sets this width; 13 cards is
+ * the tallest). 13 chips at their natural width set the width (the widest
+ * row; an overbid's extra chips shrink to fit it).
+ */
+export const BID_SHEET = { w: 13 * BID_CHIP.w + 12 * BID_CHIP.gap + BID_SHEET_CHROME, h: 330 };
 /** Status pill text (the longest, lazy mode). */
 export const STATUS_TEXT_W = 380;
 

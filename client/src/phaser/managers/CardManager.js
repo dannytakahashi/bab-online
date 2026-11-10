@@ -122,11 +122,13 @@ export class CardManager {
     // This ensures cards are positioned correctly even if container width changes
     // Delay must be longer than base delay (200ms) + deal animation (750ms) + stagger (cards * 50ms)
     const animationDelay = animate ? 200 + 750 + (cards.length * 50) + 100 : 50;
+    // Without the deal animation it only re-reads the layout (snapSafe: a
+    // relayout need not fast-forward for it)
     sceneDelay(scene, animationDelay, () => {
       if (dealToken !== this._dealToken) return;
       this._isDealing = false; // Clear dealing flag so resize can work again
       this.repositionHand();
-    });
+    }, { snapSafe: !animate });
   }
 
   /**

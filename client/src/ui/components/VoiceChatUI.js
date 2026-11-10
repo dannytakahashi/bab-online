@@ -14,6 +14,7 @@ import { getVoiceChatManager } from '../../voice/VoiceChatManager.js';
 import { getSocketManager } from '../../socket/SocketManager.js';
 import { getGameState } from '../../state/GameState.js';
 import { hudVoiceSlot, hudLayout } from '../tableHud.js';
+import { getClientSession, SCREEN } from '../../state/ClientSession.js';
 
 /** Round icon button style: 36 px and its own min size (not the global 44 px). */
 const ROUND_BUTTON = `
@@ -41,9 +42,19 @@ const ROUND_BUTTON = `
  * or at the page's bottom right when there is no table.
  * @returns {boolean} whether it is in the slot
  */
+/**
+ * At a table (or its score modal): the voice slot is the table's. A layout
+ * alone does not say so: GameScene relayouts on every resize and tab
+ * return, the lobby too (voice runs there).
+ */
+function atTable() {
+  const screen = getClientSession().screen;
+  return screen === SCREEN.TABLE || screen === SCREEN.GAME_END;
+}
+
 function placeVoiceButton(btn, { rightOffset }) {
-  // only at a table the HUD has laid out (not the lobby: no layout yet)
-  const slot = hudLayout() ? hudVoiceSlot({ create: true }) : null;
+  // only at a table the HUD has laid out (not the lobby)
+  const slot = atTable() && hudLayout() ? hudVoiceSlot({ create: true }) : null;
   if (slot) {
     if (btn.parentElement !== slot) slot.appendChild(btn);
     // the slot is a flex row: device button left of the mute button

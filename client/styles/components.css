@@ -468,11 +468,6 @@ body > #spectating-indicator {
     pointer-events: auto;
 }
 
-#bidContainer {
-    width: 240px;
-    box-sizing: border-box;
-}
-
 /* Voice buttons (VoiceChatUI) under my HSI, or the table's corner for a spectator */
 .hud-voice {
     position: absolute;

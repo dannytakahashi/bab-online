@@ -5,6 +5,13 @@ vi.mock('../../voice/VoiceChatManager.js', () => ({ getVoiceChatManager: () => (
 const { createMuteButton, removeMuteButton, reattachMuteButton } = await import('./VoiceChatUI.js');
 const { applyHudLayout, clearHud } = await import('../tableHud.js');
 const { computeTableLayout, contains } = await import('../../phaser/layout/computeTableLayout.js');
+const { getClientSession, resetClientSession, SCREEN, ROLE } = await import('../../state/ClientSession.js');
+
+/** The session at a table (as gameStart / a rejoin leaves it). */
+function sitDown(role = ROLE.PLAYER) {
+  resetClientSession();
+  getClientSession().enterTable(role);
+}
 
 describe('voice buttons (ui-20)', () => {
   let container;
@@ -17,9 +24,11 @@ describe('voice buttons (ui-20)', () => {
     removeMuteButton();
     clearHud();
     container.remove();
+    resetClientSession();
   });
 
   it('at a table: in the HUD voice slot under my HSI (device, then mute), sized by the layout, not the global 44 px rule', () => {
+    sitDown();
     const L = computeTableLayout({ w: 1120, h: 790 });
     applyHudLayout(L);
     createMuteButton();
@@ -38,6 +47,7 @@ describe('voice buttons (ui-20)', () => {
   });
 
   it('a spectator\'s slot is the table\'s bottom-right corner; a relayout moves it', () => {
+    sitDown(ROLE.SPECTATOR);
     applyHudLayout(computeTableLayout({ w: 1120, h: 790, isSpectator: true }));
     createMuteButton();
     const hud = document.getElementById('table-hud');
@@ -58,5 +68,37 @@ describe('voice buttons (ui-20)', () => {
     expect([mute.style.bottom, mute.style.right]).toEqual(['20px', '20px']);
     expect([device.style.bottom, device.style.right]).toEqual(['20px', '62px']);
     expect(document.getElementById('table-hud')).toBeNull();
+  });
+
+  it('in the lobby a relayout (a resize, a tab return) leaves them at the page\'s bottom right', () => {
+    // voice runs in the lobby; GameScene.relayout() runs on every resize
+    // and tab return whatever the screen, and lays a HUD out
+    resetClientSession();
+    getClientSession().transition(SCREEN.MAIN_ROOM);
+    getClientSession().transition(SCREEN.LOBBY);
+    createMuteButton();
+    applyHudLayout(computeTableLayout({ w: 1440, h: 900 }));
+    reattachMuteButton();
+    const mute = document.getElementById('voice-mute-btn');
+    const device = document.getElementById('voice-device-btn');
+    expect(mute.parentElement).toBe(document.body);
+    expect(device.parentElement).toBe(document.body);
+    expect([mute.style.position, mute.style.bottom, mute.style.right]).toEqual(['absolute', '20px', '20px']);
+    expect([device.style.bottom, device.style.right]).toEqual(['20px', '62px']);
+    expect(document.querySelector('.hud-voice')).toBeNull();
+    // ...and they move into the slot once the table is up
+    getClientSession().enterTable(ROLE.PLAYER);
+    reattachMuteButton();
+    expect(mute.parentElement.className).toBe('hud-voice');
+  });
+
+  it('under the score modal (game end) they stay in the table\'s slot', () => {
+    sitDown();
+    applyHudLayout(computeTableLayout({ w: 1120, h: 790 }));
+    createMuteButton();
+    getClientSession().transition(SCREEN.GAME_END);
+    applyHudLayout(computeTableLayout({ w: 1000, h: 700 }));
+    reattachMuteButton();
+    expect(document.getElementById('voice-mute-btn').parentElement.className).toBe('hud-voice');
   });
 });

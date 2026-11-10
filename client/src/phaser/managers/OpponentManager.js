@@ -306,6 +306,7 @@ export class OpponentManager {
     const label = document.createElement('div');
     label.className = 'hud-plate';
     label.textContent = username;
+    label.title = username; // the plate truncates a long name (its seat's width)
     container.appendChild(label);
 
     const seat = hudSeat(opponentId);

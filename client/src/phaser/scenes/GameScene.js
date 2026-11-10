@@ -215,9 +215,16 @@ export class GameScene extends Phaser.Scene {
     const { trump } = this.getLayout();
 
     if (this.tableCardSprite && this.tableCardSprite.active) {
-      this.tableCardSprite.setPosition(trump.x, trump.y);
-      // a face-down card mid-flip keeps its flip (scaleX); otherwise the layout's scale
-      if (!this.director?.pending?.('deal')) this.tableCardSprite.setScale(trump.card.scale);
+      const sprite = this.tableCardSprite;
+      sprite.setPosition(trump.x, trump.y);
+      // the layout's scale; a card mid-flip keeps its flip (scaleX: the
+      // flip's second half lands on scaleY, so it reaches the new size).
+      // Only the 300 ms flip itself, not the wait before it: the first
+      // hand's face-down trump is drawn before the log column narrows the
+      // canvas, and must not keep that size all hand
+      const flipping = sprite.getData?.('flipping') && (!this.director || this.director.pending('deal') > 0);
+      if (flipping) sprite.scaleY = trump.card.scale;
+      else sprite.setScale(trump.card.scale);
     }
     if (this.tableCardBackground && this.tableCardBackground.active) {
       this.tableCardBackground.setPosition(trump.x, trump.y);
@@ -290,6 +297,7 @@ export class GameScene extends Phaser.Scene {
 
     sceneDelay(this, delay, () => {
       if (!sprite || !sprite.scene) return;
+      sprite.setData('flipping', true);
       // Phase 1: Scale X to 0 (flip start)
       sceneTween(this, {
         targets: sprite,
@@ -307,7 +315,11 @@ export class GameScene extends Phaser.Scene {
             duration: flipDuration / 2,
             ease: 'Power2',
             onComplete: () => {
-              if (sprite.scene) onFlipped?.();
+              if (!sprite.scene) return;
+              sprite.setData('flipping', false);
+              // a relayout during this half moved scaleY: land on it
+              sprite.setScale(sprite.scaleY);
+              onFlipped?.();
             },
           }, { scope: 'deal' });
         },
@@ -1501,6 +1513,7 @@ export class GameScene extends Phaser.Scene {
     const nameLabel = document.createElement('div');
     nameLabel.className = 'hud-plate';
     nameLabel.textContent = username;
+    nameLabel.title = username; // the plate truncates a long name (its seat's width)
     avatarContainer.appendChild(nameLabel);
 
     // Add HSI display box

@@ -8,6 +8,7 @@
 import { getGameState } from '../../state/GameState.js';
 import { getSocketManager } from '../../socket/SocketManager.js';
 import { getHud } from '../../ui/tableHud.js';
+import { BID_SHEET, BID_CHIP } from '../layout/computeTableLayout.js';
 
 /**
  * The sheet's transform: centred on its layout slot, at the layout's bid
@@ -67,6 +68,10 @@ export class BidManager {
     this.bidContainer.style.alignItems = 'center';
     this.bidContainer.style.gap = '8px';
     this.bidContainer.style.padding = '12px';
+    // the layout's sheet width (BID_SHEET: the bid slot and the overlap
+    // check model this box), border included
+    this.bidContainer.style.width = `${BID_SHEET.w}px`;
+    this.bidContainer.style.boxSizing = 'border-box';
     this.bidContainer.style.background = 'rgba(0, 0, 0, 0.85)';
     this.bidContainer.style.border = '2px solid #444';
     this.bidContainer.style.borderRadius = '8px';
@@ -110,7 +115,11 @@ export class BidManager {
     this.handSize = handSize;
     this.indicatorRow = document.createElement('div');
     this.indicatorRow.style.display = 'flex';
-    this.indicatorRow.style.gap = '3px';
+    this.indicatorRow.style.gap = `${BID_CHIP.gap}px`;
+    // the sheet's width, not its chips': an overbid's chips shrink to fit
+    // instead of sticking out past the sheet
+    this.indicatorRow.style.alignSelf = 'stretch';
+    this.indicatorRow.style.minWidth = '0';
     this.indicatorRow.style.justifyContent = 'center';
     this.indicatorRow.style.marginBottom = '4px';
     this.trickIndicators = [];
@@ -278,7 +287,9 @@ export class BidManager {
    */
   createIndicatorRect() {
     const rect = document.createElement('div');
-    rect.style.width = '18px';
+    rect.style.width = `${BID_CHIP.w}px`;
+    rect.style.flex = `0 1 ${BID_CHIP.w}px`;
+    rect.style.minWidth = '0';
     rect.style.height = '26px';
     rect.style.borderRadius = '3px';
     rect.style.background = '#555';
