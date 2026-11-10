@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { showChatBubble, clearChatBubbles, getActiveChatBubbles } from './ChatBubble.js';
 import { applyHudLayout, clearHud } from '../tableHud.js';
-import { computeTableLayout } from '../../phaser/layout/computeTableLayout.js';
+import { computeTableLayout, layoutForViewport } from '../../phaser/layout/computeTableLayout.js';
 
 describe('ChatBubble fade identity guard', () => {
   beforeEach(() => vi.useFakeTimers());
@@ -77,6 +77,34 @@ describe('ChatBubble on the HUD (ui-4, webclient-7)', () => {
     expect(bubble.isConnected).toBe(true);
     expect(seat.style.left).toBe(`${small.seats.self.avatar.x}px`);
     expect(seat.style.top).toBe(`${small.seats.self.avatar.y}px`);
+  });
+
+  it('each seat\'s bubble takes the layout\'s direction and width, clamps to its lines, and turns with a relayout', () => {
+    const big = layoutForViewport({ vw: 1440, vh: 790 });
+    applyHudLayout(big);
+    const long = 'x'.repeat(40) + ' word'.repeat(80); // a 500-character chat
+    for (const k of ['partner', 'opp1', 'opp2', 'me']) showChatBubble(k, long);
+    for (const [k, seatKey] of [['partner', 'partner'], ['opp1', 'opp1'], ['opp2', 'opp2'], ['me', 'self']]) {
+      const b = getActiveChatBubbles()[k].bubble;
+      const seat = b.closest('.hud-seat');
+      const want = big.seats[seatKey].bubble;
+      expect(b.classList.contains(`tail-${want.tail}`), `${k} tail`).toBe(true);
+      expect(seat.style.getPropertyValue('--bubble-w')).toBe(`${Math.round(want.w * 100) / 100}px`);
+      // the text sits in the clamped box (CSS: --bubble-lines), all of it
+      const text = b.querySelector(':scope > .chat-bubble-text');
+      expect(text.textContent).toBe(long);
+    }
+    const hud = document.getElementById('table-hud');
+    expect(hud.style.getPropertyValue('--bubble-lines')).toBe(String(big.bubbles.lines));
+    expect(hud.style.getPropertyValue('--bubble-lh')).toBe(`${big.bubbles.lh}px`);
+
+    // a layout that turns a seat's bubble turns the one already up
+    const turned = structuredClone(big);
+    turned.seats.opp1.bubble = { ...turned.seats.opp1.bubble, tail: 'left', dx: 50, dy: 0, w: 150 };
+    applyHudLayout(turned);
+    const b = getActiveChatBubbles().opp1.bubble;
+    expect([...b.classList].filter((c) => c.startsWith('tail-'))).toEqual(['tail-left']);
+    expect(b.closest('.hud-seat').style.getPropertyValue('--bubble-w')).toBe('150px');
   });
 
   it('the partner\'s bubble points left from the right of the avatar; a spectator\'s bottom seat is the self seat', () => {

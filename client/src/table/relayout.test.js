@@ -44,10 +44,65 @@ function resize(w, h) {
  * played card is the hand's sprite live and an image after a render).
  */
 function geometry(scene) {
+  const box = (o) => { const b = o.getBounds(); return [b.x, b.y, b.width, b.height].map(r2).join(','); };
   return scene.liveObjects()
     .filter((o) => o.kind !== 'graphics')
-    .map((o) => [o.kind === 'sprite' ? 'image' : o.kind, o.texture?.key, o.frame?.name, r2(o.x), r2(o.y), r2(o.scaleX), r2(o.scaleY), r2(o.rotation), o.alpha].join('|'))
+    .map((o) => [o.kind === 'sprite' ? 'image' : o.kind, o.texture?.key, o.frame?.name, r2(o.x), r2(o.y), r2(o.scaleX), r2(o.scaleY), r2(o.rotation), o.alpha, box(o)].join('|'))
     .sort();
+}
+
+const near = (a, b, label) => expect(Math.abs(a - b), `${label}: ${a} vs ${b}`).toBeLessThan(0.01);
+function expectRect(b, r, label) {
+  near(b.x, r.x, `${label} x`);
+  near(b.y, r.y, `${label} y`);
+  near(b.width, r.w, `${label} w`);
+  near(b.height, r.h, `${label} h`);
+}
+
+/**
+ * What is DRAWN matches the layout (getBounds: position less the display
+ * origin, times the scale), not only the positions the managers set: the
+ * trump's box and card, the trick cards, the hand, the stacks and the
+ * history containers (graphics: their drawn rects).
+ */
+function expectRendered(scene, layout) {
+  const { trump } = layout;
+  const bg = scene.tableCardBackground;
+  expect(bg?.active).toBe(true);
+  expectRect(bg.getBounds(), { x: trump.x - trump.box / 2, y: trump.y - trump.box / 2, w: trump.box, h: trump.box }, 'trump box');
+  const card = scene.tableCardSprite.getBounds();
+  near(card.centerX, trump.x, 'trump card x');
+  near(card.centerY, trump.y, 'trump card y');
+  near(card.width, trump.card.frame, 'trump card w');
+  const label = scene.tableCardLabel;
+  near(label.x, trump.label.x, 'trump label x');
+  expect([label.originX, label.originY]).toEqual([0.5, 0.5]);
+  for (const s of scene.trickManager.getCurrentTrickSprites()) {
+    if (!s.active) continue;
+    const b = s.getBounds();
+    const slot = layout.trick.slots[s.getData('playPosition')];
+    near(b.centerX, slot.x, 'trick x');
+    near(b.centerY, slot.y, 'trick y');
+    near(b.width, layout.card.trick.frame, 'trick w');
+  }
+  for (const s of scene.cardManager.getHandSprites()) {
+    const b = s.getBounds();
+    near(b.width, layout.card.hand.frame, 'hand w');
+    // the visible card (the frame less its padding) inside the hand box
+    const vis = { x: b.centerX - layout.card.hand.w / 2, y: b.y, w: layout.card.hand.w, h: b.height };
+    expect(layoutMod.contains({ ...layout.hand.rect, y: -1e6, h: 2e6 }, vis), 'hand card in the box').toBe(true);
+  }
+  const g = scene.trickManager._backgroundGraphics;
+  if (g?.active) {
+    expect([g.x, g.y, g.scaleX, g.scaleY]).toEqual([0, 0, 1, 1]);
+    const blocks = g.drawn.filter((d) => d.op === 'fill');
+    expect(blocks.length).toBeGreaterThan(0);
+    for (const d of blocks) {
+      // (half a pixel: the slots snap to device pixels inside the block)
+      const inBlock = ['team', 'opp'].some((side) => layoutMod.contains(layout.history[side].rect, d, 0.51));
+      expect(inBlock, `history graphics ${JSON.stringify(d)}`).toBe(true);
+    }
+  }
 }
 
 function replayTo(i) {
@@ -104,6 +159,22 @@ describe('the draw (ui-19)', () => {
     // one draw only
     page.scene.pointerDownAt(x, p20.y);
     expect(page.socket.emitted('draw')).toHaveLength(1);
+  });
+});
+
+describe('the teams overlay', () => {
+  it('a resize while it is up keeps the dim over the whole canvas (its drawn box, not only its centre)', () => {
+    const teams = log.findIndex((e) => e.event === 'teamsAnnounced');
+    expect(teams).toBeGreaterThan(at);
+    replayTo(teams + 1);
+    replay.advance(100);
+    const dm = page.scene.drawManager;
+    const overlay = dm._teamElements?.[0];
+    expect(overlay?.active).toBe(true);
+    for (const [w, h] of [[390 - 130, 844], [1440, 790], [1024, 668]]) {
+      L = resize(w, h);
+      expectRect(overlay.getBounds(), { x: 0, y: 0, w: L.w, h: L.h }, `teams overlay at ${w}x${h}`);
+    }
   });
 });
 
@@ -191,6 +262,9 @@ describe('mid-trick (cli-12, ui-6)', () => {
       const slot = L.trick.slots[s.getData('playPosition')];
       expect([s.x, s.y]).toEqual([slot.x, slot.y]);
     }
+    // what is drawn is where the layout says (the trump's box kept its
+    // first size's origin: drawn off-centre after a resize)
+    expectRendered(page.scene, L);
     // the stacks sit on their new slots
     const stacks = [...tm._teamTrickHistory.map((t) => ['team', t]), ...tm._oppTrickHistory.map((t) => ['opp', t])];
     expect(stacks.length).toBeGreaterThan(0);
@@ -228,6 +302,12 @@ describe('mid-trick (cli-12, ui-6)', () => {
     const entry = tm._teamTrickHistory[0] || tm._oppTrickHistory[0];
     const side = tm._teamTrickHistory[0] ? 'team' : 'opp';
     L = resize(1024 - 240, 668);
+    expectRendered(page.scene, L);
+    // a phone, then back: the box follows both ways
+    L = resize(390 - 130, 844);
+    expectRendered(page.scene, L);
+    L = resize(1024 - 240, 668);
+    expectRendered(page.scene, L);
     const p = layoutMod.historySlot(L, side, entry.trickNumber);
     expect(entry.position).toEqual({ x: p.x, y: p.y });
     entry.cards[1].emit('pointerover');

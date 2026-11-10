@@ -255,7 +255,19 @@
     border-color: #ffffff transparent transparent transparent;
 }
 
-/* Tail pointing left (for opp1 - left side opponent) */
+/* Tail pointing right (the bubble left of its avatar) */
+.chat-bubble.tail-right::after {
+    content: '';
+    position: absolute;
+    right: -10px;
+    top: 50%;
+    transform: translateY(-50%);
+    border-width: 8px 0 8px 10px;
+    border-style: solid;
+    border-color: transparent transparent transparent #ffffff;
+}
+
+/* Tail pointing left (the bubble right of its avatar) */
 .chat-bubble.tail-left::after {
     content: '';
     position: absolute;
@@ -413,9 +425,22 @@
 .hud-bubble-slot .chat-bubble {
     left: 0;
     top: 0;
+    box-sizing: border-box;
+    padding: var(--bubble-pad-y, 8px) var(--bubble-pad-x, 12px);
     font-size: var(--bubble-font, 14px);
-    max-width: var(--bubble-max, 200px);
+    line-height: var(--bubble-lh, 18px);
+    max-width: var(--bubble-w, 224px);
     width: max-content;
+    overflow-wrap: anywhere;
+}
+
+/* at most --bubble-lines lines (the layout's BUBBLE.lines), then an ellipsis */
+.chat-bubble-text {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: var(--bubble-lines, 3);
+    line-clamp: var(--bubble-lines, 3);
+    overflow: hidden;
 }
 
 .hud-bubble-slot .chat-bubble.tail-down {
@@ -424,6 +449,10 @@
 
 .hud-bubble-slot .chat-bubble.tail-left {
     transform: translate(0, -50%);
+}
+
+.hud-bubble-slot .chat-bubble.tail-right {
+    transform: translate(-100%, -50%);
 }
 
 /* The status slot (lazy / spectator pill), top centre of the table */

@@ -11,7 +11,7 @@ import { resolve } from 'node:path';
 import {
   computeTableLayout, layoutForViewport, layoutRects, drawRects, findIntersections, findOutside,
   logWidthFor, LOG_BREAKPOINTS, LOG_WIDTH_MAX, handPositions, fanPositions, historySlot, deckPosition,
-  intersects, contains, BASE_SCALE, BID_SHEET,
+  intersects, contains, BASE_SCALE, BID_SHEET, FELT, BUBBLE, BUBBLE_KEEPS,
 } from './computeTableLayout.js';
 
 const NAMED = [[1920, 1080], [1440, 790], [1280, 620], [1024, 668], [844, 390], [390, 844]];
@@ -23,6 +23,50 @@ function checkClean(L, label) {
   expect(L.degraded, `${label}: degraded`).toBe(false);
   expect(findIntersections(L), `${label}: intersections`).toEqual([]);
   expect(findOutside(L), `${label}: outside the canvas`).toEqual([]);
+}
+
+const inset = (r, d) => ({ x: r.x + d, y: r.y + d, w: r.w - 2 * d, h: r.h - 2 * d });
+
+/**
+ * The felt holds the bid sheet (inside its border) and the four trick
+ * slots; problems as strings (the sweep collects them).
+ */
+function feltProblems(L) {
+  const out = [];
+  const felt = L.trick.zone;
+  if (!contains(inset(felt, FELT.border), L.bidSheet.rect)) out.push('bid sheet outside the felt');
+  // (within a pixel: the felt and the slots snap to device pixels separately)
+  for (const [k, t] of Object.entries(L.trick.slots)) if (!contains(felt, t.rect, 1)) out.push(`trick.${k} outside the felt`);
+  return out;
+}
+
+/**
+ * Each seat's bubble at its largest (the layout's width for the seat, the
+ * full BUBBLE.lines of text and the tail) inside the canvas and clear of
+ * the trump, my hand, the four trick slots, both histories and the other
+ * seats' bubbles. Checked here from the rects themselves, not through the
+ * solver's own group lists.
+ */
+function bubbleProblems(L) {
+  const out = [];
+  const B = L.bubbles;
+  const keep = [['trump', L.trump.rect], ['history.team', L.history.team.rect], ['history.opp', L.history.opp.rect],
+    ...Object.entries(L.trick.slots).map(([k, t]) => [`trick.${k}`, t.rect])];
+  if (L.hand) keep.push(['hand', L.hand.rect]);
+  const seen = [];
+  for (const seat of SEATS) {
+    const b = L.seats[seat].bubble;
+    // the rect is the one CSS draws at most: width, 3 lines + padding, the tail
+    const h = B.lines * B.lh + 2 * B.padY;
+    const along = b.tail === 'down' ? [b.w, h + B.tail] : [b.w + B.tail, h];
+    if (Math.abs(b.rect.w - along[0]) > 0.01 || Math.abs(b.rect.h - along[1]) > 0.01) out.push(`${seat} bubble rect is not its max size`);
+    if (!contains(L.canvas, b.rect)) out.push(`${seat} bubble off the canvas`);
+    for (const [id, r] of keep) if (intersects(b.rect, r)) out.push(`${seat} bubble covers ${id}`);
+    for (const [other, r] of seen) if (intersects(b.rect, r)) out.push(`${seat} bubble covers ${other}'s`);
+    seen.push([seat, b.rect]);
+  }
+  if (Math.hypot(L.seats.self.bubble.dx, L.seats.self.bubble.dy) > 80) out.push('self bubble beyond 80 px');
+  return out;
 }
 
 describe('computeTableLayout at the named viewports', () => {
@@ -57,6 +101,11 @@ describe('computeTableLayout at the named viewports', () => {
           expect(s.dealer.x).toBe(s.avatar.x + s.dealer.dx);
           expect(contains(L.canvas, { x: s.bubble.x, y: s.bubble.y, w: 0, h: 0 })).toBe(true);
         }
+
+        // the felt holds the bid sheet and the trick; no bubble hides game information
+        expect(feltProblems(L), `${label} felt`).toEqual([]);
+        expect(bubbleProblems(L), `${label} bubbles`).toEqual([]);
+        expect(L.bubbles.lines).toBe(BUBBLE.lines);
 
         // the trick slots never overlap each other
         const slots = Object.values(L.trick.slots).map((t) => t.rect);
@@ -112,8 +161,10 @@ describe('computeTableLayout at the named viewports', () => {
     expect(L.trump.x).toBeCloseTo(1216, 0);
     expect(L.trump.y).toBeCloseTo(200, 0);
     expect(L.trick.center).toEqual({ x: 800, y: 540 });
-    expect(L.trick.zone.w).toBeCloseTo(500, 0);
+    // the felt: today's 600 x 400 of 1920 x 953 (it scaled with the window)
+    expect(L.trick.zone.w).toBeCloseTo(600, 0);
     expect(L.trick.zone.h).toBeCloseTo(453.6, 0);
+    expect(L.bidSheet.scale).toBe(1);
     // my box right of the hand (today x = 1250); the hand box 40% of the canvas
     expect(L.seats.self.avatar.x).toBeCloseTo(1250, 0);
     expect(L.hand.rect.w).toBeCloseTo(640, 0);
@@ -137,6 +188,8 @@ describe('computeTableLayout over a grid of sizes (800-2560 x 500-1440)', () => 
           const hits = findIntersections(L);
           const out = findOutside(L);
           if (L.degraded || hits.length || out.length) bad.push({ vw, vh, isSpectator, degraded: L.degraded, hits, out });
+          const more = [...feltProblems(L), ...bubbleProblems(L)];
+          if (more.length) bad.push({ vw, vh, isSpectator, more });
           for (const seat of SEATS) {
             const s = L.seats[seat];
             if (dist(s.bubble, s.avatar) > 80 || dist(s.dealer, s.avatar) > 80) bad.push({ vw, vh, seat, far: true });
@@ -146,6 +199,33 @@ describe('computeTableLayout over a grid of sizes (800-2560 x 500-1440)', () => 
     }
     expect(n).toBeGreaterThan(2000);
     expect(bad).toEqual([]);
+  });
+
+  it('phones too (360-760 x 360-900): no overlaps, the felt holds the bid sheet, no bubble hides the game', () => {
+    const bad = [];
+    for (let vw = 360; vw <= 760; vw += 40) {
+      for (let vh = 360; vh <= 900; vh += 60) {
+        for (const [, isSpectator] of ROLES) {
+          const L = layoutForViewport({ vw, vh, isSpectator });
+          const all = [...findIntersections(L).map((h) => h.join(' x ')), ...findOutside(L), ...feltProblems(L), ...bubbleProblems(L)];
+          if (L.degraded || all.length) bad.push({ vw, vh, isSpectator, degraded: L.degraded, all });
+        }
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it('the felt keeps today\'s proportions where the seats allow (0.3125 x 0.42 of the window), never less than 80%', () => {
+    let short = 0;
+    for (let vw = 800; vw <= 2560; vw += 80) {
+      for (let vh = 500; vh <= 1440; vh += 80) {
+        const L = layoutForViewport({ vw, vh });
+        const ratio = L.trick.zone.w / (FELT.wFrac * vw);
+        expect(ratio, `${vw}x${vh}`).toBeGreaterThanOrEqual(0.8 - 1e-9);
+        if (ratio < 0.98) short++;
+      }
+    }
+    expect(short).toBeLessThan(10);
   });
 
   it('every size scales uniformly: one s for every card, avatar and slot, never above 1', () => {
@@ -188,6 +268,40 @@ describe('computeTableLayout contract', () => {
       expect((L.seats[seat].avatar.y * 2) % 1).toBe(0);
     }
     for (const slot of Object.values(L.trick.slots)) expect((slot.x * 2) % 1).toBe(0);
+  });
+
+  it('1440x790: the felt is today\'s 450 px and holds the full-size bid sheet; the partner\'s bubble clears the trump', () => {
+    for (const isSpectator of [false, true]) {
+      const L = layoutForViewport({ vw: 1440, vh: 790, isSpectator });
+      expect(L.s).toBe(1);
+      expect(L.trick.zone.w).toBeCloseTo(450, 0);
+      expect(L.trick.zone.h).toBeGreaterThanOrEqual(isSpectator ? 316 : 331);
+      expect(contains(inset(L.trick.zone, FELT.border), L.bidSheet.rect)).toBe(true);
+      if (!isSpectator) expect(L.bidSheet.scale).toBe(1);
+      const p = L.seats.partner.bubble;
+      expect(p.tail).toBe('left');
+      expect(p.w).toBeCloseTo(L.bubbles.w, 6); // full width: the trump made room
+      expect(intersects(p.rect, L.trump.rect)).toBe(false);
+    }
+  });
+
+  it('a bubble that would cover the trump turns or narrows (never the trump: BUBBLE_KEEPS)', () => {
+    expect(BUBBLE_KEEPS).toEqual(expect.arrayContaining(['trump', 'hand', 'history:team', 'history:opp',
+      'trick:self', 'trick:partner', 'trick:opponent1', 'trick:opponent2']));
+    const L = layoutForViewport({ vw: 1440, vh: 790 });
+    const rects = layoutRects(L);
+    const bubble = rects.find((r) => r.id === 'partner.bubble');
+    expect(bubble.only).toEqual(BUBBLE_KEEPS);
+    // moved onto the trump, the check reports it
+    const onTrump = { ...bubble, rect: { ...L.trump.rect } };
+    expect(findIntersections(L, [...rects.filter((r) => r.id !== 'partner.bubble'), onTrump]))
+      .toEqual(expect.arrayContaining([expect.arrayContaining(['partner.bubble', 'trump'])]));
+    // ...but over the felt, the bid sheet's corner or a seat it is fine
+    const z = L.trick.zone;
+    const b = L.bidSheet.rect;
+    for (const r of [{ x: z.x + 1, y: z.y + 1, w: 12, h: 12 }, { x: b.x, y: b.y, w: 12, h: 12 }, L.seats.opp2.avatar.rect, L.seats.self.plate]) {
+      expect(findIntersections(L, [...rects.filter((o) => o.id !== 'partner.bubble'), { ...bubble, rect: r }])).toEqual([]);
+    }
   });
 
   it('the bid sheet may cover only the empty trick (it is up only while bidding)', () => {

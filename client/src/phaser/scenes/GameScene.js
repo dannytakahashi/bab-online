@@ -36,6 +36,7 @@ import { LayoutManager } from '../managers/LayoutManager.js';
 import { showChatBubble as showChatBubbleUI } from '../../ui/components/ChatBubble.js';
 import { computeTableLayout, logWidthFor } from '../layout/computeTableLayout.js';
 import { applyHudLayout, hudSeat, hudRoot, logColumnWidth } from '../../ui/tableHud.js';
+import { resizeShape } from '../shapes.js';
 
 /**
  * Main game scene class.
@@ -228,7 +229,7 @@ export class GameScene extends Phaser.Scene {
     }
     if (this.tableCardBackground && this.tableCardBackground.active) {
       this.tableCardBackground.setPosition(trump.x, trump.y);
-      this.tableCardBackground.setSize?.(trump.box, trump.box);
+      resizeShape(this.tableCardBackground, trump.box, trump.box);
     }
     if (this.tableCardLabel && this.tableCardLabel.active) {
       this.tableCardLabel.setPosition(trump.label.x, trump.label.y);

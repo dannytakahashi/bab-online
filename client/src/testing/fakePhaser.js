@@ -85,8 +85,16 @@ function emitterMixin(obj) {
 
 let objectIds = 0;
 
-function makeObject(scene, kind, x, y, texture, frame) {
+/**
+ * Phaser's default origins and sizes by kind: an image is its 64 px atlas
+ * frame about its centre, a Rectangle shape its own size about its centre,
+ * Text sits at its top-left (origin 0) until setOrigin.
+ */
+const ORIGIN = { image: 0.5, sprite: 0.5, rectangle: 0.5, text: 0, graphics: 0 };
+
+function makeObject(scene, kind, x, y, texture, frame, size = null) {
   const data = new Map();
+  const isFrame = kind === 'image' || kind === 'sprite';
   const obj = emitterMixin({
     id: ++objectIds,
     kind,
@@ -106,7 +114,22 @@ function makeObject(scene, kind, x, y, texture, frame) {
     displayWidth: 64,
     displayHeight: 90,
     style: {},
+    width: size ? size.w : (isFrame ? 64 : 0),
+    height: size ? size.h : (isFrame ? 64 : 0),
+    originX: ORIGIN[kind] ?? 0.5,
+    originY: ORIGIN[kind] ?? 0.5,
+    // drawn shapes (graphics): what fillRoundedRect / strokeRoundedRect drew since clear()
+    drawn: [],
   });
+  // Phaser's Origin component: the display origin is origin x size, and
+  // only setOrigin / updateDisplayOrigin recompute it (Rectangle.setSize in
+  // 3.55 does not: a resized shape keeps its old origin until told)
+  obj.updateDisplayOrigin = () => {
+    obj.displayOriginX = obj.originX * obj.width;
+    obj.displayOriginY = obj.originY * obj.height;
+    return obj;
+  };
+  obj.updateDisplayOrigin();
   Object.defineProperty(obj, 'scale', {
     get() { return obj.scaleX; },
     set(v) { obj.scaleX = v; obj.scaleY = v; },
@@ -118,7 +141,17 @@ function makeObject(scene, kind, x, y, texture, frame) {
     setRotation: chain((r) => { obj.rotation = r; }),
     setAlpha: chain((a) => { obj.alpha = a; }),
     setPosition: chain((px, py) => { obj.x = px; obj.y = py; }),
-    setOrigin: chain(() => {}),
+    setOrigin: chain((ox = 0.5, oy = ox) => { obj.originX = ox; obj.originY = oy; obj.updateDisplayOrigin(); }),
+    // Shape.setSize (Rectangle): the size and geometry, not the display origin
+    setSize: chain((w, h) => { obj.width = w; obj.height = h; }),
+    /** Phaser's getBounds for an unrotated object: position less the display origin, scaled. */
+    getBounds: () => {
+      const bx = obj.x - obj.displayOriginX * obj.scaleX;
+      const by = obj.y - obj.displayOriginY * obj.scaleY;
+      const w = obj.width * obj.scaleX;
+      const h = obj.height * obj.scaleY;
+      return { x: bx, y: by, width: w, height: h, centerX: bx + w / 2, centerY: by + h / 2 };
+    },
     setTexture: chain((key, fr) => { obj.texture = { key }; obj.frame = { name: fr ?? null }; }),
     setTint: chain((t) => { obj.tint = t; }),
     clearTint: chain(() => { obj.tint = null; }),
@@ -135,12 +168,12 @@ function makeObject(scene, kind, x, y, texture, frame) {
       obj.scene = undefined;
       scene._objects.delete(obj);
     },
-    // Graphics
-    clear: chain(() => {}),
+    // Graphics (the drawn rects are kept, in the graphics' local space)
+    clear: chain(() => { obj.drawn = []; }),
     fillStyle: chain(() => {}),
-    fillRoundedRect: chain(() => {}),
+    fillRoundedRect: chain((rx, ry, rw, rh) => { obj.drawn.push({ op: 'fill', x: rx, y: ry, w: rw, h: rh }); }),
     lineStyle: chain(() => {}),
-    strokeRoundedRect: chain(() => {}),
+    strokeRoundedRect: chain((rx, ry, rw, rh) => { obj.drawn.push({ op: 'stroke', x: rx, y: ry, w: rw, h: rh }); }),
   });
   scene._objects.add(obj);
   return obj;
@@ -231,7 +264,7 @@ export class FakeSceneBase {
     this.add = {
       image: (x, y, tex, frame) => makeObject(this, 'image', x, y, tex, frame),
       sprite: (x, y, tex, frame) => makeObject(this, 'sprite', x, y, tex, frame),
-      rectangle: (x, y) => makeObject(this, 'rectangle', x, y, null),
+      rectangle: (x, y, w, h) => makeObject(this, 'rectangle', x, y, null, null, { w: w ?? 128, h: h ?? 128 }),
       text: (x, y) => makeObject(this, 'text', x, y, null),
       graphics: () => makeObject(this, 'graphics', 0, 0, null),
     };

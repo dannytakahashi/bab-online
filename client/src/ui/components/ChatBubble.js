@@ -16,15 +16,29 @@ import { hudSeat } from '../tableHud.js';
 const activeChatBubbles = {};
 
 /**
- * Get tail direction based on position key.
- * - partner (across/top): bubble to the right, tail pointing left
- * - everyone else: bubble above, tail pointing down
+ * The tail's CSS class. On the HUD the seat's direction comes from the
+ * layout (the seat node's data-tail: 'down' above the avatar, 'left' right
+ * of it, 'right' left of it, chosen so the bubble never covers the trump,
+ * the hand, the trick or the histories); off the HUD the partner's bubble
+ * points left and everyone else's down.
  *
  * @param {string} positionKey - Position identifier
+ * @param {HTMLElement|null} seatNode - the seat's HUD node
  * @returns {string} CSS class for tail direction
  */
-function getTailClass(positionKey) {
+function getTailClass(positionKey, seatNode = null) {
+  const tail = seatNode?.dataset?.tail;
+  if (tail) return `tail-${tail}`;
   return positionKey === 'partner' ? 'tail-left' : 'tail-down';
+}
+
+const TAIL_CLASSES = ['tail-down', 'tail-left', 'tail-right'];
+
+/** Point a bubble's tail the seat's way (a relayout may turn it). */
+export function setBubbleTail(bubble, tail) {
+  if (!bubble || !tail) return;
+  bubble.classList.remove(...TAIL_CLASSES);
+  bubble.classList.add(`tail-${tail}`);
 }
 
 /**
@@ -41,17 +55,23 @@ export function showChatBubble(positionKey, message, color = null, duration = 60
     clearBubble(positionKey);
   }
 
-  // Create bubble element
+  // In the seat's bubble slot (no table container: on the page)
+  const seat = hudSeat(positionKey);
+
+  // Create bubble element: the text in its own box, clamped to the
+  // layout's line count (BUBBLE.lines) so the bubble never outgrows the
+  // rect the layout keeps clear (the log keeps the whole message)
   const bubble = document.createElement('div');
-  bubble.className = `chat-bubble ${getTailClass(positionKey)}`;
+  bubble.className = `chat-bubble ${getTailClass(positionKey, seat?.seat)}`;
   bubble.dataset.seat = positionKey;
   if (color === '#FF0000') {
     bubble.classList.add('bid');
   }
-  bubble.textContent = message;
+  const text = document.createElement('span');
+  text.className = 'chat-bubble-text';
+  text.textContent = message;
+  bubble.appendChild(text);
 
-  // In the seat's bubble slot (no table container: on the page)
-  const seat = hudSeat(positionKey);
   (seat?.bubble || document.body).appendChild(bubble);
 
   // Set up fade out and removal

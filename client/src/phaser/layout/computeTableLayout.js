@@ -14,6 +14,12 @@
  *   - positions are today's fractions of the canvas where they fit (the
  *     1920x1080 table looks as it did) and are pushed apart where they do
  *     not;
+ *   - the felt keeps today's proportions of the window where the side seats
+ *     can move out for it (FELT_WISHES, tried at the solved s: the scale
+ *     comes first), and the bid sheet sits inside it;
+ *   - each seat's chat/bid bubble gets a direction and width (BUBBLE_DIRS,
+ *     BUBBLE_WIDTHS) so that at its largest it never covers the trump, the
+ *     hand, the trick or the histories (BUBBLE_KEEPS, in the same check);
  *   - a resize runs the whole layout again (GameScene.relayout).
  *
  * Coordinates are canvas pixels (#game-container, origin top-left, y down).
@@ -65,6 +71,41 @@ export const BID_SHEET_CHROME = 2 * (12 + 2);
 export const BID_SHEET = { w: 13 * BID_CHIP.w + 12 * BID_CHIP.gap + BID_SHEET_CHROME, h: 330 };
 /** Status pill text (the longest, lazy mode). */
 export const STATUS_TEXT_W = 380;
+
+/**
+ * The play zone (the green felt, LayoutManager's #playZoneDom). Before item
+ * 17 it was 600 x 400 of a 1920 x 953 design, scaled by the window
+ * (0.3125 of the width, 0.42 of the height); it keeps those proportions
+ * where the seats leave room. Its 4 px border is inside the rect
+ * (box-sizing), and the bid sheet sits inside it, `inset` from the edge.
+ */
+export const FELT = { wFrac: 0.3125, hFrac: 0.42, border: 4 };
+/** The felt's width wishes (times the 0.3125 x viewport target), tried in order; 0 is the fallback felt. */
+const FELT_WISHES = [1, 0.9, 0.8, 0.7, 0.6, 0.5, 0];
+
+/**
+ * Chat and bid bubbles (ChatBubble, .hud-bubble-slot): at most `lines`
+ * lines of text (a longer chat message ends in an ellipsis; the log has it
+ * all), a 10 px tail toward the avatar. The layout gives each seat a
+ * direction ('down': the bubble above the avatar, 'left': right of it,
+ * 'right': left of it; the name is the tail's side) and a maximum width,
+ * so the bubble at its largest never covers the trump, the hand, a trick
+ * slot, a trick history or another seat's bubble.
+ */
+export const BUBBLE = { lines: 3, tail: 10, lineHeight: 1.25 };
+/** Each seat's bubble directions, best first. */
+const BUBBLE_DIRS = {
+  partner: ['left', 'right', 'down'],
+  opp1: ['down', 'left', 'right'],
+  opp2: ['down', 'right', 'left'],
+  self: ['down', 'right', 'left'],
+};
+/**
+ * Bubble width steps (times the full width), each tried in every direction
+ * before the next: a phone's bubbles narrow (to 79 px on a 390 x 844
+ * phone's 260 px canvas) rather than cover the trick or shrink the table.
+ */
+const BUBBLE_WIDTHS = [1, 0.85, 0.7, 0.6];
 
 const S_MAX = 1;
 const S_MIN = 0.15;
@@ -118,7 +159,7 @@ function cardSize(scale) {
  * Place everything at size scale s. Returns the layout; whether it is clean
  * is for findIntersections / findOutside to say.
  */
-function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1 }) {
+function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1, felt = 0 }) {
   const q = (v) => Math.round(v * dpr) / dpr;
   const M = MARGIN;
   const G = Math.max(4, 8 * s);
@@ -160,7 +201,7 @@ function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1 }) {
   const seats = {};
   // A seat hangs off its avatar's centre (snapped): the HUD puts the seat
   // node there and everything else is an offset from it, as in the DOM
-  const seatAt = (rawX, rawY, { frogSide, bubble }) => {
+  const seatAt = (rawX, rawY, { frogSide }) => {
     const ax = q(rawX);
     const ay = q(rawY);
     const plate = rect(ax - plateW / 2, ay + D / 2 + plateGap, plateW, plateH);
@@ -169,16 +210,44 @@ function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1 }) {
     dealer.x = ax + dealer.dx;
     dealer.y = ay + dealer.dy;
     dealer.rect = around(dealer.x, dealer.y, frog, frog);
-    const b = bubble === 'left'
-      ? { dx: D / 2 + 12 * s, dy: 0, tail: 'left' }
-      : { dx: 0, dy: -(D / 2 + 14 * s), tail: 'down' };
-    b.x = ax + b.dx;
-    b.y = ay + b.dy;
-    return { avatar, plate, dealer, bubble: b, block: rect(ax - blockW / 2, ay - D / 2, blockW, D + plateGap + plateH) };
+    // (the bubble is chosen once the table is placed: see 'bubbles' below)
+    return { avatar, plate, dealer, bubble: null, block: rect(ax - blockW / 2, ay - D / 2, blockW, D + plateGap + plateH) };
+  };
+
+  // a bubble's box (at its widest) and where it hangs off its avatar
+  const bubbleFont = Math.max(11, 14 * s);
+  const bubbleLH = Math.round(bubbleFont * BUBBLE.lineHeight);
+  const bubblePadX = Math.max(6, 12 * s);
+  const bubblePadY = Math.max(4, 8 * s);
+  const bubbleBox = {
+    font: bubbleFont,
+    lh: bubbleLH,
+    padX: bubblePadX,
+    padY: bubblePadY,
+    lines: BUBBLE.lines,
+    tail: BUBBLE.tail,
+    w: Math.max(120, 200 * s) + 2 * bubblePadX,
+    h: BUBBLE.lines * bubbleLH + 2 * bubblePadY,
+  };
+  // the anchor is the box's edge nearest the avatar; the tail reaches past it toward the avatar
+  const bubbleAnchor = (seat, dir) => {
+    const half = seat.avatar.size / 2;
+    if (dir === 'left') return { dx: half + 12 * s, dy: 0 };
+    if (dir === 'right') return { dx: -(half + 12 * s), dy: 0 };
+    return { dx: 0, dy: -(half + 14 * s) };
+  };
+  const bubbleRect = (seat, dir, bw) => {
+    const a = bubbleAnchor(seat, dir);
+    const bx = seat.avatar.x + a.dx;
+    const by = seat.avatar.y + a.dy;
+    const { h: bh, tail } = bubbleBox;
+    if (dir === 'left') return rect(bx - tail, by - bh / 2, bw + tail, bh);
+    if (dir === 'right') return rect(bx - bw, by - bh / 2, bw + tail, bh);
+    return rect(bx - bw / 2, by - bh, bw, bh + tail);
   };
 
   const pAy = M + statusH + G + D / 2;
-  seats.partner = seatAt(cx, pAy, { frogSide: -1, bubble: 'left' });
+  seats.partner = seatAt(cx, pAy, { frogSide: -1 });
   const pCardsY = seats.partner.plate.y + plateH + G + back.h / 2;
   seats.partner.cards = { x: q(cx), y: q(pCardsY), axis: 'h', rotation: 0, spacing: backSp, rect: around(q(cx), q(pCardsY), fanLong, back.h) };
   const top = pCardsY + back.h / 2 + G;
@@ -193,7 +262,10 @@ function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1 }) {
   const histRow = 86 * hs;
   const histW = (HISTORY_COLS - 1) * histSpacing + slotW + 2 * histPad;
   const histH = histRow + slotH + 2 * histPad;
-  const historyBlock = (bx, by) => {
+  const historyBlock = (rawX, rawY) => {
+    // the block snaps first and its slots hang off the snapped corner
+    const bx = q(rawX);
+    const by = q(rawY);
     const x0 = bx + histPad + slotW / 2;
     const y0 = by + histPad + slotH / 2;
     const slots = [];
@@ -202,7 +274,7 @@ function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1 }) {
       const col = row === 0 ? n - 1 : n - HISTORY_COLS - 1;
       slots.push({ x: q(x0 + col * histSpacing + (row === 1 ? histSpacing / 2 : 0)), y: q(y0 + row * histRow) });
     }
-    return { rect: rect(q(bx), q(by), histW, histH), slots, slotW, slotH, pad: histPad, spacing: histSpacing, rowSpacing: histRow, fanDx: 30 * hs, fanDy: 8 * hs, scale: k };
+    return { rect: rect(bx, by, histW, histH), slots, slotW, slotH, pad: histPad, spacing: histSpacing, rowSpacing: histRow, fanDx: 30 * hs, fanDy: 8 * hs, scale: k };
   };
   const history = {
     opp: historyBlock(M, M + statusH + G),
@@ -254,7 +326,7 @@ function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1 }) {
     const selfX = clamp(cw - 0.219 * cw, cx + handW / 2 + G + selfLeftReach, selfMaxX);
     const selfTop = Math.min(0.715 * ch, ch - M - selfH);
     const ay = selfTop + D / 2;
-    seats.self = seatAt(selfX, ay, { frogSide: -1, bubble: 'down' });
+    seats.self = seatAt(selfX, ay, { frogSide: -1 });
     const hsiY = seats.self.plate.y + plateH + 4 * s;
     hsi = { rect: rect(q(selfX - hsiW / 2), q(hsiY), hsiW, hsiH), font: hsiFont };
     voice = { rect: rect(q(selfX - voiceRowW / 2), q(hsiY + hsiH + voiceGap), voiceRowW, voiceBtn), button: voiceBtn, gap: voiceGap };
@@ -266,7 +338,7 @@ function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1 }) {
   } else {
     // the bottom seat, mirrored from the partner's: plate on the bottom margin, backs above
     const ay = ch - M - plateH - plateGap - D / 2;
-    seats.self = seatAt(cx, ay, { frogSide: -1, bubble: 'down' });
+    seats.self = seatAt(cx, ay, { frogSide: -1 });
     const cardsY = ay - D / 2 - G - back.h / 2;
     seats.self.cards = { x: q(cx), y: q(cardsY), axis: 'h', rotation: 0, spacing: backSp, rect: around(q(cx), q(cardsY), fanLong, back.h) };
     voice = { rect: rect(q(cw - M - voiceRowW), q(ch - M - voiceBtn), voiceRowW, voiceBtn), button: voiceBtn, gap: voiceGap };
@@ -292,18 +364,25 @@ function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1 }) {
   // ---------- the side opponents (avatar outside, backs between it and the trick) ----------
   const sideY = cyT - (plateGap + plateH) / 2; // the avatar+plate block centred on the trick line, as today
   const sideFan = { long: fanLong, short: back.h };
+  // the felt this pass wishes for (0: none; see FELT_WISHES), and the bid
+  // sheet at full size inside it: the side seats make room where they can
+  const feltInset = FELT.border + 8 * s;
+  const bidFullW = BID_SHEET.w * s;
+  const bidFullH = BID_SHEET.h * s;
+  const feltHalfWant = felt > 0 ? Math.max(hx + 8 * s, (felt * FELT.wFrac * (cw + (logW || 0))) / 2, bidFullW / 2 + feltInset) : 0;
+  const feltReach = feltHalfWant > 0 ? feltHalfWant + G + sideFan.short / 2 : 0;
   const sides = {};
   for (const [key, dir] of [['opp1', -1], ['opp2', 1]]) {
     const cardsInner = cx + dir * (hx + G + sideFan.short / 2); // nearest the trick may come
     const avatarEdge = dir < 0 ? M + Math.max(blockW / 2, frogReach) : cw - M - Math.max(blockW / 2, frogReach);
     const avatarInner = cardsInner + dir * (sideFan.short / 2 + G + blockW / 2);
-    const prefA = cx + dir * 0.2865 * cw;
-    const prefC = cx + dir * 0.2214 * cw;
+    const prefA = cx + dir * Math.max(0.2865 * cw, feltReach > 0 ? feltReach + sideFan.short / 2 + G + blockW / 2 : 0);
+    const prefC = cx + dir * Math.max(0.2214 * cw, feltReach);
     // the avatar as far out as today, but never inside the cards' room, never off the edge
     const ax = dir < 0 ? Math.max(avatarEdge, Math.min(prefA, avatarInner)) : Math.min(avatarEdge, Math.max(prefA, avatarInner));
     const cardsOuter = ax - dir * (blockW / 2 + G + sideFan.short / 2);
     const cxCards = dir < 0 ? clamp(prefC, cardsOuter, Math.max(cardsOuter, cardsInner)) : clamp(prefC, Math.min(cardsOuter, cardsInner), cardsOuter);
-    const seat = seatAt(ax, sideY, { frogSide: dir, bubble: 'down' });
+    const seat = seatAt(ax, sideY, { frogSide: dir });
     seat.cards = {
       x: q(cxCards),
       y: q(cyT),
@@ -317,14 +396,27 @@ function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1 }) {
   seats.opp1 = sides.opp1;
   seats.opp2 = sides.opp2;
 
-  // ---------- play zone (the green felt): today's 600x400 of a 1920x953 canvas where it fits ----------
+  // ---------- play zone (the green felt): today's 600x400 of a 1920x953 window where it fits ----------
   const zoneMaxW = 2 * Math.min(cx - (seats.opp1.cards.rect.x + seats.opp1.cards.rect.w) - G, seats.opp2.cards.rect.x - G - cx);
-  const zoneMaxH = 2 * Math.min(cyT - top, bottom - cyT);
   const zoneMinW = 2 * hx + 16 * s;
   const zoneMinH = 2 * hy + 16 * s;
-  const zoneW = Math.max(zoneMinW, Math.min(0.3125 * cw, zoneMaxW));
-  const zoneH = Math.max(zoneMinH, Math.min(0.42 * ch, zoneMaxH));
-  const zone = around(q(cx), q(cyT), zoneW, zoneH);
+  let zone;
+  if (felt > 0) {
+    // today's proportions of the window, or room for the full bid sheet,
+    // between the side seats' cards and from the partner's cards to my
+    // hand; centred on the trick where it fits, else slid inside that room
+    const zoneW = Math.max(zoneMinW, Math.min(Math.max(2 * feltHalfWant, bidFullW + 2 * feltInset), zoneMaxW));
+    const roomH = bottom - top;
+    const zoneH = Math.max(zoneMinH, Math.min(Math.max(FELT.hFrac * ch, bidFullH + 2 * feltInset), roomH));
+    const zy = roomH >= zoneH ? q(clamp(cyT - zoneH / 2, top, bottom - zoneH)) : q(cyT) - zoneH / 2;
+    zone = rect(q(cx) - zoneW / 2, zy, zoneW, zoneH);
+  } else {
+    // the fallback felt: centred on the trick, as far as it reaches both ways
+    const zoneMaxH = 2 * Math.min(cyT - top, bottom - cyT);
+    const zoneW = Math.max(zoneMinW, Math.min(FELT.wFrac * cw, zoneMaxW));
+    const zoneH = Math.max(zoneMinH, Math.min(FELT.hFrac * ch, zoneMaxH));
+    zone = around(q(cx), q(cyT), zoneW, zoneH);
+  }
 
   // ---------- trump: top right, today's spot where it fits ----------
   const tCard = card.trump;
@@ -332,7 +424,9 @@ function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1 }) {
   const labelFont = Math.max(9, 14 * s);
   const labelAbove = trumpBox / 2 + 15 * s;
   const trumpTopReach = labelAbove + labelFont * 0.6;
-  const partnerRight = Math.max(seats.partner.cards.rect.x + seats.partner.cards.rect.w, seats.partner.plate.x + plateW);
+  // (and clear of the partner's bubble at its first choice: right of the avatar, full width)
+  const partnerBubble = bubbleRect(seats.partner, BUBBLE_DIRS.partner[0], bubbleBox.w);
+  const partnerRight = Math.max(seats.partner.cards.rect.x + seats.partner.cards.rect.w, seats.partner.plate.x + plateW, partnerBubble.x + partnerBubble.w);
   const tx = clamp(cx + 0.26 * cw, Math.min(partnerRight + G + trumpBox / 2, cw - M - trumpBox / 2), cw - M - trumpBox / 2);
   const ty = Math.max(0.185 * ch, M + trumpTopReach);
   const trump = {
@@ -344,14 +438,40 @@ function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1 }) {
     rect: rect(q(tx - trumpBox / 2), q(ty - trumpTopReach), trumpBox, trumpTopReach + trumpBox / 2),
   };
 
-  // ---------- bid sheet: over the empty trick while bidding (scaled to the room between the seats) ----------
-  const bidRoomW = (seats.opp2.cards.rect.x - G) - (seats.opp1.cards.rect.x + seats.opp1.cards.rect.w + G);
-  const bidRoomH = bottom - top;
-  const bidScale = Math.max(0.05, Math.min(s, bidRoomW / BID_SHEET.w, bidRoomH / BID_SHEET.h));
+  // ---------- bid sheet: over the empty trick while bidding, inside the felt ----------
+  const feltInner = { w: zone.w - 2 * feltInset, h: zone.h - 2 * feltInset };
+  const bidScale = Math.floor(Math.max(0.05, Math.min(s, feltInner.w / BID_SHEET.w, feltInner.h / BID_SHEET.h)) * 1000) / 1000;
   const bidW = BID_SHEET.w * bidScale;
   const bidH = BID_SHEET.h * bidScale;
-  const bidY = clamp(cyT, top + bidH / 2, Math.max(top + bidH / 2, bottom - bidH / 2));
-  const bidSheet = { x: q(cx), y: q(bidY), scale: r1(bidScale * 1000) / 1000, rect: around(q(cx), q(bidY), bidW, bidH) };
+  const bidX = q(zone.x + zone.w / 2);
+  const bidY = q(zone.y + zone.h / 2);
+  const bidSheet = { x: bidX, y: bidY, scale: bidScale, rect: around(bidX, bidY, bidW, bidH) };
+
+  // ---------- bubbles: each seat's direction and width, clear of the game's information ----------
+  const keep = [trump.rect, ...Object.values(tSlots).map((t) => t.rect), history.team.rect, history.opp.rect];
+  if (hand) keep.push(hand.rect);
+  const chosen = [];
+  for (const key of ['partner', 'opp1', 'opp2', 'self']) {
+    const seat = seats[key];
+    const dirs = BUBBLE_DIRS[key];
+    let pick = null;
+    for (const f of BUBBLE_WIDTHS) {
+      for (const dir of dirs) {
+        const r = bubbleRect(seat, dir, bubbleBox.w * f);
+        if (!contains(rect(0, 0, cw, ch), r)) continue;
+        if (keep.some((o) => intersects(o, r)) || chosen.some((o) => intersects(o, r))) continue;
+        pick = { dir, w: bubbleBox.w * f, rect: r };
+        break;
+      }
+      if (pick) break;
+    }
+    // none fits: the first choice, and the overlap check sends the search to a smaller s
+    if (!pick) pick = { dir: dirs[0], w: bubbleBox.w, rect: bubbleRect(seat, dirs[0], bubbleBox.w) };
+    chosen.push(pick.rect);
+    const a = bubbleAnchor(seat, pick.dir);
+    seat.bubble = { dx: a.dx, dy: a.dy, x: seat.avatar.x + a.dx, y: seat.avatar.y + a.dy, tail: pick.dir, w: pick.w, rect: pick.rect };
+  }
+  const bubbles = { ...bubbleBox };
 
   // ---------- draw phase (no hand, no seats yet) ----------
   const deckCard = card.deck;
@@ -417,6 +537,8 @@ function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1 }) {
     fonts: { plate: plateFont, plateLH, hsi: hsiFont },
     plate: { w: plateW, h: plateH, gap: plateGap, lh: plateLH, font: plateFont },
     trick: { center: { x: q(cx), y: q(cyT) }, slots: tSlots, zone },
+    felt: { wish: felt, inset: feltInset, border: FELT.border },
+    bubbles,
     history,
     hand,
     trump,
@@ -429,15 +551,22 @@ function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1 }) {
   };
 }
 
+/** The groups a bubble must leave visible (the game's information, and the other seats' bubbles). */
+export const BUBBLE_KEEPS = ['trump', 'hand', 'trick:self', 'trick:partner', 'trick:opponent1', 'trick:opponent2',
+  'history:team', 'history:opp', 'bubble:self', 'bubble:partner', 'bubble:opp1', 'bubble:opp2'];
+
 /**
  * Every rect the overlap check knows, with its group: rects of the same
  * group may overlap (a seat's avatar, plate and frog), `allow` lists
- * other groups a rect may cover. The bid sheet covers the trick slots by
- * design: it is up only while bidding, when no trick card is on the table.
+ * other groups a rect may cover, `only` (bubbles) the groups it may not.
+ * The bid sheet covers the trick slots by design: it is up only while
+ * bidding, when no trick card is on the table. A bubble (at its largest)
+ * may sit over the felt, the bid sheet and the seats, never over
+ * BUBBLE_KEEPS.
  */
 export function layoutRects(L) {
   const out = [];
-  const add = (id, group, r, allow = []) => r && out.push({ id, group, rect: r, allow });
+  const add = (id, group, r, allow = [], only = null) => r && out.push({ id, group, rect: r, allow, ...(only ? { only } : {}) });
   for (const [key, seat] of Object.entries(L.seats)) {
     const g = `seat:${key}`;
     add(`${key}.avatar`, g, seat.avatar.rect);
@@ -457,6 +586,7 @@ export function layoutRects(L) {
   add('bidSheet', 'bidSheet', L.bidSheet.rect, ['zone', 'trick:self', 'trick:partner', 'trick:opponent1', 'trick:opponent2']);
   add('status', 'status', L.status.rect);
   if (L.log) add('log', 'log', L.log);
+  for (const [key, seat] of Object.entries(L.seats)) add(`${key}.bubble`, `bubble:${key}`, seat.bubble.rect, [], BUBBLE_KEEPS);
   return out;
 }
 
@@ -481,6 +611,7 @@ export function findIntersections(L, rects = null) {
       const b = list[j];
       if (a.group === b.group) continue;
       if (a.allow.includes(b.group) || b.allow.includes(a.group)) continue;
+      if ((a.only && !a.only.includes(b.group)) || (b.only && !b.only.includes(a.group))) continue;
       // two draw-phase rects never meet table rects (they are never up together)
       if (a.id.startsWith('draw.') !== b.id.startsWith('draw.')) continue;
       if (intersects(a.rect, b.rect)) hits.push([a.id, b.id]);
@@ -512,6 +643,7 @@ export function computeTableLayout({ w, h, dpr = 1, isSpectator = false, logW = 
   const opts = { isSpectator: !!isSpectator, logW: logW || 0, dpr: d };
   // first pass: a hand box that shows a 13-card hand at 2/3 of its spacing;
   // second pass: any hand box that fits
+  const clean = (L) => findIntersections(L).length === 0 && findOutside(L).length === 0;
   for (const roomyHand of [true, false]) {
     for (let i = 0; ; i++) {
       const s = r1(S_MAX - i * S_STEP);
@@ -520,7 +652,14 @@ export function computeTableLayout({ w, h, dpr = 1, isSpectator = false, logW = 
         for (const compact of [false, true]) {
           const L = place(cw, ch, s, { ...opts, compact, k });
           if (roomyHand && !handRoomy(L)) continue;
-          if (findIntersections(L).length === 0 && findOutside(L).length === 0) return L;
+          if (!clean(L)) continue;
+          // the felt as close to today's as the seats allow (the side seats
+          // move out for it), at the same scale: s comes first
+          for (const felt of FELT_WISHES) {
+            if (felt === 0) return L;
+            const F = place(cw, ch, s, { ...opts, compact, k, felt });
+            if ((!roomyHand || handRoomy(F)) && clean(F)) return F;
+          }
         }
       }
     }

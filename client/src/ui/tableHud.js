@@ -109,8 +109,16 @@ function applyRootVars(hud, L) {
   set('--plate-lh', L.plate.lh);
   set('--plate-pad', Math.max(2, 8 * L.s));
   set('--frog', L.seats.partner.dealer.size);
-  set('--bubble-font', Math.max(11, 14 * L.s));
-  set('--bubble-max', Math.max(120, 200 * L.s));
+  // bubbles: the layout's box (each seat's width is on its node)
+  const B = L.bubbles;
+  if (B) {
+    set('--bubble-font', B.font);
+    set('--bubble-lh', B.lh);
+    set('--bubble-pad-x', B.padX);
+    set('--bubble-pad-y', B.padY);
+    set('--bubble-lines', String(B.lines));
+    set('--bubble-w', B.w);
+  }
   // my box
   if (L.seats.self.hsi) {
     set('--hsi-w', L.seats.self.hsi.rect.w);
@@ -146,7 +154,13 @@ function applySeatVars(seat, L) {
   st.setProperty('--dealer-dy', px(s.dealer.dy));
   st.setProperty('--bubble-dx', px(s.bubble.dx));
   st.setProperty('--bubble-dy', px(s.bubble.dy));
+  if (s.bubble.w) st.setProperty('--bubble-w', px(s.bubble.w));
   seat.dataset.tail = s.bubble.tail;
+  // a bubble up now turns with its seat
+  seat.querySelectorAll(':scope > .hud-bubble-slot > .chat-bubble').forEach((b) => {
+    b.classList.remove('tail-down', 'tail-left', 'tail-right');
+    b.classList.add(`tail-${s.bubble.tail}`);
+  });
 }
 
 /** Place the whole HUD from a layout (every relayout). */

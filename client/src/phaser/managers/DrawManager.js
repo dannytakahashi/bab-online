@@ -13,6 +13,7 @@ import { sceneDelay, sceneTween } from '../TableDirector.js';
 import { createTransitionOverlay } from '../../ui/transitionOverlay.js';
 import { CARD_CONFIG } from '../config.js';
 import { layoutOf, deckPosition } from '../layout/computeTableLayout.js';
+import { resizeShape } from '../shapes.js';
 
 export class DrawManager {
   constructor(scene) {
@@ -186,7 +187,7 @@ export class DrawManager {
     if (this._teamElements) {
       const [overlay, team1Label, team1Players, vsText, team2Label, team2Players] = this._teamElements;
       overlay.setPosition?.(teams.x, teams.y);
-      overlay.setSize?.(L.w, L.h);
+      resizeShape(overlay, L.w, L.h);
       const rows = [[team1Label, -2, teams.fonts.label], [team1Players, -1, teams.fonts.names], [vsText, 0, teams.fonts.vs],
         [team2Label, 1, teams.fonts.label], [team2Players, 2, teams.fonts.names]];
       for (const [el, row, font] of rows) {
