@@ -335,6 +335,19 @@ describe('table entry and exit', () => {
     expect(document.getElementById('resignation-dialog')).toBeNull();
   });
 
+  it('restorePlayerState rebuilds the table in place: same seat, gameId kept, the open offer stays', async () => {
+    await rejoinSeat();
+    socket.fire('resignationAvailable', { position: 2, username: 'bob' });
+    page.voice.shutdown.mockClear();
+    socket.fire('restorePlayerState', clientState({ gameId: 'g1' }));
+    expect(page.session.screen).toBe(SCREEN.TABLE);
+    expect(page.session.role).toBe(ROLE.PLAYER);
+    expect(sessionStorage.getItem('gameId')).toBe('g1');
+    expect(document.getElementById('resignation-dialog')).not.toBeNull();
+    expect(page.voice.shutdown).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(document.getElementById('gameFeed')).not.toBeNull());
+  });
+
   it('a stale mainRoomJoined at the table is ignored', async () => {
     await rejoinSeat();
     socket.fire('mainRoomJoined', mainRoomPayload());
@@ -437,6 +450,11 @@ describe('identity and errors', () => {
 
   it("a spectator's score header names the seats, not '<me>/null'", async () => {
     socket.fire('spectatorJoined', spectatorState({ gameId: 'g2' }));
+    // a spectator deal names the seats (setPlayerData at view seat 1)
+    socket.fire('gameStart', {
+      gameId: 'g2', trump: { suit: 'clubs', rank: '5' }, score1: 0, score2: 0, dealer: 1, currentHand: 1, hand: [],
+      playerInfo: spectatorState().players.map(({ position, username, pic }) => ({ position, username, pic })),
+    });
     // the spectator's view seat is someone else's: the identity stays
     expect(page.gameState.username).toBe('me');
     const { GameScene } = await import('./phaser/scenes/GameScene.js');

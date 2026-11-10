@@ -252,6 +252,32 @@ describe('session resume', () => {
     expect(t.emitted('joinTournament')).toEqual([{ tournamentId: 't1' }]);
   });
 
+  it('restored after a reload of the tournament lobby: re-enters the tournament, or the main room when it is gone', () => {
+    t.session.transition(SCREEN.MAIN_ROOM);
+    t.session.transition(SCREEN.TOURNAMENT_LOBBY, { tournamentId: 't9' });
+    expect(sessionStorage.getItem('tournamentId')).toBe('t9');
+    // a fresh page: BOOT, nothing in memory
+    const page = setup();
+    sessionStorage.setItem('username', 'me');
+    sessionStorage.setItem('sessionToken', 'tok');
+    sessionStorage.setItem('tournamentId', 't9');
+    expect(page.session.onSessionRestored({ username: 'me' })).toBe('tournament');
+    expect(page.emitted('joinTournament')).toEqual([{ tournamentId: 't9' }]);
+    expect(page.gameState.tournamentId).toBe('t9');
+    expect(page.session.takePendingTournamentRejoin()).toBe('t9');
+    expect(page.session.takePendingTournamentRejoin()).toBeNull();
+    // leaving for the main room forgets it
+    page.session.transition(SCREEN.MAIN_ROOM);
+    expect(sessionStorage.getItem('tournamentId')).toBeNull();
+  });
+
+  it('restored in the main room never re-enters a tournament the tab left', () => {
+    t.session.transition(SCREEN.MAIN_ROOM);
+    sessionStorage.setItem('tournamentId', 'stale');
+    expect(t.session.onSessionRestored({ username: 'me' })).toBe('mainRoom');
+    expect(t.emitted('joinTournament')).toHaveLength(0);
+  });
+
   it('restored at a table with nothing to rejoin (a draw before seating): leaves it', () => {
     t.session.transition(SCREEN.MAIN_ROOM);
     t.session.enterTable(ROLE.PLAYER, null);

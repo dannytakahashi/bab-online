@@ -43,6 +43,8 @@ describe('reload while in /lazy', () => {
 
     await vi.waitFor(() => expect(document.getElementById('gameFeed')).not.toBeNull());
     await new Promise((r) => setTimeout(r, 250));
+    // the table was rebuilt from one rejoinSuccess only
+    expect(page.scene.handleDisplayHand).toHaveBeenCalledTimes(1);
     expect(logLines('Hand 1 started')).toBe(1);
     expect(logLines('Reconnected to game!')).toBe(1);
     expect(page.session.role).toBe('lazy');

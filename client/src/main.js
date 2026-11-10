@@ -399,6 +399,18 @@ function handleSocketError(error, socket) {
     return;
   }
 
+  // Re-entering a tournament after a reload or reconnect: it is gone
+  if (session.takePendingTournamentRejoin()) {
+    console.log('Tournament re-entry failed:', error.message);
+    getGameState().tournamentId = null;
+    showErrorToast('The tournament is no longer available');
+    if (!session.hasTable) session.transition(SCREEN.MAIN_ROOM);
+    // The server follows a failed joinTournament with the main room, except
+    // for 'Already in a tournament'
+    if (error.message === 'Already in a tournament') session.requestMainRoom();
+    return;
+  }
+
   // Handle race condition where joinMainRoom is called before user is registered
   if (error.message === 'User not registered yet') {
     // Don't retry if we're in a game (have a gameId)
@@ -512,9 +524,10 @@ function initializeApp() {
    * its teardown hook) and a rebuild in place (a re-spectate after a
    * reconnect, restorePlayerState) use this one list. It never touches the
    * game state or the gameId copies (exitTable resets those after it).
+   * inPlace (a rebuild): voice and an open 'Replace with Bot?' offer stay.
    */
-  function teardownTableUI({ keepVoice = false } = {}) {
-    if (!keepVoice) stopVoice();
+  function teardownTableUI({ inPlace = false } = {}) {
+    if (!inPlace) stopVoice();
     removeTransitionOverlay();
     window._readyForGameUI = false;
     window._tricksAnimating = false;
@@ -529,9 +542,10 @@ function initializeApp() {
       scene.opponentManager?.clearAll();
     }
 
-    // Game-owned DOM outside the scene
+    // Game-owned DOM outside the scene (a rebuild in place keeps the
+    // table's open 'Replace with Bot?' offer: the server does not resend it)
     document.getElementById('spectating-indicator')?.remove();
-    dismissResignationDialog();
+    if (!inPlace) dismissResignationDialog();
     clearChatBubbles();
     document.querySelectorAll('.chat-bubble').forEach((el) => el.remove());
     removeFinalScoreOverlay();
@@ -1005,8 +1019,7 @@ function initializeApp() {
         session.rejoin(data.activeGameId);
       } else if (data.activeTournamentId) {
         console.log(`Active tournament found: ${data.activeTournamentId}, rejoining...`);
-        gameState.tournamentId = data.activeTournamentId;
-        socket.emit('joinTournament', { tournamentId: data.activeTournamentId });
+        session.onSessionRestored({ username: data.username, activeTournamentId: data.activeTournamentId });
       } else {
         // Go to main room
         session.requestMainRoom();
@@ -1138,7 +1151,7 @@ function initializeApp() {
         try {
         const spectatedGameId = data.gameId || session.takePendingSpectate();
         // A re-spectate after a reconnect rebuilds the table from this state
-        if (session.isAtTable) teardownTableUI({ keepVoice: true });
+        if (session.isAtTable) teardownTableUI({ inPlace: true });
         session.routeArrived();
         // Spectators persist spectatingGameId only (a reconnect re-spectates)
         session.enterTable(ROLE.SPECTATOR, spectatedGameId);
@@ -1928,7 +1941,7 @@ function initializeApp() {
       // Spectator → active player transition (or a resync after a refused
       // play): rebuild the table in place, then reuse the rejoin path
       // Clean up the current table first (voice stays)
-      teardownTableUI({ keepVoice: true });
+      teardownTableUI({ inPlace: true });
 
       gameState.isSpectator = false;
       gameState.isLazy = false;

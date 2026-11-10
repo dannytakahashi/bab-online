@@ -90,7 +90,9 @@ const ROLES = new Set(Object.values(ROLE));
 // until its reply (or a disconnect); after this long another may go out
 export const ROUTE_TIMEOUT_MS = 5000;
 
-const STORAGE = { GAME: 'gameId', SPECTATE: 'spectatingGameId', USER: 'username', TOKEN: 'sessionToken' };
+// TOURNAMENT: the tournament lobby this tab shows (a reload re-enters it;
+// the server records activeTournamentId only once a tournament begins)
+const STORAGE = { GAME: 'gameId', SPECTATE: 'spectatingGameId', USER: 'username', TOKEN: 'sessionToken', TOURNAMENT: 'tournamentId' };
 
 function isTestRun() {
   try {
@@ -149,6 +151,7 @@ export class ClientSession {
     this._routeInFlight = null; // { kind, at }
     this._pendingLobbyRejoin = null; // lobbyId
     this._pendingSpectate = null; // gameId
+    this._pendingTournamentRejoin = null; // tournamentId
   }
 
   // ============================================
@@ -203,6 +206,7 @@ export class ClientSession {
   get gameId() { return this._gameState?.gameId || null; }
   get persistedGameId() { return this._storage.getItem(STORAGE.GAME); }
   get persistedSpectateId() { return this._storage.getItem(STORAGE.SPECTATE); }
+  get persistedTournamentId() { return this._storage.getItem(STORAGE.TOURNAMENT); }
   get username() { return this._gameState?.username || this._storage.getItem(STORAGE.USER) || null; }
   get tournamentId() { return this._gameState?.tournamentId || null; }
   get routeInFlight() { return this._routeInFlight?.kind || null; }
@@ -235,6 +239,8 @@ export class ClientSession {
     this._screen = to;
     if (to !== SCREEN.TABLE && to !== SCREEN.GAME_END) this._role = null;
     if (to !== SCREEN.LOBBY) this.lobbyId = null;
+    if (to === SCREEN.TOURNAMENT_LOBBY && data?.tournamentId) this._storage.setItem(STORAGE.TOURNAMENT, data.tournamentId);
+    else if (to === SCREEN.MAIN_ROOM || to === SCREEN.SIGN_IN) this._storage.removeItem(STORAGE.TOURNAMENT);
     this.history.push(reenter ? `${to}*` : to);
     if (this.history.length > 50) this.history.shift();
     this._runHook(to, 'enter', ctx);
@@ -409,6 +415,7 @@ export class ClientSession {
   /** The server put this socket somewhere (main room, a lobby, a tournament, a table). */
   routeArrived() {
     this._routeInFlight = null;
+    this._pendingTournamentRejoin = null;
   }
 
   // ============================================
@@ -463,9 +470,15 @@ export class ClientSession {
     if (seatedGameId) return this.rejoin(seatedGameId) ? 'rejoin' : 'none';
     const watching = this.persistedSpectateId;
     if (watching) return this.spectate(watching) ? 'spectate' : 'none';
-    if (data.activeTournamentId) {
-      if (this._gameState) this._gameState.tournamentId = data.activeTournamentId;
-      this._emit(CLIENT_EVENTS.JOIN_TOURNAMENT, { tournamentId: data.activeTournamentId });
+    // The server's pointer (a tournament that has begun), else the
+    // tournament lobby this tab was showing (a reload or a reconnect)
+    const showingTournament = this._screen === SCREEN.BOOT || this._screen === SCREEN.TOURNAMENT_LOBBY;
+    const tournamentId = data.activeTournamentId ||
+      (showingTournament ? this.persistedTournamentId || this.tournamentId : null);
+    if (tournamentId) {
+      if (this._gameState) this._gameState.tournamentId = tournamentId;
+      this._pendingTournamentRejoin = tournamentId;
+      this._emit(CLIENT_EVENTS.JOIN_TOURNAMENT, { tournamentId });
       return 'tournament';
     }
     switch (this._screen) {
@@ -481,12 +494,6 @@ export class ClientSession {
           this._pendingLobbyRejoin = this.lobbyId;
           this._emit(CLIENT_EVENTS.JOIN_LOBBY, { lobbyId: this.lobbyId });
           return 'lobby';
-        }
-        break;
-      case SCREEN.TOURNAMENT_LOBBY:
-        if (this.tournamentId) {
-          this._emit(CLIENT_EVENTS.JOIN_TOURNAMENT, { tournamentId: this.tournamentId });
-          return 'tournament';
         }
         break;
       default:
@@ -549,6 +556,13 @@ export class ClientSession {
     return id;
   }
 
+  /** An error while re-entering a tournament after a reload or reconnect: it is gone. */
+  takePendingTournamentRejoin() {
+    const id = this._pendingTournamentRejoin;
+    this._pendingTournamentRejoin = null;
+    return id;
+  }
+
   takePendingSpectate() {
     const id = this._pendingSpectate;
     this._pendingSpectate = null;
@@ -558,6 +572,7 @@ export class ClientSession {
   /** Sign-out / forceLogout: forget the identity too. */
   clearIdentity() {
     this._gameState?.resetSession?.();
+    this._storage.removeItem(STORAGE.TOURNAMENT);
     this._restoredSocketId = null;
     this._restoreSentFor = null;
     this._rejoinSentFor = null;
@@ -593,6 +608,7 @@ export class ClientSession {
     if (event === 'disconnect') {
       this._routeInFlight = null;
       this._pendingLobbyRejoin = null;
+      this._pendingTournamentRejoin = null;
       // The server closed it: Socket.IO never reconnects by itself
       if (data.reason === 'io server disconnect') this._setConnection(CONNECTION.OFFLINE);
       return;
