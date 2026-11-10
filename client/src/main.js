@@ -393,7 +393,11 @@ function handleSocketError(error, socket) {
   // Re-entering a lobby after a reconnect: it closed (or filled) meanwhile
   if (session.takePendingLobbyRejoin()) {
     console.log('Lobby re-entry failed:', error.message);
-    showErrorToast('The lobby closed while you were offline');
+    // 'Lobby is full' too: the seat may still be held by this player's
+    // previous socket until the server notices it dropped
+    showErrorToast(error.message === 'Lobby not found'
+      ? 'The lobby closed while you were offline'
+      : "Couldn't get back into the lobby");
     session.transition(SCREEN.MAIN_ROOM);
     session.requestMainRoom();
     return;
@@ -529,6 +533,9 @@ function initializeApp() {
    */
   function teardownTableUI({ inPlace = false } = {}) {
     if (!inPlace) stopVoice();
+    // A rebuild in place supersedes any earlier rebuild still waiting for
+    // the scene (exitTable bumps the generation itself)
+    if (inPlace) session.supersedeTableWork();
     removeTransitionOverlay();
     window._readyForGameUI = false;
     window._tricksAnimating = false;

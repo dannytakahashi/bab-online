@@ -575,8 +575,17 @@ export class ClientSession {
     this._routeInFlight = null;
     // This rejoin rebuilds the table: an earlier rebuild still waiting for
     // the scene (a rejoin on a previous socket of this same game) stops
-    this.tableGeneration++;
+    this.supersedeTableWork();
     return true;
+  }
+
+  /**
+   * A rebuild of the current table (rejoin, re-spectate, restorePlayerState):
+   * every deferred rebuild still waiting for the scene stops, so two
+   * reconnects while the scene is restarting never replay the table twice.
+   */
+  supersedeTableWork() {
+    this.tableGeneration++;
   }
 
   noteLobby(lobbyId) {
