@@ -439,10 +439,20 @@ describe('GameScene own avatar box (moved from main.js setGameScene)', () => {
   beforeAll(async () => {
     ({ getGameState } = await import('../../state/GameState.js'));
   });
+  let container;
+  beforeEach(() => {
+    container = document.createElement('div');
+    container.id = 'game-container';
+    document.body.appendChild(container);
+  });
   afterEach(() => {
     document.getElementById('player-avatar-container')?.remove();
+    container.remove();
     getGameState().reset();
   });
+
+  /** The HUD seat holding my box: its left/top are my avatar's centre. */
+  const selfSeat = () => document.getElementById('player-avatar-container').closest('.hud-seat');
 
   const playerData = {
     position: [1, 2, 3, 4],
@@ -455,7 +465,7 @@ describe('GameScene own avatar box (moved from main.js setGameScene)', () => {
     return scene;
   }
 
-  it('creates the box at the bottom right with avatar, name and HSI, and clicking it asks for the profile', () => {
+  it('creates the box in my HUD seat (the layout\'s spot) with avatar, name and HSI, and clicking it asks for the profile', () => {
     const scene = sceneAt(960, 953);
     window.socket = { emit: vi.fn() };
     try {
@@ -463,10 +473,15 @@ describe('GameScene own avatar box (moved from main.js setGameScene)', () => {
       const el = document.getElementById('player-avatar-container');
       expect(info.avatarContainer).toBe(el);
       expect(scene._playerInfo).toBe(info);
-      // left = w - 420 * w/1920; top = h - 150*sy - 60*sy
-      expect(el.style.left).toBe(`${960 - 420 * 0.5}px`);
-      expect(el.style.top).toBe(`${953 - 150 - 60}px`);
-      expect(info.avatarImg.className).toBe('player-avatar-img');
+      // my seat's node is at the layout's self avatar (canvas coordinates, ui-4)
+      const L = scene.getLayout();
+      expect(selfSeat().dataset.seat).toBe('self');
+      expect(selfSeat().style.left).toBe(`${L.seats.self.avatar.x}px`);
+      expect(selfSeat().style.top).toBe(`${L.seats.self.avatar.y}px`);
+      // right of the hand box, inside the canvas
+      expect(L.seats.self.block.x).toBeGreaterThan(L.hand.rect.x + L.hand.rect.w);
+      expect(L.seats.self.block.x + L.seats.self.block.w).toBeLessThanOrEqual(960);
+      expect(info.avatarImg.classList.contains('player-avatar-img')).toBe(true);
       expect(info.avatarImg.alt).toBe('me');
       expect(info.nameLabel.textContent).toBe('me');
       expect(info.hsiBox.id).toBe('player-hsi-box');
@@ -488,11 +503,14 @@ describe('GameScene own avatar box (moved from main.js setGameScene)', () => {
   it('repositions on resize, shows the HSI, and clears', () => {
     const scene = sceneAt();
     scene.createPlayerInfoBox(playerData, 1);
+    const before = selfSeat().style.left;
     scene.scale = { width: 960, height: 476.5 };
     scene.repositionPlayerInfo();
-    const el = document.getElementById('player-avatar-container');
-    expect(el.style.left).toBe(`${960 - 210}px`);
-    expect(el.style.top).toBe(`${476.5 - 75 - 30}px`);
+    const L = scene.getLayout();
+    expect(L.w).toBe(960);
+    expect(selfSeat().style.left).not.toBe(before);
+    expect(selfSeat().style.left).toBe(`${L.seats.self.avatar.x}px`);
+    expect(selfSeat().style.top).toBe(`${L.seats.self.avatar.y}px`);
     scene.updatePlayerHsi(12.345);
     expect(scene._playerInfo.hsiBox.textContent).toBe('HSI: 12.3');
     scene.updatePlayerHsi(undefined);

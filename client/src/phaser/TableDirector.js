@@ -427,6 +427,20 @@ export class TableDirector {
     return true;
   }
 
+  /**
+   * A relayout (resize) while table work is in flight: a deal, a fly-in, a
+   * collect or the whisk still heads for the old anchors, so render the
+   * model at the new size instead (fastForward). Not during the teams /
+   * createUI fade (the first deal waits for it and lays out when it runs),
+   * nor before a hand is on the table (the draw lays itself out).
+   * @returns {boolean} whether it fast-forwarded
+   */
+  settleForRelayout(scene = this._scene) {
+    if (!this.ready || scene !== this._scene || !this.uiReady || !this._isLive()) return false;
+    if (this.pending() === 0 && this.waiting === 0) return false;
+    return this.fastForward('relayout');
+  }
+
   /** Something changed the table (an applied event): a hidden tab must re-render on return. */
   noteChange() {
     if (this._hidden()) this._changedWhileHidden = true;

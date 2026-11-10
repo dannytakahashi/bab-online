@@ -7,10 +7,13 @@
 
 import { getGameState } from '../../state/GameState.js';
 import { getSocketManager } from '../../socket/SocketManager.js';
+import { getHud } from '../../ui/tableHud.js';
 
-// Base design dimensions for scaling
-const BASE_WIDTH = 1920;
-const BASE_HEIGHT = 953;
+/**
+ * The sheet's transform: centred on its layout slot, at the layout's bid
+ * scale (--bid-scale on the HUD), times `k` for the pop-in.
+ */
+const sheetTransform = (k) => `translate(-50%, -50%) scale(calc(var(--bid-scale, 1) * ${k}))`;
 
 export class BidManager {
   constructor(scene) {
@@ -36,20 +39,6 @@ export class BidManager {
   }
 
   /**
-   * Get scale factors based on current screen size.
-   */
-  getScaleFactors() {
-    const screenWidth = this.scene.scale.width;
-    const screenHeight = this.scene.scale.height;
-    return {
-      x: screenWidth / BASE_WIDTH,
-      y: screenHeight / BASE_HEIGHT,
-      screenWidth,
-      screenHeight,
-    };
-  }
-
-  /**
    * Show the bid UI.
    * @param {number} handSize - Number of cards in hand (max bid)
    * @param {Function} onBidSelect - Callback when a bid is selected
@@ -58,7 +47,6 @@ export class BidManager {
     // Remove existing if any (no animation since we're replacing it)
     this.hideBidUI(false);
 
-    const { screenWidth, screenHeight } = this.getScaleFactors();
     const position = this.state.position;
     const currentTurn = this.state.currentTurn;
 
@@ -66,7 +54,14 @@ export class BidManager {
     this.bidContainer = document.createElement('div');
     this.bidContainer.id = 'bidContainer';
     this.bidContainer.classList.add('ui-element', 'bid-grid');
-    this.bidContainer.style.position = 'fixed';
+    // The HUD's bid slot places it (absolute, from the layout); without a
+    // table container it stays centred on the page
+    const hud = getHud();
+    if (!hud) {
+      this.bidContainer.style.position = 'fixed';
+      this.bidContainer.style.left = '50%';
+      this.bidContainer.style.top = '50%';
+    }
     this.bidContainer.style.zIndex = '1000';
     this.bidContainer.style.flexDirection = 'column';
     this.bidContainer.style.alignItems = 'center';
@@ -75,15 +70,13 @@ export class BidManager {
     this.bidContainer.style.background = 'rgba(0, 0, 0, 0.85)';
     this.bidContainer.style.border = '2px solid #444';
     this.bidContainer.style.borderRadius = '8px';
-    this.bidContainer.style.left = `${screenWidth / 2}px`;
-    this.bidContainer.style.top = `${screenHeight / 2}px`;
-    this.bidContainer.style.transform = 'translate(-50%, -50%) scale(0.9)';
+    this.bidContainer.style.transform = sheetTransform(0.9);
     this.bidContainer.style.opacity = '0';
     this.bidContainer.style.transition = 'opacity 150ms ease-out, transform 150ms ease-out';
     this.bidContainer.style.display = 'flex';
     this.bidContainer.style.visibility = 'hidden';
 
-    document.body.appendChild(this.bidContainer);
+    (hud || document.body).appendChild(this.bidContainer);
 
     // Animate in if it's our turn
     if (this.state.isBidding && currentTurn === position) {
@@ -97,7 +90,7 @@ export class BidManager {
         if (!this.state.isBidding || this.state.currentTurn !== this.state.position || this.state.isLazy) return;
         container.style.visibility = 'visible';
         container.style.opacity = '1';
-        container.style.transform = 'translate(-50%, -50%) scale(1)';
+        container.style.transform = sheetTransform(1);
       };
       requestAnimationFrame(reveal);
       setTimeout(reveal, 50);
@@ -369,11 +362,11 @@ export class BidManager {
       // Animate in
       this.bidContainer.style.visibility = 'visible';
       this.bidContainer.style.opacity = '1';
-      this.bidContainer.style.transform = 'translate(-50%, -50%) scale(1)';
+      this.bidContainer.style.transform = sheetTransform(1);
     } else {
       // Animate out
       this.bidContainer.style.opacity = '0';
-      this.bidContainer.style.transform = 'translate(-50%, -50%) scale(0.9)';
+      this.bidContainer.style.transform = sheetTransform(0.9);
       // Hide after transition completes
       setTimeout(() => {
         if (this.bidContainer && this.bidContainer.style.opacity === '0') {
@@ -392,7 +385,7 @@ export class BidManager {
       if (animate) {
         // Animate out, then remove
         this.bidContainer.style.opacity = '0';
-        this.bidContainer.style.transform = 'translate(-50%, -50%) scale(0.9)';
+        this.bidContainer.style.transform = sheetTransform(0.9);
         const container = this.bidContainer;
         setTimeout(() => {
           if (container && container.parentNode) {

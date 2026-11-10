@@ -61,8 +61,9 @@ export const CARD_CONFIG = {
   // Scale factor for display (matches legacy displayCards setScale(1.5))
   SCALE: 1.5,
 
-  // Spacing between cards in hand (matches legacy 50px base spacing)
-  HAND_SPACING: 50,
+  // Spacing between hand cards at layout scale 1 (today's 50 px of a 1920
+  // design width on the 1600 px canvas of a 1920 window); times layout.s
+  HAND_SPACING: 42,
 
   // Z-ordering
   Z_INDEX: {

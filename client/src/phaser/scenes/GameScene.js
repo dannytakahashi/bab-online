@@ -6,6 +6,13 @@
  * handle* methods animate one applied event. The scene never writes table
  * state (handlers/gameHandlers.js does); every delayedCall and tween goes
  * through the TableDirector (this.director), which owns and cancels them.
+ *
+ * Layout (item 17): every anchor comes from getLayout()
+ * (layout/computeTableLayout.js, a pure function of the canvas size); the
+ * DOM pieces live in the HUD (ui/tableHud.js). relayout() runs on every
+ * resize: a table with work in flight fast-forwards to the model (the
+ * director's render at the new size), else every manager snaps to the new
+ * layout.
  */
 
 import { avatarSrc, applyAvatarImg, isAvatarPic } from '../../utils/avatar.js';
@@ -27,12 +34,8 @@ import { getMyAction } from '../../state/MyAction.js';
 import { BidManager } from '../managers/BidManager.js';
 import { LayoutManager } from '../managers/LayoutManager.js';
 import { showChatBubble as showChatBubbleUI } from '../../ui/components/ChatBubble.js';
-
-/**
- * Base design dimensions for scaling calculations.
- */
-const DESIGN_WIDTH = 1920;
-const DESIGN_HEIGHT = 953;
+import { computeTableLayout, logWidthFor } from '../layout/computeTableLayout.js';
+import { applyHudLayout, hudSeat, hudRoot, logColumnWidth } from '../../ui/tableHud.js';
 
 /**
  * Main game scene class.
@@ -65,17 +68,27 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Get current scale factors based on screen size.
+   * The table layout for the canvas as it is now (cached by size, role,
+   * log column and pixel ratio).
    */
-  getScaleFactors() {
-    const screenWidth = this.scale.width;
-    const screenHeight = this.scale.height;
-    return {
-      x: screenWidth / DESIGN_WIDTH,
-      y: screenHeight / DESIGN_HEIGHT,
-      screenWidth,
-      screenHeight,
-    };
+  getLayout() {
+    const w = this.scale?.width || 1920;
+    const h = this.scale?.height || 953;
+    const state = this.state;
+    const spectator = this._spectatorView ?? !!(state?.isSpectator && !state?.isLazy);
+    const vw = typeof window !== 'undefined' ? window.innerWidth : w;
+    const logW = typeof document !== 'undefined' ? logColumnWidth({ fallback: () => logWidthFor(vw) }) : 0;
+    const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+    const key = `${w}x${h}:${spectator ? 'spec' : 'seat'}:${logW}:${dpr}`;
+    if (!this._layout || this._layout.key !== key) {
+      this._layout = { key, layout: computeTableLayout({ w, h, dpr, isSpectator: spectator, logW }) };
+    }
+    return this._layout.layout;
+  }
+
+  /** A sprite scale of the current layout ('hand', 'trick', 'back', 'trump', ...). */
+  cardScale(kind) {
+    return this.getLayout().card[kind].scale;
   }
 
   // ============================================
@@ -106,6 +119,8 @@ export class GameScene extends Phaser.Scene {
 
     // Get state reference
     this.state = getGameState();
+    this._spectatorView = undefined;
+    this._layout = null;
 
     // The director owns every timer and tween of this scene's table work
     // (main.js attaches it in setGameScene; a shutdown cancels it all)
@@ -155,55 +170,62 @@ export class GameScene extends Phaser.Scene {
   // ============================================
 
   /**
-   * Handle window/container resize.
+   * Handle window/container resize (Phaser's scale 'resize').
    */
   handleResize(newWidth, newHeight) {
     try {
-      // Update layout calculations
-      if (this.layoutManager) {
-        this.layoutManager.update();
-        // Position DOM backgrounds (play zone, hand area)
-        this.layoutManager.positionDomBackgrounds();
-        // Position bid container
-        this.layoutManager.positionBidContainer();
-      }
-
-      // Reposition manager-controlled elements
-      if (this.cardManager) {
-        this.cardManager.repositionHand();
-      }
-      if (this.opponentManager) {
-        this.opponentManager.reposition();
-      }
-      if (this.trickManager) {
-        this.trickManager.repositionCurrentTrick();
-      }
-
-      // Reposition trump display and player info
-      this.repositionTrumpDisplay();
-      this.repositionPlayerInfo();
+      this.relayout();
     } catch (e) {
       console.error('❌ Error in handleResize:', e);
     }
   }
 
   /**
+   * Lay the whole table out again for the current canvas (one layout for
+   * Phaser and the HUD). Work in flight (a deal, a fly-in, a collect, the
+   * whisk) would land at the old anchors: the director fast-forwards to
+   * the model instead, a render at the new size. Otherwise every manager
+   * snaps to the new anchors and scales.
+   * @returns {Object} the layout
+   */
+  relayout() {
+    this._layout = null;
+    const layout = this.getLayout();
+    applyHudLayout(layout);
+    if (this.layoutManager) {
+      this.layoutManager.update();
+      this.layoutManager.positionDomBackgrounds();
+    }
+    if (this.director?.settleForRelayout?.(this)) return layout;
+
+    this.cardManager?.repositionHand();
+    this.opponentManager?.reposition();
+    this.trickManager?.repositionCurrentTrick();
+    this.repositionTrumpDisplay();
+    this.drawManager?.relayout?.();
+    this.effectsManager?.relayout?.();
+    reattachMuteButton();
+    return layout;
+  }
+
+  /**
    * Reposition trump card display.
    */
   repositionTrumpDisplay() {
-    const { x: scaleX, y: scaleY, screenWidth, screenHeight } = this.getScaleFactors();
-    const trumpX = screenWidth / 2 + 500 * scaleX;
-    const trumpY = screenHeight / 2 - 300 * scaleY;
+    const { trump } = this.getLayout();
 
     if (this.tableCardSprite && this.tableCardSprite.active) {
-      this.tableCardSprite.setPosition(trumpX, trumpY);
+      this.tableCardSprite.setPosition(trump.x, trump.y);
+      // a face-down card mid-flip keeps its flip (scaleX); otherwise the layout's scale
+      if (!this.director?.pending?.('deal')) this.tableCardSprite.setScale(trump.card.scale);
     }
     if (this.tableCardBackground && this.tableCardBackground.active) {
-      this.tableCardBackground.setPosition(trumpX, trumpY);
+      this.tableCardBackground.setPosition(trump.x, trump.y);
+      this.tableCardBackground.setSize?.(trump.box, trump.box);
     }
     if (this.tableCardLabel && this.tableCardLabel.active) {
-      const cardHeight = this.tableCardSprite ? this.tableCardSprite.displayHeight + 10 : 100;
-      this.tableCardLabel.setPosition(trumpX, trumpY - (cardHeight / 2) - 12);
+      this.tableCardLabel.setPosition(trump.label.x, trump.label.y);
+      this.tableCardLabel.setFontSize?.(trump.label.font);
     }
   }
 
@@ -226,31 +248,30 @@ export class GameScene extends Phaser.Scene {
    * @param {Function} [options.onFlipped] - after the flip, for this deal only
    */
   displayTrumpCard(trumpCard, { faceUp = false, flipDelay, onFlipped } = {}) {
-    const { x: scaleX, y: scaleY, screenWidth, screenHeight } = this.getScaleFactors();
-    const trumpX = screenWidth / 2 + 500 * scaleX;
-    const trumpY = screenHeight / 2 - 300 * scaleY;
+    const { trump } = this.getLayout();
+    const trumpX = trump.x;
+    const trumpY = trump.y;
+    const trumpScale = trump.card.scale;
 
     // Clear existing
     this.clearTrumpDisplay();
 
-    // Card - face down until the deal reveals it, same scale as player hand cards (1.5)
+    // Card - face down until the deal reveals it, same scale as player hand cards
     const cardKey = getCardImageKey(trumpCard);
     this.tableCardSprite = faceUp
       ? this.add.image(trumpX, trumpY, 'cards', cardKey)
       : this.add.image(trumpX, trumpY, 'cardBack');
-    this.tableCardSprite.setScale(1.5);
+    this.tableCardSprite.setScale(trumpScale);
     this.tableCardSprite.setDepth(100);
 
-    // Background - box around card with padding
-    const cardWidth = this.tableCardSprite.displayWidth + 20;
-    const cardHeight = this.tableCardSprite.displayHeight + 20;
-    this.tableCardBackground = this.add.rectangle(trumpX, trumpY, cardWidth, cardHeight, 0x000000, 0.3);
+    // Background - box around card with padding (the layout's box)
+    this.tableCardBackground = this.add.rectangle(trumpX, trumpY, trump.box, trump.box, 0x000000, 0.3);
     this.tableCardBackground.setStrokeStyle(1, 0x666666, 0.5);
     this.tableCardBackground.setDepth(99);
 
-    // Label - above the card
-    this.tableCardLabel = this.add.text(trumpX, trumpY - (cardHeight / 2) - 15, 'TRUMP', {
-      fontSize: `${14 * scaleX}px`,
+    // Label - above the card (a readable size: ui-7)
+    this.tableCardLabel = this.add.text(trump.label.x, trump.label.y, 'TRUMP', {
+      fontSize: `${trump.label.font}px`,
       fontFamily: 'Arial, sans-serif',
       color: '#aaaaaa',
     });
@@ -282,7 +303,7 @@ export class GameScene extends Phaser.Scene {
           // Phase 2: Scale X back (flip complete)
           sceneTween(this, {
             targets: sprite,
-            scaleX: 1.5,
+            scaleX: sprite.scaleY || trumpScale,
             duration: flipDuration / 2,
             ease: 'Power2',
             onComplete: () => {
@@ -328,30 +349,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Show a chat/bid bubble at a position.
-   * Uses ChatBubble.js for consistent styling (white bg, black/red text).
-   * Positions are avatar centers - ChatBubble handles the offset.
+   * Show a chat/bid bubble on a seat: a child of the seat's HUD node, at
+   * the seat's bubble anchor from the layout (it follows the avatar).
    */
   showChatBubble(positionKey, message, color = null, duration = 6000) {
-    const { x: scaleX, y: scaleY, screenWidth, screenHeight } = this.getScaleFactors();
-    const centerX = screenWidth / 2;
-    const centerY = screenHeight / 2;
-
-    // Avatar center positions
-    // 'me' uses window coordinates since player info box is outside game container
-    const positions = {
-      opp1: { x: Math.max(130, centerX - 550 * scaleX), y: centerY - 40 },
-      opp2: { x: Math.min(screenWidth - 130, centerX + 550 * scaleX), y: centerY - 40 },
-      partner: { x: centerX, y: centerY - 400 * scaleY },
-      me: { x: window.innerWidth - 405, y: window.innerHeight - 230 },
-      bottom: { x: centerX, y: centerY + 400 * scaleY },
-    };
-
-    const pos = positions[positionKey];
-    if (!pos) return;
-
-    // Use the imported ChatBubble.js function (DOM-based)
-    showChatBubbleUI(positionKey, pos.x, pos.y, message, color, duration);
+    if (!positionKey) return;
+    showChatBubbleUI(positionKey, message, color, duration);
   }
 
   // ============================================
@@ -750,6 +753,7 @@ export class GameScene extends Phaser.Scene {
         // hold (resumeInMs), so the full trick is visible before the collect
         const flyMs = flyInMs(data.resumeInMs);
         const flipHalf = Math.min(FLIP.HALF, flyMs / 2);
+        const trickScale = this.cardScale('trick');
         const moveTween = sceneTween(this, {
           targets: sprite,
           x: targetX,
@@ -757,7 +761,7 @@ export class GameScene extends Phaser.Scene {
           duration: flyMs,
           ease: 'Power2',
           rotation: 0,
-          scale: 1.5,
+          scale: trickScale,
           onComplete: () => {
             if (!sprite || !sprite.scene) return;
             sprite.setData('moveTween', null);
@@ -782,10 +786,10 @@ export class GameScene extends Phaser.Scene {
               if (!sprite || !sprite.scene) return;
               sprite.setTexture('cards', cardKey);
 
-              // Scale X back to 1.5
+              // Scale X back to the trick scale
               sceneTween(this, {
                 targets: sprite,
-                scaleX: 1.5,
+                scaleX: trickScale,
                 duration: flipHalf,
                 ease: 'Power2',
               });
@@ -831,7 +835,7 @@ export class GameScene extends Phaser.Scene {
       duration: flyInMs(resumeInMs),
       ease: 'Power2',
       rotation: 0,
-      scale: 1.5,
+      scale: this.cardScale('trick'),
       onComplete: () => {
         if (!sprite?.scene) return;
         sprite.setData('moveTween', null);
@@ -1047,7 +1051,7 @@ export class GameScene extends Phaser.Scene {
             trumpSprite.setTexture('cardBack');
             sceneTween(this, {
               targets: trumpSprite,
-              scaleX: 1.5,
+              scaleX: trumpSprite.scaleY || this.cardScale('trump'),
               duration: flipDuration,
               ease: 'Power2',
             });
@@ -1256,7 +1260,7 @@ export class GameScene extends Phaser.Scene {
           duration: ANIMATION_CONFIG.CARD_PLAY,
           ease: 'Power2',
           rotation: 0,
-          scale: 1.5,
+          scale: this.cardScale('trick'),
           onComplete: () => {
             if (!sprite || !sprite.scene) return;
             sprite.setData('moveTween', null);
@@ -1368,6 +1372,10 @@ export class GameScene extends Phaser.Scene {
     const lazy = role === 'lazyWatcher';
     const pos = m.viewer?.position || 1;
 
+    // The role picks the layout (a spectator's bottom seat has no hand)
+    this._spectatorView = spectator;
+    applyHudLayout(this.getLayout());
+
     this.trickManager?.setPlayerPosition(pos);
     this.trickManager?.setSpectatorMode(spectator);
     this.trickManager?.updatePlayPositions();
@@ -1384,6 +1392,8 @@ export class GameScene extends Phaser.Scene {
     if (m.playerData) this.opponentManager?.displayAvatars(m.playerData);
     if (!spectator && !this._playerInfo && m.playerData) this.createPlayerInfoBox(m.playerData, pos);
     if (!spectator) this.updatePlayerHsi(m.hsi);
+    // the voice buttons' slot moves with the role (my box, or the corner)
+    reattachMuteButton();
     this.renders = (this.renders || 0) + 1;
 
     if (!m.live) {
@@ -1462,33 +1472,16 @@ export class GameScene extends Phaser.Scene {
       return null;
     }
 
-    const screenWidth = this.scale.width;
-    const screenHeight = this.scale.height;
-    const scaleX = screenWidth / 1920;
-    const scaleY = screenHeight / 953;
+    // The self seat's HUD node holds it (the layout's spot; ui-4)
+    applyHudLayout(this.getLayout());
 
-    const boxX = screenWidth - 420 * scaleX;
-    const boxY = screenHeight - 150 * scaleY;
-
-    // Player Avatar - use DOM for consistent sizing with opponent avatars
+    // Player Avatar    // Player Avatar - use DOM for consistent sizing with opponent avatars
     const pic = playerData.pics[positionIndex];
     const username = playerData.username[positionIndex].username || playerData.username[positionIndex];
 
     // Create DOM-based avatar (same approach as opponent avatars)
     const avatarContainer = document.createElement('div');
     avatarContainer.id = 'player-avatar-container';
-    avatarContainer.style.cssText = `
-      position: absolute;
-      left: ${boxX}px;
-      top: ${boxY - 60 * scaleY}px;
-      transform: translate(-50%, -50%);
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      pointer-events: auto;
-      cursor: pointer;
-      z-index: 100;
-    `;
 
     avatarContainer.addEventListener('click', () => {
       const socket = window.socket;
@@ -1498,58 +1491,28 @@ export class GameScene extends Phaser.Scene {
     });
 
     const avatarImg = document.createElement('img');
-    avatarImg.className = 'player-avatar-img';
+    avatarImg.className = 'player-avatar-img hud-avatar-img';
     // Stock number, inline data URL or /avatar URL (utils/avatar.js)
     applyAvatarImg(avatarImg, avatarSrc(pic));
     avatarImg.alt = username;
-    avatarImg.style.cssText = `
-      width: 80px;
-      height: 80px;
-      min-width: 80px;
-      min-height: 80px;
-      max-width: 80px;
-      max-height: 80px;
-      object-fit: cover;
-      border-radius: 50%;
-      border: 3px solid #333;
-      background: #1a1a1a;
-    `;
     avatarContainer.appendChild(avatarImg);
 
-    // Add username label
+    // Add username label (the seat's plate)
     const nameLabel = document.createElement('div');
+    nameLabel.className = 'hud-plate';
     nameLabel.textContent = username;
-    nameLabel.style.cssText = `
-      margin-top: 5px;
-      padding: 2px 8px;
-      background: rgba(0, 0, 0, 0.7);
-      border: 1px solid #666;
-      border-radius: 4px;
-      font-size: 14px;
-      font-family: Arial, sans-serif;
-      color: #aaa;
-      text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
-    `;
     avatarContainer.appendChild(nameLabel);
 
     // Add HSI display box
     const hsiBox = document.createElement('div');
     hsiBox.id = 'player-hsi-box';
-    hsiBox.style.cssText = `
-      margin-top: 4px;
-      padding: 2px 8px;
-      background: rgba(0, 0, 0, 0.7);
-      border: 1px solid #666;
-      border-radius: 4px;
-      font-size: 12px;
-      color: #aaa;
-      white-space: nowrap;
-    `;
+    hsiBox.className = 'hud-hsi';
     hsiBox.textContent = 'HSI: --';
     avatarContainer.appendChild(hsiBox);
 
-    // Add avatar to DOM
-    document.body.appendChild(avatarContainer);
+    // Into the self seat (the frog and my bubbles are its siblings there)
+    const seat = hudSeat('self');
+    (seat?.avatar || hudRoot()).appendChild(avatarContainer);
 
     // Move voice mute button into avatar container if voice is active
     reattachMuteButton();
@@ -1559,24 +1522,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Follow a resize with the own avatar box (and the mute button on it).
+   * Follow a resize with the own avatar box (a HUD seat: the layout moves
+   * it) and the voice buttons under it.
    */
   repositionPlayerInfo() {
     if (!this._playerInfo?.avatarContainer) return;
-
-    const screenWidth = this.scale.width;
-    const screenHeight = this.scale.height;
-    const scaleX = screenWidth / 1920;
-    const scaleY = screenHeight / 953;
-
-    const boxX = screenWidth - 420 * scaleX;
-    const boxY = screenHeight - 150 * scaleY;
-
-    // Reposition DOM avatar container (position text is inside container)
-    this._playerInfo.avatarContainer.style.left = `${boxX}px`;
-    this._playerInfo.avatarContainer.style.top = `${boxY - 60 * scaleY}px`;
-
-    // Reposition mute button to follow HSI box
+    applyHudLayout(this.getLayout());
     reattachMuteButton();
   }
 

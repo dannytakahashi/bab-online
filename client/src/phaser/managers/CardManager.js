@@ -7,6 +7,7 @@
 import { getCardImageKey } from '../../utils/cards.js';
 import { CARD_CONFIG, ANIMATION_CONFIG } from '../config.js';
 import { sceneDelay, sceneTween } from '../TableDirector.js';
+import { layoutOf, handPositions } from '../layout/computeTableLayout.js';
 
 /**
  * CardManager handles all card-related sprite operations.
@@ -41,40 +42,30 @@ export class CardManager {
     return getCardImageKey(card);
   }
 
+  /** The table layout this manager draws with. */
+  layout() {
+    return layoutOf(this._scene);
+  }
+
   /**
-   * Calculate hand card positions.
-   * Uses same positioning logic as legacy displayCards for compatibility.
+   * Hand card positions: the layout's hand box, centred, at its spacing
+   * (closer when the box is too narrow for the hand).
    *
    * @param {number} cardCount - Number of cards
-   * @param {number} screenWidth - Screen width for scaling
    * @returns {Array} Array of { x, y } positions
    */
-  calculateHandPositions(cardCount, screenWidth) {
-    const positions = [];
-    const scaleFactorX = screenWidth / 1920;
+  calculateHandPositions(cardCount) {
+    return handPositions(this.layout(), cardCount);
+  }
 
-    // Match legacy: cardSpacing = 50 * scaleFactorX
-    const cardSpacing = 50 * scaleFactorX;
+  /** The hand's sprite scale (CARD_CONFIG.SCALE times the layout's s). */
+  handScale() {
+    return this.layout().hand?.card.scale ?? CARD_CONFIG.SCALE;
+  }
 
-    // Match legacy: totalWidth = (cardCount - 1) * cardSpacing
-    const totalWidth = (cardCount - 1) * cardSpacing;
-
-    // Match legacy: startX = (screenWidth - totalWidth) / 2
-    const startX = (screenWidth - totalWidth) / 2;
-
-    // Get Y position from scene
-    const scene = this._scene;
-    const scaleY = scene.scale.height / 953;
-    const bottomY = scene.scale.height - (135 * scaleY);
-
-    for (let i = 0; i < cardCount; i++) {
-      positions.push({
-        x: startX + i * cardSpacing,
-        y: bottomY,
-      });
-    }
-
-    return positions;
+  /** How far a hovered card lifts. */
+  _lift() {
+    return this.layout().hand?.lift ?? 20;
   }
 
   /**
@@ -91,7 +82,6 @@ export class CardManager {
     if (!cards || cards.length === 0) return;
 
     const scene = this._scene;
-    const { scale } = scene;
 
     // Set dealing flag to prevent repositionHand from interrupting animation
     // (a later displayHand owns it: the token keeps an older deal's timer
@@ -99,7 +89,7 @@ export class CardManager {
     this._isDealing = !!animate;
     const dealToken = ++this._dealToken;
 
-    const positions = this.calculateHandPositions(cards.length, scale.width);
+    const positions = this.calculateHandPositions(cards.length);
 
     cards.forEach((card, index) => {
       const pos = positions[index];
@@ -145,7 +135,8 @@ export class CardManager {
   _createCardSprite(card, x, y, animate = false, index = 0) {
     const scene = this._scene;
     const textureKey = this.getTextureKey(card);
-    const { SCALE, Z_INDEX } = CARD_CONFIG;
+    const { Z_INDEX } = CARD_CONFIG;
+    const SCALE = this.handScale();
 
     let sprite;
     if (animate) {
@@ -156,13 +147,8 @@ export class CardManager {
         startX = scene.tableCardSprite.x;
         startY = scene.tableCardSprite.y;
       } else {
-        // Fallback to calculated position
-        const DESIGN_WIDTH = 1920;
-        const DESIGN_HEIGHT = 953;
-        const scaleX = scene.scale.width / DESIGN_WIDTH;
-        const scaleY = scene.scale.height / DESIGN_HEIGHT;
-        startX = scene.scale.width / 2 + 500 * scaleX;
-        startY = scene.scale.height / 2 - 300 * scaleY;
+        // Else the trump's place in the layout
+        ({ x: startX, y: startY } = this.layout().trump);
       }
 
       sprite = scene.add.sprite(startX, startY, 'cards', textureKey);
@@ -210,7 +196,7 @@ export class CardManager {
       scene.tweens.killTweensOf(sprite);
       sceneTween(scene, {
         targets: sprite,
-        y: baseY - 20,
+        y: baseY - this._lift(),
         duration: ANIMATION_CONFIG.CARD_HOVER,
         ease: 'Power2',
       });
@@ -484,18 +470,16 @@ export class CardManager {
     if (this._isDealing) return;
     if (!this._handSprites.length) return;
 
-    const scene = this._scene;
-    const { scale } = scene;
-
-    const positions = this.calculateHandPositions(
-      this._handSprites.length,
-      scale.width
-    );
+    const positions = this.calculateHandPositions(this._handSprites.length);
+    const scale = this.handScale();
 
     this._handSprites.forEach((sprite, index) => {
       if (sprite && sprite.active) {
+        // a hover lift in flight would land at the old line
+        this._scene.tweens?.killTweensOf?.(sprite);
         sprite.x = positions[index].x;
         sprite.y = positions[index].y;
+        sprite.setScale?.(scale);
         // Update baseY for hover effect
         sprite.setData('baseY', positions[index].y);
         // Maintain index-based depth

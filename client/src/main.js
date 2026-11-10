@@ -57,6 +57,7 @@ import { registerAllHandlers } from './handlers/index.js';
 // Voice Chat
 import { getVoiceChatManager } from './voice/VoiceChatManager.js';
 import { createMuteButton, removeMuteButton, showVoiceOverlay, removeVoiceOverlay } from './ui/components/VoiceChatUI.js';
+import { setTableChrome, clearHud, hudRoot } from './ui/tableHud.js';
 
 // ============================================
 // Game Scene Access
@@ -86,27 +87,54 @@ export function setGameScene(scene) {
   // (before create(), or an exit's teardown) run now (webclient-2)
   director.attach(scene);
 
-  // Handle tab visibility change - reposition elements when tab becomes visible
-  // This fixes card positioning issues on background tabs during game start
+  // The canvas follows its grid column
+  observeContainer();
+
+  // Handle tab visibility change - lay the table out again when the tab
+  // becomes visible (the window may have changed size while it was hidden)
   if (!scene._visibilityHandlerAdded) {
     scene._visibilityHandlerAdded = true;
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible' && gameSceneRef) {
-        console.log('🎮 Tab became visible, repositioning game elements');
         // Use requestAnimationFrame to ensure dimensions are updated
-        requestAnimationFrame(() => {
-          if (gameSceneRef.cardManager) {
-            gameSceneRef.cardManager.repositionHand();
-          }
-          if (gameSceneRef.opponentManager) {
-            gameSceneRef.opponentManager.reposition();
-          }
-        });
+        requestAnimationFrame(() => gameSceneRef?.relayout?.());
       }
     });
   }
 
   console.log('🎮 Game scene reference set');
+}
+
+/**
+ * Phaser's canvas follows #game-container, the grid's first column (the
+ * log column comes and goes with the table chrome). Phaser's RESIZE mode
+ * re-reads its parent only on a window resize or its own 500 ms poll, and a
+ * resize() with a stale width leaves its parent size cached: re-read the
+ * parent and refresh, which emits 'resize' (GameScene.relayout).
+ */
+function syncCanvasSize(scene = gameSceneRef) {
+  const scale = scene?.game?.scale;
+  const container = document.getElementById('game-container');
+  if (!scale || !container) return;
+  const w = container.clientWidth;
+  const h = container.clientHeight;
+  if (!w || !h || (scale.width === w && scale.height === h)) return;
+  if (typeof scale.getParentBounds === 'function' && typeof scale.refresh === 'function') {
+    scale.getParentBounds();
+    scale.refresh();
+  }
+  if (scale.width !== w || scale.height !== h) scale.resize(w, h);
+}
+
+let containerObserver = null;
+
+/** Any change of the container's size (grid column, window) resizes the canvas. */
+function observeContainer() {
+  if (containerObserver || typeof ResizeObserver === 'undefined') return;
+  const container = document.getElementById('game-container');
+  if (!container) return;
+  containerObserver = new ResizeObserver(() => syncCanvasSize());
+  containerObserver.observe(container);
 }
 
 /**
@@ -176,18 +204,11 @@ window.createGameFeedFromLegacy = function(isReconnection = false) {
       },
     });
 
-    // Add .in-game class to restrict game container width
-    document.getElementById('game-container')?.classList.add('in-game');
+    // The log's grid column (--log-w) comes on
+    setTableChrome(true);
 
-    // Force Phaser resize
-    requestAnimationFrame(() => {
-      const container = document.getElementById('game-container');
-      if (container && gameSceneRef?.game?.scale) {
-        const newWidth = container.clientWidth;
-        const newHeight = container.clientHeight;
-        gameSceneRef.game.scale.resize(newWidth, newHeight);
-      }
-    });
+    // The canvas takes the narrower column (Phaser then relayouts the table)
+    requestAnimationFrame(() => syncCanvasSize());
 
     if (!isReconnection) {
       gameLogInstance.addGameMessage('Game started!');
@@ -578,12 +599,14 @@ function initializeApp() {
     document.getElementById('gameFeed')?.remove();
     gameLogInstance = null;
 
-    // Fallbacks for DOM a scene manager would normally own
+    // The HUD (seats, frog, bubbles, bid sheet, status, voice slot), and
+    // fallbacks for DOM a scene manager would normally own
+    clearHud();
     document.querySelectorAll('.opponent-avatar-container, .dealer-button').forEach((el) => el.remove());
     document.getElementById('player-avatar-container')?.remove();
     document.getElementById('bidContainer')?.remove();
 
-    document.getElementById('game-container')?.classList.remove('in-game');
+    setTableChrome(false);
     clearGameScene();
 
     if (scene) {
@@ -718,24 +741,15 @@ function initializeApp() {
     }
     const color = kind === 'lazy' ? '#4ade80' : '#60a5fa';
     const text = kind === 'lazy' ? 'Spectating — type /active to take back control' : 'Spectating — type /leave to exit';
+    // The HUD's status slot (top centre of the table, from the layout:
+    // ui-18), else the top of the page
+    const root = hudRoot();
     if (!indicator) {
       indicator = document.createElement('div');
       indicator.id = 'spectating-indicator';
-      document.body.appendChild(indicator);
     }
-    indicator.style.cssText = `
-      position: fixed;
-      top: 10px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: rgba(0, 0, 0, 0.8);
-      color: ${color};
-      padding: 8px 20px;
-      border-radius: 20px;
-      font-size: 14px;
-      z-index: 500;
-      border: 1px solid ${color};
-    `;
+    if (indicator.parentElement !== root) root.appendChild(indicator);
+    indicator.style.cssText = `color: ${color}; border-color: ${color};`;
     indicator.dataset.kind = kind;
     indicator.textContent = text;
   }
@@ -743,7 +757,7 @@ function initializeApp() {
   /** The game log, created if missing (no local 'Game started!': a replay brings the server's). */
   function ensureGameLog() {
     window.createGameFeedFromLegacy(true);
-    document.getElementById('game-container')?.classList.add('in-game');
+    setTableChrome(true);
     return gameLogInstance;
   }
 
@@ -1139,21 +1153,11 @@ function initializeApp() {
               },
             });
 
-            // Add .in-game class to restrict game container width for game log
-            document.getElementById('game-container')?.classList.add('in-game');
+            // The log's grid column (--log-w) comes on
+            setTableChrome(true);
 
-            // Force Phaser to resize after container width change
-            requestAnimationFrame(() => {
-              const container = document.getElementById('game-container');
-              if (container && scene?.game?.scale) {
-                const newWidth = container.clientWidth;
-                const newHeight = container.clientHeight;
-                scene.game.scale.resize(newWidth, newHeight);
-                if (scene.game.renderer?.resize) {
-                  scene.game.renderer.resize(newWidth, newHeight);
-                }
-              }
-            });
+            // The canvas takes the narrower column (Phaser then relayouts the table)
+            requestAnimationFrame(() => syncCanvasSize(scene));
 
             // Add initial message
             gameLogInstance.addGameMessage('Game started!');

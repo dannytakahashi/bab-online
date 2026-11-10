@@ -6,12 +6,7 @@
 
 import { team, rotate } from '../../utils/positions.js';
 import { sceneDelay, sceneTween } from '../TableDirector.js';
-
-/**
- * Base design dimensions for scaling.
- */
-const DESIGN_WIDTH = 1920;
-const DESIGN_HEIGHT = 953;
+import { layoutOf } from '../layout/computeTableLayout.js';
 
 /**
  * EffectsManager handles all visual effect operations.
@@ -40,18 +35,9 @@ export class EffectsManager {
     this._playerPosition = position;
   }
 
-  /**
-   * Get scale factors based on current screen size.
-   */
-  getScaleFactors() {
-    const screenWidth = this._scene.scale.width;
-    const screenHeight = this._scene.scale.height;
-    return {
-      x: screenWidth / DESIGN_WIDTH,
-      y: screenHeight / DESIGN_HEIGHT,
-      screenWidth,
-      screenHeight,
-    };
+  /** The table layout (its `effects` anchors: the trick centre, the seats). */
+  layout() {
+    return layoutOf(this._scene);
   }
 
   /**
@@ -61,15 +47,13 @@ export class EffectsManager {
    */
   showImpactEvent(event) {
     const scene = this._scene;
-    const { x: scaleX, y: scaleY, screenWidth, screenHeight } = this.getScaleFactors();
+    const { effects } = this.layout();
 
     // OT uses different position (top-left corner of play area) and smaller size
     const isOT = event === 'ot';
-    const otOffsetX = 180; // Offset from center toward top-left
-    const otOffsetY = 150;
-    const x = isOT ? screenWidth / 2 - otOffsetX * scaleX : screenWidth / 2;
-    const y = isOT ? screenHeight / 2 - otOffsetY * scaleY : screenHeight / 2;
-    const targetScale = isOT ? 0.9 : 1.2;
+    const spot = isOT ? effects.overTrump : effects.impact;
+    const { x, y } = spot;
+    const targetScale = spot.scale;
 
     const impactImage = scene.add
       .image(x, y, event)
@@ -118,31 +102,19 @@ export class EffectsManager {
     }
 
     const scene = this._scene;
-    const { x: scaleX, y: scaleY, screenWidth, screenHeight } = this.getScaleFactors();
+    const { effects } = this.layout();
 
-    let x, y;
-
-    // Calculate position based on relative player position
-    if (rainbowPosition === this._playerPosition) {
-      // Self
-      x = screenWidth / 2 + 580 * scaleX;
-      y = screenHeight / 2 + 125 * scaleY;
-    } else if (rainbowPosition === rotate(this._playerPosition)) {
-      // Opp1 (to the left)
-      x = screenWidth / 2 - 645 * scaleX;
-      y = screenHeight / 2;
-    } else if (rainbowPosition === team(this._playerPosition)) {
-      // Partner (top)
-      x = screenWidth / 2 + 135 * scaleX;
-      y = screenHeight / 2 - 400 * scaleY;
-    } else if (rainbowPosition === rotate(rotate(rotate(this._playerPosition)))) {
-      // Opp2 (to the right)
-      x = screenWidth / 2 + 630 * scaleX;
-      y = screenHeight / 2;
-    } else {
+    // Beside the seat's avatar (the layout's rainbow anchor per seat)
+    let seat;
+    if (rainbowPosition === this._playerPosition) seat = 'self';
+    else if (rainbowPosition === rotate(this._playerPosition)) seat = 'opp1';
+    else if (rainbowPosition === team(this._playerPosition)) seat = 'partner';
+    else if (rainbowPosition === rotate(rotate(rotate(this._playerPosition)))) seat = 'opp2';
+    else {
       console.warn('EffectsManager: Invalid rainbow position');
       return;
     }
+    const { x, y } = effects.rainbow[seat];
 
     const rainbowSprite = scene.add.image(x, y, 'rainbow').setScale(0).setDepth(1000).setAlpha(1);
 
@@ -151,7 +123,7 @@ export class EffectsManager {
     // Scale up animation
     sceneTween(scene, {
       targets: rainbowSprite,
-      scale: { from: 0, to: 1 },
+      scale: { from: 0, to: effects.rainbowScale },
       ease: 'Power2',
       duration: 500,
       onComplete: () => {

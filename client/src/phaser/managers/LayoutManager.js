@@ -1,32 +1,24 @@
 /**
- * LayoutManager - DOM table backgrounds (play zone, hand area) and the bid
- * grid position, sized from the canvas on every resize.
+ * LayoutManager - the DOM table backgrounds (the play zone felt, the hand
+ * area), placed from the table layout (layout/computeTableLayout.js): the
+ * play zone around the trick, the hand box under my cards. The bid sheet
+ * and every other DOM piece live in the HUD (ui/tableHud.js).
  */
 
-// Base design dimensions for scaling
-const BASE_WIDTH = 1920;
-const BASE_HEIGHT = 953;
+import { layoutOf } from '../layout/computeTableLayout.js';
 
 export class LayoutManager {
   constructor(scene) {
     this.scene = scene;
-
-    // Cache current dimensions
-    this.screenWidth = 0;
-    this.screenHeight = 0;
-    this.scaleX = 1;
-    this.scaleY = 1;
+    this.layout = null;
   }
 
   /**
-   * Update the cached canvas size and scale factors.
-   * Call this on resize or initially.
+   * Read the current layout (call on resize or initially).
    */
   update() {
-    this.screenWidth = this.scene.scale.width;
-    this.screenHeight = this.scene.scale.height;
-    this.scaleX = this.screenWidth / BASE_WIDTH;
-    this.scaleY = this.screenHeight / BASE_HEIGHT;
+    this.layout = layoutOf(this.scene);
+    return this.layout;
   }
 
   /**
@@ -44,11 +36,11 @@ export class LayoutManager {
       playZoneDom.style.position = 'absolute';
       playZoneDom.style.backgroundColor = 'rgba(50, 205, 50, 0.6)';
       playZoneDom.style.border = '4px solid white';
+      playZoneDom.style.boxSizing = 'border-box';
       playZoneDom.style.borderRadius = '8px';
       playZoneDom.style.pointerEvents = 'none';
       playZoneDom.style.zIndex = '-1';
       container.appendChild(playZoneDom);
-      console.log('📍 LayoutManager: Play zone DOM created');
     }
 
     // Create hand background DOM element (skip for spectators)
@@ -65,10 +57,10 @@ export class LayoutManager {
       borderDom.id = 'handBorderDom';
       borderDom.style.position = 'absolute';
       borderDom.style.border = '2px solid #2d5a40';
+      borderDom.style.boxSizing = 'border-box';
       borderDom.style.pointerEvents = 'none';
       borderDom.style.zIndex = '-1';
       container.appendChild(borderDom);
-      console.log('📍 LayoutManager: Hand background DOM created');
     }
 
     // Position the elements
@@ -76,54 +68,31 @@ export class LayoutManager {
   }
 
   /**
-   * Position DOM background elements based on current screen size.
+   * Position DOM background elements from the layout.
    */
   positionDomBackgrounds() {
-    // Position play zone (center)
-    const playZoneDom = document.getElementById('playZoneDom');
-    if (playZoneDom) {
-      const playZoneWidth = 600 * this.scaleX;
-      const playZoneHeight = 400 * this.scaleY;
-      playZoneDom.style.width = `${playZoneWidth}px`;
-      playZoneDom.style.height = `${playZoneHeight}px`;
-      playZoneDom.style.left = `${(this.screenWidth - playZoneWidth) / 2}px`;
-      playZoneDom.style.top = `${(this.screenHeight - playZoneHeight) / 2}px`;
-    }
+    const L = this.layout || this.update();
+    const place = (el, r) => {
+      el.style.left = `${r.x}px`;
+      el.style.top = `${r.y}px`;
+      el.style.width = `${r.w}px`;
+      el.style.height = `${r.h}px`;
+    };
 
-    // Position hand background (bottom center)
+    const playZoneDom = document.getElementById('playZoneDom');
+    if (playZoneDom) place(playZoneDom, L.trick.zone);
+
+    // The hand box (a spectator's layout has none)
     const handBgDom = document.getElementById('handBackgroundDom');
     const borderDom = document.getElementById('handBorderDom');
-    if (handBgDom) {
-      const bottomClearance = 20 * this.scaleY;
-      const cardHeight = 140 * 1.5 * this.scaleY;
-      const cardPadding = 10 * this.scaleY;
-      const handAreaHeight = cardHeight + cardPadding * 2;
-      const handAreaWidth = this.screenWidth * 0.4;
-      const handY = this.screenHeight - handAreaHeight - bottomClearance;
-      const handX = (this.screenWidth - handAreaWidth) / 2;
-
-      handBgDom.style.width = `${handAreaWidth}px`;
-      handBgDom.style.height = `${handAreaHeight}px`;
-      handBgDom.style.left = `${handX}px`;
-      handBgDom.style.top = `${handY}px`;
-
-      if (borderDom) {
-        borderDom.style.width = `${handAreaWidth}px`;
-        borderDom.style.height = `${handAreaHeight}px`;
-        borderDom.style.left = `${handX}px`;
-        borderDom.style.top = `${handY}px`;
+    for (const el of [handBgDom, borderDom]) {
+      if (!el) continue;
+      if (L.hand) {
+        place(el, L.hand.rect);
+        el.style.display = '';
+      } else {
+        el.style.display = 'none';
       }
-    }
-  }
-
-  /**
-   * Position bid container in center of play zone.
-   */
-  positionBidContainer() {
-    const bidContainer = document.getElementById('bidContainer');
-    if (bidContainer) {
-      bidContainer.style.left = `${this.screenWidth / 2}px`;
-      bidContainer.style.top = `${this.screenHeight / 2}px`;
     }
   }
 
@@ -137,6 +106,5 @@ export class LayoutManager {
     if (playZoneDom) playZoneDom.remove();
     if (handBgDom) handBgDom.remove();
     if (borderDom) borderDom.remove();
-    console.log('🗑️ LayoutManager: DOM backgrounds cleaned up');
   }
 }

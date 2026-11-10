@@ -122,7 +122,8 @@ function makeObject(scene, kind, x, y, texture, frame) {
     setTexture: chain((key, fr) => { obj.texture = { key }; obj.frame = { name: fr ?? null }; }),
     setTint: chain((t) => { obj.tint = t; }),
     clearTint: chain(() => { obj.tint = null; }),
-    setInteractive: chain(() => { obj.interactive = true; }),
+    // A hit area is in the frame's local pixels (0,0 = the frame's top-left), as Phaser's
+    setInteractive: chain((shape) => { obj.interactive = true; if (shape) obj.hitArea = shape; }),
     disableInteractive: chain(() => { obj.interactive = false; }),
     setStrokeStyle: chain(() => {}),
     setText: chain(() => {}),
@@ -259,6 +260,31 @@ export class FakeSceneBase {
 
   _destroyAll() {
     for (const o of [...this._objects]) o.destroy();
+  }
+
+  /**
+   * Phaser's input with topOnly: the interactive objects under (x, y), by
+   * their hit area (in frame pixels, origin at the centre, scaled; no
+   * rotation), the topmost first (higher depth, then later in the display
+   * list). pointerDownAt emits pointerdown on the topmost.
+   */
+  objectsAt(x, y) {
+    const hits = this.liveObjects().filter((o) => {
+      if (!o.interactive) return false;
+      const fw = 64;
+      const fh = 64;
+      const lx = (x - o.x) / (o.scaleX || 1) + fw / 2;
+      const ly = (y - o.y) / (o.scaleY || 1) + fh / 2;
+      const a = o.hitArea || { x: 0, y: 0, w: fw, h: fh };
+      return lx >= a.x && lx <= a.x + a.w && ly >= a.y && ly <= a.y + a.h;
+    });
+    return hits.sort((a, b) => b.depth - a.depth || b.id - a.id);
+  }
+
+  pointerDownAt(x, y) {
+    const top = this.objectsAt(x, y)[0] || null;
+    top?.emit('pointerdown', { x, y });
+    return top;
   }
 
   /** Every active game object, by kind and texture (leak checks). */

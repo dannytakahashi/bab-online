@@ -1,13 +1,74 @@
 /**
  * Voice Chat UI Components
  *
- * A. Mute button - circular button fixed bottom-right
+ * A. Mute button (and the microphone picker beside it): at the table, in
+ *    the HUD's voice slot (ui/tableHud.js; under my HSI box, or the table's
+ *    bottom-right corner for a spectator), sized by the layout; elsewhere
+ *    (the lobby) at the page's bottom right (ui-20: the fallback used to sit
+ *    under the game log, and the global 44 px button rule pushed it off
+ *    centre)
  * B. Tab overlay - player list with speaking indicators and per-player mute
  */
 
 import { getVoiceChatManager } from '../../voice/VoiceChatManager.js';
 import { getSocketManager } from '../../socket/SocketManager.js';
 import { getGameState } from '../../state/GameState.js';
+import { hudVoiceSlot, hudLayout } from '../tableHud.js';
+
+/** Round icon button style: 36 px and its own min size (not the global 44 px). */
+const ROUND_BUTTON = `
+    position: absolute;
+    width: 36px;
+    height: 36px;
+    min-width: 0;
+    min-height: 0;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    background: rgba(30, 30, 50, 0.8);
+    color: #fff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s;
+    padding: 0;
+    box-sizing: border-box;
+    z-index: 300;
+  `;
+
+/**
+ * Put a voice button in the table's voice slot (device first, then mute),
+ * or at the page's bottom right when there is no table.
+ * @returns {boolean} whether it is in the slot
+ */
+function placeVoiceButton(btn, { rightOffset }) {
+  // only at a table the HUD has laid out (not the lobby: no layout yet)
+  const slot = hudLayout() ? hudVoiceSlot({ create: true }) : null;
+  if (slot) {
+    if (btn.parentElement !== slot) slot.appendChild(btn);
+    // the slot is a flex row: device button left of the mute button
+    const mute = slot.querySelector('#voice-mute-btn');
+    const device = slot.querySelector('#voice-device-btn');
+    if (mute && device && device.nextSibling !== mute) slot.insertBefore(device, mute);
+    btn.style.position = 'static';
+    btn.style.width = '';
+    btn.style.height = '';
+    btn.style.left = '';
+    btn.style.top = '';
+    btn.style.right = '';
+    btn.style.bottom = '';
+    return true;
+  }
+  if (btn.parentElement !== document.body) document.body.appendChild(btn);
+  btn.style.position = 'absolute';
+  btn.style.width = '36px';
+  btn.style.height = '36px';
+  btn.style.bottom = '20px';
+  btn.style.right = `${rightOffset}px`;
+  btn.style.top = '';
+  btn.style.left = '';
+  return false;
+}
 
 // ============================================
 // Mute Button
@@ -24,22 +85,7 @@ export function createMuteButton() {
   btn.id = 'voice-mute-btn';
   btn.innerHTML = getMicIcon(false);
   btn.title = 'Toggle microphone (M)';
-  btn.style.cssText = `
-    position: absolute;
-    width: 36px;
-    height: 36px;
-    border-radius: 50%;
-    border: 2px solid rgba(255, 255, 255, 0.3);
-    background: rgba(30, 30, 50, 0.8);
-    color: #fff;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: background 0.2s;
-    padding: 0;
-    z-index: 300;
-  `;
+  btn.style.cssText = ROUND_BUTTON;
 
   btn.addEventListener('click', () => {
     const muted = voiceManager.toggleSelfMute();
@@ -47,9 +93,8 @@ export function createMuteButton() {
     btn.style.background = muted ? 'rgba(220, 38, 38, 0.8)' : 'rgba(30, 30, 50, 0.8)';
   });
 
-  // Position below the HSI box if it exists, otherwise use fallback
+  // The table's voice slot, else the page's corner
   _positionMuteButton(btn);
-  document.body.appendChild(btn);
 
   // Create the device selector button alongside
   createDeviceButton();
@@ -58,20 +103,10 @@ export function createMuteButton() {
 }
 
 /**
- * Position the mute button below the HSI box, or fallback to bottom-right.
+ * The mute button's place: the table's voice slot, else bottom-right.
  */
 function _positionMuteButton(btn) {
-  const hsiBox = document.getElementById('player-hsi-box');
-  if (hsiBox) {
-    const rect = hsiBox.getBoundingClientRect();
-    btn.style.left = `${rect.left + rect.width / 2 - 18}px`;
-    btn.style.top = `${rect.bottom + 6}px`;
-  } else {
-    btn.style.bottom = '20px';
-    btn.style.right = '20px';
-    btn.style.top = '';
-    btn.style.left = '';
-  }
+  placeVoiceButton(btn, { rightOffset: 20 });
 }
 
 /**
@@ -101,22 +136,7 @@ export function createDeviceButton() {
   btn.id = 'voice-device-btn';
   btn.innerHTML = getGearIcon();
   btn.title = 'Select microphone';
-  btn.style.cssText = `
-    position: absolute;
-    width: 36px;
-    height: 36px;
-    border-radius: 50%;
-    border: 2px solid rgba(255, 255, 255, 0.3);
-    background: rgba(30, 30, 50, 0.8);
-    color: #fff;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: background 0.2s;
-    padding: 0;
-    z-index: 300;
-  `;
+  btn.style.cssText = ROUND_BUTTON;
 
   btn.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -124,24 +144,12 @@ export function createDeviceButton() {
   });
 
   _positionDeviceButton(btn);
-  document.body.appendChild(btn);
   return btn;
 }
 
 function _positionDeviceButton(btn) {
-  const muteBtn = document.getElementById('voice-mute-btn');
-  if (muteBtn) {
-    const rect = muteBtn.getBoundingClientRect();
-    btn.style.left = `${rect.left - 42}px`;
-    btn.style.top = `${rect.top}px`;
-    btn.style.bottom = '';
-    btn.style.right = '';
-  } else {
-    btn.style.bottom = '20px';
-    btn.style.right = '62px';
-    btn.style.top = '';
-    btn.style.left = '';
-  }
+  // left of the mute button (42 px: one button and a gap)
+  placeVoiceButton(btn, { rightOffset: 62 });
 }
 
 export function reattachDeviceButton() {
