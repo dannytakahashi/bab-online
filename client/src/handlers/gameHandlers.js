@@ -329,6 +329,8 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
   // Player resigned (bot taking over)
   socketManager.onGame(SERVER_EVENTS.PLAYER_RESIGNED, (data) => {
     console.log(`🔄 Player resigned: P${data.position} ${data.oldUsername} → ${data.botUsername}`);
+    state.applySeatDisplay(data.position, { username: data.botUsername, pic: data.botPic });
+    touched();
     onPlayerResigned?.(data);
   });
 
@@ -339,6 +341,8 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
       myAction.reset();
       state.applyMyLazy(true);
     }
+    state.applySeatDisplay(data.position, { username: data.botUsername, pic: data.botPic });
+    touched();
     onPlayerLazyMode?.(data);
   });
 
@@ -346,6 +350,8 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
   socketManager.onGame(SERVER_EVENTS.PLAYER_ACTIVE_MODE, (data) => {
     console.log(`🎮 Player returned to active: P${data.position}`);
     if (mine(data.position)) state.applyMyLazy(false);
+    state.applySeatDisplay(data.position, { username: data.username, pic: data.avatarUrl || data.pic });
+    touched();
     onPlayerActiveMode?.(data);
   });
 

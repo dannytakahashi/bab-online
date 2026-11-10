@@ -80,6 +80,31 @@ describe('MyAction (idle -> pending -> confirmed | rolled back)', () => {
     expect(action.reconcile(snap({ canAct: false }), 'gap')).toBe(OUTCOME.ROLLED_BACK);
   });
 
+  it('the liveness ping answered before my action reached the server keeps it too; the ack request still decides', () => {
+    // The ping goes out on visibilitychange, the click right after: its
+    // reply shows the card in hand and my turn
+    action.submitPlay(A, 2);
+    expect(action.reconcile(snap(), 'ping')).toBe(OUTCOME.KEPT);
+    expect(action.state).toBe('pending');
+    // ...the echo then confirms it
+    expect(action.confirm('play')).toBe(OUTCOME.CONFIRMED);
+
+    // A bid the same way
+    action.submitBid('3', 2);
+    expect(action.reconcile(snap(), 'ping')).toBe(OUTCOME.KEPT);
+    expect(action.reconcile(snap({ myBid: '3' }), 'ping')).toBe(OUTCOME.CONFIRMED);
+
+    // Never answered: the ack timer was left armed, its snapshot rolls back
+    action.submitPlay(A, 2);
+    expect(action.reconcile(snap(), 'ping')).toBe(OUTCOME.KEPT);
+    vi.advanceTimersByTime(ACK_TIMEOUT_MS);
+    expect(requests).toEqual([`ack-${action.pending.reqId}`]);
+    expect(action.reconcile(snap(), 'ack')).toBe(OUTCOME.ROLLED_BACK);
+    // A ping showing it is not my turn is conclusive
+    action.submitPlay(A, 2);
+    expect(action.reconcile(snap({ canAct: false }), 'ping')).toBe(OUTCOME.ROLLED_BACK);
+  });
+
   it('5 s without an answer asks for a snapshot; a second silence reconnects, never a blind rollback', () => {
     action.submitPlay(A, 2);
     vi.advanceTimersByTime(ACK_TIMEOUT_MS - 1);

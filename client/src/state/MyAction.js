@@ -32,6 +32,9 @@ export const OUTCOME = Object.freeze({
   KEPT: 'kept',
 });
 
+/** Snapshot replies whose request may predate the action (see reconcile). */
+const UNORDERED_SOURCES = new Set(['gap', 'ping']);
+
 const sameCard = (a, b) => !!a && !!b && a.suit === b.suit && a.rank === b.rank;
 
 export class MyAction {
@@ -148,9 +151,12 @@ export class MyAction {
   /**
    * Any snapshot settles a pending action: taken (the card left my hand /
    * my bid is recorded) confirms it, otherwise it is rolled back, except a
-   * gap resync that still shows my turn (the action may be in flight).
+   * reply to a request that may have gone out before the action (a gap
+   * resync, the background liveness ping) that still shows my turn: the
+   * server may not have seen the action yet. The ack timer stays armed,
+   * so its own request (always sent after the action) decides.
    * @param {Object} snapshot - parsed v2 snapshot
-   * @param {string} source - 'gap' | 'ack' | 'rejected' | 'rejoin' | 'restore' | 'spectate' | 'other'
+   * @param {string} source - 'gap' | 'ping' | 'ack' | 'rejected' | 'rejoin' | 'restore' | 'spectate' | 'other'
    * @returns {string|null} the outcome, or null when nothing was pending
    */
   reconcile(snapshot, source = 'other') {
@@ -165,7 +171,7 @@ export class MyAction {
       taken = bid !== null && bid !== undefined;
     }
     if (taken) return this._finish(OUTCOME.CONFIRMED, { via: source });
-    if (source === 'gap' && snapshot.viewer?.canAct) {
+    if (UNORDERED_SOURCES.has(source) && snapshot.viewer?.canAct) {
       this._note(OUTCOME.KEPT, { via: source });
       return OUTCOME.KEPT;
     }

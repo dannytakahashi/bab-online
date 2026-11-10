@@ -185,3 +185,64 @@ describe('my play: rejected, timed out, reconciled', () => {
     expect(page.scene.tableCounts().hand).toBe(handBefore);
   });
 });
+
+describe('a liveness ping answered before my play reached the server', () => {
+  it('keeps the play in flight (no snap back, no live hand); the echo then confirms it once', () => {
+    // at the turn again (the rejoin above); the ping went out on
+    // visibilitychange, the click right after it
+    page.socket.clearEmits();
+    const handBefore = page.scene.tableCounts().hand;
+    const trickBefore = page.scene.tableCounts().trick;
+    clickCard(card);
+    expect(page.socket.emitted('playCard')).toHaveLength(1);
+    page.socket.fire('stateSnapshot', { snapshot: clone(snapAtTurn), requestId: 'ping-test-1' });
+    replay.advance(50);
+    expect(myAction().state).toBe('pending');
+    expect(myAction().history.at(-1)).toMatchObject({ outcome: 'kept', via: 'ping' });
+    expect(page.scene.tableCounts()).toMatchObject({ hand: handBefore - 1, trick: trickBefore + 1 });
+    expect(page.scene.cardManager.getHandSprites().some((s) => sameCard(s.getData('card'), card))).toBe(false);
+    // the hand is not live again: a second click sends nothing
+    clickCard(page.scene.cardManager.getHandSprites()[0].getData('card'));
+    expect(page.socket.emitted('playCard')).toHaveLength(1);
+
+    // the server accepts it: its echo confirms; the card is in the trick once
+    const echo = log[turnAt + 1];
+    expect(echo.event).toBe('cardPlayed');
+    expect(echo.data.position).toBe(1);
+    page.socket.fire(echo.event, clone(echo.data));
+    replay.advance(1500);
+    expect(myAction().state).toBe('idle');
+    expect(myAction().history.at(-1)).toMatchObject({ outcome: 'confirmed', via: 'event' });
+    expect(page.scene.tableCounts()).toMatchObject({ hand: handBefore - 1, trick: trickBefore + 1 });
+    expect(page.gameState.myCards.some((c) => sameCard(c, card))).toBe(false);
+  });
+});
+
+describe('a bot taking over a seat mid-hand', () => {
+  const avatarOf = (slot) => page.scene.opponentManager._avatarDoms[slot];
+  const nameOf = (slot) => avatarOf(slot)?.querySelector('div:last-child')?.textContent;
+
+  it('is table state: a re-render (fast-forward, refusal) keeps the bot, /active brings the owner back', () => {
+    // seat 2 is opp1 from seat 1
+    const owner = page.gameState.getPlayerNameByPosition(2);
+    expect(nameOf('opp1')).toBe(owner);
+    const seq = () => seqGate().lastSeq + 1;
+    page.socket.fire('playerLazyMode', { position: 2, botUsername: 'Lazy Bot', botPic: 7, originalUsername: owner, seq: seq() });
+    expect(nameOf('opp1')).toBe('Lazy Bot');
+    page.scene.render();
+    expect(nameOf('opp1')).toBe('Lazy Bot');
+    expect(page.gameState.getPlayerNameByPosition(2)).toBe('Lazy Bot');
+    expect(page.gameState.opp1Name).toBe('Lazy Bot');
+
+    page.socket.fire('playerActiveMode', { position: 2, username: owner, pic: 3, seq: seq() });
+    expect(nameOf('opp1')).toBe(owner);
+    page.scene.render();
+    expect(nameOf('opp1')).toBe(owner);
+
+    // a resignation the same way (partner seat 3)
+    const partner = page.gameState.getPlayerNameByPosition(3);
+    page.socket.fire('playerResigned', { position: 3, oldUsername: partner, botUsername: 'Resign Bot', botPic: 5, seq: seq() });
+    page.scene.render();
+    expect(nameOf('partner')).toBe('Resign Bot');
+  });
+});

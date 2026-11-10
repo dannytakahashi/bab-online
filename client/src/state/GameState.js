@@ -838,6 +838,31 @@ export class GameState {
     this._changed();
   }
 
+  /**
+   * Who a seat shows (playerLazyMode / playerResigned: the bot;
+   * playerActiveMode: the owner again). playerData is what render() draws
+   * the avatars from, so a re-render shows the seat as it is now, as a
+   * fresh snapshot of it would.
+   * @param {number} position
+   * @param {Object} display - {username, pic}
+   */
+  applySeatDisplay(position, { username, pic } = {}) {
+    if (!position || !username || !this.playerData?.position) return;
+    const i = this.playerData.position.indexOf(position);
+    if (i === -1) return;
+    const names = [...(this.playerData.username || [])];
+    const prev = names[i];
+    names[i] = prev && typeof prev === 'object' ? { ...prev, username } : { username };
+    const pics = [...(this.playerData.pics || [])];
+    pics[i] = pic ?? null;
+    this.playerData = { ...this.playerData, username: names, pics };
+    if (this.players) this.players = { ...this.players, [position]: { username, pic: pic ?? null } };
+    const seat = this.seats.find((s) => s.position === position);
+    if (seat) seat.username = username;
+    if (this.position) this._updatePlayerNames();
+    this._changed();
+  }
+
   // ============================================
   // Snapshots (the only restore path)
   // ============================================
