@@ -23,8 +23,18 @@ private struct TournamentLobbyScreen: View {
         ZStack {
             Color.Theme.background.ignoresSafeArea()
 
+            // measures the room above the keyboard for the compact layout (draws
+            // nothing; compact only: in the wide layout this extra layer changed
+            // a few pixels of the status bar and the home indicator)
+            if hSizeClass != .regular {
+                Color.clear
+                    .allowsHitTesting(false)
+                    .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { visibleHeight = $0 }
+            }
+
             // Two branches on purpose (their children differ); the chat draft
             // lives in TournamentState, so a size-class change keeps it.
+            // Compact ignores the keyboard (it lays the keyboard out itself).
             GeometryReader { geo in
                 let _ = hingeTick  // re-read the fold after a hinge change
                 if hSizeClass == .regular {
@@ -46,24 +56,11 @@ private struct TournamentLobbyScreen: View {
                             .frame(maxWidth: .infinity)
                     }
                 } else {
-                    // iPhone: stacked
-                    VStack(spacing: 0) {
-                        headerBar
-                        ScrollView {
-                            VStack(spacing: 16) {
-                                TournamentPlayerListView()
-                                TournamentScoreboardView()
-                                TournamentActiveGamesView()
-                                TournamentChatView()
-                                    .frame(minHeight: 200)
-                            }
-                            .padding(.bottom, 8)
-                        }
-                        bottomButtons
-                    }
+                    compactLayout(height: geo.size.height)
                 }
             }
             .modifier(HingeTick(tick: $hingeTick))
+            .ignoresSafeArea(.keyboard, edges: hSizeClass == .regular ? [] : .bottom)
 
             // Results overlay
             if tournamentState.phase == "complete" {
@@ -106,8 +103,6 @@ private struct TournamentLobbyScreen: View {
     /// The chat's minimum in the right column; the scoreboard and the active
     /// tables above it scroll inside the rest when they are taller.
     private static let chatMinHeight: CGFloat = 240
-    @State private var rightHeight: CGFloat = 0
-    @State private var standingsHeight: CGFloat = 0
 
     /// The scoreboard (once there are scores) and the active tables (while a
     /// round is in play), else nothing: the chat then takes the whole column.
@@ -120,23 +115,66 @@ private struct TournamentLobbyScreen: View {
     /// scroll when that leaves the chat less than its minimum, e.g. with the
     /// keyboard up); the chat fills the rest of the column.
     private var rightPanel: some View {
-        VStack(spacing: 0) {
-            if hasStandings {
-                ScrollView {
-                    VStack(spacing: 12) {
-                        TournamentScoreboardView()
-                        TournamentActiveGamesView()
-                    }
-                    .padding(.vertical, 12)
-                    .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { standingsHeight = $0 }
-                }
-                .scrollBounceBehavior(.basedOnSize)
-                .frame(height: min(standingsHeight, max(0, rightHeight - Self.chatMinHeight)))
+        CappedAboveChat(showsTop: hasStandings, chatMin: { _ in Self.chatMinHeight }) {
+            VStack(spacing: 12) {
+                TournamentScoreboardView()
+                TournamentActiveGamesView()
             }
+            .padding(.vertical, 12)
+        } chat: {
             TournamentChatView(showsTitle: true)
-                .frame(maxHeight: .infinity)
         }
-        .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { rightHeight = $0 }
+    }
+
+    // MARK: - Compact Layout (phones, the closed Duo)
+
+    /// Compact: the chat keeps 55% of the height between the header and the
+    /// buttons, at most 220 pt (closed Duo, iPhone 17 / 17e portrait: 220 pt;
+    /// a short window, e.g. 250 pt between them: 137, the players ~113), so
+    /// neither part collapses.
+    private static func compactChatMin(_ height: CGFloat) -> CGFloat { min(220, height * 0.55) }
+    /// Below this height between the header and pinned buttons (a short compact
+    /// window, accessibility text sizes with the host's three buttons) the
+    /// buttons scroll with the players instead, so the chat field keeps its room.
+    private static let compactMinMiddle: CGFloat = 200
+    /// Measured: the height above the keyboard (the screen's keyboard-aware
+    /// safe area), the header's and the buttons' heights.
+    @State private var visibleHeight: CGFloat = 0
+    @State private var headerHeight: CGFloat = 0
+    @State private var buttonsHeight: CGFloat = 0
+
+    /// Header, then the players, scoreboard and active tables (sized to their
+    /// content, scrolling once that would leave the chat less than its minimum),
+    /// then the chat filling the rest with its field always on screen, then the
+    /// buttons. `height` ignores the keyboard: with the keyboard up the chat
+    /// ends at the keyboard's top (the top part shrinks) and the keyboard
+    /// covers the buttons, as in Messages.
+    private func compactLayout(height: CGFloat) -> some View {
+        // pinned until measured, so the first frame does not move them
+        let pinned = headerHeight == 0 || height - headerHeight - buttonsHeight >= Self.compactMinMiddle
+        let keyboard = visibleHeight > 0 ? max(0, height - visibleHeight) : 0
+        return VStack(spacing: 0) {
+            headerBar
+                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { headerHeight = $0 }
+            CappedAboveChat(chatMin: Self.compactChatMin) {
+                VStack(spacing: 16) {
+                    TournamentPlayerListView()
+                    TournamentScoreboardView()
+                    TournamentActiveGamesView()
+                    if !pinned { measuredButtons }
+                }
+                .padding(.bottom, 8)
+            } chat: {
+                TournamentChatView()
+            }
+            .padding(.bottom, max(0, keyboard - (pinned ? buttonsHeight : 0)))
+            if pinned { measuredButtons }
+        }
+    }
+
+    private var measuredButtons: some View {
+        bottomButtons
+            .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { buttonsHeight = $0 }
     }
 
     // MARK: - Header
@@ -280,5 +318,36 @@ private struct TournamentLobbyScreen: View {
 
     private func cancelTournament() {
         TournamentEmitter.cancelTournament()
+    }
+}
+
+/// Content above a chat that fills the rest of the height (the wide lobby's
+/// right column, the compact lobby between its header and buttons): the top
+/// part takes its natural height, capped so the chat keeps `chatMin` of the
+/// region's height, and scrolls inside that cap when it is taller.
+private struct CappedAboveChat<Top: View, Chat: View>: View {
+    var showsTop = true
+    /// The chat's minimum for the region's height.
+    let chatMin: (CGFloat) -> CGFloat
+    @ViewBuilder let top: Top
+    @ViewBuilder let chat: Chat
+
+    @State private var height: CGFloat = 0
+    @State private var topHeight: CGFloat = 0
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if showsTop {
+                ScrollView {
+                    top
+                        .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { topHeight = $0 }
+                }
+                .scrollBounceBehavior(.basedOnSize)
+                .frame(height: min(topHeight, max(0, height - chatMin(height))))
+            }
+            chat
+                .frame(maxHeight: .infinity)
+        }
+        .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height = $0 }
     }
 }

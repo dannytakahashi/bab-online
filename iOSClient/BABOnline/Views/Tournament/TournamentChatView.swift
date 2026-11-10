@@ -40,13 +40,7 @@ struct TournamentChatView: View {
                     .padding(.vertical, 6)
                 }
                 .scrollDismissesKeyboard(.interactively)
-                .onChange(of: tournamentState.messages.count) {
-                    if let last = tournamentState.messages.last {
-                        withAnimation(.easeOut(duration: 0.2)) {
-                            proxy.scrollTo(last.id, anchor: .bottom)
-                        }
-                    }
-                }
+                .followsNewestMessage(proxy, lastID: tournamentState.messages.last?.id, count: tournamentState.messages.count)
             }
 
             Divider().background(Color.Theme.inputBorder, ignoresSafeAreaEdges: .vertical)

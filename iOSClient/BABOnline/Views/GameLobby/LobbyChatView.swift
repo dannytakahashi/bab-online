@@ -39,13 +39,7 @@ struct LobbyChatView: View {
                     .padding(.vertical, 6)
                 }
                 .scrollDismissesKeyboard(.interactively)
-                .onChange(of: lobbyState.messages.count) {
-                    if let last = lobbyState.messages.last {
-                        withAnimation(.easeOut(duration: 0.2)) {
-                            proxy.scrollTo(last.id, anchor: .bottom)
-                        }
-                    }
-                }
+                .followsNewestMessage(proxy, lastID: lobbyState.messages.last?.id, count: lobbyState.messages.count)
             }
 
             Divider().background(Color.Theme.inputBorder, ignoresSafeAreaEdges: .vertical)

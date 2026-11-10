@@ -44,13 +44,7 @@ struct MainRoomChatView: View {
                     .padding(.vertical, 8)
                 }
                 .scrollDismissesKeyboard(.interactively)
-                .onChange(of: mainRoomState.messages.count) {
-                    if let last = mainRoomState.messages.last {
-                        withAnimation(.easeOut(duration: 0.2)) {
-                            proxy.scrollTo(last.id, anchor: .bottom)
-                        }
-                    }
-                }
+                .followsNewestMessage(proxy, lastID: mainRoomState.messages.last?.id, count: mainRoomState.messages.count)
             }
 
             Divider().background(Color.Theme.inputBorder, ignoresSafeAreaEdges: .vertical)
