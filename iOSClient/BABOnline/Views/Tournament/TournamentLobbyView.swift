@@ -16,6 +16,8 @@ private struct TournamentLobbyScreen: View {
     @EnvironmentObject var authState: AuthState
     @EnvironmentObject var tournamentState: TournamentState
     @Environment(\.horizontalSizeClass) private var hSizeClass
+    /// Bumped by every hinge change so the fold is read again at the same size.
+    @State private var hingeTick = 0
 
     var body: some View {
         ZStack {
@@ -24,15 +26,22 @@ private struct TournamentLobbyScreen: View {
             // Two branches on purpose (their children differ); the chat draft
             // lives in TournamentState, so a size-class change keeps it.
             GeometryReader { geo in
+                let _ = hingeTick  // re-read the fold after a hinge change
                 if hSizeClass == .regular {
                     // Regular width (iPad, the open Duo): side by side, as the main room.
                     // The left column ignores the keyboard (only the chat column makes
                     // room for it), so typing never moves the players or the buttons.
+                    // In book pose the left column ends at the hinge, which divides them.
+                    let hinge = FoldReader.bookHinge(geo)
                     HStack(spacing: 0) {
                         leftPanel
-                            .frame(width: geo.size.width * 0.55)
+                            .frame(width: hinge?.lowerBound ?? geo.size.width * 0.55)
                             .ignoresSafeArea(.keyboard, edges: .bottom)
-                        Divider().background(Color.Theme.inputBorder)
+                        if let hinge {
+                            Color.clear.frame(width: hinge.upperBound - hinge.lowerBound)
+                        } else {
+                            Divider().background(Color.Theme.inputBorder)
+                        }
                         rightPanel
                             .frame(maxWidth: .infinity)
                     }
@@ -54,6 +63,7 @@ private struct TournamentLobbyScreen: View {
                     }
                 }
             }
+            .modifier(HingeTick(tick: $hingeTick))
 
             // Results overlay
             if tournamentState.phase == "complete" {

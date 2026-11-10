@@ -93,8 +93,17 @@ final class LobbyControlsTests: XCTestCase {
         chatPlacement("tournament-round", players: "tournament.players", field: "tournamentChatField")
     }
 
+    /// On regular width a second launch with a synthetic book fold (`-uiFold book`,
+    /// 20 pt at the window center) checks that neither column spans the hinge.
     private func chatPlacement(_ fixture: String, players playersId: String, field fieldId: String) {
-        let app = Fixture.launch(fixture)
+        if chatPlacement(fixture, players: playersId, field: fieldId, book: false) {
+            _ = chatPlacement(fixture, players: playersId, field: fieldId, book: true)
+        }
+    }
+
+    /// Returns whether the window reports regular width.
+    private func chatPlacement(_ fixture: String, players playersId: String, field fieldId: String, book: Bool) -> Bool {
+        let app = Fixture.launch(fixture, extra: book ? ["-uiFold", "book"] : [])
         XCTAssertTrue(Fixture.readyElement(app, fixture).waitForExistence(timeout: 20))
         sleep(1)
         let pose = Fixture.probe(app, "ui.pose")
@@ -111,15 +120,21 @@ final class LobbyControlsTests: XCTestCase {
             XCTAssertGreaterThanOrEqual(f.minX, p.maxX - 1, "\(fixture) \(pose): the chat field \(f) is not right of the players \(p)")
             if let size = Fixture.windowSize(pose) {
                 XCTAssertLessThanOrEqual(f.maxX, size.width + 1, "\(fixture): the chat field \(f) leaves the window \(size)")
+                if book {
+                    let hinge = (size.width / 2 - 10)...(size.width / 2 + 10)
+                    XCTAssertLessThanOrEqual(p.maxX, hinge.lowerBound + 1, "\(fixture) book: the players \(p) span the hinge \(hinge)")
+                    XCTAssertGreaterThanOrEqual(f.minX, hinge.upperBound - 1, "\(fixture) book: the chat field \(f) starts in the hinge \(hinge)")
+                }
             }
         } else {
             XCTAssertGreaterThanOrEqual(f.minY, p.maxY - 1, "\(fixture) \(pose): the chat field \(f) is not under the players \(p)")
         }
         let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
-        shot.name = "\(Fixture.poseName(pose))-\(fixture)-chat-placement"
+        shot.name = "\(Fixture.poseName(pose))-\(fixture)-chat-placement\(book ? "-book" : "")"
         shot.lifetime = .keepAlways
         add(shot)
         app.terminate()
+        return wide
     }
 
     private func lobbyLeave(_ fixture: String) {

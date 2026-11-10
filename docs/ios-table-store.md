@@ -222,11 +222,18 @@ players and two tables in landscape with the keyboard up) the standings scroll
 in what is left. Keyboard: in the wide layouts only the chat column makes room
 for it (game lobby: the layout ignores the keyboard and the chat is padded by
 the measured overlap; tournament: the left column ignores it), so typing never
-moves the players or Ready. Fixtures `tournament-round` (round 3 in play:
+moves the players or Ready. Book pose (a vertical division with both pages at
+least 240 pt, `FoldReader.bookHinge`; the Duo partially open in landscape:
+455.5 pt left page, 40 pt hinge): the left column ends at the hinge and the
+right one starts after it, with no rule between them (the hinge divides them),
+so no content spans the hinge, as on the table; otherwise the split is 55%
+(the main room still splits at 55% in book pose). `HingeTick` re-reads the fold
+at the same window size. Fixtures `tournament-round` (round 3 in play:
 scoreboard, two active tables) and `tournament-between` (round 2 complete).
 `LobbyControlsTests.test…ChatPlacement` asserts the chat field is right of the
 player list on regular width (and that the iPad reports it) and under it on
-compact.
+compact; on regular width it relaunches with `-uiFold book` and asserts the
+players end before the synthetic hinge and the chat field starts after it.
 
 ## Fixture mode and Duo poses (roadmap items 26, 27)
 
