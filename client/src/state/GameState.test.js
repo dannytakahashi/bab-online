@@ -328,7 +328,7 @@ describe('GameState', () => {
     it('a deal opens bidding with every seat holding the hand size', () => {
       state.applyDeal(deal());
       expect(state.handNo).toBe(1);
-      expect(state.dealSeq).toBe(7);
+      expect(state.dealSeq).toBe(1); // the server's deal number, not the seq
       expect(state.stage).toBe('BIDDING');
       expect(state.isBidding).toBe(true);
       expect(state.seatCards).toEqual({ 1: 3, 2: 3, 3: 3, 4: 3 });
@@ -368,9 +368,10 @@ describe('GameState', () => {
       expect(state.myCards).toEqual([]);
       state.applyDeal(deal({ seq: 12 }));
       expect(state.handNo).toBe(1);
-      expect(state.dealSeq).toBe(12);
+      expect(state.dealSeq).toBe(2);
       state.applyDeal(deal({ seq: 30 }));
       expect(state.handNo).toBe(2);
+      expect(state.dealSeq).toBe(3);
     });
   });
 

@@ -50,7 +50,7 @@ export class SeqGate {
     this.lastSeq = null;
     this._buffer = [];
     this.resyncId = null;
-    if (this._timer) this._clearTimer(this._timer);
+    if (this._timer !== null && this._timer !== undefined) this._clearTimer(this._timer);
     this._timer = null;
   }
 
@@ -112,7 +112,7 @@ export class SeqGate {
   _requestResync() {
     const id = `gap-${this._nextRequestNo++}`;
     this.resyncId = id;
-    if (this._timer) this._clearTimer(this._timer);
+    if (this._timer !== null && this._timer !== undefined) this._clearTimer(this._timer);
     this._timer = this._setTimer(() => {
       this._timer = null;
       if (this.resyncId === id) this.flushBuffer();
@@ -129,7 +129,7 @@ export class SeqGate {
     const buffered = this._buffer;
     this._buffer = [];
     this.resyncId = null;
-    if (this._timer) this._clearTimer(this._timer);
+    if (this._timer !== null && this._timer !== undefined) this._clearTimer(this._timer);
     this._timer = null;
     this.gameId = snapshot.gameId || this.gameId;
     this.lastSeq = snapshot.seq;
@@ -148,7 +148,7 @@ export class SeqGate {
     const buffered = this._buffer.sort((a, c) => a.seq - c.seq);
     this._buffer = [];
     this.resyncId = null;
-    if (this._timer) this._clearTimer(this._timer);
+    if (this._timer !== null && this._timer !== undefined) this._clearTimer(this._timer);
     this._timer = null;
     for (const b of buffered) {
       if (this.lastSeq !== null && b.seq <= this.lastSeq) {

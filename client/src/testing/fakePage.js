@@ -175,8 +175,14 @@ export const tick = (ms = 0) => new Promise((resolve) => setTimeout(resolve, ms)
  * Load the page: sessionStorage first (a reload), then main.js and the
  * window load event. Returns the page's handles.
  */
-export async function loadPage({ session = {}, connected = true, socketId = 'sock-1' } = {}) {
-  globalThis.Phaser = { Scene: class {}, Game: class {}, AUTO: 0, Scale: {} };
+export async function loadPage({ session = {}, connected = true, socketId = 'sock-1', realScene = false, createScene = true } = {}) {
+  if (realScene) {
+    // The real GameScene and managers on testing/fakePhaser.js
+    const { installFakePhaser } = await import('./fakePhaser.js');
+    installFakePhaser();
+  } else {
+    globalThis.Phaser = { Scene: class {}, Game: class {}, AUTO: 0, Scale: {} };
+  }
   sessionStorage.clear();
   try { window.localStorage?.clear(); } catch { /* no storage in this environment */ }
   for (const [k, v] of Object.entries(session)) sessionStorage.setItem(k, v);
@@ -193,13 +199,27 @@ export async function loadPage({ session = {}, connected = true, socketId = 'soc
   const { getClientSession } = await import('../state/ClientSession.js');
   const { getGameState } = await import('../state/GameState.js');
   const { getSocketManager } = await import('../socket/SocketManager.js');
-  const scene = createFakeScene();
-  window.ModernUtils.setGameScene(scene);
+  let scene;
+  let makeScene = () => scene;
+  if (realScene) {
+    const { GameScene } = await import('../phaser/scenes/GameScene.js');
+    scene = new GameScene();
+    // Phaser runs create() once its preload is done (createScene: false: later)
+    makeScene = () => {
+      scene.create();
+      return scene;
+    };
+    if (createScene) makeScene();
+  } else {
+    scene = createFakeScene();
+    window.ModernUtils.setGameScene(scene);
+  }
 
   return {
     socket,
     voice,
     scene,
+    createScene: makeScene,
     session: getClientSession(),
     gameState: getGameState(),
     socketManager: getSocketManager(),

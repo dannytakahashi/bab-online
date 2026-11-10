@@ -146,7 +146,7 @@ export class GameState {
     // Table model (snapshot v2 shaped, kept by the appliers below)
     this.stage = null; // server stage name (v2), or derived from events
     this.handNo = 0;
-    this.dealSeq = null; // the deal's seq (gameStart.seq / snapshot.deal.dealSeq)
+    this.dealSeq = null; // the server's deal number (snapshot.deal.dealSeq; +1 per gameStart)
     this.trickNo = 0; // 1-based number of the trick in play
     this.seatCards = { 1: 0, 2: 0, 3: 0, 4: 0 }; // cards left per seat
     // Completed tricks of this hand [{winner, cards: [{position, card}]}], or
@@ -665,7 +665,9 @@ export class GameState {
     if (data.dealer !== undefined) this.dealer = data.dealer;
     if (!this._redealPending || !this.handNo) this.handNo = (this.handNo || 0) + 1;
     this._redealPending = false;
-    this.dealSeq = Number.isInteger(data.seq) ? data.seq : (this.dealSeq || 0) + 1;
+    // The server's deal number (snapshot deal.dealSeq): +1 per deal, a
+    // redeal included (not the gameStart's seq)
+    this.dealSeq = (this.dealSeq || 0) + 1;
     this.trump = data.trump || null;
     this.trumpBroken = false;
     this.myCards = Array.isArray(data.hand) ? [...data.hand] : [];

@@ -1438,6 +1438,7 @@ export class GameScene extends Phaser.Scene {
       teamStacks: tricks.teamStacks ?? 0,
       oppStacks: tricks.oppStacks ?? 0,
       stackCards: tricks.stackCards ?? 0,
+      whisking: tricks.whisking ?? 0,
       trump: this.tableCardSprite ? (this.tableCardSprite.frame?.name ?? this.tableCardSprite.texture?.key ?? 'set') : null,
       bidPanel: !!this.bidManager?.bidContainer,
     };

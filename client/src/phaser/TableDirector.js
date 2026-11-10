@@ -139,12 +139,12 @@ export class TableDirector {
   /** Drop queued work (an exit). */
   clearQueue() {
     this._queue = [];
-    if (this._pollTimer) this._clearTimer(this._pollTimer);
+    if (this._pollTimer !== null) this._clearTimer(this._pollTimer);
     this._pollTimer = null;
   }
 
   _schedulePoll() {
-    if (this._pollTimer) return;
+    if (this._pollTimer !== null) return;
     this._pollTimer = this._setTimer(() => {
       this._pollTimer = null;
       this.flush();
@@ -342,7 +342,7 @@ export class TableDirector {
 
   _endWhiskFlag() {
     this.whisking = false;
-    if (this._whiskTimer) this._clearTimer(this._whiskTimer);
+    if (this._whiskTimer !== null) this._clearTimer(this._whiskTimer);
     this._whiskTimer = null;
   }
 
@@ -384,6 +384,28 @@ export class TableDirector {
 
   get waiting() {
     return this._waiters.length;
+  }
+
+  /**
+   * A play arrived while this deal still waits for the fade or the whisk
+   * (the cards are not on the table yet): deal now, so the play has a card
+   * to move. Waiters of another deal are dropped.
+   */
+  settleDeal() {
+    if (!this._waiters.length) return;
+    const waiters = this._waiters;
+    this._waiters = [];
+    for (const w of waiters) {
+      if (w.deal !== keyAt(this.key, 'deal')) {
+        this.stats.dropped++;
+        continue;
+      }
+      try {
+        w.fn();
+      } catch (err) {
+        console.error('Deal step failed:', err);
+      }
+    }
   }
 
   // ============================================

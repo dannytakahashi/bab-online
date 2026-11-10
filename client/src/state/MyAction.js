@@ -106,7 +106,7 @@ export class MyAction {
   }
 
   _disarm() {
-    if (this._timer) this._clearTimer(this._timer);
+    if (this._timer !== null && this._timer !== undefined) this._clearTimer(this._timer);
     this._timer = null;
   }
 

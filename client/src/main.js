@@ -1176,6 +1176,8 @@ function initializeApp() {
     },
     onDoneBidding: (data) => {
       withScene((scene) => {
+        // A deal still waiting for its fade / whisk is put down first
+        director.settleDeal();
         scene.handleDoneBidding(data);
 
         // Create trick backgrounds now that bidding is complete
@@ -1204,16 +1206,26 @@ function initializeApp() {
       withScene((scene) => scene.handleUpdateTurn(data));
     },
     onCardPlayed: (data) => {
-      withScene((scene) => scene.handleCardPlayed(data));
+      withScene((scene) => {
+        // The card must come from a dealt hand: a deal still waiting goes down now
+        director.settleDeal();
+        scene.handleCardPlayed(data);
+      });
     },
     onTrickComplete: (data) => {
-      withScene((scene) => scene.handleTrickComplete(data));
+      withScene((scene) => {
+        director.settleDeal();
+        scene.handleTrickComplete(data);
+      });
     },
     // Hand & game end - call GameScene handlers
     onHandComplete: (data) => {
       // The hand's bids, for its log lines (GameState resets them next)
       const bids = { ...gameState.bids };
-      withScene((scene) => scene.handleHandComplete(data, { bids }));
+      withScene((scene) => {
+        director.settleDeal();
+        scene.handleHandComplete(data, { bids });
+      });
       // Hide game log trick indicator at end of hand
       if (gameLogInstance && gameLogInstance.hideTrickIndicator) {
         gameLogInstance.hideTrickIndicator();
@@ -1285,7 +1297,10 @@ function initializeApp() {
       withScene((scene) => scene.handleRainbow(data));
     },
     onDestroyHands: (data) => {
-      withScene((scene) => scene.handleDestroyHands(data));
+      withScene((scene) => {
+        director.settleDeal();
+        scene.handleDestroyHands(data);
+      });
     },
     // Error & connection handlers
     onAbortGame: (data) => {

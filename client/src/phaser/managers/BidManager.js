@@ -88,10 +88,13 @@ export class BidManager {
     // Animate in if it's our turn
     if (this.state.isBidding && currentTurn === position) {
       // Use requestAnimationFrame to ensure the initial styles are applied first
+      // (the panel may be gone or replaced by then: a doneBidding, a render)
+      const container = this.bidContainer;
       requestAnimationFrame(() => {
-        this.bidContainer.style.visibility = 'visible';
-        this.bidContainer.style.opacity = '1';
-        this.bidContainer.style.transform = 'translate(-50%, -50%) scale(1)';
+        if (this.bidContainer !== container) return;
+        container.style.visibility = 'visible';
+        container.style.opacity = '1';
+        container.style.transform = 'translate(-50%, -50%) scale(1)';
       });
     }
 

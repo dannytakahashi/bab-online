@@ -77,8 +77,10 @@ export class TrickManager {
     // Spectator mode — allows inspecting opponent tricks
     this._isSpectatorMode = false;
 
-    // True while animateTricksAway is whisking the history off the table
+    // True while animateTricksAway is whisking the history off the table;
+    // the whisked cards belong to the finished hand (no longer history)
     this._animatingAway = false;
+    this._whisking = [];
 
     // Trick collect in flight (completeTrick's tweens): the next card is
     // not made playable until it lands (GameScene.handleUpdateTurn)
@@ -628,9 +630,9 @@ export class TrickManager {
    * Reposition trick history cards during resize.
    */
   repositionTrickHistory() {
-    // Leave cards being whisked away alone: snapping them would kill the
-    // tweens whose onComplete destroys them and fires the hand-end callback
-    if (this._animatingAway) return;
+    // Cards being whisked away are not in the history (animateTricksAway
+    // moved them out): snapping them would kill the tweens whose onComplete
+    // destroys them and fires the hand-end callback
 
     // Reposition team trick history
     this._teamTrickHistory.forEach((trick, index) => {
@@ -727,6 +729,9 @@ export class TrickManager {
    */
   clearTrickHistory() {
     this._endCollect();
+    // The finished hand's cards still flying to the trump
+    this._whisking.forEach((card) => card?.destroy?.());
+    this._whisking = [];
     // Clear team tricks
     this._teamTrickHistory.forEach((trick) => {
       trick.cards.forEach((card) => {
@@ -794,26 +799,22 @@ export class TrickManager {
 
     // Group cards by trick number so both teams' same-numbered tricks animate together
     const cardsByTrickNumber = {};
-
-    this._teamTrickHistory.forEach((trick) => {
+    const collect = (trick) => {
       const num = trick.trickNumber;
       if (!cardsByTrickNumber[num]) cardsByTrickNumber[num] = [];
       trick.cards.forEach((card) => {
-        if (card && card.active) {
-          cardsByTrickNumber[num].push(card);
-        }
+        if (card && card.active) cardsByTrickNumber[num].push(card);
       });
-    });
+    };
+    this._teamTrickHistory.forEach(collect);
+    this._oppTrickHistory.forEach(collect);
 
-    this._oppTrickHistory.forEach((trick) => {
-      const num = trick.trickNumber;
-      if (!cardsByTrickNumber[num]) cardsByTrickNumber[num] = [];
-      trick.cards.forEach((card) => {
-        if (card && card.active) {
-          cardsByTrickNumber[num].push(card);
-        }
-      });
-    });
+    // The stacks leave the history now: they belong to the finished hand,
+    // and the next hand's tricks start a fresh history even while these fly
+    this._teamTrickHistory = [];
+    this._oppTrickHistory = [];
+    this._teamTrickCount = 0;
+    this._oppTrickCount = 0;
 
     // Count total cards
     let totalCards = 0;
@@ -823,7 +824,6 @@ export class TrickManager {
 
     if (totalCards === 0) {
       // No cards to animate, just clear and callback
-      this.clearTrickHistory();
       this.clearBackgrounds();
       if (onComplete) onComplete();
       return;
@@ -840,6 +840,10 @@ export class TrickManager {
     trickNumbers.forEach((trickNum, trickIndex) => {
       const cards = cardsByTrickNumber[trickNum];
       cards.forEach((card) => {
+        // No more hover on a card that is leaving
+        card.removeAllListeners?.('pointerover');
+        card.removeAllListeners?.('pointerout');
+        this._whisking.push(card);
         sceneTween(scene, {
           targets: card,
           x: targetX,
@@ -851,14 +855,11 @@ export class TrickManager {
           delay: trickIndex * 30, // Stagger by trick number
           onComplete: () => {
             card.destroy();
+            this._whisking = this._whisking.filter((c) => c !== card);
             completedCount++;
 
-            // When all cards are done, clear history and callback
+            // When all cards are done, callback
             if (completedCount === totalCards) {
-              this._teamTrickHistory = [];
-              this._oppTrickHistory = [];
-              this._teamTrickCount = 0;
-              this._oppTrickCount = 0;
               this._animatingAway = false;
               if (onComplete) onComplete();
             }
@@ -956,6 +957,7 @@ export class TrickManager {
       teamStacks: this._teamTrickHistory.length,
       oppStacks: this._oppTrickHistory.length,
       stackCards: stacked(this._teamTrickHistory) + stacked(this._oppTrickHistory),
+      whisking: this._whisking.filter((c) => c && c.active !== false).length,
     };
   }
 
