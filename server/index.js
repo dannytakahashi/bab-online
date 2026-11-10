@@ -25,6 +25,7 @@ const requestLogger = require('./middleware/requestLogger');
 const { createAvatarRouter } = require('./routes/avatar');
 const avatarStore = require('./avatar/avatarStore');
 const { mountStatic } = require('./staticAssets');
+const { createCompression } = require('./middleware/compression');
 
 // Initialize Express
 const app = express();
@@ -33,7 +34,13 @@ const server = http.createServer(app);
 // Request logging middleware
 app.use(requestLogger);
 
-// CSP Header (custom, matches original)
+// gzip/brotli for Express responses (never the Socket.IO wire: engine.io
+// answers /socket.io/ before Express; server/middleware/compression.js)
+app.use(createCompression());
+
+// CSP Header (custom, matches original). The page no longer loads the CDN
+// scripts (Phaser and socket.io-client are bundled); the two CDN hosts stay
+// allowed only for pages cached before that change, until they age out
 app.use((req, res, next) => {
     res.setHeader('Content-Security-Policy',
         "default-src 'self' https://bab-online-production.up.railway.app https://babonline.io; " +
@@ -50,8 +57,8 @@ app.use((req, res, next) => {
 // handlers; sets its own CSP/CORP/nosniff and cache headers
 app.use(createAvatarRouter({ getUsersCollection, avatarStore }));
 
-// Static files: versioned avatar art (immutable), the client, /assets
-// (server/staticAssets.js)
+// Static files: the page (no-cache), hashed bundles and versioned avatar
+// art (immutable), the client (server/staticAssets.js)
 mountStatic(app, config);
 
 // Routes

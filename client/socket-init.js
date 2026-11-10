@@ -1,5 +1,7 @@
-// Socket initialization - must load before main.js module
-// Creates global socket variable for modular code compatibility
+// LEGACY: only pages cached before the client was bundled still load this
+// (with the CDN socket.io 4.0.1 global). The current page creates its socket
+// in src/socket/createSocket.js, and main.js reuses a window.socket made
+// here. Delete together with the /dist/main.js shim (vite.config.js).
 var socket = io(location.hostname === 'localhost'
     ? 'http://localhost:3000'
     : 'https://bab-online-production.up.railway.app', {

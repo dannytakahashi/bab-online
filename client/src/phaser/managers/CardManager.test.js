@@ -239,3 +239,70 @@ describe('CardManager', () => {
     });
   });
 });
+
+describe('CardManager hover', () => {
+  let scene;
+  let manager;
+  let sprite;
+  let handlers;
+
+  beforeEach(() => {
+    scene = createMockScene();
+    scene.tweens.killTweensOf = vi.fn();
+    // hover tweens do not complete instantly here: they are what is checked
+    scene.tweens.add = vi.fn(() => ({}));
+    manager = new CardManager(scene);
+    manager.displayHand([{ suit: 'spades', rank: 'A' }, { suit: 'hearts', rank: '2' }], { animate: false });
+    sprite = scene._sprites[0];
+    handlers = Object.fromEntries(sprite.on.mock.calls.map(([event, fn]) => [event, fn]));
+    scene.tweens.add.mockClear();
+  });
+
+  it('a legal card lifts with the hand cursor, after killing the previous hover tween', () => {
+    sprite.setData('isLegal', true);
+    handlers.pointerover();
+    expect(scene.input.setDefaultCursor).toHaveBeenCalledWith('pointer');
+    expect(scene.tweens.killTweensOf).toHaveBeenCalledWith(sprite);
+    expect(scene.tweens.killTweensOf.mock.invocationCallOrder[0])
+      .toBeLessThan(scene.tweens.add.mock.invocationCallOrder[0]);
+    expect(scene.tweens.add.mock.calls[0][0].y).toBe(sprite.getData('baseY') - 20);
+  });
+
+  it('an illegal card shows no hand cursor and does not lift', () => {
+    sprite.setData('isLegal', false);
+    handlers.pointerover();
+    expect(scene.input.setDefaultCursor).not.toHaveBeenCalledWith('pointer');
+    expect(scene.tweens.add).not.toHaveBeenCalled();
+  });
+
+  it('pointerout settles a card that turned illegal while lifted', () => {
+    sprite.setData('isLegal', false);
+    sprite.y = sprite.getData('baseY') - 12; // mid-lift
+    handlers.pointerout();
+    expect(scene.input.setDefaultCursor).toHaveBeenCalledWith('default');
+    expect(scene.tweens.killTweensOf).toHaveBeenCalledWith(sprite);
+    expect(scene.tweens.add.mock.calls[0][0].y).toBe(sprite.getData('baseY'));
+  });
+
+  it('cards being dealt neither lift nor show the hand cursor', () => {
+    manager._isDealing = true;
+    sprite.setData('isLegal', true);
+    handlers.pointerover();
+    expect(scene.tweens.add).not.toHaveBeenCalled();
+    expect(scene.input.setDefaultCursor).not.toHaveBeenCalledWith('pointer');
+  });
+
+  it('turning illegal while lifted stops the lift and drops the card back', () => {
+    sprite.setData('isLegal', true);
+    sprite.y = sprite.getData('baseY') - 20;
+    sprite.setTint = vi.fn();
+    sprite.clearTint = vi.fn();
+    sprite.active = true;
+    scene._sprites[1].setTint = vi.fn();
+    scene._sprites[1].active = true;
+    manager.updateCardLegality(() => true, false);
+    expect(scene.tweens.killTweensOf).toHaveBeenCalledWith(sprite);
+    expect(sprite.y).toBe(sprite.getData('baseY'));
+    expect(scene.input.setDefaultCursor).toHaveBeenCalledWith('default');
+  });
+});

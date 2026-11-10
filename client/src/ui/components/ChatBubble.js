@@ -102,18 +102,23 @@ export function showChatBubble(positionKey, x, y, message, color = null, duratio
 
   // Set up fade out and removal
   const fadeTime = 300;
-  const timer = setTimeout(() => {
+  const entry = { bubble, timer: null };
+  entry.timer = setTimeout(() => {
     bubble.classList.add('fade-out');
-    setTimeout(() => {
+    entry.timer = setTimeout(() => {
       if (bubble.parentNode) {
         bubble.remove();
       }
-      delete activeChatBubbles[positionKey];
+      // A newer bubble may own this slot by now (a message that arrived
+      // during the fade): only forget our own
+      if (activeChatBubbles[positionKey] === entry) {
+        delete activeChatBubbles[positionKey];
+      }
     }, fadeTime);
   }, duration - fadeTime);
 
   // Store reference
-  activeChatBubbles[positionKey] = { bubble, timer };
+  activeChatBubbles[positionKey] = entry;
 }
 
 /**

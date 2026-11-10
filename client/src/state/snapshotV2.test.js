@@ -1,8 +1,9 @@
 // @vitest-environment node
 // (reads the server fixtures from disk: file: URLs need the node environment)
 import { describe, it, expect } from 'vitest';
-import fs from 'fs';
-import path from 'path';
+import fs from 'node:fs';
+// node:path: phaser (devDependency) installs the npm 'path' polyfill, which a bare 'path' resolves to here
+import path from 'node:path';
 import { fileURLToPath } from 'url';
 import {
   SNAPSHOT_VERSION, STAGES, parseSnapshotV2, classifySeq, seatAt, relativeSeat, isComplete, teamOf, mergeSnapshot,

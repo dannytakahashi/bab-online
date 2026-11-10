@@ -12,6 +12,9 @@ RUN npm ci
 # Copy source
 COPY . .
 
+# Build the web client (client/dist: the page Express serves at /)
+RUN npm run build:client
+
 # Production stage
 FROM node:18-alpine
 
