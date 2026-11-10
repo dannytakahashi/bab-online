@@ -359,9 +359,13 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
   socketManager.on(SERVER_EVENTS.REJOIN_FAILED, (data) => {
     console.log('❌ Rejoin failed:', data.reason);
 
-    // Clear stored game
-    sessionStorage.removeItem('gameId');
-    socketManager.clearGameId();
+    // Clear stored game, except for 'Already connected': a page load sends
+    // rejoinGame twice (SocketManager on connect and the load handler) and
+    // the second one is told this, while the first one's seat is live
+    if (data?.reason !== 'Already connected') {
+      sessionStorage.removeItem('gameId');
+      socketManager.clearGameId();
+    }
 
     onRejoinFailed?.(data);
   });

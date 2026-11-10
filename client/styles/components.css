@@ -683,6 +683,50 @@
 }
 
 /* ==========================================================================
+   Connection banner (ui/components/ConnectionBanner.js): top of the page,
+   above the teams fade overlay (99999); toasts stay at the bottom
+   ========================================================================== */
+
+.connection-banner {
+    position: fixed;
+    top: 10px;
+    left: 50%;
+    transform: translate(-50%, -8px);
+    max-width: calc(100vw - 32px);
+    box-sizing: border-box;
+    padding: 8px 18px;
+    border-radius: 20px;
+    border: 1px solid #f59e0b;
+    background: rgba(20, 20, 20, 0.92);
+    color: #fde68a;
+    font-size: 14px;
+    text-align: center;
+    pointer-events: none;
+    z-index: 100000;
+    /* Hidden by opacity, not display/visibility, so the live region stays
+       in the accessibility tree; it is empty while hidden */
+    opacity: 0;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.connection-banner:empty {
+    padding: 0;
+    border: 0;
+}
+
+.connection-banner.visible {
+    opacity: 1;
+    transform: translate(-50%, 0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .connection-banner,
+    .connection-banner.visible {
+        transition: none;
+    }
+}
+
+/* ==========================================================================
    Rainbow Indicator
    ========================================================================== */
 

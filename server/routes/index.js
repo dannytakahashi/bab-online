@@ -3,14 +3,11 @@
  */
 
 const express = require('express');
-const path = require('path');
 const { getDB } = require('../database');
 const router = express.Router();
 
-// Serve main page
-router.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, '..', '..', 'client', 'index.html'));
-});
+// The main page (`/`, the built client/dist/index.html) is served by
+// server/staticAssets.js, mounted before these routes
 
 // Privacy policy
 router.get('/privacy', (req, res) => {

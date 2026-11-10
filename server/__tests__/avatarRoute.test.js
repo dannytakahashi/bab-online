@@ -12,6 +12,7 @@ const avatarStore = require('../avatar/avatarStore');
 const image = require('../avatar/image');
 const fx = require('../testUtils/avatarFixtures');
 const { logger } = require('../utils/logger');
+const { createCompression } = require('../middleware/compression');
 
 let server;
 let base;
@@ -20,9 +21,11 @@ let KIM;
 let t = 1_000_000;
 let router;
 
-async function start({ limits } = {}) {
+async function start({ limits, compress = false } = {}) {
     if (server) await stop();
     const app = express();
+    // server/index.js mounts compression ahead of the avatar router
+    if (compress) app.use(createCompression());
     // the page CSP, as server/index.js sets it for every response
     app.use((req, res, next) => { res.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self' data: blob:"); next(); });
     router = createAvatarRouter({ getUsersCollection: () => db && db.users, avatarStore, now: () => t, limits });
@@ -100,6 +103,27 @@ test('200: sharp WebP <= 256 px with the exact headers; immutable only when v is
         expect({ q, status: r.status, cc: r.headers.get('cache-control'), etag: r.headers.get('etag') })
             .toEqual({ q, status: 200, cc: 'public, max-age=60, must-revalidate', etag: `"${V()}"` });
     }
+});
+
+test('compression in front changes nothing: same headers and bytes for 200, 304 and 404', async () => {
+    const enc = { 'Accept-Encoding': 'br, gzip' };
+    const snap = async () => {
+        const ok = await get(`/avatar/kim?v=${V()}`, { headers: enc });
+        const body = Buffer.from(await ok.arrayBuffer());
+        const nm = await get(`/avatar/kim?v=${V()}`, { headers: { ...enc, 'If-None-Match': `"${V()}"` } });
+        const miss = await get('/avatar/nobody', { headers: enc });
+        return {
+            ok: headersOf(ok), body: body.toString('base64'),
+            nm: [nm.status, headersOf(nm)],
+            miss: [miss.status, miss.headers.get('cache-control'), miss.headers.get('content-encoding'), await miss.text()],
+        };
+    };
+    const plain = await snap();
+    await start({ compress: true });
+    const compressed = await snap();
+    expect(compressed.ok['content-encoding']).toBeUndefined();
+    // images are not compressible; the 404 text is under the 1 kB threshold
+    expect(compressed).toEqual(plain);
 });
 
 test('304 on If-None-Match; HEAD works; names are percent-decoded', async () => {

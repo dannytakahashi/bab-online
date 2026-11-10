@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy" content="
         default-src 'self';
-        script-src 'self' 'unsafe-eval' https://cdn.jsdelivr.net https://cdn.socket.io;
+        script-src 'self' 'unsafe-eval';
         img-src 'self' data: blob:;
         connect-src 'self' ws://localhost:3000 wss://bab-online-production.up.railway.app https://bab-online-production.up.railway.app;
         font-src 'self' https://fonts.gstatic.com;
@@ -13,17 +13,15 @@
         media-src 'self' blob:;">
 
     <title>BAB Online</title>
-    <script src="https://cdn.jsdelivr.net/npm/phaser@3.55.2/dist/phaser.min.js"></script>
-    <script src="https://cdn.socket.io/4.0.1/socket.io.min.js"></script>
-    <link rel="stylesheet" href="styles.css">
-    <link rel="stylesheet" href="styles/components.css">
-    <link rel="icon" type="image/x-icon" href="favicon.ico">
-
+    <!-- Source page: `vite build` writes client/dist/index.html (hashed
+         bundle and stylesheets), which is what Express serves. Phaser and
+         socket.io-client are bundled (src/vendor.js, src/socket/createSocket.js) -->
+    <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="/styles/components.css">
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <script type="module" src="/src/main.js"></script>
 </head>
 <body>
     <div id="game-container"></div>
-    <!-- Create socket before modular code loads -->
-    <script src="socket-init.js"></script>
-    <script type="module" src="dist/main.js"></script>
 </body>
 </html>

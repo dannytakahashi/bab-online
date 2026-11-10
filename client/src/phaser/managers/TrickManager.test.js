@@ -228,3 +228,108 @@ describe('TrickManager collect gate', () => {
     expect(now).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('TrickManager addPlayedCard animate flag', () => {
+  it('animate=false never tweens, even when only y differs (was `animate && x || y`)', () => {
+    const scene = createMockScene();
+    scene.add = { image: vi.fn(() => createMockCard({ x: 0, y: 0 })) };
+    const tm = new TrickManager(scene);
+    tm.setPlayerPosition(1);
+    tm.updatePlayPositions();
+    const pos = tm._playPositions.partner;
+    const card = createMockCard({ x: pos.x, y: pos.y + 40 });
+    tm.addPlayedCard({ suit: 'spades', rank: 'A' }, 3, card, false);
+    expect(scene.tweens.add).not.toHaveBeenCalled();
+    expect([card.x, card.y]).toEqual([pos.x, pos.y]);
+
+    const moving = createMockCard({ x: pos.x, y: pos.y + 40 });
+    tm.addPlayedCard({ suit: 'spades', rank: 'K' }, 3, moving, true);
+    expect(scene.tweens.add).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('TrickManager trick-stack hover', () => {
+  let scene;
+  let tm;
+  let handlers;
+
+  function hoverableCard() {
+    const card = createMockCard();
+    card.on = vi.fn((event, fn) => { (handlers.get(card) || handlers.set(card, {}).get(card))[event] = fn; });
+    return card;
+  }
+
+  beforeEach(() => {
+    handlers = new Map();
+    scene = createMockScene();
+    scene.tweens.add = vi.fn((cfg) => ({ cfg, stop: vi.fn() }));
+    scene.time = { delayedCall: vi.fn(() => ({ remove: vi.fn() })) };
+    tm = new TrickManager(scene);
+    tm.setPlayerPosition(1);
+    setVisibility('visible');
+  });
+
+  afterEach(() => setVisibility('visible'));
+
+  it('fans from the stack\'s CURRENT position after a resize (the history entry, not a stale copy)', () => {
+    const cards = [hoverableCard(), hoverableCard()];
+    tm._currentTrick.push(...cards);
+    tm.completeTrick(1, true);
+    tm._endCollect(); // the collect landed
+    const entry = tm._teamTrickHistory[0];
+
+    scene.scale.width = 1000; // resize: the stack moves
+    tm.repositionTrickHistory();
+    const moved = { ...entry.position };
+    scene.tweens.add.mockClear();
+
+    handlers.get(cards[1]).pointerover();
+    const targets = scene.tweens.add.mock.calls.map(([cfg]) => [cfg.x, cfg.y]);
+    const sx = 1000 / 1920;
+    expect(targets[0]).toEqual([moved.x, moved.y]);
+    expect(targets[1][0]).toBeCloseTo(moved.x + 30 * sx);
+
+    scene.tweens.add.mockClear();
+    handlers.get(cards[1]).pointerout();
+    expect(scene.tweens.add.mock.calls.every(([cfg]) => cfg.x === moved.x && cfg.y === moved.y)).toBe(true);
+  });
+
+  it('only the previous hover tween is stopped; never killTweensOf (it would kill the collect / whisk)', () => {
+    const cards = [hoverableCard()];
+    tm._currentTrick.push(...cards);
+    tm.completeTrick(1, true);
+    tm._endCollect();
+    scene.tweens.killTweensOf.mockClear();
+
+    handlers.get(cards[0]).pointerover();
+    const first = cards[0].getData('hoverTween');
+    handlers.get(cards[0]).pointerout();
+    expect(first.stop).toHaveBeenCalled();
+    expect(scene.tweens.killTweensOf).not.toHaveBeenCalled();
+  });
+
+  it('ignores hovers while the trick is still flying to its stack or being whisked away', () => {
+    const cards = [hoverableCard()];
+    tm._currentTrick.push(...cards);
+    tm.completeTrick(1, true);
+    expect(tm.isCollecting()).toBe(true);
+    scene.tweens.add.mockClear();
+    handlers.get(cards[0]).pointerover();
+    handlers.get(cards[0]).pointerout();
+    expect(scene.tweens.add).not.toHaveBeenCalled();
+
+    tm._endCollect();
+    tm._animatingAway = true;
+    handlers.get(cards[0]).pointerover();
+    expect(scene.tweens.add).not.toHaveBeenCalled();
+  });
+
+  it('restored placeholder stacks hover from their history entry too', () => {
+    scene.add = { image: vi.fn(() => hoverableCard()) };
+    tm.restoreTrickPlaceholders(1, 0);
+    const entry = tm._teamTrickHistory[0];
+    entry.position.x = 777; // what repositionTrickHistory does
+    handlers.get(entry.cards[0]).pointerover();
+    expect(scene.tweens.add.mock.calls[0][0].x).toBe(777);
+  });
+});

@@ -194,14 +194,16 @@ export class CardManager {
     const scene = this._scene;
 
     sprite.on('pointerover', () => {
-      // Set hand cursor on hover
+      // The deal tween owns the card until it lands; an illegal card neither
+      // lifts nor shows the hand cursor (it can't be played)
+      if (this._isDealing || !sprite.getData('isLegal')) return;
       scene.input.setDefaultCursor('pointer');
 
-      // Only apply hover effect to legal cards
-      if (!sprite.getData('isLegal')) return;
-
       // Use stored baseY which is set after positioning is complete
-      const baseY = sprite.getData('baseY') || sprite.y;
+      const baseY = sprite.getData('baseY') ?? sprite.y;
+      // Quick in/out hovers queued competing tweens (the card could end up
+      // stuck raised): only the newest hover tween runs
+      scene.tweens.killTweensOf(sprite);
       scene.tweens.add({
         targets: sprite,
         y: baseY - 20,
@@ -214,12 +216,13 @@ export class CardManager {
     sprite.on('pointerout', () => {
       // Reset cursor
       scene.input.setDefaultCursor('default');
+      if (this._isDealing) return;
 
-      // Only apply hover effect to legal cards
-      if (!sprite.getData('isLegal')) return;
-
-      // Use stored baseY which is set after positioning is complete
-      const baseY = sprite.getData('baseY') || sprite.y;
+      // Always settle back to baseY: a card that turned illegal while lifted
+      // must not stay up
+      const baseY = sprite.getData('baseY') ?? sprite.y;
+      scene.tweens.killTweensOf(sprite);
+      if (sprite.y === baseY) return;
       scene.tweens.add({
         targets: sprite,
         y: baseY,
@@ -392,12 +395,7 @@ export class CardManager {
         sprite.setTint(0xaaaaaa);
         sprite.setData('isLegal', false);
         // Reset position if card was hovered when becoming illegal
-        if (wasLegal) {
-          const baseY = sprite.getData('baseY');
-          if (baseY !== undefined) {
-            sprite.y = baseY;
-          }
-        }
+        if (wasLegal) this._settleIllegal(sprite);
         return;
       }
 
@@ -411,14 +409,23 @@ export class CardManager {
         sprite.setTint(0xaaaaaa);
         sprite.setData('isLegal', false);
         // Reset position if card was hovered when becoming illegal
-        if (wasLegal) {
-          const baseY = sprite.getData('baseY');
-          if (baseY !== undefined) {
-            sprite.y = baseY;
-          }
-        }
+        if (wasLegal) this._settleIllegal(sprite);
       }
     });
+  }
+
+  /**
+   * A card that just turned illegal drops back to the hand line (stopping a
+   * hover lift still in flight) and loses the hand cursor if it was hovered.
+   */
+  _settleIllegal(sprite) {
+    const baseY = sprite.getData('baseY');
+    if (baseY === undefined || this._isDealing) return;
+    if (sprite.y !== baseY) {
+      this._scene.tweens?.killTweensOf?.(sprite);
+      sprite.y = baseY;
+      this._scene.input?.setDefaultCursor?.('default');
+    }
   }
 
   /**

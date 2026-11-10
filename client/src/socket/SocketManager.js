@@ -92,6 +92,11 @@ export class SocketManager {
    */
   initialize(socket) {
     this._socket = socket;
+    // The socket may have connected before the app initialized (the
+    // connect event has fired already): start from its real state
+    if (socket?.connected) {
+      this._state = CONNECTION_STATE.CONNECTED;
+    }
     this._setupConnectionHandlers();
   }
 

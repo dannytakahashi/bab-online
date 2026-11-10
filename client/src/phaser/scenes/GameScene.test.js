@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 
 // Phaser is a CDN global in production; the scene only needs a base class here
 globalThis.Phaser = { Scene: class Scene {} };
@@ -252,5 +252,131 @@ describe('GameScene handleCardPlayed fly-in timing', () => {
     const scene = opponentScene();
     scene.handleCardPlayed({ card: { suit: 'spades', rank: 'A' }, position: 2, resumeInMs: 600 });
     expect(scene.tweens.add.mock.calls[0][0].duration).toBe(150);
+  });
+});
+
+describe('GameScene refreshControlAfterActive (/lazy then /active)', () => {
+  function activeScene(state) {
+    const scene = new GameScene();
+    scene.state = {
+      position: 1, currentTurn: 1, isSpectator: false, isLazy: false, isBidding: false, hasPlayedCard: false,
+      myCards: [{ suit: 'spades', rank: 'A' }, { suit: 'hearts', rank: '2' }], bids: {}, playedCardIndex: 0,
+      trump: null, trumpBroken: false, leadCard: null, leadPosition: null, ...state,
+    };
+    scene.cardManager = { updateCardLegality: vi.fn() };
+    scene.bidManager = { showBidUI: vi.fn() };
+    return scene;
+  }
+  const onBid = () => {};
+
+  it('mid-bid with no bid placed: cards stay dimmed and the bid UI comes back for the hand', () => {
+    const scene = activeScene({ isBidding: true });
+    scene.refreshControlAfterActive(onBid);
+    expect(scene.cardManager.updateCardLegality).toHaveBeenCalledWith(expect.any(Function), false);
+    expect(scene.bidManager.showBidUI).toHaveBeenCalledWith(2, onBid);
+  });
+
+  it('mid-bid after the bot already bid for the seat: no bid UI', () => {
+    const scene = activeScene({ isBidding: true, bids: { 1: '3' } });
+    scene.refreshControlAfterActive(onBid);
+    expect(scene.bidManager.showBidUI).not.toHaveBeenCalled();
+  });
+
+  it('playing, my turn: legality is recomputed with canPlay (lazy mode had dimmed every card)', () => {
+    const scene = activeScene({});
+    scene.refreshControlAfterActive(onBid);
+    const [checker, canPlay] = scene.cardManager.updateCardLegality.mock.calls.at(-1);
+    expect(canPlay).toBe(true);
+    expect(typeof checker).toBe('function');
+    expect(scene.bidManager.showBidUI).not.toHaveBeenCalled();
+  });
+
+  it('playing, not my turn or already played this trick: stays dimmed', () => {
+    for (const s of [{ currentTurn: 2 }, { hasPlayedCard: true }]) {
+      const scene = activeScene(s);
+      scene.refreshControlAfterActive(onBid);
+      expect(scene.cardManager.updateCardLegality.mock.calls.at(-1)[1]).toBe(false);
+    }
+  });
+
+  it('a collect in flight keeps the hand dimmed until it lands', () => {
+    const scene = activeScene({});
+    let landed;
+    scene.trickManager = { isCollecting: () => true, onCollected: (cb) => { landed = cb; } };
+    scene.refreshControlAfterActive(onBid);
+    expect(scene.cardManager.updateCardLegality.mock.calls.at(-1)[1]).toBe(false);
+    landed();
+    expect(scene.cardManager.updateCardLegality.mock.calls.at(-1)[1]).toBe(true);
+  });
+});
+
+describe('GameScene handleCreateUI fade-out', () => {
+  let raf;
+  beforeEach(() => {
+    vi.useFakeTimers();
+    raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => { cb(); return 1; });
+  });
+  afterEach(() => {
+    raf.mockRestore();
+    vi.useRealTimers();
+    document.getElementById('transition-overlay')?.remove();
+    window._transitionOverlay = null;
+    window._readyForGameUI = false;
+  });
+
+  function sceneWithDraw() {
+    const scene = new GameScene();
+    scene.drawManager = { cleanup: vi.fn() };
+    return scene;
+  }
+
+  it('lifts the overlay and signals gameUIReady even when transitionend never fires', () => {
+    const ready = vi.fn();
+    window.addEventListener('gameUIReady', ready, { once: true });
+    const onUIReady = vi.fn();
+    sceneWithDraw().handleCreateUI({}, onUIReady);
+    expect(onUIReady).toHaveBeenCalled();
+    expect(document.getElementById('transition-overlay')).not.toBeNull();
+    vi.advanceTimersByTime(1200 + 250);
+    expect(document.getElementById('transition-overlay')).toBeNull();
+    expect(window._transitionOverlay).toBeNull();
+    vi.advanceTimersByTime(500);
+    expect(window._readyForGameUI).toBe(true);
+    expect(ready).toHaveBeenCalledTimes(1);
+  });
+
+  it('a rejoin/exit that removed the overlay mid-fade owns the UI: no late gameUIReady', async () => {
+    const { removeTransitionOverlay } = await import('../../ui/transitionOverlay.js');
+    const ready = vi.fn();
+    window.addEventListener('gameUIReady', ready);
+    sceneWithDraw().handleCreateUI({}, vi.fn());
+    removeTransitionOverlay();
+    vi.advanceTimersByTime(5000);
+    expect(ready).not.toHaveBeenCalled();
+    expect(window._readyForGameUI).toBe(false);
+    window.removeEventListener('gameUIReady', ready);
+  });
+});
+
+describe('GameScene handleCardPlayed (lazy: the bot played my card)', () => {
+  it('stops the hand sprite\'s hover/layout tweens before flying it in', () => {
+    const scene = new GameScene();
+    const sprite = { removeAllListeners: vi.fn(), disableInteractive: vi.fn(), setData: vi.fn(), setDepth: vi.fn() };
+    scene.state = {
+      position: 1, currentTrick: [{}, {}], isSpectator: false, isLazy: true,
+      optimisticPlayCard: vi.fn(), confirmCardPlay: vi.fn(),
+    };
+    scene.callbacks = {};
+    scene.tweens = { add: vi.fn(() => ({ stop: vi.fn() })) };
+    scene.cardManager = { extractCard: vi.fn(() => sprite), repositionHand: vi.fn() };
+    scene.trickManager = {
+      setPlayerPosition: vi.fn(), updatePlayPositions: vi.fn(), _playPositions: { self: { x: 5, y: 6 } },
+      _stopCardAnimations: vi.fn(), _currentTrick: [],
+    };
+    scene.handleCardPlayed({ card: { suit: 'spades', rank: 'A' }, position: 1 });
+    expect(scene.trickManager._stopCardAnimations).toHaveBeenCalledWith(sprite);
+    expect(scene.trickManager._stopCardAnimations.mock.invocationCallOrder[0])
+      .toBeLessThan(scene.tweens.add.mock.invocationCallOrder[0]);
+    expect(sprite.setData).toHaveBeenCalledWith('playPosition', 'self');
   });
 });

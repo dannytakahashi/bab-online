@@ -3,8 +3,9 @@
  * avatarUrls into pic fields, and the clientHello wiring (docs/avatars.md).
  */
 import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
-import fs from 'fs';
-import path from 'path';
+import fs from 'node:fs';
+// node:path: phaser (devDependency) installs the npm 'path' polyfill, which a bare 'path' resolves to here
+import path from 'node:path';
 import {
   avatarSrc, profileAvatarSrc, applyAvatarImg, foldAvatarPayload, foldUrls, isAvatarPic,
   installAvatarSupport, clientHello, inlineFor, CUSTOM_FALLBACK, AVATAR_RETRY_MS,

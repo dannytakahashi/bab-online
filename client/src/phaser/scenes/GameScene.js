@@ -15,6 +15,7 @@ import { TrickManager } from '../managers/TrickManager.js';
 import { EffectsManager } from '../managers/EffectsManager.js';
 import { DrawManager } from '../managers/DrawManager.js';
 import { flyInMs, FLIP } from '../pacing.js';
+import { transitionGeneration } from '../../ui/transitionOverlay.js';
 import { BidManager } from '../managers/BidManager.js';
 import { LayoutManager } from '../managers/LayoutManager.js';
 import {
@@ -815,18 +816,30 @@ export class GameScene extends Phaser.Scene {
           // Force reflow
           overlay.offsetHeight;
 
-          // Listen for fade to complete
-          overlay.addEventListener('transitionend', function onFadeComplete() {
+          // Listen for fade to complete. transitionend is not guaranteed
+          // (no event when the transition is skipped, e.g. a style flush
+          // the browser coalesces), so a timer finishes the fade as well
+          let finished = false;
+          const gen = transitionGeneration();
+          const onFadeComplete = () => {
+            if (finished) return;
+            finished = true;
             overlay.removeEventListener('transitionend', onFadeComplete);
+            clearTimeout(fallback);
+            // A rejoin or exit removed the overlay meanwhile and owns the UI
+            if (transitionGeneration() !== gen) return;
             overlay.remove();
-            window._transitionOverlay = null;
+            if (window._transitionOverlay === overlay) window._transitionOverlay = null;
 
             // Signal that UI can now be shown (after a short delay)
             setTimeout(() => {
+              if (transitionGeneration() !== gen) return;
               window._readyForGameUI = true;
               window.dispatchEvent(new Event('gameUIReady'));
             }, 500);
-          });
+          };
+          overlay.addEventListener('transitionend', onFadeComplete);
+          const fallback = setTimeout(onFadeComplete, fadeDuration + 250);
 
           // Fade out to reveal play screen
           overlay.style.opacity = '0';
@@ -1211,6 +1224,9 @@ export class GameScene extends Phaser.Scene {
       if (sprite) {
         sprite.removeAllListeners();
         sprite.disableInteractive();
+        // A hand-layout or hover tween still on the sprite would fight the
+        // move (and replay after a hidden tab)
+        this.trickManager._stopCardAnimations(sprite);
 
         // Animate to self play position
         this.trickManager.setPlayerPosition(myPosition);
@@ -1277,6 +1293,34 @@ export class GameScene extends Phaser.Scene {
         this.effectsManager.showImpactEvent('ot');
       }
     }
+  }
+
+  /**
+   * The local player took the seat back (/active): lazy mode had dimmed
+   * every card (isLegal false) and hidden the bid UI. updateTurn may have
+   * arrived while the seat was still lazy, so recompute here.
+   * @param {Function} onBidSelect - sends the chosen bid
+   */
+  refreshControlAfterActive(onBidSelect) {
+    const state = this.state;
+    if (state.isBidding) {
+      this.cardManager?.updateCardLegality(() => true, false);
+      const handSize = state.myCards?.length || 0;
+      if (this.bidManager && state.bids?.[state.position] === undefined && handSize > 0) {
+        this.bidManager.showBidUI(handSize, onBidSelect);
+      }
+      return;
+    }
+    // Same gate as handleUpdateTurn: the hand stays dimmed until a trick
+    // still flying to its stack lands
+    if (this.trickManager?.isCollecting?.()) {
+      this.cardManager?.updateCardLegality(() => true, false);
+      this.trickManager.onCollected(() => {
+        if (!state.isLazy) this.updateCardLegalityAfterPlay();
+      });
+      return;
+    }
+    this.updateCardLegalityAfterPlay();
   }
 
   /**

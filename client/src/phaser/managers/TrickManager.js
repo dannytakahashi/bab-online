@@ -282,8 +282,9 @@ export class TrickManager {
     // Store position key for resize handling
     sprite.setData('playPosition', positionKey);
 
-    // Animate to position
-    if (animate && sprite.x !== playPos.x || sprite.y !== playPos.y) {
+    // Animate to position (only when asked: `animate && x || y` used to
+    // tween a restored card whose y differed)
+    if (animate && (sprite.x !== playPos.x || sprite.y !== playPos.y)) {
       scene.tweens.add({
         targets: sprite,
         x: playPos.x,
@@ -382,25 +383,16 @@ export class TrickManager {
       card.originalDepth = 200 + index;
     });
 
-    // Store in history with trick number for resize handling
-    if (isMyTeam) {
-      this._teamTrickHistory.push({
-        cards: trickCards,
-        position: { ...winningPosition },
-        trickNumber,
-      });
-
-      // Add hover effects for team tricks (always inspectable)
-      this._setupTrickHover(trickCards, winningPosition);
-    } else {
-      this._oppTrickHistory.push({
-        cards: trickCards,
-        position: { ...winningPosition },
-        trickNumber,
-      });
-
-      this._setupTrickHover(trickCards, winningPosition);
-    }
+    // Store in history with trick number for resize handling. The hover
+    // reads the entry's position, which repositionTrickHistory updates in
+    // place (a copy left the fan at the pre-resize spot)
+    const entry = {
+      cards: trickCards,
+      position: { ...winningPosition },
+      trickNumber,
+    };
+    (isMyTeam ? this._teamTrickHistory : this._oppTrickHistory).push(entry);
+    this._setupTrickHover(trickCards, entry.position);
 
     // Clear current trick
     this._currentTrick = [];
@@ -416,41 +408,46 @@ export class TrickManager {
    */
   _setupTrickHover(trickCards, position) {
     const scene = this._scene;
-    const { x: scaleX, y: scaleY } = this.getScaleFactors();
+
+    // Move one card for the hover. Only the previous hover tween is stopped:
+    // killTweensOf would also kill a collect or the hand-end whisk, whose
+    // onComplete ends the collect / destroys the card and clears the table
+    const moveTo = (card, x, y) => {
+      card.getData?.('hoverTween')?.stop();
+      card.setData?.('hoverTween', null);
+      if (this.isVisible()) {
+        const tween = scene.tweens.add({
+          targets: card,
+          x,
+          y,
+          duration: 200,
+          ease: 'Power1',
+        });
+        card.setData?.('hoverTween', tween);
+      } else {
+        card.x = x;
+        card.y = y;
+      }
+    };
+
+    // Cards still flying to the stack (or whisked away) are not hoverable
+    const busy = () => this.isCollecting() || this._animatingAway;
 
     const fanOut = () => {
+      if (busy()) return;
+      // Read at hover time: resize moves the stack (same object, updated)
+      const { x: scaleX, y: scaleY } = this.getScaleFactors();
       trickCards.forEach((card, index) => {
         card.setDepth(250 + index);
-        if (this.isVisible()) {
-          scene.tweens.add({
-            targets: card,
-            x: position.x + index * 30 * scaleX,
-            y: position.y - index * 8 * scaleY,
-            duration: 200,
-            ease: 'Power1',
-          });
-        } else {
-          card.x = position.x + index * 30 * scaleX;
-          card.y = position.y - index * 8 * scaleY;
-        }
+        moveTo(card, position.x + index * 30 * scaleX, position.y - index * 8 * scaleY);
       });
     };
 
     const resetStack = () => {
+      if (busy()) return;
       trickCards.forEach((card) => {
         card.setDepth(card.originalDepth);
-        if (this.isVisible()) {
-          scene.tweens.add({
-            targets: card,
-            x: position.x,
-            y: position.y,
-            duration: 200,
-            ease: 'Power1',
-          });
-        } else {
-          card.x = position.x;
-          card.y = position.y;
-        }
+        moveTo(card, position.x, position.y);
       });
     };
 
@@ -892,16 +889,18 @@ export class TrickManager {
       this._teamTrickCount++;
       const pos = this._getTrickPosition(i, true);
       const cards = this._createPlaceholderStack(scene, pos);
-      this._teamTrickHistory.push({ cards, position: { ...pos }, trickNumber: i });
-      this._setupTrickHover(cards, pos);
+      const entry = { cards, position: { ...pos }, trickNumber: i };
+      this._teamTrickHistory.push(entry);
+      this._setupTrickHover(cards, entry.position);
     }
 
     for (let i = 1; i <= oppTricks; i++) {
       this._oppTrickCount++;
       const pos = this._getTrickPosition(i, false);
       const cards = this._createPlaceholderStack(scene, pos);
-      this._oppTrickHistory.push({ cards, position: { ...pos }, trickNumber: i });
-      this._setupTrickHover(cards, pos);
+      const entry = { cards, position: { ...pos }, trickNumber: i };
+      this._oppTrickHistory.push(entry);
+      this._setupTrickHover(cards, entry.position);
     }
 
     if (this._backgroundGraphics) {
