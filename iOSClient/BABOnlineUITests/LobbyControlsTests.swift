@@ -150,6 +150,14 @@ final class LobbyControlsTests: XCTestCase {
     /// the window and hittable without scrolling; after typing it stays hittable,
     /// above the software keyboard when one shows (none where the simulator has
     /// a hardware keyboard attached), and keeps the draft. Regular width too.
+    ///
+    /// The keyboard-overlap check (the compact layout's keyboard padding) only
+    /// runs where a software keyboard shows in the window: neither UI-plan
+    /// destination does (the closed Duo has a hardware keyboard attached, its
+    /// software keyboard parked below the window; the iPad is wide), so
+    /// the verification recipe adds an iPhone 17 run of this one test
+    /// (docs/ios-table-store.md, lobby section). Elsewhere the skip is recorded
+    /// as an activity in the result bundle.
     func testTournamentChatFieldOnScreen() {
         let fixture = "tournament-round"
         let app = Fixture.launch(fixture)
@@ -179,8 +187,13 @@ final class LobbyControlsTests: XCTestCase {
         let t = typed.frame
         XCTAssertTrue(typed.isHittable, "\(pose): with the keyboard up the chat field \(t) is not hittable")
         XCTAssertTrue(window.contains(t), "\(pose): with the keyboard up the chat field \(t) leaves the window")
-        if kb.exists && !kb.frame.isEmpty {
+        // with a hardware keyboard attached the software one still exists, parked
+        // below the window (closed Duo: y 722 in a 678 pt window), so only a
+        // keyboard that reaches into the window counts as showing
+        if kb.exists && !kb.frame.isEmpty && kb.frame.minY < window.maxY - 1 {
             XCTAssertLessThanOrEqual(t.maxY, kb.frame.minY + 1, "\(pose): the keyboard \(kb.frame) covers the chat field \(t)")
+        } else {
+            XCTContext.runActivity(named: "\(pose): no software keyboard, keyboard-overlap check skipped (run on an iPhone)") { _ in }
         }
         XCTAssertEqual(typed.value as? String, "gl all", "the draft")
         let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())

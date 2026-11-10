@@ -261,7 +261,17 @@ players and the standings) asserts the chat field is inside the window and the
 safe area and hittable without scrolling, then types and asserts it is still
 hittable, above the software keyboard when one shows (the simulator panel can
 attach a hardware keyboard, as on the closed Duo here; the iPhone 17 shows the
-software one) and keeps the draft.
+software one) and keeps the draft. Neither UI-plan destination shows a
+software keyboard in the window (closed Duo: hardware keyboard, the software
+one parked below the window; iPad: wide layout, no
+keyboard padding), so the plan alone never exercises the compact keyboard
+padding (`visibleHeight` / `.padding(.bottom, keyboard - buttonsHeight)`). The
+verification recipe for lobby or keyboard changes adds this one test on an
+iPhone 17: `xcodebuild test -testPlan BABOnlineUI -destination 'id=<iPhone 17>'
+-only-testing:BABOnlineUITests/LobbyControlsTests/testTournamentChatFieldOnScreen`
+(there, zeroing that padding fails it: the field is left under the keyboard;
+without a software keyboard the test records a "keyboard-overlap check
+skipped" activity instead).
 
 ## Fixture mode and Duo poses (roadmap items 26, 27)
 
