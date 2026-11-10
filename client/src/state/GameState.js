@@ -23,25 +23,40 @@ export const PHASE = {
 export class GameState {
   constructor() {
     this._listeners = new Map();
+    this.resetSession();
+  }
+
+  /**
+   * Forget the session identity too (sign-out, forceLogout, a failed
+   * restore), then reset the per-game state.
+   */
+  resetSession() {
+    // Session identity: survives reset() (game end, abort, /leave)
+    this.username = null;
+    this.tournamentId = null;
+    // Final tournament results seen from the game-end screen
+    this.pendingTournamentResults = null;
     this.reset();
   }
 
   /**
-   * Reset all state to initial values.
+   * Reset the per-game state to initial values. The session identity
+   * (username, tournamentId) is kept: a tournament host who finishes a game
+   * is still the host, and lobby ready state matches by username.
    */
   reset() {
     // Clear all event listeners to prevent stale callbacks
     this._listeners.clear();
 
-    // Player identity
+    // Seat identity (per game)
     this.playerId = null;
-    this.username = null;
     this.position = null;
     this.pic = null;
+    this.isSpectator = false;
 
     // Game info
     this.gameId = null;
-    this.tournamentId = null;
+    this.lobbyId = null;
     this.phase = PHASE.NONE;
     this.currentHand = 0;
     this.dealer = null;
@@ -397,11 +412,6 @@ export class GameState {
 
     const posIdx = this.playerData.position.indexOf(this.position);
     if (posIdx === -1) return;
-
-    // My username
-    this.username = this.playerData.username[posIdx]?.username ||
-      this.playerData.username[posIdx] ||
-      this.username;
 
     // Partner (position +/- 2)
     const partnerPos = team(this.position);

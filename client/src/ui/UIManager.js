@@ -1,8 +1,11 @@
 /**
  * UI Manager
  *
- * Manages screen lifecycle, transitions, and cleanup.
- * Acts as the central orchestrator for UI state.
+ * Renders and removes the DOM screens. Which screen is current is the
+ * client session's (state/ClientSession.js): showScreen() goes through its
+ * FSM, whose enter/exit hooks call renderScreen()/cleanupScreen() here, and
+ * getCurrentScreen()/isScreen() read it. The username is the session
+ * identity in GameState (one source, also read by voice and the lobbies).
  */
 
 import { showSignInScreen } from './screens/SignIn.js';
@@ -13,6 +16,8 @@ import { showTournamentLobby, removeTournamentLobby } from './screens/Tournament
 import { removePlayerQueue } from './components/PlayerQueue.js';
 import { removeFinalScoreOverlay } from './components/ScoreModal.js';
 import { removeTournamentResultsOverlay } from './components/TournamentScoreboard.js';
+import { getClientSession, SCREEN } from '../state/ClientSession.js';
+import { getGameState } from '../state/GameState.js';
 
 /**
  * Available screen types.
@@ -27,14 +32,42 @@ export const SCREENS = {
   GAME: 'game',
 };
 
+// UIManager screen -> client session screen (REGISTER is a view of SIGN_IN)
+const TO_SESSION = {
+  [SCREENS.NONE]: SCREEN.BOOT,
+  [SCREENS.SIGN_IN]: SCREEN.SIGN_IN,
+  [SCREENS.REGISTER]: SCREEN.SIGN_IN,
+  [SCREENS.MAIN_ROOM]: SCREEN.MAIN_ROOM,
+  [SCREENS.GAME_LOBBY]: SCREEN.LOBBY,
+  [SCREENS.TOURNAMENT_LOBBY]: SCREEN.TOURNAMENT_LOBBY,
+  [SCREENS.GAME]: SCREEN.TABLE,
+};
+const FROM_SESSION = {
+  [SCREEN.BOOT]: SCREENS.NONE,
+  [SCREEN.SIGN_IN]: SCREENS.SIGN_IN,
+  [SCREEN.MAIN_ROOM]: SCREENS.MAIN_ROOM,
+  [SCREEN.LOBBY]: SCREENS.GAME_LOBBY,
+  [SCREEN.TOURNAMENT_LOBBY]: SCREENS.TOURNAMENT_LOBBY,
+  [SCREEN.TABLE]: SCREENS.GAME,
+  [SCREEN.GAME_END]: SCREENS.GAME,
+};
+
+/** The UIManager name of a client session screen. */
+export function uiScreenFor(sessionScreen) {
+  return FROM_SESSION[sessionScreen] || SCREENS.NONE;
+}
+
+/** The client session screen of a UIManager name. */
+export function sessionScreenFor(uiScreen) {
+  return TO_SESSION[uiScreen] || null;
+}
+
 /**
  * UIManager singleton class.
  */
 class UIManager {
   constructor() {
-    this._currentScreen = SCREENS.NONE;
     this._socket = null;
-    this._username = null;
 
     // Screen cleanup functions
     this._cleanupFunctions = {
@@ -55,42 +88,62 @@ class UIManager {
    */
   initialize(socket, username = null) {
     this._socket = socket;
-    this._username = username;
+    if (username) this.setUsername(username);
   }
 
   /**
-   * Set the current username.
+   * The signed-in username: the session identity in GameState.
+   */
+  get _username() {
+    return getGameState().username;
+  }
+
+  /**
+   * Set the current username (the session identity).
    *
    * @param {string} username - The username
    */
   setUsername(username) {
-    this._username = username;
+    getGameState().username = username;
   }
 
   /**
-   * Get the current screen.
+   * The current screen, from the client session.
    *
-   * @returns {string} Current screen name
+   * @returns {string} Current screen name (SCREENS)
    */
   getCurrentScreen() {
-    return this._currentScreen;
+    return uiScreenFor(getClientSession().screen);
+  }
+
+  get _currentScreen() {
+    return this.getCurrentScreen();
   }
 
   /**
-   * Show a screen, cleaning up the previous one.
+   * Show a screen: a client session transition (its hooks clean up the
+   * previous screen and render this one through renderScreen).
    *
    * @param {string} screenName - Name of screen to show
    * @param {Object} data - Optional data for the screen
+   * @returns {boolean} whether the transition was legal
    */
   showScreen(screenName, data = {}) {
-    console.log(`UIManager: Transitioning from ${this._currentScreen} to ${screenName}`);
-
-    // Clean up current screen
-    if (this._currentScreen !== SCREENS.NONE) {
-      this._cleanupScreen(this._currentScreen);
+    const target = sessionScreenFor(screenName);
+    if (!target) {
+      console.warn(`UIManager: Unknown screen: ${screenName}`);
+      return false;
     }
+    return getClientSession().transition(target, data);
+  }
 
-    // Show new screen
+  /**
+   * Render a screen's DOM (called from the client session's enter hooks).
+   *
+   * @param {string} screenName - SCREENS
+   * @param {Object} data - Optional data for the screen
+   */
+  renderScreen(screenName, data = {}) {
     switch (screenName) {
       case SCREENS.SIGN_IN:
         this._showSignIn();
@@ -112,15 +165,17 @@ class UIManager {
         break;
       default:
         console.warn(`UIManager: Unknown screen: ${screenName}`);
-        return;
+        break;
     }
-
-    this._currentScreen = screenName;
   }
 
   /**
-   * Clean up the current screen.
+   * Remove a screen's DOM (called from the client session's exit hooks).
    */
+  cleanupScreen(screenName) {
+    this._cleanupScreen(screenName);
+  }
+
   _cleanupScreen(screenName) {
     const cleanup = this._cleanupFunctions[screenName];
     if (cleanup) {
@@ -286,18 +341,6 @@ class UIManager {
     // Also clean up auth screens in case they're lingering
     this._cleanupSignIn();
     this._cleanupRegister();
-
-    // Cleanup modular screens (with dashes)
-    const signInContainer = document.getElementById('sign-in-container');
-    if (signInContainer) signInContainer.remove();
-    const signInVignette = document.getElementById('sign-in-vignette');
-    if (signInVignette) signInVignette.remove();
-    const registerContainer = document.getElementById('register-container');
-    if (registerContainer) registerContainer.remove();
-    const registerVignette = document.getElementById('register-vignette');
-    if (registerVignette) registerVignette.remove();
-
-    this._currentScreen = SCREENS.GAME;
   }
 
   /**
@@ -344,15 +387,14 @@ class UIManager {
    * @returns {boolean} True if active
    */
   isScreen(screenName) {
-    return this._currentScreen === screenName;
+    return this.getCurrentScreen() === screenName;
   }
 
   /**
-   * Reset the UIManager state.
+   * Remove every screen overlay (the screen itself is the session's).
    */
   reset() {
     this._cleanupAllOverlays();
-    this._currentScreen = SCREENS.NONE;
   }
 }
 

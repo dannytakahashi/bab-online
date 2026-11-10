@@ -20,7 +20,8 @@ import { installAvatarSupport } from './utils/avatar.js';
 import { isLegalMove } from './rules/legality.js';
 
 // State
-import { PHASE, getGameState, resetGameState } from './state/GameState.js';
+import { PHASE, getGameState } from './state/GameState.js';
+import { getClientSession, SCREEN, ROLE, EXIT } from './state/ClientSession.js';
 
 // Socket
 import { getSocketManager, initializeSocketManager } from './socket/SocketManager.js';
@@ -41,7 +42,7 @@ import { showRecordsPage } from './ui/screens/RecordsPage.js';
 import { updatePlayerSearchResults } from './ui/screens/PlayerSearchPage.js';
 import { removeTournamentLobby, addTournamentChatMessage, updateTournamentPlayers, updateTournamentScoreboardUI, updateTournamentRoundIndicator, updateTournamentActiveGames, setTournamentPhase } from './ui/screens/TournamentLobby.js';
 import { showTournamentResultsOverlay } from './ui/components/TournamentScoreboard.js';
-import { SCREENS, getUIManager, initializeUIManager } from './ui/UIManager.js';
+import { SCREENS, initializeUIManager } from './ui/UIManager.js';
 
 // Phaser
 import { createPhaserGame } from './phaser/PhaserGame.js';
@@ -73,6 +74,10 @@ export function setGameScene(scene) {
 
   // Also set window.gameScene for global access
   window.gameScene = scene;
+
+  // Table events that arrived while the scene was restarting (an exit's
+  // teardown restarts it; a new table can start right after)
+  flushSceneQueue(scene);
 
   // Handle tab visibility change - reposition elements when tab becomes visible
   // This fixes card positioning issues on background tabs during game start
@@ -113,10 +118,39 @@ export function clearGameScene() {
   console.log('🎮 Game scene reference cleared');
 }
 
+// Scene work deferred until the restarted scene registers, tagged with the
+// table generation it belongs to (an exit or a new table drops it)
+let sceneQueue = [];
+
+/**
+ * Run fn(scene) now, or once the restarting scene has registered.
+ */
+function withScene(fn) {
+  const scene = getGameScene();
+  if (scene) {
+    fn(scene);
+    return;
+  }
+  sceneQueue.push({ fn, generation: session.tableGeneration });
+}
+
+function flushSceneQueue(scene) {
+  const queued = sceneQueue;
+  sceneQueue = [];
+  for (const { fn, generation } of queued) {
+    if (generation !== session.tableGeneration) continue;
+    try {
+      fn(scene);
+    } catch (err) {
+      console.error('Deferred scene work failed:', err);
+    }
+  }
+}
+
 // UI Components - Game Log
 import { showGameLog } from './ui/components/GameLog.js';
 import { clearChatBubbles } from './ui/components/ChatBubble.js';
-import { getTeamNames, formatHandCompleteMessages, formatGameEndMessages, showFinalScoreOverlay } from './ui/components/ScoreModal.js';
+import { getTeamNames, formatHandCompleteMessages, formatGameEndMessages, showFinalScoreOverlay, removeFinalScoreOverlay } from './ui/components/ScoreModal.js';
 
 // Bridge for GameScene (phaser/scenes/GameScene.js), its only reader: it
 // registers itself through setGameScene and reads the rest from here
@@ -226,34 +260,18 @@ installAvatarSupport(socket, {
   build: typeof __APP_BUILD__ !== 'undefined' ? __APP_BUILD__ : 'dev',
 });
 
-// ==================== RECONNECTION LOGIC ====================
+// ==================== SESSION / RECONNECTION ====================
 
-// Track if we've already attempted rejoin this session
-let rejoinAttempted = false;
-// Track if rejoin was successful (to ignore mainRoomJoined during game)
-let rejoinSucceeded = false;
-
-// The first connect is handled by the window.load handler (callbacks must be
-// registered first). On every later connect the server no longer knows
-// this socket (a new socket id, or a restarted server): in a game or while
-// spectating SocketManager rejoins; anywhere else (main room, lobby,
-// tournament lobby) the session has to be restored, or every action
-// answers "User not found" until a reload. restoreSessionResponse then
-// routes to the active game, the tournament or the main room
-let hadConnected = socket.connected;
-// Socket id whose session was last restored: a reconnect gets a new id
-let sessionRestoredSocketId = null;
-
-function restoreSessionAfterReconnect() {
-  if (sessionStorage.getItem('gameId') || sessionStorage.getItem('spectatingGameId')) return;
-  if (!sessionStorage.getItem('username') || !sessionStorage.getItem('sessionToken')) return;
-  attemptSessionRestore();
-}
+// The client session (state/ClientSession.js) is the one place that knows
+// the current screen, the table role and every gameId copy. On every connect
+// of a signed-in tab it restores the session first (once per socket id),
+// and restoreSessionResponse then rejoins (one rejoinGame per socket),
+// re-spectates or re-enters the current screen. The table is entered only
+// through session.enterTable and left only through session.exitTable.
+const session = getClientSession();
 
 socket.on('connect', () => {
   console.log('Connected to server:', socket.id);
-  if (hadConnected) restoreSessionAfterReconnect();
-  hadConnected = true;
 });
 
 socket.on('disconnect', (reason) => {
@@ -274,83 +292,12 @@ socket.io.on('reconnect', (attemptNumber) => {
 
 socket.io.on('reconnect_failed', () => {
   console.log('Reconnection failed after all attempts');
-
-  // Full cleanup on reconnect failure
-  const scene = getGameScene();
-  if (scene) {
-    scene.scene.restart();
-  }
-  if (scene && scene.layoutManager) {
-    scene.layoutManager.cleanupDomBackgrounds();
-  }
-
-  // Clear opponent avatars and dealer button
-  if (scene && scene.opponentManager) {
-    scene.opponentManager.clearAll();
-  }
-
-  // Clear player info box
-  if (scene && scene.clearPlayerInfo) {
-    scene.clearPlayerInfo();
-  }
-
-  // Clear chat bubbles
-  clearChatBubbles();
-  removeTransitionOverlay();
-
-  // uiManager is local to initializeApp(); use the singleton accessor here
-  const uiManager = getUIManager();
-  uiManager.removeWaitingScreen();
-  uiManager.clearUI();
-
-  // Clear game log
-  let gameFeed = document.getElementById("gameFeed");
-  if (gameFeed) gameFeed.remove();
-  gameLogInstance = null;
-
-  // Remove width restriction from game container
-  document.getElementById('game-container')?.classList.remove('in-game');
-
-  // Clear session and state
+  // The tab's credentials go; the device's saved session stays
   sessionStorage.removeItem('username');
   sessionStorage.removeItem('sessionToken');
-  sessionStorage.removeItem('gameId');
-  getGameState().reset();
-
-  // Show sign-in screen
-  displaySignInScreen();
+  session.clearIdentity();
+  displaySignInScreen(EXIT.RECONNECT_FAILED);
   alert("Connection lost. Please sign in again.");
-});
-
-// Handle rejoinSuccess cleanup (main state restoration via gameHandlers onRejoinSuccess)
-socket.on('rejoinSuccess', (data) => {
-  console.log('Rejoin successful:', data);
-  rejoinSucceeded = true;
-
-  // Remove any auth screens that might be showing
-  const signInContainer = document.getElementById('sign-in-container');
-  if (signInContainer) signInContainer.remove();
-  const signInVignette = document.getElementById('sign-in-vignette');
-  if (signInVignette) signInVignette.remove();
-  const legacySignIn = document.getElementById('signInContainer');
-  if (legacySignIn) legacySignIn.remove();
-  const legacyVignette = document.getElementById('SignInVignette');
-  if (legacyVignette) legacyVignette.remove();
-  const registerContainer = document.getElementById('register-container');
-  if (registerContainer) registerContainer.remove();
-  const registerVignette = document.getElementById('register-vignette');
-  if (registerVignette) registerVignette.remove();
-
-  // Also remove main room and lobby if present
-  removeMainRoom();
-  removeGameLobby();
-
-  // Restore tournament context (server includes it when the rejoined game
-  // belongs to a tournament) so the game-end screen offers 'Return to Tournament'
-  if (data.tournamentId !== undefined) {
-    getGameState().tournamentId = data.tournamentId;
-  }
-  // Note: State restoration and UI rebuild handled by gameHandlers onRejoinSuccess callback
 });
 
 // Blocked users — chat from these usernames is hidden locally. Populated from
@@ -393,39 +340,6 @@ socket.on('deleteAccountResponse', (data) => {
   }
 });
 
-socket.on('rejoinFailed', (data) => {
-  console.log('Rejoin failed:', data?.reason || data);
-  // Only clear gameId if it's a real failure, not "Already connected"
-  // "Already connected" means a previous rejoin attempt succeeded
-  const reason = typeof data === 'string' ? data : data?.reason;
-  if (reason !== 'Already connected') {
-    removeTransitionOverlay();
-    sessionStorage.removeItem('gameId');
-    // A stale success flag would make onMainRoomJoined ignore the main room
-    rejoinSucceeded = false;
-    // Return to main room. rejoinGame checks the token but does not register
-    // the socket as the user, so after a server restart joinMainRoom alone
-    // answers "User not registered yet" (and ends on the sign-in screen):
-    // restore the session, whose reply joins the main room. Once per socket:
-    // restoreSessionResponse rejoins any activeGameId, and a live game that
-    // refuses it (a tournament table before its seats exist) would loop
-    // restore -> rejoin -> rejoinFailed; the restored socket can join the
-    // main room directly
-    const canRestore = sessionStorage.getItem('username') && sessionStorage.getItem('sessionToken');
-    if (canRestore && sessionRestoredSocketId !== socket.id) {
-      attemptSessionRestore();
-    } else {
-      socket.emit("joinMainRoom");
-    }
-  }
-  // Note: Additional handling in gameHandlers onRejoinFailed callback
-});
-
-socket.on('playerReconnected', (data) => {
-  console.log(`Player at position ${data.position} (${data.username}) reconnected`);
-  document.dispatchEvent(new CustomEvent('playerReconnected', { detail: data }));
-});
-
 socket.on('playerAssigned', (data) => {
   console.log('📡 Received playerAssigned:', data);
   const state = getGameState();
@@ -437,22 +351,7 @@ socket.on('playerAssigned', (data) => {
   }
 });
 
-socket.on('gameStart', (data) => {
-  console.log('Game Started', data);
-  if (data.gameId) {
-    sessionStorage.setItem('gameId', data.gameId);
-  }
-});
-
-socket.on('gameEnd', (data) => {
-  console.log('Game ended:', data);
-  sessionStorage.removeItem('gameId');
-  // Reset rejoin flags so future rejoins work
-  rejoinAttempted = false;
-  rejoinSucceeded = false;
-});
-
-// ==================== END RECONNECTION LOGIC ====================
+// ==================== END SESSION / RECONNECTION ====================
 
 /**
  * Show error toast notification.
@@ -483,18 +382,44 @@ const MAX_JOIN_RETRIES = 5;
 function handleSocketError(error, socket) {
   let message = 'Something went wrong';
 
-  // Handle spectator rejoin failure (game ended while disconnected)
-  if (error.message === 'Game not found' && sessionStorage.getItem('spectatingGameId')) {
+  // Re-spectating after a reconnect: the watched game ended meanwhile
+  if (error.message === 'Game not found' && (session.pendingSpectate || session.isSpectator)) {
     console.log('Spectated game no longer exists, returning to main room');
-    sessionStorage.removeItem('spectatingGameId');
-    socket.emit('joinMainRoom');
+    session.takePendingSpectate();
+    session.exitTable(EXIT.SPECTATE_FAILED);
+    return;
+  }
+
+  // Re-entering a lobby after a reconnect: it closed (or filled) meanwhile
+  if (session.takePendingLobbyRejoin()) {
+    console.log('Lobby re-entry failed:', error.message);
+    // 'Lobby is full' too: the seat may still be held by this player's
+    // previous socket until the server notices it dropped
+    showErrorToast(error.message === 'Lobby not found'
+      ? 'The lobby closed while you were offline'
+      : "Couldn't get back into the lobby");
+    session.transition(SCREEN.MAIN_ROOM);
+    session.requestMainRoom();
+    return;
+  }
+
+  // Re-entering a tournament after a reload or reconnect: it is gone
+  const pendingTournament = session.takePendingTournamentRejoin();
+  if (pendingTournament) {
+    console.log('Tournament re-entry failed:', error.message);
+    getGameState().tournamentId = null;
+    showErrorToast('The tournament is no longer available');
+    if (!session.hasTable) session.transition(SCREEN.MAIN_ROOM);
+    // The server follows a failed joinTournament with the main room, except
+    // for 'Already in a tournament'; a failed spectateTournament with nothing
+    if (pendingTournament.spectator || error.message === 'Already in a tournament') session.requestMainRoom();
     return;
   }
 
   // Handle race condition where joinMainRoom is called before user is registered
   if (error.message === 'User not registered yet') {
     // Don't retry if we're in a game (have a gameId)
-    if (sessionStorage.getItem('gameId')) {
+    if (session.isAtTable || session.persistedGameId) {
       console.log('User not registered yet, but have gameId - waiting for rejoin instead');
       return;
     }
@@ -509,7 +434,7 @@ function handleSocketError(error, socket) {
     } else {
       console.log('Max joinMainRoom retries reached, showing sign-in screen');
       joinMainRoomRetries = 0;
-      displaySignInScreen();
+      displaySignInScreen(EXIT.SIGN_OUT);
       return;
     }
   }
@@ -563,6 +488,9 @@ function initializeApp() {
   // Get game state singleton
   const gameState = getGameState();
 
+  // The client session drives the screens; SocketManager's connect resumes it
+  session.attach({ socketManager: socketMgr, gameState });
+
   // Voice chat lifecycle helpers
   const voiceManager = getVoiceChatManager();
 
@@ -597,49 +525,122 @@ function initializeApp() {
   }
 
   /**
-   * Take the whole game table down and reset game state (used by /leave
-   * and by a failed rejoin of a game the page was showing). The caller
-   * decides where the player goes next.
+   * Take the whole table UI down: every exit (session.exitTable runs it as
+   * its teardown hook) and a rebuild in place (a re-spectate after a
+   * reconnect, restorePlayerState) use this one list. It never touches the
+   * game state or the gameId copies (exitTable resets those after it).
+   * inPlace (a rebuild): voice and an open 'Replace with Bot?' offer stay.
    */
-  function teardownGameUI() {
-    stopVoice();
+  function teardownTableUI({ inPlace = false } = {}) {
+    if (!inPlace) stopVoice();
+    // A rebuild in place supersedes any earlier rebuild still waiting for
+    // the scene (exitTable bumps the generation itself)
+    if (inPlace) session.supersedeTableWork();
     removeTransitionOverlay();
+    window._readyForGameUI = false;
+    window._tricksAnimating = false;
+    sceneQueue = [];
     const scene = getGameScene();
 
-    if (scene && scene.clearPlayerInfo) {
+    if (scene) {
+      // Cards, opponents, tricks, effects, the draw and the trump card
+      scene.cleanup();
       scene.clearPlayerInfo();
-    }
-    if (scene && scene.layoutManager) {
-      scene.layoutManager.cleanupDomBackgrounds();
-    }
-    if (scene && scene.opponentManager && scene.opponentManager.clearAll) {
-      scene.opponentManager.clearAll();
+      scene.layoutManager?.cleanupDomBackgrounds();
+      scene.opponentManager?.clearAll();
     }
 
-    // Remove spectating indicator
-    const indicator = document.getElementById('spectating-indicator');
-    if (indicator) indicator.remove();
-
+    // Game-owned DOM outside the scene (a rebuild in place keeps the
+    // table's open 'Replace with Bot?' offer: the server does not resend it)
+    document.getElementById('spectating-indicator')?.remove();
+    if (!inPlace) dismissResignationDialog();
+    clearChatBubbles();
+    document.querySelectorAll('.chat-bubble').forEach((el) => el.remove());
+    removeFinalScoreOverlay();
     uiManager.clearUI();
 
-    let gameFeed = document.getElementById("gameFeed");
-    if (gameFeed) gameFeed.remove();
+    document.getElementById('gameFeed')?.remove();
     gameLogInstance = null;
+
+    // Fallbacks for DOM a scene manager would normally own
+    document.querySelectorAll('.opponent-avatar-container, .dealer-button').forEach((el) => el.remove());
+    document.getElementById('player-avatar-container')?.remove();
+    document.getElementById('bidContainer')?.remove();
 
     document.getElementById('game-container')?.classList.remove('in-game');
     clearGameScene();
 
     if (scene) {
-      scene.children.removeAll(true);
-      scene.scene.restart();
+      scene.children?.removeAll?.(true);
+      scene.scene?.restart?.();
     }
-    resetGameState();
-    // Clear gameId so mainRoomJoined handler doesn't ignore the transition
-    sessionStorage.removeItem('gameId');
-    sessionStorage.removeItem('spectatingGameId');
-    // Otherwise onMainRoomJoined ignores the main room after an earlier rejoin
-    rejoinSucceeded = false;
   }
+
+  function dismissResignationDialog(position = null) {
+    const dialog = document.getElementById('resignation-dialog');
+    if (dialog && (position === null || dialog.dataset.position === String(position))) {
+      dialog.remove();
+      if (window._resignationModal === dialog) window._resignationModal = null;
+    }
+    if (position === null) window._resignationModal = null;
+  }
+
+  function clearAuthScreens() {
+    ['sign-in-container', 'sign-in-vignette', 'signInContainer', 'SignInVignette',
+      'register-container', 'register-vignette', 'registerContainer', 'RegisterVignette',
+    ].forEach((id) => document.getElementById(id)?.remove());
+  }
+
+  // Screen enter/exit hooks (the session runs exit(from) then enter(to))
+  session.setHooks({
+    teardownTable: () => teardownTableUI(),
+    screens: {
+      [SCREEN.SIGN_IN]: {
+        enter: () => renderSignIn(),
+        exit: () => clearAuthScreens(),
+      },
+      [SCREEN.MAIN_ROOM]: {
+        // The DOM comes with mainRoomJoined; an exit lands here first
+        enter: (data) => {
+          if (data) showMainRoom(data, socket);
+        },
+        exit: () => removeMainRoom(),
+      },
+      [SCREEN.LOBBY]: {
+        enter: (data) => {
+          removeMainRoom();
+          if (data) showGameLobby(data, socket, gameState.username);
+        },
+        exit: (_data, ctx) => {
+          removeGameLobby();
+          // Lobby voice carries on into its game
+          if (ctx.to !== SCREEN.TABLE) stopVoice();
+        },
+      },
+      [SCREEN.TOURNAMENT_LOBBY]: {
+        enter: (data) => {
+          removeMainRoom();
+          if (data && data.tournamentId) uiManager.renderScreen(SCREENS.TOURNAMENT_LOBBY, data);
+        },
+        exit: () => removeTournamentLobby(),
+      },
+      [SCREEN.TABLE]: {
+        enter: (_data, ctx) => {
+          if (ctx.reenter) return;
+          clearAuthScreens();
+          removeMainRoom();
+          removeGameLobby();
+        },
+      },
+      [SCREEN.GAME_END]: {
+        // The game is over: /active and 'Replace with Bot?' mean nothing now
+        enter: () => {
+          document.getElementById('spectating-indicator')?.remove();
+          dismissResignationDialog();
+        },
+      },
+    },
+  });
 
   function stopVoice() {
     voiceManager.shutdown();
@@ -692,6 +693,9 @@ function initializeApp() {
   // Shared rejoin/restore logic — used by both onRejoinSuccess and onRestorePlayerState
   function processRejoinOrRestore(data) {
     console.log("🔄 Processing rejoin/restore with data:", data);
+    // A later rejoin, re-entry or exit supersedes this one while it waits
+    // for the scene (two waits must never both replay the game log)
+    const generation = session.tableGeneration;
 
     // Clear any sign-in/lobby screens first
     uiManager.removeAllVignettes();
@@ -919,6 +923,8 @@ function initializeApp() {
 
     // Wait for scene to be ready before processing UI
     const waitForScene = () => {
+      // Superseded, or the game ended (score modal) or was left meanwhile
+      if (session.tableGeneration !== generation || !session.isAtTable) return;
       const scene = getGameScene();
       if (scene && scene.cardManager) {
         processRejoinData();
@@ -1012,25 +1018,22 @@ function initializeApp() {
     // Auth callbacks
     onSignInSuccess: (data) => {
       console.log('Sign in success, going to main room');
-      gameState.username = data.username;
-      uiManager.setUsername(data.username);
+      // Signed in on this socket: no restoreSession needed for it
+      session.noteSignedIn(data.username);
       setBlockedUsers(data.blockedUsers);
-      // Reset rejoin flags for fresh session
-      rejoinAttempted = false;
-      rejoinSucceeded = false;
 
       // Check if user has an active game to rejoin
       if (data.activeGameId) {
         console.log(`Active game found: ${data.activeGameId}, attempting to rejoin...`);
-        sessionStorage.setItem('gameId', data.activeGameId);
-        socket.emit('rejoinGame', { gameId: data.activeGameId, username: data.username });
+        // A failed rejoin then routes back to the tournament
+        if (data.activeTournamentId) gameState.tournamentId = data.activeTournamentId;
+        session.rejoin(data.activeGameId);
       } else if (data.activeTournamentId) {
         console.log(`Active tournament found: ${data.activeTournamentId}, rejoining...`);
-        gameState.tournamentId = data.activeTournamentId;
-        socket.emit('joinTournament', { tournamentId: data.activeTournamentId });
+        session.onSessionRestored({ username: data.username, activeTournamentId: data.activeTournamentId });
       } else {
         // Go to main room
-        socket.emit('joinMainRoom');
+        session.requestMainRoom();
       }
     },
     onSignInError: (message) => {
@@ -1040,11 +1043,10 @@ function initializeApp() {
       if (data.autoLoggedIn) {
         // Auto-login: go straight to main room
         console.log(`Registration & auto-login successful: ${data.username}`);
-        gameState.username = data.username;
-        uiManager.setUsername(data.username);
+        session.noteSignedIn(data.username);
         // Fresh account, fresh block list (don't inherit a prior session's)
         setBlockedUsers([]);
-        socket.emit('joinMainRoom');
+        session.requestMainRoom();
       } else {
         showSuccess('Registration successful! Please sign in.');
       }
@@ -1054,48 +1056,12 @@ function initializeApp() {
     },
     onForceLogout: (data) => {
       console.warn('Force logout:', data?.reason || 'Unknown reason');
-
-      const scene = getGameScene();
-
-      // Restart scene
-      if (scene) {
-        scene.scene.restart();
-      }
-
-      // Clean up DOM backgrounds
-      if (scene && scene.layoutManager) {
-        scene.layoutManager.cleanupDomBackgrounds();
-      }
-
-      // Remove UI elements
-      uiManager.removeWaitingScreen();
-      uiManager.clearUI();
-      // DOM overlays outlive the scene restart; the server disconnects this
-      // socket next, so createUI never comes to fade the overlay out
-      removeTransitionOverlay();
-      document.getElementById('spectating-indicator')?.remove();
-
-      // Remove game log
-      let gameFeed = document.getElementById("gameFeed");
-      if (gameFeed) gameFeed.remove();
-      gameLogInstance = null;
-
-      // Remove width restriction from game container
-      document.getElementById('game-container')?.classList.remove('in-game');
-
-      // Clear scene reference
-      clearGameScene();
-
-      // Clear session storage and state
-      sessionStorage.removeItem('username');
-      sessionStorage.removeItem('sessionToken');
-      sessionStorage.removeItem('gameId');
-      sessionStorage.removeItem('spectatingGameId');
-      gameState.reset();
+      // authHandlers cleared the tab's credentials; the server disconnects
+      // this socket next, so nothing it showed will be finished (createUI
+      // never comes to lift a transition overlay): exitTable takes it all down
+      session.clearIdentity();
       setBlockedUsers([]);
-
-      // Show sign-in screen
-      displaySignInScreen();
+      displaySignInScreen(EXIT.FORCE_LOGOUT);
     },
     onActiveGameFound: (data) => {
       console.log('Active game found:', data.gameId);
@@ -1106,12 +1072,11 @@ function initializeApp() {
     onMainRoomJoined: (data) => {
       // Reset retry counter on success
       joinMainRoomRetries = 0;
-      // No longer spectating
-      sessionStorage.removeItem('spectatingGameId');
+      session.routeArrived();
 
-      // Don't show main room if we're in a game or rejoin succeeded
-      if (sessionStorage.getItem('gameId') || rejoinSucceeded) {
-        console.log('Main room joined event ignored - in game (gameId:', sessionStorage.getItem('gameId'), 'rejoinSucceeded:', rejoinSucceeded, ')');
+      // A late reply while at a table (the session left it before asking)
+      if (session.hasTable) {
+        console.log('Main room joined event ignored - at the table:', session.screen);
         return;
       }
       console.log('Joined main room, showing UI');
@@ -1119,22 +1084,7 @@ function initializeApp() {
       if (data.messages) {
         data.messages = data.messages.filter(m => !isUserBlocked(m.username));
       }
-      // Clear modular sign-in/register screens (with dashes)
-      const signInContainer = document.getElementById('sign-in-container');
-      if (signInContainer) signInContainer.remove();
-      const signInVignette = document.getElementById('sign-in-vignette');
-      if (signInVignette) signInVignette.remove();
-      const registerContainer = document.getElementById('register-container');
-      if (registerContainer) registerContainer.remove();
-      const registerVignette = document.getElementById('register-vignette');
-      if (registerVignette) registerVignette.remove();
-      // Also clear legacy screens (camelCase) just in case
-      const legacySignIn = document.getElementById('signInContainer');
-      if (legacySignIn) legacySignIn.remove();
-      const legacySignInVignette = document.getElementById('SignInVignette');
-      if (legacySignInVignette) legacySignInVignette.remove();
-
-      showMainRoom(data, socket);
+      session.transition(SCREEN.MAIN_ROOM, data);
     },
     onMainRoomMessage: (data) => {
       if (isUserBlocked(data.username)) return;
@@ -1149,42 +1099,34 @@ function initializeApp() {
 
     // Lobby callbacks
     onLobbyCreated: (data) => {
-      // Don't show lobby if we're in a game (e.g., during rejoin)
-      if (sessionStorage.getItem('gameId')) {
-        console.log('Lobby created event ignored - in game');
+      // Don't show lobby if we're at a table (e.g., during rejoin)
+      if (session.hasTable) {
+        console.log('Lobby created event ignored - at the table');
         return;
       }
       console.log('Lobby created, showing lobby UI');
-      removeMainRoom();
-      showGameLobby(
-        {
-          lobbyId: data.lobbyId,
-          players: data.players,
-          messages: (data.messages || []).filter(m => !isUserBlocked(m.username))
-        },
-        socket,
-        gameState.username
-      );
+      session.transition(SCREEN.LOBBY, {
+        lobbyId: data.lobbyId,
+        players: data.players,
+        messages: (data.messages || []).filter(m => !isUserBlocked(m.username))
+      });
+      session.noteLobby(data.lobbyId);
       // Start voice chat when entering a lobby
       startVoice();
     },
     onLobbyJoined: (data) => {
-      // Don't show lobby if we're in a game (e.g., during rejoin)
-      if (sessionStorage.getItem('gameId')) {
-        console.log('Lobby joined event ignored - in game');
+      // Don't show lobby if we're at a table (e.g., during rejoin)
+      if (session.hasTable) {
+        console.log('Lobby joined event ignored - at the table');
         return;
       }
       console.log('Joined lobby, showing lobby UI');
-      removeMainRoom();
-      showGameLobby(
-        {
-          lobbyId: data.lobbyId,
-          players: data.players,
-          messages: (data.messages || []).filter(m => !isUserBlocked(m.username))
-        },
-        socket,
-        gameState.username
-      );
+      session.transition(SCREEN.LOBBY, {
+        lobbyId: data.lobbyId,
+        players: data.players,
+        messages: (data.messages || []).filter(m => !isUserBlocked(m.username))
+      });
+      session.noteLobby(data.lobbyId);
     },
     onPlayerReadyUpdate: (data) => {
       updateLobbyPlayersList(null, data.players, gameState.username);
@@ -1201,9 +1143,12 @@ function initializeApp() {
     },
     onLeftLobby: () => {
       console.log('Left lobby, returning to main room');
-      stopVoice();
-      removeGameLobby();
-      socket.emit('joinMainRoom');
+      // The lobby's exit hook stops voice and removes it (a late reply at a
+      // table changes nothing)
+      if (session.hasTable) return;
+      if (session.screen === SCREEN.LOBBY) session.transition(SCREEN.MAIN_ROOM);
+      else removeGameLobby();
+      session.requestMainRoom();
     },
     onAllPlayersReady: (data) => {
       console.log('All players ready, game starting soon...');
@@ -1215,14 +1160,13 @@ function initializeApp() {
       // If this is the full game state (not just a notification about another spectator)
       if (data.players && data.trump) {
         try {
-        // Track spectating game for reconnection
-        if (data.gameId) {
-          sessionStorage.setItem('spectatingGameId', data.gameId);
-        }
-
-        // Remove main room and tournament lobby UI
-        removeMainRoom();
-        removeTournamentLobby();
+        const spectatedGameId = data.gameId || session.takePendingSpectate();
+        // A re-spectate after a reconnect rebuilds the table from this state
+        if (session.isAtTable) teardownTableUI({ inPlace: true });
+        session.routeArrived();
+        // Spectators persist spectatingGameId only (a reconnect re-spectates)
+        session.enterTable(ROLE.SPECTATOR, spectatedGameId);
+        const generation = session.tableGeneration;
 
         // Mark as spectator in game state
         gameState.isSpectator = true;
@@ -1246,6 +1190,8 @@ function initializeApp() {
 
         // Set up the game scene for spectating
         const waitForScene = () => {
+          // Superseded, or the game ended (score modal) or was left meanwhile
+          if (session.tableGeneration !== generation || !session.isAtTable) return;
           const scene = getGameScene();
           if (scene && scene.cardManager) {
             try {
@@ -1410,6 +1356,9 @@ function initializeApp() {
     },
     onGameStart: (data) => {
       console.log('🎮 onGameStart callback');
+      // A seat's deal always finds the table entered (startDraw/rejoin);
+      // a stray one enters it
+      if (!session.hasTable && data.position) session.enterTable(ROLE.PLAYER, data.gameId);
       // Update modular GameState
       if (data.position) {
         gameState.position = data.position;
@@ -1581,33 +1530,29 @@ function initializeApp() {
     // Draw phase - handled by DrawManager
     onStartDraw: (data) => {
       console.log('🎴 onStartDraw callback');
+      // A new table while the previous one's score modal is still up (the
+      // next tournament round): that table goes first
+      if (session.screen === SCREEN.GAME_END) {
+        session.exitTable(EXIT.NEW_TABLE, { route: false });
+        gameState.setPhase(PHASE.DRAW);
+        gameState.setHasDrawn(false);
+      }
+      if (!session.isAtTable) session.enterTable(ROLE.PLAYER, null);
       // Remove waiting screen and tournament lobby
       uiManager.removeWaitingScreen();
       removeTournamentLobby();
 
-      // Use DrawManager via scene handler
-      const scene = getGameScene();
-      if (scene && scene.handleStartDraw) {
-        scene.handleStartDraw(data);
-      }
+      // Use DrawManager via scene handler (the scene may be restarting)
+      withScene((scene) => scene.handleStartDraw(data));
     },
     onYouDrew: (data) => {
-      const scene = getGameScene();
-      if (scene && scene.handleYouDrew) {
-        scene.handleYouDrew(data);
-      }
+      withScene((scene) => scene.handleYouDrew(data));
     },
     onPlayerDrew: (data) => {
-      const scene = getGameScene();
-      if (scene && scene.handlePlayerDrew) {
-        scene.handlePlayerDrew(data);
-      }
+      withScene((scene) => scene.handlePlayerDrew(data));
     },
     onTeamsAnnounced: (data) => {
-      const scene = getGameScene();
-      if (scene && scene.handleTeamsAnnounced) {
-        scene.handleTeamsAnnounced(data);
-      }
+      withScene((scene) => scene.handleTeamsAnnounced(data));
     },
     onCreateUI: (data) => {
       console.log('🎨 onCreateUI callback');
@@ -1622,7 +1567,11 @@ function initializeApp() {
       if (scene && scene.handleCreateUI) {
         // Pass UI creation as callback - it will be called after fade to black
         scene.handleCreateUI(data, () => {
-          // Create game feed using modular GameLog
+          // Create game feed using modular GameLog (a detached one, e.g.
+          // left over from a sign-out, counts as none)
+          if (gameLogInstance && !gameLogInstance.container?.isConnected) {
+            gameLogInstance = null;
+          }
           if (!gameLogInstance) {
             gameLogInstance = showGameLog({
               onChatSubmit: (message) => {
@@ -1784,12 +1733,13 @@ function initializeApp() {
       // The server always includes tournamentId in gameEnd (null for casual
       // games), so prefer it — a stale local tournamentId from a previous
       // tournament must not hijack a casual game's end screen.
-      const isTournamentGame = data.tournamentId !== undefined
-        ? !!data.tournamentId
-        : !!gameState.tournamentId;
-      const savedTournamentId = data.tournamentId !== undefined
-        ? data.tournamentId
-        : gameState.tournamentId;
+      if (data.tournamentId !== undefined) {
+        gameState.tournamentId = data.tournamentId || null;
+      }
+      const isTournamentGame = !!gameState.tournamentId;
+
+      // The table stays up under the score modal; nothing to rejoin now
+      session.endGame();
 
       // Show final score overlay
       showFinalScoreOverlay({
@@ -1800,54 +1750,10 @@ function initializeApp() {
         isSpectator: isSpectator,
         teamName: teamName,
         oppName: oppName,
+        // exitTable routes by the tournament at click time (a cancel
+        // meanwhile already sent this player to the main room)
         onReturnToLobby: () => {
-          stopVoice();
-          // A player who ended the game in /lazy still had the
-          // "Spectating — type /active" pill, which followed them to the lobby
-          document.getElementById('spectating-indicator')?.remove();
-          // Remove game feed/log
-          let gameFeed = document.getElementById("gameFeed");
-          if (gameFeed) gameFeed.remove();
-          gameLogInstance = null;
-
-          // Remove width restriction from game container
-          document.getElementById('game-container')?.classList.remove('in-game');
-
-          // Clean up scene elements (avatars, cards, chat bubbles)
-          if (scene) {
-            if (scene.cleanup) {
-              scene.cleanup();
-            }
-            // Clean up opponent manager (avatars, dealer button)
-            if (scene.opponentManager && scene.opponentManager.clearAll) {
-              scene.opponentManager.clearAll();
-            }
-            // Clean up player info box (own avatar)
-            if (scene.clearPlayerInfo) {
-              scene.clearPlayerInfo();
-            }
-            // Clean up DOM backgrounds (play zone, hand background)
-            if (scene.layoutManager && scene.layoutManager.cleanupDomBackgrounds) {
-              scene.layoutManager.cleanupDomBackgrounds();
-            }
-            // Clean up trick manager
-            if (scene.trickManager && scene.trickManager.clearAll) {
-              scene.trickManager.clearAll();
-            }
-            // Restart scene
-            scene.scene.restart();
-          }
-          // Reset game state for next game
-          const tournamentId = savedTournamentId;
-          resetGameState();
-          sessionStorage.removeItem('spectatingGameId');
-
-          if (isTournamentGame && tournamentId) {
-            gameState.tournamentId = tournamentId;
-            socket.emit("returnToTournament");
-          } else {
-            socket.emit("joinMainRoom");
-          }
+          session.exitTable(EXIT.GAME_END_RETURN);
         }
       });
     },
@@ -1866,66 +1772,34 @@ function initializeApp() {
     // Error & connection handlers
     onAbortGame: (data) => {
       console.log("Handling abortGame");
-      stopVoice();
-      // An abort during the teams fade leaves no createUI to lift it
-      removeTransitionOverlay();
-      document.getElementById('spectating-indicator')?.remove();
       const scene = getGameScene();
-
-      // Clear scene player info
-      if (scene && scene.clearPlayerInfo) {
-        scene.clearPlayerInfo();
-      }
-
-      // Use scene handler if available
-      if (scene && scene.handleAbortGame) {
-        scene.handleAbortGame(data);
-      }
-
-      // Clean up DOM backgrounds
-      if (scene && scene.layoutManager) {
-        scene.layoutManager.cleanupDomBackgrounds();
-      }
-
-      // Clean up opponent manager (avatars, dealer button)
-      if (scene && scene.opponentManager && scene.opponentManager.clearAll) {
-        scene.opponentManager.clearAll();
-      }
-
-      // Clear all UI
-      uiManager.clearUI();
-
-      // Remove game log
-      let gameFeed = document.getElementById("gameFeed");
-      if (gameFeed) gameFeed.remove();
-      gameLogInstance = null;
-
-      // Remove width restriction from game container
-      document.getElementById('game-container')?.classList.remove('in-game');
-
-      // Clear scene reference in modular code
-      clearGameScene();
-
-      // Restart scene and return to main room
-      if (scene) {
-        scene.children.removeAll(true);
-        scene.scene.restart();
-      }
-      // Reset game state for next game
-      resetGameState();
-      sessionStorage.removeItem('spectatingGameId');
-      // Otherwise onMainRoomJoined ignores the main room after an earlier rejoin
-      rejoinSucceeded = false;
-      socket.emit("joinMainRoom");
+      if (scene) scene.handleAbortGame(data);
+      // From the table (or a lobby/tournament lobby whose game was about to
+      // start): out to the tournament for a tournament player, as iOS does,
+      // else the main room. Nothing is routed from the main room or sign-in
+      const route = session.screen !== SCREEN.MAIN_ROOM && session.screen !== SCREEN.SIGN_IN;
+      session.exitTable(EXIT.ABORT, { route });
     },
     onRoomFull: (data) => {
       console.log('Room full:', data);
       uiManager.removeWaitingScreen();
       // Return to main room (this shouldn't happen with lobby system)
-      socket.emit("joinMainRoom");
+      session.requestMainRoom();
     },
     // Reconnection handlers
     onRejoinSuccess: (data) => {
+      // One rejoinGame per socket; the server still answers a repeated lazy
+      // rejoin, and processing it twice would replay the game log twice
+      if (!session.noteRejoinSuccess(data.gameId)) {
+        console.log('Duplicate rejoinSuccess on this socket ignored');
+        return;
+      }
+      session.enterTable(data.isLazy ? ROLE.LAZY : ROLE.PLAYER, data.gameId);
+      // Restore tournament context (server includes it when the rejoined game
+      // belongs to a tournament) so the game-end screen offers 'Return to Tournament'
+      if (data.tournamentId !== undefined) {
+        gameState.tournamentId = data.tournamentId;
+      }
       processRejoinOrRestore(data);
       // Re-establish voice on reconnect
       if (!voiceManager.active) {
@@ -1933,15 +1807,16 @@ function initializeApp() {
       }
     },
     onRejoinFailed: (data) => {
-      // The game this page was showing is gone (e.g. the server restarted
-      // during a reconnect): take its table down; the module-level
-      // rejoinFailed handler sends the player to the main room
+      // 'Already connected': this socket's seat is live, keep it
       const reason = typeof data === 'string' ? data : data?.reason;
-      const showingGame = document.getElementById('gameFeed') ||
-        document.getElementById('game-container')?.classList.contains('in-game');
-      if (reason !== 'Already connected' && showingGame) {
-        teardownGameUI();
-      }
+      if (reason === 'Already connected') return;
+      // The game is gone (or was left): take any table down, route out
+      session.exitTable(EXIT.REJOIN_FAILED);
+    },
+    onPlayerReconnected: (data) => {
+      console.log(`Player at position ${data.position} (${data.username}) reconnected`);
+      // Their 'Replace with Bot?' offer is moot now
+      dismissResignationDialog(data.position);
     },
 
     // Resignation & Lazy Mode callbacks
@@ -1953,6 +1828,7 @@ function initializeApp() {
       // Build inline confirmation dialog (same pattern as bid UI)
       const backdrop = document.createElement('div');
       backdrop.id = 'resignation-dialog';
+      backdrop.dataset.position = String(data.position);
       backdrop.style.cssText = `
         position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
         background: rgba(0, 0, 0, 0.7); display: flex;
@@ -2012,6 +1888,7 @@ function initializeApp() {
       // If it's the local player entering lazy mode, disable card interaction
       if (data.position === gameState.position && !gameState.isSpectator) {
         gameState.isLazy = true;
+        session.setRole(ROLE.LAZY);
         if (scene && scene.cardManager) {
           scene.cardManager.setInteractive(false);
         }
@@ -2052,6 +1929,7 @@ function initializeApp() {
       // If it's the local player returning to active mode, re-enable card interaction
       if (data.position === gameState.position && !gameState.isSpectator) {
         gameState.isLazy = false;
+        session.setRole(ROLE.PLAYER);
         if (scene && scene.cardManager) {
           scene.cardManager.setInteractive(true);
         }
@@ -2067,22 +1945,18 @@ function initializeApp() {
 
     },
     onLeftGame: (data) => {
-      // Player used /leave — clean up game UI and return to main room
-      teardownGameUI();
-      socket.emit("joinMainRoom");
+      // /leave (seat or spectating): out to the tournament for a tournament
+      // player, as iOS does, else the main room
+      session.exitTable(EXIT.LEFT_GAME);
     },
     onRestorePlayerState: (data) => {
-      // Spectator → active player transition
-      // Clean up spectator view, restart scene, then reuse the rejoin path
+      // Spectator → active player transition (or a resync after a refused
+      // play): rebuild the table in place, then reuse the rejoin path
+      // Clean up the current table first (voice stays)
+      teardownTableUI({ inPlace: true });
+
       gameState.isSpectator = false;
       gameState.isLazy = false;
-
-      // Remove spectating indicator
-      const indicator = document.getElementById('spectating-indicator');
-      if (indicator) indicator.remove();
-
-      // Store gameId
-      if (data.gameId) sessionStorage.setItem('gameId', data.gameId);
 
       // Rebuild playerData from server's players array
       if (data.players && data.players.length > 0) {
@@ -2093,21 +1967,8 @@ function initializeApp() {
         gameState.setPlayerData({ position: positions, sockets, username: usernames, pics });
       }
 
-      // Clean up current scene and restart fresh
-      const scene = getGameScene();
-      if (scene) {
-        if (scene.opponentManager) scene.opponentManager.clearAll();
-        if (scene.clearPlayerInfo) scene.clearPlayerInfo();
-        if (scene.layoutManager) scene.layoutManager.cleanupDomBackgrounds();
-        scene.children.removeAll(true);
-        // Null out cardManager so waitForScene won't resolve until create() re-runs
-        scene.cardManager = null;
-        scene.scene.restart();
-      }
-
-      let gameFeed = document.getElementById("gameFeed");
-      if (gameFeed) gameFeed.remove();
-      gameLogInstance = null;
+      // A seat now: its gameId persists for a reconnect
+      session.enterTable(ROLE.PLAYER, data.gameId || session.gameId);
 
       // Reuse the proven rejoin path — same data format (getClientState)
       processRejoinOrRestore(data);
@@ -2189,16 +2050,27 @@ function initializeApp() {
     // Tournament callbacks
     onTournamentCreated: (data) => {
       gameState.tournamentId = data.tournamentId;
-      removeMainRoom();
+      session.routeArrived();
+      if (session.hasTable) return;
       uiManager.showScreen(SCREENS.TOURNAMENT_LOBBY, data);
     },
 
     onTournamentJoined: (data) => {
       gameState.tournamentId = data.tournamentId;
+      // A tab that only watches this tournament: the server's reply to
+      // returnToTournament (after watching one of its tables) carries no
+      // isSpectator flag, and a spectator gets no player controls
+      if (!data.isSpectator && session.isTournamentSpectator(data.tournamentId)) {
+        data = { ...data, isSpectator: true };
+      }
       if (data.messages) {
         data.messages = data.messages.filter(m => !isUserBlocked(m.username));
       }
-      removeMainRoom();
+      session.routeArrived();
+      if (session.hasTable) {
+        console.log('Tournament joined event ignored - at the table');
+        return;
+      }
       uiManager.showScreen(SCREENS.TOURNAMENT_LOBBY, data);
 
       // Returning to a finished tournament (e.g. from the game-end screen):
@@ -2220,8 +2092,8 @@ function initializeApp() {
           onReturn: () => {
             gameState.tournamentId = null;
             gameState.pendingTournamentResults = null;
-            removeTournamentLobby();
-            socket.emit('joinMainRoom');
+            session.transition(SCREEN.MAIN_ROOM);
+            session.requestMainRoom();
           }
         });
       }
@@ -2295,8 +2167,8 @@ function initializeApp() {
         onReturn: () => {
           gameState.tournamentId = null;
           gameState.pendingTournamentResults = null;
-          removeTournamentLobby();
-          socket.emit('joinMainRoom');
+          if (!session.hasTable) session.transition(SCREEN.MAIN_ROOM);
+          session.requestMainRoom();
         }
       });
     },
@@ -2304,19 +2176,31 @@ function initializeApp() {
     onTournamentLeft: () => {
       gameState.tournamentId = null;
       gameState.pendingTournamentResults = null;
-      removeTournamentLobby();
+      // The server sends mainRoomJoined next
+      if (session.screen === SCREEN.TOURNAMENT_LOBBY) session.transition(SCREEN.MAIN_ROOM);
+      else removeTournamentLobby();
     },
 
     onTournamentCancelled: () => {
       gameState.tournamentId = null;
       gameState.pendingTournamentResults = null;
-      removeTournamentLobby();
       showInfo('Tournament has been cancelled by the host');
-      socket.emit('joinMainRoom');
+      // The server aborted every live table first (abortGame already sent
+      // this player out, its returnToTournament lands in the main room):
+      // one route request at a time, so no second joinMainRoom here
+      if (session.hasTable) {
+        session.exitTable(EXIT.TOURNAMENT_CANCELLED, { to: SCREEN.MAIN_ROOM });
+      } else if (session.screen === SCREEN.TOURNAMENT_LOBBY) {
+        session.transition(SCREEN.MAIN_ROOM);
+        session.requestMainRoom();
+      } else {
+        removeTournamentLobby();
+      }
     },
 
     onActiveTournamentFound: (data) => {
       gameState.tournamentId = data.tournamentId;
+      if (session.hasTable) return;
       uiManager.showScreen(SCREENS.TOURNAMENT_LOBBY, data);
     },
   });
@@ -2327,39 +2211,23 @@ function initializeApp() {
 }
 
 /**
- * Show the sign-in screen with proper callbacks.
- * Also cleans up any game UI elements that may be visible.
+ * Go to the sign-in screen. With a reason (forceLogout, a failed restore or
+ * reconnect) or from a table, it is an exit: session.exitTable tears the
+ * table down and clears every gameId copy first.
+ * @param {string} [reason] - EXIT.*
  */
-function displaySignInScreen() {
-  // Clean up game UI elements
-  const scene = getGameScene();
-  if (scene && scene.opponentManager) {
-    scene.opponentManager.clearAll();
+function displaySignInScreen(reason = null) {
+  if (reason || session.hasTable) {
+    session.exitTable(reason || EXIT.SIGN_OUT, { to: SCREEN.SIGN_IN });
+  } else {
+    session.transition(SCREEN.SIGN_IN);
   }
-  if (scene && scene.clearPlayerInfo) {
-    scene.clearPlayerInfo();
-  }
-  clearChatBubbles();
+}
 
-  // Clear game log
-  const gameFeed = document.getElementById("gameFeed");
-  if (gameFeed) gameFeed.remove();
-
-  // Clear any remaining DOM elements (fallback if scene not available)
-  document.querySelectorAll('.opponent-avatar-container').forEach(el => el.remove());
-  document.querySelectorAll('.dealer-button').forEach(el => el.remove());
-  document.querySelectorAll('.chat-bubble').forEach(el => el.remove());
-  const playerAvatar = document.getElementById('player-avatar-container');
-  if (playerAvatar) playerAvatar.remove();
-  const bidContainer = document.getElementById('bidContainer');
-  if (bidContainer) bidContainer.remove();
-
-  // Remove width restriction from game container
-  document.getElementById('game-container')?.classList.remove('in-game');
-
-  // Clear spectating state
-  sessionStorage.removeItem('spectatingGameId');
-
+/**
+ * Render the sign-in screen (the SIGN_IN enter hook).
+ */
+function renderSignIn() {
   // Pre-fill username if we have it stored (e.g., after failed rejoin)
   const storedUsername = sessionStorage.getItem('username') || '';
 
@@ -2409,56 +2277,23 @@ function displayRegisterScreen(prefillUsername = '', prefillPassword = '') {
   });
 }
 
-/**
- * Attempt to restore session using stored token.
- * Called when we have username and sessionToken in sessionStorage.
- */
-function attemptSessionRestore() {
-  const username = sessionStorage.getItem('username');
-  const sessionToken = sessionStorage.getItem('sessionToken');
-
-  if (!username || !sessionToken) {
-    console.log('No session to restore, showing sign-in');
-    displaySignInScreen();
-    return;
-  }
-
-  console.log(`Attempting to restore session for ${username}`);
-  window.socket.emit('restoreSession', { username, sessionToken });
-}
-
-// Handle restoreSessionResponse
+// restoreSessionResponse: sent for session.resume() (every connect of a
+// signed-in tab, once per socket)
 socket.on('restoreSessionResponse', (data) => {
   if (data.success) {
     console.log('Session restored successfully');
-    // The server now knows this socket as the user (see rejoinFailed)
-    sessionRestoredSocketId = socket.id;
-    const gameState = getGameState();
-    gameState.username = data.username;
     setBlockedUsers(data.blockedUsers);
-
-    // Check if user has an active game to rejoin
-    if (data.activeGameId) {
-      console.log(`Active game found: ${data.activeGameId}, attempting to rejoin...`);
-      sessionStorage.setItem('gameId', data.activeGameId);
-      socket.emit('rejoinGame', { gameId: data.activeGameId, username: data.username });
-    } else if (data.activeTournamentId) {
-      console.log(`Active tournament found: ${data.activeTournamentId}, rejoining...`);
-      gameState.tournamentId = data.activeTournamentId;
-      socket.emit('joinTournament', { tournamentId: data.activeTournamentId });
-    } else {
-      // Go to main room
-      console.log('Session restored, joining main room');
-      socket.emit('joinMainRoom');
-    }
+    // Then rejoin, re-spectate, or re-enter the current screen
+    const action = session.onSessionRestored(data);
+    console.log(`Session restored: ${action}`);
   } else {
     console.log('Session restore failed:', data.message);
     // Clear invalid session data (and the device's saved copy of it)
     forgetSession(sessionStorage.getItem('sessionToken'));
     sessionStorage.removeItem('username');
     sessionStorage.removeItem('sessionToken');
-    sessionStorage.removeItem('gameId');
-    displaySignInScreen();
+    session.clearIdentity();
+    displaySignInScreen(EXIT.SIGN_OUT);
   }
 });
 
@@ -2477,50 +2312,14 @@ window.addEventListener('load', () => {
     console.log('Resuming saved session from this device');
   }
 
-  // Check if user is logged in and was in a game
   const username = sessionStorage.getItem('username');
-  const sessionToken = sessionStorage.getItem('sessionToken');
-  const gameId = sessionStorage.getItem('gameId');
+  console.log(`Window load: username=${username}, sessionToken=${session.credentials() ? 'present' : 'none'}, gameId=${session.persistedGameId}, spectating=${session.persistedSpectateId}`);
 
-  console.log(`Window load: username=${username}, sessionToken=${sessionToken ? 'present' : 'none'}, gameId=${gameId}`);
-
-  if (!username) {
-    // Not logged in - show sign-in screen
-    console.log('No username, showing sign-in screen');
-    displaySignInScreen();
-  } else if (gameId) {
-    // Was in a game - attempt rejoin now that handlers are registered
-    console.log(`User ${username} has pending game ${gameId}, attempting rejoin...`);
-    if (window.socket.connected && !rejoinAttempted) {
-      rejoinAttempted = true;
-      window.socket.emit('rejoinGame', { gameId, username, sessionToken: sessionToken || undefined });
-    } else if (!window.socket.connected) {
-      // Socket not connected yet - wait for connect then rejoin
-      window.socket.once('connect', () => {
-        if (!rejoinAttempted) {
-          rejoinAttempted = true;
-          window.socket.emit('rejoinGame', { gameId, username, sessionToken: sessionToken || undefined });
-        }
-      });
-    }
-  } else if (sessionToken) {
-    // Have stored session - try to restore it
-    console.log('Session token found, attempting to restore session');
-
-    // Check if socket is already connected
-    if (window.socket.connected) {
-      attemptSessionRestore();
-    } else {
-      // Wait for socket to connect, then restore session
-      window.socket.once('connect', () => {
-        if (!sessionStorage.getItem('gameId')) {
-          attemptSessionRestore();
-        }
-      });
-    }
-  } else {
-    // Have username but no session token (legacy) - show sign-in
-    console.log('No session token, showing sign-in screen');
+  if (!session.credentials()) {
+    // Not signed in (or a legacy tab without a token): the sign-in screen
     displaySignInScreen();
   }
+  // Handlers are registered: every connect from now on restores the session
+  // first (now, if the socket is up), then rejoins / re-spectates / re-enters
+  session.start();
 });

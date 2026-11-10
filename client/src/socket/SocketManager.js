@@ -5,10 +5,15 @@
  * - Listener tracking for proper cleanup
  * - Game-specific listener cleanup between games
  * - Connection state management
- * - Reconnection support
+ * - The iOS Safari background check (ping first, reconnect only if dead)
  */
 
 import { CLIENT_EVENTS, SERVER_EVENTS } from '../constants/events.js';
+
+// A background longer than this pings the socket on return
+export const BACKGROUND_PROBE_AFTER_MS = 5000;
+// No answer to that ping within this long: force a reconnect
+export const PROBE_TIMEOUT_MS = 3000;
 
 // Connection states
 export const CONNECTION_STATE = {
@@ -38,6 +43,8 @@ export class SocketManager {
     // iOS Safari background/foreground reconnection
     this._hiddenAt = null;
     this._isForceReconnecting = false;
+    this._probe = null;
+    this._probeSeq = 0;
   }
 
   /**
@@ -106,12 +113,15 @@ export class SocketManager {
   _setupConnectionHandlers() {
     if (!this._socket) return;
 
+    // Rejoining is the client session's job (state/ClientSession.js): on
+    // every connect it restores the session first, then rejoins once
     this._socket.on(SERVER_EVENTS.CONNECT, () => {
+      this._cancelProbe();
       this._setState(CONNECTION_STATE.CONNECTED);
-      this._tryRejoin();
     });
 
     this._socket.on(SERVER_EVENTS.DISCONNECT, (reason) => {
+      this._cancelProbe();
       this._setState(CONNECTION_STATE.DISCONNECTED);
       this._emitStateChange('disconnect', { reason });
     });
@@ -158,37 +168,14 @@ export class SocketManager {
   }
 
   /**
-   * Attempt to rejoin game after reconnection.
-   * Handles both active players (via gameId) and spectators (via spectatingGameId).
-   */
-  _tryRejoin() {
-    const gameId = this.gameId;
-    const username = this.username;
-
-    if (gameId && username) {
-      console.log(`Attempting to rejoin game ${gameId} as ${username}`);
-      // The server only hands a seat to a socket that proves it is that user;
-      // a reconnected socket hasn't restored its session yet, so send the token
-      const sessionToken = sessionStorage.getItem('sessionToken') || undefined;
-      this.emit(CLIENT_EVENTS.REJOIN_GAME, { gameId, username, sessionToken });
-      return;
-    }
-
-    // Spectator reconnection: re-join the game being watched
-    const spectatingGameId = sessionStorage.getItem('spectatingGameId');
-    if (spectatingGameId && username) {
-      console.log(`Attempting to rejoin as spectator for game ${spectatingGameId}`);
-      this.emit(CLIENT_EVENTS.JOIN_AS_SPECTATOR, { gameId: spectatingGameId });
-    }
-  }
-
-  /**
    * Set up visibility change handler for iOS Safari background/foreground.
    *
    * iOS kills WebSocket connections when Safari is backgrounded, but
-   * Socket.IO's frozen heartbeat timer doesn't detect it immediately.
-   * This forces a clean disconnect/reconnect cycle when returning from
-   * background after >5 seconds, triggering the normal rejoin flow.
+   * Socket.IO's frozen heartbeat timer doesn't detect it immediately. After
+   * a background of more than 5 s the socket is pinged first (requestSnapshot
+   * with a fresh requestId: every socket gets a stateSnapshot back, in or out
+   * of a game), and only a ping with no answer within PROBE_TIMEOUT_MS forces
+   * a clean disconnect/reconnect (which the client session then resumes).
    */
   _setupVisibilityHandler() {
     if (typeof document === 'undefined') return;
@@ -202,17 +189,55 @@ export class SocketManager {
         const hiddenDuration = Date.now() - this._hiddenAt;
         this._hiddenAt = null;
 
-        // Only force reconnect if hidden >5s and player is in a game or spectating
-        if (hiddenDuration > 5000 && (this.gameId || sessionStorage.getItem('spectatingGameId'))) {
-          this._forceReconnect();
+        if (hiddenDuration > BACKGROUND_PROBE_AFTER_MS) {
+          this.probeConnection();
         }
       }
     });
   }
 
   /**
-   * Force a clean disconnect/reconnect cycle.
-   * Triggers the existing connect → _tryRejoin() → rejoinGame flow.
+   * Ping the server over this socket; force a reconnect only when it does
+   * not answer. A socket that already knows it is down is left to
+   * Socket.IO's own reconnection.
+   * @returns {boolean} whether a ping went out
+   */
+  probeConnection(timeoutMs = PROBE_TIMEOUT_MS) {
+    if (!this._socket || this._probe || this._isForceReconnecting) return false;
+    if (this._socket.connected === false) return false;
+
+    const requestId = `ping-${Date.now().toString(36)}-${++this._probeSeq}`;
+    const onReply = (data) => {
+      if (data?.requestId !== requestId) return;
+      this._finishProbe(true);
+    };
+    const timer = setTimeout(() => this._finishProbe(false), timeoutMs);
+    this._probe = { requestId, onReply, timer };
+    this._socket.on(SERVER_EVENTS.STATE_SNAPSHOT, onReply);
+    this._socket.emit(CLIENT_EVENTS.REQUEST_SNAPSHOT, { requestId, customPics: false, log: false });
+    return true;
+  }
+
+  _finishProbe(alive) {
+    if (!this._probe) return;
+    this._cancelProbe();
+    if (!alive) {
+      console.log('Ping after background got no answer: forcing a reconnect');
+      this._forceReconnect();
+    }
+  }
+
+  _cancelProbe() {
+    const probe = this._probe;
+    if (!probe) return;
+    clearTimeout(probe.timer);
+    this._socket?.off(SERVER_EVENTS.STATE_SNAPSHOT, probe.onReply);
+    this._probe = null;
+  }
+
+  /**
+   * Force a clean disconnect/reconnect cycle; the next connect is resumed
+   * by the client session (restoreSession, then rejoin/re-enter).
    */
   _forceReconnect() {
     if (this._isForceReconnecting) return;
