@@ -16,6 +16,15 @@ enum FoldReader {
         return nil
     }
 
+    /// A book fold's hinge as a proxy-local x span, when the vertical division
+    /// lies inside the proxy and leaves both pages at least `minPage` wide: the
+    /// wide lobbies end their left column at it and start the right one after it.
+    static func bookHinge(_ p: GeometryProxy, minPage: CGFloat = 240) -> ClosedRange<CGFloat>? {
+        guard let d = division(p), d.height > d.width,
+              d.minX >= minPage, p.size.width - d.maxX >= minPage else { return nil }
+        return d.minX.rounded(.down)...d.maxX.rounded(.up)
+    }
+
     /// Active occlusions (system UI drawn over the app), in the proxy's local coordinates.
     static func occlusions(_ p: GeometryProxy) -> [CGRect] {
         if #available(iOS 27.1, *) {

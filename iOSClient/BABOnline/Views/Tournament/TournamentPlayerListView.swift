@@ -24,6 +24,8 @@ struct TournamentPlayerListView: View {
             .padding(.horizontal)
             .padding(.bottom, 8)
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("tournament.players")
     }
 
     private func playerRow(_ player: TournamentPlayer) -> some View {

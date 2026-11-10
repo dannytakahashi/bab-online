@@ -8,7 +8,9 @@ import SpriteKit
 /// v2 snapshot (`v2/<name>.json`, bundled in Debug only) or from the
 /// `UI_FIXTURE_SNAPSHOT` environment JSON, and the app never connects (no
 /// socket, no voice, avatars show initials). Screen fixtures (`main-room`,
-/// `game-lobby`, `tournament-lobby`, `sign-in`) seed static rows instead.
+/// `game-lobby`, `tournament-lobby`, `tournament-round` (round 3 in play: the
+/// scoreboard and two active tables), `tournament-between` (round 2 complete),
+/// `sign-in`) seed static rows instead.
 /// `-uiFold book|tabletop` simulates a fold region (FoldReader) for screenshots.
 enum UIFixture {
     static let name: String? = UserDefaults.standard.string(forKey: "uiFixture")
@@ -21,7 +23,8 @@ enum UIFixture {
     /// `-uiEffect rainbow|b|2b|3b|4b|ot|all`: effects held on the table (screenshots of the art).
     static let effect: String? = UserDefaults.standard.string(forKey: "uiEffect")
 
-    static let screenFixtures: Set<String> = ["main-room", "game-lobby", "tournament-lobby", "sign-in"]
+    static let screenFixtures: Set<String> = ["main-room", "game-lobby", "tournament-lobby", "tournament-round",
+                                              "tournament-between", "sign-in"]
 
     @MainActor
     static func seed(_ store: GameState, _ appState: AppState, mainRoom: MainRoomState, lobby: LobbyState,
@@ -118,6 +121,30 @@ enum UIFixture {
                                  isCreator: $0.element == "kim", connected: true)
             }
             tournament.messages = chat
+            appState.screen = .tournamentLobby
+        case "tournament-round", "tournament-between":
+            // 8 players (ned reconnecting); mid-round two tables still play, ivy's has finished
+            let between = name == "tournament-between"
+            let names = ["kim", "ivy", "hal", "jon", "ora", "max", "pat", "ned"]
+            let rounds: [[Int]] = [[142, 88], [120, 131], [97, 64], [-40, 152], [76, 49], [55, -20], [31, 18], [-12, 7]]
+            tournament.tournamentId = "t1"
+            tournament.name = "Sunday Cup"
+            tournament.phase = between ? "between_rounds" : "round_active"
+            tournament.currentRound = between ? 2 : 3
+            tournament.creatorUsername = "kim"
+            tournament.players = names.enumerated().map {
+                TournamentPlayer(id: "sid-\($0.element)", username: $0.element, pic: nil, isReady: between && $0.offset % 3 != 2,
+                                 isCreator: $0.element == "kim", connected: $0.element != "ned")
+            }
+            tournament.scoreboard = zip(names, rounds)
+                .map { TournamentScoreEntry(id: $0, username: $0, totalScore: $1.reduce(0, +), roundScores: $1) }
+                .sorted { $0.totalScore > $1.totalScore }
+            tournament.activeGames = between ? [] : [
+                TournamentActiveGame(id: "g1", humanPlayers: ["ivy", "kim", "hal", "jon"], botCount: 0, status: "complete"),
+                TournamentActiveGame(id: "g2", humanPlayers: ["ora", "max", "pat"], botCount: 1, status: "active"),
+                TournamentActiveGame(id: "g3", humanPlayers: ["ned"], botCount: 3, status: "active"),
+            ]
+            tournament.messages = chat + messages([("System", between ? "Round 2 complete" : "Round 3 has begun"), ("hal", "gl all")])
             appState.screen = .tournamentLobby
         default:
             // no socket in fixture mode: show the connected form (emits go nowhere), not the spinner

@@ -16,6 +16,8 @@ private struct TournamentLobbyScreen: View {
     @EnvironmentObject var authState: AuthState
     @EnvironmentObject var tournamentState: TournamentState
     @Environment(\.horizontalSizeClass) private var hSizeClass
+    /// Bumped by every hinge change so the fold is read again at the same size.
+    @State private var hingeTick = 0
 
     var body: some View {
         ZStack {
@@ -24,12 +26,22 @@ private struct TournamentLobbyScreen: View {
             // Two branches on purpose (their children differ); the chat draft
             // lives in TournamentState, so a size-class change keeps it.
             GeometryReader { geo in
+                let _ = hingeTick  // re-read the fold after a hinge change
                 if hSizeClass == .regular {
-                    // iPad: side-by-side
+                    // Regular width (iPad, the open Duo): side by side, as the main room.
+                    // The left column ignores the keyboard (only the chat column makes
+                    // room for it), so typing never moves the players or the buttons.
+                    // In book pose the left column ends at the hinge, which divides them.
+                    let hinge = FoldReader.bookHinge(geo)
                     HStack(spacing: 0) {
-                        leftPanel(height: geo.size.height)
-                            .frame(width: geo.size.width * 0.55)
-                        Divider().background(Color.Theme.inputBorder)
+                        leftPanel
+                            .frame(width: hinge?.lowerBound ?? geo.size.width * 0.55)
+                            .ignoresSafeArea(.keyboard, edges: .bottom)
+                        if let hinge {
+                            Color.clear.frame(width: hinge.upperBound - hinge.lowerBound)
+                        } else {
+                            Divider().background(Color.Theme.inputBorder)
+                        }
                         rightPanel
                             .frame(maxWidth: .infinity)
                     }
@@ -51,6 +63,7 @@ private struct TournamentLobbyScreen: View {
                     }
                 }
             }
+            .modifier(HingeTick(tick: $hingeTick))
 
             // Results overlay
             if tournamentState.phase == "complete" {
@@ -74,40 +87,56 @@ private struct TournamentLobbyScreen: View {
         }
     }
 
-    // MARK: - iPad Layout
+    // MARK: - Wide Layout (regular width)
 
     /// The header (Leave, title, round) and the buttons stay pinned; the player
-    /// list takes its natural height and scrolls only when the chat would get
-    /// less than its minimum (short windows), so the chat fills the rest.
-    private func leftPanel(height: CGFloat) -> some View {
-        let listCap = max(96, height - headerHeight - buttonsHeight - Self.chatMinHeight)
-        return VStack(spacing: 0) {
+    /// list takes the height between them and scrolls when it is longer.
+    private var leftPanel: some View {
+        VStack(spacing: 0) {
             headerBar
-                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { headerHeight = $0 }
             ScrollView {
                 TournamentPlayerListView()
-                    .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { playerListHeight = $0 }
             }
             .scrollBounceBehavior(.basedOnSize)
-            .frame(height: min(playerListHeight, listCap))
-            TournamentChatView()
-                .frame(minHeight: Self.chatMinHeight)
+            .frame(maxHeight: .infinity, alignment: .top)
             bottomButtons
-                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { buttonsHeight = $0 }
         }
     }
 
-    private static let chatMinHeight: CGFloat = 160
-    @State private var headerHeight: CGFloat = 0
-    @State private var buttonsHeight: CGFloat = 0
-    @State private var playerListHeight: CGFloat = 0
+    /// The chat's minimum in the right column; the scoreboard and the active
+    /// tables above it scroll inside the rest when they are taller.
+    private static let chatMinHeight: CGFloat = 240
+    @State private var rightHeight: CGFloat = 0
+    @State private var standingsHeight: CGFloat = 0
 
+    /// The scoreboard (once there are scores) and the active tables (while a
+    /// round is in play), else nothing: the chat then takes the whole column.
+    private var hasStandings: Bool {
+        !tournamentState.scoreboard.isEmpty
+            || (tournamentState.phase == "round_active" && tournamentState.activeGames.contains { $0.status == "active" })
+    }
+
+    /// The scoreboard and the active tables on top, sized to their content (they
+    /// scroll when that leaves the chat less than its minimum, e.g. with the
+    /// keyboard up); the chat fills the rest of the column.
     private var rightPanel: some View {
         VStack(spacing: 0) {
-            TournamentScoreboardView()
-            TournamentActiveGamesView()
-            Spacer()
+            if hasStandings {
+                ScrollView {
+                    VStack(spacing: 12) {
+                        TournamentScoreboardView()
+                        TournamentActiveGamesView()
+                    }
+                    .padding(.vertical, 12)
+                    .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { standingsHeight = $0 }
+                }
+                .scrollBounceBehavior(.basedOnSize)
+                .frame(height: min(standingsHeight, max(0, rightHeight - Self.chatMinHeight)))
+            }
+            TournamentChatView(showsTitle: true)
+                .frame(maxHeight: .infinity)
         }
+        .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { rightHeight = $0 }
     }
 
     // MARK: - Header

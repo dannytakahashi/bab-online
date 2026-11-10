@@ -21,18 +21,41 @@ private struct GameLobbyScreen: View {
     /// Measured heights of the fixed parts: the lobby scrolls when they plus a 120 pt chat do not fit.
     @State private var topHeight: CGFloat = 0
     @State private var readyHeight: CGFloat = 0
+    /// The header row's height: the wide chat column's title row matches it.
+    @State private var headerHeight: CGFloat = 0
+    /// The height above the keyboard (the screen's keyboard-aware safe area).
+    @State private var visibleHeight: CGFloat = 0
+    /// Bumped by every hinge change so the fold is read again at the same size.
+    @State private var hingeTick = 0
+    @Environment(\.horizontalSizeClass) private var hSizeClass
     @ObservedObject private var voiceManager = VoiceChatManager.shared
 
     var body: some View {
         ZStack {
             Color.Theme.background.ignoresSafeArea()
 
-            // One always-present ScrollView (stable identity: the keyboard never
-            // swaps layouts): the content fills the height, and scrolls once the
-            // fixed parts plus a 120 pt chat do not fit; 560 pt readable width.
+            // measures the room above the keyboard (draws nothing)
+            Color.clear
+                .allowsHitTesting(false)
+                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { visibleHeight = $0 }
+
+            // One always-present ScrollView and one AnyLayout (stable identity: the
+            // keyboard or a size-class change never swaps views, so the chat field
+            // keeps its focus and draft). Compact (phones, the closed Duo): stacked,
+            // 560 pt readable width; the content fills the height, and scrolls once
+            // the fixed parts plus a 120 pt chat do not fit. Regular width (iPad, the
+            // open Duo), as the main room: the players and Ready in the left 55%, the
+            // chat filling the right column. There the layout ignores the keyboard
+            // and only the chat column makes room for it, so the left column stays put.
+            // In book pose the left column ends at the hinge and the chat starts after it.
             GeometryReader { g in
+            let _ = hingeTick  // re-read the fold after a hinge change
+            let wide = hSizeClass == .regular
+            let hinge = wide ? FoldReader.bookHinge(g) : nil
+            let layout = wide ? AnyLayout(LobbySplitLayout(hinge: hinge)) : AnyLayout(VStackLayout(spacing: 0))
+            let keyboard = wide ? max(0, g.size.height - visibleHeight) : 0
             ScrollView {
-            VStack(spacing: 0) {
+            layout {
                 VStack(spacing: 0) {
                 // Header
                 HStack {
@@ -68,6 +91,7 @@ private struct GameLobbyScreen: View {
                     }
                 }
                 .padding()
+                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { headerHeight = $0 }
 
                 Divider().background(Color.Theme.inputBorder, ignoresSafeAreaEdges: .vertical)
 
@@ -83,6 +107,8 @@ private struct GameLobbyScreen: View {
                     }
                 }
                 .padding()
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("lobby.players")
 
                 // Bot button
                 if lobbyState.playerCount < 4 {
@@ -100,9 +126,14 @@ private struct GameLobbyScreen: View {
                 }
                 .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { topHeight = $0 }
 
-                // Chat - takes remaining space
-                LobbyChatView()
+                // Chat - takes remaining space (wide: the right column, under a title
+                // row as tall as the header, beside a 1 pt rule)
+                LobbyChatView(titleHeight: wide ? headerHeight : nil)
+                    .padding(.bottom, keyboard)
                     .frame(minHeight: 120, maxHeight: .infinity)
+                    .overlay(alignment: .leading) {
+                        if wide && hinge == nil { Separator(vertical: true) }  // the hinge divides a book fold
+                    }
 
                 // Ready button
                 Button(action: toggleReady) {
@@ -118,13 +149,15 @@ private struct GameLobbyScreen: View {
                 .padding(.bottom, 4)
                 .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { readyHeight = $0 }
             }
-            .frame(maxWidth: 560)
+            .frame(maxWidth: wide ? .infinity : 560)
             .frame(maxWidth: .infinity)
-            .frame(height: max(g.size.height, topHeight + 120 + readyHeight))
+            .frame(height: max(g.size.height, topHeight + (wide ? 0 : 120) + readyHeight))
             }
             .scrollBounceBehavior(.basedOnSize)
             .scrollDismissesKeyboard(.interactively)
             }
+            .modifier(HingeTick(tick: $hingeTick))
+            .ignoresSafeArea(.keyboard, edges: hSizeClass == .regular ? .bottom : [])
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 Color.clear.frame(height: 0)
             }
@@ -208,5 +241,34 @@ private struct GameLobbyScreen: View {
         LobbyEmitter.leaveLobby()
         lobbyState.reset()
         isReady = false
+    }
+}
+
+/// The game lobby's wide layout for its three parts (top, chat, Ready), the
+/// stacked one's partner in an AnyLayout: the top part and Ready (at the bottom)
+/// share the left column, the chat fills the right column's full height.
+private struct LobbySplitLayout: Layout {
+    /// The left column's share of the width (the main room's lobby browser's).
+    var leftFraction: CGFloat = 0.55
+    /// A book fold's hinge (FoldReader.bookHinge, the same x as the bounds): the
+    /// left column ends at it and the chat starts after it, so neither spans it.
+    var hinge: ClosedRange<CGFloat>? = nil
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        proposal.replacingUnspecifiedDimensions()
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard subviews.count == 3 else { return }
+        let left = hinge?.lowerBound ?? (bounds.width * leftFraction).rounded()
+        let chatX = hinge?.upperBound ?? left
+        let top = subviews[0], chat = subviews[1], ready = subviews[2]
+        let topHeight = top.sizeThatFits(ProposedViewSize(width: left, height: nil)).height
+        top.place(at: bounds.origin, proposal: ProposedViewSize(width: left, height: topHeight))
+        let readyHeight = ready.sizeThatFits(ProposedViewSize(width: left, height: nil)).height
+        ready.place(at: CGPoint(x: bounds.minX, y: bounds.maxY - readyHeight),
+                    proposal: ProposedViewSize(width: left, height: readyHeight))
+        chat.place(at: CGPoint(x: bounds.minX + chatX, y: bounds.minY),
+                   proposal: ProposedViewSize(width: bounds.width - chatX, height: bounds.height))
     }
 }

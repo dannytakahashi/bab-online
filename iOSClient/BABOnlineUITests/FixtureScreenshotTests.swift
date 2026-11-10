@@ -76,6 +76,8 @@ final class FixtureScreenshotTests: XCTestCase {
     func testMainRoom() { run("main-room") }
     func testGameLobby() { run("game-lobby") }
     func testTournamentLobby() { run("tournament-lobby") }
+    func testTournamentRound() { run("tournament-round") }
+    func testTournamentBetween() { run("tournament-between") }
     func testSignIn() { run("sign-in") }
 
     /// Synthetic fold regions (`-uiFold`): the docked book layout and the tabletop split.
