@@ -127,11 +127,6 @@ export class GameState {
     // Rainbow positions received during bidding
     this.rainbows = [];
 
-    // Pending data (for when events arrive before scene is ready)
-    this._pendingRejoinData = null;
-    this._pendingPositionData = null;
-    this._pendingGameStartData = null;
-
     // Optimistic update state
     this._pendingCard = null;
     this._pendingBid = null;
@@ -528,61 +523,6 @@ export class GameState {
     const rainbows = [...this.rainbows];
     this.rainbows = [];
     return rainbows;
-  }
-
-  /**
-   * Set pending rejoin data (when scene isn't ready yet).
-   */
-  setPendingRejoinData(data) {
-    this._pendingRejoinData = data;
-  }
-
-  /**
-   * Get and clear pending rejoin data.
-   */
-  consumePendingRejoinData() {
-    const data = this._pendingRejoinData;
-    this._pendingRejoinData = null;
-    return data;
-  }
-
-  /**
-   * Set pending position data (when scene isn't ready yet).
-   */
-  setPendingPositionData(data) {
-    this._pendingPositionData = data;
-  }
-
-  /**
-   * Get and clear pending position data.
-   */
-  consumePendingPositionData() {
-    const data = this._pendingPositionData;
-    this._pendingPositionData = null;
-    return data;
-  }
-
-  /**
-   * Set pending game start data (when scene isn't ready yet).
-   */
-  setPendingGameStartData(data) {
-    this._pendingGameStartData = data;
-  }
-
-  /**
-   * Get and clear pending game start data.
-   */
-  consumePendingGameStartData() {
-    const data = this._pendingGameStartData;
-    this._pendingGameStartData = null;
-    return data;
-  }
-
-  /**
-   * Check if there's any pending data to process.
-   */
-  hasPendingData() {
-    return !!(this._pendingRejoinData || this._pendingPositionData || this._pendingGameStartData);
   }
 
   /**

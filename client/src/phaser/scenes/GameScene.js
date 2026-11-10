@@ -7,8 +7,11 @@
 
 import { avatarSrc, applyAvatarImg, isAvatarPic } from '../../utils/avatar.js';
 import { getGameState } from '../../state/GameState.js';
-import { getCardImageKey } from '../../utils/cards.js';
+import { getCardImageKey, sortHand } from '../../utils/cards.js';
 import { team, rotate } from '../../utils/positions.js';
+import { isLegalMove } from '../../rules/legality.js';
+import { ANIMATION_CONFIG } from '../config.js';
+import { reattachMuteButton } from '../../ui/components/VoiceChatUI.js';
 import { CardManager } from '../managers/CardManager.js';
 import { OpponentManager } from '../managers/OpponentManager.js';
 import { TrickManager } from '../managers/TrickManager.js';
@@ -18,10 +21,7 @@ import { flyInMs, FLIP } from '../pacing.js';
 import { transitionGeneration } from '../../ui/transitionOverlay.js';
 import { BidManager } from '../managers/BidManager.js';
 import { LayoutManager } from '../managers/LayoutManager.js';
-import {
-  showChatBubble as showChatBubbleUI,
-  clearChatBubbles,
-} from '../../ui/components/ChatBubble.js';
+import { showChatBubble as showChatBubbleUI } from '../../ui/components/ChatBubble.js';
 
 /**
  * Base design dimensions for scaling calculations.
@@ -39,9 +39,6 @@ export class GameScene extends Phaser.Scene {
     // State reference
     this.state = null;
 
-    // Scene ready flag
-    this.isReady = false;
-
     // Managers (instantiated in create())
     this.cardManager = null;
     this.opponentManager = null;
@@ -51,53 +48,15 @@ export class GameScene extends Phaser.Scene {
     this.bidManager = null;
     this.layoutManager = null;
 
-    // Card sprites
-    this.myCards = [];
-    this.opponentCardSprites = {
-      partner: [],
-      opp1: [],
-      opp2: [],
-    };
-    this.currentTrickSprites = [];
-
-    // UI elements
+    // Trump display (CardManager/OpponentManager read tableCardSprite)
     this.tableCardSprite = null;
     this.tableCardBackground = null;
     this.tableCardLabel = null;
-    this.buttonHandle = null; // Dealer button
-    this.playerInfo = null;
 
-    // DOM-based opponent avatars (for CSS glow support)
-    this.opponentAvatarDoms = {
-      partner: null,
-      opp1: null,
-      opp2: null,
-    };
-
-    // Play positions for card animations
-    this.playPositions = {
-      opponent1: { x: 0, y: 0 },
-      opponent2: { x: 0, y: 0 },
-      partner: { x: 0, y: 0 },
-      self: { x: 0, y: 0 },
-    };
-
-    // Trick history (sprite arrays for hover effects)
-    this.teamTrickHistory = [];
-    this.oppTrickHistory = [];
-
-    // Active chat bubbles by position key
-    this.activeChatBubbles = {};
-
-    // Callbacks for external UI updates
-    this.callbacks = {};
-  }
-
-  /**
-   * Set callbacks for external updates.
-   */
-  setCallbacks(callbacks) {
-    this.callbacks = callbacks || {};
+    // Own avatar box (DOM, outside the canvas): createPlayerInfoBox. Not
+    // reset by a scene restart (the constructor runs once); clearPlayerInfo
+    // removes it
+    this._playerInfo = null;
   }
 
   /**
@@ -168,68 +127,17 @@ export class GameScene extends Phaser.Scene {
       this.scale.off('resize', onScaleResize);
     });
 
-    // Initial position calculation
-    this.updatePlayPositions();
-
-    // Mark scene as ready
-    this.isReady = true;
-
     // Register this scene with main.js for external access
     if (window.ModernUtils && window.ModernUtils.setGameScene) {
       window.ModernUtils.setGameScene(this);
       console.log('🎮 GameScene registered with ModernUtils');
     }
 
-    // Process any pending data
-    this.processPendingData();
-
     console.log('🎮 GameScene.create() complete!');
   }
 
   update() {
     // Empty - we don't need per-frame updates
-  }
-
-  // ============================================
-  // Pending Data Processing
-  // ============================================
-
-  /**
-   * Process any pending data that arrived before scene was ready.
-   */
-  processPendingData() {
-    const state = this.state;
-
-    // Check for pending rejoin
-    const rejoinData = state.consumePendingRejoinData();
-    if (rejoinData) {
-      console.log('🔄 Processing pending rejoin data...');
-      this.processRejoin(rejoinData);
-      return;
-    }
-
-    // Check for pending position update
-    const positionData = state.consumePendingPositionData();
-    if (positionData) {
-      console.log('📍 Processing pending position data...');
-      this.callbacks.onPositionUpdate?.(positionData);
-    }
-
-    // Check for pending game start
-    const gameStartData = state.consumePendingGameStartData();
-    if (gameStartData) {
-      console.log('🎮 Processing pending game start data...');
-      this.callbacks.onGameStart?.(gameStartData);
-    }
-  }
-
-  /**
-   * Process rejoin data and restore game visuals.
-   */
-  processRejoin(data) {
-    console.log('🔄 Processing rejoin:', data);
-    // This will be called by legacy code for now
-    this.callbacks.onRejoinProcess?.(data);
   }
 
   // ============================================
@@ -263,128 +171,10 @@ export class GameScene extends Phaser.Scene {
 
       // Reposition trump display and player info
       this.repositionTrumpDisplay();
-      if (this.repositionPlayerInfo) {
-        this.repositionPlayerInfo();
-      }
-
-      // Update play positions for card animations
-      this.updatePlayPositions();
-
-      this.callbacks.onResize?.(newWidth, newHeight);
+      this.repositionPlayerInfo();
     } catch (e) {
       console.error('❌ Error in handleResize:', e);
     }
-  }
-
-  /**
-   * Update play area positions for card animations.
-   */
-  updatePlayPositions() {
-    const { x: scaleX, y: scaleY, screenWidth, screenHeight } = this.getScaleFactors();
-    const playOffsetX = 80 * scaleX;
-    const playOffsetY = 80 * scaleY;
-
-    this.playPositions.opponent1 = { x: screenWidth / 2 - playOffsetX, y: screenHeight / 2 };
-    this.playPositions.opponent2 = { x: screenWidth / 2 + playOffsetX, y: screenHeight / 2 };
-    this.playPositions.partner = { x: screenWidth / 2, y: screenHeight / 2 - playOffsetY };
-    this.playPositions.self = { x: screenWidth / 2, y: screenHeight / 2 + playOffsetY };
-  }
-
-  /**
-   * Reposition cards in player's hand during resize.
-   */
-  repositionHandCards() {
-    if (!this.myCards || this.myCards.length === 0) return;
-
-    const { x: scaleX, y: scaleY, screenWidth, screenHeight } = this.getScaleFactors();
-
-    const cardSpacing = 50 * scaleX;
-    const totalWidth = (this.myCards.length - 1) * cardSpacing;
-    const startX = (screenWidth - totalWidth) / 2;
-
-    // Calculate hand area position
-    const bottomClearance = 20 * scaleY;
-    const cardHeight = 140 * 1.5 * scaleY;
-    const cardPadding = 10 * scaleY;
-    const handAreaHeight = cardHeight + cardPadding * 2;
-    const handAreaTop = screenHeight - handAreaHeight - bottomClearance;
-    const startY = handAreaTop + handAreaHeight / 2;
-
-    this.myCards.forEach((card, index) => {
-      if (card && card.active) {
-        card.x = startX + index * cardSpacing;
-        card.y = startY;
-        card.setData('baseY', startY);
-      }
-    });
-  }
-
-  /**
-   * Reposition opponent elements (avatars, card backs) during resize.
-   */
-  repositionOpponentElements() {
-    const { x: scaleX, y: scaleY, screenWidth, screenHeight } = this.getScaleFactors();
-    const centerX = screenWidth / 2;
-    const centerY = screenHeight / 2;
-
-    // Clamp positions to stay within canvas bounds
-    const minX = 80;
-    const maxX = screenWidth - 120;
-
-    const positions = {
-      partner: {
-        cardX: centerX,
-        cardY: centerY - 275 * scaleY,
-        avatarX: centerX,
-        avatarY: centerY - 400 * scaleY,
-      },
-      opp1: {
-        cardX: Math.max(minX + 50, centerX - 425 * scaleX),
-        cardY: centerY,
-        avatarX: Math.max(minX, centerX - 550 * scaleX),
-        avatarY: centerY,
-      },
-      opp2: {
-        cardX: Math.min(maxX - 50, centerX + 425 * scaleX),
-        cardY: centerY,
-        avatarX: Math.min(maxX, centerX + 550 * scaleX),
-        avatarY: centerY,
-      },
-    };
-
-    // Reposition opponent card sprites
-    const cardSpacing = 10 * scaleX;
-    Object.keys(positions).forEach((opponentId) => {
-      const sprites = this.opponentCardSprites[opponentId];
-      if (!sprites) return;
-
-      const pos = positions[opponentId];
-      const isHorizontal = opponentId === 'partner';
-      const numCards = sprites.length;
-
-      sprites.forEach((card, index) => {
-        if (card && card.active) {
-          if (isHorizontal) {
-            const totalWidth = (numCards - 1) * cardSpacing;
-            card.x = pos.cardX - totalWidth / 2 + index * cardSpacing;
-            card.y = pos.cardY;
-          } else {
-            const totalHeight = (numCards - 1) * cardSpacing;
-            card.x = pos.cardX;
-            card.y = pos.cardY - totalHeight / 2 + index * cardSpacing;
-          }
-        }
-      });
-    });
-
-    // Reposition DOM avatars
-    Object.keys(positions).forEach((opponentId) => {
-      const dom = this.opponentAvatarDoms[opponentId];
-      if (dom) {
-        dom.style.left = `${positions[opponentId].avatarX}px`;
-        dom.style.top = `${positions[opponentId].avatarY}px`;
-      }
-    });
   }
 
   /**
@@ -405,171 +195,6 @@ export class GameScene extends Phaser.Scene {
       const cardHeight = this.tableCardSprite ? this.tableCardSprite.displayHeight + 10 : 100;
       this.tableCardLabel.setPosition(trumpX, trumpY - (cardHeight / 2) - 12);
     }
-  }
-
-  /**
-   * Reposition cards in current trick during resize.
-   */
-  repositionCurrentTrick() {
-    if (!this.currentTrickSprites || this.currentTrickSprites.length === 0) return;
-
-    this.currentTrickSprites.forEach((card) => {
-      if (!card || !card.active) return;
-
-      const playPosition = card.getData('playPosition');
-      if (!playPosition || !this.playPositions[playPosition]) return;
-
-      card.x = this.playPositions[playPosition].x;
-      card.y = this.playPositions[playPosition].y;
-    });
-  }
-
-  /**
-   * Reposition DOM background elements.
-   */
-  repositionDOMBackgrounds() {
-    // This is handled externally by game.js for now
-    this.callbacks.onRepositionDOMBackgrounds?.();
-  }
-
-  // ============================================
-  // Card Display Methods
-  // ============================================
-
-  /**
-   * Display the player's hand of cards.
-   */
-  displayHand(cards, skipAnimation = false) {
-    // Clear existing card sprites
-    this.clearHand();
-
-    if (!cards || cards.length === 0) return;
-
-    const { x: scaleX, y: scaleY, screenWidth, screenHeight } = this.getScaleFactors();
-
-    const cardSpacing = 50 * scaleX;
-    const totalWidth = (cards.length - 1) * cardSpacing;
-    const startX = (screenWidth - totalWidth) / 2;
-
-    // Calculate hand area position
-    const bottomClearance = 20 * scaleY;
-    const cardHeight = 140 * 1.5 * scaleY;
-    const cardPadding = 10 * scaleY;
-    const handAreaHeight = cardHeight + cardPadding * 2;
-    const handAreaTop = screenHeight - handAreaHeight - bottomClearance;
-    const startY = handAreaTop + handAreaHeight / 2;
-
-    // Create card sprites
-    cards.forEach((cardData, index) => {
-      const cardKey = getCardImageKey(cardData);
-      const targetX = startX + index * cardSpacing;
-      const targetY = startY;
-
-      // Create sprite (from bottom of screen if animating)
-      const fromY = skipAnimation ? targetY : screenHeight + 100;
-      const sprite = this.add.image(targetX, fromY, 'cards', cardKey);
-
-      sprite.setScale(1.5);
-      sprite.setDepth(300 + index);
-      sprite.setData('card', cardData);
-      sprite.setData('baseY', targetY);
-      sprite.setData('index', index);
-
-      // Animate into position
-      if (!skipAnimation) {
-        this.tweens.add({
-          targets: sprite,
-          y: targetY,
-          duration: 200,
-          ease: 'Power2',
-          delay: index * 50,
-        });
-      }
-
-      this.myCards.push(sprite);
-    });
-
-    // Set up card interactions
-    this.setupCardInteractions();
-  }
-
-  /**
-   * Clear player's hand sprites.
-   */
-  clearHand() {
-    this.myCards.forEach((sprite) => {
-      if (sprite && sprite.active) {
-        sprite.destroy();
-      }
-    });
-    this.myCards = [];
-  }
-
-  /**
-   * Set up card hover and click interactions.
-   */
-  setupCardInteractions() {
-    this.myCards.forEach((sprite) => {
-      if (!sprite || !sprite.active) return;
-
-      sprite.setInteractive();
-
-      // Hover effects
-      sprite.on('pointerover', () => {
-        const baseY = sprite.getData('baseY');
-        sprite.y = baseY - 20;
-        sprite.setDepth(500);
-      });
-
-      sprite.on('pointerout', () => {
-        const baseY = sprite.getData('baseY');
-        const index = sprite.getData('index');
-        sprite.y = baseY;
-        sprite.setDepth(300 + index);
-      });
-
-      // Click to play
-      sprite.on('pointerdown', () => {
-        const card = sprite.getData('card');
-        const isLegal = sprite.getData('isLegal');
-
-        if (isLegal) {
-          this.callbacks.onCardClicked?.(card, sprite);
-        }
-      });
-    });
-  }
-
-  /**
-   * Update card tinting based on legality.
-   */
-  updateCardLegality(legalityChecker) {
-    const state = this.state;
-
-    this.myCards.forEach((sprite) => {
-      if (!sprite || !sprite.active) return;
-
-      const card = sprite.getData('card');
-      if (!card) return;
-
-      // During bidding or not our turn, dim all cards
-      if (state.isBidding || state.currentTurn !== state.position || state.hasPlayedCard) {
-        sprite.setTint(0xaaaaaa);
-        sprite.setData('isLegal', false);
-        return;
-      }
-
-      // Check legality with provided checker function
-      const isLegal = legalityChecker ? legalityChecker(card) : true;
-
-      if (isLegal) {
-        sprite.clearTint();
-        sprite.setData('isLegal', true);
-      } else {
-        sprite.setTint(0xaaaaaa);
-        sprite.setData('isLegal', false);
-      }
-    });
   }
 
   /**
@@ -892,9 +517,6 @@ export class GameScene extends Phaser.Scene {
 
     // Update game log score with bid info
     this.updateGameLogWithBids(data.bidArray);
-
-    // Delegate to callback for additional handling
-    this.callbacks.onBidReceived?.(data);
   }
 
   /**
@@ -995,9 +617,6 @@ export class GameScene extends Phaser.Scene {
     if (this.opponentManager) {
       this.opponentManager.updateTurnGlow(this.state.currentTurn);
     }
-
-    // Delegate to callback for additional handling
-    this.callbacks.onDoneBidding?.(data);
   }
 
   /**
@@ -1066,9 +685,6 @@ export class GameScene extends Phaser.Scene {
     if (this.bidManager && this.state.isBidding) {
       this.bidManager.updateVisibility();
     }
-
-    // Delegate to callback for additional handling
-    this.callbacks.onUpdateTurn?.(data);
   }
 
   /**
@@ -1257,9 +873,6 @@ export class GameScene extends Phaser.Scene {
     }
     // Note: Normal self play animation is handled by the card click handler in main.js
     // which extracts the sprite and animates it to the play position with a flip effect
-
-    // Delegate to callback for additional handling
-    this.callbacks.onCardPlayed?.(data);
   }
 
   /**
@@ -1394,9 +1007,6 @@ export class GameScene extends Phaser.Scene {
     this.state.playedCardIndex = 0;
     this.state.currentTrick = [];
     this.state.hasPlayedCard = false;
-
-    // Delegate to callback for any remaining legacy handling
-    this.callbacks.onTrickComplete?.(data);
   }
 
   /**
@@ -1508,9 +1118,6 @@ export class GameScene extends Phaser.Scene {
     if (this.cardManager) {
       this.cardManager.clearHand();
     }
-
-    // Delegate to callback for any remaining legacy handling
-    this.callbacks.onHandComplete?.(data);
   }
 
   /**
@@ -1562,17 +1169,6 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Handle gameEnd event.
-   * @param {Object} data - Final game scores
-   */
-  handleGameEnd(data) {
-    console.log('🎮 GameScene.handleGameEnd()');
-
-    // Delegate to callback
-    this.callbacks.onGameEnd?.(data);
-  }
-
-  /**
    * Handle rainbow event.
    * @param {Object} data - { position }
    */
@@ -1583,9 +1179,6 @@ export class GameScene extends Phaser.Scene {
     if (this.effectsManager && this.effectsManager.showRainbow) {
       this.effectsManager.showRainbow(data.position);
     }
-
-    // Delegate to callback
-    this.callbacks.onRainbow?.(data);
   }
 
   /**
@@ -1595,8 +1188,9 @@ export class GameScene extends Phaser.Scene {
   handleDestroyHands(data) {
     console.log('🎮 GameScene.handleDestroyHands()');
 
-    // Clear hand and trick displays
-    this.clearHand();
+    // Clear hand and trick displays (the redeal's gameStart, sent in the
+    // same server tick, deals the new hand)
+    this.cardManager?.clearHand();
     if (this.trickManager) {
       this.trickManager.clearAll();
     }
@@ -1608,60 +1202,11 @@ export class GameScene extends Phaser.Scene {
       this.bidManager.hideBidUI(false);
     }
     this.state.clearTempBids();
-
-    // Delegate to callback
-    this.callbacks.onDestroyHands?.(data);
   }
 
   // ============================================
   // Reconnection & Error Handlers
   // ============================================
-
-  /**
-   * Handle playerDisconnected event.
-   * @param {Object} data - { username, position }
-   */
-  handlePlayerDisconnected(data) {
-    console.log('🎮 GameScene.handlePlayerDisconnected()');
-    this.callbacks.onPlayerDisconnected?.(data);
-  }
-
-  /**
-   * Handle playerReconnected event.
-   * @param {Object} data - { username, position }
-   */
-  handlePlayerReconnected(data) {
-    console.log('🎮 GameScene.handlePlayerReconnected()');
-    this.callbacks.onPlayerReconnected?.(data);
-  }
-
-  /**
-   * Handle rejoinSuccess event.
-   * @param {Object} data - Full game state for rejoin
-   */
-  handleRejoinSuccess(data) {
-    console.log('🎮 GameScene.handleRejoinSuccess()');
-    this.callbacks.onRejoinSuccess?.(data);
-  }
-
-  /**
-   * Handle rejoinFailed event.
-   * @param {Object} data - { reason }
-   */
-  handleRejoinFailed(data) {
-    console.log('🎮 GameScene.handleRejoinFailed()');
-    this.callbacks.onRejoinFailed?.(data);
-  }
-
-  /**
-   * Handle resignationAvailable event.
-   * Shows a modal asking if the player wants to replace the disconnected player with a bot.
-   * @param {Object} data - { position, username }
-   */
-  handleResignationAvailable(data) {
-    console.log('🎮 GameScene.handleResignationAvailable()');
-    this.callbacks.onResignationAvailable?.(data);
-  }
 
   /**
    * Handle playerResigned event.
@@ -1676,7 +1221,6 @@ export class GameScene extends Phaser.Scene {
         pic: data.botPic
       });
     }
-    this.callbacks.onPlayerResigned?.(data);
   }
 
   /**
@@ -1699,7 +1243,6 @@ export class GameScene extends Phaser.Scene {
         pic: data.botPic
       });
     }
-    this.callbacks.onPlayerLazyMode?.(data);
   }
 
   /**
@@ -1722,7 +1265,6 @@ export class GameScene extends Phaser.Scene {
         pic: data.pic
       });
     }
-    this.callbacks.onPlayerActiveMode?.(data);
   }
 
   /**
@@ -1734,65 +1276,330 @@ export class GameScene extends Phaser.Scene {
 
     // Full cleanup
     this.cleanup();
-
-    // Delegate to callback
-    this.callbacks.onAbortGame?.(data);
   }
 
   // ============================================
-  // Utility Methods
+  // Hand, opponent hands and own avatar box
   // ============================================
 
   /**
-   * Check if document is visible.
+   * Display the local player's hand via CardManager and wire card clicks
+   * to playCard (sorted by trump; legality from the game state).
+   * @param {Array} cards - Hand from the server
+   * @param {boolean} skipAnimation - true on rejoin (no deal animation)
    */
-  isVisible() {
-    return document.visibilityState === 'visible';
+  handleDisplayHand(cards, skipAnimation = false) {
+    console.log('🎮 handleDisplayHand', cards?.length, 'cards, skipAnimation:', skipAnimation);
+    if (!this.cardManager || !cards || cards.length === 0) return;
+
+    const gameState = getGameState();
+    const socket = window.socket;
+
+    // Sort cards by trump before displaying
+    const sortedCards = sortHand([...cards], gameState.trump);
+
+    // Set up click handler for playing cards
+    const scene = this;
+    this.cardManager.setCardClickHandler((card, clickedSprite) => {
+      console.log(`🃏 Card clicked: ${card.rank} of ${card.suit}`);
+
+      // Only allow playing if the card is marked as legal
+      if (!clickedSprite.getData('isLegal')) {
+        console.log('Illegal move - card is disabled!');
+        return;
+      }
+
+      // Set lead card if first play of trick
+      if (gameState.playedCardIndex === 0) {
+        gameState.leadCard = card;
+        gameState.leadPosition = gameState.position;
+      }
+
+      // Play the card via socket
+      if (socket) {
+        socket.emit('playCard', { card, position: gameState.position });
+      }
+
+      // Mark that we've played a card (for legality checks)
+      gameState.hasPlayedCard = true;
+
+      // Update trump broken status
+      if (card.suit === gameState.trump?.suit || card.suit === 'joker') {
+        gameState.trumpBroken = true;
+      }
+
+      // Capture the current (hovered) position before any operations that might reset it
+      const startX = clickedSprite.x;
+      const startY = clickedSprite.y;
+
+      // Extract card sprite for animation (don't destroy it)
+      const sprite = this.cardManager.extractCard(card);
+      if (sprite && this.trickManager) {
+        // Remove event listeners to prevent pointerout from resetting position
+        sprite.removeAllListeners();
+
+        // Restore the hovered position (in case it was reset)
+        sprite.x = startX;
+        sprite.y = startY;
+
+        // Get target position
+        this.trickManager.setPlayerPosition(gameState.position);
+        this.trickManager.updatePlayPositions();
+        const targetPos = this.trickManager._playPositions.self;
+
+        // Disable interactions during animation
+        sprite.disableInteractive();
+        // Its pointerout will never fire now: drop the hand cursor
+        scene.input?.setDefaultCursor?.('default');
+        // Stop the hover tween (it would pull the card back toward the
+        // hand) and keep the move handle so a trick can cancel it
+        this.trickManager._stopCardAnimations(sprite);
+
+        // Animate from hovered position to play position
+        // No flip needed since player's cards are already face-up
+        const moveTween = scene.tweens.add({
+          targets: sprite,
+          x: targetPos.x,
+          y: targetPos.y,
+          duration: ANIMATION_CONFIG.CARD_PLAY,
+          ease: 'Power2',
+          rotation: 0,
+          scale: 1.5,
+          onComplete: () => {
+            if (!sprite || !sprite.scene) return;
+            sprite.setData('moveTween', null);
+            sprite.setDepth(200);
+          },
+        });
+        sprite.setData('moveTween', moveTween);
+
+        // Add to trick manager's current trick
+        sprite.setData('playPosition', 'self');
+        this.trickManager._currentTrick.push(sprite);
+      }
+
+      // Also remove from gameState using optimistic update
+      gameState.optimisticPlayCard(card);
+
+      // Immediately dim all remaining cards since player can't play again this trick
+      this.cardManager.updateCardLegality(() => true, false);
+    });
+
+    // Display the sorted hand
+    this.cardManager.displayHand(sortedCards, { animate: !skipAnimation });
+
+    // Update card legality based on current game state
+    const canPlay = !gameState.isBidding &&
+                    gameState.currentTurn === gameState.position &&
+                    !gameState.hasPlayedCard;
+
+    const legalityChecker = (card) => {
+      const result = isLegalMove(
+        card,
+        gameState.myCards,
+        gameState.leadCard,
+        gameState.playedCardIndex === 0,
+        gameState.trump,
+        gameState.trumpBroken,
+        gameState.position,
+        gameState.leadPosition
+      );
+      return result.legal;
+    };
+
+    this.cardManager.updateCardLegality(legalityChecker, canPlay);
   }
 
   /**
-   * Force a visual update (for fixing WebGL rendering issues).
+   * Display the other seats' card backs and avatars via OpponentManager,
+   * and the own avatar box at the same time (not for pure spectators: they
+   * see all 4 players as opponent avatars).
    */
-  forceRenderUpdate() {
-    requestAnimationFrame(() => {
-      this.myCards.forEach((sprite) => {
-        if (sprite && sprite.active) {
-          const currentBlend = sprite.blendMode;
-          sprite.setBlendMode(Phaser.BlendModes.ADD);
-          sprite.setBlendMode(currentBlend);
-          sprite.setVisible(false);
-          sprite.setVisible(true);
-          sprite.setInteractive();
-        }
-      });
-      // Note: Removed scale.refresh() - it triggers resize event loops
-    });
+  handleDisplayOpponentHands(cardCount, dealerPosition, playerData, skipAnimation) {
+    const gameState = getGameState();
+    if (this.opponentManager) {
+      if (gameState.position) {
+        this.opponentManager.setPlayerPosition(gameState.position);
+      }
+      this.opponentManager.displayOpponentHands(cardCount, dealerPosition, playerData, skipAnimation);
+    }
+    const isPureSpectator = gameState.isSpectator && !gameState.isLazy;
+    if (!this._playerInfo && !isPureSpectator) {
+      if (gameState.position && gameState.playerData) {
+        this.createPlayerInfoBox(gameState.playerData, gameState.position);
+      }
+    }
   }
 
   /**
-   * Clean up all visual elements.
+   * Create the own avatar box (DOM: avatar, name, HSI) at the bottom right.
+   * @returns {Object|null} { avatarContainer, avatarImg, nameLabel, hsiBox }
    */
-  cleanup() {
-    // Clear cards
-    this.clearHand();
+  createPlayerInfoBox(playerData, myPosition) {
+    // Safety check
+    if (!playerData?.username || !playerData?.position || !playerData?.pics) {
+      console.warn('⚠️ createPlayerInfoBox: playerData not ready');
+      return null;
+    }
 
-    // Clear opponent cards
-    Object.values(this.opponentCardSprites).forEach((sprites) => {
-      sprites.forEach((sprite) => {
-        if (sprite && sprite.active) {
-          sprite.destroy();
-        }
-      });
-    });
-    this.opponentCardSprites = { partner: [], opp1: [], opp2: [] };
+    const positionIndex = playerData.position.indexOf(myPosition);
+    if (positionIndex === -1 || !playerData.username[positionIndex]) {
+      console.warn('⚠️ createPlayerInfoBox: position not found in playerData');
+      return null;
+    }
 
-    // Clear trick sprites
-    this.currentTrickSprites.forEach((sprite) => {
-      if (sprite && sprite.active) {
-        sprite.destroy();
+    const screenWidth = this.scale.width;
+    const screenHeight = this.scale.height;
+    const scaleX = screenWidth / 1920;
+    const scaleY = screenHeight / 953;
+
+    const boxX = screenWidth - 420 * scaleX;
+    const boxY = screenHeight - 150 * scaleY;
+
+    // Player Avatar - use DOM for consistent sizing with opponent avatars
+    const pic = playerData.pics[positionIndex];
+    const username = playerData.username[positionIndex].username || playerData.username[positionIndex];
+
+    // Create DOM-based avatar (same approach as opponent avatars)
+    const avatarContainer = document.createElement('div');
+    avatarContainer.id = 'player-avatar-container';
+    avatarContainer.style.cssText = `
+      position: absolute;
+      left: ${boxX}px;
+      top: ${boxY - 60 * scaleY}px;
+      transform: translate(-50%, -50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      pointer-events: auto;
+      cursor: pointer;
+      z-index: 100;
+    `;
+
+    avatarContainer.addEventListener('click', () => {
+      const socket = window.socket;
+      if (socket) {
+        socket.emit('getPlayerProfile', { username });
       }
     });
-    this.currentTrickSprites = [];
+
+    const avatarImg = document.createElement('img');
+    avatarImg.className = 'player-avatar-img';
+    // Stock number, inline data URL or /avatar URL (utils/avatar.js)
+    applyAvatarImg(avatarImg, avatarSrc(pic));
+    avatarImg.alt = username;
+    avatarImg.style.cssText = `
+      width: 80px;
+      height: 80px;
+      min-width: 80px;
+      min-height: 80px;
+      max-width: 80px;
+      max-height: 80px;
+      object-fit: cover;
+      border-radius: 50%;
+      border: 3px solid #333;
+      background: #1a1a1a;
+    `;
+    avatarContainer.appendChild(avatarImg);
+
+    // Add username label
+    const nameLabel = document.createElement('div');
+    nameLabel.textContent = username;
+    nameLabel.style.cssText = `
+      margin-top: 5px;
+      padding: 2px 8px;
+      background: rgba(0, 0, 0, 0.7);
+      border: 1px solid #666;
+      border-radius: 4px;
+      font-size: 14px;
+      font-family: Arial, sans-serif;
+      color: #aaa;
+      text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
+    `;
+    avatarContainer.appendChild(nameLabel);
+
+    // Add HSI display box
+    const hsiBox = document.createElement('div');
+    hsiBox.id = 'player-hsi-box';
+    hsiBox.style.cssText = `
+      margin-top: 4px;
+      padding: 2px 8px;
+      background: rgba(0, 0, 0, 0.7);
+      border: 1px solid #666;
+      border-radius: 4px;
+      font-size: 12px;
+      color: #aaa;
+      white-space: nowrap;
+    `;
+    hsiBox.textContent = 'HSI: --';
+    avatarContainer.appendChild(hsiBox);
+
+    // Add avatar to DOM
+    document.body.appendChild(avatarContainer);
+
+    // Move voice mute button into avatar container if voice is active
+    reattachMuteButton();
+
+    this._playerInfo = { avatarContainer, avatarImg, nameLabel, hsiBox };
+    return this._playerInfo;
+  }
+
+  /**
+   * Follow a resize with the own avatar box (and the mute button on it).
+   */
+  repositionPlayerInfo() {
+    if (!this._playerInfo?.avatarContainer) return;
+
+    const screenWidth = this.scale.width;
+    const screenHeight = this.scale.height;
+    const scaleX = screenWidth / 1920;
+    const scaleY = screenHeight / 953;
+
+    const boxX = screenWidth - 420 * scaleX;
+    const boxY = screenHeight - 150 * scaleY;
+
+    // Reposition DOM avatar container (position text is inside container)
+    this._playerInfo.avatarContainer.style.left = `${boxX}px`;
+    this._playerInfo.avatarContainer.style.top = `${boxY - 60 * scaleY}px`;
+
+    // Reposition mute button to follow HSI box
+    reattachMuteButton();
+  }
+
+  /**
+   * Remove the own avatar box.
+   */
+  clearPlayerInfo() {
+    if (this._playerInfo?.avatarContainer) {
+      this._playerInfo.avatarContainer.remove();
+    }
+    this._playerInfo = null;
+  }
+
+  /**
+   * Show the hand's HSI in the own avatar box.
+   */
+  updatePlayerHsi(hsi) {
+    if (this._playerInfo?.hsiBox && hsi !== undefined) {
+      this._playerInfo.hsiBox.textContent = `HSI: ${hsi.toFixed(1)}`;
+    }
+  }
+
+  // ============================================
+  // Cleanup
+  // ============================================
+
+  /**
+   * Clean up all visual elements (game end Return to Lobby, abortGame).
+   * The card hand goes before the trick manager: clearing a collect in
+   * flight runs its onCollected callbacks, which must find no hand.
+   */
+  cleanup() {
+    this.cardManager?.clearAll();
+    this.opponentManager?.clearAll();
+    this.trickManager?.clearAll();
+    this.effectsManager?.clearAll();
+    this.drawManager?.cleanup();
 
     // Clear trump
     if (this.tableCardSprite) {
@@ -1807,19 +1614,6 @@ export class GameScene extends Phaser.Scene {
       this.tableCardLabel.destroy();
       this.tableCardLabel = null;
     }
-
-    // Clear chat bubbles
-    Object.values(this.activeChatBubbles).forEach((bubble) => {
-      if (bubble.timer) bubble.timer.remove();
-      if (bubble.bubble) bubble.bubble.destroy();
-    });
-    this.activeChatBubbles = {};
-
-    // Clear DOM avatars
-    Object.values(this.opponentAvatarDoms).forEach((dom) => {
-      if (dom) dom.remove();
-    });
-    this.opponentAvatarDoms = { partner: null, opp1: null, opp2: null };
   }
 }
 

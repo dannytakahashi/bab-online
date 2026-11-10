@@ -37,7 +37,7 @@ h1 {
     color: white;
 }
 
-/* Error Toast Notifications */
+/* Error toast (main.js showErrorToast) */
 .error-toast {
     position: fixed;
     bottom: 20px;
@@ -46,11 +46,12 @@ h1 {
     background: #dc2626;
     color: white;
     padding: 12px 24px;
-    border-radius: 8px;
+    border-radius: 4px;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-    z-index: 10000;
+    z-index: 2000;
     animation: slideUp 0.3s ease;
     font-size: 14px;
+    font-weight: bold;
     max-width: 400px;
     text-align: center;
 }
@@ -85,16 +86,6 @@ h1 {
         outline: 2px solid #ff3333;
         box-shadow: 0 0 6px #ff3333;
     }
-}
-
-/* Warning toast (yellow) */
-.warning-toast {
-    background: #f59e0b;
-}
-
-/* Info toast (blue) */
-.info-toast {
-    background: #3b82f6;
 }
 
 /* ==================== RESPONSIVE DESIGN ==================== */
@@ -134,9 +125,7 @@ button, input[type="button"], input[type="submit"], .bid-button {
 @media (max-width: 768px) {
     .error-toast {
         max-width: 90vw;
-        padding: 10px 16px;
         font-size: 13px;
-        bottom: 10px;
     }
 
     /* Game feed on mobile */
@@ -180,14 +169,6 @@ button, input[type="button"], input[type="submit"], .bid-button {
 }
 
 /* ==================== UTILITY CLASSES ==================== */
-
-/* Prevent text selection on game elements */
-.no-select {
-    user-select: none;
-    -webkit-user-select: none;
-    -moz-user-select: none;
-    -ms-user-select: none;
-}
 
 /* Smooth transitions for UI elements */
 .ui-element {
