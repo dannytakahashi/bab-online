@@ -184,6 +184,29 @@ describe('my play: rejected, timed out, reconciled', () => {
     expect(myAction().history.at(-1)).toMatchObject({ outcome: 'rolledBack', via: 'rejoin' });
     expect(page.scene.tableCounts().hand).toBe(handBefore);
   });
+
+  it('a transport reconnect inside the ack window is not forced again while its rejoin is in flight', () => {
+    page.socket.fire('stateSnapshot', { snapshot: clone(snapAtTurn), requestId: 'x' });
+    replay.advance(50);
+    page.socket.clearEmits();
+    page.socket.disconnect.mockClear();
+    clickCard(card);
+    replay.advance(5100);
+    expect(page.socket.emitted('requestSnapshot')).toHaveLength(1);
+    // the old socket dies and a new one connects (the background probe, or
+    // socket.io's own backoff); restoreSession / rejoin go out, no answer yet
+    page.socket.reconnect('ios-h1-r10');
+    replay.advance(5100);
+    expect(page.socket.disconnect).not.toHaveBeenCalled();
+    expect(myAction().state).toBe('pending');
+    page.socket.fire('restoreSessionResponse', { success: true, username: 'ios_ann', activeGameId: rec.gameId, blockedUsers: [] });
+    page.socket.fire('rejoinSuccess', { gameId: rec.gameId, snapshot: clone(snapAtTurn) });
+    replay.advance(50);
+    expect(myAction().state).toBe('idle');
+    expect(myAction().history.at(-1)).toMatchObject({ outcome: 'rolledBack', via: 'rejoin' });
+    replay.advance(15000);
+    expect(page.socket.disconnect).not.toHaveBeenCalled();
+  });
 });
 
 describe('a liveness ping answered before my play reached the server', () => {

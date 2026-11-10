@@ -119,6 +119,47 @@ describe('MyAction (idle -> pending -> confirmed | rolled back)', () => {
     expect(action.reconcile(snap({ hand: [K] }), 'rejoin')).toBe(OUTCOME.CONFIRMED);
   });
 
+  describe('the ack timer knows the connection', () => {
+    let conn;
+    beforeEach(() => {
+      conn = 's1';
+      action.configure({ connectionId: () => conn });
+    });
+
+    it('a reconnect the transport already made is not forced again (its rejoin reconciles)', () => {
+      action.submitPlay(A, 2);
+      vi.advanceTimersByTime(ACK_TIMEOUT_MS);
+      expect(requests).toHaveLength(1);
+      // the old socket died; a fresh one is up, its restoreSession / rejoin in flight
+      conn = 's2';
+      vi.advanceTimersByTime(ACK_TIMEOUT_MS);
+      expect(reconnects).toBe(0);
+      expect(action.state).toBe('pending');
+      // the rejoin's snapshot decides
+      expect(action.reconcile(snap({ hand: [K] }), 'rejoin')).toBe(OUTCOME.CONFIRMED);
+      vi.advanceTimersByTime(ACK_TIMEOUT_MS * 3);
+      expect(reconnects).toBe(0);
+    });
+
+    it('while the socket is down it waits; silence then counts on the new connection only', () => {
+      action.submitPlay(A, 2);
+      conn = null;
+      vi.advanceTimersByTime(ACK_TIMEOUT_MS * 3);
+      expect(requests).toEqual([]);
+      expect(reconnects).toBe(0);
+      conn = 's2';
+      // one more wait for the rejoin, then a resync on s2, then a reconnect of s2
+      vi.advanceTimersByTime(ACK_TIMEOUT_MS);
+      expect(requests).toEqual([]);
+      vi.advanceTimersByTime(ACK_TIMEOUT_MS);
+      expect(requests).toEqual([`ack-${action.pending.reqId}`]);
+      expect(reconnects).toBe(0);
+      vi.advanceTimersByTime(ACK_TIMEOUT_MS);
+      expect(reconnects).toBe(1);
+      expect(action.state).toBe('pending');
+    });
+  });
+
   it('reset drops it and its timer (an exit, a new deal)', () => {
     action.submitPlay(A, 2);
     action.reset();

@@ -19,6 +19,14 @@
  * unanswered requests the socket is forced to reconnect: the rejoin's
  * snapshot reconciles.
  *
+ * The timer knows the connection (deps.connectionId: the socket id while
+ * connected, else null). Silence counts only against the connection the
+ * action, or its resync, went out on: while the socket is down, or once it
+ * has reconnected (a new id, its restoreSession / rejoin may still be in
+ * flight), the timer just re-arms and the count starts over on the new
+ * connection, so it never forces a reconnect onto a fresh socket the
+ * transport already replaced. The rejoin's snapshot reconciles.
+ *
  * Correlation is by action kind (one outstanding action per seat), so the
  * wire is unchanged.
  */
@@ -43,14 +51,16 @@ export class MyAction {
    * @param {Function} [deps.emit] - (event, payload) => void
    * @param {Function} [deps.requestSnapshot] - (requestId) => void
    * @param {Function} [deps.forceReconnect] - () => void
+   * @param {Function} [deps.connectionId] - () => the connected socket's id, or null while down
    * @param {Function} [deps.setTimer]
    * @param {Function} [deps.clearTimer]
    */
   constructor({ emit = (event, data) => globalThis.window?.socket?.emit?.(event, data), requestSnapshot = () => {}, forceReconnect = () => {},
-    setTimer = (fn, ms) => setTimeout(fn, ms), clearTimer = (t) => clearTimeout(t) } = {}) {
+    connectionId = () => 'connected', setTimer = (fn, ms) => setTimeout(fn, ms), clearTimer = (t) => clearTimeout(t) } = {}) {
     this._emit = emit;
     this._requestSnapshot = requestSnapshot;
     this._forceReconnect = forceReconnect;
+    this._connectionId = connectionId;
     this._setTimer = setTimer;
     this._clearTimer = clearTimer;
     this._reqId = 0;
@@ -59,10 +69,15 @@ export class MyAction {
     this.history = [];
   }
 
-  configure({ emit, requestSnapshot, forceReconnect } = {}) {
+  configure({ emit, requestSnapshot, forceReconnect, connectionId } = {}) {
     if (emit) this._emit = emit;
     if (requestSnapshot) this._requestSnapshot = requestSnapshot;
     if (forceReconnect) this._forceReconnect = forceReconnect;
+    if (connectionId) this._connectionId = connectionId;
+  }
+
+  _conn() {
+    return this._connectionId() ?? null;
   }
 
   get state() {
@@ -87,7 +102,7 @@ export class MyAction {
   submitPlay(card, position) {
     if (this.pending || !card || !position) return false;
     this._reqId++;
-    this.pending = { kind: 'play', card: { suit: card.suit, rank: card.rank }, position, reqId: this._reqId, attempt: 0 };
+    this.pending = { kind: 'play', card: { suit: card.suit, rank: card.rank }, position, reqId: this._reqId, attempt: 0, conn: this._conn() };
     this._emit('playCard', { card, position });
     this._arm();
     return true;
@@ -96,7 +111,7 @@ export class MyAction {
   submitBid(bid, position) {
     if (this.pending || bid === undefined || bid === null || !position) return false;
     this._reqId++;
-    this.pending = { kind: 'bid', bid: String(bid).toUpperCase(), position, reqId: this._reqId, attempt: 0 };
+    this.pending = { kind: 'bid', bid: String(bid).toUpperCase(), position, reqId: this._reqId, attempt: 0, conn: this._conn() };
     this._emit('playerBid', { position, bid });
     this._arm();
     return true;
@@ -117,6 +132,16 @@ export class MyAction {
     this._timer = null;
     const p = this.pending;
     if (!p || p.reqId !== id) return;
+    const conn = this._conn();
+    if (conn === null || conn !== p.conn) {
+      // Down, or already on a new connection whose rejoin reconciles: wait,
+      // and count silence afresh on the connection we end up on
+      this._note('awaitConnection', { connected: conn !== null });
+      p.conn = conn;
+      p.attempt = 0;
+      this._arm();
+      return;
+    }
     if (p.attempt < MAX_RESYNCS) {
       p.attempt++;
       this._note('ackTimeout', { attempt: p.attempt });

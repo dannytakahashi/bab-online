@@ -1403,7 +1403,8 @@ export class GameScene extends Phaser.Scene {
       this.trickManager.setBidTotals(teamBid, oppBid);
       this.trickManager.createTrickBackgrounds(false);
       if (m.history) {
-        this.trickManager.restoreTrickHistory(m.history, (winner) => winner % 2 === pos % 2);
+        // team 1 holds the odd seats, team 2 the even ones
+        this.trickManager.restoreTrickHistory(m.history, (t) => t.team % 2 === pos % 2);
       } else {
         this.trickManager.restoreTrickPlaceholders(m.tricks.team, m.tricks.opp);
       }

@@ -920,17 +920,19 @@ export class TrickManager {
   /**
    * Restore this hand's completed tricks with their real cards (a render
    * from the client's own model): my team's face up, the opponents' face
-   * down unless spectating, exactly as completeTrick leaves them.
-   * @param {Array} history - [{winner, cards: [{position, card}]}]
-   * @param {Function} isMyTeam - (winnerPosition) => boolean
+   * down unless spectating, exactly as completeTrick leaves them. A trick
+   * whose cards are unknown (only a snapshot's count: cards null) is a
+   * placeholder stack, as restoreTrickPlaceholders draws it.
+   * @param {Array} history - [{winner, team, cards: [{position, card}] | null}]
+   * @param {Function} isMyTeam - (trick) => boolean
    */
   restoreTrickHistory(history, isMyTeam) {
     const scene = this._scene;
     for (const trick of history || []) {
-      const mine = isMyTeam(trick.winner);
+      const mine = isMyTeam(trick);
       const trickNumber = mine ? ++this._teamTrickCount : ++this._oppTrickCount;
       const pos = this._getTrickPosition(trickNumber, mine);
-      const cards = trick.cards.map((c, index) => {
+      const cards = !trick.cards ? this._createPlaceholderStack(scene, pos) : trick.cards.map((c, index) => {
         const faceUp = mine || this._isSpectatorMode;
         const sprite = faceUp
           ? scene.add.image(pos.x, pos.y, 'cards', getCardImageKey(c.card))

@@ -485,6 +485,7 @@ function initializeApp() {
     emit: (event, payload) => socket.emit(event, payload),
     requestSnapshot,
     forceReconnect: () => socketMgr.forceReconnect(),
+    connectionId: () => (socket.connected ? socket.id || 'connected' : null),
   });
 
   // Visible connection state while the socket is down

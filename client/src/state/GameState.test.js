@@ -418,8 +418,11 @@ describe('GameState', () => {
       expect(state.seatCards).toEqual({ 1: 2, 2: 2, 3: 3, 4: 3 });
       expect(state.bids).toEqual({ 1: '3', 2: '2', 3: '4', 4: '1' });
       expect(state.partnerName).toBe('p4');
-      // only counts are known: face-down stacks
-      expect(state.trickHistory).toBeNull();
+      // only counts are known: one face-down entry per trick, by team
+      expect(state.trickHistory).toEqual([
+        ...Array(3).fill({ winner: null, team: 1, cards: null }),
+        ...Array(2).fill({ winner: null, team: 2, cards: null }),
+      ]);
     });
 
     it('a spectator views from seat 1; a lazy watcher keeps the hand', () => {
@@ -437,7 +440,25 @@ describe('GameState', () => {
       state.applySnapshot(snap({ tricks: { team1: 1, team2: 0 } }));
       expect(state.trickHistory).toHaveLength(1);
       state.applySnapshot(snap({ tricks: { team1: 2, team2: 0 } }));
-      expect(state.trickHistory).toBeNull();
+      expect(state.trickHistory).toEqual([{ winner: null, team: 1, cards: null }, { winner: null, team: 1, cards: null }]);
+      // same total, other split: not the history we kept
+      state.trickHistory = [{ winner: 1, cards: [] }];
+      state.applySnapshot(snap({ tricks: { team1: 0, team2: 1 } }));
+      expect(state.trickHistory).toEqual([{ winner: null, team: 2, cards: null }]);
+    });
+
+    it('tricks won after a snapshot that only counted the earlier ones keep their cards', () => {
+      state.applySnapshot(snap({ tricks: { team1: 1, team2: 1 }, trick: { number: 3, leadPosition: 2, cards: [] } }));
+      [[2, '3'], [3, '4'], [4, '5'], [1, '6']].forEach(([position, rank]) =>
+        state.applyCardPlayed({ card: { suit: 'clubs', rank }, position }));
+      state.applyTrickComplete({ winner: 4 });
+      expect(state.trickHistory).toHaveLength(3);
+      expect(state.trickHistory[2]).toMatchObject({ winner: 4, cards: [{ position: 2 }, { position: 3 }, { position: 4 }, { position: 1 }] });
+      const history = state.renderModel().history;
+      expect(history.map((t) => [t.team, t.cards === null])).toEqual([[1, true], [2, true], [2, false]]);
+      // a later snapshot of the same deal and counts keeps them
+      state.applySnapshot(snap({ tricks: { team1: 1, team2: 2 }, trick: { number: 4, leadPosition: 4, cards: [] } }));
+      expect(state.trickHistory[2].cards).toHaveLength(4);
     });
   });
 
