@@ -65,14 +65,14 @@ export function registerLobbyHandlers(socketManager, callbacks = {}) {
   socketManager.on(SERVER_EVENTS.LOBBY_CREATED, (data) => {
     console.log('🎮 Lobby created:', data);
     state.setPhase(PHASE.LOBBY);
-    state.gameId = data.lobbyId;
+    state.lobbyId = data.lobbyId;
     onLobbyCreated?.(data);
   });
 
   socketManager.on(SERVER_EVENTS.LOBBY_JOINED, (data) => {
     console.log('🚪 Joined lobby:', data);
     state.setPhase(PHASE.LOBBY);
-    state.gameId = data.lobbyId;
+    state.lobbyId = data.lobbyId;
     onLobbyJoined?.(data);
   });
 
@@ -99,7 +99,7 @@ export function registerLobbyHandlers(socketManager, callbacks = {}) {
   socketManager.on(SERVER_EVENTS.LEFT_LOBBY, () => {
     console.log('🚪 Left lobby');
     state.setPhase(PHASE.NONE);
-    state.gameId = null;
+    state.lobbyId = null;
     onLeftLobby?.();
   });
 

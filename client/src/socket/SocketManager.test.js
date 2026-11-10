@@ -5,6 +5,7 @@ import {
   getSocketManager,
   initializeSocketManager,
   resetSocketManager,
+  PROBE_TIMEOUT_MS,
 } from './SocketManager.js';
 
 // Mock socket for testing
@@ -283,7 +284,7 @@ describe('SocketManager', () => {
   });
 });
 
-describe('visibility reconnection', () => {
+describe('visibility reconnection (ping first)', () => {
   let manager;
   let mockSocket;
   let visibilityCallback;
@@ -291,6 +292,7 @@ describe('visibility reconnection', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     mockSocket = createMockSocket();
+    mockSocket.connected = true;
 
     // Capture the visibilitychange listener
     vi.spyOn(document, 'addEventListener').mockImplementation((event, cb) => {
@@ -322,28 +324,65 @@ describe('visibility reconnection', () => {
     visibilityCallback();
   }
 
-  it('does not force reconnect when hidden < 5 seconds', () => {
+  function pings() {
+    return mockSocket.emit.mock.calls.filter(([event]) => event === 'requestSnapshot');
+  }
+
+  function answer(requestId) {
+    mockSocket._trigger('stateSnapshot', { snapshot: null, reason: 'not_in_game', requestId });
+  }
+
+  it('does nothing when hidden < 5 seconds', () => {
     manager.setGameId('game123');
     sessionStorage.setItem('username', 'testuser');
 
     simulateHideAndShow(3000);
 
+    expect(pings()).toHaveLength(0);
+    vi.advanceTimersByTime(PROBE_TIMEOUT_MS + 100);
     expect(mockSocket.disconnect).not.toHaveBeenCalled();
   });
 
-  it('does not force reconnect when not in a game', () => {
-    // No gameId set
+  it('pings after a background > 5 seconds on any screen (not only in a game)', () => {
     simulateHideAndShow(10000);
 
+    expect(pings()).toHaveLength(1);
+    const [, payload] = pings()[0];
+    expect(typeof payload.requestId).toBe('string');
+    expect(payload).toMatchObject({ customPics: false, log: false });
     expect(mockSocket.disconnect).not.toHaveBeenCalled();
   });
 
-  it('forces reconnect when hidden > 5 seconds and in a game', () => {
+  it('an answered ping never forces a reconnect', () => {
+    manager.setGameId('game123');
+    simulateHideAndShow(10000);
+
+    answer(pings()[0][1].requestId);
+    vi.advanceTimersByTime(PROBE_TIMEOUT_MS * 2);
+
+    expect(mockSocket.disconnect).not.toHaveBeenCalled();
+    // and its listener is gone
+    expect(mockSocket.off).toHaveBeenCalledWith('stateSnapshot', expect.any(Function));
+  });
+
+  it('an answer to another request does not count', () => {
+    simulateHideAndShow(10000);
+
+    answer('someone-else');
+    vi.advanceTimersByTime(PROBE_TIMEOUT_MS);
+
+    expect(mockSocket.disconnect).toHaveBeenCalledOnce();
+  });
+
+  it('forces a reconnect when the ping gets no answer', () => {
     manager.setGameId('game123');
     sessionStorage.setItem('username', 'testuser');
 
     simulateHideAndShow(10000);
+    vi.advanceTimersByTime(PROBE_TIMEOUT_MS - 1);
+    expect(mockSocket.disconnect).not.toHaveBeenCalled();
 
+    vi.advanceTimersByTime(1);
     expect(mockSocket.disconnect).toHaveBeenCalledOnce();
 
     // After 100ms delay, connect is called
@@ -351,40 +390,62 @@ describe('visibility reconnection', () => {
     expect(mockSocket.connect).toHaveBeenCalledOnce();
   });
 
-  it('prevents concurrent force reconnects', () => {
+  it('does not ping a socket that already knows it is down (Socket.IO reconnects it)', () => {
+    mockSocket.connected = false;
+    simulateHideAndShow(10000);
+    vi.advanceTimersByTime(PROBE_TIMEOUT_MS + 200);
+
+    expect(pings()).toHaveLength(0);
+    expect(mockSocket.disconnect).not.toHaveBeenCalled();
+  });
+
+  it('a disconnect or connect while pinging cancels the ping', () => {
+    simulateHideAndShow(10000);
+    mockSocket._trigger('disconnect', 'transport close');
+    vi.advanceTimersByTime(PROBE_TIMEOUT_MS + 200);
+
+    expect(mockSocket.disconnect).not.toHaveBeenCalled();
+  });
+
+  it('prevents concurrent pings and force reconnects', () => {
     manager.setGameId('game123');
     sessionStorage.setItem('username', 'testuser');
 
-    // First hide/show triggers reconnect
+    // First hide/show pings
     simulateHideAndShow(10000);
-    expect(mockSocket.disconnect).toHaveBeenCalledTimes(1);
-
-    // Manually trigger another show before the 100ms delay completes
-    // (simulate rapid visibility toggles without advancing time)
+    // Another show while the ping is out: no second ping
     manager._hiddenAt = Date.now() - 10000;
     Object.defineProperty(document, 'hidden', { value: false, configurable: true });
     visibilityCallback();
+    expect(pings()).toHaveLength(1);
 
-    // Second _forceReconnect should be blocked by the guard
+    // The ping times out: one forced reconnect
+    vi.advanceTimersByTime(PROBE_TIMEOUT_MS);
     expect(mockSocket.disconnect).toHaveBeenCalledTimes(1);
+
+    // Another show before the 100ms reconnect delay completes is blocked
+    manager._hiddenAt = Date.now() - 10000;
+    visibilityCallback();
+    expect(pings()).toHaveLength(1);
 
     // After delay, guard is cleared and connect fires
     vi.advanceTimersByTime(100);
     expect(mockSocket.connect).toHaveBeenCalledTimes(1);
   });
 
-  it('allows reconnect after previous one completes', () => {
+  it('allows a reconnect after the previous one completes', () => {
     manager.setGameId('game123');
     sessionStorage.setItem('username', 'testuser');
 
     // First cycle
     simulateHideAndShow(10000);
-    vi.advanceTimersByTime(100);
+    vi.advanceTimersByTime(PROBE_TIMEOUT_MS + 100);
 
     // Second cycle
     simulateHideAndShow(10000);
-    vi.advanceTimersByTime(100);
+    vi.advanceTimersByTime(PROBE_TIMEOUT_MS + 100);
 
+    expect(pings()).toHaveLength(2);
     expect(mockSocket.disconnect).toHaveBeenCalledTimes(2);
     expect(mockSocket.connect).toHaveBeenCalledTimes(2);
   });
@@ -396,7 +457,19 @@ describe('visibility reconnection', () => {
     Object.defineProperty(document, 'hidden', { value: false, configurable: true });
     visibilityCallback();
 
+    expect(pings()).toHaveLength(0);
     expect(mockSocket.disconnect).not.toHaveBeenCalled();
+  });
+
+  it('never emits rejoinGame or joinAsSpectator on connect (the client session resumes)', () => {
+    manager.setGameId('game123');
+    sessionStorage.setItem('username', 'testuser');
+    sessionStorage.setItem('spectatingGameId', 'g2');
+    mockSocket._trigger('connect');
+    expect(manager.state).toBe(CONNECTION_STATE.CONNECTED);
+    const events = mockSocket.emit.mock.calls.map(([e]) => e);
+    expect(events).not.toContain('rejoinGame');
+    expect(events).not.toContain('joinAsSpectator');
   });
 });
 

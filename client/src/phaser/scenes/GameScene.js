@@ -1016,9 +1016,11 @@ export class GameScene extends Phaser.Scene {
     const state = this.state;
     if (!window.updateGameLogScoreFromLegacy) return;
 
-    // Get team/opponent names
-    const myTeamNames = `${state.username}/${state.partnerName}`;
-    const oppNames = `${state.opp1Name}/${state.opp2Name}`;
+    // Team/opponent names from the seats (a spectator's view position is
+    // someone else's seat, and it has no partner/opponent names)
+    const names = window.ModernUtils?.getTeamNames?.(state.position, state.playerData);
+    const myTeamNames = names?.teamName ?? `${state.username}/${state.partnerName}`;
+    const oppNames = names?.oppName ?? `${state.opp1Name}/${state.opp2Name}`;
 
     // state.teamScore and state.oppScore are already adjusted for player's perspective
     const teamScore = state.teamScore;

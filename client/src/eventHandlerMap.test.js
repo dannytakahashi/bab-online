@@ -75,13 +75,14 @@ describe('server event -> handler map', () => {
     }
   });
 
-  it('main.js direct listeners are server events; only the pinned bookkeeping ones overlap the handler modules', () => {
+  it('main.js direct listeners are server events and never overlap the handler modules', () => {
     const known = new Set(Object.values(SERVER_EVENTS));
     for (const event of direct) expect(known.has(event), event).toBe(true);
-    // Session/reconnection bookkeeping (rejoin flags, gameId in
-    // sessionStorage) runs next to the handler module, not instead of it
+    // The session/reconnection bookkeeping (rejoin flags, gameId copies)
+    // that used to run next to the handler modules is the client session's
+    // now (state/ClientSession.js), reached from the one handler
     const overlap = [...direct].filter((e) => managed.has(e)).sort();
-    expect(overlap).toEqual(['gameEnd', 'gameStart', 'playerReconnected', 'rejoinFailed', 'rejoinSuccess']);
+    expect(overlap).toEqual([]);
   });
 
   it('setGameScene adds no handler functions to the scene (GameScene owns them all)', () => {
@@ -95,7 +96,8 @@ describe('server event -> handler map', () => {
 
   it('every scene method main.js calls is defined on GameScene (a missing one would be skipped by its guard)', () => {
     const called = new Set();
-    for (const m of mainSource.matchAll(/(?<![\w.$])scene\??\.([a-zA-Z_]\w*)\s*(?:\(|\)|&&)/g)) called.add(m[1]);
+    // scene.x(, scene?.x(, scene.x?.( and scene.x && ...
+    for (const m of mainSource.matchAll(/(?<![\w.$])scene\??\.([a-zA-Z_]\w*)\s*(?:\(|\)|&&|\?\.\()/g)) called.add(m[1]);
     // Phaser's own scene members, the managers and private fields
     const phaser = new Set(['scene', 'children', 'game']);
     const sceneMethods = [...called].filter((n) => !phaser.has(n) && !/Manager$/.test(n) && !n.startsWith('_'));

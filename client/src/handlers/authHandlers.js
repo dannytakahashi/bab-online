@@ -81,12 +81,12 @@ export function registerAuthHandlers(socketManager, callbacks = {}) {
 
     // Clear this tab's credentials. The device's saved session is kept:
     // reloading the page resumes it here (taking over from the other device).
+    // onForceLogout leaves any table (exitTable clears the gameId copies)
     sessionStorage.removeItem('username');
     sessionStorage.removeItem('sessionToken');
-    sessionStorage.removeItem('gameId');
 
-    // Reset state
-    state.reset();
+    // Forget the identity too (username, tournament)
+    state.resetSession();
 
     onForceLogout?.(data);
   });

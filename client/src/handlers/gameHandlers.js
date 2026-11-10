@@ -9,6 +9,7 @@
 
 import { SERVER_EVENTS } from '../constants/events.js';
 import { getGameState, PHASE } from '../state/GameState.js';
+import { getClientSession } from '../state/ClientSession.js';
 
 /**
  * Register game event handlers.
@@ -97,13 +98,9 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
       state.setHsiValues(data.hsiValues);
     }
 
-    // Store in sessionStorage for reconnection
-    if (data.gameId) {
-      sessionStorage.setItem('gameId', data.gameId);
-    }
-
-    // Set socket game ID for cleanup
-    socketManager.setGameId(data.gameId);
+    // Persist the gameId for a reconnect: a seat's gameStart only (a
+    // spectator's has no position; spectators re-spectate instead)
+    getClientSession().noteDeal(data);
 
     // Update scores from data
     if (data.score1 !== undefined && data.score2 !== undefined) {
@@ -280,8 +277,8 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
 
     state.setPhase(PHASE.ENDED);
 
-    // Clear game from sessionStorage
-    sessionStorage.removeItem('gameId');
+    // Nothing to rejoin any more (onGameEnd -> the client session's endGame
+    // clears the spectatingGameId too)
     socketManager.clearGameId();
 
     onGameEnd?.(data);
@@ -315,8 +312,8 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
   socketManager.onGame(SERVER_EVENTS.ABORT_GAME, (data) => {
     console.log('⚠️ Game aborted:', data);
 
-    state.reset();
-    sessionStorage.removeItem('gameId');
+    // onAbortGame -> the client session's exitTable does the teardown, the
+    // per-game state reset and the route out; the gameId goes first
     socketManager.clearGameId();
 
     onAbortGame?.(data);
@@ -346,24 +343,19 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
   socketManager.on(SERVER_EVENTS.REJOIN_SUCCESS, (data) => {
     console.log('✅ Rejoin success:', data);
 
-    // Restore full game state
+    // Restore full game state (the client session persists the gameId)
     state.restoreFromRejoin(data);
-
-    // Update socket game ID
-    socketManager.setGameId(data.gameId);
 
     onRejoinSuccess?.(data);
   });
 
   // Rejoin failed
   socketManager.on(SERVER_EVENTS.REJOIN_FAILED, (data) => {
-    console.log('❌ Rejoin failed:', data.reason);
+    console.log('❌ Rejoin failed:', data?.reason);
 
-    // Clear stored game, except for 'Already connected': a page load sends
-    // rejoinGame twice (SocketManager on connect and the load handler) and
-    // the second one is told this, while the first one's seat is live
+    // onRejoinFailed leaves the table (exitTable clears every gameId copy),
+    // except for 'Already connected': this socket's seat is live
     if (data?.reason !== 'Already connected') {
-      sessionStorage.removeItem('gameId');
       socketManager.clearGameId();
     }
 
@@ -404,7 +396,8 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
   // Player left game (via /leave command)
   socketManager.onGame(SERVER_EVENTS.LEFT_GAME, (data) => {
     console.log('🚪 Left game (lazy leave)');
-    // Clear the in-memory copy too, or the next reconnect rejoins the left game
+    // Every gameId copy goes (here and in onLeftGame -> exitTable), or the
+    // next reconnect would rejoin the left game
     socketManager.clearGameId();
     onLeftGame?.(data);
   });
