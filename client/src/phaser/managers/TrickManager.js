@@ -8,27 +8,16 @@ import { getCardImageKey } from '../../utils/cards.js';
 import { CARD_CONFIG, ANIMATION_CONFIG } from '../config.js';
 import { collectMs } from '../pacing.js';
 import { sceneTween } from '../TableDirector.js';
+import { layoutOf, historySlot } from '../layout/computeTableLayout.js';
 
 /**
- * Base design dimensions for scaling.
+ * Trick display: every position and size comes from the table layout
+ * (layout/computeTableLayout.js): the four play slots, the two history
+ * blocks (7 + 6 slots, my team bottom-left, the opponents top-left) and
+ * their slot size, spacing and card scale, all at one scale (ui-6: slots
+ * and spacing no longer scale apart).
  */
-const DESIGN_WIDTH = 1920;
-const DESIGN_HEIGHT = 953;
-
-/**
- * Trick display layout constants.
- */
-const TRICK_SCALE = 1.0; // 33% bigger than previous 0.75
 const TRICKS_ROW_1 = 7; // Top row capacity
-const TRICK_HORIZONTAL_SPACING = 120; // Base px between stacks (slot width + 10px gap)
-const TRICK_ROW_SPACING = 86; // Base px between card rows (slotH + slotRowGap)
-const TRICK_START_X = 70; // Left margin
-const TEAM_BASE_Y = 95; // Offset from bottom for team row 1 center
-const OPP_BASE_Y = 95; // Offset from top for opponent row 0 center
-const SLOT_WIDTH = 54; // Slot width (tight fit around card)
-const SLOT_HEIGHT = 76; // Slot height (tight fit around card)
-const SLOT_PADDING = 4; // Tight padding inside container
-const SLOT_ROW_GAP = 10; // Vertical gap between slot rows
 const CONTAINER_COLOR = 0x1a1a1a; // Dark grey container
 const SLOT_COLOR = 0x333333; // Lighter dark grey slots
 const BORDER_COLOR_DANGER = 0xff4444; // Red when tricks < bid
@@ -159,72 +148,44 @@ export class TrickManager {
     this._playerPosition = position;
   }
 
-  /**
-   * Get scale factors based on current screen size.
-   */
-  getScaleFactors() {
-    const screenWidth = this._scene.scale.width;
-    const screenHeight = this._scene.scale.height;
-    return {
-      x: screenWidth / DESIGN_WIDTH,
-      y: screenHeight / DESIGN_HEIGHT,
-      screenWidth,
-      screenHeight,
-    };
+  /** The table layout this manager draws with. */
+  layout() {
+    return layoutOf(this._scene);
+  }
+
+  /** A card in a trick slot: its sprite scale. */
+  trickScale() {
+    return this.layout().card.trick.scale;
+  }
+
+  /** A card in a history stack: its sprite scale. */
+  historyScale() {
+    return this.layout().card.history.scale;
   }
 
   /**
-   * Calculate position for a trick in the two-row layout.
+   * Centre of trick n in its history block (tricks 1-7 in the first row,
+   * 8-13 centred under it).
    *
    * @param {number} trickNumber - Trick number (1-13)
    * @param {boolean} isTeamTrick - Whether this is for the player's team
    * @returns {Object} {x, y}
    */
   _getTrickPosition(trickNumber, isTeamTrick) {
-    const { x: scaleX, y: scaleY, screenHeight } = this.getScaleFactors();
-
-    // Calculate row and column
-    // Tricks 1-7 go in row 0 (top row), tricks 8-13 go in row 1 (bottom row)
-    const row = trickNumber <= TRICKS_ROW_1 ? 0 : 1;
-    const col = trickNumber <= TRICKS_ROW_1 ? trickNumber - 1 : trickNumber - TRICKS_ROW_1 - 1;
-
-    // Scale spacing with screen size
-    const spacing = (SLOT_WIDTH + 10) * scaleX;
-
-    // Starting x position with margin
-    // Row 1 (6 tricks) is centered under row 0 (7 tricks) - offset by half spacing
-    const rowOffset = row === 1 ? spacing / 2 : 0;
-    const x = TRICK_START_X * scaleX + col * spacing + rowOffset;
-
-    let y;
-    if (isTeamTrick) {
-      // Team tricks at bottom left
-      const baseY = screenHeight - TEAM_BASE_Y * scaleY;
-      // Row 0 (tricks 1-7) is ABOVE row 1 (smaller y value)
-      y = baseY - (1 - row) * TRICK_ROW_SPACING * scaleY;
-    } else {
-      // Opponent tricks at top left
-      const baseY = OPP_BASE_Y * scaleY;
-      // Row 0 at top, row 1 below it
-      y = baseY + row * TRICK_ROW_SPACING * scaleY;
-    }
-
-    return { x, y };
+    const p = historySlot(this.layout(), isTeamTrick ? 'team' : 'opp', trickNumber);
+    return { x: p.x, y: p.y };
   }
 
   /**
-   * Update play positions for card animations.
+   * Update play positions for card animations (the layout's trick slots).
    */
   updatePlayPositions() {
-    const { x: scaleX, y: scaleY, screenWidth, screenHeight } = this.getScaleFactors();
-    const playOffsetX = 80 * scaleX;
-    const playOffsetY = 80 * scaleY;
-
+    const { slots } = this.layout().trick;
     this._playPositions = {
-      opponent1: { x: screenWidth / 2 - playOffsetX, y: screenHeight / 2 },
-      opponent2: { x: screenWidth / 2 + playOffsetX, y: screenHeight / 2 },
-      partner: { x: screenWidth / 2, y: screenHeight / 2 - playOffsetY },
-      self: { x: screenWidth / 2, y: screenHeight / 2 + playOffsetY },
+      opponent1: { x: slots.opponent1.x, y: slots.opponent1.y },
+      opponent2: { x: slots.opponent2.x, y: slots.opponent2.y },
+      partner: { x: slots.partner.x, y: slots.partner.y },
+      self: { x: slots.self.x, y: slots.self.y },
     };
   }
 
@@ -277,11 +238,12 @@ export class TrickManager {
       return null;
     }
 
+    const scale = this.trickScale();
     // If no sprite provided, create one (for self-plays)
     if (!sprite) {
       const cardKey = getCardImageKey(card);
       sprite = scene.add.image(playPos.x, playPos.y, 'cards', cardKey);
-      sprite.setScale(1.5);
+      sprite.setScale(scale);
       sprite.setDepth(200);
     }
 
@@ -298,7 +260,7 @@ export class TrickManager {
         duration: ANIMATION_CONFIG.CARD_PLAY,
         ease: 'Power2',
         rotation: 0,
-        scale: 1.5,
+        scale,
         onComplete: () => {
           sprite.setDepth(200);
         },
@@ -307,7 +269,7 @@ export class TrickManager {
       sprite.x = playPos.x;
       sprite.y = playPos.y;
       sprite.setDepth(200);
-      sprite.setScale(1.5);
+      sprite.setScale(scale);
       sprite.setRotation(0);
     }
 
@@ -338,6 +300,7 @@ export class TrickManager {
     }
 
     const winningPosition = this._getTrickPosition(trickNumber, isMyTeam);
+    const stackScale = this.historyScale();
 
     // Copy trick cards for history
     const trickCards = [...this._currentTrick];
@@ -366,7 +329,7 @@ export class TrickManager {
           targets: card,
           x: winningPosition.x,
           y: winningPosition.y,
-          scale: TRICK_SCALE,
+          scale: stackScale,
           rotation: 0,
           duration,
           ease: 'Power2',
@@ -380,7 +343,7 @@ export class TrickManager {
         card.x = winningPosition.x;
         card.y = winningPosition.y;
         card.setDepth(200 + index);
-        card.setScale(TRICK_SCALE);
+        card.setScale(stackScale);
         card.setRotation(0);
       }
 
@@ -445,11 +408,12 @@ export class TrickManager {
 
     const fanOut = () => {
       if (busy()) return;
-      // Read at hover time: resize moves the stack (same object, updated)
-      const { x: scaleX, y: scaleY } = this.getScaleFactors();
+      // Read at hover time: a relayout moves the stack (same object,
+      // updated in place) and the fan's step with it (ui-6)
+      const { fanDx, fanDy } = this.layout().history.team;
       trickCards.forEach((card, index) => {
         card.setDepth(250 + index);
-        moveTo(card, position.x + index * 30 * scaleX, position.y - index * 8 * scaleY);
+        moveTo(card, position.x + index * fanDx, position.y - index * fanDy);
       });
     };
 
@@ -544,18 +508,12 @@ export class TrickManager {
   _drawBackgrounds() {
     if (!this._backgroundGraphics) return;
 
-    const { x: scaleX, y: scaleY } = this.getScaleFactors();
     const graphics = this._backgroundGraphics;
 
     graphics.clear();
 
-    // Fixed slot dimensions (match the fixed card scale)
-    const slotW = SLOT_WIDTH;
-    const slotH = SLOT_HEIGHT;
-    // Scaled spacing to match _getTrickPosition calculations
-    const spacing = (SLOT_WIDTH + 10) * scaleX;
-    const rowSpacing = TRICK_ROW_SPACING * scaleY;
-    const padding = SLOT_PADDING;
+    // Slot size, spacing and padding all at the layout's one scale (ui-6)
+    const { slotW, slotH, spacing, rowSpacing, pad: padding } = this.layout().history.team;
 
     // Draw both team and opponent areas
     [true, false].forEach((isTeamTrick) => {
@@ -678,7 +636,7 @@ export class TrickManager {
     this._stopCardAnimations(card);
     card.x = pos.x;
     card.y = pos.y;
-    card.setScale(TRICK_SCALE);
+    card.setScale(this.historyScale());
     card.setRotation(0);
     if (card.originalDepth !== undefined) {
       card.setDepth(card.originalDepth);
@@ -690,6 +648,7 @@ export class TrickManager {
    */
   repositionCurrentTrick() {
     this.updatePlayPositions();
+    const scale = this.trickScale();
 
     this._currentTrick.forEach((card) => {
       if (!card || !card.active) return;
@@ -701,7 +660,7 @@ export class TrickManager {
       this._applyFaceTexture(card);
       card.x = this._playPositions[positionKey].x;
       card.y = this._playPositions[positionKey].y;
-      card.setScale(1.5);
+      card.setScale(scale);
       card.setRotation(0);
       card.setDepth(200);
     });
@@ -849,7 +808,7 @@ export class TrickManager {
           x: targetX,
           y: targetY,
           alpha: 0,
-          scale: 0.5,
+          scale: this.historyScale() * 0.5,
           duration: 400,
           ease: 'Power2',
           delay: trickIndex * 30, // Stagger by trick number
@@ -938,7 +897,7 @@ export class TrickManager {
           ? scene.add.image(pos.x, pos.y, 'cards', getCardImageKey(c.card))
           : scene.add.image(pos.x, pos.y, 'cardBack');
         sprite.setData?.('faceKey', getCardImageKey(c.card));
-        sprite.setScale(TRICK_SCALE);
+        sprite.setScale(this.historyScale());
         sprite.setDepth(200 + index);
         sprite.setInteractive();
         sprite.originalDepth = 200 + index;
@@ -970,7 +929,7 @@ export class TrickManager {
     const cards = [];
     for (let j = 0; j < 4; j++) {
       const sprite = scene.add.image(pos.x, pos.y, 'cardBack');
-      sprite.setScale(TRICK_SCALE);
+      sprite.setScale(this.historyScale());
       sprite.setDepth(200 + j);
       sprite.setInteractive();
       sprite.originalDepth = 200 + j;

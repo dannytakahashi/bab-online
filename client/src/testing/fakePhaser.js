@@ -85,8 +85,16 @@ function emitterMixin(obj) {
 
 let objectIds = 0;
 
-function makeObject(scene, kind, x, y, texture, frame) {
+/**
+ * Phaser's default origins and sizes by kind: an image is its 64 px atlas
+ * frame about its centre, a Rectangle shape its own size about its centre,
+ * Text sits at its top-left (origin 0) until setOrigin.
+ */
+const ORIGIN = { image: 0.5, sprite: 0.5, rectangle: 0.5, text: 0, graphics: 0 };
+
+function makeObject(scene, kind, x, y, texture, frame, size = null) {
   const data = new Map();
+  const isFrame = kind === 'image' || kind === 'sprite';
   const obj = emitterMixin({
     id: ++objectIds,
     kind,
@@ -106,7 +114,22 @@ function makeObject(scene, kind, x, y, texture, frame) {
     displayWidth: 64,
     displayHeight: 90,
     style: {},
+    width: size ? size.w : (isFrame ? 64 : 0),
+    height: size ? size.h : (isFrame ? 64 : 0),
+    originX: ORIGIN[kind] ?? 0.5,
+    originY: ORIGIN[kind] ?? 0.5,
+    // drawn shapes (graphics): what fillRoundedRect / strokeRoundedRect drew since clear()
+    drawn: [],
   });
+  // Phaser's Origin component: the display origin is origin x size, and
+  // only setOrigin / updateDisplayOrigin recompute it (Rectangle.setSize in
+  // 3.55 does not: a resized shape keeps its old origin until told)
+  obj.updateDisplayOrigin = () => {
+    obj.displayOriginX = obj.originX * obj.width;
+    obj.displayOriginY = obj.originY * obj.height;
+    return obj;
+  };
+  obj.updateDisplayOrigin();
   Object.defineProperty(obj, 'scale', {
     get() { return obj.scaleX; },
     set(v) { obj.scaleX = v; obj.scaleY = v; },
@@ -118,11 +141,22 @@ function makeObject(scene, kind, x, y, texture, frame) {
     setRotation: chain((r) => { obj.rotation = r; }),
     setAlpha: chain((a) => { obj.alpha = a; }),
     setPosition: chain((px, py) => { obj.x = px; obj.y = py; }),
-    setOrigin: chain(() => {}),
+    setOrigin: chain((ox = 0.5, oy = ox) => { obj.originX = ox; obj.originY = oy; obj.updateDisplayOrigin(); }),
+    // Shape.setSize (Rectangle): the size and geometry, not the display origin
+    setSize: chain((w, h) => { obj.width = w; obj.height = h; }),
+    /** Phaser's getBounds for an unrotated object: position less the display origin, scaled. */
+    getBounds: () => {
+      const bx = obj.x - obj.displayOriginX * obj.scaleX;
+      const by = obj.y - obj.displayOriginY * obj.scaleY;
+      const w = obj.width * obj.scaleX;
+      const h = obj.height * obj.scaleY;
+      return { x: bx, y: by, width: w, height: h, centerX: bx + w / 2, centerY: by + h / 2 };
+    },
     setTexture: chain((key, fr) => { obj.texture = { key }; obj.frame = { name: fr ?? null }; }),
     setTint: chain((t) => { obj.tint = t; }),
     clearTint: chain(() => { obj.tint = null; }),
-    setInteractive: chain(() => { obj.interactive = true; }),
+    // A hit area is in the frame's local pixels (0,0 = the frame's top-left), as Phaser's
+    setInteractive: chain((shape) => { obj.interactive = true; if (shape) obj.hitArea = shape; }),
     disableInteractive: chain(() => { obj.interactive = false; }),
     setStrokeStyle: chain(() => {}),
     setText: chain(() => {}),
@@ -134,15 +168,43 @@ function makeObject(scene, kind, x, y, texture, frame) {
       obj.scene = undefined;
       scene._objects.delete(obj);
     },
-    // Graphics
-    clear: chain(() => {}),
+    // Graphics (the drawn rects are kept, in the graphics' local space)
+    clear: chain(() => { obj.drawn = []; }),
     fillStyle: chain(() => {}),
-    fillRoundedRect: chain(() => {}),
+    fillRoundedRect: chain((rx, ry, rw, rh) => { obj.drawn.push({ op: 'fill', x: rx, y: ry, w: rw, h: rh }); }),
     lineStyle: chain(() => {}),
-    strokeRoundedRect: chain(() => {}),
+    strokeRoundedRect: chain((rx, ry, rw, rh) => { obj.drawn.push({ op: 'stroke', x: rx, y: ry, w: rw, h: rh }); }),
   });
   scene._objects.add(obj);
   return obj;
+}
+
+/**
+ * Text measures its content as Phaser's does (Text.width: the drawn text
+ * plus its stroke, before scale), approximately: each character 0.6 em,
+ * the line 1.2 em. setText and setFontSize re-measure, and the display
+ * origin follows (Phaser's updateText calls updateDisplayOrigin).
+ */
+export const TEXT_EM = 0.6;
+function makeText(scene, x, y, content, style = {}) {
+  const obj = makeObject(scene, 'text', x, y, null);
+  obj.text = String(content ?? '');
+  obj.style = { ...(style || {}) };
+  const measure = () => {
+    const px = parseFloat(obj.style.fontSize) || 16;
+    const lines = obj.text.split('\n');
+    const longest = Math.max(0, ...lines.map((l) => Array.from(l).length));
+    const stroke = Number(obj.style.strokeThickness) || 0;
+    obj.width = obj.text ? longest * px * TEXT_EM + stroke : 0;
+    obj.height = obj.text ? lines.length * px * 1.2 + stroke : 0;
+    obj.updateDisplayOrigin();
+    return obj;
+  };
+  obj.setText = (t) => { obj.text = Array.isArray(t) ? t.join('\n') : String(t ?? ''); return measure(); };
+  obj.setFontSize = (size) => { obj.style.fontSize = typeof size === 'number' ? `${size}px` : size; return measure(); };
+  Object.defineProperty(obj, 'displayWidth', { get() { return obj.width * obj.scaleX; }, configurable: true });
+  Object.defineProperty(obj, 'displayHeight', { get() { return obj.height * obj.scaleY; }, configurable: true });
+  return measure();
 }
 
 class FakeTweenManager {
@@ -230,8 +292,8 @@ export class FakeSceneBase {
     this.add = {
       image: (x, y, tex, frame) => makeObject(this, 'image', x, y, tex, frame),
       sprite: (x, y, tex, frame) => makeObject(this, 'sprite', x, y, tex, frame),
-      rectangle: (x, y) => makeObject(this, 'rectangle', x, y, null),
-      text: (x, y) => makeObject(this, 'text', x, y, null),
+      rectangle: (x, y, w, h) => makeObject(this, 'rectangle', x, y, null, null, { w: w ?? 128, h: h ?? 128 }),
+      text: (x, y, content, style) => makeText(this, x, y, content, style),
       graphics: () => makeObject(this, 'graphics', 0, 0, null),
     };
     this.tweens = new FakeTweenManager(this, clock);
@@ -259,6 +321,31 @@ export class FakeSceneBase {
 
   _destroyAll() {
     for (const o of [...this._objects]) o.destroy();
+  }
+
+  /**
+   * Phaser's input with topOnly: the interactive objects under (x, y), by
+   * their hit area (in frame pixels, origin at the centre, scaled; no
+   * rotation), the topmost first (higher depth, then later in the display
+   * list). pointerDownAt emits pointerdown on the topmost.
+   */
+  objectsAt(x, y) {
+    const hits = this.liveObjects().filter((o) => {
+      if (!o.interactive) return false;
+      const fw = 64;
+      const fh = 64;
+      const lx = (x - o.x) / (o.scaleX || 1) + fw / 2;
+      const ly = (y - o.y) / (o.scaleY || 1) + fh / 2;
+      const a = o.hitArea || { x: 0, y: 0, w: fw, h: fh };
+      return lx >= a.x && lx <= a.x + a.w && ly >= a.y && ly <= a.y + a.h;
+    });
+    return hits.sort((a, b) => b.depth - a.depth || b.id - a.id);
+  }
+
+  pointerDownAt(x, y) {
+    const top = this.objectsAt(x, y)[0] || null;
+    top?.emit('pointerdown', { x, y });
+    return top;
   }
 
   /** Every active game object, by kind and texture (leak checks). */

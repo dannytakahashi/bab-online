@@ -277,17 +277,23 @@ describe('TrickManager trick-stack hover', () => {
     tm.completeTrick(1, true);
     tm._endCollect(); // the collect landed
     const entry = tm._teamTrickHistory[0];
+    const before = { ...entry.position };
 
     scene.scale.width = 1000; // resize: the stack moves
+    scene.scale.height = 600;
     tm.repositionTrickHistory();
     const moved = { ...entry.position };
+    expect(moved).not.toEqual(before);
     scene.tweens.add.mockClear();
 
     handlers.get(cards[1]).pointerover();
     const targets = scene.tweens.add.mock.calls.map(([cfg]) => [cfg.x, cfg.y]);
-    const sx = 1000 / 1920;
+    // the fan's step is the new layout's (read at hover time, ui-6)
+    const { fanDx, fanDy } = tm.layout().history.team;
+    expect(fanDx).toBeLessThan(30);
     expect(targets[0]).toEqual([moved.x, moved.y]);
-    expect(targets[1][0]).toBeCloseTo(moved.x + 30 * sx);
+    expect(targets[1][0]).toBeCloseTo(moved.x + fanDx);
+    expect(targets[1][1]).toBeCloseTo(moved.y - fanDy);
 
     scene.tweens.add.mockClear();
     handlers.get(cards[1]).pointerout();

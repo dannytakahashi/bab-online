@@ -125,14 +125,6 @@ export class GameState {
     // HSI values for all players at hand start (position → HSI)
     this.hsiValues = {};
 
-    // Play positions for trick card coordinates (updated on resize)
-    this.playPositions = {
-      opponent1: { x: 0, y: 0 },
-      opponent2: { x: 0, y: 0 },
-      partner: { x: 0, y: 0 },
-      self: { x: 0, y: 0 },
-    };
-
     // Sprite references (for external access during resize)
     this.opponentCardSprites = { partner: [], opp1: [], opp2: [] };
     this.tableCardSprite = null;
@@ -487,24 +479,6 @@ export class GameState {
    */
   setClickedCardPosition(position) {
     this.clickedCardPosition = position;
-  }
-
-  /**
-   * Update play positions for trick card animations.
-   */
-  updatePlayPositions(screenWidth, screenHeight) {
-    const scaleFactorX = screenWidth / 1920;
-    const scaleFactorY = screenHeight / 953;
-    const playOffsetX = 80 * scaleFactorX;
-    const playOffsetY = 80 * scaleFactorY;
-
-    this.playPositions = {
-      opponent1: { x: screenWidth / 2 - playOffsetX, y: screenHeight / 2 },
-      opponent2: { x: screenWidth / 2 + playOffsetX, y: screenHeight / 2 },
-      partner: { x: screenWidth / 2, y: screenHeight / 2 - playOffsetY },
-      self: { x: screenWidth / 2, y: screenHeight / 2 + playOffsetY },
-    };
-    this._emit('playPositionsUpdated', this.playPositions);
   }
 
   /**

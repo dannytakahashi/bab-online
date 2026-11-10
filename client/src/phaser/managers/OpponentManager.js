@@ -2,19 +2,20 @@
  * Opponent sprite management for Phaser.
  *
  * Handles opponent card backs, avatars, dealer button, and turn glow.
+ * Every position comes from the table layout (layout/computeTableLayout.js):
+ * the backs fan from their seat's `cards` anchor, the avatars and the
+ * dealer frog live in the DOM HUD's seat nodes (ui/tableHud.js).
  */
 
 import { avatarSrc, applyAvatarImg } from '../../utils/avatar.js';
 import { team, rotate } from '../../utils/positions.js';
-import { CARD_CONFIG, ANIMATION_CONFIG } from '../config.js';
 import { getSocketManager } from '../../socket/SocketManager.js';
 import { sceneTween } from '../TableDirector.js';
+import { layoutOf, fanPositions } from '../layout/computeTableLayout.js';
+import { hudSeat, hudRoot } from '../../ui/tableHud.js';
 
-/**
- * Base design dimensions for scaling.
- */
-const DESIGN_WIDTH = 1920;
-const DESIGN_HEIGHT = 953;
+/** OpponentManager slot → layout seat ('bottom' is a spectator's self seat). */
+const SEAT_OF = { partner: 'partner', opp1: 'opp1', opp2: 'opp2', bottom: 'self' };
 
 /**
  * OpponentManager handles all opponent-related sprite operations.
@@ -78,63 +79,67 @@ export class OpponentManager {
       : ['partner', 'opp1', 'opp2'];
   }
 
-  /**
-   * Get scale factors based on current screen size.
-   */
-  getScaleFactors() {
-    const screenWidth = this._scene.scale.width;
-    const screenHeight = this._scene.scale.height;
-    return {
-      x: screenWidth / DESIGN_WIDTH,
-      y: screenHeight / DESIGN_HEIGHT,
-      screenWidth,
-      screenHeight,
-    };
+  /** The table layout this manager draws with. */
+  layout() {
+    return layoutOf(this._scene);
   }
 
   /**
-   * Calculate opponent positions relative to screen.
+   * Opponent anchors from the layout ({slot: {cardX, cardY, avatarX, avatarY}}).
    */
   getOpponentPositions() {
-    const { x: scaleX, y: scaleY, screenWidth, screenHeight } = this.getScaleFactors();
-    const centerX = screenWidth / 2;
-    const centerY = screenHeight / 2;
-
-    // Clamp positions to stay within canvas bounds
-    const minX = 80;
-    const maxX = screenWidth - 120;
-
-    const positions = {
-      partner: {
-        cardX: centerX,
-        cardY: centerY - 275 * scaleY,
-        avatarX: centerX,
-        avatarY: centerY - 400 * scaleY,
-      },
-      opp1: {
-        cardX: Math.max(minX + 50, centerX - 425 * scaleX),
-        cardY: centerY,
-        avatarX: Math.max(minX, centerX - 550 * scaleX),
-        avatarY: centerY,
-      },
-      opp2: {
-        cardX: Math.min(maxX - 50, centerX + 425 * scaleX),
-        cardY: centerY,
-        avatarX: Math.min(maxX, centerX + 550 * scaleX),
-        avatarY: centerY,
-      },
-    };
-
-    if (this._isSpectatorMode) {
-      positions.bottom = {
-        cardX: centerX,
-        cardY: centerY + 275 * scaleY,
-        avatarX: centerX,
-        avatarY: centerY + 400 * scaleY,
-      };
+    const L = this.layout();
+    const positions = {};
+    for (const slot of this._getSlotKeys()) {
+      const seat = L.seats[SEAT_OF[slot]];
+      if (!seat?.cards) continue;
+      positions[slot] = { cardX: seat.cards.x, cardY: seat.cards.y, avatarX: seat.avatar.x, avatarY: seat.avatar.y };
     }
-
     return positions;
+  }
+
+  /** Where the deal flies from: the trump card, else its layout spot. */
+  _dealOrigin() {
+    const scene = this._scene;
+    if (scene.tableCardSprite) return { x: scene.tableCardSprite.x, y: scene.tableCardSprite.y };
+    const { trump } = this.layout();
+    return { x: trump.x, y: trump.y };
+  }
+
+  /** The back sprites of one slot at the layout's fan positions (optionally dealt in). */
+  _drawFan(slot, count, { animate = false } = {}) {
+    const L = this.layout();
+    const scene = this._scene;
+    const scale = L.card.back.scale;
+    const spots = fanPositions(L, SEAT_OF[slot], count);
+    const from = animate ? this._dealOrigin() : null;
+    spots.forEach((p, i) => {
+      const sprite = scene.add.image(p.x, p.y, 'cardBack');
+      sprite.setScale(scale);
+      sprite.setRotation(p.rotation);
+      sprite.setDepth(100 + i);
+      if (from) {
+        // From the trump (today's deal: start larger, land at the fan's scale)
+        sprite.setPosition(from.x, from.y);
+        sprite.setScale(L.card.trump.scale);
+        sprite.setAlpha(1);
+        sprite.setRotation(0);
+        // Held so a play can cancel it even before the tween manager has
+        // activated it (killTweensOf misses tweens queued while hidden)
+        sprite.setData('moveTween', sceneTween(scene, {
+          targets: sprite,
+          x: p.x,
+          y: p.y,
+          scaleX: scale,
+          scaleY: scale,
+          rotation: p.rotation,
+          duration: 750,
+          ease: 'Power2',
+          delay: i * 30,
+        }));
+      }
+      this._cardSprites[slot].push(sprite);
+    });
   }
 
   /**
@@ -150,67 +155,7 @@ export class OpponentManager {
 
     if (cardCount === 0) return;
 
-    const scene = this._scene;
-    const positions = this.getOpponentPositions();
-    const { x: scaleX, y: scaleY } = this.getScaleFactors();
-    const cardSpacing = 10 * scaleX;
-
-    // Display card backs for each opponent position
-    this._getSlotKeys().forEach((opponentId) => {
-      const pos = positions[opponentId];
-      if (!pos) return;
-      const isHorizontal = opponentId === 'partner' || opponentId === 'bottom';
-
-      for (let i = 0; i < cardCount; i++) {
-        let x, y, rotation;
-
-        if (isHorizontal) {
-          // Partner/Bottom - horizontal spread
-          const totalWidth = (cardCount - 1) * cardSpacing;
-          x = pos.cardX - totalWidth / 2 + i * cardSpacing;
-          y = pos.cardY;
-          rotation = 0;
-        } else {
-          // Side opponents - vertical spread with rotation
-          const totalHeight = (cardCount - 1) * cardSpacing;
-          x = pos.cardX;
-          y = pos.cardY - totalHeight / 2 + i * cardSpacing;
-          rotation = opponentId === 'opp1' ? -Math.PI / 2 : Math.PI / 2;
-        }
-
-        // Create card back sprite (scale 1.2 matches legacy final scale)
-        const sprite = scene.add.image(x, y, 'cardBack');
-        sprite.setScale(1.2);
-        sprite.setRotation(rotation);
-        sprite.setDepth(100 + i);
-
-        if (!skipAnimation) {
-          // Animate from upper right (matches legacy starting position)
-          const startX = scene.scale.width / 2 + 500 * scaleX;
-          const startY = scene.scale.height / 2 - 300 * scaleY;
-          sprite.setPosition(startX, startY);
-          sprite.setScale(1.5); // Start larger, animate to 1.2
-          sprite.setAlpha(1);
-          sprite.setRotation(0);
-
-          // Held so a play can cancel it even before the tween manager has
-          // activated it (killTweensOf misses tweens queued while hidden)
-          sprite.setData('moveTween', sceneTween(scene, {
-            targets: sprite,
-            x,
-            y,
-            scaleX: 1.2,
-            scaleY: 1.2,
-            rotation,
-            duration: 750,
-            ease: 'Power2',
-            delay: i * 30,
-          }));
-        }
-
-        this._cardSprites[opponentId].push(sprite);
-      }
-    });
+    this._getSlotKeys().forEach((slot) => this._drawFan(slot, cardCount, { animate: !skipAnimation }));
 
     // Display dealer button
     this.displayDealerButton(dealerPosition);
@@ -231,70 +176,7 @@ export class OpponentManager {
 
     if (cardCount === 0) return;
 
-    const scene = this._scene;
-    const positions = this.getOpponentPositions();
-    const { x: scaleX, y: scaleY } = this.getScaleFactors();
-    const cardSpacing = 10 * scaleX;
-
-    // Display card backs for each opponent position
-    this._getSlotKeys().forEach((opponentId) => {
-      const pos = positions[opponentId];
-      if (!pos) return;
-      const isHorizontal = opponentId === 'partner' || opponentId === 'bottom';
-
-      for (let i = 0; i < cardCount; i++) {
-        let x, y, rotation;
-
-        if (isHorizontal) {
-          const totalWidth = (cardCount - 1) * cardSpacing;
-          x = pos.cardX - totalWidth / 2 + i * cardSpacing;
-          y = pos.cardY;
-          rotation = 0;
-        } else {
-          const totalHeight = (cardCount - 1) * cardSpacing;
-          x = pos.cardX;
-          y = pos.cardY - totalHeight / 2 + i * cardSpacing;
-          rotation = opponentId === 'opp1' ? -Math.PI / 2 : Math.PI / 2;
-        }
-
-        const sprite = scene.add.image(x, y, 'cardBack');
-        sprite.setScale(1.2);
-        sprite.setRotation(rotation);
-        sprite.setDepth(100 + i);
-
-        if (!skipAnimation) {
-          // Start from trump card's actual position (if it exists)
-          let startX, startY;
-          if (scene.tableCardSprite) {
-            startX = scene.tableCardSprite.x;
-            startY = scene.tableCardSprite.y;
-          } else {
-            startX = scene.scale.width / 2 + 500 * scaleX;
-            startY = scene.scale.height / 2 - 300 * scaleY;
-          }
-          sprite.setPosition(startX, startY);
-          sprite.setScale(1.5);
-          sprite.setAlpha(1);
-          sprite.setRotation(0);
-
-          // Held so a play can cancel it even before the tween manager has
-          // activated it (killTweensOf misses tweens queued while hidden)
-          sprite.setData('moveTween', sceneTween(scene, {
-            targets: sprite,
-            x,
-            y,
-            scaleX: 1.2,
-            scaleY: 1.2,
-            rotation,
-            duration: 750,
-            ease: 'Power2',
-            delay: i * 30,
-          }));
-        }
-
-        this._cardSprites[opponentId].push(sprite);
-      }
-    });
+    this._getSlotKeys().forEach((slot) => this._drawFan(slot, cardCount, { animate: !skipAnimation }));
   }
 
   /** Game position of each slot relative to the viewer ({partner, opp1, opp2[, bottom]}). */
@@ -313,37 +195,10 @@ export class OpponentManager {
    */
   displayOpponentCardsBySeat(countsByPosition = {}) {
     this.clearCards();
-    const scene = this._scene;
-    const positions = this.getOpponentPositions();
-    const { x: scaleX } = this.getScaleFactors();
-    const cardSpacing = 10 * scaleX;
     const slots = this.slotPositions();
-    this._getSlotKeys().forEach((opponentId) => {
-      const pos = positions[opponentId];
-      const count = countsByPosition[slots[opponentId]] || 0;
-      if (!pos || count <= 0) return;
-      const isHorizontal = opponentId === 'partner' || opponentId === 'bottom';
-      for (let i = 0; i < count; i++) {
-        let x;
-        let y;
-        let rotation;
-        if (isHorizontal) {
-          const totalWidth = (count - 1) * cardSpacing;
-          x = pos.cardX - totalWidth / 2 + i * cardSpacing;
-          y = pos.cardY;
-          rotation = 0;
-        } else {
-          const totalHeight = (count - 1) * cardSpacing;
-          x = pos.cardX;
-          y = pos.cardY - totalHeight / 2 + i * cardSpacing;
-          rotation = opponentId === 'opp1' ? -Math.PI / 2 : Math.PI / 2;
-        }
-        const sprite = scene.add.image(x, y, 'cardBack');
-        sprite.setScale(1.2);
-        sprite.setRotation(rotation);
-        sprite.setDepth(100 + i);
-        this._cardSprites[opponentId].push(sprite);
-      }
+    this._getSlotKeys().forEach((slot) => {
+      const count = countsByPosition[slots[slot]] || 0;
+      if (count > 0) this._drawFan(slot, count);
     });
   }
 
@@ -352,8 +207,20 @@ export class OpponentManager {
     return Object.fromEntries(Object.entries(this._cardSprites).map(([k, v]) => [k, v.length]));
   }
 
+  /** The HUD slot of a game position's seat (null: none at this table). */
+  _slotOfPosition(position) {
+    const me = this._playerPosition;
+    if (!me || !position) return null;
+    if (position === me) return this._isSpectatorMode ? 'bottom' : 'self';
+    if (position === team(me)) return 'partner';
+    if (position === rotate(me)) return 'opp1';
+    return 'opp2';
+  }
+
   /**
-   * Display the dealer button at the correct position (DOM-based).
+   * Display the dealer button (the frog) on the dealer's seat: a child of
+   * that seat's HUD node, on its layout side (webclient-7, ui-4: one
+   * coordinate space with the avatar, so it follows the avatar).
    */
   displayDealerButton(dealerPosition) {
     this.clearDealerButton();
@@ -361,12 +228,12 @@ export class OpponentManager {
     if (!dealerPosition || !this._playerPosition) return;
 
     this._dealerPosition = dealerPosition;
-
-    const { x, y } = this._calculateDealerPosition();
+    const slot = this._slotOfPosition(dealerPosition);
 
     // Create DOM element
     const button = document.createElement('div');
     button.className = 'dealer-button';
+    button.dataset.seat = slot === 'bottom' ? 'self' : slot;
     // 120 px WebP (immutable, versioned), the legacy PNG if WebP fails
     const frog = document.createElement('img');
     frog.alt = 'Dealer';
@@ -374,53 +241,10 @@ export class OpponentManager {
     frog.onerror = () => { frog.onerror = null; frog.setAttribute('src', 'assets/frog.png'); };
     frog.setAttribute('src', 'assets/avatars/v1/frog.webp');
     button.appendChild(frog);
-    button.style.left = `${x}px`;
-    button.style.top = `${y}px`;
 
-    document.body.appendChild(button);
+    const seat = hudSeat(slot);
+    (seat?.dealer || hudRoot()).appendChild(button);
     this._dealerButton = button;
-  }
-
-  /**
-   * Calculate dealer button position based on who is dealer.
-   * Frog position rules:
-   * - Player (me): to the LEFT of avatar
-   * - Opp1 (left): to the LEFT of avatar
-   * - Partner (across/top): to the LEFT of avatar
-   * - Opp2 (right): to the RIGHT of avatar
-   */
-  _calculateDealerPosition() {
-    const { screenWidth, screenHeight } = this.getScaleFactors();
-    const positions = this.getOpponentPositions();
-
-    let buttonX, buttonY;
-
-    if (this._dealerPosition === this._playerPosition) {
-      if (this._isSpectatorMode && positions.bottom) {
-        // Spectator mode: use bottom avatar position
-        buttonX = positions.bottom.avatarX - 60;
-        buttonY = positions.bottom.avatarY;
-      } else {
-        // Player is dealer - to the LEFT of player avatar
-        // Use window coordinates since player info box is outside game container
-        buttonX = window.innerWidth - 475; // Left of avatar at window - 405
-        buttonY = window.innerHeight - 200;
-      }
-    } else if (team(this._playerPosition) === this._dealerPosition) {
-      // Partner is dealer - to the LEFT of partner avatar
-      buttonX = positions.partner.avatarX - 60;
-      buttonY = positions.partner.avatarY;
-    } else if (rotate(this._playerPosition) === this._dealerPosition) {
-      // Opp1 is dealer - to the LEFT of opp1 avatar
-      buttonX = positions.opp1.avatarX - 60;
-      buttonY = positions.opp1.avatarY;
-    } else {
-      // Opp2 is dealer - to the RIGHT of opp2 avatar
-      buttonX = positions.opp2.avatarX + 60;
-      buttonY = positions.opp2.avatarY;
-    }
-
-    return { x: buttonX, y: buttonY };
   }
 
   /**
@@ -431,26 +255,10 @@ export class OpponentManager {
 
     if (!this._playerPosition || !playerData) return;
 
-    const positions = this.getOpponentPositions();
-
-    // Get opponent positions relative to player
-    const partnerPos = team(this._playerPosition);
-    const opp1Pos = rotate(this._playerPosition);
-    const opp2Pos = rotate(rotate(rotate(this._playerPosition)));
-
-    const opponentMap = {
-      partner: partnerPos,
-      opp1: opp1Pos,
-      opp2: opp2Pos,
-    };
-
-    if (this._isSpectatorMode) {
-      opponentMap.bottom = this._playerPosition;
-    }
+    const opponentMap = this.slotPositions();
 
     this._getSlotKeys().forEach((opponentId) => {
       const pos = opponentMap[opponentId];
-      const screenPos = positions[opponentId];
 
       // Find player data for this position
       const posIndex = playerData.position?.indexOf(pos);
@@ -461,14 +269,15 @@ export class OpponentManager {
         `P${pos}`;
       const pic = playerData.pics?.[posIndex];
 
-      this._createAvatarDom(opponentId, pic, username, screenPos.avatarX, screenPos.avatarY);
+      this._createAvatarDom(opponentId, pic, username);
     });
   }
 
   /**
-   * Create a DOM-based avatar element.
+   * Create a DOM-based avatar element in its HUD seat (sized by the HUD's
+   * layout variables).
    */
-  _createAvatarDom(opponentId, pic, username, x, y) {
+  _createAvatarDom(opponentId, pic, username) {
     // Remove existing
     if (this._avatarDoms[opponentId]) {
       this._avatarDoms[opponentId].remove();
@@ -477,18 +286,6 @@ export class OpponentManager {
     const container = document.createElement('div');
     container.id = `opponent-avatar-${opponentId}`;
     container.className = `opponent-avatar-container ${opponentId}`;
-    container.style.cssText = `
-      position: absolute;
-      left: ${x}px;
-      top: ${y}px;
-      transform: translate(-50%, -50%);
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      pointer-events: auto;
-      cursor: pointer;
-      z-index: 100;
-    `;
 
     container.addEventListener('click', () => {
       const sm = getSocketManager();
@@ -499,41 +296,21 @@ export class OpponentManager {
 
     // Avatar image
     const img = document.createElement('img');
-    img.className = 'opponent-avatar-img';
+    img.className = 'opponent-avatar-img hud-avatar-img';
     // Stock number, inline data URL or /avatar URL (utils/avatar.js)
     applyAvatarImg(img, avatarSrc(pic));
     img.alt = username;
-    img.style.cssText = `
-      width: 80px !important;
-      height: 80px !important;
-      min-width: 80px !important;
-      min-height: 80px !important;
-      max-width: 80px !important;
-      max-height: 80px !important;
-      object-fit: cover !important;
-      border-radius: 50% !important;
-      border: 3px solid #333 !important;
-      background: #1a1a1a !important;
-    `;
     container.appendChild(img);
 
-    // Username label
+    // Username label (the seat's plate)
     const label = document.createElement('div');
+    label.className = 'hud-plate';
     label.textContent = username;
-    label.style.cssText = `
-      margin-top: 5px;
-      padding: 2px 8px;
-      background: rgba(0, 0, 0, 0.7);
-      border: 1px solid #666;
-      border-radius: 4px;
-      font-size: 14px;
-      color: #aaa;
-      text-shadow: 1px 1px 2px black;
-      white-space: nowrap;
-    `;
+    label.title = username; // the plate truncates a long name (its seat's width)
     container.appendChild(label);
 
-    document.body.appendChild(container);
+    const seat = hudSeat(opponentId);
+    (seat?.avatar || hudRoot()).appendChild(container);
     this._avatarDoms[opponentId] = container;
   }
 
@@ -646,53 +423,34 @@ export class OpponentManager {
   }
 
   /**
-   * Reposition all opponent elements (for resize handling).
+   * Follow a relayout: every back to its fan spot at the layout's scale.
+   * A deal tween still heading for the old spot is stopped first (the
+   * relayout fast-forwards a live deal, so this is the not-live case:
+   * webclient-17(c)). The avatars and the frog are HUD children: the HUD's
+   * layout moves them.
    */
   reposition() {
-    const positions = this.getOpponentPositions();
-    const { x: scaleX } = this.getScaleFactors();
-    const cardSpacing = 10 * scaleX;
+    const L = this.layout();
+    const scale = L.card.back.scale;
 
-    // Reposition card sprites
-    this._getSlotKeys().forEach((opponentId) => {
-      const sprites = this._cardSprites[opponentId];
-      if (!sprites || sprites.length === 0) return;
-
-      const pos = positions[opponentId];
-      if (!pos) return;
-      const isHorizontal = opponentId === 'partner' || opponentId === 'bottom';
-      const numCards = sprites.length;
-
+    this._getSlotKeys().forEach((slot) => {
+      const sprites = (this._cardSprites[slot] || []).filter((sp) => sp && sp.active !== false);
+      if (!sprites.length) return;
+      const spots = fanPositions(L, SEAT_OF[slot], sprites.length);
       sprites.forEach((sprite, index) => {
-        if (!sprite || !sprite.active) return;
-
-        if (isHorizontal) {
-          const totalWidth = (numCards - 1) * cardSpacing;
-          sprite.x = pos.cardX - totalWidth / 2 + index * cardSpacing;
-          sprite.y = pos.cardY;
-        } else {
-          const totalHeight = (numCards - 1) * cardSpacing;
-          sprite.x = pos.cardX;
-          sprite.y = pos.cardY - totalHeight / 2 + index * cardSpacing;
+        const moveTween = sprite.getData?.('moveTween');
+        if (moveTween) {
+          moveTween.stop?.();
+          sprite.setData('moveTween', null);
         }
+        this._scene.tweens?.killTweensOf?.(sprite);
+        const p = spots[index];
+        sprite.x = p.x;
+        sprite.y = p.y;
+        sprite.setScale(scale);
+        sprite.setRotation(p.rotation);
       });
     });
-
-    // Reposition DOM avatars
-    Object.keys(positions).forEach((opponentId) => {
-      const dom = this._avatarDoms[opponentId];
-      if (dom) {
-        dom.style.left = `${positions[opponentId].avatarX}px`;
-        dom.style.top = `${positions[opponentId].avatarY}px`;
-      }
-    });
-
-    // Reposition dealer button
-    if (this._dealerButton && this._dealerPosition) {
-      const { x, y } = this._calculateDealerPosition();
-      this._dealerButton.style.left = `${x}px`;
-      this._dealerButton.style.top = `${y}px`;
-    }
   }
 
   /**

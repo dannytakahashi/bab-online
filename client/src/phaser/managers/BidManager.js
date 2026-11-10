@@ -7,10 +7,14 @@
 
 import { getGameState } from '../../state/GameState.js';
 import { getSocketManager } from '../../socket/SocketManager.js';
+import { getHud } from '../../ui/tableHud.js';
+import { BID_SHEET, BID_CHIP } from '../layout/computeTableLayout.js';
 
-// Base design dimensions for scaling
-const BASE_WIDTH = 1920;
-const BASE_HEIGHT = 953;
+/**
+ * The sheet's transform: centred on its layout slot, at the layout's bid
+ * scale (--bid-scale on the HUD), times `k` for the pop-in.
+ */
+const sheetTransform = (k) => `translate(-50%, -50%) scale(calc(var(--bid-scale, 1) * ${k}))`;
 
 export class BidManager {
   constructor(scene) {
@@ -36,20 +40,6 @@ export class BidManager {
   }
 
   /**
-   * Get scale factors based on current screen size.
-   */
-  getScaleFactors() {
-    const screenWidth = this.scene.scale.width;
-    const screenHeight = this.scene.scale.height;
-    return {
-      x: screenWidth / BASE_WIDTH,
-      y: screenHeight / BASE_HEIGHT,
-      screenWidth,
-      screenHeight,
-    };
-  }
-
-  /**
    * Show the bid UI.
    * @param {number} handSize - Number of cards in hand (max bid)
    * @param {Function} onBidSelect - Callback when a bid is selected
@@ -58,7 +48,6 @@ export class BidManager {
     // Remove existing if any (no animation since we're replacing it)
     this.hideBidUI(false);
 
-    const { screenWidth, screenHeight } = this.getScaleFactors();
     const position = this.state.position;
     const currentTurn = this.state.currentTurn;
 
@@ -66,24 +55,33 @@ export class BidManager {
     this.bidContainer = document.createElement('div');
     this.bidContainer.id = 'bidContainer';
     this.bidContainer.classList.add('ui-element', 'bid-grid');
-    this.bidContainer.style.position = 'fixed';
+    // The HUD's bid slot places it (absolute, from the layout); without a
+    // table container it stays centred on the page
+    const hud = getHud();
+    if (!hud) {
+      this.bidContainer.style.position = 'fixed';
+      this.bidContainer.style.left = '50%';
+      this.bidContainer.style.top = '50%';
+    }
     this.bidContainer.style.zIndex = '1000';
     this.bidContainer.style.flexDirection = 'column';
     this.bidContainer.style.alignItems = 'center';
     this.bidContainer.style.gap = '8px';
     this.bidContainer.style.padding = '12px';
+    // the layout's sheet width (BID_SHEET: the bid slot and the overlap
+    // check model this box), border included
+    this.bidContainer.style.width = `${BID_SHEET.w}px`;
+    this.bidContainer.style.boxSizing = 'border-box';
     this.bidContainer.style.background = 'rgba(0, 0, 0, 0.85)';
     this.bidContainer.style.border = '2px solid #444';
     this.bidContainer.style.borderRadius = '8px';
-    this.bidContainer.style.left = `${screenWidth / 2}px`;
-    this.bidContainer.style.top = `${screenHeight / 2}px`;
-    this.bidContainer.style.transform = 'translate(-50%, -50%) scale(0.9)';
+    this.bidContainer.style.transform = sheetTransform(0.9);
     this.bidContainer.style.opacity = '0';
     this.bidContainer.style.transition = 'opacity 150ms ease-out, transform 150ms ease-out';
     this.bidContainer.style.display = 'flex';
     this.bidContainer.style.visibility = 'hidden';
 
-    document.body.appendChild(this.bidContainer);
+    (hud || document.body).appendChild(this.bidContainer);
 
     // Animate in if it's our turn
     if (this.state.isBidding && currentTurn === position) {
@@ -97,7 +95,7 @@ export class BidManager {
         if (!this.state.isBidding || this.state.currentTurn !== this.state.position || this.state.isLazy) return;
         container.style.visibility = 'visible';
         container.style.opacity = '1';
-        container.style.transform = 'translate(-50%, -50%) scale(1)';
+        container.style.transform = sheetTransform(1);
       };
       requestAnimationFrame(reveal);
       setTimeout(reveal, 50);
@@ -117,7 +115,11 @@ export class BidManager {
     this.handSize = handSize;
     this.indicatorRow = document.createElement('div');
     this.indicatorRow.style.display = 'flex';
-    this.indicatorRow.style.gap = '3px';
+    this.indicatorRow.style.gap = `${BID_CHIP.gap}px`;
+    // the sheet's width, not its chips': an overbid's chips shrink to fit
+    // instead of sticking out past the sheet
+    this.indicatorRow.style.alignSelf = 'stretch';
+    this.indicatorRow.style.minWidth = '0';
     this.indicatorRow.style.justifyContent = 'center';
     this.indicatorRow.style.marginBottom = '4px';
     this.trickIndicators = [];
@@ -285,7 +287,9 @@ export class BidManager {
    */
   createIndicatorRect() {
     const rect = document.createElement('div');
-    rect.style.width = '18px';
+    rect.style.width = `${BID_CHIP.w}px`;
+    rect.style.flex = `0 1 ${BID_CHIP.w}px`;
+    rect.style.minWidth = '0';
     rect.style.height = '26px';
     rect.style.borderRadius = '3px';
     rect.style.background = '#555';
@@ -369,11 +373,11 @@ export class BidManager {
       // Animate in
       this.bidContainer.style.visibility = 'visible';
       this.bidContainer.style.opacity = '1';
-      this.bidContainer.style.transform = 'translate(-50%, -50%) scale(1)';
+      this.bidContainer.style.transform = sheetTransform(1);
     } else {
       // Animate out
       this.bidContainer.style.opacity = '0';
-      this.bidContainer.style.transform = 'translate(-50%, -50%) scale(0.9)';
+      this.bidContainer.style.transform = sheetTransform(0.9);
       // Hide after transition completes
       setTimeout(() => {
         if (this.bidContainer && this.bidContainer.style.opacity === '0') {
@@ -392,7 +396,7 @@ export class BidManager {
       if (animate) {
         // Animate out, then remove
         this.bidContainer.style.opacity = '0';
-        this.bidContainer.style.transform = 'translate(-50%, -50%) scale(0.9)';
+        this.bidContainer.style.transform = sheetTransform(0.9);
         const container = this.bidContainer;
         setTimeout(() => {
           if (container && container.parentNode) {

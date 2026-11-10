@@ -201,6 +201,13 @@ export class TableDirector {
     return n;
   }
 
+  /** Pending work a relayout cannot snap (everything but the snapSafe timers). */
+  _unsettled() {
+    let n = 0;
+    for (const w of this._work) if (!w.done && !w.isDone() && !w.snapSafe) n++;
+    return n;
+  }
+
   _prune() {
     for (const w of this._work) if (w.done || w.isDone()) this._work.delete(w);
   }
@@ -211,12 +218,14 @@ export class TableDirector {
    * @param {Function} fn
    * @param {Object} [opts]
    * @param {string} [opts.scope] - 'hand' | 'deal' | 'trick': skipped when the key moved past it
+   * @param {boolean} [opts.snapSafe] - it only re-reads the layout when it runs (nothing
+   *   heads for an old anchor): a relayout snaps instead of fast-forwarding for it
    * @returns {{remove: Function}} the handle (remove(false) cancels)
    */
-  delay(ms, fn, { scope = null } = {}) {
+  delay(ms, fn, { scope = null, snapSafe = false } = {}) {
     this._prune();
     const key = { ...this.key };
-    const entry = { kind: 'timer', key, done: false, isDone: () => entry.done };
+    const entry = { kind: 'timer', key, done: false, snapSafe, isDone: () => entry.done };
     const run = () => {
       if (entry.done) return;
       entry.done = true;
@@ -425,6 +434,22 @@ export class TableDirector {
       console.error('Fast-forward render failed:', err);
     }
     return true;
+  }
+
+  /**
+   * A relayout (resize) while table work is in flight: a deal, a fly-in, a
+   * collect or the whisk still heads for the old anchors, so render the
+   * model at the new size instead (fastForward). Not during the teams /
+   * createUI fade (the first deal waits for it and lays out when it runs),
+   * nor before a hand is on the table (the draw lays itself out). A render's
+   * own settle timer (snapSafe) is no work in flight: otherwise every resize
+   * of a window drag would find the last render's timer and render again.
+   * @returns {boolean} whether it fast-forwarded
+   */
+  settleForRelayout(scene = this._scene) {
+    if (!this.ready || scene !== this._scene || !this.uiReady || !this._isLive()) return false;
+    if (this._unsettled() === 0 && this.waiting === 0) return false;
+    return this.fastForward('relayout');
   }
 
   /** Something changed the table (an applied event): a hidden tab must re-render on return. */

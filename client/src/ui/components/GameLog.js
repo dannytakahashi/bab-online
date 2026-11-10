@@ -566,10 +566,11 @@ export function createGameLog({ onChatSubmit } = {}) {
 }
 
 /**
- * Show game log and return it.
+ * Show game log and return it: in the table shell's log column (the
+ * --log-w grid, styles.css), else on the page (fixed at the right).
  */
 export function showGameLog(options) {
   const log = createGameLog(options);
-  document.body.appendChild(log.container);
+  (document.getElementById('table-shell') || document.body).appendChild(log.container);
   return log;
 }

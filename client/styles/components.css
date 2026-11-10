@@ -16,13 +16,16 @@
    Chat UI
    ========================================================================== */
 
+/* Width: the --log-w column less its 10 px margins (no min-width: it used to
+   overrun the canvas below 1000 px, ui-8) */
 .chat-container {
     position: fixed;
     top: 10px;
     right: 10px;
     bottom: 10px;
-    width: 300px;
-    min-width: 220px;
+    width: calc(var(--log-w, 320px) - 20px);
+    /* nothing in it may widen the page (a phone zooms out to fit it) */
+    overflow: hidden;
     background: rgba(0, 0, 0, 0.85);
     border-radius: 8px;
     display: flex;
@@ -30,29 +33,15 @@
     z-index: 500;
 }
 
-/* Responsive chat sizing */
-@media (max-width: 1400px) {
-    .chat-container {
-        width: 260px;
-    }
-}
-
-@media (max-width: 1200px) {
-    .chat-container {
-        width: 220px;
-    }
-}
-
+/* Responsive chat type (the width follows --log-w) */
 @media (max-width: 1000px) {
     .chat-container {
-        width: 180px;
         font-size: 12px;
     }
 }
 
 @media (max-width: 800px) {
     .chat-container {
-        width: 150px;
         font-size: 11px;
     }
 
@@ -101,6 +90,8 @@
 
 .chat-input {
     flex: 1;
+    /* shrinks below its intrinsic width, so Send stays in a narrow log (ui-8) */
+    min-width: 0;
     padding: 8px;
     border: 1px solid #333;
     border-radius: 4px;
@@ -264,7 +255,19 @@
     border-color: #ffffff transparent transparent transparent;
 }
 
-/* Tail pointing left (for opp1 - left side opponent) */
+/* Tail pointing right (the bubble left of its avatar) */
+.chat-bubble.tail-right::after {
+    content: '';
+    position: absolute;
+    right: -10px;
+    top: 50%;
+    transform: translateY(-50%);
+    border-width: 8px 0 8px 10px;
+    border-style: solid;
+    border-color: transparent transparent transparent #ffffff;
+}
+
+/* Tail pointing left (the bubble right of its avatar) */
 .chat-bubble.tail-left::after {
     content: '';
     position: absolute;
@@ -305,4 +308,214 @@
 
 #player-avatar-container.voice-speaking .player-avatar-img {
     box-shadow: 0 0 20px 8px rgba(74, 222, 128, 0.6);
+}
+
+/* ==========================================================================
+   Table HUD (ui/tableHud.js): the table's DOM layer, the canvas's size,
+   placed from phaser/layout/computeTableLayout.js through CSS variables.
+   A seat node sits at its avatar's centre; the avatar, the dealer frog and
+   the bubble are its children. Colors and fonts are the table's as before
+   (item 18 reskins); only sizes follow the layout's scale.
+   ========================================================================== */
+
+#table-hud {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 2;
+}
+
+.hud-seat,
+.hud-avatar-slot,
+.hud-dealer-slot,
+.hud-bubble-slot {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 0;
+    height: 0;
+}
+
+.hud-dealer-slot {
+    left: var(--dealer-dx, -60px);
+    top: var(--dealer-dy, 0px);
+}
+
+.hud-bubble-slot {
+    left: var(--bubble-dx, 0px);
+    top: var(--bubble-dy, -57px);
+}
+
+.hud-seat .opponent-avatar-container,
+.hud-seat #player-avatar-container {
+    position: absolute;
+    left: 0;
+    top: calc(var(--av, 86px) / -2);
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+    pointer-events: auto;
+    cursor: pointer;
+    z-index: 100;
+}
+
+.hud-avatar-img {
+    display: block;
+    box-sizing: content-box;
+    width: var(--av-img, 80px);
+    height: var(--av-img, 80px);
+    min-width: 0;
+    min-height: 0;
+    max-width: none;
+    max-height: none;
+    object-fit: cover;
+    border-radius: 50%;
+    border: var(--av-border, 3px) solid #333;
+    background: #1a1a1a;
+}
+
+.hud-plate {
+    box-sizing: border-box;
+    height: var(--plate-h, 23px);
+    max-width: var(--plate-w, 124px);
+    margin-top: var(--plate-gap, 6px);
+    padding: 2px var(--plate-pad, 8px);
+    background: rgba(0, 0, 0, 0.7);
+    border: 1px solid #666;
+    border-radius: 4px;
+    font-family: Arial, sans-serif;
+    font-size: var(--plate-font, 14px);
+    line-height: var(--plate-lh, 17px);
+    color: #aaa;
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.hud-hsi {
+    box-sizing: border-box;
+    height: var(--hsi-h, 20px);
+    max-width: var(--hsi-w, 96px);
+    margin-top: var(--hsi-gap, 4px);
+    padding: 2px var(--plate-pad, 8px);
+    background: rgba(0, 0, 0, 0.7);
+    border: 1px solid #666;
+    border-radius: 4px;
+    font-size: var(--hsi-font, 12px);
+    line-height: calc(var(--hsi-h, 20px) - 6px);
+    color: #aaa;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.hud-dealer-slot .dealer-button {
+    left: 0;
+    top: 0;
+    width: var(--frog, 40px);
+    height: var(--frog, 40px);
+}
+
+.hud-bubble-slot .chat-bubble {
+    left: 0;
+    top: 0;
+    box-sizing: border-box;
+    padding: var(--bubble-pad-y, 8px) var(--bubble-pad-x, 12px);
+    font-size: var(--bubble-font, 14px);
+    line-height: var(--bubble-lh, 18px);
+    max-width: var(--bubble-w, 224px);
+    width: max-content;
+    overflow-wrap: anywhere;
+}
+
+/* at most --bubble-lines lines (the layout's BUBBLE.lines), then an ellipsis */
+.chat-bubble-text {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: var(--bubble-lines, 3);
+    line-clamp: var(--bubble-lines, 3);
+    overflow: hidden;
+}
+
+.hud-bubble-slot .chat-bubble.tail-down {
+    transform: translate(-50%, -100%);
+}
+
+.hud-bubble-slot .chat-bubble.tail-left {
+    transform: translate(0, -50%);
+}
+
+.hud-bubble-slot .chat-bubble.tail-right {
+    transform: translate(-100%, -50%);
+}
+
+/* The status slot (lazy / spectator pill), top centre of the table */
+#spectating-indicator {
+    box-sizing: border-box;
+    background: rgba(0, 0, 0, 0.8);
+    border-radius: 20px;
+    border: 1px solid currentColor;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    z-index: 500;
+    pointer-events: none;
+}
+
+#table-hud > #spectating-indicator {
+    position: absolute;
+    left: var(--status-x, 50%);
+    top: var(--status-y, 10px);
+    transform: translateX(-50%);
+    max-width: var(--status-w, 380px);
+    height: var(--status-h, 35px);
+    padding: 0 calc(20px * var(--s, 1));
+    font-size: var(--status-font, 14px);
+    line-height: calc(var(--status-h, 35px) - 2px);
+}
+
+body > #spectating-indicator {
+    position: fixed;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 8px 20px;
+    font-size: 14px;
+}
+
+/* The bid sheet slot (BidManager): over the trick, scaled with the table */
+#table-hud > #bidContainer {
+    position: absolute;
+    left: var(--bid-x, 50%);
+    top: var(--bid-y, 50%);
+    pointer-events: auto;
+}
+
+/* Voice buttons (VoiceChatUI) under my HSI, or the table's corner for a spectator */
+.hud-voice {
+    position: absolute;
+    left: var(--voice-x, 0px);
+    top: var(--voice-y, 0px);
+    width: var(--voice-w, 78px);
+    height: var(--voice-btn, 36px);
+    display: flex;
+    justify-content: center;
+    gap: var(--voice-gap, 6px);
+    pointer-events: auto;
+    z-index: 300;
+}
+
+.hud-voice > button {
+    position: static;
+    width: var(--voice-btn, 36px);
+    height: var(--voice-btn, 36px);
+    min-width: 0;
+    min-height: 0;
+    flex: 0 0 auto;
 }

@@ -17,20 +17,55 @@ canvas {
     z-index: 1;
 }
 
-#game-container {
+/*
+ * The table shell: one grid holds the canvas and the game log. The log's
+ * column is --log-w (by viewport width, below); the canvas takes the rest.
+ * phaser/layout/computeTableLayout.js mirrors these breakpoints in
+ * LOG_BREAKPOINTS (computeTableLayout.test.js reads them back from here).
+ */
+:root {
+    --log-w: 320px;
+}
+
+#table-shell {
     position: absolute;
     left: 0;
     top: 0;
     width: 100%;
     height: 100vh;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 100%;
+}
+
+#table-shell.in-game {
+    grid-template-columns: minmax(0, 1fr) var(--log-w);
+}
+
+#game-container {
+    position: relative;
+    grid-column: 1;
+    grid-row: 1;
+    width: 100%;
+    height: 100vh;
+    min-width: 0;
     background: radial-gradient(ellipse at center, #228B22 0%, #0d1a0d 100%); /* Green poker table gradient */
     z-index: 1;
     overflow: hidden;
 }
 
-/* Applied when in active game to make room for game log */
-#game-container.in-game {
-    width: calc(100vw - 320px);
+/* The game log in its grid column (outside the shell it stays fixed on the right) */
+#table-shell > #gameFeed {
+    position: relative;
+    grid-column: 2;
+    grid-row: 1;
+    top: auto;
+    right: auto;
+    bottom: auto;
+    width: auto;
+    min-width: 0;
+    margin: 10px;
+    box-sizing: border-box;
 }
 
 h1 {
@@ -90,28 +125,34 @@ h1 {
 
 /* ==================== RESPONSIVE DESIGN ==================== */
 
-/* Game container width must match game log responsive widths (only when in-game) */
+/* The game log column (--log-w): LOG_BREAKPOINTS in computeTableLayout.js */
 @media (max-width: 1400px) {
-    #game-container.in-game {
-        width: calc(100vw - 280px);
+    :root {
+        --log-w: 280px;
     }
 }
 
 @media (max-width: 1200px) {
-    #game-container.in-game {
-        width: calc(100vw - 240px);
+    :root {
+        --log-w: 240px;
     }
 }
 
 @media (max-width: 1000px) {
-    #game-container.in-game {
-        width: calc(100vw - 200px);
+    :root {
+        --log-w: 200px;
     }
 }
 
 @media (max-width: 800px) {
-    #game-container.in-game {
-        width: calc(100vw - 170px);
+    :root {
+        --log-w: 170px;
+    }
+}
+
+@media (max-width: 600px) {
+    :root {
+        --log-w: 130px;
     }
 }
 
@@ -146,9 +187,8 @@ button, input[type="button"], input[type="submit"], .bid-button {
         font-size: 13px !important;
     }
 
-    /* Chat input on mobile */
+    /* Chat input on mobile (its width is the log column's, ui-8) */
     #chatInput {
-        width: 80vw !important;
         font-size: 14px !important;
     }
 }

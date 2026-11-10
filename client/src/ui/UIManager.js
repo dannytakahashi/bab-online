@@ -18,6 +18,7 @@ import { removeFinalScoreOverlay } from './components/ScoreModal.js';
 import { removeTournamentResultsOverlay } from './components/TournamentScoreboard.js';
 import { getClientSession, SCREEN } from '../state/ClientSession.js';
 import { getGameState } from '../state/GameState.js';
+import { setTableChrome } from './tableHud.js';
 
 /**
  * Available screen types.
@@ -274,11 +275,8 @@ class UIManager {
     const gameChatContainer = document.getElementById('gameChatContainer');
     if (gameChatContainer) gameChatContainer.remove();
 
-    // Remove width restriction from game container
-    const gameContainer = document.getElementById('game-container');
-    if (gameContainer) {
-      gameContainer.classList.remove('in-game');
-    }
+    // The log's grid column goes (the canvas takes the width again)
+    setTableChrome(false);
   }
 
   // ============================================
