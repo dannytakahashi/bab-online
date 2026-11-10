@@ -47,7 +47,7 @@ function feltProblems(L) {
  * seats' bubbles. Checked here from the rects themselves, not through the
  * solver's own group lists.
  */
-function bubbleProblems(L) {
+function bubbleProblems(L, { ownBacks = true } = {}) {
   const out = [];
   const B = L.bubbles;
   const keep = [['trump', L.trump.rect], ['history.team', L.history.team.rect], ['history.opp', L.history.opp.rect],
@@ -65,6 +65,9 @@ function bubbleProblems(L) {
     for (const [other, r] of seen) if (intersects(b.rect, r)) out.push(`${seat} bubble covers ${other}'s`);
     seen.push([seat, b.rect]);
   }
+  // a pure spectator's bottom seat has its backs above its avatar: its
+  // bubble goes beside them, not over them (it used to hide the whole fan)
+  if (ownBacks && L.isSpectator && intersects(L.seats.self.bubble.rect, L.seats.self.cards.rect)) out.push('bottom bubble covers its own backs');
   if (Math.hypot(L.seats.self.bubble.dx, L.seats.self.bubble.dy) > 80) out.push('self bubble beyond 80 px');
   return out;
 }
@@ -153,6 +156,7 @@ describe('computeTableLayout at the named viewports', () => {
     expect(L.w).toBe(1600);
     // today: opponents at centre -/+ 550 * 1600/1920, their backs at 425 * that,
     // the trump at (centre + 500*sx, centre - 300*sy), the felt 600x400 of 1920x953
+    // (all fractions of the canvas: scene.scale is the window less the log)
     expect(L.seats.opp1.avatar.x).toBeCloseTo(800 - 458.3, 0);
     expect(L.seats.opp2.avatar.x).toBeCloseTo(800 + 458.3, 0);
     // (the backs sit a few px further out than today: the plate's 124 px reserve)
@@ -161,8 +165,8 @@ describe('computeTableLayout at the named viewports', () => {
     expect(L.trump.x).toBeCloseTo(1216, 0);
     expect(L.trump.y).toBeCloseTo(200, 0);
     expect(L.trick.center).toEqual({ x: 800, y: 540 });
-    // the felt: today's 600 x 400 of 1920 x 953 (it scaled with the window)
-    expect(L.trick.zone.w).toBeCloseTo(600, 0);
+    // the felt: today's 600 x 400 of 1920 x 953, scaled by the canvas: 500 wide
+    expect(L.trick.zone.w).toBeCloseTo(500, 0);
     expect(L.trick.zone.h).toBeCloseTo(453.6, 0);
     expect(L.bidSheet.scale).toBe(1);
     // my box right of the hand (today x = 1250); the hand box 40% of the canvas
@@ -173,6 +177,60 @@ describe('computeTableLayout at the named viewports', () => {
     expect(L.card.back.scale).toBe(1.2);
     expect(L.card.history.scale).toBe(1);
     expect(L.seats.partner.avatar.img).toBe(80);
+  });
+});
+
+describe('the trick histories keep today\'s insets', () => {
+  it('1920x1080: my team\'s block as far from the bottom as the opponents\' from the top (row 2 centred 95 px up)', () => {
+    for (const isSpectator of [false, true]) {
+      const L = layoutForViewport({ vw: 1920, vh: 1080, isSpectator });
+      expect(L.history.opp.slots[0].y).toBeCloseTo(95, 0);
+      expect(L.history.team.slots[0].y).toBeCloseTo(1080 - 95 - 86, 0);
+      expect(L.history.team.slots[7].y).toBeCloseTo(1080 - 95, 0);
+    }
+  });
+
+  it('the inset is a wish: where the table needs the room the block sits on the bottom margin, never off the canvas', () => {
+    let inset = 0;
+    let n = 0;
+    for (let vw = 800; vw <= 2560; vw += 80) {
+      for (let vh = 500; vh <= 1440; vh += 80) {
+        const L = layoutForViewport({ vw, vh });
+        const gapBelow = L.h - (L.history.team.rect.y + L.history.team.rect.h);
+        n++;
+        if (Math.abs(gapBelow - Math.max(L.margin, 53 * L.s)) < 0.51) inset++;
+        else expect(gapBelow, `${vw}x${vh}`).toBeCloseTo(L.margin, 0);
+      }
+    }
+    expect(inset).toBeGreaterThan(n * 0.9);
+  });
+});
+
+describe('the draw phase keeps today\'s rows', () => {
+  it('1920x1080: the drawn cards 200 px above the deck row, their names above them, the title at 8.4% down', () => {
+    const L = layoutForViewport({ vw: 1920, vh: 1080, withLog: false });
+    expect(L.s).toBe(1);
+    expect(L.draw.deck.y).toBe(540);
+    for (const p of L.draw.slots) expect(p.y).toBe(340);
+    expect(L.draw.title.y).toBeCloseTo(0.084 * 1080, 0);
+    expect(L.draw.name.dy).toBeLessThan(0);
+  });
+
+  it('at every size the drawn row is as high as today\'s (200 * s) where the names clear the title, never on the deck', () => {
+    for (let vw = 800; vw <= 2560; vw += 80) {
+      for (let vh = 500; vh <= 1440; vh += 80) {
+        const L = layoutForViewport({ vw, vh, withLog: false });
+        const d = L.draw;
+        const lift = d.deck.y - d.slots[0].y;
+        const titleBottom = d.title.rect.y + d.title.rect.h;
+        const nameTop = d.name.rects[0].y;
+        // either today's lift, or as high as the title leaves room for
+        if (Math.abs(lift - 200 * L.s) > 0.5) expect(nameTop - titleBottom, `${vw}x${vh}`).toBeLessThan(L.gap + 1);
+        expect(lift, `${vw}x${vh}`).toBeLessThanOrEqual(200 * L.s + 0.5);
+        expect(lift, `${vw}x${vh}`).toBeGreaterThanOrEqual(d.deck.card.h / 2 + d.slotCard.h / 2);
+        expect(findIntersections(L, drawRects(L)), `${vw}x${vh}`).toEqual([]);
+      }
+    }
   });
 });
 
@@ -207,7 +265,8 @@ describe('computeTableLayout over a grid of sizes (800-2560 x 500-1440)', () => 
       for (let vh = 360; vh <= 900; vh += 60) {
         for (const [, isSpectator] of ROLES) {
           const L = layoutForViewport({ vw, vh, isSpectator });
-          const all = [...findIntersections(L).map((h) => h.join(' x ')), ...findOutside(L), ...feltProblems(L), ...bubbleProblems(L)];
+          // (below 390 x 480 a spectator's bottom bubble has nowhere beside its backs: it may cover them while up)
+          const all = [...findIntersections(L).map((h) => h.join(' x ')), ...findOutside(L), ...feltProblems(L), ...bubbleProblems(L, { ownBacks: vw >= 390 || vh >= 480 })];
           if (L.degraded || all.length) bad.push({ vw, vh, isSpectator, degraded: L.degraded, all });
         }
       }
@@ -215,12 +274,12 @@ describe('computeTableLayout over a grid of sizes (800-2560 x 500-1440)', () => 
     expect(bad).toEqual([]);
   });
 
-  it('the felt keeps today\'s proportions where the seats allow (0.3125 x 0.42 of the window), never less than 80%', () => {
+  it('the felt keeps today\'s proportions where the seats allow (0.3125 x 0.42 of the canvas), never less than 80%', () => {
     let short = 0;
     for (let vw = 800; vw <= 2560; vw += 80) {
       for (let vh = 500; vh <= 1440; vh += 80) {
         const L = layoutForViewport({ vw, vh });
-        const ratio = L.trick.zone.w / (FELT.wFrac * vw);
+        const ratio = L.trick.zone.w / (FELT.wFrac * L.w);
         expect(ratio, `${vw}x${vh}`).toBeGreaterThanOrEqual(0.8 - 1e-9);
         if (ratio < 0.98) short++;
       }
@@ -270,11 +329,14 @@ describe('computeTableLayout contract', () => {
     for (const slot of Object.values(L.trick.slots)) expect((slot.x * 2) % 1).toBe(0);
   });
 
-  it('1440x790: the felt is today\'s 450 px and holds the full-size bid sheet; the partner\'s bubble clears the trump', () => {
+  it('1440x790: the felt is today\'s 350 px and holds the full-size bid sheet; the partner\'s bubble clears the trump', () => {
     for (const isSpectator of [false, true]) {
       const L = layoutForViewport({ vw: 1440, vh: 790, isSpectator });
       expect(L.s).toBe(1);
-      expect(L.trick.zone.w).toBeCloseTo(450, 0);
+      // 0.3125 of the 1120 px canvas, as today; the side seats at today's spots
+      expect(L.trick.zone.w).toBeCloseTo(350, 0);
+      expect(Math.abs(L.seats.opp1.avatar.x - (560 - 550 * 1120 / 1920))).toBeLessThan(8);
+      expect(Math.abs(L.seats.opp2.avatar.x - (560 + 550 * 1120 / 1920))).toBeLessThan(8);
       expect(L.trick.zone.h).toBeGreaterThanOrEqual(isSpectator ? 316 : 331);
       expect(contains(inset(L.trick.zone, FELT.border), L.bidSheet.rect)).toBe(true);
       if (!isSpectator) expect(L.bidSheet.scale).toBe(1);

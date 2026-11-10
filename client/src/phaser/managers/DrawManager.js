@@ -15,6 +15,37 @@ import { CARD_CONFIG } from '../config.js';
 import { layoutOf, deckPosition } from '../layout/computeTableLayout.js';
 import { resizeShape } from '../shapes.js';
 
+/** A drawn name shrinks to this much of its font before it is cut short. */
+export const NAME_MIN_SCALE = 0.6;
+
+/**
+ * Fit a drawn player's name label into its layout rect (draw.name.rects:
+ * the box the overlap check models, one slot pitch wide). A username may
+ * be up to 50 characters: the label shrinks to fit, down to
+ * NAME_MIN_SCALE, then ends in an ellipsis (the log keeps the whole name).
+ * Text.width is Phaser's measured width (stroke included), so this runs
+ * after every font change.
+ */
+export function fitNameLabel(label, name, maxW) {
+  if (!label || !(maxW > 0)) return label;
+  const full = String(name ?? '');
+  label.setText?.(full);
+  label.setScale?.(1);
+  const w = label.width;
+  if (!(w > maxW)) return label;
+  if (w * NAME_MIN_SCALE <= maxW) {
+    label.setScale?.(maxW / w);
+    return label;
+  }
+  label.setScale?.(NAME_MIN_SCALE);
+  const chars = Array.from(full);
+  for (let n = chars.length - 1; n >= 1; n--) {
+    label.setText?.(`${chars.slice(0, n).join('').trimEnd()}\u2026`);
+    if (label.width * NAME_MIN_SCALE <= maxW) break;
+  }
+  return label;
+}
+
 export class DrawManager {
   constructor(scene) {
     this.scene = scene;
@@ -176,6 +207,7 @@ export class DrawManager {
         if (item.getData('isName')) {
           item.setPosition(slot.x, slot.y + draw.name.dy);
           item.setFontSize?.(draw.name.font);
+          fitNameLabel(item, item.getData('fullName'), draw.name.rects[order - 1]?.w);
         } else {
           const face = item.getData('faceKey');
           if (face) item.setTexture('cards', face);
@@ -284,6 +316,10 @@ export class DrawManager {
     ).setOrigin(0.5).setDepth(300);
     nameLabel.setData?.('drawOrder', data.drawOrder || 1);
     nameLabel.setData?.('isName', true);
+    nameLabel.setData?.('fullName', data.username);
+    // (the label fits the slot's name rect: a long name would cover the next one)
+    const order = Math.max(1, Math.min(4, data.drawOrder || 1));
+    fitNameLabel(nameLabel, data.username, draw.name.rects[order - 1]?.w);
 
     // Stop the deal-in tween if it is still running (it would pull the card back)
     const inTween = drawnCard.getData?.('moveTween');

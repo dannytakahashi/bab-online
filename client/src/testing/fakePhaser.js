@@ -179,6 +179,34 @@ function makeObject(scene, kind, x, y, texture, frame, size = null) {
   return obj;
 }
 
+/**
+ * Text measures its content as Phaser's does (Text.width: the drawn text
+ * plus its stroke, before scale), approximately: each character 0.6 em,
+ * the line 1.2 em. setText and setFontSize re-measure, and the display
+ * origin follows (Phaser's updateText calls updateDisplayOrigin).
+ */
+export const TEXT_EM = 0.6;
+function makeText(scene, x, y, content, style = {}) {
+  const obj = makeObject(scene, 'text', x, y, null);
+  obj.text = String(content ?? '');
+  obj.style = { ...(style || {}) };
+  const measure = () => {
+    const px = parseFloat(obj.style.fontSize) || 16;
+    const lines = obj.text.split('\n');
+    const longest = Math.max(0, ...lines.map((l) => Array.from(l).length));
+    const stroke = Number(obj.style.strokeThickness) || 0;
+    obj.width = obj.text ? longest * px * TEXT_EM + stroke : 0;
+    obj.height = obj.text ? lines.length * px * 1.2 + stroke : 0;
+    obj.updateDisplayOrigin();
+    return obj;
+  };
+  obj.setText = (t) => { obj.text = Array.isArray(t) ? t.join('\n') : String(t ?? ''); return measure(); };
+  obj.setFontSize = (size) => { obj.style.fontSize = typeof size === 'number' ? `${size}px` : size; return measure(); };
+  Object.defineProperty(obj, 'displayWidth', { get() { return obj.width * obj.scaleX; }, configurable: true });
+  Object.defineProperty(obj, 'displayHeight', { get() { return obj.height * obj.scaleY; }, configurable: true });
+  return measure();
+}
+
 class FakeTweenManager {
   constructor(scene, clock) {
     this._scene = scene;
@@ -265,7 +293,7 @@ export class FakeSceneBase {
       image: (x, y, tex, frame) => makeObject(this, 'image', x, y, tex, frame),
       sprite: (x, y, tex, frame) => makeObject(this, 'sprite', x, y, tex, frame),
       rectangle: (x, y, w, h) => makeObject(this, 'rectangle', x, y, null, null, { w: w ?? 128, h: h ?? 128 }),
-      text: (x, y) => makeObject(this, 'text', x, y, null),
+      text: (x, y, content, style) => makeText(this, x, y, content, style),
       graphics: () => makeObject(this, 'graphics', 0, 0, null),
     };
     this.tweens = new FakeTweenManager(this, clock);

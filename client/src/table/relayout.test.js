@@ -162,6 +162,42 @@ describe('the draw (ui-19)', () => {
   });
 });
 
+describe('the drawn names (a username may be 50 characters)', () => {
+  it('each name fits its slot\'s name rect, so two long names never overlap; also after a resize', () => {
+    const teams = log.findIndex((e) => e.event === 'teamsAnnounced');
+    const draws = log.map((e, i) => [e, i]).filter(([e, i]) => e.event === 'playerDrew' && i >= at && i < teams);
+    expect(draws).toHaveLength(4);
+    // (the names are only drawn here: the seats come from positionUpdate)
+    const long = ['Christopher Smith', 'Alexandria Montgomery-Wellington', 'x'.repeat(50), 'Bartholomew Jones'];
+    draws.forEach(([e], k) => { e.data.username = long[k]; });
+    replayTo(draws[3][1] + 1);
+    replay.advance(1500); // the flips land
+    const dm = page.scene.drawManager;
+    const check = (L, label) => {
+      const names = dm.drawnCardDisplays.filter((o) => o?.active && o.getData?.('isName'));
+      expect(names).toHaveLength(4);
+      const boxes = names.map((t) => {
+        const order = t.getData('drawOrder');
+        const r = L.draw.name.rects[order - 1];
+        expect(t.displayWidth, `${label}: name ${order} (${t.getData('fullName')}) is ${t.displayWidth} wide in a ${r.w} rect`).toBeLessThanOrEqual(r.w + 0.01);
+        expect([t.x, t.y]).toEqual([L.draw.slots[order - 1].x, L.draw.slots[order - 1].y + L.draw.name.dy]);
+        const b = t.getBounds();
+        return { x: b.x, y: b.y, w: b.width, h: b.height };
+      });
+      for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
+        expect(layoutMod.intersects(boxes[i], boxes[j]), `${label}: names ${i} and ${j} overlap`).toBe(false);
+      }
+      // the whole name is kept for a relayout (and a short one is drawn as it is)
+      expect(names.map((t) => t.getData('fullName')).sort()).toEqual([...long].sort());
+    };
+    check(L, `${L.w}x${L.h}`);
+    for (const [w, h] of [[1120, 790], [1920, 1080], [1024 - 200, 668]]) {
+      L = resize(w, h);
+      check(L, `${w}x${h}`);
+    }
+  });
+});
+
 describe('the teams overlay', () => {
   it('a resize while it is up keeps the dim over the whole canvas (its drawn box, not only its centre)', () => {
     const teams = log.findIndex((e) => e.event === 'teamsAnnounced');

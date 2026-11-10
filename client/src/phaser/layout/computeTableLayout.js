@@ -14,7 +14,7 @@
  *   - positions are today's fractions of the canvas where they fit (the
  *     1920x1080 table looks as it did) and are pushed apart where they do
  *     not;
- *   - the felt keeps today's proportions of the window where the side seats
+ *   - the felt keeps today's proportions of the canvas where the side seats
  *     can move out for it (FELT_WISHES, tried at the solved s: the scale
  *     comes first), and the bid sheet sits inside it;
  *   - each seat's chat/bid bubble gets a direction and width (BUBBLE_DIRS,
@@ -74,13 +74,14 @@ export const STATUS_TEXT_W = 380;
 
 /**
  * The play zone (the green felt, LayoutManager's #playZoneDom). Before item
- * 17 it was 600 x 400 of a 1920 x 953 design, scaled by the window
- * (0.3125 of the width, 0.42 of the height); it keeps those proportions
- * where the seats leave room. Its 4 px border is inside the rect
+ * 17 it was 600 x 400 of a 1920 x 953 design, scaled by the canvas
+ * (scene.scale: the window less the log column; 0.3125 of its width, 0.42
+ * of its height, so 500 wide at 1920 x 1080 and 350 at 1440 x 790); it
+ * keeps those proportions where the seats leave room. Its 4 px border is inside the rect
  * (box-sizing), and the bid sheet sits inside it, `inset` from the edge.
  */
 export const FELT = { wFrac: 0.3125, hFrac: 0.42, border: 4 };
-/** The felt's width wishes (times the 0.3125 x viewport target), tried in order; 0 is the fallback felt. */
+/** The felt's width wishes (times the 0.3125 x canvas target), tried in order; 0 is the fallback felt. */
 const FELT_WISHES = [1, 0.9, 0.8, 0.7, 0.6, 0.5, 0];
 
 /**
@@ -99,7 +100,13 @@ const BUBBLE_DIRS = {
   opp1: ['down', 'left', 'right'],
   opp2: ['down', 'right', 'left'],
   self: ['down', 'right', 'left'],
+  // a pure spectator's bottom seat has its backs above the avatar (drawn
+  // like the partner's): its bubble goes beside it, as the partner's does
+  bottom: ['left', 'right', 'down'],
 };
+
+/** A seat's bubble directions ('self' is the bottom seat for a pure spectator). */
+const bubbleDirsFor = (key, isSpectator) => BUBBLE_DIRS[isSpectator && key === 'self' ? 'bottom' : key];
 /**
  * Bubble width steps (times the full width), each tried in every direction
  * before the next: a phone's bubbles narrow (to 79 px on a 390 x 844
@@ -116,6 +123,12 @@ const MIN_HAND_SPACING = 16;
 const BACK_SPACING = 9;
 const MAX_CARDS = 13;
 const HISTORY_COLS = 7;
+/**
+ * My team's trick history: today's block ended 53 design px above the
+ * canvas bottom (its second row's centre 95 px up), as the opponents' sits
+ * below the status band at the top.
+ */
+const HISTORY_INSET = 53;
 /** The trick history's own scale steps (times s), tried before s shrinks. */
 const HISTORY_SCALES = [1, 0.85, 0.7];
 
@@ -159,7 +172,7 @@ function cardSize(scale) {
  * Place everything at size scale s. Returns the layout; whether it is clean
  * is for findIntersections / findOutside to say.
  */
-function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1, felt = 0 }) {
+function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1, felt = 0, histInset = false }) {
   const q = (v) => Math.round(v * dpr) / dpr;
   const M = MARGIN;
   const G = Math.max(4, 8 * s);
@@ -230,14 +243,18 @@ function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1, felt = 0 }) 
     h: BUBBLE.lines * bubbleLH + 2 * bubblePadY,
   };
   // the anchor is the box's edge nearest the avatar; the tail reaches past it toward the avatar
-  const bubbleAnchor = (seat, dir) => {
+  // (a side bubble is centred on the avatar, or just below the seat's own
+  // backs when they sit above it: the spectator's bottom seat)
+  const bubbleAnchor = (seat, dir, clearOwn = false) => {
     const half = seat.avatar.size / 2;
-    if (dir === 'left') return { dx: half + 12 * s, dy: 0 };
-    if (dir === 'right') return { dx: -(half + 12 * s), dy: 0 };
+    const c = seat.cards;
+    const below = clearOwn && c && c.axis === 'h' && c.y < seat.avatar.y ? Math.max(0, c.rect.y + c.rect.h + bubbleBox.h / 2 - seat.avatar.y) : 0;
+    if (dir === 'left') return { dx: half + 12 * s, dy: below };
+    if (dir === 'right') return { dx: -(half + 12 * s), dy: below };
     return { dx: 0, dy: -(half + 14 * s) };
   };
-  const bubbleRect = (seat, dir, bw) => {
-    const a = bubbleAnchor(seat, dir);
+  const bubbleRect = (seat, dir, bw, clearOwn = false) => {
+    const a = bubbleAnchor(seat, dir, clearOwn);
     const bx = seat.avatar.x + a.dx;
     const by = seat.avatar.y + a.dy;
     const { h: bh, tail } = bubbleBox;
@@ -276,9 +293,13 @@ function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1, felt = 0 }) 
     }
     return { rect: rect(bx, by, histW, histH), slots, slotW, slotH, pad: histPad, spacing: histSpacing, rowSpacing: histRow, fanDx: 30 * hs, fanDy: 8 * hs, scale: k };
   };
+  // (my team's block keeps today's inset from the bottom, 53 design px as
+  // the opponents' from the top, where the table leaves room: histInset,
+  // tried as a wish at the solved s; else on the bottom margin)
+  const teamBottom = histInset ? Math.max(M, HISTORY_INSET * s) : M;
   const history = {
     opp: historyBlock(M, M + statusH + G),
-    team: historyBlock(M, ch - M - histH),
+    team: historyBlock(M, ch - teamBottom - histH),
   };
 
   // ---------- bottom: my hand and box, or the spectator's bottom seat ----------
@@ -369,7 +390,7 @@ function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1, felt = 0 }) 
   const feltInset = FELT.border + 8 * s;
   const bidFullW = BID_SHEET.w * s;
   const bidFullH = BID_SHEET.h * s;
-  const feltHalfWant = felt > 0 ? Math.max(hx + 8 * s, (felt * FELT.wFrac * (cw + (logW || 0))) / 2, bidFullW / 2 + feltInset) : 0;
+  const feltHalfWant = felt > 0 ? Math.max(hx + 8 * s, (felt * FELT.wFrac * cw) / 2, bidFullW / 2 + feltInset) : 0;
   const feltReach = feltHalfWant > 0 ? feltHalfWant + G + sideFan.short / 2 : 0;
   const sides = {};
   for (const [key, dir] of [['opp1', -1], ['opp2', 1]]) {
@@ -402,7 +423,7 @@ function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1, felt = 0 }) 
   const zoneMinH = 2 * hy + 16 * s;
   let zone;
   if (felt > 0) {
-    // today's proportions of the window, or room for the full bid sheet,
+    // today's proportions of the canvas, or room for the full bid sheet,
     // between the side seats' cards and from the partner's cards to my
     // hand; centred on the trick where it fits, else slid inside that room
     const zoneW = Math.max(zoneMinW, Math.min(Math.max(2 * feltHalfWant, bidFullW + 2 * feltInset), zoneMaxW));
@@ -453,22 +474,30 @@ function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1, felt = 0 }) 
   const chosen = [];
   for (const key of ['partner', 'opp1', 'opp2', 'self']) {
     const seat = seats[key];
-    const dirs = BUBBLE_DIRS[key];
+    const dirs = bubbleDirsFor(key, isSpectator);
+    // the spectator's bottom seat: its bubble leaves its own backs visible
+    // too where any direction and width can (a wish: a phone smaller than
+    // 390 x 844 may have none, and the bubble then covers them while up)
+    const own = isSpectator && key === 'self' ? [seat.cards.rect] : [];
     let pick = null;
-    for (const f of BUBBLE_WIDTHS) {
-      for (const dir of dirs) {
-        const r = bubbleRect(seat, dir, bubbleBox.w * f);
-        if (!contains(rect(0, 0, cw, ch), r)) continue;
-        if (keep.some((o) => intersects(o, r)) || chosen.some((o) => intersects(o, r))) continue;
-        pick = { dir, w: bubbleBox.w * f, rect: r };
-        break;
+    for (const avoid of own.length ? [own, []] : [[]]) {
+      for (const f of BUBBLE_WIDTHS) {
+        for (const dir of dirs) {
+          const clearOwn = avoid.length > 0;
+          const r = bubbleRect(seat, dir, bubbleBox.w * f, clearOwn);
+          if (!contains(rect(0, 0, cw, ch), r)) continue;
+          if (keep.some((o) => intersects(o, r)) || avoid.some((o) => intersects(o, r)) || chosen.some((o) => intersects(o, r))) continue;
+          pick = { dir, w: bubbleBox.w * f, rect: r, clearOwn };
+          break;
+        }
+        if (pick) break;
       }
       if (pick) break;
     }
     // none fits: the first choice, and the overlap check sends the search to a smaller s
     if (!pick) pick = { dir: dirs[0], w: bubbleBox.w, rect: bubbleRect(seat, dirs[0], bubbleBox.w) };
     chosen.push(pick.rect);
-    const a = bubbleAnchor(seat, pick.dir);
+    const a = bubbleAnchor(seat, pick.dir, !!pick.clearOwn);
     seat.bubble = { dx: a.dx, dy: a.dy, x: seat.avatar.x + a.dx, y: seat.avatar.y + a.dy, tail: pick.dir, w: pick.w, rect: pick.rect };
   }
   const bubbles = { ...bubbleBox };
@@ -483,10 +512,14 @@ function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1, felt = 0 }) 
   const nameMaxW = 160 * s;
   const drawSp = Math.min(200 * s, (cw - 2 * M - Math.max(drawn.w, nameMaxW)) / 3);
   const nameW = Math.max(drawn.w, Math.min(nameMaxW, drawSp - G));
-  const drawSlotY = deckY - deckCard.h / 2 - G - 40 * s - drawn.h / 2;
   const nameFont = Math.max(10, 24 * s);
-  const nameY = drawSlotY - drawn.h / 2 - G - nameFont * 0.6;
   const titleFont = Math.max(14, 48 * s);
+  // the drawn row: today's 200 design px above the deck row, as high as the
+  // names clear the title at its own spot; never nearer the deck than a gap
+  const drawNear = deckCard.h / 2 + G + 40 * s + drawn.h / 2;
+  const highestSlotY = 0.084 * ch + titleFont * 0.6 + G + nameFont * 1.2 + G + drawn.h / 2;
+  const drawSlotY = deckY - Math.max(drawNear, Math.min(200 * s, deckY - highestSlotY));
+  const nameY = drawSlotY - drawn.h / 2 - G - nameFont * 0.6;
   const titleY = Math.min(0.084 * ch, nameY - nameFont * 0.6 - G - titleFont * 0.6);
   const drawSlots = [0, 1, 2, 3].map((i) => ({ x: q(cx + (i - 1.5) * drawSp), y: q(drawSlotY) }));
   const draw = {
@@ -654,11 +687,14 @@ export function computeTableLayout({ w, h, dpr = 1, isSpectator = false, logW = 
           if (roomyHand && !handRoomy(L)) continue;
           if (!clean(L)) continue;
           // the felt as close to today's as the seats allow (the side seats
-          // move out for it), at the same scale: s comes first
+          // move out for it), at the same scale: s comes first; at each felt,
+          // my team's history at today's inset from the bottom where it fits
           for (const felt of FELT_WISHES) {
-            if (felt === 0) return L;
-            const F = place(cw, ch, s, { ...opts, compact, k, felt });
-            if ((!roomyHand || handRoomy(F)) && clean(F)) return F;
+            for (const histInset of [true, false]) {
+              if (felt === 0 && !histInset) return L;
+              const F = place(cw, ch, s, { ...opts, compact, k, felt, histInset });
+              if ((!roomyHand || handRoomy(F)) && clean(F)) return F;
+            }
           }
         }
       }
