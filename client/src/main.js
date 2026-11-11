@@ -1239,6 +1239,9 @@ function initializeApp() {
       if (gameLogInstance && gameLogInstance.hideTrickIndicator) {
         gameLogInstance.hideTrickIndicator();
       }
+      // Nobody's turn any more: the turn ring stops (its animation with it)
+      scene?.opponentManager?.removeTurnGlow?.();
+      scene?.cardManager?.removeTurnGlow?.();
 
       // Determine which team the player is on (positions 1,3 = Team 1, positions 2,4 = Team 2)
       // Spectators view from position 1 but aren't on either team

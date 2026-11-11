@@ -179,6 +179,8 @@ describe('the real page: the loop follows the table (recorded game, events-bots-
     expect(rest.results.length).toBeGreaterThan(50);
     expect(rest.bad).toEqual([]);
     expect(page.session.screen).toBe(SCREEN.GAME_END);
+    // nobody's turn: no turn ring (and so no animation) under the score modal
+    expect(document.querySelectorAll('.turn-glow')).toHaveLength(0);
     replay.advance(200);
     expect(game.loop.running).toBe(true);
     document.querySelector('#finalScoreOverlay button').click();
