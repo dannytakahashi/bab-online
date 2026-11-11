@@ -294,6 +294,24 @@
     animation: kit-pop-in var(--dur-base) var(--ease-emphasized);
 }
 
+.kit-modal__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+    margin: 0 0 var(--space-4);
+}
+
+.kit-modal__header .kit-modal__title {
+    margin: 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.kit-modal__close {
+    flex-shrink: 0;
+}
+
 .kit-modal__title {
     margin: 0 0 var(--space-4);
     color: var(--text-primary);

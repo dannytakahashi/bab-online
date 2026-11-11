@@ -46,6 +46,7 @@ import { showRecordsPage } from './ui/screens/RecordsPage.js';
 import { updatePlayerSearchResults } from './ui/screens/PlayerSearchPage.js';
 import { removeTournamentLobby, addTournamentChatMessage, updateTournamentPlayers, updateTournamentScoreboardUI, updateTournamentRoundIndicator, updateTournamentActiveGames, setTournamentPhase } from './ui/screens/TournamentLobby.js';
 import { showTournamentResultsOverlay } from './ui/components/TournamentScoreboard.js';
+import { showResignationDialog, dismissResignationDialog } from './ui/components/ResignationDialog.js';
 import { SCREENS, initializeUIManager } from './ui/UIManager.js';
 
 // Phaser
@@ -318,7 +319,7 @@ socket.io.on('reconnect_failed', () => {
   sessionStorage.removeItem('sessionToken');
   session.clearIdentity();
   displaySignInScreen(EXIT.RECONNECT_FAILED);
-  alert("Connection lost. Please sign in again.");
+  showError('Connection lost. Please sign in again.');
 });
 
 // Blocked users — chat from these usernames is hidden locally. Populated from
@@ -612,15 +613,6 @@ function initializeApp() {
     }
   }
 
-  function dismissResignationDialog(position = null) {
-    const dialog = document.getElementById('resignation-dialog');
-    if (dialog && (position === null || dialog.dataset.position === String(position))) {
-      dialog.remove();
-      if (window._resignationModal === dialog) window._resignationModal = null;
-    }
-    if (position === null) window._resignationModal = null;
-  }
-
   function clearAuthScreens() {
     ['sign-in-container', 'sign-in-vignette', 'signInContainer', 'SignInVignette',
       'register-container', 'register-vignette', 'registerContainer', 'RegisterVignette',
@@ -647,7 +639,7 @@ function initializeApp() {
       [SCREEN.MAIN_ROOM]: {
         // The DOM comes with mainRoomJoined; an exit lands here first
         enter: (data) => {
-          if (data) showMainRoom(data, socket);
+          if (data) showMainRoom(data, socket, gameState.username);
         },
         exit: () => removeMainRoom(),
       },
@@ -1362,54 +1354,17 @@ function initializeApp() {
 
     // Resignation & Lazy Mode callbacks
     onResignationAvailable: (data) => {
-      // Remove any existing resignation dialog
-      const existing = document.getElementById('resignation-dialog');
-      if (existing) existing.remove();
-
-      // Build inline confirmation dialog (same pattern as bid UI)
-      const backdrop = document.createElement('div');
-      backdrop.id = 'resignation-dialog';
-      backdrop.dataset.position = String(data.position);
-      backdrop.style.cssText = `
-        position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-        background: rgba(0, 0, 0, 0.7); display: flex;
-        justify-content: center; align-items: center; z-index: 1000;
-      `;
-
-      const dialog = document.createElement('div');
-      dialog.style.cssText = `
-        background: #1a1a2e; border-radius: 12px; padding: 24px;
-        min-width: 300px; max-width: 90vw;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
-      `;
-      dialog.innerHTML = `
-        <h3 style="margin: 0 0 16px 0; color: #fff;">Player Disconnected</h3>
-        <p id="resign-message" style="margin: 0 0 24px 0; color: #ccc;"></p>
-        <div style="display: flex; gap: 12px; justify-content: flex-end;">
-          <button id="resign-cancel-btn" style="padding: 8px 16px; border: none; border-radius: 6px; background: #444; color: #fff; cursor: pointer;">Wait</button>
-          <button id="resign-confirm-btn" style="padding: 8px 16px; border: none; border-radius: 6px; background: #23782d; color: #fff; cursor: pointer;">Replace with Bot</button>
-        </div>
-      `;
-      // Username via textContent: it is user-controlled
-      dialog.querySelector('#resign-message').textContent =
-        `${data.username} did not reconnect. Replace with a bot?`;
-      backdrop.appendChild(dialog);
-      document.body.appendChild(backdrop);
-
-      dialog.querySelector('#resign-cancel-btn').onclick = () => backdrop.remove();
-      dialog.querySelector('#resign-confirm-btn').onclick = () => {
-        backdrop.remove();
-        socket.emit('forceResign', { position: data.position });
-      };
-
-      window._resignationModal = backdrop;
+      // One offer at a time: a kit Modal (ui/components/ResignationDialog.js;
+      // the username goes in as text)
+      showResignationDialog({
+        position: data.position,
+        username: data.username,
+        onConfirm: () => socket.emit('forceResign', { position: data.position }),
+      });
     },
     onPlayerResigned: (data) => {
       // Dismiss any open resignation modal (another player may have already clicked resign)
-      if (window._resignationModal) {
-        window._resignationModal.remove();
-        window._resignationModal = null;
-      }
+      dismissResignationDialog();
 
       // Update opponent avatar via scene
       const scene = getGameScene();

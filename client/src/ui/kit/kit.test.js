@@ -113,6 +113,36 @@ describe('Modal', () => {
     expect(onClose2).toHaveBeenCalledWith('action');
   });
 
+  it('modals stack: only the top one takes Escape and Tab; closing it hands focus back to the one below', () => {
+    const inner = createButton({ label: 'Choose' });
+    const lower = openModal({ title: 'Profile', body: inner, closable: true, closeLabel: 'Close profile' });
+    expect(lower.dialog.querySelector('.kit-modal__close').getAttribute('aria-label')).toBe('Close profile');
+    // the close button is not where focus starts
+    expect(document.activeElement).toBe(inner);
+    const pick = createButton({ label: 'Avatar 1' });
+    const upper = openModal({ title: 'Pick', body: pick });
+    expect(openModalCount()).toBe(2);
+    document.dispatchEvent(key('Tab'));
+    expect(upper.dialog.contains(document.activeElement)).toBe(true);
+    document.dispatchEvent(key('Escape'));
+    expect(upper.isOpen()).toBe(false);
+    expect(lower.isOpen()).toBe(true);
+    expect(document.activeElement).toBe(inner);
+    lower.dialog.querySelector('.kit-modal__close').click();
+    expect(lower.isOpen()).toBe(false);
+    expect(document.activeElement).toBe(opener);
+  });
+
+  it('a modal whose node was removed by hand stops trapping keys', () => {
+    const a = openModal({ title: 'Gone', actions: [createButton({ label: 'A' })] });
+    const b = openModal({ title: 'Below?', actions: [createButton({ label: 'B' })] });
+    b.backdrop.remove();
+    expect(openModalCount()).toBe(1);
+    document.dispatchEvent(key('Escape'));
+    expect(a.isOpen()).toBe(false);
+    expect(openModalCount()).toBe(0);
+  });
+
   it('initialFocus wins; a modal without controls focuses itself', () => {
     const a = createButton({ label: 'A' });
     const b = createButton({ label: 'B' });

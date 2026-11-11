@@ -116,9 +116,9 @@ describe('reconnect order: restoreSession first, then rejoin / re-spectate / re-
     socket.fire('mainRoomJoined', mainRoomPayload());
     socket.fire('mainRoomMessage', { username: 'bob', message: 'back again', timestamp: Date.now() });
 
-    // (the chat writes innerText, which jsdom keeps as a plain property)
+    // (the chat writes textContent: the line's text is in the DOM)
     const spans = [...document.querySelectorAll('#mainRoomChatMessages span')];
-    expect(spans.map((s) => s.innerText)).toContain('back again');
+    expect(spans.map((s) => s.textContent)).toContain('back again');
   });
 
   it('restoreSession goes out once per socket id', () => {
@@ -508,5 +508,48 @@ describe('identity and errors', () => {
     expect(teamNames).toBe('ann/cat');
     expect(oppNames).toBe('bob/dan');
     spy.mockRestore();
+  });
+});
+
+describe('main room: re-entering my own full lobby (PR 205 follow-up)', () => {
+  const lobby = (id, names) => ({
+    id, name: `${id} game`, playerCount: names.length, maxPlayers: 4, createdAt: 1,
+    players: names.map((username) => ({ username, ready: false })),
+  });
+  const cardButton = (id) => document.querySelector(`#mainRoomLobbyList [data-lobby-id="${id}"] button`);
+
+  it('a full lobby that seats me shows an enabled Rejoin that sends joinLobby; another full lobby stays Full', () => {
+    socket.fire('mainRoomJoined', mainRoomPayload({
+      lobbies: [lobby('mine', ['me', 'ann', 'bob', 'cat']), lobby('theirs', ['dan', 'eve', 'fay', 'gus']), lobby('open', ['hal'])],
+    }));
+    const rejoin = cardButton('mine');
+    expect(rejoin.textContent).toBe('Rejoin');
+    expect(rejoin.disabled).toBe(false);
+    const full = cardButton('theirs');
+    expect(full.textContent).toBe('Full');
+    expect(full.disabled).toBe(true);
+    expect(cardButton('open').textContent).toBe('Join');
+
+    socket.clearEmits();
+    rejoin.click();
+    expect(socket.emitted('joinLobby')).toEqual([{ lobbyId: 'mine' }]);
+    full.click();
+    expect(socket.emitted('joinLobby')).toHaveLength(1);
+  });
+
+  it('lobbiesUpdated keeps it: Rejoin while my seat is there, Full once it is not', () => {
+    socket.fire('mainRoomJoined', mainRoomPayload());
+    socket.fire('lobbiesUpdated', { lobbies: [lobby('mine', ['ann', 'me', 'bob', 'cat'])], inProgressGames: [], tournaments: [] });
+    expect(cardButton('mine').textContent).toBe('Rejoin');
+    socket.fire('lobbiesUpdated', { lobbies: [lobby('mine', ['ann', 'dan', 'bob', 'cat'])], inProgressGames: [], tournaments: [] });
+    expect(cardButton('mine').textContent).toBe('Full');
+    expect(cardButton('mine').disabled).toBe(true);
+  });
+
+  it('only a seat with my name counts (not the lobby name, not another player)', () => {
+    const named = { ...lobby('x', ['ann', 'bob', 'cat', 'dan']), name: 'me' };
+    socket.fire('mainRoomJoined', mainRoomPayload({ lobbies: [named, lobby('y', ['mee', 'ann', 'bob', 'cat'])] }));
+    expect(cardButton('x').textContent).toBe('Full');
+    expect(cardButton('y').textContent).toBe('Full');
   });
 });

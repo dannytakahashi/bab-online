@@ -1,6 +1,57 @@
 /**
  * Sign-in screen component.
+ *
+ * Kit classes and tokens (styles/screens.css, item 18b): a card at most
+ * 440 px wide, labelled 16 px inputs (no iOS zoom), 44 px buttons. The
+ * splash line animates once (none under reduced motion); messages go to
+ * the one toast queue.
  */
+import { el, createButton, createPanel } from '../kit/index.js';
+import { showError } from '../components/Toast.js';
+
+/** A labelled kit input (forms on the auth screens). */
+export function authField({ id, label, type = 'text', name, autocomplete, autocapitalize = null, value = '' }) {
+  const input = el('input', {
+    className: 'kit-input',
+    attrs: { id, type, name, autocomplete, autocapitalize, spellcheck: type === 'text' ? 'false' : null },
+  });
+  input.value = value;
+  const field = el('div', {
+    className: 'field',
+    children: [el('label', { className: 'field__label', attrs: { for: id }, text: label }), input],
+  });
+  return { field, input };
+}
+
+/** The page behind the auth card (the night card room, no animation). */
+export function authVignette(id) {
+  return el('div', { className: 'vignette auth-vignette', attrs: { id, 'aria-hidden': 'true' } });
+}
+
+/** The logo, sized as before (26 vw). */
+export function authLogo() {
+  return el('img', { className: 'auth-logo', attrs: { src: 'assets/logo.png', alt: 'BAB Online' } });
+}
+
+export const SPLASH_PHRASES = [
+  'he sends a boy!',
+  'i got my bid...',
+  'out of boolats!',
+  'heartless!',
+  'this one is mandatory.',
+  'i bid on that one.',
+  'you need to get my one.',
+  'surely...',
+  'no guts, no glory!',
+  'the locusts descend!',
+  'eat fast, kick ass!',
+  "5...what's trump?",
+  "this is a man's game!",
+  'you should be dealing already!',
+  "i did it frank's way, that bastard!",
+  'alls we gotta do...',
+  'coulda bored!',
+];
 
 /**
  * Create the sign-in screen.
@@ -12,182 +63,48 @@
  */
 export function createSignInScreen({ onSignIn, onCreateAccount }) {
   // Vignette background
-  const vignette = document.createElement('div');
-  vignette.id = 'sign-in-vignette';
-  vignette.className = 'vignette';
-  vignette.style.cssText = `
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
-    pointer-events: none;
-    background: radial-gradient(circle, rgba(34, 139, 34, 1) 30%, rgba(0, 0, 0, 1) 100%);
-    z-index: 50;
-  `;
+  const vignette = authVignette('sign-in-vignette');
 
   // Container
-  const container = document.createElement('div');
-  container.id = 'sign-in-container';
-  container.style.cssText = `
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    z-index: 100;
-  `;
+  const container = el('main', { className: 'auth-screen', attrs: { id: 'sign-in-container' } });
 
-  // Logo wrapper (for splash text positioning)
-  const logoWrapper = document.createElement('div');
-  logoWrapper.style.cssText = `
-    position: relative;
-    margin-bottom: 2vh;
-  `;
-
-  const logo = document.createElement('img');
-  logo.src = 'assets/logo.png';
-  logo.alt = 'Game Logo';
-  logo.style.cssText = `
-    width: 26vw;
-    position: relative;
-    left: 2vw;
-  `;
-  logoWrapper.appendChild(logo);
-
-  // Splash text (Minecraft-style)
-  const splashPhrases = [
-    'he sends a boy!',
-    'i got my bid...',
-    'out of boolats!',
-    'heartless!',
-    'this one is mandatory.',
-    'i bid on that one.',
-    'you need to get my one.',
-    'surely...',
-    'no guts, no glory!',
-    'the locusts descend!',
-    'eat fast, kick ass!',
-    "5...what's trump?",
-    "this is a man's game!",
-    'you should be dealing already!',
-    "i did it frank's way, that bastard!",
-    'alls we gotta do...',
-    'coulda bored!',
-  ];
-  const splash = document.createElement('span');
-  splash.textContent = splashPhrases[Math.floor(Math.random() * splashPhrases.length)];
-  splash.style.cssText = `
-    position: absolute;
-    left: 80%;
-    top: 70%;
-    color: #ffff00;
-    font-weight: bold;
-    font-size: 1.4vw;
-    font-style: italic;
-    white-space: nowrap;
-    transform-origin: center;
-    transform: rotate(-15deg);
-    animation: splashPulse 2s ease-in-out infinite;
-    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
-    pointer-events: none;
-  `;
+  // Logo with the splash text (Minecraft-style), which plays in once
+  const logoWrapper = el('div', { className: 'auth-logo-wrap' });
+  logoWrapper.appendChild(authLogo());
+  const splash = el('span', {
+    className: 'auth-splash',
+    attrs: { 'aria-hidden': 'true' },
+    text: SPLASH_PHRASES[Math.floor(Math.random() * SPLASH_PHRASES.length)],
+  });
   logoWrapper.appendChild(splash);
-
-  // Inject splash pulse keyframes
-  if (!document.getElementById('splash-keyframes')) {
-    const style = document.createElement('style');
-    style.id = 'splash-keyframes';
-    style.textContent = `
-      @keyframes splashPulse {
-        0%, 100% { transform: rotate(-15deg) scale(1); }
-        50% { transform: rotate(-15deg) scale(1.04); }
-      }
-    `;
-    document.head.appendChild(style);
-  }
-
   container.appendChild(logoWrapper);
 
-  // Username input
-  const usernameInput = document.createElement('input');
-  usernameInput.type = 'text';
-  usernameInput.placeholder = 'Username';
-  usernameInput.name = 'username';
-  usernameInput.autocomplete = 'username';
-  usernameInput.autocapitalize = 'none';
-  usernameInput.style.cssText = `
-    font-size: 12px;
-    padding: 10px;
-    margin-bottom: 10px;
-    border-radius: 5px;
-    border: none;
-    text-align: center;
-  `;
-  container.appendChild(usernameInput);
+  const form = createPanel({ tag: 'form', elevation: 3, className: 'auth-card' });
+  form.setAttribute('aria-label', 'Sign in');
+  form.noValidate = true;
+  form.addEventListener('submit', (e) => e.preventDefault());
 
-  // Password input
-  const passwordInput = document.createElement('input');
-  passwordInput.type = 'password';
-  passwordInput.placeholder = 'Password';
-  passwordInput.name = 'password';
-  passwordInput.autocomplete = 'current-password';
-  passwordInput.style.cssText = `
-    font-size: 12px;
-    padding: 10px;
-    margin-bottom: 10px;
-    border-radius: 5px;
-    border: none;
-    text-align: center;
-  `;
-  container.appendChild(passwordInput);
+  // Username / password
+  const { field: userField, input: usernameInput } = authField({
+    id: 'signInUsername', label: 'Username', name: 'username', autocomplete: 'username', autocapitalize: 'none',
+  });
+  const { field: passField, input: passwordInput } = authField({
+    id: 'signInPassword', label: 'Password', type: 'password', name: 'password', autocomplete: 'current-password',
+  });
+  form.appendChild(userField);
+  form.appendChild(passField);
 
   // Sign in button
-  const signInButton = document.createElement('button');
-  signInButton.textContent = 'Sign In';
-  signInButton.style.cssText = `
-    font-size: 14px;
-    padding: 10px 20px;
-    border-radius: 5px;
-    border: none;
-    background: #23782d;
-    color: #fff;
-    cursor: pointer;
-  `;
-  container.appendChild(signInButton);
+  const signInButton = createButton({ label: 'Sign In', variant: 'primary' });
+  form.appendChild(signInButton);
 
   // Divider
-  const divider = document.createElement('div');
-  divider.style.cssText = `
-    display: flex;
-    align-items: center;
-    width: 80%;
-    margin: 15px 0 10px 0;
-  `;
-  divider.innerHTML = `
-    <div style="flex: 1; height: 1px; background: rgba(255,255,255,0.3);"></div>
-    <span style="padding: 0 10px; color: rgba(255,255,255,0.7); font-size: 12px;">New user?</span>
-    <div style="flex: 1; height: 1px; background: rgba(255,255,255,0.3);"></div>
-  `;
-  container.appendChild(divider);
+  form.appendChild(el('div', { className: 'auth-divider', text: 'New user?' }));
 
   // Create account button
-  const createAccountButton = document.createElement('button');
-  createAccountButton.textContent = 'Create Account';
-  createAccountButton.style.cssText = `
-    font-size: 14px;
-    padding: 10px 20px;
-    border-radius: 5px;
-    border: none;
-    background: #007bff;
-    color: #fff;
-    cursor: pointer;
-  `;
-  container.appendChild(createAccountButton);
+  const createAccountButton = createButton({ label: 'Create Account', variant: 'secondary' });
+  form.appendChild(createAccountButton);
+  container.appendChild(form);
 
   // Event handlers
   const handleSignIn = () => {
@@ -195,8 +112,8 @@ export function createSignInScreen({ onSignIn, onCreateAccount }) {
     const password = passwordInput.value.trim();
 
     if (!username || !password) {
-      // Could use showError from Toast here
-      window.alert('Please enter both a username and a password.');
+      showError('Please enter both a username and a password.');
+      (username ? passwordInput : usernameInput).focus();
       return;
     }
 

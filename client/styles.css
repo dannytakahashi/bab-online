@@ -1,10 +1,21 @@
+/*
+ * The page (item 18b): the tokens' dark surfaces, the night card room the
+ * table sits in (a hint of the felt in the middle), the system font stack.
+ */
+:root {
+    --page-bg: radial-gradient(ellipse at 50% 40%, var(--felt-deep) 0%, var(--surface-0) 72%);
+}
+
 html {
-    background: #0d1a0d; /* Dark green to match gradient edge */
+    background: var(--surface-0);
+    color-scheme: dark;
 }
 
 body {
-    background: radial-gradient(ellipse at center, #228B22 0%, #0d1a0d 100%); /* Green poker table gradient */
-    font-family: Arial, sans-serif;
+    background: var(--page-bg);
+    color: var(--text-primary);
+    font-family: var(--font-ui);
+    -webkit-font-smoothing: antialiased;
     text-align: center;
     margin: 0;
     padding: 0;
@@ -49,7 +60,7 @@ canvas {
     width: 100%;
     height: 100vh;
     min-width: 0;
-    background: radial-gradient(ellipse at center, #228B22 0%, #0d1a0d 100%); /* Green poker table gradient */
+    background: var(--page-bg);
     z-index: 1;
     overflow: hidden;
 }
@@ -69,7 +80,7 @@ canvas {
 }
 
 h1 {
-    color: white;
+    color: var(--text-primary);
 }
 
 /* Bid chips past the hand size (an overbid): a static danger outline (no
@@ -163,5 +174,5 @@ button, input[type="button"], input[type="submit"], .bid-button {
 
 /* Smooth transitions for UI elements */
 .ui-element {
-    transition: opacity 0.2s ease, transform 0.2s ease;
+    transition: opacity var(--dur-base) var(--ease-standard), transform var(--dur-base) var(--ease-standard);
 }

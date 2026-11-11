@@ -650,6 +650,7 @@ body > .voice-btn {
 .tsb-table th.is-left, .tsb-table td.is-left { text-align: left; }
 .tsb-table .tsb-rank { color: var(--text-secondary); }
 .tsb-table .tsb-name { font-weight: var(--weight-medium); }
+.tsb-table .tsb-name__text { display: block; max-width: 14ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tsb-table .is-leader { color: var(--gold); font-weight: var(--weight-bold); }
 .tsb-table .tsb-none { color: var(--text-dim); }
 .tsb-table .tsb-total { color: var(--success); font-weight: var(--weight-bold); }
