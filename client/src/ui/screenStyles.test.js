@@ -126,6 +126,26 @@ describe('HIG on the screens', () => {
     expect(rule('.seat-remove')).toContain('--icon-btn-size: 32px');
   });
 
+  it('a player-search result keeps a visible focus ring: its scroll container has room for the outline', () => {
+    const tokens = JSON.parse(readFileSync(resolve(REPO_ROOT, 'client/tokens/tokens.json'), 'utf8'));
+    const focus = css.slice(css.indexOf('.kit-modal :is(button, a, input, textarea, [tabindex]):focus-visible'));
+    const ring = focus.slice(0, focus.indexOf('}'));
+    const width = Number(ring.match(/outline: (\d+)px solid/)[1]);
+    const offset = Number(ring.match(/outline-offset: (\d+)px/)[1]);
+    const box = rule('.search-results');
+    expect(box).toMatch(/overflow-y: auto/); // a scroll container: clips at its padding box
+    const pad = box.match(/\n\s*padding: var\(--space-(\d)\)/);
+    expect(pad, '.search-results padding').not.toBeNull();
+    expect(tokens.space[`s${pad[1]}`]).toBeGreaterThanOrEqual(width + offset);
+    // and the row itself changes on focus, not only through the outline
+    expect(css).toMatch(/\.search-result:hover,\s*\.search-result:focus-visible \{\s*background: var\(--surface-3\)/);
+  });
+
+  it('screens.css does not restyle the 18a tournament board (one frame in the lobby)', () => {
+    expect(css).not.toMatch(/(^|\n)\.tournament-scoreboard \{/);
+    expect(css).toMatch(/\n\.tournament-scoreboard-wrap \{/);
+  });
+
   it('forms and modal pages are capped at about 440 px of readable width', () => {
     expect(rule('.auth-card')).toContain('max-width: 440px');
     expect(rule('.kit-modal.page-modal')).toContain('width: 440px');

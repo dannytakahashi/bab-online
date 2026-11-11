@@ -312,14 +312,13 @@ describe('every dialog is a kit Modal', () => {
     expect([...document.querySelectorAll('.lb-player span')].map((s) => s.textContent)).toEqual(['a', 'b']);
   });
 
-  it('the resignation offer: Wait / Escape keep waiting, Replace with Bot confirms, playerReconnected for that seat closes it', () => {
+  it('the resignation offer: Wait keeps waiting, Replace with Bot confirms, playerReconnected for that seat closes it', () => {
     const onConfirm = vi.fn();
     showResignationDialog({ position: 2, username: 'bob', onConfirm });
     const backdrop = document.getElementById('resignation-dialog');
     expect(backdrop.dataset.position).toBe('2');
     expect(backdrop.querySelector('[role="dialog"]')).not.toBeNull();
-    expect(document.activeElement.id).toBe('resign-cancel-btn');
-    document.dispatchEvent(key('Escape'));
+    document.getElementById('resign-cancel-btn').click();
     expect(document.getElementById('resignation-dialog')).toBeNull();
     expect(onConfirm).not.toHaveBeenCalled();
 
@@ -334,6 +333,43 @@ describe('every dialog is a kit Modal', () => {
     dismissResignationDialog(4);
     expect(document.getElementById('resignation-dialog')).toBeNull();
     expect(document.activeElement).toBe(opener);
+  });
+
+  it('the resignation offer is sent once, so only Wait or Replace closes it: no Escape, no backdrop click, no stolen keystroke', () => {
+    // a player typing in the table chat when the offer arrives
+    const chat = document.createElement('input');
+    chat.id = 'chatInput';
+    document.body.appendChild(chat);
+    chat.focus();
+    const onConfirm = vi.fn();
+    showResignationDialog({ position: 2, username: 'bob', onConfirm });
+    const backdrop = document.getElementById('resignation-dialog');
+    const dialog = backdrop.querySelector('[role="dialog"]');
+    // focus is on the dialog, not on Wait: a Space / Enter mid-sentence presses nothing
+    expect(document.activeElement).toBe(dialog);
+    expect(document.activeElement.id).not.toBe('resign-cancel-btn');
+    document.dispatchEvent(key('Escape'));
+    expect(document.getElementById('resignation-dialog')).not.toBeNull();
+    backdrop.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    expect(document.getElementById('resignation-dialog')).not.toBeNull();
+    document.getElementById('resign-cancel-btn').click();
+    expect(document.getElementById('resignation-dialog')).toBeNull();
+    expect(onConfirm).not.toHaveBeenCalled();
+    // focus is back in the chat input
+    expect(document.activeElement).toBe(chat);
+  });
+
+  it('the tournament lobby draws one scoreboard frame: the wrapper is not .tournament-scoreboard', () => {
+    showTournamentLobby({
+      tournamentId: 't1', name: 'T', creatorUsername: 'me', phase: 'lobby', currentRound: 0, totalRounds: 4,
+      players: [{ username: 'me', ready: false }], messages: [], scoreboard: [], activeGames: [],
+    }, socket, 'me');
+    const wrap = document.getElementById('tournamentScoreboardContainer');
+    expect(wrap.classList.contains('tournament-scoreboard')).toBe(false);
+    expect(wrap.classList.contains('tournament-scoreboard-wrap')).toBe(true);
+    const boards = document.querySelectorAll('#tournamentLobbyContainer .tournament-scoreboard');
+    expect(boards).toHaveLength(1);
+    expect(boards[0].parentElement).toBe(wrap);
   });
 
   it('the delete-account form: labelled, expands from its button, flags an empty password', () => {

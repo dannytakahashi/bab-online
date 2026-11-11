@@ -483,7 +483,8 @@
     text-align: left;
 }
 
-.tournament-scoreboard {
+/* the wrapper only: .tournament-scoreboard is the 18a board inside it (table.css) */
+.tournament-scoreboard-wrap {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
@@ -963,12 +964,17 @@
     min-width: 0;
 }
 
+/* A scroll container clips at its padding box, outlines included: the
+   padding (pulled back by the margin, so rows stay aligned with the search
+   row) leaves room for the 2 px + 2 px focus ring of a result. */
 .search-results {
     display: flex;
     flex-direction: column;
     gap: var(--space-2);
     max-height: 50vh;
     overflow-y: auto;
+    padding: var(--space-1);
+    margin: calc(-1 * var(--space-1));
 }
 
 .search-result {
@@ -989,7 +995,8 @@
     transition: background-color var(--dur-fast) var(--ease-standard);
 }
 
-.search-result:hover {
+.search-result:hover,
+.search-result:focus-visible {
     background: var(--surface-3);
 }
 

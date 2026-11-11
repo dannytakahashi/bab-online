@@ -107,7 +107,7 @@ export function showTournamentLobby(data, socket, username) {
   const rightPanel = el('div', { className: 'screen-column' });
   rightPanel.appendChild(el('h2', { className: 'section-title section-title--sm', text: 'Scoreboard' }));
 
-  const scoreboardContainer = el('div', { className: 'tournament-scoreboard', attrs: { id: 'tournamentScoreboardContainer' } });
+  const scoreboardContainer = el('div', { className: 'tournament-scoreboard-wrap', attrs: { id: 'tournamentScoreboardContainer' } });
   scoreboardContainer.appendChild(createTournamentScoreboard(data.scoreboard || [], data.currentRound, data.totalRounds));
   rightPanel.appendChild(scoreboardContainer);
 
