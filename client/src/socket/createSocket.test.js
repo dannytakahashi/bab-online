@@ -15,6 +15,17 @@ describe('socketServerUrl', () => {
     expect(socketServerUrl(loc('http://127.0.0.1:3100/'))).toBe('http://127.0.0.1:3100');
   });
 
+  it('production pages include www', () => {
+    expect(socketServerUrl(loc('https://www.babonline.io/'))).toBe(PRODUCTION_SERVER_URL);
+  });
+
+  it('any other host talks to the server that served it, never production', () => {
+    expect(socketServerUrl(loc('http://[::1]:3958/'))).toBe('http://[::1]:3958');
+    expect(socketServerUrl(loc('http://vsc.localhost:3958/'))).toBe('http://vsc.localhost:3958');
+    expect(socketServerUrl(loc('http://192.168.1.20:3100/'))).toBe('http://192.168.1.20:3100');
+    expect(socketServerUrl(loc('https://preview.example.test/'))).toBe('https://preview.example.test');
+  });
+
   it('the Vite dev server (5173) talks to the API server on 3000', () => {
     expect(socketServerUrl(loc('http://localhost:5173/'))).toBe('http://localhost:3000');
   });
