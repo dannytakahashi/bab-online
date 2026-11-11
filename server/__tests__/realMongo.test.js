@@ -193,12 +193,18 @@ describe('real mongod', () => {
         const replies = log.filter(l => l.event === 'signUpResponse').map(l => l.data);
         expect(replies).toHaveLength(2);
         expect(replies.filter(r => r.success)).toHaveLength(1);
-        expect(replies.filter(r => !r.success)).toEqual([{ success: false, message: 'Username already taken!' }]);
+        expect(replies.filter(r => !r.success)).toEqual([{ success: false, message: 'That name is taken.' }]);
         expect(await mockHolder.users.countDocuments({ username: 'Racer' })).toBe(1);
 
         const c = sock();
         await auth.signUp(c, io, { username: 'Racer', password: 'pw' });
-        expect(last('signUpResponse')).toEqual({ success: false, message: 'Username already taken!' });
+        expect(last('signUpResponse')).toEqual({ success: false, message: 'That name is taken.' });
+
+        // The case-insensitive clash check (usernameRules.findNameClash) on a real mongod
+        await auth.signUp(sock(), io, { username: 'rACER', password: 'pw' });
+        expect(last('signUpResponse')).toEqual({ success: false, message: 'That name is taken: "Racer" already exists, and capital letters don\'t make a different name.' });
+        await auth.signUp(sock(), io, { username: 'R.cer', password: 'pw' });
+        expect(last('signUpResponse')).toMatchObject({ success: true, username: 'R.cer' });
     }, 20000);
 
     test('(c) existing exact duplicates: warn and continue without the unique index; the other indexes still build', async () => {

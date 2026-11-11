@@ -1976,7 +1976,8 @@
           "username": "alan",
           "password": "ppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp"
         }
-      ]
+      ],
+      "notes": "Two per-socket budgets. The wrapper limit rateLimiter.signUp (20 / 5 min) counts every attempt and over it replies error {type:'rateLimit'}. Refusals by the new-name rules, the profanity filter and the taken check spend only that; an attempt past them (bcrypt hash + insert) also spends rateLimiter.signUpAccount (3 / 5 min), checked in-handler, and over it gets signUpResponse {success:false, message}."
     },
     "restoreSession": {
       "payload": {

@@ -12,7 +12,13 @@ class RateLimiter {
         this.limits = {
             // Auth - strict limits to prevent brute force
             signIn: { max: 5, windowMs: 60000 },       // 5 per minute
-            signUp: { max: 3, windowMs: 300000 },      // 3 per 5 minutes
+            // signUp (the asyncHandler wrapper) counts every attempt,
+            // including refusals by the name rules, profanity filter and
+            // taken check, which cost no hash: 20 per 5 min. Only an attempt
+            // that gets past them (bcrypt hash + insert) also spends
+            // signUpAccount, checked in authHandlers.signUp: 3 per 5 min
+            signUp: { max: 20, windowMs: 300000 },
+            signUpAccount: { max: 3, windowMs: 300000 },
 
             // clientHello: one per connect; over the limit it is dropped
             // silently inside the handler (socket/clientInfo.js)

@@ -243,7 +243,7 @@ describe('sign-up', () => {
             Object.assign(new Error('E11000 duplicate key error collection: babonline.users index: username_1'), { code: 11000 })
         );
         await auth.signUp(socket, io, { username: 'Racer', password: 'pw' });
-        expect(lastEmit(socket, 'signUpResponse')).toEqual({ success: false, message: 'Username already taken!' });
+        expect(lastEmit(socket, 'signUpResponse')).toEqual({ success: false, message: 'That name is taken.' });
         expect(gameManager.registerUser).not.toHaveBeenCalled();
         expect(socket.data.sessionHash).toBeUndefined();
     });
