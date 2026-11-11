@@ -487,7 +487,8 @@ describe('identity and errors', () => {
 
   it('a specific server error message reaches the player', () => {
     socket.fire('error', { message: 'Not all players are ready' });
-    const toast = document.querySelector('.error-toast');
+    // (the page's one toast queue, ui/kit/toast.js)
+    const toast = document.querySelector('.kit-toast.toast-error');
     expect(toast.textContent).toBe('Not all players are ready');
   });
 

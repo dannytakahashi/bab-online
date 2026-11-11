@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { showToast, showError, showSuccess, showWarning, showInfo } from './Toast.js';
+import { clearToasts } from '../kit/toast.js';
+
+// Toast.js is the page's one toast queue (ui/kit/toast.js); kit.test.js
+// covers the queue order, these the public helpers
 
 describe('showToast', () => {
   beforeEach(() => {
@@ -7,10 +11,8 @@ describe('showToast', () => {
   });
 
   afterEach(() => {
+    clearToasts();
     vi.useRealTimers();
-    // Clean up any toasts
-    document.querySelectorAll('.toast').forEach((el) => el.remove());
-    document.getElementById('toast-styles')?.remove();
   });
 
   it('creates toast element', () => {
@@ -37,7 +39,7 @@ describe('showToast', () => {
     expect(document.querySelector('.toast')).toBeFalsy();
   });
 
-  it('removes existing toast of same type', () => {
+  it('replaces the toast of the same type on screen', () => {
     showToast('First error', { type: 'error' });
     showToast('Second error', { type: 'error' });
 
@@ -46,10 +48,12 @@ describe('showToast', () => {
     expect(toasts[0].textContent).toBe('Second error');
   });
 
-  it('adds animation styles', () => {
-    showToast('Test');
-
-    expect(document.getElementById('toast-styles')).toBeTruthy();
+  it('never stacks two toasts: another type waits its turn', () => {
+    showToast('Saved', { type: 'success', duration: 1000 });
+    showToast('Oops', { type: 'error', duration: 1000 });
+    expect(document.querySelectorAll('.toast')).toHaveLength(1);
+    vi.advanceTimersByTime(1200);
+    expect([...document.querySelectorAll('.toast')].map((t) => t.textContent)).toEqual(['Oops']);
   });
 
   it('returns toast element', () => {
@@ -61,9 +65,7 @@ describe('showToast', () => {
 });
 
 describe('showError', () => {
-  afterEach(() => {
-    document.querySelectorAll('.toast').forEach((el) => el.remove());
-  });
+  afterEach(() => clearToasts());
 
   it('creates error toast', () => {
     showError('Error!');
@@ -74,9 +76,7 @@ describe('showError', () => {
 });
 
 describe('showSuccess', () => {
-  afterEach(() => {
-    document.querySelectorAll('.toast').forEach((el) => el.remove());
-  });
+  afterEach(() => clearToasts());
 
   it('creates success toast', () => {
     showSuccess('Success!');
@@ -86,9 +86,7 @@ describe('showSuccess', () => {
 });
 
 describe('showWarning', () => {
-  afterEach(() => {
-    document.querySelectorAll('.toast').forEach((el) => el.remove());
-  });
+  afterEach(() => clearToasts());
 
   it('creates warning toast', () => {
     showWarning('Warning!');
@@ -98,9 +96,7 @@ describe('showWarning', () => {
 });
 
 describe('showInfo', () => {
-  afterEach(() => {
-    document.querySelectorAll('.toast').forEach((el) => el.remove());
-  });
+  afterEach(() => clearToasts());
 
   it('creates info toast', () => {
     showInfo('Info!');

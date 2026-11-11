@@ -366,22 +366,10 @@ socket.on('playerAssigned', (data) => {
 // ==================== END SESSION / RECONNECTION ====================
 
 /**
- * Show error toast notification.
+ * Show an error toast (the page's one toast queue: ui/kit/toast.js).
  */
 function showErrorToast(message, duration = 5000) {
-  // Remove existing toast
-  const existing = document.querySelector('.error-toast');
-  if (existing) existing.remove();
-
-  const toast = document.createElement('div');
-  toast.className = 'error-toast';
-  toast.textContent = message;
-  document.body.appendChild(toast);
-
-  setTimeout(() => {
-    toast.classList.add('fade-out');
-    setTimeout(() => toast.remove(), 300);
-  }, duration);
+  showError(message, duration);
 }
 
 // Track retry attempts for joinMainRoom

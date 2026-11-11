@@ -16,8 +16,11 @@
     <!-- Source page: `vite build` writes client/dist/index.html (hashed
          bundle and stylesheets), which is what Express serves. Phaser and
          socket.io-client are bundled (src/vendor.js, src/socket/createSocket.js) -->
+    <!-- Design tokens first (generated: npm run tokens), the kit last -->
+    <link rel="stylesheet" href="/styles/tokens.css">
     <link rel="stylesheet" href="/styles.css">
     <link rel="stylesheet" href="/styles/components.css">
+    <link rel="stylesheet" href="/styles/kit.css">
     <link rel="icon" type="image/x-icon" href="/favicon.ico">
     <script type="module" src="/src/main.js"></script>
 </head>
