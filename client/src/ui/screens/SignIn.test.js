@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createSignInScreen, showSignInScreen } from './SignIn.js';
+import { clearToasts } from '../kit/index.js';
+import { readClientFile } from '../../testing/files.js';
 
 describe('createSignInScreen', () => {
   let screen;
@@ -71,8 +73,7 @@ describe('createSignInScreen', () => {
     });
   });
 
-  it('does not call onSignIn if fields are empty', () => {
-    // Mock window.alert
+  it('does not call onSignIn if fields are empty (an error toast, never window.alert)', () => {
     const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
 
     screen = createSignInScreen({
@@ -87,9 +88,41 @@ describe('createSignInScreen', () => {
     signInBtn.click();
 
     expect(mockOnSignIn).not.toHaveBeenCalled();
-    expect(alertSpy).toHaveBeenCalled();
+    expect(alertSpy).not.toHaveBeenCalled();
+    const toast = document.querySelector('.kit-toast.toast-error');
+    expect(toast?.textContent).toBe('Please enter both a username and a password.');
+    expect(toast.getAttribute('role')).toBe('alert');
 
+    clearToasts();
     alertSpy.mockRestore();
+  });
+
+  it('labels every input and keeps them at 16 px (no iOS zoom) in a card at most 440 px wide', () => {
+    screen = createSignInScreen({ onSignIn: mockOnSignIn, onCreateAccount: mockOnCreateAccount });
+    for (const input of [screen.usernameInput, screen.passwordInput]) {
+      expect(input.classList.contains('kit-input')).toBe(true);
+      const label = screen.container.querySelector(`label[for="${input.id}"]`);
+      expect(label?.textContent, input.name).toBeTruthy();
+    }
+    expect(screen.container.querySelector('.auth-card')).not.toBeNull();
+    const kit = readClientFile('styles/kit.css');
+    expect(kit).toMatch(/\.kit-input \{[^}]*font-size: var\(--type-md\)/);
+    const screens = readClientFile('styles/screens.css');
+    expect(screens).toMatch(/\.auth-card \{[^}]*max-width: 440px/);
+  });
+
+  it('the splash animates once (never infinite) and not at all under reduced motion', () => {
+    screen = createSignInScreen({ onSignIn: mockOnSignIn, onCreateAccount: mockOnCreateAccount });
+    const splash = screen.container.querySelector('.auth-splash');
+    expect(splash).not.toBeNull();
+    expect(splash.getAttribute('style')).toBeNull();
+    // no keyframes injected from JS any more
+    expect(document.getElementById('splash-keyframes')).toBeNull();
+    const css = readClientFile('styles/screens.css');
+    const rule = css.slice(css.indexOf('.auth-splash {'), css.indexOf('}', css.indexOf('.auth-splash {')));
+    expect(rule).toMatch(/animation: auth-splash-in var\(--dur-slow\) var\(--ease-emphasized\) 1 backwards/);
+    expect(rule).not.toMatch(/infinite/);
+    expect(css).toMatch(/prefers-reduced-motion: reduce\) \{\s*\.auth-splash \{\s*animation: none/);
   });
 
   it('calls onCreateAccount when create account clicked', () => {

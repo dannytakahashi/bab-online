@@ -1,6 +1,13 @@
 /**
  * Registration screen component.
+ *
+ * The sign-in screen's card (styles/screens.css, item 18b): labelled
+ * 16 px inputs, 44 px buttons, at most 440 px wide; validation messages
+ * go to the one toast queue.
  */
+import { el, createButton, createPanel } from '../kit/index.js';
+import { showError } from '../components/Toast.js';
+import { authField, authVignette, authLogo } from './SignIn.js';
 
 /**
  * Create the registration screen.
@@ -13,151 +20,52 @@
  */
 export function createRegisterScreen({ onRegister, onBackToSignIn, prefill = {} }) {
   // Vignette background
-  const vignette = document.createElement('div');
-  vignette.id = 'register-vignette';
-  vignette.className = 'vignette';
-  vignette.style.cssText = `
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
-    pointer-events: none;
-    background: radial-gradient(circle, rgba(34, 139, 34, 1) 30%, rgba(0, 0, 0, 1) 100%);
-    z-index: 50;
-  `;
+  const vignette = authVignette('register-vignette');
 
   // Container
-  const container = document.createElement('div');
-  container.id = 'register-container';
-  container.style.cssText = `
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    z-index: 100;
-  `;
+  const container = el('main', { className: 'auth-screen', attrs: { id: 'register-container' } });
 
   // Logo
-  const logo = document.createElement('img');
-  logo.src = 'assets/logo.png';
-  logo.alt = 'Game Logo';
-  logo.style.cssText = `
-    width: 26vw;
-    margin-bottom: 2vh;
-    position: relative;
-    left: 2vw;
-  `;
-  container.appendChild(logo);
+  container.appendChild(el('div', { className: 'auth-logo-wrap', children: [authLogo()] }));
+
+  const form = createPanel({ tag: 'form', elevation: 3, className: 'auth-card' });
+  form.setAttribute('aria-labelledby', 'registerTitle');
+  form.noValidate = true;
+  form.addEventListener('submit', (e) => e.preventDefault());
 
   // Title
-  const title = document.createElement('h2');
-  title.textContent = 'Create Account';
-  title.style.cssText = `
-    color: white;
-    margin-bottom: 20px;
-    font-size: 20px;
-  `;
-  container.appendChild(title);
+  form.appendChild(el('h2', { className: 'auth-title', attrs: { id: 'registerTitle' }, text: 'Create Account' }));
 
-  // Username input
-  const usernameInput = document.createElement('input');
-  usernameInput.type = 'text';
-  usernameInput.placeholder = 'Username';
-  usernameInput.name = 'username';
-  usernameInput.autocomplete = 'username';
-  usernameInput.autocapitalize = 'none';
-  usernameInput.value = prefill.username || '';
-  usernameInput.style.cssText = `
-    font-size: 12px;
-    padding: 10px;
-    margin-bottom: 10px;
-    border-radius: 5px;
-    border: none;
-    text-align: center;
-  `;
-  container.appendChild(usernameInput);
-
-  // Password input
-  const passwordInput = document.createElement('input');
-  passwordInput.type = 'password';
-  passwordInput.placeholder = 'Password';
-  passwordInput.name = 'new-password';
-  passwordInput.autocomplete = 'new-password';
-  passwordInput.value = prefill.password || '';
-  passwordInput.style.cssText = `
-    font-size: 12px;
-    padding: 10px;
-    margin-bottom: 10px;
-    border-radius: 5px;
-    border: none;
-    text-align: center;
-  `;
-  container.appendChild(passwordInput);
-
-  // Confirm password input
-  const confirmInput = document.createElement('input');
-  confirmInput.type = 'password';
-  confirmInput.placeholder = 'Confirm Password';
-  confirmInput.name = 'confirm-password';
-  confirmInput.autocomplete = 'new-password';
-  confirmInput.style.cssText = `
-    font-size: 12px;
-    padding: 10px;
-    margin-bottom: 10px;
-    border-radius: 5px;
-    border: none;
-    text-align: center;
-  `;
-  container.appendChild(confirmInput);
+  const { field: userField, input: usernameInput } = authField({
+    id: 'registerUsername', label: 'Username', name: 'username', autocomplete: 'username', autocapitalize: 'none',
+    value: prefill.username || '',
+  });
+  const { field: passField, input: passwordInput } = authField({
+    id: 'registerPassword', label: 'Password', type: 'password', name: 'new-password', autocomplete: 'new-password',
+    value: prefill.password || '',
+  });
+  const { field: confirmField, input: confirmInput } = authField({
+    id: 'registerConfirm', label: 'Confirm Password', type: 'password', name: 'confirm-password', autocomplete: 'new-password',
+  });
+  form.appendChild(userField);
+  form.appendChild(passField);
+  form.appendChild(confirmField);
 
   // Register button
-  const registerButton = document.createElement('button');
-  registerButton.textContent = 'Register';
-  registerButton.style.cssText = `
-    font-size: 14px;
-    padding: 10px 20px;
-    border-radius: 5px;
-    border: none;
-    background: #23782d;
-    color: #fff;
-    cursor: pointer;
-    margin-bottom: 10px;
-  `;
-  container.appendChild(registerButton);
+  const registerButton = createButton({ label: 'Register', variant: 'primary' });
+  form.appendChild(registerButton);
 
   // Terms acceptance notice (UGC apps must require agreement to terms)
-  const termsNote = document.createElement('div');
-  termsNote.style.cssText = 'font-size: 11px; color: #888; margin-bottom: 10px; max-width: 260px; text-align: center;';
+  const termsNote = el('div', { className: 'auth-terms' });
   termsNote.append('By creating an account you agree to the ');
-  const termsLink = document.createElement('a');
-  termsLink.textContent = 'Terms of Use';
-  termsLink.href = '/terms';
-  termsLink.target = '_blank';
-  termsLink.style.color = '#4dcc73';
-  termsNote.appendChild(termsLink);
+  termsNote.appendChild(el('a', { attrs: { href: '/terms', target: '_blank', rel: 'noopener' }, text: 'Terms of Use' }));
   termsNote.append(', including zero tolerance for abusive content.');
-  container.appendChild(termsNote);
+  form.appendChild(termsNote);
 
   // Back to sign in link
-  const backLink = document.createElement('button');
-  backLink.textContent = 'Back to Sign In';
-  backLink.style.cssText = `
-    font-size: 12px;
-    padding: 8px 16px;
-    border-radius: 5px;
-    border: none;
-    background: transparent;
-    color: #aaa;
-    cursor: pointer;
-    text-decoration: underline;
-  `;
-  container.appendChild(backLink);
+  const backLink = createButton({ label: 'Back to Sign In', variant: 'ghost', size: 'sm' });
+  form.appendChild(backLink);
+  container.appendChild(form);
 
   // Event handlers
   const handleRegister = () => {
@@ -166,17 +74,19 @@ export function createRegisterScreen({ onRegister, onBackToSignIn, prefill = {} 
     const confirmPassword = confirmInput.value.trim();
 
     if (!username || !password || !confirmPassword) {
-      window.alert('Please fill in all fields.');
+      showError('Please fill in all fields.');
       return;
     }
 
     if (password !== confirmPassword) {
-      window.alert('Passwords do not match.');
+      showError('Passwords do not match.');
+      confirmInput.focus();
       return;
     }
 
     if (password.length < 4) {
-      window.alert('Password must be at least 4 characters.');
+      showError('Password must be at least 4 characters.');
+      passwordInput.focus();
       return;
     }
 
