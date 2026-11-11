@@ -48,7 +48,7 @@ function coverViewport(doc) {
  *   a promise (the app loading): the gate stays, busy, until it settles,
  *   and comes back usable if it rejects.
  * @param {Document} [o.doc]
- * @returns {{root: HTMLElement, close: Function}}
+ * @returns {{root: HTMLElement, close: Function, proceed: Function}}
  */
 export function showGate({ variant, onContinue, doc = document }) {
   const copy = COPY[variant] || COPY[VARIANT.OTHER];
@@ -95,19 +95,28 @@ export function showGate({ variant, onContinue, doc = document }) {
     restoreViewport();
   };
 
-  continueBtn.addEventListener('click', () => {
-    if (continueBtn.disabled) return;
+  /**
+   * Run `start` (load the app) with the gate busy: it closes when `start`
+   * resolves and comes back usable, with a message, when it rejects. The
+   * Continue button uses it; so does boot when the screen stops being a
+   * phone's (a foldable unfolded). A second call while busy is ignored.
+   */
+  const proceed = (start) => {
+    if (closed || continueBtn.disabled) return false;
     continueBtn.disabled = true;
     continueBtn.setAttribute('aria-busy', 'true');
     status.textContent = 'Loading BAB Online…';
     Promise.resolve()
-      .then(() => onContinue())
+      .then(() => start())
       .then(close, () => {
         continueBtn.disabled = false;
         continueBtn.removeAttribute('aria-busy');
         status.textContent = "Couldn't load the game. Check your connection and try again.";
       });
-  });
+    return true;
+  };
 
-  return { root, close };
+  continueBtn.addEventListener('click', () => proceed(onContinue));
+
+  return { root, close, proceed };
 }

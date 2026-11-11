@@ -7,8 +7,12 @@
  * A phone is a device whose primary pointer is coarse with no hover AND
  * whose screen's short side is under PHONE_MAX_SHORT_SIDE CSS px. The
  * screen, not the window: rotating, a split-view window or a narrow
- * desktop window never changes the answer. Anything missing or throwing
- * fails OPEN (no gate): the gate must never lock a player out.
+ * desktop window never changes the answer. A desktop-OS user agent
+ * (ChromeOS, Windows, desktop Linux) is never a phone, whatever its size:
+ * a Chromebook or Windows tablet in tablet mode reports a coarse pointer
+ * with no hover, and an enlarged Display size can put its screen under
+ * 600. Anything missing or throwing fails OPEN (no gate): the gate must
+ * never lock a player out.
  *
  * Escape hatches (CLAUDE.md "Phone gate"):
  * - "Continue in browser anyway" on the gate, remembered on the device
@@ -49,15 +53,33 @@ export function _resetPageChoice() {
 }
 
 /**
+ * A desktop operating system's user agent: ChromeOS (CrOS), Windows (NT),
+ * or desktop Linux/BSD (X11 without Android). These are never gated: their
+ * tablets (Chromebook detachables, Windows tablets) are computers, and
+ * the gate's own copy would tell them to "play on a computer or tablet".
+ * An Android phone asking for the desktop site sends an X11 UA and goes
+ * ungated too: the accepted fail-open direction. iPhone/iPod, a touch
+ * "Macintosh" (an iPhone asking for the desktop site) and Android are not
+ * desktop OSes here.
+ */
+export function isDesktopOSUA(userAgent = '') {
+  const ua = String(userAgent || '');
+  if (/Android/.test(ua)) return false;
+  return /CrOS|Windows NT|X11/.test(ua);
+}
+
+/**
  * Is this a phone? Pure: everything comes from `env`.
  * @param {Object} env
  * @param {Function} [env.matchMedia] - window.matchMedia (bound)
  * @param {{width:number, height:number}} [env.screen]
+ * @param {string} [env.userAgent] - a desktop-OS UA is never a phone
  * @returns {boolean} false whenever an API is missing or throws
  */
-export function isPhone({ matchMedia, screen } = {}) {
+export function isPhone({ matchMedia, screen, userAgent } = {}) {
   try {
     if (typeof matchMedia !== 'function' || !screen) return false;
+    if (isDesktopOSUA(userAgent)) return false;
     const coarse = matchMedia('(pointer: coarse)');
     const noHover = matchMedia('(hover: none)');
     if (!coarse || !noHover || coarse.matches !== true || noHover.matches !== true) return false;
@@ -162,7 +184,9 @@ export function readEnv(win) {
  * The media query of the NON-phone path (index.html's modulepreload of the
  * app chunk uses it, so a phone never fetches Phaser): any hover or fine
  * pointer (or no pointer), or a screen at least PHONE_MAX_SHORT_SIDE on
- * both sides. Kept in step with isPhone by deviceGate.test.js. A phone
- * that continued simply loads the chunk when it imports it.
+ * both sides. Kept in step with isPhone by deviceGate.test.js, except
+ * for a small desktop-OS touch tablet (the UA is not a media feature):
+ * it is not gated but gets no preload, so it fetches the chunk when boot
+ * imports it. A phone that continued simply loads the chunk the same way.
  */
 export const NOT_PHONE_MEDIA = `(hover: hover), (pointer: fine), (pointer: none), (min-device-width: ${PHONE_MAX_SHORT_SIDE}px) and (min-device-height: ${PHONE_MAX_SHORT_SIDE}px)`;

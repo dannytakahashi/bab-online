@@ -5,7 +5,7 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
-  isPhone, variantFor, decideBoot, rememberContinue, hasContinued, readEnv, safeLocalStorage,
+  isPhone, isDesktopOSUA, variantFor, decideBoot, rememberContinue, hasContinued, readEnv, safeLocalStorage,
   _resetPageChoice, CONTINUE_KEY, PHONE_MAX_SHORT_SIDE, NOT_PHONE_MEDIA, APP_STORE_URL, APP_STORE_ID, VARIANT,
 } from './deviceGate.js';
 
@@ -18,6 +18,10 @@ const UA = {
   android: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Mobile Safari/537.36',
   androidTablet: 'Mozilla/5.0 (Linux; Android 14; SM-X200) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36',
   windows: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36',
+  chromeos: 'Mozilla/5.0 (X11; CrOS aarch64 15917.71.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36',
+  linux: 'Mozilla/5.0 (X11; Linux x86_64; rv:132.0) Gecko/20100101 Firefox/132.0',
+  // Chrome on Android, "Desktop site": no Android token
+  androidDesktopSite: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36',
 };
 
 /**
@@ -67,10 +71,17 @@ const DEVICES = {
   'narrow desktop window': [device({ ua: UA.windows, pointer: 'fine', hover: 'hover', w: 1920, h: 1080 }), null],
   'a small old laptop screen (fine pointer)': [device({ ua: UA.windows, pointer: 'fine', hover: 'hover', w: 1024, h: 576 }), null],
   'TV / no pointer': [device({ ua: UA.windows, pointer: 'none', hover: 'none', w: 960, h: 540 }), null],
+  // Desktop OSes are never gated, whatever the screen (the UA is not a
+  // media feature, so these get no preload: boot's import fetches the chunk)
+  'Chromebook Duet, tablet mode, Display size up (853 x 533)': [device({ ua: UA.chromeos, pointer: 'coarse', hover: 'none', w: 853, h: 533, touch: 10 }), null, { preload: false }],
+  'Windows tablet posture, scaled to a 576 short side': [device({ ua: UA.windows, pointer: 'coarse', hover: 'none', w: 1024, h: 576, touch: 10 }), null, { preload: false }],
+  'Linux touch tablet (X11)': [device({ ua: UA.linux, pointer: 'coarse', hover: 'none', w: 960, h: 540, touch: 10 }), null, { preload: false }],
+  // the accepted fail-open: an Android phone asking for the desktop site
+  'Android phone requesting the desktop site (X11 UA)': [device({ ua: UA.androidDesktopSite, pointer: 'coarse', hover: 'none', w: 412, h: 915, touch: 5 }), null, { preload: false }],
 };
 
 describe('the device matrix', () => {
-  for (const [name, [env, expected]] of Object.entries(DEVICES)) {
+  for (const [name, [env, expected, { preload = expected === null } = {}]] of Object.entries(DEVICES)) {
     it(`${name}: ${expected ? `gated (${expected})` : 'not gated'}`, () => {
       expect(isPhone(env)).toBe(expected !== null);
       const decision = decideBoot({ env });
@@ -78,8 +89,9 @@ describe('the device matrix', () => {
       if (expected) expect(decision.variant).toBe(expected);
     });
 
-    it(`${name}: the preload media query agrees (preload exactly when not gated)`, () => {
-      expect(env.matchMedia(NOT_PHONE_MEDIA).matches).toBe(expected === null);
+    it(`${name}: the preload media query agrees (preload exactly when not gated, but desktop-OS tablets)`, () => {
+      expect(env.matchMedia(NOT_PHONE_MEDIA).matches).toBe(preload);
+      if (preload) expect(expected).toBeNull(); // never a preload on a gated device
     });
   }
 
@@ -90,6 +102,17 @@ describe('the device matrix', () => {
     expect(at(599)).toBe(true);
     expect(at(600)).toBe(false);
     expect(at(744)).toBe(false);
+  });
+
+  it('isDesktopOSUA: ChromeOS, Windows, X11 without Android; never iPhone, Mac, Android', () => {
+    expect(isDesktopOSUA(UA.chromeos)).toBe(true);
+    expect(isDesktopOSUA(UA.windows)).toBe(true);
+    expect(isDesktopOSUA(UA.linux)).toBe(true);
+    expect(isDesktopOSUA(UA.androidDesktopSite)).toBe(true);
+    expect(isDesktopOSUA('Mozilla/5.0 (Linux; Android 14; X11 thing) Chrome/131.0 Mobile Safari/537.36')).toBe(false);
+    for (const ua of [UA.iphone, UA.ipod, UA.ipad, UA.mac, UA.android, UA.androidTablet, '', undefined]) {
+      expect(isDesktopOSUA(ua)).toBe(false);
+    }
   });
 
   it('variantFor: iPhone/iPod (or a touch "Macintosh") only', () => {

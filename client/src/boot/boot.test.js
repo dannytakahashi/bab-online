@@ -20,21 +20,41 @@ function memoryStorage() {
   return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), _m: m };
 }
 
-/** A window over jsdom's document with a chosen device. */
-function fakeWin({ phone = true, ua = IPHONE_UA, search = '', storage = memoryStorage(), readyState = 'complete' } = {}) {
+/**
+ * A window over jsdom's document with a chosen device. `win.screen` can be
+ * reassigned and `win.fire('resize')` / `win.fireMedia()` run the
+ * listeners; `win.location.reload` / `replace` are spies.
+ */
+function fakeWin({ phone = true, ua = IPHONE_UA, search = '', storage = memoryStorage(), readyState = 'complete', onLine = true } = {}) {
   const features = phone ? { '(pointer: coarse)': true, '(hover: none)': true } : {};
+  const listeners = { window: new Map(), media: new Set() };
   return {
     // jsdom's document (the parts the gate uses), with a readyState the test picks
     document: { readyState, get body() { return document.body; }, querySelector: (s) => document.querySelector(s) },
-    matchMedia: (q) => ({ matches: !!features[q], media: q }),
+    matchMedia: (q) => ({
+      matches: !!features[q],
+      media: q,
+      addEventListener: (type, fn) => { if (type === 'change') listeners.media.add(fn); },
+      removeEventListener: (type, fn) => { if (type === 'change') listeners.media.delete(fn); },
+    }),
     screen: phone ? { width: 390, height: 844 } : { width: 1920, height: 1080 },
-    navigator: { userAgent: ua, maxTouchPoints: phone ? 5 : 0 },
-    location: { search },
+    navigator: { userAgent: ua, maxTouchPoints: phone ? 5 : 0, onLine },
+    location: { search, href: `https://babonline.io/${search}`, reload: vi.fn(), replace: vi.fn() },
     localStorage: storage,
+    addEventListener: (type, fn) => {
+      if (!listeners.window.has(type)) listeners.window.set(type, new Set());
+      listeners.window.get(type).add(fn);
+    },
+    removeEventListener: (type, fn) => listeners.window.get(type)?.delete(fn),
+    fire: (type) => [...(listeners.window.get(type) || [])].forEach((fn) => fn()),
+    fireMedia: () => [...listeners.media].forEach((fn) => fn()),
+    listenerCount: () => listeners.media.size + [...listeners.window.values()].reduce((n, set) => n + set.size, 0),
   };
 }
 
 beforeEach(() => {
+  vi.restoreAllMocks();
+  vi.spyOn(console, 'error').mockImplementation(() => {});
   document.body.innerHTML = '<div id="table-shell"><div id="game-container"></div></div>';
   document.head.innerHTML = '<meta name="viewport" content="width=device-width, initial-scale=1.0">';
   _resetPageChoice();
@@ -103,14 +123,15 @@ describe('runBoot', () => {
     expect(loadAgain).toHaveBeenCalledTimes(1);
   });
 
-  it('a failed app load leaves the gate usable with a message', async () => {
+  it('offline, a failed app load leaves the gate usable with a message (no reload)', async () => {
     let fail = true;
     const app = { startApp: vi.fn() };
     const loadApp = vi.fn(async () => {
       if (fail) throw new Error('offline');
       return app;
     });
-    runBoot({ win: fakeWin(), loadApp });
+    const win = fakeWin({ onLine: false });
+    runBoot({ win, loadApp });
     const btn = gate().querySelector('[data-gate="continue"]');
     btn.click();
     await flush();
@@ -118,12 +139,118 @@ describe('runBoot', () => {
     expect(gate()).not.toBeNull();
     expect(btn.disabled).toBe(false);
     expect(gate().querySelector('[role="status"]').textContent).toMatch(/Couldn't load/);
+    expect(win.location.reload).not.toHaveBeenCalled();
     fail = false;
     btn.click();
     await flush();
     await flush();
     expect(app.startApp).toHaveBeenCalledTimes(1);
     expect(gate()).toBeNull();
+  });
+
+  it('a failed app load (a deploy removed the chunk) reloads the page once; the choice is remembered', async () => {
+    const storage = memoryStorage();
+    const win = fakeWin({ storage });
+    const loadApp = vi.fn(async () => { throw new TypeError('Failed to fetch dynamically imported module: /dist/assets/main-Old999.js'); });
+    runBoot({ win, loadApp });
+    const btn = gate().querySelector('[data-gate="continue"]');
+    btn.click();
+    await flush();
+    await flush();
+    expect(win.location.reload).toHaveBeenCalledTimes(1);
+    expect(win.location.replace).not.toHaveBeenCalled();
+    expect(storage.getItem(CONTINUE_KEY)).toBe('1');
+    // the gate stays busy while the page reloads: no "check your connection"
+    expect(btn.disabled).toBe(true);
+    expect(gate().querySelector('[role="status"]').textContent).not.toMatch(/Couldn't load/);
+    // and the reload boots straight into the app
+    _resetPageChoice();
+    expect(runBoot({ win: fakeWin({ storage }), loadApp: vi.fn(async () => ({})) }).gated).toBe(false);
+  });
+
+  it('a failed app load with storage that throws reloads with ?web=1 (the choice would be lost)', async () => {
+    const win = fakeWin({ search: '?ref=x' });
+    Object.defineProperty(win, 'localStorage', { get() { throw new Error('SecurityError'); } });
+    runBoot({ win, loadApp: async () => { throw new Error('404'); } });
+    gate().querySelector('[data-gate="continue"]').click();
+    await flush();
+    await flush();
+    expect(win.location.reload).not.toHaveBeenCalled();
+    expect(win.location.replace).toHaveBeenCalledWith('https://babonline.io/?ref=x&web=1');
+  });
+
+  it('a reload that throws falls back to the message', async () => {
+    const win = fakeWin();
+    win.location.reload = () => { throw new Error('blocked'); };
+    runBoot({ win, loadApp: async () => { throw new Error('404'); } });
+    const btn = gate().querySelector('[data-gate="continue"]');
+    btn.click();
+    await flush();
+    await flush();
+    expect(btn.disabled).toBe(false);
+    expect(gate().querySelector('[role="status"]').textContent).toMatch(/Couldn't load/);
+  });
+
+  it('a foldable unfolded to a tablet-size screen lifts the gate and boots, without remembering Continue', async () => {
+    const storage = memoryStorage();
+    const win = fakeWin({ ua: ANDROID_UA, storage });
+    win.screen = { width: 344, height: 882 }; // the cover screen
+    const app = { startApp: vi.fn() };
+    const loadApp = vi.fn(async () => app);
+    expect(runBoot({ win, loadApp })).toMatchObject({ gated: true, variant: VARIANT.OTHER });
+
+    // rotating the cover screen: same short side, still a phone
+    win.screen = { width: 882, height: 344 };
+    win.fire('resize');
+    win.fireMedia();
+    await flush();
+    expect(loadApp).not.toHaveBeenCalled();
+    expect(gate()).not.toBeNull();
+
+    win.screen = { width: 673, height: 841 }; // unfolded: the inner display
+    win.fireMedia();
+    win.fire('resize'); // both fire on a real fold: one load only
+    await flush();
+    await flush();
+    expect(loadApp).toHaveBeenCalledTimes(1);
+    expect(app.startApp).toHaveBeenCalledTimes(1);
+    expect(gate()).toBeNull();
+    expect(storage.getItem(CONTINUE_KEY)).toBeNull(); // folded again next time: the gate shows
+    expect(win.listenerCount()).toBe(0);
+  });
+
+  it('the screen watcher: a resize alone lifts it too; Continue stops it; a forced gate never lifts', async () => {
+    const win = fakeWin();
+    const loadApp = vi.fn(async () => ({}));
+    runBoot({ win, loadApp });
+    win.screen = { width: 669, height: 900 }; // the opened iPhone Duo-style fold
+    win.fire('resize');
+    await flush();
+    await flush();
+    expect(loadApp).toHaveBeenCalledTimes(1);
+    expect(gate()).toBeNull();
+
+    document.body.innerHTML = '';
+    const win2 = fakeWin();
+    const load2 = vi.fn(async () => ({}));
+    runBoot({ win: win2, loadApp: load2 });
+    expect(win2.listenerCount()).toBeGreaterThan(0);
+    gate().querySelector('[data-gate="continue"]').click();
+    await flush();
+    await flush();
+    expect(win2.listenerCount()).toBe(0);
+    expect(load2).toHaveBeenCalledTimes(1);
+
+    document.body.innerHTML = '';
+    const desk = fakeWin({ phone: false, ua: DESKTOP_UA, search: '?gate=1' });
+    const load3 = vi.fn(async () => ({}));
+    runBoot({ win: desk, loadApp: load3 });
+    desk.fire('resize');
+    desk.fireMedia();
+    await flush();
+    expect(load3).not.toHaveBeenCalled();
+    expect(gate()).not.toBeNull();
+    expect(desk.listenerCount()).toBe(0);
   });
 
   it('storage that throws: the gate shows and Continue still boots (for this page)', async () => {
