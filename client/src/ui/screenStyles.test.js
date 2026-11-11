@@ -19,6 +19,7 @@ const SCREEN_FILES = [
   'src/ui/kit/modal.js', 'src/ui/kit/elements.js', 'src/ui/UIManager.js', 'src/main.js',
   'src/boot/gateScreen.js', 'src/boot/boot.js', 'src/entry.js',
   'src/reset/resetPage.js', 'src/reset/resetEntry.js',
+  'src/ui/screens/AdminPanel.js', 'src/admin/adminApi.js',
 ];
 const PAGE_CSS = ['styles/screens.css', 'styles.css', 'styles/kit.css', 'styles/components.css', 'styles/gate.css', 'index.html',
   'styles/reset.css', 'reset.html'];

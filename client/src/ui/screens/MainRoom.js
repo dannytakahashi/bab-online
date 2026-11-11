@@ -10,6 +10,8 @@ import { generateDistinctColor } from '../../utils/colors.js';
 import { el, createButton, createPanel } from '../kit/index.js';
 import { chatLine, chatForm } from './common.js';
 import { showPlayerSearchPage } from './PlayerSearchPage.js';
+import { showAdminPanel, removeAdminPanel } from './AdminPanel.js';
+import { isAdmin, onAdminChange } from '../../admin/adminApi.js';
 
 /**
  * Module state - tracks user colors for consistent display.
@@ -220,6 +222,12 @@ export function showMainRoom(data, socket, username = null) {
   navButton('Records', () => socket.emit('getRecords'));
   navButton('Players', () => showPlayerSearchPage(socket));
   navButton('Profile', () => socket.emit('getProfile'));
+  // Admins only (display: the server checks every admin request)
+  const adminButton = createButton({
+    label: 'Admin', variant: 'secondary', size: 'sm', attrs: { id: 'mainRoomAdminButton', hidden: !isAdmin() },
+    onClick: () => showAdminPanel(socket, { username: currentUsername }),
+  });
+  nav.appendChild(adminButton);
 
   // Store online users from initial data
   currentOnlineUsers = data.onlineUsers || [];
@@ -331,7 +339,16 @@ export function updateLobbyList(lobbies, socket, inProgressGames = [], tournamen
 /**
  * Remove the main room screen.
  */
+// The Admin entry follows the flag (granted at sign-in, gone when the
+// server says this connection is not an admin, or on sign-out)
+onAdminChange((on) => {
+  const btn = document.getElementById('mainRoomAdminButton');
+  if (btn) btn.hidden = !on;
+  if (!on) removeAdminPanel();
+});
+
 export function removeMainRoom() {
+  removeAdminPanel();
   const mainRoom = document.getElementById('mainRoomContainer');
   if (mainRoom) mainRoom.remove();
   mainRoomUserColors = {};
