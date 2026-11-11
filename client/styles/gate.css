@@ -1,0 +1,187 @@
+/**
+ * The phone gate (web roadmap item 19, src/boot/gateScreen.js): the night
+ * card room behind one centred column (icon, name, one line, the primary
+ * action, a small "Continue in browser anyway").
+ *
+ * Phone hygiene: viewport-fit=cover is set while the gate shows, so the
+ * padding keeps the safe-area insets; the gate is the viewport's height
+ * (100dvh, 100vh where dvh is unknown), centred when it fits and
+ * scrolling when it does not (320 x 568, landscape, large text: the card's
+ * auto margins centre it without clipping its top). Text follows iOS
+ * Dynamic Type (-apple-system-body, ems below); other browsers keep the
+ * token size. 44 px targets, a visible :focus-visible, no animation.
+ * Tokens only (screenStyles.test.js: no hex here). The tokens are dark
+ * only (html is color-scheme: dark), so there is no light variant.
+ */
+
+.gate {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-banner);
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    height: 100dvh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    padding:
+        max(var(--space-6), env(safe-area-inset-top))
+        max(var(--space-4), env(safe-area-inset-right))
+        max(var(--space-6), env(safe-area-inset-bottom))
+        max(var(--space-4), env(safe-area-inset-left));
+    /* the table's lit felt under the lamp, falling off to the room's dark */
+    background:
+        radial-gradient(ellipse 80% 55% at 50% 38%, rgb(var(--felt-light-rgb) / 0.9) 0%, var(--felt-base) 40%, var(--felt-deep) 68%, var(--surface-0) 100%);
+    background-color: var(--surface-0);
+    color: var(--text-primary);
+    font-size: var(--type-md);
+    font: -apple-system-body;
+    font-family: var(--font-ui);
+    line-height: 1.4;
+    text-align: center;
+}
+
+.gate__card {
+    margin: auto;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-3);
+    width: min(400px, 100%);
+}
+
+.gate__icon {
+    display: block;
+    width: 96px;
+    height: 96px;
+    /* the iOS icon's rounded square */
+    border-radius: 22px;
+    box-shadow: var(--elev-2);
+}
+
+.gate__title {
+    margin: var(--space-2) 0 0;
+    font-size: 1.75em;
+    font-weight: var(--weight-bold);
+    line-height: 1.15;
+}
+
+.gate__lede {
+    margin: 0;
+    max-width: 30ch;
+    color: var(--text-primary);
+    font-size: 1.0625em;
+}
+
+.gate__note {
+    margin: 0;
+    max-width: 32ch;
+    color: var(--text-secondary);
+    font-size: 0.9375em;
+}
+
+.gate .gate__store {
+    width: 100%;
+    max-width: 320px;
+    margin-top: var(--space-2);
+    font-size: 1.125em;
+    text-decoration: none;
+}
+
+/* A small text link that is still a 44 px target */
+.gate__continue {
+    min-height: var(--hit-target);
+    min-width: var(--hit-target);
+    margin-top: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 0.9375em;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.gate__continue:hover:not(:disabled) {
+    color: var(--text-primary);
+}
+
+.gate__continue:disabled {
+    opacity: 0.6;
+    cursor: progress;
+}
+
+.gate__status:empty {
+    display: none;
+}
+
+.gate__status {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 0.875em;
+}
+
+.gate :is(a, button):focus-visible {
+    outline: 2px solid var(--text-primary);
+    outline-offset: 2px;
+}
+
+/* A phone on its side: the icon beside the text, so it fits without
+   scrolling at 844 x 390 (and scrolls, still, with large text) */
+@media (orientation: landscape) and (max-height: 500px) {
+    .gate {
+        padding-top: max(var(--space-4), env(safe-area-inset-top));
+        padding-bottom: max(var(--space-4), env(safe-area-inset-bottom));
+    }
+
+    .gate__card {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        column-gap: var(--space-8);
+        row-gap: var(--space-2);
+        align-items: center;
+        justify-items: start;
+        width: min(640px, 100%);
+        text-align: left;
+    }
+
+    .gate__icon {
+        grid-column: 1;
+        grid-row: 1 / span 6;
+    }
+
+    .gate__card > :not(.gate__icon) {
+        grid-column: 2;
+    }
+
+    .gate__title {
+        margin: 0;
+    }
+
+    .gate__lede,
+    .gate__note {
+        max-width: none;
+    }
+
+    .gate .gate__store {
+        margin-top: var(--space-1);
+    }
+
+    .gate__continue {
+        margin: 0 0 0 calc(-1 * var(--space-3));
+    }
+}
+
+/* the kit button's press scale is the only motion; none when reduced */
+@media (prefers-reduced-motion: reduce) {
+    .gate .kit-btn:active {
+        transform: none;
+    }
+}

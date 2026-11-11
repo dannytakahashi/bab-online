@@ -12,6 +12,9 @@
         style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
         media-src 'self' blob:;">
 
+    <!-- Smart App Banner: iOS Safari (iPhone and iPad) offers the app -->
+    <meta name="apple-itunes-app" content="app-id=6759510890">
+
     <title>BAB Online</title>
     <!-- Source page: `vite build` writes client/dist/index.html (hashed
          bundle and stylesheets), which is what Express serves. Phaser and
@@ -23,8 +26,11 @@
     <link rel="stylesheet" href="/styles/kit.css">
     <link rel="stylesheet" href="/styles/screens.css">
     <link rel="stylesheet" href="/styles/table.css">
+    <link rel="stylesheet" href="/styles/gate.css">
     <link rel="icon" type="image/x-icon" href="/favicon.ico">
-    <script type="module" src="/src/main.js"></script>
+    <!-- The entry decides first (phone gate, src/boot/), then imports the
+         app (src/main.js); the build preloads the app chunk on non-phones -->
+    <script type="module" src="/src/entry.js"></script>
 </head>
 <body>
     <div id="table-shell"><div id="game-container"></div></div>

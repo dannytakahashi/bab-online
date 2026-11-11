@@ -17,8 +17,9 @@ const SCREEN_FILES = [
   'src/ui/screens/PlayerSearchPage.js', 'src/ui/screens/SignIn.js', 'src/ui/screens/Register.js',
   'src/ui/screens/common.js', 'src/ui/components/PlayerQueue.js', 'src/ui/components/ResignationDialog.js',
   'src/ui/kit/modal.js', 'src/ui/kit/elements.js', 'src/ui/UIManager.js', 'src/main.js',
+  'src/boot/gateScreen.js', 'src/boot/boot.js', 'src/entry.js',
 ];
-const PAGE_CSS = ['styles/screens.css', 'styles.css', 'styles/kit.css', 'styles/components.css', 'index.html'];
+const PAGE_CSS = ['styles/screens.css', 'styles.css', 'styles/kit.css', 'styles/components.css', 'styles/gate.css', 'index.html'];
 
 const HEX = /#[0-9a-fA-F]{3,8}\b/g;
 const INLINE = /style\.cssText|\.style\.[a-zA-Z]+ *=|style="/;
