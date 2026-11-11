@@ -1333,6 +1333,9 @@ export class GameScene extends Phaser.Scene {
         this.trickManager._currentTrick.push(sprite);
       }
 
+      // Close the hand up around the played card (as _flyMyCard does)
+      this.cardManager.repositionHand();
+
       // Immediately dim all remaining cards since player can't play again this trick
       this.cardManager.updateCardLegality(() => true, false);
     });

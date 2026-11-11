@@ -32,6 +32,9 @@ export const CARD_ASPECT = CARD_DESIGN.h / CARD_DESIGN.w;
 
 /** The atlas frame of the card back, and of the raised card's soft shadow. */
 export const BACK_FRAME = 'back';
+
+/** White margin around the back's green panel (design units; ~3 px at DPR 1). */
+export const BACK_EDGE = 14;
 export const SHADOW_FRAME = 'shadow';
 
 const C = COLOR.card;
@@ -236,12 +239,23 @@ export function drawJokerFace(ctx, card) {
   ctx.fillText('JOKER', w / 2, h / 2 + 40 + 13);
 }
 
-/** Draw the back (design units): iOS's dark green with an inner frame and a diamond. */
+/**
+ * Draw the back (design units): a white card edge like the faces (so an
+ * overlapped fan of backs reads as separate cards on the green felt), then
+ * iOS's dark-green panel with its lighter border, inner frame and diamond.
+ */
 export function drawBack(ctx) {
   const { w, h, radius } = CARD_DESIGN;
-  cardBase(ctx, C.back, C.backBorder, 4);
-  const inset = 24;
-  roundRectPath(ctx, inset, inset, w - 2 * inset, h - 2 * inset, radius - 8);
+  cardBase(ctx, C.face, C.border, 3);
+  const edge = BACK_EDGE;
+  roundRectPath(ctx, edge, edge, w - 2 * edge, h - 2 * edge, radius - 8);
+  ctx.fillStyle = C.back;
+  ctx.fill();
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = C.backBorder;
+  ctx.stroke();
+  const inset = edge + 18;
+  roundRectPath(ctx, inset, inset, w - 2 * inset, h - 2 * inset, radius - 14);
   ctx.lineWidth = 2;
   ctx.strokeStyle = C.backInner;
   ctx.stroke();

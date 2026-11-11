@@ -100,6 +100,10 @@ describe('my play: rejected, timed out, reconciled', () => {
     expect(page.socket.emitted('playCard')).toEqual([{ card, position: 1 }]);
     expect(myAction().state).toBe('pending');
     expect(page.scene.tableCounts()).toMatchObject({ hand: handBefore - 1, trick: trickBefore + 1 });
+    // the hand closes up around the played card: no hole where it was
+    const left = page.scene.cardManager.getHandSprites();
+    const fan = page.scene.cardManager.calculateHandPositions(left.length);
+    expect(left.map((s) => s.x)).toEqual(fan.map((p) => p.x));
     // GameState still holds it: only the echo takes it out
     expect(page.gameState.myCards.some((c) => sameCard(c, card))).toBe(true);
     clickCard(page.scene.cardManager.getHandSprites()[0].getData('card'));

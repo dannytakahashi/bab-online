@@ -73,9 +73,15 @@ describe('card faces (the iOS CardTextureGenerator, on a 300 x 435 canvas)', () 
     }
   });
 
-  it('the back: iOS dark green, a lighter border, an inner frame and the centre diamond', () => {
+  it('the back: a white card edge, then iOS dark green, a lighter border, an inner frame and the centre diamond', () => {
     const ctx = draw(BACK_FRAME);
+    // The white edge is painted first (the whole card), so an overlapped fan
+    // of backs reads as separate cards on the green felt; the green panel is inset.
+    const firstFill = ctx.calls.find((c) => c.op === 'fill');
+    expect(firstFill.fillStyle).toBe(C.face);
+    expect(ctx.calls.find((c) => c.op === 'stroke' && c.strokeStyle === C.border)?.lineWidth).toBe(3);
     expect(fills(ctx, C.back)).toHaveLength(1);
+    expect(ctx.calls.indexOf(fills(ctx, C.back)[0])).toBeGreaterThan(ctx.calls.indexOf(firstFill));
     expect(ctx.calls.find((c) => c.op === 'stroke' && c.strokeStyle === C.backBorder)?.lineWidth).toBe(4);
     expect(ctx.calls.some((c) => c.op === 'stroke' && c.strokeStyle === C.backInner)).toBe(true);
     expect(fills(ctx, C.backDiamond)).toHaveLength(1);
@@ -124,7 +130,7 @@ describe('the atlas: one page, hand card x DPR', () => {
     }
     // every card is drawn under its cell's transform: the design canvas onto the cell
     const faceFill = ctx.calls.filter((c) => c.op === 'fill' && c.fillStyle === C.face);
-    expect(faceFill).toHaveLength(54);
+    expect(faceFill).toHaveLength(55); // 54 faces + the back's white card edge
     expect(ctx.depth).toBe(0); // save/restore balanced
   });
 
