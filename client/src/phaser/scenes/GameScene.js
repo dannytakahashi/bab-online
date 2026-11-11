@@ -20,6 +20,7 @@ import { getGameState } from '../../state/GameState.js';
 import { getCardImageKey, sortHand } from '../../utils/cards.js';
 import { team, rotate } from '../../utils/positions.js';
 import { isLegalMove } from '../../rules/legality.js';
+import { isOverTrump } from '../../rules/overTrump.js';
 import { ANIMATION_CONFIG } from '../config.js';
 import { reattachMuteButton } from '../../ui/components/VoiceChatUI.js';
 import { CardManager } from '../managers/CardManager.js';
@@ -909,36 +910,17 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Detect over-trump and show effect.
+   * Show the OT effect when the card just played over-trumps (rules/
+   * overTrump.js: it takes the trick from an opponent's winning trump on a
+   * non-trump lead). Runs only from handleCardPlayed, i.e. once per server
+   * cardPlayed (the seq gate drops a repeat); a render, relayout or
+   * snapshot rebuild never calls it, and my pending card is not in
+   * currentTrick until the server confirms it.
    */
   detectOverTrump() {
-    const trick = this.state.currentTrick;
-    const trump = this.state.trump;
-    const leadCard = this.state.leadCard;
-
-    // Need at least 3 cards for over-trump: lead, first trump, over-trump
-    // (currentTrick entries are { card, position } from addPlayedCard)
-    if (!trick || trick.length < 3 || !trump || !leadCard) return;
-
-    const RANK_VALUES = window.ModernUtils?.RANK_VALUES || {};
-    // currentTrick stores { card, position } objects from addPlayedCard()
-    const currentCard = trick[trick.length - 1].card;
-    const previousCard = trick[trick.length - 2].card;
-
-    const isTrumpOrJoker = (c) => c.suit === trump.suit || c.suit === 'joker';
-    const leadIsTrump = leadCard.suit === trump.suit || leadCard.suit === 'joker';
-
-    // Over-trump: current card is trump, previous was trump, current outranks previous, lead wasn't trump
-    if (
-      isTrumpOrJoker(currentCard) &&
-      isTrumpOrJoker(previousCard) &&
-      RANK_VALUES[currentCard.rank] > RANK_VALUES[previousCard.rank] &&
-      !leadIsTrump
-    ) {
-      if (this.effectsManager) {
-        this.effectsManager.showImpactEvent('ot');
-      }
-    }
+    // currentTrick entries are { card, position } in play order (GameState.applyCardPlayed)
+    if (!isOverTrump(this.state.currentTrick, this.state.trump)) return;
+    this.effectsManager?.showImpactEvent('ot');
   }
 
   /**
