@@ -13,6 +13,8 @@ import { getSocketManager } from '../../socket/SocketManager.js';
 import { sceneTween } from '../TableDirector.js';
 import { layoutOf, fanPositions } from '../layout/computeTableLayout.js';
 import { hudSeat, hudRoot } from '../../ui/tableHud.js';
+import { CARD_TEXTURE_KEY } from '../cards/CardAtlas.js';
+import { BACK_FRAME } from '../cards/cardFaces.js';
 
 /** OpponentManager slot → layout seat ('bottom' is a spectator's self seat). */
 const SEAT_OF = { partner: 'partner', opp1: 'opp1', opp2: 'opp2', bottom: 'self' };
@@ -114,7 +116,7 @@ export class OpponentManager {
     const spots = fanPositions(L, SEAT_OF[slot], count);
     const from = animate ? this._dealOrigin() : null;
     spots.forEach((p, i) => {
-      const sprite = scene.add.image(p.x, p.y, 'cardBack');
+      const sprite = scene.add.image(p.x, p.y, CARD_TEXTURE_KEY, BACK_FRAME);
       sprite.setScale(scale);
       sprite.setRotation(p.rotation);
       sprite.setDepth(100 + i);

@@ -82,8 +82,11 @@ describe('GameScene preload', () => {
     const keys = image.mock.calls.map(([key]) => key);
     expect(keys.some((key) => key.startsWith('profile'))).toBe(false);
     expect(keys).not.toContain('background');
-    // Textures the scene does draw are still loaded
-    expect(keys).toEqual(expect.arrayContaining(['cardBack', 'rainbow', 'ot', 'b', '2b', '3b', '4b']));
+    // Textures the scene does draw are still loaded; the cards are drawn
+    // (cards/CardAtlas.js), never loaded: no 64 px atlas, no card_back.png
+    expect(keys).toEqual(expect.arrayContaining(['rainbow', 'ot', 'b', '2b', '3b', '4b']));
+    expect(keys).not.toContain('cardBack');
+    expect(scene.load.atlas).not.toHaveBeenCalled();
   });
 });
 

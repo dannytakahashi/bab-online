@@ -9,6 +9,8 @@ import { CARD_CONFIG, ANIMATION_CONFIG } from '../config.js';
 import { collectMs } from '../pacing.js';
 import { sceneTween } from '../TableDirector.js';
 import { layoutOf, historySlot } from '../layout/computeTableLayout.js';
+import { CARD_TEXTURE_KEY } from '../cards/CardAtlas.js';
+import { BACK_FRAME } from '../cards/cardFaces.js';
 
 /**
  * Trick display: every position and size comes from the table layout
@@ -242,7 +244,7 @@ export class TrickManager {
     // If no sprite provided, create one (for self-plays)
     if (!sprite) {
       const cardKey = getCardImageKey(card);
-      sprite = scene.add.image(playPos.x, playPos.y, 'cards', cardKey);
+      sprite = scene.add.image(playPos.x, playPos.y, CARD_TEXTURE_KEY, cardKey);
       sprite.setScale(scale);
       sprite.setDepth(200);
     }
@@ -319,7 +321,7 @@ export class TrickManager {
 
       // If not our team's trick, show card backs (unless spectating)
       if (!isMyTeam && !this._isSpectatorMode) {
-        card.setTexture('cardBack');
+        card.setTexture(CARD_TEXTURE_KEY, BACK_FRAME);
       } else {
         this._applyFaceTexture(card);
       }
@@ -459,7 +461,7 @@ export class TrickManager {
   _applyFaceTexture(card) {
     const faceKey = card.getData?.('faceKey');
     if (faceKey) {
-      card.setTexture('cards', faceKey);
+      card.setTexture(CARD_TEXTURE_KEY, faceKey);
     }
   }
 
@@ -894,8 +896,8 @@ export class TrickManager {
       const cards = !trick.cards ? this._createPlaceholderStack(scene, pos) : trick.cards.map((c, index) => {
         const faceUp = mine || this._isSpectatorMode;
         const sprite = faceUp
-          ? scene.add.image(pos.x, pos.y, 'cards', getCardImageKey(c.card))
-          : scene.add.image(pos.x, pos.y, 'cardBack');
+          ? scene.add.image(pos.x, pos.y, CARD_TEXTURE_KEY, getCardImageKey(c.card))
+          : scene.add.image(pos.x, pos.y, CARD_TEXTURE_KEY, BACK_FRAME);
         sprite.setData?.('faceKey', getCardImageKey(c.card));
         sprite.setScale(this.historyScale());
         sprite.setDepth(200 + index);
@@ -928,7 +930,7 @@ export class TrickManager {
   _createPlaceholderStack(scene, pos) {
     const cards = [];
     for (let j = 0; j < 4; j++) {
-      const sprite = scene.add.image(pos.x, pos.y, 'cardBack');
+      const sprite = scene.add.image(pos.x, pos.y, CARD_TEXTURE_KEY, BACK_FRAME);
       sprite.setScale(this.historyScale());
       sprite.setDepth(200 + j);
       sprite.setInteractive();

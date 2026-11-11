@@ -37,6 +37,12 @@ import { showChatBubble as showChatBubbleUI } from '../../ui/components/ChatBubb
 import { computeTableLayout, logWidthFor } from '../layout/computeTableLayout.js';
 import { applyHudLayout, hudSeat, hudRoot, logColumnWidth } from '../../ui/tableHud.js';
 import { resizeShape } from '../shapes.js';
+import { cssSize, zoomCamera } from '../backingStore.js';
+import { ensureCardAtlas, refreshCardSprites, CARD_TEXTURE_KEY } from '../cards/CardAtlas.js';
+import { BACK_FRAME } from '../cards/cardFaces.js';
+import { uiTextStyle, refreshTextResolution } from '../text.js';
+import { COLOR, hex, alpha } from '../../ui/tokens.js';
+import { motionMs } from '../../ui/motion.js';
 
 /**
  * Main game scene class.
@@ -70,19 +76,24 @@ export class GameScene extends Phaser.Scene {
 
   /**
    * The table layout for the canvas as it is now (cached by size, role,
-   * log column and pixel ratio).
+   * log column and pixel ratio). The canvas size is in CSS pixels: the
+   * backing store is that times the ratio (backingStore.cssSize).
    */
   getLayout() {
-    const w = this.scale?.width || 1920;
-    const h = this.scale?.height || 953;
+    const css = cssSize(this.scale);
+    const w = css.w || 1920;
+    const h = css.h || 953;
+    const dpr = css.dpr;
     const state = this.state;
     const spectator = this._spectatorView ?? !!(state?.isSpectator && !state?.isLazy);
     const vw = typeof window !== 'undefined' ? window.innerWidth : w;
     const logW = typeof document !== 'undefined' ? logColumnWidth({ fallback: () => logWidthFor(vw) }) : 0;
-    const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
     const key = `${w}x${h}:${spectator ? 'spec' : 'seat'}:${logW}:${dpr}`;
     if (!this._layout || this._layout.key !== key) {
-      this._layout = { key, layout: computeTableLayout({ w, h, dpr, isSpectator: spectator, logW }) };
+      const layout = computeTableLayout({ w, h, dpr, isSpectator: spectator, logW });
+      this._layout = { key, layout };
+      // the atlas always matches the layout its sprite scales are for
+      this.ensureCardTextures(layout);
     }
     return this._layout.layout;
   }
@@ -92,6 +103,18 @@ export class GameScene extends Phaser.Scene {
     return this.getLayout().card[kind].scale;
   }
 
+  /**
+   * The card atlas at the layout's frame size (hand card x DPR): drawn and
+   * uploaded only when that size changes; the card sprites on the table then
+   * take the new frames (their scales come with the relayout or render).
+   * @returns {{changed: boolean, spec: Object, bytes: number}}
+   */
+  ensureCardTextures(layout = this.getLayout()) {
+    const r = ensureCardAtlas(this.textures, layout.cardTexture);
+    if (r.changed) refreshCardSprites(this);
+    return r;
+  }
+
   // ============================================
   // Phaser Lifecycle Methods
   // ============================================
@@ -99,11 +122,10 @@ export class GameScene extends Phaser.Scene {
   preload() {
     console.log('🎮 GameScene.preload() running...');
 
-    // Load card atlas (reduces 54 requests to 2)
-    this.load.atlas('cards', 'assets/sprites/cards.png', 'assets/sprites/cards.json');
+    // The cards are drawn, not loaded (cards/CardAtlas.js: one canvas
+    // texture at the device pixel ratio, built in create)
 
-    // Load other essential assets
-    this.load.image('cardBack', 'assets/card_back.png');
+    // Effect art
     this.load.image('rainbow', 'assets/rainbow1.png');
     this.load.image('ot', 'assets/ot.png');
     this.load.image('b', 'assets/b.png');
@@ -126,6 +148,11 @@ export class GameScene extends Phaser.Scene {
     // The director owns every timer and tween of this scene's table work
     // (main.js attaches it in setGameScene; a shutdown cancels it all)
     this.director = getTableDirector();
+
+    // World units are CSS pixels; the camera draws them at the backing
+    // store's ratio. The card atlas for this layout (one canvas texture)
+    zoomCamera(this);
+    this.ensureCardTextures();
 
     // Instantiate managers
     this.layoutManager = new LayoutManager(this);
@@ -192,6 +219,11 @@ export class GameScene extends Phaser.Scene {
   relayout() {
     this._layout = null;
     const layout = this.getLayout();
+    // a ratio change (another display) zooms the camera, redraws the
+    // atlas at the new frame size and re-rasterises the text
+    zoomCamera(this);
+    this.ensureCardTextures(layout);
+    refreshTextResolution(this);
     applyHudLayout(layout);
     if (this.layoutManager) {
       this.layoutManager.update();
@@ -267,22 +299,23 @@ export class GameScene extends Phaser.Scene {
     // Card - face down until the deal reveals it, same scale as player hand cards
     const cardKey = getCardImageKey(trumpCard);
     this.tableCardSprite = faceUp
-      ? this.add.image(trumpX, trumpY, 'cards', cardKey)
-      : this.add.image(trumpX, trumpY, 'cardBack');
+      ? this.add.image(trumpX, trumpY, CARD_TEXTURE_KEY, cardKey)
+      : this.add.image(trumpX, trumpY, CARD_TEXTURE_KEY, BACK_FRAME);
     this.tableCardSprite.setScale(trumpScale);
     this.tableCardSprite.setDepth(100);
 
-    // Background - box around card with padding (the layout's box)
-    this.tableCardBackground = this.add.rectangle(trumpX, trumpY, trump.box, trump.box, 0x000000, 0.3);
-    this.tableCardBackground.setStrokeStyle(1, 0x666666, 0.5);
+    // Background - box around card with padding (the layout's box): a
+    // surface tile with a gold hairline (gold marks the trump)
+    this.tableCardBackground = this.add.rectangle(trumpX, trumpY, trump.box, trump.box, hex(COLOR.surface.s1), 0.55);
+    this.tableCardBackground.setStrokeStyle(1, hex(COLOR.gold), 0.55);
     this.tableCardBackground.setDepth(99);
 
     // Label - above the card (a readable size: ui-7)
-    this.tableCardLabel = this.add.text(trump.label.x, trump.label.y, 'TRUMP', {
+    this.tableCardLabel = this.add.text(trump.label.x, trump.label.y, 'TRUMP', uiTextStyle(this, {
       fontSize: `${trump.label.font}px`,
-      fontFamily: 'Arial, sans-serif',
-      color: '#aaaaaa',
-    });
+      weight: 'semibold',
+      color: COLOR.gold,
+    }));
     this.tableCardLabel.setOrigin(0.5);
     this.tableCardLabel.setDepth(100);
 
@@ -293,7 +326,8 @@ export class GameScene extends Phaser.Scene {
     // deal, a render or a teardown cancels it, so onFlipped (the bid panel)
     // never fires for another hand (cli-19, ui-22)
     const delay = flipDelay ?? (this.director && !this.director.uiReady ? FLIP_AFTER_FADE_MS : FLIP_AFTER_DEAL_MS);
-    const flipDuration = 300;
+    // cosmetic: the slow token (two halves), instant under reduced motion
+    const flipDuration = motionMs('slow');
     const sprite = this.tableCardSprite;
 
     sceneDelay(this, delay, () => {
@@ -308,7 +342,7 @@ export class GameScene extends Phaser.Scene {
         onComplete: () => {
           if (!sprite || !sprite.scene) return;
           // Change to face up texture
-          sprite.setTexture('cards', cardKey);
+          sprite.setTexture(CARD_TEXTURE_KEY, cardKey);
           // Phase 2: Scale X back (flip complete)
           sceneTween(this, {
             targets: sprite,
@@ -797,7 +831,7 @@ export class GameScene extends Phaser.Scene {
             ease: 'Power2',
             onComplete: () => {
               if (!sprite || !sprite.scene) return;
-              sprite.setTexture('cards', cardKey);
+              sprite.setTexture(CARD_TEXTURE_KEY, cardKey);
 
               // Scale X back to the trick scale
               sceneTween(this, {
@@ -1053,7 +1087,7 @@ export class GameScene extends Phaser.Scene {
 
       // Flip trump card face down while tricks are whisked
       const trumpSprite = this.tableCardSprite;
-      const flipDuration = 150;
+      const flipDuration = motionMs('fast', { reduced: 0 });
       sceneTween(this, {
         targets: trumpSprite,
         scaleX: 0,
@@ -1061,7 +1095,7 @@ export class GameScene extends Phaser.Scene {
         ease: 'Power2',
         onComplete: () => {
           if (trumpSprite && trumpSprite.scene) {
-            trumpSprite.setTexture('cardBack');
+            trumpSprite.setTexture(CARD_TEXTURE_KEY, BACK_FRAME);
             sceneTween(this, {
               targets: trumpSprite,
               scaleX: trumpSprite.scaleY || this.cardScale('trump'),
@@ -1388,6 +1422,7 @@ export class GameScene extends Phaser.Scene {
     // The role picks the layout (a spectator's bottom seat has no hand)
     this._spectatorView = spectator;
     applyHudLayout(this.getLayout());
+    this.ensureCardTextures();
 
     this.trickManager?.setPlayerPosition(pos);
     this.trickManager?.setSpectatorMode(spectator);

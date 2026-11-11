@@ -50,6 +50,7 @@ import { SCREENS, initializeUIManager } from './ui/UIManager.js';
 
 // Phaser
 import { createPhaserGame } from './phaser/PhaserGame.js';
+import { applyBackingStore, onDprChange } from './phaser/backingStore.js';
 
 // Handlers
 import { registerAllHandlers } from './handlers/index.js';
@@ -107,34 +108,35 @@ export function setGameScene(scene) {
 
 /**
  * Phaser's canvas follows #game-container, the grid's first column (the
- * log column comes and goes with the table chrome). Phaser's RESIZE mode
- * re-reads its parent only on a window resize or its own 500 ms poll, and a
- * resize() with a stale width leaves its parent size cached: re-read the
- * parent and refresh, which emits 'resize' (GameScene.relayout).
+ * log column comes and goes with the table chrome), at the device pixel
+ * ratio (item 18a): the backing store is the container's CSS size times the
+ * ratio (phaser/backingStore.js); a change emits Phaser's 'resize'
+ * (GameScene.relayout).
  */
 function syncCanvasSize(scene = gameSceneRef) {
-  const scale = scene?.game?.scale;
+  const game = scene?.game;
   const container = document.getElementById('game-container');
-  if (!scale || !container) return;
+  if (!game?.scale || !container) return;
   const w = container.clientWidth;
   const h = container.clientHeight;
-  if (!w || !h || (scale.width === w && scale.height === h)) return;
-  if (typeof scale.getParentBounds === 'function' && typeof scale.refresh === 'function') {
-    scale.getParentBounds();
-    scale.refresh();
-  }
-  if (scale.width !== w || scale.height !== h) scale.resize(w, h);
+  if (!w || !h) return;
+  applyBackingStore(game, w, h);
 }
 
 let containerObserver = null;
 
-/** Any change of the container's size (grid column, window) resizes the canvas. */
+/**
+ * Any change of the container's size (grid column, window) resizes the
+ * canvas, and so does a change of the device pixel ratio (the window moved
+ * to another display).
+ */
 function observeContainer() {
   if (containerObserver || typeof ResizeObserver === 'undefined') return;
   const container = document.getElementById('game-container');
   if (!container) return;
   containerObserver = new ResizeObserver(() => syncCanvasSize());
   containerObserver.observe(container);
+  onDprChange(() => syncCanvasSize());
 }
 
 /**

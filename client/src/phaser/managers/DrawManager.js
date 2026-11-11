@@ -11,8 +11,9 @@ import { getSocketManager } from '../../socket/SocketManager.js';
 import { teamsFade } from '../pacing.js';
 import { sceneDelay, sceneTween } from '../TableDirector.js';
 import { createTransitionOverlay } from '../../ui/transitionOverlay.js';
-import { CARD_CONFIG } from '../config.js';
 import { layoutOf, deckPosition } from '../layout/computeTableLayout.js';
+import { CARD_TEXTURE_KEY } from '../cards/CardAtlas.js';
+import { BACK_FRAME } from '../cards/cardFaces.js';
 import { resizeShape } from '../shapes.js';
 
 /** A drawn name shrinks to this much of its font before it is cut short. */
@@ -104,14 +105,14 @@ export class DrawManager {
     }).setOrigin(0.5).setDepth(200);
     this.allCards.push(this.titleText);
 
-    // The deck: each card is its own button over its visible bounds, so the
-    // one under the pointer is the one picked (Phaser's input checks the
-    // top object first; a later card lies over the one before it). ui-19:
-    // one hit zone used to map a click two or three cards to the left.
-    const { CARD_BOUNDS } = CARD_CONFIG;
+    // The deck: each card is its own button over its visible bounds (the
+    // atlas frame IS the card: no padding), so the one under the pointer is
+    // the one picked (Phaser's input checks the top object first; a later
+    // card lies over the one before it). ui-19: one hit zone used to map a
+    // click two or three cards to the left.
     for (let i = 0; i < 54; i++) {
       const spot = deckPosition(L, i);
-      const cardSprite = this.scene.add.image(deck.enterX, spot.y, 'cardBack')
+      const cardSprite = this.scene.add.image(deck.enterX, spot.y, CARD_TEXTURE_KEY, BACK_FRAME)
         .setScale(deck.card.scale).setDepth(100);
       cardSprite.setData?.('deckIndex', i);
 
@@ -129,7 +130,7 @@ export class DrawManager {
         cardSprite.y = spot.y;
       }
       cardSprite.setInteractive(
-        new Phaser.Geom.Rectangle(CARD_BOUNDS.x, CARD_BOUNDS.y, CARD_BOUNDS.width, CARD_BOUNDS.height),
+        new Phaser.Geom.Rectangle(0, 0, cardSprite.width, cardSprite.height),
         Phaser.Geom.Rectangle.Contains
       );
       cardSprite.on('pointerdown', () => this._onDeckCardDown(cardSprite));
@@ -210,7 +211,7 @@ export class DrawManager {
           fitNameLabel(item, item.getData('fullName'), draw.name.rects[order - 1]?.w);
         } else {
           const face = item.getData('faceKey');
-          if (face) item.setTexture('cards', face);
+          if (face) item.setTexture(CARD_TEXTURE_KEY, face);
           item.setPosition(slot.x, slot.y);
           item.setScale(draw.slotCard.scale);
         }
@@ -284,7 +285,7 @@ export class DrawManager {
       } else {
         // Fallback: create a new card if somehow no cards left
         const p = deckPosition(this.layout(), 0);
-        drawnCard = this.scene.add.image(p.x, p.y, 'cardBack')
+        drawnCard = this.scene.add.image(p.x, p.y, CARD_TEXTURE_KEY, BACK_FRAME)
           .setScale(draw.deck.card.scale)
           .setDepth(300);
       }
@@ -349,7 +350,7 @@ export class DrawManager {
         if (!drawnCard || !drawnCard.scene) return;
 
         // Change texture to revealed card
-        drawnCard.setTexture('cards', textureKey);
+        drawnCard.setTexture(CARD_TEXTURE_KEY, textureKey);
 
         // Phase 2: Scale X back and complete movement
         sceneTween(this.scene, {
@@ -423,7 +424,7 @@ export class DrawManager {
             if (!item || !item.scene) return;
 
             // Change texture to card back
-            item.setTexture('cardBack');
+            item.setTexture(CARD_TEXTURE_KEY, BACK_FRAME);
 
             // Phase 2: Complete flip (scale X back)
             sceneTween(this.scene, {

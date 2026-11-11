@@ -5,8 +5,8 @@
  * (item 25); this one mirrors its semantics where they fit:
  *
  *   - one uniform size scale s for every sprite and DOM size (cards,
- *     avatars, plates, trick slots, the bid sheet), never above 1 (the card
- *     art is 64 px; item 18 brings hi-res cards);
+ *     avatars, plates, trick slots, the bid sheet), never above 1 (today's
+ *     1920 x 1080 table);
  *   - s is SOLVED, not guessed: the search tries s = 1, 0.99 ... and takes
  *     the first layout with no rect intersections and nothing off the
  *     canvas, checked by the same findIntersections / findOutside the tests
@@ -33,12 +33,16 @@
  */
 
 import { CARD_CONFIG } from '../config.js';
+import { cardTextureSize } from '../cards/CardAtlas.js';
 
-/** The 64 px atlas frame and the card inside it (CARD_CONFIG.CARD_BOUNDS). */
-export const FRAME = CARD_CONFIG.FRAME_WIDTH;
-export const CARD_VISIBLE = { w: CARD_CONFIG.CARD_BOUNDS.width, h: CARD_CONFIG.CARD_BOUNDS.height };
+/**
+ * A card at design scale 1 (CSS px; item 18a: the hi-res faces have the iOS
+ * card's 300 x 435 proportions and no padding, so the sprite's bounds ARE
+ * the visible card and its hit area).
+ */
+export const CARD_UNIT = CARD_CONFIG.UNIT;
 
-/** Sprite scales at s = 1 (today's: hand and trick 1.5, backs and deck 1.2, history 1.0). */
+/** Design scales at s = 1 (today's: hand and trick 1.5, backs and deck 1.2, history 1.0). */
 export const BASE_SCALE = { hand: 1.5, trick: 1.5, back: 1.2, history: 1.0, trump: 1.5, deck: 1.2, drawn: 1.5 };
 
 /**
@@ -163,9 +167,20 @@ export function contains(outer, inner, eps = 0.01) {
     inner.x + inner.w <= outer.x + outer.w + eps && inner.y + inner.h <= outer.y + outer.h + eps;
 }
 
-/** Card sizes on screen for a sprite scale (the visible card, not the frame). */
-function cardSize(scale) {
-  return { scale, w: CARD_VISIBLE.w * scale, h: CARD_VISIBLE.h * scale, frame: FRAME * scale };
+/**
+ * A card on screen at a design scale, drawn from atlas frames of `tex`
+ * (px): `scale` is the SPRITE scale (on-screen height / frame height; the one
+ * conversion between the atlas bitmap and CSS px), w x h the bounds a
+ * sprite at that scale renders and is clicked by, `box` the square the
+ * trump's frame is built on (the old 64 px atlas frame around a 62 px
+ * card: the trump box keeps its item 17 size).
+ */
+const BOX_PER_H = 64 / 62;
+function cardSize(design, tex) {
+  const scale = (CARD_UNIT.h * design) / tex.h;
+  const w = scale * tex.w;
+  const h = scale * tex.h;
+  return { design, scale, w, h, box: CARD_UNIT.h * design * BOX_PER_H };
 }
 
 /**
@@ -192,14 +207,17 @@ function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1, felt = 0, hi
   const frogDx = 60 * s;
   const frogReach = frogDx + frog / 2;
 
+  // the atlas frame: the hand card (the largest on screen) at this s, times
+  // the device pixel ratio, so hand cards sample 1:1 (CardAtlas)
+  const tex = cardTextureSize(CARD_UNIT.h * BASE_SCALE.hand * s, dpr);
   const card = {
-    hand: cardSize(BASE_SCALE.hand * s),
-    trick: cardSize(BASE_SCALE.trick * s),
-    back: cardSize(BASE_SCALE.back * s),
-    history: cardSize(BASE_SCALE.history * s * k),
-    trump: cardSize(BASE_SCALE.trump * s),
-    deck: cardSize(BASE_SCALE.deck * s),
-    drawn: cardSize(BASE_SCALE.drawn * s),
+    hand: cardSize(BASE_SCALE.hand * s, tex),
+    trick: cardSize(BASE_SCALE.trick * s, tex),
+    back: cardSize(BASE_SCALE.back * s, tex),
+    history: cardSize(BASE_SCALE.history * s * k, tex),
+    trump: cardSize(BASE_SCALE.trump * s, tex),
+    deck: cardSize(BASE_SCALE.deck * s, tex),
+    drawn: cardSize(BASE_SCALE.drawn * s, tex),
   };
   const back = card.back;
   const backSp = BACK_SPACING * s;
@@ -441,7 +459,7 @@ function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1, felt = 0, hi
 
   // ---------- trump: top right, today's spot where it fits ----------
   const tCard = card.trump;
-  const trumpBox = tCard.frame + 20 * s;
+  const trumpBox = tCard.box + 20 * s;
   const labelFont = Math.max(9, 14 * s);
   const labelAbove = trumpBox / 2 + 15 * s;
   const trumpTopReach = labelAbove + labelFont * 0.6;
@@ -566,6 +584,7 @@ function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1, felt = 0, hi
     canvas: rect(0, 0, cw, ch),
     log,
     card,
+    cardTexture: { ...tex, dpr },
     seats,
     fonts: { plate: plateFont, plateLH, hsi: hsiFont },
     plate: { w: plateW, h: plateH, gap: plateGap, lh: plateLH, font: plateFont },

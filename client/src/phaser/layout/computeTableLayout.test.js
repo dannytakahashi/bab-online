@@ -172,10 +172,14 @@ describe('computeTableLayout at the named viewports', () => {
     // my box right of the hand (today x = 1250); the hand box 40% of the canvas
     expect(L.seats.self.avatar.x).toBeCloseTo(1250, 0);
     expect(L.hand.rect.w).toBeCloseTo(640, 0);
-    // today's sprite scales and the 80 px avatars
-    expect(L.card.hand.scale).toBe(1.5);
-    expect(L.card.back.scale).toBe(1.2);
-    expect(L.card.history.scale).toBe(1);
+    // today's card sizes (design scales 1.5 / 1.2 / 1; item 18a: the
+    // hi-res face is 62 px tall at design 1, as the old card) and the 80 px avatars
+    expect([L.card.hand.design, L.card.back.design, L.card.history.design]).toEqual([1.5, 1.2, 1]);
+    expect(L.card.hand.h).toBeCloseTo(93, 6);
+    expect(L.card.hand.w).toBeCloseTo(93 * 300 / 435, 0);
+    // at DPR 1 the hand card samples its atlas frame 1:1
+    expect(L.cardTexture).toMatchObject({ h: 93, dpr: 1 });
+    expect(L.card.hand.scale).toBe(1);
     expect(L.seats.partner.avatar.img).toBe(80);
   });
 });
@@ -292,8 +296,14 @@ describe('computeTableLayout over a grid of sizes (800-2560 x 500-1440)', () => 
       const L = layoutForViewport({ vw, vh });
       expect(L.s).toBeGreaterThan(0);
       expect(L.s).toBeLessThanOrEqual(1);
-      for (const k of ['hand', 'trick', 'back', 'trump', 'deck', 'drawn']) expect(L.card[k].scale).toBeCloseTo(BASE_SCALE[k] * L.s, 6);
-      expect(L.card.history.scale).toBeCloseTo(BASE_SCALE.history * L.s * L.historyScale, 6);
+      for (const k of ['hand', 'trick', 'back', 'trump', 'deck', 'drawn']) expect(L.card[k].design).toBeCloseTo(BASE_SCALE[k] * L.s, 6);
+      expect(L.card.history.design).toBeCloseTo(BASE_SCALE.history * L.s * L.historyScale, 6);
+      // one atlas frame for every card: a sprite's scale times the frame is its on-screen size
+      for (const k of Object.keys(L.card)) {
+        expect(L.card[k].scale * L.cardTexture.h).toBeCloseTo(L.card[k].h, 6);
+        expect(L.card[k].scale * L.cardTexture.w).toBeCloseTo(L.card[k].w, 6);
+        expect(L.card[k].h).toBeCloseTo(62 * L.card[k].design, 6);
+      }
       expect(L.seats.opp1.avatar.img).toBeCloseTo(80 * L.s, 6);
       expect(L.history.team.slotW).toBeCloseTo(54 * L.s * L.historyScale, 6);
       // the history's slot and its spacing scale together (ui-6: 54 px slots on 37 px spacing)

@@ -8,6 +8,7 @@ import { getCardImageKey } from '../../utils/cards.js';
 import { CARD_CONFIG, ANIMATION_CONFIG } from '../config.js';
 import { sceneDelay, sceneTween } from '../TableDirector.js';
 import { layoutOf, handPositions } from '../layout/computeTableLayout.js';
+import { CARD_TEXTURE_KEY } from '../cards/CardAtlas.js';
 
 /**
  * CardManager handles all card-related sprite operations.
@@ -103,15 +104,9 @@ export class CardManager {
       // Higher depth = checked first for input, so overlapping cards work correctly
       sprite.setDepth(CARD_CONFIG.Z_INDEX.HAND + index);
 
-      // Use explicit hit area matching visible card bounds within the 64x64 frame
-      // (cards have transparent padding in the atlas that shouldn't be clickable)
-      const { CARD_BOUNDS } = CARD_CONFIG;
-      const hitArea = new Phaser.Geom.Rectangle(
-        CARD_BOUNDS.x,
-        CARD_BOUNDS.y,
-        CARD_BOUNDS.width,
-        CARD_BOUNDS.height
-      );
+      // The hit area is the visible card: the atlas frame has no padding,
+      // so it is the whole frame (cards/CardAtlas.js)
+      const hitArea = new Phaser.Geom.Rectangle(0, 0, sprite.width, sprite.height);
       sprite.setInteractive(hitArea, Phaser.Geom.Rectangle.Contains);
       this._setupCardInteraction(sprite);
 
@@ -153,7 +148,7 @@ export class CardManager {
         ({ x: startX, y: startY } = this.layout().trump);
       }
 
-      sprite = scene.add.sprite(startX, startY, 'cards', textureKey);
+      sprite = scene.add.sprite(startX, startY, CARD_TEXTURE_KEY, textureKey);
       sprite.setScale(SCALE);
       sprite.setDepth(Z_INDEX.HAND + index);
       sprite.setAlpha(0); // Start invisible to avoid position glitch during delay
@@ -171,7 +166,7 @@ export class CardManager {
         delay: 200 + (index * 50),
       });
     } else {
-      sprite = scene.add.sprite(x, y, 'cards', textureKey);
+      sprite = scene.add.sprite(x, y, CARD_TEXTURE_KEY, textureKey);
       sprite.setScale(SCALE);
       sprite.setDepth(Z_INDEX.HAND);
     }
@@ -250,10 +245,10 @@ export class CardManager {
       const sprite = this._scene.add.sprite(
         targetX,
         targetY,
-        'cards',
+        CARD_TEXTURE_KEY,
         this.getTextureKey(card)
       );
-      sprite.setScale(CARD_CONFIG.SCALE);
+      sprite.setScale(this.layout().card.trick.scale);
       sprite.setDepth(CARD_CONFIG.Z_INDEX.PLAYED_CARDS);
       this._playedSprites[position] = sprite;
       return;
@@ -284,14 +279,15 @@ export class CardManager {
    */
   collectTrick(winnerPosition) {
     const scene = this._scene;
-    const { scale } = scene;
+    // the canvas in CSS px (the layout's; the backing store is x DPR)
+    const { w, h } = this.layout();
 
     // Get winner's edge position
     const targets = {
-      1: { x: scale.width / 2, y: scale.height + 100 },
-      2: { x: -100, y: scale.height / 2 },
-      3: { x: scale.width / 2, y: -100 },
-      4: { x: scale.width + 100, y: scale.height / 2 },
+      1: { x: w / 2, y: h + 100 },
+      2: { x: -100, y: h / 2 },
+      3: { x: w / 2, y: -100 },
+      4: { x: w + 100, y: h / 2 },
     };
 
     const target = targets[winnerPosition];
