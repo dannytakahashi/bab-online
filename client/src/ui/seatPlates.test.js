@@ -10,6 +10,7 @@ import { GameState } from '../state/GameState.js';
 import { snapshotFromLegacy } from '../state/legacySnapshot.js';
 import { LayoutManager, placeBackdrop } from '../phaser/managers/LayoutManager.js';
 import { computeTableLayout } from '../phaser/layout/computeTableLayout.js';
+import { readClientFile } from '../testing/files.js';
 
 function seat(position, name) {
   const container = document.createElement('div');
@@ -221,6 +222,37 @@ describe('per-player pips (owner, 2026-11-11), projected from GameState', () => 
     state.applyDeal({ gameId: 'g1', position: 1, currentHand: 8, dealer: 1, trump: { suit: 'clubs', rank: '2' }, hand: hand(8) });
     expect(state.tricksByPosition).toEqual({ 1: 0, 2: 0, 3: 0, 4: 0 });
     expect(state.renderModel().tricksByPosition).toEqual({ 1: 0, 2: 0, 3: 0, 4: 0 });
+  });
+});
+
+describe('the pip box\'s label is reachable', () => {
+  // A browser shows a title only for the element under the pointer or its
+  // ancestors: a pip box that is not hit-tested (pointer-events: none on it
+  // or its pips) never shows "2 of 3" or "Team 7 of 10 (bore)".
+  const css = readClientFile('styles/table.css');
+  /** Every rule whose selector list names the pip box or a pip, with its declarations. */
+  const pipRules = [...css.matchAll(/([^{}]*)\{([^}]*)\}/g)]
+    .map((m) => [m[1].replace(/\/\*[\s\S]*?\*\//g, '').trim(), m[2]])
+    .filter(([sel]) => /\.hud-pips?\b/.test(sel));
+
+  it('no rule turns hit-testing off for the pip box or its pips', () => {
+    expect(pipRules.length).toBeGreaterThan(0);
+    const off = pipRules.filter(([, body]) => /pointer-events:\s*none/.test(body)).map(([sel]) => sel);
+    expect(off).toEqual([]);
+  });
+
+  it('a bore box is marked on the table too (touch has no tooltip)', () => {
+    const bore = pipRules.filter(([sel]) => sel.split(',').some((x) => x.trim() === '.hud-pips.is-bore'));
+    expect(bore.map(([, body]) => body).join('')).toMatch(/var\(--danger-solid\)/);
+  });
+
+  it('the box sets its title and the bore class from the table', () => {
+    const root = document.createElement('div');
+    root.append(seat(1, 'Ann'));
+    updateSeatPlates(root, { position: 1, isBidding: false, currentHand: 10, bids: { 1: 'B', 3: '2' }, tricksByPosition: { 1: 0, 2: 0, 3: 7, 4: 0 }, teamTricks: 7, oppTricks: 0 });
+    const box = root.querySelector('.hud-pips');
+    expect(box.title).toBe('Team 7 of 10 (bore)');
+    expect(box.classList.contains('is-bore')).toBe(true);
   });
 });
 
