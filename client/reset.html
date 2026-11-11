@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <!-- The same policy as index.html (server/__tests__/csp.test.js keeps
+         every page's meta in step with the header) -->
+    <meta http-equiv="Content-Security-Policy" content="
+        default-src 'self';
+        script-src 'self';
+        img-src 'self' data: blob:;
+        connect-src 'self' ws://localhost:3000 wss://bab-online-production.up.railway.app https://bab-online-production.up.railway.app;
+        font-src 'self';
+        style-src 'self' 'unsafe-inline';
+        media-src 'self' blob:;">
+    <!-- The token is in the URL fragment: never sent, never a Referer -->
+    <meta name="referrer" content="no-referrer">
+    <meta name="robots" content="noindex">
+    <title>Reset your password - BAB Online</title>
+    <!-- The standalone reset page (src/reset/resetPage.js): no phone gate,
+         no game bundle. One sheet: reset.css imports the tokens and the kit
+         (inlined at build time, so this page shares no chunk with the app) -->
+    <link rel="stylesheet" href="/styles/reset.css">
+    <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48">
+    <link rel="apple-touch-icon" href="/assets/icons/apple-touch-icon.png">
+    <script type="module" src="/src/reset/resetEntry.js"></script>
+</head>
+<body class="reset-body">
+    <main id="reset-root" class="reset"></main>
+</body>
+</html>

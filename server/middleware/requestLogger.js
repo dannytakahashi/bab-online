@@ -5,6 +5,18 @@
 
 const { httpLogger } = require('../utils/logger');
 
+/**
+ * The URL as logged. The reset page and its API never put the token in
+ * the URL (it travels in the fragment and the POST body:
+ * routes/passwordReset.js), but should anyone open /reset?<something>,
+ * the query is still never written to a log.
+ */
+function loggedUrl(req) {
+    const p = req.path || '';
+    if (p === '/reset' || p.startsWith('/reset/') || p.startsWith('/api/password-reset')) return p;
+    return req.url;
+}
+
 function requestLogger(req, res, next) {
     const startTime = Date.now();
 
@@ -18,7 +30,7 @@ function requestLogger(req, res, next) {
     if (!isStaticFile) {
         httpLogger.http('Request', {
             method: req.method,
-            url: req.url,
+            url: loggedUrl(req),
             ip: req.ip || req.connection.remoteAddress
         });
     }
@@ -34,7 +46,7 @@ function requestLogger(req, res, next) {
 
         const logData = {
             method: req.method,
-            url: req.url,
+            url: loggedUrl(req),
             status: res.statusCode,
             duration: `${duration}ms`
         };
@@ -50,3 +62,4 @@ function requestLogger(req, res, next) {
 }
 
 module.exports = requestLogger;
+module.exports.loggedUrl = loggedUrl;

@@ -27,6 +27,9 @@ const avatarStore = require('./avatar/avatarStore');
 const { mountStatic } = require('./staticAssets');
 const { createCompression } = require('./middleware/compression');
 const { cspMiddleware } = require('./middleware/csp');
+const { createPasswordResetRouter } = require('./routes/passwordReset');
+const database = require('./database');
+const { signOutUser } = require('./socket/authHandlers');
 
 // Initialize Express
 const app = express();
@@ -47,6 +50,20 @@ app.use(cspMiddleware);
 // handlers; sets its own CSP/CORP/nosniff and cache headers
 app.use(createAvatarRouter({ getUsersCollection, avatarStore }));
 
+// One-time password reset links: GET /reset (the standalone page) and
+// POST /api/password-reset (routes/passwordReset.js). The Socket.IO server
+// is created below; the route reads it when a reset signs a player out
+let ioServer = null;
+app.use(createPasswordResetRouter({
+    getDb: () => ({
+        users: database.getUsersCollection(),
+        passwordResets: database.getPasswordResetsCollection(),
+        adminAudit: database.getAdminAuditCollection()
+    }),
+    getIo: () => ioServer,
+    signOutUser
+}));
+
 // Static files: the page (no-cache), hashed bundles and versioned avatar
 // art (immutable), the client (server/staticAssets.js)
 mountStatic(app, config);
@@ -61,6 +78,8 @@ const io = new Server(server, {
         methods: ['GET', 'POST']
     }
 });
+
+ioServer = io;
 
 // Setup socket event handlers
 setupSocketHandlers(io);
