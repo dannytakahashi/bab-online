@@ -9,18 +9,42 @@ const fs = require('fs');
 const path = require('path');
 const pacing = require('../pacing');
 
-const { PROFILES, SHIPPED_IOS_FLOORS } = pacing;
+const { PROFILES, SHIPPED_IOS_FLOORS, IOS_1_0_FLOORS } = pacing;
 const minOf = (v) => (Array.isArray(v) ? v[0] : v);
 
-describe('SHIPPED_IOS_FLOORS', () => {
+const floorValue = (p, key) => key.split('+').reduce((sum, k) => {
+    expect(p).toHaveProperty(k);
+    return sum + minOf(p[k]);
+}, 0);
+
+describe('SHIPPED_IOS_FLOORS (1.1.0 build 2)', () => {
     test.each(Object.keys(PROFILES).filter((n) => n !== 'zero'))('%s respects every floor', (name) => {
         const p = PROFILES[name];
         for (const [key, floor] of Object.entries(SHIPPED_IOS_FLOORS)) {
-            const value = key.split('+').reduce((sum, k) => {
-                expect(p).toHaveProperty(k);
-                return sum + minOf(p[k]);
-            }, 0);
-            expect([name, key, value >= floor]).toEqual([name, key, true]);
+            expect([name, key, floorValue(p, key) >= floor]).toEqual([name, key, true]);
+        }
+    });
+
+    // UPGRADE_GATE=off lets the 1.0.0 build play again: the production
+    // profiles keep its floors until the gate is permanent
+    test.each(['standard', 'legacy'])('%s still respects every 1.0.0 floor (the kill switch)', (name) => {
+        const p = PROFILES[name];
+        for (const [key, floor] of Object.entries(IOS_1_0_FLOORS)) {
+            expect([name, key, floorValue(p, key) >= floor]).toEqual([name, key, true]);
+        }
+    });
+
+    test('the 1.1.0 floors cover the same keys and never exceed the 1.0.0 ones; fast sits on them', () => {
+        expect(Object.keys(SHIPPED_IOS_FLOORS).sort()).toEqual(Object.keys(IOS_1_0_FLOORS).sort());
+        for (const [k, v] of Object.entries(SHIPPED_IOS_FLOORS)) expect([k, v <= IOS_1_0_FLOORS[k]]).toEqual([k, true]);
+        expect(Object.isFrozen(SHIPPED_IOS_FLOORS) && Object.isFrozen(IOS_1_0_FLOORS)).toBe(true);
+        // what changed with 1.1.0 (pacing.js comments cite the iOS source)
+        expect(Object.fromEntries(Object.entries(SHIPPED_IOS_FLOORS).filter(([k, v]) => v !== IOS_1_0_FLOORS[k]))).toEqual({
+            BOT_FIRST_BID: 500, BOT_LEAD_AFTER_BIDDING: 300, BOT_LEAD_AFTER_TRICK: 400, HAND_END_MS: 400,
+        });
+        for (const [key, floor] of Object.entries(SHIPPED_IOS_FLOORS)) {
+            if (key.includes('+') || key === 'BOT_LEAD_AFTER_TRICK') continue; // web collect 500 (below)
+            expect([key, minOf(PROFILES.fast[key])]).toEqual([key, floor]);
         }
     });
 

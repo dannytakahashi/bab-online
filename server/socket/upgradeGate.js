@@ -1,0 +1,228 @@
+/**
+ * Update screen for the old App Store iOS build (1.0.0 build 1, source
+ * cc9059f). Owner decision 2026-11-11: 1.1.0 (build 2) is live, and all a
+ * 1.0.0 player should see is "please update the app", while the app keeps
+ * its saved session so the update finds the player signed in.
+ *
+ * Detection: positive identification only, fail open. Both iOS builds open
+ * with HTTP long-polling through URLSession (Socket.IO-Client-Swift
+ * `.forceWebsockets(false)`), whose default User-Agent is
+ * `<CFBundleName>/<CFBundleVersion> CFNetwork/<v> Darwin/<v>`. Captured from
+ * simulator builds of cc9059f and f05d264 (2026-11-11):
+ *   1.0.0  "BAB%20Online/1 CFNetwork/3896.200.61 Darwin/27.2.0"
+ *   1.1.0  "BAB%20Online/2 CFNetwork/3896.200.61 Darwin/27.2.0"
+ * The websocket upgrade request (Starscream) carries no User-Agent, but
+ * socket.handshake keeps the polling handshake's headers for the socket's
+ * life. A socket is gated only when that header parses as the iOS app with a
+ * build number below MIN_IOS_BUILD; a browser, a missing or unparseable
+ * header, and build 2 or later are never gated. `clientHello` cannot be the
+ * signal: 1.1.0 never sends it.
+ *
+ * What the 1.0.0 app does with what it gets (cc9059f AuthSocketHandler.swift):
+ *   restoreSessionResponse {success:false}  CLEARS its saved token. Never sent.
+ *   signInResponse {success:false, message} sets authState.error, which
+ *       SignInView (and RegisterView) shows in red; credentials untouched.
+ *       A plain socket.on, so an unrequested one is shown too.
+ *   signUpResponse {success:false, message} the same on RegisterView.
+ *   mainRoomJoined                            replaces the main room's chat,
+ *       lobbies, games and tournaments (no navigation).
+ *   leftGame / leftLobby / tournamentLeft     navigate to the main room.
+ *   app-level `error`                         never shown by this build.
+ * So a gated socket gets the update message on every screen it can be on:
+ *   - sign-in / register (every cold start: SplashView 1.5 s, then SignInView,
+ *     whose onAppear clears authState.error): signInResponse pushed
+ *     PUSH_DELAYS_MS after connect, and as the reply to restoreSession,
+ *     signIn and signUp (signUpResponse);
+ *   - main room (a warm reconnect after a deploy or a long background):
+ *     a mainRoomJoined whose only content is the message, pushed once and
+ *     sent again on joinMainRoom;
+ *   - game table / lobby (warm reconnect): the app's in-game Leave (`/leave`)
+ *     gets leftGame, a lobby's Leave gets leftLobby, a tournament's leave /
+ *     return gets tournamentLeft, so every way out lands in that main room.
+ *     (No game-log copy: gameLogEntry is a room broadcast that carries seq.)
+ * Nothing else is registered for a gated socket (setupSocketHandlers returns
+ * before its handlers), so every other event is ignored: it never signs in,
+ * is never registered as online, never joins a room, never touches a game,
+ * lobby, tournament or the database. Every emit is rate limited per socket.
+ *
+ * Kill switch: UPGRADE_GATE=off (also false / 0 / disabled), read at each
+ * connection. Telemetry: one info line per gated connection (build, the
+ * username it sent if any; never a token or password), plus the parsed build
+ * of every iOS socket (adoption).
+ */
+
+'use strict';
+
+const { socketLogger } = require('../utils/logger');
+
+/** First iOS build number that is never gated (1.1.0 is build 2). */
+const MIN_IOS_BUILD = 2;
+
+// Short: SignInView shows it as a caption that truncates once the keyboard
+// is up (measured: about 2 lines at 375 pt wide), and as one main-room chat line
+const UPDATE_MESSAGE = "Update required. Please update BAB Online in the App Store. You'll stay signed in.";
+/** For a socket that sent no restoreSession (no saved session to keep). */
+const UPDATE_MESSAGE_SIGNED_OUT = 'Update required. Please update BAB Online in the App Store.';
+const SENDER = 'BAB Online';
+
+// Unsolicited signInResponse pushes after connect (ms). Not game pacing: the
+// first can land under the 1.5 s splash (SignInView.onAppear clears it), the
+// later ones after it.
+const PUSH_DELAYS_MS = Object.freeze([300, 2000, 5000]);
+/** The push that also carries the main-room copy and the log line. */
+const MAIN_PUSH = 1;
+// At most EMIT_LIMIT gate emits per socket per EMIT_WINDOW_MS (taps on Sign In,
+// a client looping on something); over it, emits are dropped silently.
+const EMIT_LIMIT = 20;
+const EMIT_WINDOW_MS = 60 * 1000;
+
+const UA_MAX = 512;
+// "BAB%20Online/<digits> ... CFNetwork/<v> ... Darwin/<v>": the product token
+// must lead and the build must be a plain integer (a dotted or other
+// CFBundleVersion fails to parse and is never gated)
+const IOS_UA = /^BAB(?:%20| )Online\/(\d{1,9}) (?:.* )?CFNetwork\/\d[\d.]* (?:.* )?Darwin\/\d[\d.]*(?: |$)/;
+
+/**
+ * Parse the iOS app's URLSession User-Agent.
+ * @returns {{client: 'ios', build: number} | null} null for anything else
+ */
+function parseIosUserAgent(ua) {
+    if (typeof ua !== 'string' || ua.length === 0 || ua.length > UA_MAX) return null;
+    const m = IOS_UA.exec(ua);
+    if (!m) return null;
+    const build = Number(m[1]);
+    if (!Number.isSafeInteger(build)) return null;
+    return { client: 'ios', build };
+}
+
+/** The handshake's User-Agent, or undefined (never throws). */
+function handshakeUserAgent(socket) {
+    try {
+        const ua = socket?.handshake?.headers?.['user-agent'];
+        return typeof ua === 'string' ? ua : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+function gateEnabled() {
+    const v = String(process.env.UPGRADE_GATE || '').trim().toLowerCase();
+    return !['off', 'false', '0', 'disabled', 'no'].includes(v);
+}
+
+/** Is this the old iOS build? Positive identification only. */
+function isOutdatedIosApp(ua) {
+    const app = parseIosUserAgent(ua);
+    return app !== null && app.build < MIN_IOS_BUILD;
+}
+
+const str = (v, max = 64) => (typeof v === 'string' ? v.slice(0, max) : null);
+
+/**
+ * Called first for every connection (setupSocketHandlers). Records the
+ * parsed iOS build on socket.data.appBuild; gates the socket when it is the
+ * old build and the gate is on.
+ * @returns {boolean} true when the socket is gated (register nothing else)
+ */
+function gate(socket) {
+    const ua = handshakeUserAgent(socket);
+    const app = parseIosUserAgent(ua);
+    if (app && socket.data) socket.data.appBuild = app.build;
+    if (app) socketLogger.info('iOS app connected', { socketId: socket.id, build: app.build });
+    if (!app || app.build >= MIN_IOS_BUILD) return false;
+    if (!gateEnabled()) return false;
+    if (typeof socket.on !== 'function' || typeof socket.emit !== 'function') return false;
+    attach(socket, app);
+    return true;
+}
+
+function attach(socket, app) {
+    const st = { username: null, restored: false, logged: false, emits: [], timers: [], connected: true };
+
+    const send = (event, payload) => {
+        if (!st.connected) return;
+        const now = Date.now();
+        while (st.emits.length && now - st.emits[0] >= EMIT_WINDOW_MS) st.emits.shift();
+        if (st.emits.length >= EMIT_LIMIT) return;
+        st.emits.push(now);
+        if (payload === undefined) socket.emit(event); else socket.emit(event, payload);
+    };
+    const message = () => (st.restored ? UPDATE_MESSAGE : UPDATE_MESSAGE_SIGNED_OUT);
+    const note = (data) => {
+        const u = str(data?.username);
+        if (u) st.username = u;
+    };
+    // One info line per gated connection that lived to the main push or sent
+    // a username; a socket the app dropped at once (its foreground
+    // forceReconnect replaces the launch socket) is debug only
+    const logOnce = (quiet = false) => {
+        if (st.logged) return;
+        st.logged = true;
+        const fields = { socketId: socket.id, build: app.build, username: st.username, savedSession: st.restored };
+        if (quiet && !st.username) socketLogger.debug('Upgrade gate: outdated iOS app (dropped at once)', fields);
+        else socketLogger.info('Upgrade gate: outdated iOS app', fields);
+    };
+
+    function sendUpdateMessage() {
+        send('signInResponse', { success: false, message: message() });
+    }
+    function replySignUp() {
+        send('signUpResponse', { success: false, message: message() });
+    }
+    function sendMainRoom() {
+        const line = [{ username: SENDER, message: message(), timestamp: Date.now() }];
+        send('mainRoomJoined', {
+            messages: line, recentMessages: line, lobbies: [], onlineCount: 0, onlineUsers: [], inProgressGames: [], tournaments: [],
+        });
+    }
+    function replyLeave(event) {
+        send(event, event === 'leftGame' ? undefined : {});
+    }
+
+    socket.on('restoreSession', (data) => {
+        st.restored = true;
+        note(data);
+        sendUpdateMessage();
+    });
+    socket.on('signIn', (data) => { note(data); sendUpdateMessage(); });
+    socket.on('signUp', (data) => { note(data); replySignUp(); });
+    socket.on('joinMainRoom', () => sendMainRoom());
+    // The in-game Leave button sends the /leave chat command
+    socket.on('chatMessage', (data) => {
+        if (typeof data?.message === 'string' && data.message.trim().toLowerCase() === '/leave') replyLeave('leftGame');
+    });
+    socket.on('leaveLobby', () => replyLeave('leftLobby'));
+    socket.on('leaveTournament', () => replyLeave('tournamentLeft'));
+    socket.on('returnToTournament', () => replyLeave('tournamentLeft'));
+    socket.on('disconnect', () => {
+        st.connected = false;
+        for (const t of st.timers) clearTimeout(t);
+        st.timers = [];
+        logOnce(true);
+    });
+
+    PUSH_DELAYS_MS.forEach((ms, i) => {
+        const t = setTimeout(() => {
+            sendUpdateMessage();
+            if (i === MAIN_PUSH) {
+                sendMainRoom();
+                logOnce();
+            }
+        }, ms);
+        if (typeof t?.unref === 'function') t.unref();
+        st.timers.push(t);
+    });
+}
+
+module.exports = {
+    MIN_IOS_BUILD,
+    UPDATE_MESSAGE,
+    UPDATE_MESSAGE_SIGNED_OUT,
+    PUSH_DELAYS_MS,
+    EMIT_LIMIT,
+    EMIT_WINDOW_MS,
+    parseIosUserAgent,
+    isOutdatedIosApp,
+    gateEnabled,
+    gate,
+};

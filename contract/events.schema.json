@@ -3698,7 +3698,8 @@
         ]
       },
       "emittedFrom": [
-        "server/socket/authHandlers.js:signIn"
+        "server/socket/authHandlers.js:signIn",
+        "server/socket/upgradeGate.js:sendUpdateMessage"
       ]
     },
     "signUpResponse": {
@@ -3759,7 +3760,8 @@
         ]
       },
       "emittedFrom": [
-        "server/socket/authHandlers.js:signUp"
+        "server/socket/authHandlers.js:signUp",
+        "server/socket/upgradeGate.js:replySignUp"
       ]
     },
     "restoreSessionResponse": {
@@ -4094,7 +4096,8 @@
       "emittedFrom": [
         "server/socket/mainRoomHandlers.js:joinMainRoom",
         "server/socket/lobbyHandlers.js:leaveLobby",
-        "server/socket/tournamentHandlers.js:sendToMainRoom"
+        "server/socket/tournamentHandlers.js:sendToMainRoom",
+        "server/socket/upgradeGate.js:sendMainRoom"
       ],
       "notes": "recentMessages duplicates messages (iOS reads recentMessages first)."
     },
@@ -4494,7 +4497,8 @@
       },
       "emittedFrom": [
         "server/socket/lobbyHandlers.js:leaveLobby",
-        "server/socket/lobbyHandlers.js:releaseStaleLobbySeat"
+        "server/socket/lobbyHandlers.js:releaseStaleLobbySeat",
+        "server/socket/upgradeGate.js:replyLeave"
       ]
     },
     "playerReadyUpdate": {
@@ -6746,7 +6750,8 @@
       "emittedFrom": [
         "server/socket/seatLifecycle.js:leaveSeat",
         "server/socket/chatHandlers.js:spectatorCommand",
-        "server/socket/chatHandlers.js:handleDrawPhaseLeave"
+        "server/socket/chatHandlers.js:handleDrawPhaseLeave",
+        "server/socket/upgradeGate.js:replyLeave"
       ]
     },
     "joinMainRoom": {
@@ -8101,7 +8106,8 @@
       },
       "emittedFrom": [
         "server/socket/tournamentHandlers.js:leaveTournament",
-        "server/socket/tournamentHandlers.js:returnToTournament"
+        "server/socket/tournamentHandlers.js:returnToTournament",
+        "server/socket/upgradeGate.js:replyLeave"
       ]
     },
     "tournamentCancelled": {
