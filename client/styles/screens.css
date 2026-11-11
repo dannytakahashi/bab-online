@@ -1148,7 +1148,8 @@
     color: var(--text-primary);
     font-size: var(--type-sm);
     vertical-align: middle;
-    overflow-wrap: anywhere;
+    /* break a long word only when nothing else fits (never a short name) */
+    overflow-wrap: break-word;
 }
 
 .admin-table td.is-num {

@@ -80,7 +80,8 @@ export function renderResetPage({ root, win = window, fetchImpl = (...a) => win.
     return { form: null, status };
   }
 
-  card.appendChild(el('p', { className: 'reset__lede', text: COPY.lede }));
+  const lede = el('p', { className: 'reset__lede', text: COPY.lede });
+  card.appendChild(lede);
   const form = el('form', { className: 'reset__form', attrs: { novalidate: true, 'aria-describedby': 'reset-status' } });
   const pw = field({ id: 'reset-password', label: 'New password', autocomplete: 'new-password' });
   const again = field({ id: 'reset-confirm', label: 'Type it again', autocomplete: 'new-password' });
@@ -131,6 +132,7 @@ export function renderResetPage({ root, win = window, fetchImpl = (...a) => win.
       // Done: the form goes (the link is used); the message stays, focused
       pw.input.value = '';
       again.input.value = '';
+      lede.remove();
       form.replaceWith(status);
       say(body.message || COPY.success, 'success');
       card.appendChild(el('a', { className: 'kit-btn kit-btn--secondary reset__home', attrs: { href: '/' }, text: 'Go to BAB Online' }));
@@ -138,6 +140,7 @@ export function renderResetPage({ root, win = window, fetchImpl = (...a) => win.
       return;
     }
     if (body && body.error === 'invalid_link') {
+      lede.remove();
       form.replaceWith(status);
       say(body.message, 'error');
       status.focus();

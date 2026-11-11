@@ -99,6 +99,7 @@ describe('the reset page', () => {
     fill('new-pass');
     await submit(form);
     expect(root.querySelector('form')).toBeNull();
+    expect(root.querySelector('.reset__lede')).toBeNull(); // the "pick a password" line goes with the form
     expect(status.textContent).toBe('Password changed. Sign in with your new password on the app or the website.');
     expect(status.classList.contains('is-success')).toBe(true);
     expect(document.activeElement).toBe(status);

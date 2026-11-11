@@ -83,7 +83,8 @@ function planView(plan) {
     };
     if (plan.errors.length) return view;
 
-    view.accounts.push({ role: 'target', username: plan.target, createdAt: null, stats: summary(plan.statsBefore), note: null });
+    const targetCreated = typeof plan.targetId?.getTimestamp === 'function' ? iso(plan.targetId.getTimestamp()) : null;
+    view.accounts.push({ role: 'target', username: plan.target, createdAt: targetCreated, stats: summary(plan.statsBefore), note: null });
     for (const s of plan.sourceAccounts) {
         view.accounts.push({ role: 'source', username: s.username, createdAt: iso(s.createdAt), stats: summary(s.stats), note: NOTES[s.action] || null });
     }

@@ -187,6 +187,7 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
       panels[k].hidden = !on;
     }
     if (focus) tabs[key].focus();
+    say(''); // the last message belonged to the other tab
     loaders[key]?.();
   }
   tablist.addEventListener('click', (e) => {
@@ -482,6 +483,7 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
         }
         const r = res.result;
         preview = null;
+        dupBox.replaceChildren(); // its groups predate the merge
         planBox.replaceChildren(heading('Merged'), el('ul', {
           className: 'admin-list',
           children: [

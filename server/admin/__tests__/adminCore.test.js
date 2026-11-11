@@ -55,7 +55,7 @@ describe('admin role', () => {
         await expect(setAdminFlag(db, 'Bea', false)).resolves.toEqual({ username: 'Bea', isAdmin: false, changed: true });
         expect((await db.users.findOne({ username: 'Bea' })).isAdmin).toBeUndefined();
         await expect(setAdminFlag(db, 'nobody', true)).rejects.toMatchObject({ code: 'not_found' });
-        await expect(setAdminFlag(db, 'Old', true)).rejects.toMatchObject({ code: 'refused' });
+        await expect(setAdminFlag(db, 'Old', true)).rejects.toMatchObject({ code: 'refused', message: '"Old" was merged into "Bea" and can\'t be an admin.' });
         expect((await db.users.findOne({ username: 'Old' })).isAdmin).toBeUndefined();
     });
 
@@ -268,6 +268,7 @@ describe('merge plan view and hash', () => {
         const text = formatPlan(plan);
         expect(view.accounts.map(a => [a.role, a.username, a.stats.gamesPlayed])).toEqual([['target', 'Alan', 2], ['source', 'alan2', 3], ['result', 'Alan', 5]]);
         expect(view.accounts[1].note).toBe('stats will be added');
+        expect(view.accounts[0].createdAt).toEqual(expect.stringMatching(/^\d{4}-\d\d-\d\dT/)); // the kept account's _id time
         expect(text).toContain('stats will be added');
         expect(view.statChanges).toEqual(expect.arrayContaining([{ key: 'gamesPlayed', before: 2, after: 5 }, { key: 'wins', before: 1, after: 3 }]));
         for (const c of view.statChanges) expect(text).toContain(`stats.${c.key}: ${c.before} → ${c.after}`);
