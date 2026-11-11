@@ -875,6 +875,9 @@ export class GameScene extends Phaser.Scene {
     }
     sprite.removeAllListeners();
     sprite.disableInteractive();
+    // a lazy seat's hand is dimmed: the card on the table is not (as a
+    // render draws it)
+    sprite.clearTint?.();
     // A hand-layout or hover tween still on the sprite would fight the
     // move (and replay after a hidden tab)
     this.trickManager._stopCardAnimations(sprite);
