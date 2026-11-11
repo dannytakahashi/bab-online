@@ -22,6 +22,8 @@
  *   users.mergedInto (earlier tombstones that point at a source)
  *   gameRecords.team1Players / team2Players
  *   reports.reporter / reports.reported
+ *   passwordResets.username (open links of a source are revoked, see below)
+ * Not moved: adminAudit (a log of what happened, by the names of the time).
  * Tournament history is in-memory only (TournamentState), so nothing to move.
  *
  * Runs as a CLI in its own process: the running server's leaderboard and
@@ -41,7 +43,9 @@ const STAT_KEYS = [
 const TOMBSTONE_UNSET = [
     'password', 'sessionToken', 'sessionTokens', 'socketId', 'stats',
     'profilePic', 'customProfilePic', 'blockedUsers', 'activeGameId',
-    'activeGameStartedAt', 'activeTournamentId'
+    'activeGameStartedAt', 'activeTournamentId',
+    // a tombstone is never an admin (server/admin/adminRole.js)
+    'isAdmin', 'adminSince', 'adminSetBy'
 ];
 
 function pickStats(stats) {
@@ -126,6 +130,10 @@ async function planMerge(db, { target, sources }) {
         }
         if (doc.mergedInto && doc.mergedInto !== target) {
             plan.errors.push(`Source "${name}" was already merged into "${doc.mergedInto}", not "${target}".`);
+            continue;
+        }
+        if (!doc.mergedInto && doc.isAdmin === true) {
+            plan.errors.push(`Source "${name}" is an admin. Remove its admin flag first (the kept account does not inherit it).`);
             continue;
         }
         const statsDone = mergedFrom.has(name);
@@ -319,6 +327,14 @@ async function applyMerge(db, plan, { now = new Date() } = {}) {
             { $set: { mergedInto: target, mergedAt: now }, $unset: unset }
         );
         result.retired.push(src.username);
+    }
+    // A retired name can no longer use a reset link made for it (the link
+    // page refuses a tombstone anyway; this closes the link itself)
+    if (db.passwordResets && plan.retire.length) {
+        await db.passwordResets.updateMany(
+            { username: { $in: plan.retire.map(r => r.username) }, state: 'open' },
+            { $set: { state: 'revoked', revokedAt: now } }
+        );
     }
 
     return result;

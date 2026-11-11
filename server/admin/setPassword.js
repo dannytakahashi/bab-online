@@ -22,13 +22,42 @@ function generateFriendlyPassword() {
 }
 
 /**
+ * The password write both resets share (this CLI, and a one-time reset link:
+ * server/admin/passwordReset.js): the new hash, a timestamp field naming
+ * which reset it was, and every saved session revoked (the per-device
+ * sessionTokens and the legacy plaintext sessionToken), so every device
+ * has to sign in with the new password.
+ *
+ * @param {{users}} db
+ * @param {Object} user - the user document (at least _id, sessionTokens, sessionToken)
+ * @param {string} hash - bcrypt hash of the new password
+ * @param {{now?: Date, stampField?: string}} [options]
+ * @returns {Promise<number>} how many saved sessions were revoked
+ */
+async function writePasswordHash(db, user, hash, { now = new Date(), stampField = 'passwordResetByAdminAt' } = {}) {
+    await db.users.updateOne(
+        { _id: user._id },
+        {
+            $set: { password: hash, [stampField]: now },
+            $unset: { sessionToken: '', sessionTokens: '' }
+        }
+    );
+    return (user.sessionTokens?.length || 0) + (user.sessionToken ? 1 : 0);
+}
+
+/** The sign-up password rule (validators.js signUp: 1-100 characters). */
+function checkPasswordRule(newPassword) {
+    return typeof newPassword === 'string' && newPassword.length >= 1 && newPassword.length <= 100;
+}
+
+/**
  * @param {{users}} db
  * @param {string} username
  * @param {string} newPassword
  * @returns {Promise<{username: string, revokedSessions: number}>}
  */
 async function setPassword(db, username, newPassword, { now = new Date(), rounds = 10 } = {}) {
-    if (typeof newPassword !== 'string' || newPassword.length < 1 || newPassword.length > 100) {
+    if (!checkPasswordRule(newPassword)) {
         throw new Error('Password must be 1-100 characters.');
     }
     const user = await db.users.findOne({ username });
@@ -38,15 +67,8 @@ async function setPassword(db, username, newPassword, { now = new Date(), rounds
     }
 
     const hash = await bcrypt.hash(newPassword, rounds);
-    await db.users.updateOne(
-        { _id: user._id },
-        {
-            $set: { password: hash, passwordResetByAdminAt: now },
-            $unset: { sessionToken: '', sessionTokens: '' }
-        }
-    );
-    const revokedSessions = (user.sessionTokens?.length || 0) + (user.sessionToken ? 1 : 0);
+    const revokedSessions = await writePasswordHash(db, user, hash, { now });
     return { username, revokedSessions };
 }
 
-module.exports = { setPassword, generateFriendlyPassword, WORDS };
+module.exports = { setPassword, writePasswordHash, checkPasswordRule, generateFriendlyPassword, WORDS };

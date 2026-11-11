@@ -6,6 +6,8 @@ const mongoURI = process.env.MONGO_URI || 'mongodb://localhost:27017/babonline';
 const dbName = "babonline";
 
 let db, usersCollection, gameRecordsCollection, reportsCollection;
+// Admin panel (server/admin/): one-time reset links and the audit log
+let passwordResetsCollection, adminAuditCollection;
 
 // Resolved once the collections are assigned (see whenReady)
 let resolveReady;
@@ -42,6 +44,8 @@ async function connectDB() {
     usersCollection = db.collection("users");
     gameRecordsCollection = db.collection("gameRecords");
     reportsCollection = db.collection("reports");
+    passwordResetsCollection = db.collection("passwordResets");
+    adminAuditCollection = db.collection("adminAudit");
     resolveReady();
 
     try {
@@ -87,13 +91,43 @@ async function safeIndex(collection, keys, options, label) {
 async function ensureIndexes({
     users = usersCollection,
     gameRecords = gameRecordsCollection,
-    reports = reportsCollection
+    reports = reportsCollection,
+    passwordResets = passwordResetsCollection,
+    adminAudit = adminAuditCollection
 } = {}) {
     return Promise.allSettled([
         safeIndex(gameRecords, { completedAt: -1 }, {}, 'gameRecords.completedAt_-1'),
         safeIndex(reports, { createdAt: -1 }, {}, 'reports.createdAt_-1'),
-        ensureUsernameIndex(users)
+        ensureUsernameIndex(users),
+        ...adminIndexes({ users, passwordResets, adminAudit })
     ]);
+}
+
+/**
+ * The admin panel's indexes (server/admin/). passwordResets: the token
+ * lookup (unique hash), at most ONE open link per player (partial unique:
+ * a second admin's concurrent link loses with E11000 and revokes again,
+ * passwordReset.createResetLink), and a TTL that drops a link 7 days after
+ * it expired. adminAudit: newest first. users: the (few) admins.
+ * A collection a caller did not pass (tests) is skipped.
+ */
+const RESET_TTL_GRACE_SEC = 7 * 24 * 60 * 60;
+function adminIndexes({ users, passwordResets, adminAudit }) {
+    const out = [];
+    if (passwordResets) {
+        out.push(
+            safeIndex(passwordResets, { tokenHash: 1 }, { unique: true }, 'passwordResets.tokenHash_1'),
+            safeIndex(passwordResets, { username: 1 },
+                { name: 'username_open_unique', unique: true, partialFilterExpression: { state: 'open' } },
+                'passwordResets.username_open_unique'),
+            safeIndex(passwordResets, { expiresAt: 1 }, { expireAfterSeconds: RESET_TTL_GRACE_SEC }, 'passwordResets.expiresAt_1 (TTL)')
+        );
+    }
+    if (adminAudit) out.push(safeIndex(adminAudit, { at: -1, _id: -1 }, {}, 'adminAudit.at_-1__id_-1'));
+    if (users) {
+        out.push(safeIndex(users, { isAdmin: 1 }, { name: 'isAdmin_partial', partialFilterExpression: { isAdmin: true } }, 'users.isAdmin_partial'));
+    }
+    return out;
 }
 
 /** Non-unique stand-in while legacy duplicates block the unique index. */
@@ -145,5 +179,7 @@ module.exports = {
     getDB: () => db,
     getUsersCollection: () => usersCollection,
     getGameRecordsCollection: () => gameRecordsCollection,
-    getReportsCollection: () => reportsCollection
+    getReportsCollection: () => reportsCollection,
+    getPasswordResetsCollection: () => passwordResetsCollection,
+    getAdminAuditCollection: () => adminAuditCollection
 };

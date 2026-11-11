@@ -307,4 +307,67 @@ describe('real mongod', () => {
         expect(after.records.allTime.highestScore).toEqual({ score: 700, players: ['Alan', 'Bea'] });
         expect(after.records.thisMonth.highestScore).toEqual({ score: 700, players: ['alan', 'Cy'] });
     });
+
+    test('(g) admin panel: its indexes, one open reset link per player, and a link used exactly once under concurrency', async () => {
+        if (!client) return;
+        const { createResetLink, useResetLink, INVALID_LINK } = require('../admin/passwordReset');
+        const { listAudit, recordAudit } = require('../admin/audit');
+        const { setAdminFlag, listAdmins } = require('../admin/adminRole');
+        for (const name of ['passwordResets', 'adminAudit']) await db.collection(name).drop().catch(() => {});
+        const adb = {
+            users: mockHolder.users, reports: mockHolder.reports, gameRecords: mockHolder.gameRecords,
+            passwordResets: db.collection('passwordResets'), adminAudit: db.collection('adminAudit')
+        };
+        await database.ensureIndexes(adb);
+        await database.ensureIndexes(adb); // idempotent
+
+        const idx = Object.fromEntries((await adb.passwordResets.indexes()).map(i => [i.name, i]));
+        expect(idx.tokenHash_1.unique).toBe(true);
+        expect(idx.username_open_unique).toMatchObject({ unique: true, partialFilterExpression: { state: 'open' } });
+        expect(idx.expiresAt_1.expireAfterSeconds).toBe(7 * 24 * 60 * 60);
+        expect((await adb.adminAudit.indexes()).map(i => i.name)).toContain('at_-1__id_-1');
+        expect((await adb.users.indexes()).find(i => i.name === 'isAdmin_partial')).toMatchObject({ partialFilterExpression: { isAdmin: true } });
+
+        // The database itself keeps one open link per player: a second open
+        // insert for Bea is a duplicate key
+        await adb.passwordResets.insertOne({ tokenHash: 'a', username: 'Bea', state: 'open' });
+        await expect(adb.passwordResets.insertOne({ tokenHash: 'b', username: 'Bea', state: 'open' })).rejects.toMatchObject({ code: 11000 });
+        await adb.passwordResets.insertOne({ tokenHash: 'c', username: 'Bea', state: 'used' });
+        await adb.passwordResets.deleteMany({});
+
+        // Two admins making a link for the same player at once: one open link remains
+        const made = await Promise.all([createResetLink(adb, 'Bea', { by: 'A' }), createResetLink(adb, 'Bea', { by: 'B' })]);
+        expect(made).toHaveLength(2);
+        expect(await adb.passwordResets.countDocuments({ username: 'Bea', state: 'open' })).toBe(1);
+
+        // Concurrent double (quintuple) use of one link: exactly one success
+        const { token } = await createResetLink(adb, 'Bea');
+        const hash = (pw) => bcrypt.hash(pw, 4);
+        const results = await Promise.all([1, 2, 3, 4, 5].map(i => useResetLink(adb, token, `pw-${i}`, { hash })));
+        expect(results.filter(r => r.ok)).toHaveLength(1);
+        expect(results.filter(r => r === INVALID_LINK)).toHaveLength(4);
+        const winner = results.find(r => r.ok);
+        const bea = await adb.users.findOne({ username: 'Bea' });
+        const winning = [1, 2, 3, 4, 5].map(i => `pw-${i}`).filter(pw => bcrypt.compareSync(pw, bea.password));
+        expect(winning).toHaveLength(1);
+        expect(winner.username).toBe('Bea');
+        expect(bea.sessionTokens).toBeUndefined();
+        const tokenDoc = await adb.passwordResets.findOne({ tokenHash: require('../utils/sessionTokens').hashToken(token) });
+        expect(tokenDoc.state).toBe('used');
+        // The token itself is nowhere in the database
+        for (const name of ['users', 'passwordResets', 'adminAudit']) {
+            expect(JSON.stringify(await db.collection(name).find({}).toArray())).not.toContain(token);
+        }
+
+        // The audit page is read newest first through its index
+        for (let i = 0; i < 3; i++) await recordAudit(adb, { actor: 'Bea', action: 'searchPlayers', result: 'ok', detail: `q${i}`, now: new Date(now + i) });
+        expect((await listAudit(adb, { limit: 2 })).entries.map(e => e.detail)).toEqual(['q2', 'q1']);
+        const plan = planOf(await adb.adminAudit.find({}).sort({ at: -1, _id: -1 }).limit(51).explain('queryPlanner'));
+        expect(usesIndex(plan, 'at_-1__id_-1')).toBe(true);
+
+        // The last-admin guard on the real driver
+        await setAdminFlag(adb, 'Bea', true);
+        await expect(setAdminFlag(adb, 'Bea', false)).rejects.toMatchObject({ code: 'last_admin' });
+        expect((await listAdmins(adb)).map(a => a.username)).toEqual(['Bea']);
+    });
 });

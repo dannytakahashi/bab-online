@@ -26,7 +26,9 @@ async function connect() {
         db: {
             users: db.collection('users'),
             gameRecords: db.collection('gameRecords'),
-            reports: db.collection('reports')
+            reports: db.collection('reports'),
+            passwordResets: db.collection('passwordResets'),
+            adminAudit: db.collection('adminAudit')
         }
     };
 }
