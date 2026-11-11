@@ -16,6 +16,8 @@ import { showPlayerSearchPage } from './PlayerSearchPage.js';
  */
 let mainRoomUserColors = {};
 let currentOnlineUsers = [];
+/** The signed-in player: a full lobby that seats them offers Rejoin (PR 205). */
+let currentUsername = null;
 
 function colorFor(username) {
   if (!mainRoomUserColors[username]) {
@@ -47,16 +49,25 @@ function cardHead(name, side) {
   return el('div', { className: 'room-card__head', children: [el('span', { className: 'room-card__name', text: name }), side] });
 }
 
-/** The lobby card's button: Join (open seat), else a disabled Full. */
-function lobbyActionButton(lobby, socket) {
-  if (lobby.playerCount >= 4) {
-    return createButton({ label: 'Full', variant: 'secondary', size: 'sm', className: 'is-block', attrs: { disabled: true } });
+/**
+ * The lobby card's button: Join (open seat), Rejoin (a full lobby that
+ * already seats me: the server moves my seat to this socket, PR 205), else
+ * a disabled Full.
+ */
+export function lobbyActionButton(lobby, socket, username = currentUsername) {
+  const full = lobby.playerCount >= 4;
+  const seated = !!username && (lobby.players || []).some((p) => p.username === username);
+  if (full && !seated) {
+    const btn = createButton({ label: 'Full', variant: 'secondary', size: 'sm', className: 'is-block', attrs: { disabled: true } });
+    return btn;
   }
+  const label = full ? 'Rejoin' : 'Join';
   return createButton({
-    label: 'Join',
+    label,
     variant: 'primary',
     size: 'sm',
     className: 'is-block',
+    attrs: full ? { 'data-rejoin': 'true' } : {},
     onClick: () => socket.emit('joinLobby', { lobbyId: lobby.id }),
   });
 }
@@ -179,8 +190,9 @@ function renderOnlinePopover(popover) {
  *
  * @param {Object} data - Main room data (onlineCount, messages, lobbies)
  * @param {Object} socket - Socket instance
+ * @param {string} [username] - the signed-in player (Rejoin on their own full lobby)
  */
-export function showMainRoom(data, socket) {
+export function showMainRoom(data, socket, username = null) {
   console.log('Showing main room...', data);
 
   // Defensively clean up sign-in/register screens that may still be in the DOM
@@ -196,6 +208,7 @@ export function showMainRoom(data, socket) {
 
   // Fresh color assignments for new main room session
   mainRoomUserColors = {};
+  currentUsername = username;
 
   const container = createPanel({ elevation: 3, className: 'screen screen--main-room' });
   container.id = 'mainRoomContainer';

@@ -201,7 +201,7 @@ class UIManager {
       console.warn('UIManager: Socket not initialized');
       return;
     }
-    showMainRoom(data, this._socket);
+    showMainRoom(data, this._socket, this._username);
   }
 
   _showGameLobby(data) {

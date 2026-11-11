@@ -639,7 +639,7 @@ function initializeApp() {
       [SCREEN.MAIN_ROOM]: {
         // The DOM comes with mainRoomJoined; an exit lands here first
         enter: (data) => {
-          if (data) showMainRoom(data, socket);
+          if (data) showMainRoom(data, socket, gameState.username);
         },
         exit: () => removeMainRoom(),
       },
