@@ -1,11 +1,25 @@
 /**
  * Game log component for game feed and scores.
  *
- * Displays game events, trick history, and chat messages.
+ * Displays game events, trick history, and chat messages. Its look is
+ * table.css (#gameFeed, .log-*; item 18a: tokens, team A blue / team B
+ * coral, tabular numerals for scores); nothing here sets a color inline.
  */
 
 import { getUsernameColor } from '../../utils/colors.js';
 import { getGameState } from '../../state/GameState.js';
+
+/** A team's class by game position (team A: seats 1 and 3, team B: 2 and 4). */
+const teamOf = (pos) => (Number(pos) % 2 === 1 ? 'a' : 'b');
+
+/** A div with a class and text. */
+function line(className, text, id = null) {
+  const el = document.createElement('div');
+  el.className = className;
+  if (id) el.id = id;
+  el.textContent = String(text);
+  return el;
+}
 
 /** Rendered rows are capped (the server keeps 500 log entries). */
 export const MAX_LOG_ROWS = 500;
@@ -31,56 +45,24 @@ export function createGameLog({ onChatSubmit } = {}) {
   // Score section (matches legacy game feed structure)
   const scoreSection = document.createElement('div');
   scoreSection.id = 'gameLogScore';  // Legacy ID
-  scoreSection.style.cssText = `
-    padding: 10px;
-    border-bottom: 1px solid #333;
-    display: flex;
-    justify-content: space-around;
-    background: rgba(0, 0, 0, 0.3);
-  `;
+  scoreSection.className = 'log-score';
 
+  // My team (team A or B by my seat: setTeams) and the opponents
   const teamScoreDiv = document.createElement('div');
   teamScoreDiv.id = 'teamScoreDisplay';
-  teamScoreDiv.style.cssText = `text-align: center; color: #4ade80;`;
-  teamScoreDiv.innerHTML = `
-    <div style="font-size: 12px; color: #888;">Your Team</div>
-    <div id="team-score-value" style="font-size: 20px; font-weight: bold;">0</div>
-    <div id="team-tricks-value" style="font-size: 11px; color: #aaa;">Tricks: 0</div>
-  `;
+  teamScoreDiv.className = 'log-score__team is-mine';
+  teamScoreDiv.append(line('log-score__names', 'Your Team'), line('log-score__value', '0', 'team-score-value'), line('log-score__detail', 'Tricks: 0', 'team-tricks-value'));
 
   const oppScoreDiv = document.createElement('div');
   oppScoreDiv.id = 'oppScoreDisplay';
-  oppScoreDiv.style.cssText = `text-align: center; color: #f87171;`;
-  oppScoreDiv.innerHTML = `
-    <div style="font-size: 12px; color: #888;">Opponents</div>
-    <div id="opp-score-value" style="font-size: 20px; font-weight: bold;">0</div>
-    <div id="opp-tricks-value" style="font-size: 11px; color: #aaa;">Tricks: 0</div>
-  `;
+  oppScoreDiv.className = 'log-score__team is-opp';
+  oppScoreDiv.append(line('log-score__names', 'Opponents'), line('log-score__value', '0', 'opp-score-value'), line('log-score__detail', 'Tricks: 0', 'opp-tricks-value'));
 
   // Hand indicator (between the two score displays)
   const handIndicator = document.createElement('div');
   handIndicator.id = 'handIndicator';
-  handIndicator.style.cssText = `
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-  `;
-  handIndicator.innerHTML = `
-    <div style="font-size: 10px; color: #888; margin-bottom: 2px;">Hand</div>
-    <div id="hand-indicator-value" style="
-      background: #1a1a1a;
-      color: #b0b0b0;
-      font-size: 18px;
-      font-weight: bold;
-      width: 36px;
-      height: 36px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      border-radius: 4px;
-    ">-</div>
-  `;
+  handIndicator.className = 'log-hand';
+  handIndicator.append(line('log-hand__label', 'Hand'), line('log-hand__value', '-', 'hand-indicator-value'));
 
   scoreSection.appendChild(teamScoreDiv);
   scoreSection.appendChild(handIndicator);
@@ -89,20 +71,10 @@ export function createGameLog({ onChatSubmit } = {}) {
 
   // Trick indicator (shown during bidding, below score section)
   const trickIndicatorSection = document.createElement('div');
-  trickIndicatorSection.style.cssText = `
-    display: none;
-    padding: 6px 10px;
-    border-bottom: 1px solid #333;
-    background: rgba(0, 0, 0, 0.3);
-    flex-shrink: 0;
-  `;
+  trickIndicatorSection.className = 'log-tricks';
+  trickIndicatorSection.hidden = true;
   const trickIndicatorRow = document.createElement('div');
-  trickIndicatorRow.style.cssText = `
-    display: flex;
-    gap: 2px;
-    justify-content: center;
-    flex-wrap: wrap;
-  `;
+  trickIndicatorRow.className = 'log-tricks__row';
   trickIndicatorSection.appendChild(trickIndicatorRow);
   container.appendChild(trickIndicatorSection);
 
@@ -117,33 +89,26 @@ export function createGameLog({ onChatSubmit } = {}) {
 
   const createTrickRect = () => {
     const rect = document.createElement('div');
-    rect.style.cssText = `
-      width: 14px;
-      height: 20px;
-      border-radius: 2px;
-      background: #555;
-      transition: background 150ms ease;
-      box-sizing: border-box;
-    `;
+    rect.className = 'log-chip';
     return rect;
   };
 
   const showTrickIndicator = (handSize) => {
     trickHandSize = handSize;
-    trickIndicatorRow.innerHTML = '';
+    trickIndicatorRow.replaceChildren();
     trickRects = [];
     for (let i = 0; i < handSize; i++) {
       const rect = createTrickRect();
       trickRects.push(rect);
       trickIndicatorRow.appendChild(rect);
     }
-    trickIndicatorSection.style.display = 'block';
+    trickIndicatorSection.hidden = false;
     updateTrickIndicator();
   };
 
   const hideTrickIndicator = () => {
-    trickIndicatorSection.style.display = 'none';
-    trickIndicatorRow.innerHTML = '';
+    trickIndicatorSection.hidden = true;
+    trickIndicatorRow.replaceChildren();
     trickRects = [];
     trickHandSize = 0;
   };
@@ -196,20 +161,10 @@ export function createGameLog({ onChatSubmit } = {}) {
       const rect = trickRects[i];
       const isOverbid = i >= trickHandSize;
 
-      if (i < teamBidCount) {
-        rect.style.background = '#68d391';
-      } else if (i < totalBid) {
-        rect.style.background = '#fc8181';
-      } else {
-        rect.style.background = '#555';
-      }
-
-      if (isOverbid) {
-        rect.style.animation = 'trickOverbidPulse 1s ease-in-out infinite';
-      } else {
-        rect.style.animation = '';
-        rect.style.outline = '';
-      }
+      rect.classList.toggle('is-team', i < teamBidCount);
+      rect.classList.toggle('is-opp', i >= teamBidCount && i < totalBid);
+      // past the hand size: an overbid (a static outline, no animation)
+      rect.classList.toggle('is-overbid', isOverbid);
     }
   };
 
@@ -246,23 +201,12 @@ export function createGameLog({ onChatSubmit } = {}) {
 
   const autocompleteDropdown = document.createElement('div');
   autocompleteDropdown.className = 'slash-autocomplete';
-  autocompleteDropdown.style.cssText = `
-    display: none;
-    position: absolute;
-    bottom: 100%;
-    left: 0;
-    right: 0;
-    background: #1a1a2e;
-    border: 1px solid #333;
-    border-radius: 6px;
-    margin-bottom: 4px;
-    overflow: hidden;
-    z-index: 200;
-  `;
+  autocompleteDropdown.hidden = true;
+  autocompleteDropdown.setAttribute('role', 'listbox');
 
   const updateAutocomplete = (text) => {
     if (!text.startsWith('/')) {
-      autocompleteDropdown.style.display = 'none';
+      autocompleteDropdown.hidden = true;
       return;
     }
 
@@ -270,40 +214,32 @@ export function createGameLog({ onChatSubmit } = {}) {
     const matches = getSlashCommands().filter(cmd => cmd.command.startsWith(query));
 
     if (matches.length === 0) {
-      autocompleteDropdown.style.display = 'none';
+      autocompleteDropdown.hidden = true;
       return;
     }
 
-    autocompleteDropdown.innerHTML = '';
-    matches.forEach(cmd => {
+    autocompleteDropdown.replaceChildren(...matches.map((cmd) => {
+      // (hover is CSS: .slash-item:hover)
       const item = document.createElement('div');
-      item.style.cssText = `
-        padding: 8px 12px;
-        cursor: pointer;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-      `;
-      item.innerHTML = `
-        <span style="color: #4ade80; font-weight: bold;">${cmd.command}</span>
-        <span style="color: #888; font-size: 12px; margin-left: 12px;">${cmd.description}</span>
-      `;
-      item.addEventListener('mouseenter', () => {
-        item.style.background = 'rgba(74, 222, 128, 0.1)';
-      });
-      item.addEventListener('mouseleave', () => {
-        item.style.background = 'transparent';
-      });
+      item.className = 'slash-item';
+      item.setAttribute('role', 'option');
+      const name = document.createElement('span');
+      name.className = 'slash-item__cmd';
+      name.textContent = cmd.command;
+      const desc = document.createElement('span');
+      desc.className = 'slash-item__desc';
+      desc.textContent = cmd.description;
+      item.append(name, desc);
       item.addEventListener('mousedown', (e) => {
         e.preventDefault(); // Prevent blur from firing
         chatInput.value = cmd.command;
-        autocompleteDropdown.style.display = 'none';
+        autocompleteDropdown.hidden = true;
         submitChat();
       });
-      autocompleteDropdown.appendChild(item);
-    });
+      return item;
+    }));
 
-    autocompleteDropdown.style.display = 'block';
+    autocompleteDropdown.hidden = false;
   };
 
   const submitChat = () => {
@@ -319,7 +255,7 @@ export function createGameLog({ onChatSubmit } = {}) {
       }
       onChatSubmit(message);
       chatInput.value = '';
-      autocompleteDropdown.style.display = 'none';
+      autocompleteDropdown.hidden = true;
     }
   };
 
@@ -333,11 +269,11 @@ export function createGameLog({ onChatSubmit } = {}) {
   chatInput.addEventListener('blur', () => {
     // Small delay so click events on autocomplete items fire first
     setTimeout(() => {
-      autocompleteDropdown.style.display = 'none';
+      autocompleteDropdown.hidden = true;
     }, 150);
   });
 
-  chatSection.style.position = 'relative';
+  chatInput.setAttribute('aria-label', 'Chat message');
   chatSection.appendChild(autocompleteDropdown);
   chatSection.appendChild(chatInput);
   chatSection.appendChild(sendBtn);
@@ -346,44 +282,30 @@ export function createGameLog({ onChatSubmit } = {}) {
   // Helper functions
   const addMessage = (username, message, playerPosition = null) => {
     const msgDiv = document.createElement('div');
-    msgDiv.style.cssText = `
-      margin-bottom: 8px;
-      word-wrap: break-word;
-    `;
+    msgDiv.className = 'log-row';
 
     // Add timestamp
     const now = new Date();
     const timestamp = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const timeSpan = document.createElement('span');
+    timeSpan.className = 'log-row__time';
     timeSpan.textContent = `[${timestamp}] `;
-    timeSpan.style.cssText = `
-      color: #888;
-      font-size: 11px;
-      margin-right: 4px;
-    `;
     msgDiv.appendChild(timeSpan);
 
     const nameSpan = document.createElement('span');
     nameSpan.textContent = `${username}: `;
 
-    // Use team-based colors if position provided, otherwise use username color
-    let nameColor = getUsernameColor(username);
-    if (playerPosition !== null) {
-      // Team 1 (positions 1, 3) = blue, Team 2 (positions 2, 4) = red
-      nameColor = (playerPosition === 1 || playerPosition === 3) ? '#63b3ed' : '#fc8181';
-    }
-
-    nameSpan.style.cssText = `
-      font-weight: bold;
-      color: ${nameColor};
-    `;
-
     const textSpan = document.createElement('span');
     textSpan.textContent = message;
 
-    // Color the message text based on team if position provided
+    // Team colors when the seat is known (team A blue, team B coral), else
+    // the username's own hue (a CSS variable: it is per-name data)
     if (playerPosition !== null) {
-      textSpan.style.color = (playerPosition === 1 || playerPosition === 3) ? '#63b3ed' : '#fc8181';
+      nameSpan.className = `log-row__name log-row__text is-team-${teamOf(playerPosition)}`;
+      textSpan.className = `log-row__text is-team-${teamOf(playerPosition)}`;
+    } else {
+      nameSpan.className = 'log-row__name';
+      nameSpan.style.setProperty('color', getUsernameColor(username));
     }
 
     msgDiv.appendChild(nameSpan);
@@ -397,29 +319,23 @@ export function createGameLog({ onChatSubmit } = {}) {
     const when = at !== undefined && at !== null && Number.isFinite(Number(at)) ? new Date(Number(at)) : new Date();
     return when.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
-  const buildRow = (message, playerPosition = null, at = null, color = '#888') => {
+  const buildRow = (message, playerPosition = null, at = null) => {
     const msgDiv = document.createElement('div');
     const system = playerPosition === null || playerPosition === undefined;
-    msgDiv.style.cssText = system
-      ? 'margin-bottom: 8px; font-style: italic;'
-      : 'margin-bottom: 8px; word-wrap: break-word;';
+    msgDiv.className = system ? 'log-row is-system' : 'log-row';
     const timeSpan = document.createElement('span');
+    timeSpan.className = 'log-row__time';
     timeSpan.textContent = `[${timeLabel(at)}] `;
-    timeSpan.style.cssText = `
-      color: #888;
-      font-size: 11px;
-      margin-right: 4px;
-    `;
     msgDiv.appendChild(timeSpan);
     const textSpan = document.createElement('span');
     textSpan.textContent = message;
     if (system) {
-      textSpan.style.color = color;
+      textSpan.className = 'log-row__text is-system';
     } else if (playerPosition === 'spectator') {
-      textSpan.style.color = '#4ade80'; // Green for spectators
+      textSpan.className = 'log-row__text is-spectator';
     } else {
-      // Team 1 (positions 1, 3) = blue, Team 2 (positions 2, 4) = red
-      textSpan.style.color = (playerPosition === 1 || playerPosition === 3) ? '#63b3ed' : '#fc8181';
+      // Team 1 (positions 1, 3) = team A blue, Team 2 (positions 2, 4) = team B coral
+      textSpan.className = `log-row__text is-team-${teamOf(playerPosition)}`;
     }
     msgDiv.appendChild(textSpan);
     return msgDiv;
@@ -431,19 +347,13 @@ export function createGameLog({ onChatSubmit } = {}) {
     messageArea.scrollTop = messageArea.scrollHeight;
   };
 
-  const addSystemMessage = (message, color = '#888', at = null) => {
-    append(buildRow(message, null, at, color));
+  const addSystemMessage = (message, _color = null, at = null) => {
+    append(buildRow(message, null, at));
   };
 
   const addTrickResult = (winner, teamTricks, oppTricks) => {
     const msgDiv = document.createElement('div');
-    msgDiv.style.cssText = `
-      margin-bottom: 8px;
-      padding: 8px;
-      background: rgba(35, 120, 45, 0.2);
-      border-radius: 6px;
-      color: #4CAF50;
-    `;
+    msgDiv.className = 'log-trick';
     msgDiv.textContent = `${winner} won the trick! (${teamTricks}-${oppTricks})`;
     messageArea.appendChild(msgDiv);
     messageArea.scrollTop = messageArea.scrollHeight;
@@ -522,18 +432,22 @@ export function createGameLog({ onChatSubmit } = {}) {
 
     // Names are usernames, so build with textContent rather than innerHTML
     const fillScore = (div, names, score, bids, tricks) => {
-      const lines = [
-        ['font-size:12px;color:#888;', names],
-        ['font-size:20px;font-weight:bold;', score],
-        ['font-size:11px;color:#aaa;', `Bids: ${bids} | Tricks: ${tricks}`],
-      ];
-      div.replaceChildren(...lines.map(([css, text]) => {
-        const line = document.createElement('div');
-        line.style.cssText = css;
-        line.textContent = String(text);
-        return line;
-      }));
+      div.replaceChildren(
+        line('log-score__names', names),
+        line('log-score__value', score),
+        line('log-score__detail', `Bids: ${bids} | Tricks: ${tricks}`),
+      );
     };
+    // each side in its team's color (my seat's team, the other)
+    const pos = getGameState().position;
+    if (pos) {
+      const mine = teamOf(pos);
+      const theirs = mine === 'a' ? 'b' : 'a';
+      teamDiv?.classList.remove('is-team-a', 'is-team-b');
+      teamDiv?.classList.add(`is-team-${mine}`);
+      oppDiv?.classList.remove('is-team-a', 'is-team-b');
+      oppDiv?.classList.add(`is-team-${theirs}`);
+    }
 
     if (teamDiv) {
       fillScore(teamDiv, teamNames, teamScore, teamBids, teamTricks);

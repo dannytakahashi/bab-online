@@ -28,21 +28,22 @@ import { TrickManager } from '../managers/TrickManager.js';
 import { EffectsManager } from '../managers/EffectsManager.js';
 import { DrawManager } from '../managers/DrawManager.js';
 import { flyInMs, FLIP } from '../pacing.js';
-import { transitionGeneration, getTransitionOverlay, createTransitionOverlay, releaseTransitionOverlay } from '../../ui/transitionOverlay.js';
+import { transitionGeneration, getTransitionOverlay, createTransitionOverlay, releaseTransitionOverlay, setOverlayState } from '../../ui/transitionOverlay.js';
 import { getTableDirector, sceneDelay, sceneTween, UI_READY_DELAY_MS, FLIP_AFTER_DEAL_MS, FLIP_AFTER_FADE_MS } from '../TableDirector.js';
 import { getMyAction } from '../../state/MyAction.js';
 import { BidManager } from '../managers/BidManager.js';
 import { LayoutManager } from '../managers/LayoutManager.js';
 import { showChatBubble as showChatBubbleUI } from '../../ui/components/ChatBubble.js';
 import { computeTableLayout, logWidthFor } from '../layout/computeTableLayout.js';
-import { applyHudLayout, hudSeat, hudRoot, logColumnWidth } from '../../ui/tableHud.js';
+import { applyHudLayout, hudSeat, hudRoot, logColumnWidth, getHud } from '../../ui/tableHud.js';
+import { buildAvatarRing, updateSeatPlates } from '../../ui/seatPlates.js';
 import { resizeShape } from '../shapes.js';
 import { cssSize, zoomCamera } from '../backingStore.js';
 import { ensureCardAtlas, refreshCardSprites, CARD_TEXTURE_KEY } from '../cards/CardAtlas.js';
 import { BACK_FRAME } from '../cards/cardFaces.js';
 import { uiTextStyle, refreshTextResolution } from '../text.js';
 import { COLOR, hex, alpha } from '../../ui/tokens.js';
-import { motionMs } from '../../ui/motion.js';
+import { motionMs, EASE_EMPHASIZED } from '../../ui/motion.js';
 
 /**
  * Main game scene class.
@@ -338,7 +339,7 @@ export class GameScene extends Phaser.Scene {
         targets: sprite,
         scaleX: 0,
         duration: flipDuration / 2,
-        ease: 'Power2',
+        ease: EASE_EMPHASIZED,
         onComplete: () => {
           if (!sprite || !sprite.scene) return;
           // Change to face up texture
@@ -348,7 +349,7 @@ export class GameScene extends Phaser.Scene {
             targets: sprite,
             scaleX: sprite.scaleY || trumpScale,
             duration: flipDuration / 2,
-            ease: 'Power2',
+            ease: EASE_EMPHASIZED,
             onComplete: () => {
               if (!sprite.scene) return;
               sprite.setData('flipping', false);
@@ -399,9 +400,9 @@ export class GameScene extends Phaser.Scene {
    * Show a chat/bid bubble on a seat: a child of the seat's HUD node, at
    * the seat's bubble anchor from the layout (it follows the avatar).
    */
-  showChatBubble(positionKey, message, color = null, duration = 6000) {
+  showChatBubble(positionKey, message, kind = null, duration = 6000) {
     if (!positionKey) return;
-    showChatBubbleUI(positionKey, message, color, duration);
+    showChatBubbleUI(positionKey, message, kind, duration);
   }
 
   // ============================================
@@ -470,9 +471,7 @@ export class GameScene extends Phaser.Scene {
     } else {
       // Overlay exists - wait for it to become fully opaque
       // Force it to full opacity immediately to ensure nothing shows through
-      overlay.style.transition = 'none';
-      overlay.style.opacity = '1';
-      overlay.style.pointerEvents = 'all';
+      setOverlayState(overlay, { ms: 0, opaque: true, blocking: true });
 
       // Proceed after a frame to ensure opacity is applied
       requestAnimationFrame(() => {
@@ -491,8 +490,7 @@ export class GameScene extends Phaser.Scene {
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           // Add transition and fade out
-          overlay.style.transition = `opacity ${fadeDuration}ms ease-out`;
-          overlay.style.pointerEvents = 'none';
+          setOverlayState(overlay, { ms: fadeDuration, blocking: false });
 
           // Force reflow
           overlay.offsetHeight;
@@ -521,7 +519,7 @@ export class GameScene extends Phaser.Scene {
           const fallback = setTimeout(onFadeComplete, fadeDuration + 250);
 
           // Fade out to reveal play screen
-          overlay.style.opacity = '0';
+          setOverlayState(overlay, { opaque: false });
         });
       });
     }
@@ -589,7 +587,10 @@ export class GameScene extends Phaser.Scene {
    */
   renderScoreHeader() {
     const state = this.state;
-    if (!window.updateGameLogScoreFromLegacy || !state) return;
+    if (!window.updateGameLogScoreFromLegacy || !state) {
+      this.updateSeatPlates?.();
+      return;
+    }
     const pos = state.position || 1;
     const names = window.ModernUtils?.getTeamNames?.(pos, state.playerData);
     const teamName = names?.teamName ?? `${state.username}/${state.partnerName}`;
@@ -604,6 +605,13 @@ export class GameScene extends Phaser.Scene {
       teamBids, oppBids,
       state.teamTricks || 0, state.oppTricks || 0
     );
+    this.updateSeatPlates?.();
+  }
+
+  /** Every seat's bid chip and trick pips, projected from GameState (ui/seatPlates.js). */
+  updateSeatPlates() {
+    const hud = getHud({ create: false });
+    if (hud && this.state) updateSeatPlates(hud, this.state);
   }
 
   /**
@@ -806,7 +814,7 @@ export class GameScene extends Phaser.Scene {
           x: targetX,
           y: targetY,
           duration: flyMs,
-          ease: 'Power2',
+          ease: EASE_EMPHASIZED,
           rotation: 0,
           scale: trickScale,
           onComplete: () => {
@@ -828,7 +836,7 @@ export class GameScene extends Phaser.Scene {
             targets: sprite,
             scaleX: 0,
             duration: flipHalf,
-            ease: 'Power2',
+            ease: EASE_EMPHASIZED,
             onComplete: () => {
               if (!sprite || !sprite.scene) return;
               sprite.setTexture(CARD_TEXTURE_KEY, cardKey);
@@ -838,7 +846,7 @@ export class GameScene extends Phaser.Scene {
                 targets: sprite,
                 scaleX: trickScale,
                 duration: flipHalf,
-                ease: 'Power2',
+                ease: EASE_EMPHASIZED,
               });
             },
           });
@@ -880,7 +888,7 @@ export class GameScene extends Phaser.Scene {
       x: targetPos.x,
       y: targetPos.y,
       duration: flyInMs(resumeInMs),
-      ease: 'Power2',
+      ease: EASE_EMPHASIZED,
       rotation: 0,
       scale: this.cardScale('trick'),
       onComplete: () => {
@@ -1092,7 +1100,7 @@ export class GameScene extends Phaser.Scene {
         targets: trumpSprite,
         scaleX: 0,
         duration: flipDuration,
-        ease: 'Power2',
+        ease: EASE_EMPHASIZED,
         onComplete: () => {
           if (trumpSprite && trumpSprite.scene) {
             trumpSprite.setTexture(CARD_TEXTURE_KEY, BACK_FRAME);
@@ -1100,7 +1108,7 @@ export class GameScene extends Phaser.Scene {
               targets: trumpSprite,
               scaleX: trumpSprite.scaleY || this.cardScale('trump'),
               duration: flipDuration,
-              ease: 'Power2',
+              ease: EASE_EMPHASIZED,
             });
           }
         },
@@ -1305,7 +1313,7 @@ export class GameScene extends Phaser.Scene {
           x: targetPos.x,
           y: targetPos.y,
           duration: ANIMATION_CONFIG.CARD_PLAY,
-          ease: 'Power2',
+          ease: EASE_EMPHASIZED,
           rotation: 0,
           scale: this.cardScale('trick'),
           onComplete: () => {
@@ -1543,7 +1551,8 @@ export class GameScene extends Phaser.Scene {
     // Stock number, inline data URL or /avatar URL (utils/avatar.js)
     applyAvatarImg(avatarImg, avatarSrc(pic));
     avatarImg.alt = username;
-    avatarContainer.appendChild(avatarImg);
+    // in its seat ring: the team's color, the bid chip and the trick pips (ui/seatPlates.js)
+    avatarContainer.appendChild(buildAvatarRing(avatarImg, myPosition));
 
     // Add username label (the seat's plate)
     const nameLabel = document.createElement('div');

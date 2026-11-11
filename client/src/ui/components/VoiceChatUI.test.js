@@ -6,6 +6,7 @@ const { createMuteButton, removeMuteButton, reattachMuteButton } = await import(
 const { applyHudLayout, clearHud } = await import('../tableHud.js');
 const { computeTableLayout, contains } = await import('../../phaser/layout/computeTableLayout.js');
 const { getClientSession, resetClientSession, SCREEN, ROLE } = await import('../../state/ClientSession.js');
+const { readClientFile } = await import('../../testing/files.js');
 
 /** The session at a table (as gameStart / a rejoin leaves it). */
 function sitDown(role = ROLE.PLAYER) {
@@ -40,10 +41,17 @@ describe('voice buttons (ui-20)', () => {
     // the slot is my box's last row, inside the canvas, clear of the log column
     expect(contains(L.seats.self.block, L.voice.rect)).toBe(true);
     expect(L.voice.rect.x + L.voice.rect.w).toBeLessThanOrEqual(L.w);
+    // a kit icon button drawn at the layout's size (--voice-btn: table.css), with a 44 px hit target
     const mute = document.getElementById('voice-mute-btn');
-    expect(mute.style.position).toBe('static');
-    expect(parseFloat(mute.style.minWidth)).toBe(0);
-    expect(parseFloat(mute.style.minHeight)).toBe(0);
+    expect(mute.classList.contains('kit-icon-btn')).toBe(true);
+    expect(mute.classList.contains('voice-btn')).toBe(true);
+    expect(mute.dataset.place).toBe('hud');
+    expect(mute.getAttribute('aria-label')).toBe('Mute microphone (M)');
+    expect(mute.getAttribute('aria-pressed')).toBe('false');
+    const css = readClientFile('styles/table.css');
+    expect(css).toMatch(/\.voice-btn\.kit-icon-btn \{\s*--icon-btn-size: var\(--voice-btn/);
+    expect(css).toMatch(/\.hud-voice > \.voice-btn \{\s*position: static;/);
+    expect(Array.from({ length: mute.style.length }, (_, i) => mute.style[i]).filter((k) => !k.startsWith('--'))).toEqual([]);
   });
 
   it('a spectator\'s slot is the table\'s bottom-right corner; a relayout moves it', () => {
@@ -65,8 +73,9 @@ describe('voice buttons (ui-20)', () => {
     const mute = document.getElementById('voice-mute-btn');
     const device = document.getElementById('voice-device-btn');
     expect(mute.parentElement).toBe(document.body);
-    expect([mute.style.bottom, mute.style.right]).toEqual(['20px', '20px']);
-    expect([device.style.bottom, device.style.right]).toEqual(['20px', '62px']);
+    // (table.css: body > .voice-btn at the page's bottom right, --voice-right from the edge)
+    expect([mute.dataset.place, mute.style.getPropertyValue('--voice-right')]).toEqual(['page', '20px']);
+    expect([device.dataset.place, device.style.getPropertyValue('--voice-right')]).toEqual(['page', '62px']);
     expect(document.getElementById('table-hud')).toBeNull();
   });
 
@@ -83,8 +92,8 @@ describe('voice buttons (ui-20)', () => {
     const device = document.getElementById('voice-device-btn');
     expect(mute.parentElement).toBe(document.body);
     expect(device.parentElement).toBe(document.body);
-    expect([mute.style.position, mute.style.bottom, mute.style.right]).toEqual(['absolute', '20px', '20px']);
-    expect([device.style.bottom, device.style.right]).toEqual(['20px', '62px']);
+    expect([mute.dataset.place, mute.style.getPropertyValue('--voice-right')]).toEqual(['page', '20px']);
+    expect([device.dataset.place, device.style.getPropertyValue('--voice-right')]).toEqual(['page', '62px']);
     expect(document.querySelector('.hud-voice')).toBeNull();
     // ...and they move into the slot once the table is up
     getClientSession().enterTable(ROLE.PLAYER);

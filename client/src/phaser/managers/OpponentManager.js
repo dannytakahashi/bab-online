@@ -13,8 +13,11 @@ import { getSocketManager } from '../../socket/SocketManager.js';
 import { sceneTween } from '../TableDirector.js';
 import { layoutOf, fanPositions } from '../layout/computeTableLayout.js';
 import { hudSeat, hudRoot } from '../../ui/tableHud.js';
+import { buildAvatarRing } from '../../ui/seatPlates.js';
 import { CARD_TEXTURE_KEY } from '../cards/CardAtlas.js';
 import { BACK_FRAME } from '../cards/cardFaces.js';
+import { dealMs } from './CardManager.js';
+import { dealStaggerMs, EASE_EMPHASIZED } from '../../ui/motion.js';
 
 /** OpponentManager slot → layout seat ('bottom' is a spectator's self seat). */
 const SEAT_OF = { partner: 'partner', opp1: 'opp1', opp2: 'opp2', bottom: 'self' };
@@ -135,9 +138,9 @@ export class OpponentManager {
           scaleX: scale,
           scaleY: scale,
           rotation: p.rotation,
-          duration: 750,
-          ease: 'Power2',
-          delay: i * 30,
+          duration: dealMs(),
+          ease: EASE_EMPHASIZED,
+          delay: i * dealStaggerMs(),
         }));
       }
       this._cardSprites[slot].push(sprite);
@@ -271,7 +274,7 @@ export class OpponentManager {
         `P${pos}`;
       const pic = playerData.pics?.[posIndex];
 
-      this._createAvatarDom(opponentId, pic, username);
+      this._createAvatarDom(opponentId, pic, username, pos);
     });
   }
 
@@ -279,7 +282,7 @@ export class OpponentManager {
    * Create a DOM-based avatar element in its HUD seat (sized by the HUD's
    * layout variables).
    */
-  _createAvatarDom(opponentId, pic, username) {
+  _createAvatarDom(opponentId, pic, username, position = null) {
     // Remove existing
     if (this._avatarDoms[opponentId]) {
       this._avatarDoms[opponentId].remove();
@@ -302,7 +305,8 @@ export class OpponentManager {
     // Stock number, inline data URL or /avatar URL (utils/avatar.js)
     applyAvatarImg(img, avatarSrc(pic));
     img.alt = username;
-    container.appendChild(img);
+    // in its seat ring: the team's color, the bid chip and the trick pips (ui/seatPlates.js)
+    container.appendChild(buildAvatarRing(img, position));
 
     // Username label (the seat's plate)
     const label = document.createElement('div');

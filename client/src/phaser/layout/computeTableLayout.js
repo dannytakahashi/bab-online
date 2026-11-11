@@ -65,8 +65,10 @@ export function logWidthFor(vw) {
  * apart, one per trick (up to 16 when the bids overbid the hand).
  */
 export const BID_CHIP = { w: 18, gap: 3 };
-/** The sheet's padding (12 px) and border (2 px), both sides. */
-export const BID_SHEET_CHROME = 2 * (12 + 2);
+/** The sheet's padding (12 px) and border (2 px), both sides (BidManager sets them on the sheet). */
+export const BID_SHEET_PAD = 12;
+export const BID_SHEET_BORDER = 2;
+export const BID_SHEET_CHROME = 2 * (BID_SHEET_PAD + BID_SHEET_BORDER);
 /**
  * The bid sheet's size at scale 1 (BidManager sets this width; 13 cards is
  * the tallest). 13 chips at their natural width set the width (the widest

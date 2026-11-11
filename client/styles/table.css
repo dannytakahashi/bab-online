@@ -1,0 +1,671 @@
+/**
+ * The table reskin: "night card room" (roadmap item 18a, ui-d3). Tokens
+ * (tokens.css) and the kit (kit.css) only; positions and sizes stay the
+ * table layout's (computeTableLayout via the HUD's CSS variables: --s,
+ * --av, --plate-*, --x/--y/--w/--h on the backgrounds).
+ *
+ * Gold is kept for the active turn, the trump and the dealer; team A is
+ * blue and team B coral (team 1 = seats 1 and 3, team 2 = seats 2 and 4).
+ */
+
+/* ---------- The felt: a deep gradient with a soft vignette (only at the table) ---------- */
+
+#game-container.at-table {
+    background:
+        radial-gradient(ellipse 75% 70% at 50% 48%, rgb(var(--felt-light-rgb) / 0.95) 0%, rgb(var(--felt-base-rgb) / 0.98) 46%, var(--felt-deep) 78%, var(--felt-edge) 100%);
+    font-family: var(--font-ui);
+}
+
+/* the vignette: a static layer over the felt, under the canvas and the HUD */
+#game-container.at-table::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background: radial-gradient(ellipse 85% 80% at 50% 50%, transparent 55%, rgb(0 0 0 / 0.42) 100%);
+}
+
+/* ---------- The rail around the trick (#playZoneDom: the layout's play zone) ---------- */
+
+.table-backdrop {
+    position: absolute;
+    left: var(--x, 0px);
+    top: var(--y, 0px);
+    width: var(--w, 0px);
+    height: var(--h, 0px);
+    box-sizing: border-box;
+    pointer-events: none;
+}
+
+.table-rail {
+    z-index: -1;
+    border-radius: calc(56px * var(--s, 1));
+    border: var(--rail-w, 4px) solid var(--felt-rail);
+    background:
+        radial-gradient(ellipse 80% 75% at 50% 45%, rgb(var(--felt-rail-highlight-rgb) / 0.55) 0%, rgb(var(--felt-light-rgb) / 0.35) 55%, rgb(var(--felt-deep-rgb) / 0.55) 100%);
+    box-shadow:
+        inset 0 0 0 1px rgb(var(--felt-rail-highlight-rgb) / 0.6),
+        inset 0 calc(10px * var(--s, 1)) calc(28px * var(--s, 1)) rgb(0 0 0 / 0.35),
+        0 calc(6px * var(--s, 1)) calc(22px * var(--s, 1)) rgb(0 0 0 / 0.45);
+}
+
+/* ---------- My hand's panel (#handBackgroundDom / #handBorderDom) ---------- */
+
+.hand-panel {
+    z-index: -2;
+    border-radius: var(--radius-lg);
+    background: linear-gradient(180deg, rgb(var(--surface-1-rgb) / 0.42), rgb(var(--surface-0-rgb) / 0.62));
+    box-shadow: var(--elev-2);
+}
+
+/* its border, and the turn ring's glow (kit.css: an opacity-animated ::after) */
+.hand-border {
+    z-index: -1;
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--line-subtle);
+}
+
+.hand-border.turn-glow {
+    border-color: rgb(var(--gold-rgb) / 0.75);
+}
+
+/* ---------- Seats: avatar with a team ring, a bid chip, trick pips; a glassy plate ---------- */
+
+.hud-avatar-ring {
+    position: relative;
+    display: block;
+    width: var(--av, 86px);
+    height: var(--av, 86px);
+    border-radius: 50%;
+}
+
+.hud-avatar-img {
+    border-color: var(--line-strong);
+    background: var(--surface-2);
+    box-shadow: var(--elev-2);
+}
+
+.hud-avatar-ring[data-team="a"] .hud-avatar-img { border-color: var(--team-a); }
+.hud-avatar-ring[data-team="b"] .hud-avatar-img { border-color: var(--team-b); }
+
+/* the turn ring sits on the avatar, not on the whole seat (avatar + plate) */
+.opponent-avatar-container.turn-glow::after,
+#player-avatar-container.turn-glow::after {
+    content: none;
+}
+
+.opponent-avatar-container.turn-glow .hud-avatar-ring::after,
+#player-avatar-container.turn-glow .hud-avatar-ring::after {
+    content: '';
+    position: absolute;
+    inset: calc(-4px * var(--s, 1));
+    border-radius: 50%;
+    box-shadow: 0 0 0 2px var(--gold), 0 0 calc(18px * var(--s, 1)) calc(6px * var(--s, 1)) rgb(var(--gold-rgb) / 0.55);
+    opacity: 0.45;
+    pointer-events: none;
+    will-change: opacity;
+    animation: kit-turn-glow var(--glow-period) var(--ease-standard) infinite alternate;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .opponent-avatar-container.turn-glow .hud-avatar-ring::after,
+    #player-avatar-container.turn-glow .hud-avatar-ring::after {
+        animation: none;
+        opacity: 0.9;
+    }
+}
+
+/* voice: who is speaking (a steady ring, no animation) */
+.opponent-avatar-container.voice-speaking .hud-avatar-img,
+#player-avatar-container.voice-speaking .hud-avatar-img {
+    box-shadow: 0 0 0 3px rgb(var(--success-rgb) / 0.9), var(--elev-2);
+}
+
+/* the seat's bid: a chip on the avatar's top right (text from data-bid, so
+   the seat's text stays its name) */
+.hud-bid-chip {
+    position: absolute;
+    top: calc(-2px * var(--s, 1));
+    right: calc(-6px * var(--s, 1));
+    display: none;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    min-width: calc(24px * var(--s, 1));
+    height: calc(24px * var(--s, 1));
+    padding: 0 calc(6px * var(--s, 1));
+    border-radius: var(--radius-pill);
+    background: var(--surface-1);
+    border: 1px solid var(--line-strong);
+    color: var(--text-primary);
+    font-family: var(--font-ui);
+    font-size: max(10px, calc(var(--type-xs) * var(--s, 1)));
+    font-weight: var(--weight-bold);
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    box-shadow: var(--elev-1);
+    pointer-events: none;
+}
+
+.hud-bid-chip[data-bid]:not([data-bid=""]) { display: inline-flex; }
+.hud-bid-chip::before { content: attr(data-bid); }
+.hud-bid-chip.is-bore { background: var(--danger-solid); border-color: var(--danger-solid); }
+
+/* tricks won / the team's bid: pips on the avatar's bottom edge */
+.hud-pips {
+    position: absolute;
+    left: 50%;
+    bottom: calc(-3px * var(--s, 1));
+    transform: translateX(-50%);
+    display: none;
+    gap: calc(2px * var(--s, 1));
+    padding: calc(2px * var(--s, 1)) calc(4px * var(--s, 1));
+    border-radius: var(--radius-pill);
+    background: rgb(var(--surface-0-rgb) / 0.85);
+    pointer-events: none;
+}
+
+.hud-pips:not(:empty) { display: flex; }
+
+.hud-pip {
+    width: max(3px, calc(6px * var(--s, 1)));
+    height: max(3px, calc(6px * var(--s, 1)));
+    border-radius: 50%;
+    box-sizing: border-box;
+    border: 1px solid rgb(var(--text-primary-rgb) / 0.55);
+}
+
+.hud-pip.is-won { background: var(--text-primary); border-color: var(--text-primary); }
+.hud-pips[data-team="a"] .hud-pip.is-won { background: var(--team-a); border-color: var(--team-a); }
+.hud-pips[data-team="b"] .hud-pip.is-won { background: var(--team-b); border-color: var(--team-b); }
+.hud-pip.is-over { background: var(--gold); border-color: var(--gold); }
+
+.hud-plate,
+.hud-hsi {
+    background: rgb(var(--surface-2-rgb) / 0.86);
+    border: 1px solid var(--line-subtle);
+    border-radius: var(--radius-pill);
+    font-family: var(--font-ui);
+    text-shadow: none;
+    box-shadow: var(--elev-1);
+}
+
+.hud-plate {
+    color: var(--text-primary);
+    font-weight: var(--weight-semibold);
+}
+
+.hud-hsi {
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+}
+
+/* ---------- The dealer: the frog on a gold ring ---------- */
+
+.hud-dealer-slot .dealer-button {
+    border-radius: 50%;
+    background: rgb(var(--surface-1-rgb) / 0.8);
+    box-shadow: 0 0 0 2px var(--gold), var(--elev-1);
+}
+
+.hud-dealer-slot .dealer-button img {
+    border-radius: 50%;
+}
+
+/* ---------- Bubbles ---------- */
+
+.chat-bubble {
+    background: var(--text-primary);
+    color: var(--text-on-light);
+    font-family: var(--font-ui);
+    border-radius: var(--radius-md);
+    box-shadow: var(--elev-2);
+    transition: opacity var(--dur-slow) var(--ease-standard);
+}
+
+.chat-bubble.bid {
+    color: var(--danger-solid);
+    font-weight: var(--weight-bold);
+    font-variant-numeric: tabular-nums;
+}
+
+.chat-bubble.tail-down::after { border-color: var(--text-primary) transparent transparent transparent; }
+.chat-bubble.tail-right::after { border-color: transparent transparent transparent var(--text-primary); }
+.chat-bubble.tail-left::after { border-color: transparent var(--text-primary) transparent transparent; }
+
+/* ---------- Status pill (spectating / lazy) ---------- */
+
+#spectating-indicator {
+    background: rgb(var(--surface-1-rgb) / 0.88);
+    font-family: var(--font-ui);
+    font-weight: var(--weight-medium);
+    box-shadow: var(--elev-1);
+}
+
+#spectating-indicator.is-spectating { color: var(--team-a); border-color: var(--team-a); }
+#spectating-indicator.is-lazy { color: var(--success); border-color: var(--success); }
+
+/* ---------- The bid sheet (BidManager): a kit panel, chip-style numbers, bores as a segmented control ---------- */
+
+.bid-sheet {
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-2);
+    width: var(--bid-sheet-w, 298px);
+    padding: var(--bid-sheet-pad, 12px);
+    border: var(--bid-sheet-border, 2px) solid var(--line-subtle);
+    border-radius: var(--radius-lg);
+    box-sizing: border-box;
+    background: rgb(var(--surface-1-rgb) / 0.96);
+    box-shadow: var(--elev-3);
+    font-family: var(--font-ui);
+    z-index: var(--z-panel);
+    display: flex;
+    visibility: hidden;
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(calc(var(--bid-scale, 1) * 0.94));
+    transition:
+        opacity var(--dur-fast) var(--ease-standard),
+        transform var(--dur-base) var(--ease-emphasized),
+        visibility 0s linear var(--dur-fast);
+}
+
+.bid-sheet.is-open {
+    visibility: visible;
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(var(--bid-scale, 1));
+    transition:
+        opacity var(--dur-fast) var(--ease-standard),
+        transform var(--dur-base) var(--ease-emphasized),
+        visibility 0s;
+}
+
+/* without a table container it stays centred on the page */
+body > .bid-sheet {
+    position: fixed;
+    left: 50%;
+    top: 50%;
+}
+
+.bid-sheet__title {
+    margin-bottom: var(--space-1);
+    color: var(--gold);
+    font-size: var(--type-lg);
+    font-weight: var(--weight-bold);
+    letter-spacing: 0.02em;
+}
+
+.bid-chips {
+    display: flex;
+    align-self: stretch;
+    min-width: 0;
+    justify-content: center;
+    gap: var(--bid-chip-gap, 3px);
+    margin-bottom: var(--space-1);
+}
+
+.bid-chip {
+    flex: 0 1 var(--bid-chip-w, 18px);
+    width: var(--bid-chip-w, 18px);
+    min-width: 0;
+    height: 26px;
+    border-radius: 4px;
+    box-sizing: border-box;
+    background: var(--surface-3);
+    transition: background-color var(--dur-fast) var(--ease-standard);
+}
+
+.bid-chip.is-team { background: var(--success); }
+.bid-chip.is-opp { background: var(--danger-text); }
+
+.bid-numbers {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: var(--space-1);
+    align-self: stretch;
+}
+
+.bid-bores {
+    display: flex;
+    align-self: stretch;
+    gap: 2px;
+    padding: 2px;
+    border-radius: var(--radius-md);
+    background: var(--surface-0);
+}
+
+.bid-bores .bid-button {
+    flex: 1 1 0;
+}
+
+.bid-button {
+    box-sizing: border-box;
+    min-width: 40px;
+    min-height: var(--hit-target);
+    padding: var(--space-2);
+    border: 1px solid var(--line-subtle);
+    border-radius: var(--radius-sm);
+    background: var(--surface-3);
+    color: var(--text-primary);
+    font-family: var(--font-ui);
+    font-size: var(--type-md);
+    font-weight: var(--weight-bold);
+    font-variant-numeric: tabular-nums;
+    cursor: pointer;
+    transition: background-color var(--dur-fast) var(--ease-standard), border-color var(--dur-fast) var(--ease-standard), transform var(--dur-fast) var(--ease-emphasized);
+}
+
+.bid-button:hover:not(:disabled) {
+    background: rgb(var(--text-primary-rgb) / 0.16);
+    border-color: var(--line-strong);
+}
+
+.bid-button:active:not(:disabled) { transform: scale(0.96); }
+
+.bid-button:focus-visible {
+    outline: 2px solid var(--text-primary);
+    outline-offset: 2px;
+}
+
+.bid-button.bore-button {
+    border-color: transparent;
+    border-radius: calc(var(--radius-md) - 2px);
+    background: var(--danger-solid);
+}
+
+.bid-button.bore-button:hover:not(:disabled) { background: var(--danger-solid-hover); }
+
+.bid-button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    background: var(--surface-2);
+}
+
+.bid-button.is-selected {
+    background: var(--primary-base);
+    border-color: var(--primary-hover);
+    color: var(--text-on-primary);
+}
+
+/* ---------- Voice buttons: kit icon buttons sized by the layout ---------- */
+
+.voice-btn.kit-icon-btn {
+    --icon-btn-size: var(--voice-btn, 36px);
+    z-index: var(--z-panel);
+}
+
+/* off the table (the lobby): the page's bottom right */
+body > .voice-btn {
+    --icon-btn-size: 36px;
+    position: absolute;
+    bottom: var(--space-5);
+    right: var(--voice-right, 20px);
+}
+
+.hud-voice > .voice-btn {
+    position: static;
+    flex: 0 0 auto;
+}
+
+.voice-popover {
+    position: absolute;
+    min-width: 200px;
+    max-width: 300px;
+    padding: var(--space-1) 0;
+    background: var(--surface-1);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-md);
+    box-shadow: var(--elev-3);
+    z-index: var(--z-panel);
+    font-family: var(--font-ui);
+    right: var(--pop-right, 0px);
+    bottom: var(--pop-bottom, 0px);
+}
+
+.voice-popover__item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: 36px;
+    padding: var(--space-2) var(--space-3);
+    color: var(--text-primary);
+    font-size: var(--type-sm);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+}
+
+.voice-popover__item:hover { background: rgb(var(--text-primary-rgb) / 0.08); }
+.voice-popover__item.is-active { color: var(--success); }
+.voice-popover__item.is-muted { color: var(--text-secondary); }
+.voice-popover__mark { flex-shrink: 0; width: 1em; }
+.voice-popover__label { overflow: hidden; text-overflow: ellipsis; }
+.voice-popover__divider { height: 1px; margin: var(--space-1) 0; background: var(--line-subtle); }
+
+.voice-overlay .kit-modal { min-width: 280px; max-width: 400px; }
+.voice-overlay__hint { margin: var(--space-4) 0 0; color: var(--text-dim); text-align: center; font-size: var(--type-xs); }
+
+.voice-row {
+    display: flex;
+    align-items: center;
+    margin-bottom: var(--space-1);
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-sm);
+    background: rgb(var(--text-primary-rgb) / 0.05);
+    transition: background-color var(--dur-fast) var(--ease-standard);
+}
+
+.voice-row.is-speaking { background: rgb(var(--success-rgb) / 0.15); }
+.voice-row__dot { flex-shrink: 0; width: 10px; height: 10px; margin-right: 10px; border-radius: 50%; background: var(--surface-3); }
+.voice-row.is-speaking .voice-row__dot { background: var(--success); }
+.voice-row__name { flex: 1; color: var(--text-primary); font-size: var(--type-sm); }
+.voice-row__relay { display: none; margin-left: var(--space-1); color: var(--danger-text); font-weight: var(--weight-bold); font-size: var(--type-xs); }
+.voice-row__relay.is-on { display: inline; }
+.voice-row__volume { display: flex; flex-shrink: 0; align-items: center; margin-right: var(--space-2); }
+.voice-row__slider { width: 80px; accent-color: var(--success); cursor: pointer; }
+.voice-row__pct { width: 36px; margin-left: var(--space-1); color: var(--text-secondary); font-size: 11px; text-align: right; font-variant-numeric: tabular-nums; }
+.voice-row.is-muted .voice-row__slider,
+.voice-row.is-muted .voice-row__pct { opacity: 0.4; }
+.voice-row .kit-btn { min-height: 32px; min-width: 64px; }
+
+/* ---------- The game log (#gameFeed) ---------- */
+
+#gameFeed.chat-container {
+    background: rgb(var(--surface-1-rgb) / 0.94);
+    border: 1px solid var(--line-subtle);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--elev-2);
+    font-family: var(--font-ui);
+    color: var(--text-primary);
+    z-index: var(--z-panel);
+}
+
+#gameFeed .chat-header {
+    padding: var(--space-3) var(--space-4);
+    background: transparent;
+    border-bottom: 1px solid var(--line-subtle);
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    color: var(--text-primary);
+    font-size: var(--type-md);
+    font-weight: var(--weight-semibold);
+}
+
+.log-score {
+    display: flex;
+    justify-content: space-around;
+    padding: var(--space-3) var(--space-2);
+    border-bottom: 1px solid var(--line-subtle);
+    background: rgb(var(--surface-0-rgb) / 0.5);
+}
+
+.log-score__team { text-align: center; min-width: 0; }
+.log-score__team { color: var(--text-primary); }
+.log-score__team.is-team-a { color: var(--team-a); }
+.log-score__team.is-team-b { color: var(--team-b); }
+.log-score__names { color: var(--text-secondary); font-size: var(--type-xs); overflow-wrap: anywhere; }
+.log-score__value { font-size: var(--type-lg); font-weight: var(--weight-bold); font-variant-numeric: tabular-nums; }
+.log-score__detail { color: var(--text-secondary); font-size: 11px; font-variant-numeric: tabular-nums; }
+
+.log-hand { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.log-hand__label { margin-bottom: 2px; color: var(--text-dim); font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; }
+.log-hand__value {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: var(--radius-sm);
+    background: var(--surface-3);
+    color: var(--text-primary);
+    font-size: var(--type-lg);
+    font-weight: var(--weight-bold);
+    font-variant-numeric: tabular-nums;
+}
+
+.log-tricks { flex-shrink: 0; padding: 6px 10px; border-bottom: 1px solid var(--line-subtle); background: rgb(var(--surface-0-rgb) / 0.5); }
+.log-tricks[hidden] { display: none; }
+.log-tricks__row { display: flex; flex-wrap: wrap; justify-content: center; gap: 2px; }
+.log-chip { width: 14px; height: 20px; border-radius: 3px; box-sizing: border-box; background: var(--surface-3); transition: background-color var(--dur-fast) var(--ease-standard); }
+.log-chip.is-team { background: var(--success); }
+.log-chip.is-opp { background: var(--danger-text); }
+
+#gameFeed .chat-messages { color: var(--text-secondary); text-align: left; }
+.log-row { margin-bottom: var(--space-2); overflow-wrap: anywhere; }
+.log-row.is-system { font-style: italic; }
+.log-row__time { margin-right: var(--space-1); color: var(--text-dim); font-size: 11px; font-variant-numeric: tabular-nums; }
+.log-row__text.is-team-a { color: var(--team-a); }
+.log-row__text.is-team-b { color: var(--team-b); }
+.log-row__text.is-spectator { color: var(--success); }
+.log-row__text.is-system { color: var(--text-dim); }
+.log-row__name { font-weight: var(--weight-bold); }
+.log-trick { margin-bottom: var(--space-2); padding: var(--space-2); border-radius: var(--radius-sm); background: rgb(var(--success-rgb) / 0.12); color: var(--success); }
+
+#gameFeed .chat-input-container { position: relative; border-top: 1px solid var(--line-subtle); }
+#gameFeed .chat-input {
+    min-height: 36px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-sm);
+    background: var(--surface-0);
+    color: var(--text-primary);
+    font-family: var(--font-ui);
+}
+#gameFeed .chat-input:focus { border-color: var(--team-a); }
+#gameFeed .chat-send {
+    min-height: 36px;
+    border-radius: var(--radius-sm);
+    background: var(--primary-base);
+    color: var(--text-on-primary);
+    font-family: var(--font-ui);
+    font-weight: var(--weight-semibold);
+}
+#gameFeed .chat-send:hover { background: var(--primary-hover); }
+#gameFeed .chat-send:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 2px; }
+
+.slash-autocomplete {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 100%;
+    margin-bottom: var(--space-1);
+    overflow: hidden;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-sm);
+    background: var(--surface-1);
+    box-shadow: var(--elev-2);
+    z-index: 1;
+}
+.slash-autocomplete[hidden] { display: none; }
+.slash-item { display: flex; align-items: center; justify-content: space-between; padding: var(--space-2) var(--space-3); cursor: pointer; }
+.slash-item:hover { background: rgb(var(--success-rgb) / 0.1); }
+.slash-item__cmd { color: var(--success); font-weight: var(--weight-bold); }
+.slash-item__desc { margin-left: var(--space-3); color: var(--text-dim); font-size: var(--type-xs); }
+
+/* ---------- Score modal and tournament results (kit modals) ---------- */
+
+.result-modal {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    max-width: min(640px, 100%);
+    text-align: center;
+}
+
+.result-modal .kit-modal__title {
+    margin-bottom: var(--space-2);
+    font-size: var(--type-display);
+    letter-spacing: 0.04em;
+}
+
+.result-modal.is-victory .kit-modal__title { color: var(--success); }
+.result-modal.is-defeat .kit-modal__title { color: var(--danger-text); }
+.result-modal.is-tie .kit-modal__title,
+.result-modal.is-tournament .kit-modal__title { color: var(--gold); }
+.result-modal.is-neutral .kit-modal__title { color: var(--text-secondary); }
+
+.result-modal .kit-modal__body { width: 100%; }
+.result-modal .kit-modal__actions { justify-content: center; }
+
+.result-score { margin-bottom: var(--space-6); color: var(--text-primary); font-size: var(--type-xl); font-variant-numeric: tabular-nums; }
+.result-winner { margin-bottom: var(--space-6); color: var(--success); font-size: var(--type-xl); }
+
+.result-stats {
+    min-width: 400px;
+    padding: var(--space-4) var(--space-5);
+    border-radius: var(--radius-md);
+    background: var(--surface-0);
+    text-align: left;
+}
+
+.result-stats__row {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr 1fr 1fr;
+    gap: var(--space-3);
+    padding: var(--space-2) 0;
+    color: var(--text-primary);
+    font-size: var(--type-sm);
+    font-variant-numeric: tabular-nums;
+}
+
+.result-stats__row > :not(:first-child) { text-align: center; }
+.result-stats__head { padding-bottom: var(--space-3); margin-bottom: var(--space-2); border-bottom: 1px solid var(--line-subtle); color: var(--text-secondary); font-size: var(--type-xs); text-transform: uppercase; letter-spacing: 0.06em; }
+.result-stats__name { font-weight: var(--weight-medium); overflow-wrap: anywhere; }
+.result-stats__name.is-team-a { color: var(--team-a); }
+.result-stats__name.is-team-b { color: var(--team-b); }
+.result-stats .is-fault { color: var(--danger-text); }
+
+/* the tournament scoreboard (TournamentScoreboard: the results modal and the tournament lobby) */
+.tournament-scoreboard { box-sizing: border-box; padding: 15px; overflow-x: auto; border-radius: var(--radius-sm); background: rgb(0 0 0 / 0.4); font-family: var(--font-ui); }
+.result-modal .tournament-scoreboard { width: 100%; margin-bottom: var(--space-2); background: var(--surface-0); }
+.tsb-empty { padding: 10px; color: var(--text-secondary); text-align: center; }
+.tsb-table { width: 100%; border-collapse: collapse; font-size: var(--type-sm); font-variant-numeric: tabular-nums; }
+.tsb-table thead tr { border-bottom: 1px solid var(--line-strong); }
+.tsb-table tbody tr { border-bottom: 1px solid var(--line-subtle); }
+.tsb-table th { padding: 8px 6px; color: var(--text-secondary); font-size: var(--type-xs); font-weight: var(--weight-regular); text-align: center; text-transform: uppercase; letter-spacing: 0.5px; }
+.tsb-table td { padding: 8px 6px; color: var(--text-primary); text-align: center; }
+.tsb-table th.is-left, .tsb-table td.is-left { text-align: left; }
+.tsb-table .tsb-rank { color: var(--text-secondary); }
+.tsb-table .tsb-name { font-weight: var(--weight-medium); }
+.tsb-table .is-leader { color: var(--gold); font-weight: var(--weight-bold); }
+.tsb-table .tsb-none { color: var(--text-dim); }
+.tsb-table .tsb-total { color: var(--success); font-weight: var(--weight-bold); }
+
+/* ---------- The black fade between the teams screen and the first deal ---------- */
+
+.transition-overlay {
+    position: fixed;
+    inset: 0;
+    background: #000;
+    opacity: 0;
+    pointer-events: none;
+    z-index: var(--z-transition);
+    transition: opacity var(--overlay-ms, 0ms) ease-out;
+}
+
+.transition-overlay.is-opaque { opacity: 1; }
+.transition-overlay.is-blocking { pointer-events: all; }
+.transition-overlay.is-instant { transition: none; }
+
+/* (reduced motion keeps this fade: an opacity change is not motion, and its
+   timing is the server's teams hold, phaser/pacing.js teamsFade) */

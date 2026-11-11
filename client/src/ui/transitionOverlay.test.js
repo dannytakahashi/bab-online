@@ -21,7 +21,9 @@ describe('transition overlay', () => {
     const b = strayOverlay();
     const gen = transitionGeneration();
     expect(getTransitionOverlay()).toBe(a);
-    expect(a.style.transition).toContain('800ms');
+    // (its fade: table.css .transition-overlay reads --overlay-ms)
+    expect(a.style.getPropertyValue('--overlay-ms')).toBe('800ms');
+    expect(a.className).toBe('transition-overlay');
     expect(removeTransitionOverlay()).toBe(true);
     expect([a.isConnected, b.isConnected]).toEqual([false, false]);
     expect(getTransitionOverlay()).toBeNull();
@@ -48,7 +50,8 @@ describe('transition overlay', () => {
 
   it('a finished fade releases its own overlay without a generation bump', () => {
     const el = createTransitionOverlay({ opacity: 1, blocking: true });
-    expect(el.style.pointerEvents).toBe('all');
+    expect(el.classList.contains('is-blocking')).toBe(true);
+    expect(el.classList.contains('is-opaque')).toBe(true);
     const gen = transitionGeneration();
     releaseTransitionOverlay(el);
     expect(el.isConnected).toBe(false);

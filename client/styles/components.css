@@ -26,7 +26,7 @@
     width: calc(var(--log-w, 320px) - 20px);
     /* nothing in it may widen the page (a phone zooms out to fit it) */
     overflow: hidden;
-    background: rgba(0, 0, 0, 0.85);
+    background: rgb(var(--surface-1-rgb) / 0.94);
     border-radius: 8px;
     display: flex;
     flex-direction: column;
@@ -68,11 +68,11 @@
 
 .chat-header {
     padding: 10px 15px;
-    background: #1a1a2e;
+    background: var(--surface-2);
     border-radius: 8px 8px 0 0;
-    color: #fff;
+    color: var(--text-primary);
     font-weight: bold;
-    border-bottom: 1px solid #333;
+    border-bottom: 1px solid var(--line-subtle);
 }
 
 .chat-messages {
@@ -84,7 +84,7 @@
 .chat-input-container {
     display: flex;
     padding: 8px;
-    border-top: 1px solid #333;
+    border-top: 1px solid var(--line-subtle);
     gap: 8px;
 }
 
@@ -93,44 +93,32 @@
     /* shrinks below its intrinsic width, so Send stays in a narrow log (ui-8) */
     min-width: 0;
     padding: 8px;
-    border: 1px solid #333;
+    border: 1px solid var(--line-strong);
     border-radius: 4px;
-    background: #222;
+    background: var(--surface-0);
     color: white;
     font-size: 14px;
 }
 
 .chat-input:focus {
     outline: none;
-    border-color: #4a90d9;
+    border-color: var(--team-a);
 }
 
 .chat-send {
     padding: 8px 16px;
-    background: #4a90d9;
-    color: #fff;
+    background: var(--primary-base);
+    color: var(--text-on-primary);
     border: none;
     border-radius: 4px;
     cursor: pointer;
 }
 
 .chat-send:hover {
-    background: #357abd;
+    background: var(--primary-hover);
 }
 
-/* ==========================================================================
-   Turn Indicator Glow
-   ========================================================================== */
-
-.turn-glow {
-    box-shadow: 0 0 30px 15px rgba(255, 215, 0, 0.5);
-    animation: pulse-glow 1s ease-in-out infinite alternate;
-}
-
-@keyframes pulse-glow {
-    from { box-shadow: 0 0 20px 10px rgba(255, 215, 0, 0.2); }
-    to { box-shadow: 0 0 40px 20px rgba(255, 215, 0, 0.6); }
-}
+/* Turn glow: kit.css (.turn-glow::after, opacity only) and table.css */
 
 /* ==========================================================================
    Opponent Avatars (DOM-based)
@@ -152,20 +140,10 @@
     height: 80px;
     border-radius: 50%;
     object-fit: cover;
-    background-color: #1a1a2e;
+    background-color: var(--surface-2);
     border: none;
 }
 
-/* Turn glow for opponent avatars - only apply glow to img, not container */
-.opponent-avatar-container.turn-glow {
-    box-shadow: none;
-    animation: none;
-}
-
-.opponent-avatar-container.turn-glow .opponent-avatar-img {
-    box-shadow: 0 0 30px 15px rgba(255, 215, 0, 0.5);
-    animation: pulse-glow 1s ease-in-out infinite alternate;
-}
 
 /* ==========================================================================
    Connection banner (ui/components/ConnectionBanner.js): top of the page,
@@ -181,17 +159,18 @@
     box-sizing: border-box;
     padding: 8px 18px;
     border-radius: 20px;
-    border: 1px solid #f59e0b;
-    background: rgba(20, 20, 20, 0.92);
-    color: #fde68a;
+    border: 1px solid var(--warning);
+    background: rgb(var(--surface-1-rgb) / 0.94);
+    color: var(--warning);
     font-size: 14px;
     text-align: center;
     pointer-events: none;
-    z-index: 100000;
+    font-family: var(--font-ui);
+    z-index: var(--z-banner);
     /* Hidden by opacity, not display/visibility, so the live region stays
        in the accessibility tree; it is empty while hidden */
     opacity: 0;
-    transition: opacity 0.2s ease, transform 0.2s ease;
+    transition: opacity var(--dur-base) var(--ease-standard), transform var(--dur-base) var(--ease-emphasized);
 }
 
 .connection-banner:empty {
@@ -217,16 +196,16 @@
 
 .chat-bubble {
     position: absolute;
-    background: #ffffff;
-    color: #000000;
+    background: var(--text-primary);
+    color: var(--text-on-light);
     padding: 8px 12px;
     border-radius: 12px;
     font-size: 14px;
-    font-family: Arial, sans-serif;
+    font-family: var(--font-ui);
     min-width: 40px;
     max-width: 200px;
     word-wrap: break-word;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    box-shadow: var(--elev-2);
     z-index: 500;
     pointer-events: none;
     opacity: 1;
@@ -239,7 +218,7 @@
 }
 
 .chat-bubble.bid {
-    color: #FF0000;
+    color: var(--danger-solid);
     font-weight: bold;
 }
 
@@ -252,7 +231,7 @@
     transform: translateX(-50%);
     border-width: 10px 8px 0 8px;
     border-style: solid;
-    border-color: #ffffff transparent transparent transparent;
+    border-color: var(--text-primary) transparent transparent transparent;
 }
 
 /* Tail pointing right (the bubble left of its avatar) */
@@ -264,7 +243,7 @@
     transform: translateY(-50%);
     border-width: 8px 0 8px 10px;
     border-style: solid;
-    border-color: transparent transparent transparent #ffffff;
+    border-color: transparent transparent transparent var(--text-primary);
 }
 
 /* Tail pointing left (the bubble right of its avatar) */
@@ -276,7 +255,7 @@
     transform: translateY(-50%);
     border-width: 8px 10px 8px 0;
     border-style: solid;
-    border-color: transparent #ffffff transparent transparent;
+    border-color: transparent var(--text-primary) transparent transparent;
 }
 
 /* ==========================================================================
@@ -298,17 +277,7 @@
     object-fit: contain;
 }
 
-/* ==========================================================================
-   Voice Chat Speaking Indicators
-   ========================================================================== */
-
-.opponent-avatar-container.voice-speaking .opponent-avatar-img {
-    box-shadow: 0 0 20px 8px rgba(74, 222, 128, 0.6);
-}
-
-#player-avatar-container.voice-speaking .player-avatar-img {
-    box-shadow: 0 0 20px 8px rgba(74, 222, 128, 0.6);
-}
+/* Voice speaking indicators: table.css */
 
 /* ==========================================================================
    Table HUD (ui/tableHud.js): the table's DOM layer, the canvas's size,
@@ -375,8 +344,8 @@
     max-height: none;
     object-fit: cover;
     border-radius: 50%;
-    border: var(--av-border, 3px) solid #333;
-    background: #1a1a1a;
+    border: var(--av-border, 3px) solid var(--line-strong);
+    background: var(--surface-2);
 }
 
 .hud-plate {
@@ -385,14 +354,14 @@
     max-width: var(--plate-w, 124px);
     margin-top: var(--plate-gap, 6px);
     padding: 2px var(--plate-pad, 8px);
-    background: rgba(0, 0, 0, 0.7);
-    border: 1px solid #666;
+    background: rgb(var(--surface-2-rgb) / 0.86);
+    border: 1px solid var(--line-subtle);
     border-radius: 4px;
-    font-family: Arial, sans-serif;
+    font-family: var(--font-ui);
     font-size: var(--plate-font, 14px);
     line-height: var(--plate-lh, 17px);
-    color: #aaa;
-    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
+    color: var(--text-primary);
+    text-shadow: none;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -404,12 +373,12 @@
     max-width: var(--hsi-w, 96px);
     margin-top: var(--hsi-gap, 4px);
     padding: 2px var(--plate-pad, 8px);
-    background: rgba(0, 0, 0, 0.7);
-    border: 1px solid #666;
+    background: rgb(var(--surface-2-rgb) / 0.86);
+    border: 1px solid var(--line-subtle);
     border-radius: 4px;
     font-size: var(--hsi-font, 12px);
     line-height: calc(var(--hsi-h, 20px) - 6px);
-    color: #aaa;
+    color: var(--text-secondary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -458,7 +427,7 @@
 /* The status slot (lazy / spectator pill), top centre of the table */
 #spectating-indicator {
     box-sizing: border-box;
-    background: rgba(0, 0, 0, 0.8);
+    background: rgb(var(--surface-1-rgb) / 0.88);
     border-radius: 20px;
     border: 1px solid currentColor;
     white-space: nowrap;

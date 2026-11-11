@@ -4,6 +4,8 @@
  * Handles visual effects like bore impacts, rainbow displays, and turn indicators.
  */
 
+import { motionMs, prefersReducedMotion, EASE_EMPHASIZED, EASE_STANDARD } from '../../ui/motion.js';
+import { MOTION } from '../../ui/tokens.js';
 import { team, rotate } from '../../utils/positions.js';
 import { sceneDelay, sceneTween } from '../TableDirector.js';
 import { layoutOf } from '../layout/computeTableLayout.js';
@@ -55,20 +57,26 @@ export class EffectsManager {
     const { x, y } = spot;
     const targetScale = spot.scale;
 
+    // (reduced motion: no pop, a short fade in at full size)
+    const reduced = prefersReducedMotion();
     const impactImage = scene.add
       .image(x, y, event)
-      .setScale(0)
-      .setAlpha(1)
+      .setScale(reduced ? targetScale : 0)
+      .setAlpha(reduced ? 0 : 1)
       .setDepth(999);
 
     this._impactSprites.push(impactImage);
 
-    // Tween for impact effect (scale up + bounce)
-    sceneTween(scene, {
+    // Tween for impact effect (scale up)
+    sceneTween(scene, reduced ? {
+      targets: impactImage,
+      alpha: { from: 0, to: 1 },
+      duration: MOTION.fast,
+    } : {
       targets: impactImage,
       scale: { from: 0, to: targetScale },
-      ease: 'Back.Out',
-      duration: 500,
+      ease: EASE_EMPHASIZED,
+      duration: motionMs('slow'),
     });
 
     // Remove the image after 1.5 seconds with fade
@@ -76,8 +84,8 @@ export class EffectsManager {
       sceneTween(scene, {
         targets: impactImage,
         alpha: { from: 1, to: 0 },
-        duration: 1000,
-        ease: 'Power1',
+        duration: motionMs(MOTION.slow * 2, { reduced: MOTION.fast }),
+        ease: EASE_STANDARD,
         onComplete: () => {
           impactImage.destroy();
           const index = this._impactSprites.indexOf(impactImage);
@@ -116,24 +124,25 @@ export class EffectsManager {
     }
     const { x, y } = effects.rainbow[seat];
 
-    const rainbowSprite = scene.add.image(x, y, 'rainbow').setScale(0).setDepth(1000).setAlpha(1);
+    const reduced = prefersReducedMotion();
+    const rainbowSprite = scene.add.image(x, y, 'rainbow').setScale(reduced ? effects.rainbowScale : 0).setDepth(1000).setAlpha(1);
 
     this._rainbowSprites.push(rainbowSprite);
 
-    // Scale up animation
+    // Scale up animation (instant under reduced motion)
     sceneTween(scene, {
       targets: rainbowSprite,
-      scale: { from: 0, to: effects.rainbowScale },
-      ease: 'Power2',
-      duration: 500,
+      scale: { from: reduced ? effects.rainbowScale : 0, to: effects.rainbowScale },
+      ease: EASE_EMPHASIZED,
+      duration: motionMs('slow'),
       onComplete: () => {
         // Fade out after delay
         sceneDelay(scene, 2000, () => {
           sceneTween(scene, {
             targets: rainbowSprite,
             alpha: { from: 1, to: 0 },
-            duration: 1000,
-            ease: 'Power1',
+            duration: motionMs(MOTION.slow * 2, { reduced: MOTION.fast }),
+            ease: EASE_STANDARD,
             onComplete: () => {
               rainbowSprite.destroy();
               const index = this._rainbowSprites.indexOf(rainbowSprite);

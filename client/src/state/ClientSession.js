@@ -139,6 +139,7 @@ export class ClientSession {
     this._storage = typeof sessionStorage !== 'undefined' ? sessionStorage : memoryStorage();
     this._started = false;
     this._connectionListeners = new Set();
+    this._screenListeners = new Set();
     this._unsubscribeSocket = null;
     this._resetBookkeeping();
     this.history = [];
@@ -252,7 +253,25 @@ export class ClientSession {
     this.history.push(reenter ? `${to}*` : to);
     if (this.history.length > 50) this.history.shift();
     this._runHook(to, 'enter', ctx);
+    for (const fn of [...this._screenListeners]) {
+      try {
+        fn(to, ctx);
+      } catch (err) {
+        if (this._strict) throw err;
+        this._log.error?.('ClientSession: screen listener failed', err);
+      }
+    }
     return true;
+  }
+
+  /**
+   * Call fn(screen, ctx) after every transition (re-entries too), once the
+   * screen's enter hook ran: the table's chrome and the Phaser loop follow
+   * the screen. Returns an unsubscribe function.
+   */
+  onScreenChange(fn) {
+    this._screenListeners.add(fn);
+    return () => this._screenListeners.delete(fn);
   }
 
   _noteTournamentLobby(data) {

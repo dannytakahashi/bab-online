@@ -57,7 +57,7 @@ import { registerAllHandlers } from './handlers/index.js';
 
 // Voice Chat
 import { getVoiceChatManager } from './voice/VoiceChatManager.js';
-import { createMuteButton, removeMuteButton, showVoiceOverlay, removeVoiceOverlay } from './ui/components/VoiceChatUI.js';
+import { createMuteButton, removeMuteButton, showVoiceOverlay, removeVoiceOverlay, setMuteButtonState } from './ui/components/VoiceChatUI.js';
 import { setTableChrome, clearHud, hudRoot } from './ui/tableHud.js';
 
 // ============================================
@@ -620,6 +620,15 @@ function initializeApp() {
     ].forEach((id) => document.getElementById(id)?.remove());
   }
 
+  // The table's look (the felt: table.css #game-container.at-table) follows
+  // the screen: at the table and on its score modal only
+  const syncTableScreen = (screen) => {
+    const atTable = screen === SCREEN.TABLE || screen === SCREEN.GAME_END;
+    document.getElementById('game-container')?.classList.toggle('at-table', atTable);
+  };
+  session.onScreenChange((screen) => syncTableScreen(screen));
+  syncTableScreen(session.screen);
+
   // Screen enter/exit hooks (the session runs exit(from) then enter(to))
   session.setHooks({
     teardownTable: () => teardownTableUI(),
@@ -693,18 +702,8 @@ function initializeApp() {
     if (e.key === 'm' && voiceManager.active && !e.ctrlKey && !e.metaKey) {
       const activeEl = document.activeElement;
       if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) return;
-      const muted = voiceManager.toggleSelfMute();
-      const btn = document.getElementById('voice-mute-btn');
-      if (btn) {
-        btn.innerHTML = '';
-        // Re-trigger by removing and re-creating the button content
-        const svgContainer = document.createElement('span');
-        svgContainer.innerHTML = muted
-          ? `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2c0 .76-.13 1.49-.36 2.18"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>`
-          : `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>`;
-        btn.appendChild(svgContainer);
-        btn.style.background = muted ? 'rgba(220, 38, 38, 0.8)' : 'rgba(30, 30, 50, 0.8)';
-      }
+      // the button shows it (VoiceChatUI: icon, aria-pressed; the red look is CSS)
+      setMuteButtonState(voiceManager.toggleSelfMute());
     }
   });
   document.addEventListener('keyup', (e) => {
@@ -729,7 +728,6 @@ function initializeApp() {
       indicator?.remove();
       return;
     }
-    const color = kind === 'lazy' ? '#4ade80' : '#60a5fa';
     const text = kind === 'lazy' ? 'Spectating — type /active to take back control' : 'Spectating — type /leave to exit';
     // The HUD's status slot (top centre of the table, from the layout:
     // ui-18), else the top of the page
@@ -739,7 +737,10 @@ function initializeApp() {
       indicator.id = 'spectating-indicator';
     }
     if (indicator.parentElement !== root) root.appendChild(indicator);
-    indicator.style.cssText = `color: ${color}; border-color: ${color};`;
+    // its color is the kind's (table.css #spectating-indicator.is-lazy / .is-spectating)
+    indicator.classList.toggle('is-lazy', kind === 'lazy');
+    indicator.classList.toggle('is-spectating', kind !== 'lazy');
+    indicator.setAttribute('role', 'status');
     indicator.dataset.kind = kind;
     indicator.textContent = text;
   }

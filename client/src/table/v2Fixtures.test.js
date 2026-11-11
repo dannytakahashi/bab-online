@@ -92,6 +92,7 @@ describe('contract v2 fixtures on the real scene', () => {
     replay.advance(50);
     const panel = document.getElementById('bidContainer');
     expect(panel).not.toBeNull();
-    expect(panel.style.visibility).toBe('visible');
+    // (open: table.css .bid-sheet.is-open, the class's pop-in)
+    expect(panel.classList.contains('is-open')).toBe(true);
   });
 });

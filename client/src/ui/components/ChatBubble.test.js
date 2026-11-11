@@ -59,7 +59,7 @@ describe('ChatBubble on the HUD (ui-4, webclient-7)', () => {
   it('my bubble is a child of my seat, at the layout\'s anchor next to my avatar, and follows a relayout', () => {
     const L = computeTableLayout({ w: 1600, h: 1080 });
     applyHudLayout(L);
-    showChatBubble('me', '3', '#FF0000', 5000);
+    showChatBubble('me', '3', 'bid', 5000);
     const bubble = document.querySelector('.chat-bubble');
     const seat = bubble.closest('.hud-seat');
     expect(seat.dataset.seat).toBe('self');

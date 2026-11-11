@@ -10,10 +10,22 @@ import { getCardImageKey } from '../../utils/cards.js';
 import { getSocketManager } from '../../socket/SocketManager.js';
 import { teamsFade } from '../pacing.js';
 import { sceneDelay, sceneTween } from '../TableDirector.js';
-import { createTransitionOverlay } from '../../ui/transitionOverlay.js';
+import { createTransitionOverlay, setOverlayState } from '../../ui/transitionOverlay.js';
 import { layoutOf, deckPosition } from '../layout/computeTableLayout.js';
 import { CARD_TEXTURE_KEY } from '../cards/CardAtlas.js';
 import { BACK_FRAME } from '../cards/cardFaces.js';
+import { uiTextStyle } from '../text.js';
+import { COLOR, hex, alpha, MOTION } from '../../ui/tokens.js';
+import { motionMs, EASE_EMPHASIZED } from '../../ui/motion.js';
+
+/** Canvas titles: the UI font, white with a dark outline (legible over the felt). */
+const titleStyle = (scene, font, extra = {}) => uiTextStyle(scene, {
+  fontSize: `${font}px`,
+  weight: 'bold',
+  color: COLOR.text.primary,
+  stroke: COLOR.surface.s0,
+  ...extra,
+});
 import { resizeShape } from '../shapes.js';
 
 /** A drawn name shrinks to this much of its font before it is cut short. */
@@ -96,13 +108,9 @@ export class DrawManager {
     console.log('🃏 DrawManager: Showing draw UI...');
 
     // Add title
-    this.titleText = this.scene.add.text(title.x, title.y, 'Draw for Deal!', {
-      fontSize: `${title.font}px`,
-      fontStyle: 'bold',
-      color: '#FFFFFF',
-      stroke: '#000000',
+    this.titleText = this.scene.add.text(title.x, title.y, 'Draw for Deal!', titleStyle(this.scene, title.font, {
       strokeThickness: 4,
-    }).setOrigin(0.5).setDepth(200);
+    })).setOrigin(0.5).setDepth(200);
     this.allCards.push(this.titleText);
 
     // The deck: each card is its own button over its visible bounds (the
@@ -121,8 +129,8 @@ export class DrawManager {
           targets: cardSprite,
           x: spot.x,
           y: spot.y,
-          duration: 750,
-          ease: 'Power2',
+          duration: motionMs(MOTION.slow * 2),
+          ease: EASE_EMPHASIZED,
           delay: 0,
         }));
       } else {
@@ -307,13 +315,7 @@ export class DrawManager {
       slotX,
       slotY + draw.name.dy,
       data.username,
-      {
-        fontSize: `${draw.name.font}px`,
-        fontStyle: 'bold',
-        color: '#FFFFFF',
-        stroke: '#000000',
-        strokeThickness: 3,
-      }
+      titleStyle(this.scene, draw.name.font, { strokeThickness: 3 })
     ).setOrigin(0.5).setDepth(300);
     nameLabel.setData?.('drawOrder', data.drawOrder || 1);
     nameLabel.setData?.('isName', true);
@@ -333,7 +335,7 @@ export class DrawManager {
     const startPos = { x: drawnCard.x, y: drawnCard.y };
     const midX = (startPos.x + slotX) / 2;
     const midY = (startPos.y + slotY) / 2;
-    const flipDuration = 250;
+    const flipDuration = motionMs('base');
     const drawnScale = draw.slotCard.scale;
 
     // Phase 1: Move toward midpoint and scale X to 0 (flip start)
@@ -344,7 +346,7 @@ export class DrawManager {
       scaleX: 0,
       scaleY: drawnScale * 0.73,
       duration: flipDuration,
-      ease: 'Power2',
+      ease: EASE_EMPHASIZED,
       onComplete: () => {
         // Guard against destroyed sprite (cleanup called during animation)
         if (!drawnCard || !drawnCard.scene) return;
@@ -360,7 +362,7 @@ export class DrawManager {
           scaleX: drawnScale,
           scaleY: drawnScale,
           duration: flipDuration,
-          ease: 'Power2',
+          ease: EASE_EMPHASIZED,
         });
       },
     });
@@ -383,8 +385,8 @@ export class DrawManager {
     // Target position: off-screen top right
     const targetX = L.w + 150;
     const targetY = -150;
-    const animationDuration = 800;
-    const flipDuration = 250;
+    const animationDuration = motionMs(MOTION.slow * 2);
+    const flipDuration = motionMs('base');
     const flipDelay = flipDuration * 2; // Wait for drawn cards to flip before whisking
 
     // Animate all deck cards off-screen (skip title text at index 0 and null entries)
@@ -399,7 +401,7 @@ export class DrawManager {
         scaleX: deckScale / 2,
         scaleY: deckScale / 2,
         duration: animationDuration,
-        ease: 'Power2',
+        ease: EASE_EMPHASIZED,
         delay: flipDelay + index * 5, // Wait for flip, then stagger
       });
     });
@@ -419,7 +421,7 @@ export class DrawManager {
           scaleX: 0,
           scaleY: deckScale,
           duration: flipDuration,
-          ease: 'Power2',
+          ease: EASE_EMPHASIZED,
           onComplete: () => {
             if (!item || !item.scene) return;
 
@@ -431,7 +433,7 @@ export class DrawManager {
               targets: item,
               scaleX: deckScale,
               duration: flipDuration,
-              ease: 'Power2',
+              ease: EASE_EMPHASIZED,
               onComplete: () => {
                 if (!item || !item.scene) return;
 
@@ -443,7 +445,7 @@ export class DrawManager {
                   scaleX: deckScale / 2,
                   scaleY: deckScale / 2,
                   duration: animationDuration,
-                  ease: 'Power2',
+                  ease: EASE_EMPHASIZED,
                 });
               },
             });
@@ -455,7 +457,7 @@ export class DrawManager {
           targets: item,
           alpha: 0,
           duration: flipDuration * 2,
-          ease: 'Power2',
+          ease: EASE_EMPHASIZED,
         });
       }
     });
@@ -466,7 +468,7 @@ export class DrawManager {
         targets: this.titleText,
         alpha: 0,
         duration: animationDuration / 2,
-        ease: 'Power2',
+        ease: EASE_EMPHASIZED,
       });
     }
 
@@ -485,14 +487,14 @@ export class DrawManager {
     const cy = teams.y;
     const dy = teams.dy;
 
-    // Create semi-transparent overlay
+    // Create semi-transparent overlay (the scrim token)
     const overlay = this.scene.add.rectangle(
       cx,
       cy,
       L.w,
       L.h,
-      0x000000,
-      0.7
+      hex(COLOR.surface.s0),
+      0.78
     ).setDepth(400);
 
     // Team 1 display (centered vertically on screen)
@@ -500,21 +502,14 @@ export class DrawManager {
       cx,
       cy - 2 * dy,
       'Team 1',
-      {
-        fontSize: `${teams.fonts.label}px`,
-        fontStyle: 'bold',
-        color: '#4ade80',
-      }
+      uiTextStyle(this.scene, { fontSize: `${teams.fonts.label}px`, weight: 'bold', color: COLOR.team.a })
     ).setOrigin(0.5).setDepth(401);
 
     const team1Players = this.scene.add.text(
       cx,
       cy - dy,
       `${data.team1[0]} & ${data.team1[1]}`,
-      {
-        fontSize: `${teams.fonts.names}px`,
-        color: '#FFFFFF',
-      }
+      uiTextStyle(this.scene, { fontSize: `${teams.fonts.names}px`, weight: 'medium', color: COLOR.text.primary })
     ).setOrigin(0.5).setDepth(401);
 
     // VS text
@@ -522,11 +517,7 @@ export class DrawManager {
       cx,
       cy,
       'vs',
-      {
-        fontSize: `${teams.fonts.vs}px`,
-        fontStyle: 'italic',
-        color: '#9ca3af',
-      }
+      uiTextStyle(this.scene, { fontSize: `${teams.fonts.vs}px`, fontStyle: 'italic', color: COLOR.text.secondary })
     ).setOrigin(0.5).setDepth(401);
 
     // Team 2 display
@@ -534,21 +525,14 @@ export class DrawManager {
       cx,
       cy + dy,
       'Team 2',
-      {
-        fontSize: `${teams.fonts.label}px`,
-        fontStyle: 'bold',
-        color: '#f87171',
-      }
+      uiTextStyle(this.scene, { fontSize: `${teams.fonts.label}px`, weight: 'bold', color: COLOR.team.b })
     ).setOrigin(0.5).setDepth(401);
 
     const team2Players = this.scene.add.text(
       cx,
       cy + 2 * dy,
       `${data.team2[0]} & ${data.team2[1]}`,
-      {
-        fontSize: `${teams.fonts.names}px`,
-        color: '#FFFFFF',
-      }
+      uiTextStyle(this.scene, { fontSize: `${teams.fonts.names}px`, weight: 'medium', color: COLOR.text.primary })
     ).setOrigin(0.5).setDepth(401);
 
     // Store for cleanup
@@ -571,7 +555,7 @@ export class DrawManager {
 
       // Force reflow and start fade
       domOverlay.offsetHeight;
-      domOverlay.style.opacity = '1';
+      setOverlayState(domOverlay, { opaque: true });
     });
   }
 
@@ -602,7 +586,7 @@ export class DrawManager {
         targets: item,
         alpha: 0,
         duration: fadeDuration,
-        ease: 'Power2',
+        ease: EASE_EMPHASIZED,
         onComplete: () => {
           // Only call cleanup once, after the last fade
           if (!fadeComplete && index === visibleElements.length - 1) {
