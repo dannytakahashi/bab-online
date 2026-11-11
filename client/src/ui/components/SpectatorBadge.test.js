@@ -54,6 +54,8 @@ describe('the badge', () => {
     expect(watchingLabel(1)).toBe('1 person watching');
     expect(b.getAttribute('aria-expanded')).toBe('false');
     expect(b.getAttribute('aria-controls')).toBe('spectator-list');
+    // a disclosure, not a menu: aria-haspopup="true" would announce a menu that is not there
+    expect(b.hasAttribute('aria-haspopup')).toBe(false);
   });
 
   it('sits where the layout says (CSS variables on the HUD, no inline geometry on the node)', () => {
@@ -73,7 +75,11 @@ describe('the list', () => {
     btn().click();
     expect(isSpectatorListOpen()).toBe(true);
     expect(btn().getAttribute('aria-expanded')).toBe('true');
-    expect(pop().querySelector('ul').getAttribute('aria-label')).toBe('People watching');
+    expect(pop().getAttribute('role')).toBe('group');
+    expect(pop().getAttribute('aria-label')).toBe('People watching');
+    const ul = pop().querySelector('ul');
+    expect(ul.getAttribute('role')).toBe('list'); // kept under list-style: none (WebKit)
+    expect(ul.hasAttribute('aria-label')).toBe(false); // the group names it once
     expect(names()).toEqual(['ann', 'bob', 'me (you)']);
     const imgs = [...pop().querySelectorAll('li img')].map((i) => i.getAttribute('src'));
     expect(imgs[0]).toBe('assets/avatars/v1/profile1.webp');
@@ -100,6 +106,44 @@ describe('the list', () => {
     expect(isSpectatorListOpen()).toBe(true); // inside: stays
     pointer('pointerdown', document.getElementById('game-container'));
     expect(isSpectatorListOpen()).toBe(false);
+  });
+
+  it('Escape on a hover-opened list leaves the focus where it is (the chat input) and lets the key through', () => {
+    const chat = document.createElement('input');
+    document.body.appendChild(chat);
+    let reached = 0;
+    chat.addEventListener('keydown', (e) => { if (e.key === 'Escape') reached++; });
+    renderSpectatorBadge(W(['ann']));
+    chat.focus();
+    pointer('pointerenter', slot());
+    expect(isSpectatorListOpen()).toBe(true);
+    key('Escape', chat);
+    expect(isSpectatorListOpen()).toBe(false);
+    expect(document.activeElement).toBe(chat);
+    expect(reached).toBe(1);
+    chat.remove();
+  });
+
+  it('Escape after a click that left no focus (Safari) still puts it on the badge', () => {
+    renderSpectatorBadge(W(['ann']));
+    btn().click();
+    btn().blur();
+    key('Escape', document.body);
+    expect(isSpectatorListOpen()).toBe(false);
+    expect(document.activeElement).toBe(btn());
+  });
+
+  it('fades in: the hidden style is flushed before is-open, so the opacity transition runs', () => {
+    renderSpectatorBadge(W(['ann']));
+    const p = pop();
+    const reads = [];
+    Object.defineProperty(p, 'offsetWidth', {
+      configurable: true,
+      get() { reads.push({ shown: !p.hidden, open: p.classList.contains('is-open') }); return 0; },
+    });
+    btn().click();
+    expect(p.classList.contains('is-open')).toBe(true);
+    expect(reads).toContainEqual({ shown: true, open: false });
   });
 
   it('a mouse hover opens it and leaving closes it; a click while hovered pins it open; touch does not hover', () => {

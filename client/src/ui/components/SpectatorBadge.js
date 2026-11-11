@@ -4,13 +4,19 @@
  * .hud-spectators, placed by applyHudLayout's --spec-* variables), seen by
  * everyone at the table, players and spectators alike. Hidden at 0.
  *
- *   - a kit IconButton (44 px hit target), aria-label "2 people watching";
+ *   - a kit IconButton (44 px hit target), aria-label "2 people watching",
+ *     a disclosure (aria-expanded + aria-controls; no aria-haspopup: the
+ *     list is a group with a plain list, not a menu);
  *   - click / Enter / Space toggles a small popover listing the names with
  *     their avatars (avatarSrc / applyAvatarImg), scrolling past ~8 rows;
  *     hovering with a mouse opens it too, leaving closes a hover-opened one;
- *   - Escape (focus back on the button) or a click outside closes it;
- *   - its fade is the motion tokens' (--dur-fast; 0 ms under reduced
- *     motion, tokens.css; ui/motion.js is the JS side of the same rule).
+ *   - Escape or a click outside closes it. Escape puts the focus back on
+ *     the button only when the focus was in the badge (or nowhere, after a
+ *     click in Safari); with a hover-opened list and the caret elsewhere (the
+ *     chat input, a modal) it only closes the list and the key goes on;
+ *   - it fades in with the motion tokens (--dur-fast; 0 ms under reduced
+ *     motion, tokens.css; ui/motion.js is the JS side of the same rule) and
+ *     closes at once.
  *
  * Data: GameState.watching through renderModel().watching (state is the one
  * writer: spectatorsUpdated and snapshot.watching). renderSpectatorBadge is
@@ -81,8 +87,11 @@ function openSpectatorList(slot, how) {
   const btn = buttonOf(slot);
   if (!pop || !btn || slot.hidden) return;
   pop.hidden = false;
-  // the fade (CSS, --dur-fast); instant under reduced motion
+  // the fade-in (CSS, --dur-fast); instant under reduced motion. Coming out
+  // of display:none it has no before-change style, so flush the opacity-0
+  // style first or the transition never runs.
   pop.classList.toggle('is-instant', prefersReducedMotion());
+  void pop.offsetWidth;
   pop.classList.add('is-open');
   btn.setAttribute('aria-expanded', 'true');
   openedBy = how;
@@ -93,9 +102,16 @@ function openSpectatorList(slot, how) {
         if (s && !s.contains(e.target)) closeSpectatorList();
       },
       key: (e) => {
-        if (e.key === 'Escape' && isSpectatorListOpen()) {
-          e.stopPropagation();
+        if (e.key !== 'Escape' || !isSpectatorListOpen()) return;
+        const s = hudSpectatorSlot({ create: false });
+        const active = document.activeElement;
+        const focusInBadge = !!s && !!active && s.contains(active);
+        const focusNowhere = !active || active === document.body;
+        if (focusInBadge || (openedBy === 'click' && focusNowhere)) {
+          e.stopPropagation(); // the badge's Escape
           closeSpectatorList({ refocus: true });
+        } else {
+          closeSpectatorList(); // focus stays where it is; the key goes on
         }
       },
     };
@@ -107,7 +123,6 @@ function openSpectatorList(slot, how) {
 function build(slot) {
   const btn = createIconButton({ icon: EYE_ICON, label: watchingLabel(0), className: 'spectator-badge' });
   btn.removeAttribute('title'); // the popover is the tooltip
-  btn.setAttribute('aria-haspopup', 'true');
   btn.setAttribute('aria-expanded', 'false');
   btn.setAttribute('aria-controls', POPOVER_ID);
   btn.appendChild(el('span', { className: 'spectator-badge__count', attrs: { 'aria-hidden': 'true' } }));
@@ -122,7 +137,8 @@ function build(slot) {
     attrs: { id: POPOVER_ID, role: 'group', 'aria-label': 'People watching' },
     children: [
       el('div', { className: 'spectator-popover__title', text: 'Watching' }),
-      el('ul', { className: 'spectator-popover__list', attrs: { 'aria-label': 'People watching' } }),
+      // role=list: WebKit drops list semantics under list-style: none
+      el('ul', { className: 'spectator-popover__list', attrs: { role: 'list' } }),
       el('div', { className: 'spectator-popover__more' }),
     ],
   });

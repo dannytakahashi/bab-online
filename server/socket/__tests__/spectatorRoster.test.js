@@ -167,7 +167,7 @@ describe('spectatorsUpdated: every join, leave and disconnect path', () => {
         expect(updates(t).at(-1).count).toBe(0);
     });
 
-    test('a burst (spectators leaving together) is one emit; a join and leave inside one window sends nothing', async () => {
+    test('a burst (spectators leaving together) is one emit; a join and leave inside one window sends the settled list once', async () => {
         const t = table();
         const fans = [1, 2, 3, 4, 5].map((i) => viewer(t, `burst${i}`));
         for (const f of fans) watch(t, f);
@@ -182,7 +182,24 @@ describe('spectatorsUpdated: every join, leave and disconnect path', () => {
         watch(t, quick);
         chatHandlers.chatMessage(quick, t.io, { message: '/leave' });
         await settle();
-        expect(updates(t)).toHaveLength(2);
+        // one emit, the settled (empty) list: a snapshot inside the window may have shown 'quick'
+        expect(updates(t)).toHaveLength(3);
+        expect(updates(t)[2]).toEqual({ gameId: t.game.gameId, spectators: [], count: 0 });
+        await settle();
+        expect(updates(t)).toHaveLength(3);
+    });
+
+    test('a snapshot taken inside a join-and-leave window is corrected by the flush', async () => {
+        const t = table();
+        const blink = viewer(t, 'blink', null);
+        watch(t, blink); // a flush is now pending
+        snapshotHandlers.requestSnapshot(t.sockets[1], t.io, { requestId: 'mid' });
+        const snap = events(t.log, 'stateSnapshot').filter((l) => l.to === `self:${t.sockets[1].id}`).at(-1).data.snapshot;
+        expect(snap.watching).toEqual({ spectators: [{ username: 'blink', pic: null }], count: 1 });
+        chatHandlers.chatMessage(blink, t.io, { message: '/leave' }); // back to the last-sent (empty) list
+        await settle();
+        // seat 1's badge would keep "1 watching" without this
+        expect(updates(t)).toEqual([{ gameId: t.game.gameId, spectators: [], count: 0 }]);
     });
 
     test('unsequenced: no seq on the wire and no eventSeq bump', async () => {
