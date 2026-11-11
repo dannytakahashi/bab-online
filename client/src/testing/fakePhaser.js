@@ -24,6 +24,13 @@ export class FakeClock {
     this.paused = false;
     this._seq = 0;
     this._queue = []; // {at, seq, run, alive()}
+    this.games = new Set(); // FakeGame: a sleeping loop steps nothing
+    this.stepsWhileAsleep = 0;
+  }
+
+  /** Every created game's loop is running (a sleeping loop stops scene time, as Phaser's does). */
+  get asleep() {
+    return [...this.games].some((g) => g.loop.running === false);
   }
 
   schedule(ms, run, alive = () => true) {
@@ -35,6 +42,11 @@ export class FakeClock {
   /** Advance `ms`, running what falls due in time order (nothing while paused). */
   step(ms) {
     if (this.paused) return;
+    if (this.asleep) {
+      // Phaser's loop is asleep (phaser/loopControl.js): no scene time
+      this.stepsWhileAsleep++;
+      return;
+    }
     const end = this.now + ms;
     for (;;) {
       this._queue = this._queue.filter((i) => i.alive());
@@ -46,6 +58,8 @@ export class FakeClock {
       next.run();
     }
     this.now = end;
+    // the frame is drawn
+    for (const g of this.games) if (g.loop.running !== false) g.events.emit('postrender');
   }
 
   get pending() {
@@ -469,10 +483,38 @@ export class FakeSceneBase {
   }
 }
 
+/**
+ * Phaser.Game stand-in: a loop that can sleep and wake (loopControl.js),
+ * and the game events (postrender after every clock step while running;
+ * resume when a hidden tab returns).
+ */
+export class FakeGame {
+  constructor() {
+    const game = this;
+    this.events = emitterMixin({});
+    this.loop = {
+      running: true,
+      sleeps: 0,
+      wakes: 0,
+      sleep() { if (this.running) { this.running = false; this.sleeps++; } },
+      wake() { if (!this.running) { this.running = true; this.wakes++; } },
+      resetDelta() {},
+      // Phaser's tab-return path: the loop resumes, then 'resume'
+      resume() { this.wake(); game.events.emit('resume'); },
+      step() {},
+    };
+    clock.games.add(this);
+  }
+
+  destroy() {
+    clock.games.delete(this);
+  }
+}
+
 export function installFakePhaser() {
   globalThis.Phaser = {
     Scene: FakeSceneBase,
-    Game: class {},
+    Game: FakeGame,
     AUTO: 0,
     Scale: { RESIZE: 0, NONE: 0, NO_CENTER: 0, CENTER_BOTH: 0, FIT: 0 },
     Geom: {

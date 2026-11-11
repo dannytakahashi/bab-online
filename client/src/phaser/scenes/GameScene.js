@@ -1415,7 +1415,9 @@ export class GameScene extends Phaser.Scene {
     // its onCollected callbacks, which must find no hand)
     this.cardManager?.clearAll();
     this.trickManager?.clearAll();
-    this.opponentManager?.clearAll();
+    // the backs only: the avatars and the frog are the game's, updated in
+    // place below (webclient-21: built once per game)
+    this.opponentManager?.clearCards();
     this.effectsManager?.clearAll();
     this.drawManager?.cleanup();
     this.clearTrumpDisplay();
@@ -1453,6 +1455,7 @@ export class GameScene extends Phaser.Scene {
     this.renders = (this.renders || 0) + 1;
 
     if (!m.live) {
+      this.opponentManager?.clearDealerButton();
       this.renderScoreHeader();
       return m;
     }

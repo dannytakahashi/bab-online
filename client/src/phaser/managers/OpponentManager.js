@@ -13,7 +13,7 @@ import { getSocketManager } from '../../socket/SocketManager.js';
 import { sceneTween } from '../TableDirector.js';
 import { layoutOf, fanPositions } from '../layout/computeTableLayout.js';
 import { hudSeat, hudRoot } from '../../ui/tableHud.js';
-import { buildAvatarRing } from '../../ui/seatPlates.js';
+import { buildAvatarRing, setRingPosition } from '../../ui/seatPlates.js';
 import { CARD_TEXTURE_KEY } from '../cards/CardAtlas.js';
 import { BACK_FRAME } from '../cards/cardFaces.js';
 import { dealMs } from './CardManager.js';
@@ -59,6 +59,10 @@ export class OpponentManager {
 
     // Spectator mode flag (shows all 4 players as opponents)
     this._isSpectatorMode = false;
+
+    // Avatar DOM trees built (webclient-21: once per game, then updated in place)
+    this.avatarBuilds = 0;
+    this.dealerBuilds = 0;
   }
 
   /**
@@ -225,44 +229,65 @@ export class OpponentManager {
   /**
    * Display the dealer button (the frog) on the dealer's seat: a child of
    * that seat's HUD node, on its layout side (webclient-7, ui-4: one
-   * coordinate space with the avatar, so it follows the avatar).
+   * coordinate space with the avatar, so it follows the avatar). One frog
+   * per game: a new hand moves it to the next dealer's seat (webclient-21:
+   * no rebuild, no image re-decode).
    */
   displayDealerButton(dealerPosition) {
-    this.clearDealerButton();
-
-    if (!dealerPosition || !this._playerPosition) return;
+    if (!dealerPosition || !this._playerPosition) {
+      this.clearDealerButton();
+      return;
+    }
 
     this._dealerPosition = dealerPosition;
     const slot = this._slotOfPosition(dealerPosition);
 
-    // Create DOM element
-    const button = document.createElement('div');
-    button.className = 'dealer-button';
+    let button = this._dealerButton;
+    if (!button || !button.isConnected) {
+      button = document.createElement('div');
+      button.className = 'dealer-button';
+      // 120 px WebP (immutable, versioned), the legacy PNG if WebP fails
+      const frog = document.createElement('img');
+      frog.alt = 'Dealer';
+      frog.decoding = 'async';
+      frog.onerror = () => { frog.onerror = null; frog.setAttribute('src', 'assets/frog.png'); };
+      frog.setAttribute('src', 'assets/avatars/v1/frog.webp');
+      button.appendChild(frog);
+      this.dealerBuilds++;
+    }
     button.dataset.seat = slot === 'bottom' ? 'self' : slot;
-    // 120 px WebP (immutable, versioned), the legacy PNG if WebP fails
-    const frog = document.createElement('img');
-    frog.alt = 'Dealer';
-    frog.decoding = 'async';
-    frog.onerror = () => { frog.onerror = null; frog.setAttribute('src', 'assets/frog.png'); };
-    frog.setAttribute('src', 'assets/avatars/v1/frog.webp');
-    button.appendChild(frog);
 
     const seat = hudSeat(slot);
-    (seat?.dealer || hudRoot()).appendChild(button);
+    const parent = seat?.dealer || hudRoot();
+    if (button.parentElement !== parent) parent.appendChild(button);
     this._dealerButton = button;
   }
 
   /**
    * Display opponent avatars using DOM elements (for CSS glow support).
+   * Built once per game and updated in place (webclient-21, cli-23): a new
+   * hand or a render keeps the same trees, so the turn ring and the voice
+   * indicator stay on and no picture is decoded again; only a changed name
+   * or picture (a bot took the seat) is written.
    */
   displayAvatars(playerData) {
-    this.clearAvatars();
-
-    if (!this._playerPosition || !playerData) return;
+    if (!this._playerPosition || !playerData) {
+      this.clearAvatars();
+      return;
+    }
 
     const opponentMap = this.slotPositions();
+    const slots = this._getSlotKeys();
 
-    this._getSlotKeys().forEach((opponentId) => {
+    // a slot this view no longer shows (a spectator's bottom seat after /active)
+    for (const key of Object.keys(this._avatarDoms)) {
+      if (this._avatarDoms[key] && !slots.includes(key)) {
+        this._avatarDoms[key].remove();
+        this._avatarDoms[key] = null;
+      }
+    }
+
+    slots.forEach((opponentId) => {
       const pos = opponentMap[opponentId];
 
       // Find player data for this position
@@ -274,8 +299,29 @@ export class OpponentManager {
         `P${pos}`;
       const pic = playerData.pics?.[posIndex];
 
+      const dom = this._avatarDoms[opponentId];
+      if (dom && dom.isConnected && dom.dataset.position === String(pos)) {
+        this._updateAvatarDom(dom, pic, username);
+        return;
+      }
       this._createAvatarDom(opponentId, pic, username, pos);
     });
+  }
+
+  /** A built avatar takes a new name or picture (only what changed is written). */
+  _updateAvatarDom(dom, pic, username) {
+    const img = dom.querySelector('.opponent-avatar-img');
+    const src = avatarSrc(pic);
+    if (img && src && dom.dataset.src !== src) {
+      applyAvatarImg(img, src);
+      dom.dataset.src = src;
+    }
+    if (img && img.alt !== username) img.alt = username;
+    const label = dom.querySelector('.hud-plate');
+    if (label && label.textContent !== username) {
+      label.textContent = username;
+      label.title = username;
+    }
   }
 
   /**
@@ -291,6 +337,8 @@ export class OpponentManager {
     const container = document.createElement('div');
     container.id = `opponent-avatar-${opponentId}`;
     container.className = `opponent-avatar-container ${opponentId}`;
+    container.dataset.position = position ? String(position) : '';
+    this.avatarBuilds++;
 
     container.addEventListener('click', () => {
       const sm = getSocketManager();
@@ -304,6 +352,7 @@ export class OpponentManager {
     img.className = 'opponent-avatar-img hud-avatar-img';
     // Stock number, inline data URL or /avatar URL (utils/avatar.js)
     applyAvatarImg(img, avatarSrc(pic));
+    container.dataset.src = avatarSrc(pic) || '';
     img.alt = username;
     // in its seat ring: the team's color, the bid chip and the trick pips (ui/seatPlates.js)
     container.appendChild(buildAvatarRing(img, position));
@@ -404,6 +453,7 @@ export class OpponentManager {
     const img = dom.querySelector('.opponent-avatar-img');
     if (img) {
       applyAvatarImg(img, avatarSrc(pic));
+      dom.dataset.src = avatarSrc(pic) || '';
       img.alt = username;
     }
 

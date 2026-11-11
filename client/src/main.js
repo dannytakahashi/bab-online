@@ -49,7 +49,8 @@ import { showTournamentResultsOverlay } from './ui/components/TournamentScoreboa
 import { SCREENS, initializeUIManager } from './ui/UIManager.js';
 
 // Phaser
-import { createPhaserGame } from './phaser/PhaserGame.js';
+import { createPhaserGame, getPhaserGame } from './phaser/PhaserGame.js';
+import { installLoopControl } from './phaser/loopControl.js';
 import { applyBackingStore, onDprChange } from './phaser/backingStore.js';
 
 // Handlers
@@ -73,6 +74,9 @@ let gameLogInstance = null;
 // The table's timed work, scene readiness and fast-forward (TableDirector)
 const director = getTableDirector();
 
+// The Phaser loop's sleep off the table (phaser/loopControl.js)
+let loopControl = null;
+
 /**
  * Set the game scene reference (GameScene.create() calls it, through
  * window.ModernUtils, after creating its managers).
@@ -90,6 +94,9 @@ export function setGameScene(scene) {
 
   // The canvas follows its grid column
   observeContainer();
+
+  // Off the table, the loop sleeps once the scene is up (the first frame drawn)
+  loopControl?.sync();
 
   // Handle tab visibility change - lay the table out again when the tab
   // becomes visible (the window may have changed size while it was hidden)
@@ -1830,6 +1837,8 @@ window.addEventListener('load', () => {
 
   // Create the Phaser game - GameScene.create() will call setGameScene
   createPhaserGame('game-container');
+  // The loop runs only on the table's screens (cli-23, webclient-10)
+  loopControl = installLoopControl({ session, getGame: () => getPhaserGame() });
 
   // A fresh tab (or a reopened browser) resumes this device's saved session
   if (adoptSavedSession()) {
