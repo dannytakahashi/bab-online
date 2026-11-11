@@ -73,3 +73,28 @@ describe('HUD hit targets (HIG 44 pt)', () => {
     expect(small).toEqual([]);
   });
 });
+
+describe('the spectator badge\'s bubble', () => {
+  const table = readClientFile('styles/table.css');
+  const components = readClientFile('styles/components.css');
+
+  it('its ring is outside the box, where the tail covers it (an inset ring draws a line across the tail\'s base)', () => {
+    const shadow = ruleOf(table, '.chat-bubble.is-spectator').match(/box-shadow:([^;]*);/)[1];
+    expect(shadow).not.toMatch(/inset/);
+    expect(shadow).toMatch(/0 0 0 1px rgb\(var\(--success-rgb\)/);
+    // the tail is an absolute ::after just outside the box, so it paints over the bubble's own shadows
+    expect(ruleOf(components, '.chat-bubble.tail-down::after')).toContain('bottom: -10px');
+    expect(ruleOf(components, '.chat-bubble.tail-right::after')).toContain('right: -10px');
+    expect(ruleOf(components, '.chat-bubble.tail-left::after')).toContain('left: -10px');
+  });
+
+  it('beside the badge (min-height for the tail) a short message is centred in the box, not at its top', () => {
+    const side = ruleOf(table, '.hud-spectator-bubble .chat-bubble.tail-left, .hud-spectator-bubble .chat-bubble.tail-right');
+    expect(side).toMatch(/display:\s*flex/);
+    expect(side).toMatch(/flex-direction:\s*column/);
+    expect(side).toMatch(/justify-content:\s*center/);
+    // the min-height it centres in, and the clamp box it centres (still a -webkit-box)
+    expect(ruleOf(table, '.hud-spectator-bubble .chat-bubble')).toContain('min-height: var(--specbub-min-h, 0px)');
+    expect(ruleOf(components, '.chat-bubble-text')).toContain('display: -webkit-box');
+  });
+});

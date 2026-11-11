@@ -1,0 +1,83 @@
+{
+ "note": "server/socket/__tests__/spectatorChat.test.js (UPDATE_WEB_FIXTURES=1 rewrites it)",
+ "room": [
+  {
+   "event": "chatMessage",
+   "data": {
+    "position": null,
+    "message": "hello",
+    "username": "fan",
+    "isSpectator": true,
+    "type": "spectator"
+   }
+  },
+  {
+   "event": "spectatorsUpdated",
+   "data": {
+    "spectators": [
+     {
+      "username": "fan",
+      "pic": 12
+     }
+    ],
+    "count": 1
+   }
+  },
+  {
+   "event": "spectatorsUpdated",
+   "data": {
+    "spectators": [
+     {
+      "username": "fan",
+      "pic": 12
+     },
+     {
+      "username": "kim",
+      "pic": 4
+     }
+    ],
+    "count": 2
+   }
+  },
+  {
+   "event": "chatMessage",
+   "data": {
+    "position": null,
+    "message": "me too",
+    "username": "kim",
+    "isSpectator": true,
+    "type": "spectator"
+   }
+  },
+  {
+   "event": "chatMessage",
+   "data": {
+    "position": 1,
+    "message": "gl",
+    "username": "user1",
+    "isSpectator": false,
+    "type": "player"
+   }
+  },
+  {
+   "event": "chatMessage",
+   "data": {
+    "position": 2,
+    "message": "brb",
+    "username": "user2",
+    "isSpectator": false,
+    "type": "player"
+   }
+  },
+  {
+   "event": "chatMessage",
+   "data": {
+    "position": null,
+    "message": "watching my bot",
+    "username": "user4",
+    "isSpectator": true,
+    "type": "spectator"
+   }
+  }
+ ]
+}

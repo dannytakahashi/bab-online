@@ -179,7 +179,7 @@ function withScene(fn, kind = 'table') {
 
 // UI Components - Game Log
 import { showGameLog } from './ui/components/GameLog.js';
-import { clearChatBubbles } from './ui/components/ChatBubble.js';
+import { clearChatBubbles, showSpectatorChatBubble } from './ui/components/ChatBubble.js';
 import { getTeamNames, formatHandCompleteMessages, formatGameEndMessages, showFinalScoreOverlay, removeFinalScoreOverlay } from './ui/components/ScoreModal.js';
 
 // Bridge for GameScene (phaser/scenes/GameScene.js), its only reader: it
@@ -1474,8 +1474,13 @@ function initializeApp() {
         window.addToGameFeedFromLegacy(`${senderName}: ${data.message}`, chatPosition);
       }
 
-      // Show chat bubble at appropriate position
-      if (scene && scene.handleShowChatBubble && state.position) {
+      // A spectator's message (also a watching seat owner's: the server
+      // sends both without a position) goes by the spectator badge with
+      // the sender's name, the badge standing for everyone watching; a
+      // player's over its seat
+      if (data.isSpectator) {
+        if (session.isAtTable) showSpectatorChatBubble(senderName, data.message);
+      } else if (scene && scene.handleShowChatBubble && state.position) {
         scene.handleShowChatBubble(state.position, data.position, data.message);
       }
     },

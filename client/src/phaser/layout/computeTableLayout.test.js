@@ -11,7 +11,7 @@ import { resolve } from 'node:path';
 import {
   computeTableLayout, layoutForViewport, layoutRects, drawRects, findIntersections, findOutside,
   logWidthFor, LOG_BREAKPOINTS, LOG_WIDTH_MAX, handPositions, fanPositions, historySlot, deckPosition,
-  intersects, contains, BASE_SCALE, BID_SHEET, FELT, BUBBLE, BUBBLE_KEEPS, SPECTATOR_BADGE,
+  intersects, contains, BASE_SCALE, BID_SHEET, FELT, BUBBLE, BUBBLE_KEEPS, SPECTATOR_BADGE, badgeBubbleKeeps,
 } from './computeTableLayout.js';
 
 const NAMED = [[1920, 1080], [1440, 790], [1280, 620], [1024, 668], [844, 390], [390, 844]];
@@ -101,6 +101,57 @@ function badgeProblems(L) {
   return out;
 }
 
+/**
+ * The spectator badge's chat bubble (a spectator's "Zach: hello") at its
+ * largest (the spot's width, 3 lines, the tail): on the canvas, its tail at
+ * the badge's middle, clear of the hand, the trump, the trick slots, both
+ * histories, the status pill, the bid sheet, the voice buttons, the badge,
+ * every seat's bubble at its largest and, for a player, my box (avatar,
+ * plate, frog, HSI). Checked from the rects themselves. No spot (null) is
+ * not a problem here: the callers say where that is allowed.
+ */
+function badgeBubbleProblems(L) {
+  const bb = L.spectators.bubble;
+  if (!bb) return [];
+  const out = [];
+  const B = L.bubbles;
+  const badge = L.spectators.rect;
+  const h = B.lines * B.lh + 2 * B.padY;
+  const size = bb.tail === 'down' ? [bb.w, h + B.tail] : [bb.w + B.tail, h];
+  if (Math.abs(bb.rect.w - size[0]) > 0.01 || Math.abs(bb.rect.h - size[1]) > 0.01) out.push('badge bubble rect is not its max size');
+  if (!contains(L.canvas, bb.rect)) out.push('badge bubble off the canvas');
+  if (bb.w + 0.01 < B.w * 0.6) out.push('badge bubble narrower than the BUBBLE_WIDTHS steps');
+  const keep = [['trump', L.trump.rect], ['history.team', L.history.team.rect], ['history.opp', L.history.opp.rect],
+    ['status', L.status.rect], ['bidSheet', L.bidSheet.rect], ['voice', L.voice.rect], ['badge', badge],
+    ...Object.entries(L.trick.slots).map(([k, t]) => [`trick.${k}`, t.rect]),
+    ...SEATS.map((k) => [`${k}.bubble`, L.seats[k].bubble.rect])];
+  if (L.hand) keep.push(['hand', L.hand.rect]);
+  if (!L.isSpectator) {
+    const me = L.seats.self;
+    keep.push(['self.avatar', me.avatar.rect], ['self.plate', me.plate], ['self.dealer', me.dealer.rect], ['self.hsi', me.hsi.rect]);
+  }
+  for (const [id, r] of keep) if (intersects(bb.rect, r)) out.push(`badge bubble covers ${id}`);
+  // the tail at the badge's middle, on the bubble (clear of its rounded ends), next to the badge
+  const half = 8;
+  if (bb.tail === 'down') {
+    const tx = bb.align === 'end' ? bb.x - bb.tailOffset - half : bb.x + bb.tailOffset + half;
+    if (Math.abs(tx - (badge.x + badge.w / 2)) > 0.02) out.push('badge bubble tail not at the badge');
+    if (tx - half < bb.rect.x + 10 || tx + half > bb.rect.x + bb.rect.w - 10) out.push('badge bubble tail off the bubble');
+    if (Math.abs((bb.align === 'end' ? bb.rect.x + bb.rect.w : bb.rect.x) - bb.x) > 0.02) out.push('badge bubble not hung from its edge');
+    const below = bb.rect.y + bb.rect.h;
+    if (below > badge.y + 0.01 || badge.y - below > 4 * L.s + 0.01) out.push('badge bubble not just above the badge');
+    if (bb.minW > bb.w || bb.minW < bb.tailOffset + 2 * half) out.push('badge bubble min width');
+  } else {
+    const ty = bb.y - bb.tailOffset - half;
+    if (Math.abs(ty - (badge.y + badge.h / 2)) > 0.02) out.push('badge bubble tail not at the badge');
+    if (Math.abs(bb.y - (badge.y + badge.h)) > 0.02) out.push('badge bubble not bottom-aligned with the badge');
+    const side = bb.tail === 'right' ? badge.x - (bb.rect.x + bb.rect.w) : bb.rect.x - (badge.x + badge.w);
+    if (side < -0.01 || side > 4 * L.s + 0.01) out.push('badge bubble not just beside the badge');
+    if (bb.minH > h || bb.minH < bb.tailOffset + 2 * half) out.push('badge bubble min height');
+  }
+  return out;
+}
+
 describe('computeTableLayout at the named viewports', () => {
   for (const [vw, vh] of NAMED) {
     for (const [role, isSpectator] of ROLES) {
@@ -119,6 +170,17 @@ describe('computeTableLayout at the named viewports', () => {
         expect(ids).toEqual(expect.arrayContaining(['trick.self', 'trick.partner', 'trick.opponent1', 'trick.opponent2',
           'history.team', 'history.opp', 'bidSheet', 'log', 'trump', 'status', 'spectators']));
         expect(badgeProblems(L), `${label} spectator badge`).toEqual([]);
+        // a spectator's chat by the badge: a spot at every named viewport, in the overlap check
+        expect(L.spectators.bubble, `${label} badge bubble`).toBeTruthy();
+        expect(ids).toContain('spectators.bubble');
+        expect(badgeBubbleProblems(L), `${label} badge bubble`).toEqual([]);
+        // (it may cover another seat, as the seats' bubbles may; here it covers none)
+        for (const seat of SEATS) {
+          const st = L.seats[seat];
+          for (const r of [st.avatar.rect, st.plate, st.dealer.rect, st.cards?.rect, st.hsi?.rect].filter(Boolean)) {
+            expect(intersects(L.spectators.bubble.rect, r), `${label} badge bubble over ${seat}`).toBe(false);
+          }
+        }
         if (isSpectator && vw === 390) {
           // a phone's 260 px canvas: the bottom seat's bubble needs the
           // corner beside its backs, so the badge sits up the right edge
@@ -128,10 +190,16 @@ describe('computeTableLayout at the named viewports', () => {
           // beside the corner's voice buttons, on their row
           expect(L.spectators.rect.y).toBe(L.voice.rect.y);
           expect(L.spectators.rect.x + L.spectators.rect.w).toBeLessThanOrEqual(L.voice.rect.x);
+        } else if (vw === 390) {
+          // a phone's 260 px canvas: my box fills the corner's column, so the
+          // badge goes a row up the right edge where its bubble has room
+          expect(L.spectators.rect.x + L.spectators.rect.w).toBeCloseTo(L.w - L.margin, 0);
+          expect(L.spectators.rect.y + L.spectators.rect.h).toBeLessThan(L.h - L.margin);
         } else {
-          // the table's bottom-right corner
+          // the table's bottom-right corner, its bubble opening upward from it
           expect(L.spectators.rect.x + L.spectators.rect.w).toBeCloseTo(L.w - L.margin, 0);
           expect(L.spectators.rect.y + L.spectators.rect.h).toBeCloseTo(L.h - L.margin, 0);
+          expect(L.spectators.bubble.tail).toBe('down');
         }
         expect(ids.includes('hand')).toBe(!isSpectator);
 
@@ -286,6 +354,7 @@ describe('the draw phase keeps today\'s rows', () => {
 describe('computeTableLayout over a grid of sizes (800-2560 x 500-1440)', () => {
   it('is clean everywhere, for a player and a spectator', () => {
     const bad = [];
+    const noBadgeBubble = [];
     let n = 0;
     for (let vw = 800; vw <= 2560; vw += 40) {
       for (let vh = 500; vh <= 1440; vh += 40) {
@@ -295,8 +364,9 @@ describe('computeTableLayout over a grid of sizes (800-2560 x 500-1440)', () => 
           const hits = findIntersections(L);
           const out = findOutside(L);
           if (L.degraded || hits.length || out.length) bad.push({ vw, vh, isSpectator, degraded: L.degraded, hits, out });
-          const more = [...feltProblems(L), ...bubbleProblems(L), ...badgeProblems(L)];
+          const more = [...feltProblems(L), ...bubbleProblems(L), ...badgeProblems(L), ...badgeBubbleProblems(L)];
           if (more.length) bad.push({ vw, vh, isSpectator, more });
+          if (!L.spectators.bubble) noBadgeBubble.push(`${vw}x${vh} ${isSpectator ? 'spectator' : 'player'}`);
           for (const seat of SEATS) {
             const s = L.seats[seat];
             if (dist(s.bubble, s.avatar) > 80 || dist(s.dealer, s.avatar) > 80) bad.push({ vw, vh, seat, far: true });
@@ -306,6 +376,10 @@ describe('computeTableLayout over a grid of sizes (800-2560 x 500-1440)', () => 
     }
     expect(n).toBeGreaterThan(2000);
     expect(bad).toEqual([]);
+    // the badge's bubble has a spot everywhere but one squat window (a
+    // 500 px tall canvas: my box and my bubble fill the corner's column),
+    // where a spectator's message is only in the log
+    expect(noBadgeBubble).toEqual(['880x500 player']);
   });
 
   it('phones too (360-760 x 360-900): no overlaps, the felt holds the bid sheet, no bubble hides the game', () => {
@@ -316,7 +390,7 @@ describe('computeTableLayout over a grid of sizes (800-2560 x 500-1440)', () => 
           const L = layoutForViewport({ vw, vh, isSpectator });
           // (below 390 x 480 a spectator's bottom bubble has nowhere beside its backs: it may cover them while up)
           const all = [...findIntersections(L).map((h) => h.join(' x ')), ...findOutside(L), ...feltProblems(L), ...bubbleProblems(L, { ownBacks: vw >= 390 || vh >= 480 }),
-            ...badgeProblems(L).filter((p) => p !== 'badge not in the bottom right')];
+            ...badgeProblems(L).filter((p) => p !== 'badge not in the bottom right'), ...badgeBubbleProblems(L)];
           if (L.degraded || all.length) bad.push({ vw, vh, isSpectator, degraded: L.degraded, all });
         }
       }
@@ -427,6 +501,49 @@ describe('computeTableLayout contract', () => {
     for (const r of [{ x: z.x + 1, y: z.y + 1, w: 12, h: 12 }, { x: b.x, y: b.y, w: 12, h: 12 }, L.seats.opp2.avatar.rect, L.seats.self.plate]) {
       expect(findIntersections(L, [...rects.filter((o) => o.id !== 'partner.bubble'), { ...bubble, rect: r }])).toEqual([]);
     }
+  });
+
+  it('the badge\'s bubble is in the same check: it may cover the felt and the other seats, never the game, my box, the voice buttons, the pill, the bid sheet or a bubble', () => {
+    expect(BUBBLE_KEEPS).toContain('bubble:spectators');
+    expect(badgeBubbleKeeps(false)).toEqual(expect.arrayContaining([...BUBBLE_KEEPS, 'status', 'bidSheet', 'voice', 'seat:self']));
+    expect(badgeBubbleKeeps(true)).not.toContain('seat:self');
+    for (const [, isSpectator] of ROLES) {
+      const L = layoutForViewport({ vw: 1440, vh: 790, isSpectator });
+      const rects = layoutRects(L);
+      const bb = rects.find((r) => r.id === 'spectators.bubble');
+      expect(bb.only).toEqual(badgeBubbleKeeps(isSpectator));
+      const others = rects.filter((r) => r.id !== 'spectators.bubble');
+      const at = (r) => findIntersections(L, [...others, { ...bb, rect: { ...r } }]).filter((h) => h.includes('spectators.bubble'));
+      const must = [['trump', L.trump.rect], ['status', L.status.rect], ['bidSheet', L.bidSheet.rect], ['history.team', L.history.team.rect],
+        ['trick.self', L.trick.slots.self.rect], ['self.bubble', L.seats.self.bubble.rect], ['partner.bubble', L.seats.partner.bubble.rect], ['spectators', L.spectators.rect]];
+      if (isSpectator) must.push(['voice', L.voice.rect]);
+      else must.push(['hand', L.hand.rect], ['self.avatar', L.seats.self.avatar.rect], ['self.hsi', L.seats.self.hsi.rect], ['self.voice', L.voice.rect]);
+      for (const [id, r] of must) expect(at(r).map((h) => h.find((x) => x !== 'spectators.bubble')), id).toContain(id);
+      // ...a seat's bubble moved onto it is caught from the other side too
+      const sb = rects.find((r) => r.id === 'opp2.bubble');
+      expect(findIntersections(L, [...rects.filter((r) => r.id !== 'opp2.bubble'), { ...sb, rect: { ...bb.rect } }]))
+        .toEqual(expect.arrayContaining([expect.arrayContaining(['opp2.bubble', 'spectators.bubble'])]));
+      // but the felt and another seat are fine
+      const z = L.trick.zone;
+      expect(at({ x: z.x + 1, y: z.y + 1, w: 8, h: 8 })).toEqual([]);
+      expect(at(L.seats.opp1.avatar.rect)).toEqual([]);
+    }
+  });
+
+  it('the badge\'s bubble narrows on a small canvas (the BUBBLE_WIDTHS steps) rather than overlap', () => {
+    const big = layoutForViewport({ vw: 1920, vh: 1080 });
+    expect(big.spectators.bubble.w).toBeCloseTo(big.bubbles.w, 6);
+    const widths = new Set();
+    for (const [vw, vh] of [[1024, 668], [1280, 620], [844, 390], [960, 540], [800, 600]]) {
+      for (const [, isSpectator] of ROLES) {
+        const L = layoutForViewport({ vw, vh, isSpectator });
+        widths.add(Math.round((L.spectators.bubble.w / L.bubbles.w) * 100));
+        expect(badgeBubbleProblems(L)).toEqual([]);
+      }
+    }
+    // some of them took a narrower step, none went below the last
+    expect([...widths].some((f) => f < 100)).toBe(true);
+    expect(Math.min(...widths)).toBeGreaterThanOrEqual(60);
   });
 
   it('the bid sheet may cover only the empty trick (it is up only while bidding)', () => {
