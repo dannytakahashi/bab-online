@@ -141,6 +141,59 @@ describe('ICE servers from the server', () => {
     expect(sanitizeIceServers([{ urls: 'turn:x:3478', username: 'u', credential: 'c', other: 1 }])).toEqual([{ urls: ['turn:x:3478'], username: 'u', credential: 'c' }]);
   });
 
+  it('a server STUN answer (Cloudflare failure, backoff, env unset) is not kept: the next session asks again', async () => {
+    const vm = new VoiceChatManager();
+    const sm = fakeSocketManager();
+    const STUN_REPLY = { iceServers: [{ urls: ['stun:stun.l.google.com:19302'] }], turn: false, expiresInSec: null };
+    await start(vm, sm, STUN_REPLY);
+    expect(sm.requests()).toHaveLength(1);
+    vm.shutdown();
+    await start(vm, sm, STUN_REPLY);
+    expect(sm.requests()).toHaveLength(2);
+    vm.shutdown();
+    // TURN back: this one is kept
+    await start(vm, sm, { iceServers: TURN_SERVERS, turn: true, expiresInSec: 4 * 3600 });
+    expect(sm.requests()).toHaveLength(3);
+    expect(vm.hasTurn()).toBe(true);
+    vm.shutdown();
+    await start(vm, sm);
+    expect(sm.requests()).toHaveLength(3);
+    vm.shutdown();
+  });
+
+  it('a STUN session asks for TURN again on the restart and rebuilds the connection with it', async () => {
+    const vm = new VoiceChatManager();
+    const sm = fakeSocketManager('sock-a');
+    await start(vm, sm, { iceServers: [{ urls: ['stun:stun.l.google.com:19302'] }], turn: false, expiresInSec: null });
+    await vm.connectToPeer('sock-b', 'bob');
+    FakePC.all[0].set('failed');
+    await flush();
+    const req = sm.requests().at(-1);
+    expect(sm.requests()).toHaveLength(2);
+    vm.onIceServers({ iceServers: TURN_SERVERS, turn: true, expiresInSec: 4 * 3600, requestId: req.data.requestId });
+    await flush();
+    expect(FakePC.all).toHaveLength(2);
+    expect(FakePC.all[1].config.iceServers).toEqual(TURN_SERVERS);
+    vm.shutdown();
+  });
+
+  it('the waiting side (higher socket id) of a STUN session asks for TURN too and hands it to the restart connection', async () => {
+    const vm = new VoiceChatManager();
+    const sm = fakeSocketManager('sock-z');
+    await start(vm, sm, { iceServers: [{ urls: ['stun:stun.l.google.com:19302'] }], turn: false, expiresInSec: null });
+    await vm.connectToPeer('sock-b', 'bob');
+    FakePC.all[0].set('failed');
+    await flush();
+    expect(sm.requests()).toHaveLength(2);
+    await vm.handleOffer('sock-b', { type: 'offer', sdp: 'v=0 restart' }, 'bob');
+    const req = sm.requests().at(-1);
+    vm.onIceServers({ iceServers: TURN_SERVERS, turn: true, expiresInSec: 4 * 3600, requestId: req.data.requestId });
+    await flush();
+    expect(FakePC.all).toHaveLength(2);
+    expect(FakePC.all[1].config.iceServers).toEqual(TURN_SERVERS);
+    vm.shutdown();
+  });
+
   it('an answer to no open request (late, another request id) is ignored', async () => {
     const vm = new VoiceChatManager();
     const sm = fakeSocketManager();

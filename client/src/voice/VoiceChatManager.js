@@ -90,8 +90,9 @@ export class VoiceChatManager {
     this._pendingPeers = [];
     this._pendingOffers = [];
 
-    // ICE servers: { username, iceServers, turn, expiresAt (ms) | null };
-    // kept across shutdown (reused for the session, per username)
+    // ICE servers: { username, iceServers, turn, expiresAt (ms) | null, fallback };
+    // kept across shutdown; a TURN answer is reused for the session (per
+    // username), a STUN-only one is asked again (ensureIceServers)
     this._ice = null;
     this._iceFetch = null;          // in-flight Promise<void>
     this._iceRequests = new Map();  // requestId → resolve
@@ -394,15 +395,18 @@ export class VoiceChatManager {
 
   /**
    * Make sure ICE servers for this user are known and not about to expire:
-   * reuses the session's copy, else asks the server (STUN on error or
-   * after ICE_FETCH_TIMEOUT_MS). Never rejects.
+   * reuses a TURN answer for the session, else asks the server (STUN on
+   * error or after ICE_FETCH_TIMEOUT_MS). A STUN-only answer (the server's,
+   * on a Cloudflare failure, backoff or unset env, or our own fallback) is
+   * never kept: each voice start and the restart ask again, so one TURN
+   * outage does not leave the tab on STUN. Never rejects.
    * @returns {Promise<void>}
    */
   ensureIceServers() {
     const username = getGameState().username || null;
     const ice = this._ice;
-    const fresh = ice && ice.username === username &&
-      (ice.expiresAt === null ? !ice.fallback : ice.expiresAt - Date.now() > REFRESH_BEFORE_MS);
+    const fresh = ice && ice.username === username && ice.turn &&
+      (ice.expiresAt === null || ice.expiresAt - Date.now() > REFRESH_BEFORE_MS);
     if (fresh) return Promise.resolve();
     if (this._iceFetch) return this._iceFetch;
     this._iceFetch = this.fetchIceServers(username).finally(() => { this._iceFetch = null; });
@@ -411,7 +415,7 @@ export class VoiceChatManager {
 
   /**
    * One getVoiceIceServers round trip. Never rejects: any failure keeps
-   * STUN_ICE_SERVERS (marked `fallback`, so the next session asks again).
+   * STUN_ICE_SERVERS (marked `fallback`; like any STUN answer, not reused).
    */
   async fetchIceServers(username = getGameState().username || null) {
     const sm = this.socketManager;
@@ -801,6 +805,9 @@ export class VoiceChatManager {
       });
     } else {
       console.log(`[Voice] connection to ${socketId} failed: waiting for its restart`);
+      // A STUN-only session asks for TURN again meanwhile; an answer reaches
+      // the restart's connection through _applyIceToPeers
+      this.ensureIceServers();
       // The restart's offer clears this timer (handleOffer)
       this._restartTimers.set(socketId, setTimeout(() => {
         this._restartTimers.delete(socketId);

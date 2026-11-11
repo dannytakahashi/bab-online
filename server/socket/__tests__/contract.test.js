@@ -490,7 +490,7 @@ describe('(e) non-game handlers', () => {
         voiceHandlers.voiceAnswer(e, w.io, { targetSocketId: 'e-d', answer: { type: 'answer', sdp: 'v=0' } });
         voiceHandlers.voiceIceCandidate(e, w.io, { targetSocketId: 'e-d', candidate: { candidate: 'c', sdpMLineIndex: 0, sdpMid: '0' } });
         voiceHandlers.voiceRelayAudio(e, w.io, { targetSocketId: 'e-d', audio: Buffer.alloc(1364) });
-        // ICE servers (no TURN env here: the STUN answer; TURN shape in turnCredentials.test.js)
+        // ICE servers (no TURN env here: the STUN answer; TURN shape in voiceIceServers.test.js)
         await voiceHandlers.getVoiceIceServers(e, w.io, { requestId: 'ice-1' });
         await voiceHandlers.getVoiceIceServers(e, w.io, undefined);
         lobbyHandlers.leaveLobby(e, w.io);
@@ -663,5 +663,14 @@ describe('coverage', () => {
             }
         }
         expect({ missing, stale }).toEqual({ missing: [], stale: [] });
+    });
+});
+
+describe('test files named in this file exist', () => {
+    it('every *.test.js it points a reader to is in server/socket/__tests__', () => {
+        const src = fs.readFileSync(__filename, 'utf8');
+        const named = [...new Set(src.match(/\b[A-Za-z][\w-]*\.test\.js\b/g) || [])];
+        const missing = named.filter((n) => !fs.existsSync(path.join(__dirname, n)));
+        expect(missing).toEqual([]);
     });
 });
