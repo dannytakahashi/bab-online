@@ -87,6 +87,21 @@ class GameManager {
             return { success: false, error: 'User not registered yet' };
         }
 
+        // Re-entry from a new socket (half-open reconnect): the user's seat
+        // moves to this socket, full lobby or not
+        const stale = this.findStaleLobbySeat(user.username, socketId);
+        if (stale) {
+            const takeover = this.takeOverLobbySeat(socketId, stale.lobby.id);
+            return {
+                success: true,
+                lobbyCreated: false,
+                joinedExisting: true,
+                lobby: takeover.lobby,
+                players: takeover.lobby.players.map(p => p.socketId),
+                replacedSocketId: takeover.replacedSocketId
+            };
+        }
+
         // Find an existing open lobby (less than 4 players)
         let openLobby = null;
         for (const [lobbyId, lobby] of this.lobbies) {
@@ -276,6 +291,10 @@ class GameManager {
             return { success: false, error: 'User not found' };
         }
 
+        // One seat per user: a seat this user still holds from an older
+        // socket (half-open reconnect) is given up
+        const evicted = this.evictStaleLobbySeat(user.username, socketId);
+
         // Leave main room
         this.leaveMainRoom(socketId);
 
@@ -297,7 +316,7 @@ class GameManager {
         this.lobbies.set(lobbyId, lobby);
         this.playerLobbies.set(socketId, lobbyId);
 
-        return { success: true, lobby };
+        return { success: true, lobby, evicted };
     }
 
     /**
@@ -319,14 +338,27 @@ class GameManager {
             return { success: false, error: 'Lobby not found' };
         }
 
-        if (lobby.players.length >= 4) {
-            return { success: false, error: 'Lobby is full' };
-        }
-
         const user = this.getUserBySocketId(socketId);
         if (!user) {
             return { success: false, error: 'User not found' };
         }
+
+        // Re-entry from a new socket (half-open reconnect: the server keeps
+        // the old socket for up to pingInterval + pingTimeout, ~45 s). The
+        // seat moves to this socket in place, so a full lobby still lets its
+        // own player back in.
+        const stale = this.findStaleLobbySeat(user.username, socketId);
+        if (stale && stale.lobby.id === lobbyId) {
+            return this.takeOverLobbySeat(socketId, lobbyId);
+        }
+
+        if (lobby.players.length >= 4) {
+            return { success: false, error: 'Lobby is full' };
+        }
+
+        // One seat per user: a seat this user still holds in another lobby
+        // from an older socket is given up
+        const evicted = this.evictStaleLobbySeat(user.username, socketId);
 
         // Leave main room
         this.leaveMainRoom(socketId);
@@ -340,7 +372,73 @@ class GameManager {
         lobby.players.push(newPlayer);
         this.playerLobbies.set(socketId, lobbyId);
 
-        return { success: true, lobby, newPlayer };
+        return { success: true, lobby, newPlayer, evicted };
+    }
+
+    /**
+     * A pre-game lobby seat held by `username` from a socket other than
+     * `socketId` (bots never match: their usernames are lobby labels).
+     * @returns {{lobby: Object, player: Object}|null}
+     */
+    findStaleLobbySeat(username, socketId) {
+        if (!username) return null;
+        for (const lobby of this.lobbies.values()) {
+            const player = lobby.players.find(p =>
+                !p.isBot && p.username === username && p.socketId !== socketId);
+            if (player) return { lobby, player };
+        }
+        return null;
+    }
+
+    /**
+     * Move this user's seat in `lobbyId` from its older socket to `socketId`,
+     * in place: same position in lobby.players, so nobody else's seat or
+     * ready flag changes. Only this player's ready flag resets: both clients
+     * build a freshly entered lobby screen as not ready (iOS GameLobbyView
+     * keeps a local isReady = false), and a player who was away should
+     * confirm again before the game can start without them.
+     *
+     * The old socket loses its lobby mapping, so its eventual disconnect
+     * (handleDisconnect -> leaveLobby) finds no lobby and changes nothing.
+     * @returns {{success, lobby, newPlayer, replacedSocketId}|{success:false,error}}
+     */
+    takeOverLobbySeat(socketId, lobbyId) {
+        const lobby = this.lobbies.get(lobbyId);
+        if (!lobby) return { success: false, error: 'Lobby not found' };
+        const user = this.getUserBySocketId(socketId);
+        if (!user) return { success: false, error: 'User not found' };
+        const seat = lobby.players.find(p =>
+            !p.isBot && p.username === user.username && p.socketId !== socketId);
+        if (!seat) return { success: false, error: 'Seat not found' };
+
+        const replacedSocketId = seat.socketId;
+        lobby.readyPlayers.delete(replacedSocketId);
+        if (this.playerLobbies.get(replacedSocketId) === lobbyId) {
+            this.playerLobbies.delete(replacedSocketId);
+        }
+
+        seat.socketId = socketId;
+        seat.ready = false;
+        this.playerLobbies.set(socketId, lobbyId);
+        this.leaveMainRoom(socketId);
+
+        return { success: true, lobby, newPlayer: seat, replacedSocketId };
+    }
+
+    /**
+     * Remove the seat `username` holds in a pre-game lobby from an older
+     * socket, exactly as if that socket had left (leaveLobby: its lobby's
+     * ready flags reset, an empty / bots-only lobby is deleted).
+     * @returns {{oldSocketId, leaveResult}|null} for the caller's notifications
+     */
+    evictStaleLobbySeat(username, socketId) {
+        const stale = this.findStaleLobbySeat(username, socketId);
+        if (!stale) return null;
+        const oldSocketId = stale.player.socketId;
+        // leaveLobby goes by the mapping; a seat without one (should not
+        // happen) is mapped first so it leaves the same way
+        this.playerLobbies.set(oldSocketId, stale.lobby.id);
+        return { oldSocketId, leaveResult: this.leaveLobby(oldSocketId) };
     }
 
     // ==================== LOBBY METHODS ====================

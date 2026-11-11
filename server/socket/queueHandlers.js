@@ -6,6 +6,7 @@ const gameManager = require('../game/GameManager');
 const { socketLogger } = require('../utils/logger');
 const { emitLobbiesUpdated } = require('./gameLifecycle');
 const { disconnectOwner } = require('./seatLifecycle');
+const { releaseStaleLobbySeat } = require('./lobbyHandlers');
 
 async function joinQueue(socket, io) {
     const result = gameManager.joinQueue(socket.id);
@@ -22,6 +23,12 @@ async function joinQueue(socket, io) {
         playerCount: lobby.players.length,
         isNewLobby: result.lobbyCreated
     });
+
+    // Re-entry from a new socket: the user's seat moved here in place
+    if (result.replacedSocketId) {
+        releaseStaleLobbySeat(io, { oldSocketId: result.replacedSocketId, newSocketId: socket.id, lobby });
+        emitLobbiesUpdated(io);
+    }
 
     if (result.lobbyCreated) {
         // New lobby created - send lobbyCreated to the joining player

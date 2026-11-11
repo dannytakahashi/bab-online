@@ -227,13 +227,13 @@ const s2c = {
         payload: obj({ lobbyId: str(), players: arr(ref('lobbyMember'), { maxItems: 4 }), leftUsername: str(), needsMorePlayers: bool() }),
         status: 'active', to: 'socket',
         clientReads: reads(W.lobby, I.lobby),
-        emittedFrom: ['server/socket/lobbyHandlers.js:leaveLobby'],
+        emittedFrom: ['server/socket/lobbyHandlers.js:leaveLobby', 'server/socket/lobbyHandlers.js:releaseStaleLobbySeat'],
     },
     leftLobby: {
         payload: empty,
         status: 'active', to: 'self',
         clientReads: reads(W.lobby, I.lobby),
-        emittedFrom: ['server/socket/lobbyHandlers.js:leaveLobby'],
+        emittedFrom: ['server/socket/lobbyHandlers.js:leaveLobby', 'server/socket/lobbyHandlers.js:releaseStaleLobbySeat'],
     },
     playerReadyUpdate: {
         payload: anyOf(
@@ -818,7 +818,7 @@ const s2c = {
         payload: anyOf(variant('room', obj({ socketId: str() })), variant('private', obj({ socketId: str() }))),
         status: 'active', to: ['room', 'socket'], seq: false,
         clientReads: reads(W.voice, I.voice),
-        emittedFrom: ['server/socket/seatLifecycle.js:disconnectOwner', 'server/socket/lobbyHandlers.js:leaveLobby', 'server/socket/queueHandlers.js:handleDisconnect'],
+        emittedFrom: ['server/socket/seatLifecycle.js:disconnectOwner', 'server/socket/lobbyHandlers.js:leaveLobby', 'server/socket/lobbyHandlers.js:releaseStaleLobbySeat', 'server/socket/queueHandlers.js:handleDisconnect'],
         notes: 'room: a game seat owner dropped (game.broadcast); private: lobby peers (io.to(socketId)).',
     },
 

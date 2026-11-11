@@ -4472,7 +4472,8 @@
         ]
       },
       "emittedFrom": [
-        "server/socket/lobbyHandlers.js:leaveLobby"
+        "server/socket/lobbyHandlers.js:leaveLobby",
+        "server/socket/lobbyHandlers.js:releaseStaleLobbySeat"
       ]
     },
     "leftLobby": {
@@ -4492,7 +4493,8 @@
         ]
       },
       "emittedFrom": [
-        "server/socket/lobbyHandlers.js:leaveLobby"
+        "server/socket/lobbyHandlers.js:leaveLobby",
+        "server/socket/lobbyHandlers.js:releaseStaleLobbySeat"
       ]
     },
     "playerReadyUpdate": {
@@ -8388,6 +8390,7 @@
       "emittedFrom": [
         "server/socket/seatLifecycle.js:disconnectOwner",
         "server/socket/lobbyHandlers.js:leaveLobby",
+        "server/socket/lobbyHandlers.js:releaseStaleLobbySeat",
         "server/socket/queueHandlers.js:handleDisconnect"
       ],
       "notes": "room: a game seat owner dropped (game.broadcast); private: lobby peers (io.to(socketId)).",
