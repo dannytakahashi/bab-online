@@ -148,18 +148,24 @@ function voiceIceCandidate(socket, io, data) {
     });
 }
 
-function relayBytes(audio) {
-    if (audio == null) return 0;
-    if (typeof audio === 'string') return audio.length;
-    if (typeof audio.byteLength === 'number') return audio.byteLength;
-    if (Array.isArray(audio)) return audio.length * 2;
-    return 0;
+/**
+ * Is `audio` a relay chunk worth forwarding? Only real binary PCM: the web
+ * client emits an Int16Array's ArrayBuffer, which socket.io hands the server
+ * as a Buffer. Non-empty, an even number of bytes (whole Int16 samples) and
+ * at most MAX_RELAY_BYTES. A string, array or plain object is dropped: the
+ * web receiver runs `new Int16Array(audio)`, which reads a numeric string or
+ * an object's .length as an element count, so a few bytes could make it
+ * allocate hundreds of MB.
+ */
+function isRelayChunk(audio) {
+    if (!Buffer.isBuffer(audio) && !(audio instanceof ArrayBuffer) && !ArrayBuffer.isView(audio)) return false;
+    const n = audio.byteLength;
+    return n > 0 && n <= MAX_RELAY_BYTES && n % 2 === 0;
 }
 
 function voiceRelayAudio(socket, io, data) {
     const { targetSocketId, audio } = data || {};
-    if (!targetSocketId || !audio) return;
-    if (relayBytes(audio) > MAX_RELAY_BYTES) return;
+    if (!targetSocketId || !isRelayChunk(audio)) return;
     if (!authorize(socket, io, 'voiceRelayAudio', targetSocketId)) return;
 
     io.to(targetSocketId).emit('voiceRelayAudio', {
@@ -179,6 +185,7 @@ module.exports = {
     voiceAnswer,
     voiceIceCandidate,
     voiceRelayAudio,
+    isRelayChunk,
     rememberBlockList,
     MAX_RELAY_BYTES
 };

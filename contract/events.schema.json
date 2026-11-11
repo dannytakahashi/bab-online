@@ -3641,7 +3641,7 @@
           "audio": "AAAA"
         }
       ],
-      "notes": "Forwarded only to a connected socket id (never a room) of a signed-in peer in the sender's lobby or game (entrant / seat owner; not a pure spectator), when neither user blocked the other, within the per-socket limit rateLimiter.voiceRelayAudio (1200 / 10 s), checked in-handler; anything else is dropped silently (no reply, never error). The web PCM fallback after a failed P2P connection; chunks over 64 KB are dropped. Kept until the owner decides between it and a TURN server."
+      "notes": "Forwarded only to a connected socket id (never a room) of a signed-in peer in the sender's lobby or game (entrant / seat owner; not a pure spectator), when neither user blocked the other, within the per-socket limit rateLimiter.voiceRelayAudio (1200 / 10 s), checked in-handler; anything else is dropped silently (no reply, never error). The web PCM fallback after a failed P2P connection. Only binary audio is forwarded (the web client emits an Int16Array's ArrayBuffer; the server receives a Buffer): non-empty, an even byte count, at most 64 KB. A string, array, number or plain object is dropped (the web receiver decodes with new Int16Array, which reads those as a sample count). Kept until the owner decides between it and a TURN server."
     }
   },
   "s2c": {

@@ -489,7 +489,7 @@ describe('(e) non-game handlers', () => {
         voiceHandlers.voiceOffer(d, w.io, { targetSocketId: 'e-e', offer: { type: 'offer', sdp: 'v=0' } });
         voiceHandlers.voiceAnswer(e, w.io, { targetSocketId: 'e-d', answer: { type: 'answer', sdp: 'v=0' } });
         voiceHandlers.voiceIceCandidate(e, w.io, { targetSocketId: 'e-d', candidate: { candidate: 'c', sdpMLineIndex: 0, sdpMid: '0' } });
-        voiceHandlers.voiceRelayAudio(e, w.io, { targetSocketId: 'e-d', audio: 'AAAA' });
+        voiceHandlers.voiceRelayAudio(e, w.io, { targetSocketId: 'e-d', audio: Buffer.alloc(1364) });
         lobbyHandlers.leaveLobby(e, w.io);
         lobbyHandlers.leaveLobby(d, w.io);
         lobbyHandlers.leaveLobby(d, w.io); // not in a lobby: error

@@ -85,13 +85,15 @@ function lobbyPair() {
     return [a, b];
 }
 
+// One relay chunk as the server receives it: the web client's Int16 ArrayBuffer arrives as a Buffer
+const PCM = Buffer.alloc(1364);
 const relayed = (event) => log.filter((l) => l.event === event);
 
 function sendAll(from, targetSocketId) {
     voice.voiceOffer(from, io, { targetSocketId, offer: OFFER });
     voice.voiceAnswer(from, io, { targetSocketId, answer: ANSWER });
     voice.voiceIceCandidate(from, io, { targetSocketId, candidate: CAND });
-    voice.voiceRelayAudio(from, io, { targetSocketId, audio: 'AAAA' });
+    voice.voiceRelayAudio(from, io, { targetSocketId, audio: PCM });
 }
 const VOICE_EVENTS = ['voiceOffer', 'voiceAnswer', 'voiceIceCandidate', 'voiceRelayAudio'];
 
@@ -106,7 +108,7 @@ describe('allowed peers relay exactly as before', () => {
             expect(out[0].data.fromSocketId).toBe(a.id);
         }
         expect(relayed('voiceOffer')[0].data).toEqual({ fromSocketId: a.id, offer: OFFER, username: gameManager.getUserBySocketId(a.id).username });
-        expect(relayed('voiceRelayAudio')[0].data).toEqual({ fromSocketId: a.id, audio: 'AAAA' });
+        expect(relayed('voiceRelayAudio')[0].data).toEqual({ fromSocketId: a.id, audio: PCM });
     });
 
     test('same game: seat owners, both ways', () => {
@@ -207,6 +209,25 @@ describe('refused (dropped silently: no relay, no error)', () => {
         voice.voiceRelayAudio(a, io, { targetSocketId: b.id, audio: new ArrayBuffer(1364) }); // 4096 frames at 48 kHz -> 8 kHz Int16
         expect(relayed('voiceRelayAudio')).toHaveLength(1);
     });
+
+    test.each([
+        ['a numeric string (new Int16Array("400000000") allocates 400M samples)', '400000000'],
+        ['a short string', 'AAAA'],
+        ['an array-like object (read by its .length)', { length: 4e8 }],
+        ['a plain object with a fake byteLength', { byteLength: 8, length: 4e8 }],
+        ['an array', [1, 2, 3, 4]],
+        ['a number', 400000000],
+        ['an empty Buffer', Buffer.alloc(0)],
+        ['an odd byte count (not whole Int16 samples)', Buffer.alloc(1365)],
+        ['a Buffer over 64 KB', Buffer.alloc(voice.MAX_RELAY_BYTES + 2)],
+    ])('relay audio that is not a binary PCM chunk: %s', (_label, audio) => {
+        const [a, b] = lobbyPair();
+        voice.voiceRelayAudio(a, io, { targetSocketId: b.id, audio });
+        expect(relayed('voiceRelayAudio')).toHaveLength(0);
+        expect(log.filter((l) => l.event === 'error')).toHaveLength(0);
+        voice.voiceRelayAudio(a, io, { targetSocketId: b.id, audio: Buffer.alloc(voice.MAX_RELAY_BYTES) });
+        expect(relayed('voiceRelayAudio')).toHaveLength(1);
+    });
 });
 
 describe('rate limits (per socket, dropped silently)', () => {
@@ -214,7 +235,7 @@ describe('rate limits (per socket, dropped silently)', () => {
         ['voiceOffer', (a, t) => voice.voiceOffer(a, io, { targetSocketId: t, offer: OFFER })],
         ['voiceAnswer', (a, t) => voice.voiceAnswer(a, io, { targetSocketId: t, answer: ANSWER })],
         ['voiceIceCandidate', (a, t) => voice.voiceIceCandidate(a, io, { targetSocketId: t, candidate: CAND })],
-        ['voiceRelayAudio', (a, t) => voice.voiceRelayAudio(a, io, { targetSocketId: t, audio: 'AAAA' })],
+        ['voiceRelayAudio', (a, t) => voice.voiceRelayAudio(a, io, { targetSocketId: t, audio: PCM })],
     ])('%s: the limit passes, one more is dropped, a new window passes again', (event, send) => {
         jest.useFakeTimers();
         try {
