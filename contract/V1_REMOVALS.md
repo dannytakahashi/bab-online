@@ -300,6 +300,48 @@ a strict NAT still cannot connect, to web or iOS. The next iOS build needs:
 The App Privacy answers do not change: TURN relays the encrypted SRTP
 stream and nothing is stored.
 
+## iOS spectator badge (next App Store release, roadmap 29 track; not a removal)
+
+Web shows who is watching at the table since 2026-11-11 (an eye and the
+count in the bottom-right corner, the names with avatars on tap; owner's
+design). The server side is done and additive; iOS 1.1.0 ignores all of
+it (GameSocketHandler.events is a fixed list; TableSnapshot is a
+synthesized Decodable that skips unknown keys). The next iOS build needs:
+
+1. Generated constants: move `spectatorsUpdated` from `layout.json`
+   `exclude.swift` into the Swift layout's "Resignation & Lazy Mode"
+   section (append at the end), `npm run contract:gen`, xcodebuild. The
+   generated `TableSnapshot.swift` already decodes `watching`
+   (`SpectatorList {spectators: [Spectator], count}`, `Spectator
+   {username, pic: Int?, avatarUrl: String?}`).
+2. Event: `spectatorsUpdated {gameId, spectators: [{username, pic,
+   avatarUrl?}], count}` to the game room, the WHOLE list each time (join,
+   leave, disconnect, spectating another game, a round start), coalesced
+   to one per 250 ms. It is UNSEQUENCED (no `seq`, it never moves the
+   gate): route it around the seq gate, e.g. a `.spectators` ServerEvent
+   the reducer applies at once (drop it when `gameId` is another game's),
+   and add it to GameSocketHandler.events; the replay harness and
+   ServerEventDecodingTests then stop skipping it.
+3. State: `TableState.players.watching` set from the event and from every
+   snapshot's `watching` (a rejoin / spectate shows it at once); a snapshot
+   without the key (an older server) keeps the current game's list; a new
+   gameId clears it. Leave `spectatorCount` alone: it stays the spectator
+   SOCKET count (cc865b4's meaning), the badge reads `watching.count`.
+4. Pictures: `pic` is a stock number (1-82) or null; a custom picture comes
+   only as `avatarUrl` (`/avatar/<name>?v=`), never inline: the app's
+   AvatarStore loads it (the clientHello avatarUrl capability is not
+   needed for this list). null with no URL: the default avatar.
+5. Where: the table's bottom-right corner, outside the felt, at the voice
+   buttons' height, never over the hand, my HSI / voice accessory (Q3),
+   the trick, the histories or a bubble: SpriteKit `TableLayout` gains a
+   `spectators` rect beside `accessory` (the badge sits right of or below
+   it where the accessory row leaves room; for a spectator, whose layout
+   has no hand, the corner itself), checked by TableLayoutTests like the
+   other rects. SF Symbol `eye.fill` plus the count, hidden at 0; tap opens
+   a small popover (names with avatars, "(you)" on mine, scrolls past ~8,
+   "and N more" past 50); VoiceOver label "2 people watching".
+6. Server side nothing changes.
+
 ## Deferred additive (not removals; held back on purpose)
 
 - **`bidReceived` team1Mult / team2Mult.** The shipped iOS app reads them
