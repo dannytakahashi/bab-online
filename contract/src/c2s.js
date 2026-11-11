@@ -33,7 +33,9 @@ const password = () => str({ minLength: 1, maxLength: 100 });
 const message = () => str({ minLength: 1, maxLength: 500 });
 // Joi .uuid(): versions 1-8, RFC variant (a subset of what Joi accepts)
 const uuid = () => str({ pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$' });
-const bidIn = anyOf(int({ minimum: 0, maximum: 12 }), enm('0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', 'B', '2B', '3B', '4B'));
+// '13' / 13 is legal on the 13-card hand only: Joi takes it, the handler's
+// rules.isValidBid refuses it on a smaller hand (actionRejected invalid_bid)
+const bidIn = anyOf(int({ minimum: 0, maximum: 13 }), enm('0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', 'B', '2B', '3B', '4B'));
 
 const c2s = {
     // Auth
@@ -76,7 +78,7 @@ const c2s = {
 
     // Game
     draw: { payload: open({ num: int({ minimum: 0, maximum: 53 }) }), status: 'active', joi: 'draw', rateLimit: 'draw', sentBy: both, examples: [{ num: 0 }, { num: 53 }], invalid: [{ num: -1 }, { num: 54 }, { num: 99 }, { num: 1.5 }, {}] },
-    playerBid: { payload: open({ bid: bidIn, position: ref('position') }), status: 'active', joi: 'playerBid', rateLimit: 'playerBid', sentBy: both, examples: [{ bid: '3', position: 2 }, { bid: 3, position: 2 }, { bid: 'B', position: 2 }], invalid: [{ bid: '3' }, { bid: 13, position: 1 }, { bid: '13', position: 1 }, { bid: '5B', position: 1 }, { bid: '3', position: 5 }, { bid: 2.5, position: 1 }], notes: 'Web sends a string; iOS an Int for numeric bids and a string for bores.' },
+    playerBid: { payload: open({ bid: bidIn, position: ref('position') }), status: 'active', joi: 'playerBid', rateLimit: 'playerBid', sentBy: both, examples: [{ bid: '3', position: 2 }, { bid: 3, position: 2 }, { bid: 'B', position: 2 }, { bid: '13', position: 1 }, { bid: 13, position: 1 }], invalid: [{ bid: '3' }, { bid: 14, position: 1 }, { bid: '14', position: 1 }, { bid: '5B', position: 1 }, { bid: '3', position: 5 }, { bid: 2.5, position: 1 }], notes: 'Web sends a string; iOS an Int for numeric bids and a string for bores. 13 / \'13\' passes Joi (both clients offer 0...hand size) and is refused by the handler (actionRejected invalid_bid) unless the hand has 13 cards.' },
     playCard: { payload: open({ card: ref('cardIn'), position: ref('position') }), status: 'active', joi: 'playCard', rateLimit: 'playCard', sentBy: both, examples: [{ card: { suit: 'hearts', rank: 'A' }, position: 1 }, { card: { suit: 'joker', rank: 'HI', id: 'x', selected: true }, position: 3 }], invalid: [{ card: { suit: 'hearts', rank: 'A' } }, { card: { suit: 'hearts' }, position: 1 }, { card: { suit: 'stars', rank: 'A' }, position: 1 }, { card: { suit: 'hearts', rank: 'A' }, position: 0 }] },
     forceResign: { payload: open({ position: ref('position') }), status: 'active', joi: 'forceResign', rateLimit: null, sentBy: both, examples: [{ position: 2 }], invalid: [{ position: 0 }, { position: 5 }, {}] },
     chatMessage: { payload: open({ message: message() }), status: 'active', joi: 'chatMessage', rateLimit: 'chatMessage', sentBy: both, examples: [{ message: 'nice' }, { message: '/lazy' }, { message: '/active' }, { message: '/leave' }], invalid: [{ message: '' }, { message: 'x'.repeat(501) }, {}], notes: '/lazy, /active and /leave are seat commands.' },

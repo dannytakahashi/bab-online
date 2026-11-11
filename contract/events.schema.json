@@ -2535,7 +2535,7 @@
               {
                 "type": "integer",
                 "minimum": 0,
-                "maximum": 12
+                "maximum": 13
               },
               {
                 "enum": [
@@ -2552,6 +2552,7 @@
                   "10",
                   "11",
                   "12",
+                  "13",
                   "B",
                   "2B",
                   "3B",
@@ -2589,6 +2590,14 @@
         {
           "bid": "B",
           "position": 2
+        },
+        {
+          "bid": "13",
+          "position": 1
+        },
+        {
+          "bid": 13,
+          "position": 1
         }
       ],
       "invalid": [
@@ -2596,11 +2605,11 @@
           "bid": "3"
         },
         {
-          "bid": 13,
+          "bid": 14,
           "position": 1
         },
         {
-          "bid": "13",
+          "bid": "14",
           "position": 1
         },
         {
@@ -2616,7 +2625,7 @@
           "position": 1
         }
       ],
-      "notes": "Web sends a string; iOS an Int for numeric bids and a string for bores."
+      "notes": "Web sends a string; iOS an Int for numeric bids and a string for bores. 13 / '13' passes Joi (both clients offer 0...hand size) and is refused by the handler (actionRejected invalid_bid) unless the hand has 13 cards."
     },
     "playCard": {
       "payload": {

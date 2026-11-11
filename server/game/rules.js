@@ -9,11 +9,26 @@ const RANK_VALUES = {
     'LO': 15, 'HI': 16
 };
 
+// Tricks a bid counts for in the team total (bores count as 13 and are
+// capped at the hand size). '13' is a plain 1x bid, legal only on the
+// 13-card hand (isValidBid); it ties 'B' here, so findHighestBidder ranks
+// bores above every number for the lead.
 const BID_RANKS = {
     '4B': 16, '3B': 15, '2B': 14, 'B': 13,
-    '12': 12, '11': 11, '10': 10, '9': 9, '8': 8,
+    '13': 13, '12': 12, '11': 11, '10': 10, '9': 9, '8': 8,
     '7': 7, '6': 6, '5': 5, '4': 4, '3': 3, '2': 2, '1': 1, '0': 0
 };
+
+const BORE_BIDS = ['B', '2B', '3B', '4B'];
+/** Largest hand (the last deal); numeric bids run 0..MAX_HAND_SIZE. */
+const MAX_HAND_SIZE = 13;
+/** Every bid value any hand can accept ('0'..'13', then the bores). */
+const BID_VALUES = [...Array.from({ length: MAX_HAND_SIZE + 1 }, (_, i) => String(i)), ...BORE_BIDS];
+
+/** Lead order: the BID_RANKS value, with every bore above the numeric 13. */
+function bidLeadRank(bid) {
+    return (BID_RANKS[bid] || 0) + (BORE_BIDS.includes(bid) ? 1 : 0);
+}
 
 /**
  * Rotate to next player position (clockwise)
@@ -232,11 +247,11 @@ function calculateScore(bid, tricks, multiplier, rainbows) {
  */
 function findHighestBidder(startPosition, bids) {
     let maxIndex = startPosition - 1;
-    let maxValue = BID_RANKS[bids[maxIndex]] || 0;
+    let maxValue = bidLeadRank(bids[maxIndex]);
     let spot = startPosition - 1;
 
     for (let i = 0; i < 4; i++) {
-        const bidValue = BID_RANKS[bids[spot]] || 0;
+        const bidValue = bidLeadRank(bids[spot]);
         if (bidValue > maxValue) {
             maxIndex = spot;
             maxValue = bidValue;
@@ -369,6 +384,9 @@ function calculateHSI(hand, trump) {
 module.exports = {
     RANK_VALUES,
     BID_RANKS,
+    BORE_BIDS,
+    BID_VALUES,
+    MAX_HAND_SIZE,
     isValidBid,
     rotatePosition,
     getPartnerPosition,

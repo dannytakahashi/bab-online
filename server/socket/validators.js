@@ -4,6 +4,7 @@
  */
 
 const Joi = require('joi');
+const { BID_VALUES, MAX_HAND_SIZE } = require('../game/rules');
 
 // Card schema - validates card objects
 const cardSchema = Joi.object({
@@ -47,9 +48,11 @@ const schemas = {
     }),
 
     playerBid: Joi.object({
+        // Any value some hand accepts; whether it fits THIS hand (13 only on
+        // the 13-card hand, bore levels in order) is isValidBid's call
         bid: Joi.alternatives().try(
-            Joi.number().integer().min(0).max(12),
-            Joi.string().valid('0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', 'B', '2B', '3B', '4B')
+            Joi.number().integer().min(0).max(MAX_HAND_SIZE),
+            Joi.string().valid(...BID_VALUES)
         ).required(),
         position: Joi.number().integer().min(1).max(4).required()
     }),
