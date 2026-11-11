@@ -616,10 +616,16 @@ body > .voice-btn {
 .hud-spectator-bubble .chat-bubble.tail-left::after,
 .hud-spectator-bubble .chat-bubble.tail-right::after { top: auto; bottom: var(--specbub-tail, 10px); transform: none; }
 
+/* beside the badge the box is at least --specbub-min-h tall (room for the tail
+   clear of its rounded corners): a one-line message sits in its middle, not at its top */
+.hud-spectator-bubble .chat-bubble.tail-left, .hud-spectator-bubble .chat-bubble.tail-right { display: flex; flex-direction: column; justify-content: center; }
+
 .chat-bubble-name { font-weight: var(--weight-bold); }
 
-/* the spectator tint: the log's spectator colour (.log-row__text.is-spectator, --success) */
-.chat-bubble.is-spectator { box-shadow: var(--elev-2), inset 0 0 0 1px rgb(var(--success-rgb) / 0.6); }
+/* the spectator tint: the log's spectator colour (.log-row__text.is-spectator, --success).
+   The ring is outside the box, so the tail (painted over its parent's shadows)
+   covers it where it joins: no line across the tail's base */
+.chat-bubble.is-spectator { box-shadow: var(--elev-2), 0 0 0 1px rgb(var(--success-rgb) / 0.6); }
 
 @supports (color: color-mix(in srgb, currentColor 50%, transparent)) {
     .chat-bubble.is-spectator { background: color-mix(in srgb, var(--success) 16%, var(--text-primary)); }
