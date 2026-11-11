@@ -105,6 +105,16 @@ describe('the bid sheet\'s width (the layout\'s BID_SHEET)', () => {
     expect(css).not.toMatch(/\.bid-chip\.is-(team|opp) \{/);
   });
 
+  it('a bore fills the whole hand for its team (rules/bids.js), not 0; the opponents\' bids are then over it', () => {
+    const state = getGameState();
+    const count = (cls) => bm.trickIndicators.filter((c) => c.classList.contains(cls)).length;
+    state.position = 2;
+    state.bids = { 1: 'B', 2: '1' };
+    bm.showBidUI(4, () => {});
+    expect(bm.trickIndicators).toHaveLength(5);
+    expect([count('is-opp'), count('is-team'), count('is-overbid')]).toEqual([4, 1, 1]);
+  });
+
   it('bores are a segmented control; a disabled bore and the selected bid are states, not inline colors', () => {
     const state = getGameState();
     state.position = 1;

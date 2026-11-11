@@ -176,6 +176,20 @@ describe('createGameLog', () => {
     resetGameState();
   });
 
+  it('a bore fills the hand for its team (rules/bids.js), not 0', () => {
+    resetGameState();
+    const state = getGameState();
+    state.position = 1;
+    state.bids = { 1: '1', 2: 'B', 3: '1', 4: '0' };
+    gameLog = createGameLog();
+    gameLog.showTrickIndicator(4);
+    const chips = [...gameLog.container.querySelectorAll('.log-chip')];
+    const n = (cls) => chips.filter((c) => c.classList.contains(cls)).length;
+    expect(chips).toHaveLength(6);
+    expect([n('is-team'), n('is-opp'), n('is-overbid')]).toEqual([2, 4, 2]);
+    resetGameState();
+  });
+
   it('destroy removes container', () => {
     gameLog = createGameLog();
     document.body.appendChild(gameLog.container);

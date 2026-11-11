@@ -35,6 +35,12 @@ const BORDER_WIDTH = 1.5; // Border stroke width
 const CORNER = RADIUS.sm;
 
 /**
+ * A history block's border: 'safe' once the team has its bid total (the
+ * bore team's total is the whole hand: rules/bids.js), else 'danger'.
+ */
+export const pileBorder = (tricksWon, bidTotal) => (tricksWon >= bidTotal ? 'safe' : 'danger');
+
+/**
  * TrickManager handles all trick-related sprite operations.
  */
 export class TrickManager {
@@ -149,6 +155,31 @@ export class TrickManager {
   setBidTotals(teamBid, oppBid) {
     this._teamBidTotal = teamBid;
     this._oppBidTotal = oppBid;
+    this._bidTotalsGen = (this._bidTotalsGen || 0) + 1;
+  }
+
+  /** Which setBidTotals the totals are from (for clearBidTotals). */
+  bidTotalsGen() {
+    return this._bidTotalsGen || 0;
+  }
+
+  /**
+   * Forget the bid totals, unless a later setBidTotals replaced the ones
+   * from `gen`: the end-of-hand whisk can land after the next hand's
+   * doneBidding (the deal is settled for it), whose totals must stay.
+   */
+  clearBidTotals(gen) {
+    if (gen !== undefined && gen !== this.bidTotalsGen()) return;
+    this._teamBidTotal = 0;
+    this._oppBidTotal = 0;
+  }
+
+  /** Both history blocks' borders now: {team, opp}, 'safe' | 'danger'. */
+  pileBorders() {
+    return {
+      team: pileBorder(this._teamTrickCount, this._teamBidTotal),
+      opp: pileBorder(this._oppTrickCount, this._oppBidTotal),
+    };
   }
 
   /**
@@ -560,7 +591,7 @@ export class TrickManager {
       graphics.fillRoundedRect(containerX, containerY, containerWidth, containerHeight, CORNER);
 
       // Draw border - red if tricks < bid, green if tricks >= bid
-      const borderColor = tricksWon >= bidTotal ? BORDER_COLOR_SAFE : BORDER_COLOR_DANGER;
+      const borderColor = pileBorder(tricksWon, bidTotal) === 'safe' ? BORDER_COLOR_SAFE : BORDER_COLOR_DANGER;
       graphics.lineStyle(BORDER_WIDTH, borderColor, BORDER_ALPHA);
       graphics.strokeRoundedRect(containerX, containerY, containerWidth, containerHeight, CORNER);
 

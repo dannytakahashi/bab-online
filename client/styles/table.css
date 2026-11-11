@@ -152,7 +152,12 @@
 .hud-bid-chip::before { content: attr(data-bid); }
 .hud-bid-chip.is-bore { background: var(--danger-solid); border-color: var(--danger-solid); }
 
-/* tricks won / the team's bid: pips on the avatar's bottom edge */
+/* tricks won / the seat's bid: pips on the avatar's bottom edge. The box is
+   hit-tested (no pointer-events: none) so its title ("2 of 3", "Team 7 of
+   10 (bore)") shows on hover; a click on it bubbles to the seat container,
+   whose listener opens the profile. A bore box also carries the bore chip's
+   red as an outline, so a bore ring filling on the partner's trick reads
+   without the tooltip (touch has none). */
 .hud-pips {
     position: absolute;
     left: 50%;
@@ -163,10 +168,10 @@
     padding: calc(2px * var(--s, 1)) calc(4px * var(--s, 1));
     border-radius: var(--radius-pill);
     background: rgb(var(--surface-0-rgb) / 0.85);
-    pointer-events: none;
 }
 
 .hud-pips:not(:empty) { display: flex; }
+.hud-pips.is-bore { box-shadow: 0 0 0 1px var(--danger-solid); }
 
 .hud-pip {
     width: max(3px, calc(6px * var(--s, 1)));
