@@ -74,6 +74,61 @@ export function liveCounts(scene) {
   return { hand: c.hand, opponentBacks: c.opponentBacks, trick: c.trick, stackCards: c.stackCards + (handOver ? c.whisking : 0) };
 }
 
+/**
+ * Each seat's pips for a snapshot (ui/seatPlates.js, owner 2026-11-11),
+ * worked out from the server's own numbers: {position: [slots, filled,
+ * over]}. A seat's own bid and its own tricks (tricksByPosition); a bore
+ * seat the hand size and its team's tricks; nothing until both partners bid.
+ */
+export function expectedPips(snap) {
+  const out = {};
+  const bids = snap.bids.byPosition;
+  const size = snap.deal?.handSize || 13;
+  const bore = (b) => ['B', '2B', '3B', '4B'].includes(b);
+  for (const p of [1, 2, 3, 4]) {
+    const partner = ((p + 1) % 4) + 1;
+    if (bids[p - 1] == null || bids[partner - 1] == null) { out[p] = [0, 0, 0]; continue; }
+    const teamWon = p % 2 === 1 ? snap.tricks.team1 : snap.tricks.team2;
+    const need = bore(bids[p - 1]) ? size : Number(bids[p - 1]);
+    const won = bore(bids[p - 1]) ? teamWon : snap.tricksByPosition[p - 1];
+    const n = need + won > 0 ? Math.min(13, Math.max(need, won)) : 0;
+    out[p] = [n, Math.min(won, need, n), Math.max(0, Math.min(won, n) - need)];
+  }
+  return out;
+}
+
+/** The pips on the page: {position: [slots, filled, over]} (positions with a ring). */
+export function livePips() {
+  const out = {};
+  for (const ring of document.querySelectorAll('.hud-avatar-ring[data-position]')) {
+    const pips = [...ring.querySelectorAll(':scope > .hud-pips > .hud-pip')];
+    out[Number(ring.dataset.position)] = [pips.length, pips.filter((x) => x.classList.contains('is-won')).length,
+      pips.filter((x) => x.classList.contains('is-over')).length];
+  }
+  return out;
+}
+
+/**
+ * Replay one viewer's log and compare the seat pips with expectedPips at
+ * every live play checkpoint (PLAYING / TRICK_RESOLVING), just before the
+ * entry it precedes; a result's `bores` counts the bores bid that hand.
+ * @returns {{results: Array, bad: Array}}
+ */
+export function replayPips(page, rec, label) {
+  const byIndex = new Map(rec.checkpoints
+    .filter((c) => c.viewer === label && c.snapshot?.deal && ['PLAYING', 'TRICK_RESOLVING'].includes(c.snapshot.stage))
+    .map((c) => [c.afterIndex, c]));
+  const results = [];
+  const check = (i) => {
+    const cp = byIndex.get(i);
+    if (!cp || page.scene.director.waiting > 0) return;
+    const bores = cp.snapshot.bids.byPosition.filter((b) => ['B', '2B', '3B', '4B'].includes(b)).length;
+    results.push({ i, bores, live: livePips(), want: expectedPips(cp.snapshot) });
+  };
+  replayLog(page, rec.logs[label], { before: (e) => check(e.i) });
+  return { results, bad: results.filter((r) => JSON.stringify(r.live) !== JSON.stringify(r.want)) };
+}
+
 /** Game-log rows on the page. */
 export function logRows() {
   return document.getElementById('gameFeedMessages')?.childElementCount ?? 0;

@@ -145,6 +145,11 @@ export class GameState {
     // Tricks a snapshot only counted are {winner: null, team: 1|2, cards: null}
     // (face-down stacks); tricks won after it keep their cards (face up)
     this.trickHistory = [];
+    // Tricks each seat won this hand ({1..4}; snapshot tricksByPosition):
+    // null for both seats of a team whose winners are not known (a v1
+    // snapshot that only counted the team's tricks); the seat pips then
+    // show that team's count (ui/seatPlates.js)
+    this.tricksByPosition = GameState._noSeatTricks();
     this.seats = []; // snapshot v2 seat records, when known
     this.resume = null;
     this._redealPending = false;
@@ -544,6 +549,7 @@ export class GameState {
     this.teamTricks = 0;
     this.oppTricks = 0;
     this.trickHistory = [];
+    this.tricksByPosition = GameState._noSeatTricks();
 
     // The hand is over: nothing left to hold or play
     this.myCards = [];
@@ -644,6 +650,37 @@ export class GameState {
     return [...unknown(1, tricks?.team1 || 0), ...unknown(2, tricks?.team2 || 0)];
   }
 
+  /** Every seat at 0 tricks (a new hand). */
+  static _noSeatTricks() {
+    return { 1: 0, 2: 0, 3: 0, 4: 0 };
+  }
+
+  /**
+   * Each seat's tricks for a snapshot, per team: the snapshot's
+   * tricksByPosition when that team's two seats add up to its count (it is
+   * the server's game.handTricks: authoritative; a v1 payload's zeros only
+   * agree with a team that has none), else the winners in `history` when
+   * every one of that team's tricks has a known winner, else null for both
+   * seats (unknown: the pips show the team's count).
+   */
+  static _seatTricksFor(snap, history) {
+    const out = {};
+    const byPos = Array.isArray(snap.tricksByPosition) && snap.tricksByPosition.length === 4 &&
+      snap.tricksByPosition.every((n) => Number.isInteger(n) && n >= 0)
+      ? snap.tricksByPosition : null;
+    for (const [teamNo, seats] of [[1, [1, 3]], [2, [2, 4]]]) {
+      const count = snap.tricks?.[`team${teamNo}`] || 0;
+      if (byPos && byPos[seats[0] - 1] + byPos[seats[1] - 1] === count) {
+        for (const p of seats) out[p] = byPos[p - 1];
+        continue;
+      }
+      const mine = (Array.isArray(history) ? history : []).filter((t) => GameState._trickTeam(t) === teamNo);
+      const known = mine.length === count && mine.every((t) => seats.includes(t.winner));
+      for (const p of seats) out[p] = known ? mine.filter((t) => t.winner === p).length : null;
+    }
+    return out;
+  }
+
   /** Per-team values {team1, team2} as [mine, theirs]. */
   _mine(pair) {
     if (!pair) return [0, 0];
@@ -692,6 +729,7 @@ export class GameState {
     this.teamTricks = 0;
     this.oppTricks = 0;
     this.trickHistory = [];
+    this.tricksByPosition = GameState._noSeatTricks();
     this.rainbows = [];
     this._setHandSizeForAll(this.currentHand);
     if (data.hsiValues) this.hsiValues = { ...data.hsiValues };
@@ -791,6 +829,7 @@ export class GameState {
     const mineTeam = winner % 2 === (this.position || 1) % 2;
     if (mineTeam) this.teamTricks++;
     else this.oppTricks++;
+    if (typeof this.tricksByPosition?.[winner] === 'number') this.tricksByPosition[winner]++;
     if (Array.isArray(this.trickHistory)) {
       this.trickHistory.push({ winner, cards: this.playedCards.map((p) => ({ position: p.position, card: p.card })) });
     }
@@ -954,6 +993,7 @@ export class GameState {
     if (served && this._historyMatches(served, snap.tricks)) this.trickHistory = served;
     else if (sameDeal && this._historyMatches(prevHistory, snap.tricks)) this.trickHistory = prevHistory;
     else this.trickHistory = GameState._unknownTricks(snap.tricks);
+    this.tricksByPosition = GameState._seatTricksFor(snap, this.trickHistory);
 
     const [teamScore, oppScore] = this._mine(snap.score);
     this.teamScore = teamScore;
@@ -1052,6 +1092,7 @@ export class GameState {
       trick,
       leadPosition: this.leadPosition,
       tricks: { team: this.teamTricks, opp: this.oppTricks },
+      tricksByPosition: { ...this.tricksByPosition },
       history: Array.isArray(this.trickHistory)
         ? this.trickHistory.map((t) => ({ winner: t.winner, team: GameState._trickTeam(t), cards: t.cards ? t.cards.map((c) => ({ ...c })) : null }))
         : null,
