@@ -9,6 +9,10 @@ import { CARD_CONFIG, ANIMATION_CONFIG } from '../config.js';
 import { collectMs } from '../pacing.js';
 import { sceneTween } from '../TableDirector.js';
 import { layoutOf, historySlot } from '../layout/computeTableLayout.js';
+import { CARD_TEXTURE_KEY } from '../cards/CardAtlas.js';
+import { BACK_FRAME } from '../cards/cardFaces.js';
+import { motionMs, dealStaggerMs, EASE_EMPHASIZED, EASE_STANDARD } from '../../ui/motion.js';
+import { COLOR, RADIUS, hex } from '../../ui/tokens.js';
 
 /**
  * Trick display: every position and size comes from the table layout
@@ -18,11 +22,17 @@ import { layoutOf, historySlot } from '../layout/computeTableLayout.js';
  * and spacing no longer scale apart).
  */
 const TRICKS_ROW_1 = 7; // Top row capacity
-const CONTAINER_COLOR = 0x1a1a1a; // Dark grey container
-const SLOT_COLOR = 0x333333; // Lighter dark grey slots
-const BORDER_COLOR_DANGER = 0xff4444; // Red when tricks < bid
-const BORDER_COLOR_SAFE = 0x44ff44; // Green when tricks >= bid
-const BORDER_WIDTH = 2; // Border stroke width
+// The history blocks (item 18a: tokens): a dark glass tray, softer slots,
+// a danger (short of the bid) or success (made it) hairline
+const CONTAINER_COLOR = hex(COLOR.surface.s0);
+const CONTAINER_ALPHA = 0.55;
+const SLOT_COLOR = hex(COLOR.surface.s3);
+const SLOT_ALPHA = 0.6;
+const BORDER_COLOR_DANGER = hex(COLOR.danger.text); // tricks < bid
+const BORDER_COLOR_SAFE = hex(COLOR.success); // tricks >= bid
+const BORDER_ALPHA = 0.85;
+const BORDER_WIDTH = 1.5; // Border stroke width
+const CORNER = RADIUS.sm;
 
 /**
  * TrickManager handles all trick-related sprite operations.
@@ -242,7 +252,7 @@ export class TrickManager {
     // If no sprite provided, create one (for self-plays)
     if (!sprite) {
       const cardKey = getCardImageKey(card);
-      sprite = scene.add.image(playPos.x, playPos.y, 'cards', cardKey);
+      sprite = scene.add.image(playPos.x, playPos.y, CARD_TEXTURE_KEY, cardKey);
       sprite.setScale(scale);
       sprite.setDepth(200);
     }
@@ -258,7 +268,7 @@ export class TrickManager {
         x: playPos.x,
         y: playPos.y,
         duration: ANIMATION_CONFIG.CARD_PLAY,
-        ease: 'Power2',
+        ease: EASE_EMPHASIZED,
         rotation: 0,
         scale,
         onComplete: () => {
@@ -319,7 +329,7 @@ export class TrickManager {
 
       // If not our team's trick, show card backs (unless spectating)
       if (!isMyTeam && !this._isSpectatorMode) {
-        card.setTexture('cardBack');
+        card.setTexture(CARD_TEXTURE_KEY, BACK_FRAME);
       } else {
         this._applyFaceTexture(card);
       }
@@ -332,7 +342,7 @@ export class TrickManager {
           scale: stackScale,
           rotation: 0,
           duration,
-          ease: 'Power2',
+          ease: EASE_EMPHASIZED,
           onComplete: () => {
             card.setDepth(200 + index);
             pending--;
@@ -389,8 +399,8 @@ export class TrickManager {
           targets: card,
           x,
           y,
-          duration: 200,
-          ease: 'Power1',
+          duration: motionMs('base'),
+          ease: EASE_STANDARD,
         });
         card.setData?.('hoverTween', tween);
       } else {
@@ -459,7 +469,7 @@ export class TrickManager {
   _applyFaceTexture(card) {
     const faceKey = card.getData?.('faceKey');
     if (faceKey) {
-      card.setTexture('cards', faceKey);
+      card.setTexture(CARD_TEXTURE_KEY, faceKey);
     }
   }
 
@@ -495,8 +505,8 @@ export class TrickManager {
         targets: this._backgroundGraphics,
         alpha: 1,
         scale: 1,
-        duration: 200,
-        ease: 'Power2',
+        duration: motionMs('base'),
+        ease: EASE_EMPHASIZED,
       });
     }
   }
@@ -546,22 +556,22 @@ export class TrickManager {
       const containerY = firstCardPos.y - slotH / 2 - padding;
 
       // Draw container background (rounded rectangle, same radius as slots)
-      graphics.fillStyle(CONTAINER_COLOR, 1);
-      graphics.fillRoundedRect(containerX, containerY, containerWidth, containerHeight, 4);
+      graphics.fillStyle(CONTAINER_COLOR, CONTAINER_ALPHA);
+      graphics.fillRoundedRect(containerX, containerY, containerWidth, containerHeight, CORNER);
 
       // Draw border - red if tricks < bid, green if tricks >= bid
       const borderColor = tricksWon >= bidTotal ? BORDER_COLOR_SAFE : BORDER_COLOR_DANGER;
-      graphics.lineStyle(BORDER_WIDTH, borderColor, 1);
-      graphics.strokeRoundedRect(containerX, containerY, containerWidth, containerHeight, 4);
+      graphics.lineStyle(BORDER_WIDTH, borderColor, BORDER_ALPHA);
+      graphics.strokeRoundedRect(containerX, containerY, containerWidth, containerHeight, CORNER);
 
       // Draw slot boxes with tight vertical spacing
-      graphics.fillStyle(SLOT_COLOR, 1);
+      graphics.fillStyle(SLOT_COLOR, SLOT_ALPHA);
 
       // Row 0: up to 7 slots (tricks 1-7)
       for (let col = 0; col < row0Count; col++) {
         const slotX = firstCardPos.x + col * spacing - slotW / 2;
         const slotY = firstCardPos.y - slotH / 2;
-        graphics.fillRoundedRect(slotX, slotY, slotW, slotH, 4);
+        graphics.fillRoundedRect(slotX, slotY, slotW, slotH, CORNER);
       }
 
       // Row 1: remaining slots (tricks 8-13, centered under row 0)
@@ -571,7 +581,7 @@ export class TrickManager {
         for (let col = 0; col < row1Count; col++) {
           const slotX = firstCardPos.x + col * spacing + row1Offset - slotW / 2;
           const slotY = row1Y;
-          graphics.fillRoundedRect(slotX, slotY, slotW, slotH, 4);
+          graphics.fillRoundedRect(slotX, slotY, slotW, slotH, CORNER);
         }
       }
     });
@@ -809,9 +819,9 @@ export class TrickManager {
           y: targetY,
           alpha: 0,
           scale: this.historyScale() * 0.5,
-          duration: 400,
-          ease: 'Power2',
-          delay: trickIndex * 30, // Stagger by trick number
+          duration: motionMs('slow'),
+          ease: EASE_EMPHASIZED,
+          delay: trickIndex * dealStaggerMs(), // Stagger by trick number
           onComplete: () => {
             card.destroy();
             this._whisking = this._whisking.filter((c) => c !== card);
@@ -894,8 +904,8 @@ export class TrickManager {
       const cards = !trick.cards ? this._createPlaceholderStack(scene, pos) : trick.cards.map((c, index) => {
         const faceUp = mine || this._isSpectatorMode;
         const sprite = faceUp
-          ? scene.add.image(pos.x, pos.y, 'cards', getCardImageKey(c.card))
-          : scene.add.image(pos.x, pos.y, 'cardBack');
+          ? scene.add.image(pos.x, pos.y, CARD_TEXTURE_KEY, getCardImageKey(c.card))
+          : scene.add.image(pos.x, pos.y, CARD_TEXTURE_KEY, BACK_FRAME);
         sprite.setData?.('faceKey', getCardImageKey(c.card));
         sprite.setScale(this.historyScale());
         sprite.setDepth(200 + index);
@@ -928,7 +938,7 @@ export class TrickManager {
   _createPlaceholderStack(scene, pos) {
     const cards = [];
     for (let j = 0; j < 4; j++) {
-      const sprite = scene.add.image(pos.x, pos.y, 'cardBack');
+      const sprite = scene.add.image(pos.x, pos.y, CARD_TEXTURE_KEY, BACK_FRAME);
       sprite.setScale(this.historyScale());
       sprite.setDepth(200 + j);
       sprite.setInteractive();

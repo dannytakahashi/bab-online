@@ -24,8 +24,8 @@ beforeAll(async () => {
 
 afterAll(() => vi.useRealTimers());
 
-/** Each stack's cards as texture keys ('cardBack', or 'cards:<frame>' for a face). */
-const stacks = (history) => history.map((t) => t.cards.map((c) => (c.texture?.key === 'cardBack' ? 'cardBack' : `${c.texture?.key}:${c.frame?.name ?? ''}`)));
+/** Each stack's cards as texture keys ('cardBack': the atlas's back frame, or 'cards:<frame>' for a face). */
+const stacks = (history) => history.map((t) => t.cards.map((c) => (c.texture?.key === 'cards' && c.frame?.name === 'back' ? 'cardBack' : `${c.texture?.key}:${c.frame?.name ?? ''}`)));
 const faceDown = (stack) => stack.length === 4 && stack.every((k) => k === 'cardBack');
 const faceUp = (stack) => stack.length === 4 && stack.every((k) => k.startsWith('cards:'));
 

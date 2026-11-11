@@ -213,7 +213,7 @@ bab-online/
 │   ├── bot-strategy-guide.md          # Bot strategy reference
 │   └── todos/                         # Improvement roadmap
 ├── scripts/
-│   └── build-atlas.js                 # Sprite atlas builder
+│   └── build-tokens.js                # Design tokens (client/tokens/tokens.json -> CSS + JS)
 ├── .github/
 │   └── workflows/ci.yml              # GitHub Actions CI
 ├── package.json
@@ -246,9 +246,14 @@ npm run dev:client
 # Build client
 npm run build:client
 
-# Build sprite atlas
-npm run build:atlas
+# Regenerate the design tokens after editing client/tokens/tokens.json
+# (tokens:check fails when the generated files are stale)
+npm run tokens
 ```
+
+The web cards are drawn at runtime (`client/src/phaser/cards/`, a port of the
+iOS `CardTextureGenerator`) into one atlas at the device pixel ratio; there is
+no card art to build.
 
 The server runs on `http://localhost:3000` by default.
 

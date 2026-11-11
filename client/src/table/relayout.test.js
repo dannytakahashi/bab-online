@@ -63,7 +63,9 @@ function expectRect(b, r, label) {
  * What is DRAWN matches the layout (getBounds: position less the display
  * origin, times the scale), not only the positions the managers set: the
  * trump's box and card, the trick cards, the hand, the stacks and the
- * history containers (graphics: their drawn rects).
+ * history containers (graphics: their drawn rects). Item 18a: a card's
+ * atlas frame IS the visible card (no padding), so its rendered bounds are
+ * the layout's card size, and a hand card's hit area is all of it.
  */
 function expectRendered(scene, layout) {
   const { trump } = layout;
@@ -73,7 +75,8 @@ function expectRendered(scene, layout) {
   const card = scene.tableCardSprite.getBounds();
   near(card.centerX, trump.x, 'trump card x');
   near(card.centerY, trump.y, 'trump card y');
-  near(card.width, trump.card.frame, 'trump card w');
+  near(card.width, trump.card.w, 'trump card w');
+  near(card.height, trump.card.h, 'trump card h');
   const label = scene.tableCardLabel;
   near(label.x, trump.label.x, 'trump label x');
   expect([label.originX, label.originY]).toEqual([0.5, 0.5]);
@@ -83,14 +86,21 @@ function expectRendered(scene, layout) {
     const slot = layout.trick.slots[s.getData('playPosition')];
     near(b.centerX, slot.x, 'trick x');
     near(b.centerY, slot.y, 'trick y');
-    near(b.width, layout.card.trick.frame, 'trick w');
+    near(b.width, layout.card.trick.w, 'trick w');
+    near(b.height, layout.card.trick.h, 'trick h');
   }
   for (const s of scene.cardManager.getHandSprites()) {
     const b = s.getBounds();
-    near(b.width, layout.card.hand.frame, 'hand w');
-    // the visible card (the frame less its padding) inside the hand box
-    const vis = { x: b.centerX - layout.card.hand.w / 2, y: b.y, w: layout.card.hand.w, h: b.height };
+    near(b.width, layout.card.hand.w, 'hand w');
+    near(b.height, layout.card.hand.h, 'hand h');
+    // the visible card inside the hand box
+    const vis = { x: b.x, y: b.y, w: b.width, h: b.height };
     expect(layoutMod.contains({ ...layout.hand.rect, y: -1e6, h: 2e6 }, vis), 'hand card in the box').toBe(true);
+    // the hit area is the visible card: the whole frame
+    if (s.input?.hitArea) {
+      const a = s.input.hitArea;
+      expect([a.x, a.y, a.width, a.height], 'hand hit area = the visible card').toEqual([0, 0, s.width, s.height]);
+    }
   }
   const g = scene.trickManager._backgroundGraphics;
   if (g?.active) {

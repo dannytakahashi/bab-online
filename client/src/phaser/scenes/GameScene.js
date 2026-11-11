@@ -28,15 +28,22 @@ import { TrickManager } from '../managers/TrickManager.js';
 import { EffectsManager } from '../managers/EffectsManager.js';
 import { DrawManager } from '../managers/DrawManager.js';
 import { flyInMs, FLIP } from '../pacing.js';
-import { transitionGeneration, getTransitionOverlay, createTransitionOverlay, releaseTransitionOverlay } from '../../ui/transitionOverlay.js';
+import { transitionGeneration, getTransitionOverlay, createTransitionOverlay, releaseTransitionOverlay, setOverlayState } from '../../ui/transitionOverlay.js';
 import { getTableDirector, sceneDelay, sceneTween, UI_READY_DELAY_MS, FLIP_AFTER_DEAL_MS, FLIP_AFTER_FADE_MS } from '../TableDirector.js';
 import { getMyAction } from '../../state/MyAction.js';
 import { BidManager } from '../managers/BidManager.js';
 import { LayoutManager } from '../managers/LayoutManager.js';
 import { showChatBubble as showChatBubbleUI } from '../../ui/components/ChatBubble.js';
 import { computeTableLayout, logWidthFor } from '../layout/computeTableLayout.js';
-import { applyHudLayout, hudSeat, hudRoot, logColumnWidth } from '../../ui/tableHud.js';
+import { applyHudLayout, hudSeat, hudRoot, logColumnWidth, getHud } from '../../ui/tableHud.js';
+import { buildAvatarRing, updateSeatPlates } from '../../ui/seatPlates.js';
 import { resizeShape } from '../shapes.js';
+import { cssSize, zoomCamera } from '../backingStore.js';
+import { ensureCardAtlas, refreshCardSprites, CARD_TEXTURE_KEY } from '../cards/CardAtlas.js';
+import { BACK_FRAME } from '../cards/cardFaces.js';
+import { uiTextStyle, refreshTextResolution } from '../text.js';
+import { COLOR, hex, alpha } from '../../ui/tokens.js';
+import { motionMs, EASE_EMPHASIZED } from '../../ui/motion.js';
 
 /**
  * Main game scene class.
@@ -70,19 +77,24 @@ export class GameScene extends Phaser.Scene {
 
   /**
    * The table layout for the canvas as it is now (cached by size, role,
-   * log column and pixel ratio).
+   * log column and pixel ratio). The canvas size is in CSS pixels: the
+   * backing store is that times the ratio (backingStore.cssSize).
    */
   getLayout() {
-    const w = this.scale?.width || 1920;
-    const h = this.scale?.height || 953;
+    const css = cssSize(this.scale);
+    const w = css.w || 1920;
+    const h = css.h || 953;
+    const dpr = css.dpr;
     const state = this.state;
     const spectator = this._spectatorView ?? !!(state?.isSpectator && !state?.isLazy);
     const vw = typeof window !== 'undefined' ? window.innerWidth : w;
     const logW = typeof document !== 'undefined' ? logColumnWidth({ fallback: () => logWidthFor(vw) }) : 0;
-    const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
     const key = `${w}x${h}:${spectator ? 'spec' : 'seat'}:${logW}:${dpr}`;
     if (!this._layout || this._layout.key !== key) {
-      this._layout = { key, layout: computeTableLayout({ w, h, dpr, isSpectator: spectator, logW }) };
+      const layout = computeTableLayout({ w, h, dpr, isSpectator: spectator, logW });
+      this._layout = { key, layout };
+      // the atlas always matches the layout its sprite scales are for
+      this.ensureCardTextures(layout);
     }
     return this._layout.layout;
   }
@@ -92,6 +104,18 @@ export class GameScene extends Phaser.Scene {
     return this.getLayout().card[kind].scale;
   }
 
+  /**
+   * The card atlas at the layout's frame size (hand card x DPR): drawn and
+   * uploaded only when that size changes; the card sprites on the table then
+   * take the new frames (their scales come with the relayout or render).
+   * @returns {{changed: boolean, spec: Object, bytes: number}}
+   */
+  ensureCardTextures(layout = this.getLayout()) {
+    const r = ensureCardAtlas(this.textures, layout.cardTexture);
+    if (r.changed) refreshCardSprites(this);
+    return r;
+  }
+
   // ============================================
   // Phaser Lifecycle Methods
   // ============================================
@@ -99,11 +123,10 @@ export class GameScene extends Phaser.Scene {
   preload() {
     console.log('🎮 GameScene.preload() running...');
 
-    // Load card atlas (reduces 54 requests to 2)
-    this.load.atlas('cards', 'assets/sprites/cards.png', 'assets/sprites/cards.json');
+    // The cards are drawn, not loaded (cards/CardAtlas.js: one canvas
+    // texture at the device pixel ratio, built in create)
 
-    // Load other essential assets
-    this.load.image('cardBack', 'assets/card_back.png');
+    // Effect art
     this.load.image('rainbow', 'assets/rainbow1.png');
     this.load.image('ot', 'assets/ot.png');
     this.load.image('b', 'assets/b.png');
@@ -126,6 +149,11 @@ export class GameScene extends Phaser.Scene {
     // The director owns every timer and tween of this scene's table work
     // (main.js attaches it in setGameScene; a shutdown cancels it all)
     this.director = getTableDirector();
+
+    // World units are CSS pixels; the camera draws them at the backing
+    // store's ratio. The card atlas for this layout (one canvas texture)
+    zoomCamera(this);
+    this.ensureCardTextures();
 
     // Instantiate managers
     this.layoutManager = new LayoutManager(this);
@@ -192,6 +220,11 @@ export class GameScene extends Phaser.Scene {
   relayout() {
     this._layout = null;
     const layout = this.getLayout();
+    // a ratio change (another display) zooms the camera, redraws the
+    // atlas at the new frame size and re-rasterises the text
+    zoomCamera(this);
+    this.ensureCardTextures(layout);
+    refreshTextResolution(this);
     applyHudLayout(layout);
     if (this.layoutManager) {
       this.layoutManager.update();
@@ -267,22 +300,23 @@ export class GameScene extends Phaser.Scene {
     // Card - face down until the deal reveals it, same scale as player hand cards
     const cardKey = getCardImageKey(trumpCard);
     this.tableCardSprite = faceUp
-      ? this.add.image(trumpX, trumpY, 'cards', cardKey)
-      : this.add.image(trumpX, trumpY, 'cardBack');
+      ? this.add.image(trumpX, trumpY, CARD_TEXTURE_KEY, cardKey)
+      : this.add.image(trumpX, trumpY, CARD_TEXTURE_KEY, BACK_FRAME);
     this.tableCardSprite.setScale(trumpScale);
     this.tableCardSprite.setDepth(100);
 
-    // Background - box around card with padding (the layout's box)
-    this.tableCardBackground = this.add.rectangle(trumpX, trumpY, trump.box, trump.box, 0x000000, 0.3);
-    this.tableCardBackground.setStrokeStyle(1, 0x666666, 0.5);
+    // Background - box around card with padding (the layout's box): a
+    // surface tile with a gold hairline (gold marks the trump)
+    this.tableCardBackground = this.add.rectangle(trumpX, trumpY, trump.box, trump.box, hex(COLOR.surface.s1), 0.55);
+    this.tableCardBackground.setStrokeStyle(1, hex(COLOR.gold), 0.55);
     this.tableCardBackground.setDepth(99);
 
     // Label - above the card (a readable size: ui-7)
-    this.tableCardLabel = this.add.text(trump.label.x, trump.label.y, 'TRUMP', {
+    this.tableCardLabel = this.add.text(trump.label.x, trump.label.y, 'TRUMP', uiTextStyle(this, {
       fontSize: `${trump.label.font}px`,
-      fontFamily: 'Arial, sans-serif',
-      color: '#aaaaaa',
-    });
+      weight: 'semibold',
+      color: COLOR.gold,
+    }));
     this.tableCardLabel.setOrigin(0.5);
     this.tableCardLabel.setDepth(100);
 
@@ -293,7 +327,8 @@ export class GameScene extends Phaser.Scene {
     // deal, a render or a teardown cancels it, so onFlipped (the bid panel)
     // never fires for another hand (cli-19, ui-22)
     const delay = flipDelay ?? (this.director && !this.director.uiReady ? FLIP_AFTER_FADE_MS : FLIP_AFTER_DEAL_MS);
-    const flipDuration = 300;
+    // cosmetic: the slow token (two halves), instant under reduced motion
+    const flipDuration = motionMs('slow');
     const sprite = this.tableCardSprite;
 
     sceneDelay(this, delay, () => {
@@ -304,17 +339,17 @@ export class GameScene extends Phaser.Scene {
         targets: sprite,
         scaleX: 0,
         duration: flipDuration / 2,
-        ease: 'Power2',
+        ease: EASE_EMPHASIZED,
         onComplete: () => {
           if (!sprite || !sprite.scene) return;
           // Change to face up texture
-          sprite.setTexture('cards', cardKey);
+          sprite.setTexture(CARD_TEXTURE_KEY, cardKey);
           // Phase 2: Scale X back (flip complete)
           sceneTween(this, {
             targets: sprite,
             scaleX: sprite.scaleY || trumpScale,
             duration: flipDuration / 2,
-            ease: 'Power2',
+            ease: EASE_EMPHASIZED,
             onComplete: () => {
               if (!sprite.scene) return;
               sprite.setData('flipping', false);
@@ -365,9 +400,9 @@ export class GameScene extends Phaser.Scene {
    * Show a chat/bid bubble on a seat: a child of the seat's HUD node, at
    * the seat's bubble anchor from the layout (it follows the avatar).
    */
-  showChatBubble(positionKey, message, color = null, duration = 6000) {
+  showChatBubble(positionKey, message, kind = null, duration = 6000) {
     if (!positionKey) return;
-    showChatBubbleUI(positionKey, message, color, duration);
+    showChatBubbleUI(positionKey, message, kind, duration);
   }
 
   // ============================================
@@ -436,9 +471,7 @@ export class GameScene extends Phaser.Scene {
     } else {
       // Overlay exists - wait for it to become fully opaque
       // Force it to full opacity immediately to ensure nothing shows through
-      overlay.style.transition = 'none';
-      overlay.style.opacity = '1';
-      overlay.style.pointerEvents = 'all';
+      setOverlayState(overlay, { ms: 0, opaque: true, blocking: true });
 
       // Proceed after a frame to ensure opacity is applied
       requestAnimationFrame(() => {
@@ -457,8 +490,7 @@ export class GameScene extends Phaser.Scene {
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           // Add transition and fade out
-          overlay.style.transition = `opacity ${fadeDuration}ms ease-out`;
-          overlay.style.pointerEvents = 'none';
+          setOverlayState(overlay, { ms: fadeDuration, blocking: false });
 
           // Force reflow
           overlay.offsetHeight;
@@ -487,7 +519,7 @@ export class GameScene extends Phaser.Scene {
           const fallback = setTimeout(onFadeComplete, fadeDuration + 250);
 
           // Fade out to reveal play screen
-          overlay.style.opacity = '0';
+          setOverlayState(overlay, { opaque: false });
         });
       });
     }
@@ -555,7 +587,10 @@ export class GameScene extends Phaser.Scene {
    */
   renderScoreHeader() {
     const state = this.state;
-    if (!window.updateGameLogScoreFromLegacy || !state) return;
+    if (!window.updateGameLogScoreFromLegacy || !state) {
+      this.updateSeatPlates?.();
+      return;
+    }
     const pos = state.position || 1;
     const names = window.ModernUtils?.getTeamNames?.(pos, state.playerData);
     const teamName = names?.teamName ?? `${state.username}/${state.partnerName}`;
@@ -570,6 +605,13 @@ export class GameScene extends Phaser.Scene {
       teamBids, oppBids,
       state.teamTricks || 0, state.oppTricks || 0
     );
+    this.updateSeatPlates?.();
+  }
+
+  /** Every seat's bid chip and trick pips, projected from GameState (ui/seatPlates.js). */
+  updateSeatPlates() {
+    const hud = getHud({ create: false });
+    if (hud && this.state) updateSeatPlates(hud, this.state);
   }
 
   /**
@@ -772,7 +814,7 @@ export class GameScene extends Phaser.Scene {
           x: targetX,
           y: targetY,
           duration: flyMs,
-          ease: 'Power2',
+          ease: EASE_EMPHASIZED,
           rotation: 0,
           scale: trickScale,
           onComplete: () => {
@@ -794,17 +836,17 @@ export class GameScene extends Phaser.Scene {
             targets: sprite,
             scaleX: 0,
             duration: flipHalf,
-            ease: 'Power2',
+            ease: EASE_EMPHASIZED,
             onComplete: () => {
               if (!sprite || !sprite.scene) return;
-              sprite.setTexture('cards', cardKey);
+              sprite.setTexture(CARD_TEXTURE_KEY, cardKey);
 
               // Scale X back to the trick scale
               sceneTween(this, {
                 targets: sprite,
                 scaleX: trickScale,
                 duration: flipHalf,
-                ease: 'Power2',
+                ease: EASE_EMPHASIZED,
               });
             },
           });
@@ -833,6 +875,9 @@ export class GameScene extends Phaser.Scene {
     }
     sprite.removeAllListeners();
     sprite.disableInteractive();
+    // a lazy seat's hand is dimmed: the card on the table is not (as a
+    // render draws it)
+    sprite.clearTint?.();
     // A hand-layout or hover tween still on the sprite would fight the
     // move (and replay after a hidden tab)
     this.trickManager._stopCardAnimations(sprite);
@@ -846,7 +891,7 @@ export class GameScene extends Phaser.Scene {
       x: targetPos.x,
       y: targetPos.y,
       duration: flyInMs(resumeInMs),
-      ease: 'Power2',
+      ease: EASE_EMPHASIZED,
       rotation: 0,
       scale: this.cardScale('trick'),
       onComplete: () => {
@@ -1053,20 +1098,20 @@ export class GameScene extends Phaser.Scene {
 
       // Flip trump card face down while tricks are whisked
       const trumpSprite = this.tableCardSprite;
-      const flipDuration = 150;
+      const flipDuration = motionMs('fast', { reduced: 0 });
       sceneTween(this, {
         targets: trumpSprite,
         scaleX: 0,
         duration: flipDuration,
-        ease: 'Power2',
+        ease: EASE_EMPHASIZED,
         onComplete: () => {
           if (trumpSprite && trumpSprite.scene) {
-            trumpSprite.setTexture('cardBack');
+            trumpSprite.setTexture(CARD_TEXTURE_KEY, BACK_FRAME);
             sceneTween(this, {
               targets: trumpSprite,
               scaleX: trumpSprite.scaleY || this.cardScale('trump'),
               duration: flipDuration,
-              ease: 'Power2',
+              ease: EASE_EMPHASIZED,
             });
           }
         },
@@ -1271,7 +1316,7 @@ export class GameScene extends Phaser.Scene {
           x: targetPos.x,
           y: targetPos.y,
           duration: ANIMATION_CONFIG.CARD_PLAY,
-          ease: 'Power2',
+          ease: EASE_EMPHASIZED,
           rotation: 0,
           scale: this.cardScale('trick'),
           onComplete: () => {
@@ -1287,6 +1332,9 @@ export class GameScene extends Phaser.Scene {
         sprite.setData('pending', true);
         this.trickManager._currentTrick.push(sprite);
       }
+
+      // Close the hand up around the played card (as _flyMyCard does)
+      this.cardManager.repositionHand();
 
       // Immediately dim all remaining cards since player can't play again this trick
       this.cardManager.updateCardLegality(() => true, false);
@@ -1373,7 +1421,9 @@ export class GameScene extends Phaser.Scene {
     // its onCollected callbacks, which must find no hand)
     this.cardManager?.clearAll();
     this.trickManager?.clearAll();
-    this.opponentManager?.clearAll();
+    // the backs only: the avatars and the frog are the game's, updated in
+    // place below (webclient-21: built once per game)
+    this.opponentManager?.clearCards();
     this.effectsManager?.clearAll();
     this.drawManager?.cleanup();
     this.clearTrumpDisplay();
@@ -1388,6 +1438,7 @@ export class GameScene extends Phaser.Scene {
     // The role picks the layout (a spectator's bottom seat has no hand)
     this._spectatorView = spectator;
     applyHudLayout(this.getLayout());
+    this.ensureCardTextures();
 
     this.trickManager?.setPlayerPosition(pos);
     this.trickManager?.setSpectatorMode(spectator);
@@ -1410,6 +1461,7 @@ export class GameScene extends Phaser.Scene {
     this.renders = (this.renders || 0) + 1;
 
     if (!m.live) {
+      this.opponentManager?.clearDealerButton();
       this.renderScoreHeader();
       return m;
     }
@@ -1508,7 +1560,8 @@ export class GameScene extends Phaser.Scene {
     // Stock number, inline data URL or /avatar URL (utils/avatar.js)
     applyAvatarImg(avatarImg, avatarSrc(pic));
     avatarImg.alt = username;
-    avatarContainer.appendChild(avatarImg);
+    // in its seat ring: the team's color, the bid chip and the trick pips (ui/seatPlates.js)
+    avatarContainer.appendChild(buildAvatarRing(avatarImg, myPosition));
 
     // Add username label (the seat's plate)
     const nameLabel = document.createElement('div');

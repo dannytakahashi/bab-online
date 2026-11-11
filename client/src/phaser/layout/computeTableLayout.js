@@ -5,8 +5,8 @@
  * (item 25); this one mirrors its semantics where they fit:
  *
  *   - one uniform size scale s for every sprite and DOM size (cards,
- *     avatars, plates, trick slots, the bid sheet), never above 1 (the card
- *     art is 64 px; item 18 brings hi-res cards);
+ *     avatars, plates, trick slots, the bid sheet), never above 1 (today's
+ *     1920 x 1080 table);
  *   - s is SOLVED, not guessed: the search tries s = 1, 0.99 ... and takes
  *     the first layout with no rect intersections and nothing off the
  *     canvas, checked by the same findIntersections / findOutside the tests
@@ -33,12 +33,16 @@
  */
 
 import { CARD_CONFIG } from '../config.js';
+import { cardTextureSize } from '../cards/CardAtlas.js';
 
-/** The 64 px atlas frame and the card inside it (CARD_CONFIG.CARD_BOUNDS). */
-export const FRAME = CARD_CONFIG.FRAME_WIDTH;
-export const CARD_VISIBLE = { w: CARD_CONFIG.CARD_BOUNDS.width, h: CARD_CONFIG.CARD_BOUNDS.height };
+/**
+ * A card at design scale 1 (CSS px; item 18a: the hi-res faces have the iOS
+ * card's 300 x 435 proportions and no padding, so the sprite's bounds ARE
+ * the visible card and its hit area).
+ */
+export const CARD_UNIT = CARD_CONFIG.UNIT;
 
-/** Sprite scales at s = 1 (today's: hand and trick 1.5, backs and deck 1.2, history 1.0). */
+/** Design scales at s = 1 (today's: hand and trick 1.5, backs and deck 1.2, history 1.0). */
 export const BASE_SCALE = { hand: 1.5, trick: 1.5, back: 1.2, history: 1.0, trump: 1.5, deck: 1.2, drawn: 1.5 };
 
 /**
@@ -61,8 +65,10 @@ export function logWidthFor(vw) {
  * apart, one per trick (up to 16 when the bids overbid the hand).
  */
 export const BID_CHIP = { w: 18, gap: 3 };
-/** The sheet's padding (12 px) and border (2 px), both sides. */
-export const BID_SHEET_CHROME = 2 * (12 + 2);
+/** The sheet's padding (12 px) and border (2 px), both sides (BidManager sets them on the sheet). */
+export const BID_SHEET_PAD = 12;
+export const BID_SHEET_BORDER = 2;
+export const BID_SHEET_CHROME = 2 * (BID_SHEET_PAD + BID_SHEET_BORDER);
 /**
  * The bid sheet's size at scale 1 (BidManager sets this width; 13 cards is
  * the tallest). 13 chips at their natural width set the width (the widest
@@ -163,9 +169,33 @@ export function contains(outer, inner, eps = 0.01) {
     inner.x + inner.w <= outer.x + outer.w + eps && inner.y + inner.h <= outer.y + outer.h + eps;
 }
 
-/** Card sizes on screen for a sprite scale (the visible card, not the frame). */
-function cardSize(scale) {
-  return { scale, w: CARD_VISIBLE.w * scale, h: CARD_VISIBLE.h * scale, frame: FRAME * scale };
+/**
+ * A card on screen at a design scale, drawn from atlas frames of `tex`
+ * (px): `scale` is the SPRITE scale (on-screen height / frame height; the one
+ * conversion between the atlas bitmap and CSS px), w x h the bounds a
+ * sprite at that scale renders and is clicked by, `box` the square the
+ * trump's frame is built on (the old 64 px atlas frame around a 62 px
+ * card: the trump box keeps its item 17 size).
+ */
+const BOX_PER_H = 64 / 62;
+function cardSize(design, tex) {
+  const scale = (CARD_UNIT.h * design) / tex.h;
+  const w = scale * tex.w;
+  const h = scale * tex.h;
+  return { design, scale, w, h, box: CARD_UNIT.h * design * BOX_PER_H };
+}
+
+/**
+ * The hand card (and every card its size): its frame drawn at exactly one
+ * texel per device pixel (scale 1 / dpr), so it is the frame's size in CSS
+ * px (the design height to whole, even device pixels: within one device
+ * pixel of it). Only when the frame hit its cap (CARD_CONFIG.TEX_MAX_W) is
+ * it the design size, upscaled.
+ */
+function handCardSize(design, tex, dpr) {
+  if (tex.h < CARD_UNIT.h * design * dpr - 1 - 1e-6) return cardSize(design, tex);
+  const scale = 1 / dpr;
+  return { design, scale, w: tex.w * scale, h: tex.h * scale, box: CARD_UNIT.h * design * BOX_PER_H };
 }
 
 /**
@@ -192,14 +222,22 @@ function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1, felt = 0, hi
   const frogDx = 60 * s;
   const frogReach = frogDx + frog / 2;
 
+  // the atlas frame: the hand card (the largest on screen) at this s, times
+  // the device pixel ratio, so hand cards sample 1:1 (CardAtlas)
+  const tex = cardTextureSize(CARD_UNIT.h * BASE_SCALE.hand * s, dpr);
+  // a card the hand's size (the trick, the trump, a drawn card) is drawn
+  // from the frame 1:1 too; the smaller ones are downscales
+  const sized = (key) => (BASE_SCALE[key] === BASE_SCALE.hand
+    ? handCardSize(BASE_SCALE[key] * s, tex, dpr)
+    : cardSize(BASE_SCALE[key] * s, tex));
   const card = {
-    hand: cardSize(BASE_SCALE.hand * s),
-    trick: cardSize(BASE_SCALE.trick * s),
-    back: cardSize(BASE_SCALE.back * s),
-    history: cardSize(BASE_SCALE.history * s * k),
-    trump: cardSize(BASE_SCALE.trump * s),
-    deck: cardSize(BASE_SCALE.deck * s),
-    drawn: cardSize(BASE_SCALE.drawn * s),
+    hand: sized('hand'),
+    trick: sized('trick'),
+    back: sized('back'),
+    history: cardSize(BASE_SCALE.history * s * k, tex),
+    trump: sized('trump'),
+    deck: sized('deck'),
+    drawn: sized('drawn'),
   };
   const back = card.back;
   const backSp = BACK_SPACING * s;
@@ -441,7 +479,7 @@ function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1, felt = 0, hi
 
   // ---------- trump: top right, today's spot where it fits ----------
   const tCard = card.trump;
-  const trumpBox = tCard.frame + 20 * s;
+  const trumpBox = tCard.box + 20 * s;
   const labelFont = Math.max(9, 14 * s);
   const labelAbove = trumpBox / 2 + 15 * s;
   const trumpTopReach = labelAbove + labelFont * 0.6;
@@ -566,6 +604,7 @@ function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1, felt = 0, hi
     canvas: rect(0, 0, cw, ch),
     log,
     card,
+    cardTexture: { ...tex, dpr },
     seats,
     fonts: { plate: plateFont, plateLH, hsi: hsiFont },
     plate: { w: plateW, h: plateH, gap: plateGap, lh: plateLH, font: plateFont },
@@ -719,7 +758,10 @@ export function handPositions(L, n) {
   const sp = n > 1 ? Math.min(spacing, room / (n - 1)) : 0;
   const total = (n - 1) * sp;
   const x0 = L.hand.cx - total / 2;
-  return Array.from({ length: n }, (_, i) => ({ x: x0 + i * sp, y: L.hand.y }));
+  // each centre on a whole device pixel: with the frame's even size the
+  // card's edges are too (1:1 sampling; CardAtlas.cardTextureSize)
+  const dpr = L.dpr > 0 ? L.dpr : 1;
+  return Array.from({ length: n }, (_, i) => ({ x: Math.round((x0 + i * sp) * dpr) / dpr, y: L.hand.y }));
 }
 
 /** Card-back centres of a seat's fan (n cards), with the fan's rotation. */

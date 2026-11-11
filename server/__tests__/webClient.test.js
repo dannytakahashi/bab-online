@@ -142,18 +142,21 @@ test('no build: / says so (503) instead of serving the source page', async () =>
     expect(res.body.toString()).toMatch(/build:client/);
 });
 
-test('real client/: card art and avatar art keep their caches; images are never encoded', async () => {
+test('real client/: table art and avatar art keep their caches; images are never encoded', async () => {
     await start({ clientDir: REAL_CLIENT });
     const enc = { 'Accept-Encoding': 'br, gzip' };
     // The removed `/assets` mount (7 days, sprites immutable) was shadowed by
-    // the root static: these were, and stay, 1 day
-    for (const p of ['/assets/sprites/cards.png', '/assets/card_back.png', '/assets/profile1.png']) {
+    // the root static: these were, and stay, 1 day. (The 64 px card art is
+    // gone: the web client draws its cards, item 18a.)
+    for (const p of ['/assets/frog.png', '/assets/rainbow1.png', '/assets/profile1.png']) {
         const res = await get(p, enc);
         expect([p, res.status, res.headers['cache-control'], res.headers['content-encoding']])
             .toEqual([p, 200, 'public, max-age=86400', undefined]);
     }
-    const json = await get('/assets/sprites/cards.json', enc);
-    expect([json.status, json.headers['cache-control']]).toEqual([200, 'public, max-age=86400']);
+    // (not served by the static mount: the harness's fall-through answers)
+    for (const p of ['/assets/sprites/cards.png', '/assets/sprites/cards.json', '/assets/card_back.png', '/assets/ace_spades.png']) {
+        expect([p, (await get(p, enc)).status === 200]).toEqual([p, false]);
+    }
     const webp = await get('/assets/avatars/v1/profile1.webp', enc);
     expect([webp.status, webp.headers['cache-control'], webp.headers['content-encoding']])
         .toEqual([200, 'public, max-age=31536000, immutable', undefined]);

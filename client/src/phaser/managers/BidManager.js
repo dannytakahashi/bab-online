@@ -3,18 +3,29 @@
  *
  * Manages bid buttons, bore button states, and bid bubbles
  * displayed next to players.
+ *
+ * The sheet is a kit panel (table.css .bid-sheet, item 18a): chip-style
+ * numbers, the bores as a segmented control, the trick chips above them.
+ * Its look, hover and pop-in are CSS (classes and motion tokens); the only
+ * values set here are the layout's box model (BID_SHEET, BID_CHIP) as CSS
+ * variables, so the sheet the overlap check models is the one drawn.
  */
 
 import { getGameState } from '../../state/GameState.js';
-import { getSocketManager } from '../../socket/SocketManager.js';
 import { getHud } from '../../ui/tableHud.js';
-import { BID_SHEET, BID_CHIP } from '../layout/computeTableLayout.js';
+import { motionMs } from '../../ui/motion.js';
+import { BID_SHEET, BID_CHIP, BID_SHEET_PAD, BID_SHEET_BORDER } from '../layout/computeTableLayout.js';
 
-/**
- * The sheet's transform: centred on its layout slot, at the layout's bid
- * scale (--bid-scale on the HUD), times `k` for the pop-in.
- */
-const sheetTransform = (k) => `translate(-50%, -50%) scale(calc(var(--bid-scale, 1) * ${k}))`;
+const BORES = ['B', '2B', '3B', '4B'];
+
+/** The layout's sheet box model on the sheet (CSS variables). */
+function applySheetModel(sheet) {
+  sheet.style.setProperty('--bid-sheet-w', `${BID_SHEET.w}px`);
+  sheet.style.setProperty('--bid-sheet-pad', `${BID_SHEET_PAD}px`);
+  sheet.style.setProperty('--bid-sheet-border', `${BID_SHEET_BORDER}px`);
+  sheet.style.setProperty('--bid-chip-w', `${BID_CHIP.w}px`);
+  sheet.style.setProperty('--bid-chip-gap', `${BID_CHIP.gap}px`);
+}
 
 export class BidManager {
   constructor(scene) {
@@ -39,6 +50,11 @@ export class BidManager {
     this.handSize = 0;
   }
 
+  /** Is it my turn to bid (the sheet shows)? */
+  _myTurn() {
+    return this.state.isBidding && this.state.currentTurn === this.state.position && !this.state.isLazy;
+  }
+
   /**
    * Show the bid UI.
    * @param {number} handSize - Number of cards in hand (max bid)
@@ -48,54 +64,25 @@ export class BidManager {
     // Remove existing if any (no animation since we're replacing it)
     this.hideBidUI(false);
 
-    const position = this.state.position;
-    const currentTurn = this.state.currentTurn;
-
-    // Create container
+    // Create container: the HUD's bid slot places it (absolute, from the
+    // layout); without a table container it stays centred on the page
     this.bidContainer = document.createElement('div');
     this.bidContainer.id = 'bidContainer';
-    this.bidContainer.classList.add('ui-element', 'bid-grid');
-    // The HUD's bid slot places it (absolute, from the layout); without a
-    // table container it stays centred on the page
-    const hud = getHud();
-    if (!hud) {
-      this.bidContainer.style.position = 'fixed';
-      this.bidContainer.style.left = '50%';
-      this.bidContainer.style.top = '50%';
-    }
-    this.bidContainer.style.zIndex = '1000';
-    this.bidContainer.style.flexDirection = 'column';
-    this.bidContainer.style.alignItems = 'center';
-    this.bidContainer.style.gap = '8px';
-    this.bidContainer.style.padding = '12px';
-    // the layout's sheet width (BID_SHEET: the bid slot and the overlap
-    // check model this box), border included
-    this.bidContainer.style.width = `${BID_SHEET.w}px`;
-    this.bidContainer.style.boxSizing = 'border-box';
-    this.bidContainer.style.background = 'rgba(0, 0, 0, 0.85)';
-    this.bidContainer.style.border = '2px solid #444';
-    this.bidContainer.style.borderRadius = '8px';
-    this.bidContainer.style.transform = sheetTransform(0.9);
-    this.bidContainer.style.opacity = '0';
-    this.bidContainer.style.transition = 'opacity 150ms ease-out, transform 150ms ease-out';
-    this.bidContainer.style.display = 'flex';
-    this.bidContainer.style.visibility = 'hidden';
+    this.bidContainer.className = 'ui-element bid-grid bid-sheet';
+    this.bidContainer.setAttribute('role', 'group');
+    this.bidContainer.setAttribute('aria-label', 'Your bid');
+    applySheetModel(this.bidContainer);
+    (getHud() || document.body).appendChild(this.bidContainer);
 
-    (hud || document.body).appendChild(this.bidContainer);
-
-    // Animate in if it's our turn
-    if (this.state.isBidding && currentTurn === position) {
-      // Use requestAnimationFrame to ensure the initial styles are applied first
-      // (the panel may be gone or replaced by then: a doneBidding, a render).
-      // A timer too: a hidden tab runs no animation frames, and the panel
-      // must be there for my turn when the tab comes back
+    // Pop in if it's our turn (the class's CSS transition). A frame first,
+    // so the closed state is applied; a timer too: a hidden tab runs no
+    // animation frames, and the panel must be there for my turn when the
+    // tab comes back. The panel may be gone or replaced by then.
+    if (this._myTurn()) {
       const container = this.bidContainer;
       const reveal = () => {
-        if (this.bidContainer !== container) return;
-        if (!this.state.isBidding || this.state.currentTurn !== this.state.position || this.state.isLazy) return;
-        container.style.visibility = 'visible';
-        container.style.opacity = '1';
-        container.style.transform = sheetTransform(1);
+        if (this.bidContainer !== container || !this._myTurn()) return;
+        container.classList.add('is-open');
       };
       requestAnimationFrame(reveal);
       setTimeout(reveal, 50);
@@ -103,25 +90,15 @@ export class BidManager {
 
     // Header
     const header = document.createElement('div');
-    header.style.color = '#ffd700';
-    header.style.fontSize = '18px';
-    header.style.fontWeight = 'bold';
-    header.style.textAlign = 'center';
-    header.style.marginBottom = '4px';
-    header.innerText = 'Bid!';
+    header.className = 'bid-sheet__title';
+    header.textContent = 'Bid!';
     this.bidContainer.appendChild(header);
 
-    // Trick indicator
+    // Trick indicator: one chip per trick (the sheet's width: an overbid's
+    // chips shrink to fit instead of sticking out past the sheet)
     this.handSize = handSize;
     this.indicatorRow = document.createElement('div');
-    this.indicatorRow.style.display = 'flex';
-    this.indicatorRow.style.gap = `${BID_CHIP.gap}px`;
-    // the sheet's width, not its chips': an overbid's chips shrink to fit
-    // instead of sticking out past the sheet
-    this.indicatorRow.style.alignSelf = 'stretch';
-    this.indicatorRow.style.minWidth = '0';
-    this.indicatorRow.style.justifyContent = 'center';
-    this.indicatorRow.style.marginBottom = '4px';
+    this.indicatorRow.className = 'bid-chips';
     this.trickIndicators = [];
     for (let i = 0; i < handSize; i++) {
       const rect = this.createIndicatorRect();
@@ -138,10 +115,7 @@ export class BidManager {
 
     // Numeric row (0 to handSize)
     const numericRow = document.createElement('div');
-    numericRow.style.display = 'grid';
-    numericRow.style.gridTemplateColumns = 'repeat(4, 1fr)';
-    numericRow.style.gap = '4px';
-
+    numericRow.className = 'bid-numbers';
     for (let i = 0; i <= handSize; i++) {
       const btn = this.createBidButton(i.toString(), () => {
         if (this.state.currentTurn !== this.state.position || !this.state.isBidding) {
@@ -156,14 +130,12 @@ export class BidManager {
     }
     this.bidContainer.appendChild(numericRow);
 
-    // Bore row (B, 2B, 3B, 4B)
+    // Bore row (B, 2B, 3B, 4B): a segmented control
     const boreRow = document.createElement('div');
-    boreRow.style.display = 'flex';
-    boreRow.style.gap = '4px';
-    boreRow.style.justifyContent = 'center';
-
-    const boreBids = ['B', '2B', '3B', '4B'];
-    boreBids.forEach((bid) => {
+    boreRow.className = 'bid-bores';
+    boreRow.setAttribute('role', 'group');
+    boreRow.setAttribute('aria-label', 'Bores');
+    BORES.forEach((bid) => {
       const btn = this.createBidButton(bid, () => {
         if (btn.disabled) return;
         if (this.state.currentTurn !== this.state.position || !this.state.isBidding) {
@@ -187,36 +159,14 @@ export class BidManager {
   }
 
   /**
-   * Create a bid button element.
+   * Create a bid button element (hover, focus and disabled are CSS).
    */
   createBidButton(label, onClick, isBore = false) {
     const btn = document.createElement('button');
-    btn.classList.add('bid-button');
-    if (isBore) btn.classList.add('bore-button');
-    btn.innerText = label;
-    btn.style.minWidth = isBore ? '50px' : '40px';
-    btn.style.minHeight = '40px';
-    btn.style.padding = isBore ? '8px 12px' : '8px';
-    btn.style.fontSize = '16px';
-    btn.style.fontWeight = 'bold';
-    btn.style.border = 'none';
-    btn.style.borderRadius = '4px';
-    btn.style.background = isBore ? '#c53030' : '#4a5568';
-    btn.style.color = 'white';
-    btn.style.cursor = 'pointer';
-
-    btn.addEventListener('mouseenter', () => {
-      if (this.selectedBid !== label && !btn.disabled) {
-        btn.style.background = isBore ? '#9b2c2c' : '#2d3748';
-      }
-    });
-    btn.addEventListener('mouseleave', () => {
-      if (this.selectedBid !== label && !btn.disabled) {
-        btn.style.background = isBore ? '#c53030' : '#4a5568';
-      }
-    });
+    btn.type = 'button';
+    btn.className = isBore ? 'bid-button bore-button' : 'bid-button';
+    btn.textContent = label;
     btn.addEventListener('click', onClick);
-
     return btn;
   }
 
@@ -224,20 +174,12 @@ export class BidManager {
    * Highlight the selected button.
    */
   selectButton(btn, bidValue) {
-    // Remove highlight from all buttons
-    this.allBidButtons.forEach(b => {
-      if (b.classList.contains('bore-button')) {
-        b.style.background = b.disabled ? '#666' : '#c53030';
-        b.style.border = 'none';
-      } else {
-        b.style.background = '#4a5568';
-        b.style.border = 'none';
-      }
+    this.allBidButtons.forEach((b) => {
+      b.classList.remove('is-selected');
+      b.removeAttribute('aria-pressed');
     });
-
-    // Highlight selected button
-    btn.style.background = '#38a169';
-    btn.style.border = '2px solid #68d391';
+    btn.classList.add('is-selected');
+    btn.setAttribute('aria-pressed', 'true');
     this.selectedBid = bidValue;
   }
 
@@ -252,7 +194,7 @@ export class BidManager {
     const has3B = tempBids.includes('3B');
     const has4B = tempBids.includes('4B');
 
-    // Disable bore buttons based on progression
+    // Disable bore buttons based on progression (the look is :disabled)
     if (this.boreButtons['B']) {
       this.boreButtons['B'].disabled = hasBore;
     }
@@ -266,41 +208,21 @@ export class BidManager {
       this.boreButtons['4B'].disabled = !has3B || has4B;
     }
 
-    // Update visual styles for disabled buttons
-    Object.values(this.boreButtons).forEach(btn => {
-      if (btn.disabled) {
-        btn.style.opacity = '0.4';
-        btn.style.cursor = 'not-allowed';
-        btn.style.background = '#666';
-      } else {
-        btn.style.opacity = '1';
-        btn.style.cursor = 'pointer';
-        btn.style.background = '#c53030';
-      }
-    });
-
     this.updateTrickIndicator();
   }
 
   /**
-   * Create a single indicator rectangle element.
+   * Create a single indicator chip (sized by --bid-chip-w; it may shrink).
    */
   createIndicatorRect() {
     const rect = document.createElement('div');
-    rect.style.width = `${BID_CHIP.w}px`;
-    rect.style.flex = `0 1 ${BID_CHIP.w}px`;
-    rect.style.minWidth = '0';
-    rect.style.height = '26px';
-    rect.style.borderRadius = '3px';
-    rect.style.background = '#555';
-    rect.style.transition = 'background 150ms ease';
-    rect.style.boxSizing = 'border-box';
+    rect.className = 'bid-chip';
     return rect;
   }
 
   /**
    * Update trick indicator colors based on current bids.
-   * Adds extra pulsing rectangles for overbids (capped at 16 total).
+   * Adds extra outlined chips for overbids (capped at 16 total).
    */
   updateTrickIndicator() {
     if (!this.indicatorRow) return;
@@ -313,7 +235,7 @@ export class BidManager {
 
     for (const [pos, bid] of Object.entries(bids)) {
       const bidStr = String(bid).toUpperCase();
-      if (['B', '2B', '3B', '4B'].includes(bidStr)) continue;
+      if (BORES.includes(bidStr)) continue;
       const numBid = parseInt(bidStr, 10);
       if (isNaN(numBid)) continue;
 
@@ -338,25 +260,19 @@ export class BidManager {
       rect.remove();
     }
 
-    // Color the rectangles
+    // Color the chips by absolute team (team A: positions 1 and 3), as the
+    // seat rings and the log's score are; past the hand size an overbid
+    const mine = myTeam === 1 ? 'a' : 'b';
+    const theirs = mine === 'a' ? 'b' : 'a';
     for (let i = 0; i < this.trickIndicators.length; i++) {
       const rect = this.trickIndicators[i];
-      const isOverbid = i >= this.handSize;
-
-      if (i < teamBidCount) {
-        rect.style.background = '#68d391';
-      } else if (i < totalBid) {
-        rect.style.background = '#fc8181';
-      } else {
-        rect.style.background = '#555';
-      }
-
-      if (isOverbid) {
-        rect.style.animation = 'trickOverbidPulse 1s ease-in-out infinite';
-      } else {
-        rect.style.animation = '';
-        rect.style.outline = '';
-      }
+      const isTeam = i < teamBidCount;
+      const isOpp = i >= teamBidCount && i < totalBid;
+      rect.classList.toggle('is-team', isTeam);
+      rect.classList.toggle('is-opp', isOpp);
+      rect.classList.toggle('is-team-a', (isTeam && mine === 'a') || (isOpp && theirs === 'a'));
+      rect.classList.toggle('is-team-b', (isTeam && mine === 'b') || (isOpp && theirs === 'b'));
+      rect.classList.toggle('is-overbid', i >= this.handSize);
     }
   }
 
@@ -365,26 +281,8 @@ export class BidManager {
    */
   updateVisibility() {
     if (!this.bidContainer) return;
-
-    const position = this.state.position;
-    const currentTurn = this.state.currentTurn;
-
-    if (this.state.isBidding && currentTurn === position && !this.state.isLazy) {
-      // Animate in
-      this.bidContainer.style.visibility = 'visible';
-      this.bidContainer.style.opacity = '1';
-      this.bidContainer.style.transform = sheetTransform(1);
-    } else {
-      // Animate out
-      this.bidContainer.style.opacity = '0';
-      this.bidContainer.style.transform = sheetTransform(0.9);
-      // Hide after transition completes
-      setTimeout(() => {
-        if (this.bidContainer && this.bidContainer.style.opacity === '0') {
-          this.bidContainer.style.visibility = 'hidden';
-        }
-      }, 150);
-    }
+    // the class's transition pops it in or out (visibility follows the fade)
+    this.bidContainer.classList.toggle('is-open', this._myTurn());
   }
 
   /**
@@ -393,18 +291,13 @@ export class BidManager {
    */
   hideBidUI(animate = true) {
     if (this.bidContainer) {
-      if (animate) {
-        // Animate out, then remove
-        this.bidContainer.style.opacity = '0';
-        this.bidContainer.style.transform = sheetTransform(0.9);
-        const container = this.bidContainer;
-        setTimeout(() => {
-          if (container && container.parentNode) {
-            container.remove();
-          }
-        }, 150);
+      const container = this.bidContainer;
+      container.classList.remove('is-open');
+      const ms = animate ? motionMs('fast') : 0;
+      if (ms > 0) {
+        setTimeout(() => container.remove(), ms);
       } else {
-        this.bidContainer.remove();
+        container.remove();
       }
       this.bidContainer = null;
     }
@@ -424,7 +317,7 @@ export class BidManager {
   showBidBubble(positionKey, bid) {
     // Use the scene's chat bubble method
     if (this.scene.showChatBubble) {
-      this.scene.showChatBubble(positionKey, bid, '#FF0000', 5000);
+      this.scene.showChatBubble(positionKey, bid, 'bid', 5000);
     }
   }
 

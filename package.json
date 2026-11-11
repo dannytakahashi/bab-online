@@ -14,7 +14,8 @@
         "test:client:watch": "vitest --config client/vite.config.js",
         "test:watch": "jest --watch",
         "test:coverage": "jest --coverage",
-        "build:atlas": "node scripts/build-atlas.js",
+        "tokens": "node scripts/build-tokens.js",
+        "tokens:check": "node scripts/build-tokens.js --check",
         "build:avatars": "node scripts/build-avatars.js",
         "sim": "node server/game/bot/sim/simulate.js",
         "ios:fixtures": "node server/game/bot/sim/simulate.js --record-ios iOSClient/BABOnlineTests/Fixtures/events",
@@ -39,7 +40,6 @@
         "winston": "^3.19.0"
     },
     "devDependencies": {
-        "free-tex-packer-core": "^0.3.5",
         "jest": "^29.7.0",
         "jsdom": "^24.0.0",
         "nodemon": "^3.1.9",

@@ -72,55 +72,11 @@ h1 {
     color: white;
 }
 
-/* Error toast (main.js showErrorToast) */
-.error-toast {
-    position: fixed;
-    bottom: 20px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: #dc2626;
-    color: white;
-    padding: 12px 24px;
-    border-radius: 4px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-    z-index: 2000;
-    animation: slideUp 0.3s ease;
-    font-size: 14px;
-    font-weight: bold;
-    max-width: 400px;
-    text-align: center;
-}
-
-.error-toast.fade-out {
-    animation: fadeOut 0.3s ease forwards;
-}
-
-@keyframes slideUp {
-    from {
-        transform: translate(-50%, 100%);
-        opacity: 0;
-    }
-    to {
-        transform: translate(-50%, 0);
-        opacity: 1;
-    }
-}
-
-@keyframes fadeOut {
-    to {
-        opacity: 0;
-    }
-}
-
-@keyframes trickOverbidPulse {
-    0%, 100% {
-        outline: 2px solid transparent;
-        box-shadow: none;
-    }
-    50% {
-        outline: 2px solid #ff3333;
-        box-shadow: 0 0 6px #ff3333;
-    }
+/* Bid chips past the hand size (an overbid): a static danger outline (no
+   infinite animation on the table: item 18a) */
+.is-overbid {
+    outline: 2px solid var(--danger-text);
+    outline-offset: -2px;
 }
 
 /* ==================== RESPONSIVE DESIGN ==================== */
@@ -164,11 +120,6 @@ button, input[type="button"], input[type="submit"], .bid-button {
 
 /* Mobile styles */
 @media (max-width: 768px) {
-    .error-toast {
-        max-width: 90vw;
-        font-size: 13px;
-    }
-
     /* Game feed on mobile */
     #gameFeed {
         font-size: 12px !important;

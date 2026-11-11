@@ -82,8 +82,11 @@ describe('GameScene preload', () => {
     const keys = image.mock.calls.map(([key]) => key);
     expect(keys.some((key) => key.startsWith('profile'))).toBe(false);
     expect(keys).not.toContain('background');
-    // Textures the scene does draw are still loaded
-    expect(keys).toEqual(expect.arrayContaining(['cardBack', 'rainbow', 'ot', 'b', '2b', '3b', '4b']));
+    // Textures the scene does draw are still loaded; the cards are drawn
+    // (cards/CardAtlas.js), never loaded: no 64 px atlas, no card_back.png
+    expect(keys).toEqual(expect.arrayContaining(['rainbow', 'ot', 'b', '2b', '3b', '4b']));
+    expect(keys).not.toContain('cardBack');
+    expect(scene.load.atlas).not.toHaveBeenCalled();
   });
 });
 
@@ -563,6 +566,7 @@ describe('GameScene handleDisplayHand (moved from main.js setGameScene)', () => 
       displayHand: vi.fn(),
       updateCardLegality: vi.fn(),
       extractCard: vi.fn(() => null),
+      repositionHand: vi.fn(),
     };
     return { scene, click: (...a) => clickHandler(...a) };
   }
@@ -625,6 +629,8 @@ describe('GameScene handleDisplayHand (moved from main.js setGameScene)', () => 
       expect(state.hasPlayedCard).toBe(false);
       expect(state.myCards).toEqual([card]);
       expect(scene.cardManager.updateCardLegality.mock.calls.at(-1)[1]).toBe(false);
+      // the hand closes up around the played card
+      expect(scene.cardManager.repositionHand).toHaveBeenCalledTimes(1);
 
       // a second click while the first is pending sends nothing
       click(card, { getData: () => true, x: 0, y: 0 });

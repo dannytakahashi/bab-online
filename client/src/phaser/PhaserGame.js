@@ -7,6 +7,7 @@
 
 import { createGameConfig } from './config.js';
 import { GameScene } from './scenes/GameScene.js';
+import { deviceScale } from './backingStore.js';
 
 let gameInstance = null;
 
@@ -24,12 +25,25 @@ export function createPhaserGame(containerId = 'game-container') {
 
   console.log('🎮 Creating Phaser game...');
 
+  // The backing store at the device pixel ratio (backingStore.js); main.js
+  // keeps it on #game-container's size from then on
+  const dpr = deviceScale();
+  const container = typeof document !== 'undefined' ? document.getElementById(containerId) : null;
+  const cssWidth = container?.clientWidth || window.innerWidth;
+  const cssHeight = container?.clientHeight || window.innerHeight;
   const config = createGameConfig({
     parent: containerId,
     scene: GameScene,
+    dpr,
+    cssWidth,
+    cssHeight,
   });
 
   gameInstance = new Phaser.Game(config);
+  if (gameInstance.scale) {
+    gameInstance.scale.babDpr = dpr;
+    gameInstance.scale.babCss = { w: cssWidth, h: cssHeight };
+  }
 
   console.log('🎮 Phaser game created');
 

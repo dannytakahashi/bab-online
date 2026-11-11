@@ -1,0 +1,378 @@
+/**
+ * The component kit (roadmap item 18a). Every value comes from the design
+ * tokens (tokens.css, generated from client/tokens/tokens.json); the
+ * factories are in client/src/ui/kit/. Hover, focus and disabled looks are
+ * CSS only (:hover, :focus-visible, :disabled), so nothing sticks on touch.
+ * Follows Apple's HIG: 44 pt hit targets, visible focus, reduced motion.
+ */
+
+/* ---------- Focus ---------- */
+
+.kit-btn:focus-visible,
+.kit-icon-btn:focus-visible,
+.kit-input:focus-visible,
+.kit-modal:focus-visible {
+    outline: 2px solid var(--text-primary);
+    outline-offset: 2px;
+}
+
+/* ---------- Button ---------- */
+
+.kit-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    box-sizing: border-box;
+    min-height: var(--hit-target);
+    min-width: var(--hit-target);
+    padding: 0 var(--space-5);
+    border: 1px solid transparent;
+    border-radius: var(--radius-md);
+    font-family: var(--font-ui);
+    font-size: var(--type-md);
+    font-weight: var(--weight-semibold);
+    line-height: 1.2;
+    letter-spacing: 0.01em;
+    cursor: pointer;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    transition:
+        background-color var(--dur-fast) var(--ease-standard),
+        border-color var(--dur-fast) var(--ease-standard),
+        color var(--dur-fast) var(--ease-standard),
+        transform var(--dur-fast) var(--ease-emphasized);
+}
+
+.kit-btn:active:not(:disabled) {
+    transform: scale(0.97);
+}
+
+.kit-btn:disabled,
+.kit-btn[aria-disabled="true"] {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.kit-btn--sm {
+    padding: 0 var(--space-3);
+    font-size: var(--type-sm);
+}
+
+.kit-btn--lg {
+    min-height: 52px;
+    padding: 0 var(--space-8);
+    font-size: var(--type-lg);
+    font-weight: var(--weight-bold);
+}
+
+.kit-btn--primary {
+    background: var(--primary-base);
+    color: var(--text-on-primary);
+}
+
+.kit-btn--primary:hover:not(:disabled) {
+    background: var(--primary-hover);
+}
+
+.kit-btn--secondary {
+    background: var(--surface-3);
+    border-color: var(--line-strong);
+    color: var(--text-primary);
+}
+
+.kit-btn--secondary:hover:not(:disabled) {
+    background: rgb(var(--surface-3-rgb) / 1);
+    border-color: rgb(var(--text-primary-rgb) / 0.45);
+}
+
+.kit-btn--ghost {
+    background: transparent;
+    color: var(--text-secondary);
+}
+
+.kit-btn--ghost:hover:not(:disabled) {
+    background: rgb(var(--text-primary-rgb) / 0.08);
+    color: var(--text-primary);
+}
+
+.kit-btn--danger {
+    background: var(--danger-solid);
+    color: var(--text-primary);
+}
+
+.kit-btn--danger:hover:not(:disabled) {
+    background: var(--danger-solid-hover);
+}
+
+/* ---------- Icon button: drawn at --icon-btn-size, hit target >= 44 ---------- */
+
+.kit-icon-btn {
+    --icon-btn-size: var(--hit-target);
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    width: var(--icon-btn-size);
+    height: var(--icon-btn-size);
+    min-width: 0;
+    min-height: 0;
+    padding: 0;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-pill);
+    background: rgb(var(--surface-2-rgb) / 0.9);
+    color: var(--text-primary);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: background-color var(--dur-fast) var(--ease-standard), border-color var(--dur-fast) var(--ease-standard);
+}
+
+/* the hit target reaches 44 px however small the button is drawn */
+.kit-icon-btn::before {
+    content: '';
+    position: absolute;
+    inset: calc(min(0px, (var(--icon-btn-size) - var(--hit-target)) / 2));
+    border-radius: inherit;
+}
+
+.kit-icon-btn:hover:not(:disabled) {
+    background: var(--surface-3);
+    border-color: rgb(var(--text-primary-rgb) / 0.5);
+}
+
+.kit-icon-btn[aria-pressed="true"],
+.kit-icon-btn.is-danger {
+    background: var(--danger-solid);
+    border-color: var(--danger-solid);
+}
+
+.kit-icon-btn svg {
+    width: 55%;
+    height: 55%;
+    pointer-events: none;
+}
+
+/* ---------- Input ---------- */
+
+.kit-input {
+    box-sizing: border-box;
+    min-height: var(--hit-target);
+    padding: 0 var(--space-3);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-sm);
+    background: var(--surface-0);
+    color: var(--text-primary);
+    font-family: var(--font-ui);
+    font-size: var(--type-md);
+    transition: border-color var(--dur-fast) var(--ease-standard);
+}
+
+.kit-input::placeholder {
+    color: var(--text-dim);
+}
+
+.kit-input:focus {
+    border-color: var(--team-a);
+    outline: none;
+}
+
+/* ---------- Panel, elevation ---------- */
+
+.kit-panel {
+    box-sizing: border-box;
+    background: var(--surface-1);
+    border: 1px solid var(--line-subtle);
+    border-radius: var(--radius-lg);
+    color: var(--text-primary);
+    font-family: var(--font-ui);
+}
+
+.kit-elev-1 { box-shadow: var(--elev-1); }
+.kit-elev-2 { box-shadow: var(--elev-2); }
+.kit-elev-3 { box-shadow: var(--elev-3); }
+
+/* ---------- Chip ---------- */
+
+.kit-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    min-width: 1.6em;
+    height: 1.6em;
+    padding: 0 0.5em;
+    border-radius: var(--radius-pill);
+    background: var(--surface-3);
+    color: var(--text-primary);
+    font-family: var(--font-ui);
+    font-size: var(--type-xs);
+    font-weight: var(--weight-bold);
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.kit-chip--team-a { background: rgb(var(--team-a-rgb) / 0.22); color: var(--team-a); }
+.kit-chip--team-b { background: rgb(var(--team-b-rgb) / 0.22); color: var(--team-b); }
+.kit-chip--gold { background: rgb(var(--gold-rgb) / 0.2); color: var(--gold); }
+.kit-chip--success { background: rgb(var(--success-rgb) / 0.18); color: var(--success); }
+.kit-chip--danger { background: rgb(var(--danger-solid-rgb) / 0.3); color: var(--danger-text); }
+
+/* ---------- Avatar with a team ring and a turn ring ---------- */
+
+.kit-avatar {
+    --ring: var(--line-strong);
+    position: relative;
+    display: inline-block;
+    border-radius: 50%;
+    box-shadow: 0 0 0 var(--ring-w, 3px) var(--ring), var(--elev-2);
+}
+
+.kit-avatar[data-team="a"] { --ring: var(--team-a); }
+.kit-avatar[data-team="b"] { --ring: var(--team-b); }
+
+.kit-avatar__img {
+    display: block;
+    border-radius: 50%;
+    object-fit: cover;
+    background: var(--surface-2);
+}
+
+/*
+ * The turn ring: a static gold glow on a ::after layer whose OPACITY alone
+ * animates (compositor only: ui-21, webclient-11), and only while the
+ * class is on (the turn's seat); reduced motion keeps it steady.
+ */
+.turn-glow::after,
+.kit-avatar.turn-glow::after {
+    content: '';
+    position: absolute;
+    inset: -4px;
+    border-radius: inherit;
+    box-shadow: 0 0 0 2px var(--gold), 0 0 18px 6px rgb(var(--gold-rgb) / 0.55);
+    opacity: 0.45;
+    pointer-events: none;
+    will-change: opacity;
+    animation: kit-turn-glow var(--glow-period) var(--ease-standard) infinite alternate;
+}
+
+@keyframes kit-turn-glow {
+    from { opacity: 0.45; }
+    to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .turn-glow::after,
+    .kit-avatar.turn-glow::after {
+        animation: none;
+        opacity: 0.9;
+    }
+}
+
+/* ---------- Modal ---------- */
+
+.kit-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-4);
+    box-sizing: border-box;
+    background: var(--scrim);
+    z-index: var(--z-modal);
+    animation: kit-fade-in var(--dur-base) var(--ease-standard);
+}
+
+.kit-modal {
+    max-width: min(560px, 100%);
+    max-height: calc(100vh - 2 * var(--space-4));
+    overflow: auto;
+    padding: var(--space-6);
+    outline: none;
+    animation: kit-pop-in var(--dur-base) var(--ease-emphasized);
+}
+
+.kit-modal__title {
+    margin: 0 0 var(--space-4);
+    color: var(--text-primary);
+    font-size: var(--type-xl);
+    font-weight: var(--weight-bold);
+}
+
+.kit-modal__body {
+    color: var(--text-secondary);
+    font-size: var(--type-md);
+}
+
+.kit-modal__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-3);
+    margin-top: var(--space-6);
+}
+
+@keyframes kit-fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes kit-pop-in {
+    from { opacity: 0; transform: scale(0.96); }
+    to { opacity: 1; transform: scale(1); }
+}
+
+/* ---------- Toast: one queue, bottom centre ---------- */
+
+.kit-toast-region {
+    position: fixed;
+    left: 50%;
+    bottom: var(--space-5);
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    max-width: calc(100vw - 2 * var(--space-4));
+    pointer-events: none;
+    z-index: var(--z-toast);
+}
+
+.kit-toast {
+    --toast-accent: var(--team-a);
+    box-sizing: border-box;
+    max-width: 420px;
+    padding: var(--space-3) var(--space-5);
+    border: 1px solid var(--line-subtle);
+    border-left: 4px solid var(--toast-accent);
+    border-radius: var(--radius-md);
+    background: var(--surface-1);
+    color: var(--text-primary);
+    box-shadow: var(--elev-3);
+    font-family: var(--font-ui);
+    font-size: var(--type-sm);
+    font-weight: var(--weight-medium);
+    line-height: 1.35;
+    text-align: center;
+    pointer-events: auto;
+    animation: kit-toast-in var(--dur-base) var(--ease-emphasized);
+    transition: opacity var(--dur-fast) var(--ease-standard);
+}
+
+.kit-toast.toast-success { --toast-accent: var(--success); }
+.kit-toast.toast-warning { --toast-accent: var(--warning); }
+.kit-toast.toast-error { --toast-accent: var(--danger-text); }
+.kit-toast.is-leaving { opacity: 0; }
+
+@keyframes kit-toast-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .kit-modal-backdrop,
+    .kit-modal,
+    .kit-toast {
+        animation: none;
+    }
+}

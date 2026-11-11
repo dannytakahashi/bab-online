@@ -15,27 +15,22 @@ import { getSocketManager } from '../../socket/SocketManager.js';
 import { getGameState } from '../../state/GameState.js';
 import { hudVoiceSlot, hudLayout } from '../tableHud.js';
 import { getClientSession, SCREEN } from '../../state/ClientSession.js';
+import { el, createButton, createIconButton, openModal } from '../kit/index.js';
 
-/** Round icon button style: 36 px and its own min size (not the global 44 px). */
-const ROUND_BUTTON = `
-    position: absolute;
-    width: 36px;
-    height: 36px;
-    min-width: 0;
-    min-height: 0;
-    border-radius: 50%;
-    border: 2px solid rgba(255, 255, 255, 0.3);
-    background: rgba(30, 30, 50, 0.8);
-    color: #fff;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: background 0.2s;
-    padding: 0;
-    box-sizing: border-box;
-    z-index: 300;
-  `;
+/*
+ * The buttons are kit icon buttons (.kit-icon-btn.voice-btn, table.css):
+ * drawn at the layout's size in the HUD slot (--voice-btn) with a 44 px hit
+ * target, or at the page's bottom right off the table (--voice-right). The
+ * mute state is aria-pressed (the red look is CSS).
+ */
+
+/** Show the mute state on the button (icon, pressed state, label). */
+function showMuted(btn, muted) {
+  if (!btn) return;
+  btn.innerHTML = getMicIcon(muted);
+  btn.setAttribute('aria-pressed', String(!!muted));
+  btn.setAttribute('aria-label', muted ? 'Unmute microphone (M)' : 'Mute microphone (M)');
+}
 
 /**
  * Put a voice button in the table's voice slot (device first, then mute),
@@ -61,29 +56,24 @@ function placeVoiceButton(btn, { rightOffset }) {
     const mute = slot.querySelector('#voice-mute-btn');
     const device = slot.querySelector('#voice-device-btn');
     if (mute && device && device.nextSibling !== mute) slot.insertBefore(device, mute);
-    btn.style.position = 'static';
-    btn.style.width = '';
-    btn.style.height = '';
-    btn.style.left = '';
-    btn.style.top = '';
-    btn.style.right = '';
-    btn.style.bottom = '';
+    btn.dataset.place = 'hud';
     return true;
   }
   if (btn.parentElement !== document.body) document.body.appendChild(btn);
-  btn.style.position = 'absolute';
-  btn.style.width = '36px';
-  btn.style.height = '36px';
-  btn.style.bottom = '20px';
-  btn.style.right = `${rightOffset}px`;
-  btn.style.top = '';
-  btn.style.left = '';
+  // (table.css: body > .voice-btn sits at the page's bottom right)
+  btn.dataset.place = 'page';
+  btn.style.setProperty('--voice-right', `${rightOffset}px`);
   return false;
 }
 
 // ============================================
 // Mute Button
 // ============================================
+
+/** Show a mute state on the page's mute button (the M key, the overlay). */
+export function setMuteButtonState(muted) {
+  showMuted(document.getElementById('voice-mute-btn'), muted);
+}
 
 /**
  * Create the voice mute toggle button.
@@ -92,16 +82,12 @@ export function createMuteButton() {
   removeMuteButton();
 
   const voiceManager = getVoiceChatManager();
-  const btn = document.createElement('button');
+  const btn = createIconButton({ icon: getMicIcon(false), label: 'Mute microphone (M)', className: 'voice-btn', pressed: false });
   btn.id = 'voice-mute-btn';
-  btn.innerHTML = getMicIcon(false);
   btn.title = 'Toggle microphone (M)';
-  btn.style.cssText = ROUND_BUTTON;
 
   btn.addEventListener('click', () => {
-    const muted = voiceManager.toggleSelfMute();
-    btn.innerHTML = getMicIcon(muted);
-    btn.style.background = muted ? 'rgba(220, 38, 38, 0.8)' : 'rgba(30, 30, 50, 0.8)';
+    showMuted(btn, voiceManager.toggleSelfMute());
   });
 
   // The table's voice slot, else the page's corner
@@ -143,11 +129,9 @@ export function removeMuteButton() {
 export function createDeviceButton() {
   removeDeviceButton();
 
-  const btn = document.createElement('button');
+  const btn = createIconButton({ icon: getGearIcon(), label: 'Select microphone', className: 'voice-btn' });
   btn.id = 'voice-device-btn';
-  btn.innerHTML = getGearIcon();
-  btn.title = 'Select microphone';
-  btn.style.cssText = ROUND_BUTTON;
+  btn.setAttribute('aria-haspopup', 'menu');
 
   btn.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -187,40 +171,20 @@ async function toggleDevicePopover() {
 
   const activeId = voiceManager.getActiveDeviceId();
 
-  const popover = document.createElement('div');
-  popover.id = 'voice-device-popover';
-  popover.style.cssText = `
-    position: absolute;
-    background: #1a1a2e;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 8px;
-    padding: 6px 0;
-    min-width: 200px;
-    max-width: 300px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
-    z-index: 400;
-  `;
+  const popover = el('div', { className: 'voice-popover', attrs: { id: 'voice-device-popover', role: 'menu' } });
 
   for (const device of devices) {
-    const item = document.createElement('div');
     const isActive = device.deviceId === activeId;
-    item.style.cssText = `
-      padding: 8px 14px;
-      color: ${isActive ? '#4ade80' : '#fff'};
-      font-size: 13px;
-      cursor: pointer;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    `;
-    item.innerHTML = `<span style="flex-shrink:0">${isActive ? '&#10003;' : '&nbsp;&nbsp;'}</span><span style="overflow:hidden;text-overflow:ellipsis"></span>`;
-    // Device labels come from hardware names (e.g. Bluetooth), so not markup
-    item.lastElementChild.textContent = device.label;
-    item.addEventListener('mouseenter', () => { item.style.background = 'rgba(255,255,255,0.1)'; });
-    item.addEventListener('mouseleave', () => { item.style.background = 'none'; });
+    // (hover is CSS: .voice-popover__item:hover)
+    const item = el('div', {
+      className: `voice-popover__item${isActive ? ' is-active' : ''}`,
+      attrs: { role: 'menuitemradio', 'aria-checked': String(isActive), tabindex: '0' },
+      children: [
+        el('span', { className: 'voice-popover__mark', text: isActive ? '\u2713' : '' }),
+        // Device labels come from hardware names (e.g. Bluetooth), so not markup
+        el('span', { className: 'voice-popover__label', text: device.label }),
+      ],
+    });
     item.addEventListener('click', async (e) => {
       e.stopPropagation();
       if (!isActive) {
@@ -236,24 +200,13 @@ async function toggleDevicePopover() {
   }
 
   // Divider
-  const divider = document.createElement('div');
-  divider.style.cssText = 'height: 1px; background: rgba(255, 255, 255, 0.1); margin: 4px 0;';
-  popover.appendChild(divider);
+  popover.appendChild(el('div', { className: 'voice-popover__divider' }));
 
   // Speaker test button
-  const testBtn = document.createElement('div');
-  testBtn.style.cssText = `
-    padding: 8px 14px;
-    color: #aaa;
-    font-size: 13px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  `;
-  testBtn.innerHTML = `<span style="flex-shrink:0">${getSpeakerIcon()}</span><span>Test Speakers</span>`;
-  testBtn.addEventListener('mouseenter', () => { testBtn.style.background = 'rgba(255,255,255,0.1)'; });
-  testBtn.addEventListener('mouseleave', () => { testBtn.style.background = 'none'; });
+  const testBtn = el('div', { className: 'voice-popover__item is-muted', attrs: { role: 'menuitem', tabindex: '0' } });
+  const speaker = el('span', { className: 'voice-popover__mark' });
+  speaker.innerHTML = getSpeakerIcon();
+  testBtn.append(speaker, el('span', { text: 'Test Speakers' }));
   testBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     voiceManager.playTestTone();
@@ -263,11 +216,10 @@ async function toggleDevicePopover() {
   // Position above the device button, right-aligned so it doesn't overflow left
   const btn = document.getElementById('voice-device-btn');
   if (btn) {
+    // its anchor (dynamic geometry: CSS variables, table.css .voice-popover)
     const rect = btn.getBoundingClientRect();
-    popover.style.right = `${window.innerWidth - rect.right}px`;
-    popover.style.left = '';
-    popover.style.top = '';
-    popover.style.bottom = `${window.innerHeight - rect.top + 6}px`;
+    popover.style.setProperty('--pop-right', `${window.innerWidth - rect.right}px`);
+    popover.style.setProperty('--pop-bottom', `${window.innerHeight - rect.top + 6}px`);
   }
 
   document.body.appendChild(popover);
@@ -325,8 +277,12 @@ function getMicIcon(muted) {
 
 let overlayUpdateInterval = null;
 
+/** The voice overlay's modal (kit). */
+let voiceModal = null;
+
 /**
- * Show the voice overlay (called on Tab press).
+ * Show the voice overlay (called on Tab press): a kit modal (Escape closes
+ * it too; focus comes back where it was).
  */
 export function showVoiceOverlay() {
   removeVoiceOverlay();
@@ -334,47 +290,20 @@ export function showVoiceOverlay() {
   const voiceManager = getVoiceChatManager();
   if (!voiceManager.active) return;
 
-  const overlay = document.createElement('div');
-  overlay.id = 'voice-overlay';
-  overlay.style.cssText = `
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
-    background: rgba(0, 0, 0, 0.7);
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    z-index: 2000;
-  `;
-
-  const panel = document.createElement('div');
-  panel.style.cssText = `
-    background: #1a1a2e;
-    border-radius: 12px;
-    padding: 24px;
-    min-width: 280px;
-    max-width: 400px;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
-  `;
-
-  const title = document.createElement('h3');
-  title.textContent = 'Voice Chat';
-  title.style.cssText = 'margin: 0 0 16px 0; color: #fff; text-align: center;';
-  panel.appendChild(title);
-
-  const playerList = document.createElement('div');
-  playerList.id = 'voice-overlay-players';
-  panel.appendChild(playerList);
-
-  const hint = document.createElement('p');
-  hint.textContent = 'Release Tab to close';
-  hint.style.cssText = 'margin: 16px 0 0 0; color: #666; text-align: center; font-size: 12px;';
-  panel.appendChild(hint);
-
-  overlay.appendChild(panel);
-  document.body.appendChild(overlay);
+  const playerList = el('div', { attrs: { id: 'voice-overlay-players' } });
+  const hint = el('p', { className: 'voice-overlay__hint', text: 'Release Tab to close' });
+  voiceModal = openModal({
+    id: 'voice-overlay',
+    title: 'Voice Chat',
+    body: [playerList, hint],
+    dismissible: true,
+    className: 'voice-overlay-panel',
+    onClose: () => {
+      voiceModal = null;
+      removeVoiceOverlay();
+    },
+  });
+  voiceModal.backdrop.classList.add('voice-overlay');
 
   // Initial render + start polling
   updateOverlayPlayers();
@@ -384,7 +313,7 @@ export function showVoiceOverlay() {
 const SPEAKING_POLL_UI = 100;
 
 // Track overlay rows so we update in-place instead of recreating
-let _overlayRows = new Map(); // id → { row, dot, muteBtn }
+let _overlayRows = new Map(); // id → { row, muteBtn, slider, relayBadge }
 
 function updateOverlayPlayers() {
   const container = document.getElementById('voice-overlay-players');
@@ -416,89 +345,47 @@ function updateOverlayPlayers() {
 
   for (const entry of entries) {
     if (!_overlayRows.has(entry.id)) {
-      // Create row once
-      const row = document.createElement('div');
-      row.style.cssText = `
-        display: flex; align-items: center; padding: 8px 12px;
-        margin-bottom: 4px; border-radius: 8px; transition: background 0.15s;
-      `;
+      // Create row once (its states are classes: table.css .voice-row)
+      const row = el('div', { className: 'voice-row' });
+      row.appendChild(el('div', { className: 'voice-row__dot' }));
 
-      const dot = document.createElement('div');
-      dot.style.cssText = `
-        width: 10px; height: 10px; border-radius: 50%;
-        margin-right: 10px; transition: background 0.15s; flex-shrink: 0;
-      `;
-      row.appendChild(dot);
-
-      const name = document.createElement('span');
-      name.textContent = entry.username + (entry.isSelf ? ' (You)' : '');
-      name.style.cssText = 'color: #fff; flex: 1; font-size: 14px;';
-
+      const name = el('span', { className: 'voice-row__name', text: entry.username + (entry.isSelf ? ' (You)' : '') });
       // Red "S" badge for relayed (non-P2P) connections
-      const relayBadge = document.createElement('span');
-      relayBadge.textContent = 'S';
-      relayBadge.style.cssText = 'color: #ef4444; font-weight: bold; font-size: 12px; margin-left: 4px; display: none;';
+      const relayBadge = el('span', { className: 'voice-row__relay', text: 'S', attrs: { title: 'Relayed through the server' } });
       name.appendChild(relayBadge);
-
       row.appendChild(name);
 
       let slider = null;
-      let volLabel = null;
       const entryId = entry.id;
       const isSelf = entry.isSelf;
 
       // Volume slider for remote peers only
       if (!isSelf) {
-        const sliderWrap = document.createElement('div');
-        sliderWrap.style.cssText = 'display: flex; align-items: center; margin-right: 8px; flex-shrink: 0;';
-
-        slider = document.createElement('input');
-        slider.type = 'range';
-        slider.min = '0';
-        slider.max = '200';
+        slider = el('input', { className: 'voice-row__slider', attrs: { type: 'range', min: '0', max: '200', 'aria-label': `${entry.username} volume` } });
         slider.value = String(Math.round(voiceManager.getPeerVolume(entryId) * 100));
-        slider.style.cssText = 'width: 80px; accent-color: #4ade80; cursor: pointer;';
-
-        volLabel = document.createElement('span');
-        volLabel.textContent = slider.value + '%';
-        volLabel.style.cssText = 'color: #aaa; font-size: 11px; width: 36px; text-align: right; margin-left: 4px;';
-
+        const volLabel = el('span', { className: 'voice-row__pct', text: `${slider.value}%` });
         slider.addEventListener('input', () => {
           const pct = Number(slider.value);
           voiceManager.setPeerVolume(entryId, pct / 100);
           volLabel.textContent = pct + '%';
         });
-
-        sliderWrap.appendChild(slider);
-        sliderWrap.appendChild(volLabel);
-        row.appendChild(sliderWrap);
+        row.appendChild(el('div', { className: 'voice-row__volume', children: [slider, volLabel] }));
       }
 
-      const muteBtn = document.createElement('button');
-      muteBtn.style.cssText = `
-        border: none; border-radius: 6px; color: #fff;
-        padding: 4px 8px; cursor: pointer; font-size: 12px; flex-shrink: 0;
-      `;
+      const muteBtn = createButton({ label: 'Mute', variant: 'secondary', size: 'sm' });
       muteBtn.addEventListener('click', () => {
         if (isSelf) {
-          const muted = voiceManager.toggleSelfMute();
-          const mainBtn = document.getElementById('voice-mute-btn');
-          if (mainBtn) {
-            mainBtn.innerHTML = getMicIcon(muted);
-            mainBtn.style.background = muted ? 'rgba(220, 38, 38, 0.8)' : 'rgba(30, 30, 50, 0.8)';
-          }
+          showMuted(document.getElementById('voice-mute-btn'), voiceManager.toggleSelfMute());
+        } else if (voiceManager.isPeerMuted(entryId)) {
+          voiceManager.unmutePeer(entryId);
         } else {
-          if (voiceManager.isPeerMuted(entryId)) {
-            voiceManager.unmutePeer(entryId);
-          } else {
-            voiceManager.mutePeer(entryId);
-          }
+          voiceManager.mutePeer(entryId);
         }
       });
       row.appendChild(muteBtn);
 
       container.appendChild(row);
-      _overlayRows.set(entry.id, { row, dot, muteBtn, slider, volLabel, relayBadge, isSelf });
+      _overlayRows.set(entry.id, { row, muteBtn, slider, relayBadge, isSelf });
     }
 
     // Update dynamic state (speaking, muted) on existing elements
@@ -506,23 +393,15 @@ function updateOverlayPlayers() {
     const isSpeaking = voiceManager.isSpeaking(entry.id);
     const isMuted = entry.isSelf ? voiceManager.selfMuted : voiceManager.isPeerMuted(entry.id);
 
-    els.row.style.background = isSpeaking ? 'rgba(74, 222, 128, 0.15)' : 'rgba(255, 255, 255, 0.05)';
-    els.dot.style.background = isSpeaking ? '#4ade80' : '#444';
+    els.row.classList.toggle('is-speaking', !!isSpeaking);
+    els.row.classList.toggle('is-muted', !!isMuted);
     els.muteBtn.textContent = isMuted ? 'Unmute' : 'Mute';
-    els.muteBtn.style.background = isMuted ? 'rgba(220, 38, 38, 0.6)' : 'rgba(255, 255, 255, 0.1)';
-
-    // Dim slider when muted
-    if (els.slider) {
-      els.slider.style.opacity = isMuted ? '0.4' : '1';
-    }
-    if (els.volLabel) {
-      els.volLabel.style.opacity = isMuted ? '0.4' : '1';
-    }
+    els.muteBtn.classList.toggle('kit-btn--danger', !!isMuted);
+    els.muteBtn.classList.toggle('kit-btn--secondary', !isMuted);
 
     // Toggle relay badge visibility
     if (els.relayBadge) {
-      const showBadge = !entry.isSelf && voiceManager.isRelayed(entry.id);
-      els.relayBadge.style.display = showBadge ? 'inline' : 'none';
+      els.relayBadge.classList.toggle('is-on', !entry.isSelf && !!voiceManager.isRelayed(entry.id));
     }
   }
 }
@@ -536,6 +415,11 @@ export function removeVoiceOverlay() {
     overlayUpdateInterval = null;
   }
   _overlayRows.clear();
+  if (voiceModal) {
+    const m = voiceModal;
+    voiceModal = null;
+    m.close('api');
+  }
   const existing = document.getElementById('voice-overlay');
   if (existing) existing.remove();
 }

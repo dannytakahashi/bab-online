@@ -49,14 +49,16 @@ import { showTournamentResultsOverlay } from './ui/components/TournamentScoreboa
 import { SCREENS, initializeUIManager } from './ui/UIManager.js';
 
 // Phaser
-import { createPhaserGame } from './phaser/PhaserGame.js';
+import { createPhaserGame, getPhaserGame } from './phaser/PhaserGame.js';
+import { installLoopControl } from './phaser/loopControl.js';
+import { applyBackingStore, onDprChange } from './phaser/backingStore.js';
 
 // Handlers
 import { registerAllHandlers } from './handlers/index.js';
 
 // Voice Chat
 import { getVoiceChatManager } from './voice/VoiceChatManager.js';
-import { createMuteButton, removeMuteButton, showVoiceOverlay, removeVoiceOverlay } from './ui/components/VoiceChatUI.js';
+import { createMuteButton, removeMuteButton, showVoiceOverlay, removeVoiceOverlay, setMuteButtonState } from './ui/components/VoiceChatUI.js';
 import { setTableChrome, clearHud, hudRoot } from './ui/tableHud.js';
 
 // ============================================
@@ -71,6 +73,9 @@ let gameLogInstance = null;
 
 // The table's timed work, scene readiness and fast-forward (TableDirector)
 const director = getTableDirector();
+
+// The Phaser loop's sleep off the table (phaser/loopControl.js)
+let loopControl = null;
 
 /**
  * Set the game scene reference (GameScene.create() calls it, through
@@ -90,6 +95,9 @@ export function setGameScene(scene) {
   // The canvas follows its grid column
   observeContainer();
 
+  // Off the table, the loop sleeps once the scene is up (the first frame drawn)
+  loopControl?.sync();
+
   // Handle tab visibility change - lay the table out again when the tab
   // becomes visible (the window may have changed size while it was hidden)
   if (!scene._visibilityHandlerAdded) {
@@ -107,34 +115,35 @@ export function setGameScene(scene) {
 
 /**
  * Phaser's canvas follows #game-container, the grid's first column (the
- * log column comes and goes with the table chrome). Phaser's RESIZE mode
- * re-reads its parent only on a window resize or its own 500 ms poll, and a
- * resize() with a stale width leaves its parent size cached: re-read the
- * parent and refresh, which emits 'resize' (GameScene.relayout).
+ * log column comes and goes with the table chrome), at the device pixel
+ * ratio (item 18a): the backing store is the container's CSS size times the
+ * ratio (phaser/backingStore.js); a change emits Phaser's 'resize'
+ * (GameScene.relayout).
  */
 function syncCanvasSize(scene = gameSceneRef) {
-  const scale = scene?.game?.scale;
+  const game = scene?.game;
   const container = document.getElementById('game-container');
-  if (!scale || !container) return;
+  if (!game?.scale || !container) return;
   const w = container.clientWidth;
   const h = container.clientHeight;
-  if (!w || !h || (scale.width === w && scale.height === h)) return;
-  if (typeof scale.getParentBounds === 'function' && typeof scale.refresh === 'function') {
-    scale.getParentBounds();
-    scale.refresh();
-  }
-  if (scale.width !== w || scale.height !== h) scale.resize(w, h);
+  if (!w || !h) return;
+  applyBackingStore(game, w, h);
 }
 
 let containerObserver = null;
 
-/** Any change of the container's size (grid column, window) resizes the canvas. */
+/**
+ * Any change of the container's size (grid column, window) resizes the
+ * canvas, and so does a change of the device pixel ratio (the window moved
+ * to another display).
+ */
 function observeContainer() {
   if (containerObserver || typeof ResizeObserver === 'undefined') return;
   const container = document.getElementById('game-container');
   if (!container) return;
   containerObserver = new ResizeObserver(() => syncCanvasSize());
   containerObserver.observe(container);
+  onDprChange(() => syncCanvasSize());
 }
 
 /**
@@ -366,22 +375,10 @@ socket.on('playerAssigned', (data) => {
 // ==================== END SESSION / RECONNECTION ====================
 
 /**
- * Show error toast notification.
+ * Show an error toast (the page's one toast queue: ui/kit/toast.js).
  */
 function showErrorToast(message, duration = 5000) {
-  // Remove existing toast
-  const existing = document.querySelector('.error-toast');
-  if (existing) existing.remove();
-
-  const toast = document.createElement('div');
-  toast.className = 'error-toast';
-  toast.textContent = message;
-  document.body.appendChild(toast);
-
-  setTimeout(() => {
-    toast.classList.add('fade-out');
-    setTimeout(() => toast.remove(), 300);
-  }, duration);
+  showError(message, duration);
 }
 
 // Track retry attempts for joinMainRoom
@@ -630,6 +627,15 @@ function initializeApp() {
     ].forEach((id) => document.getElementById(id)?.remove());
   }
 
+  // The table's look (the felt: table.css #game-container.at-table) follows
+  // the screen: at the table and on its score modal only
+  const syncTableScreen = (screen) => {
+    const atTable = screen === SCREEN.TABLE || screen === SCREEN.GAME_END;
+    document.getElementById('game-container')?.classList.toggle('at-table', atTable);
+  };
+  session.onScreenChange((screen) => syncTableScreen(screen));
+  syncTableScreen(session.screen);
+
   // Screen enter/exit hooks (the session runs exit(from) then enter(to))
   session.setHooks({
     teardownTable: () => teardownTableUI(),
@@ -703,18 +709,8 @@ function initializeApp() {
     if (e.key === 'm' && voiceManager.active && !e.ctrlKey && !e.metaKey) {
       const activeEl = document.activeElement;
       if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) return;
-      const muted = voiceManager.toggleSelfMute();
-      const btn = document.getElementById('voice-mute-btn');
-      if (btn) {
-        btn.innerHTML = '';
-        // Re-trigger by removing and re-creating the button content
-        const svgContainer = document.createElement('span');
-        svgContainer.innerHTML = muted
-          ? `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2c0 .76-.13 1.49-.36 2.18"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>`
-          : `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>`;
-        btn.appendChild(svgContainer);
-        btn.style.background = muted ? 'rgba(220, 38, 38, 0.8)' : 'rgba(30, 30, 50, 0.8)';
-      }
+      // the button shows it (VoiceChatUI: icon, aria-pressed; the red look is CSS)
+      setMuteButtonState(voiceManager.toggleSelfMute());
     }
   });
   document.addEventListener('keyup', (e) => {
@@ -739,7 +735,6 @@ function initializeApp() {
       indicator?.remove();
       return;
     }
-    const color = kind === 'lazy' ? '#4ade80' : '#60a5fa';
     const text = kind === 'lazy' ? 'Spectating — type /active to take back control' : 'Spectating — type /leave to exit';
     // The HUD's status slot (top centre of the table, from the layout:
     // ui-18), else the top of the page
@@ -749,7 +744,10 @@ function initializeApp() {
       indicator.id = 'spectating-indicator';
     }
     if (indicator.parentElement !== root) root.appendChild(indicator);
-    indicator.style.cssText = `color: ${color}; border-color: ${color};`;
+    // its color is the kind's (table.css #spectating-indicator.is-lazy / .is-spectating)
+    indicator.classList.toggle('is-lazy', kind === 'lazy');
+    indicator.classList.toggle('is-spectating', kind !== 'lazy');
+    indicator.setAttribute('role', 'status');
     indicator.dataset.kind = kind;
     indicator.textContent = text;
   }
@@ -1241,6 +1239,9 @@ function initializeApp() {
       if (gameLogInstance && gameLogInstance.hideTrickIndicator) {
         gameLogInstance.hideTrickIndicator();
       }
+      // Nobody's turn any more: the turn ring stops (its animation with it)
+      scene?.opponentManager?.removeTurnGlow?.();
+      scene?.cardManager?.removeTurnGlow?.();
 
       // Determine which team the player is on (positions 1,3 = Team 1, positions 2,4 = Team 2)
       // Spectators view from position 1 but aren't on either team
@@ -1839,6 +1840,8 @@ window.addEventListener('load', () => {
 
   // Create the Phaser game - GameScene.create() will call setGameScene
   createPhaserGame('game-container');
+  // The loop runs only on the table's screens (cli-23, webclient-10)
+  loopControl = installLoopControl({ session, getGame: () => getPhaserGame() });
 
   // A fresh tab (or a reopened browser) resumes this device's saved session
   if (adoptSavedSession()) {

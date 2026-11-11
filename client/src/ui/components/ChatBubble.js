@@ -46,10 +46,10 @@ export function setBubbleTail(bubble, tail) {
  *
  * @param {string} positionKey - 'opp1', 'opp2', 'partner', 'me' (or a spectator's 'bottom')
  * @param {string} message - Message text
- * @param {string|null} color - Text color (red for bids, null for chat)
+ * @param {string|null} kind - 'bid' for a bid bubble (table.css .chat-bubble.bid), null for chat
  * @param {number} duration - Display duration in ms (default 6000)
  */
-export function showChatBubble(positionKey, message, color = null, duration = 6000) {
+export function showChatBubble(positionKey, message, kind = null, duration = 6000) {
   // Destroy existing bubble for this position if present
   if (activeChatBubbles[positionKey]) {
     clearBubble(positionKey);
@@ -64,7 +64,7 @@ export function showChatBubble(positionKey, message, color = null, duration = 60
   const bubble = document.createElement('div');
   bubble.className = `chat-bubble ${getTailClass(positionKey, seat?.seat)}`;
   bubble.dataset.seat = positionKey;
-  if (color === '#FF0000') {
+  if (kind === 'bid') {
     bubble.classList.add('bid');
   }
   const text = document.createElement('span');

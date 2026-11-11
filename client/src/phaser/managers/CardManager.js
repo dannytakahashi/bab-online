@@ -8,6 +8,20 @@ import { getCardImageKey } from '../../utils/cards.js';
 import { CARD_CONFIG, ANIMATION_CONFIG } from '../config.js';
 import { sceneDelay, sceneTween } from '../TableDirector.js';
 import { layoutOf, handPositions } from '../layout/computeTableLayout.js';
+import { CARD_TEXTURE_KEY, SHADOW_MARGIN } from '../cards/CardAtlas.js';
+import { SHADOW_FRAME } from '../cards/cardFaces.js';
+import { motionMs, dealStaggerMs, EASE_EMPHASIZED } from '../../ui/motion.js';
+import { MOTION, COLOR, hex } from '../../ui/tokens.js';
+
+/**
+ * An unplayable card's opaque dimming (the iOS app's: a 0.4 black blend,
+ * 60 % brightness; a translucent card would show the pips beneath it).
+ */
+const DIM_TINT = hex(COLOR.card.dimTint);
+
+/** The deal's wait at the trump, then each card's flight (cosmetic: motion tokens; instant under reduced motion). */
+const DEAL_DELAY_MS = 200;
+export const dealMs = () => motionMs(MOTION.slow * 2);
 
 /**
  * CardManager handles all card-related sprite operations.
@@ -103,15 +117,9 @@ export class CardManager {
       // Higher depth = checked first for input, so overlapping cards work correctly
       sprite.setDepth(CARD_CONFIG.Z_INDEX.HAND + index);
 
-      // Use explicit hit area matching visible card bounds within the 64x64 frame
-      // (cards have transparent padding in the atlas that shouldn't be clickable)
-      const { CARD_BOUNDS } = CARD_CONFIG;
-      const hitArea = new Phaser.Geom.Rectangle(
-        CARD_BOUNDS.x,
-        CARD_BOUNDS.y,
-        CARD_BOUNDS.width,
-        CARD_BOUNDS.height
-      );
+      // The hit area is the visible card: the atlas frame has no padding,
+      // so it is the whole frame (cards/CardAtlas.js)
+      const hitArea = new Phaser.Geom.Rectangle(0, 0, sprite.width, sprite.height);
       sprite.setInteractive(hitArea, Phaser.Geom.Rectangle.Contains);
       this._setupCardInteraction(sprite);
 
@@ -120,8 +128,8 @@ export class CardManager {
 
     // Schedule a reposition after deal animation completes to handle container resize timing
     // This ensures cards are positioned correctly even if container width changes
-    // Delay must be longer than base delay (200ms) + deal animation (750ms) + stagger (cards * 50ms)
-    const animationDelay = animate ? 200 + 750 + (cards.length * 50) + 100 : 50;
+    // Delay must be longer than base delay (200ms) + the deal tween + the stagger (motion tokens)
+    const animationDelay = animate ? DEAL_DELAY_MS + dealMs() + (cards.length * dealStaggerMs()) + 100 : 50;
     // Without the deal animation it only re-reads the layout (snapSafe: a
     // relayout need not fast-forward for it)
     sceneDelay(scene, animationDelay, () => {
@@ -153,7 +161,7 @@ export class CardManager {
         ({ x: startX, y: startY } = this.layout().trump);
       }
 
-      sprite = scene.add.sprite(startX, startY, 'cards', textureKey);
+      sprite = scene.add.sprite(startX, startY, CARD_TEXTURE_KEY, textureKey);
       sprite.setScale(SCALE);
       sprite.setDepth(Z_INDEX.HAND + index);
       sprite.setAlpha(0); // Start invisible to avoid position glitch during delay
@@ -166,12 +174,12 @@ export class CardManager {
         x: { from: startX, to: x },
         y: { from: startY, to: y },
         alpha: { from: 1, to: 1 }, // Reveal card when tween starts
-        duration: 750,
-        ease: 'Power2',
-        delay: 200 + (index * 50),
+        duration: dealMs(),
+        ease: EASE_EMPHASIZED,
+        delay: DEAL_DELAY_MS + (index * dealStaggerMs()),
       });
     } else {
-      sprite = scene.add.sprite(x, y, 'cards', textureKey);
+      sprite = scene.add.sprite(x, y, CARD_TEXTURE_KEY, textureKey);
       sprite.setScale(SCALE);
       sprite.setDepth(Z_INDEX.HAND);
     }
@@ -199,15 +207,18 @@ export class CardManager {
       sceneTween(scene, {
         targets: sprite,
         y: baseY - this._lift(),
-        duration: ANIMATION_CONFIG.CARD_HOVER,
-        ease: 'Power2',
+        duration: motionMs('fast'),
+        ease: EASE_EMPHASIZED,
       });
+      // the raised state: the lift plus a soft shadow under the card
+      this._showRaise(sprite, baseY);
       // Keep index-based depth - card stays partially behind cards to its right
     });
 
     sprite.on('pointerout', () => {
       // Reset cursor
       scene.input.setDefaultCursor('default');
+      this._hideRaise(sprite);
       if (this._isDealing) return;
 
       // Always settle back to baseY: a card that turned illegal while lifted
@@ -218,8 +229,8 @@ export class CardManager {
       sceneTween(scene, {
         targets: sprite,
         y: baseY,
-        duration: ANIMATION_CONFIG.CARD_HOVER,
-        ease: 'Power2',
+        duration: motionMs('fast'),
+        ease: EASE_EMPHASIZED,
       });
     });
 
@@ -228,6 +239,42 @@ export class CardManager {
         this._onCardClick(sprite.getData('card'), sprite);
       }
     });
+  }
+
+  /**
+   * The raised card's soft shadow (the atlas's shadow frame): under the
+   * hovered card, a little below its lifted position, fading in.
+   */
+  _showRaise(sprite, baseY) {
+    const scene = this._scene;
+    if (typeof scene.add?.image !== 'function') return;
+    const L = this.layout();
+    if (!L.hand) return;
+    let shadow = this._raiseShadow;
+    if (!shadow || shadow.active === false) {
+      shadow = scene.add.image(sprite.x, baseY, CARD_TEXTURE_KEY, SHADOW_FRAME);
+      this._raiseShadow = shadow;
+    }
+    // the frame's blurred card is inset by its margin: scale it up to the card
+    const k = 1 / (1 - 2 * SHADOW_MARGIN);
+    shadow.setScale(L.card.hand.scale * k * 1.04);
+    shadow.setPosition(sprite.x, baseY - L.hand.lift * 0.55);
+    shadow.setDepth((sprite.depth ?? 0) - 0.5);
+    shadow.setAlpha(0);
+    this._raiseOwner = sprite;
+    sceneTween(scene, { targets: shadow, alpha: 1, duration: motionMs('fast'), ease: EASE_EMPHASIZED });
+  }
+
+  /** Drop the raised card's shadow (of `sprite`, or whichever card has it). */
+  _hideRaise(sprite = null) {
+    if (sprite && this._raiseOwner !== sprite) return;
+    const shadow = this._raiseShadow;
+    this._raiseShadow = null;
+    this._raiseOwner = null;
+    if (shadow && shadow.active !== false) {
+      this._scene.tweens?.killTweensOf?.(shadow);
+      shadow.destroy?.();
+    }
   }
 
   /**
@@ -250,10 +297,10 @@ export class CardManager {
       const sprite = this._scene.add.sprite(
         targetX,
         targetY,
-        'cards',
+        CARD_TEXTURE_KEY,
         this.getTextureKey(card)
       );
-      sprite.setScale(CARD_CONFIG.SCALE);
+      sprite.setScale(this.layout().card.trick.scale);
       sprite.setDepth(CARD_CONFIG.Z_INDEX.PLAYED_CARDS);
       this._playedSprites[position] = sprite;
       return;
@@ -268,7 +315,7 @@ export class CardManager {
       x: targetX,
       y: targetY,
       duration: ANIMATION_CONFIG.CARD_PLAY,
-      ease: 'Power2',
+      ease: EASE_EMPHASIZED,
       onComplete: () => {
         sprite.setDepth(CARD_CONFIG.Z_INDEX.PLAYED_CARDS);
       },
@@ -284,14 +331,15 @@ export class CardManager {
    */
   collectTrick(winnerPosition) {
     const scene = this._scene;
-    const { scale } = scene;
+    // the canvas in CSS px (the layout's; the backing store is x DPR)
+    const { w, h } = this.layout();
 
     // Get winner's edge position
     const targets = {
-      1: { x: scale.width / 2, y: scale.height + 100 },
-      2: { x: -100, y: scale.height / 2 },
-      3: { x: scale.width / 2, y: -100 },
-      4: { x: scale.width + 100, y: scale.height / 2 },
+      1: { x: w / 2, y: h + 100 },
+      2: { x: -100, y: h / 2 },
+      3: { x: w / 2, y: -100 },
+      4: { x: w + 100, y: h / 2 },
     };
 
     const target = targets[winnerPosition];
@@ -304,7 +352,7 @@ export class CardManager {
         y: target.y,
         alpha: 0,
         duration: ANIMATION_CONFIG.CARD_COLLECT,
-        ease: 'Power2',
+        ease: EASE_EMPHASIZED,
         onComplete: () => {
           sprite.destroy();
         },
@@ -318,6 +366,7 @@ export class CardManager {
    * Clear all hand sprites.
    */
   clearHand() {
+    this._hideRaise();
     this._dealToken++;
     this._isDealing = false;
     this._handSprites.forEach((sprite) => {
@@ -386,7 +435,7 @@ export class CardManager {
 
       // If player can't play, dim all cards
       if (!canPlay) {
-        sprite.setTint(0xaaaaaa);
+        sprite.setTint(DIM_TINT);
         sprite.setData('isLegal', false);
         // Reset position if card was hovered when becoming illegal
         if (wasLegal) this._settleIllegal(sprite);
@@ -400,7 +449,7 @@ export class CardManager {
         sprite.clearTint();
         sprite.setData('isLegal', true);
       } else {
-        sprite.setTint(0xaaaaaa);
+        sprite.setTint(DIM_TINT);
         sprite.setData('isLegal', false);
         // Reset position if card was hovered when becoming illegal
         if (wasLegal) this._settleIllegal(sprite);
@@ -414,6 +463,7 @@ export class CardManager {
    */
   _settleIllegal(sprite) {
     const baseY = sprite.getData('baseY');
+    this._hideRaise(sprite);
     if (baseY === undefined || this._isDealing) return;
     if (sprite.y !== baseY) {
       this._scene.tweens?.killTweensOf?.(sprite);
@@ -425,7 +475,7 @@ export class CardManager {
   /**
    * Set all cards to a specific tint.
    */
-  setAllTint(tintColor = 0xaaaaaa) {
+  setAllTint(tintColor = DIM_TINT) {
     this._handSprites.forEach((sprite) => {
       if (sprite && sprite.active) {
         sprite.setTint(tintColor);
@@ -458,7 +508,7 @@ export class CardManager {
         sprite.setInteractive();
       } else {
         sprite.disableInteractive();
-        sprite.setTint(0xaaaaaa);
+        sprite.setTint(DIM_TINT);
         sprite.setData('isLegal', false);
       }
     });
@@ -471,6 +521,7 @@ export class CardManager {
     // Skip repositioning during deal animation to prevent snapping cards to final position
     if (this._isDealing) return;
     if (!this._handSprites.length) return;
+    this._hideRaise();
 
     const positions = this.calculateHandPositions(this._handSprites.length);
     const scale = this.handScale();
@@ -523,6 +574,7 @@ export class CardManager {
 
     if (index !== -1) {
       const sprite = this._handSprites.splice(index, 1)[0];
+      this._hideRaise(sprite);
       return sprite;
     }
     return null;

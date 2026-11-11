@@ -3,6 +3,7 @@
  *
  * Reusable scoreboard table and final results overlay.
  */
+import { el, createButton, openModal } from '../kit/index.js';
 
 /**
  * Create a tournament scoreboard table element.
@@ -13,104 +14,38 @@
  * @returns {HTMLElement} Scoreboard container div
  */
 export function createTournamentScoreboard(scoreboard, currentRound, totalRounds) {
-  const container = document.createElement('div');
-  container.className = 'tournament-scoreboard';
-  container.style.cssText = `
-    background: rgba(0, 0, 0, 0.4);
-    border-radius: 8px;
-    padding: 15px;
-    overflow-x: auto;
-  `;
+  // Its look is table.css (.tournament-scoreboard, .tsb-*): tokens, tabular numerals
+  const container = el('div', { className: 'tournament-scoreboard' });
 
   if (!scoreboard || scoreboard.length === 0) {
-    const emptyMsg = document.createElement('div');
-    emptyMsg.style.color = '#9ca3af';
-    emptyMsg.style.textAlign = 'center';
-    emptyMsg.style.padding = '10px';
-    emptyMsg.textContent = 'No scores yet';
-    container.appendChild(emptyMsg);
+    container.appendChild(el('div', { className: 'tsb-empty', text: 'No scores yet' }));
     return container;
   }
 
-  const table = document.createElement('table');
-  table.style.cssText = `
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 14px;
-  `;
+  const table = el('table', { className: 'tsb-table' });
 
   // Header
-  const thead = document.createElement('thead');
-  const headerRow = document.createElement('tr');
-  headerRow.style.borderBottom = '1px solid #4a5568';
-
+  const thead = el('thead');
+  const headerRow = el('tr');
   const headers = ['#', 'Player'];
-  for (let r = 1; r <= totalRounds; r++) {
-    headers.push(`R${r}`);
-  }
+  for (let r = 1; r <= totalRounds; r++) headers.push(`R${r}`);
   headers.push('Total');
-
-  headers.forEach((text, i) => {
-    const th = document.createElement('th');
-    th.textContent = text;
-    th.style.cssText = `
-      padding: 8px 6px;
-      text-align: ${i <= 1 ? 'left' : 'center'};
-      color: #9ca3af;
-      font-size: 12px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      font-weight: normal;
-    `;
-    headerRow.appendChild(th);
-  });
+  headers.forEach((text, i) => headerRow.appendChild(el('th', { className: i <= 1 ? 'is-left' : '', text })));
   thead.appendChild(headerRow);
   table.appendChild(thead);
 
   // Body
-  const tbody = document.createElement('tbody');
+  const tbody = el('tbody');
   scoreboard.forEach((entry, index) => {
-    const row = document.createElement('tr');
-    row.style.borderBottom = '1px solid #374151';
-
-    // Rank
-    const rankTd = document.createElement('td');
-    rankTd.textContent = index + 1;
-    rankTd.style.cssText = 'padding: 8px 6px; color: #9ca3af;';
-    if (index === 0 && currentRound > 0) {
-      rankTd.style.color = '#fbbf24';
-      rankTd.style.fontWeight = 'bold';
-    }
-    row.appendChild(rankTd);
-
-    // Player name
-    const nameTd = document.createElement('td');
-    nameTd.textContent = entry.username;
-    nameTd.style.cssText = 'padding: 8px 6px; color: #fff; font-weight: 500;';
-    if (index === 0 && currentRound > 0) {
-      nameTd.style.color = '#fbbf24';
-    }
-    row.appendChild(nameTd);
-
-    // Round scores
+    const leader = index === 0 && currentRound > 0 ? ' is-leader' : '';
+    const row = el('tr');
+    row.appendChild(el('td', { className: `is-left tsb-rank${leader}`, text: index + 1 }));
+    row.appendChild(el('td', { className: `is-left tsb-name${leader}`, text: entry.username }));
     for (let r = 0; r < totalRounds; r++) {
-      const td = document.createElement('td');
-      td.style.cssText = 'padding: 8px 6px; text-align: center; color: #e5e7eb;';
-      if (entry.roundScores && typeof entry.roundScores[r] === 'number') {
-        td.textContent = entry.roundScores[r];
-      } else {
-        td.textContent = '-';
-        td.style.color = '#6b7280';
-      }
-      row.appendChild(td);
+      const has = entry.roundScores && typeof entry.roundScores[r] === 'number';
+      row.appendChild(el('td', { className: has ? '' : 'tsb-none', text: has ? entry.roundScores[r] : '-' }));
     }
-
-    // Total
-    const totalTd = document.createElement('td');
-    totalTd.textContent = entry.totalScore;
-    totalTd.style.cssText = 'padding: 8px 6px; text-align: center; color: #4ade80; font-weight: bold;';
-    row.appendChild(totalTd);
-
+    row.appendChild(el('td', { className: 'tsb-total', text: entry.totalScore }));
     tbody.appendChild(row);
   });
 
@@ -119,8 +54,12 @@ export function createTournamentScoreboard(scoreboard, currentRound, totalRounds
   return container;
 }
 
+/** The results modal on screen. */
+let resultsModal = null;
+
 /**
- * Show full-screen tournament results overlay.
+ * Show the tournament results: a kit modal (focus on Return to Lobby, a
+ * primary action; not dismissible: Return is the way out).
  *
  * @param {Object} options
  * @param {Array} options.scoreboard - Final sorted scoreboard
@@ -131,85 +70,43 @@ export function createTournamentScoreboard(scoreboard, currentRound, totalRounds
 export function showTournamentResultsOverlay({ scoreboard, winner, winners, onReturn }) {
   removeTournamentResultsOverlay();
 
-  const overlay = document.createElement('div');
-  overlay.id = 'tournamentResultsOverlay';
-  overlay.style.cssText = `
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
-    background: rgba(0, 0, 0, 0.9);
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    z-index: 2000;
-  `;
-
-  // Title
-  const title = document.createElement('div');
-  title.textContent = 'Tournament Complete!';
-  title.style.cssText = `
-    font-size: 36px;
-    font-weight: bold;
-    color: #fbbf24;
-    margin-bottom: 10px;
-    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
-  `;
-  overlay.appendChild(title);
-
+  const body = [];
   // Winner(s) — ties are announced as co-winners
   const winnerList = (winners && winners.length > 0) ? winners : (winner ? [winner] : []);
   if (winnerList.length > 0) {
-    const winnerDiv = document.createElement('div');
-    winnerDiv.textContent = winnerList.length > 1
-      ? `Winners (tie): ${winnerList.join(' & ')}`
-      : `Winner: ${winnerList[0]}`;
-    winnerDiv.style.cssText = `
-      font-size: 24px;
-      color: #4ade80;
-      margin-bottom: 30px;
-    `;
-    overlay.appendChild(winnerDiv);
+    body.push(el('div', {
+      className: 'result-winner',
+      text: winnerList.length > 1 ? `Winners (tie): ${winnerList.join(' & ')}` : `Winner: ${winnerList[0]}`,
+    }));
   }
+  body.push(createTournamentScoreboard(scoreboard, 4, 4));
 
-  // Scoreboard
-  const scoreboardEl = createTournamentScoreboard(scoreboard, 4, 4);
-  scoreboardEl.style.maxWidth = '600px';
-  scoreboardEl.style.width = '90vw';
-  scoreboardEl.style.marginBottom = '30px';
-  overlay.appendChild(scoreboardEl);
-
-  // Return button
-  const returnBtn = document.createElement('button');
-  returnBtn.textContent = 'Return to Lobby';
-  returnBtn.style.cssText = `
-    padding: 16px 32px;
-    font-size: 18px;
-    font-weight: bold;
-    background: #dc2626;
-    color: white;
-    border: none;
-    border-radius: 8px;
-    cursor: pointer;
-    transition: background 0.2s;
-  `;
-  returnBtn.onmouseover = () => { returnBtn.style.background = '#b91c1c'; };
-  returnBtn.onmouseout = () => { returnBtn.style.background = '#dc2626'; };
-  returnBtn.onclick = () => {
+  const returnBtn = createButton({ label: 'Return to Lobby', variant: 'primary', size: 'lg' });
+  const modal = openModal({
+    id: 'tournamentResultsOverlay',
+    title: 'Tournament Complete!',
+    body,
+    actions: [returnBtn],
+    dismissible: false,
+    initialFocus: returnBtn,
+    className: 'result-modal is-tournament',
+  });
+  resultsModal = modal;
+  returnBtn.addEventListener('click', () => {
     removeTournamentResultsOverlay();
     onReturn?.();
-  };
-  overlay.appendChild(returnBtn);
-
-  document.body.appendChild(overlay);
+  });
 }
 
 /**
  * Remove tournament results overlay.
  */
 export function removeTournamentResultsOverlay() {
+  if (resultsModal) {
+    const m = resultsModal;
+    resultsModal = null;
+    m.close('api');
+  }
   const overlay = document.getElementById('tournamentResultsOverlay');
   if (overlay) overlay.remove();
 }

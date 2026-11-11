@@ -1,11 +1,36 @@
 /**
- * LayoutManager - the DOM table backgrounds (the play zone felt, the hand
- * area), placed from the table layout (layout/computeTableLayout.js): the
- * play zone around the trick, the hand box under my cards. The bid sheet
+ * LayoutManager - the DOM table backgrounds (the rail around the trick, my
+ * hand's panel), placed from the table layout (layout/computeTableLayout.js):
+ * the play zone around the trick, the hand box under my cards. The bid sheet
  * and every other DOM piece live in the HUD (ui/tableHud.js).
+ *
+ * Their look is table.css (.table-rail, .hand-panel, .hand-border; item 18a
+ * reskin); this sets only their geometry, as CSS variables (--x, --y, --w,
+ * --h) from the layout.
  */
 
 import { layoutOf } from '../layout/computeTableLayout.js';
+
+/** Make a backdrop element with its classes (positioned by placeBackdrop). */
+function backdrop(id, className) {
+  const el = document.createElement('div');
+  el.id = id;
+  el.className = `table-backdrop ${className}`;
+  return el;
+}
+
+/** The layout's rect on a backdrop (dynamic geometry: CSS variables), or hidden without one. */
+export function placeBackdrop(el, r, extra = {}) {
+  if (!el) return;
+  el.hidden = !r;
+  if (!r) return;
+  const px = (v) => `${Math.round(v * 100) / 100}px`;
+  el.style.setProperty('--x', px(r.x));
+  el.style.setProperty('--y', px(r.y));
+  el.style.setProperty('--w', px(r.w));
+  el.style.setProperty('--h', px(r.h));
+  for (const [k, v] of Object.entries(extra)) el.style.setProperty(k, v);
+}
 
 export class LayoutManager {
   constructor(scene) {
@@ -22,48 +47,23 @@ export class LayoutManager {
   }
 
   /**
-   * Create DOM background elements (play zone, hand background, border).
+   * Create DOM background elements (the rail, the hand panel and its border).
    * Only creates if they don't exist.
    */
   createDomBackgrounds({ skipHandArea = false } = {}) {
     const container = document.getElementById('game-container');
     if (!container) return;
 
-    // Create play zone DOM element
     if (!document.getElementById('playZoneDom')) {
-      const playZoneDom = document.createElement('div');
-      playZoneDom.id = 'playZoneDom';
-      playZoneDom.style.position = 'absolute';
-      playZoneDom.style.backgroundColor = 'rgba(50, 205, 50, 0.6)';
-      playZoneDom.style.border = '4px solid white';
-      playZoneDom.style.boxSizing = 'border-box';
-      playZoneDom.style.borderRadius = '8px';
-      playZoneDom.style.pointerEvents = 'none';
-      playZoneDom.style.zIndex = '-1';
-      container.appendChild(playZoneDom);
+      container.appendChild(backdrop('playZoneDom', 'table-rail'));
     }
 
-    // Create hand background DOM element (skip for spectators)
+    // My hand's panel (not for spectators)
     if (!skipHandArea && !document.getElementById('handBackgroundDom')) {
-      const handBgDom = document.createElement('div');
-      handBgDom.id = 'handBackgroundDom';
-      handBgDom.style.position = 'absolute';
-      handBgDom.style.backgroundColor = 'rgba(26, 51, 40, 0.85)';
-      handBgDom.style.pointerEvents = 'none';
-      handBgDom.style.zIndex = '-2';
-      container.appendChild(handBgDom);
-
-      const borderDom = document.createElement('div');
-      borderDom.id = 'handBorderDom';
-      borderDom.style.position = 'absolute';
-      borderDom.style.border = '2px solid #2d5a40';
-      borderDom.style.boxSizing = 'border-box';
-      borderDom.style.pointerEvents = 'none';
-      borderDom.style.zIndex = '-1';
-      container.appendChild(borderDom);
+      container.appendChild(backdrop('handBackgroundDom', 'hand-panel'));
+      container.appendChild(backdrop('handBorderDom', 'hand-border'));
     }
 
-    // Position the elements
     this.positionDomBackgrounds();
   }
 
@@ -72,27 +72,11 @@ export class LayoutManager {
    */
   positionDomBackgrounds() {
     const L = this.layout || this.update();
-    const place = (el, r) => {
-      el.style.left = `${r.x}px`;
-      el.style.top = `${r.y}px`;
-      el.style.width = `${r.w}px`;
-      el.style.height = `${r.h}px`;
-    };
-
-    const playZoneDom = document.getElementById('playZoneDom');
-    if (playZoneDom) place(playZoneDom, L.trick.zone);
-
+    const rail = `${Math.round(Math.max(2, L.felt?.border ?? 4) * 100) / 100}px`;
+    placeBackdrop(document.getElementById('playZoneDom'), L.trick.zone, { '--rail-w': rail, '--s': String(L.s) });
     // The hand box (a spectator's layout has none)
-    const handBgDom = document.getElementById('handBackgroundDom');
-    const borderDom = document.getElementById('handBorderDom');
-    for (const el of [handBgDom, borderDom]) {
-      if (!el) continue;
-      if (L.hand) {
-        place(el, L.hand.rect);
-        el.style.display = '';
-      } else {
-        el.style.display = 'none';
-      }
+    for (const id of ['handBackgroundDom', 'handBorderDom']) {
+      placeBackdrop(document.getElementById(id), L.hand ? L.hand.rect : null);
     }
   }
 
@@ -100,11 +84,8 @@ export class LayoutManager {
    * Cleanup DOM background elements.
    */
   cleanupDomBackgrounds() {
-    const playZoneDom = document.getElementById('playZoneDom');
-    const handBgDom = document.getElementById('handBackgroundDom');
-    const borderDom = document.getElementById('handBorderDom');
-    if (playZoneDom) playZoneDom.remove();
-    if (handBgDom) handBgDom.remove();
-    if (borderDom) borderDom.remove();
+    for (const id of ['playZoneDom', 'handBackgroundDom', 'handBorderDom']) {
+      document.getElementById(id)?.remove();
+    }
   }
 }

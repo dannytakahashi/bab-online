@@ -24,6 +24,13 @@ export class FakeClock {
     this.paused = false;
     this._seq = 0;
     this._queue = []; // {at, seq, run, alive()}
+    this.games = new Set(); // FakeGame: a sleeping loop steps nothing
+    this.stepsWhileAsleep = 0;
+  }
+
+  /** Every created game's loop is running (a sleeping loop stops scene time, as Phaser's does). */
+  get asleep() {
+    return [...this.games].some((g) => g.loop.running === false);
   }
 
   schedule(ms, run, alive = () => true) {
@@ -35,6 +42,11 @@ export class FakeClock {
   /** Advance `ms`, running what falls due in time order (nothing while paused). */
   step(ms) {
     if (this.paused) return;
+    if (this.asleep) {
+      // Phaser's loop is asleep (phaser/loopControl.js): no scene time
+      this.stepsWhileAsleep++;
+      return;
+    }
     const end = this.now + ms;
     for (;;) {
       this._queue = this._queue.filter((i) => i.alive());
@@ -46,6 +58,8 @@ export class FakeClock {
       next.run();
     }
     this.now = end;
+    // the frame is drawn
+    for (const g of this.games) if (g.loop.running !== false) g.events.emit('postrender');
   }
 
   get pending() {
@@ -85,16 +99,29 @@ function emitterMixin(obj) {
 
 let objectIds = 0;
 
+/** A sprite showing the card atlas's back (item 18a: one 'cards' texture, frame 'back'). */
+export const isCardBack = (o) => o?.texture?.key === 'cards' && o.frame?.name === 'back';
+/** A sprite showing a card face of the atlas. */
+export const isCardFace = (o) => o?.texture?.key === 'cards' && !!o.frame?.name && o.frame.name !== 'back' && o.frame.name !== 'shadow';
+
 /**
- * Phaser's default origins and sizes by kind: an image is its 64 px atlas
- * frame about its centre, a Rectangle shape its own size about its centre,
- * Text sits at its top-left (origin 0) until setOrigin.
+ * Phaser's default origins and sizes by kind: an image is its texture
+ * frame's size about its centre (the card atlas's frames: FakeTextures), a
+ * Rectangle shape its own size about its centre, Text sits at its top-left
+ * (origin 0) until setOrigin.
  */
 const ORIGIN = { image: 0.5, sprite: 0.5, rectangle: 0.5, text: 0, graphics: 0 };
+
+/** A texture frame's size in the scene's texture manager (64 x 64 for an unknown one). */
+function frameSize(scene, texture, frame) {
+  const f = scene?.textures?.get?.(texture)?.frames?.[frame];
+  return f ? { w: f.width, h: f.height } : { w: 64, h: 64 };
+}
 
 function makeObject(scene, kind, x, y, texture, frame, size = null) {
   const data = new Map();
   const isFrame = kind === 'image' || kind === 'sprite';
+  if (isFrame && !size) size = frameSize(scene, texture, frame);
   const obj = emitterMixin({
     id: ++objectIds,
     kind,
@@ -114,8 +141,9 @@ function makeObject(scene, kind, x, y, texture, frame, size = null) {
     displayWidth: 64,
     displayHeight: 90,
     style: {},
-    width: size ? size.w : (isFrame ? 64 : 0),
-    height: size ? size.h : (isFrame ? 64 : 0),
+    type: { image: 'Image', sprite: 'Sprite', rectangle: 'Rectangle', text: 'Text', graphics: 'Graphics' }[kind],
+    width: size ? size.w : 0,
+    height: size ? size.h : 0,
     originX: ORIGIN[kind] ?? 0.5,
     originY: ORIGIN[kind] ?? 0.5,
     // drawn shapes (graphics): what fillRoundedRect / strokeRoundedRect drew since clear()
@@ -152,11 +180,26 @@ function makeObject(scene, kind, x, y, texture, frame, size = null) {
       const h = obj.height * obj.scaleY;
       return { x: bx, y: by, width: w, height: h, centerX: bx + w / 2, centerY: by + h / 2 };
     },
-    setTexture: chain((key, fr) => { obj.texture = { key }; obj.frame = { name: fr ?? null }; }),
+    // Phaser's setTexture -> setFrame: the size follows the frame (the scale stays)
+    setTexture: chain((key, fr) => { obj.texture = { key }; obj.frame = { name: fr ?? null }; obj.setSizeToFrame(); }),
+    setFrame: chain((fr) => { obj.frame = { name: fr ?? null }; obj.setSizeToFrame(); }),
+    setSizeToFrame: chain(() => {
+      if (!isFrame) return;
+      const f = frameSize(scene, obj.texture.key, obj.frame.name);
+      obj.width = f.w;
+      obj.height = f.h;
+      obj.updateDisplayOrigin();
+    }),
     setTint: chain((t) => { obj.tint = t; }),
     clearTint: chain(() => { obj.tint = null; }),
-    // A hit area is in the frame's local pixels (0,0 = the frame's top-left), as Phaser's
-    setInteractive: chain((shape) => { obj.interactive = true; if (shape) obj.hitArea = shape; }),
+    // A hit area is in the frame's local pixels (0,0 = the frame's top-left),
+    // as Phaser's; without one, Phaser's default: the whole frame
+    // (Phaser keeps it on obj.input.hitArea; without a shape, the frame's size at that time)
+    setInteractive: chain((shape) => {
+      obj.interactive = true;
+      const hitArea = shape || obj.input?.hitArea || new globalThis.Phaser.Geom.Rectangle(0, 0, obj.width, obj.height);
+      obj.input = { hitArea, enabled: true };
+    }),
     disableInteractive: chain(() => { obj.interactive = false; }),
     setStrokeStyle: chain(() => {}),
     setText: chain(() => {}),
@@ -202,10 +245,82 @@ function makeText(scene, x, y, content, style = {}) {
   };
   obj.setText = (t) => { obj.text = Array.isArray(t) ? t.join('\n') : String(t ?? ''); return measure(); };
   obj.setFontSize = (size) => { obj.style.fontSize = typeof size === 'number' ? `${size}px` : size; return measure(); };
+  obj.setResolution = (r) => { obj.style.resolution = r; return obj; };
   Object.defineProperty(obj, 'displayWidth', { get() { return obj.width * obj.scaleX; }, configurable: true });
   Object.defineProperty(obj, 'displayHeight', { get() { return obj.height * obj.scaleY; }, configurable: true });
   return measure();
 }
+
+/**
+ * The texture manager (game-wide in Phaser: one per page here): canvas
+ * textures with named frames (CardAtlas adds 'cards'), images by key.
+ */
+export class FakeTextures {
+  constructor() {
+    this._tex = new Map();
+    this.uploads = 0;
+    this.drawCalls = 0;
+  }
+
+  /**
+   * CardAtlas's canvas (no jsdom canvas): a 2D context that only counts
+   * what is drawn (cards/CardAtlas.test.js records a real draw).
+   */
+  _createAtlasCanvas() {
+    const textures = this;
+    const ctx = new Proxy({}, {
+      get(_t, k) {
+        if (k === 'measureText') return (t) => ({ width: String(t).length * 20 });
+        return (...args) => { if (k === 'fill' || k === 'fillText' || k === 'stroke') textures.drawCalls++; return args && undefined; };
+      },
+      set() { return true; },
+    });
+    return { width: 0, height: 0, getContext: () => ctx };
+  }
+
+  exists(key) {
+    return this._tex.has(key);
+  }
+
+  get(key) {
+    return this._tex.get(key) || null;
+  }
+
+  remove(key) {
+    this._tex.delete(key);
+  }
+
+  addCanvas(key, canvas) {
+    const textures = this;
+    const tex = {
+      key,
+      canvas,
+      frames: {},
+      width: canvas.width,
+      height: canvas.height,
+      filter: null,
+      add(name, _source, x, y, w, h) {
+        const frame = { name, cutX: x, cutY: y, width: w, height: h, setSize(fw, fh, fx, fy) { Object.assign(this, { width: fw, height: fh, cutX: fx, cutY: fy }); return this; } };
+        this.frames[name] = frame;
+        return frame;
+      },
+      setSize(w, h) {
+        canvas.width = w;
+        canvas.height = h;
+        this.width = w;
+        this.height = h;
+        return this;
+      },
+      setFilter(mode) { this.filter = mode; return this; },
+      refresh() { textures.uploads++; return this; },
+    };
+    this._tex.set(key, tex);
+    return tex;
+  }
+}
+
+/** The page's one texture manager (Phaser's outlives scene restarts too). */
+export const textures = new FakeTextures();
 
 class FakeTweenManager {
   constructor(scene, clock) {
@@ -299,10 +414,13 @@ export class FakeSceneBase {
     this.tweens = new FakeTweenManager(this, clock);
     this.time = new FakeTime(clock);
     this.scale = emitterMixin({ width: 1920, height: 953, resize() {} });
+    this.textures = textures;
+    this.cameras = { main: { originX: 0.5, originY: 0.5, zoom: 1, setOrigin(x, y) { this.originX = x; this.originY = y ?? x; return this; }, setZoom(z) { this.zoom = z; return this; } } };
     this.events = emitterMixin({});
     this.input = { setDefaultCursor: vi.fn() };
     this.load = { atlas() {}, image() {} };
-    this.children = { removeAll: () => this._destroyAll() };
+    const scene = this;
+    this.children = { removeAll: () => this._destroyAll(), get list() { return scene.liveObjects(); } };
     this.game = { loop: { step: () => {} }, scale: this.scale };
     this.restarts = 0;
     this.scene = {
@@ -326,18 +444,18 @@ export class FakeSceneBase {
   /**
    * Phaser's input with topOnly: the interactive objects under (x, y), by
    * their hit area (in frame pixels, origin at the centre, scaled; no
-   * rotation), the topmost first (higher depth, then later in the display
+   * rotation; no hit area: the whole frame), the topmost first (higher depth, then later in the display
    * list). pointerDownAt emits pointerdown on the topmost.
    */
   objectsAt(x, y) {
     const hits = this.liveObjects().filter((o) => {
       if (!o.interactive) return false;
-      const fw = 64;
-      const fh = 64;
+      const fw = o.width || 64;
+      const fh = o.height || 64;
       const lx = (x - o.x) / (o.scaleX || 1) + fw / 2;
       const ly = (y - o.y) / (o.scaleY || 1) + fh / 2;
-      const a = o.hitArea || { x: 0, y: 0, w: fw, h: fh };
-      return lx >= a.x && lx <= a.x + a.w && ly >= a.y && ly <= a.y + a.h;
+      const a = o.input?.hitArea || { x: 0, y: 0, width: fw, height: fh };
+      return lx >= a.x && lx <= a.x + a.width && ly >= a.y && ly <= a.y + a.height;
     });
     return hits.sort((a, b) => b.depth - a.depth || b.id - a.id);
   }
@@ -357,7 +475,7 @@ export class FakeSceneBase {
   census() {
     const out = {};
     for (const o of this.liveObjects()) {
-      const tex = o.texture?.key === 'cards' ? 'card' : (o.texture?.key || '-');
+      const tex = o.texture?.key === 'cards' ? (o.frame?.name === 'back' ? 'cardBack' : 'card') : (o.texture?.key || '-');
       const k = `${o.kind}:${tex}`;
       out[k] = (out[k] || 0) + 1;
     }
@@ -365,13 +483,48 @@ export class FakeSceneBase {
   }
 }
 
+/**
+ * Phaser.Game stand-in: a loop that can sleep and wake (loopControl.js),
+ * and the game events (postrender after every clock step while running;
+ * resume when a hidden tab returns).
+ */
+export class FakeGame {
+  constructor() {
+    const game = this;
+    this.events = emitterMixin({});
+    this.loop = {
+      running: true,
+      sleeps: 0,
+      wakes: 0,
+      sleep() { if (this.running) { this.running = false; this.sleeps++; } },
+      wake() { if (!this.running) { this.running = true; this.wakes++; } },
+      resetDelta() {},
+      // Phaser's tab-return path: the loop resumes, then 'resume'
+      resume() { this.wake(); game.events.emit('resume'); },
+      step() {},
+    };
+    clock.games.add(this);
+  }
+
+  destroy() {
+    clock.games.delete(this);
+  }
+}
+
 export function installFakePhaser() {
   globalThis.Phaser = {
     Scene: FakeSceneBase,
-    Game: class {},
+    Game: FakeGame,
     AUTO: 0,
-    Scale: { RESIZE: 0, CENTER_BOTH: 0, FIT: 0 },
-    Geom: { Rectangle: class { constructor(x, y, w, h) { Object.assign(this, { x, y, w, h }); } static Contains() { return true; } } },
+    Scale: { RESIZE: 0, NONE: 0, NO_CENTER: 0, CENTER_BOTH: 0, FIT: 0 },
+    Geom: {
+      Rectangle: class {
+        constructor(x = 0, y = 0, width = 0, height = 0) { Object.assign(this, { x, y, width, height }); }
+        setSize(width, height = width) { this.width = width; this.height = height; return this; }
+        static Contains() { return true; }
+      },
+    },
+    Textures: { FilterMode: { LINEAR: 0, NEAREST: 1 } },
   };
   return globalThis.Phaser;
 }

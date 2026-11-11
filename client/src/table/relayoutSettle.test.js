@@ -35,6 +35,8 @@ function replayTo(i) {
 }
 
 const ffs = () => page.scene.director.stats.fastForwards;
+const isBack = (s) => s?.texture?.key === 'cards' && s.frame?.name === 'back';
+const isFace = (s) => s?.texture?.key === 'cards' && !!s.frame?.name && s.frame.name !== 'back';
 
 beforeAll(async () => {
   replay = await import('../testing/replay.js');
@@ -55,25 +57,26 @@ describe('the first hand\'s trump (drawn before the log column narrows the canva
     const scene = page.scene;
     const trump = () => scene.tableCardSprite;
     expect(trump()?.active).toBe(true);
-    expect(trump().texture.key).toBe('cardBack'); // face down, the flip still ahead
+    expect(isBack(trump())).toBe(true); // face down, the flip still ahead
     expect(scene.director.uiReady).toBe(false); // the teams / createUI fade
     expect(scene.director.pending('deal')).toBeGreaterThan(0); // the flip's wait
-    const drawnAt = trump().scaleY;
+    const drawnAt = trump().scaleY * trump().height; // on screen (px)
 
     // the log column comes on: a narrower canvas
     const before = ffs();
     const L = resize(824, 668);
     expect(ffs()).toBe(before); // the fade: no fast-forward, every manager snaps
-    expect(L.trump.card.scale).toBeLessThan(drawnAt);
+    expect(L.trump.card.h).toBeLessThan(drawnAt);
+    expect(trump().scaleY * trump().height).toBeCloseTo(L.trump.card.h, 6);
     expect(trump().scaleX).toBeCloseTo(L.trump.card.scale, 6);
     expect(trump().scaleY).toBeCloseTo(L.trump.card.scale, 6);
     expect([trump().x, trump().y]).toEqual([L.trump.x, L.trump.y]);
 
     // the flip (after the fade) and the deal land on the same scale
     let guard = 0;
-    while (trump()?.texture.key === 'cardBack' && guard++ < 400) replay.advance(25);
+    while (isBack(trump()) && guard++ < 400) replay.advance(25);
     replay.advance(400);
-    expect(trump().texture.key).toBe('cards');
+    expect(isFace(trump())).toBe(true);
     const L2 = scene.getLayout();
     expect(trump().scaleX).toBeCloseTo(L2.trump.card.scale, 6);
     expect(trump().scaleY).toBeCloseTo(L2.trump.card.scale, 6);
@@ -87,24 +90,27 @@ describe('the first hand\'s trump (drawn before the log column narrows the canva
       const next = log.findIndex((e, i) => i >= at && e.event === 'gameStart');
       replayTo(next + 1);
       // the whisk, the deal, then the flip (face up in its second half)
-      const inHalf = (s) => s?.getData('flipping') && (half === 'first') === (s.texture.key === 'cardBack');
+      const inHalf = (s) => s?.getData('flipping') && (half === 'first') === isBack(s);
       let guard = 0;
       while (!inHalf(scene.tableCardSprite) && guard++ < 1000) replay.advance(5, 5);
       expect(inHalf(scene.tableCardSprite)).toBe(true);
       // relayout's snap path (a later hand's relayout fast-forwards a flip;
       // the first hand's, inside the fade, snaps)
-      const was = scene.getLayout().trump.card.scale;
+      const was = scene.getLayout().trump.card.h;
       scene.scale.width = w;
       scene.scale.height = h;
       scene._layout = null;
       scene.repositionTrumpDisplay();
       const L = scene.getLayout();
       expect(L.w).toBe(w);
-      expect(Math.abs(L.trump.card.scale - was)).toBeGreaterThan(0.05); // a real change
+      expect(Math.abs(L.trump.card.h - was)).toBeGreaterThan(3); // a real change (px on screen; in even device px since the card is its frame 1:1)
       expect(scene.tableCardSprite.scaleY).toBeCloseTo(L.trump.card.scale, 6);
+      // drawn at the layout's size: the atlas follows the layout (its frame
+      // is the new hand card) and the sprite took the new frame
+      expect(scene.tableCardSprite.scaleY * scene.tableCardSprite.height).toBeCloseTo(L.trump.card.h, 6);
       replay.advance(600);
       const sprite = scene.tableCardSprite;
-      expect(sprite.texture.key).toBe('cards');
+      expect(isFace(sprite)).toBe(true);
       expect(sprite.getData('flipping')).toBe(false);
       expect(sprite.scaleX).toBeCloseTo(L.trump.card.scale, 6);
       expect(sprite.scaleY).toBeCloseTo(L.trump.card.scale, 6);

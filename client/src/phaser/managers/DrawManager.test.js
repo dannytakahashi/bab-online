@@ -70,7 +70,7 @@ describe('DrawManager fade timer', () => {
     dm.handleTeamsAnnounced({ team1: ['a', 'b'], team2: ['c', 'd'], resumeInMs: 2400 });
     expect(scene.time.delayedCall).toHaveBeenCalledWith(1600, expect.any(Function));
     fadeCallback();
-    expect(document.getElementById('transition-overlay').style.transition).toContain('800ms');
+    expect(document.getElementById('transition-overlay').style.getPropertyValue('--overlay-ms')).toBe('800ms');
     document.getElementById('transition-overlay').remove();
   });
 });
