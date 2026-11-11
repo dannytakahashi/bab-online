@@ -217,6 +217,10 @@ function setupSocketHandlers(io) {
         socket.on('voiceRelayAudio', (data) =>
             safeHandler(voiceHandlers.voiceRelayAudio)(socket, io, data)
         );
+        // ICE servers (Cloudflare TURN credentials, else STUN) for voice peers
+        socket.on('getVoiceIceServers', (data) =>
+            asyncHandler('getVoiceIceServers', voiceHandlers.getVoiceIceServers)(socket, io, data)
+        );
 
         // Disconnect - cleanup rate limiter and handle game state
         socket.on('disconnect', () => {

@@ -15,6 +15,19 @@
  *                       warning, when NODE_ENV=production)
  *   zero                tests only (throws outside Jest / NODE_ENV=test)
  *
+ * Solo overlay (owner, 2026-11-11: "Solo games only"): on the standard
+ * profile, a game with exactly ONE human gets SOLO on top (shorter bot leads
+ * and first bid, trick view 1.0 s, next hand 0.5 s). Humans = distinct seat
+ * owners (humanOwnerCount: a lazy, AFK, resigned or disconnected owner still
+ * counts, an owner who left for good does not; spectators never count; the
+ * entrants before seating), decided at every read, so a game that loses or
+ * gains a human, and a tournament table, follow their current composition.
+ * Games with 2+ humans and the ambient game (0 humans, people watch it)
+ * keep standard. SOLO goes below IOS_1_0_FLOORS, so it is OFF while the
+ * upgrade gate is disabled (UPGRADE_GATE=off, utils/upgradeGateSwitch.js,
+ * read per call). legacy, fast and zero never get it; BAB_PACING=legacy is
+ * still the full rollback.
+ *
  * Bot think ranges are [min, span] pairs: delay = min + r * span, with one
  * Math.random() per action (BotPlayer.getActionDelay).
  *
@@ -28,7 +41,8 @@
  * cc9059f), because UPGRADE_GATE=off lets that build play again; going below
  * those needs the gate on (server/socket/upgradeGate.js). Measured budget: server/socket/__tests__/pacingBudget.test.js
  * (BAB_PACING_REPORT=1 prints the components). A 1-human/3-bot game with
- * the human acting instantly: legacy ~595 s, standard ~321 s (54%).
+ * the human acting instantly: legacy ~595 s, standard ~321 s (54%), and
+ * with the solo overlay (that game has one human) ~288 s.
  *
  * Sensitivities (effect on that total; 91 tricks, ~173 bot follows,
  * ~29 bot last-card follows, ~59 leads after a trick, ~10 opening leads,
@@ -46,6 +60,9 @@
  */
 
 'use strict';
+
+// The upgrade gate's kill switch: SOLO is below the 1.0.0 floors
+const { gateEnabled } = require('../utils/upgradeGateSwitch');
 
 // ---------------------------------------------------------------------------
 // Profiles
@@ -90,7 +107,7 @@ const LEGACY = {
  * Values unchanged by the 1.1.0 floors (owner, 2026-11-11: no pacing change
  * yet); the iOS comments below describe 1.0.0 (setupGameUI, clearTrick),
  * whose floors these still meet for UPGRADE_GATE=off. What 1.1.0 alone
- * would allow: SHIPPED_IOS_FLOORS.
+ * would allow: SHIPPED_IOS_FLOORS. Games with exactly one human: SOLO.
  */
 const STANDARD = {
     ...LEGACY,
@@ -151,6 +168,28 @@ const AMBIENT_PREGAME = Object.freeze({
     TEAMS_MS: 0,
 });
 const PREGAME_STAGES = new Set(['CREATED', 'DRAWING', 'DRAW_RESOLVING', 'TEAMS_ANNOUNCED']);
+
+/**
+ * Overlay on standard for a game with exactly one human (see the header).
+ * Measured with overrides on a 1-human/3-bot game, the human acting
+ * instantly (standard 320.9 s): BOT_LEAD_AFTER_TRICK alone ~309 s; with
+ * HAND_END_MS, BOT_FIRST_BID and BOT_LEAD_AFTER_BIDDING ~297 s; with
+ * TRICK_VIEW_MS ~288 s (pacingBudget.test.js pins it). Every value meets
+ * SHIPPED_IOS_FLOORS and the web collect (500 ms before a lead after a
+ * trick); several are below IOS_1_0_FLOORS, hence the gate check.
+ */
+const SOLO = Object.freeze({
+    // the 1.1.0 collect is 0.4 s, the web collect 0.5 s (CARD_COLLECT)
+    BOT_LEAD_AFTER_TRICK: Object.freeze([500, 200]),
+    // the hand's last collect is sized to resumeInMs (web: 250 ms of 500)
+    HAND_END_MS: 500,
+    // 1.1.0 renders the hand at once; bubble pop 0.2 s, bore badge 0.3 s
+    BOT_FIRST_BID: Object.freeze([600, 400]),
+    // doneBidding: the 1.1.0 bid sheet leaves in its 0.3 s transition
+    BOT_LEAD_AFTER_BIDDING: Object.freeze([400, 300]),
+    // the full trick before the collect; web sizes the 4th card's fly-in to it
+    TRICK_VIEW_MS: 1000,
+});
 
 /**
  * Dev only: every value SHIPPED_IOS_FLOORS covers at its floor (the lead
@@ -303,26 +342,63 @@ function profileNameFromEnv() {
 let active = null;
 let activeName = null;
 let activePregame = null;
+let activeSolo = null;
+// false once setPacingForTests applied overrides: SOLO would mask them
+let soloEligible = false;
 
 // The ambient pre-game overlay is part of the retune: legacy keeps
 // df59149's ambient pre-deal timing exactly, and zero has nothing to shorten
 const NO_PREGAME_OVERLAY = new Set(['legacy', 'zero']);
 
 /**
+ * Distinct human owners of the game right now: every seat with an owner
+ * whose presence is not 'gone' (human, lazy/AFK, resigned; connected or
+ * not), or, before seating, every entrant that is not a bot and has not
+ * left. Spectators are never counted. Duck-typed (no GameState import).
+ */
+function humanOwnerCount(game) {
+    const names = new Set();
+    const seats = game && game.seats ? Object.values(game.seats).filter(Boolean) : [];
+    if (seats.length > 0) {
+        for (const s of seats) {
+            if (s.ownerUsername && s.presence !== 'gone') names.add(s.ownerUsername);
+        }
+    } else if (game && game.entrants && typeof game.entrants.values === 'function') {
+        for (const e of game.entrants.values()) {
+            if (e && !e.isBot && e.presence !== 'left' && e.username) names.add(e.username);
+        }
+    }
+    return names.size;
+}
+
+/** Does `game` get the SOLO overlay right now? */
+function isSolo(game) {
+    return !!game && soloEligible && activeName === 'standard' && !game.isDemo &&
+        gateEnabled() && humanOwnerCount(game) === 1;
+}
+
+/**
  * The active pacing values (frozen).
  * @param {Object} [game] - an ambient (isDemo) game before the deal with no
- *   spectator gets AMBIENT_PREGAME on top (legacy and zero excepted)
+ *   spectator gets AMBIENT_PREGAME on top (legacy and zero excepted); a game
+ *   with exactly one human gets SOLO on top (standard only, gate on)
  */
 function pacing(game) {
     if (!active) {
         activeName = profileNameFromEnv();
         active = freeze(PROFILES[activeName]);
         activePregame = null;
+        activeSolo = null;
+        soloEligible = true;
     }
     if (game && game.isDemo && PREGAME_STAGES.has(game.stage) && !(game.spectators && game.spectators.size > 0) &&
         !NO_PREGAME_OVERLAY.has(activeName) && active.TRICK_VIEW_MS > 0) {
         if (!activePregame) activePregame = freeze({ ...active, ...AMBIENT_PREGAME });
         return activePregame;
+    }
+    if (isSolo(game)) {
+        if (!activeSolo) activeSolo = freeze({ ...active, ...SOLO });
+        return activeSolo;
     }
     return active;
 }
@@ -334,10 +410,13 @@ function setPacingForTests(nameOrOverrides) {
         if (!PROFILES[nameOrOverrides]) throw new Error(`Unknown pacing profile ${nameOrOverrides}`);
         active = freeze(PROFILES[nameOrOverrides]);
         activeName = nameOrOverrides;
+        soloEligible = true;
     } else {
         active = freeze({ ...pacing(), ...nameOrOverrides });
+        soloEligible = false;
     }
     activePregame = null;
+    activeSolo = null;
     return active;
 }
 
@@ -347,6 +426,8 @@ function resetPacing() {
     active = null;
     activeName = null;
     activePregame = null;
+    activeSolo = null;
+    soloEligible = false;
     tracer = null;
 }
 
@@ -375,6 +456,9 @@ pacing.PROFILES = PROFILES;
 pacing.SHIPPED_IOS_FLOORS = SHIPPED_IOS_FLOORS;
 pacing.IOS_1_0_FLOORS = IOS_1_0_FLOORS;
 pacing.AMBIENT_PREGAME = AMBIENT_PREGAME;
+pacing.SOLO = SOLO;
+pacing.humanOwnerCount = humanOwnerCount;
+pacing.isSolo = isSolo;
 pacing.setPacingForTests = setPacingForTests;
 pacing.resetPacing = resetPacing;
 pacing.fromRange = fromRange;

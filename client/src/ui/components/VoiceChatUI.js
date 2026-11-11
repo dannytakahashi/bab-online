@@ -313,7 +313,7 @@ export function showVoiceOverlay() {
 const SPEAKING_POLL_UI = 100;
 
 // Track overlay rows so we update in-place instead of recreating
-let _overlayRows = new Map(); // id → { row, muteBtn, slider, relayBadge }
+let _overlayRows = new Map(); // id → { row, muteBtn, slider, unavailableBadge }
 
 function updateOverlayPlayers() {
   const container = document.getElementById('voice-overlay-players');
@@ -350,9 +350,13 @@ function updateOverlayPlayers() {
       row.appendChild(el('div', { className: 'voice-row__dot' }));
 
       const name = el('span', { className: 'voice-row__name', text: entry.username + (entry.isSelf ? ' (You)' : '') });
-      // Red "S" badge for relayed (non-P2P) connections
-      const relayBadge = el('span', { className: 'voice-row__relay', text: 'S', attrs: { title: 'Relayed through the server' } });
-      name.appendChild(relayBadge);
+      // Shown when the connection failed for good (after its one restart)
+      const unavailableBadge = el('span', {
+        className: 'voice-row__unavailable',
+        text: 'voice unavailable',
+        attrs: { title: 'Voice could not connect to this player' },
+      });
+      name.appendChild(unavailableBadge);
       row.appendChild(name);
 
       let slider = null;
@@ -385,7 +389,7 @@ function updateOverlayPlayers() {
       row.appendChild(muteBtn);
 
       container.appendChild(row);
-      _overlayRows.set(entry.id, { row, muteBtn, slider, relayBadge, isSelf });
+      _overlayRows.set(entry.id, { row, muteBtn, slider, unavailableBadge, isSelf });
     }
 
     // Update dynamic state (speaking, muted) on existing elements
@@ -399,10 +403,9 @@ function updateOverlayPlayers() {
     els.muteBtn.classList.toggle('kit-btn--danger', !!isMuted);
     els.muteBtn.classList.toggle('kit-btn--secondary', !isMuted);
 
-    // Toggle relay badge visibility
-    if (els.relayBadge) {
-      els.relayBadge.classList.toggle('is-on', !entry.isSelf && !!voiceManager.isRelayed(entry.id));
-    }
+    const unavailable = !entry.isSelf && !!voiceManager.isUnavailable?.(entry.id);
+    els.row.classList.toggle('is-unavailable', unavailable);
+    els.unavailableBadge.classList.toggle('is-on', unavailable);
   }
 }
 

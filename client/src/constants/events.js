@@ -69,6 +69,7 @@ export const CLIENT_EVENTS = {
   VOICE_ANSWER: 'voiceAnswer',
   VOICE_ICE_CANDIDATE: 'voiceIceCandidate',
   VOICE_RELAY_AUDIO: 'voiceRelayAudio',
+  GET_VOICE_ICE_SERVERS: 'getVoiceIceServers',
 
   // Account management
   DELETE_ACCOUNT: 'deleteAccount',
@@ -201,4 +202,5 @@ export const SERVER_EVENTS = {
   VOICE_PEER_JOINED: 'voicePeerJoined',
   VOICE_PEER_LEFT: 'voicePeerLeft',
   VOICE_RELAY_AUDIO: 'voiceRelayAudio',
+  VOICE_ICE_SERVERS: 'voiceIceServers',
 };

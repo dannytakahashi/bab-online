@@ -50,13 +50,22 @@ const SCENARIOS = {
     },
 };
 
+// The golden pins fcdd885's wire, which had standard pacing for every game:
+// the solo overlay (pacing.js, a game with exactly one human) postdates it
+// and changes oneHuman's resumeInMs values and timestamps, so it is turned
+// off here the way production turns it off (UPGRADE_GATE=off). The solo
+// timings have their own checks (pacing.test.js, pacingBudget.test.js).
+const gateEnv = process.env.UPGRADE_GATE;
+
 beforeEach(() => {
+    process.env.UPGRADE_GATE = 'off';
     jest.useFakeTimers();
     jest.spyOn(console, 'log').mockImplementation(() => {});
     jest.spyOn(console, 'warn').mockImplementation(() => {});
 });
 
 afterEach(() => {
+    if (gateEnv === undefined) delete process.env.UPGRADE_GATE; else process.env.UPGRADE_GATE = gateEnv;
     jest.clearAllTimers();
     jest.useRealTimers();
     jest.restoreAllMocks();

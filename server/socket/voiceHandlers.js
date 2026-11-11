@@ -1,8 +1,12 @@
 /**
  * Voice chat signaling relay handlers.
  * Forwards WebRTC signaling messages (SDP offers/answers, ICE candidates)
- * between peers, plus the web client's PCM fallback (voiceRelayAudio) for
- * peers whose P2P connection failed. Audio otherwise never touches the server.
+ * between peers, and hands out ICE servers (getVoiceIceServers: Cloudflare
+ * TURN credentials, else STUN). Audio never touches the game server: it goes
+ * peer to peer or through Cloudflare's TURN relay. voiceRelayAudio, the old
+ * web PCM fallback, is deprecated (TURN replaced it, 2026-11-11): still
+ * forwarded only for web bundles cached before that deploy
+ * (contract/V1_REMOVALS.md #20).
  *
  * Authorization (roadmap 30, security part): a message is forwarded only
  * when
@@ -28,6 +32,7 @@
 const { socketLogger } = require('../utils/logger');
 const gameManager = require('../game/GameManager');
 const { rateLimiter } = require('./errorHandler');
+const turnCredentials = require('../voice/turnCredentials');
 
 /** Largest relayed PCM chunk (web sends 4096 input frames as 8 kHz Int16: <= 8 KB). */
 const MAX_RELAY_BYTES = 64 * 1024;
@@ -174,6 +179,35 @@ function voiceRelayAudio(socket, io, data) {
     });
 }
 
+/**
+ * getVoiceIceServers {requestId?} -> voiceIceServers {iceServers, turn,
+ * expiresInSec, requestId?} to this socket only (server/voice/turnCredentials.js).
+ * TURN credentials go only to a signed-in socket that is a voice peer right
+ * now (in a lobby, or an entrant / seat owner of a game: the sockets the
+ * relays above accept); anyone else gets the public STUN servers, as does
+ * every failure. Joi and the wrapper's rateLimiter.getVoiceIceServers
+ * limit run first (index.js). The reply never carries the API token, and
+ * nothing here logs a credential.
+ */
+async function getVoiceIceServers(socket, io, data) {
+    const requestId = typeof data?.requestId === 'string' ? data.requestId : undefined;
+    const reply = (answer) => socket.emit('voiceIceServers', requestId !== undefined ? { ...answer, requestId } : answer);
+    const user = gameManager.getUserBySocketId(socket.id);
+    const isPeer = gameManager.playerLobbies.has(socket.id) || gameManager.playerGames.has(socket.id);
+    if (!user?.username || !isPeer) {
+        socketLogger.debug('Voice ICE servers: STUN only', { socketId: socket.id, reason: user?.username ? 'not_a_voice_peer' : 'not_signed_in' });
+        reply(turnCredentials.stunOnly());
+        return;
+    }
+    const answer = await turnCredentials.getIceServers(user.username);
+    // Signed out or replaced while Cloudflare answered: no credentials
+    if (gameManager.getUserBySocketId(socket.id)?.username !== user.username) {
+        reply(turnCredentials.stunOnly());
+        return;
+    }
+    reply(answer);
+}
+
 /** Remember the signed-in user's block list on the socket (voice checks it per message). */
 function rememberBlockList(socket, blockedUsers) {
     if (!socket || !socket.data) return;
@@ -185,6 +219,7 @@ module.exports = {
     voiceAnswer,
     voiceIceCandidate,
     voiceRelayAudio,
+    getVoiceIceServers,
     isRelayChunk,
     rememberBlockList,
     MAX_RELAY_BYTES

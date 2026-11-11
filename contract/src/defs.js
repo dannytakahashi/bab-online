@@ -215,6 +215,13 @@ const defs = {
     }, { open: true })),
     playerSearchRow: obj({ username: str(), profilePic: int(), customProfilePic: orNull(str()), gamesPlayed: int(), wins: int() }),
     voicePeer: obj({ socketId: str(), username: { type: ['string', 'null'] } }),
+    // One RTCIceServer (voiceIceServers): stun: / turn: / turns: URLs;
+    // username + credential only on a TURN entry
+    iceServer: obj({
+        urls: arr(str({ pattern: '^(stun|turn|turns):' }), { minItems: 1 }),
+        username: str(),
+        credential: str(),
+    }, { optional: ['username', 'credential'] }),
     legacyClientState: obj(LEGACY_CLIENT_STATE_PROPS),
     spectatorStateV1: obj(SPECTATOR_STATE_V1_PROPS),
     seq: int({ minimum: 1, description: 'Per-game broadcast sequence number (contract/README.md R1-R5)' }),

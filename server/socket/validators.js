@@ -90,6 +90,12 @@ const schemas = {
         log: Joi.boolean().optional()
     }),
 
+    // Voice ICE servers (no payload at all is fine too; socket.io sends an
+    // explicit undefined argument as null)
+    getVoiceIceServers: Joi.object({
+        requestId: Joi.string().min(1).max(64).optional()
+    }).allow(null),
+
     // Resignation
     forceResign: Joi.object({
         position: Joi.number().integer().min(1).max(4).required()

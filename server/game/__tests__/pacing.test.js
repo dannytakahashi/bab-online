@@ -67,6 +67,138 @@ describe('SHIPPED_IOS_FLOORS (1.1.0 build 2)', () => {
     });
 });
 
+describe('solo overlay (exactly one human; owner 2026-11-11)', () => {
+    const { SOLO } = pacing;
+    const SOLO_PROFILE = { ...PROFILES.standard, ...SOLO };
+    const gateEnv = process.env.UPGRADE_GATE;
+    afterEach(() => {
+        if (gateEnv === undefined) delete process.env.UPGRADE_GATE; else process.env.UPGRADE_GATE = gateEnv;
+    });
+
+    const seat = (pos, controller, presence, ownerUsername) => ({ position: pos, controller, presence, ownerUsername });
+    const bot = (pos) => seat(pos, 'bot', 'none', null);
+    const seated = (seats, extra = {}) => ({
+        isDemo: false, stage: 'PLAYING', spectators: new Set(), entrants: null,
+        seats: Object.fromEntries(seats.map((s) => [s.position, s])), ...extra,
+    });
+    const solo = () => seated([seat(1, 'human', 'connected', 'alice'), bot(2), bot(3), bot(4)]);
+    const duo = () => seated([seat(1, 'human', 'connected', 'alice'), bot(2), seat(3, 'human', 'connected', 'bob'), bot(4)]);
+
+    test('the solo values: standard keys only, the measured cuts', () => {
+        expect(SOLO).toEqual({
+            BOT_LEAD_AFTER_TRICK: [500, 200],
+            HAND_END_MS: 500,
+            BOT_FIRST_BID: [600, 400],
+            BOT_LEAD_AFTER_BIDDING: [400, 300],
+            TRICK_VIEW_MS: 1000,
+        });
+        expect(Object.isFrozen(SOLO)).toBe(true);
+        for (const k of Object.keys(SOLO)) expect(PROFILES.standard).toHaveProperty(k);
+    });
+
+    test('standard + SOLO respects every SHIPPED_IOS_FLOORS floor and the web collect', () => {
+        for (const [key, floor] of Object.entries(SHIPPED_IOS_FLOORS)) {
+            expect([key, floorValue(SOLO_PROFILE, key) >= floor]).toEqual([key, true]);
+        }
+        expect(SOLO_PROFILE.BOT_LEAD_AFTER_TRICK[0]).toBeGreaterThanOrEqual(500);
+    });
+
+    test('SOLO is below IOS_1_0_FLOORS (why UPGRADE_GATE=off turns it off) and never slower than standard', () => {
+        const below = Object.keys(SOLO).filter((k) => minOf(SOLO[k]) < IOS_1_0_FLOORS[k]);
+        expect(below.sort()).toEqual(['BOT_FIRST_BID', 'BOT_LEAD_AFTER_BIDDING', 'BOT_LEAD_AFTER_TRICK', 'HAND_END_MS']);
+        for (const [k, v] of Object.entries(SOLO)) {
+            const max = (x) => (Array.isArray(x) ? x[0] + x[1] : x);
+            expect([k, max(v) <= max(PROFILES.standard[k])]).toEqual([k, true]);
+        }
+    });
+
+    test('humanOwnerCount: distinct seat owners; lazy, AFK, resigned and disconnected owners count, gone owners and spectators do not', () => {
+        const count = pacing.humanOwnerCount;
+        expect(count(solo())).toBe(1);
+        expect(count(duo())).toBe(2);
+        expect(count(seated([seat(1, 'lazyBot', 'connected', 'alice'), bot(2), bot(3), bot(4)]))).toBe(1); // /lazy or AFK
+        expect(count(seated([seat(1, 'lazyBot', 'away', 'alice'), bot(2), bot(3), bot(4)]))).toBe(1);
+        expect(count(seated([seat(1, 'human', 'grace', 'alice'), bot(2), bot(3), bot(4)]))).toBe(1);
+        expect(count(seated([seat(1, 'human', 'resignable', 'alice'), bot(2), bot(3), bot(4)]))).toBe(1);
+        expect(count(seated([seat(1, 'resignBot', 'away', 'alice'), bot(2), seat(3, 'human', 'connected', 'bob'), bot(4)]))).toBe(2);
+        // left for good: the game lost that human
+        expect(count(seated([seat(1, 'lazyBot', 'gone', 'alice'), bot(2), seat(3, 'human', 'connected', 'bob'), bot(4)]))).toBe(1);
+        expect(count(seated([bot(1), bot(2), bot(3), bot(4)], { spectators: new Set(['s1', 's2']) }))).toBe(0);
+        // the same username twice is one human
+        expect(count(seated([seat(1, 'human', 'connected', 'alice'), bot(2), seat(3, 'lazyBot', 'away', 'alice'), bot(4)]))).toBe(1);
+        // before seating: entrants that are not bots and have not left
+        const pre = (entrants) => ({ isDemo: false, stage: 'DRAWING', seats: { 1: null, 2: null, 3: null, 4: null },
+            entrants: new Map(entrants.map((e, i) => [`s${i}`, e])) });
+        expect(count(pre([{ username: 'alice', isBot: false, presence: 'connected' }, { username: 'B1', isBot: true },
+            { username: 'B2', isBot: true }, { username: 'B3', isBot: true }]))).toBe(1);
+        expect(count(pre([{ username: 'alice', isBot: false, presence: 'disconnected' }, { username: 'bob', isBot: false, presence: 'left' }]))).toBe(1);
+        expect(count(null)).toBe(0);
+    });
+
+    test('standard: a 1-human game gets SOLO; 2 humans, the ambient game and no game keep standard', () => {
+        pacing.setPacingForTests('standard');
+        const p = pacing(solo());
+        for (const [k, v] of Object.entries(SOLO)) expect([k, p[k]]).toEqual([k, v]);
+        expect(p.BOT_PLAY).toEqual(PROFILES.standard.BOT_PLAY);
+        expect(Object.isFrozen(p) && Object.isFrozen(p.BOT_LEAD_AFTER_TRICK)).toBe(true);
+        expect(pacing(solo())).toBe(p); // cached
+        expect(pacing.isSolo(solo())).toBe(true);
+        expect(pacing(duo()).TRICK_VIEW_MS).toBe(PROFILES.standard.TRICK_VIEW_MS);
+        expect(pacing().TRICK_VIEW_MS).toBe(PROFILES.standard.TRICK_VIEW_MS);
+        const ambient = seated([bot(1), bot(2), bot(3), bot(4)], { isDemo: true, spectators: new Set(['watcher']) });
+        expect(pacing(ambient).TRICK_VIEW_MS).toBe(PROFILES.standard.TRICK_VIEW_MS);
+        // a tournament table is just a game: one human there is solo too
+        expect(pacing(solo()).HAND_END_MS).toBe(SOLO.HAND_END_MS);
+    });
+
+    test('decided at read time: a game that gains or loses a human follows its composition', () => {
+        pacing.setPacingForTests('standard');
+        const g = duo();
+        expect(pacing(g).TRICK_VIEW_MS).toBe(1100);
+        g.seats[3] = seat(3, 'lazyBot', 'gone', 'bob'); // bob /leave'd for good
+        expect(pacing(g).TRICK_VIEW_MS).toBe(1000);
+        g.seats[1] = seat(1, 'lazyBot', 'connected', 'alice'); // alice went AFK: still her game
+        expect(pacing(g).TRICK_VIEW_MS).toBe(1000);
+        g.seats[1] = seat(1, 'lazyBot', 'gone', 'alice'); // nobody left: standard
+        expect(pacing(g).TRICK_VIEW_MS).toBe(1100);
+    });
+
+    test.each(['off', 'false', '0', 'disabled', 'no', ' OFF '])('UPGRADE_GATE=%p forces standard (read per call)', (v) => {
+        pacing.setPacingForTests('standard');
+        process.env.UPGRADE_GATE = v;
+        expect(pacing(solo()).TRICK_VIEW_MS).toBe(PROFILES.standard.TRICK_VIEW_MS);
+        expect(pacing(solo()).BOT_LEAD_AFTER_BIDDING).toEqual(PROFILES.standard.BOT_LEAD_AFTER_BIDDING);
+        delete process.env.UPGRADE_GATE;
+        expect(pacing(solo()).TRICK_VIEW_MS).toBe(SOLO.TRICK_VIEW_MS);
+        process.env.UPGRADE_GATE = 'on';
+        expect(pacing(solo()).TRICK_VIEW_MS).toBe(SOLO.TRICK_VIEW_MS);
+    });
+
+    test.each(['legacy', 'fast', 'zero'])('%s never gets the overlay (BAB_PACING=legacy is the full rollback)', (name) => {
+        pacing.setPacingForTests(name);
+        expect(pacing(solo())).toBe(pacing());
+        expect(pacing(solo()).TRICK_VIEW_MS).toBe(PROFILES[name].TRICK_VIEW_MS);
+    });
+
+    test('BAB_PACING=legacy from the environment: no overlay', () => {
+        const prev = process.env.BAB_PACING;
+        process.env.BAB_PACING = 'legacy';
+        pacing.resetPacing();
+        try {
+            expect(pacing(solo()).TRICK_VIEW_MS).toBe(PROFILES.legacy.TRICK_VIEW_MS);
+        } finally {
+            if (prev === undefined) delete process.env.BAB_PACING; else process.env.BAB_PACING = prev;
+            pacing.resetPacing();
+        }
+    });
+
+    test('test overrides are never masked by the overlay', () => {
+        pacing.setPacingForTests('standard');
+        pacing.setPacingForTests({ TRICK_VIEW_MS: 7 });
+        expect(pacing(solo()).TRICK_VIEW_MS).toBe(7);
+    });
+});
+
 describe('ambient pre-game overlay', () => {
     const demo = (stage) => ({ isDemo: true, stage, spectators: new Set() });
 
