@@ -36,3 +36,39 @@ describe('the table on tokens and kit classes', () => {
     }
   });
 });
+
+/** The declarations of the rule for `sel` in a stylesheet (its first block). */
+function ruleOf(css, sel) {
+  const i = css.indexOf(`\n${sel} {`);
+  expect(i, sel).toBeGreaterThan(-1);
+  return css.slice(i, css.indexOf('}', i));
+}
+
+describe('HUD hit targets (HIG 44 pt)', () => {
+  const table = readClientFile('styles/table.css');
+  const components = readClientFile('styles/components.css');
+  const kit = readClientFile('styles/kit.css');
+
+  it('each voice button in the table slot keeps its own hit extension (the mute button\'s does not cover the gear)', () => {
+    // the kit's 44 px extension is an absolute ::before on a positioned button...
+    expect(ruleOf(kit, '.kit-icon-btn')).toContain('position: relative');
+    expect(ruleOf(kit, '.kit-icon-btn::before')).toContain('position: absolute');
+    // ...so a rule that makes a slot button static hands its ::before to the
+    // (absolute) .hud-voice slot, where the last button's covers both
+    expect(ruleOf(components, '.hud-voice')).toContain('position: absolute');
+    for (const [css, sel] of [[table, '.hud-voice > .voice-btn'], [components, '.hud-voice > button']]) {
+      const r = ruleOf(css, sel);
+      expect(r, sel).not.toMatch(/position:\s*static/);
+      expect(r, sel).toMatch(/position:\s*relative/);
+    }
+  });
+
+  it('the log\'s Send and the voice overlay\'s Mute buttons are at least the hit target tall', () => {
+    expect(ruleOf(table, '#gameFeed .chat-send')).toContain('min-height: var(--hit-target)');
+    expect(ruleOf(table, '.voice-row .kit-btn')).toContain('min-height: var(--hit-target)');
+    // and no table rule sets a button's min-height below 44 px
+    const small = [...table.matchAll(/\n([^{}\n]*(?:btn|button|send)[^{}\n]*)\{[^}]*min-height:\s*(\d+)px/g)]
+      .filter((m) => Number(m[2]) < 44).map((m) => m[1].trim());
+    expect(small).toEqual([]);
+  });
+});

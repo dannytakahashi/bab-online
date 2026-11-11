@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createGameLog, showGameLog } from './GameLog.js';
+import { getGameState, resetGameState } from '../../state/GameState.js';
+import { readClientFile } from '../../testing/files.js';
 
 describe('createGameLog', () => {
   let gameLog;
@@ -144,6 +146,34 @@ describe('createGameLog', () => {
     expect(teamDiv.textContent).toContain('Bids: 3/2 | Tricks: 4');
     expect(oppDiv.textContent).toContain('<img src=x>/Eve');
     expect(oppDiv.textContent).toContain('-40');
+  });
+
+  it('the trick chips are in the absolute team colors, as the score above them is', () => {
+    resetGameState();
+    const state = getGameState();
+    state.position = 4; // team B
+    state.bids = { 1: '2', 2: '3', 3: '1', 4: '2' };
+    gameLog = createGameLog();
+    gameLog.showTrickIndicator(13);
+    const chips = [...gameLog.container.querySelectorAll('.log-chip')];
+    const n = (cls) => chips.filter((c) => c.classList.contains(cls)).length;
+    expect([n('is-team'), n('is-opp')]).toEqual([5, 3]);
+    expect(chips.slice(0, 5).every((c) => c.classList.contains('is-team-b'))).toBe(true);
+    expect(chips.slice(5, 8).every((c) => c.classList.contains('is-team-a'))).toBe(true);
+    // the score's "my team" is the same letter
+    gameLog.updateFullScore('Me/Pal', 'Them/Too', 10, 20);
+    expect(gameLog.container.querySelector('#teamScoreDisplay').classList.contains('is-team-b')).toBe(true);
+    // after the bidding (team totals) at seat 1: mine blue
+    state.position = 1;
+    state.bids = { team1: 4, team2: 6 };
+    gameLog.updateTrickIndicator();
+    expect(chips.slice(0, 4).every((c) => c.classList.contains('is-team-a') && !c.classList.contains('is-team-b'))).toBe(true);
+    expect(chips.slice(4, 10).every((c) => c.classList.contains('is-team-b'))).toBe(true);
+    const css = readClientFile('styles/table.css');
+    expect(css).toMatch(/\.log-chip\.is-team-a \{ background: var\(--team-a\); \}/);
+    expect(css).toMatch(/\.log-chip\.is-team-b \{ background: var\(--team-b\); \}/);
+    expect(css).not.toMatch(/\.log-chip\.is-(team|opp) \{/);
+    resetGameState();
   });
 
   it('destroy removes container', () => {

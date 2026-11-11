@@ -103,7 +103,7 @@ describe('the first hand\'s trump (drawn before the log column narrows the canva
       scene.repositionTrumpDisplay();
       const L = scene.getLayout();
       expect(L.w).toBe(w);
-      expect(Math.abs(L.trump.card.h - was)).toBeGreaterThan(5); // a real change (px on screen)
+      expect(Math.abs(L.trump.card.h - was)).toBeGreaterThan(3); // a real change (px on screen; in even device px since the card is its frame 1:1)
       expect(scene.tableCardSprite.scaleY).toBeCloseTo(L.trump.card.scale, 6);
       // drawn at the layout's size: the atlas follows the layout (its frame
       // is the new hand card) and the sprite took the new frame

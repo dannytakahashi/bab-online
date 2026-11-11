@@ -46,6 +46,12 @@ export function createGameConfig({
     // antialias on, pixelArt off, i.e. linear filtering for the card atlas)
     antialias: true,
     pixelArt: false,
+    // snap every textured quad's corners to whole backing-store (device)
+    // pixels: Phaser rounds the camera-transformed vertices, zoom included.
+    // A 93 px frame centred on a whole pixel would otherwise start half a
+    // pixel off, and linear filtering would blend each texel row with the
+    // next (a soft card index at DPR 1)
+    roundPixels: true,
     scene: scene || [],
     // no physics: nothing on the table uses arcade bodies (webclient-10)
   };

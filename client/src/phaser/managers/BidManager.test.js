@@ -84,6 +84,27 @@ describe('the bid sheet\'s width (the layout\'s BID_SHEET)', () => {
     expect(bm.trickIndicators.filter((c) => c.classList.contains('is-opp'))).toHaveLength(7);
   });
 
+  it('the chips are in the absolute team colors (the seat rings\'), never green / red by mine-or-theirs', () => {
+    const state = getGameState();
+    const count = (cls) => bm.trickIndicators.filter((c) => c.classList.contains(cls)).length;
+    // seat 2 (team B): my team's 5 chips coral, the opponents' 3 blue
+    state.position = 2;
+    state.bids = { 1: '2', 2: '3', 3: '1', 4: '2' };
+    bm.showBidUI(13, () => {});
+    expect([count('is-team'), count('is-opp')]).toEqual([5, 3]);
+    expect([count('is-team-b'), count('is-team-a')]).toEqual([5, 3]);
+    expect(bm.trickIndicators.slice(0, 5).every((c) => c.classList.contains('is-team-b'))).toBe(true);
+    // seat 1 (team A): the same bids, mine blue
+    state.position = 1;
+    bm.updateTrickIndicator();
+    expect([count('is-team-a'), count('is-team-b')]).toEqual([3, 5]);
+    expect(bm.trickIndicators.slice(0, 3).every((c) => c.classList.contains('is-team-a'))).toBe(true);
+    // the colors are the team tokens; nothing keys a chip's color on mine / theirs
+    expect(rule('.bid-chip.is-team-a')).toContain('var(--team-a)');
+    expect(rule('.bid-chip.is-team-b')).toContain('var(--team-b)');
+    expect(css).not.toMatch(/\.bid-chip\.is-(team|opp) \{/);
+  });
+
   it('bores are a segmented control; a disabled bore and the selected bid are states, not inline colors', () => {
     const state = getGameState();
     state.position = 1;

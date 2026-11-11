@@ -186,6 +186,19 @@ function cardSize(design, tex) {
 }
 
 /**
+ * The hand card (and every card its size): its frame drawn at exactly one
+ * texel per device pixel (scale 1 / dpr), so it is the frame's size in CSS
+ * px (the design height to whole, even device pixels: within one device
+ * pixel of it). Only when the frame hit its cap (CARD_CONFIG.TEX_MAX_W) is
+ * it the design size, upscaled.
+ */
+function handCardSize(design, tex, dpr) {
+  if (tex.h < CARD_UNIT.h * design * dpr - 1 - 1e-6) return cardSize(design, tex);
+  const scale = 1 / dpr;
+  return { design, scale, w: tex.w * scale, h: tex.h * scale, box: CARD_UNIT.h * design * BOX_PER_H };
+}
+
+/**
  * Place everything at size scale s. Returns the layout; whether it is clean
  * is for findIntersections / findOutside to say.
  */
@@ -212,14 +225,19 @@ function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1, felt = 0, hi
   // the atlas frame: the hand card (the largest on screen) at this s, times
   // the device pixel ratio, so hand cards sample 1:1 (CardAtlas)
   const tex = cardTextureSize(CARD_UNIT.h * BASE_SCALE.hand * s, dpr);
+  // a card the hand's size (the trick, the trump, a drawn card) is drawn
+  // from the frame 1:1 too; the smaller ones are downscales
+  const sized = (key) => (BASE_SCALE[key] === BASE_SCALE.hand
+    ? handCardSize(BASE_SCALE[key] * s, tex, dpr)
+    : cardSize(BASE_SCALE[key] * s, tex));
   const card = {
-    hand: cardSize(BASE_SCALE.hand * s, tex),
-    trick: cardSize(BASE_SCALE.trick * s, tex),
-    back: cardSize(BASE_SCALE.back * s, tex),
+    hand: sized('hand'),
+    trick: sized('trick'),
+    back: sized('back'),
     history: cardSize(BASE_SCALE.history * s * k, tex),
-    trump: cardSize(BASE_SCALE.trump * s, tex),
-    deck: cardSize(BASE_SCALE.deck * s, tex),
-    drawn: cardSize(BASE_SCALE.drawn * s, tex),
+    trump: sized('trump'),
+    deck: sized('deck'),
+    drawn: sized('drawn'),
   };
   const back = card.back;
   const backSp = BACK_SPACING * s;
@@ -740,7 +758,10 @@ export function handPositions(L, n) {
   const sp = n > 1 ? Math.min(spacing, room / (n - 1)) : 0;
   const total = (n - 1) * sp;
   const x0 = L.hand.cx - total / 2;
-  return Array.from({ length: n }, (_, i) => ({ x: x0 + i * sp, y: L.hand.y }));
+  // each centre on a whole device pixel: with the frame's even size the
+  // card's edges are too (1:1 sampling; CardAtlas.cardTextureSize)
+  const dpr = L.dpr > 0 ? L.dpr : 1;
+  return Array.from({ length: n }, (_, i) => ({ x: Math.round((x0 + i * sp) * dpr) / dpr, y: L.hand.y }));
 }
 
 /** Card-back centres of a seat's fan (n cards), with the fan's rotation. */

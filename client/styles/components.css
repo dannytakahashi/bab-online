@@ -481,7 +481,7 @@ body > #spectating-indicator {
 }
 
 .hud-voice > button {
-    position: static;
+    position: relative; /* its hit extension (::before) stays on the button */
     width: var(--voice-btn, 36px);
     height: var(--voice-btn, 36px);
     min-width: 0;

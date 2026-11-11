@@ -157,12 +157,19 @@ export function createGameLog({ onChatSubmit } = {}) {
       rect.remove();
     }
 
+    // by absolute team (team A: positions 1 and 3), as the score above is
+    const mine = teamOf(state.position);
     for (let i = 0; i < trickRects.length; i++) {
       const rect = trickRects[i];
       const isOverbid = i >= trickHandSize;
+      const isTeam = i < teamBidCount;
+      const isOpp = i >= teamBidCount && i < totalBid;
+      const letter = isTeam ? mine : isOpp ? (mine === 'a' ? 'b' : 'a') : null;
 
-      rect.classList.toggle('is-team', i < teamBidCount);
-      rect.classList.toggle('is-opp', i >= teamBidCount && i < totalBid);
+      rect.classList.toggle('is-team', isTeam);
+      rect.classList.toggle('is-opp', isOpp);
+      rect.classList.toggle('is-team-a', letter === 'a');
+      rect.classList.toggle('is-team-b', letter === 'b');
       // past the hand size: an overbid (a static outline, no animation)
       rect.classList.toggle('is-overbid', isOverbid);
     }

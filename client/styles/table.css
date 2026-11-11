@@ -316,8 +316,9 @@ body > .bid-sheet {
     transition: background-color var(--dur-fast) var(--ease-standard);
 }
 
-.bid-chip.is-team { background: var(--success); }
-.bid-chip.is-opp { background: var(--danger-text); }
+/* by absolute team (the seat rings' colors), whichever side is mine */
+.bid-chip.is-team-a { background: var(--team-a); }
+.bid-chip.is-team-b { background: var(--team-b); }
 
 .bid-numbers {
     display: grid;
@@ -404,7 +405,9 @@ body > .voice-btn {
 }
 
 .hud-voice > .voice-btn {
-    position: static;
+    /* positioned, so each button's 44 px hit extension (kit .kit-icon-btn::before)
+       hangs off its own button, not the whole slot */
+    position: relative;
     flex: 0 0 auto;
 }
 
@@ -468,7 +471,7 @@ body > .voice-btn {
 .voice-row__pct { width: 36px; margin-left: var(--space-1); color: var(--text-secondary); font-size: 11px; text-align: right; font-variant-numeric: tabular-nums; }
 .voice-row.is-muted .voice-row__slider,
 .voice-row.is-muted .voice-row__pct { opacity: 0.4; }
-.voice-row .kit-btn { min-height: 32px; min-width: 64px; }
+.voice-row .kit-btn { min-height: var(--hit-target); min-width: 64px; }
 
 /* ---------- The game log (#gameFeed) ---------- */
 
@@ -528,8 +531,8 @@ body > .voice-btn {
 .log-tricks[hidden] { display: none; }
 .log-tricks__row { display: flex; flex-wrap: wrap; justify-content: center; gap: 2px; }
 .log-chip { width: 14px; height: 20px; border-radius: 3px; box-sizing: border-box; background: var(--surface-3); transition: background-color var(--dur-fast) var(--ease-standard); }
-.log-chip.is-team { background: var(--success); }
-.log-chip.is-opp { background: var(--danger-text); }
+.log-chip.is-team-a { background: var(--team-a); }
+.log-chip.is-team-b { background: var(--team-b); }
 
 #gameFeed .chat-messages { color: var(--text-secondary); text-align: left; }
 .log-row { margin-bottom: var(--space-2); overflow-wrap: anywhere; }
@@ -553,7 +556,7 @@ body > .voice-btn {
 }
 #gameFeed .chat-input:focus { border-color: var(--team-a); }
 #gameFeed .chat-send {
-    min-height: 36px;
+    min-height: var(--hit-target);
     border-radius: var(--radius-sm);
     background: var(--primary-base);
     color: var(--text-on-primary);

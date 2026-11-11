@@ -50,7 +50,8 @@ describe('voice buttons (ui-20)', () => {
     expect(mute.getAttribute('aria-pressed')).toBe('false');
     const css = readClientFile('styles/table.css');
     expect(css).toMatch(/\.voice-btn\.kit-icon-btn \{\s*--icon-btn-size: var\(--voice-btn/);
-    expect(css).toMatch(/\.hud-voice > \.voice-btn \{\s*position: static;/);
+    // positioned (not static), so each button's 44 px hit extension stays on it
+    expect(css).toMatch(/\.hud-voice > \.voice-btn \{[^}]*position: relative;/);
     expect(Array.from({ length: mute.style.length }, (_, i) => mute.style[i]).filter((k) => !k.startsWith('--'))).toEqual([]);
   });
 

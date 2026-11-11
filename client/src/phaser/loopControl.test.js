@@ -166,6 +166,28 @@ describe('the real page: the loop follows the table (recorded game, events-bots-
     expect(game.loop.running).toBe(true);
   });
 
+  it('a reused avatar\'s click asks for the player in the seat now (a bot took it, or the human came back)', () => {
+    const om = page.scene.opponentManager;
+    const dom = om._avatarDoms.opp1;
+    const pos = Number(dom.dataset.position);
+    const original = dom.querySelector('.hud-plate').textContent;
+    const profiles = () => page.socket.emitted('getPlayerProfile').map((p) => p.username);
+    const builds = om.avatarBuilds;
+    // a resignation: the bot's name on the plate, the same tree
+    om.updatePlayerInfo(pos, { username: 'Bot Ricky', pic: null });
+    expect(om._avatarDoms.opp1).toBe(dom);
+    expect(dom.querySelector('.hud-plate').textContent).toBe('Bot Ricky');
+    dom.click();
+    expect(profiles().at(-1)).toBe('Bot Ricky');
+    // a render from the state (the seat's human again) updates it in place too
+    page.scene.render();
+    expect(om._avatarDoms.opp1).toBe(dom);
+    expect(om.avatarBuilds).toBe(builds);
+    expect(dom.querySelector('.hud-plate').textContent).toBe(original);
+    dom.click();
+    expect(profiles().at(-1)).toBe(original);
+  });
+
   it('an abort leaves the table: asleep after one more frame', () => {
     page.socket.fire('abortGame', { reason: 'test' });
     expect(page.session.screen).toBe(SCREEN.MAIN_ROOM);

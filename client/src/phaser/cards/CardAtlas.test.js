@@ -14,7 +14,7 @@ import {
 import {
   ATLAS_FRAMES, atlasLayout, atlasBytes, cardTextureSize, drawAtlas, ensureCardAtlas, cardAtlasInfo, CARD_TEXTURE_KEY,
 } from './CardAtlas.js';
-import { layoutForViewport } from '../layout/computeTableLayout.js';
+import { layoutForViewport, handPositions } from '../layout/computeTableLayout.js';
 import { COLOR, FONT_UI } from '../../ui/tokens.js';
 
 const C = COLOR.card;
@@ -135,12 +135,33 @@ describe('the atlas: one page, hand card x DPR', () => {
         const want = cardTextureSize(L.card.hand.h, dpr);
         expect(L.cardTexture).toEqual({ ...want, dpr });
         expect(L.cardTexture.h).toBe(Math.ceil(L.card.hand.h * dpr - 1e-6));
-        // the hand sprite maps one frame pixel to (at most) one device pixel
+        // the hand sprite maps one frame pixel to exactly one device pixel
         const devicePerTexel = L.card.hand.scale * dpr;
-        expect(devicePerTexel).toBeLessThanOrEqual(1 + 1e-9);
-        expect(devicePerTexel).toBeGreaterThan(1 - 1 / L.cardTexture.h);
+        expect(devicePerTexel).toBeCloseTo(1, 9);
         // every other card is the same size or smaller: no upscaling anywhere
         for (const k of Object.keys(L.card)) expect(L.card[k].scale, k).toBeLessThanOrEqual(L.card.hand.scale + 1e-9);
+      }
+    }
+  });
+
+  it('every hand card lands texel-on-pixel: its quad, snapped as Phaser snaps it (roundPixels), is the frame in device px', () => {
+    // Phaser 3.55 rounds each corner of a textured quad in backing-store px
+    // when roundPixels is on (camera zoom included): a frame centred on a
+    // whole pixel with an odd height no longer starts half a pixel off (the
+    // game config's roundPixels: backingStore.test.js)
+    const sizes = [[1920, 1080], [1440, 790], [1366, 768], [1024, 668], [1536, 864], [2560, 1440], [1280, 720]];
+    for (const [vw, vh] of sizes) {
+      for (const dpr of [1, 1.25, 1.5, 2, 3]) {
+        const L = layoutForViewport({ vw, vh, dpr });
+        const { w, h } = L.card.hand;
+        const tex = L.cardTexture;
+        for (const p of handPositions(L, 13)) {
+          const x0 = Math.round((p.x - w / 2) * dpr);
+          const x1 = Math.round((p.x + w / 2) * dpr);
+          const y0 = Math.round((p.y - h / 2) * dpr);
+          const y1 = Math.round((p.y + h / 2) * dpr);
+          expect([x1 - x0, y1 - y0], `${vw}x${vh}@${dpr}`).toEqual([tex.w, tex.h]);
+        }
       }
     }
   });
@@ -158,9 +179,9 @@ describe('the atlas: one page, hand card x DPR', () => {
     const at = (dpr) => layoutForViewport({ vw: 1920, vh: 1080, dpr }).cardTexture;
     const one = atlasBytes(at(1));
     const two = atlasBytes(at(2));
-    // 64 x 93 frames: 530 x 667 px = 1.41 MB; 128 x 186: 1042 x 1318 px = 5.49 MB (the old 64 px atlas page: 13.9 MB)
-    expect(atlasLayout(at(1))).toMatchObject({ width: 530, height: 667 });
-    expect(one).toBe(530 * 667 * 4);
+    // 64 x 92 frames: 530 x 660 px = 1.40 MB; 128 x 186: 1042 x 1318 px = 5.49 MB (the old 64 px atlas page: 13.9 MB)
+    expect(atlasLayout(at(1))).toMatchObject({ width: 530, height: 660 });
+    expect(one).toBe(530 * 660 * 4);
     expect(atlasLayout(at(2))).toMatchObject({ width: 1042, height: 1318 });
     expect(two).toBe(1042 * 1318 * 4);
     expect(two).toBeLessThan(8 * 1024 * 1024);

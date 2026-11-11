@@ -175,10 +175,11 @@ describe('computeTableLayout at the named viewports', () => {
     // today's card sizes (design scales 1.5 / 1.2 / 1; item 18a: the
     // hi-res face is 62 px tall at design 1, as the old card) and the 80 px avatars
     expect([L.card.hand.design, L.card.back.design, L.card.history.design]).toEqual([1.5, 1.2, 1]);
-    expect(L.card.hand.h).toBeCloseTo(93, 6);
-    expect(L.card.hand.w).toBeCloseTo(93 * 300 / 435, 0);
+    // (93 px at design 1.5, to the frame's even 92 device px: 1:1 and whole-pixel edges)
+    expect(L.card.hand.h).toBe(92);
+    expect(L.card.hand.w).toBe(64);
     // at DPR 1 the hand card samples its atlas frame 1:1
-    expect(L.cardTexture).toMatchObject({ h: 93, dpr: 1 });
+    expect(L.cardTexture).toMatchObject({ w: 64, h: 92, dpr: 1 });
     expect(L.card.hand.scale).toBe(1);
     expect(L.seats.partner.avatar.img).toBe(80);
   });
@@ -302,7 +303,14 @@ describe('computeTableLayout over a grid of sizes (800-2560 x 500-1440)', () => 
       for (const k of Object.keys(L.card)) {
         expect(L.card[k].scale * L.cardTexture.h).toBeCloseTo(L.card[k].h, 6);
         expect(L.card[k].scale * L.cardTexture.w).toBeCloseTo(L.card[k].w, 6);
-        expect(L.card[k].h).toBeCloseTo(62 * L.card[k].design, 6);
+        if (L.card[k].design === L.card.hand.design) {
+          // the hand's size: the frame 1:1 (the design height in whole, even device px)
+          expect(L.card[k].h * L.dpr).toBeCloseTo(L.cardTexture.h, 6);
+          expect(L.cardTexture.h % 2).toBe(0);
+          expect(Math.abs(L.card[k].h - 62 * L.card[k].design)).toBeLessThanOrEqual(1 / L.dpr + 1e-9);
+        } else {
+          expect(L.card[k].h).toBeCloseTo(62 * L.card[k].design, 6);
+        }
       }
       expect(L.seats.opp1.avatar.img).toBeCloseTo(80 * L.s, 6);
       expect(L.history.team.slotW).toBeCloseTo(54 * L.s * L.historyScale, 6);

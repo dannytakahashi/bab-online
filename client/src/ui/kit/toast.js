@@ -8,6 +8,10 @@
  *   - a toast of the type on screen replaces it (the newer message wins),
  *     and a queued one of the same type is replaced in place, so a burst
  *     of errors shows the latest instead of a backlog;
+ *   - an error goes ahead of every waiting toast that is not an error, and a
+ *     warning ahead of info and success; one that outranks the toast on
+ *     screen takes its place at once (that one leaves early), so a failed
+ *     sign-in is never held behind a 5 s "Registration successful";
  *   - errors are announced assertively (role=alert), the rest politely.
  */
 import { el } from './elements.js';
@@ -16,6 +20,9 @@ import { motionMs } from '../motion.js';
 export const TOAST_DURATION = 5000;
 export const TOAST_TYPES = ['info', 'success', 'warning', 'error'];
 const REGION_ID = 'kit-toast-region';
+
+/** Which toast goes first: an error, then a warning, then the rest (in order). */
+const RANK = { info: 0, success: 0, warning: 1, error: 2 };
 
 const queue = [];
 let current = null; // { el, type, timer }
@@ -88,8 +95,15 @@ export function toast(message, { type = 'info', duration = TOAST_DURATION } = {}
     return queued.el;
   }
   const item = { el: build(message, kind), type: kind, duration, timer: null };
-  queue.push(item);
+  // ahead of every waiting toast it outranks (in order among its equals)
+  const at = queue.findIndex((q) => RANK[q.type] < RANK[kind]);
+  if (at === -1) queue.push(item);
+  else queue.splice(at, 0, item);
   if (!current) next();
+  else if (RANK[kind] > RANK[current.type] && !current.el.classList.contains('is-leaving')) {
+    // it outranks the one on screen: that one leaves now
+    dismissCurrent();
+  }
   return item.el;
 }
 

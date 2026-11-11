@@ -142,17 +142,44 @@ describe('Toast: one queue', () => {
 
   it('shows one toast at a time, the others in order after it', () => {
     toast('Saved', { type: 'success', duration: 1000 });
-    toast('Lobby closed', { type: 'error', duration: 1000 });
+    toast('Host started the round', { type: 'info', duration: 1000 });
     toast('Heads up', { type: 'warning', duration: 1000 });
-    expect(shown()).toEqual(['Saved']);
-    expect(toastQueueLength()).toBe(3);
+    toast('Still waiting', { type: 'warning', duration: 1000 });
+    // the warning outranks the success on screen: that one leaves first
+    vi.advanceTimersByTime(120);
+    expect(shown()).toEqual(['Still waiting']); // (the queued warning took the newer text)
+    expect(toastQueueLength()).toBe(2);
     vi.advanceTimersByTime(1000 + 120);
-    expect(shown()).toEqual(['Lobby closed']);
-    vi.advanceTimersByTime(1120);
-    expect(shown()).toEqual(['Heads up']);
+    expect(shown()).toEqual(['Host started the round']);
     vi.advanceTimersByTime(1120);
     expect(shown()).toEqual([]);
     expect(toastQueueLength()).toBe(0);
+  });
+
+  it('an error is never held behind a toast of another type (it preempts the one on screen and the queue)', () => {
+    toast('Registration successful! Please sign in.', { type: 'success' });
+    toast('Tournament starts soon', { type: 'info' });
+    toast('Action not accepted', { type: 'warning' });
+    toast('Sign-in failed!', { type: 'error' });
+    // the success leaves at once (its fade), not after its 5 s
+    vi.advanceTimersByTime(120);
+    expect(shown()).toEqual(['Sign-in failed!']);
+    // then the warning, then the info: nothing is dropped but the preempted toast
+    vi.advanceTimersByTime(5120);
+    expect(shown()).toEqual(['Action not accepted']);
+    vi.advanceTimersByTime(5120);
+    expect(shown()).toEqual(['Tournament starts soon']);
+    vi.advanceTimersByTime(5120);
+    expect(shown()).toEqual([]);
+  });
+
+  it('a toast of a lower rank waits its turn behind the one on screen', () => {
+    toast('Oops', { type: 'error', duration: 1000 });
+    toast('FYI', { type: 'info', duration: 1000 });
+    vi.advanceTimersByTime(500);
+    expect(shown()).toEqual(['Oops']);
+    vi.advanceTimersByTime(500 + 120);
+    expect(shown()).toEqual(['FYI']);
   });
 
   it('a toast of the type on screen replaces it; a queued one of the same type is replaced in place', () => {
@@ -177,8 +204,11 @@ describe('Toast: one queue', () => {
   it('under reduced motion the toast leaves without a fade', () => {
     setReducedMotionOverride(true);
     toast('A', { type: 'info', duration: 500 });
-    toast('B', { type: 'error', duration: 500 });
+    toast('B', { type: 'success', duration: 500 });
     vi.advanceTimersByTime(500);
     expect(shown()).toEqual(['B']);
+    // and a preempting error replaces the one on screen in the same task
+    toast('C', { type: 'error', duration: 500 });
+    expect(shown()).toEqual(['C']);
   });
 });

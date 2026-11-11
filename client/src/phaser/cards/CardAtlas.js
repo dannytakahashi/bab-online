@@ -4,8 +4,9 @@
  * ('cards'), so the whole table binds one card texture.
  *
  * Bitmap size: each frame is the largest card on screen (the hand card at
- * the current layout scale) times the device pixel ratio, so hand cards
- * sample 1:1 and every smaller card (trick, backs, history) is a downscale
+ * the current layout scale) times the device pixel ratio, in even device
+ * pixels, so hand cards sample 1:1 (the layout sizes them from the frame;
+ * the game config's roundPixels snaps every quad to device pixels) and every smaller card (trick, backs, history) is a downscale
  * with linear filtering. It is capped at CARD_CONFIG.TEX_MAX_W (the iOS 3x
  * card). The layout carries the size (computeTableLayout: cardTexture), and
  * the atlas is redrawn only when that size changes: a resize that changes
@@ -30,14 +31,22 @@ export const ATLAS_FRAMES = Object.freeze([...FACE_FRAMES, BACK_FRAME, SHADOW_FR
 
 /**
  * The frame bitmap for a card `cardH` CSS px tall at `dpr`: its height in
- * device pixels (rounded up), the width at the card's proportions. Sized by
- * the height so the layout's card heights are exact.
+ * device pixels (rounded up, then down to an EVEN number: within one device
+ * pixel of the card), the width at the card's proportions, also even. Even,
+ * so a card centred on a whole device pixel (the layout snaps every card
+ * centre) has whole-pixel edges: an odd frame would start half a pixel off,
+ * where linear filtering blends every texel row with the next and the
+ * quad's rounding (roundPixels) is a coin toss. (Down, not up: a card one
+ * pixel larger could cost the table its scale where it is tight.) The cap
+ * is the iOS 3x card, as it is.
  * @returns {{w: number, h: number}} px
  */
 export function cardTextureSize(cardH, dpr = 1) {
   const maxH = Math.round(CARD_CONFIG.TEX_MAX_W * CARD_ASPECT);
-  const h = Math.max(12, Math.min(maxH, Math.ceil(cardH * (dpr > 0 ? dpr : 1) - 1e-6)));
-  return { w: Math.round(h / CARD_ASPECT), h };
+  const px = Math.ceil(cardH * (dpr > 0 ? dpr : 1) - 1e-6);
+  if (px >= maxH) return { w: CARD_CONFIG.TEX_MAX_W, h: maxH };
+  const h = Math.max(12, px - (px % 2));
+  return { w: 2 * Math.round(h / CARD_ASPECT / 2), h };
 }
 
 /**

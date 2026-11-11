@@ -260,11 +260,18 @@ export class BidManager {
       rect.remove();
     }
 
-    // Color the chips; past the hand size an overbid (a static outline)
+    // Color the chips by absolute team (team A: positions 1 and 3), as the
+    // seat rings and the log's score are; past the hand size an overbid
+    const mine = myTeam === 1 ? 'a' : 'b';
+    const theirs = mine === 'a' ? 'b' : 'a';
     for (let i = 0; i < this.trickIndicators.length; i++) {
       const rect = this.trickIndicators[i];
-      rect.classList.toggle('is-team', i < teamBidCount);
-      rect.classList.toggle('is-opp', i >= teamBidCount && i < totalBid);
+      const isTeam = i < teamBidCount;
+      const isOpp = i >= teamBidCount && i < totalBid;
+      rect.classList.toggle('is-team', isTeam);
+      rect.classList.toggle('is-opp', isOpp);
+      rect.classList.toggle('is-team-a', (isTeam && mine === 'a') || (isOpp && theirs === 'a'));
+      rect.classList.toggle('is-team-b', (isTeam && mine === 'b') || (isOpp && theirs === 'b'));
       rect.classList.toggle('is-overbid', i >= this.handSize);
     }
   }

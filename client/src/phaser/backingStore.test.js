@@ -78,6 +78,8 @@ describe('the backing store', () => {
     // Phaser reads transparent from a `render` block when one exists: keep none
     expect(cfg.render).toBeUndefined();
     expect(cfg).toMatchObject({ transparent: true, pixelArt: false, antialias: true });
+    // card quads snap to whole device pixels (no half-pixel blend of an odd frame)
+    expect(cfg.roundPixels).toBe(true);
   });
 });
 

@@ -317,6 +317,7 @@ export class OpponentManager {
       dom.dataset.src = src;
     }
     if (img && img.alt !== username) img.alt = username;
+    dom.dataset.username = username; // the click asks for the seat's player now
     const label = dom.querySelector('.hud-plate');
     if (label && label.textContent !== username) {
       label.textContent = username;
@@ -338,12 +339,16 @@ export class OpponentManager {
     container.id = `opponent-avatar-${opponentId}`;
     container.className = `opponent-avatar-container ${opponentId}`;
     container.dataset.position = position ? String(position) : '';
+    container.dataset.username = username;
     this.avatarBuilds++;
 
+    // the avatar outlives its first player (built once per game): the click
+    // reads the seat's name now, so a bot that took the seat (or the human
+    // back from /lazy) is whose profile it opens
     container.addEventListener('click', () => {
       const sm = getSocketManager();
       if (sm.socket) {
-        sm.socket.emit('getPlayerProfile', { username });
+        sm.socket.emit('getPlayerProfile', { username: container.dataset.username });
       }
     });
 
@@ -457,10 +462,13 @@ export class OpponentManager {
       img.alt = username;
     }
 
+    dom.dataset.username = username;
+
     // Update the label
-    const label = dom.querySelector('div:last-child');
+    const label = dom.querySelector('.hud-plate');
     if (label) {
       label.textContent = username;
+      label.title = username;
     }
   }
 
