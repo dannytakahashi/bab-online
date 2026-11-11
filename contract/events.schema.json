@@ -3529,7 +3529,8 @@
           },
           "username": "alan"
         }
-      ]
+      ],
+      "notes": "Forwarded only to a connected socket id (never a room) of a signed-in peer in the sender's lobby or game (entrant / seat owner; not a pure spectator), when neither user blocked the other, within the per-socket limit rateLimiter.voiceOffer (30 / 10 s), checked in-handler; anything else is dropped silently (no reply, never error)."
     },
     "voiceAnswer": {
       "payload": {
@@ -3565,7 +3566,8 @@
             "sdp": "v=0"
           }
         }
-      ]
+      ],
+      "notes": "Forwarded only to a connected socket id (never a room) of a signed-in peer in the sender's lobby or game (entrant / seat owner; not a pure spectator), when neither user blocked the other, within the per-socket limit rateLimiter.voiceAnswer (30 / 10 s), checked in-handler; anything else is dropped silently (no reply, never error)."
     },
     "voiceIceCandidate": {
       "payload": {
@@ -3602,7 +3604,8 @@
             "sdpMid": "0"
           }
         }
-      ]
+      ],
+      "notes": "Forwarded only to a connected socket id (never a room) of a signed-in peer in the sender's lobby or game (entrant / seat owner; not a pure spectator), when neither user blocked the other, within the per-socket limit rateLimiter.voiceIceCandidate (300 / 10 s), checked in-handler; anything else is dropped silently (no reply, never error)."
     },
     "voiceRelayAudio": {
       "payload": {
@@ -3637,7 +3640,8 @@
           "targetSocketId": "s1",
           "audio": "AAAA"
         }
-      ]
+      ],
+      "notes": "Forwarded only to a connected socket id (never a room) of a signed-in peer in the sender's lobby or game (entrant / seat owner; not a pure spectator), when neither user blocked the other, within the per-socket limit rateLimiter.voiceRelayAudio (1200 / 10 s), checked in-handler; anything else is dropped silently (no reply, never error). The web PCM fallback after a failed P2P connection; chunks over 64 KB are dropped. Kept until the owner decides between it and a TURN server."
     }
   },
   "s2c": {

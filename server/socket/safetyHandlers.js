@@ -7,6 +7,7 @@
 const { getUsersCollection, getReportsCollection } = require('../database');
 const gameManager = require('../game/GameManager');
 const { socketLogger } = require('../utils/logger');
+const { rememberBlockList } = require('./voiceHandlers');
 
 /**
  * File a report against another user. Stored in the reports collection for
@@ -89,6 +90,8 @@ async function updateBlockList(socket, targetUsername, op) {
             { projection: { blockedUsers: 1 } }
         );
 
+        // Voice signaling refuses blocked peers from now on (voiceHandlers)
+        rememberBlockList(socket, updated?.blockedUsers || []);
         socket.emit('blockListUpdated', {
             success: true,
             blockedUsers: updated?.blockedUsers || []

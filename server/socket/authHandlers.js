@@ -11,6 +11,7 @@ const gameManager = require('../game/GameManager');
 const { authLogger } = require('../utils/logger');
 const { issueSession, verifySession } = require('../utils/sessionTokens');
 const { checkNewUsername, findNameClash, takenMessage, MESSAGES: USERNAME_MESSAGES } = require('../utils/usernameRules');
+const { rememberBlockList } = require('./voiceHandlers');
 
 /**
  * Accounts merged by scripts/merge-accounts.js stay behind as tombstones
@@ -151,6 +152,7 @@ async function signIn(socket, io, data) {
         const activeGame = activeGameId ? gameManager.getGameById(activeGameId) : null;
 
         const blockedUsers = user.blockedUsers || [];
+        rememberBlockList(socket, blockedUsers); // voice signaling checks it
 
         if (activeGame) {
             // User has an active game - notify client
@@ -305,6 +307,7 @@ async function signUp(socket, io, data) {
 
         // Auto-login: register with game manager (same as signIn)
         gameManager.registerUser(socket.id, username);
+        rememberBlockList(socket, []);
 
         socket.emit('signUpResponse', { success: true, username, sessionToken, autoLoggedIn: true });
         authLogger.info('New user registered and auto-logged in', { username, socketId: socket.id });
@@ -396,6 +399,7 @@ async function restoreSession(socket, io, data) {
         const activeGameId = user.activeGameId;
         const activeGame = activeGameId ? gameManager.getGameById(activeGameId) : null;
         const blockedUsers = user.blockedUsers || [];
+        rememberBlockList(socket, blockedUsers); // voice signaling checks it
 
         if (activeGame) {
             socket.emit('restoreSessionResponse', {
