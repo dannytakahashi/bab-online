@@ -354,6 +354,18 @@ describe('real mongod', () => {
         expect(bea.sessionTokens).toBeUndefined();
         const tokenDoc = await adb.passwordResets.findOne({ tokenHash: require('../utils/sessionTokens').hashToken(token) });
         expect(tokenDoc.state).toBe('used');
+        // Locking the account down (set-password.js / Sign out everywhere)
+        // cancels an open link on the real driver; the used one stays used,
+        // and the one-open-link index lets a new link in afterwards
+        const { revokeOpenResetLinks } = require('../admin/setPassword');
+        const leaked = await createResetLink(adb, 'Bea');
+        expect(await revokeOpenResetLinks(adb, { username: 'Bea' })).toBe(1);
+        expect(await useResetLink(adb, leaked.token, 'stranger', { hash })).toBe(INVALID_LINK);
+        expect(tokenDoc.state).toBe((await adb.passwordResets.findOne({ _id: tokenDoc._id })).state);
+        expect(await adb.passwordResets.countDocuments({ username: 'Bea', state: 'open' })).toBe(0);
+        const fresh = await createResetLink(adb, 'Bea');
+        expect(fresh.revoked).toBe(0);
+        expect(await adb.passwordResets.countDocuments({ username: 'Bea', state: 'open' })).toBe(1);
         // The token itself is nowhere in the database
         for (const name of ['users', 'passwordResets', 'adminAudit']) {
             expect(JSON.stringify(await db.collection(name).find({}).toArray())).not.toContain(token);

@@ -13,7 +13,7 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const Transport = require('winston-transport');
 const { createMemoryDb } = require('../testUtils/memoryDb');
-const { createPasswordResetRouter, MESSAGES, sameOrigin } = require('../routes/passwordReset');
+const { createPasswordResetRouter, MESSAGES, sameOrigin, clientKey } = require('../routes/passwordReset');
 const requestLogger = require('../middleware/requestLogger');
 const { cspMiddleware } = require('../middleware/csp');
 const { createCompression } = require('../middleware/compression');
@@ -60,7 +60,7 @@ function makeClientDir({ built = true } = {}) {
     return dir;
 }
 
-async function start({ built = true, limits = {} } = {}) {
+async function start({ built = true, limits = {}, hash = (pw) => bcrypt.hash(pw, 4) } = {}) {
     tmp = makeClientDir({ built });
     const app = express();
     app.use(requestLogger);
@@ -70,7 +70,7 @@ async function start({ built = true, limits = {} } = {}) {
         getDb: () => db,
         getIo: () => io,
         signOutUser,
-        hash: (pw) => bcrypt.hash(pw, 4),
+        hash,
         now: () => clock,
         clientDir: tmp,
         limits
@@ -266,11 +266,67 @@ describe('POST /api/password-reset', () => {
         expect((await as('203.0.113.9')).status).toBe(400);
     });
 
-    test('a global bucket bounds everyone together (and an unknown client address)', async () => {
-        await start({ limits: { globalBurst: 3, globalPerSec: 0.001 } });
+    test('a global bucket bounds real attempts together (and an unknown client address); junk never charges it', async () => {
+        await start({ limits: { globalBurst: 2, globalPerSec: 0.001, burst: 100 } });
+        for (const username of ['Cy', 'Di', 'Ed']) await db.users.insertOne({ username, password: 'x' });
+        const links = [];
+        for (const username of ['Cy', 'Di', 'Ed']) links.push((await createResetLink(db, username, { now: new Date(clock) })).token);
+        // junk first: malformed and unknown well-formed tokens, any number of them
+        for (let i = 0; i < 5; i++) expect((await post({ token: i % 2 ? 'x' : 'x'.repeat(43), password: 'pw' })).status).toBe(400);
         const statuses = [];
-        for (let i = 0; i < 5; i++) statuses.push((await post({ token: 'x'.repeat(43), password: 'pw' })).status);
-        expect(statuses).toEqual([400, 400, 400, 429, 429]);
+        for (const token of links) statuses.push((await post({ token, password: 'pw' })).status);
+        expect(statuses).toEqual([200, 200, 429]);
+        // the refused link was not used up: it works once the bucket refills
+        expect(db.passwordResets.all().find(r => r.username === 'Ed').state).toBe('open');
+        clock += 1000 * 1000;
+        expect((await post({ token: links[2], password: 'pw' })).status).toBe(200);
+    });
+
+    test('junk from many addresses never locks a real link out (SEC2-RESET-GLOBAL-DOS)', async () => {
+        await start(); // the production limits
+        const { token } = await createResetLink(db, 'Bea', { now: new Date(clock) });
+        const statuses = {};
+        for (let i = 1; i <= 90; i++) {
+            const junk = i % 2 ? { token: 'x', password: 'p' } : { token: 'y'.repeat(43), password: 'p' };
+            const res = await post(junk, { 'X-Real-IP': `198.51.100.${i}` });
+            statuses[res.status] = (statuses[res.status] || 0) + 1;
+        }
+        expect(statuses).toEqual({ 400: 90 });
+        // and an unknown client address (no X-Real-IP behind the proxy) can send junk all day
+        for (let i = 0; i < 70; i++) expect((await post({ token: 'z'.repeat(43), password: 'p' })).status).toBe(400);
+        const victim = await post({ token, password: 'brand-new' }, { 'X-Real-IP': '203.0.113.7' });
+        expect(victim.status).toBe(200);
+        expect(victim.json.ok).toBe(true);
+    });
+
+    test('an IPv6 client is limited by its /64, not per address', async () => {
+        await start();
+        const as = (ip) => post({ token: 'x'.repeat(43), password: 'pw' }, { 'X-Real-IP': ip });
+        const statuses = [];
+        for (let i = 1; i <= 12; i++) statuses.push((await as(`2001:db8::${i.toString(16)}`)).status);
+        expect(statuses).toEqual([...Array(10).fill(400), 429, 429]);
+        expect((await as('2001:db8:0:0:ffff:ffff:ffff:ffff')).status).toBe(429); // same /64
+        expect((await as('2001:db8:0:1::1')).status).toBe(400); // the next /64 is another client
+        expect(clientKey('2001:DB8::1')).toBe(clientKey('2001:db8:0:0:1:2:3:4'));
+        expect(clientKey('203.0.113.9')).toBe('203.0.113.9');
+    });
+
+    test('the in-flight hash cap counts real attempts only: junk is answered while a hash runs', async () => {
+        let release;
+        let hashing;
+        const entered = new Promise((r) => { hashing = r; });
+        const gate = new Promise((r) => { release = r; });
+        await start({ limits: { maxInFlight: 1 }, hash: async (pw) => { hashing(); await gate; return bcrypt.hash(pw, 4); } });
+        await db.users.insertOne({ username: 'Cy', password: 'x' });
+        const bea = (await createResetLink(db, 'Bea', { now: new Date(clock) })).token;
+        const cy = (await createResetLink(db, 'Cy', { now: new Date(clock) })).token;
+        const first = post({ token: bea, password: 'pw' });
+        await entered; // the first is hashing
+        expect((await post({ token: 'x'.repeat(43), password: 'pw' })).status).toBe(400);
+        expect((await post({ token: cy, password: 'pw' })).status).toBe(503);
+        release();
+        expect((await first).status).toBe(200);
+        expect((await post({ token: cy, password: 'pw' })).status).toBe(200);
     });
 
     test('database not ready or failing: 503, the link survives', async () => {

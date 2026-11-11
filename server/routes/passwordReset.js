@@ -25,11 +25,19 @@
  *
  * Every refusal of a link (malformed, unknown, expired, used, superseded,
  * merged or deleted account) is the same 400 {error:'invalid_link'}, so
- * the endpoint says nothing about accounts or links. Rate limits: a token
- * bucket per client IP (utils/clientIp trust rules) of 10 attempts,
- * refilling 10 per 15 minutes; one for everyone together (60, refilling
- * 1 a second: also covers an unknown client address); and at most 4
- * password hashes at once.
+ * the endpoint says nothing about accounts or links. Rate limits:
+ *   - a token bucket per client (utils/clientIp trust rules; an IPv6
+ *     address counts by its /64, which one home or server holds) of 10
+ *     attempts, refilling 10 per 15 minutes, charged for every POST;
+ *   - one bucket for everyone together (60, refilling 1 a second) and at
+ *     most 4 password hashes at once, both charged ONLY for an attempt
+ *     that will hash: a well-formed token naming an open, unexpired link.
+ *     Junk (a malformed or unknown token) never touches them, so nobody
+ *     without a real link can drain them and lock real players out; the
+ *     256-bit tokens make guessing pointless anyway, so these bound the
+ *     bcrypt work, not guessing. A request with an unknown client address
+ *     skips the per-client bucket, and only reaches the hash with a real
+ *     link.
  * Success signs out every live socket of the player (forceLogout, the
  * normal signed-out flow) after their saved sessions were revoked.
  */
@@ -37,6 +45,7 @@
 'use strict';
 
 const fs = require('fs');
+const net = require('net');
 const path = require('path');
 const express = require('express');
 const passwordHash = require('../utils/passwordHash');
@@ -67,6 +76,29 @@ const NO_STORE = (res) => {
     res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('X-Content-Type-Options', 'nosniff');
 };
+
+/**
+ * The per-client bucket key: an IPv4 address as is, an IPv6 address by its
+ * /64 (a home or VPS gets a whole /64, so per-address keys would let one
+ * client rotate through billions of buckets).
+ */
+function clientKey(ip) {
+    if (!net.isIPv6(ip)) return ip;
+    let s = ip.toLowerCase().split('%')[0];
+    if (s.includes('.')) { // an embedded IPv4 tail (e.g. 64:ff9b::192.0.2.1)
+        const cut = s.lastIndexOf(':') + 1;
+        const n = s.slice(cut).split('.').reduce((acc, o) => ((acc << 8) + Number(o)) >>> 0, 0);
+        s = `${s.slice(0, cut)}${(n >>> 16).toString(16)}:${(n & 0xffff).toString(16)}`;
+    }
+    const [h, t] = s.split('::');
+    const head = h ? h.split(':') : [];
+    const tail = t ? t.split(':') : [];
+    const groups = t === undefined ? head : [...head, ...Array(8 - head.length - tail.length).fill('0'), ...tail];
+    return `${groups.slice(0, 4).map(g => parseInt(g, 16).toString(16)).join(':')}::/64`;
+}
+
+/** Thrown by the gated hash: the reset never reached bcrypt. */
+const gateError = (code) => Object.assign(new Error(code), { code });
 
 function send(res, status, error) {
     NO_STORE(res);
@@ -116,18 +148,19 @@ function createPasswordResetRouter({ getDb, getIo, signOutUser, hash = (pw) => p
     }
 
     function take(ip) {
-        if (!ip) return true; // unknown address: the global bucket still applies
+        if (!ip) return true; // unknown address: only a real link reaches the global bucket and the hash
+        const key = clientKey(ip);
         const t = now();
-        let b = buckets.get(ip);
+        let b = buckets.get(key);
         if (b) {
-            buckets.delete(ip);
+            buckets.delete(key);
             b.tokens = Math.min(bucketCfg.burst, b.tokens + ((t - b.at) / 1000) * bucketCfg.perSec);
             b.at = t;
         } else {
             b = { tokens: bucketCfg.burst, at: t };
             if (buckets.size >= bucketCfg.maxIps) buckets.delete(buckets.keys().next().value);
         }
-        buckets.set(ip, b);
+        buckets.set(key, b);
         if (b.tokens < 1) return false;
         b.tokens -= 1;
         return true;
@@ -147,13 +180,29 @@ function createPasswordResetRouter({ getDb, getIo, signOutUser, hash = (pw) => p
         });
     });
 
+    /**
+     * The hash useResetLink calls, and only once the token named an open,
+     * unexpired link: so the global bucket and the in-flight cap are
+     * charged for real attempts, never for junk.
+     */
+    async function gatedHash(pw) {
+        if (inFlight >= maxInFlight) throw gateError('RESET_BUSY');
+        if (!takeGlobal()) throw gateError('RESET_RATE_LIMITED');
+        inFlight++;
+        try {
+            return await hash(pw);
+        } finally {
+            inFlight--;
+        }
+    }
+
     const json = express.json({ limit: '2kb', strict: true, type: () => true });
 
     router.post('/api/password-reset', (req, res, next) => {
         if (!sameOrigin(req)) return send(res, 403, 'forbidden');
         if (!req.is('application/json')) return send(res, 415, 'invalid_request');
         const ip = getClientIp({ handshake: { address: req.socket?.remoteAddress, headers: req.headers } });
-        if (!take(ip) || !takeGlobal()) return send(res, 429, 'rate_limited');
+        if (!take(ip)) return send(res, 429, 'rate_limited');
         return json(req, res, (err) => {
             // A parse error carries the raw body: never log it
             if (err) return send(res, 400, 'invalid_request');
@@ -161,12 +210,10 @@ function createPasswordResetRouter({ getDb, getIo, signOutUser, hash = (pw) => p
         });
     }, async (req, res) => {
         const { token, password } = req.body || {};
-        if (inFlight >= maxInFlight) return send(res, 503, 'unavailable');
-        inFlight++;
         const db = getDb();
         try {
             if (!db.users || !db.passwordResets) return send(res, 503, 'unavailable');
-            const result = await useResetLink(db, token, password, { now: new Date(now()), hash });
+            const result = await useResetLink(db, token, password, { now: new Date(now()), hash: gatedHash });
             if (!result.ok) return send(res, 400, result === INVALID_LINK ? 'invalid_link' : 'invalid_password');
             const disconnected = signOutUser(getIo(), result.username);
             logger.info('Password changed by reset link', { username: result.username, revokedSessions: result.revokedSessions, disconnected });
@@ -179,14 +226,14 @@ function createPasswordResetRouter({ getDb, getIo, signOutUser, hash = (pw) => p
             });
             return send(res, 200, 'ok');
         } catch (error) {
+            if (error.code === 'RESET_RATE_LIMITED') return send(res, 429, 'rate_limited');
+            if (error.code === 'RESET_BUSY') return send(res, 503, 'unavailable');
             logger.error('Password reset by link failed', { error: error.code === 'HASH_BUSY' ? 'hash busy' : error.message });
             return send(res, 503, 'unavailable');
-        } finally {
-            inFlight--;
         }
     });
 
     return router;
 }
 
-module.exports = { createPasswordResetRouter, MESSAGES, sameOrigin };
+module.exports = { createPasswordResetRouter, MESSAGES, sameOrigin, clientKey };

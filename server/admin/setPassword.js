@@ -53,10 +53,33 @@ function checkPasswordRule(newPassword) {
 }
 
 /**
- * @param {{users}} db
+ * Cancel every open reset link of an account (passwordResets, made in the
+ * admin panel: server/admin/passwordReset.js). Every action that locks an
+ * account down runs it: this CLI's setPassword and the panel's Sign out
+ * everywhere, so a link that leaked (texted to the wrong number, read off
+ * a lost phone) stops working at once instead of for the rest of its 24 h.
+ * Using a link needs nothing here: its own claim already marked it used.
+ * Run BEFORE the account write: if it fails, nothing was changed.
+ *
+ * @param {{passwordResets?}} db - no passwordResets collection: nothing to cancel
+ * @param {{username: string}} user
+ * @param {{now?: Date}} [options]
+ * @returns {Promise<number>} how many open links were cancelled
+ */
+async function revokeOpenResetLinks(db, user, { now = new Date() } = {}) {
+    if (!db.passwordResets) return 0;
+    const res = await db.passwordResets.updateMany(
+        { username: user.username, state: 'open' },
+        { $set: { state: 'revoked', revokedAt: now } }
+    );
+    return res.modifiedCount || 0;
+}
+
+/**
+ * @param {{users, passwordResets?}} db
  * @param {string} username
  * @param {string} newPassword
- * @returns {Promise<{username: string, revokedSessions: number}>}
+ * @returns {Promise<{username: string, revokedSessions: number, revokedLinks: number}>}
  */
 async function setPassword(db, username, newPassword, { now = new Date(), rounds = 10 } = {}) {
     if (!checkPasswordRule(newPassword)) {
@@ -69,8 +92,9 @@ async function setPassword(db, username, newPassword, { now = new Date(), rounds
     }
 
     const hash = await bcrypt.hash(newPassword, rounds);
+    const revokedLinks = await revokeOpenResetLinks(db, user, { now });
     const revokedSessions = await writePasswordHash(db, user, hash, { now });
-    return { username, revokedSessions };
+    return { username, revokedSessions, revokedLinks };
 }
 
-module.exports = { setPassword, writePasswordHash, checkPasswordRule, generateFriendlyPassword, WORDS };
+module.exports = { setPassword, writePasswordHash, revokeOpenResetLinks, checkPasswordRule, generateFriendlyPassword, WORDS };

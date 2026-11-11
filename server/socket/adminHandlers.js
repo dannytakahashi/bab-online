@@ -49,6 +49,7 @@ const { hasLiveSession, REVOKE_ALL_SESSIONS } = require('../utils/sessionTokens'
 const { AdminError } = require('../admin/adminError');
 const { listAdmins, setAdminFlag } = require('../admin/adminRole');
 const { createResetLink } = require('../admin/passwordReset');
+const { revokeOpenResetLinks } = require('../admin/setPassword');
 const { recordAudit, listAudit } = require('../admin/audit');
 const { listReports, resolveReport } = require('../admin/reports');
 const { searchPlayers } = require('../admin/players');
@@ -162,6 +163,9 @@ const RUN = {
         const found = await db.users.findOne({ username }, { projection: { username: 1, mergedInto: 1 } });
         if (!found) throw new AdminError('not_found', `No account is named "${username}" (names are case-sensitive).`);
         if (found.mergedInto) throw new AdminError('refused', `"${username}" was merged into "${found.mergedInto}" and has no sessions.`);
+        // A reset link that leaked must not outlive the lock-down: cancel
+        // the open ones first (if this fails, nothing else was changed)
+        const revokedLinks = await revokeOpenResetLinks(db, found);
         // One atomic revoke (sessionEpoch bumped: a restore or sign-in in
         // flight cannot write the sessions back); the document as it was
         // gives the count and the newest socketId to sign out
@@ -176,7 +180,7 @@ const RUN = {
         return {
             reply: { username, revokedSessions, disconnected },
             target: username,
-            detail: `${revokedSessions} saved session(s) revoked, ${disconnected} live connection(s) signed out`
+            detail: `${revokedSessions} saved session(s) revoked, ${disconnected} live connection(s) signed out${revokedLinks ? `; ${revokedLinks} open reset link(s) cancelled` : ''}`
         };
     },
 
