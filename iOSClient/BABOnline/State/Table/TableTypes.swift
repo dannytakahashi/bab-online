@@ -231,17 +231,48 @@ enum BidRules {
     static func isBore(_ bid: String) -> Bool { boreLevels.contains(bid.uppercased()) }
 }
 
-/// Over-trump detection (moved from GameSocketHandler): the card just played
-/// and the one before it are trump (or jokers), the lead is not, and the
-/// card ranks higher.
+/// The over-trump ("OT") rule (owner 2026-11-11; web mirror
+/// client/src/rules/overTrump.js): the card just played is a trump or a
+/// joker, the trick's lead is not trump (a joker lead is), and it takes the
+/// trick from an OPPONENT (team A seats 1 and 3, team B 2 and 4) whose
+/// winning card was a trump or a joker. Beating a partner's trump, or an
+/// under-trump while the partner's trump still wins, is not an over-trump.
+/// The winner is the server's rules.determineWinner.
 enum TrickRules {
+    static func isTrump(_ card: Card, trump: Card) -> Bool { card.suit == trump.suit || card.suit == .joker }
+
+    /// Index (play order) of the card winning `trick` so far; nil when empty.
+    static func winnerIndex(trick: [PlayedCard], trump: Card) -> Int? {
+        guard let lead = trick.first?.card else { return nil }
+        let suitOf = { (c: Card) in c.suit == .joker ? trump.suit : c.suit }
+        let value = { (c: Card) in CardConstants.rankValues[c.rank] ?? 0 }
+        let leadSuit = suitOf(lead)
+        var winner = 0
+        for i in trick.indices.dropFirst() {
+            let current = trick[i].card
+            let winning = trick[winner].card
+            let currentIsTrump = isTrump(current, trump: trump)
+            let winningIsTrump = isTrump(winning, trump: trump)
+            if currentIsTrump && !winningIsTrump {
+                winner = i
+            } else if currentIsTrump && winningIsTrump {
+                if value(current) > value(winning) { winner = i }
+            } else if suitOf(current) == leadSuit && suitOf(winning) == leadSuit {
+                if value(current) > value(winning) { winner = i }
+            }
+        }
+        return winner
+    }
+
+    /// Is the LAST card of `trick` (play order) an over-trump?
     static func isOverTrump(trick: [PlayedCard], trump: Card?) -> Bool {
-        guard trick.count >= 2, let trump, let lead = trick.first?.card else { return false }
-        let card = trick[trick.count - 1].card
-        let previous = trick[trick.count - 2].card
-        let isTrump = { (c: Card) in c.suit == trump.suit || c.suit == .joker }
-        guard !isTrump(lead), isTrump(card), isTrump(previous) else { return false }
-        return (CardConstants.rankValues[card.rank] ?? 0) > (CardConstants.rankValues[previous.rank] ?? 0)
+        guard trick.count >= 3, let trump, let lead = trick.first?.card, !isTrump(lead, trump: trump) else { return false }
+        let last = trick[trick.count - 1]
+        guard isTrump(last.card, trump: trump),
+              let b = winnerIndex(trick: Array(trick.dropLast()), trump: trump) else { return false }
+        let before = trick[b]
+        guard isTrump(before.card, trump: trump), before.position % 2 != last.position % 2 else { return false }
+        return winnerIndex(trick: trick, trump: trump) == trick.count - 1
     }
 }
 
