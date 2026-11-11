@@ -9,12 +9,30 @@ new iOS build has shipped and the old one is gone.
 File:line references are as of cc865b4 + item 8 and will drift; the
 function names will not.
 
-## Step 0: know who is still on v1 (precondition, not in item 8)
+## Step 0: the old app is gone from the wire (satisfied 2026-11-11)
 
-Add an additive `clientHello {platform, appVersion, protocol}` c2s event (or a
-`client` field on signIn / restoreSession - Joi must allow it, or
-`stripUnknown` silently drops it) and log it server side. Execute removals
-only after **zero `protocol < 2` iOS sessions for 2+ weeks**.
+Originally: log a client version and wait for **zero `protocol < 2` iOS
+sessions for 2+ weeks**. Owner decision 2026-11-11 replaces that: iOS 1.1.0
+(build 2) is the App Store build, and the old 1.0.0 build (cc9059f, build 1)
+is answered only with an update message by `server/socket/upgradeGate.js`
+(identified by its handshake User-Agent, `BAB%20Online/1 CFNetwork/...`). A
+gated socket never signs in, never joins a room and never receives a game
+payload, so no removal below can break it any more.
+
+- **Kill switch caveat.** `UPGRADE_GATE=off` lets 1.0.0 play again. After
+  the first removal below merges, that is no longer a full rollback: the
+  old app would meet the new wire. Treat the gate as permanent from then on.
+- **The gate's own payloads.** The gate sends `signInResponse`,
+  `signUpResponse`, `mainRoomJoined` (with `recentMessages`, the key 1.0.0
+  reads), `leftGame`, `leftLobby` and `tournamentLeft` in their v1 shapes. A
+  removal that touches one of those shapes must keep the gate's copy valid
+  (it is a 1.0.0-only emitter), e.g. #13 below.
+- **Its one database touch.** A gated restoreSession refreshes that
+  session's `lastUsedAt` (nothing else), so the 90-day session TTL does not
+  run out while a player keeps opening 1.0.0 before updating.
+- **Telemetry.** Every iOS socket logs `iOS app connected {build}` and every
+  gated connection `Upgrade gate: outdated iOS app {build, username}`. 1.1.0
+  sends no `clientHello`, so clientHello caps still say nothing about iOS.
 
 ## How to execute one removal
 
@@ -28,7 +46,8 @@ One PR per entry:
    `wireProjection.test.js` (legacy key sets), `wireCompat.test.js` goldens.
 4. Verify: `npm test`, `npm run test:contract` (also `NODE_ENV=production`),
    `npm run test:client`, `npm run build`, xcodebuild, and a manual pass on
-   both clients against a local server.
+   web and the 1.1.0 iOS build against a local server (a 1.0.0 build must
+   still get the update message).
 
 ## Removals
 
@@ -251,3 +270,78 @@ is logged per socket (server/socket/clientInfo.js).
 - **`seq` on private emits.** Not needed: Socket.IO keeps per-socket order and
   snapshots carry seq.
 - **`serverError` dual emit** (#1 phase A).
+
+## Plan after the gate (2026-11-11): re-checked against 1.1.0 and web
+
+Each entry's blockers re-checked against the 1.1.0 iOS source (f05d264;
+`iOSClient/` is unchanged on main since) and the web client on main
+(b11e830; web item 18b is in progress and may change web reads). One PR per
+step, in this order; nothing is removed by the gate PR itself.
+
+**Safe now (no shipped reader left once 1.0.0 is gated):**
+
+1. **#15 `rejoinFailed.debug`** and **#16 lobby players' `personality`**:
+   neither client reads them (1.1.0 only *sends* `addBot {personality}`).
+   Pure leak fixes, smallest PR.
+2. **#2 the matchmaking queue** (`queueUpdate`, c2s `joinQueue` /
+   `leaveQueue` / `getLobbies`, `GameManager.queue`): no sender or listener
+   in 1.1.0 or web.
+3. **#4 s2c `joinMainRoom`**: no listener in 1.1.0 or web.
+4. **#12 `chatMessage.type`**: web reads `isSpectator`, 1.1.0 reads
+   `isSpectator` first (`type` was only for 1.0.0). Drop `type`, keep
+   `isSpectator`.
+5. **#10 `cardPlayed.trump` → `trumpBroken`, drop `playerId`**: 1.1.0
+   decodes `trumpBroken ?? trump` (WirePayloads.CardPlayed) and web
+   `GameState.applyCardPlayed` reads either. `trumpBroken` is in the
+   event's `reserved` list only for 1.0.0, so: lift the reservation and send
+   `trumpBroken`, then drop `trump`. `playerId` is read by neither.
+6. **#11 `bidReceived.bid` always a string**: 1.1.0 still SENDS numeric
+   bids as an Int (`GameEmitter.playerBid` → `String(bid)` →
+   `LiveGameEmitter.playerBidPayload`, which turns a numeric string back into
+   an Int; pinned by ActionCoordinatorTests) and DECODES either form
+   (`BidWire` in WireDecoding.swift; web `applyBid` calls `String(data.bid)`).
+   So normalize only the s2c echo to a string; c2s `playerBid.bid` must keep
+   accepting an Int (the contract's `{ bid: 3 }` example), or every numeric
+   bid from the App Store app is refused. Web already sends strings.
+7. **#13 `mainRoomJoined.recentMessages`**: 1.1.0 reads `recentMessages ??
+   messages` (falls back) and web reads `messages`, so the main-room handler
+   can drop it; the gate's 1.0.0-only copy keeps it (variant or `added`
+   note), since 1.0.0 reads only `recentMessages` first.
+8. **#18 hardening Joi**: 1.1.0 now sends `removeBot {botSocketId}` (the
+   "no payload" note is 1.0.0-only) and web sends the same; the Joi schemas
+   for `removeBot`, `joinLobby`, `searchPlayers`, `getPlayerProfile` and the
+   voice relays (plus the shared-room relay check) can land.
+9. **#17 `serverShutdown`**: no listener anywhere; either drop it or add the
+   "server restarting" handling in a later client build. Owner call.
+10. **#1 phase A only** (`serverError` dual emit with `{code, message,
+    handler}`): additive, safe now.
+
+**Still blocked (by what a shipped client reads):**
+
+- **#1 phase B** (drop app-level `error`): 1.1.0 listens only to
+  `clientEvent: .error` (SocketService.swift; toast + table resync), not to
+  `serverError`; web listens to `error`. Needs an iOS build (and web) that
+  read `serverError`.
+- **#3 client-only listeners** (`lobbyJoined`, `roomFull`,
+  `activeTournamentFound`, `activeGameFound`): nothing to remove server
+  side (never emitted); 1.1.0 still registers them and web has its own.
+  Drop schema entries / constants with the next client builds.
+- **#5 `gameStart.playerInfo`**: 1.1.0 reads it every deal
+  (TableReducer.gameStart: names and pictures); web `main.js` too.
+- **#6 `gameStart.players`**: web voice speaking indicator reads it.
+- **#7 `playerAssigned`**: 1.1.0 ignores it, web `main.js` reads it.
+- **#8 split `spectatorJoined`**: 1.1.0 routes on the `snapshot` key (fine);
+  web routes on `players && trump`. Blocked by web.
+- **#9 legacy client-state keys**: 1.1.0 reads `players[].socketId` (voice
+  glows) and `players[].pic` (custom pictures) from rejoin / restore /
+  spectator payloads.
+- **#14 socket ids on the wire**: 1.1.0 reads `positionUpdate.sockets` and
+  `players[].socketId` for voice.
+- **#19 inline avatar images**: 1.1.0 never sends `clientHello` (no
+  `avatarUrl` cap), so it renders only the inline pictures. Needs an iOS
+  build that sends the cap, then the 2-week clientHello check for iOS.
+
+Next client work that unblocks the most: an iOS build that listens to
+`serverError`, sends `clientHello {caps:['avatarUrl']}` and maps voice
+peers without socket ids (#1B, #19, #9, #14), and web reading v2 seats /
+spectator snapshots (#5, #6, #7, #8).

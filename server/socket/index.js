@@ -16,6 +16,7 @@ const voiceHandlers = require('./voiceHandlers');
 const safetyHandlers = require('./safetyHandlers');
 const snapshotHandlers = require('./snapshotHandlers');
 const clientInfo = require('./clientInfo');
+const upgradeGate = require('./upgradeGate');
 const { asyncHandler, syncHandler, safeHandler, rateLimiter } = require('./errorHandler');
 const { socketLogger } = require('../utils/logger');
 const { getClientIp } = require('../utils/clientIp');
@@ -27,6 +28,12 @@ function setupSocketHandlers(io) {
         // Client IP for the failed-sign-in throttle, from the handshake
         // (Railway edge: X-Real-IP behind a proxy peer; see utils/clientIp)
         if (socket.data) socket.data.clientIp = getClientIp(socket);
+
+        // The old App Store iOS build (1.0.0 build 1, positively identified
+        // by its handshake User-Agent) gets only the update message and no
+        // handler at all: nothing below is registered for it (upgradeGate.js;
+        // kill switch UPGRADE_GATE=off). Also records socket.data.appBuild
+        if (upgradeGate.gate(socket)) return;
 
         // Client capabilities (avatarUrl): socket.data.client, no reply.
         // Rate limited inside the handler (silently dropped over the limit)

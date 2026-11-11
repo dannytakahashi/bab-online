@@ -100,7 +100,7 @@ const s2c = {
         ),
         status: 'active', to: 'self',
         clientReads: reads(W.auth, I.auth),
-        emittedFrom: ['server/socket/authHandlers.js:signIn'],
+        emittedFrom: ['server/socket/authHandlers.js:signIn', 'server/socket/upgradeGate.js:sendUpdateMessage'],
     },
     signUpResponse: {
         payload: anyOf(
@@ -109,7 +109,7 @@ const s2c = {
         ),
         status: 'active', to: 'self',
         clientReads: reads(W.auth, I.auth),
-        emittedFrom: ['server/socket/authHandlers.js:signUp'],
+        emittedFrom: ['server/socket/authHandlers.js:signUp', 'server/socket/upgradeGate.js:replySignUp'],
     },
     restoreSessionResponse: {
         payload: anyOf(
@@ -162,7 +162,7 @@ const s2c = {
         payload: obj(mainRoomState),
         status: 'active', to: 'self',
         clientReads: reads(W.lobby, I.lobby),
-        emittedFrom: ['server/socket/mainRoomHandlers.js:joinMainRoom', 'server/socket/lobbyHandlers.js:leaveLobby', 'server/socket/tournamentHandlers.js:sendToMainRoom'],
+        emittedFrom: ['server/socket/mainRoomHandlers.js:joinMainRoom', 'server/socket/lobbyHandlers.js:leaveLobby', 'server/socket/tournamentHandlers.js:sendToMainRoom', 'server/socket/upgradeGate.js:sendMainRoom'],
         notes: 'recentMessages duplicates messages (iOS reads recentMessages first).',
     },
     mainRoomMessage: {
@@ -233,7 +233,7 @@ const s2c = {
         payload: empty,
         status: 'active', to: 'self',
         clientReads: reads(W.lobby, I.lobby),
-        emittedFrom: ['server/socket/lobbyHandlers.js:leaveLobby', 'server/socket/lobbyHandlers.js:releaseStaleLobbySeat'],
+        emittedFrom: ['server/socket/lobbyHandlers.js:leaveLobby', 'server/socket/lobbyHandlers.js:releaseStaleLobbySeat', 'server/socket/upgradeGate.js:replyLeave'],
     },
     playerReadyUpdate: {
         payload: anyOf(
@@ -561,7 +561,7 @@ const s2c = {
         payload: null,
         status: 'active', to: 'self',
         clientReads: reads(W.game, I.game('registerSpectatorAndLazy')),
-        emittedFrom: ['server/socket/seatLifecycle.js:leaveSeat', 'server/socket/chatHandlers.js:spectatorCommand', 'server/socket/chatHandlers.js:handleDrawPhaseLeave'],
+        emittedFrom: ['server/socket/seatLifecycle.js:leaveSeat', 'server/socket/chatHandlers.js:spectatorCommand', 'server/socket/chatHandlers.js:handleDrawPhaseLeave', 'server/socket/upgradeGate.js:replyLeave'],
     },
     joinMainRoom: {
         payload: null,
@@ -760,7 +760,7 @@ const s2c = {
         payload: empty,
         status: 'active', to: 'self',
         clientReads: reads(W.tour, I.tour),
-        emittedFrom: ['server/socket/tournamentHandlers.js:leaveTournament', 'server/socket/tournamentHandlers.js:returnToTournament'],
+        emittedFrom: ['server/socket/tournamentHandlers.js:leaveTournament', 'server/socket/tournamentHandlers.js:returnToTournament', 'server/socket/upgradeGate.js:replyLeave'],
     },
     tournamentCancelled: {
         payload: empty,

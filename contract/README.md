@@ -23,6 +23,14 @@ and the iOS app, checked against the real server in every test run.
 
 ## The rule: additive only
 
+Status 2026-11-11: iOS 1.1.0 (build 2) is the App Store build and the old
+1.0.0 build is answered only with an update message
+(`server/socket/upgradeGate.js`), so the non-additive changes in
+`V1_REMOVALS.md` may proceed one PR at a time in the order of its plan.
+Until a removal PR changes them, the rules below still hold. "The current iOS
+app" below now means 1.1.0 (iOS source f05d264), which still reads most v1
+keys (see the plan).
+
 The App Store iOS build will not change until the whole iOS track is done,
 so the current iOS app and the current web client must keep working exactly
 as today:

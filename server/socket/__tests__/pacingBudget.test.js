@@ -45,9 +45,11 @@ const STANDARD_S = {
     trickView: 100.1,
 };
 
-// The smallest gap each client-visible transition may have (pacing.js
-// SHIPPED_IOS_FLOORS), checked on every emit of every seeded game
-const F = pacing.SHIPPED_IOS_FLOORS;
+// The smallest gap each client-visible transition may have, checked on every
+// emit of every seeded game: the standard profile still meets the 1.0.0
+// floors (pacing.IOS_1_0_FLOORS, for UPGRADE_GATE=off), which are at or above
+// the 1.1.0 ones (SHIPPED_IOS_FLOORS) everywhere (pacing.test.js)
+const F = Object.fromEntries(Object.entries(pacing.SHIPPED_IOS_FLOORS).map(([k, v]) => [k, Math.max(v, pacing.IOS_1_0_FLOORS[k])]));
 const GAP_FLOORS = {
     drawToTeams: F['DRAW_REVEAL_MS+SEATING_TO_TEAMS_MS'],
     teamsToGameStart: F.TEAMS_MS,

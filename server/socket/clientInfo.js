@@ -7,8 +7,10 @@
  *   clientHello {client, version, build?, caps: ['avatarUrl']}
  * The server keeps it on `socket.data.client`, which dies with the socket
  * (no map, nothing to clean up on disconnect). Sockets that never say hello
- * (the App Store iOS build cc9059f, web bundles cached before this change)
- * get exactly the legacy payload shapes. The last hello wins: one without
+ * (both iOS App Store builds, 1.0.0 and 1.1.0, and web bundles cached before
+ * this change) get exactly the legacy payload shapes. The iOS build number
+ * comes from the handshake User-Agent instead (upgradeGate.js,
+ * socket.data.appBuild). The last hello wins: one without
  * 'avatarUrl' downgrades the socket again. Unknown caps are dropped.
  *
  * Over its rate limit (rateLimiter.limits.clientHello) a hello is dropped
