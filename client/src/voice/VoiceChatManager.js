@@ -1,25 +1,60 @@
 /**
  * VoiceChatManager - WebRTC peer-to-peer voice chat.
  *
- * Full-mesh topology: each human player maintains a direct RTCPeerConnection
- * to every other human. The server only relays signaling messages.
+ * Full-mesh topology: each human player maintains an RTCPeerConnection to
+ * every other human. The server relays signaling only; media goes peer to
+ * peer, or through Cloudflare's TURN relay (encrypted SRTP) when a direct
+ * path fails.
+ *
+ * ICE servers come from the server (getVoiceIceServers -> voiceIceServers:
+ * short-lived TURN credentials, else the public STUN servers) before the
+ * first peer connection of a session; a missing or late answer falls back
+ * to STUN_ICE_SERVERS. They are reused for the session (per username) and
+ * refreshed REFRESH_BEFORE_MS before they expire (setConfiguration on the
+ * open connections). A failed connection (or one not up within
+ * CONNECT_TIMEOUT_MS) gets ONE restart (the peer with
+ * the lower socket id offers again on fresh ICE servers; the other waits for
+ * that offer); if it still fails the peer shows "voice unavailable".
  */
 
 import { CLIENT_EVENTS } from '../constants/events.js';
 import { getGameState } from '../state/GameState.js';
 
-const ICE_CONFIG = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' }
-  ]
-};
+/** What voice used before TURN, and still uses without it. */
+export const STUN_ICE_SERVERS = Object.freeze([
+  Object.freeze({ urls: 'stun:stun.l.google.com:19302' }),
+  Object.freeze({ urls: 'stun:stun1.l.google.com:19302' })
+]);
+
+/** How long to wait for voiceIceServers before using STUN only. */
+export const ICE_FETCH_TIMEOUT_MS = 4000;
+/** Refresh TURN credentials this long before they expire. */
+export const REFRESH_BEFORE_MS = 30 * 60 * 1000;
+/** The side that does not re-offer waits this long for the restart. */
+export const RESTART_WAIT_MS = 15000;
+/** A connection not up by then counts as failed (it may never say so). */
+export const CONNECT_TIMEOUT_MS = 20000;
 
 const SPEAKING_THRESHOLD = 0.005;
 const SPEAKING_POLL_INTERVAL = 100;
 const SPEAKING_HOLD_MS = 400; // Keep gate open after speech stops
-// Largest relay chunk accepted (the server drops bigger ones; web sends <= 8 KB)
-const MAX_RELAY_BYTES = 64 * 1024;
+
+/** Keep only well-formed RTCIceServer entries from a voiceIceServers payload. */
+export function sanitizeIceServers(list) {
+  if (!Array.isArray(list)) return null;
+  const out = [];
+  for (const s of list) {
+    if (!s || typeof s !== 'object') continue;
+    const urls = (Array.isArray(s.urls) ? s.urls : [s.urls])
+      .filter(u => typeof u === 'string' && /^(stun|turn|turns):/i.test(u));
+    if (urls.length === 0) continue;
+    const entry = { urls };
+    if (typeof s.username === 'string') entry.username = s.username;
+    if (typeof s.credential === 'string') entry.credential = s.credential;
+    out.push(entry);
+  }
+  return out.length > 0 ? out : null;
+}
 
 export class VoiceChatManager {
   constructor() {
@@ -55,13 +90,23 @@ export class VoiceChatManager {
     this._pendingPeers = [];
     this._pendingOffers = [];
 
-    // Relay fallback state
-    this._relayedPeers = new Set();          // socketIds using relay
-    this._relayProcessor = null;              // shared ScriptProcessorNode
-    this._relaySource = null;                 // MediaStreamSource for relay capture
-    this._relayMuteNode = null;              // GainNode(0) to prevent echo
-    this._relayPlaybackTime = new Map();     // socketId → next scheduled playback time
-    this._relayGainNodes = new Map();        // socketId → GainNode for volume control
+    // ICE servers: { username, iceServers, turn, expiresAt (ms) | null };
+    // kept across shutdown (reused for the session, per username)
+    this._ice = null;
+    this._iceFetch = null;          // in-flight Promise<void>
+    this._iceRequests = new Map();  // requestId → resolve
+    this._iceRequestSeq = 0;
+    this._iceRefreshTimer = null;
+
+    // Connection recovery: socketId → restarts used (0 or 1); socketIds whose
+    // connection failed for good; socketId → wait timer for the remote restart
+    this._restarts = new Map();
+    this._unavailable = new Set();
+    this._restartTimers = new Map();
+    this._connectTimers = new Map(); // socketId → CONNECT_TIMEOUT_MS timer
+
+    // Bumped by shutdown: an initialize still awaiting stops when it changes
+    this._generation = 0;
   }
 
   /**
@@ -72,13 +117,24 @@ export class VoiceChatManager {
     if (this.active) return;
 
     this.socketManager = socketManager;
+    const generation = this._generation;
+    // In parallel with the microphone prompt; never rejects
+    const iceReady = this.ensureIceServers();
 
+    let stream;
     try {
-      this.localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch (err) {
       console.warn('Mic permission denied:', err.message);
       throw err;
     }
+    await iceReady;
+    if (generation !== this._generation || this.active) {
+      // shut down (or started elsewhere) while waiting: release the mic
+      stream.getTracks().forEach(t => t.stop());
+      return;
+    }
+    this.localStream = stream;
 
     this.active = true;
     this._localUsername = getGameState().username || null;
@@ -159,10 +215,13 @@ export class VoiceChatManager {
     }
     console.log('[Voice] handleOffer from', fromSocketId, username);
 
-    // If we already have a connection, close it and recreate
+    // If we already have a connection, close it and recreate (a restart
+    // after a failure keeps its count; the peer is trying again, so it is
+    // no longer "unavailable")
     if (this.peers.has(fromSocketId)) {
-      this._closePeer(fromSocketId);
+      this._closePeer(fromSocketId, { keepRecovery: true });
     }
+    this._unavailable.delete(fromSocketId);
 
     const pc = this._createPeerConnection(fromSocketId, username || 'Unknown');
 
@@ -194,8 +253,14 @@ export class VoiceChatManager {
       console.warn('[Voice] handleAnswer: no peer for', fromSocketId);
       return;
     }
+    // An unavailable peer's connection is closed: nothing to answer
+    if (peer.connection.signalingState === 'closed') return;
     console.log('[Voice] handleAnswer from', fromSocketId);
-    await peer.connection.setRemoteDescription(new RTCSessionDescription(answer));
+    try {
+      await peer.connection.setRemoteDescription(new RTCSessionDescription(answer));
+    } catch (err) {
+      console.warn('[Voice] handleAnswer failed for', fromSocketId, err.message);
+    }
   }
 
   /**
@@ -242,8 +307,6 @@ export class VoiceChatManager {
     this._peerMuted.set(socketId, true);
     const peer = this.peers.get(socketId);
     if (peer?.audioEl) peer.audioEl.volume = 0;
-    const relayGain = this._relayGainNodes.get(socketId);
-    if (relayGain) relayGain.gain.value = 0;
   }
 
   /**
@@ -254,8 +317,6 @@ export class VoiceChatManager {
     const vol = this._peerVolumes.get(socketId) ?? 1.0;
     const peer = this.peers.get(socketId);
     if (peer?.audioEl) peer.audioEl.volume = Math.min(1, vol);
-    const relayGain = this._relayGainNodes.get(socketId);
-    if (relayGain) relayGain.gain.value = vol;
   }
 
   /**
@@ -274,8 +335,6 @@ export class VoiceChatManager {
     if (!this._peerMuted.get(socketId)) {
       const peer = this.peers.get(socketId);
       if (peer?.audioEl) peer.audioEl.volume = Math.min(1, clamped);
-      const relayGain = this._relayGainNodes.get(socketId);
-      if (relayGain) relayGain.gain.value = clamped;
     }
   }
 
@@ -315,10 +374,127 @@ export class VoiceChatManager {
   }
 
   /**
-   * Check if a peer is using relay (non-P2P) mode.
+   * Did the voice connection to this peer fail for good (after its one
+   * restart)? The overlay shows it as "voice unavailable".
    */
-  isRelayed(socketId) {
-    return this._relayedPeers.has(socketId);
+  isUnavailable(socketId) {
+    return this._unavailable.has(socketId);
+  }
+
+  /**
+   * Are the current ICE servers Cloudflare TURN (not STUN only)?
+   */
+  hasTurn() {
+    return !!this._ice?.turn;
+  }
+
+  // ============================================
+  // ICE servers (server/voice/turnCredentials.js via voiceIceServers)
+  // ============================================
+
+  /**
+   * Make sure ICE servers for this user are known and not about to expire:
+   * reuses the session's copy, else asks the server (STUN on error or
+   * after ICE_FETCH_TIMEOUT_MS). Never rejects.
+   * @returns {Promise<void>}
+   */
+  ensureIceServers() {
+    const username = getGameState().username || null;
+    const ice = this._ice;
+    const fresh = ice && ice.username === username &&
+      (ice.expiresAt === null ? !ice.fallback : ice.expiresAt - Date.now() > REFRESH_BEFORE_MS);
+    if (fresh) return Promise.resolve();
+    if (this._iceFetch) return this._iceFetch;
+    this._iceFetch = this.fetchIceServers(username).finally(() => { this._iceFetch = null; });
+    return this._iceFetch;
+  }
+
+  /**
+   * One getVoiceIceServers round trip. Never rejects: any failure keeps
+   * STUN_ICE_SERVERS (marked `fallback`, so the next session asks again).
+   */
+  async fetchIceServers(username = getGameState().username || null) {
+    const sm = this.socketManager;
+    let reply = null;
+    if (sm && typeof sm.emit === 'function') {
+      const requestId = `ice-${++this._iceRequestSeq}`;
+      reply = await new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          this._iceRequests.delete(requestId);
+          resolve(null);
+        }, ICE_FETCH_TIMEOUT_MS);
+        this._iceRequests.set(requestId, (data) => {
+          clearTimeout(timer);
+          resolve(data);
+        });
+        try {
+          sm.emit(CLIENT_EVENTS.GET_VOICE_ICE_SERVERS, { requestId });
+        } catch (err) {
+          clearTimeout(timer);
+          this._iceRequests.delete(requestId);
+          resolve(null);
+        }
+      });
+    }
+    const servers = sanitizeIceServers(reply?.iceServers);
+    if (servers) {
+      const secs = Number.isFinite(reply.expiresInSec) ? reply.expiresInSec : null;
+      this._ice = {
+        username,
+        iceServers: servers,
+        turn: !!reply.turn,
+        expiresAt: secs === null ? null : Date.now() + secs * 1000,
+        fallback: false,
+      };
+    } else {
+      this._ice = { username, iceServers: STUN_ICE_SERVERS.map(s => ({ ...s })), turn: false, expiresAt: null, fallback: true };
+    }
+    console.log('[Voice] ICE servers:', this._ice.turn ? 'TURN' : 'STUN only');
+    this._applyIceToPeers();
+    this._scheduleIceRefresh();
+  }
+
+  /**
+   * voiceIceServers from the server (registered in handlers/voiceHandlers.js).
+   * An answer to no open request (late, or another tab's) is ignored.
+   */
+  onIceServers(data) {
+    const id = data?.requestId;
+    const resolve = typeof id === 'string' ? this._iceRequests.get(id) : null;
+    if (!resolve) return;
+    this._iceRequests.delete(id);
+    resolve(data);
+  }
+
+  _currentIceServers() {
+    return (this._ice?.iceServers || STUN_ICE_SERVERS).map(s => ({ ...s }));
+  }
+
+  /** New credentials for connections already open (TURN refreshes need it). */
+  _applyIceToPeers() {
+    for (const [, peer] of this.peers) {
+      const pc = peer.connection;
+      if (!pc || pc.signalingState === 'closed' || typeof pc.setConfiguration !== 'function') continue;
+      try {
+        const cfg = typeof pc.getConfiguration === 'function' ? pc.getConfiguration() : {};
+        pc.setConfiguration({ ...cfg, iceServers: this._currentIceServers() });
+      } catch (err) {
+        console.warn('[Voice] setConfiguration failed:', err.message);
+      }
+    }
+  }
+
+  _scheduleIceRefresh() {
+    if (this._iceRefreshTimer) clearTimeout(this._iceRefreshTimer);
+    this._iceRefreshTimer = null;
+    if (!this.active && !this.socketManager) return;
+    const at = this._ice?.expiresAt;
+    if (!at) return;
+    const inMs = Math.max(60 * 1000, at - Date.now() - REFRESH_BEFORE_MS);
+    this._iceRefreshTimer = setTimeout(() => {
+      this._iceRefreshTimer = null;
+      if (this.socketManager) this.fetchIceServers();
+    }, inMs);
   }
 
   /**
@@ -379,6 +555,7 @@ export class VoiceChatManager {
     try {
       // Replace track on all peer connections BEFORE stopping old tracks
       for (const [, peer] of this.peers) {
+        if (peer.connection.signalingState === 'closed') continue; // voice unavailable
         const senders = peer.connection.getSenders();
         const audioSender = senders.find(s => s.track?.kind === 'audio' || s.track === null);
         if (audioSender) {
@@ -406,15 +583,6 @@ export class VoiceChatManager {
     // Properly disconnect old analyser source node, then create new one
     this._cleanupAnalyser('self');
     this._addAnalyser('self', newStream);
-
-    // Reconnect relay processor to new stream if relay is active
-    if (this._relayProcessor && this._relayedPeers.size > 0) {
-      if (this._relaySource) {
-        this._relaySource.disconnect();
-      }
-      this._relaySource = this._audioContext.createMediaStreamSource(newStream);
-      this._relaySource.connect(this._relayProcessor);
-    }
   }
 
   /**
@@ -458,6 +626,7 @@ export class VoiceChatManager {
    */
   shutdown() {
     this.active = false;
+    this._generation++;
 
     // Stop speaking detection
     if (this._speakingInterval) {
@@ -496,14 +665,20 @@ export class VoiceChatManager {
     this.selfMuted = false;
     this.socketManager = null;
 
-    // Clean up relay state
-    this._stopRelayCapture();
-    this._relayedPeers.clear();
-    this._relayPlaybackTime.clear();
-    for (const gain of this._relayGainNodes.values()) {
-      gain.disconnect();
+    // Recovery state; the ICE servers themselves are kept for the session
+    for (const t of this._restartTimers.values()) clearTimeout(t);
+    for (const t of this._connectTimers.values()) clearTimeout(t);
+    this._connectTimers.clear();
+    this._restartTimers.clear();
+    this._restarts.clear();
+    this._unavailable.clear();
+    if (this._iceRefreshTimer) {
+      clearTimeout(this._iceRefreshTimer);
+      this._iceRefreshTimer = null;
     }
-    this._relayGainNodes.clear();
+    // A request still open answers STUN to its waiter at once
+    for (const resolve of this._iceRequests.values()) resolve(null);
+    this._iceRequests.clear();
   }
 
   // ============================================
@@ -511,7 +686,7 @@ export class VoiceChatManager {
   // ============================================
 
   _createPeerConnection(socketId, username) {
-    const pc = new RTCPeerConnection(ICE_CONFIG);
+    const pc = new RTCPeerConnection({ iceServers: this._currentIceServers() });
 
     // Audio element for reliable playback (Web Audio API alone is unreliable for remote WebRTC streams)
     const audioEl = document.createElement('audio');
@@ -550,27 +725,124 @@ export class VoiceChatManager {
       }
     };
 
-    // Connection state monitoring
+    // Connection state monitoring: connected clears any failure; failed
+    // (either state machine) gets one restart, then "voice unavailable"
+    const onState = () => {
+      if (this.peers.get(socketId)?.connection !== pc) return; // a replaced connection
+      if (pc.connectionState === 'connected' || pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+        this._onPeerConnected(socketId);
+      } else if (pc.connectionState === 'failed' || pc.iceConnectionState === 'failed') {
+        this._onPeerFailed(socketId);
+      }
+    };
     pc.onconnectionstatechange = () => {
       console.log(`[Voice] peer ${socketId} connection: ${pc.connectionState}`);
-      if (pc.connectionState === 'failed') {
-        console.log(`[Voice] P2P connection failed for ${socketId}, switching to relay`);
-        this._startRelay(socketId);
-      }
+      onState();
     };
-
     pc.oniceconnectionstatechange = () => {
       console.log(`[Voice] peer ${socketId} ICE: ${pc.iceConnectionState}`);
-      if (pc.iceConnectionState === 'failed') {
-        console.log(`[Voice] P2P failed for ${socketId}, switching to relay`);
-        this._startRelay(socketId);
-      }
+      onState();
     };
+
+    // A connection that never gets a candidate pair (no usable relay, a
+    // lost offer) stays "new" / "checking" and never reports failed: past
+    // CONNECT_TIMEOUT_MS it counts as a failure, so nothing hangs silently
+    const prev = this._connectTimers.get(socketId);
+    if (prev) clearTimeout(prev);
+    this._connectTimers.set(socketId, setTimeout(() => {
+      this._connectTimers.delete(socketId);
+      if (this.peers.get(socketId)?.connection !== pc || pc.signalingState === 'closed') return;
+      if (pc.connectionState === 'connected' || pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') return;
+      console.log(`[Voice] connection to ${socketId} not up after ${CONNECT_TIMEOUT_MS} ms`);
+      this._onPeerFailed(socketId);
+    }, CONNECT_TIMEOUT_MS));
 
     return pc;
   }
 
-  _closePeer(socketId) {
+  _onPeerConnected(socketId) {
+    const ct = this._connectTimers.get(socketId);
+    if (ct) clearTimeout(ct);
+    this._connectTimers.delete(socketId);
+    const t = this._restartTimers.get(socketId);
+    if (t) clearTimeout(t);
+    this._restartTimers.delete(socketId);
+    this._restarts.delete(socketId);
+    this._unavailable.delete(socketId);
+  }
+
+  /**
+   * A connection failed. First failure: the peer with the lower socket id
+   * offers again on a new connection (fresh ICE servers; the other side's
+   * handleOffer replaces its own), the other waits RESTART_WAIT_MS for that
+   * offer. A second failure, or no restart in time: voice unavailable for
+   * this peer (connection closed, row kept; a later offer from it retries).
+   */
+  _onPeerFailed(socketId) {
+    if (!this.active || this._unavailable.has(socketId)) return;
+    if (this._restartTimers.has(socketId)) return; // already waiting for the remote restart
+    const used = this._restarts.get(socketId) || 0;
+    const peer = this.peers.get(socketId);
+    if (!peer) return;
+    if (used >= 1) {
+      this._markUnavailable(socketId);
+      return;
+    }
+    this._restarts.set(socketId, 1);
+    const myId = this.socketManager?.id || '';
+    if (myId && myId < socketId) {
+      console.log(`[Voice] connection to ${socketId} failed: restarting once`);
+      const username = peer.username;
+      // Credentials may have expired: refresh first when they are due
+      this.ensureIceServers().then(() => {
+        if (!this.active || this.peers.get(socketId) !== peer) return;
+        this._closePeer(socketId, { keepRecovery: true });
+        this.connectToPeer(socketId, username);
+      });
+    } else {
+      console.log(`[Voice] connection to ${socketId} failed: waiting for its restart`);
+      // The restart's offer clears this timer (handleOffer)
+      this._restartTimers.set(socketId, setTimeout(() => {
+        this._restartTimers.delete(socketId);
+        if (this.peers.get(socketId) === peer) this._markUnavailable(socketId);
+      }, RESTART_WAIT_MS));
+    }
+  }
+
+  _markUnavailable(socketId) {
+    const peer = this.peers.get(socketId);
+    if (!peer) return;
+    console.log(`[Voice] voice unavailable for ${socketId}`);
+    this._unavailable.add(socketId);
+    if (peer.connection.signalingState !== 'closed') peer.connection.close();
+    if (peer.audioEl) {
+      peer.audioEl.srcObject = null;
+    }
+    this._cleanupAnalyser(socketId);
+    if (this._speakingStates.get(socketId)) {
+      this._speakingStates.set(socketId, false);
+      this._speakingCallbacks.forEach(cb => {
+        try { cb(socketId, false); } catch (e) { /* ignore */ }
+      });
+    }
+  }
+
+  /**
+   * @param {string} socketId
+   * @param {{keepRecovery?: boolean}} [opts] - keep the restart count (a
+   *   connection replaced by its restart); the peer left otherwise
+   */
+  _closePeer(socketId, { keepRecovery = false } = {}) {
+    const timer = this._restartTimers.get(socketId);
+    if (timer) clearTimeout(timer);
+    this._restartTimers.delete(socketId);
+    const ct = this._connectTimers.get(socketId);
+    if (ct) clearTimeout(ct);
+    this._connectTimers.delete(socketId);
+    if (!keepRecovery) {
+      this._restarts.delete(socketId);
+      this._unavailable.delete(socketId);
+    }
     const peer = this.peers.get(socketId);
     if (!peer) return;
 
@@ -587,187 +859,7 @@ export class VoiceChatManager {
     this._speakingStates.delete(socketId);
     this._speakingLastActive.delete(socketId);
 
-    // Clean up relay state
-    this._relayedPeers.delete(socketId);
-    this._relayPlaybackTime.delete(socketId);
-    const relayGain = this._relayGainNodes.get(socketId);
-    if (relayGain) {
-      relayGain.disconnect();
-      this._relayGainNodes.delete(socketId);
-    }
-    if (this._relayedPeers.size === 0) {
-      this._stopRelayCapture();
-    }
-
     this.peers.delete(socketId);
-  }
-
-  /**
-   * Switch a peer to relay mode after ICE failure.
-   */
-  _startRelay(socketId) {
-    if (this._relayedPeers.has(socketId)) return;
-
-    const peer = this.peers.get(socketId);
-    if (!peer) return;
-
-    // Close the P2P connection but keep the peer entry for username/metadata
-    if (peer.connection.signalingState !== 'closed') {
-      peer.connection.close();
-    }
-    if (peer.audioEl) {
-      peer.audioEl.srcObject = null;
-      peer.audioEl.remove();
-      peer.audioEl = null;
-    }
-
-    // Remove P2P analyser — speaking detection for relay uses RMS from received PCM
-    this._cleanupAnalyser(socketId);
-
-    this._relayedPeers.add(socketId);
-    this._ensureRelayCapture();
-
-    // Create per-peer GainNode for volume/mute control on playback
-    if (this._audioContext) {
-      const gain = this._audioContext.createGain();
-      const vol = this._peerMuted.get(socketId) ? 0 : (this._peerVolumes.get(socketId) ?? 1.0);
-      gain.gain.value = vol;
-      gain.connect(this._audioContext.destination);
-      this._relayGainNodes.set(socketId, gain);
-    }
-  }
-
-  /**
-   * Set up shared ScriptProcessorNode for relay audio capture.
-   */
-  _ensureRelayCapture() {
-    if (this._relayProcessor) return;
-    if (!this._audioContext || !this.localStream) return;
-
-    this._relaySource = this._audioContext.createMediaStreamSource(this.localStream);
-
-    // ScriptProcessorNode for capturing and downsampling audio
-    this._relayProcessor = this._audioContext.createScriptProcessor(4096, 1, 1);
-
-    // GainNode(0) connected to destination — required for processing to fire
-    this._relayMuteNode = this._audioContext.createGain();
-    this._relayMuteNode.gain.value = 0;
-
-    this._relaySource.connect(this._relayProcessor);
-    this._relayProcessor.connect(this._relayMuteNode);
-    this._relayMuteNode.connect(this._audioContext.destination);
-
-    const inputSampleRate = this._audioContext.sampleRate;
-    const outputSampleRate = 8000;
-
-    this._relayProcessor.onaudioprocess = (e) => {
-      if (this.selfMuted || this._relayedPeers.size === 0) return;
-      if (!this.socketManager) return;
-
-      const input = e.inputBuffer.getChannelData(0);
-
-      // Downsample to 8kHz
-      const ratio = inputSampleRate / outputSampleRate;
-      const outputLength = Math.floor(input.length / ratio);
-      const output = new Int16Array(outputLength);
-
-      for (let i = 0; i < outputLength; i++) {
-        const srcIndex = Math.floor(i * ratio);
-        // Clamp and convert float [-1, 1] to Int16
-        const sample = Math.max(-1, Math.min(1, input[srcIndex]));
-        output[i] = sample * 32767;
-      }
-
-      // Send to each relayed peer
-      for (const targetSocketId of this._relayedPeers) {
-        this.socketManager.emit(CLIENT_EVENTS.VOICE_RELAY_AUDIO, {
-          targetSocketId,
-          audio: output.buffer
-        });
-      }
-    };
-  }
-
-  /**
-   * Tear down relay capture when no more relayed peers.
-   */
-  _stopRelayCapture() {
-    if (this._relayProcessor) {
-      this._relayProcessor.onaudioprocess = null;
-      this._relayProcessor.disconnect();
-      this._relayProcessor = null;
-    }
-    if (this._relaySource) {
-      this._relaySource.disconnect();
-      this._relaySource = null;
-    }
-    if (this._relayMuteNode) {
-      this._relayMuteNode.disconnect();
-      this._relayMuteNode = null;
-    }
-  }
-
-  /**
-   * Handle incoming relay audio from a peer.
-   */
-  _onRelayAudio(fromSocketId, audioData) {
-    if (!this._audioContext || !this._relayedPeers.has(fromSocketId)) return;
-    // Only a binary Int16 chunk (socket.io delivers it as an ArrayBuffer).
-    // new Int16Array() reads a numeric string or an object's .length as a
-    // sample count, so anything else could force a huge allocation.
-    if (!(audioData instanceof ArrayBuffer)) return;
-    const bytes = audioData.byteLength;
-    if (bytes === 0 || bytes > MAX_RELAY_BYTES || bytes % 2 !== 0) return;
-
-    // Convert ArrayBuffer (Int16 PCM) → Float32Array
-    const int16 = new Int16Array(audioData);
-    const float32 = new Float32Array(int16.length);
-    for (let i = 0; i < int16.length; i++) {
-      float32[i] = int16[i] / 32767;
-    }
-
-    // Speaking detection: compute RMS from received PCM
-    let sum = 0;
-    for (let i = 0; i < float32.length; i++) {
-      sum += float32[i] * float32[i];
-    }
-    const rms = Math.sqrt(sum / float32.length);
-
-    const now = Date.now();
-    if (rms > SPEAKING_THRESHOLD) {
-      this._speakingLastActive.set(fromSocketId, now);
-    }
-    const wasSpeaking = this._speakingStates.get(fromSocketId) || false;
-    const lastActive = this._speakingLastActive.get(fromSocketId) || 0;
-    const isSpeaking = (now - lastActive) < SPEAKING_HOLD_MS;
-
-    if (isSpeaking !== wasSpeaking) {
-      this._speakingStates.set(fromSocketId, isSpeaking);
-      this._speakingCallbacks.forEach(cb => {
-        try { cb(fromSocketId, isSpeaking); } catch (e) { /* ignore */ }
-      });
-    }
-
-    // Playback: create AudioBuffer and schedule via AudioBufferSourceNode
-    const gainNode = this._relayGainNodes.get(fromSocketId);
-    if (!gainNode) return;
-
-    const sampleRate = 8000;
-    const buffer = this._audioContext.createBuffer(1, float32.length, sampleRate);
-    buffer.getChannelData(0).set(float32);
-
-    const source = this._audioContext.createBufferSource();
-    source.buffer = buffer;
-    source.connect(gainNode);
-
-    // Schedule playback contiguously to avoid gaps
-    const currentTime = this._audioContext.currentTime;
-    let startTime = this._relayPlaybackTime.get(fromSocketId) || 0;
-    if (startTime < currentTime) {
-      startTime = currentTime;
-    }
-    source.start(startTime);
-    this._relayPlaybackTime.set(fromSocketId, startTime + buffer.duration);
   }
 
   _setupAudioContext() {

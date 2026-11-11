@@ -934,6 +934,29 @@
       ],
       "additionalProperties": false
     },
+    "iceServer": {
+      "type": "object",
+      "properties": {
+        "urls": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^(stun|turn|turns):"
+          },
+          "minItems": 1
+        },
+        "username": {
+          "type": "string"
+        },
+        "credential": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "urls"
+      ],
+      "additionalProperties": false
+    },
     "legacyClientState": {
       "type": "object",
       "properties": {
@@ -3658,7 +3681,7 @@
         ],
         "additionalProperties": true
       },
-      "status": "active",
+      "status": "deprecated",
       "joi": null,
       "rateLimit": null,
       "sentBy": {
@@ -3671,7 +3694,46 @@
           "audio": "AAAA"
         }
       ],
-      "notes": "Forwarded only to a connected socket id (never a room) of a signed-in peer in the sender's lobby or game (entrant / seat owner; not a pure spectator), when neither user blocked the other, within the per-socket limit rateLimiter.voiceRelayAudio (1200 / 10 s), checked in-handler; anything else is dropped silently (no reply, never error). The web PCM fallback after a failed P2P connection. Only binary audio is forwarded (the web client emits an Int16Array's ArrayBuffer; the server receives a Buffer): non-empty, an even byte count, at most 64 KB. A string, array, number or plain object is dropped (the web receiver decodes with new Int16Array, which reads those as a sample count). Kept until the owner decides between it and a TURN server."
+      "notes": "Forwarded only to a connected socket id (never a room) of a signed-in peer in the sender's lobby or game (entrant / seat owner; not a pure spectator), when neither user blocked the other, within the per-socket limit rateLimiter.voiceRelayAudio (1200 / 10 s), checked in-handler; anything else is dropped silently (no reply, never error). The web PCM fallback after a failed P2P connection. Only binary audio is forwarded (the web client emits an Int16Array's ArrayBuffer; the server receives a Buffer): non-empty, an even byte count, at most 64 KB. A string, array, number or plain object is dropped (the web receiver decodes with new Int16Array, which reads those as a sample count). No current web bundle sends it (TURN replaced it, 2026-11-11); the handler stays for web bundles cached before that deploy (V1_REMOVALS #20)."
+    },
+    "getVoiceIceServers": {
+      "payload": {
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "additionalProperties": true
+      },
+      "optionalPayload": true,
+      "status": "active",
+      "joi": "getVoiceIceServers",
+      "rateLimit": "getVoiceIceServers",
+      "sentBy": {
+        "web": true,
+        "ios": false
+      },
+      "examples": [
+        {},
+        {
+          "requestId": "ice-1"
+        }
+      ],
+      "invalid": [
+        {
+          "requestId": ""
+        },
+        {
+          "requestId": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        },
+        {
+          "requestId": 7
+        }
+      ],
+      "notes": "Answered by voiceIceServers to this socket only (requestId echoed). Web asks before its first peer connection of a voice session and again before the credentials expire. TURN credentials (Cloudflare Realtime, minted server-side, cached per user) only for a signed-in socket that is a voice peer now (in a lobby, or an entrant / seat owner of a game); everyone else, and every failure (env unset, Cloudflare timeout or error), gets the public STUN servers. iOS 1.1.0 does not send it (it hard-codes STUN); the next iOS release will (V1_REMOVALS \"iOS TURN\")."
     }
   },
   "s2c": {
@@ -8332,17 +8394,16 @@
         ],
         "additionalProperties": false
       },
-      "status": "active",
+      "status": "deprecated",
       "to": "socket",
       "clientReads": {
-        "web": [
-          "client/src/handlers/voiceHandlers.js:registerVoiceHandlers"
-        ],
+        "web": [],
         "ios": []
       },
       "emittedFrom": [
         "server/socket/voiceHandlers.js:voiceRelayAudio"
-      ]
+      ],
+      "notes": "The web PCM fallback, replaced by TURN (2026-11-11): no current client listens. Still forwarded between two web bundles cached before that deploy; removal is V1_REMOVALS #20."
     },
     "voicePeerList": {
       "payload": {
@@ -8455,6 +8516,51 @@
       "added": [
         "seq"
       ]
+    },
+    "voiceIceServers": {
+      "payload": {
+        "type": "object",
+        "properties": {
+          "iceServers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/iceServer"
+            },
+            "minItems": 1
+          },
+          "turn": {
+            "type": "boolean"
+          },
+          "expiresInSec": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "requestId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "iceServers",
+          "turn",
+          "expiresInSec"
+        ],
+        "additionalProperties": false
+      },
+      "status": "active",
+      "to": "self",
+      "clientReads": {
+        "web": [
+          "client/src/voice/VoiceChatManager.js:fetchIceServers"
+        ],
+        "ios": []
+      },
+      "emittedFrom": [
+        "server/socket/voiceHandlers.js:getVoiceIceServers"
+      ],
+      "notes": "The reply to getVoiceIceServers. iceServers is an RTCPeerConnection iceServers list: turn true = Cloudflare TURN (username / credential on the turn: / turns: entry, valid expiresInSec more seconds; port-53 URLs dropped), false = the public STUN servers both clients used before (expiresInSec null). requestId echoes the request's. Never the API token."
     },
     "serverShutdown": {
       "payload": {

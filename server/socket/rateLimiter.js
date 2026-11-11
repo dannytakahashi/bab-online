@@ -84,13 +84,18 @@ class RateLimiter {
             // more interfaces, IPv6 or iOS cellular add a few srflx/host
             // each, so 300 / 10 s is ~30x a 3-peer burst. Offers/answers:
             // one per peer plus renegotiation.
-            // The web PCM relay sends one chunk per 4096-frame
+            // The old web PCM relay (deprecated, V1_REMOVALS #20; only
+            // bundles cached before the TURN deploy) sends one chunk per 4096-frame
             // ScriptProcessor buffer per relayed peer: ~11.7/s at 48 kHz,
             // ~23/s at 96 kHz, so 3 peers stay under 70/s
             voiceOffer: { max: 30, windowMs: 10000 },
             voiceAnswer: { max: 30, windowMs: 10000 },
             voiceIceCandidate: { max: 300, windowMs: 10000 },
             voiceRelayAudio: { max: 1200, windowMs: 10000 },
+            // TURN credentials (wrapper limit: error rateLimit over it). Web
+            // asks once per voice start and refreshes before expiry; the
+            // credentials are cached per user (server/voice/turnCredentials.js)
+            getVoiceIceServers: { max: 20, windowMs: 60000 },
 
             // Safety / moderation
             reportUser: { max: 5, windowMs: 300000 },     // 5 per 5 minutes

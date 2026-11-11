@@ -464,8 +464,10 @@ body > .voice-btn {
 .voice-row__dot { flex-shrink: 0; width: 10px; height: 10px; margin-right: 10px; border-radius: 50%; background: var(--surface-3); }
 .voice-row.is-speaking .voice-row__dot { background: var(--success); }
 .voice-row__name { flex: 1; color: var(--text-primary); font-size: var(--type-sm); }
-.voice-row__relay { display: none; margin-left: var(--space-1); color: var(--danger-text); font-weight: var(--weight-bold); font-size: var(--type-xs); }
-.voice-row__relay.is-on { display: inline; }
+.voice-row__unavailable { display: none; color: var(--danger-text); font-weight: var(--weight-bold); font-size: var(--type-xs); white-space: nowrap; }
+.voice-row__unavailable.is-on { display: block; }
+.voice-row.is-unavailable .voice-row__slider,
+.voice-row.is-unavailable .voice-row__pct { opacity: 0.4; }
 .voice-row__volume { display: flex; flex-shrink: 0; align-items: center; margin-right: var(--space-2); }
 .voice-row__slider { width: 80px; accent-color: var(--success); cursor: pointer; }
 .voice-row__pct { width: 36px; margin-left: var(--space-1); color: var(--text-secondary); font-size: 11px; text-align: right; font-variant-numeric: tabular-nums; }

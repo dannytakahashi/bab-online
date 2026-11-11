@@ -799,9 +799,10 @@ const s2c = {
     },
     voiceRelayAudio: {
         payload: obj({ fromSocketId: str(), audio: { type: ['string', 'object', 'array'] } }),
-        status: 'active', to: 'socket',
-        clientReads: reads(W.voice, []),
+        status: 'deprecated', to: 'socket',
+        clientReads: reads([], []),
         emittedFrom: ['server/socket/voiceHandlers.js:voiceRelayAudio'],
+        notes: 'The web PCM fallback, replaced by TURN (2026-11-11): no current client listens. Still forwarded between two web bundles cached before that deploy; removal is V1_REMOVALS #20.',
     },
     voicePeerList: {
         payload: obj({ peers: arr(ref('voicePeer')) }),
@@ -821,6 +822,18 @@ const s2c = {
         clientReads: reads(W.voice, I.voice),
         emittedFrom: ['server/socket/seatLifecycle.js:disconnectOwner', 'server/socket/lobbyHandlers.js:leaveLobby', 'server/socket/lobbyHandlers.js:releaseStaleLobbySeat', 'server/socket/queueHandlers.js:handleDisconnect'],
         notes: 'room: a game seat owner dropped (game.broadcast); private: lobby peers (io.to(socketId)).',
+    },
+    voiceIceServers: {
+        payload: obj({
+            iceServers: arr(ref('iceServer'), { minItems: 1 }),
+            turn: bool(),
+            expiresInSec: orNull(int({ minimum: 0 })),
+            requestId: str(),
+        }, { optional: ['requestId'] }),
+        status: 'active', to: 'self',
+        clientReads: reads('client/src/voice/VoiceChatManager.js:fetchIceServers', []),
+        emittedFrom: ['server/socket/voiceHandlers.js:getVoiceIceServers'],
+        notes: 'The reply to getVoiceIceServers. iceServers is an RTCPeerConnection iceServers list: turn true = Cloudflare TURN (username / credential on the turn: / turns: entry, valid expiresInSec more seconds; port-53 URLs dropped), false = the public STUN servers both clients used before (expiresInSec null). requestId echoes the request\'s. Never the API token.',
     },
 
     // ==================== Connection ====================

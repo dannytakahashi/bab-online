@@ -490,6 +490,9 @@ describe('(e) non-game handlers', () => {
         voiceHandlers.voiceAnswer(e, w.io, { targetSocketId: 'e-d', answer: { type: 'answer', sdp: 'v=0' } });
         voiceHandlers.voiceIceCandidate(e, w.io, { targetSocketId: 'e-d', candidate: { candidate: 'c', sdpMLineIndex: 0, sdpMid: '0' } });
         voiceHandlers.voiceRelayAudio(e, w.io, { targetSocketId: 'e-d', audio: Buffer.alloc(1364) });
+        // ICE servers (no TURN env here: the STUN answer; TURN shape in turnCredentials.test.js)
+        await voiceHandlers.getVoiceIceServers(e, w.io, { requestId: 'ice-1' });
+        await voiceHandlers.getVoiceIceServers(e, w.io, undefined);
         lobbyHandlers.leaveLobby(e, w.io);
         lobbyHandlers.leaveLobby(d, w.io);
         lobbyHandlers.leaveLobby(d, w.io); // not in a lobby: error

@@ -45,7 +45,9 @@ export function registerVoiceHandlers(socketManager) {
     await voiceManager.handleIceCandidate(data.fromSocketId, data.candidate);
   });
 
-  socketManager.on(SERVER_EVENTS.VOICE_RELAY_AUDIO, (data) => {
-    voiceManager._onRelayAudio(data.fromSocketId, data.audio);
+  // The reply to getVoiceIceServers (TURN credentials, else STUN). The PCM
+  // relay (voiceRelayAudio) is gone: TURN replaced it, so nothing listens.
+  socketManager.on(SERVER_EVENTS.VOICE_ICE_SERVERS, (data) => {
+    voiceManager.onIceServers(data);
   });
 }

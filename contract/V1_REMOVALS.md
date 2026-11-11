@@ -249,6 +249,57 @@ is logged per socket (server/socket/clientInfo.js).
   always true for avatars); clientHello stays for version prompts and
   future caps.
 
+### 20. `voiceRelayAudio` (the web PCM relay, both directions)
+
+Replaced by Cloudflare TURN (owner, 2026-11-11; `getVoiceIceServers` →
+`voiceIceServers`, server/voice/turnCredentials.js). The current web bundle
+neither sends nor listens to it; both schema entries are `deprecated`. The
+server handler (`voiceHandlers.voiceRelayAudio`, authorized and rate limited
+as in #211: same lobby or game, no block, binary chunks of at most 64 KB)
+stays only for web bundles cached before that deploy: index.html is
+`no-cache`, so only a tab left open across the deploy still runs one, and
+it relays only to another such tab. iOS never had it.
+
+Remove: the c2s registration in `server/socket/index.js`, `voiceRelayAudio`
+and `isRelayChunk` / `MAX_RELAY_BYTES` in voiceHandlers.js, the
+`voiceRelayAudio` rate-limit key, both schema entries (c2s + s2c; a
+baseline edit, since cc865b4 had them), the web constants
+`VOICE_RELAY_AUDIO` (legacyConstants pins them: update the golden) and the
+relay cases of voiceSignaling.test.js. Precondition: one day after the TURN
+deploy (no tab can still hold the old bundle in practice).
+
+## iOS TURN (next App Store release, roadmap 29 track; not a removal)
+
+iOS 1.1.0 hard-codes Google STUN (`VoiceChatManager.iceConfig`,
+`iOSClient/BABOnline/Voice/VoiceChatManager.swift`), so an iOS peer behind
+a strict NAT still cannot connect, to web or iOS. The next iOS build needs:
+
+1. Generated constants: move `getVoiceIceServers` / `voiceIceServers` from
+   `layout.json` `exclude.swift` into the Swift layout's Voice Chat
+   sections (append at the end), `npm run contract:gen`, xcodebuild.
+2. Before the first `RTCPeerConnection` of a voice session (VoiceChatManager
+   start, when the app `holdsSeat` or is in a lobby), emit
+   `getVoiceIceServers {requestId: "ice-<n>"}` and wait for
+   `voiceIceServers {iceServers, turn, expiresInSec, requestId}` with the same
+   requestId, at most ~4 s; on timeout or a malformed reply use today's STUN
+   list. `iceServers` is `[{urls: [String], username?: String, credential?:
+   String}]` → `RTCIceServer(urlStrings:username:credential:)`; `turn` true
+   means Cloudflare TURN; `expiresInSec` (null for STUN) says how long the
+   credentials stay valid (about 4 h when fresh).
+3. Reuse them for the session (per signed-in username); 30 min before
+   `expiresInSec` runs out ask again and apply them with
+   `peerConnection.setConfiguration` to open connections.
+4. On `RTCIceConnectionState.failed`, or no connection within 20 s: one
+   restart (web: the peer with the lower socket id offers again on a new
+   connection, the other waits 15 s for that offer), then show the peer as
+   voice unavailable.
+5. Server side nothing changes: the request is answered for any signed-in
+   socket in a lobby or game (STUN for everyone else); the wrapper limit is
+   20 requests a minute per socket (`error {type:'rateLimit'}` over it).
+
+The App Privacy answers do not change: TURN relays the encrypted SRTP
+stream and nothing is stored.
+
 ## Deferred additive (not removals; held back on purpose)
 
 - **`bidReceived` team1Mult / team2Mult.** The shipped iOS app reads them
