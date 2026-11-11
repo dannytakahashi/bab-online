@@ -229,6 +229,20 @@ enum BidRules {
     }
 
     static func isBore(_ bid: String) -> Bool { boreLevels.contains(bid.uppercased()) }
+
+    /// The bore buttons the bid sheet shows (BidOverlayView; the web sheet
+    /// enables the same set): B until someone bid B, then each level once the
+    /// one below is on the table and it is not. Whose bid it was (an
+    /// opponent, the partner) and the bidding order do not matter.
+    static func availableBores(bids: [String]) -> [String] {
+        let bids = bids.map { $0.uppercased() }
+        var levels: [String] = []
+        if !bids.contains("B")                          { levels.append("B") }
+        if bids.contains("B") && !bids.contains("2B")   { levels.append("2B") }
+        if bids.contains("2B") && !bids.contains("3B")  { levels.append("3B") }
+        if bids.contains("3B") && !bids.contains("4B")  { levels.append("4B") }
+        return levels
+    }
 }
 
 /// The over-trump ("OT") rule (owner 2026-11-11; web mirror

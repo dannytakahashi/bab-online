@@ -14,16 +14,10 @@ struct BidOverlayView: View {
         gameState.myCards.count
     }
 
-    /// Available bore levels based on what's already been bid
+    /// Available bore levels based on what's already been bid (BidRules.availableBores)
     private var availableBoreLevels: [String] {
         guard maxBid > 0 else { return [] }
-        let bids = gameState.tempBids
-        var levels: [String] = []
-        if !bids.contains("B")                          { levels.append("B") }
-        if bids.contains("B") && !bids.contains("2B")   { levels.append("2B") }
-        if bids.contains("2B") && !bids.contains("3B")  { levels.append("3B") }
-        if bids.contains("3B") && !bids.contains("4B")  { levels.append("4B") }
-        return levels
+        return BidRules.availableBores(bids: gameState.tempBids)
     }
 
     /// Every control gets a 44 x 44 pt hit area (HIG): the grid cells are 44 pt
