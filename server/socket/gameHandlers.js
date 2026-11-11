@@ -56,9 +56,14 @@ function rejectAction(socket, game, action, reason, extra = {}) {
  */
 function triggerBotIfNeeded(io, game, actionType) {
     const seat = game.seat(game.currentTurn);
-    // A human seat acts through its own socket. (A future AFK watchdog
-    // would arm an 'afk:<pos>' game timer here for a connected human.)
-    if (!seat || seat.controller === Controller.HUMAN) return;
+    // A human seat acts through its own socket; a connected one gets the
+    // turn watchdog (seatLifecycle.armAfk: lazy after AFK_TIMEOUT_MS idle).
+    // Any seat's turn clears the other seats' watchdogs.
+    if (!seat || seat.controller === Controller.HUMAN) {
+        if (seat) seatLifecycle.armAfk(io, game, game.currentTurn);
+        return;
+    }
+    for (let p = 1; p <= 4; p++) game.clearTimer(`afk:${p}`);
 
     // Lazy, resign and native bot seats are all keyed by their bot socket
     if (actionType === 'bid') {
@@ -708,6 +713,7 @@ async function playerBid(socket, io, data) {
         rejectAction(socket, game, 'bid', 'invalid_bid', { position, bid, handSize: game.currentHand });
         return;
     }
+    seatLifecycle.clearAfk(game, position);
     game.recordBid(position, bid);
     // A bid during the first-hand hold opens the turn early (its pause
     // then just ends): the table is no longer held
@@ -794,6 +800,9 @@ async function playCard(socket, io, data) {
             return;
         }
     }
+
+    // The seat acted: its turn watchdog is over
+    seatLifecycle.clearAfk(game, position);
 
     // Record played card
     game.playedCards[position - 1] = card;

@@ -190,6 +190,11 @@ class GameState {
         return this._stage === Phase.BIDDING || this._stage === Phase.PLAYING;
     }
 
+    /** Identifies the open turn: changes with every bid, card and deal. */
+    turnKey() {
+        return `${this.dealSeq || 0}|${this._stage}|${this.currentTurn}|${this.getBidCount()}|${this.cardIndex}`;
+    }
+
     _enterStage(from, to) {
         this._stage = to;
         if (this._history) this._history.push(to);
@@ -623,8 +628,9 @@ class GameState {
 
     _applySeatEdge(pos, to) {
         const s = this.seats[pos];
-        // Reserved for a future turn watchdog: a controller change ends it
-        if (s.controller !== to.controller) this.clearTimer('afk:' + pos);
+        // The turn watchdog (seatLifecycle.armAfk) only runs for a connected
+        // human: a controller change or the owner dropping ends it
+        if (s.controller !== to.controller || to.presence !== Presence.CONNECTED) this.clearTimer('afk:' + pos);
         s.controller = to.controller;
         s.presence = to.presence;
     }
