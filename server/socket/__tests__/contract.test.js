@@ -29,6 +29,8 @@ jest.mock('../../database', () => ({
     getUsersCollection: () => mockDb.current.users,
     getGameRecordsCollection: () => mockDb.current.gameRecords,
     getReportsCollection: () => mockDb.current.reports,
+    getPasswordResetsCollection: () => mockDb.current.passwordResets,
+    getAdminAuditCollection: () => mockDb.current.adminAudit,
 }));
 
 const contract = require('../../../contract');
@@ -47,6 +49,7 @@ const profileHandlers = require('../profileHandlers');
 const safetyHandlers = require('../safetyHandlers');
 const voiceHandlers = require('../voiceHandlers');
 const snapshotHandlers = require('../snapshotHandlers');
+const adminHandlers = require('../adminHandlers');
 const { watchSeq } = require('../../testUtils/seqCheck');
 const { watchPacing } = require('../../testUtils/pacingInvariants');
 const { asyncHandler, syncHandler, rateLimiter } = require('../errorHandler');
@@ -625,6 +628,57 @@ describe('(e) failure variants and rarely reached emit sites', () => {
         expect(left).toEqual([expect.objectContaining({ to: a.id, data: { socketId: b.id } })]);
         expect(contract.validateS2C('voicePeerLeft', { socketID: b.id }).ok).toBe(false);
         expect(errorLogs.map((x) => x.msg)).toEqual(['Error fetching leaderboard', 'boom']);
+    });
+});
+
+// ==================== (e2) admin panel ====================
+
+describe('(e2) admin panel', () => {
+    test('every adminResponse variant, and isAdmin on the sign-in replies', async () => {
+        jest.useRealTimers();
+        const bcrypt = require('bcryptjs');
+        const hash = await bcrypt.hash('pw', 4);
+        const w = world('adm');
+        mockDb.current.users._insert({ username: 'adm_owner', password: hash, isAdmin: true });
+        mockDb.current.users._insert({ username: 'adm_bea', password: hash, stats: { gamesPlayed: 2 } });
+        mockDb.current.users._insert({ username: 'adm_bea2', password: hash, stats: { gamesPlayed: 1 } });
+        mockDb.current.users._insert({ username: 'adm_old', mergedInto: 'adm_bea' });
+        const signIn = async (id, username) => {
+            const s = w.socket(id);
+            await authHandlers.signIn(s, w.io, { username, password: 'pw' });
+            return s;
+        };
+        const owner = await signIn('adm-o', 'adm_owner');
+        const signedIn = w.log.filter((l) => l.event === 'signInResponse' && l.to === 'self:adm-o').pop().data;
+        expect(signedIn.isAdmin).toBe(true);
+        const restorer = w.socket('adm-r');
+        await authHandlers.restoreSession(restorer, w.io, { username: 'adm_owner', sessionToken: signedIn.sessionToken });
+        expect(w.log.filter((l) => l.event === 'restoreSessionResponse').pop().data.isAdmin).toBe(true);
+        const bea = await signIn('adm-b', 'adm_bea');
+
+        let rid = 0;
+        const req = async (s, action, args) => {
+            const requestId = `c-${++rid}`;
+            await asyncHandler('adminRequest', adminHandlers.adminRequest)(s, w.io, { requestId, action, args });
+            return w.log.filter((l) => l.event === 'adminResponse' && l.data.requestId === requestId).pop().data;
+        };
+        expect((await req(bea, 'listAdmins', {})).error).toBe('forbidden');
+        expect((await req(restorer, 'searchPlayers', { query: 'adm' })).players.length).toBe(4);
+        expect((await req(restorer, 'createResetLink', { username: 'adm_bea' })).ok).toBe(true);
+        expect((await req(restorer, 'signOutEverywhere', { username: 'adm_bea' })).disconnected).toBe(1);
+        expect((await req(restorer, 'findDuplicates', {})).groups.length).toBe(1);
+        mockDb.current.gameRecords._insert({ gameId: 'adm-g', team1Players: ['adm_bea2', 'x'], team2Players: ['y', 'z'], completedAt: new Date() });
+        mockDb.current.reports._insert({ reporter: 'adm_bea2', reported: 'adm_owner', reason: 'r', createdAt: new Date() });
+        const prev = await req(restorer, 'planMerge', { target: 'adm_bea', sources: ['adm_bea2'] });
+        expect(prev.plan.changeCount).toBeGreaterThan(0);
+        expect((await req(restorer, 'applyMerge', { target: 'adm_bea', sources: ['adm_bea2'], planHash: prev.planHash, confirm: 'adm_bea' })).ok).toBe(true);
+        const reports = (await req(restorer, 'listReports', { status: 'all' })).reports;
+        expect((await req(restorer, 'resolveReport', { id: reports[0].id, status: 'dismissed', note: 'ok' })).report.status).toBe('dismissed');
+        expect((await req(restorer, 'setAdmin', { username: 'adm_bea', isAdmin: true })).changed).toBe(true);
+        expect((await req(restorer, 'listAdmins', {})).admins.length).toBe(2);
+        expect((await req(restorer, 'listAudit', {})).entries.length).toBeGreaterThan(5);
+        expect((await req(restorer, 'setAdmin', { username: 'adm_old', isAdmin: true })).error).toBe('refused');
+        void owner;
     });
 });
 

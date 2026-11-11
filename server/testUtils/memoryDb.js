@@ -377,11 +377,14 @@ class MemoryCollection {
     }
 }
 
-function createMemoryDb({ users = [], gameRecords = [], reports = [] } = {}) {
+function createMemoryDb({ users = [], gameRecords = [], reports = [], passwordResets = [], adminAudit = [] } = {}) {
     return {
         users: new MemoryCollection(users),
         gameRecords: new MemoryCollection(gameRecords),
-        reports: new MemoryCollection(reports)
+        reports: new MemoryCollection(reports),
+        // the admin panel's (server/admin/)
+        passwordResets: new MemoryCollection(passwordResets),
+        adminAudit: new MemoryCollection(adminAudit)
     };
 }
 

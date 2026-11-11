@@ -68,8 +68,19 @@ function verifySession(user, token, now = new Date()) {
     };
 }
 
+/**
+ * Is `hash` (a socket's socket.data.sessionHash) still one of the user's
+ * live sessions? False once the sessions were revoked (sign out
+ * everywhere, a password reset) even while that socket stays connected.
+ */
+function hasLiveSession(user, hash, now = new Date()) {
+    if (!user || !hash) return false;
+    return currentSessions(user, now).some(e => e.hash === hash);
+}
+
 module.exports = {
     MAX_SESSIONS,
+    hasLiveSession,
     SESSION_TTL_MS,
     hashToken,
     issueSession,

@@ -5,6 +5,7 @@
 
 const Joi = require('joi');
 const { BID_VALUES, MAX_HAND_SIZE } = require('../game/rules');
+const { ADMIN_ACTIONS } = require('../admin/actions');
 
 // Card schema - validates card objects
 const cardSchema = Joi.object({
@@ -158,6 +159,15 @@ const schemas = {
 
     unblockUser: Joi.object({
         username: Joi.string().min(1).max(50).required()
+    }),
+
+    // Admin panel (socket/adminHandlers.js): the envelope only. The
+    // handler checks the admin first and validates `args` per action after
+    // that, so a non-admin gets the one uniform refusal whatever it sends
+    adminRequest: Joi.object({
+        requestId: Joi.string().min(1).max(64).required(),
+        action: Joi.string().valid(...ADMIN_ACTIONS).required(),
+        args: Joi.object().unknown(true).optional()
     })
 };
 

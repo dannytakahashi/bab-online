@@ -28,17 +28,54 @@ function mergedAccountMessage(username, mergedInto) {
 }
 
 /**
+ * The normal signed-out flow for one live socket: `forceLogout` (both
+ * clients go to their sign-in screen and forget the tab's / app's
+ * credentials), the game manager's disconnect bookkeeping, then the
+ * socket is closed. Returns false when that socket is not connected.
+ */
+function signOutSocket(io, socketId) {
+    const sock = io?.sockets?.sockets?.get(socketId);
+    if (!sock) return false;
+    sock.emit('forceLogout');
+    gameManager.handleDisconnect(socketId);
+    sock.disconnect();
+    return true;
+}
+
+/**
+ * Sign out every live socket of `username` (sign out everywhere, a
+ * password reset by link, a merge retiring the account): the sockets the
+ * game manager has signed in under that name plus the user document's
+ * socketId. Returns how many were connected.
+ */
+function signOutUser(io, username, { socketId = null } = {}) {
+    const ids = new Set((gameManager.currentUsers || []).filter(u => u.username === username).map(u => u.socketId));
+    if (socketId) ids.add(socketId);
+    let n = 0;
+    for (const id of ids) if (signOutSocket(io, id)) n++;
+    if (n) authLogger.info('Signed out live sockets', { username, sockets: n });
+    return n;
+}
+
+/**
  * One live connection per user: kick the previous socket (another device or
  * tab) so a game never has two sockets for the same player.
  */
 function disconnectPreviousSocket(io, previousSocketId, currentSocketId, username) {
     if (!previousSocketId || previousSocketId === currentSocketId) return;
-    const oldSocket = io.sockets.sockets.get(previousSocketId);
-    if (!oldSocket) return;
-    oldSocket.emit('forceLogout');
-    gameManager.handleDisconnect(previousSocketId);
-    oldSocket.disconnect();
-    authLogger.info('User logged out from another device', { username });
+    if (signOutSocket(io, previousSocketId)) {
+        authLogger.info('User logged out from another device', { username });
+    }
+}
+
+/**
+ * isAdmin on signInResponse / restoreSessionResponse (additive, only when
+ * true): the web menu shows its Admin entry. Display only: every admin
+ * request is re-checked against the database (adminHandlers.js); iOS
+ * 1.1.0 reads these replies as dictionaries and ignores the key.
+ */
+function adminDisplay(user) {
+    return user && user.isAdmin === true && !user.mergedInto ? { isAdmin: true } : {};
 }
 
 /**
@@ -161,7 +198,8 @@ async function signIn(socket, io, data) {
                 username,
                 sessionToken,
                 activeGameId: activeGameId,
-                blockedUsers
+                blockedUsers,
+                ...adminDisplay(user)
             });
             authLogger.info('User signed in with active game', { username, socketId: socket.id, gameId: activeGameId });
         } else {
@@ -182,14 +220,15 @@ async function signIn(socket, io, data) {
                     username,
                     sessionToken,
                     activeTournamentId,
-                    blockedUsers
+                    blockedUsers,
+                    ...adminDisplay(user)
                 });
                 authLogger.info('User signed in with active tournament', { username, socketId: socket.id, tournamentId: activeTournamentId });
             } else {
                 if (activeTournamentId) {
                     await gameManager.clearActiveTournament(username, activeTournamentId);
                 }
-                socket.emit('signInResponse', { success: true, username, sessionToken, blockedUsers });
+                socket.emit('signInResponse', { success: true, username, sessionToken, blockedUsers, ...adminDisplay(user) });
                 authLogger.info('User signed in', { username, socketId: socket.id });
             }
         }
@@ -406,7 +445,8 @@ async function restoreSession(socket, io, data) {
                 success: true,
                 username,
                 activeGameId: activeGameId,
-                blockedUsers
+                blockedUsers,
+                ...adminDisplay(user)
             });
             authLogger.info('Session restored with active game', { username, socketId: socket.id, gameId: activeGameId });
         } else {
@@ -426,14 +466,15 @@ async function restoreSession(socket, io, data) {
                     success: true,
                     username,
                     activeTournamentId,
-                    blockedUsers
+                    blockedUsers,
+                    ...adminDisplay(user)
                 });
                 authLogger.info('Session restored with active tournament', { username, socketId: socket.id, tournamentId: activeTournamentId });
             } else {
                 if (activeTournamentId) {
                     await gameManager.clearActiveTournament(username, activeTournamentId);
                 }
-                socket.emit('restoreSessionResponse', { success: true, username, blockedUsers });
+                socket.emit('restoreSessionResponse', { success: true, username, blockedUsers, ...adminDisplay(user) });
                 authLogger.info('Session restored', { username, socketId: socket.id });
             }
         }
@@ -560,6 +601,8 @@ async function deleteAccount(socket, io, data) {
 }
 
 module.exports = {
+    signOutSocket,
+    signOutUser,
     signIn,
     signUp,
     restoreSession,
