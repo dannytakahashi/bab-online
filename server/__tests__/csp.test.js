@@ -84,6 +84,8 @@ test('the middleware sets the header on every response', async () => {
         const res = await fetch(`http://127.0.0.1:${server.address().port}/x`);
         expect(res.headers.get('content-security-policy')).toBe(CONTENT_SECURITY_POLICY);
     } finally {
+        // Node 18 (CI, Railway): close() waits for fetch's keep-alive socket
+        server.closeAllConnections();
         await new Promise((r) => server.close(r));
     }
 });
