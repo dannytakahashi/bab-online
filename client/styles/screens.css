@@ -54,9 +54,11 @@
     height: 600px;
 }
 
+/* the lobby scrolls inside 90vh instead of running off a short window */
 .screen--lobby {
     width: 400px;
-    overflow: hidden;
+    overflow-x: hidden;
+    overflow-y: auto;
     text-align: center;
 }
 
@@ -220,6 +222,29 @@
 .chat-log--short {
     flex: none;
     height: 150px;
+}
+
+/* short windows: the lobby keeps its actions in view (it scrolls below that) */
+@media (max-height: 820px) {
+    .screen--lobby {
+        padding: var(--space-6);
+    }
+
+    .screen--lobby .screen-header {
+        margin-bottom: var(--space-3);
+    }
+
+    .screen--lobby .seat-list {
+        margin-bottom: var(--space-3);
+    }
+
+    .chat-log--short {
+        height: 96px;
+    }
+
+    .screen--lobby .screen-actions {
+        margin-top: var(--space-3);
+    }
 }
 
 .chat-line {
@@ -836,7 +861,7 @@
     white-space: nowrap;
 }
 
-.lb-empty {
+.lb-table td.lb-empty {
     padding: var(--space-10);
     color: var(--text-secondary);
     font-style: italic;
@@ -1001,7 +1026,8 @@
     position: fixed;
     inset: 0;
     pointer-events: none;
-    background: radial-gradient(circle at 50% 42%, var(--felt-deep) 0%, rgb(var(--felt-edge-rgb) / 1) 45%, var(--surface-0) 100%);
+    /* the table's lit felt under the lamp, falling off to the room's dark */
+    background: radial-gradient(ellipse 62% 58% at 50% 36%, rgb(var(--felt-light-rgb) / 0.95) 0%, var(--felt-base) 38%, var(--felt-deep) 66%, var(--surface-0) 100%);
     z-index: 50;
 }
 
@@ -1028,6 +1054,8 @@
     width: 26vw;
     position: relative;
     left: 2vw;
+    /* the logo's black lettering keeps an edge on the dark room */
+    filter: drop-shadow(0 0 6px rgb(var(--text-primary-rgb) / 0.4));
 }
 
 /* The splash plays ONCE (no idle infinite animation: item 18b), not at
@@ -1036,14 +1064,14 @@
     position: absolute;
     left: 80%;
     top: 70%;
-    color: var(--primary-hover);
+    color: var(--text-primary);
     font-size: 1.4vw;
     font-style: italic;
     font-weight: var(--weight-bold);
     white-space: nowrap;
     transform-origin: center;
     transform: rotate(-15deg);
-    text-shadow: 0 2px 4px rgb(0 0 0 / 0.5);
+    text-shadow: 0 2px 4px rgb(0 0 0 / 0.6);
     pointer-events: none;
     animation: auth-splash-in var(--dur-slow) var(--ease-emphasized) 1 backwards;
 }

@@ -160,7 +160,7 @@ describe('contrast of the per-user chat name hue', () => {
       'text.secondary on surface.s0', 'text.dim on surface.s0', 'text.dim on surface.s3', 'primary.base on surface.s1',
       'primary.base on surface.s2', 'success on surface.s2', 'danger.text on surface.s2', 'warning on surface.s2',
       'team.a on surface.s2', 'team.b on surface.s2', 'danger.text on danger.solid@0.14/surface.s1',
-      'text.primary on surface.s1@0.92/felt.deep', 'primary.hover on felt.deep',
+      'text.primary on surface.s1@0.92/felt.light', 'text.primary on felt.light', 'team.a on surface.s1@0.92/felt.light',
     ]) expect(pairs, p).toContain(p);
   });
 });
