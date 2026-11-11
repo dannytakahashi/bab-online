@@ -246,6 +246,52 @@ function leaveLobby(socket, io) {
 }
 
 /**
+ * A user's lobby seat left an older socket of theirs (GameManager
+ * takeOverLobbySeat moved it to the new socket, or evictStaleLobbySeat gave
+ * up a seat in another lobby). Existing events only: the old socket gets
+ * leftLobby (a half-open socket never receives it; a second live tab of the
+ * same device goes back to the main room), and the lobby's other humans drop
+ * the old socket's voice peer. On an eviction the remaining players also get
+ * lobbyPlayerLeft, as for a leave. The caller sends lobbiesUpdated and the
+ * join notifications.
+ *
+ * @param {Object} io
+ * @param {Object} change { oldSocketId, newSocketId, lobby } for a takeover,
+ *   { oldSocketId, newSocketId, leaveResult, username } for an eviction
+ */
+function releaseStaleLobbySeat(io, change) {
+    if (!change || !change.oldSocketId) return;
+    const { oldSocketId, newSocketId } = change;
+
+    io.to(oldSocketId).emit('leftLobby', {});
+
+    const leave = change.leaveResult;
+    const lobby = leave ? (leave.lobbyDeleted ? null : leave.lobby) : change.lobby;
+    if (!lobby) return;
+
+    lobby.players.forEach(player => {
+        if (player.socketId === newSocketId) return;
+        if (leave) {
+            io.to(player.socketId).emit('lobbyPlayerLeft', {
+                lobbyId: lobby.id,
+                players: lobby.players,
+                leftUsername: change.username || 'Unknown',
+                needsMorePlayers: leave.needsMorePlayers
+            });
+        }
+        if (!gameManager.isBot(player.socketId)) {
+            io.to(player.socketId).emit('voicePeerLeft', { socketId: oldSocketId });
+        }
+    });
+
+    socketLogger.info(leave ? 'Stale lobby seat given up' : 'Lobby seat moved to new socket', {
+        oldSocketId,
+        newSocketId,
+        lobbyId: lobby.id
+    });
+}
+
+/**
  * Handle adding a bot to the lobby
  */
 function addBot(socket, io) {
@@ -341,6 +387,7 @@ module.exports = {
     playerUnready,
     lobbyChat,
     leaveLobby,
+    releaseStaleLobbySeat,
     addBot,
     removeBot
 };

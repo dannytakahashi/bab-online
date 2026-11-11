@@ -9,6 +9,7 @@ const { Controller, Presence } = require('../game/SeatState');
 const seatLifecycle = require('./seatLifecycle');
 const { spectatorJoinState, snapshotFor } = require('./snapshotHandlers');
 const { hasCap } = require('./clientInfo');
+const { releaseStaleLobbySeat } = require('./lobbyHandlers');
 
 /**
  * Handle player joining the main room
@@ -107,6 +108,11 @@ function createLobby(socket, io, data) {
         return;
     }
 
+    // A seat this user held elsewhere from an older socket was given up
+    if (result.evicted) {
+        releaseStaleLobbySeat(io, { ...result.evicted, newSocketId: socket.id, username: result.lobby.createdBy });
+    }
+
     // Leave main room Socket.IO room
     socket.leave('mainRoom');
 
@@ -151,6 +157,15 @@ function joinLobby(socket, io, data) {
     }
 
     const lobby = result.lobby;
+
+    // Re-entry from a new socket: the seat moved here from the older one
+    // (or a seat in another lobby was given up). The joined notifications
+    // below carry the updated list.
+    if (result.replacedSocketId) {
+        releaseStaleLobbySeat(io, { oldSocketId: result.replacedSocketId, newSocketId: socket.id, lobby });
+    } else if (result.evicted) {
+        releaseStaleLobbySeat(io, { ...result.evicted, newSocketId: socket.id, username: result.newPlayer.username });
+    }
 
     // Leave main room Socket.IO room
     socket.leave('mainRoom');
