@@ -116,9 +116,9 @@ describe('reconnect order: restoreSession first, then rejoin / re-spectate / re-
     socket.fire('mainRoomJoined', mainRoomPayload());
     socket.fire('mainRoomMessage', { username: 'bob', message: 'back again', timestamp: Date.now() });
 
-    // (the chat writes innerText, which jsdom keeps as a plain property)
+    // (the chat writes textContent: the line's text is in the DOM)
     const spans = [...document.querySelectorAll('#mainRoomChatMessages span')];
-    expect(spans.map((s) => s.innerText)).toContain('back again');
+    expect(spans.map((s) => s.textContent)).toContain('back again');
   });
 
   it('restoreSession goes out once per socket id', () => {
