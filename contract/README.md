@@ -98,7 +98,8 @@ local stub io/socket without `instrument(log)`. The guard also checks:
 
 - routing: the kind of target (room, mainRoom, tournament, all, or one
   client: self / socket) must be listed in the event's `to`;
-- seq: every room broadcast and gameStart carries `seq`, nothing else does.
+- seq: every room broadcast and gameStart carries `seq`, nothing else does
+  (a room event the schema marks `seq: false`, spectatorsUpdated, must not).
 
 `server/testUtils/contractGuard.js` (jest `setupFilesAfterEnv`) fails the
 test. `contract.test.js` also asserts coverage per event AND per variant
@@ -133,7 +134,13 @@ skips exact repeats of a validated (event, target kind, payload).
 ## seq (snapshot v2 consumers)
 
 - **R1.** `seq` is per gameId, starts at 0 and only increases. Each room
-  broadcast (`game:<id>`) carries previous+1 and reaches every room member.
+  broadcast (`game:<id>`) carries previous+1 and reaches every room member,
+  except `spectatorsUpdated`: the one UNSEQUENCED room event (schema `seq:
+  false` with `to: room`; `GameState.emitUnsequenced`; no seq on the wire, no
+  bump). Its payload is the whole spectator list, so order against other
+  events does not matter, and the App Store build registers no handler for
+  it: a sequenced form would open a gap in that build's gate (a
+  requestSnapshot) on every change. The guard holds both rules.
   gameStart bumps it once per deal and is sent to every connected seat owner
   and every spectator, all with the same value. Private game events (replays,
   rejoin/restore/actionRejected, youDrew, playerAssigned, the private
@@ -306,6 +313,17 @@ Semantics:
   names are exactly the names playerDrew showed). Bot entrants carry the
   bot's display name before they draw (from the BotController, the name
   playerDrew will show).
+- `spectatorCount`: the spectator SOCKET count, cc865b4's meaning (an
+  owner's second tab or demoted older socket is in it; wireCompat pins it).
+- `watching` (additive, 2026-11-11, the table's spectator badge):
+  `{spectators: [{username, pic, avatarUrl?}], count}`, exactly what
+  `spectatorsUpdated` sends: `GameState.spectatorList()`, pure spectators,
+  one per username in join order, never a seat owner (lazy, resigned or
+  /leave'd) or pre-seating entrant; at most 50 entries, `count` the true
+  total. `pic` is a stock number or null; a custom picture is only an
+  `avatarUrl` (every client that reads the list is avatarUrl-capable).
+  Blocked users are listed too (owner: you would want to know). iOS 1.1.0's
+  decoder ignores the key.
 - `tournament`: `{tournamentId, name, roundNumber, totalRounds}` or null.
 
 ### Draw-phase rejoin (for items 16 / 23)

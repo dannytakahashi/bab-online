@@ -118,6 +118,11 @@ final class ReplayHarness {
             SocketService.routeTableError(dict ?? [:], to: store)
         case "voicePeerJoined", "voicePeerList":
             break
+        case "spectatorsUpdated":
+            // unsequenced and not routed: the app registers no handler for
+            // it yet (contract layout.json exclude.swift; V1_REMOVALS
+            // "iOS spectator badge"), as the App Store build does not
+            break
         default:
             XCTAssertTrue(GameSocketHandler.events.contains(e.event), "unrouted event \(e.event)")
             handler.handle(event: e.event, payload: payload)

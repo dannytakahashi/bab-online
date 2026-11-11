@@ -34,6 +34,7 @@ struct TableSnapshot: Codable, Equatable {
     var entrants: [Entrant]?
     var draw: Draw?
     var spectatorCount: Int
+    var watching: SpectatorList
     var tournament: Tournament?
     var log: [LogEntry]
     var resume: Resume?
@@ -464,6 +465,17 @@ struct TableSnapshot: Codable, Equatable {
         var isBot: Bool
         var card: Card
         var position: Int?
+    }
+
+    struct SpectatorList: Codable, Equatable {
+        var spectators: [Spectator]
+        var count: Int
+    }
+
+    struct Spectator: Codable, Equatable {
+        var username: String
+        var pic: Int?
+        var avatarUrl: String?
     }
 
     struct Tournament: Codable, Equatable {

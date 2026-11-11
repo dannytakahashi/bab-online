@@ -629,6 +629,18 @@ const s2c = {
         notes: 'fullState goes to the joining socket only (socket.emit), BEFORE the room notice. The notice reaches the joiner too (ctr-17; V1_REMOVALS #8). trumpBroken / teamTricks / oppTricks switch on reads the App Store iOS build already has in restoreFromSpectator (since Feb 2026): its spectator view CHANGES visibly, knowingly, as a fix (real trump-broken state and trick counts instead of false and 0-0). leadPosition is read only by iOS source builds after 10d1538 (the App Store build infers the lead from the first card). ctr-1, ctr-8, ios-8d; web reads none of them.',
     },
 
+    spectatorsUpdated: {
+        payload: obj({
+            gameId: str(),
+            spectators: arr(ref('spectatorEntry'), { maxItems: 50 }),
+            count: int({ minimum: 0 }),
+        }),
+        status: 'active', to: 'room', seq: false,
+        clientReads: reads(W.game, []),
+        emittedFrom: ['server/game/spectatorRoster.js:flush'],
+        notes: "Who is watching (owner, 2026-11-11: the table's spectator badge), the WHOLE list each time: GameState.spectatorList() (pure spectators, one per username in join order, never a seat owner or entrant), at most 50 entries, count the true total (the same as snapshot v2 `watching`; the older spectatorCount fields stay the spectator SOCKET count, cc865b4's meaning). Sent to the game room on every change (join, leave, disconnect, spectating another game, a round start, a reclaim), coalesced to one emit per game per 250 ms, skipped when unchanged, never after end/abort. UNSEQUENCED (no seq, no bump; GameState.emitUnsequenced): an absolute display state, and the App Store build (f05d264) registers no handler for it, so a sequenced form would open a gap in its seq gate on every change. The snapshot's `watching` carries the same {spectators, count}. iOS reads nothing yet (V1_REMOVALS \"iOS spectator badge\").",
+    },
+
     // ==================== Profile ====================
     profileResponse: {
         payload: okFail({ profile: ref('profile'), avatarUrl: ref('avatarUrl') }, { optional: ['avatarUrl'] }),

@@ -213,7 +213,8 @@
           "gameLogEntry",
           "leftGame",
           "restorePlayerState",
-          "spectatorJoined"
+          "spectatorJoined",
+          "spectatorsUpdated"
         ]
       },
       {
@@ -567,7 +568,8 @@
       "error": "app-level 'error' collides with Socket.IO-Client-Swift's own client 'error' event; the rename to serverError is V1_REMOVALS #1",
       "clientHello": "sent by the iOS-track PR (roadmap item 10, iOS AvatarStore): its constant is generated there; the App Store build never sends it",
       "getVoiceIceServers": "iOS 1.1.0 hard-codes STUN; fetching TURN credentials ships with the next iOS release (roadmap 29; V1_REMOVALS \"iOS TURN\")",
-      "voiceIceServers": "iOS 1.1.0 hard-codes STUN; fetching TURN credentials ships with the next iOS release (roadmap 29; V1_REMOVALS \"iOS TURN\")"
+      "voiceIceServers": "iOS 1.1.0 hard-codes STUN; fetching TURN credentials ships with the next iOS release (roadmap 29; V1_REMOVALS \"iOS TURN\")",
+      "spectatorsUpdated": "iOS 1.1.0 has no spectator badge; reading it ships with the next iOS release (roadmap 29; V1_REMOVALS \"iOS spectator badge\")"
     }
   }
 }

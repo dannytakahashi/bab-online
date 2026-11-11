@@ -83,6 +83,9 @@ struct ReducerReplay {
         switch e.event {
         case "voicePeerJoined", "voicePeerList":
             return
+        case "spectatorsUpdated":
+            // no handler in the app yet (as in the App Store build): unsequenced, so skipping it moves no seq
+            return
         case "tournamentGameAssignment":
             let d = e.data as? [String: Any]
             if let gid = d?["gameId"] as? String {

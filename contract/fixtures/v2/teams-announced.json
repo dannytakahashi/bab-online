@@ -181,6 +181,10 @@
       "viewerDrawOrder": null
     },
     "spectatorCount": 0,
+    "watching": {
+      "spectators": [],
+      "count": 0
+    },
     "tournament": null,
     "log": [],
     "resume": {

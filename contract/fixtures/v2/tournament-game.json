@@ -200,6 +200,10 @@
     "entrants": null,
     "draw": null,
     "spectatorCount": 0,
+    "watching": {
+      "spectators": [],
+      "count": 0
+    },
     "tournament": {
       "tournamentId": "00000000-0000-4000-8000-000000000001",
       "name": "T1_u1's Tournament",

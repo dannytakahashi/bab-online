@@ -5,7 +5,8 @@ import XCTest
 final class ServerEventDecodingTests: XCTestCase {
     /// Events the table store does not decode (voice signalling, the 'error'
     /// toast, the tournament handler's assignment: a local enterGameContext).
-    static let notStoreEvents: Set<String> = ["voicePeerJoined", "voicePeerList", "error", "tournamentGameAssignment"]
+    /// spectatorsUpdated: unsequenced, and the app registers no handler for it yet (V1_REMOVALS "iOS spectator badge")
+    static let notStoreEvents: Set<String> = ["voicePeerJoined", "voicePeerList", "error", "tournamentGameAssignment", "spectatorsUpdated"]
 
     func testEveryRecordedEventDecodesStrictly() throws {
         var counts: [String: Int] = [:]
@@ -19,6 +20,10 @@ final class ServerEventDecodingTests: XCTestCase {
                     if Self.notStoreEvents.contains(event) {
                         if event == "error" {
                             XCTAssertNoThrow(try Wire.decode(WirePayload.ServerError.self, payload.first, strict: true))
+                        }
+                        if event == "spectatorsUpdated" {
+                            // never sequenced: skipping it leaves no gap in the seq gate
+                            XCTAssertNil((payload.first as? [String: Any])?["seq"], "\(name)/\(label) spectatorsUpdated carries seq")
                         }
                         continue
                     }
