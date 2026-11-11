@@ -1,7 +1,7 @@
 /**
  * Serving the built web client (server/staticAssets.js + the compression
  * middleware, mounted as server/index.js does): the page is no-cache, the
- * hashed bundles immutable, the legacy /dist/main.js entry no-cache, and
+ * hashed bundles immutable, the pre-hashing /dist/main.js entry gone, and
  * JS/HTML go out gzip or brotli. A fake client directory stands in for
  * client/ so the tests never depend on a local `vite build`.
  */
@@ -32,7 +32,6 @@ function makeClient({ built = true } = {}) {
     if (built) {
         fs.mkdirSync(path.join(dir, 'dist', 'assets'), { recursive: true });
         fs.writeFileSync(path.join(dir, 'dist', 'index.html'), PAGE);
-        fs.writeFileSync(path.join(dir, 'dist', 'main.js'), "import './assets/main-AbC123.js';\n");
         fs.writeFileSync(path.join(dir, 'dist', 'assets', 'main-AbC123.js'), BUNDLE);
     }
     return dir;
@@ -114,10 +113,20 @@ describe('production', () => {
         expect((await get('/dist/assets/main-Old999.js')).status).toBe(404);
     });
 
-    test('legacy /dist/main.js (pages cached before hashing) is no-cache', async () => {
-        const res = await get('/dist/main.js');
-        expect([res.status, res.headers['cache-control']]).toEqual([200, 'no-cache']);
-        expect(res.body.toString()).toContain('./assets/main-AbC123.js');
+    test('the pre-hashing entry /dist/main.js and socket-init.js are not served (the app 404s them)', async () => {
+        // pages that loaded them were cached for at most a day before #201
+        // (2026-11-09); nothing current requests them
+        for (const p of ['/dist/main.js', '/socket-init.js']) {
+            const res = await get(p);
+            expect([p, res.status, res.body.toString()]).toEqual([p, 418, 'fell through']);
+        }
+    });
+
+    test('the real build emits no /dist/main.js and the client has no socket-init.js', () => {
+        const config = fs.readFileSync(path.join(REAL_CLIENT, 'vite.config.js'), 'utf8');
+        expect(config).not.toMatch(/fileName: 'main\.js'/);
+        expect(fs.existsSync(path.join(REAL_CLIENT, 'socket-init.js'))).toBe(false);
+        expect(fs.existsSync(path.join(REAL_CLIENT, 'express-server.js'))).toBe(false);
     });
 
     test('other client files keep the 1-day cache', async () => {

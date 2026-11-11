@@ -9,7 +9,7 @@ function requestLogger(req, res, next) {
     const startTime = Date.now();
 
     // Log request (only for non-static files in development). Decided on
-    // req.path (no query string: /avatar/x?v=... and dist/main.js?v= are
+    // req.path (no query string: /avatar/x?v=... and /dist/assets/x.js?v= are
     // static too); avatars and everything under /assets/ log only errors
     const p = req.path || '';
     const isStaticFile = /\.(js|css|png|jpg|webp|ico|svg|woff|woff2)$/.test(p) ||

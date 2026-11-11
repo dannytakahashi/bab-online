@@ -6,26 +6,6 @@ import { NOT_PHONE_MEDIA } from './src/boot/deviceGate.js';
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 const build = (process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_SHA || 'dev').slice(0, 7);
 
-// Pages cached before the build was hashed load /dist/main.js (index.html
-// used to be cached for a day). Keep that path as a two-line module that
-// loads the current hashed entry; Express serves it no-cache
-// (server/staticAssets.js). Remove once no such page can be left.
-function legacyEntryShim() {
-  return {
-    name: 'bab-legacy-entry-shim',
-    apply: 'build',
-    generateBundle(_options, bundle) {
-      const entry = Object.values(bundle).find((c) => c.type === 'chunk' && c.isEntry);
-      if (!entry) this.error('no entry chunk');
-      this.emitFile({
-        type: 'asset',
-        fileName: 'main.js',
-        source: `// Legacy entry for pages cached before hashed builds\nimport './${entry.fileName}';\n`,
-      });
-    },
-  };
-}
-
 // The app chunk (src/main.js and its static imports: Phaser and
 // socket.io-client) is imported by the entry once the phone gate lets the
 // page through (src/boot/). Preload it from the page so a desktop does not
@@ -80,7 +60,7 @@ export default defineConfig(({ command }) => ({
   // of the arguments
   esbuild: command === 'build' ? { pure: ['console.log', 'console.debug'] } : {},
 
-  plugins: [legacyEntryShim(), appChunkPreload()],
+  plugins: [appChunkPreload()],
 
   build: {
     outDir: 'dist',

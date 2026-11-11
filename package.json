@@ -66,8 +66,7 @@
         "coverageDirectory": "coverage",
         "collectCoverageFrom": [
             "server/**/*.js",
-            "!server/**/__tests__/**",
-            "!server/rainbowTest.js"
+            "!server/**/__tests__/**"
         ],
         "verbose": true
     },
