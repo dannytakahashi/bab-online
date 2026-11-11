@@ -72,7 +72,7 @@ export function updateLobbyPlayersList(container, players, currentUsername) {
   // Show existing players
   players.forEach((player) => {
     const row = el('div', { className: 'seat-row' });
-    row.appendChild(el('span', { className: `seat-row__name${player.isBot ? ' is-bot' : ''}`, text: player.username }));
+    row.appendChild(el('span', { className: `seat-row__name${player.isBot ? ' is-bot' : ''}`, text: player.username, attrs: { title: player.username } }));
 
     const side = el('span', { className: 'seat-row__side' });
     side.appendChild(el('span', {

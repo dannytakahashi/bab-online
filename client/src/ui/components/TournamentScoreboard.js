@@ -40,7 +40,7 @@ export function createTournamentScoreboard(scoreboard, currentRound, totalRounds
     const leader = index === 0 && currentRound > 0 ? ' is-leader' : '';
     const row = el('tr');
     row.appendChild(el('td', { className: `is-left tsb-rank${leader}`, text: index + 1 }));
-    row.appendChild(el('td', { className: `is-left tsb-name${leader}`, text: entry.username }));
+    row.appendChild(el('td', { className: `is-left tsb-name${leader}`, attrs: { title: entry.username }, children: [el('span', { className: 'tsb-name__text', text: entry.username })] }));
     for (let r = 0; r < totalRounds; r++) {
       const has = entry.roundScores && typeof entry.roundScores[r] === 'number';
       row.appendChild(el('td', { className: has ? '' : 'tsb-none', text: has ? entry.roundScores[r] : '-' }));

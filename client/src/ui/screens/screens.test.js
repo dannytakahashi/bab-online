@@ -372,6 +372,22 @@ describe('every dialog is a kit Modal', () => {
     expect(boards[0].parentElement).toBe(wrap);
   });
 
+  it('long names: a lobby seat and a tournament scoreboard row carry the full name as a tooltip; the board truncates it', () => {
+    const LONG = 'x'.repeat(50);
+    showGameLobby({ lobbyId: 'L1', players: [{ username: LONG, ready: false }, { username: 'me', ready: false }], messages: [] }, socket, 'me');
+    const seat = [...document.querySelectorAll('#lobbyPlayersList .seat-row__name')].find((n) => n.textContent === LONG);
+    expect(seat.getAttribute('title')).toBe(LONG);
+    removeGameLobby();
+    showTournamentLobby({
+      tournamentId: 't1', name: 'T', creatorUsername: 'me', phase: 'round_active', currentRound: 1, totalRounds: 4,
+      players: [{ username: LONG, ready: true }], messages: [], activeGames: [],
+      scoreboard: [{ username: LONG, totalScore: 120, roundScores: [120] }],
+    }, socket, 'me');
+    const cell = document.querySelector('#tournamentScoreboardContainer .tsb-name');
+    expect(cell.getAttribute('title')).toBe(LONG);
+    expect(cell.querySelector('.tsb-name__text').textContent).toBe(LONG);
+  });
+
   it('the delete-account form: labelled, expands from its button, flags an empty password', () => {
     showProfilePage({ username: 'me', profilePic: 1, stats: {} }, socket);
     const del = [...document.querySelectorAll('#profilePageModal button')].find((b) => b.textContent === 'Delete Account');
