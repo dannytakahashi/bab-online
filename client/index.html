@@ -29,7 +29,11 @@
     <link rel="stylesheet" href="/styles/screens.css">
     <link rel="stylesheet" href="/styles/table.css">
     <link rel="stylesheet" href="/styles/gate.css">
-    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <!-- Icons (scripts/build-icons.js, from the iOS app icon): a small .ico
+         (16/32/48), a 192 px PNG for high-DPI tabs, the iOS home screen -->
+    <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48">
+    <link rel="icon" type="image/png" href="/assets/icons/icon-192.png" sizes="192x192">
+    <link rel="apple-touch-icon" href="/assets/icons/apple-touch-icon.png">
     <!-- The entry decides first (phone gate, src/boot/), then imports the
          app (src/main.js); the build preloads the app chunk on non-phones -->
     <script type="module" src="/src/entry.js"></script>

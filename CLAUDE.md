@@ -145,6 +145,7 @@ npm start            # Server only (port 3000)
 npm run dev:client   # Client Vite dev server (port 5173; serves client/index.html → /src/entry.js → /src/main.js, API on 3000)
 npm run build:client # Production build: client/dist (index.html + hashed assets/); Express serves / from it
 npm run build:avatars # Re-encode stock avatar art from the fcdd885 masters (scripts/build-avatars.js)
+npm run build:icons  # favicon.ico (16/32/48), assets/icons/icon-192.png + apple-touch-icon.png from the iOS app icon (scripts/build-icons.js)
 
 npm test             # Server tests (Jest)
 npm run test:client  # Client tests (Vitest)
