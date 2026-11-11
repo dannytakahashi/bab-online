@@ -122,6 +122,7 @@ describe('applyMerge', () => {
         for (const name of ['Alan2', 'alan_b']) {
             const tomb = user(db, name);
             expect(tomb).toMatchObject({ username: name, mergedInto: 'Alan', mergedAt: now });
+            expect(tomb.sessionEpoch).toBe(1); // a restore in flight cannot write sessions back
             for (const gone of ['password', 'sessionToken', 'sessionTokens', 'socketId', 'stats', 'customProfilePic', 'blockedUsers']) {
                 expect(tomb).not.toHaveProperty(gone);
             }
@@ -234,6 +235,33 @@ describe('findDuplicateCandidates', () => {
         expect(groups[0][0].createdAt).toBeInstanceOf(Date);
         expect(formatDuplicateGroups(groups)).toContain('1 group(s)');
         expect(formatDuplicateGroups([])).toContain('No look-alike');
+    });
+
+    test('reads only the name and games played (no photos, passwords or sessions); same groups', async () => {
+        const db = createMemoryDb({
+            users: [
+                { username: 'Alan', password: 'h', customProfilePic: 'data:image/png;base64,' + 'Q'.repeat(1000), sessionTokens: [{ hash: 'x' }], stats: stats({ gamesPlayed: 40, wins: 3 }) },
+                { username: 'alan2', customProfilePic: 'data:image/png;base64,QQ', stats: stats({ gamesPlayed: 3 }) }
+            ]
+        });
+        const loaded = [];
+        const find = db.users.find.bind(db.users);
+        db.users.find = (filter, options) => {
+            const cursor = find(filter, options);
+            const toArray = cursor.toArray;
+            cursor.toArray = async () => { const rows = await toArray(); loaded.push(...rows); return rows; };
+            return cursor;
+        };
+        const groups = await findDuplicateCandidates(db);
+        expect(groups).toEqual([[
+            { username: 'Alan', gamesPlayed: 40, createdAt: expect.any(Date) },
+            { username: 'alan2', gamesPlayed: 3, createdAt: expect.any(Date) }
+        ]]);
+        expect(loaded).toHaveLength(2);
+        for (const doc of loaded) {
+            expect(Object.keys(doc).sort()).toEqual(['_id', 'stats', 'username']);
+            expect(Object.keys(doc.stats)).toEqual(['gamesPlayed']);
+        }
     });
 
     test('nameKey folds case, digits, and punctuation', () => {

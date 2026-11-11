@@ -79,18 +79,24 @@ describe('the reset page', () => {
 
   it('checks the two fields and the 1-100 rule before sending', async () => {
     const fetchImpl = reply({ ok: true });
-    const { form, status } = renderResetPage({ root, win: fakeWin(), fetchImpl });
+    const { form, status, alert } = renderResetPage({ root, win: fakeWin(), fetchImpl });
+    // two live regions from the start, roles never switched, no aria-live override
+    expect(status.getAttribute('role')).toBe('status');
+    expect(alert.getAttribute('role')).toBe('alert');
+    expect(status.hasAttribute('aria-live')).toBe(false);
+    expect(alert.hasAttribute('aria-live')).toBe(false);
     fill('');
     await submit(form);
-    expect(status.textContent).toBe(COPY.empty);
+    expect(alert.textContent).toBe(COPY.empty);
     fill('abc', 'abd');
     await submit(form);
-    expect(status.textContent).toBe(COPY.mismatch);
-    expect(status.getAttribute('role')).toBe('alert');
+    expect(alert.textContent).toBe(COPY.mismatch);
+    expect(status.textContent).toBe('');
+    expect(status.getAttribute('role')).toBe('status');
     expect(document.activeElement.id).toBe('reset-confirm');
     fill('p'.repeat(101));
     await submit(form);
-    expect(status.textContent).toBe(COPY.tooLong);
+    expect(alert.textContent).toBe(COPY.tooLong);
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
@@ -113,15 +119,16 @@ describe('the reset page', () => {
     await submit(form);
     expect(root.querySelector('form')).toBeNull();
     expect(status.textContent).toBe(message);
-    expect(status.getAttribute('role')).toBe('alert');
+    expect(status.classList.contains('is-error')).toBe(true);
+    expect(document.activeElement).toBe(status); // focused, so it is read
   });
 
   it('a network failure keeps the form for another try', async () => {
     const fetchImpl = vi.fn(async () => { throw new TypeError('offline'); });
-    const { form, status } = renderResetPage({ root, win: fakeWin(), fetchImpl });
+    const { form, alert } = renderResetPage({ root, win: fakeWin(), fetchImpl });
     fill('x');
     await submit(form);
-    expect(status.textContent).toBe(COPY.network);
+    expect(alert.textContent).toBe(COPY.network);
     expect(root.querySelector('form')).toBe(form);
     expect(root.querySelector('button[type="submit"]').disabled).toBe(false);
   });

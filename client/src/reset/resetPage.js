@@ -57,7 +57,11 @@ function field({ id, label, autocomplete }) {
  * @param {HTMLElement} o.root
  * @param {Window} [o.win=window]
  * @param {Function} [o.fetchImpl=fetch]
- * @returns {{form: HTMLFormElement|null, status: HTMLElement}}
+ * @returns {{form: HTMLFormElement|null, status: HTMLElement, alert: HTMLElement|null}}
+ *          status: role=status (progress, success, and the final "link not
+ *          valid" message, focused); alert: role=alert for the errors that
+ *          keep the form. Both exist from the start: a live region added or
+ *          re-roled later is often not announced.
  */
 export function renderResetPage({ root, win = window, fetchImpl = (...a) => win.fetch(...a) }) {
   const token = tokenFromHash(win.location.hash);
@@ -70,31 +74,35 @@ export function renderResetPage({ root, win = window, fetchImpl = (...a) => win.
   const card = el('section', { className: 'reset__card kit-panel kit-elev-3', attrs: { 'aria-labelledby': 'reset-title' } });
   card.appendChild(el('img', { className: 'reset__icon', attrs: { src: '/assets/icons/icon-192.png', alt: '', width: '72', height: '72' } }));
   card.appendChild(el('h1', { className: 'reset__title', attrs: { id: 'reset-title', tabindex: '-1' }, text: COPY.title }));
-  const status = el('p', { className: 'reset__status', attrs: { id: 'reset-status', role: 'status', 'aria-live': 'polite', tabindex: '-1' } });
+  const status = el('p', { className: 'reset__status', attrs: { id: 'reset-status', role: 'status', tabindex: '-1' } });
 
   if (!token) {
     status.textContent = COPY.noToken;
     status.classList.add('is-error');
     card.appendChild(status);
     root.appendChild(card);
-    return { form: null, status };
+    return { form: null, status, alert: null };
   }
 
   const lede = el('p', { className: 'reset__lede', text: COPY.lede });
   card.appendChild(lede);
-  const form = el('form', { className: 'reset__form', attrs: { novalidate: true, 'aria-describedby': 'reset-status' } });
+  const form = el('form', { className: 'reset__form', attrs: { novalidate: true, 'aria-describedby': 'reset-status reset-alert' } });
+  const alertLine = el('p', { className: 'reset__status is-error', attrs: { id: 'reset-alert', role: 'alert' } });
   const pw = field({ id: 'reset-password', label: 'New password', autocomplete: 'new-password' });
   const again = field({ id: 'reset-confirm', label: 'Type it again', autocomplete: 'new-password' });
   const submit = createButton({ label: 'Set new password', variant: 'primary', type: 'submit', className: 'reset__submit' });
-  form.append(pw.wrap, again.wrap, submit, status);
+  form.append(pw.wrap, again.wrap, submit, status, alertLine);
   card.appendChild(form);
   root.appendChild(card);
 
-  const say = (text, kind = 'info') => {
-    status.textContent = text;
-    status.classList.toggle('is-error', kind === 'error');
+  // Errors that keep the form: the alert line. Everything else, and the
+  // final "not valid" message (focused, so it is read): the status line
+  const say = (text, kind = 'info', { final = false } = {}) => {
+    const inAlert = kind === 'error' && !final;
+    alertLine.textContent = inAlert ? text : '';
+    status.textContent = inAlert ? '' : text;
+    status.classList.toggle('is-error', kind === 'error' && final);
     status.classList.toggle('is-success', kind === 'success');
-    status.setAttribute('role', kind === 'error' ? 'alert' : 'status');
   };
 
   let busy = false;
@@ -142,7 +150,7 @@ export function renderResetPage({ root, win = window, fetchImpl = (...a) => win.
     if (body && body.error === 'invalid_link') {
       lede.remove();
       form.replaceWith(status);
-      say(body.message, 'error');
+      say(body.message, 'error', { final: true });
       status.focus();
       return;
     }
@@ -151,5 +159,5 @@ export function renderResetPage({ root, win = window, fetchImpl = (...a) => win.
   });
 
   pw.input.focus();
-  return { form, status };
+  return { form, status, alert: alertLine };
 }

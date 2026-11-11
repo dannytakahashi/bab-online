@@ -84,6 +84,7 @@ beforeEach(async () => {
     });
     gameManager.currentUsers = [];
     require('../signInThrottle')._reset();
+    admin._resetForbiddenGate();
     w = world('adm');
     for (const id of [...rateLimiterKeys()]) rateLimiter.clearSocket(id);
 });
@@ -213,7 +214,8 @@ describe('authorization matrix', () => {
             expect(entries.every(e => e.result === 'forbidden' && e.target === null && e.detail === 'not an admin')).toBe(true);
             // no name to log: never signed in, or replaced by the newer socket in the registry
             if (state === 'signed out' || state.startsWith('stale socket')) expect(entries).toEqual([]);
-            else expect(entries).toHaveLength(ADMIN_ACTIONS.length * 3);
+            // one per action: the repeats in the coalescing window are only counted
+            else expect(entries.map(e => e.action)).toEqual([...ADMIN_ACTIONS]);
         });
     }
 
@@ -338,6 +340,7 @@ describe('actions', () => {
         expect(gameManager.getUserBySocketId(bea.id)).toBeUndefined();
         const doc = await users().findOne({ username: 'Bea' });
         expect(doc.sessionTokens).toBeUndefined();
+        expect(doc.sessionEpoch).toBe(1); // a restore in flight cannot write them back
         const again = w.socket(`adm-${++n}`);
         await auth.restoreSession(again, w.io, { username: 'Bea', sessionToken: bea.sessionToken });
         expect(w.log.filter(l => l.event === 'restoreSessionResponse').pop().data).toMatchObject({ success: false });
@@ -404,6 +407,54 @@ describe('actions', () => {
             expect(res).toMatchObject({ ok: false, error: 'refused' });
         });
 
+        test('a merge that throws after retiring: the admin is told it is partly applied, the retired name is signed out anyway', async () => {
+            const cy = await signedIn('Cy');
+            const prev = await request(owner, 'planMerge', { target: 'Bea', sources: ['Cy'] });
+            const resets = mockDb.current.passwordResets;
+            resets.updateMany = async () => { throw new Error('transient'); }; // the last write, after the tombstone
+            const res = await request(owner, 'applyMerge', { target: 'Bea', sources: ['Cy'], planHash: prev.planHash, confirm: 'Bea' });
+            delete resets.updateMany;
+            expect(res).toMatchObject({ ok: false, error: 'server' });
+            expect(res.message).toMatch(/partly applied \(Cy retired and signed out\)/);
+            expect(res.message).not.toMatch(/Nothing more was changed/);
+            expect((await users().findOne({ username: 'Cy' })).mergedInto).toBe('Bea');
+            expect(w.log.filter(l => l.to === `self:${cy.id}`).map(l => l.event)).toContain('forceLogout');
+            expect(gameManager.getUserBySocketId(cy.id)).toBeUndefined();
+            expect(audit().pop()).toMatchObject({ action: 'applyMerge', result: 'failed', detail: expect.stringMatching(/partly applied/) });
+            // Preview again: nothing left to do
+            const replan = await request(owner, 'planMerge', { target: 'Bea', sources: ['Cy'] });
+            expect(replan.plan.changeCount).toBe(0);
+        });
+
+        test('a merge that throws before retiring: nobody signed out; preview + apply again finishes it', async () => {
+            const cy = await signedIn('Cy');
+            const prev = await request(owner, 'planMerge', { target: 'Bea', sources: ['Cy'] });
+            const recs = mockDb.current.gameRecords;
+            recs.updateOne = async () => { throw new Error('transient'); };
+            const res = await request(owner, 'applyMerge', { target: 'Bea', sources: ['Cy'], planHash: prev.planHash, confirm: 'Bea' });
+            delete recs.updateOne;
+            expect(res).toMatchObject({ ok: false, error: 'server' });
+            expect(res.message).toMatch(/no account retired yet/);
+            expect(w.log.filter(l => l.to === `self:${cy.id}`).map(l => l.event)).not.toContain('forceLogout');
+            const again = await request(owner, 'planMerge', { target: 'Bea', sources: ['Cy'] });
+            const done = await request(owner, 'applyMerge', { target: 'Bea', sources: ['Cy'], planHash: again.planHash, confirm: 'Bea' });
+            expect(done).toMatchObject({ ok: true, result: { retired: ['Cy'], signedOut: 1 } });
+        });
+
+        test('"already complete" still signs out a retired name that is connected', async () => {
+            const cy = await signedIn('Cy');
+            const prev = await request(owner, 'planMerge', { target: 'Bea', sources: ['Cy'] });
+            const { applyMerge, planMerge } = require('../../admin/accountMerge');
+            await applyMerge(mockDb.current, await planMerge(mockDb.current, { target: 'Bea', sources: ['Cy'] })); // e.g. the CLI, or an apply cut short
+            expect(gameManager.getUserBySocketId(cy.id)).toBeDefined();
+            const replan = await request(owner, 'planMerge', { target: 'Bea', sources: ['Cy'] });
+            expect(replan.planHash).not.toBe(prev.planHash);
+            expect(await request(owner, 'applyMerge', { target: 'Bea', sources: ['Cy'], planHash: replan.planHash, confirm: 'Bea' }))
+                .toMatchObject({ ok: false, error: 'refused', message: 'Nothing to do. This merge is already complete.' });
+            expect(w.log.filter(l => l.to === `self:${cy.id}`).map(l => l.event)).toContain('forceLogout');
+            expect(gameManager.getUserBySocketId(cy.id)).toBeUndefined();
+        });
+
         test('find duplicates lists look-alike groups', async () => {
             await users().insertOne({ username: 'bea2', stats: { gamesPlayed: 1 } });
             const res = await request(owner, 'findDuplicates', {});
@@ -444,5 +495,48 @@ describe('actions', () => {
         expect(res).toMatchObject({ ok: false, error: 'server' });
         expect(res.message).not.toMatch(/10\.0\.0\.5/);
         expect(audit().pop()).toMatchObject({ action: 'listReports', result: 'failed', detail: 'server error' });
+    });
+});
+
+describe('refusals cannot flood the audit log', () => {
+    test('a player looping forbidden requests over many sockets: one entry per action per window, then a count', async () => {
+        const nowSpy = jest.spyOn(Date, 'now');
+        let t = 1_000_000;
+        nowSpy.mockImplementation(() => t);
+        try {
+            const before = logLines.length;
+            for (let k = 0; k < 4; k++) {
+                const s = await signedIn('Bea'); // a fresh socket each time: a fresh rate-limit window
+                for (let i = 0; i < 50; i++) {
+                    expect((await request(s, 'listAdmins', {})).error).toBe('forbidden');
+                }
+            }
+            let entries = audit().filter(e => e.result === 'forbidden');
+            expect(entries).toHaveLength(1);
+            expect(entries[0]).toMatchObject({ actor: 'Bea', action: 'listAdmins', detail: 'not an admin' });
+            const refusedLines = logLines.slice(before).filter(l => l.includes('Admin request refused'));
+            expect(refusedLines).toHaveLength(1);
+
+            // Another action is its own key; another player too
+            const s = await signedIn('Bea');
+            await request(s, 'searchPlayers', { query: 'x' });
+            await request(await signedIn('Cy'), 'listAdmins', {});
+            expect(audit().filter(e => e.result === 'forbidden').map(e => `${e.actor}:${e.action}`))
+                .toEqual(['Bea:listAdmins', 'Bea:searchPlayers', 'Cy:listAdmins']);
+
+            // The next window: one new entry carrying how many were held back
+            t += admin.FORBIDDEN_WINDOW_MS;
+            expect((await request(s, 'listAdmins', {})).error).toBe('forbidden');
+            entries = audit().filter(e => e.result === 'forbidden' && e.actor === 'Bea' && e.action === 'listAdmins');
+            expect(entries.map(e => e.detail)).toEqual(['not an admin', 'not an admin (199 more refused in the window before)']);
+        } finally {
+            nowSpy.mockRestore();
+        }
+    });
+
+    test('an admin\'s own actions are never coalesced', async () => {
+        const owner = await signedIn('Owner');
+        for (let i = 0; i < 5; i++) await request(owner, 'listAdmins', {});
+        expect(audit().filter(e => e.action === 'listAdmins' && e.result === 'ok')).toHaveLength(5);
     });
 });

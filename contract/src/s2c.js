@@ -933,9 +933,9 @@ const s2c = {
             variant('message', obj({ message: str() })),
         ),
         status: 'active', to: 'self',
-        clientReads: reads(W.main('setupSocketErrorHandler'), ['iOSClient/BABOnline/Networking/SocketService.swift:connect#reads:message']),
+        clientReads: reads([W.main('setupSocketErrorHandler'), 'client/src/admin/adminApi.js:createAdminApi#reads:type,handler'], ['iOSClient/BABOnline/Networking/SocketService.swift:connect#reads:message']),
         emittedFrom: ['server/socket/errorHandler.js:asyncHandler', 'server/socket/errorHandler.js:syncHandler', 'server/socket/errorHandler.js:handleError', 'server/socket/validators.js:withValidation', 'server/socket/*.js:<many handlers> (socket.emit(\'error\', {message}))', 'server/socket/chatHandlers.js:sendError'],
-        notes: "App-level event (not the transport's error). iOS receives it through Socket.IO-Client-Swift's clientEvent .error (the reserved name) and, since 0fd6ef1, shows message as a toast. variant validation is dead today (validators.withValidation has no caller). Rename to serverError is V1_REMOVALS #1.",
+        notes: "App-level event (not the transport's error). iOS receives it through Socket.IO-Client-Swift's clientEvent .error (the reserved name) and, since 0fd6ef1, shows message as a toast. variant validation is dead today (validators.withValidation has no caller). Rename to serverError is V1_REMOVALS #1. The admin panel's api (adminApi.js) reads {type:'rateLimit', handler:'adminRequest'} to fail a dropped admin request fast as rate_limited.",
     },
 };
 

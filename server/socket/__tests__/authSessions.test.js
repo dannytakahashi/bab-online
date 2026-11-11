@@ -555,3 +555,146 @@ describe('failed sign-in throttle', () => {
         expect(await signIn(from(null), 'Alan', 'pw')).toEqual(THROTTLED);
     });
 });
+
+describe('a revoke always wins against a sign-in / restore / rejoin in flight', () => {
+    const { REVOKE_ALL_SESSIONS, verifySession } = require('../../utils/sessionTokens');
+    const { writePasswordHash } = require('../../admin/setPassword');
+
+    // Run `revoke` right after the handler's read of the user document,
+    // i.e. between its findOne and its write (the race window)
+    function revokeAfterNextRead(revoke) {
+        const users = mockDb.current.users;
+        const original = users.findOne.bind(users);
+        users.findOne = async (...args) => {
+            const doc = await original(...args);
+            users.findOne = original;
+            await revoke();
+            return doc;
+        };
+    }
+    const signOutEverywhere = () => mockDb.current.users.updateOne({ username: 'Alan' }, REVOKE_ALL_SESSIONS);
+
+    async function twoDevices() {
+        const phone = await signIn(connect());
+        const stolen = await signIn(connect());
+        expect((await getUser('Alan')).sessionTokens).toHaveLength(2);
+        return { phone: phone.sessionToken, stolen: stolen.sessionToken };
+    }
+
+    test('restoreSession racing sign out everywhere: refused, and no session comes back', async () => {
+        const { phone, stolen } = await twoDevices();
+        revokeAfterNextRead(signOutEverywhere);
+        const s = connect();
+        expect(await restore(s, stolen)).toEqual({ success: false, message: 'Invalid session token' });
+        const user = await getUser('Alan');
+        expect(user.sessionTokens).toBeUndefined();
+        expect(verifySession(user, stolen)).toBeNull();
+        expect(verifySession(user, phone)).toBeNull();
+        expect(user.socketId).not.toBe(s.id);
+        expect(s.data.sessionHash).toBeUndefined();
+        expect(gameManager.registerUser).not.toHaveBeenCalledWith(s.id, 'Alan');
+        // and the token stays dead afterwards
+        expect(await restore(connect(), stolen)).toMatchObject({ success: false });
+    });
+
+    test('restoreSession racing a password reset (writePasswordHash): refused, nothing comes back', async () => {
+        const { stolen } = await twoDevices();
+        revokeAfterNextRead(async () => {
+            const u = await mockDb.current.users.findOne({ username: 'Alan' });
+            await writePasswordHash(mockDb.current, u, await bcrypt.hash('new', 4), { stampField: 'passwordResetByLinkAt' });
+        });
+        expect(await restore(connect(), stolen)).toMatchObject({ success: false });
+        expect((await getUser('Alan')).sessionTokens).toBeUndefined();
+    });
+
+    test('signIn with the old password racing a reset: refused, and the old sessions stay revoked', async () => {
+        const { phone, stolen } = await twoDevices();
+        revokeAfterNextRead(async () => {
+            const u = await mockDb.current.users.findOne({ username: 'Alan' });
+            await writePasswordHash(mockDb.current, u, await bcrypt.hash('new', 4), { stampField: 'passwordResetByLinkAt' });
+        });
+        const s = connect();
+        const reply = await signIn(s, 'Alan', 'pw');
+        expect(reply).toEqual({ success: false, message: 'Your account was just signed out everywhere. Please sign in again.' });
+        const user = await getUser('Alan');
+        expect(user.sessionTokens).toBeUndefined();
+        expect(verifySession(user, phone)).toBeNull();
+        expect(verifySession(user, stolen)).toBeNull();
+        expect(gameManager.registerUser).not.toHaveBeenCalledWith(s.id, 'Alan');
+        // the new password works; the old one does not
+        expect(await signIn(connect(), 'Alan', 'pw')).toMatchObject({ success: false });
+        expect(await signIn(connect(), 'Alan', 'new')).toMatchObject({ success: true });
+    });
+
+    test('a token rejoin racing sign out everywhere is refused and writes nothing back', async () => {
+        const { stolen } = await twoDevices();
+        revokeAfterNextRead(signOutEverywhere);
+        const { rejoinGame } = require('../reconnectHandlers');
+        const s = connect();
+        await rejoinGame(s, io, { gameId: 'g1', username: 'Alan', sessionToken: stolen });
+        expect(lastEmit(s, 'rejoinFailed')).toEqual({ reason: 'Not authenticated' });
+        expect((await getUser('Alan')).sessionTokens).toBeUndefined();
+        expect(s.data.sessionHash).toBeUndefined();
+    });
+
+    test('a merge retiring the account bumps the epoch too (restore in flight cannot revive the tombstone)', async () => {
+        const { stolen } = await twoDevices();
+        revokeAfterNextRead(() => mockDb.current.users.updateOne(
+            { username: 'Alan' },
+            { $set: { mergedInto: 'Other' }, $unset: { sessionTokens: '', sessionToken: '' }, $inc: { sessionEpoch: 1 } }
+        ));
+        expect(await restore(connect(), stolen)).toMatchObject({ success: false });
+        expect((await getUser('Alan')).sessionTokens).toBeUndefined();
+    });
+
+    test('without a revoke, restores and sign-ins keep working across epochs', async () => {
+        await signOutEverywhere(); // epoch 1, no sessions
+        const a = await signIn(connect());
+        expect(a).toMatchObject({ success: true });
+        expect(await restore(connect(), a.sessionToken)).toMatchObject({ success: true });
+        expect((await getUser('Alan')).sessionEpoch).toBe(1);
+    });
+});
+
+describe('account deletion and the admin role', () => {
+    async function del(username) {
+        const socket = connect();
+        gameManager.getUserBySocketId.mockReturnValue({ username });
+        jest.useFakeTimers();
+        try {
+            await auth.deleteAccount(socket, io, { password: 'pw' });
+        } finally {
+            jest.useRealTimers();
+        }
+        return lastEmit(socket, 'deleteAccountResponse');
+    }
+
+    test('the only admin cannot delete their account (it would leave zero admins); nothing is removed', async () => {
+        await mockDb.current.users.updateOne({ username: 'Alan' }, { $set: { isAdmin: true } });
+        expect(await del('Alan')).toEqual({
+            success: false,
+            message: 'You are the only admin. Make someone else an admin before deleting your account.'
+        });
+        const alan = await getUser('Alan');
+        expect(alan).toMatchObject({ username: 'Alan', isAdmin: true });
+        expect(await mockDb.current.users.countDocuments({})).toBe(2);
+    });
+
+    test('with another admin left, an admin can delete their account', async () => {
+        const pw = await bcrypt.hash('pw', 4);
+        await mockDb.current.users.insertOne({ username: 'Bea', password: pw, isAdmin: true });
+        await mockDb.current.users.updateOne({ username: 'Alan' }, { $set: { isAdmin: true } });
+        expect(await del('Alan')).toEqual({ success: true });
+        expect(await getUser('Alan')).toBeNull();
+        expect(await mockDb.current.users.countDocuments({ isAdmin: true })).toBe(1);
+    });
+
+    test('two last admins deleting at the same moment: one stays', async () => {
+        const pw = await bcrypt.hash('pw', 4);
+        await mockDb.current.users.insertOne({ username: 'Bea', password: pw, isAdmin: true });
+        await mockDb.current.users.updateOne({ username: 'Alan' }, { $set: { isAdmin: true } });
+        const replies = await Promise.all([del('Alan'), del('Bea')]);
+        expect(replies.filter(r => r.success)).toHaveLength(1);
+        expect(await mockDb.current.users.countDocuments({ isAdmin: true })).toBe(1);
+    });
+});

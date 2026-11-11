@@ -199,7 +199,43 @@ describe('audit log', () => {
         const next = await listAudit(db, { limit: 3, before: new Date(page.entries[2].at) });
         expect(next.entries.map(e => e.detail)).toEqual(['n=1', 'n=0']);
         expect(next.hasMore).toBe(false);
-        expect(redactDetail('token AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_abcd ok')).toBe('token [redacted] ok');
+        expect(redactDetail('token AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_abcde ok')).toBe('token [redacted] ok');
+    });
+
+    test('redaction drops secrets by shape but keeps long usernames', () => {
+        const crypto = require('crypto');
+        const resetToken = crypto.randomBytes(32).toString('base64url');
+        const session = require('uuid').v4();
+        const sha = crypto.createHash('sha256').update('x').digest('hex');
+        const bcryptHash = bcrypt.hashSync('pw', 4);
+        // a bcrypt hash whose tail has a 43-character run between separators
+        const splitHash = ['', '2b', '04', 'a'.repeat(43) + '.' + 'b'.repeat(9)].join('$');
+        for (const secret of [resetToken, session, session.toUpperCase(), sha, bcryptHash, splitHash, 'Q'.repeat(51)]) {
+            expect(redactDetail(`before ${secret} after`)).toBe('before [redacted] after');
+            expect(redactDetail(`x:${secret};`)).toBe('x:[redacted];');
+        }
+        // valid usernames, up to the 50-character sign-up maximum, survive
+        for (const name of ['abcdefghijklmnopqrstuvwxyz0123456789', 'A'.repeat(32), 'b'.repeat(42), 'c'.repeat(44), 'Long_Name-'.repeat(5)]) {
+            expect(redactDetail(`merged ${name}: retired ${name}`)).toBe(`merged ${name}: retired ${name}`);
+        }
+    });
+
+    test('paging back never skips entries that share the boundary millisecond', async () => {
+        const db = makeDb();
+        const t = new Date('2026-11-11T12:00:00.000Z');
+        for (let i = 0; i < 5; i++) await recordAudit(db, { actor: 'a', action: 'x', result: 'ok', detail: `same-${i}`, now: t });
+        await recordAudit(db, { actor: 'a', action: 'x', result: 'ok', detail: 'older', now: new Date(t.getTime() - 1) });
+        await recordAudit(db, { actor: 'a', action: 'x', result: 'ok', detail: 'newer', now: new Date(t.getTime() + 1) });
+        const seen = [];
+        let page = await listAudit(db, { limit: 2 });
+        seen.push(...page.entries);
+        while (page.hasMore) {
+            const last = page.entries[page.entries.length - 1];
+            page = await listAudit(db, { limit: 2, before: new Date(last.at), beforeId: last.id });
+            seen.push(...page.entries);
+        }
+        expect(seen.map(e => e.detail)).toEqual(['newer', 'same-4', 'same-3', 'same-2', 'same-1', 'same-0', 'older']);
+        expect(new Set(seen.map(e => e.id)).size).toBe(7);
     });
 
     test('a failed audit write never throws', async () => {

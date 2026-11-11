@@ -116,14 +116,31 @@ describe('the panel', () => {
     expect(document.activeElement.id).toBe('adminSearchInput');
     expect($('label[for="adminSearchInput"]').textContent).toBe('Find a player');
     tabs[0].focus();
-    $('[role="tablist"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    const key = (k) => $('[role="tablist"]').dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }));
+    // Manual activation: arrows move focus only, Enter / Space (click) opens
+    key('ArrowRight');
     expect(document.activeElement).toBe(tabs[1]);
+    expect(tabs[1].getAttribute('aria-selected')).toBe('false');
+    expect($('#adminPanel-players').hidden).toBe(false);
+    tabs[1].click();
     expect(tabs[1].getAttribute('aria-selected')).toBe('true');
     expect($('#adminPanel-merge').hidden).toBe(false);
     expect($('#adminPanel-players').hidden).toBe(true);
-    $('[role="tablist"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
+    key('End');
     expect(document.activeElement).toBe(tabs[4]);
+    expect(api.calls.map((c) => c[0])).not.toContain('listAudit');
+    tabs[4].click();
     expect(api.calls.map((c) => c[0])).toContain('listAudit');
+  });
+
+  it('holding an arrow key on the tabs sends no requests (the server rate-limits them)', () => {
+    showAdminPanel(null, { username: 'Owner', api });
+    $('#adminTab-players').focus();
+    for (let i = 0; i < 30; i++) {
+      $('[role="tablist"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    }
+    expect(api.calls).toEqual([]);
+    expect(document.activeElement.getAttribute('role')).toBe('tab');
   });
 
   it('search rows: created, last seen, games, admin / online / merged markers, actions per row', async () => {
@@ -280,7 +297,8 @@ describe('the panel', () => {
     expect($('#adminPanel-audit tbody').textContent).toMatch(/newest/);
     byText('Load more').click();
     await flush();
-    expect(api.calls.pop()).toEqual(['listAudit', { before: '2026-11-11T00:00:00.000Z', limit: 50 }]);
+    // the cursor is (at, id) of the last row, so same-millisecond entries are not skipped
+    expect(api.calls.pop()).toEqual(['listAudit', { before: '2026-11-11T00:00:00.000Z', beforeId: '1', limit: 50 }]);
     expect($('#adminPanel-audit tbody').children).toHaveLength(2);
     expect(byText('Load more').hidden).toBe(true);
   });
@@ -301,7 +319,196 @@ describe('the panel', () => {
   });
 });
 
+describe('focus after an action redraws its list', () => {
+  const inDialog = () => Boolean(document.activeElement && $('#adminPanelModal')?.contains(document.activeElement));
+  const confirmYes = async () => {
+    $('#adminConfirmDialog [data-confirm="yes"]').click();
+    await flush();
+  };
+
+  it('sign out everywhere: focus returns to that row\'s button in the new table', async () => {
+    await openWithSearch();
+    const before = byText('Sign out everywhere', document.querySelector('#adminSearchResults tbody tr'));
+    before.focus();
+    before.click();
+    await flush();
+    await confirmYes();
+    expect(before.isConnected).toBe(false); // the table was redrawn
+    expect(document.activeElement).not.toBe(document.body);
+    expect(inDialog()).toBe(true);
+    expect(document.activeElement.dataset.focusKey).toBe('signout:Bea');
+    expect(document.activeElement.textContent).toBe('Sign out everywhere');
+  });
+
+  it('make admin from Players: focus lands on that player\'s admin toggle', async () => {
+    await openWithSearch();
+    const make = byText('Make admin', document.querySelector('#adminSearchResults tbody tr'));
+    make.focus();
+    make.click();
+    await flush();
+    await confirmYes();
+    expect(document.activeElement.dataset.focusKey).toBe('admin:Bea');
+  });
+
+  it('remove admin in Admins: the same row if still listed, else the tab panel', async () => {
+    let calls = 0;
+    api = fakeApi({
+      listAdmins: () => (++calls === 1
+        ? { ok: true, admins: [{ username: 'Owner', adminSince: null }, { username: 'Bea', adminSince: null }] }
+        : { ok: true, admins: [{ username: 'Owner', adminSince: null }] }),
+      setAdmin: (a) => ({ ok: true, username: a.username, isAdmin: a.isAdmin, changed: true }),
+    });
+    showAdminPanel(null, { username: 'Owner', api });
+    byText('Admins').click();
+    await flush();
+    const rows = [...document.querySelectorAll('#adminAdminList tbody tr')];
+    byText('Remove admin', rows[1]).focus();
+    byText('Remove admin', rows[1]).click();
+    await flush();
+    await confirmYes();
+    expect(document.querySelectorAll('#adminAdminList tbody tr')).toHaveLength(1);
+    expect(document.activeElement).toBe($('#adminPanel-admins'));
+  });
+
+  it('resolve a report: focus stays in the panel', async () => {
+    showAdminPanel(null, { username: 'Owner', api });
+    byText('Reports').click();
+    await flush();
+    const resolve = byText('Resolve', $('#adminReportList'));
+    resolve.focus();
+    resolve.click();
+    await flush();
+    expect(resolve.isConnected).toBe(false);
+    expect(inDialog()).toBe(true);
+  });
+
+  async function previewAndApply() {
+    showAdminPanel(null, { username: 'Owner', api });
+    byText('Merge').click();
+    typeInto($('#adminMergeKeep'), 'Bea');
+    typeInto($('#adminMergeSources'), 'Bea2');
+    byText('Preview merge').closest('form').dispatchEvent(new Event('submit', { cancelable: true }));
+    await flush();
+    typeInto($('#adminMergeConfirm'), 'Bea');
+    byText('Merge accounts').focus();
+    byText('Merge accounts').closest('form').dispatchEvent(new Event('submit', { cancelable: true }));
+    await flush();
+  }
+
+  it('merge applied: focus moves to the Merged heading', async () => {
+    await previewAndApply();
+    expect(document.activeElement.tagName).toBe('H3');
+    expect(document.activeElement.textContent).toBe('Merged');
+  });
+
+  it('merge refused as stale, or stopped partway: the preview is cleared and focus goes to Preview merge', async () => {
+    for (const reply of [
+      { ok: false, error: 'stale_plan', message: 'These accounts changed since the preview. Preview again before merging.' },
+      { ok: false, error: 'server', message: 'The merge stopped partway and may be partly applied (Bea2 retired and signed out). Preview again to see what is left, then merge again.' },
+    ]) {
+      removeAdminPanel();
+      api = fakeApi({ planMerge: { ok: true, plan: PLAN, planHash: HASH }, applyMerge: reply });
+      await previewAndApply();
+      expect(byText('Merge accounts')).toBeUndefined();
+      expect($('#adminMergePlan').textContent).toBe(reply.message);
+      expect($('#adminAlert').textContent).toBe(reply.message);
+      expect(document.activeElement).toBe(byText('Preview merge'));
+    }
+  });
+
+  it('forbidden from the main room: focus ends on a visible main-room control, not the hidden entry', async () => {
+    showMainRoom({ onlineCount: 1 }, { emit: vi.fn(), on: vi.fn(), off: vi.fn() }, 'Owner');
+    const entry = $('#mainRoomAdminButton');
+    entry.focus();
+    api = fakeApi({ searchPlayers: { ok: false, error: 'forbidden', message: 'Not available.' } });
+    await openWithSearch();
+    expect(entry.hidden).toBe(true);
+    expect(document.activeElement).not.toBe(entry);
+    expect(document.activeElement).not.toBe(document.body);
+    expect(document.activeElement.hidden).toBe(false);
+    expect(document.activeElement.textContent).toBe('Profile');
+  });
+});
+
+describe('names, live regions and headers for assistive tech', () => {
+  it('every row action\'s accessible name starts with its visible text (WCAG 2.5.3)', async () => {
+    await openWithSearch();
+    byText('Admins').click();
+    await flush();
+    const buttons = [...document.querySelectorAll('#adminSearchResults button, #adminAdminList button')].filter((b) => b.getAttribute('aria-label'));
+    expect(buttons.length).toBeGreaterThan(4);
+    for (const b of buttons) expect(b.getAttribute('aria-label').toLowerCase().startsWith(b.textContent.toLowerCase())).toBe(true);
+    expect(buttons.map((b) => b.getAttribute('aria-label'))).toEqual(expect.arrayContaining([
+      'Sign out everywhere: Bea', 'Make admin: Bea', 'Remove admin: Owner', 'Reset link: Bea',
+    ]));
+  });
+
+  it('results are polite (role=status, no aria-live override), errors go to a role=alert line; the plan is not a live region', async () => {
+    showAdminPanel(null, { username: 'Owner', api });
+    const status = $('#adminStatus');
+    const alert = $('#adminAlert');
+    expect(status.getAttribute('role')).toBe('status');
+    expect(status.hasAttribute('aria-live')).toBe(false);
+    expect(alert.getAttribute('role')).toBe('alert');
+    expect(alert.hasAttribute('aria-live')).toBe(false);
+    expect($('#adminMergePlan').hasAttribute('aria-live')).toBe(false);
+    $('#adminSearchInput').closest('form').dispatchEvent(new Event('submit', { cancelable: true })); // empty: an error
+    await flush();
+    expect(alert.textContent).toBe('Type part of a name to search.');
+    expect(status.textContent).toBe('');
+    expect(status.getAttribute('role')).toBe('status');
+    $('#adminSearchInput').value = 'Bea';
+    $('#adminSearchInput').closest('form').dispatchEvent(new Event('submit', { cancelable: true }));
+    await flush();
+    expect(status.textContent).toBe('3 players found for "Bea".');
+    expect(alert.textContent).toBe('');
+  });
+
+  it('no table has a blank column header', async () => {
+    showAdminPanel(null, { username: 'Owner', api });
+    byText('Admins').click();
+    await flush();
+    byText('Merge').click();
+    typeInto($('#adminMergeKeep'), 'Bea');
+    typeInto($('#adminMergeSources'), 'Bea2');
+    byText('Preview merge').closest('form').dispatchEvent(new Event('submit', { cancelable: true }));
+    await flush();
+    const ths = [...document.querySelectorAll('#adminAdminList th, #adminMergePlan th')];
+    expect(ths.length).toBeGreaterThan(5);
+    for (const th of ths) expect(th.textContent.trim()).not.toBe('');
+  });
+
+  it('a rate-limited request says so instead of blaming the connection', async () => {
+    api = { request: vi.fn(async () => { throw new Error('rate_limited'); }), dispose() {} };
+    await openWithSearch();
+    expect($('#adminAlert').textContent).toBe('Too many admin requests in a minute. Wait a moment and try again.');
+  });
+});
+
 describe('createAdminApi', () => {
+  it('a rate-limit error for adminRequest fails the unanswered requests fast with rate_limited', async () => {
+    vi.useFakeTimers();
+    try {
+      const listeners = {};
+      const socket = { on: (ev, fn) => { listeners[ev] = fn; }, off: vi.fn((ev) => { delete listeners[ev]; }), emit: vi.fn() };
+      const a = createAdminApi(socket, { timeoutMs: 15000, rateLimitGraceMs: 3000 });
+      const accepted = a.request('listAdmins', {});
+      const dropped = a.request('listAudit', {});
+      const dropErr = dropped.catch((e) => e);
+      listeners.error({ type: 'rateLimit', handler: 'joinMainRoom' }); // another event's limit: ignored
+      listeners.error({ type: 'rateLimit', handler: 'adminRequest', message: 'Too many requests, please slow down' });
+      const [, first] = socket.emit.mock.calls[0];
+      listeners.adminResponse({ requestId: first.requestId, action: 'listAdmins', ok: true, admins: [] });
+      await expect(accepted).resolves.toMatchObject({ ok: true });
+      vi.advanceTimersByTime(3000);
+      expect((await dropErr).message).toBe('rate_limited');
+      a.dispose();
+      expect(socket.off).toHaveBeenCalledWith('error', expect.any(Function));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('matches replies by requestId, times out, and stops listening on dispose', async () => {
     vi.useFakeTimers();
     const listeners = {};

@@ -1020,15 +1020,19 @@
     display: none;
 }
 
-.admin-status {
+/* the status line and the alert line share one row: only one has text */
+.admin-status-box {
     flex-shrink: 0;
-    margin: 0;
     min-height: 1.4em;
+}
+
+.admin-status {
+    margin: 0;
     color: var(--text-secondary);
     font-size: var(--type-sm);
 }
 
-.admin-status[data-kind="error"] {
+.admin-status--error {
     color: var(--danger-text);
 }
 

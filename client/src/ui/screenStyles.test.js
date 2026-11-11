@@ -55,6 +55,18 @@ describe('the screens on tokens and kit classes', () => {
     });
   }
 
+  it('the reset page and the admin panel round corners with the radius tokens, not pixel literals', () => {
+    const adminCss = (() => {
+      const css = readClientFile('styles/screens.css');
+      const start = css.indexOf('.admin-');
+      return css.slice(start);
+    })();
+    for (const css of [readClientFile('styles/reset.css'), adminCss]) {
+      const literal = css.split('\n').filter((l) => /border-radius:\s*\d+px/.test(l));
+      expect(literal).toEqual([]);
+    }
+  });
+
   it('no Arial body and no bright green gradient: the page is the tokens\' dark surfaces and font stack', () => {
     const css = readClientFile('styles.css');
     const body = css.slice(css.indexOf('\nbody {'), css.indexOf('}', css.indexOf('\nbody {')));

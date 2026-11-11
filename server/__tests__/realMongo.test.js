@@ -364,10 +364,53 @@ describe('real mongod', () => {
         expect((await listAudit(adb, { limit: 2 })).entries.map(e => e.detail)).toEqual(['q2', 'q1']);
         const plan = planOf(await adb.adminAudit.find({}).sort({ at: -1, _id: -1 }).limit(51).explain('queryPlanner'));
         expect(usesIndex(plan, 'at_-1__id_-1')).toBe(true);
+        // Paging on (at, _id): entries sharing the boundary millisecond are all reached
+        const same = new Date(now - 5000);
+        for (let i = 0; i < 4; i++) await recordAudit(adb, { actor: 'Bea', action: 'tie', result: 'ok', detail: `t${i}`, now: same });
+        const seen = [];
+        let pg = await listAudit(adb, { limit: 2, before: new Date(now) });
+        seen.push(...pg.entries);
+        while (pg.hasMore) {
+            const lastRow = pg.entries[pg.entries.length - 1];
+            pg = await listAudit(adb, { limit: 2, before: new Date(lastRow.at), beforeId: lastRow.id });
+            seen.push(...pg.entries);
+        }
+        expect(seen.map(e => e.detail)).toEqual(['t3', 't2', 't1', 't0']);
 
         // The last-admin guard on the real driver
         await setAdminFlag(adb, 'Bea', true);
         await expect(setAdminFlag(adb, 'Bea', false)).rejects.toMatchObject({ code: 'last_admin' });
         expect((await listAdmins(adb)).map(a => a.username)).toEqual(['Bea']);
+    });
+
+    test('(h) a revoke between a restore\'s read and its write wins on the real driver: no session comes back', async () => {
+        if (!client) return;
+        const { REVOKE_ALL_SESSIONS, verifySession } = require('../utils/sessionTokens');
+        const users = mockHolder.users;
+        const tokens = [];
+        const device = () => Object.assign(sock(), { disconnect() {} }); // a second sign-in kicks the first
+        for (let i = 0; i < 2; i++) {
+            await auth.signIn(device(), io, { username: 'Alan', password: 'pw' });
+            tokens.push(last('signInResponse').sessionToken);
+        }
+        expect((await users.findOne({ username: 'Alan' })).sessionTokens).toHaveLength(2);
+        // Sign out everywhere lands right after the restore's findOne
+        users.findOne = async function (...args) {
+            delete users.findOne;
+            const doc = await Object.getPrototypeOf(users).findOne.apply(users, args);
+            await users.updateOne({ username: 'Alan' }, REVOKE_ALL_SESSIONS);
+            return doc;
+        };
+        await auth.restoreSession(device(), io, { username: 'Alan', sessionToken: tokens[0] });
+        expect(last('restoreSessionResponse')).toEqual({ success: false, message: 'Invalid session token' });
+        const alan = await users.findOne({ username: 'Alan' });
+        expect(alan.sessionTokens).toBeUndefined();
+        expect(alan.sessionEpoch).toBe(1);
+        for (const t of tokens) expect(verifySession(alan, t)).toBeNull();
+        // Afterwards sessions work again on the new epoch
+        await auth.signIn(device(), io, { username: 'Alan', password: 'pw' });
+        const fresh = last('signInResponse').sessionToken;
+        await auth.restoreSession(device(), io, { username: 'Alan', sessionToken: fresh });
+        expect(last('restoreSessionResponse')).toMatchObject({ success: true });
     });
 });

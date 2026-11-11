@@ -22,6 +22,8 @@ describe('setPassword', () => {
         expect(alan).not.toHaveProperty('sessionToken');
         expect(alan).not.toHaveProperty('sessionTokens');
         expect(alan.passwordResetByAdminAt).toBeInstanceOf(Date);
+        // the revoke bumps sessionEpoch: a sign-in / restore in flight cannot write the sessions back
+        expect(alan.sessionEpoch).toBe(1);
     });
 
     test('refuses unknown and merged accounts', async () => {

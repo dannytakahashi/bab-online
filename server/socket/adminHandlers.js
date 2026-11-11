@@ -33,6 +33,10 @@
  * ok / failed for an admin, forbidden for a signed-in non-admin (a
  * signed-out socket has no name: server log only). The audit view itself
  * (listAudit) is not audited. Never a token, password or session hash.
+ * Refusals are coalesced (forbiddenGate): at most one forbidden entry and
+ * one log line per name and action every FORBIDDEN_WINDOW_MS, the next one
+ * carrying how many were held back, so a player looping requests over many
+ * sockets cannot grow adminAudit without bound or bury the admins' entries.
  */
 
 'use strict';
@@ -41,7 +45,7 @@ const Joi = require('joi');
 const database = require('../database');
 const gameManager = require('../game/GameManager');
 const { createModuleLogger } = require('../utils/logger');
-const { hasLiveSession } = require('../utils/sessionTokens');
+const { hasLiveSession, REVOKE_ALL_SESSIONS } = require('../utils/sessionTokens');
 const { AdminError } = require('../admin/adminError');
 const { listAdmins, setAdminFlag } = require('../admin/adminRole');
 const { createResetLink } = require('../admin/passwordReset');
@@ -78,7 +82,11 @@ const ACTION_SCHEMAS = {
     }),
     listAdmins: Joi.object({}),
     setAdmin: Joi.object({ username: name().required(), isAdmin: Joi.boolean().strict().required() }),
-    listAudit: Joi.object({ before: Joi.date().iso().optional(), limit: Joi.number().integer().min(1).max(100).default(50) })
+    listAudit: Joi.object({
+        before: Joi.date().iso().optional(),
+        beforeId: Joi.string().hex().length(24).optional(),
+        limit: Joi.number().integer().min(1).max(100).default(50)
+    })
 };
 
 const ACTIONS = Object.keys(ACTION_SCHEMAS);
@@ -151,10 +159,18 @@ const RUN = {
     },
 
     async signOutEverywhere({ db, io }, { username }) {
-        const user = await db.users.findOne({ username }, { projection: { username: 1, mergedInto: 1, socketId: 1, 'sessionTokens.hash': 1, sessionToken: 1 } });
-        if (!user) throw new AdminError('not_found', `No account is named "${username}" (names are case-sensitive).`);
-        if (user.mergedInto) throw new AdminError('refused', `"${username}" was merged into "${user.mergedInto}" and has no sessions.`);
-        await db.users.updateOne({ _id: user._id }, { $unset: { sessionToken: '', sessionTokens: '' } });
+        const found = await db.users.findOne({ username }, { projection: { username: 1, mergedInto: 1 } });
+        if (!found) throw new AdminError('not_found', `No account is named "${username}" (names are case-sensitive).`);
+        if (found.mergedInto) throw new AdminError('refused', `"${username}" was merged into "${found.mergedInto}" and has no sessions.`);
+        // One atomic revoke (sessionEpoch bumped: a restore or sign-in in
+        // flight cannot write the sessions back); the document as it was
+        // gives the count and the newest socketId to sign out
+        const user = await db.users.findOneAndUpdate(
+            { _id: found._id, mergedInto: { $exists: false } },
+            REVOKE_ALL_SESSIONS,
+            { returnDocument: 'before', projection: { socketId: 1, 'sessionTokens.hash': 1, sessionToken: 1 } }
+        );
+        if (!user) throw new AdminError('refused', `"${username}" changed while this ran. Try again.`);
         const revokedSessions = (user.sessionTokens?.length || 0) + (user.sessionToken ? 1 : 0);
         const disconnected = signOutUser(io, username, { socketId: user.socketId });
         return {
@@ -181,7 +197,7 @@ const RUN = {
         };
     },
 
-    async applyMerge({ db, io }, { target, sources, planHash: previewed, confirm }) {
+    async applyMerge({ db, io, actor }, { target, sources, planHash: previewed, confirm }) {
         if (confirm !== target) {
             throw new AdminError('invalid', `Type the kept account's name, ${target}, exactly to confirm.`);
         }
@@ -191,18 +207,48 @@ const RUN = {
         if (planHash(plan) !== previewed) {
             throw new AdminError('stale_plan', 'These accounts changed since the preview. Preview again before merging.');
         }
-        if (countChanges(plan) === 0) throw new AdminError('refused', 'Nothing to do. This merge is already complete.');
-        const result = await applyMerge(db, plan);
+        // In-process caches see the merge at once (the CLI waits for the TTL)
+        const invalidateCaches = () => {
+            const profile = require('./profileHandlers');
+            profile.invalidateLeaderboard?.();
+            profile.invalidateRecords?.();
+            const avatarStore = require('../avatar/avatarStore');
+            for (const name of [target, ...plan.sources]) avatarStore.forgetUser?.(name);
+        };
+        if (countChanges(plan) === 0) {
+            // Already complete (possibly by an earlier apply that stopped
+            // after retiring): a source still connected is signed out now
+            for (const name of plan.sources) signOutUser(io, name);
+            throw new AdminError('refused', 'Nothing to do. This merge is already complete.');
+        }
+        let result;
+        try {
+            result = await applyMerge(db, plan);
+        } catch (error) {
+            // Stopped partway: what ran before the throw is saved (renames,
+            // stats, maybe tombstones). Never say "nothing changed": sign
+            // out whatever is retired by now, refresh the caches, and send
+            // the admin back to the preview (a retry plans what is left)
+            logger.error('Merge stopped partway', { actor: actor.username, target, error: error.message });
+            let retiredNow = [];
+            try {
+                retiredNow = (await db.users.find(
+                    { username: { $in: plan.sources }, mergedInto: target },
+                    { projection: { username: 1 } }
+                ).toArray()).map(u => u.username);
+            } catch { /* the database is struggling: sign out every source */
+                retiredNow = [...plan.sources];
+            }
+            for (const name of retiredNow) signOutUser(io, name);
+            invalidateCaches();
+            const done = retiredNow.length ? `${retiredNow.join(', ')} retired and signed out` : 'no account retired yet';
+            throw new AdminError('server', `The merge stopped partway and may be partly applied (${done}). Preview again to see what is left, then merge again.`);
+        }
         // Retired names cannot keep playing on a connection signed in
         // before the merge (their stats would land on a tombstone)
         let signedOut = 0;
         for (const name of result.retired) signedOut += signOutUser(io, name);
-        // In-process caches see the merge at once (the CLI waits for the TTL)
-        const profile = require('./profileHandlers');
-        profile.invalidateLeaderboard?.();
-        profile.invalidateRecords?.();
-        const avatarStore = require('../avatar/avatarStore');
-        for (const name of [target, ...plan.sources]) avatarStore.forgetUser?.(name);
+        invalidateCaches();
         return {
             reply: {
                 result: {
@@ -246,11 +292,39 @@ const RUN = {
         };
     },
 
-    async listAudit({ db }, { before, limit }) {
-        const page = await listAudit(db, { before: before || null, limit });
+    async listAudit({ db }, { before, beforeId, limit }) {
+        const page = await listAudit(db, { before: before || null, beforeId: beforeId || null, limit });
         return { reply: page, target: null, detail: null };
     }
 };
+
+/**
+ * Coalesce refusals: key = name (or '(signed out)') + action. The first
+ * refusal in a window is audited and logged; the rest only counted, and the
+ * count rides on the next window's first entry. Keyed by name, not socket,
+ * so opening new sockets does not open new windows. Bounded: expired keys
+ * are pruned once the map grows past FORBIDDEN_MAX_KEYS (and if every key is
+ * live, it is cleared, which only means a few more entries).
+ */
+const FORBIDDEN_WINDOW_MS = 10 * 60 * 1000;
+const FORBIDDEN_MAX_KEYS = 5000;
+const forbiddenSeen = new Map();
+
+function forbiddenGate(who, action, now = Date.now()) {
+    const key = `${who === null ? '(signed out)' : `u:${who}`}|${action}`;
+    const seen = forbiddenSeen.get(key);
+    if (seen && now - seen.since < FORBIDDEN_WINDOW_MS) {
+        seen.held++;
+        return null;
+    }
+    if (forbiddenSeen.size >= FORBIDDEN_MAX_KEYS) {
+        for (const [k, v] of forbiddenSeen) if (now - v.since >= FORBIDDEN_WINDOW_MS) forbiddenSeen.delete(k);
+        if (forbiddenSeen.size >= FORBIDDEN_MAX_KEYS) forbiddenSeen.clear();
+    }
+    const held = seen ? seen.held : 0;
+    forbiddenSeen.set(key, { since: now, held: 0 });
+    return { held };
+}
 
 /** One refusal message for a failed write the admin may retry. */
 const SERVER_MESSAGE = 'Something went wrong. Nothing more was changed; try again.';
@@ -263,9 +337,14 @@ async function adminRequest(socket, io, data) {
     const actor = await authorizeAdmin(socket);
     if (!actor) {
         const who = gameManager.getUserBySocketId(socket.id)?.username || null;
-        logger.warn('Admin request refused', { action, username: who, socketId: socket.id });
         reply({ ok: false, error: 'forbidden', message: FORBIDDEN_MESSAGE });
-        if (who) await recordAudit(db, { actor: who, action, target: null, result: 'forbidden', detail: 'not an admin' });
+        const gate = forbiddenGate(who, action);
+        if (!gate) return; // already audited in this window: counted only
+        logger.warn('Admin request refused', { action, username: who, socketId: socket.id, ...(gate.held ? { heldBack: gate.held } : {}) });
+        if (who) {
+            const detail = gate.held ? `not an admin (${gate.held} more refused in the window before)` : 'not an admin';
+            await recordAudit(db, { actor: who, action, target: null, result: 'forbidden', detail });
+        }
         return;
     }
 
@@ -298,4 +377,7 @@ async function adminRequest(socket, io, data) {
     }
 }
 
-module.exports = { adminRequest, authorizeAdmin, ACTIONS, ACTION_SCHEMAS, FORBIDDEN_MESSAGE };
+module.exports = {
+    adminRequest, authorizeAdmin, ACTIONS, ACTION_SCHEMAS, FORBIDDEN_MESSAGE, FORBIDDEN_WINDOW_MS,
+    _resetForbiddenGate: () => forbiddenSeen.clear()
+};

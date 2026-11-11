@@ -18,18 +18,32 @@
 
 'use strict';
 
+const { ObjectId } = require('mongodb');
 const { createModuleLogger } = require('../utils/logger');
 
 const logger = createModuleLogger('admin');
 
 const MAX_DETAIL = 300;
 const LIST_MAX = 100;
-// Anything long and token-like (base64url / hex runs of 32+ characters)
-const TOKENISH = /[A-Za-z0-9_-]{32,}/g;
+// The secrets this server handles, by shape, so a long USERNAME (up to 50
+// characters; sign-up once allowed them) is never mistaken for one:
+//   a reset token (32 random bytes as base64url: exactly 43 characters),
+//   a session token (a UUID), a bcrypt hash, and any token-like run longer
+//   than a username can be (51+: SHA-256 hex hashes and the like).
+const T = 'A-Za-z0-9_-';
+// (bcrypt first: its '.' and '/' split it into runs the others could half-match)
+const SECRET_SHAPES = [
+    /\$2[abxy]?\$\d{2}\$[./A-Za-z0-9]{53}/g,
+    /(?<![A-Za-z0-9_-])[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![A-Za-z0-9_-])/gi,
+    new RegExp(`(?<![${T}])[${T}]{43}(?![${T}])`, 'g'),
+    new RegExp(`[${T}]{51,}`, 'g')
+];
 
 function redactDetail(detail) {
     if (detail === null || detail === undefined) return null;
-    return String(detail).replace(TOKENISH, '[redacted]').slice(0, MAX_DETAIL);
+    let out = String(detail);
+    for (const re of SECRET_SHAPES) out = out.replace(re, '[redacted]');
+    return out.slice(0, MAX_DETAIL);
 }
 
 /**
@@ -53,12 +67,20 @@ async function recordAudit(db, { actor, action, target = null, result, detail = 
 }
 
 /**
- * Newest first, LIST_MAX at most; `before` (a Date) pages back.
+ * Newest first ({at: -1, _id: -1}), LIST_MAX at most. Paging back: `before`
+ * (a Date) and `beforeId` (the id of the last entry shown), the cursor of
+ * that sort, so entries sharing the boundary's millisecond are not skipped.
+ * `before` alone (an older client) still pages by time.
  * @returns {Promise<{entries: Object[], hasMore: boolean}>}
  */
-async function listAudit(db, { before = null, limit = 50 } = {}) {
+async function listAudit(db, { before = null, beforeId = null, limit = 50 } = {}) {
     const n = Math.max(1, Math.min(LIST_MAX, limit));
-    const filter = before ? { at: { $lt: before } } : {};
+    let filter = {};
+    if (before && beforeId && ObjectId.isValid(beforeId)) {
+        filter = { $or: [{ at: { $lt: before } }, { at: before, _id: { $lt: new ObjectId(beforeId) } }] };
+    } else if (before) {
+        filter = { at: { $lt: before } };
+    }
     const rows = await db.adminAudit.find(filter).sort({ at: -1, _id: -1 }).limit(n + 1).toArray();
     return {
         entries: rows.slice(0, n).map(r => ({

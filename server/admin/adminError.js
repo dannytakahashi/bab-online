@@ -3,7 +3,8 @@
  * (adminResponse.error), `message` is shown to the ADMIN as is. Only ever
  * sent to a socket that passed the admin check, so it may name accounts.
  *
- * Codes: not_found, refused, last_admin, stale_plan, invalid.
+ * Codes: not_found, refused, last_admin, stale_plan, invalid, and server
+ * for a write that failed partway (applyMerge says what is already done).
  */
 
 'use strict';

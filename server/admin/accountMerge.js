@@ -324,7 +324,8 @@ async function applyMerge(db, plan, { now = new Date() } = {}) {
         for (const field of TOMBSTONE_UNSET) unset[field] = '';
         await db.users.updateOne(
             { _id: src.id, username: { $in: sources } },
-            { $set: { mergedInto: target, mergedAt: now }, $unset: unset }
+            // sessionEpoch: a restore in flight cannot write the sessions back
+            { $set: { mergedInto: target, mergedAt: now }, $unset: unset, $inc: { sessionEpoch: 1 } }
         );
         result.retired.push(src.username);
     }
@@ -423,7 +424,13 @@ function nameKey(username) {
  * "AlanB"). A report to help spot duplicates. Review it by hand.
  */
 async function findDuplicateCandidates(db, { minPrefix = 4 } = {}) {
-    const users = await db.users.find({ mergedInto: { $exists: false } }).toArray();
+    // Only what the report uses: never the custom photos (up to ~500 KB
+    // each), passwords or sessions. The panel runs this inside the game
+    // server, so a full-document scan would stall live games
+    const users = await db.users.find(
+        { mergedInto: { $exists: false } },
+        { projection: { username: 1, 'stats.gamesPlayed': 1 } }
+    ).toArray();
     const keys = users.map(u => nameKey(u.username));
 
     // Union-find over users that share a key or where one key prefixes another

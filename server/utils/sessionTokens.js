@@ -9,6 +9,14 @@
  *
  * Users created before this change have a single plaintext `sessionToken`;
  * it's still accepted and is migrated into `sessionTokens` on next use.
+ *
+ * Revoking (sign out everywhere, a password reset, a merge retiring the
+ * account) bumps `sessionEpoch` along with removing the sessions
+ * (REVOKE_ALL_SESSIONS). issueSession / verifySession rewrite the whole
+ * array they read, so their writes must go through `filter`: it matches only
+ * while the epoch is still the one that read saw. A write that loses the
+ * race to a revoke matches nothing (matchedCount 0) instead of putting every
+ * revoked session back; the caller then treats the session as invalid.
  */
 
 const crypto = require('crypto');
@@ -26,6 +34,21 @@ function isLive(entry, now) {
     return now.getTime() - lastUsed < SESSION_TTL_MS;
 }
 
+/**
+ * The update filter for a write built from `user`: matches only while no
+ * revoke happened since that read (no sessionEpoch yet = never revoked).
+ */
+function sessionStateFilter(user) {
+    const epoch = user ? user.sessionEpoch : undefined;
+    return { sessionEpoch: epoch === undefined || epoch === null ? { $exists: false } : epoch };
+}
+
+/** The revoke every path shares: drop all saved sessions and bump the epoch. */
+const REVOKE_ALL_SESSIONS = Object.freeze({
+    $unset: Object.freeze({ sessionToken: '', sessionTokens: '' }),
+    $inc: Object.freeze({ sessionEpoch: 1 })
+});
+
 /** Live sessions, with a legacy plaintext token folded in as a hashed entry. */
 function currentSessions(user, now) {
     const sessions = (user.sessionTokens || []).filter(e => e && e.hash && isLive(e, now));
@@ -37,7 +60,8 @@ function currentSessions(user, now) {
 
 /**
  * Issue a token for a new device.
- * @returns {{token: string, hash: string, update: Object}} update is a Mongo update document
+ * @returns {{token: string, hash: string, filter: Object, update: Object}} update is a Mongo
+ *          update document; add `filter` to the write's filter (sessionStateFilter)
  */
 function issueSession(user, now = new Date()) {
     const token = uuidv4();
@@ -47,13 +71,15 @@ function issueSession(user, now = new Date()) {
     return {
         token,
         hash,
+        filter: sessionStateFilter(user),
         update: { $set: { sessionTokens: sessions }, $unset: { sessionToken: '' } }
     };
 }
 
 /**
  * Check a token presented by a device.
- * @returns {{hash: string, update: Object}|null} null if invalid/expired
+ * @returns {{hash: string, filter: Object, update: Object}|null} null if invalid/expired;
+ *          add `filter` to the write's filter (sessionStateFilter)
  */
 function verifySession(user, token, now = new Date()) {
     if (!user || !token) return null;
@@ -64,6 +90,7 @@ function verifySession(user, token, now = new Date()) {
     entry.lastUsedAt = now;
     return {
         hash,
+        filter: sessionStateFilter(user),
         update: { $set: { sessionTokens: sessions }, $unset: { sessionToken: '' } }
     };
 }
@@ -80,7 +107,9 @@ function hasLiveSession(user, hash, now = new Date()) {
 
 module.exports = {
     MAX_SESSIONS,
+    REVOKE_ALL_SESSIONS,
     hasLiveSession,
+    sessionStateFilter,
     SESSION_TTL_MS,
     hashToken,
     issueSession,

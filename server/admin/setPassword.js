@@ -6,6 +6,7 @@
 
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
+const { REVOKE_ALL_SESSIONS } = require('../utils/sessionTokens');
 
 // Short, unambiguous words that are easy to read aloud and type on a phone
 const WORDS = [
@@ -25,8 +26,9 @@ function generateFriendlyPassword() {
  * The password write both resets share (this CLI, and a one-time reset link:
  * server/admin/passwordReset.js): the new hash, a timestamp field naming
  * which reset it was, and every saved session revoked (the per-device
- * sessionTokens and the legacy plaintext sessionToken), so every device
- * has to sign in with the new password.
+ * sessionTokens and the legacy plaintext sessionToken, with sessionEpoch
+ * bumped so an in-flight sign-in or restore cannot write them back), so
+ * every device has to sign in with the new password.
  *
  * @param {{users}} db
  * @param {Object} user - the user document (at least _id, sessionTokens, sessionToken)
@@ -39,7 +41,7 @@ async function writePasswordHash(db, user, hash, { now = new Date(), stampField 
         { _id: user._id },
         {
             $set: { password: hash, [stampField]: now },
-            $unset: { sessionToken: '', sessionTokens: '' }
+            ...REVOKE_ALL_SESSIONS
         }
     );
     return (user.sessionTokens?.length || 0) + (user.sessionToken ? 1 : 0);

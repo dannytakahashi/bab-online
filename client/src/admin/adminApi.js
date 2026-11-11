@@ -29,15 +29,25 @@ export function onAdminChange(fn) {
 }
 
 export const REQUEST_TIMEOUT_MS = 15000;
+/**
+ * Over the server's adminRequest limit (60/min), asyncHandler answers with
+ * an 'error' event {type:'rateLimit', handler:'adminRequest'} and never an
+ * adminResponse, and it names no requestId. A request still unanswered this
+ * long after that event is the dropped one (an accepted request answers in
+ * well under it): it rejects with 'rate_limited' instead of waiting 15 s
+ * for a timeout that blames the connection.
+ */
+export const RATE_LIMIT_GRACE_MS = 3000;
 
 /**
  * @param {Object} socket - the page's Socket.IO socket (on/off/emit)
- * @param {{timeoutMs?: number}} [options]
+ * @param {{timeoutMs?: number, rateLimitGraceMs?: number}} [options]
  * @returns {{request: (action: string, args?: Object) => Promise<Object>, dispose: Function}}
  *          request resolves with the adminResponse (ok true or false); it
- *          rejects only when no answer came (timeout, disposed)
+ *          rejects only when no answer came (Error 'timeout', 'rate_limited'
+ *          or 'closed')
  */
-export function createAdminApi(socket, { timeoutMs = REQUEST_TIMEOUT_MS } = {}) {
+export function createAdminApi(socket, { timeoutMs = REQUEST_TIMEOUT_MS, rateLimitGraceMs = RATE_LIMIT_GRACE_MS } = {}) {
   const pending = new Map(); // requestId -> {resolve, reject, timer}
   let seq = 0;
 
@@ -49,6 +59,18 @@ export function createAdminApi(socket, { timeoutMs = REQUEST_TIMEOUT_MS } = {}) 
     p.resolve(data);
   };
   socket.on(SERVER_EVENTS.ADMIN_RESPONSE, onResponse);
+
+  const onError = (err) => {
+    if (!err || err.type !== 'rateLimit' || err.handler !== CLIENT_EVENTS.ADMIN_REQUEST) return;
+    for (const [requestId, p] of pending) {
+      clearTimeout(p.timer);
+      p.timer = setTimeout(() => {
+        pending.delete(requestId);
+        p.reject(new Error('rate_limited'));
+      }, rateLimitGraceMs);
+    }
+  };
+  socket.on(SERVER_EVENTS.ERROR, onError);
 
   function request(action, args = {}) {
     const requestId = `adm-${Date.now().toString(36)}-${++seq}`;
@@ -64,6 +86,7 @@ export function createAdminApi(socket, { timeoutMs = REQUEST_TIMEOUT_MS } = {}) 
 
   function dispose() {
     socket.off(SERVER_EVENTS.ADMIN_RESPONSE, onResponse);
+    socket.off(SERVER_EVENTS.ERROR, onError);
     for (const [, p] of pending) {
       clearTimeout(p.timer);
       p.reject(new Error('closed'));

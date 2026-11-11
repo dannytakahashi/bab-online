@@ -14,10 +14,15 @@
  *   Audit    every admin action, newest first
  *
  * Destructive actions (sign out everywhere, remove admin, merge) ask for
- * confirmation first. Tabs follow the WAI-ARIA tabs pattern (arrow keys,
- * Home/End); one status line (role=status, errors role=alert) announces
- * every result. Kit classes and tokens only (styles/screens.css "Admin
- * panel"); every name and server text goes in as text, never markup.
+ * confirmation first. Tabs follow the WAI-ARIA tabs pattern with MANUAL
+ * activation (arrow keys / Home / End move focus, Enter or Space opens a
+ * tab: opening one loads it from the server, and requests are rate
+ * limited). Results are announced by one status line (role=status) and
+ * errors by one alert line (role=alert), both present from the start. After
+ * an action redraws the list holding the focused button, focus goes back to
+ * the same action in the new rows, else to the tab's panel. Kit classes and
+ * tokens only (styles/screens.css "Admin panel"); every name and server
+ * text goes in as text, never markup.
  */
 import { el, createButton, openModal, toast } from '../kit/index.js';
 import { createAdminApi, setIsAdmin } from '../../admin/adminApi.js';
@@ -39,8 +44,8 @@ function chip(text, tone = 'neutral') {
   return el('span', { className: `kit-chip kit-chip--${tone} admin-chip`, text });
 }
 
-function heading(text, level = 3) {
-  return el(`h${level}`, { className: 'admin-heading', text });
+function heading(text, level = 3, { focusable = false } = {}) {
+  return el(`h${level}`, { className: 'admin-heading', attrs: focusable ? { tabindex: '-1' } : {}, text });
 }
 
 function field({ id, label, type = 'text', value = '', describedBy = null, placeholder = '' }) {
@@ -130,12 +135,18 @@ async function copyText(text, input) {
 export function showAdminPanel(socket, { username = null, api = null } = {}) {
   removeAdminPanel();
   const adminApi = api || createAdminApi(socket);
-  const status = el('p', { className: 'admin-status', attrs: { id: 'adminStatus', role: 'status', 'aria-live': 'polite' } });
+  // Two live regions, both in the page from the start (one added or
+  // re-roled later is often not announced): results politely, errors
+  // assertively. say() writes one and clears the other.
+  const status = el('p', { className: 'admin-status', attrs: { id: 'adminStatus', role: 'status' } });
+  const alertLine = el('p', { className: 'admin-status admin-status--error', attrs: { id: 'adminAlert', role: 'alert' } });
+  const statusBox = el('div', { className: 'admin-status-box', children: [status, alertLine] });
 
   const say = (text, kind = 'info') => {
-    status.textContent = text;
+    const error = kind === 'error';
+    alertLine.textContent = error ? text : '';
+    status.textContent = error ? '' : text;
     status.dataset.kind = kind;
-    status.setAttribute('role', kind === 'error' ? 'alert' : 'status');
   };
 
   let closed = false;
@@ -144,19 +155,39 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
     let res;
     try {
       res = await adminApi.request(action, args);
-    } catch {
-      if (!closed) say('No answer from the server. Check the connection and try again.', 'error');
+    } catch (err) {
+      if (!closed) {
+        say(err?.message === 'rate_limited'
+          ? 'Too many admin requests in a minute. Wait a moment and try again.'
+          : 'No answer from the server. Check the connection and try again.', 'error');
+      }
       return null;
     }
     if (closed) return null;
     if (!res.ok && res.error === 'forbidden') {
-      setIsAdmin(false);
+      // Close first (focus goes back to the Admin entry), then hide the
+      // entry (the main room moves focus off it)
       removeAdminPanel();
+      setIsAdmin(false);
       toast('Admin access is not available on this connection.', { type: 'error' });
       return null;
     }
     if (!res.ok) say(res.message, 'error');
     return res;
+  }
+
+  /**
+   * After a redraw removed the focused button: focus the same action in the
+   * new rows (data-focus-key), else `fallback`. Only when focus was lost
+   * (it fell to <body>); a player who moved on keeps their place.
+   */
+  function refocus(root, key, fallback) {
+    if (closed) return;
+    const a = document.activeElement;
+    const dialog = document.getElementById('adminPanelModal');
+    if (a && a !== document.body && a.isConnected && dialog?.contains(a)) return;
+    const again = key ? [...root.querySelectorAll('[data-focus-key]')].find((n) => n.dataset.focusKey === key) : null;
+    (again || fallback)?.focus();
   }
 
   // ---------- tabs ----------
@@ -194,9 +225,12 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
     const t = e.target.closest('[role="tab"]');
     if (t) select(t.id.replace('adminTab-', ''));
   });
+  // Manual activation: the arrows only move focus; Enter / Space (the
+  // button's click) opens the focused tab
   tablist.addEventListener('keydown', (e) => {
     const keys = TABS.map(([k]) => k);
-    const i = keys.indexOf(active);
+    const focused = keys.findIndex((k) => tabs[k] === document.activeElement);
+    const i = focused === -1 ? keys.indexOf(active) : focused;
     let next = null;
     if (e.key === 'ArrowRight') next = keys[(i + 1) % keys.length];
     else if (e.key === 'ArrowLeft') next = keys[(i - 1 + keys.length) % keys.length];
@@ -204,7 +238,7 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
     else if (e.key === 'End') next = keys[keys.length - 1];
     if (next) {
       e.preventDefault();
-      select(next, { focus: true });
+      tabs[next].focus();
     }
   });
 
@@ -271,7 +305,7 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
         actions.appendChild(createButton({ label: `Find ${p.mergedInto}`, variant: 'ghost', size: 'sm', onClick: () => { search.input.value = p.mergedInto; runSearch(p.mergedInto); } }));
       } else {
         actions.appendChild(createButton({
-          label: 'Reset link', variant: 'secondary', size: 'sm', attrs: { 'aria-label': `Make a reset link for ${p.username}` },
+          label: 'Reset link', variant: 'secondary', size: 'sm', attrs: { 'aria-label': `Reset link: ${p.username}` },
           onClick: async () => {
             const res = await call('createResetLink', { username: p.username });
             if (res?.ok) {
@@ -281,7 +315,7 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
           },
         }));
         actions.appendChild(createButton({
-          label: 'Sign out everywhere', variant: 'danger', size: 'sm', attrs: { 'aria-label': `Sign ${p.username} out everywhere` },
+          label: 'Sign out everywhere', variant: 'danger', size: 'sm', attrs: { 'aria-label': `Sign out everywhere: ${p.username}`, 'data-focus-key': `signout:${p.username}` },
           onClick: async () => {
             const yes = await confirmAction({
               title: `Sign ${p.username} out everywhere?`,
@@ -292,18 +326,19 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
             const res = await call('signOutEverywhere', { username: p.username });
             if (res?.ok) {
               say(`${res.username} is signed out: ${res.revokedSessions} saved session(s) revoked, ${res.disconnected} live connection(s) closed.`, 'success');
-              runSearch(lastQuery, { quiet: true });
+              await runSearch(lastQuery, { quiet: true });
+              refocus(results, `signout:${p.username}`, players);
             }
           },
         }));
         actions.appendChild(p.isAdmin
           ? createButton({
-            label: 'Remove admin', variant: 'danger', size: 'sm', attrs: { 'aria-label': `Remove ${p.username}'s admin` },
-            onClick: () => changeAdmin(p.username, false, () => runSearch(lastQuery, { quiet: true })),
+            label: 'Remove admin', variant: 'danger', size: 'sm', attrs: { 'aria-label': `Remove admin: ${p.username}`, 'data-focus-key': `admin:${p.username}` },
+            onClick: () => changeAdmin(p.username, false, refreshPlayersAt(`admin:${p.username}`)),
           })
           : createButton({
-            label: 'Make admin', variant: 'secondary', size: 'sm', attrs: { 'aria-label': `Make ${p.username} an admin` },
-            onClick: () => changeAdmin(p.username, true, () => runSearch(lastQuery, { quiet: true })),
+            label: 'Make admin', variant: 'secondary', size: 'sm', attrs: { 'aria-label': `Make admin: ${p.username}`, 'data-focus-key': `admin:${p.username}` },
+            onClick: () => changeAdmin(p.username, true, refreshPlayersAt(`admin:${p.username}`)),
           }));
       }
       return el('tr', {
@@ -315,6 +350,12 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
     results.replaceChildren(table(['Player', 'Created', 'Last seen', 'Games', 'Actions'], rows, { caption: 'Players found' }));
   }
 
+  /** Re-run the search, then focus the row's toggled button (same key). */
+  const refreshPlayersAt = (key) => async () => {
+    await runSearch(lastQuery, { quiet: true });
+    refocus(results, key, players);
+  };
+
   async function changeAdmin(user, on, after) {
     const self = user === username;
     const yes = await confirmAction(on
@@ -325,12 +366,12 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
     if (!res?.ok) return;
     say(on ? `${user} is now an admin.` : `${user} is no longer an admin.`, 'success');
     if (!on && self) {
-      setIsAdmin(false);
       removeAdminPanel();
+      setIsAdmin(false);
       toast('You are no longer an admin.', { type: 'info' });
       return;
     }
-    after?.();
+    await after?.();
   }
 
   // ---------- Merge ----------
@@ -341,7 +382,8 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
   const dupBtn = createButton({ label: 'Find look-alike names', variant: 'secondary' });
   const mergeForm = el('form', { className: 'admin-merge-form', children: [keep.wrap, sources.wrap, el('div', { className: 'admin-row', children: [previewBtn, dupBtn] })] });
   const dupBox = el('div', { className: 'admin-dups', attrs: { id: 'adminDuplicates' } });
-  const planBox = el('div', { className: 'admin-plan', attrs: { id: 'adminMergePlan', 'aria-live': 'polite' } });
+  // Not a live region: the status line announces a one-line summary
+  const planBox = el('div', { className: 'admin-plan', attrs: { id: 'adminMergePlan' } });
   merge.append(mergeForm, dupBox, planBox);
   let preview = null; // {target, sources, planHash}
 
@@ -408,7 +450,7 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
       return;
     }
     const roleLabel = { target: 'Keep', source: 'Merge', result: 'Result' };
-    out.push(table(['', 'Account', 'Created', 'Games', 'W / L / D', 'Points', 'Note'], plan.accounts.map((a) => el('tr', {
+    out.push(table(['Role', 'Account', 'Created', 'Games', 'W / L / D', 'Points', 'Note'], plan.accounts.map((a) => el('tr', {
       className: `admin-plan__${a.role}`,
       children: [td(roleLabel[a.role]), td(a.username), td(fmtDay(a.createdAt)), td(a.stats.gamesPlayed, 'is-num'),
         td(`${a.stats.wins} / ${a.stats.losses} / ${a.stats.draws}`, 'is-num'), td(a.stats.totalPoints, 'is-num'), td(a.note || '')],
@@ -475,16 +517,21 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
         const res = await call('applyMerge', { ...preview, confirm: confirmField.input.value });
         if (!res) return;
         if (!res.ok) {
-          if (res.error === 'stale_plan') {
+          // stale_plan: the data changed; server: it may have stopped
+          // partway. Either way the preview is spent: preview again (the
+          // alert line has announced the message; focus goes to that button)
+          if (res.error === 'stale_plan' || res.error === 'server') {
             preview = null;
-            planBox.replaceChildren(el('p', { className: 'admin-note', attrs: { role: 'alert' }, text: res.message }));
+            planBox.replaceChildren(el('p', { className: 'admin-note', text: res.message }));
+            previewBtn.focus();
           }
           return;
         }
         const r = res.result;
         preview = null;
         dupBox.replaceChildren(); // its groups predate the merge
-        planBox.replaceChildren(heading('Merged'), el('ul', {
+        const merged = heading('Merged', 3, { focusable: true });
+        planBox.replaceChildren(merged, el('ul', {
           className: 'admin-list',
           children: [
             `Kept: ${r.target}`,
@@ -495,6 +542,7 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
           ].map((t) => el('li', { text: t })),
         }));
         say(`Merged into ${r.target}.`, 'success');
+        merged.focus(); // the form that had focus is gone
       });
       out.push(confirmForm);
     }
@@ -543,7 +591,8 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
       const res = await call('resolveReport', { id: r.id, status, note: note.value.trim() });
       if (res?.ok) {
         say(`Report ${status}.`, 'success');
-        loadReports();
+        await loadReports();
+        refocus(reportList, null, reportsPanel); // the card is gone (or has no buttons now)
       }
     };
     card.append(
@@ -566,13 +615,16 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
   async function loadAdmins() {
     const res = await call('listAdmins', {});
     if (!res?.ok) return;
-    adminList.replaceChildren(table(['Admin', 'Since', ''], res.admins.map((a) => el('tr', {
+    adminList.replaceChildren(table(['Admin', 'Since', 'Actions'], res.admins.map((a) => el('tr', {
       children: [
         td(a.username + (a.username === username ? ' (you)' : '')),
         td(fmtDay(a.adminSince)),
         td(createButton({
-          label: 'Remove admin', variant: 'danger', size: 'sm', attrs: { 'aria-label': `Remove ${a.username}'s admin` },
-          onClick: () => changeAdmin(a.username, false, loadAdmins),
+          label: 'Remove admin', variant: 'danger', size: 'sm', attrs: { 'aria-label': `Remove admin: ${a.username}`, 'data-focus-key': `remove:${a.username}` },
+          onClick: () => changeAdmin(a.username, false, async () => {
+            await loadAdmins();
+            refocus(adminList, `remove:${a.username}`, adminsPanel);
+          }),
         })),
       ],
     })), { caption: 'Current admins' }));
@@ -593,9 +645,9 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
     ],
   });
   auditPanel.append(el('div', { className: 'admin-row', children: [auditRefresh] }), auditTable, more);
-  let oldest = null;
+  let oldest = null; // {at, id} of the last row shown: the page cursor
   async function loadAudit({ append = false } = {}) {
-    const res = await call('listAudit', append && oldest ? { before: oldest, limit: 50 } : { limit: 50 });
+    const res = await call('listAudit', append && oldest ? { before: oldest.at, beforeId: oldest.id, limit: 50 } : { limit: 50 });
     if (!res?.ok) return;
     if (!append) auditBody.replaceChildren();
     for (const e of res.entries) {
@@ -604,7 +656,8 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
         children: [td(fmtDate(e.at)), td(e.actor || '—'), td(e.action), td(e.target || ''), td(e.result), td(e.detail || '')],
       }));
     }
-    oldest = res.entries.length ? res.entries[res.entries.length - 1].at : oldest;
+    const lastRow = res.entries[res.entries.length - 1];
+    oldest = lastRow ? { at: lastRow.at, id: lastRow.id } : oldest;
     more.hidden = !res.hasMore;
   }
   more.addEventListener('click', () => loadAudit({ append: true }));
@@ -618,7 +671,7 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
     id: 'adminPanelOverlay',
     dialogId: 'adminPanelModal',
     className: 'page-modal page-modal--wide admin-modal',
-    body: [tablist, status, ...TABS.map(([k]) => panels[k])],
+    body: [tablist, statusBox, ...TABS.map(([k]) => panels[k])],
     initialFocus: search.input,
     onClose: () => {
       closed = true;

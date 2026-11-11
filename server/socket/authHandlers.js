@@ -21,6 +21,8 @@ const { rememberBlockList } = require('./voiceHandlers');
 const BUSY_MESSAGE = 'Server is busy. Try again in a moment.';
 const THROTTLED_MESSAGE = 'Too many failed sign-in attempts. Please wait a few minutes and try again.';
 const SIGN_UP_LIMIT_MESSAGE = 'Too many sign-up attempts. Please wait a few minutes and try again.';
+const LAST_ADMIN_DELETE_MESSAGE = 'You are the only admin. Make someone else an admin before deleting your account.';
+const SESSIONS_CHANGED_MESSAGE = 'Your account was just signed out everywhere. Please sign in again.';
 const isHashBusy = (error) => Boolean(error && error.code === 'HASH_BUSY');
 
 function mergedAccountMessage(username, mergedInto) {
@@ -171,15 +173,24 @@ async function signIn(socket, io, data) {
         // New per-device session token; other devices' tokens stay valid
         const session = issueSession(user);
         const sessionToken = session.token;
-        socket.data.sessionHash = session.hash;
 
-        await usersCollection.updateOne(
-            { username },
+        // session.filter: only while no revoke (sign out everywhere, a
+        // password reset) landed since the read above. Otherwise this write
+        // would put every revoked session back (the bcrypt compare is the
+        // window); the player just signs in again
+        const written = await usersCollection.updateOne(
+            { username, ...session.filter },
             {
                 $set: { socketId: socket.id, ...session.update.$set },
                 $unset: session.update.$unset
             }
         );
+        if (written && written.matchedCount === 0) {
+            socket.emit('signInResponse', { success: false, message: SESSIONS_CHANGED_MESSAGE });
+            authLogger.warn('Sign-in lost a race with a session revoke', { username });
+            return;
+        }
+        socket.data.sessionHash = session.hash;
 
         // Register with game manager
         gameManager.registerUser(socket.id, username);
@@ -420,16 +431,23 @@ async function restoreSession(socket, io, data) {
         if (previousSocket && previousSocket.data?.sessionHash !== session.hash) {
             disconnectPreviousSocket(io, user.socketId, socket.id, username);
         }
-        socket.data.sessionHash = session.hash;
-
-        // Session token is valid - update socket ID and session last-used time
-        await usersCollection.updateOne(
-            { username },
+        // Session token is valid - update socket ID and session last-used
+        // time, only while no revoke landed since the read above
+        // (session.filter): a restore racing sign out everywhere or a
+        // password reset must not write the revoked sessions back
+        const written = await usersCollection.updateOne(
+            { username, ...session.filter },
             {
                 $set: { socketId: socket.id, ...session.update.$set },
                 $unset: session.update.$unset
             }
         );
+        if (written && written.matchedCount === 0) {
+            socket.emit('restoreSessionResponse', { success: false, message: 'Invalid session token' });
+            authLogger.warn('Session restore failed: sessions revoked meanwhile', { username });
+            return;
+        }
+        socket.data.sessionHash = session.hash;
 
         // Register with game manager
         gameManager.registerUser(socket.id, username);
@@ -519,7 +537,7 @@ async function deleteAccount(socket, io, data) {
     const username = sessionUser.username;
 
     try {
-        const user = await usersCollection.findOne({ username }, { projection: { password: 1, socketId: 1 } });
+        const user = await usersCollection.findOne({ username }, { projection: { password: 1, socketId: 1, isAdmin: 1 } });
         if (!user) {
             socket.emit('deleteAccountResponse', {
                 success: false,
@@ -536,6 +554,25 @@ async function deleteAccount(socket, io, data) {
             });
             authLogger.warn('Account deletion failed: incorrect password', { username });
             return;
+        }
+
+        // The last admin cannot delete their account (it would leave nobody
+        // able to open the admin panel). The flag comes off first through
+        // the same guard as the panel's Remove admin (remove, count, put it
+        // back if nobody is left), so two last admins deleting at once
+        // cannot both go
+        if (user.isAdmin === true) {
+            const { setAdminFlag } = require('../admin/adminRole');
+            try {
+                await setAdminFlag({ users: usersCollection }, username, false, { by: username });
+            } catch (error) {
+                if (error && error.code === 'last_admin') {
+                    socket.emit('deleteAccountResponse', { success: false, message: LAST_ADMIN_DELETE_MESSAGE });
+                    authLogger.warn('Account deletion refused: the only admin', { username });
+                    return;
+                }
+                throw error;
+            }
         }
 
         const gameRecords = getGameRecordsCollection();

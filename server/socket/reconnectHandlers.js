@@ -34,19 +34,23 @@ async function isAuthorizedForUser(socket, username, sessionToken) {
         }
         const user = await usersCollection.findOne(
             { username },
-            { projection: { sessionTokens: 1, sessionToken: 1, blockedUsers: 1 } }
+            { projection: { sessionTokens: 1, sessionToken: 1, sessionEpoch: 1, blockedUsers: 1 } }
         );
         // Per-device tokens (server/utils/sessionTokens.js); also accepts and
         // migrates a legacy plaintext sessionToken
         const session = verifySession(user, sessionToken);
         if (!session) return false;
+        // Only while no revoke landed since the read (session.filter): a
+        // rejoin racing sign out everywhere / a password reset must not
+        // write the revoked sessions back, and is refused instead
+        const written = await usersCollection.updateOne({ username, ...session.filter }, session.update);
+        if (written && written.matchedCount === 0) return false;
         // This socket is now that user without a signIn / restoreSession
         // (a web reload rejoins first): load the block list the same way,
         // or voice signaling would have none to check
         rememberBlockList(socket, user.blockedUsers || []);
         // Lets a later restore from another device tell this one apart
         if (socket.data) socket.data.sessionHash = session.hash;
-        await usersCollection.updateOne({ username }, session.update);
         return true;
     } catch (err) {
         socketLogger.error('Rejoin auth lookup failed', { username, error: err.message });

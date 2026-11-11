@@ -59,6 +59,9 @@ function flatten(values) {
     return out;
 }
 
+/** Range comparisons: ObjectIds by their hex (time-ordered), the rest as is. */
+const ord = (v) => (v instanceof ObjectId ? v.toHexString() : v);
+
 function matchCondition(values, cond) {
     const flat = flatten(values);
     if (!isPlainObject(cond) || !Object.keys(cond).some(k => k.startsWith('$'))) {
@@ -71,10 +74,10 @@ function matchCondition(values, cond) {
             case '$in': return arg.some(a => flat.some(v => equals(v, a)));
             case '$nin': return !arg.some(a => flat.some(v => equals(v, a)));
             case '$exists': return (values.length > 0) === Boolean(arg);
-            case '$gt': return flat.some(v => v > arg);
-            case '$gte': return flat.some(v => v >= arg);
-            case '$lt': return flat.some(v => v < arg);
-            case '$lte': return flat.some(v => v <= arg);
+            case '$gt': return flat.some(v => ord(v) > ord(arg));
+            case '$gte': return flat.some(v => ord(v) >= ord(arg));
+            case '$lt': return flat.some(v => ord(v) < ord(arg));
+            case '$lte': return flat.some(v => ord(v) <= ord(arg));
             case '$regex': {
                 const re = new RegExp(arg, cond.$options || '');
                 return flat.some(v => typeof v === 'string' && re.test(v));

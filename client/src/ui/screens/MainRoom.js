@@ -342,9 +342,13 @@ export function updateLobbyList(lobbies, socket, inProgressGames = [], tournamen
 // The Admin entry follows the flag (granted at sign-in, gone when the
 // server says this connection is not an admin, or on sign-out)
 onAdminChange((on) => {
+  if (!on) removeAdminPanel(); // its close puts focus back on the entry
   const btn = document.getElementById('mainRoomAdminButton');
-  if (btn) btn.hidden = !on;
-  if (!on) removeAdminPanel();
+  if (!btn) return;
+  const hadFocus = document.activeElement === btn;
+  btn.hidden = !on;
+  // A hidden button cannot keep focus: the nav button before it takes it
+  if (hadFocus && !on) btn.previousElementSibling?.focus();
 });
 
 export function removeMainRoom() {
