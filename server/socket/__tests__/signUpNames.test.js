@@ -124,6 +124,33 @@ describe('the format matrix (checkNewUsername)', () => {
     });
 });
 
+describe('findNameClash: exactness comes from the stored name', () => {
+    // A collection whose exact lookup misses and whose case-insensitive
+    // lookup then finds `stored`: what a sign-up sees when a concurrent
+    // sign-up inserts the same name between its two findOne calls
+    const racing = (stored) => {
+        let call = 0;
+        return { findOne: async () => (++call === 1 ? null : stored) };
+    };
+
+    test('the same name inserted between the two lookups is an exact clash ("That name is taken.")', async () => {
+        const clash = await rules.findNameClash(racing({ username: 'Racer' }), 'Racer');
+        expect(clash).toEqual({ username: 'Racer', exact: true });
+        expect(rules.takenMessage('Racer', clash)).toBe(rules.MESSAGES.taken);
+    });
+
+    test('a tombstone with the same name found that way keeps the merged-account redirect (exact)', async () => {
+        const clash = await rules.findNameClash(racing({ username: 'alan2', mergedInto: 'Alan T' }), 'alan2');
+        expect(clash).toMatchObject({ exact: true, mergedInto: 'Alan T' });
+    });
+
+    test('a real case variant is still not exact and names the account that exists', async () => {
+        const clash = await rules.findNameClash(racing({ username: 'Racer' }), 'rACER');
+        expect(clash).toEqual({ username: 'Racer', exact: false });
+        expect(rules.takenMessage('rACER', clash)).toMatch(/"Racer" already exists/);
+    });
+});
+
 describe('sign-up through the handler', () => {
     test('a valid new name registers (and the reply carries it exactly)', async () => {
         const res = await signUp('Alan B');
