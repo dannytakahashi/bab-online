@@ -12,6 +12,10 @@
  *   .hud-voice             the voice buttons
  *   .hud-spectators        who is watching: eye + count, its list popover
  *                          (ui/components/SpectatorBadge.js)
+ *   .hud-spectator-bubble  a spectator's chat by the badge ("Zach: hello";
+ *                          ChatBubble.showSpectatorChatBubble), at the
+ *                          layout's spectators.bubble spot; hidden where the
+ *                          layout has none
  *
  * applyHudLayout(layout) is the only writer of positions: a relayout
  * moves everything at once. Seats outlive a render (it redraws only the
@@ -104,6 +108,45 @@ export function hudSpectatorSlot({ create = true } = {}) {
   return slot;
 }
 
+/**
+ * The spectator badge's chat bubble slot (null without a table). Its own
+ * HUD slot beside the badge's, not inside it: the badge hides at 0 and a
+ * hover over it opens the list, neither of which a bubble should do.
+ */
+export function hudSpectatorBubbleSlot({ create = true } = {}) {
+  const hud = getHud({ create });
+  if (!hud) return null;
+  let slot = hud.querySelector(':scope > .hud-spectator-bubble');
+  if (!slot && create) {
+    slot = document.createElement('div');
+    slot.className = 'hud-spectator-bubble';
+    hud.appendChild(slot);
+    applySpectatorBubbleVars(slot, lastLayout);
+  }
+  return slot;
+}
+
+const BUBBLE_TAILS = ['tail-down', 'tail-left', 'tail-right'];
+
+/**
+ * The badge bubble slot from a layout: its direction (data-tail, the edge
+ * it hangs from as .align-end / .align-start) and, with no layout or no
+ * spot in it, hidden: it never shows at an unplaced spot. A bubble up now
+ * turns with it.
+ */
+function applySpectatorBubbleVars(slot, L) {
+  const b = L?.spectators?.bubble || null;
+  slot.hidden = !b;
+  if (!b) return;
+  slot.dataset.tail = b.tail;
+  slot.classList.toggle('align-end', b.align === 'end');
+  slot.classList.toggle('align-start', b.align !== 'end');
+  slot.querySelectorAll(':scope > .chat-bubble').forEach((el) => {
+    el.classList.remove(...BUBBLE_TAILS);
+    el.classList.add(`tail-${b.tail}`);
+  });
+}
+
 const px = (v) => `${Math.round(v * 100) / 100}px`;
 
 function applyRootVars(hud, L) {
@@ -166,6 +209,15 @@ function applyRootVars(hud, L) {
     set('--spec-h', sp.rect.h);
     set('--spec-font', sp.font);
     set('--spec-icon', sp.icon);
+    const bb = sp.bubble;
+    if (bb) {
+      set('--specbub-x', bb.x);
+      set('--specbub-y', bb.y);
+      set('--specbub-w', bb.w);
+      set('--specbub-tail', bb.tailOffset);
+      set('--specbub-min-w', bb.minW);
+      set('--specbub-min-h', bb.minH);
+    }
   }
 }
 
@@ -197,6 +249,8 @@ export function applyHudLayout(L) {
   applyRootVars(hud, L);
   hud.classList.toggle('hud-spectator', !!L.isSpectator);
   hud.querySelectorAll(':scope > .hud-seat').forEach((seat) => applySeatVars(seat, L));
+  const bubbleSlot = hud.querySelector(':scope > .hud-spectator-bubble');
+  if (bubbleSlot) applySpectatorBubbleVars(bubbleSlot, L);
 }
 
 /** The layout last applied (null before the first relayout). */

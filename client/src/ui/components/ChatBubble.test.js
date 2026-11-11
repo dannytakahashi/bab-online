@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { showChatBubble, clearChatBubbles, getActiveChatBubbles } from './ChatBubble.js';
+import { showChatBubble, showSpectatorChatBubble, clearChatBubbles, getActiveChatBubbles, SPECTATOR_BUBBLE_KEY } from './ChatBubble.js';
 import { applyHudLayout, clearHud } from '../tableHud.js';
 import { computeTableLayout, layoutForViewport } from '../../phaser/layout/computeTableLayout.js';
 
@@ -115,5 +115,94 @@ describe('ChatBubble on the HUD (ui-4, webclient-7)', () => {
     expect(p.classList.contains('tail-left')).toBe(true);
     expect(p.closest('.hud-seat').dataset.seat).toBe('partner');
     expect(b.closest('.hud-seat').dataset.seat).toBe('self');
+  });
+});
+
+describe('a spectator\'s chat by the badge (showSpectatorChatBubble)', () => {
+  let container;
+  beforeEach(() => {
+    vi.useFakeTimers();
+    container = document.createElement('div');
+    container.id = 'game-container';
+    document.body.appendChild(container);
+  });
+  afterEach(() => {
+    clearChatBubbles();
+    clearHud();
+    container.remove();
+    vi.useRealTimers();
+  });
+
+  const slot = () => document.querySelector('#table-hud > .hud-spectator-bubble');
+
+  it('"Name: text" in the badge\'s own slot (not the badge, not a seat), tinted, the seats\' text box', () => {
+    const L = layoutForViewport({ vw: 1440, vh: 790 });
+    applyHudLayout(L);
+    const b = showSpectatorChatBubble('Zach', 'hello');
+    expect(b.parentElement).toBe(slot());
+    expect(b.closest('.hud-seat')).toBeNull();
+    expect(b.closest('.hud-spectators')).toBeNull();
+    expect(b.textContent).toBe('Zach: hello');
+    expect(b.querySelector(':scope > .chat-bubble-text > .chat-bubble-name').textContent).toBe('Zach:');
+    expect(b.classList.contains('is-spectator')).toBe(true);
+    expect(b.classList.contains(`tail-${L.spectators.bubble.tail}`)).toBe(true);
+    expect(getActiveChatBubbles()[SPECTATOR_BUBBLE_KEY].bubble).toBe(b);
+    const hud = document.getElementById('table-hud');
+    const px = (v) => `${Math.round(v * 100) / 100}px`;
+    for (const [k, v] of [['--specbub-x', L.spectators.bubble.x], ['--specbub-y', L.spectators.bubble.y], ['--specbub-w', L.spectators.bubble.w],
+      ['--specbub-tail', L.spectators.bubble.tailOffset], ['--specbub-min-w', L.spectators.bubble.minW]]) {
+      expect(hud.style.getPropertyValue(k), k).toBe(px(v));
+    }
+    expect(slot().classList.contains(`align-${L.spectators.bubble.align}`)).toBe(true);
+    expect(slot().hidden).toBe(false);
+  });
+
+  it('one at a time: a newer one replaces it, also during its fade; it lasts as a seat\'s chat (6 s)', () => {
+    applyHudLayout(layoutForViewport({ vw: 1440, vh: 790 }));
+    showSpectatorChatBubble('A', 'first');
+    vi.advanceTimersByTime(5800); // fading
+    showSpectatorChatBubble('B', 'second');
+    expect([...slot().children].map((c) => c.textContent)).toEqual(['B: second']);
+    vi.advanceTimersByTime(5699);
+    expect(slot().childElementCount).toBe(1);
+    vi.advanceTimersByTime(301);
+    expect(slot().childElementCount).toBe(0);
+    expect(getActiveChatBubbles()[SPECTATOR_BUBBLE_KEY]).toBeUndefined();
+  });
+
+  it('a seat\'s bubble and the badge\'s are separate; clearChatBubbles (the teardown) takes both', () => {
+    applyHudLayout(layoutForViewport({ vw: 1440, vh: 790 }));
+    showChatBubble('opp1', 'seat');
+    showSpectatorChatBubble('Zach', 'badge');
+    expect(document.querySelectorAll('.chat-bubble')).toHaveLength(2);
+    clearChatBubbles();
+    expect(document.querySelectorAll('.chat-bubble')).toHaveLength(0);
+  });
+
+  it('never at an unplaced spot: hidden until a layout places it, and where the layout has no spot', () => {
+    showSpectatorChatBubble('Zach', 'early');
+    expect(slot().hidden).toBe(true); // no layout yet
+    applyHudLayout(layoutForViewport({ vw: 1440, vh: 790 }));
+    expect(slot().hidden).toBe(false);
+    applyHudLayout(computeTableLayout({ w: 680, h: 500, logW: 200 }));
+    expect(slot().hidden).toBe(true);
+    expect(slot().childElementCount).toBe(1);
+  });
+
+  it('a relayout turns the bubble that is up', () => {
+    const L = layoutForViewport({ vw: 1440, vh: 790 });
+    applyHudLayout(L);
+    const b = showSpectatorChatBubble('Zach', 'turn');
+    const turned = structuredClone(L);
+    turned.spectators.bubble = { ...turned.spectators.bubble, tail: 'right', align: 'end' };
+    applyHudLayout(turned);
+    expect([...b.classList].filter((c) => c.startsWith('tail-'))).toEqual(['tail-right']);
+    expect(slot().dataset.tail).toBe('right');
+  });
+
+  it('without a table: nothing (the log has the line)', () => {
+    container.remove();
+    expect(showSpectatorChatBubble('Zach', 'nowhere')).toBeNull();
+    expect(document.querySelectorAll('.chat-bubble')).toHaveLength(0);
   });
 });

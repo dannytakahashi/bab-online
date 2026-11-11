@@ -341,6 +341,7 @@ synthesized Decodable that skips unknown keys). The next iOS build needs:
    a small popover (names with avatars, "(you)" on mine, scrolls past ~8,
    "and N more" past 50); VoiceOver label "2 people watching".
 6. Server side nothing changes.
+7. The spectator chat bubble goes with the badge in this build: a `chatMessage` with `isSpectator` shows "Zach: hello" over the eye (web since 2026-11-11: `ChatBubble.showSpectatorChatBubble`, layout `spectators.bubble`).
 
 ## Deferred additive (not removals; held back on purpose)
 

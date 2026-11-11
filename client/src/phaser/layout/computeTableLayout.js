@@ -20,6 +20,9 @@
  *   - each seat's chat/bid bubble gets a direction and width (BUBBLE_DIRS,
  *     BUBBLE_WIDTHS) so that at its largest it never covers the trump, the
  *     hand, the trick or the histories (BUBBLE_KEEPS, in the same check);
+ *     so does the spectator badge's bubble (badgeBubbleSpots, chosen after
+ *     the seats'; badgeBubbleKeeps adds my box, the voice buttons, the
+ *     status pill and the bid sheet);
  *   - a resize runs the whole layout again (GameScene.relayout).
  *
  * Coordinates are canvas pixels (#game-container, origin top-left, y down).
@@ -125,6 +128,20 @@ const bubbleDirsFor = (key, isSpectator) => BUBBLE_DIRS[isSpectator && key === '
  * phone's 260 px canvas) rather than cover the trick or shrink the table.
  */
 const BUBBLE_WIDTHS = [1, 0.85, 0.7, 0.6];
+/**
+ * The spectator badge's chat bubble (a spectator's message, "Zach: hello";
+ * ChatBubble.showSpectatorChatBubble, .hud-spectator-bubble): the seats'
+ * box, line cap and width steps. Its spots, best first: above the badge
+ * ('down' tail) with its right edge on the badge's (growing left), slid
+ * right to the canvas margin, with its left edge on the badge's, or slid as
+ * far as the tail allows either way; then left of the badge ('right' tail)
+ * or right of it ('left'), bottom-aligned with it. `align` is the edge the
+ * bubble hangs from ('end': its right edge, 'start': its left edge), so a
+ * short message still reaches the tail. The tail points at the badge's
+ * middle and keeps BADGE_TAIL_ROOM from the bubble's ends (radius + tail).
+ */
+const BADGE_TAIL_HALF = 8;
+const BADGE_TAIL_ROOM = 12 + BADGE_TAIL_HALF;
 
 const S_MAX = 1;
 const S_MIN = 0.15;
@@ -602,7 +619,99 @@ function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1, felt = 0, hi
       }
     }
   }
-  const spectators = { rect: badgeRect, h: badgeH, w: badgeW, font: Math.max(10, 14 * s), icon: Math.round(badgeH * 0.5 * 100) / 100 };
+
+  // ---------- the badge's own bubble: a spectator's chat, over the eye ----------
+  // At its largest (3 lines, the tail) it leaves the game's information, my
+  // box, the voice buttons, the status pill, the bid sheet and every seat's
+  // bubble visible; it is chosen after the seats' bubbles, so theirs keep
+  // their spots (it may cover the felt or another seat, as theirs may).
+  const badgeGap = 4 * s;
+  const { h: bbH, tail: bbTail } = bubbleBox;
+  // every spot for a bubble bw wide by badge b (best first), with the edge it hangs from
+  const badgeBubbleSpots = (b, bw) => {
+    const bc = b.x + b.w / 2;
+    const out = [];
+    const up = b.y - badgeGap - bbTail; // the box's bottom; the tail below it
+    const above = (align, edge) => {
+      const x = align === 'end' ? edge - bw : edge;
+      const off = align === 'end' ? edge - bc : bc - edge;
+      // the tail on the bubble, clear of its rounded ends
+      if (off < BADGE_TAIL_ROOM || bw - off < BADGE_TAIL_ROOM) return;
+      const tailOffset = off - BADGE_TAIL_HALF;
+      out.push({ tail: 'down', align, x: edge, y: up, rect: rect(x, up - bbH, bw, bbH + bbTail), tailOffset, minW: tailOffset + BADGE_TAIL_ROOM + BADGE_TAIL_HALF, minH: 0 });
+    };
+    above('end', b.x + b.w);
+    if (cw - M > b.x + b.w) above('end', cw - M);
+    above('start', b.x);
+    above('end', bc + BADGE_TAIL_ROOM);
+    above('start', bc - BADGE_TAIL_ROOM);
+    // beside it, bottom-aligned (the tail at the badge's middle)
+    const bottom = b.y + b.h;
+    const sideOff = b.h / 2 - BADGE_TAIL_HALF;
+    const minH = Math.max(b.h, sideOff + BADGE_TAIL_ROOM + BADGE_TAIL_HALF);
+    if (bbH >= minH) {
+      const right = b.x - badgeGap - bbTail;
+      out.push({ tail: 'right', align: 'end', x: right, y: bottom, rect: rect(right - bw, bottom - bbH, bw + bbTail, bbH), tailOffset: sideOff, minW: 0, minH });
+      const left = b.x + b.w + badgeGap + bbTail;
+      out.push({ tail: 'left', align: 'start', x: left, y: bottom, rect: rect(left - bbTail, bottom - bbH, bw + bbTail, bbH), tailOffset: sideOff, minW: 0, minH });
+    }
+    return out.map((o) => ({ ...o, w: bw }));
+  };
+  const seatRects = (seat) => [seat.avatar.rect, seat.plate, seat.dealer.rect, seat.cards?.rect, seat.hsi?.rect, seat.voice?.rect].filter(Boolean);
+  const pickBadgeBubble = (b, picks) => {
+    const keep = [...keepBase, ...Object.values(picks).map((p) => p.rect), status.rect, bidSheet.rect, voice.rect, b];
+    if (!isSpectator) keep.push(...seatRects(seats.self));
+    for (const f of BUBBLE_WIDTHS) {
+      for (const spot of badgeBubbleSpots(b, bubbleBox.w * f)) {
+        if (onCanvas(spot.rect) && !keep.some((o) => intersects(o, spot.rect))) return spot;
+      }
+    }
+    return null;
+  };
+  let badgeBubble = pickBadgeBubble(badgeRect, bubblePicks.picks);
+  // no room by this spot: the badge's next clean spot that leaves every
+  // seat's bubble where it is; else no badge bubble at this size (a
+  // transient bubble never shrinks the table: the message is in the log)
+  if (!badgeBubble) {
+    const same = (p) => Object.keys(bubblePicks.picks).every((k) => {
+      const a = bubblePicks.picks[k].rect;
+      const b = p.picks[k].rect;
+      return a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
+    });
+    for (const r of badgeClean) {
+      if (r === badgeRect) continue;
+      const p = pickBubbles(r);
+      if (!same(p)) continue;
+      const bb = pickBadgeBubble(r, p.picks);
+      if (bb) {
+        badgeRect = r;
+        badgeBubble = bb;
+        break;
+      }
+    }
+  }
+  const spectators = {
+    rect: badgeRect,
+    h: badgeH,
+    w: badgeW,
+    font: Math.max(10, 14 * s),
+    icon: Math.round(badgeH * 0.5 * 100) / 100,
+    // the badge's chat bubble: hung from (x, y) by its `align` edge and its
+    // bottom, at most w wide, its tail tailOffset from that edge (from the
+    // bottom for a side tail); rect = its largest box, tail included; null
+    // where no spot by the badge has room (a phone-size canvas)
+    bubble: badgeBubble && {
+      tail: badgeBubble.tail,
+      align: badgeBubble.align,
+      x: r1(badgeBubble.x),
+      y: r1(badgeBubble.y),
+      w: badgeBubble.w,
+      rect: badgeBubble.rect,
+      tailOffset: r1(badgeBubble.tailOffset),
+      minW: r1(badgeBubble.minW),
+      minH: r1(badgeBubble.minH),
+    },
+  };
   for (const [key, pick] of Object.entries(bubblePicks.picks)) {
     const seat = seats[key];
     const a = bubbleAnchor(seat, pick.dir, !!pick.clearOwn);
@@ -694,9 +803,18 @@ function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1, felt = 0, hi
   };
 }
 
-/** The groups a bubble must leave visible (the game's information, the spectator badge, and the other seats' bubbles). */
+/** The groups a bubble must leave visible (the game's information, the spectator badge, and the other bubbles, the badge's included). */
 export const BUBBLE_KEEPS = ['trump', 'hand', 'trick:self', 'trick:partner', 'trick:opponent1', 'trick:opponent2',
-  'history:team', 'history:opp', 'spectators', 'bubble:self', 'bubble:partner', 'bubble:opp1', 'bubble:opp2'];
+  'history:team', 'history:opp', 'spectators', 'bubble:self', 'bubble:partner', 'bubble:opp1', 'bubble:opp2', 'bubble:spectators'];
+/**
+ * What the badge's bubble must leave visible besides BUBBLE_KEEPS: the
+ * status pill, the bid sheet and the voice buttons, and for a player my box
+ * (seat:self: avatar, plate, frog, HSI and the voice buttons under it; a
+ * spectator's 'self' is the bottom seat, which it may cover like any seat).
+ */
+export function badgeBubbleKeeps(isSpectator) {
+  return [...BUBBLE_KEEPS, 'status', 'bidSheet', 'voice', ...(isSpectator ? [] : ['seat:self'])];
+}
 
 /**
  * Every rect the overlap check knows, with its group: rects of the same
@@ -731,6 +849,7 @@ export function layoutRects(L) {
   if (L.spectators) add('spectators', 'spectators', L.spectators.rect);
   if (L.log) add('log', 'log', L.log);
   for (const [key, seat] of Object.entries(L.seats)) add(`${key}.bubble`, `bubble:${key}`, seat.bubble.rect, [], BUBBLE_KEEPS);
+  if (L.spectators?.bubble) add('spectators.bubble', 'bubble:spectators', L.spectators.bubble.rect, [], badgeBubbleKeeps(L.isSpectator));
   return out;
 }
 

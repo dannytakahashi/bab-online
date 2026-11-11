@@ -576,6 +576,58 @@ body > .voice-btn {
 
 .spectator-popover__more[hidden] { display: none; }
 
+/* ---------- A spectator's chat by the badge ("Zach: hello"; ChatBubble.showSpectatorChatBubble) ---------- */
+
+/* hung from the layout's spot (spectators.bubble) by its bottom and its
+   align edge, so a short message still reaches the tail; under the badge's
+   list (an open list stays readable) */
+.hud-spectator-bubble {
+    position: absolute;
+    left: var(--specbub-x, 0px);
+    top: var(--specbub-y, 0px);
+    width: 0;
+    height: 0;
+    pointer-events: none;
+    z-index: 290;
+}
+
+.hud-spectator-bubble[hidden] { display: none; }
+
+.hud-spectator-bubble .chat-bubble {
+    top: auto;
+    bottom: 0;
+    box-sizing: border-box;
+    padding: var(--bubble-pad-y, 8px) var(--bubble-pad-x, 12px);
+    font-size: var(--bubble-font, 14px);
+    line-height: var(--bubble-lh, 18px);
+    width: max-content;
+    max-width: var(--specbub-w, 224px);
+    min-width: var(--specbub-min-w, 0px);
+    min-height: var(--specbub-min-h, 0px);
+    overflow-wrap: anywhere;
+}
+
+.hud-spectator-bubble.align-end .chat-bubble { right: 0; left: auto; }
+.hud-spectator-bubble.align-start .chat-bubble { left: 0; right: auto; }
+
+/* the tail at the badge's middle (--specbub-tail from the hung edge, or from the bottom beside it) */
+.hud-spectator-bubble.align-end .chat-bubble.tail-down::after { left: auto; right: var(--specbub-tail, 12px); transform: none; }
+.hud-spectator-bubble.align-start .chat-bubble.tail-down::after { left: var(--specbub-tail, 12px); transform: none; }
+.hud-spectator-bubble .chat-bubble.tail-left::after,
+.hud-spectator-bubble .chat-bubble.tail-right::after { top: auto; bottom: var(--specbub-tail, 10px); transform: none; }
+
+.chat-bubble-name { font-weight: var(--weight-bold); }
+
+/* the spectator tint: the log's spectator colour (.log-row__text.is-spectator, --success) */
+.chat-bubble.is-spectator { box-shadow: var(--elev-2), inset 0 0 0 1px rgb(var(--success-rgb) / 0.6); }
+
+@supports (color: color-mix(in srgb, currentColor 50%, transparent)) {
+    .chat-bubble.is-spectator { background: color-mix(in srgb, var(--success) 16%, var(--text-primary)); }
+    .chat-bubble.is-spectator.tail-down::after { border-top-color: color-mix(in srgb, var(--success) 16%, var(--text-primary)); }
+    .chat-bubble.is-spectator.tail-right::after { border-left-color: color-mix(in srgb, var(--success) 16%, var(--text-primary)); }
+    .chat-bubble.is-spectator.tail-left::after { border-right-color: color-mix(in srgb, var(--success) 16%, var(--text-primary)); }
+}
+
 .voice-overlay .kit-modal { min-width: 280px; max-width: 400px; }
 .voice-overlay__hint { margin: var(--space-4) 0 0; color: var(--text-dim); text-align: center; font-size: var(--type-xs); }
 
