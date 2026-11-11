@@ -75,7 +75,10 @@ async function findNameClash(usersCollection, name) {
         { username: { $regex: `^\\s*${escapeRegex(name)}\\s*$`, $options: 'i' } },
         projection
     );
-    return similar ? { ...similar, exact: false } : null;
+    // Exactness is the stored name's, not which query found it: a concurrent
+    // sign-up can insert `name` between the two lookups (realMongo (b)), and
+    // that is still the same name, not a case variant
+    return similar ? { ...similar, exact: similar.username === name } : null;
 }
 
 /**
