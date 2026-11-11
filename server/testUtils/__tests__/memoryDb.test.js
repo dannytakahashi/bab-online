@@ -87,3 +87,38 @@ describe('memoryDb projections', () => {
         expect(full.stats.totalPoints).toBe(400);
     });
 });
+
+describe('memoryDb arrayFilters', () => {
+    const coll = () => new MemoryCollection([{
+        username: 'Alan',
+        sessionTokens: [{ hash: 'h1', lastUsedAt: new Date(1) }, { hash: 'h2', lastUsedAt: new Date(2) }],
+        tags: ['a', 'b', 'a'],
+    }]);
+
+    test("updateOne `arr.$[p].field` with { 'p.key': v } sets that field on matching elements only", async () => {
+        const c = coll();
+        const r = await c.updateOne({ username: 'Alan', 'sessionTokens.hash': 'h2' },
+            { $set: { 'sessionTokens.$[s].lastUsedAt': new Date(99) } }, { arrayFilters: [{ 's.hash': 'h2' }] });
+        expect(r).toEqual({ matchedCount: 1, modifiedCount: 1 });
+        const doc = await c.findOne({ username: 'Alan' });
+        expect(doc.sessionTokens).toEqual([{ hash: 'h1', lastUsedAt: new Date(1) }, { hash: 'h2', lastUsedAt: new Date(99) }]);
+    });
+
+    test('updateOne / updateMany `arr.$[p]` with { p: v } still replaces matching elements', async () => {
+        const c = coll();
+        await c.updateOne({ username: 'Alan' }, { $set: { 'tags.$[t]': 'x' } }, { arrayFilters: [{ t: 'a' }] });
+        expect((await c.findOne({ username: 'Alan' })).tags).toEqual(['x', 'b', 'x']);
+        await c.updateMany({}, { $set: { 'tags.$[t]': 'y' } }, { arrayFilters: [{ t: 'b' }] });
+        expect((await c.findOne({ username: 'Alan' })).tags).toEqual(['x', 'y', 'x']);
+    });
+
+    test('unsupported shapes throw', async () => {
+        const c = coll();
+        await expect(c.updateOne({}, { $set: { 'sessionTokens.$[s].lastUsedAt': 1 } }, { arrayFilters: [{ 'q.hash': 'h1' }] }))
+            .rejects.toThrow(/unsupported arrayFilters/);
+        await expect(c.updateOne({}, { $set: { 'sessionTokens.$[s].x': 1 } }, { arrayFilters: [{ 's.hash': { $in: ['h1'] } }] }))
+            .rejects.toThrow(/unsupported arrayFilters/);
+        await expect(c.updateOne({}, { $unset: { 'tags.$[t]': '' } }, { arrayFilters: [{ t: 'a' }] }))
+            .rejects.toThrow(/only with \$set/);
+    });
+});

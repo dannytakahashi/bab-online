@@ -26,7 +26,7 @@ const rateLimiter = require('../rateLimiter');
 const { setupSocketHandlers } = require('../index');
 const { makeSocket } = require('../../testUtils/gameDriver');
 const { socketLogger } = require('../../utils/logger');
-const { hashToken } = require('../../utils/sessionTokens');
+const { hashToken, verifySession, SESSION_TTL_MS } = require('../../utils/sessionTokens');
 
 // Captured 2026-11-11 (socket.handshake.headers['user-agent'], polling handshake)
 const UA_100 = 'BAB%20Online/1 CFNetwork/3896.200.61 Darwin/27.2.0';
@@ -144,11 +144,14 @@ function serverState() {
 }
 
 describe('a 1.0.0 socket', () => {
-    test('restoreSession: no restoreSessionResponse, a signInResponse failure; the DB token is untouched and never read', async () => {
+    test('restoreSession: no restoreSessionResponse, a signInResponse failure; the DB token is kept, only its lastUsedAt moves', async () => {
         const users = mockDb.current.users;
-        const spies = ['findOne', 'updateOne', 'findOneAndUpdate', 'insertOne', 'deleteOne', 'find'].filter((m) => users[m]).map((m) => jest.spyOn(users, m));
-        const before = JSON.stringify(await users.findOne({ username: 'Alan' }));
-        spies.forEach((s) => s.mockClear());
+        const old = new Date(Date.now() - 10 * 24 * 3600 * 1000);
+        await users.updateOne({ username: 'Alan' }, { $set: { sessionTokens: [{ hash: hashToken('other-device'), createdAt: old, lastUsedAt: old },
+            { hash: hashToken(ALAN_TOKEN), createdAt: old, lastUsedAt: old }] } });
+        const before = await users.findOne({ username: 'Alan' });
+        const writes = ['updateOne', 'updateMany', 'findOneAndUpdate', 'insertOne', 'deleteOne', 'deleteMany', 'replaceOne']
+            .filter((m) => users[m]).map((m) => jest.spyOn(users, m));
 
         const w = wired(UA_100);
         expect([...w.handlers.keys()].sort()).toEqual(['chatMessage', 'disconnect', 'joinMainRoom', 'leaveLobby', 'leaveTournament',
@@ -157,11 +160,63 @@ describe('a 1.0.0 socket', () => {
         expect(w.emits('restoreSessionResponse')).toEqual([]);
         expect(w.emits('signInResponse').map((l) => l.data)).toEqual([{ success: false, message: MSG }]);
         expect(w.log.every((l) => l.to === `self:${w.socket.id}`)).toBe(true);
-        for (const s of spies) expect(s).not.toHaveBeenCalled();
-        spies.forEach((s) => s.mockRestore());
-        expect(JSON.stringify(await users.findOne({ username: 'Alan' }))).toBe(before);
+        // the one write: that entry's lastUsedAt (no socketId, no other field)
+        const called = writes.filter((s) => s.mock.calls.length);
+        expect(called).toHaveLength(1);
+        expect(users.updateOne).toHaveBeenCalledTimes(1);
+        writes.forEach((s) => s.mockRestore());
+        const after = await users.findOne({ username: 'Alan' });
+        expect(after.sessionTokens[1].lastUsedAt.getTime()).toBeGreaterThan(old.getTime());
+        expect({ ...after, sessionTokens: after.sessionTokens.map((e, i) => (i === 1 ? { ...e, lastUsedAt: old } : e)) }).toEqual(before);
+        expect(gameManager.getOnlineUsernames()).not.toContain('Alan');
         expect(w.socket.data.appBuild).toBe(1);
         expect(w.socket.data.username).toBeUndefined();
+        await w.send('disconnect');
+    });
+
+    test('a player who keeps opening 1.0.0 keeps the session 1.1.0 restores (TTL refreshed)', async () => {
+        const users = mockDb.current.users;
+        const t0 = Date.now();
+        const day = 24 * 3600 * 1000;
+        const lastPreGate = new Date(t0 - 85 * day);
+        await users.updateOne({ username: 'Alan' }, { $set: { sessionTokens: [{ hash: hashToken(ALAN_TOKEN), createdAt: lastPreGate, lastUsedAt: lastPreGate }] } });
+        const w = wired(UA_100);
+        await w.send('restoreSession', { username: 'Alan', sessionToken: ALAN_TOKEN });
+        await w.send('disconnect');
+        // they update 10 days later: 95 days after their last pre-gate use
+        // (verifySession mutates the entry it accepts: a fresh read for each)
+        expect(verifySession(await users.findOne({ username: 'Alan' }), ALAN_TOKEN, new Date(t0 + 10 * day))).not.toBeNull();
+        // refreshed to now, not forever
+        expect(verifySession(await users.findOne({ username: 'Alan' }), ALAN_TOKEN, new Date(t0 + SESSION_TTL_MS + day))).toBeNull();
+    });
+
+    test.each([
+        ['an expired session', { token: ALAN_TOKEN, lastUsedAt: new Date(Date.now() - SESSION_TTL_MS - 1000) }],
+        ['a token that is not one of the sessions (evicted)', { token: 'evicted-token', lastUsedAt: new Date() }],
+        ['an unknown user', { token: ALAN_TOKEN, lastUsedAt: new Date(), username: 'Nobody' }],
+    ])('%s: no write, and later pushes drop "stay signed in"', async (_l, { token, lastUsedAt, username = 'Alan' }) => {
+        const users = mockDb.current.users;
+        await users.updateOne({ username: 'Alan' }, { $set: { sessionTokens: [{ hash: hashToken(ALAN_TOKEN), createdAt: lastUsedAt, lastUsedAt }] } });
+        const before = await users.findOne({ username: 'Alan' });
+        const upd = jest.spyOn(users, 'updateOne');
+        const w = wired(UA_100);
+        await w.send('restoreSession', { username, sessionToken: token });
+        expect(upd).not.toHaveBeenCalled();
+        expect(await users.findOne({ username: 'Alan' })).toEqual(before);
+        await w.send('signIn', { username, password: 'x' });
+        expect(w.emits('signInResponse').map((l) => l.data.message)).toEqual([MSG, MSG_OUT]);
+        await w.send('disconnect');
+    });
+
+    test('a database error leaves the message and the session alone', async () => {
+        const users = mockDb.current.users;
+        jest.spyOn(users, 'findOne').mockRejectedValue(new Error('db down'));
+        const upd = jest.spyOn(users, 'updateOne');
+        const w = wired(UA_100);
+        await w.send('restoreSession', { username: 'Alan', sessionToken: ALAN_TOKEN });
+        await w.send('signIn', { username: 'Alan', password: 'x' });
+        expect(upd).not.toHaveBeenCalled();
+        expect(w.emits('signInResponse').map((l) => l.data.message)).toEqual([MSG, MSG]);
         await w.send('disconnect');
     });
 
@@ -238,6 +293,7 @@ describe('a 1.0.0 socket', () => {
         w2.handlers.get('disconnect')();
         jest.advanceTimersByTime(10000);
         expect(w2.log.map((l) => l.event)).toEqual(['signInResponse']);
+        w.handlers.get('disconnect')();
         // dropped before the main push with no username: one debug line only
         expect(socketLogger.info.mock.calls.filter(([m, d]) => /Upgrade gate/.test(m) && d.socketId === w2.socket.id)).toEqual([]);
         expect(socketLogger.debug.mock.calls.filter(([m, d]) => /Upgrade gate/.test(m) && d.socketId === w2.socket.id))
@@ -251,7 +307,26 @@ describe('a 1.0.0 socket', () => {
         expect(JSON.stringify(socketLogger.info.mock.calls)).not.toContain('"x"');
     });
 
-    test('rate limit: at most EMIT_LIMIT emits per socket per window', async () => {
+    test('after the 5 s push, signInResponse again every REPEAT_MS while connected (Register -> Sign In clears it)', () => {
+        jest.useFakeTimers();
+        const w = wired(UA_100);
+        const pushes = () => w.emits('signInResponse').length;
+        jest.advanceTimersByTime(5000);
+        expect(pushes()).toBe(3);
+        jest.advanceTimersByTime(gate.REPEAT_MS - 1);
+        expect(pushes()).toBe(3);
+        jest.advanceTimersByTime(1);
+        expect(pushes()).toBe(4);
+        jest.advanceTimersByTime(gate.REPEAT_MS * 5);
+        expect(pushes()).toBe(9);
+        expect(w.emits('signInResponse').every((l) => l.data.success === false && l.data.message === MSG_OUT)).toBe(true);
+        w.handlers.get('disconnect')();
+        jest.advanceTimersByTime(gate.REPEAT_MS * 10);
+        expect(pushes()).toBe(9);
+        expect(jest.getTimerCount()).toBe(0);
+    });
+
+    test('rate limit: at most EMIT_LIMIT emits per socket per window; the timed pushes leave REPLY_RESERVE for replies', () => {
         jest.useFakeTimers();
         const w = wired(UA_100);
         for (let i = 0; i < 50; i++) w.handlers.get('signIn')({ username: 'Alan', password: 'x' });
@@ -259,9 +334,24 @@ describe('a 1.0.0 socket', () => {
         jest.advanceTimersByTime(5000); // the pushes are over the limit too
         expect(w.log).toHaveLength(gate.EMIT_LIMIT);
         jest.advanceTimersByTime(gate.EMIT_WINDOW_MS);
+        const n0 = w.log.length;
         w.handlers.get('signIn')({ username: 'Alan', password: 'x' });
-        expect(w.log).toHaveLength(gate.EMIT_LIMIT + 1);
+        expect(w.log).toHaveLength(n0 + 1);
         w.handlers.get('disconnect')();
+
+        // a quiet socket left on sign-in for 10 minutes: the timed pushes
+        // never use the replies' reserve, and a burst of taps still gets
+        // REPLY_RESERVE replies in any window
+        const q = wired(UA_100);
+        const inWindow = () => q.log.filter((l) => Date.now() - l.at < gate.EMIT_WINDOW_MS).length;
+        for (let s = 0; s < 600; s++) {
+            jest.advanceTimersByTime(1000);
+            expect(inWindow()).toBeLessThanOrEqual(gate.EMIT_LIMIT - gate.REPLY_RESERVE);
+        }
+        const before = q.log.length;
+        for (let i = 0; i < gate.REPLY_RESERVE; i++) q.handlers.get('signIn')({ username: 'Alan', password: 'x' });
+        expect(q.log.length - before).toBe(gate.REPLY_RESERVE);
+        q.handlers.get('disconnect')();
     });
 
     test.each(['off', 'OFF', 'false', '0', 'disabled'])('kill switch UPGRADE_GATE=%s: the real handlers run', async (v) => {
@@ -276,7 +366,9 @@ describe('a 1.0.0 socket', () => {
 
     test('UPGRADE_GATE=on (or anything else) keeps the gate', () => {
         process.env.UPGRADE_GATE = 'on';
-        expect(wired(UA_100).handlers.has('playCard')).toBe(false);
+        const w = wired(UA_100);
+        expect(w.handlers.has('playCard')).toBe(false);
+        w.handlers.get('disconnect')();
     });
 });
 

@@ -27,6 +27,9 @@ payload, so no removal below can break it any more.
   reads), `leftGame`, `leftLobby` and `tournamentLeft` in their v1 shapes. A
   removal that touches one of those shapes must keep the gate's copy valid
   (it is a 1.0.0-only emitter), e.g. #13 below.
+- **Its one database touch.** A gated restoreSession refreshes that
+  session's `lastUsedAt` (nothing else), so the 90-day session TTL does not
+  run out while a player keeps opening 1.0.0 before updating.
 - **Telemetry.** Every iOS socket logs `iOS app connected {build}` and every
   gated connection `Upgrade gate: outdated iOS app {build, username}`. 1.1.0
   sends no `clientHello`, so clientHello caps still say nothing about iOS.
@@ -292,9 +295,14 @@ step, in this order; nothing is removed by the gate PR itself.
    `GameState.applyCardPlayed` reads either. `trumpBroken` is in the
    event's `reserved` list only for 1.0.0, so: lift the reservation and send
    `trumpBroken`, then drop `trump`. `playerId` is read by neither.
-6. **#11 `bidReceived.bid` always a string**: 1.1.0 sends every bid as a
-   string (`GameEmitter.playerBid` → `String(bid)`); normalize the echo.
-   Web already sends strings.
+6. **#11 `bidReceived.bid` always a string**: 1.1.0 still SENDS numeric
+   bids as an Int (`GameEmitter.playerBid` → `String(bid)` →
+   `LiveGameEmitter.playerBidPayload`, which turns a numeric string back into
+   an Int; pinned by ActionCoordinatorTests) and DECODES either form
+   (`BidWire` in WireDecoding.swift; web `applyBid` calls `String(data.bid)`).
+   So normalize only the s2c echo to a string; c2s `playerBid.bid` must keep
+   accepting an Int (the contract's `{ bid: 3 }` example), or every numeric
+   bid from the App Store app is refused. Web already sends strings.
 7. **#13 `mainRoomJoined.recentMessages`**: 1.1.0 reads `recentMessages ??
    messages` (falls back) and web reads `messages`, so the main-room handler
    can drop it; the gate's 1.0.0-only copy keeps it (variant or `added`

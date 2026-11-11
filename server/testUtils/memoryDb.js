@@ -226,20 +226,33 @@ function excludePath(obj, parts) {
 }
 
 /**
- * The one arrayFilters shape the server uses (account deletion anonymizing
- * game records): `$set: { 'arr.$[p]': value }` with `[{ p: scalar }]`.
+ * The arrayFilters shapes the server uses, with $set only:
+ *   `arr.$[p]` with `[{ p: scalar }]` (account deletion anonymizing game
+ *   records: replaces each matching element), and
+ *   `arr.$[p].field` with `[{ 'p.key': scalar }]` (upgradeGate refreshing one
+ *   session entry's lastUsedAt: sets one field of each matching element).
  * Anything else throws.
  */
 function applyArrayFilterSet(doc, update, arrayFilters) {
     const ops = Object.keys(update);
     if (ops.length !== 1 || ops[0] !== '$set') throw new Error('memoryDb: arrayFilters only with $set');
     for (const [path, value] of Object.entries(update.$set)) {
-        const m = /^([\w.]+)\.\$\[(\w+)\]$/.exec(path);
-        const af = m && arrayFilters.find(f => Object.keys(f).length === 1 && m[2] in f);
-        if (!af || isPlainObject(af[m[2]])) throw new Error(`memoryDb: unsupported arrayFilters update ${path}`);
+        const m = /^([\w.]+)\.\$\[(\w+)\](?:\.(\w+))?$/.exec(path);
+        const id = m && m[2];
+        const af = m && arrayFilters.find(f => Object.keys(f).length === 1
+            && (id in f || /^\w+\.\w+$/.test(Object.keys(f)[0]) && Object.keys(f)[0].split('.')[0] === id));
+        const [afKey] = af ? Object.keys(af) : [];
+        const afValue = af && af[afKey];
+        if (!af || isPlainObject(afValue)) throw new Error(`memoryDb: unsupported arrayFilters update ${path}`);
+        const sub = afKey === id ? null : afKey.split('.')[1];
+        const hit = el => (sub === null ? equals(el, afValue) : isPlainObject(el) && equals(el[sub], afValue));
         const [parent, key] = parentFor(doc, m[1], false);
         if (!parent || !Array.isArray(parent[key])) continue;
-        parent[key] = parent[key].map(el => (equals(el, af[m[2]]) ? clone(value) : el));
+        parent[key] = parent[key].map(el => {
+            if (!hit(el)) return el;
+            if (!m[3]) return clone(value);
+            return { ...el, [m[3]]: clone(value) };
+        });
     }
 }
 
@@ -281,11 +294,12 @@ class MemoryCollection {
         return this.docs.filter(d => matches(d, filter)).length;
     }
 
-    async updateOne(filter, update) {
+    async updateOne(filter, update, options = {}) {
         const doc = this.docs.find(d => matches(d, filter));
         if (!doc) return { matchedCount: 0, modifiedCount: 0 };
         const before = JSON.stringify(doc);
-        applyUpdate(doc, update);
+        if (options.arrayFilters) applyArrayFilterSet(doc, update, options.arrayFilters);
+        else applyUpdate(doc, update);
         return { matchedCount: 1, modifiedCount: before === JSON.stringify(doc) ? 0 : 1 };
     }
 

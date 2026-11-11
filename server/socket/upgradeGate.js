@@ -29,10 +29,13 @@
  *   leftGame / leftLobby / tournamentLeft     navigate to the main room.
  *   app-level `error`                         never shown by this build.
  * So a gated socket gets the update message on every screen it can be on:
- *   - sign-in / register (every cold start: SplashView 1.5 s, then SignInView,
- *     whose onAppear clears authState.error): signInResponse pushed
- *     PUSH_DELAYS_MS after connect, and as the reply to restoreSession,
- *     signIn and signUp (signUpResponse);
+ *   - sign-in / register (every cold start: SplashView 1.5 s, then SignInView;
+ *     both SignInView.onAppear and RegisterView.onAppear clear
+ *     authState.error, and switching between them sends nothing): signInResponse
+ *     pushed PUSH_DELAYS_MS after connect, then every REPEAT_MS while the
+ *     socket stays connected (so a trip to Register and back shows it again
+ *     within REPEAT_MS), and as the reply to restoreSession, signIn and signUp
+ *     (signUpResponse);
  *   - main room (a warm reconnect after a deploy or a long background):
  *     a mainRoomJoined whose only content is the message, pushed once and
  *     sent again on joinMainRoom;
@@ -43,7 +46,18 @@
  * Nothing else is registered for a gated socket (setupSocketHandlers returns
  * before its handlers), so every other event is ignored: it never signs in,
  * is never registered as online, never joins a room, never touches a game,
- * lobby, tournament or the database. Every emit is rate limited per socket.
+ * lobby or tournament. Every emit is rate limited per socket.
+ *
+ * "You'll stay signed in": sessions expire SESSION_TTL_MS after lastUsedAt
+ * (utils/sessionTokens.js), and before the gate every 1.0.0 launch refreshed
+ * it through restoreSession. So the first restoreSession of a gated socket
+ * does the one database touch the gate makes: it reads the user's sessions
+ * and, for a token verifySession accepts, moves that one entry's lastUsedAt
+ * to now (an atomic arrayFilters $set; nothing else on the user changes: no
+ * socketId, no registerUser, no restoreSessionResponse). A player who keeps
+ * opening 1.0.0 therefore keeps the session 1.1.0 restores. A token that is
+ * not accepted (expired, evicted by MAX_SESSIONS, a merged account) gets the
+ * signed-out message from then on. A database error changes nothing.
  *
  * Kill switch: UPGRADE_GATE=off (also false / 0 / disabled), read at each
  * connection. Telemetry: one info line per gated connection (build, the
@@ -54,6 +68,8 @@
 'use strict';
 
 const { socketLogger } = require('../utils/logger');
+const { getUsersCollection } = require('../database');
+const { verifySession } = require('../utils/sessionTokens');
 
 /** First iOS build number that is never gated (1.1.0 is build 2). */
 const MIN_IOS_BUILD = 2;
@@ -71,9 +87,15 @@ const SENDER = 'BAB Online';
 const PUSH_DELAYS_MS = Object.freeze([300, 2000, 5000]);
 /** The push that also carries the main-room copy and the log line. */
 const MAIN_PUSH = 1;
+// After the last of those, signInResponse again every REPEAT_MS while the
+// socket is connected: the app's screen changes send nothing, so this is the
+// only way to put the message back after Register -> Sign In clears it.
+const REPEAT_MS = 6000;
 // At most EMIT_LIMIT gate emits per socket per EMIT_WINDOW_MS (taps on Sign In,
-// a client looping on something); over it, emits are dropped silently.
+// a client looping on something); over it, emits are dropped silently. The
+// timed pushes stop at EMIT_LIMIT - REPLY_RESERVE, so replies always have room.
 const EMIT_LIMIT = 20;
+const REPLY_RESERVE = 6;
 const EMIT_WINDOW_MS = 60 * 1000;
 
 const UA_MAX = 512;
@@ -137,17 +159,21 @@ function gate(socket) {
 }
 
 function attach(socket, app) {
-    const st = { username: null, restored: false, logged: false, emits: [], timers: [], connected: true };
+    const st = {
+        username: null, restored: false, sessionValid: null, refreshTried: false,
+        logged: false, emits: [], timers: [], interval: null, connected: true,
+    };
 
-    const send = (event, payload) => {
+    const send = (event, payload, reserve = 0) => {
         if (!st.connected) return;
         const now = Date.now();
         while (st.emits.length && now - st.emits[0] >= EMIT_WINDOW_MS) st.emits.shift();
-        if (st.emits.length >= EMIT_LIMIT) return;
+        if (st.emits.length >= EMIT_LIMIT - reserve) return;
         st.emits.push(now);
         if (payload === undefined) socket.emit(event); else socket.emit(event, payload);
     };
-    const message = () => (st.restored ? UPDATE_MESSAGE : UPDATE_MESSAGE_SIGNED_OUT);
+    // "You'll stay signed in" only while the saved session is (or may be) valid
+    const message = () => (st.restored && st.sessionValid !== false ? UPDATE_MESSAGE : UPDATE_MESSAGE_SIGNED_OUT);
     const note = (data) => {
         const u = str(data?.username);
         if (u) st.username = u;
@@ -163,8 +189,8 @@ function attach(socket, app) {
         else socketLogger.info('Upgrade gate: outdated iOS app', fields);
     };
 
-    function sendUpdateMessage() {
-        send('signInResponse', { success: false, message: message() });
+    function sendUpdateMessage(reserve = 0) {
+        send('signInResponse', { success: false, message: message() }, reserve);
     }
     function replySignUp() {
         send('signUpResponse', { success: false, message: message() });
@@ -183,6 +209,12 @@ function attach(socket, app) {
         st.restored = true;
         note(data);
         sendUpdateMessage();
+        if (!st.refreshTried) {
+            st.refreshTried = true;
+            refreshSession(data).then((valid) => {
+                if (valid !== null) st.sessionValid = valid;
+            });
+        }
     });
     socket.on('signIn', (data) => { note(data); sendUpdateMessage(); });
     socket.on('signUp', (data) => { note(data); replySignUp(); });
@@ -198,15 +230,22 @@ function attach(socket, app) {
         st.connected = false;
         for (const t of st.timers) clearTimeout(t);
         st.timers = [];
+        if (st.interval) clearInterval(st.interval);
+        st.interval = null;
         logOnce(true);
     });
 
+    const last = PUSH_DELAYS_MS.length - 1;
     PUSH_DELAYS_MS.forEach((ms, i) => {
         const t = setTimeout(() => {
-            sendUpdateMessage();
+            sendUpdateMessage(REPLY_RESERVE);
             if (i === MAIN_PUSH) {
                 sendMainRoom();
                 logOnce();
+            }
+            if (i === last && st.connected) {
+                st.interval = setInterval(() => sendUpdateMessage(REPLY_RESERVE), REPEAT_MS);
+                if (typeof st.interval?.unref === 'function') st.interval.unref();
             }
         }, ms);
         if (typeof t?.unref === 'function') t.unref();
@@ -214,12 +253,47 @@ function attach(socket, app) {
     });
 }
 
+/**
+ * Keep a gated device's saved session alive: for a token verifySession
+ * accepts, set that one entry's lastUsedAt to now. Never throws.
+ * @returns {Promise<boolean|null>} true: refreshed; false: not a live session
+ *   (expired, evicted, unknown user, merged account); null: not checked
+ *   (bad payload, no database, a database error)
+ */
+async function refreshSession(data) {
+    const username = typeof data?.username === 'string' ? data.username : null;
+    const token = typeof data?.sessionToken === 'string' ? data.sessionToken : null;
+    if (!username || !token || username.length > 64 || token.length > 128) return null;
+    try {
+        const users = getUsersCollection();
+        if (!users) return null;
+        const user = await users.findOne({ username }, { projection: { sessionTokens: 1, sessionToken: 1, mergedInto: 1 } });
+        if (!user || user.mergedInto) return false;
+        const now = new Date();
+        const session = verifySession(user, token, now);
+        if (!session) return false;
+        // a legacy plaintext sessionToken has no expiry: nothing to refresh
+        if (!(user.sessionTokens || []).some((e) => e && e.hash === session.hash)) return true;
+        await users.updateOne(
+            { username, 'sessionTokens.hash': session.hash },
+            { $set: { 'sessionTokens.$[s].lastUsedAt': now } },
+            { arrayFilters: [{ 's.hash': session.hash }] },
+        );
+        return true;
+    } catch (err) {
+        socketLogger.debug('Upgrade gate: session refresh failed', { error: err?.message });
+        return null;
+    }
+}
+
 module.exports = {
     MIN_IOS_BUILD,
     UPDATE_MESSAGE,
     UPDATE_MESSAGE_SIGNED_OUT,
     PUSH_DELAYS_MS,
+    REPEAT_MS,
     EMIT_LIMIT,
+    REPLY_RESERVE,
     EMIT_WINDOW_MS,
     parseIosUserAgent,
     isOutdatedIosApp,
