@@ -27,7 +27,7 @@ bab-online/
 │   │   ├── boot/              # Phone gate: detection, gate screen, boot order
 │   │   ├── constants/         # Event names, card ranks, hand progression
 │   │   ├── utils/             # Position math, card helpers
-│   │   ├── rules/             # Card legality (mirrors server)
+│   │   ├── rules/             # Card legality, bids.js bid totals (a bore = the hand, capped at it; mirror the server)
 │   │   ├── state/             # GameState singleton
 │   │   ├── socket/            # SocketManager (connection + listener cleanup)
 │   │   ├── handlers/          # Socket event handlers by domain

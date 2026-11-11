@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { TrickManager } from './TrickManager.js';
+import { TrickManager, pileBorder } from './TrickManager.js';
+import { bidTotalsFor } from '../../rules/bids.js';
 
 function createMockScene() {
   return {
@@ -367,5 +368,34 @@ describe('TrickManager trick-stack hover', () => {
     entry.position.x = 777; // what repositionTrickHistory does
     handlers.get(entry.cards[0]).pointerover();
     expect(scene.tweens.add.mock.calls[0][0].x).toBe(777);
+  });
+});
+
+describe('TrickManager bid totals (a bore is the whole hand)', () => {
+  it('the bore team\'s pile stays "danger" until it has every trick, past the partner\'s bid', () => {
+    const tm = new TrickManager(createMockScene());
+    // seat 1 bores, its partner bid 2, on the 5-card hand
+    const totals = bidTotalsFor(['B', '1', '2', '1'], 1, 5);
+    expect(totals).toEqual({ team: 5, opp: 2 });
+    tm.setBidTotals(totals.team, totals.opp);
+    const borders = [];
+    for (let won = 0; won <= 5; won++) {
+      tm._teamTrickCount = won;
+      borders.push(tm.pileBorders().team);
+    }
+    expect(borders).toEqual(['danger', 'danger', 'danger', 'danger', 'danger', 'safe']);
+    expect([pileBorder(1, 2), pileBorder(2, 2), pileBorder(0, 0)]).toEqual(['danger', 'safe', 'safe']);
+  });
+
+  it('the end-of-hand whisk forgets only its own hand\'s totals, never the next hand\'s', () => {
+    const tm = new TrickManager(createMockScene());
+    tm.setBidTotals(4, 3);
+    const finished = tm.bidTotalsGen();
+    // the next hand's doneBidding lands before the whisk does
+    tm.setBidTotals(2, 5);
+    tm.clearBidTotals(finished);
+    expect([tm._teamBidTotal, tm._oppBidTotal]).toEqual([2, 5]);
+    tm.clearBidTotals(tm.bidTotalsGen());
+    expect([tm._teamBidTotal, tm._oppBidTotal]).toEqual([0, 0]);
   });
 });

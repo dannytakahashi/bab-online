@@ -8,6 +8,7 @@
 
 import { getUsernameColor } from '../../utils/colors.js';
 import { getGameState } from '../../state/GameState.js';
+import { bidTotalsFor } from '../../rules/bids.js';
 
 /** A team's class by game position (team A: seats 1 and 3, team B: 2 and 4). */
 const teamOf = (pos) => (Number(pos) % 2 === 1 ? 'a' : 'b');
@@ -117,31 +118,16 @@ export function createGameLog({ onChatSubmit } = {}) {
     if (trickRects.length === 0) return;
 
     const state = getGameState();
-    const bids = state.bids;
-    const myTeam = state.position % 2;
-
-    let teamBidCount = 0;
-    let oppBidCount = 0;
-
-    // After bidding completes, bids changes to { team1: N, team2: N }
-    if (bids.team1 !== undefined) {
-      const isTeam1 = state.position === 1 || state.position === 3;
-      teamBidCount = isTeam1 ? bids.team1 : bids.team2;
-      oppBidCount = isTeam1 ? bids.team2 : bids.team1;
-    } else {
-      for (const [pos, bid] of Object.entries(bids)) {
-        const bidStr = String(bid).toUpperCase();
-        if (['B', '2B', '3B', '4B'].includes(bidStr)) continue;
-        const numBid = parseInt(bidStr, 10);
-        if (isNaN(numBid)) continue;
-
-        if (Number(pos) % 2 === myTeam) {
-          teamBidCount += numBid;
-        } else {
-          oppBidCount += numBid;
-        }
-      }
-    }
+    const bids = state.bids || {};
+    const isTeam1 = state.position === 1 || state.position === 3;
+    // team totals ({team1, team2}) as given; bids by position through
+    // rules/bids.js: a bore counts as the whole hand, each team capped at
+    // the hand size
+    const totals = bids.team1 !== undefined
+      ? { team: isTeam1 ? bids.team1 : bids.team2, opp: isTeam1 ? bids.team2 : bids.team1 }
+      : bidTotalsFor(bids, state.position, trickHandSize);
+    const teamBidCount = totals.team;
+    const oppBidCount = totals.opp;
 
     const totalBid = teamBidCount + oppBidCount;
     const totalNeeded = Math.min(Math.max(totalBid, trickHandSize), 16);

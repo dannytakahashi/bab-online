@@ -21,6 +21,7 @@ import { getCardImageKey, sortHand } from '../../utils/cards.js';
 import { team, rotate } from '../../utils/positions.js';
 import { isLegalMove } from '../../rules/legality.js';
 import { isOverTrump } from '../../rules/overTrump.js';
+import { bidTotalsFor } from '../../rules/bids.js';
 import { ANIMATION_CONFIG } from '../config.js';
 import { reattachMuteButton } from '../../ui/components/VoiceChatUI.js';
 import { CardManager } from '../managers/CardManager.js';
@@ -1099,10 +1100,11 @@ export class GameScene extends Phaser.Scene {
         },
       });
 
+      const finishedHand = this.trickManager.bidTotalsGen();
       this.trickManager.animateTricksAway(trumpX, trumpY, () => {
-        // Reset bid totals after animation
-        this.trickManager._teamBidTotal = 0;
-        this.trickManager._oppBidTotal = 0;
+        // The finished hand's bid totals go, unless the next hand's
+        // doneBidding already set its own (it may land during the whisk)
+        this.trickManager.clearBidTotals(finishedHand);
 
         // The next deal may come in
         this.director?.endWhisk();
@@ -1437,10 +1439,9 @@ export class GameScene extends Phaser.Scene {
     if (m.hand && m.hand.length) this.handleDisplayHand(m.hand, true);
 
     if (!m.isBidding && this.trickManager) {
-      const num = (b) => (b === undefined || String(b).includes('B') ? 0 : parseInt(b, 10) || 0);
-      const teamBid = num(m.bids[pos]) + num(m.bids[team(pos)]);
-      const oppBid = num(m.bids[rotate(pos)]) + num(m.bids[rotate(rotate(rotate(pos)))]);
-      this.trickManager.setBidTotals(teamBid, oppBid);
+      // a bore counts as the whole hand, each total capped at the hand size
+      const totals = bidTotalsFor(m.bids, pos, m.handSize);
+      this.trickManager.setBidTotals(totals.team, totals.opp);
       this.trickManager.createTrickBackgrounds(false);
       if (m.history) {
         // team 1 holds the odd seats, team 2 the even ones

@@ -18,6 +18,7 @@ import { installAvatarSupport } from './utils/avatar.js';
 
 // Rules
 import { isLegalMove } from './rules/legality.js';
+import { bidTotalsFor } from './rules/bids.js';
 
 // State
 import { PHASE, getGameState } from './state/GameState.js';
@@ -1165,22 +1166,10 @@ function initializeApp() {
 
         // Create trick backgrounds now that bidding is complete
         if (scene.trickManager && data.bids) {
-          const myPosition = gameState.position || 1;
-          // Bids array is indexed by position-1 (so position 1 is index 0)
-          // Team 1 is positions 1 & 3, Team 2 is positions 2 & 4
-          const parseBid = (bid) => {
-            const bidStr = String(bid);
-            return bidStr.includes('B') ? 0 : parseInt(bidStr, 10) || 0;
-          };
-          const team1Bid = parseBid(data.bids[0]) + parseBid(data.bids[2]); // positions 1 & 3
-          const team2Bid = parseBid(data.bids[1]) + parseBid(data.bids[3]); // positions 2 & 4
-
-          // Determine which team is mine based on position parity
-          const isTeam1 = myPosition === 1 || myPosition === 3;
-          const teamBid = isTeam1 ? team1Bid : team2Bid;
-          const oppBid = isTeam1 ? team2Bid : team1Bid;
-
-          scene.trickManager.setBidTotals(teamBid, oppBid);
+          // Bids array is indexed by position-1; a bore counts as the whole
+          // hand and each total is capped at the hand size (rules/bids.js)
+          const totals = bidTotalsFor(data.bids, gameState.position || 1, gameState.currentHand);
+          scene.trickManager.setBidTotals(totals.team, totals.opp);
           scene.trickManager.createTrickBackgrounds();
         }
       });

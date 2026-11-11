@@ -15,8 +15,7 @@ import { getGameState } from '../../state/GameState.js';
 import { getHud } from '../../ui/tableHud.js';
 import { motionMs } from '../../ui/motion.js';
 import { BID_SHEET, BID_CHIP, BID_SHEET_PAD, BID_SHEET_BORDER } from '../layout/computeTableLayout.js';
-
-const BORES = ['B', '2B', '3B', '4B'];
+import { BORES, bidTotalsFor } from '../../rules/bids.js';
 
 /** The layout's sheet box model on the sheet (CSS variables). */
 function applySheetModel(sheet) {
@@ -227,24 +226,11 @@ export class BidManager {
   updateTrickIndicator() {
     if (!this.indicatorRow) return;
 
-    const bids = this.state.bids;
     const myTeam = this.state.position % 2;
-
-    let teamBidCount = 0;
-    let oppBidCount = 0;
-
-    for (const [pos, bid] of Object.entries(bids)) {
-      const bidStr = String(bid).toUpperCase();
-      if (BORES.includes(bidStr)) continue;
-      const numBid = parseInt(bidStr, 10);
-      if (isNaN(numBid)) continue;
-
-      if (Number(pos) % 2 === myTeam) {
-        teamBidCount += numBid;
-      } else {
-        oppBidCount += numBid;
-      }
-    }
+    // a bore counts as the whole hand, each team capped at the hand size
+    const totals = bidTotalsFor(this.state.bids, this.state.position, this.handSize);
+    const teamBidCount = totals.team;
+    const oppBidCount = totals.opp;
 
     const totalBid = teamBidCount + oppBidCount;
     const totalNeeded = Math.min(Math.max(totalBid, this.handSize), 16);

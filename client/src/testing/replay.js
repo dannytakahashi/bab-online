@@ -109,9 +109,28 @@ export function livePips() {
 }
 
 /**
- * Replay one viewer's log and compare the seat pips with expectedPips at
- * every live play checkpoint (PLAYING / TRICK_RESOLVING), just before the
- * entry it precedes; a result's `bores` counts the bores bid that hand.
+ * The trick piles for a snapshot, from the server's own team totals
+ * (bids.teamBids: a bore is the hand, capped at the hand size): the
+ * viewer's {team, opp} bid totals and each pile's border.
+ */
+export function expectedPiles(snap) {
+  const mineIsOne = (snap.viewer.position || 1) % 2 === 1;
+  const [team, opp] = mineIsOne ? [snap.bids.teamBids.team1, snap.bids.teamBids.team2] : [snap.bids.teamBids.team2, snap.bids.teamBids.team1];
+  const [won, oppWon] = mineIsOne ? [snap.tricks.team1, snap.tricks.team2] : [snap.tricks.team2, snap.tricks.team1];
+  return { team, opp, won: [won, oppWon], borders: { team: won >= team ? 'safe' : 'danger', opp: oppWon >= opp ? 'safe' : 'danger' } };
+}
+
+/** The same from the live scene's TrickManager. */
+export function livePiles(scene) {
+  const tm = scene.trickManager;
+  return { team: tm._teamBidTotal, opp: tm._oppBidTotal, won: [tm._teamTrickCount, tm._oppTrickCount], borders: tm.pileBorders() };
+}
+
+/**
+ * Replay one viewer's log and compare, at every live play checkpoint
+ * (PLAYING / TRICK_RESOLVING) just before the entry it precedes, the seat
+ * pips with expectedPips and the trick piles with expectedPiles; a
+ * result's `bores` counts the bores bid that hand.
  * @returns {{results: Array, bad: Array}}
  */
 export function replayPips(page, rec, label) {
@@ -123,10 +142,14 @@ export function replayPips(page, rec, label) {
     const cp = byIndex.get(i);
     if (!cp || page.scene.director.waiting > 0) return;
     const bores = cp.snapshot.bids.byPosition.filter((b) => ['B', '2B', '3B', '4B'].includes(b)).length;
-    results.push({ i, bores, live: livePips(), want: expectedPips(cp.snapshot) });
+    results.push({
+      i, bores, live: livePips(), want: expectedPips(cp.snapshot),
+      piles: livePiles(page.scene), wantPiles: expectedPiles(cp.snapshot),
+    });
   };
   replayLog(page, rec.logs[label], { before: (e) => check(e.i) });
-  return { results, bad: results.filter((r) => JSON.stringify(r.live) !== JSON.stringify(r.want)) };
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  return { results, bad: results.filter((r) => !same(r.live, r.want) || !same(r.piles, r.wantPiles)) };
 }
 
 /** Game-log rows on the page. */
