@@ -88,8 +88,11 @@ function check(entry) {
     if (!r.unknownEvent && r.status !== 'clientOnly' && errors.length === 0) {
         // seq routing (variants alone cannot tell a room form from a private
         // one): every room broadcast and every gameStart carries seq, nothing
-        // else carries a top-level seq
-        const roomOrDeal = String(entry.to).startsWith('game:') || event === 'gameStart';
+        // else carries a top-level seq. The one exception is a room event
+        // the schema marks unsequenced (seq false, to room: spectatorsUpdated,
+        // GameState.emitUnsequenced), which must NOT carry seq
+        const unsequencedRoom = contract.schema.s2c[event]?.seq === false;
+        const roomOrDeal = (String(entry.to).startsWith('game:') && !unsequencedRoom) || event === 'gameStart';
         const hasSeq = wire && typeof wire === 'object' && 'seq' in wire;
         if (roomOrDeal && !(hasSeq && Number.isInteger(wire.seq) && wire.seq >= 1)) {
             errors = [{ path: '$.seq', message: `room broadcast / gameStart '${event}' without an integer seq` }];

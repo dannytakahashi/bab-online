@@ -77,6 +77,12 @@ export const BID_SHEET_CHROME = 2 * (BID_SHEET_PAD + BID_SHEET_BORDER);
 export const BID_SHEET = { w: 13 * BID_CHIP.w + 12 * BID_CHIP.gap + BID_SHEET_CHROME, h: 330 };
 /** Status pill text (the longest, lazy mode). */
 export const STATUS_TEXT_W = 380;
+/**
+ * The spectator badge (eye + count; ui/components/SpectatorBadge.js): the
+ * voice buttons' height, this many heights wide (room for a 2-digit count;
+ * a longer one ellipsizes, the aria-label has it).
+ */
+export const SPECTATOR_BADGE = { wPerH: 2 };
 
 /**
  * The play zone (the green felt, LayoutManager's #playZoneDom). Before item
@@ -506,35 +512,99 @@ function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1, felt = 0, hi
   const bidY = q(zone.y + zone.h / 2);
   const bidSheet = { x: bidX, y: bidY, scale: bidScale, rect: around(bidX, bidY, bidW, bidH) };
 
+  // ---------- who is watching: the spectator badge, bottom right, off the felt ----------
+  // (eye + count, at the voice buttons' height: SpectatorBadge, .hud-spectators)
+  const badgeH = voiceBtn;
+  const badgeW = Math.round(badgeH * SPECTATOR_BADGE.wPerH * 100) / 100;
+  const badgeAt = (x, y) => rect(q(x), q(y), badgeW, badgeH);
+  // then up the right edge, a row at a time (a phone-size canvas, where a
+  // bubble needs the corner: the badge gives way, see below)
+  const upTheEdge = (y0) => [1, 2, 3, 4].map((k) => badgeAt(cw - M - badgeW, y0 - k * (voiceGap + badgeH)));
+  const badgeCandidates = isSpectator
+    ? [
+      // beside the corner's voice buttons, then above them
+      badgeAt(voice.rect.x - voiceGap - badgeW, voice.rect.y),
+      ...upTheEdge(voice.rect.y),
+    ]
+    : [
+      // the table's corner, then beside my voice buttons (right, left)
+      badgeAt(cw - M - badgeW, ch - M - badgeH),
+      badgeAt(voice.rect.x + voice.rect.w + voiceGap, voice.rect.y),
+      badgeAt(voice.rect.x - voiceGap - badgeW, voice.rect.y),
+      ...upTheEdge(ch - M - badgeH),
+    ];
+  const badgeAvoid = [trump.rect, zone, bidSheet.rect, status.rect, history.team.rect, history.opp.rect,
+    ...Object.values(tSlots).map((t) => t.rect), voice.rect];
+  if (hand) badgeAvoid.push(hand.rect);
+  for (const seat of Object.values(seats)) {
+    badgeAvoid.push(seat.avatar.rect, seat.plate, seat.dealer.rect);
+    if (seat.cards) badgeAvoid.push(seat.cards.rect);
+    if (seat.hsi) badgeAvoid.push(seat.hsi.rect);
+  }
+  const onCanvas = (r) => contains(rect(0, 0, cw, ch), r);
+  const badgeClean = badgeCandidates.filter((r) => onCanvas(r) && !badgeAvoid.some((o) => intersects(o, r)));
+
   // ---------- bubbles: each seat's direction and width, clear of the game's information ----------
-  const keep = [trump.rect, ...Object.values(tSlots).map((t) => t.rect), history.team.rect, history.opp.rect];
-  if (hand) keep.push(hand.rect);
-  const chosen = [];
-  for (const key of ['partner', 'opp1', 'opp2', 'self']) {
-    const seat = seats[key];
-    const dirs = bubbleDirsFor(key, isSpectator);
-    // the spectator's bottom seat: its bubble leaves its own backs visible
-    // too where any direction and width can (a wish: a phone smaller than
-    // 390 x 844 may have none, and the bubble then covers them while up)
-    const own = isSpectator && key === 'self' ? [seat.cards.rect] : [];
-    let pick = null;
-    for (const avoid of own.length ? [own, []] : [[]]) {
-      for (const f of BUBBLE_WIDTHS) {
-        for (const dir of dirs) {
-          const clearOwn = avoid.length > 0;
-          const r = bubbleRect(seat, dir, bubbleBox.w * f, clearOwn);
-          if (!contains(rect(0, 0, cw, ch), r)) continue;
-          if (keep.some((o) => intersects(o, r)) || avoid.some((o) => intersects(o, r)) || chosen.some((o) => intersects(o, r))) continue;
-          pick = { dir, w: bubbleBox.w * f, rect: r, clearOwn };
-          break;
+  const keepBase = [trump.rect, ...Object.values(tSlots).map((t) => t.rect), history.team.rect, history.opp.rect];
+  if (hand) keepBase.push(hand.rect);
+  // every seat's pick with `badge` kept clear too; `rank` counts the seats
+  // that got their best kind of spot (a pick at all, beside its own backs)
+  const pickBubbles = (badge) => {
+    const keep = badge ? [...keepBase, badge] : keepBase;
+    const chosen = [];
+    const picks = {};
+    let rank = 0;
+    for (const key of ['partner', 'opp1', 'opp2', 'self']) {
+      const seat = seats[key];
+      const dirs = bubbleDirsFor(key, isSpectator);
+      // the spectator's bottom seat: its bubble leaves its own backs visible
+      // too where any direction and width can (a wish: a phone smaller than
+      // 390 x 844 may have none, and the bubble then covers them while up)
+      const own = isSpectator && key === 'self' ? [seat.cards.rect] : [];
+      let pick = null;
+      for (const avoid of own.length ? [own, []] : [[]]) {
+        for (const f of BUBBLE_WIDTHS) {
+          for (const dir of dirs) {
+            const clearOwn = avoid.length > 0;
+            const r = bubbleRect(seat, dir, bubbleBox.w * f, clearOwn);
+            if (!onCanvas(r)) continue;
+            if (keep.some((o) => intersects(o, r)) || avoid.some((o) => intersects(o, r)) || chosen.some((o) => intersects(o, r))) continue;
+            pick = { dir, w: bubbleBox.w * f, rect: r, clearOwn };
+            break;
+          }
+          if (pick) break;
         }
         if (pick) break;
       }
-      if (pick) break;
+      if (pick) rank += own.length && !pick.clearOwn ? 1 : 2;
+      // none fits: the first choice, and the overlap check sends the search to a smaller s
+      if (!pick) pick = { dir: dirs[0], w: bubbleBox.w, rect: bubbleRect(seat, dirs[0], bubbleBox.w) };
+      chosen.push(pick.rect);
+      picks[key] = pick;
     }
-    // none fits: the first choice, and the overlap check sends the search to a smaller s
-    if (!pick) pick = { dir: dirs[0], w: bubbleBox.w, rect: bubbleRect(seat, dirs[0], bubbleBox.w) };
-    chosen.push(pick.rect);
+    return { picks, rank };
+  };
+  // the first clean badge spot that costs no bubble its spot (the badge
+  // gives way to the bubbles), else the first clean one, else the first
+  // (the overlap check then sends the search to a smaller s)
+  let badgeRect = badgeClean[0] || badgeCandidates[0];
+  let bubblePicks = pickBubbles(badgeRect);
+  if (badgeClean.length > 1) {
+    const best = pickBubbles(null).rank;
+    if (bubblePicks.rank < best) {
+      for (const r of badgeClean.slice(1)) {
+        const p = pickBubbles(r);
+        if (p.rank === best) {
+          badgeRect = r;
+          bubblePicks = p;
+          break;
+        }
+      }
+    }
+  }
+  const spectators = { rect: badgeRect, h: badgeH, w: badgeW, font: Math.max(10, 14 * s), icon: Math.round(badgeH * 0.5 * 100) / 100 };
+  for (const [key, pick] of Object.entries(bubblePicks.picks)) {
+    const seat = seats[key];
     const a = bubbleAnchor(seat, pick.dir, !!pick.clearOwn);
     seat.bubble = { dx: a.dx, dy: a.dy, x: seat.avatar.x + a.dx, y: seat.avatar.y + a.dy, tail: pick.dir, w: pick.w, rect: pick.rect };
   }
@@ -617,15 +687,16 @@ function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1, felt = 0, hi
     bidSheet,
     status,
     voice,
+    spectators,
     draw,
     teams,
     effects,
   };
 }
 
-/** The groups a bubble must leave visible (the game's information, and the other seats' bubbles). */
+/** The groups a bubble must leave visible (the game's information, the spectator badge, and the other seats' bubbles). */
 export const BUBBLE_KEEPS = ['trump', 'hand', 'trick:self', 'trick:partner', 'trick:opponent1', 'trick:opponent2',
-  'history:team', 'history:opp', 'bubble:self', 'bubble:partner', 'bubble:opp1', 'bubble:opp2'];
+  'history:team', 'history:opp', 'spectators', 'bubble:self', 'bubble:partner', 'bubble:opp1', 'bubble:opp2'];
 
 /**
  * Every rect the overlap check knows, with its group: rects of the same
@@ -657,6 +728,7 @@ export function layoutRects(L) {
   add('trump', 'trump', L.trump.rect);
   add('bidSheet', 'bidSheet', L.bidSheet.rect, ['zone', 'trick:self', 'trick:partner', 'trick:opponent1', 'trick:opponent2']);
   add('status', 'status', L.status.rect);
+  if (L.spectators) add('spectators', 'spectators', L.spectators.rect);
   if (L.log) add('log', 'log', L.log);
   for (const [key, seat] of Object.entries(L.seats)) add(`${key}.bubble`, `bubble:${key}`, seat.bubble.rect, [], BUBBLE_KEEPS);
   return out;

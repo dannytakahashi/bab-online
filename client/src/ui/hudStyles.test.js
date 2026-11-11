@@ -13,6 +13,7 @@ const HUD_FILES = [
   'src/ui/components/VoiceChatUI.js', 'src/ui/components/TournamentScoreboard.js', 'src/phaser/managers/LayoutManager.js',
   'src/phaser/scenes/GameScene.js', 'src/phaser/managers/DrawManager.js', 'src/ui/components/Toast.js',
   'src/ui/components/ConnectionBanner.js', 'src/ui/components/ChatBubble.js', 'src/ui/tableHud.js', 'src/ui/transitionOverlay.js',
+  'src/ui/components/SpectatorBadge.js',
 ];
 
 const HEX = /#[0-9a-fA-F]{3,8}\b/g;

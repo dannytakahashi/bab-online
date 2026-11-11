@@ -15,6 +15,7 @@
 const { calculateMultiplier, determineDrawPosition } = require('./rules');
 const { Phase } = require('./GamePhase');
 const { Controller, isBotSocket, seatDisplay } = require('./SeatState');
+const { spectatorsWire } = require('./spectatorWire');
 
 const SNAPSHOT_VERSION = 2;
 const HAND_SEQUENCE = [12, 10, 8, 6, 4, 2, 1, 3, 5, 7, 9, 11, 13];
@@ -181,6 +182,10 @@ function buildSnapshotV2(game, viewerSid, { tournament = null, now = Date.now(),
     }
     partial.sort();
 
+    // ---- who is watching: pure spectators, one per username, never a
+    // seat owner (GameState.spectatorList); capped list, true count ----
+    const watching = spectatorsWire(game.spectatorList(), avatarResolve);
+
     return {
         v: SNAPSHOT_VERSION,
         gameId: game.gameId,
@@ -214,7 +219,12 @@ function buildSnapshotV2(game, viewerSid, { tournament = null, now = Date.now(),
         seats,
         entrants,
         draw,
+        // (v2's own, unchanged: spectator SOCKETS, an owner's other tab
+        // included; the badge reads `watching`)
         spectatorCount: game.spectators.size,
+        // additive (2026-11-11, the table's spectator badge): who is
+        // watching, as spectatorsUpdated sends it (people, never an owner)
+        watching,
         tournament: tournament ? {
             tournamentId: tournament.tournamentId,
             name: tournament.name,

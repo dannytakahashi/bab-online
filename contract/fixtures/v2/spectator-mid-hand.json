@@ -166,6 +166,15 @@
     "entrants": null,
     "draw": null,
     "spectatorCount": 1,
+    "watching": {
+      "spectators": [
+        {
+          "username": "lou",
+          "pic": null
+        }
+      ],
+      "count": 1
+    },
     "tournament": null,
     "log": [
       {

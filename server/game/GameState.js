@@ -1146,6 +1146,44 @@ class GameState {
         return this.spectators.has(socketId);
     }
 
+    /**
+     * Who is watching (the table's spectator badge; owner, 2026-11-11): the
+     * ONE membership rule behind the list and count the badge shows
+     * (spectatorsUpdated, snapshot v2 `watching`). Pure spectators
+     * (`this.spectators`), one entry per
+     * username in join order, without anyone who owns a seat here (a
+     * lazy, resigned or /leave'd owner watching from another socket or tab
+     * is at their seat already) or is a pre-seating entrant. A lazy owner's
+     * watch socket is mapped (playerGames), never in `this.spectators`.
+     * The older `spectatorCount` fields (the spectatorJoined notice and full
+     * state, snapshot v2 spectatorCount, inProgressGames) keep their
+     * cc865b4 meaning, the spectator SOCKET count (`this.spectators.size`,
+     * which an owner's demoted socket or second tab is part of): their
+     * values are pinned by wireCompat.test.js, and ambient demand reads it.
+     * @returns {Array<{username: string, pic: (number|string|null)}>}
+     */
+    spectatorList() {
+        const seated = new Set();
+        for (const s of this.seatList()) if (s.ownerUsername) seated.add(s.ownerUsername);
+        if (this.entrants) {
+            for (const e of this.entrants.values()) if (!e.isBot && e.username) seated.add(e.username);
+        }
+        const seen = new Set();
+        const list = [];
+        for (const info of this.spectators.values()) {
+            const name = info.username;
+            if (!name || seated.has(name) || seen.has(name)) continue;
+            seen.add(name);
+            list.push({ username: name, pic: info.pic ?? null });
+        }
+        return list;
+    }
+
+    /** spectatorList().length: the people watching. */
+    spectatorCount() {
+        return this.spectatorList().length;
+    }
+
     // ========================================
     // Game Log Methods
     // ========================================
@@ -1259,6 +1297,22 @@ class GameState {
         // copy: nested values are the same references as before.
         const seq = this.nextSeq();
         io.to(this.roomName).emit(event, isPlainObject(data) ? { ...data, seq } : data);
+    }
+
+    /**
+     * An UNSEQUENCED room emit (no seq, no bump): only for an event whose
+     * schema entry says `seq: false` and whose payload is the whole
+     * absolute state (spectatorsUpdated). A sequenced event the App Store
+     * build does not listen to would open a seq gap there (its gate would
+     * resync on every one). Dropped once the game is terminal, like
+     * broadcast.
+     */
+    emitUnsequenced(io, event, data) {
+        if (this.isTerminal()) {
+            gameLogger.debug('emit dropped: terminal', { gameId: this.gameId, event });
+            return;
+        }
+        io.to(this.roomName).emit(event, data);
     }
 
     /**

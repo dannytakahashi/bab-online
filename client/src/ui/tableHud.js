@@ -10,6 +10,8 @@
  *   #spectating-indicator  the status slot (lazy / spectator pill)
  *   #bidContainer          the bid sheet slot
  *   .hud-voice             the voice buttons
+ *   .hud-spectators        who is watching: eye + count, its list popover
+ *                          (ui/components/SpectatorBadge.js)
  *
  * applyHudLayout(layout) is the only writer of positions: a relayout
  * moves everything at once. Seats outlive a render (it redraws only the
@@ -89,6 +91,19 @@ export function hudVoiceSlot({ create = true } = {}) {
   return slot;
 }
 
+/** The spectator badge's slot (null without a table; ui/components/SpectatorBadge.js). */
+export function hudSpectatorSlot({ create = true } = {}) {
+  const hud = getHud({ create });
+  if (!hud) return null;
+  let slot = hud.querySelector(':scope > .hud-spectators');
+  if (!slot && create) {
+    slot = document.createElement('div');
+    slot.className = 'hud-spectators';
+    hud.appendChild(slot);
+  }
+  return slot;
+}
+
 const px = (v) => `${Math.round(v * 100) / 100}px`;
 
 function applyRootVars(hud, L) {
@@ -142,6 +157,16 @@ function applyRootVars(hud, L) {
   set('--voice-w', vr.w);
   set('--voice-btn', L.voice.button);
   set('--voice-gap', L.voice.gap);
+  // the spectator badge (who is watching)
+  const sp = L.spectators;
+  if (sp) {
+    set('--spec-x', sp.rect.x);
+    set('--spec-y', sp.rect.y);
+    set('--spec-w', sp.rect.w);
+    set('--spec-h', sp.rect.h);
+    set('--spec-font', sp.font);
+    set('--spec-icon', sp.icon);
+  }
 }
 
 function applySeatVars(seat, L) {

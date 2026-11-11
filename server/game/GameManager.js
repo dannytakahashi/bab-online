@@ -10,6 +10,7 @@ const { getUsersCollection } = require('../database');
 const { botController, BotPlayer, personalities } = require('./bot');
 const { PERSONALITY_LIST } = personalities;
 const { Phase } = require('./GamePhase');
+const spectatorRoster = require('./spectatorRoster');
 
 class GameManager {
     constructor() {
@@ -855,6 +856,9 @@ class GameManager {
         game.addSpectator(socketId, username, pic);
         if (io) game.joinToRoom(io, socketId);
         this.spectatorGames.set(socketId, game.gameId);
+        // the table's spectator list (spectatorsUpdated) and its picture
+        spectatorRoster.spectatorsChanged(io, game);
+        if (pic == null && io) spectatorRoster.lookupPic(io, game, socketId, username);
         return true;
     }
 
@@ -871,6 +875,8 @@ class GameManager {
         if (game) {
             game.removeSpectator(socketId);
             if (io) game.leaveRoom(io, socketId);
+            // (without io: the io the game's list was last scheduled with)
+            spectatorRoster.spectatorsChanged(io, game);
         }
         return game;
     }

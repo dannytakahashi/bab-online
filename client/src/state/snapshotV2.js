@@ -190,7 +190,37 @@ export function parseSnapshotV2(raw) {
   // trickHistory (2026-11-11): the deal's won tricks with their cards, so a
   // rejoin draws them face up as before; malformed: left out (counts only)
   if ('trickHistory' in raw && validTrickHistory(raw.trickHistory)) copy.trickHistory = JSON.parse(JSON.stringify(raw.trickHistory));
+  // watching (2026-11-11): who is watching, for the spectator badge;
+  // malformed or absent (an older server): left out
+  const watching = 'watching' in raw ? parseWatching(raw.watching) : null;
+  if (watching) copy.watching = watching;
   return { ok: true, snapshot: deepFreeze(copy) };
+}
+
+/** The server's list cap (server/game/spectatorWire.js SPECTATOR_LIST_MAX). */
+export const WATCHING_MAX = 50;
+const AVATAR_URL = /^\/avatar\/[^/?#\s]+\?v=[0-9a-f]{16}$/;
+
+/**
+ * Who is watching, from spectatorsUpdated or snapshot.watching:
+ * {spectators: [{username, pic, avatarUrl?}], count} with pic a stock
+ * number (1-82) or null and avatarUrl an /avatar URL; count is the true
+ * total (at least the list's length). null when malformed.
+ */
+export function parseWatching(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const { spectators, count } = raw;
+  if (!Array.isArray(spectators) || spectators.length > WATCHING_MAX) return null;
+  if (!Number.isInteger(count) || count < spectators.length) return null;
+  const list = [];
+  for (const s of spectators) {
+    if (!s || typeof s !== 'object' || typeof s.username !== 'string' || !s.username) return null;
+    const pic = Number.isInteger(s.pic) && s.pic >= 1 && s.pic <= 82 ? s.pic : null;
+    const entry = { username: s.username, pic };
+    if (typeof s.avatarUrl === 'string' && AVATAR_URL.test(s.avatarUrl)) entry.avatarUrl = s.avatarUrl;
+    list.push(entry);
+  }
+  return { spectators: list, count };
 }
 
 /**

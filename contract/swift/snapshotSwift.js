@@ -20,7 +20,7 @@
 'use strict';
 
 /** $defs name -> Swift type nested in TableSnapshot. */
-const NAMED = { snapshotV2: 'TableSnapshot', viewerV2: 'Viewer', seatV2: 'Seat', drawV2: 'Draw', tournamentV2: 'Tournament', teamPair: 'TeamPair' };
+const NAMED = { snapshotV2: 'TableSnapshot', viewerV2: 'Viewer', seatV2: 'Seat', drawV2: 'Draw', tournamentV2: 'Tournament', teamPair: 'TeamPair', spectatorEntry: 'Spectator', spectatorList: 'SpectatorList' };
 /** $defs name -> existing Swift type (no struct emitted). */
 const LEAF = { card: 'Card', position: 'Int', bidString: 'String', avatarUrl: 'String' };
 /** Inline object, by its key path from the nearest named type ('Draw.' prefix unless TableSnapshot). */

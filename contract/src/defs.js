@@ -285,6 +285,8 @@ const defs = {
         }), { maxItems: 4 })),
         draw: orNull(ref('drawV2')),
         spectatorCount: int({ minimum: 0 }),
+        // additive (2026-11-11): who is watching, as spectatorsUpdated sends it
+        watching: ref('spectatorList'),
         tournament: orNull(ref('tournamentV2')),
         log: arr(obj({ message: str(), type: enm(...LOG_TYPES), position: orNull(ref('position')), at: int() })),
         resume: orNull(obj({
@@ -316,6 +318,19 @@ const defs = {
         // additive: present only for a custom picture with a rendition
         avatarUrl: ref('avatarUrl'),
     }, { optional: ['avatarUrl'] }),
+    // a spectator in the table's list (server/game/spectatorWire.js): a
+    // stock pic (1-82) or null; a custom picture only as avatarUrl
+    spectatorEntry: obj({
+        username: str(),
+        pic: orNull(int({ minimum: 1, maximum: 82 })),
+        avatarUrl: ref('avatarUrl'),
+    }, { optional: ['avatarUrl'] }),
+    // GameState.spectatorList() on the wire: at most 50 people, `count`
+    // the true total (spectatorsUpdated, snapshot v2 `watching`)
+    spectatorList: obj({
+        spectators: arr(ref('spectatorEntry'), { maxItems: 50 }),
+        count: int({ minimum: 0 }),
+    }),
     drawV2: obj({
         deckRemaining: orNull(int({ minimum: 0, maximum: 54 })),
         drawn: arr(obj({

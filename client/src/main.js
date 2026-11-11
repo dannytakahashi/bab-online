@@ -62,6 +62,7 @@ import { registerAllHandlers } from './handlers/index.js';
 import { getVoiceChatManager } from './voice/VoiceChatManager.js';
 import { createMuteButton, removeMuteButton, showVoiceOverlay, removeVoiceOverlay, setMuteButtonState } from './ui/components/VoiceChatUI.js';
 import { setTableChrome, clearHud, hudRoot } from './ui/tableHud.js';
+import { renderSpectatorBadge, removeSpectatorBadge } from './ui/components/SpectatorBadge.js';
 
 // ============================================
 // Game Scene Access
@@ -586,8 +587,9 @@ function initializeApp() {
     document.getElementById('gameFeed')?.remove();
     gameLogInstance = null;
 
-    // The HUD (seats, frog, bubbles, bid sheet, status, voice slot), and
-    // fallbacks for DOM a scene manager would normally own
+    // The HUD (seats, frog, bubbles, bid sheet, status, voice slot, who is
+    // watching), and fallbacks for DOM a scene manager would normally own
+    removeSpectatorBadge();
     clearHud();
     document.querySelectorAll('.opponent-avatar-container, .dealer-button').forEach((el) => el.remove());
     document.getElementById('player-avatar-container')?.remove();
@@ -768,6 +770,7 @@ function initializeApp() {
     scene.renderScoreHeader?.();
     const role = model.viewer?.role;
     setSpectatingIndicator(role === 'lazyWatcher' ? 'lazy' : (role === 'spectator' ? 'spectator' : null));
+    renderSpectatorBadge(model.watching, { me: gameState.username });
     return model;
   }
 
@@ -1418,6 +1421,12 @@ function initializeApp() {
         invalid_bid: "That bid isn't allowed",
       };
       showWarning(reasons[data.reason] || 'Action not accepted');
+    },
+    // Who is watching changed (GameState has applied it): the badge only,
+    // at the table (a render draws it from the same state)
+    onSpectatorsUpdated: (watching) => {
+      if (!session.isAtTable) return;
+      renderSpectatorBadge(watching, { me: gameState.username });
     },
     // The reply to requestSnapshot: a seq gap, an ack timeout, the liveness
     // ping. Any snapshot of this table is applied (R3); not_in_game applies

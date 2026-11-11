@@ -10,6 +10,7 @@
  */
 
 import { team, rotate } from '../utils/positions.js';
+import { parseWatching } from './snapshotV2.js';
 
 // Game phases
 export const PHASE = {
@@ -151,6 +152,8 @@ export class GameState {
     // show that team's count (ui/seatPlates.js)
     this.tricksByPosition = GameState._noSeatTricks();
     this.seats = []; // snapshot v2 seat records, when known
+    // Who is watching (spectatorsUpdated / snapshot.watching): the badge
+    this.watching = { spectators: [], count: 0 };
     this.resume = null;
     this._redealPending = false;
     // Bumped by every applied change (renderers compare it)
@@ -234,6 +237,7 @@ export class GameState {
    * Set game info.
    */
   setGameInfo(gameId, currentHand, dealer) {
+    if (gameId && this.gameId && gameId !== this.gameId) this.watching = { spectators: [], count: 0 };
     this.gameId = gameId;
     this.currentHand = currentHand;
     this.dealer = dealer;
@@ -703,6 +707,8 @@ export class GameState {
   /** gameStart: a new deal (a zero-bid redeal keeps the hand number). */
   applyDeal(data) {
     if (data.position) this.position = data.position;
+    // another game (a tournament's next table): its own watchers
+    if (data.gameId && this.gameId && data.gameId !== this.gameId) this.watching = { spectators: [], count: 0 };
     if (data.gameId) this.gameId = data.gameId;
     this.currentHand = data.currentHand ?? (data.hand?.length || 0);
     if (data.dealer !== undefined) this.dealer = data.dealer;
@@ -908,6 +914,21 @@ export class GameState {
     this._changed();
   }
 
+  /**
+   * spectatorsUpdated {gameId, spectators, count}: the whole list (it is
+   * unsequenced: the latest one is the truth). Another game's list, or a
+   * malformed one, is ignored.
+   * @returns {boolean} whether it was applied
+   */
+  applySpectators(data) {
+    if (!data || (data.gameId && this.gameId && data.gameId !== this.gameId)) return false;
+    const watching = parseWatching(data);
+    if (!watching) return false;
+    this.watching = watching;
+    this._changed();
+    return true;
+  }
+
   // ============================================
   // Snapshots (the only restore path)
   // ============================================
@@ -930,8 +951,14 @@ export class GameState {
       (snap.deal.dealSeq ?? null) === (this.dealSeq ?? null);
     const prevHistory = this.trickHistory;
 
+    const sameGame = !!snap.gameId && snap.gameId === this.gameId;
     if (snap.gameId) this.gameId = snap.gameId;
     this.stage = snap.stage || null;
+    // who is watching: the snapshot's list; without one (an older server, a
+    // v1 payload) this game's list stays, another game starts empty
+    const watching = snap.watching ? parseWatching(snap.watching) : null;
+    if (watching) this.watching = watching;
+    else if (!sameGame) this.watching = { spectators: [], count: 0 };
     this.isSpectator = role === 'spectator';
     this.isLazy = role === 'lazyWatcher';
     if (snap.viewer?.position) this.position = snap.viewer.position;
@@ -1100,6 +1127,7 @@ export class GameState {
       score: { team: this.teamScore, opp: this.oppScore },
       hsi: position ? this.hsiValues[position] : undefined,
       playerData: this.playerData,
+      watching: { spectators: this.watching.spectators.map((w) => ({ ...w })), count: this.watching.count },
     };
   }
 

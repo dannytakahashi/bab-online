@@ -398,13 +398,15 @@ describe('purity and options', () => {
         const { game } = seated();
         expect(Object.keys(game.getSnapshotV2(null))).toEqual(['v', 'gameId', 'seq', 'serverTime', 'stage', 'partial', 'viewer',
             'hand', 'deal', 'trump', 'trumpBroken', 'turn', 'bids', 'trick', 'tricks', 'tricksByPosition', 'trickHistory', 'score', 'rainbows',
-            'hsi', 'seats', 'entrants', 'draw', 'spectatorCount', 'tournament', 'log', 'resume']);
+            'hsi', 'seats', 'entrants', 'draw', 'spectatorCount', 'watching', 'tournament', 'log', 'resume']);
     });
 
-    test('the builder requires only rules, GamePhase and SeatState', () => {
-        const src = require('fs').readFileSync(require.resolve('../snapshotV2'), 'utf8');
+    test('the builder requires only rules, GamePhase, SeatState and spectatorWire (itself requiring nothing)', () => {
+        const fs = require('fs');
+        const src = fs.readFileSync(require.resolve('../snapshotV2'), 'utf8');
         const reqs = [...src.matchAll(/require\('([^']+)'\)/g)].map((m) => m[1]).sort();
-        expect(reqs).toEqual(['./GamePhase', './SeatState', './rules']);
+        expect(reqs).toEqual(['./GamePhase', './SeatState', './rules', './spectatorWire']);
+        expect(fs.readFileSync(require.resolve('../spectatorWire'), 'utf8')).not.toMatch(/require\(/);
     });
 });
 

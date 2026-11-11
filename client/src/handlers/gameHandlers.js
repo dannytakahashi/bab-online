@@ -5,7 +5,7 @@
  *          createUI, bidReceived, doneBidding, updateTurn, cardPlayed, trickComplete,
  *          handComplete, gameEnd, rainbow, destroyHands, abortGame, roomFull,
  *          playerDisconnected, playerReconnected, rejoinSuccess, rejoinFailed,
- *          actionRejected, stateSnapshot
+ *          actionRejected, stateSnapshot, spectatorsUpdated
  *
  * Each handler applies its event to GameState (the one writer of table
  * state; sequenced events reach it in seq order through SocketManager's
@@ -68,6 +68,8 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
     // Acked actions and resyncs
     onActionRejected,
     onStateSnapshot,
+    // Who is watching
+    onSpectatorsUpdated,
   } = callbacks;
 
   const state = getGameState();
@@ -316,6 +318,11 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
   // The reply to requestSnapshot (a seq gap, an ack timeout, the liveness ping)
   socketManager.on(SERVER_EVENTS.STATE_SNAPSHOT, (data) => {
     onStateSnapshot?.(data || {});
+  });
+
+  // Who is watching (the spectator badge): the whole list, unsequenced
+  socketManager.on(SERVER_EVENTS.SPECTATORS_UPDATED, (data) => {
+    if (state.applySpectators(data)) onSpectatorsUpdated?.(state.renderModel().watching);
   });
 
   // ==================== RESIGNATION & LAZY MODE ====================
