@@ -92,6 +92,7 @@ A "bore" is a double-or-nothing bet that your team will win ALL tricks.
 **Rules for bore escalation:**
 - Only players who haven't bid yet (to the left of the previous bidder) can escalate
 - You cannot skip levels (e.g., can't bid 3B if no one bid 2B)
+- Each level can be bid only once per hand (no second B, 2B, 3B or 4B; so no B once any bore is out)
 - Quadruple bore (4B) is very rare
 
 ### Zero Bids

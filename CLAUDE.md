@@ -113,7 +113,7 @@ bab-online/
 - `playedCards`: [pos1Card, pos2Card, pos3Card, pos4Card]
 - `tricks`: {team1: count, team2: count}
 
-**Bid Values:** '0'-'13' for numbers (a number may not exceed the hand size, so '13' only on the 13-card hand: owner 2026-11-11, "technically legal, just very unlikely"; a plain 1x bid of 13 tricks), 'B'/'2B'/'3B'/'4B' for bores (2x/4x/8x/16x multipliers). `rules.BID_VALUES` is the one list (the Joi `playerBid` schema and `GameState.validateBid` use it / `isValidBid`); Joi takes '13'/13 on any hand and `isValidBid` refuses it below 13 cards (`actionRejected invalid_bid`). For the lead every bore outranks a numeric 13 (`findHighestBidder`); bots never bid 13 (`server/socket/__tests__/bid13.test.js`)
+**Bid Values:** '0'-'13' for numbers (a number may not exceed the hand size, so '13' only on the 13-card hand: owner 2026-11-11, "technically legal, just very unlikely"; a plain 1x bid of 13 tricks), 'B'/'2B'/'3B'/'4B' for bores (2x/4x/8x/16x multipliers; each level needs the one below on the table and may be bid once per deal: `isValidBid` refuses a skipped or repeated level, owner 2026-11-11). `rules.BID_VALUES` is the one list (the Joi `playerBid` schema and `GameState.validateBid` use it / `isValidBid`); Joi takes '13'/13 on any hand and `isValidBid` refuses it below 13 cards (`actionRejected invalid_bid`). For the lead every bore outranks a numeric 13 (`findHighestBidder`); bots never bid 13 (`server/socket/__tests__/bid13.test.js`)
 
 ## Game Flow (Socket Events)
 
