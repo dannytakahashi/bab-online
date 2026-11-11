@@ -1787,9 +1787,15 @@ socket.on('restoreSessionResponse', (data) => {
 });
 
 /**
- * Handle window load - show sign-in or attempt rejoin.
+ * Start the page: show sign-in or attempt rejoin. Runs once, on the window
+ * load event, or from the boot module (src/boot/boot.js) when this chunk
+ * arrives after load (it is imported by the entry, not a page script).
  */
-window.addEventListener('load', () => {
+let appStarted = false;
+export function startApp() {
+  if (appStarted) return;
+  appStarted = true;
+
   // Initialize the app
   initializeApp();
 
@@ -1813,4 +1819,6 @@ window.addEventListener('load', () => {
   // Handlers are registered: every connect from now on restores the session
   // first (now, if the socket is up), then rejoins / re-spectates / re-enters
   session.start();
-});
+}
+
+window.addEventListener('load', startApp);

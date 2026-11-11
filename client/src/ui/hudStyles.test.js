@@ -29,7 +29,7 @@ describe('the table on tokens and kit classes', () => {
   }
 
   it('no infinite animation on the table but the opacity-only turn glow', () => {
-    for (const css of ['styles/table.css', 'styles/kit.css', 'styles/components.css', 'styles.css']) {
+    for (const css of ['styles/table.css', 'styles/kit.css', 'styles/components.css', 'styles.css', 'styles/gate.css']) {
       const text = readClientFile(css);
       const infinite = [...text.matchAll(/animation:\s*([\w-]+)[^;]*infinite/g)].map((m) => m[1]);
       expect(infinite.every((n) => n === 'kit-turn-glow'), `${css}: ${infinite}`).toBe(true);
