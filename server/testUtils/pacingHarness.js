@@ -36,17 +36,17 @@ const { makeIo, makeSocket, legalCards, legalBids, mulberry32 } = require('./gam
 const sameCard = (a, b) => a && b && a.suit === b.suit && a.rank === b.rank;
 
 /**
- * Run one game. `humans` 1 = one human + 3 lobby bots; 0 = an ambient
- * 4-bot game (start = startBotGame).
- * @returns {{total, components, traces, log, game, humanPos, humanErrors}}
+ * Run one game. `humans` 1 = one human + 3 lobby bots; 2 = two humans + 2
+ * lobby bots (both acting instantly, each with its own RNG); 0 = an
+ * ambient 4-bot game (start = startBotGame).
+ * @returns {{total, components, traces, log, game, humanPos, humanPositions, humanErrors}}
  */
 async function runGame(seed, { humans = 1, maxSteps = 200000 } = {}) {
     const realRandom = Math.random;
     Math.random = mulberry32(seed);
-    const humanRand = mulberry32((seed * 7919) ^ 0x5bd1e995);
-    const withHumanRng = (fn) => {
+    const withRng = (rand, fn) => {
         const r = Math.random;
-        Math.random = humanRand;
+        Math.random = rand;
         try { return fn(); } finally { Math.random = r; }
     };
 
@@ -57,31 +57,46 @@ async function runGame(seed, { humans = 1, maxSteps = 200000 } = {}) {
     const io = makeIo(log);
     let game;
     let start;
-    let sock = null;
     let pending = null;
+    // One entry per human: socket, decision bot, RNG, seat, open turn
+    // ('draw' or the updateTurn index it still has to answer)
+    const seats = [];
 
     try {
-        if (humans === 1) {
-            const sid = `pace-${seed}-h`;
-            gameManager.registerUser(sid, `pace_${seed}`);
-            require('../database').getUsersCollection()._insert({ username: `pace_${seed}`, profilePic: 5 });
-            sock = makeSocket(sid, log, io);
-            mainRoomHandlers.joinMainRoom(sock, io);
-            mainRoomHandlers.createLobby(sock, io, { name: 'Pace' });
-            for (let i = 0; i < 3; i++) lobbyHandlers.addBot(sock, io);
+        if (humans >= 1) {
+            for (let i = 0; i < humans; i++) {
+                const sid = `pace-${seed}-h${i ? i : ''}`;
+                const username = `pace_${seed}${i ? `_${i}` : ''}`;
+                gameManager.registerUser(sid, username);
+                require('../database').getUsersCollection()._insert({ username, profilePic: 5 });
+                seats.push({
+                    sock: makeSocket(sid, log, io),
+                    bot: new BotPlayer('🤖 Human', 'mary'),
+                    rand: mulberry32(((seed * 7919) ^ 0x5bd1e995) + i),
+                    pos: null,
+                    drew: false,
+                    turn: null,
+                });
+            }
+            const host = seats[0].sock;
+            for (const st of seats) mainRoomHandlers.joinMainRoom(st.sock, io);
+            mainRoomHandlers.createLobby(host, io, { name: 'Pace' });
+            if (seats.length > 1) {
+                const lobbyId = gameManager.getPlayerLobby(host.id).id;
+                for (const st of seats.slice(1)) mainRoomHandlers.joinLobby(st.sock, io, { lobbyId });
+            }
+            for (let i = seats.length; i < 4; i++) lobbyHandlers.addBot(host, io);
+            // the host readies last: its playerReady starts the game
+            for (const st of seats.slice(1)) await lobbyHandlers.playerReady(st.sock, io);
             start = Date.now();
-            pending = lobbyHandlers.playerReady(sock, io);
-            while (!(game = gameManager.getPlayerGame(sid))) await jest.advanceTimersToNextTimerAsync();
+            pending = lobbyHandlers.playerReady(host, io);
+            while (!(game = gameManager.getPlayerGame(host.id))) await jest.advanceTimersToNextTimerAsync();
         } else {
             start = Date.now();
             game = ambient.startBotGame(io);
         }
 
-        const human = humans === 1 ? new BotPlayer('🤖 Human', 'mary') : null;
-        let humanPos = null;
         let seen = 0;
-        let turnFor = null;     // updateTurn index the human still has to answer
-        let drew = false;
         let steps = 0;
         let endAt = null;
 
@@ -89,26 +104,31 @@ async function runGame(seed, { humans = 1, maxSteps = 200000 } = {}) {
             for (; seen < log.length; seen++) {
                 const l = log[seen];
                 if (l.event === 'gameEnd' && endAt === null) endAt = l.at;
-                if (!human) continue;
-                if (l.event === 'startDraw' && !drew) turnFor = 'draw';
-                if (l.event === 'playerAssigned' && (l.to === sock.id || l.to === `self:${sock.id}`)) humanPos = l.data.position;
-                if (l.event === 'updateTurn' && l.to === game.roomName && l.data.currentTurn === humanPos) turnFor = seen;
+                for (const st of seats) {
+                    if (l.event === 'startDraw' && !st.drew) st.turn = 'draw';
+                    if (l.event === 'playerAssigned' && (l.to === st.sock.id || l.to === `self:${st.sock.id}`)) st.pos = l.data.position;
+                    if (l.event === 'updateTurn' && l.to === game.roomName && l.data.currentTurn === st.pos) st.turn = seen;
+                }
             }
         };
 
         while (endAt === null && steps++ < maxSteps) {
             scan();
             if (endAt !== null) break;
-            if (human && turnFor === 'draw') {
-                turnFor = null;
-                drew = true;
-                gameHandlers.draw(sock, io, { num: 0 });
+            const st = seats.find((x) => x.turn !== null);
+            if (st && st.turn === 'draw') {
+                st.turn = null;
+                st.drew = true;
+                gameHandlers.draw(st.sock, io, { num: 0 });
                 await jest.advanceTimersByTimeAsync(0);
                 continue;
             }
-            if (human && turnFor !== null) {
-                turnFor = null;
+            if (st) {
+                st.turn = null;
+                const sock = st.sock;
                 const sid = sock.id;
+                const humanPos = st.pos;
+                const human = st.bot;
                 human.position = humanPos;
                 if (game.stage === Phase.BIDDING && game.currentTurn === humanPos) {
                     const ctx = {
@@ -116,12 +136,12 @@ async function runGame(seed, { humans = 1, maxSteps = 200000 } = {}) {
                         oppScore: humanPos % 2 ? game.score.team2 : game.score.team1,
                         currentHandSize: game.currentHand,
                     };
-                    let bid = withHumanRng(() => human.decideBid(game.getHand(sid), game.trump, game.playerBids, game.currentHand, ctx));
+                    let bid = withRng(st.rand, () => human.decideBid(game.getHand(sid), game.trump, game.playerBids, game.currentHand, ctx));
                     if (!legalBids(game).includes(String(bid))) bid = legalBids(game)[0];
                     gameHandlers.playerBid(sock, io, { bid });
                 } else if (game.stage === Phase.PLAYING && game.currentTurn === humanPos) {
                     const legal = legalCards(game, sid);
-                    let card = withHumanRng(() => human.decideCard(game.getHand(sid), game.playedCards, game.leadCard,
+                    let card = withRng(st.rand, () => human.decideCard(game.getHand(sid), game.playedCards, game.leadCard,
                         game.leadPosition, game.trump, game.isTrumpBroken, game.currentHand, botController.buildPlayContext(game)));
                     if (!legal.some((c) => sameCard(c, card))) card = legal[0];
                     gameHandlers.playCard(sock, io, { card });
@@ -149,10 +169,10 @@ async function runGame(seed, { humans = 1, maxSteps = 200000 } = {}) {
             }
         }
         if (drawLast > drawFirst) add('botDraw', drawLast - drawFirst);
-        const humanErrors = sock
-            ? log.filter((l) => l.to === `self:${sock.id}` && (l.event === 'actionRejected' || l.event === 'error'))
-            : [];
-        return { total, components, traces, log, game, humanPos, humanErrors };
+        const humanErrors = log.filter((l) => seats.some((st) => l.to === `self:${st.sock.id}`) &&
+            (l.event === 'actionRejected' || l.event === 'error'));
+        const humanPositions = seats.map((st) => st.pos);
+        return { total, components, traces, log, game, humanPos: humanPositions[0] ?? null, humanPositions, humanErrors };
     } finally {
         Math.random = realRandom;
         pacing.setTracer(null);
@@ -177,10 +197,11 @@ async function measure(seeds, opts) {
  * from the emit timestamps of one runGame result (room broadcasts plus the
  * human's own gameStart). Keys match pacing.SHIPPED_IOS_FLOORS' reasons.
  */
-function gapMins({ log, game, humanPos }) {
+function gapMins({ log, game, humanPos, humanPositions }) {
     const mins = {};
     const gap = (k, ms) => { mins[k] = Math.min(mins[k] ?? Infinity, ms); };
-    const isBot = (pos) => pos !== humanPos;
+    const humansAt = humanPositions || [humanPos];
+    const isBot = (pos) => !humansAt.includes(pos);
     let draws = 0;
     let lastDraw = null;
     let teamsAt = null;

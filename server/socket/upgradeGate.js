@@ -70,6 +70,8 @@
 const { socketLogger } = require('../utils/logger');
 const { getUsersCollection } = require('../database');
 const { verifySession } = require('../utils/sessionTokens');
+// The kill switch, shared with server/game/pacing.js (the solo overlay)
+const { gateEnabled } = require('../utils/upgradeGateSwitch');
 
 /** First iOS build number that is never gated (1.1.0 is build 2). */
 const MIN_IOS_BUILD = 2;
@@ -127,10 +129,6 @@ function handshakeUserAgent(socket) {
     }
 }
 
-function gateEnabled() {
-    const v = String(process.env.UPGRADE_GATE || '').trim().toLowerCase();
-    return !['off', 'false', '0', 'disabled', 'no'].includes(v);
-}
 
 /** Is this the old iOS build? Positive identification only. */
 function isOutdatedIosApp(ua) {
