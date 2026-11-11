@@ -224,9 +224,13 @@
     height: 150px;
 }
 
-/* short windows: the lobby keeps its actions in view (it scrolls below that) */
+/* short windows: the lobby keeps its actions in view (it scrolls below that):
+   it may use the window but its gutter (as max-width does), and its chat log
+   gives up height before the panel scrolls (a lobby that is not full has the
+   Add Bot row too: 628 px, which used to scroll ~30 px at 1024 x 668) */
 @media (max-height: 820px) {
     .screen--lobby {
+        max-height: calc(100vh - 2 * var(--space-4));
         padding: var(--space-6);
     }
 
@@ -240,6 +244,12 @@
 
     .chat-log--short {
         height: 96px;
+    }
+
+    .screen--lobby .chat-log--short {
+        flex: 0 1 96px;
+        height: auto;
+        min-height: 64px;
     }
 
     .screen--lobby .screen-actions {

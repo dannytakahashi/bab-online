@@ -3,13 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- The server's header CSP applies too (server/middleware/csp.js): a
+         source must be allowed by both, so keep them in step -->
     <meta http-equiv="Content-Security-Policy" content="
         default-src 'self';
-        script-src 'self' 'unsafe-eval';
+        script-src 'self';
         img-src 'self' data: blob:;
         connect-src 'self' ws://localhost:3000 wss://bab-online-production.up.railway.app https://bab-online-production.up.railway.app;
-        font-src 'self' https://fonts.gstatic.com;
-        style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+        font-src 'self';
+        style-src 'self' 'unsafe-inline';
         media-src 'self' blob:;">
 
     <!-- Smart App Banner: iOS Safari (iPhone and iPad) offers the app -->
@@ -27,7 +29,11 @@
     <link rel="stylesheet" href="/styles/screens.css">
     <link rel="stylesheet" href="/styles/table.css">
     <link rel="stylesheet" href="/styles/gate.css">
-    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <!-- Icons (scripts/build-icons.js, from the iOS app icon): a small .ico
+         (16/32/48), a 192 px PNG for high-DPI tabs, the iOS home screen -->
+    <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48">
+    <link rel="icon" type="image/png" href="/assets/icons/icon-192.png" sizes="192x192">
+    <link rel="apple-touch-icon" href="/assets/icons/apple-touch-icon.png">
     <!-- The entry decides first (phone gate, src/boot/), then imports the
          app (src/main.js); the build preloads the app chunk on non-phones -->
     <script type="module" src="/src/entry.js"></script>

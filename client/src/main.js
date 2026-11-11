@@ -255,27 +255,15 @@ window.updateHandIndicatorFromLegacy = function(handSize) {
 // Application Initialization
 // ============================================
 
-/**
- * Get the socket connection (socket/createSocket.js). A page cached before
- * the client was bundled still runs socket-init.js, which created
- * window.socket already; reuse it there.
- */
-function getSocket() {
-  if (window.socket) {
-    return window.socket;
-  }
-  const socket = createSocket();
-  window.socket = socket;
-  return socket;
-}
-
-const socket = getSocket();
+// The page's one socket (socket/createSocket.js); window.socket is how the
+// scene reaches it
+const socket = createSocket();
+window.socket = socket;
 
 // Avatars over HTTP (docs/avatars.md): clientHello caps ['avatarUrl'] on
 // every connect (and right now: buffered ahead of any later emit while
 // disconnected), and avatarUrls folded into the pic fields as each message
-// arrives. Lives here, not in socket-init.js (cached separately, it could
-// pair with a stale bundle). Registered before the connect handler below.
+// arrives. Registered before the connect handler below.
 /* global __APP_VERSION__, __APP_BUILD__ */
 installAvatarSupport(socket, {
   version: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0',
@@ -1590,6 +1578,8 @@ function initializeApp() {
 
     onTournamentPlayerJoined: (data) => {
       updateTournamentPlayers(data.players, gameState.username);
+      // the joiner's scoreboard row (servers since 2026-11-11 send it)
+      if (Array.isArray(data.scoreboard)) updateTournamentScoreboardUI(data.scoreboard);
     },
 
     onTournamentPlayerLeft: (data) => {

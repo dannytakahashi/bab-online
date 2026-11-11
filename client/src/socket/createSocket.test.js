@@ -4,7 +4,7 @@ import { socketServerUrl, createSocket, PRODUCTION_SERVER_URL, SOCKET_OPTIONS } 
 const loc = (href) => new URL(href);
 
 describe('socketServerUrl', () => {
-  it('production pages talk to the Railway server, as socket-init.js did', () => {
+  it('production pages talk to the Railway server', () => {
     expect(socketServerUrl(loc('https://babonline.io/'))).toBe(PRODUCTION_SERVER_URL);
     expect(socketServerUrl(loc('https://bab-online-production.up.railway.app/'))).toBe(PRODUCTION_SERVER_URL);
   });

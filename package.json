@@ -17,6 +17,7 @@
         "tokens": "node scripts/build-tokens.js",
         "tokens:check": "node scripts/build-tokens.js --check",
         "build:avatars": "node scripts/build-avatars.js",
+        "build:icons": "node scripts/build-icons.js",
         "sim": "node server/game/bot/sim/simulate.js",
         "ios:fixtures": "node server/game/bot/sim/simulate.js --record-ios iOSClient/BABOnlineTests/Fixtures/events",
         "contract:gen": "node contract/gen.js",
@@ -66,8 +67,7 @@
         "coverageDirectory": "coverage",
         "collectCoverageFrom": [
             "server/**/*.js",
-            "!server/**/__tests__/**",
-            "!server/rainbowTest.js"
+            "!server/**/__tests__/**"
         ],
         "verbose": true
     },

@@ -291,6 +291,14 @@ Semantics:
   over the bids so far.
 - `trick.cards`: in play order from `leadPosition`. Between tricks `cards` is
   `[]`, `leadPosition` null and the next leader is `turn.position`.
+- `trickHistory` (additive, 2026-11-11): this deal's won tricks in order,
+  `{winner, lead, cards}` with the 4 cards in play order from `lead`; exactly
+  as many as `tricks` counts (written when the trick is counted, at the end
+  of the trick view, and reset with the counts by the next deal; a trick
+  still in TRICK_RESOLVING is in `trick.cards`, not here). Public: every
+  viewer saw the cards played. At most 13 entries, ~150 bytes each. Web
+  draws them as before a reload (its team's face up, the other's face down,
+  a spectator's all face up); iOS 1.1.0's decoder ignores the key.
 - `seats`: `[]` until all four exist, then 4 in position order, from the seat
   records (#182): controller, presence, owner, lazy, offered, grace/resignable
   timestamps, card count.

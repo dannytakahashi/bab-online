@@ -1172,62 +1172,40 @@ export class GameScene extends Phaser.Scene {
   // ============================================
 
   /**
-   * Handle playerResigned event.
-   * Updates opponent avatar when a bot takes over.
-   * @param {Object} data - { position, oldUsername, botUsername, botPic }
+   * playerResigned / playerLazyMode / playerActiveMode: GameState already
+   * holds who the seat shows now (applySeatDisplay); draw that seat and the
+   * score header from it.
    */
   handlePlayerResigned(data) {
-    console.log('🎮 GameScene.handlePlayerResigned()');
-    if (this.opponentManager) {
-      this.opponentManager.updatePlayerInfo(data.position, {
-        username: data.botUsername,
-        pic: data.botPic
-      });
-    }
+    this.showSeatDisplay(data.position);
   }
 
-  /**
-   * Handle playerLazyMode event.
-   * Updates opponent avatar when a bot takes over in lazy mode.
-   * @param {Object} data - { position, botUsername, botPic }
-   */
   handlePlayerLazyMode(data) {
-    console.log('🎮 GameScene.handlePlayerLazyMode()');
-    if (data.position === this.state.position && !this.state.isSpectator) {
-      // Update local player's avatar to show bot info
-      if (this._playerInfo) {
-        const pic = data.botPic;
-        if (isAvatarPic(pic)) applyAvatarImg(this._playerInfo.avatarImg, avatarSrc(pic));
-        this._playerInfo.nameLabel.textContent = data.botUsername;
-      }
-    } else if (this.opponentManager) {
-      this.opponentManager.updatePlayerInfo(data.position, {
-        username: data.botUsername,
-        pic: data.botPic
-      });
-    }
+    this.showSeatDisplay(data.position);
+  }
+
+  handlePlayerActiveMode(data) {
+    this.showSeatDisplay(data.position);
   }
 
   /**
-   * Handle playerActiveMode event.
-   * Restores player avatar when they take back control.
-   * @param {Object} data - { position, username, pic }
+   * Who a seat shows, from GameState (the bot after /lazy, an AFK takeover
+   * or a resignation; the owner after /active), everywhere the table names
+   * it at once: my own box or the seat's avatar, and the score header.
+   * @param {number} position
    */
-  handlePlayerActiveMode(data) {
-    console.log('🎮 GameScene.handlePlayerActiveMode()');
-    if (data.position === this.state.position && !this.state.isSpectator) {
-      // Restore local player's avatar
-      if (this._playerInfo) {
-        const pic = data.pic;
-        if (isAvatarPic(pic)) applyAvatarImg(this._playerInfo.avatarImg, avatarSrc(pic));
-        this._playerInfo.nameLabel.textContent = data.username;
-      }
-    } else if (this.opponentManager) {
-      this.opponentManager.updatePlayerInfo(data.position, {
-        username: data.username,
-        pic: data.pic
-      });
+  showSeatDisplay(position) {
+    const state = this.state;
+    const i = state?.playerData?.position?.indexOf(position) ?? -1;
+    if (i !== -1) {
+      const display = {
+        username: state.getPlayerNameByPosition(position),
+        pic: state.playerData.pics?.[i] ?? null,
+      };
+      if (position === state.position && !state.isSpectator) this.updatePlayerInfoBox(display);
+      else this.opponentManager?.updatePlayerInfo(position, display);
     }
+    this.renderScoreHeader();
   }
 
   /**
@@ -1455,6 +1433,11 @@ export class GameScene extends Phaser.Scene {
     if (spectator) this.clearPlayerInfo();
     if (m.playerData) this.opponentManager?.displayAvatars(m.playerData);
     if (!spectator && !this._playerInfo && m.playerData) this.createPlayerInfoBox(m.playerData, pos);
+    else if (!spectator && m.playerData) {
+      const i = m.playerData.position?.indexOf(pos) ?? -1;
+      const u = m.playerData.username?.[i];
+      if (i !== -1 && u) this.updatePlayerInfoBox({ username: u.username || u, pic: m.playerData.pics?.[i] ?? null });
+    }
     if (!spectator) this.updatePlayerHsi(m.hsi);
     // the voice buttons' slot moves with the role (my box, or the corner)
     reattachMuteButton();
@@ -1548,10 +1531,12 @@ export class GameScene extends Phaser.Scene {
     const avatarContainer = document.createElement('div');
     avatarContainer.id = 'player-avatar-container';
 
+    // the seat's player now (a bot after /lazy): updatePlayerInfoBox
+    avatarContainer.dataset.username = username;
     avatarContainer.addEventListener('click', () => {
       const socket = window.socket;
       if (socket) {
-        socket.emit('getPlayerProfile', { username });
+        socket.emit('getPlayerProfile', { username: avatarContainer.dataset.username });
       }
     });
 
@@ -1586,6 +1571,21 @@ export class GameScene extends Phaser.Scene {
 
     this._playerInfo = { avatarContainer, avatarImg, nameLabel, hsiBox };
     return this._playerInfo;
+  }
+
+  /**
+   * Show another name and picture in the own avatar box (the bot holding my
+   * seat, or me again).
+   * @param {Object} display - {username, pic}
+   */
+  updatePlayerInfoBox({ username, pic }) {
+    const info = this._playerInfo;
+    if (!info || !username) return;
+    info.nameLabel.textContent = username;
+    info.nameLabel.title = username;
+    info.avatarImg.alt = username;
+    info.avatarContainer.dataset.username = username;
+    if (isAvatarPic(pic)) applyAvatarImg(info.avatarImg, avatarSrc(pic));
   }
 
   /**

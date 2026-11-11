@@ -699,10 +699,11 @@ const s2c = {
         emittedFrom: ['server/socket/tournamentHandlers.js:joinTournament', 'server/socket/tournamentHandlers.js:spectateTournament', 'server/socket/tournamentHandlers.js:returnToTournament'],
     },
     tournamentPlayerJoined: {
-        payload: obj({ username: str(), players: arr(ref('tournamentPlayer')) }),
+        payload: obj({ username: str(), players: arr(ref('tournamentPlayer')), scoreboard }),
         status: 'active', to: 'tournament',
         clientReads: reads(W.tour, I.tour),
         emittedFrom: ['server/socket/tournamentHandlers.js:joinTournament', 'server/socket/seatLifecycle.js:reattachTournament'],
+        notes: 'scoreboard (additive, 2026-11-11): the whole sorted scoreboard, the joiner\'s new row included; web redraws the lobby\'s table from it, iOS 1.1.0 reads only players.',
     },
     tournamentPlayerLeft: {
         payload: obj({ username: str(), players: arr(ref('tournamentPlayer')), newCreator: orNull(str()) }, { optional: ['username'] }),

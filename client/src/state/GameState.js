@@ -625,6 +625,19 @@ export class GameState {
     return n1 === (tricks?.team1 || 0) && history.length - n1 === (tricks?.team2 || 0);
   }
 
+  /**
+   * A snapshot's trickHistory ({winner, lead, cards in play order}) as the
+   * history entries applyTrickComplete keeps ({winner, cards: [{position,
+   * card}]}); null when the snapshot has none (an older server).
+   */
+  static _historyFromSnapshot(history) {
+    if (!Array.isArray(history)) return null;
+    return history.map((t) => ({
+      winner: t.winner,
+      cards: t.cards.map((card, k) => ({ position: ((t.lead - 1 + k) % 4) + 1, card: { suit: card.suit, rank: card.rank } })),
+    }));
+  }
+
   /** A snapshot's counted tricks, cards unknown: one entry per trick, by team. */
   static _unknownTricks(tricks) {
     const unknown = (team, n) => Array.from({ length: n }, () => ({ winner: null, team, cards: null }));
@@ -862,9 +875,11 @@ export class GameState {
 
   /**
    * Replace the table with a snapshot v2 (parsed, or snapshotFromLegacy of a
-   * v1 payload). Kept: the session identity, the game log (main.js), and
-   * the face-up trick history of this same deal when the snapshot agrees
-   * with it on the trick count (a snapshot only counts tricks).
+   * v1 payload). Kept: the session identity and the game log (main.js).
+   * Won tricks: the snapshot's trickHistory (their cards: drawn face up as
+   * before a reload), else the history this same deal already has when it
+   * agrees on the per-team counts, else face-down placeholders (counts
+   * only: an older server, a v1 payload).
    * @param {Object} snap
    * @param {Object} [opts]
    * @param {Array} [opts.players] - the v1 payload's players[] (pictures already folded)
@@ -935,9 +950,10 @@ export class GameState {
     this.oppTricks = oppTricks;
     const total = teamTricks + oppTricks;
     this.trickNo = snap.trick?.number || (deal ? (this.isBidding ? 1 : total + 1) : 0);
-    this.trickHistory = sameDeal && this._historyMatches(prevHistory, snap.tricks)
-      ? prevHistory
-      : GameState._unknownTricks(snap.tricks);
+    const served = GameState._historyFromSnapshot(snap.trickHistory);
+    if (served && this._historyMatches(served, snap.tricks)) this.trickHistory = served;
+    else if (sameDeal && this._historyMatches(prevHistory, snap.tricks)) this.trickHistory = prevHistory;
+    else this.trickHistory = GameState._unknownTricks(snap.tricks);
 
     const [teamScore, oppScore] = this._mine(snap.score);
     this.teamScore = teamScore;

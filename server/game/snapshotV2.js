@@ -204,6 +204,10 @@ function buildSnapshotV2(game, viewerSid, { tournament = null, now = Date.now(),
         trick,
         tricks: pair(game.tricks),
         tricksByPosition: POSITIONS.map((p) => game.handTricks?.[p] ?? 0),
+        // This deal's won tricks (as many as `tricks` counts), each with its
+        // winner, lead and 4 cards in play order: public, every viewer saw
+        // them played. At most 13 x 4 cards
+        trickHistory: (game.trickHistory || []).map((t) => ({ winner: t.winner, lead: t.lead, cards: t.cards.map(card) })),
         score: pair(game.score),
         rainbows: pair(game.rainbows),
         hsi,

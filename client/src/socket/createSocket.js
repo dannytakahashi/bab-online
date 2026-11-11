@@ -1,7 +1,6 @@
 /**
- * The page's one Socket.IO connection (it used to be created by
- * client/socket-init.js from the CDN's socket.io 4.0.1 global; the client is
- * now bundled at the server's version, 4.8.1).
+ * The page's one Socket.IO connection (socket.io-client bundled at the
+ * server's version, 4.8.1).
  */
 
 import { io } from 'socket.io-client';

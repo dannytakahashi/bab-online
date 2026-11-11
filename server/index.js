@@ -26,6 +26,7 @@ const { createAvatarRouter } = require('./routes/avatar');
 const avatarStore = require('./avatar/avatarStore');
 const { mountStatic } = require('./staticAssets');
 const { createCompression } = require('./middleware/compression');
+const { cspMiddleware } = require('./middleware/csp');
 
 // Initialize Express
 const app = express();
@@ -38,20 +39,9 @@ app.use(requestLogger);
 // answers /socket.io/ before Express; server/middleware/compression.js)
 app.use(createCompression());
 
-// CSP Header (custom, matches original). The page no longer loads the CDN
-// scripts (Phaser and socket.io-client are bundled); the two CDN hosts stay
-// allowed only for pages cached before that change, until they age out
-app.use((req, res, next) => {
-    res.setHeader('Content-Security-Policy',
-        "default-src 'self' https://bab-online-production.up.railway.app https://babonline.io; " +
-        "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cdn.socket.io; " +
-        "img-src 'self' data: blob:; " +
-        "connect-src 'self' wss://bab-online-production.up.railway.app https://bab-online-production.up.railway.app wss://babonline.io https://babonline.io; " +
-        "font-src 'self' https://fonts.gstatic.com; " +
-        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-    );
-    next();
-});
+// Content-Security-Policy on every response (server/middleware/csp.js;
+// kept in step with the page's meta CSP)
+app.use(cspMiddleware);
 
 // Custom avatars over HTTP (GET /avatar/:username?v=): before the static
 // handlers; sets its own CSP/CORP/nosniff and cache headers

@@ -98,6 +98,10 @@ class GameState {
 
         // Scoring
         this.tricks = { team1: 0, team2: 0 };
+        // This deal's won tricks, in order: {winner, lead, cards} (cards in
+        // play order from the lead). Written with the trick count
+        // (resumeTrick) and reset with it, so a snapshot can show them
+        this.trickHistory = [];
         this.score = { team1: 0, team2: 0 };
         this.rainbows = { team1: 0, team2: 0 };
 
@@ -1086,6 +1090,7 @@ class GameState {
         this.cardIndex = 0;
 
         this.tricks = { team1: 0, team2: 0 };
+        this.trickHistory = [];
         this.rainbows = { team1: 0, team2: 0 };
 
         // Reset per-hand trick tracking

@@ -115,6 +115,30 @@
       0,
       0
     ],
+    "trickHistory": [
+      {
+        "winner": 2,
+        "lead": 3,
+        "cards": [
+          {
+            "suit": "clubs",
+            "rank": "4"
+          },
+          {
+            "suit": "clubs",
+            "rank": "6"
+          },
+          {
+            "suit": "clubs",
+            "rank": "Q"
+          },
+          {
+            "suit": "clubs",
+            "rank": "A"
+          }
+        ]
+      }
+    ],
     "score": {
       "team1": 0,
       "team2": 0

@@ -8,10 +8,10 @@
  * client/dist/assets. `/` and `/index.html` serve the built page with
  * `Cache-Control: no-cache` (always revalidated, so a deploy reaches every
  * browser on its next load); /dist/assets/* is content-hashed, so
- * production serves it immutable for a year. /dist/main.js is the legacy
- * entry for pages cached before the build was hashed (index.html used to be
- * cached for a day): a two-line module importing the current hashed entry,
- * served no-cache like the page.
+ * production serves it immutable for a year. /dist/main.js (the entry of
+ * pages from before hashed builds, and its legacy shim) is gone: those
+ * pages were cached for at most a day and nothing else requests it, so it
+ * is an ordinary 404 (webClient.test.js).
  *
  * /assets/avatars/v1/*.webp (scripts/build-avatars.js): content never
  * changes under a version directory (new art goes to v2), so production
@@ -46,7 +46,6 @@ const NO_CACHE = 'no-cache';
 function mountStatic(app, { isProduction, clientDir = CLIENT }) {
     const dist = path.join(clientDir, 'dist');
     const index = path.join(dist, 'index.html');
-    const legacyEntry = path.join(dist, 'main.js');
 
     app.get(['/', '/index.html'], (req, res, next) => {
         fs.stat(index, (err) => {
@@ -82,10 +81,7 @@ function mountStatic(app, { isProduction, clientDir = CLIENT }) {
         maxAge: isProduction ? '1d' : 0, // Cache for 1 day in production
         etag: true,
         lastModified: true,
-        index: false,
-        setHeaders: (res, filePath) => {
-            if (filePath === legacyEntry) res.setHeader('Cache-Control', NO_CACHE);
-        }
+        index: false
     }));
 
     app.use('/assets-debug', express.static(path.join(clientDir, 'assets')));
