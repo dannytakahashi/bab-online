@@ -7758,11 +7758,18 @@
             "items": {
               "$ref": "#/$defs/tournamentPlayer"
             }
+          },
+          "scoreboard": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/scoreboardRow"
+            }
           }
         },
         "required": [
           "username",
-          "players"
+          "players",
+          "scoreboard"
         ],
         "additionalProperties": false
       },
@@ -7779,7 +7786,8 @@
       "emittedFrom": [
         "server/socket/tournamentHandlers.js:joinTournament",
         "server/socket/seatLifecycle.js:reattachTournament"
-      ]
+      ],
+      "notes": "scoreboard (additive, 2026-11-11): the whole sorted scoreboard, the joiner's new row included; web redraws the lobby's table from it, iOS 1.1.0 reads only players."
     },
     "tournamentPlayerLeft": {
       "payload": {

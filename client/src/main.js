@@ -1578,6 +1578,8 @@ function initializeApp() {
 
     onTournamentPlayerJoined: (data) => {
       updateTournamentPlayers(data.players, gameState.username);
+      // the joiner's scoreboard row (servers since 2026-11-11 send it)
+      if (Array.isArray(data.scoreboard)) updateTournamentScoreboardUI(data.scoreboard);
     },
 
     onTournamentPlayerLeft: (data) => {

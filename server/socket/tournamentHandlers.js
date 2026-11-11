@@ -95,10 +95,14 @@ async function joinTournament(socket, io, data) {
     // Send full state to joining player
     socket.emit('tournamentJoined', tournament.getClientState());
 
-    // Notify existing tournament players
+    // Notify existing tournament players: the roster and the scoreboard,
+    // which addPlayer just gave the joiner a row on (additive; without it a
+    // lobby that was open showed the joiner only from round 1 on)
+    const joinedState = tournament.getClientState();
     tournament.broadcast(io, 'tournamentPlayerJoined', {
         username: user.username,
-        players: tournament.getClientState().players
+        players: joinedState.players,
+        scoreboard: joinedState.scoreboard
     });
 
     // Notify main room

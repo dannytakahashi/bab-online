@@ -125,9 +125,11 @@ function reattachTournament(io, socket, gameId, username) {
     if (tournament) {
         socket.join(tournament.roomName);
         // Let lobby viewers see the reconnect (and any creator handoff)
+        const state = tournament.getClientState();
         tournament.broadcast(io, 'tournamentPlayerJoined', {
             username,
-            players: tournament.getClientState().players
+            players: state.players,
+            scoreboard: state.scoreboard
         });
         socketLogger.info('Tournament membership reattached on rejoin', {
             username, tournamentId: tournament.tournamentId, gameId

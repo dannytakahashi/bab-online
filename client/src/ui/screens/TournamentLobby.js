@@ -52,6 +52,7 @@ export function showTournamentLobby(data, socket, username) {
   currentTournamentId = data.tournamentId;
   isPlayerReady = false;
   currentPhase = data.phase || 'lobby';
+  rounds = { currentRound: data.currentRound || 0, totalRounds: data.totalRounds || 4 };
 
   const isSpectator = data.isSpectator || false;
   const isCreator = data.creatorUsername === username;
@@ -200,6 +201,8 @@ export function showTournamentLobby(data, socket, username) {
 
 // Track current phase at module level for begin button handler
 let currentPhase = 'lobby';
+/** The round the scoreboard shows (an update without one keeps it). */
+let rounds = { currentRound: 0, totalRounds: 4 };
 
 function colorFor(username) {
   if (!tournamentUserColors[username]) {
@@ -304,7 +307,8 @@ export function updateTournamentPlayers(players, currentUsername) {
 /**
  * Update scoreboard from external event.
  */
-export function updateTournamentScoreboardUI(scoreboard, currentRound, totalRounds) {
+export function updateTournamentScoreboardUI(scoreboard, currentRound = rounds.currentRound, totalRounds = rounds.totalRounds) {
+  rounds = { currentRound, totalRounds };
   const container = document.getElementById('tournamentScoreboardContainer');
   if (!container) return;
   container.replaceChildren(createTournamentScoreboard(scoreboard, currentRound, totalRounds));
@@ -314,6 +318,7 @@ export function updateTournamentScoreboardUI(scoreboard, currentRound, totalRoun
  * Update round indicator.
  */
 export function updateTournamentRoundIndicator(currentRound, totalRounds) {
+  rounds = { currentRound, totalRounds };
   const indicator = document.getElementById('tournamentRoundIndicator');
   if (indicator) {
     indicator.textContent = `Round ${currentRound} of ${totalRounds}`;
