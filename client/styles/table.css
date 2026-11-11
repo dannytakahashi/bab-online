@@ -452,6 +452,130 @@ body > .voice-btn {
 .voice-popover__label { overflow: hidden; text-overflow: ellipsis; }
 .voice-popover__divider { height: 1px; margin: var(--space-1) 0; background: var(--line-subtle); }
 
+/* ---------- Who is watching (SpectatorBadge): eye + count, its list ---------- */
+
+.hud-spectators {
+    position: absolute;
+    left: var(--spec-x, 0px);
+    top: var(--spec-y, 0px);
+    width: var(--spec-w, 72px);
+    height: var(--spec-h, 36px);
+    pointer-events: auto;
+    z-index: 300;
+}
+
+.hud-spectators[hidden],
+.spectator-popover[hidden] { display: none; }
+
+.spectator-badge.kit-icon-btn {
+    /* a pill the layout's size; the kit's ::before keeps the 44 px hit target */
+    --icon-btn-size: var(--spec-h, 36px);
+    width: var(--spec-w, 72px);
+    gap: calc(var(--spec-h, 36px) * 0.12);
+    padding: 0 calc(var(--spec-h, 36px) * 0.22);
+    color: var(--text-primary);
+    font-family: var(--font-ui);
+    font-size: var(--spec-font, 14px);
+    font-weight: var(--weight-semibold);
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    box-shadow: var(--elev-1);
+}
+
+.spectator-badge.kit-icon-btn svg {
+    flex: 0 0 auto;
+    width: var(--spec-icon, 18px);
+    height: var(--spec-icon, 18px);
+}
+
+.spectator-badge__count {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.spectator-badge[aria-expanded="true"] { background: var(--surface-3); }
+
+.spectator-popover {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + var(--space-2));
+    min-width: 180px;
+    max-width: 260px;
+    padding: var(--space-2) 0;
+    background: var(--surface-1);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-md);
+    font-family: var(--font-ui);
+    color: var(--text-primary);
+    opacity: 0;
+    transition: opacity var(--dur-fast) var(--ease-standard);
+}
+
+/* bridges the gap down to the badge, so a mouse moving onto the list
+   never leaves the slot (a hover-opened list closes on pointerleave) */
+.spectator-popover::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 100%;
+    height: var(--space-2);
+}
+
+.spectator-popover.is-open { opacity: 1; }
+.spectator-popover.is-instant { transition: none; }
+
+.spectator-popover__title {
+    padding: 0 var(--space-3) var(--space-1);
+    color: var(--text-secondary);
+    font-size: var(--type-xs);
+    font-weight: var(--weight-semibold);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.spectator-popover__list {
+    /* about 8 rows, then it scrolls */
+    max-height: calc(8 * 36px);
+    margin: 0;
+    padding: 0;
+    overflow-y: auto;
+    list-style: none;
+}
+
+.spectator-popover__row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: 36px;
+    padding: var(--space-1) var(--space-3);
+    font-size: var(--type-sm);
+}
+
+.spectator-popover__avatar {
+    flex: 0 0 auto;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    object-fit: cover;
+    background: var(--surface-2);
+}
+
+.spectator-popover__name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.spectator-popover__more {
+    padding: var(--space-1) var(--space-3) 0;
+    color: var(--text-secondary);
+    font-size: var(--type-xs);
+}
+
+.spectator-popover__more[hidden] { display: none; }
+
 .voice-overlay .kit-modal { min-width: 280px; max-width: 400px; }
 .voice-overlay__hint { margin: var(--space-4) 0 0; color: var(--text-dim); text-align: center; font-size: var(--type-xs); }
 
