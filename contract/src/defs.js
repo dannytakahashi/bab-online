@@ -261,6 +261,11 @@ const defs = {
         }),
         tricks: ref('teamPair'),
         tricksByPosition: arr(int({ minimum: 0 }), { minItems: 4, maxItems: 4 }),
+        trickHistory: arr(obj({
+            winner: ref('position'),
+            lead: ref('position'),
+            cards: arr(ref('card'), { minItems: 4, maxItems: 4 }),
+        }), { maxItems: 13 }),
         score: ref('teamPair'),
         rainbows: ref('teamPair'),
         hsi: orNull(arr(orNull(num()), { minItems: 4, maxItems: 4 })),

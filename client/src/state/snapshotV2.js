@@ -161,6 +161,18 @@ function validResume(r) {
 }
 
 /**
+ * null when absent or malformed, else this deal's won tricks
+ * [{winner, lead, cards: [4 cards in play order]}], at most 13
+ */
+function validTrickHistory(h) {
+  if (!Array.isArray(h) || h.length > 13) return false;
+  const pos = (v) => Number.isInteger(v) && v >= 1 && v <= 4;
+  const c = checker();
+  return h.every((t, i) => t && typeof t === 'object' && pos(t.winner) && pos(t.lead) &&
+    Array.isArray(t.cards) && t.cards.length === 4 && t.cards.every((x, k) => c.card(x, `$.trickHistory[${i}].cards[${k}]`)));
+}
+
+/**
  * @param {*} raw - a snapshot as received on the wire
  * @returns {{ok: true, snapshot: Object} | {ok: false, errors: string[]}}
  *   snapshot: a deep-frozen copy of the known keys (unknown keys dropped)
@@ -175,6 +187,9 @@ export function parseSnapshotV2(raw) {
   // sends none). resume: the open server hold {kind, inMs} relative to
   // receipt (contract/README.md "Resume holds")
   if ('resume' in raw && validResume(raw.resume)) copy.resume = JSON.parse(JSON.stringify(raw.resume));
+  // trickHistory (2026-11-11): the deal's won tricks with their cards, so a
+  // rejoin draws them face up as before; malformed: left out (counts only)
+  if ('trickHistory' in raw && validTrickHistory(raw.trickHistory)) copy.trickHistory = JSON.parse(JSON.stringify(raw.trickHistory));
   return { ok: true, snapshot: deepFreeze(copy) };
 }
 

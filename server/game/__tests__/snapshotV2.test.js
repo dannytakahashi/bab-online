@@ -177,6 +177,74 @@ describe('the real flow', () => {
     });
 });
 
+describe('won tricks (trickHistory)', () => {
+    test('each counted trick with its winner, lead and cards in play order; compact; reset by the next deal', async () => {
+        const log = [];
+        const io = makeIo(log);
+        seq++;
+        const ids = [1, 2, 3, 4].map((n) => `svt${seq}-h${n}`);
+        ids.forEach((id) => {
+            gameManager.registerUser(id, `user_${id}`);
+            mockDb.current.users._insert({ username: `user_${id}`, profilePic: 5 });
+        });
+        const sockets = ids.map((id) => makeSocket(id, log, io));
+        const game = gameManager.createGame(ids);
+        sockets.forEach((s) => s.join(game.roomName));
+        game.deck = new Deck();
+        game.transition(Phase.CREATED, Phase.DRAWING);
+        const pending = sockets.map((s) => gameHandlers.draw(s, io, { num: 0 }));
+        await jest.advanceTimersByTimeAsync(6000);
+        expect(game.stage).toBe(Phase.BIDDING);
+        expect(game.getSnapshotV2(ids[0]).trickHistory).toEqual([]);
+        const sock = (pos) => sockets[ids.indexOf(game.positions[pos])];
+        for (let i = 0; i < 4; i++) await gameHandlers.playerBid(sock(game.currentTurn), io, { bid: '1' });
+        expect(game.stage).toBe(Phase.PLAYING);
+
+        // the expected history, from what every client saw: cardPlayed then trickComplete
+        const expected = [];
+        let cards = [];
+        let seen = 0;
+        const follow = () => {
+            for (; seen < log.length; seen++) {
+                const l = log[seen];
+                if (l.to !== game.roomName) continue;
+                if (l.event === 'cardPlayed') cards.push({ position: l.data.position, card: { suit: l.data.card.suit, rank: l.data.card.rank } });
+                if (l.event === 'trickComplete') {
+                    expected.push({ winner: l.data.winner, lead: cards[0].position, cards: cards.map((c) => c.card) });
+                    cards = [];
+                }
+            }
+        };
+        let guard = 0;
+        while (game.currentHand === 12 && guard++ < 500) {
+            if (game.stage === Phase.PLAYING) {
+                const s = sock(game.currentTurn);
+                pending.push(gameHandlers.playCard(s, io, { card: legalCards(game, s.id)[0] }));
+                await Promise.resolve();
+            } else {
+                await jest.advanceTimersByTimeAsync(500);
+            }
+            follow();
+            if (game.currentHand !== 12) break;
+            for (const viewer of [ids[0], ids[1]]) {
+                const snap = game.getSnapshotV2(viewer);
+                expectValid(snap);
+                expect(snap.trickHistory).toEqual(expected);
+                expect(snap.trickHistory).toHaveLength(snap.tricks.team1 + snap.tricks.team2);
+            }
+        }
+        await Promise.all(pending);
+        expect(expected).toHaveLength(12);
+        for (const t of expected) expect(t.cards).toHaveLength(4);
+        // compact: under 160 bytes a trick (13 tricks: about 2 KB at most)
+        const bytes = JSON.stringify(expected).length;
+        expect(bytes / expected.length).toBeLessThan(160);
+        // the next deal starts empty
+        expect(game.currentHand).toBe(10);
+        expect(game.getSnapshotV2(ids[0]).trickHistory).toEqual([]);
+    });
+});
+
 describe('viewer roles', () => {
     test('seat, lazyWatcher, spectator, entrant and none', () => {
         const log = [];
@@ -329,7 +397,7 @@ describe('purity and options', () => {
     test('the key order is fixed', () => {
         const { game } = seated();
         expect(Object.keys(game.getSnapshotV2(null))).toEqual(['v', 'gameId', 'seq', 'serverTime', 'stage', 'partial', 'viewer',
-            'hand', 'deal', 'trump', 'trumpBroken', 'turn', 'bids', 'trick', 'tricks', 'tricksByPosition', 'score', 'rainbows',
+            'hand', 'deal', 'trump', 'trumpBroken', 'turn', 'bids', 'trick', 'tricks', 'tricksByPosition', 'trickHistory', 'score', 'rainbows',
             'hsi', 'seats', 'entrants', 'draw', 'spectatorCount', 'tournament', 'log', 'resume']);
     });
 

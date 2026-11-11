@@ -224,6 +224,12 @@ function resumeTrick(io, game) {
     } else {
         game.tricks.team2++;
     }
+    // The won trick's cards (snapshot v2 trickHistory: a rejoin shows them)
+    if (Array.isArray(game.trickHistory)) {
+        const lead = game.leadPosition;
+        const cards = [0, 1, 2, 3].map((k) => game.playedCards[((lead - 1 + k) % 4)]);
+        game.trickHistory.push({ winner, lead, cards: cards.map((c) => ({ suit: c.suit, rank: c.rank })) });
+    }
 
     // Track tricks for player stats
     if (game.playerStats && game.playerStats[winner]) {

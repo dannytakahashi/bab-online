@@ -26,6 +26,7 @@ struct TableSnapshot: Codable, Equatable {
     var trick: Trick
     var tricks: TeamPair
     var tricksByPosition: [Int]
+    var trickHistory: [WonTrick]
     var score: TeamPair
     var rainbows: TeamPair
     var hsi: [Double?]?
@@ -292,6 +293,12 @@ struct TableSnapshot: Codable, Equatable {
     struct TrickCard: Codable, Equatable {
         var position: Int
         var card: Card
+    }
+
+    struct WonTrick: Codable, Equatable {
+        var winner: Int
+        var lead: Int
+        var cards: [Card]
     }
 
     struct Seat: Codable, Equatable {

@@ -1448,6 +1448,35 @@
           "minItems": 4,
           "maxItems": 4
         },
+        "trickHistory": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "winner": {
+                "$ref": "#/$defs/position"
+              },
+              "lead": {
+                "$ref": "#/$defs/position"
+              },
+              "cards": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/card"
+                },
+                "minItems": 4,
+                "maxItems": 4
+              }
+            },
+            "required": [
+              "winner",
+              "lead",
+              "cards"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 13
+        },
         "score": {
           "$ref": "#/$defs/teamPair"
         },
@@ -1625,6 +1654,7 @@
         "trick",
         "tricks",
         "tricksByPosition",
+        "trickHistory",
         "score",
         "rainbows",
         "hsi",

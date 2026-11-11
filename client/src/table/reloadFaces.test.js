@@ -1,7 +1,8 @@
 /**
  * A reload mid-hand after tricks were already won (events-bots-s14, seat 1,
- * the real page and scene): the rejoin snapshot only counts those tricks, so
- * they are face-down stacks. The tricks won live after the reload are seen
+ * the real page and scene), from a server whose snapshot only counts those
+ * tricks (no trickHistory that matches the counts: an older server), so
+ * they are face-down stacks (with trickHistory: reloadWonTricks.test.js). The tricks won live after the reload are seen
  * being collected face up, and they must stay face up on any later render
  * in the hand (a tab return's fast-forward, a ping reply, an actionRejected),
  * not flip to card backs.

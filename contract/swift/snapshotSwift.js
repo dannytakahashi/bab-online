@@ -25,7 +25,7 @@ const NAMED = { snapshotV2: 'TableSnapshot', viewerV2: 'Viewer', seatV2: 'Seat',
 const LEAF = { card: 'Card', position: 'Int', bidString: 'String', avatarUrl: 'String' };
 /** Inline object, by its key path from the nearest named type ('Draw.' prefix unless TableSnapshot). */
 const INLINE = {
-    deal: 'Deal', turn: 'Turn', bids: 'Bids', 'bids.mults': 'TeamPair', trick: 'Trick', 'trick.cards[]': 'TrickCard',
+    deal: 'Deal', turn: 'Turn', bids: 'Bids', 'bids.mults': 'TeamPair', trick: 'Trick', 'trick.cards[]': 'TrickCard', 'trickHistory[]': 'WonTrick',
     'entrants[]': 'Entrant', 'log[]': 'LogEntry', resume: 'Resume', 'Draw.drawn[]': 'DrawnCard',
 };
 /** Inline enum, by '<immediate struct>.<key>' (no prefix inside TableSnapshot). */
