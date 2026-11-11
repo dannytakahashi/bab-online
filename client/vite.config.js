@@ -6,6 +6,26 @@ import { NOT_PHONE_MEDIA } from './src/boot/deviceGate.js';
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 const build = (process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_SHA || 'dev').slice(0, 7);
 
+// Phaser 3.55's prebuilt build finds the global object webpack-style:
+// `(function(){return this})()`, which is undefined in our strict ES
+// module, then `new Function("return this")()`, which the page CSP (no
+// 'unsafe-eval', server/middleware/csp.js) refuses with a console
+// violation before Phaser falls back to window. Use globalThis instead, so
+// the page needs no 'unsafe-eval'. Fails the build if the pattern moves
+// (a Phaser upgrade): check the new build for eval before changing it
+const PHASER_EVAL = 'new Function("return this")()';
+function phaserNoEval() {
+  return {
+    name: 'bab-phaser-no-eval',
+    transform(code, id) {
+      if (!/\/node_modules\/phaser\/dist\/phaser(\.min)?\.js$/.test(id)) return null;
+      const hits = code.split(PHASER_EVAL).length - 1;
+      if (hits !== 1) this.error(`expected 1 "${PHASER_EVAL}" in ${id}, found ${hits}`);
+      return { code: code.replace(PHASER_EVAL, 'globalThis'), map: null };
+    },
+  };
+}
+
 // The app chunk (src/main.js and its static imports: Phaser and
 // socket.io-client) is imported by the entry once the phone gate lets the
 // page through (src/boot/). Preload it from the page so a desktop does not
@@ -60,7 +80,7 @@ export default defineConfig(({ command }) => ({
   // of the arguments
   esbuild: command === 'build' ? { pure: ['console.log', 'console.debug'] } : {},
 
-  plugins: [appChunkPreload()],
+  plugins: [phaserNoEval(), appChunkPreload()],
 
   build: {
     outDir: 'dist',
