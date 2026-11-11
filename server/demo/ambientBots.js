@@ -1,10 +1,17 @@
 /**
  * Ambient activity for an otherwise-empty server.
  *
- * Keeps one bot-vs-bot game running at all times (it appears in the main
- * room's in-progress list and can be spectated, with the bots chatting via
- * their personality hooks) and seeds the main-room chat with messages from
- * the bot personas so the room is never empty.
+ * Keeps one bot-vs-bot game running while someone could see it (it appears
+ * in the main room's in-progress list and can be spectated, with the bots
+ * chatting via their personality hooks) and seeds the main-room chat with
+ * messages from the bot personas so the room is never empty.
+ *
+ * On demand (owner, 2026-11-11): a game starts as soon as a signed-in player
+ * enters the main room (GameManager.onMainRoomJoin; it is listed ~0.1 s
+ * later, AMBIENT_PREGAME) and keeps being replaced while someone is in the
+ * main room or watching it. Once nobody has been for AMBIENT_IDLE_MS (10
+ * min) the running game plays to its end and no new one starts; idleness
+ * never aborts a game. Only a wedged game (MAX_GAME_AGE_MS) is recycled.
  *
  * Why: a new player — or an App Store reviewer (Guideline 2.1(a) requires
  * that reviewers can see other users' chats and other users playing) — who
@@ -55,6 +62,10 @@ const GAME_START_MESSAGES = [
 ];
 
 let intervalHandle = null;
+let wakeHandle = null;          // the 0 ms start after a main-room join
+let unsubscribeJoin = null;
+let ioRef = null;
+let lastDemandAt = 0;           // last time someone was in the main room or watching
 let currentGameId = null;
 let currentGameStartedAt = 0;
 let currentGameAnnounced = false;
@@ -161,18 +172,59 @@ function startBotGame(io) {
 }
 
 /**
- * Keep exactly one ambient game alive: start a new one shortly after the
- * previous ends, and recycle a game that has somehow wedged.
+ * Is anyone who could see the ambient game around: a signed-in player in
+ * the main room (every member is a registered socket; gated 1.0.0 sockets
+ * never join) or a spectator of the current ambient game?
+ */
+function someoneWatching() {
+    if (gameManager.mainRoomSocketIds.size > 0) return true;
+    const game = currentGameId ? gameManager.getGameById(currentGameId) : null;
+    return !!(game && game.spectators && game.spectators.size > 0);
+}
+
+/** Someone was around within the last AMBIENT_IDLE_MS. */
+function inDemand(now = Date.now()) {
+    return lastDemandAt > 0 && now - lastDemandAt < pacing().AMBIENT_IDLE_MS;
+}
+
+/**
+ * A signed-in player entered the main room: refresh the demand window and,
+ * when no game is running or about to restart, start one now (on the next
+ * turn of the event loop, outside GameManager.joinMainRoom).
+ */
+function noteMainRoomJoin() {
+    lastDemandAt = Date.now();
+    if (!intervalHandle || !ioRef || currentGameId || wakeHandle) return;
+    if (Date.now() < nextGameAt) return; // a restart is pending; the poll starts it
+    wakeHandle = setTimeout(() => {
+        wakeHandle = null;
+        safeTick(ioRef);
+    }, 0);
+    if (wakeHandle.unref) wakeHandle.unref();
+}
+
+/**
+ * Keep one ambient game alive while it is in demand: start one when someone
+ * is around, start the next shortly after the previous ends (or go idle
+ * when nobody has been around for AMBIENT_IDLE_MS), and recycle a game that
+ * has somehow wedged.
  */
 function tick(io) {
     maybePostChat(io);
+    const now = Date.now();
+    if (someoneWatching()) lastDemandAt = now;
 
     if (currentGameId) {
         const game = gameManager.getGameById(currentGameId);
         if (!game) {
-            // Finished normally (endGame removed it) — schedule the next one
+            // Finished normally (endGame removed it): the next one, or idle
             currentGameId = null;
-            nextGameAt = Date.now() + pacing().AMBIENT_RESTART_MS;
+            if (inDemand(now)) {
+                nextGameAt = now + pacing().AMBIENT_RESTART_MS;
+            } else {
+                nextGameAt = 0;
+                logger.info('Ambient bot games idle (nobody in the main room)');
+            }
             return;
         }
         if (!currentGameAnnounced && game.phase !== 'drawing' && game.phase !== 'waiting') {
@@ -191,30 +243,42 @@ function tick(io) {
         return;
     }
 
-    if (Date.now() >= nextGameAt) {
+    if (inDemand(now) && now >= nextGameAt) {
         startBotGame(io);
     }
 }
 
+function safeTick(io) {
+    try {
+        tick(io);
+    } catch (error) {
+        logger.error('Ambient activity tick failed', { error: error.message, stack: error.stack });
+    }
+}
+
 /**
- * Entry point — call once at server startup.
+ * Entry point — call once at server startup. Seeds the chat; the first game
+ * starts when someone enters the main room (or is already there).
  */
 function startAmbientActivity(io) {
     if (intervalHandle) return;
 
+    ioRef = io;
     seedMainRoomChat();
-    startBotGame(io);
-
-    intervalHandle = setInterval(() => {
+    unsubscribeJoin = gameManager.onMainRoomJoin(() => {
         try {
-            tick(io);
+            noteMainRoomJoin();
         } catch (error) {
-            logger.error('Ambient activity tick failed', { error: error.message, stack: error.stack });
+            logger.error('Ambient main-room hook failed', { error: error.message });
         }
-    }, pacing().AMBIENT_CHECK_MS);
-    if (intervalHandle.unref) intervalHandle.unref();
+    });
 
-    logger.info('Ambient bot activity enabled');
+    intervalHandle = setInterval(() => safeTick(io), pacing().AMBIENT_CHECK_MS);
+    if (intervalHandle.unref) intervalHandle.unref();
+    // Already someone in the main room (a restart of the activity): start now
+    safeTick(io);
+
+    logger.info('Ambient bot activity enabled (on demand)');
 }
 
 function stopAmbientActivity() {
@@ -222,6 +286,17 @@ function stopAmbientActivity() {
         clearInterval(intervalHandle);
         intervalHandle = null;
     }
+    if (wakeHandle) {
+        clearTimeout(wakeHandle);
+        wakeHandle = null;
+    }
+    if (unsubscribeJoin) {
+        unsubscribeJoin();
+        unsubscribeJoin = null;
+    }
+    ioRef = null;
+    lastDemandAt = 0;
+    nextGameAt = 0;
 }
 
 module.exports = {
@@ -233,5 +308,7 @@ module.exports = {
     maybePostChat,
     announceGameVisible,
     startBotGame,
-    tick
+    tick,
+    noteMainRoomJoin,
+    inDemand
 };

@@ -11,6 +11,7 @@ const avatarWire = require('../avatar/avatarWire');
 const { hasCap } = require('./clientInfo');
 const { getUsersCollection } = require('../database');
 const { verifySession } = require('../utils/sessionTokens');
+const { rememberBlockList } = require('./voiceHandlers');
 
 /**
  * A rejoin binds this socket to `username` and hands it that seat's hand, so
@@ -33,12 +34,16 @@ async function isAuthorizedForUser(socket, username, sessionToken) {
         }
         const user = await usersCollection.findOne(
             { username },
-            { projection: { sessionTokens: 1, sessionToken: 1 } }
+            { projection: { sessionTokens: 1, sessionToken: 1, blockedUsers: 1 } }
         );
         // Per-device tokens (server/utils/sessionTokens.js); also accepts and
         // migrates a legacy plaintext sessionToken
         const session = verifySession(user, sessionToken);
         if (!session) return false;
+        // This socket is now that user without a signIn / restoreSession
+        // (a web reload rejoins first): load the block list the same way,
+        // or voice signaling would have none to check
+        rememberBlockList(socket, user.blockedUsers || []);
         // Lets a later restore from another device tell this one apart
         if (socket.data) socket.data.sessionHash = session.hash;
         await usersCollection.updateOne({ username }, session.update);

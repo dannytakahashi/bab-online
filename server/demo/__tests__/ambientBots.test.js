@@ -140,11 +140,23 @@ describe('startBotGame', () => {
     });
 });
 
-describe('always-on lifecycle (pacing.js AMBIENT_CHECK_MS / AMBIENT_RESTART_MS / AMBIENT_PREGAME)', () => {
+describe('on-demand lifecycle (pacing.js AMBIENT_CHECK_MS / AMBIENT_RESTART_MS / AMBIENT_IDLE_MS / AMBIENT_PREGAME)', () => {
     let pacing;
     let io;
     let log;
+    let n = 0;
     const demoGames = () => [...gameManager.games.values()].filter((g) => g.isDemo && !g.isTerminal());
+    const listed = (game) => log.some((l) => l.event === 'lobbiesUpdated' && l.to === 'mainRoom' &&
+        l.data.inProgressGames.some((g) => g.gameId === game.gameId));
+
+    /** A signed-in player enters the main room (GameManager.joinMainRoom, as all three join points do). */
+    function enterMainRoom() {
+        n++;
+        const sid = `human-${n}`;
+        gameManager.registerUser(sid, `Human${n}`);
+        expect(gameManager.joinMainRoom(sid).success).toBe(true);
+        return sid;
+    }
 
     beforeEach(() => {
         jest.useFakeTimers();
@@ -162,9 +174,11 @@ describe('always-on lifecycle (pacing.js AMBIENT_CHECK_MS / AMBIENT_RESTART_MS /
         jest.restoreAllMocks();
     });
 
-    test('the poll and the gap between games are 5 s each', () => {
+    test('the poll and the gap between games are 5 s each; the idle grace is 10 min', () => {
         expect(pacing().AMBIENT_CHECK_MS).toBe(5000);
         expect(pacing().AMBIENT_RESTART_MS).toBe(5000);
+        expect(pacing().AMBIENT_IDLE_MS).toBe(10 * 60 * 1000);
+        expect(pacing.PROFILES.zero.AMBIENT_IDLE_MS).toBe(10 * 60 * 1000);
     });
 
     test('a new demo game is listed (lobbiesUpdated at DEALING) within 1 s of its start', async () => {
@@ -172,8 +186,7 @@ describe('always-on lifecycle (pacing.js AMBIENT_CHECK_MS / AMBIENT_RESTART_MS /
         expect(pacing(game).TEAMS_MS).toBe(0);
         await jest.advanceTimersByTimeAsync(1000);
         expect(gameManager.getInProgressGames().some((g) => g.gameId === game.gameId)).toBe(true);
-        const listed = log.filter((l) => l.event === 'lobbiesUpdated' && l.data.inProgressGames.some((g) => g.gameId === game.gameId));
-        expect(listed.length).toBeGreaterThan(0);
+        expect(listed(game)).toBe(true);
         // From the deal on (it is listed), the standard timing applies
         expect(pacing(game).TEAMS_MS).toBe(pacing().TEAMS_MS);
         expect(pacing(game).TRICK_VIEW_MS).toBe(pacing().TRICK_VIEW_MS);
@@ -186,11 +199,41 @@ describe('always-on lifecycle (pacing.js AMBIENT_CHECK_MS / AMBIENT_RESTART_MS /
         game.spectators.clear();
     });
 
-    test('a finished game is replaced within AMBIENT_CHECK_MS + AMBIENT_RESTART_MS; never two at once', async () => {
+    test('an empty server runs no game; the chat is still seeded', async () => {
         ambient.startAmbientActivity(io);
+        expect(gameManager.mainRoomMessages.length).toBeGreaterThan(0);
+        await jest.advanceTimersByTimeAsync(60 * 60 * 1000);
+        expect(demoGames()).toHaveLength(0);
+        expect(gameManager.games.size).toBe(0);
+    });
+
+    test('a player entering a quiet main room sees a live game listed within 1 s (measured)', async () => {
+        ambient.startAmbientActivity(io);
+        await jest.advanceTimersByTimeAsync(30 * 60 * 1000); // a quiet hour
+        expect(demoGames()).toHaveLength(0);
+
+        const t0 = Date.now();
+        enterMainRoom();
+        let game = null;
+        let listedAt = null;
+        for (let t = 0; t <= 5000 && listedAt === null; t += 10) {
+            [game] = demoGames();
+            if (game && listed(game)) listedAt = Date.now();
+            else await jest.advanceTimersByTimeAsync(10);
+        }
+        expect(game).toBeDefined();
+        expect(listedAt - t0).toBeLessThanOrEqual(1000);
+        // Recorded for the report: start -> listed under the standard pacing
+        // eslint-disable-next-line no-console
+        process.stdout.write(`ambient: main-room join -> game listed in ${listedAt - t0} ms (fake clock)\n`);
+    });
+
+    test('a finished game is replaced within AMBIENT_CHECK_MS + AMBIENT_RESTART_MS while someone is in the main room; never two at once', async () => {
+        ambient.startAmbientActivity(io);
+        enterMainRoom();
+        await jest.advanceTimersByTimeAsync(1000);
         const [first] = demoGames();
         expect(first).toBeDefined();
-        await jest.advanceTimersByTimeAsync(1000);
         gameManager.endGame(first.gameId, io);
         expect(demoGames()).toHaveLength(0);
         const P = pacing();
@@ -201,7 +244,6 @@ describe('always-on lifecycle (pacing.js AMBIENT_CHECK_MS / AMBIENT_RESTART_MS /
         }
         expect(demoGames()).toHaveLength(1);
         expect(demoGames()[0].gameId).not.toBe(first.gameId);
-        // ...and over a while of play there is never a second one
         for (let t = 0; t < 120000; t += 1000) {
             await jest.advanceTimersByTimeAsync(1000);
             max = Math.max(max, demoGames().length);
@@ -209,10 +251,72 @@ describe('always-on lifecycle (pacing.js AMBIENT_CHECK_MS / AMBIENT_RESTART_MS /
         expect(max).toBe(1);
     });
 
-    test('a recycled (wedged) game is replaced', async () => {
+    test('a second join while a game runs starts nothing more', async () => {
         ambient.startAmbientActivity(io);
-        const [first] = demoGames();
+        enterMainRoom();
+        await jest.advanceTimersByTimeAsync(100);
+        enterMainRoom();
+        enterMainRoom();
+        await jest.advanceTimersByTimeAsync(10000);
+        expect(demoGames()).toHaveLength(1);
+    });
+
+    test('nobody around for AMBIENT_IDLE_MS: the running game is never aborted, it finishes and none follows', async () => {
+        ambient.startAmbientActivity(io);
+        const sid = enterMainRoom();
         await jest.advanceTimersByTimeAsync(1000);
+        const [first] = demoGames();
+        gameManager.leaveMainRoom(sid);
+
+        // Inside the grace a finished game is still replaced
+        gameManager.endGame(first.gameId, io);
+        const P = pacing();
+        await jest.advanceTimersByTimeAsync(P.AMBIENT_CHECK_MS + P.AMBIENT_RESTART_MS + 1000);
+        const [second] = demoGames();
+        expect(second).toBeDefined();
+        expect(second.gameId).not.toBe(first.gameId);
+
+        // Past the grace the game keeps playing: idleness never aborts
+        jest.setSystemTime(Date.now() + P.AMBIENT_IDLE_MS + 60000);
+        await jest.advanceTimersByTimeAsync(P.AMBIENT_CHECK_MS * 3);
+        expect(ambient.inDemand()).toBe(false);
+        expect(second.isTerminal()).toBe(false);
+        expect(gameManager.getGameById(second.gameId)).toBe(second);
+        expect(log.filter((l) => l.event === 'abortGame')).toHaveLength(0);
+
+        // ...and when it ends, nothing replaces it
+        gameManager.endGame(second.gameId, io);
+        await jest.advanceTimersByTimeAsync(10 * 60 * 1000);
+        expect(demoGames()).toHaveLength(0);
+
+        // The next player to come in wakes it up at once
+        enterMainRoom();
+        await jest.advanceTimersByTimeAsync(1000);
+        expect(demoGames()).toHaveLength(1);
+        expect(listed(demoGames()[0])).toBe(true);
+    });
+
+    test('a spectator of the ambient game keeps it in demand (not in the main room)', async () => {
+        ambient.startAmbientActivity(io);
+        const sid = enterMainRoom();
+        await jest.advanceTimersByTimeAsync(1000);
+        const [first] = demoGames();
+        gameManager.leaveMainRoom(sid);
+        gameManager.addSpectator(io, first, sid, 'Human');
+        const P = pacing();
+        jest.setSystemTime(Date.now() + P.AMBIENT_IDLE_MS + 60000);
+        await jest.advanceTimersByTimeAsync(P.AMBIENT_CHECK_MS);
+        expect(ambient.inDemand()).toBe(true);
+        gameManager.endGame(first.gameId, io);
+        await jest.advanceTimersByTimeAsync(P.AMBIENT_CHECK_MS + P.AMBIENT_RESTART_MS + 1000);
+        expect(demoGames()).toHaveLength(1);
+    });
+
+    test('a recycled (wedged) game is replaced while in demand', async () => {
+        ambient.startAmbientActivity(io);
+        enterMainRoom();
+        await jest.advanceTimersByTimeAsync(1000);
+        const [first] = demoGames();
         jest.setSystemTime(Date.now() + 91 * 60 * 1000);
         const P = pacing();
         await jest.advanceTimersByTimeAsync(P.AMBIENT_CHECK_MS);
@@ -220,5 +324,28 @@ describe('always-on lifecycle (pacing.js AMBIENT_CHECK_MS / AMBIENT_RESTART_MS /
         await jest.advanceTimersByTimeAsync(P.AMBIENT_CHECK_MS + P.AMBIENT_RESTART_MS);
         expect(demoGames()).toHaveLength(1);
         expect(demoGames()[0].gameId).not.toBe(first.gameId);
+    });
+
+    test('not started (AMBIENT_BOTS=false): a main-room join starts nothing', async () => {
+        enterMainRoom();
+        await jest.advanceTimersByTimeAsync(60000);
+        expect(demoGames()).toHaveLength(0);
+        expect(gameManager.mainRoomJoinListeners.size).toBe(0);
+    });
+
+    test('stop leaves no timer or hook behind', async () => {
+        const before = jest.getTimerCount();
+        ambient.startAmbientActivity(io);
+        // A join schedules the 0 ms start; stop before it runs
+        enterMainRoom();
+        expect(jest.getTimerCount()).toBe(before + 2); // poll + wake
+        ambient.stopAmbientActivity();
+        expect(jest.getTimerCount()).toBe(before);
+        expect(gameManager.mainRoomJoinListeners.size).toBe(0);
+        await jest.advanceTimersByTimeAsync(60000);
+        expect(demoGames()).toHaveLength(0);
+        enterMainRoom();
+        await jest.advanceTimersByTimeAsync(60000);
+        expect(demoGames()).toHaveLength(0);
     });
 });

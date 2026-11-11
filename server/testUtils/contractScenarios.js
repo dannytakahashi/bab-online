@@ -120,7 +120,11 @@ function world(tag) {
             if (db && !users.docs.some((d) => d.username === username)) {
                 users._insert({ username, profilePic: pic });
             }
-            return w.socket(id);
+            const s = w.socket(id);
+            // Signed in as signIn leaves it: the block list voice checks
+            const doc = users && users.docs.find((d) => d.username === username);
+            require('../socket/voiceHandlers').rememberBlockList(s, (doc && doc.blockedUsers) || []);
+            return s;
         },
         kill(s) {
             io.sockets.sockets.delete(s.id);

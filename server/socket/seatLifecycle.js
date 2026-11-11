@@ -31,7 +31,7 @@ const { hasCap } = require('./clientInfo');
 const stateFor = (game, sid, socket) => avatarWire.wireClientState(game, game.getClientState(sid), hasCap(socket, 'avatarUrl'));
 
 const { PERSONALITY_LIST, getDisplayName } = personalities;
-const { Controller, Presence, RECONNECT_GRACE_MS, ABANDON_MS, DRAW_WATCHDOG_MS } = SeatState;
+const { Controller, Presence, RECONNECT_GRACE_MS, ABANDON_MS, DRAW_WATCHDOG_MS, AFK_TIMEOUT_MS } = SeatState;
 
 const logError = (what, game) => (err) =>
     socketLogger.error(`${what} failed`, { gameId: game.gameId, error: err.message, stack: err.stack });
@@ -326,6 +326,9 @@ function reconnectOwner(io, game, pos, socket, username) {
     logEntry(io, game, `${username} reconnected.`);
     replayPresenceTo(game, socket, pos);
     reofferAfter(io, game, pos, 'reconnect');
+    // Back from grace on its own turn: the watchdog starts now (a newer
+    // socket taking a connected seat keeps the running one)
+    if (game.currentTurn === pos) armAfk(io, game, pos, { keep: true });
     maybeAbort(io, game);
     return true;
 }
@@ -400,10 +403,63 @@ function reclaimSeat(io, game, pos, socket, username) {
     return goActive(io, game, pos, socket);
 }
 
+// ==================== turn watchdog (AFK) ====================
+
+const afkKey = (pos) => `afk:${pos}`;
+
+/** The seat whose turn it is can be watched: a connected human, turn open. */
+function afkEligible(game, pos) {
+    const seat = game.seat(pos);
+    return !!seat && seat.controller === Controller.HUMAN && seat.presence === Presence.CONNECTED &&
+        game.acceptsTurnInput() && game.currentTurn === pos;
+}
+
+/**
+ * Arm the turn watchdog for `pos` (owner, 2026-11-11: 90 s, every game):
+ * a connected human who neither bids nor plays within afkTimeoutMs() goes
+ * lazy exactly as with /lazy. Called where a human turn opens
+ * (triggerBotIfNeeded's human branch), when a seat comes back to a human on
+ * its turn (reconnect, /active) — never during grace or disconnect (the
+ * grace timers own those; a presence change clears it, GameState
+ * _applySeatEdge). Every other seat's watchdog is cleared: the turn moved.
+ * Cleared too by the seat's own bid/play (clearAfk), /lazy and /active
+ * (controller change) and abort/end (terminate cancels every game timer;
+ * setTimer's epoch guard).
+ * @param {{keep?: boolean}} [opts] keep a watchdog already running for this
+ *   same turn (a newer socket taking the seat does not restart the clock)
+ */
+function armAfk(io, game, pos, { keep = false } = {}) {
+    for (let p = 1; p <= 4; p++) if (p !== pos) game.clearTimer(afkKey(p));
+    const ms = SeatState.afkTimeoutMs();
+    if (!ms || !afkEligible(game, pos)) {
+        game.clearTimer(afkKey(pos));
+        return false;
+    }
+    if (keep && game.hasTimer(afkKey(pos))) return true;
+    const turn = game.turnKey();
+    return game.setTimer(afkKey(pos), ms, () => onAfk(io, game, pos, turn));
+}
+
+/** The seat acted (or its turn is otherwise over): stop its watchdog. */
+function clearAfk(game, pos) {
+    if (pos) game.clearTimer(afkKey(pos));
+}
+
+/** The watchdog fired: still the same open turn of the same connected human? */
+function onAfk(io, game, pos, turn) {
+    if (!afkEligible(game, pos) || game.turnKey() !== turn) return false;
+    socketLogger.info('Turn timeout: bot takes over an idle seat', { gameId: game.gameId, position: pos, ms: SeatState.afkTimeoutMs() });
+    return goLazy(io, game, pos, { reason: 'afk' });
+}
+
 // ==================== lazy / active ====================
 
-/** /lazy: a bot plays the owner's (human, connected) seat. */
-function goLazy(io, game, pos) {
+/**
+ * /lazy: a bot plays the owner's (human, connected) seat.
+ * @param {{reason?: 'afk'}} [opts] 'afk': the turn watchdog fired (same
+ *   transition and events, its own log line)
+ */
+function goLazy(io, game, pos, { reason = null } = {}) {
     const seat = game.seat(pos);
     const bot = createSeatBot(game, pos, seat.lastPersonality);
     if (game.seatGoLazy(pos, bot) == null) {
@@ -416,8 +472,10 @@ function goLazy(io, game, pos) {
         botPic: bot.pic,
         originalUsername: seat.ownerUsername
     });
-    logEntry(io, game, `${seat.ownerUsername} entered lazy mode. ${bot.username} is playing.`);
-    socketLogger.info('Player entered lazy mode', { gameId: game.gameId, position: pos, botUsername: bot.username });
+    logEntry(io, game, reason === 'afk'
+        ? `${seat.ownerUsername} was idle and ${bot.username} is playing for them. Type /active to return.`
+        : `${seat.ownerUsername} entered lazy mode. ${bot.username} is playing.`);
+    socketLogger.info('Player entered lazy mode', { gameId: game.gameId, position: pos, botUsername: bot.username, reason: reason || 'command' });
     // Not while a trick or hand resolves: the next updateTurn re-triggers it
     triggerIfOnTurn(io, game, pos);
     return true;
@@ -454,6 +512,8 @@ function goActive(io, game, pos, socket) {
         // Only while a turn is open (the post-trick updateTurn follows otherwise)
         game.sendToPlayer(io, socket.id, 'updateTurn', { currentTurn: game.currentTurn });
     }
+    // Back on its own turn: a fresh watchdog (no-op on anyone else's turn)
+    if (game.currentTurn === pos) armAfk(io, game, pos);
     maybeAbort(io, game);
     return true;
 }
@@ -536,6 +596,9 @@ module.exports = {
     RECONNECT_GRACE_MS,
     ABANDON_MS,
     DRAW_WATCHDOG_MS,
+    AFK_TIMEOUT_MS,
+    armAfk,
+    clearAfk,
     pickBotPersonality,
     createSeatBot,
     reattachTournament,

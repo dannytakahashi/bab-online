@@ -484,6 +484,12 @@ describe('(e) non-game handlers', () => {
         const botId = gameManager.getPlayerLobby(d.id).players.find((p) => p.isBot).socketId;
         lobbyHandlers.removeBot(d, w.io, { botSocketId: botId });
         lobbyHandlers.lobbyChat(e, w.io, { message: 'yo' });
+        // Voice relays between the two lobby members (voiceHandlers only
+        // forwards between peers of one lobby or game)
+        voiceHandlers.voiceOffer(d, w.io, { targetSocketId: 'e-e', offer: { type: 'offer', sdp: 'v=0' } });
+        voiceHandlers.voiceAnswer(e, w.io, { targetSocketId: 'e-d', answer: { type: 'answer', sdp: 'v=0' } });
+        voiceHandlers.voiceIceCandidate(e, w.io, { targetSocketId: 'e-d', candidate: { candidate: 'c', sdpMLineIndex: 0, sdpMid: '0' } });
+        voiceHandlers.voiceRelayAudio(e, w.io, { targetSocketId: 'e-d', audio: Buffer.alloc(1364) });
         lobbyHandlers.leaveLobby(e, w.io);
         lobbyHandlers.leaveLobby(d, w.io);
         lobbyHandlers.leaveLobby(d, w.io); // not in a lobby: error
@@ -496,12 +502,6 @@ describe('(e) non-game handlers', () => {
         gameManager.queue.push(q.id);
         gameManager.queuedUsers.push({ socketId: q.id, username: 'e_quinn' });
         queueHandlers.leaveQueue(q, w.io);
-
-        // Voice relays
-        voiceHandlers.voiceOffer(d, w.io, { targetSocketId: 'e-e', offer: { type: 'offer', sdp: 'v=0' } });
-        voiceHandlers.voiceAnswer(e, w.io, { targetSocketId: 'e-d', answer: { type: 'answer', sdp: 'v=0' } });
-        voiceHandlers.voiceIceCandidate(e, w.io, { targetSocketId: 'e-d', candidate: { candidate: 'c', sdpMLineIndex: 0, sdpMid: '0' } });
-        voiceHandlers.voiceRelayAudio(e, w.io, { targetSocketId: 'e-d', audio: 'AAAA' });
 
         // Wrapper errors: rate limit and validation
         const r = w.socket('e-r');

@@ -29,6 +29,7 @@ const {
 } = require('./SeatState');
 const { buildSnapshotV2 } = require('./snapshotV2');
 const pacing = require('./pacing');
+const { isValidBid } = require('./rules');
 
 /** game.resume.kind values (snapshot v2 resume.kind) */
 const RESUME_KINDS = ['countdown', 'drawReveal', 'seating', 'teams', 'firstTurn', 'trick', 'hand'];
@@ -187,6 +188,11 @@ class GameState {
 
     acceptsTurnInput() {
         return this._stage === Phase.BIDDING || this._stage === Phase.PLAYING;
+    }
+
+    /** Identifies the open turn: changes with every bid, card and deal. */
+    turnKey() {
+        return `${this.dealSeq || 0}|${this._stage}|${this.currentTurn}|${this.getBidCount()}|${this.cardIndex}`;
     }
 
     _enterStage(from, to) {
@@ -622,8 +628,9 @@ class GameState {
 
     _applySeatEdge(pos, to) {
         const s = this.seats[pos];
-        // Reserved for a future turn watchdog: a controller change ends it
-        if (s.controller !== to.controller) this.clearTimer('afk:' + pos);
+        // The turn watchdog (seatLifecycle.armAfk) only runs for a connected
+        // human: a controller change or the owner dropping ends it
+        if (s.controller !== to.controller || to.presence !== Presence.CONNECTED) this.clearTimer('afk:' + pos);
         s.controller = to.controller;
         s.presence = to.presence;
     }
@@ -1372,10 +1379,10 @@ class GameState {
             return { valid: false, error: 'Not in bidding phase' };
         }
 
-        // Check bid is valid type
-        const validBids = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', 'B', '2B', '3B', '4B'];
-        const bidStr = String(bid);
-        if (!validBids.includes(bidStr) && typeof bid !== 'number') {
+        // Check the bid fits this hand (rules.isValidBid: numbers up to the
+        // hand size, so '13' only on the 13-card hand; bore levels in order)
+        const bidStr = String(bid).toUpperCase();
+        if (!isValidBid(bidStr, this.playerBids, this.currentHand)) {
             return { valid: false, error: `Invalid bid value: ${bid}` };
         }
 

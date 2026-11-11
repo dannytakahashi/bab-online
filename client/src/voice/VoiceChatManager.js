@@ -18,6 +18,8 @@ const ICE_CONFIG = {
 const SPEAKING_THRESHOLD = 0.005;
 const SPEAKING_POLL_INTERVAL = 100;
 const SPEAKING_HOLD_MS = 400; // Keep gate open after speech stops
+// Largest relay chunk accepted (the server drops bigger ones; web sends <= 8 KB)
+const MAX_RELAY_BYTES = 64 * 1024;
 
 export class VoiceChatManager {
   constructor() {
@@ -710,8 +712,14 @@ export class VoiceChatManager {
    */
   _onRelayAudio(fromSocketId, audioData) {
     if (!this._audioContext || !this._relayedPeers.has(fromSocketId)) return;
+    // Only a binary Int16 chunk (socket.io delivers it as an ArrayBuffer).
+    // new Int16Array() reads a numeric string or an object's .length as a
+    // sample count, so anything else could force a huge allocation.
+    if (!(audioData instanceof ArrayBuffer)) return;
+    const bytes = audioData.byteLength;
+    if (bytes === 0 || bytes > MAX_RELAY_BYTES || bytes % 2 !== 0) return;
 
-    // Convert ArrayBuffer/Int16Array → Float32Array
+    // Convert ArrayBuffer (Int16 PCM) → Float32Array
     const int16 = new Int16Array(audioData);
     const float32 = new Float32Array(int16.length);
     for (let i = 0; i < int16.length; i++) {

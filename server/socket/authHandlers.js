@@ -4,11 +4,14 @@
 
 const passwordHash = require('../utils/passwordHash');
 const signInThrottle = require('./signInThrottle');
+const rateLimiter = require('./rateLimiter');
 const { describeClientAddress } = require('../utils/clientIp');
 const { getUsersCollection, getGameRecordsCollection } = require('../database');
 const gameManager = require('../game/GameManager');
 const { authLogger } = require('../utils/logger');
 const { issueSession, verifySession } = require('../utils/sessionTokens');
+const { checkNewUsername, findNameClash, takenMessage, MESSAGES: USERNAME_MESSAGES } = require('../utils/usernameRules');
+const { rememberBlockList } = require('./voiceHandlers');
 
 /**
  * Accounts merged by scripts/merge-accounts.js stay behind as tombstones
@@ -17,6 +20,7 @@ const { issueSession, verifySession } = require('../utils/sessionTokens');
  */
 const BUSY_MESSAGE = 'Server is busy. Try again in a moment.';
 const THROTTLED_MESSAGE = 'Too many failed sign-in attempts. Please wait a few minutes and try again.';
+const SIGN_UP_LIMIT_MESSAGE = 'Too many sign-up attempts. Please wait a few minutes and try again.';
 const isHashBusy = (error) => Boolean(error && error.code === 'HASH_BUSY');
 
 function mergedAccountMessage(username, mergedInto) {
@@ -148,6 +152,7 @@ async function signIn(socket, io, data) {
         const activeGame = activeGameId ? gameManager.getGameById(activeGameId) : null;
 
         const blockedUsers = user.blockedUsers || [];
+        rememberBlockList(socket, blockedUsers); // voice signaling checks it
 
         if (activeGame) {
             // User has an active game - notify client
@@ -223,6 +228,16 @@ async function signUp(socket, io, data) {
 
     const { username, password } = data;
 
+    // New sign-ups only (owner, 2026-11-11): 3-20 ASCII letters, digits,
+    // space _ - . ; no emoji (bots are "🤖 <name>"). Existing names are
+    // never re-checked: sign-in and every lookup stay exact.
+    const rule = checkNewUsername(username);
+    if (!rule.ok) {
+        socket.emit('signUpResponse', { success: false, message: rule.message });
+        authLogger.warn('Sign-up failed: username rule', { reason: rule.reason });
+        return;
+    }
+
     // Substring matching for usernames — embedded slurs in handles like
     // "xX_slur_Xx" must be rejected, not just standalone words
     const { containsProfanitySubstring } = require('../utils/profanityFilter');
@@ -236,16 +251,29 @@ async function signUp(socket, io, data) {
     }
 
     try {
-        const existingUser = await usersCollection.findOne({ username }, { projection: { mergedInto: 1 } });
+        // Taken ignoring case and surrounding whitespace ("alan T" vs "Alan T")
+        const existingUser = await findNameClash(usersCollection, username);
 
         if (existingUser) {
             socket.emit('signUpResponse', {
                 success: false,
-                message: existingUser.mergedInto
+                message: existingUser.exact && existingUser.mergedInto
                     ? mergedAccountMessage(username, existingUser.mergedInto)
-                    : 'Username already taken!'
+                    : takenMessage(username, existingUser)
             });
-            authLogger.warn('Sign-up failed: username taken', { username });
+            authLogger.warn('Sign-up failed: username taken', { username, existing: existingUser.username, exact: existingUser.exact });
+            return;
+        }
+
+        // The account budget (rateLimiter.signUpAccount, 3 / 5 min per
+        // socket) is spent only here, on an attempt that hashes and inserts.
+        // Refusals above (name rules, profanity, taken) only count against
+        // the wrapper's wider signUp cap, so a player trying names is never
+        // locked out by the rules. Over the budget: an ordinary refusal,
+        // which both clients show (never `error`, a generic toast on iOS).
+        if (!rateLimiter.check(socket.id, 'signUpAccount')) {
+            socket.emit('signUpResponse', { success: false, message: SIGN_UP_LIMIT_MESSAGE });
+            authLogger.warn('Sign-up refused: account budget spent', { socketId: socket.id });
             return;
         }
 
@@ -279,6 +307,7 @@ async function signUp(socket, io, data) {
 
         // Auto-login: register with game manager (same as signIn)
         gameManager.registerUser(socket.id, username);
+        rememberBlockList(socket, []);
 
         socket.emit('signUpResponse', { success: true, username, sessionToken, autoLoggedIn: true });
         authLogger.info('New user registered and auto-logged in', { username, socketId: socket.id });
@@ -287,7 +316,7 @@ async function signUp(socket, io, data) {
         // Lost a race with a concurrent sign-up for the same name: the unique
         // index on users.username rejects the second insert
         if (error && error.code === 11000) {
-            socket.emit('signUpResponse', { success: false, message: 'Username already taken!' });
+            socket.emit('signUpResponse', { success: false, message: USERNAME_MESSAGES.taken });
             authLogger.warn('Sign-up failed: username taken (duplicate key)', { username });
             return;
         }
@@ -370,6 +399,7 @@ async function restoreSession(socket, io, data) {
         const activeGameId = user.activeGameId;
         const activeGame = activeGameId ? gameManager.getGameById(activeGameId) : null;
         const blockedUsers = user.blockedUsers || [];
+        rememberBlockList(socket, blockedUsers); // voice signaling checks it
 
         if (activeGame) {
             socket.emit('restoreSessionResponse', {

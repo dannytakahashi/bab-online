@@ -12,7 +12,13 @@ class RateLimiter {
         this.limits = {
             // Auth - strict limits to prevent brute force
             signIn: { max: 5, windowMs: 60000 },       // 5 per minute
-            signUp: { max: 3, windowMs: 300000 },      // 3 per 5 minutes
+            // signUp (the asyncHandler wrapper) counts every attempt,
+            // including refusals by the name rules, profanity filter and
+            // taken check, which cost no hash: 20 per 5 min. Only an attempt
+            // that gets past them (bcrypt hash + insert) also spends
+            // signUpAccount, checked in authHandlers.signUp: 3 per 5 min
+            signUp: { max: 20, windowMs: 300000 },
+            signUpAccount: { max: 3, windowMs: 300000 },
 
             // clientHello: one per connect; over the limit it is dropped
             // silently inside the handler (socket/clientInfo.js)
@@ -68,6 +74,23 @@ class RateLimiter {
 
             // Account management
             deleteAccount: { max: 3, windowMs: 300000 },  // 3 per 5 minutes
+
+            // Voice signaling (checked inside voiceHandlers: over the limit
+            // the message is dropped silently, never 'error', which the
+            // clients would show as a toast). Per socket, all peers together
+            // (a full table is 3 peers). Measured 2026-11-11 in the desktop
+            // app's Chromium with the clients' two Google STUN servers: 2
+            // candidates per peer connection (mDNS host), gathered in ~20 ms;
+            // more interfaces, IPv6 or iOS cellular add a few srflx/host
+            // each, so 300 / 10 s is ~30x a 3-peer burst. Offers/answers:
+            // one per peer plus renegotiation.
+            // The web PCM relay sends one chunk per 4096-frame
+            // ScriptProcessor buffer per relayed peer: ~11.7/s at 48 kHz,
+            // ~23/s at 96 kHz, so 3 peers stay under 70/s
+            voiceOffer: { max: 30, windowMs: 10000 },
+            voiceAnswer: { max: 30, windowMs: 10000 },
+            voiceIceCandidate: { max: 300, windowMs: 10000 },
+            voiceRelayAudio: { max: 1200, windowMs: 10000 },
 
             // Safety / moderation
             reportUser: { max: 5, windowMs: 300000 },     // 5 per 5 minutes

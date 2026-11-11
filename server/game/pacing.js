@@ -76,6 +76,10 @@ const LEGACY = {
     TABLE_COUNTDOWN_MS: 2000,
     AMBIENT_CHECK_MS: 15000,
     AMBIENT_RESTART_MS: 30000,
+    // Ambient games run on demand (owner, 2026-11-11): once nobody signed in
+    // has been in the main room or watching the ambient game for this long,
+    // the running game finishes and no new one starts (server/demo/ambientBots.js)
+    AMBIENT_IDLE_MS: 10 * 60 * 1000,
 };
 
 /**
@@ -260,8 +264,10 @@ const IOS_1_0_FLOORS = Object.freeze({
 });
 
 const ZERO = Object.fromEntries(Object.entries(LEGACY).map(([k, v]) => [k, Array.isArray(v) ? [0, 0] : 0]));
-// The ambient poll must stay a real interval (0 would spin)
+// The ambient poll must stay a real interval (0 would spin), and the idle
+// grace is a demand window, not a presentation delay (0 would never start one)
 ZERO.AMBIENT_CHECK_MS = 1;
+ZERO.AMBIENT_IDLE_MS = LEGACY.AMBIENT_IDLE_MS;
 
 const PROFILES = {
     standard: STANDARD,

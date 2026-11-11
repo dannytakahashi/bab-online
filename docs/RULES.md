@@ -72,11 +72,11 @@ After the deal, players bid in clockwise order starting with the player to the l
 
 ### What is a Bid?
 
-A bid is the number of tricks you expect to win this hand. Valid bids range from 0 to the hand size.
+A bid is the number of tricks you expect to win this hand. Valid bids range from 0 to the hand size (so 13 is legal on the 13-card hand; it is an ordinary 1x bid, not a bore).
 
 ### Lead Determination
 
-The player with the highest bid leads the first trick. If there's a tie, the first player to bid that amount gets the lead.
+The player with the highest bid leads the first trick. If there's a tie, the first player to bid that amount gets the lead. Any bore outranks every number (a B beats a 13), and a higher bore beats a lower one.
 
 ### Bore (Board)
 

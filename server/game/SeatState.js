@@ -29,7 +29,21 @@ const { Phase, PRE_SEATING } = require('./GamePhase');
 const RECONNECT_GRACE_MS = 60000;   // per seat: disconnect -> resign offer
 const ABANDON_MS = 60000;           // nobody connected -> abort
 const DRAW_WATCHDOG_MS = 30000;     // DRAWING entry -> auto-draw stragglers
-// AFK_MS is reserved for a future turn watchdog ('afk:<pos>' timer key)
+// Turn watchdog (owner, 2026-11-11): a connected human who sits on their
+// bid or play this long is put in lazy mode ('afk:<pos>' game timer,
+// socket/seatLifecycle.armAfk). Every game, tournaments included.
+const AFK_TIMEOUT_MS = 90000;
+
+/**
+ * The AFK timeout in ms; AFK_TIMEOUT_MS in the environment overrides it
+ * (read at every arm; 0 disables the watchdog; garbage keeps the default).
+ */
+function afkTimeoutMs(env = process.env) {
+    const raw = env.AFK_TIMEOUT_MS;
+    if (raw === undefined || raw === '') return AFK_TIMEOUT_MS;
+    const n = Number(raw);
+    return Number.isFinite(n) && n >= 0 ? Math.floor(n) : AFK_TIMEOUT_MS;
+}
 
 const Controller = Object.freeze({
     HUMAN: 'human',
@@ -248,6 +262,8 @@ module.exports = {
     RECONNECT_GRACE_MS,
     ABANDON_MS,
     DRAW_WATCHDOG_MS,
+    AFK_TIMEOUT_MS,
+    afkTimeoutMs,
     Controller,
     Presence,
     LEGAL,

@@ -20,6 +20,10 @@ class GameManager {
         // Main room (global chat + lobby browser)
         this.mainRoomMessages = [];       // Global chat history (capped at MAX_MAIN_ROOM_MESSAGES)
         this.mainRoomSocketIds = new Set(); // Players currently in main room
+        // Called with the socket id after every joinMainRoom (all three join
+        // points: joinMainRoom, leaveLobby, a tournament's sendToMainRoom).
+        // server/demo/ambientBots.js starts its game on demand from here
+        this.mainRoomJoinListeners = new Set();
 
         // Lobbies (pre-game waiting rooms)
         this.lobbies = new Map();      // lobbyId → { players: [], readyPlayers: Set, messages: [] }
@@ -189,6 +193,7 @@ class GameManager {
         this.releaseCompletedTournamentMembership(socketId);
 
         this.mainRoomSocketIds.add(socketId);
+        for (const listener of this.mainRoomJoinListeners) listener(socketId);
 
         return {
             success: true,
@@ -197,6 +202,15 @@ class GameManager {
             onlineCount: this.mainRoomSocketIds.size,
             username: user.username
         };
+    }
+
+    /**
+     * Call `fn(socketId)` after every successful joinMainRoom.
+     * @returns {Function} unsubscribe
+     */
+    onMainRoomJoin(fn) {
+        this.mainRoomJoinListeners.add(fn);
+        return () => this.mainRoomJoinListeners.delete(fn);
     }
 
     /**
