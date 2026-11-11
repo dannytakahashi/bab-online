@@ -281,6 +281,11 @@ function isValidBid(bid, playerBids, handSize) {
     if (/^\d+$/.test(bid)) return Number(bid) <= handSize;
     const prerequisite = { B: null, '2B': 'B', '3B': '2B', '4B': '3B' };
     if (!(bid in prerequisite)) return false;
+    // Each bore level once per deal (owner 2026-11-11: "refuse repeats"; both
+    // clients already hide or grey a level that is on the table, and bots
+    // only ever bid the next level up). With the prerequisite chain this
+    // also refuses B once any bore is out.
+    if (playerBids.includes(bid)) return false;
     return prerequisite[bid] === null || playerBids.includes(prerequisite[bid]);
 }
 

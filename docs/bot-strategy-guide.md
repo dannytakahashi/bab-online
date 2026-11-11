@@ -112,7 +112,7 @@ Only with both jokers and 7+ trump. These are once-a-season hands. (Hands of 6â€
 - **1 card: always escalate partner's bore, whatever you hold.** A 1-card bore is ~99% to sweep and your card can only help (worth ~1 point of win rate in sim).
 - **2â€“4 cards:** escalate holding at least half your cards in trump; on 2 cards, also with an off-suit Ace (no off-suit King).
 - If an opponent also bored, escalate only holding the unbeatable card yourself (HI joker, or LO when HI was flipped).
-- **Never skip or repeat a level**: 'B' only when no bore is out, otherwise exactly one level above the highest bore on the table. The server rejects skipped levels.
+- **Never skip or repeat a level**: 'B' only when no bore is out, otherwise exactly one level above the highest bore on the table. The server rejects skipped and repeated levels (`rules.isValidBid`).
 
 ## Playing the Contract
 

@@ -222,6 +222,19 @@ describe('playerBid validation', () => {
         gameManager.abortGame(game.gameId);
     });
 
+    test('a repeated bore level is rejected through the handler (invalid_bid), and the turn stays', async () => {
+        const log = [];
+        const { game, ids } = biddingGame();
+        await gameHandlers.playerBid(makeSocket(ids[0], log), makeIo(log), { bid: 'B' });
+        expect(game.playerBids[0]).toBe('B');
+        await gameHandlers.playerBid(makeSocket(ids[1], log), makeIo(log), { bid: 'b' });
+        expect(game.playerBids[1]).toBeUndefined();
+        expect(log.some((l) => l.event === 'actionRejected' && l.data && l.data.reason === 'invalid_bid')).toBe(true);
+        await gameHandlers.playerBid(makeSocket(ids[1], log), makeIo(log), { bid: '2B' });
+        expect(game.playerBids[1]).toBe('2B');
+        gameManager.abortGame(game.gameId);
+    });
+
     test('a skipped bore level is rejected', async () => {
         const log = [];
         const { game, ids } = biddingGame();
@@ -242,6 +255,13 @@ describe('isValidBid', () => {
         ['3B', ['B'], 2, false],
         ['3B', ['B', '2B'], 2, true],
         ['4B', ['B', '2B', '3B'], 2, true],
+        // each bore level once per deal (owner 2026-11-11)
+        ['B', ['B'], 2, false],
+        ['B', ['B', '2B'], 2, false],
+        ['2B', ['B', '2B'], 2, false],
+        ['3B', ['B', '2B', '3B'], 2, false],
+        ['4B', ['B', '2B', '3B', '4B'], 2, false],
+        ['2B', ['3', 'B', undefined, undefined], 2, true],
         ['X', [], 2, false],
     ])('%s with %j on %i cards -> %s', (bid, bids, size, ok) => {
         expect(isValidBid(bid, bids, size)).toBe(ok);
