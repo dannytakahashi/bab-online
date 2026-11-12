@@ -3,7 +3,7 @@
  *
  * Handles: positionUpdate, gameStart, startDraw, youDrew, playerDrew, teamsAnnounced,
  *          createUI, bidReceived, doneBidding, updateTurn, cardPlayed, trickComplete,
- *          handComplete, gameEnd, rainbow, destroyHands, abortGame, roomFull,
+ *          handComplete, gameEnd, rainbow, destroyHands, abortGame,
  *          playerDisconnected, playerReconnected, rejoinSuccess, rejoinFailed,
  *          actionRejected, stateSnapshot, spectatorsUpdated
  *
@@ -51,7 +51,6 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
     onRainbow,
     onDestroyHands,
     onAbortGame,
-    onRoomFull,
     // Reconnection
     onPlayerDisconnected,
     onPlayerReconnected,
@@ -89,14 +88,8 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
   socketManager.onGame(SERVER_EVENTS.POSITION_UPDATE, (data) => {
     console.log('📍 Position update:', data);
 
-    // Store player data in state
-    state.setPlayerData(data);
-
-    // If position comes with this data
-    if (data.yourPosition) {
-      state.position = data.yourPosition;
-      state._updatePlayerNames();
-    }
+    // The seats, and my own one by my username (no playerAssigned needed)
+    state.applyPositionUpdate(data, { socketId: socketManager.id ?? null });
 
     onPositionUpdate?.(data);
   });
@@ -265,12 +258,6 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
     socketManager.clearGameId();
 
     onAbortGame?.(data);
-  });
-
-  // Room full
-  socketManager.on(SERVER_EVENTS.ROOM_FULL, (data) => {
-    console.log('🚫 Room full:', data);
-    onRoomFull?.(data);
   });
 
   // ==================== RECONNECTION ====================

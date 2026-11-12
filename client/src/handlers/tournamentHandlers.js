@@ -4,8 +4,10 @@
  * Handles: tournamentCreated, tournamentJoined, tournamentPlayerJoined,
  *          tournamentPlayerLeft, tournamentReadyUpdate, tournamentMessage,
  *          tournamentRoundStart, tournamentGameAssignment, tournamentGameComplete,
- *          tournamentRoundComplete, tournamentComplete, tournamentLeft,
- *          activeTournamentFound
+ *          tournamentRoundComplete, tournamentComplete, tournamentLeft
+ *
+ * No activeTournamentFound listener: the server never sends it
+ * (signInResponse.activeTournamentId replaced it; V1_REMOVALS #3).
  */
 
 import { SERVER_EVENTS } from '../constants/events.js';
@@ -31,7 +33,6 @@ export function registerTournamentHandlers(socketManager, callbacks = {}) {
     onTournamentComplete,
     onTournamentLeft,
     onTournamentCancelled,
-    onActiveTournamentFound,
   } = callbacks;
 
   socketManager.on(SERVER_EVENTS.TOURNAMENT_CREATED, (data) => {
@@ -97,10 +98,5 @@ export function registerTournamentHandlers(socketManager, callbacks = {}) {
   socketManager.on(SERVER_EVENTS.TOURNAMENT_CANCELLED, (data) => {
     console.log('Tournament cancelled:', data);
     onTournamentCancelled?.(data);
-  });
-
-  socketManager.on(SERVER_EVENTS.ACTIVE_TOURNAMENT_FOUND, (data) => {
-    console.log('Active tournament found:', data);
-    onActiveTournamentFound?.(data);
   });
 }

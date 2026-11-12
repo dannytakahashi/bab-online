@@ -27,6 +27,7 @@ import { getClientSession, SCREEN, ROLE, EXIT } from './state/ClientSession.js';
 // Socket
 import { getSocketManager, initializeSocketManager } from './socket/SocketManager.js';
 import { createSocket } from './socket/createSocket.js';
+import { ServerErrorDeduper, CHANNEL, failureOf, TABLE_ERROR_HANDLERS } from './socket/serverErrors.js';
 import { installConnectionBanner } from './ui/components/ConnectionBanner.js';
 import { showSupersededNotice, hideSupersededNotice, isSupersededNoticeShown, setSupersededNoticeVariant, NOTICE_VARIANT } from './ui/components/SupersededNotice.js';
 import { removeTransitionOverlay } from './ui/transitionOverlay.js';
@@ -358,16 +359,9 @@ socket.on('deleteAccountResponse', (data) => {
   }
 });
 
-socket.on('playerAssigned', (data) => {
-  console.log('📡 Received playerAssigned:', data);
-  const state = getGameState();
-  if (data.playerId) {
-    state.playerId = data.playerId;
-  }
-  if (data.position) {
-    state.position = data.position;
-  }
-});
+// No playerAssigned listener (V1_REMOVALS #7): my seat comes from
+// positionUpdate (my username's position, handlers/gameHandlers.js), then
+// every seat gameStart (`position`) and every snapshot (`viewer.position`)
 
 // ==================== END SESSION / RECONNECTION ====================
 
@@ -610,12 +604,14 @@ function initializeApp() {
           const el = document.getElementById('player-avatar-container');
           if (el) el.classList.toggle('voice-speaking', isSpeaking);
         } else {
-          // Peer → seat by username (socket ids change on reconnect)
+          // Peer → seat by username: the seat's owner, then the name it
+          // shows; the socket id only as a fallback (V1_REMOVALS #6 / #14)
           const slotId = speakingSlotFor({
             username: voiceManager.peers.get(id)?.username || null,
             socketId: id,
             playerData: gameState.playerData,
             myPosition: gameState.position,
+            owners: gameState.seatOwners,
           });
           if (slotId) {
             const el = document.getElementById(`opponent-avatar-${slotId}`);
@@ -781,13 +777,38 @@ function initializeApp() {
     }
   });
 
-  // Set up error handler
-  socket.on('error', (error) => {
+  // App-level server errors (V1_REMOVALS #1): today's server sends each
+  // one as `error` and then its `serverError {code, message, handler}`
+  // twin; phase B sends only serverError. Both channels lead here, and the
+  // second copy of one failure is dropped (equal handler, as iOS 1.2's
+  // ServerErrorDeduper), so a failure shows one toast and resyncs once.
+  const errorDeduper = new ServerErrorDeduper();
+  const onServerFailure = (channel) => (payload) => {
+    const failure = failureOf(channel, payload);
+    if (!errorDeduper.accept(channel, failure)) return;
+    routeTableError(failure);
     // A restore finding its place gone (e.g. after a server restart) is
     // expected: logged, not reported as an error
-    if (handleSocketError(error, socket)) console.log('Restore refused:', error?.message);
-    else console.error('Server error:', error);
-  });
+    if (handleSocketError(failure, socket)) console.log('Restore refused:', failure.message);
+    else console.error('Server error:', failure);
+  };
+  socket.on(CHANNEL.ERROR, onServerFailure(CHANNEL.ERROR));
+  socket.on(CHANNEL.SERVER_ERROR, onServerFailure(CHANNEL.SERVER_ERROR));
+
+  /**
+   * A refused table request resyncs the table at once instead of waiting
+   * for a timeout (iOS SocketService.routeTableError): my refused play /
+   * bid asks for its snapshot now (MyAction), a refused requestSnapshot
+   * applies what the seq gate holds (no snapshot is coming for it).
+   */
+  function routeTableError({ handler }) {
+    if (!TABLE_ERROR_HANDLERS.includes(handler)) return;
+    if (handler === 'requestSnapshot') {
+      if (seqGate.buffered || seqGate.resyncId) seqGate.flushBuffer();
+      return;
+    }
+    myAction.transportError(handler === 'playCard' ? 'play' : 'bid');
+  }
 
   /**
    * The spectating pill: 'lazy' (my seat is played by a bot), 'spectator',
@@ -1054,20 +1075,6 @@ function initializeApp() {
       // Start voice chat when entering a lobby
       startVoice();
     },
-    onLobbyJoined: (data) => {
-      // Don't show lobby if we're at a table (e.g., during rejoin)
-      if (session.hasTable) {
-        console.log('Lobby joined event ignored - at the table');
-        return;
-      }
-      console.log('Joined lobby, showing lobby UI');
-      session.transition(SCREEN.LOBBY, {
-        lobbyId: data.lobbyId,
-        players: data.players,
-        messages: (data.messages || []).filter(m => !isUserBlocked(m.username))
-      });
-      session.noteLobby(data.lobbyId);
-    },
     onPlayerReadyUpdate: (data) => {
       // Every playerReadyUpdate names the held seats while there are any
       updateLobbyPlayersList(null, data.players, gameState.username, { reconnecting: data.reconnecting || [] });
@@ -1098,8 +1105,11 @@ function initializeApp() {
 
     // Spectator callback
     onSpectatorJoined: (data) => {
-      // If this is the full game state (not just a notification about another spectator)
-      if (data.players && data.trump) {
+      // The full game state (not just a notice that someone else joined):
+      // the v1 keys or the snapshot (V1_REMOVALS #8 / #9: a snapshot-only
+      // carrier), both only once the trump is dealt, as before
+      const full = !!(data.trump || data.snapshot?.trump) && !!(data.players || data.snapshot?.seats);
+      if (full) {
         const spectatedGameId = data.gameId || data.snapshot?.gameId || session.takePendingSpectate();
         session.routeArrived();
         restartNotice.clear();
@@ -1119,8 +1129,7 @@ function initializeApp() {
     // Game callbacks - update GameState and trigger scene handlers
     onPositionUpdate: (data) => {
       console.log('📍 onPositionUpdate callback');
-      // Update modular GameState with player data
-      gameState.setPlayerData(data);
+      // GameState applied the seating (handlers/gameHandlers.js)
       // Player info box creation deferred to handleDisplayOpponentHands
       // so it appears at the same time as other players' avatars
     },
@@ -1436,21 +1445,19 @@ function initializeApp() {
       const route = session.screen !== SCREEN.MAIN_ROOM && session.screen !== SCREEN.SIGN_IN;
       session.exitTable(EXIT.ABORT, { route });
     },
-    onRoomFull: (data) => {
-      console.log('Room full:', data);
-      uiManager.removeWaitingScreen();
-      // Return to main room (this shouldn't happen with lobby system)
-      session.requestMainRoom();
-    },
     // Reconnection handlers
     onRejoinSuccess: (data) => {
       // One rejoinGame per socket; the server still answers a repeated lazy
       // rejoin, and processing it twice would replay the game log twice
-      if (!session.noteRejoinSuccess(data.gameId)) {
+      // The game and my role from the v1 keys, else the snapshot (V1_REMOVALS
+      // #9: the carrier may come down to {snapshot, tournamentId})
+      const gameId = data.gameId || data.snapshot?.gameId;
+      const lazy = data.isLazy !== undefined ? !!data.isLazy : data.snapshot?.viewer?.role === 'lazyWatcher';
+      if (!session.noteRejoinSuccess(gameId)) {
         console.log('Duplicate rejoinSuccess on this socket ignored');
         return;
       }
-      session.enterTable(data.isLazy ? ROLE.LAZY : ROLE.PLAYER, data.gameId);
+      session.enterTable(lazy ? ROLE.LAZY : ROLE.PLAYER, gameId);
       // The game survived: nothing to explain
       restartNotice.clear();
       // Restore tournament context (server includes it when the rejoined game
@@ -1460,7 +1467,7 @@ function initializeApp() {
       }
       // The snapshot is the table: a rejoin onto a live scene draws exactly
       // what a fresh page would (cli-4)
-      rebuildTable(data, { source: 'rejoin', role: data.isLazy ? 'lazyWatcher' : 'seat', suffix: 'Reconnected to game!' });
+      rebuildTable(data, { source: 'rejoin', role: lazy ? 'lazyWatcher' : 'seat', suffix: 'Reconnected to game!' });
       // Re-establish voice on reconnect
       if (!voiceManager.active) {
         startVoice();
@@ -1831,12 +1838,6 @@ function initializeApp() {
       } else {
         removeTournamentLobby();
       }
-    },
-
-    onActiveTournamentFound: (data) => {
-      gameState.tournamentId = data.tournamentId;
-      if (session.hasTable) return;
-      uiManager.showScreen(SCREENS.TOURNAMENT_LOBBY, data);
     },
   });
 

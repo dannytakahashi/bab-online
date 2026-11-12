@@ -4811,15 +4811,13 @@
       "status": "clientOnly",
       "to": "self",
       "clientReads": {
-        "web": [
-          "client/src/handlers/lobbyHandlers.js:registerLobbyHandlers"
-        ],
+        "web": [],
         "ios": [
           "iOSClient/BABOnline/Networking/Handlers/LobbySocketHandler.swift:register"
         ]
       },
       "emittedFrom": [],
-      "notes": "Never emitted: joining a lobby answers lobbyCreated."
+      "notes": "Never emitted: joining a lobby answers lobbyCreated. Web registers no listener (2026-11-12, V1_REMOVALS #3); iOS 1.1.0 and 1.2.0 still do."
     },
     "lobbyPlayerJoined": {
       "payload": {
@@ -5291,15 +5289,13 @@
       "status": "deprecated",
       "to": "socket",
       "clientReads": {
-        "web": [
-          "client/src/main.js:playerAssigned"
-        ],
+        "web": [],
         "ios": []
       },
       "emittedFrom": [
         "server/socket/gameHandlers.js:handleDrawComplete"
       ],
-      "notes": "Web main.js reads it; replaced by v2 viewer.position (V1_REMOVALS #7)."
+      "notes": "Read by no client since 2026-11-12 (V1_REMOVALS #7): web takes its seat from positionUpdate (its username, GameState.applyPositionUpdate), every seat gameStart.position and snapshot viewer.position; iOS never read it."
     },
     "teamsAnnounced": {
       "payload": {
@@ -7166,14 +7162,13 @@
       "status": "clientOnly",
       "to": "self",
       "clientReads": {
-        "web": [
-          "client/src/handlers/gameHandlers.js:registerGameHandlers"
-        ],
+        "web": [],
         "ios": [
           "iOSClient/BABOnline/Networking/Handlers/GameSocketHandler.swift:registerSpecialEvents"
         ]
       },
-      "emittedFrom": []
+      "emittedFrom": [],
+      "notes": "Never emitted. Web registers no listener (2026-11-12, V1_REMOVALS #3); iOS 1.1.0 and 1.2.0 still do."
     },
     "resignationAvailable": {
       "payload": {
@@ -8587,15 +8582,13 @@
       "status": "clientOnly",
       "to": "self",
       "clientReads": {
-        "web": [
-          "client/src/handlers/tournamentHandlers.js:registerTournamentHandlers"
-        ],
+        "web": [],
         "ios": [
           "iOSClient/BABOnline/Networking/Handlers/TournamentSocketHandler.swift:register"
         ]
       },
       "emittedFrom": [],
-      "notes": "Never emitted (signInResponse.activeTournamentId replaced it)."
+      "notes": "Never emitted (signInResponse.activeTournamentId replaced it). Web registers no listener (2026-11-12, V1_REMOVALS #3); iOS 1.1.0 and 1.2.0 still do."
     },
     "adminResponse": {
       "payload": {
@@ -10243,7 +10236,7 @@
       "to": "self",
       "clientReads": {
         "web": [
-          "client/src/main.js:setupSocketErrorHandler",
+          "client/src/main.js:onServerFailure",
           "client/src/admin/adminApi.js:createAdminApi#reads:type,handler"
         ],
         "ios": [
@@ -10259,7 +10252,7 @@
         "server/socket/*.js:<many handlers> (emitError(socket, {message}, handler))",
         "server/socket/chatHandlers.js:sendError"
       ],
-      "notes": "App-level event (not the transport's error). iOS receives it through Socket.IO-Client-Swift's clientEvent .error (the reserved name) and, since 0fd6ef1, shows message as a toast. variant validation is dead today (validators.withValidation has no caller). Every emit (but the dead withValidation) is followed by its serverError twin (V1_REMOVALS #1 phase A, 2026-11-11), with the same handler, so a client reading both channels can drop the second copy: variant rejected (a handler's refusal, {message, handler}) is new with phase A and additive (1.1.0's routeTableError and web act only on handler playCard / playerBid / requestSnapshot, which no refusal names; variant message is what emitError sends without a handler, which no call site does today). handler is the c2s event the error answers on every path (the chat events: mainRoomChat / lobbyChat / tournamentChat, not their shared chatMessage schema). Dropping this event is phase B, blocked until an iOS build and web read serverError. The admin panel's api (adminApi.js) reads {type:'rateLimit', handler:'adminRequest'} to fail a dropped admin request fast as rate_limited."
+      "notes": "App-level event (not the transport's error). iOS receives it through Socket.IO-Client-Swift's clientEvent .error (the reserved name) and, since 0fd6ef1, shows message as a toast. variant validation is dead today (validators.withValidation has no caller). Every emit (but the dead withValidation) is followed by its serverError twin (V1_REMOVALS #1 phase A, 2026-11-11), with the same handler, so a client reading both channels can drop the second copy: variant rejected (a handler's refusal, {message, handler}) is new with phase A and additive (1.1.0's routeTableError and web act only on handler playCard / playerBid / requestSnapshot, which no refusal names; variant message is what emitError sends without a handler, which no call site does today). handler is the c2s event the error answers on every path (the chat events: mainRoomChat / lobbyChat / tournamentChat, not their shared chatMessage schema). Dropping this event is phase B, blocked only by iOS 1.1.0 (web and iOS 1.2.0 read serverError and drop this twin, 2026-11-12). The admin panel's api (adminApi.js) reads {type:'rateLimit', handler:'adminRequest'} to fail a dropped admin request fast as rate_limited."
     },
     "serverError": {
       "payload": {
@@ -10288,14 +10281,19 @@
       "status": "active",
       "to": "self",
       "clientReads": {
-        "web": [],
-        "ios": []
+        "web": [
+          "client/src/main.js:onServerFailure",
+          "client/src/admin/adminApi.js:createAdminApi#reads:code,handler"
+        ],
+        "ios": [
+          "iOSClient/BABOnline/Networking/SocketService.swift:handleServerError"
+        ]
       },
       "emittedFrom": [
         "server/socket/serverError.js:emitError",
         "server/socket/chatHandlers.js:sendError"
       ],
-      "notes": "V1_REMOVALS #1 phase A (2026-11-11, additive): the twin of every app-level error, sent right after it to the same socket. code: rateLimit / validation / server (the error's type) or rejected (a handler's {message} refusal); message: the error's message; handler: the c2s event it answers (the registered socket.on name: errorHandler options.event, else the schema; or the handler that refused), the same as on its error copy, null when unknown. Read by no shipped client yet (iOS 1.1.0 and web listen to error); its own name because Socket.IO-Client-Swift reserves 'error'. When iOS and web read it, phase B drops error."
+      "notes": "V1_REMOVALS #1 phase A (2026-11-11, additive): the twin of every app-level error, sent right after it to the same socket. code: rateLimit / validation / server (the error's type) or rejected (a handler's {message} refusal); message: the error's message; handler: the c2s event it answers (the registered socket.on name: errorHandler options.event, else the schema; or the handler that refused), the same as on its error copy, null when unknown. Read by web (2026-11-12: main.js onServerFailure and adminApi listen to both channels and drop the twin with an equal handler, client/src/socket/serverErrors.js) and iOS 1.2.0 (ServerErrorDeduper), not by iOS 1.1.0; its own name because Socket.IO-Client-Swift reserves 'error'. Once 1.1.0 is gated, phase B drops error."
     }
   },
   "builtins": {
