@@ -26,9 +26,11 @@ gated. The gate's payloads were re-checked against what 1.1.0 reads
 (SignInView / RegisterView show `signInResponse` / `signUpResponse`
 messages in red under the fields; LobbySocketHandler reads
 `recentMessages ?? messages`; leftGame / leftLobby / tournamentLeft land in
-the main room, whose joinMainRoom gets the update-only room; 1.1.0 disables
-its table Leave during the draw, so the gate answers Tap to Draw (`draw`)
-with leftGame too; the upgradeGate.js header and upgradeGate.test.js run
+the main room, whose joinMainRoom gets the update-only room; 1.1.0's table
+Leave cannot be reached during the draw (on phones DrawPhaseView's
+full-screen overlay covers the corner Leave, which stays enabled; only the
+Duo's vertical-bar `leaveBarButton` is `.disabled(phase == .draw)`), so the
+gate answers Tap to Draw (`draw`) with leftGame too; the upgradeGate.js header and upgradeGate.test.js run
 every gated-socket check for both builds). From that PR on, "the shipped iOS app" in the entries
 below means 1.2.0, and the 1.1.0 blockers in "Plan after the gate" are
 lifted: see "What iOS 1.2.0 unblocks".
@@ -47,8 +49,11 @@ lifted: see "What iOS 1.2.0 unblocks".
   session's `lastUsedAt` (nothing else), so the 90-day session TTL does not
   run out while a player keeps opening an old build before updating.
 - **Telemetry.** Every iOS socket logs `iOS app connected {build}` and every
-  gated connection `Upgrade gate: outdated iOS app {build, username}`. 1.1.0
-  sends no `clientHello`, so clientHello caps still say nothing about iOS.
+  gated connection `Upgrade gate: outdated iOS app {build, username}`.
+  1.0.0 and 1.1.0 never send `clientHello` (both are gated); 1.2.0 and later
+  send `clientHello {client:'ios', version, build, caps}` on every connect,
+  so once this step is live clientHello caps cover every iOS socket that is
+  not gated (the 2-week clientHello check for #19 can count iOS).
 
 ## How to execute one removal
 

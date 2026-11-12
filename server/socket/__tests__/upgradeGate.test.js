@@ -278,7 +278,8 @@ describe.each(OLD_BUILDS)('a %s socket', (_version, UA_OLD, BUILD) => {
         const before = serverState();
         const w = wired(UA_OLD);
         await w.send('chatMessage', { message: ' /LEAVE ' });
-        // 1.1.0 disables Leave under the draw overlay: Tap to Draw is the way out
+        // 1.1.0's Leave cannot be reached during the draw (covered by the
+        // overlay on phones, disabled on the Duo's bar): Tap to Draw is the way out
         await w.send('draw', { num: 17 });
         await w.send('leaveLobby');
         await w.send('leaveTournament');

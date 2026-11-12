@@ -50,11 +50,16 @@
  *     gets leftGame, a lobby's Leave gets leftLobby, a tournament's leave /
  *     return gets tournamentLeft, so every way out lands in that main room.
  *     (No game-log copy: gameLogEntry is a room broadcast that carries seq.)
- *   - the draw (warm reconnect while "Draw for Deal" is up): 1.1.0 disables
- *     its Leave under the draw overlay (GameContainerView
- *     `.disabled(gameState.phase == .draw)`; found in the 2026-11-12 live
- *     check), so Tap to Draw (`draw`) is the only way out and gets leftGame
- *     too (both builds send `draw` only from DrawPhaseView). A player who had
+ *   - the draw (warm reconnect while "Draw for Deal" is up): 1.1.0's Leave
+ *     cannot be reached during the draw (found in the 2026-11-12 live check;
+ *     f05d264 GameContainerView). On a phone the corner Leave stays ENABLED
+ *     but DrawPhaseView's full-screen `Color.black.opacity(0.7)` overlay sits
+ *     above tablePane in gameContent's ZStack and takes every tap; on the
+ *     Duo's vertical bar `leaveBarButton` is `.disabled(gameState.phase ==
+ *     .draw)`. So do not audit this by searching for `.disabled`: what makes
+ *     Leave unreachable on most devices is the overlay. Tap to Draw (`draw`)
+ *     is the only way out and gets leftGame too (both builds send `draw`
+ *     only from DrawPhaseView). A player who had
  *     already drawn before the deploy has no button left: force-quitting
  *     lands on sign-in with the message.
  * Nothing else is registered for a gated socket (setupSocketHandlers returns
@@ -243,7 +248,7 @@ function attach(socket, app) {
         if (typeof data?.message === 'string' && data.message.trim().toLowerCase() === '/leave') replyLeave('leftGame');
     });
     // Tap to Draw: the only control a stale draw screen leaves (1.1.0's Leave
-    // is disabled under the draw overlay)
+    // is covered by the draw overlay on phones, disabled on the Duo's bar)
     socket.on('draw', () => replyLeave('leftGame'));
     socket.on('leaveLobby', () => replyLeave('leftLobby'));
     socket.on('leaveTournament', () => replyLeave('tournamentLeft'));
