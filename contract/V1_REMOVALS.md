@@ -275,6 +275,20 @@ the new builds (show "server restarting") or drop it.
 
 ### 18. Hardening that could reject inputs
 
+**Done 2026-11-11 (PR #TBD).** Joi schemas (`server/socket/validators.js`):
+`joinLobby {lobbyId: uuid}` and `removeBot {botSocketId: 'bot:...'}` (both
+now `syncHandler`), `searchPlayers {query <= 500}`, `getPlayerProfile
+{username 1-100}` (their wrappers already named them), and the four voice
+relays, checked inside voiceHandlers after the peer check so a bad one is
+dropped silently (contract key `joiInHandler`; `joi` stays null for them).
+The shared-room relay check was already in place (#211:
+`voiceHandlers.authorize`). `GameManager.removeBotFromLobby` also refuses a
+human member's socket id (before, any lobby member could remove another by
+the socket id the lobby list shows). Payloads checked against what web on
+main and 1.1.0 (f05d264 LobbyEmitter / VoiceEmitter: `username: ""`,
+`sdpMid: ""`) send; the iOS fixture logs carry no c2s lobby or voice
+events. Tests: `v1Hardening.test.js`, `voiceSignaling.test.js`.
+
 Joi schemas for `searchPlayers`, `getPlayerProfile`, `joinLobby`,
 `removeBot` and the voice relays (`voiceOffer`, `voiceAnswer`,
 `voiceIceCandidate`, `voiceRelayAudio`); a shared-room check for the voice
@@ -470,7 +484,8 @@ step, in this order; nothing is removed by the gate PR itself.
 8. **#18 hardening Joi**: 1.1.0 now sends `removeBot {botSocketId}` (the
    "no payload" note is 1.0.0-only) and web sends the same; the Joi schemas
    for `removeBot`, `joinLobby`, `searchPlayers`, `getPlayerProfile` and the
-   voice relays (plus the shared-room relay check) can land.
+   voice relays (plus the shared-room relay check) can land. **Done
+   2026-11-11 (PR #TBD).**
 9. **#17 `serverShutdown`**: no listener anywhere; either drop it or add the
    "server restarting" handling in a later client build. Owner call.
 10. **#1 phase A only** (`serverError` dual emit with `{code, message,

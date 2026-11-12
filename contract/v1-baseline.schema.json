@@ -1217,7 +1217,7 @@
         "additionalProperties": true
       },
       "status": "active",
-      "joi": null,
+      "joi": "joinLobby",
       "rateLimit": null,
       "sentBy": {
         "web": true,
@@ -1371,9 +1371,8 @@
         ],
         "additionalProperties": true
       },
-      "optionalPayload": true,
       "status": "active",
-      "joi": null,
+      "joi": "removeBot",
       "rateLimit": null,
       "sentBy": {
         "web": true,
@@ -1744,7 +1743,7 @@
         "additionalProperties": true
       },
       "status": "active",
-      "joi": null,
+      "joi": "searchPlayers",
       "rateLimit": null,
       "sentBy": {
         "web": true,
@@ -1771,7 +1770,7 @@
         "additionalProperties": true
       },
       "status": "active",
-      "joi": null,
+      "joi": "getPlayerProfile",
       "rateLimit": null,
       "sentBy": {
         "web": true,

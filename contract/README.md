@@ -107,8 +107,10 @@ test. `contract.test.js` also asserts coverage per event AND per variant
 reason).
 
 Client → server: each c2s schema mirrors its Joi schema's bounds
-(`server/socket/validators.js`); `examples` must pass both, `invalid`
-examples must fail both, so a client generated from the schema never sends
+(`server/socket/validators.js`; `joi` = the wrapper's schema, `joiInHandler`
+= one the handler checks itself and drops silently on, the voice relays;
+every c2s event with a payload has one since V1_REMOVALS #18); `examples`
+must pass both, `invalid` examples must fail both, so a client generated from the schema never sends
 what the server refuses. `additiveOnly.test.js` holds c2s to "the server
 accepts what it accepted": the `joi` key is unchanged, no documented key
 disappears, and every baseline example still validates (the schema may

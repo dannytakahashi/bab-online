@@ -16,6 +16,16 @@ const cardSchema = Joi.object({
     ).required()
 });
 
+// Voice signaling (V1_REMOVALS #18). Bounds sized well above what the
+// clients send (web: RTCSessionDescription / RTCIceCandidate toJSON; iOS
+// 1.1.0: VoiceEmitter, username "" when unknown, sdpMid "" when nil)
+const MAX_SDP_LENGTH = 64 * 1024;
+const voiceTarget = Joi.string().min(1).max(64);
+const sessionDescription = Joi.object({
+    type: Joi.string().valid('offer', 'pranswer', 'answer', 'rollback').required(),
+    sdp: Joi.string().allow('').max(MAX_SDP_LENGTH).required()
+}).unknown(true);
+
 // Validation schemas for each socket event
 const schemas = {
     // Authentication
@@ -72,6 +82,51 @@ const schemas = {
     createLobby: Joi.object({
         name: Joi.string().max(50).allow('', null).optional()
     }),
+
+    // Hardening (V1_REMOVALS #18): both clients send these shapes (web on
+    // main; iOS 1.1.0 LobbyEmitter.joinLobby / removeBot)
+    joinLobby: Joi.object({
+        lobbyId: Joi.string().uuid().required()
+    }).required(),
+    // Only a bot can be removed (a lobby lists every member's socket id)
+    removeBot: Joi.object({
+        botSocketId: Joi.string().min(5).max(200).pattern(/^bot:/).required()
+    }).required(),
+
+    // Profile lookups (web only). The handler answers a blank query and a
+    // query longer than any username itself; these only bound the input
+    searchPlayers: Joi.object({
+        query: Joi.string().allow('').max(500).required()
+    }).required(),
+    getPlayerProfile: Joi.object({
+        username: Joi.string().min(1).max(100).required()
+    }).required(),
+
+    // Voice relays: checked inside voiceHandlers (a bad one is dropped
+    // silently, never answered with error), not by the socket wrapper
+    voiceOffer: Joi.object({
+        targetSocketId: voiceTarget.required(),
+        offer: sessionDescription.required(),
+        username: Joi.string().allow('', null).max(100).optional()
+    }).required(),
+    voiceAnswer: Joi.object({
+        targetSocketId: voiceTarget.required(),
+        answer: sessionDescription.required()
+    }).required(),
+    voiceIceCandidate: Joi.object({
+        targetSocketId: voiceTarget.required(),
+        candidate: Joi.object({
+            candidate: Joi.string().allow('').max(4096).required(),
+            sdpMLineIndex: Joi.number().integer().min(0).max(1024).allow(null).optional(),
+            sdpMid: Joi.string().allow('', null).max(256).optional(),
+            usernameFragment: Joi.string().allow('', null).max(256).optional()
+        }).unknown(true).required()
+    }).required(),
+    // The audio itself is checked by voiceHandlers.isRelayChunk (binary only)
+    voiceRelayAudio: Joi.object({
+        targetSocketId: voiceTarget.required(),
+        audio: Joi.any().required()
+    }).required(),
 
     // Reconnection
     rejoinGame: Joi.object({

@@ -126,6 +126,7 @@ test('s2c metadata: to, emittedFrom (file:function, no line numbers), clientRead
 test('c2s metadata: joi and rateLimit name real schemas / limits', () => {
     for (const [name, e] of Object.entries(schema.c2s)) {
         if (e.joi !== null) expect({ name, joi: Object.prototype.hasOwnProperty.call(validators.schemas, e.joi) }).toEqual({ name, joi: true });
+        if (e.joiInHandler !== undefined) expect({ name, joiInHandler: e.joi === null && Object.prototype.hasOwnProperty.call(validators.schemas, e.joiInHandler) }).toEqual({ name, joiInHandler: true });
         if (e.rateLimit !== null) expect({ name, rl: Object.prototype.hasOwnProperty.call(rateLimiter.limits, e.rateLimit) }).toEqual({ name, rl: true });
         expect(typeof e.sentBy.web === 'boolean' && typeof e.sentBy.ios === 'boolean').toBe(true);
     }

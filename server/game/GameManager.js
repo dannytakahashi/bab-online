@@ -691,7 +691,8 @@ class GameManager {
             return { success: false, error: 'Lobby not found' };
         }
 
-        const botIndex = lobby.players.findIndex(p => p.socketId === botSocketId);
+        // Bots only: a lobby payload lists every member's socket id
+        const botIndex = lobby.players.findIndex(p => p.socketId === botSocketId && p.isBot);
         if (botIndex === -1) {
             return { success: false, error: 'Bot not found in lobby' };
         }

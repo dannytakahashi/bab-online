@@ -119,6 +119,7 @@ afterEach(() => {
 
 describe('(a) client -> server events', () => {
     const indexSrc = fs.readFileSync(path.join(__dirname, '..', 'index.js'), 'utf8');
+    const voiceSrc = fs.readFileSync(path.join(__dirname, '..', 'voiceHandlers.js'), 'utf8');
 
     function registrations() {
         const names = [];
@@ -150,9 +151,10 @@ describe('(a) client -> server events', () => {
         for (const name of contract.c2sNames()) {
             const entry = contract.schema.c2s[name];
             expect(Array.isArray(entry.examples) && entry.examples.length > 0).toBe(true);
+            const joi = entry.joi || entry.joiInHandler;
             for (const ex of entry.examples) {
                 expect({ name, ex, ...contract.validateC2S(name, ex) }).toMatchObject({ name, ok: true });
-                if (entry.joi) expect(() => validators.validate(entry.joi, ex)).not.toThrow();
+                if (joi) expect(() => validators.validate(joi, ex)).not.toThrow();
             }
             if (entry.optionalPayload) expect(contract.validateC2S(name, undefined).ok).toBe(true);
         }
@@ -162,17 +164,18 @@ describe('(a) client -> server events', () => {
         let n = 0;
         for (const name of contract.c2sNames()) {
             const entry = contract.schema.c2s[name];
+            const joi = entry.joi || entry.joiInHandler;
             for (const bad of entry.invalid || []) {
                 n++;
                 expect({ name, bad, schemaOk: contract.validateC2S(name, bad).ok }).toEqual({ name, bad, schemaOk: false });
-                expect(entry.joi).not.toBeNull();
-                expect(() => validators.validate(entry.joi, bad)).toThrow();
+                expect(joi).toBeTruthy();
+                expect(() => validators.validate(joi, bad)).toThrow();
             }
         }
         // Every Joi-wrapped event with a payload has negative examples
         const withPayload = contract.c2sNames().filter((n2) => {
             const e = contract.schema.c2s[n2];
-            return e.joi && Object.keys(e.payload?.properties || {}).length > 0;
+            return (e.joi || e.joiInHandler) && Object.keys(e.payload?.properties || {}).length > 0;
         });
         expect(withPayload.filter((n2) => !(contract.schema.c2s[n2].invalid || []).length)).toEqual([]);
         expect(n).toBeGreaterThan(50);
@@ -181,11 +184,17 @@ describe('(a) client -> server events', () => {
         expect(contract.schema.c2s.playCard.payload.required).toEqual(expect.arrayContaining(['card', 'position']));
     });
 
-    test('the c2s events without a Joi schema are a frozen list (hardening is a separate item)', () => {
-        const noJoi = contract.c2sNames().filter((n) => contract.schema.c2s[n].joi === null &&
+    test('every c2s event with a payload has a Joi schema (V1_REMOVALS #18): the wrapper\'s, or one its handler checks', () => {
+        const noJoi = contract.c2sNames().filter((n) => contract.schema.c2s[n].joi === null && !contract.schema.c2s[n].joiInHandler &&
             contract.schema.c2s[n].payload && Object.keys(contract.schema.c2s[n].payload.properties || {}).length > 0);
-        expect(noJoi.sort()).toEqual(['getPlayerProfile', 'joinLobby', 'removeBot', 'searchPlayers',
-            'voiceAnswer', 'voiceIceCandidate', 'voiceOffer', 'voiceRelayAudio'].sort());
+        expect(noJoi).toEqual([]);
+        // joiInHandler only where the handler drops a bad payload silently (voice), and only with no wrapper schema
+        const inHandler = contract.c2sNames().filter((n) => contract.schema.c2s[n].joiInHandler);
+        expect(inHandler.sort()).toEqual(['voiceAnswer', 'voiceIceCandidate', 'voiceOffer', 'voiceRelayAudio']);
+        for (const n of inHandler) {
+            expect({ n, joi: contract.schema.c2s[n].joi }).toEqual({ n, joi: null });
+            expect({ n, src: new RegExp(`checked\\(socket, '${n}', data\\)`).test(voiceSrc) }).toEqual({ n, src: true });
+        }
     });
 
     test('every test suite that records socket emits has them contract-checked', () => {

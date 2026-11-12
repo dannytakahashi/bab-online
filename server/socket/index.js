@@ -67,7 +67,7 @@ function setupSocketHandlers(io) {
             asyncHandler('createLobby', mainRoomHandlers.createLobby)(socket, io, data || {})
         );
         socket.on('joinLobby', (data) =>
-            safeHandler(mainRoomHandlers.joinLobby)(socket, io, data)
+            syncHandler('joinLobby', mainRoomHandlers.joinLobby)(socket, io, data)
         );
         socket.on('joinAsSpectator', (data) =>
             asyncHandler('joinAsSpectator', mainRoomHandlers.joinAsSpectator)(socket, io, data)
@@ -90,7 +90,7 @@ function setupSocketHandlers(io) {
             safeHandler(lobbyHandlers.addBot)(socket, io, {})
         );
         socket.on('removeBot', (data) =>
-            safeHandler(lobbyHandlers.removeBot)(socket, io, data)
+            syncHandler('removeBot', lobbyHandlers.removeBot)(socket, io, data)
         );
 
         // Game events - with validation
@@ -200,7 +200,8 @@ function setupSocketHandlers(io) {
             asyncHandler('adminRequest', adminHandlers.adminRequest)(socket, io, data)
         );
 
-        // Voice chat signaling relay
+        // Voice chat signaling relay (Joi, rate limit and peer checks run
+        // inside voiceHandlers: a refused signal is dropped silently)
         socket.on('voiceOffer', (data) =>
             safeHandler(voiceHandlers.voiceOffer)(socket, io, data)
         );

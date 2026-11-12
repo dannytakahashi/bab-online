@@ -326,3 +326,47 @@ describe('block lists on every path that signs a socket in (fail closed)', () =>
         for (const ev of VOICE_EVENTS) expect(relayed(ev)).toHaveLength(0);
     });
 });
+
+describe('V1_REMOVALS #18: every relay payload passes its Joi schema, else it is dropped silently', () => {
+    afterEach(() => {
+        expect(log.filter((l) => l.event === 'error')).toHaveLength(0);
+    });
+
+    test('the shapes the clients send today are forwarded', () => {
+        const [a, b] = lobbyPair();
+        // iOS 1.1.0 (VoiceEmitter): username "" when it has none, sdpMid "" for nil
+        voice.voiceOffer(a, io, { targetSocketId: b.id, offer: { type: 'offer', sdp: 'v=0\r\no=- 1 2 IN IP4 127.0.0.1' }, username: '' });
+        voice.voiceIceCandidate(a, io, { targetSocketId: b.id, candidate: { candidate: CAND.candidate, sdpMLineIndex: 0, sdpMid: '' } });
+        // web: RTCSessionDescription / RTCIceCandidate toJSON (nulls, usernameFragment)
+        voice.voiceAnswer(b, io, { targetSocketId: a.id, answer: { type: 'answer', sdp: 'v=0' } });
+        voice.voiceIceCandidate(b, io, { targetSocketId: a.id, candidate: { ...CAND, usernameFragment: 'abcd' } });
+        voice.voiceIceCandidate(b, io, { targetSocketId: a.id, candidate: { candidate: '', sdpMLineIndex: null, sdpMid: null, usernameFragment: null } });
+        voice.voiceOffer(b, io, { targetSocketId: a.id, offer: { type: 'offer', sdp: 'v=0' }, username: null });
+        expect(relayed('voiceOffer')).toHaveLength(2);
+        expect(relayed('voiceAnswer')).toHaveLength(1);
+        expect(relayed('voiceIceCandidate')).toHaveLength(3);
+        expect(relayed('voiceIceCandidate')[1].data.candidate).toEqual({ ...CAND, usernameFragment: 'abcd' });
+    });
+
+    test.each([
+        ['voiceOffer', { offer: { type: 'bogus', sdp: 'v=0' } }],
+        ['voiceOffer', { offer: { type: 'offer' } }],
+        ['voiceOffer', { offer: { type: 'offer', sdp: 'x'.repeat(64 * 1024 + 1) } }],
+        ['voiceOffer', { offer: OFFER, username: 'u'.repeat(101) }],
+        ['voiceAnswer', { answer: { type: 'answer', sdp: 7 } }],
+        ['voiceAnswer', { answer: 'v=0' }],
+        ['voiceIceCandidate', { candidate: { sdpMLineIndex: 0 } }],
+        ['voiceIceCandidate', { candidate: { candidate: 'c', sdpMLineIndex: -1 } }],
+        ['voiceIceCandidate', { candidate: { candidate: 'x'.repeat(4097) } }],
+    ])('%s %j', (event, extra) => {
+        const [a, b] = lobbyPair();
+        voice[event](a, io, { targetSocketId: b.id, ...extra });
+        expect(relayed(event)).toHaveLength(0);
+    });
+
+    test('an over-long target id is dropped', () => {
+        const [a] = lobbyPair();
+        sendAll(a, 'x'.repeat(65));
+        for (const ev of VOICE_EVENTS) expect(relayed(ev)).toHaveLength(0);
+    });
+});
