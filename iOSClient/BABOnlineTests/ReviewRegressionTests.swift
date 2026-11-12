@@ -146,7 +146,7 @@ final class ReviewRegressionTests: XCTestCase {
                 bubbleNode.position = g.bubbleAnchor(rel)
                 root.addChild(bubbleNode)
                 let bubble = frame(bubbleNode)
-                let glow = seat.convert(frame(seat.childNode(withName: "glow.turn")!), to: root)
+                let glow = seat.convert(frame(seat.children.first { $0.role == "glow.turn" }!), to: root)
                 let nameLabel = seat.children.compactMap { $0 as? SKLabelNode }.first!
                 let name = seat.convert(frame(nameLabel), to: root)
                 XCTAssertLessThanOrEqual(name.width, TableLayout.nameMaxWidth + 0.5, "\(size) \(rel): the name is truncated")

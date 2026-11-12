@@ -69,8 +69,10 @@ class OpponentHandNode: SKNode {
 
         super.init()
         Self.fit(nameLabel, username)
+        nameLabel.speak(username)
 
-        self.name = "seat.\(position.rawValue)"
+        // a role, not a name (SpriteKit read "seat.left"); the name label reads the full name
+        role = "seat.\(position.rawValue)"
         self.pic = pic
         self.fallbackPic = fallback
 
@@ -80,6 +82,7 @@ class OpponentHandNode: SKNode {
         circle.strokeColor = Theme.SK.avatarStroke
         circle.lineWidth = 1.5
         circle.position = .zero
+        circle.hideFromAccessibility()  // the avatar's drawing (the initial, the picture)
         addChild(circle)
         avatarNode = circle
 
@@ -91,6 +94,7 @@ class OpponentHandNode: SKNode {
         initial.verticalAlignmentMode = .center
         initial.horizontalAlignmentMode = .center
         initial.name = "avatar_initial"
+        initial.hideFromAccessibility()  // the name label reads the name
         circle.addChild(initial)
 
         // Position name label below avatar
@@ -114,6 +118,7 @@ class OpponentHandNode: SKNode {
         guard fullName != name else { return }
         fullName = name
         Self.fit(nameLabel, name)
+        nameLabel.speak(name)
         (avatarNode?.childNode(withName: "avatar_initial") as? SKLabelNode)?.text = String(name.prefix(1)).uppercased()
     }
 
@@ -155,6 +160,7 @@ class OpponentHandNode: SKNode {
             initial.verticalAlignmentMode = .center
             initial.horizontalAlignmentMode = .center
             initial.name = "avatar_initial"
+            initial.hideFromAccessibility()
             circle.addChild(initial)
         }
     }
@@ -171,7 +177,8 @@ class OpponentHandNode: SKNode {
     func showTurnGlow() {
         guard turnGlow == nil else { return }
         let glow = SKShapeNode(circleOfRadius: 30)
-        glow.name = "glow.turn"
+        glow.role = "glow.turn"
+        glow.hideFromAccessibility()
         glow.fillColor = Theme.SK.turnGlow
         glow.strokeColor = .clear
         glow.zPosition = -1
@@ -190,7 +197,8 @@ class OpponentHandNode: SKNode {
     func showSpeakingGlow() {
         guard speakingGlow == nil else { return }
         let glow = SKShapeNode(circleOfRadius: 28)
-        glow.name = "glow.speaking"
+        glow.role = "glow.speaking"
+        glow.hideFromAccessibility()
         glow.fillColor = Theme.SK.speakingFill
         glow.strokeColor = Theme.SK.speakingStroke
         glow.lineWidth = 1.5
@@ -239,7 +247,7 @@ class OpponentHandNode: SKNode {
 
     /// The avatar sprite off the circle.
     private func removeAvatarImage(from circle: SKShapeNode) {
-        circle.children.filter { $0.name == Self.avatarImageName }.forEach { $0.removeFromParent() }
+        circle.children.filter { $0.role == Self.avatarImageName }.forEach { $0.removeFromParent() }
         avatarSprite = nil
     }
 
@@ -251,7 +259,8 @@ class OpponentHandNode: SKNode {
         removeAvatarImage(from: circle)
         circle.childNode(withName: "avatar_initial")?.removeFromParent()
         let sprite = SKSpriteNode(texture: texture, size: CGSize(width: avatarRadius * 2, height: avatarRadius * 2))
-        sprite.name = Self.avatarImageName
+        sprite.role = Self.avatarImageName
+        sprite.hideFromAccessibility()
         sprite.position = .zero
         circle.addChild(sprite)
         avatarSprite = sprite
@@ -259,7 +268,7 @@ class OpponentHandNode: SKNode {
 
     #if DEBUG
     /// Tests: avatar images and crop nodes on this seat (never more than one image, no crop node).
-    var avatarImageCount: Int { avatarNode?.children.filter { $0.name == Self.avatarImageName }.count ?? 0 }
+    var avatarImageCount: Int { avatarNode?.children.filter { $0.role == Self.avatarImageName }.count ?? 0 }
     var avatarCropNodeCount: Int { avatarNode?.children.filter { $0 is SKCropNode }.count ?? 0 }
     var avatarTexture: SKTexture? { avatarSprite?.texture }
     #endif

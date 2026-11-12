@@ -218,6 +218,63 @@ final class SeatPipsTests: XCTestCase {
         XCTAssertEqual(SceneDump.dump(scene), before)
     }
 
+    // MARK: - pile colors (absolute teams, as the score bar and the pips)
+
+    func testPilesUseTheTeamsAbsoluteColors() {
+        // RGBA, rounded: SKSpriteNode keeps its own copy of the color, which == does not match
+        func rgba(_ c: UIColor?) -> [Int]? {
+            guard let c else { return nil }
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            c.getRed(&r, green: &g, blue: &b, alpha: &a)
+            return [r, g, b, a].map { Int(($0 * 255).rounded()) }
+        }
+        func color(_ node: TrickHistoryNode, _ role: String) -> [Int]? {
+            rgba((node.children.first { $0.role == role } as? SKSpriteNode)?.color)
+        }
+        let node = TrickHistoryNode()
+        // team 1 (and a spectator): my row blue, theirs coral
+        node.setCounts(team: 2, opp: 1, myTeam: 1)
+        XCTAssertEqual(color(node, "history.team.0"), rgba(Theme.SK.teamA))
+        XCTAssertEqual(color(node, "history.opp.0"), rgba(Theme.SK.teamB))
+        // team 2: my row coral, theirs blue; the icons already drawn recolor
+        node.setCounts(team: 3, opp: 1, myTeam: 2)
+        XCTAssertEqual(node.myTeam, 2)
+        for i in 0..<3 { XCTAssertEqual(color(node, "history.team.\(i)"), rgba(Theme.SK.teamB)) }
+        XCTAssertEqual(color(node, "history.opp.0"), rgba(Theme.SK.teamA))
+        // nil keeps the viewer's team
+        node.setCounts(team: 4, opp: 1)
+        XCTAssertEqual(color(node, "history.team.3"), rgba(Theme.SK.teamB))
+    }
+
+    func testSceneColorsThePilesForTheViewersTeam() throws {
+        let h = ReplayHarness()
+        let size = CGSize(width: 393, height: 852)
+        let scene = GameSKScene(size: size)
+        scene.animator = InstantAnimator()
+        scene.configure(gameState: h.store, actions: h.actions)
+        scene.didMove(to: SKView(frame: CGRect(origin: .zero, size: size)))
+        var snap = try boreRejoin()
+        h.store.apply(.snapshot(snap, .rejoin, hints: nil))
+        XCTAssertEqual(snap.viewer.position, 1)
+        XCTAssertEqual(scene.trickManager.trickHistory.myTeam, 1)
+        // the same table seen from seat 2 (team 2)
+        snap.viewer.position = 2
+        h.store.apply(.snapshot(snap, .rejoin, hints: nil))
+        let hist = scene.trickManager.trickHistory
+        XCTAssertEqual(hist.myTeam, 2)
+        // team 1's 2 tricks are now the opponents' row, still blue (team 1), as on the score bar
+        XCTAssertEqual(hist.counts.opp, 2)
+        let opp = hist.children.filter { Int($0.role?.replacingOccurrences(of: "history.opp.", with: "") ?? "") != nil }
+            .compactMap { ($0 as? SKSpriteNode)?.color }
+        XCTAssertEqual(opp.count, 2)
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0, er: CGFloat = 0, eg: CGFloat = 0, eb: CGFloat = 0
+        Theme.SK.teamA.getRed(&er, green: &eg, blue: &eb, alpha: &a)
+        for c in opp {
+            c.getRed(&r, green: &g, blue: &b, alpha: &a)
+            XCTAssertEqual([r, g, b].map { Int(($0 * 255).rounded()) }, [er, eg, eb].map { Int(($0 * 255).rounded()) })
+        }
+    }
+
     // MARK: - unknown counts (a snapshot whose tricksByPosition does not add up)
 
     func testUnknownSeatCountsFallBackToHistoryThenTheTeam() throws {

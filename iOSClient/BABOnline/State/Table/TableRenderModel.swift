@@ -53,6 +53,8 @@ struct TableRenderModel: Equatable {
     var pileTotals: TeamPair?
     /// Every seat's trick pips by absolute position (SeatPips), my own seat's included.
     var pips: [Int: SeatPips]
+    /// What VoiceOver reads per seat: `pips` plus a 0 bid without tricks (no slots, still a count).
+    var spokenPips: [Int: SeatPips]
     var bidBubbles: [Int: String]
     /// Who is watching (the badge itself is SwiftUI; the scene places the spectator chat bubble by it).
     var watching: WatchingList
@@ -124,6 +126,7 @@ struct TableRenderModel: Equatable {
             return TeamPair(team1: t.mine, team2: t.theirs)
         }
         pips = SeatPips.all(s)
+        spokenPips = SeatPips.all(s, spoken: true)
 
         // bid bubbles: from the first bid until the hand's first card is down
         var bubbles: [Int: String] = [:]
@@ -144,6 +147,12 @@ struct TableRenderModel: Equatable {
     var myPips: SeatPips? {
         guard hand != nil, bidBubbles[viewPosition] == nil else { return nil }
         return pips[viewPosition]
+    }
+
+    /// What VoiceOver reads for my own seat (over my pips' box), shown when `myPips` would be.
+    var mySpokenPips: SeatPips? {
+        guard hand != nil, bidBubbles[viewPosition] == nil else { return nil }
+        return spokenPips[viewPosition]
     }
 }
 

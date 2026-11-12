@@ -25,6 +25,16 @@ class SKEffectsManager {
     /// The bore badge's box (it peaks at 1.2x in its animation).
     static let boreBox = CGSize(width: 80, height: 80)
 
+    /// What VoiceOver reads for the bore badge ("B" bore, "2B" double bore, ...).
+    static func boreLabel(_ level: String) -> String {
+        switch level {
+        case "2B": return "Double bore"
+        case "3B": return "Triple bore"
+        case "4B": return "Quadruple bore"
+        default: return "Bore"
+        }
+    }
+
     static func boreTextureName(_ level: String) -> String? {
         switch level {
         case "B": return "b"
@@ -42,6 +52,7 @@ class SKEffectsManager {
         let texture = SKTexture(imageNamed: "rainbow1")
         let sprite = SKSpriteNode(texture: texture, size: Self.fit(texture, in: TableLayout.rainbowSize))
         sprite.name = "effect.rainbow"
+        sprite.speak("Rainbow")
         sprite.position = scene.layout.rainbowCenter(rel)
         sprite.zPosition = 1000
         sprite.setScale(0)
@@ -64,6 +75,7 @@ class SKEffectsManager {
         let texture = SKTexture(imageNamed: textureName)
         let badge = SKSpriteNode(texture: texture, size: Self.fit(texture, in: Self.boreBox))
         badge.name = "effect.bore"
+        badge.speak(Self.boreLabel(level))
         badge.position = scene.layout.boreBadgeCenter
         badge.zPosition = 500
         badge.alpha = 0
@@ -92,6 +104,7 @@ class SKEffectsManager {
         let texture = SKTexture(imageNamed: "ot")
         let badge = SKSpriteNode(texture: texture, size: Self.fit(texture, in: CGSize(width: TableLayout.overTrumpSize, height: TableLayout.overTrumpSize)))
         badge.name = "effect.overTrump"
+        badge.speak("Over trump")
         badge.position = scene.layout.overTrumpCenter
         badge.zPosition = 999
         badge.setScale(0)

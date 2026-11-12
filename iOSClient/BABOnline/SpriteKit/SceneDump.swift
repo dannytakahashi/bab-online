@@ -11,7 +11,10 @@ enum SceneDump {
     static func dump(_ scene: SKScene) -> [String] {
         var out: [String] = []
         for name in stableLayers {
-            if let layer = scene.children.first(where: { $0.name == name }) { walk(layer, path: name, inHand: name == "hand", into: &out) }
+            // the layers have no name (SpriteKit reads a named node by its name): their role
+            if let layer = scene.children.first(where: { ($0.name ?? $0.role) == name }) {
+                walk(layer, path: name, inHand: name == "hand", into: &out)
+            }
         }
         return out
     }
@@ -31,7 +34,7 @@ enum SceneDump {
             if let sprite = node as? SKSpriteNode { parts.append("size=\(r(sprite.frame.width))x\(r(sprite.frame.height))") }
         }
         parts.append("pos=(\(r(node.position.x)),\(r(node.position.y))) z=\(r(node.zPosition))")
-        if !(node.name?.hasPrefix("glow.") ?? false) { parts.append("a=\(r(node.alpha))") }  // glows pulse
+        if !((node.name ?? node.role)?.hasPrefix("glow.") ?? false) { parts.append("a=\(r(node.alpha))") }  // glows pulse
         if node.isHidden { parts.append("hidden") }
         // a scaled container (the hand at s < 1); sprites already print their on-screen size
         if !(node is SKSpriteNode) && node.xScale != 1 { parts.append("scale=\(String(format: "%.2f", node.xScale))") }
@@ -50,11 +53,11 @@ enum SceneDump {
     private static func walk(_ node: SKNode, path: String, inHand: Bool, into out: inout [String]) {
         out.append(line(node, path: path, inHand: inHand))
         let kids = node.children.map { child -> (String, SKNode) in
-            let key = (child.name ?? "~") + "|" + String(describing: type(of: child)) + "|" + r(child.position.x) + "," + r(child.position.y)
+            let key = (child.name ?? child.role ?? "~") + "|" + String(describing: type(of: child)) + "|" + r(child.position.x) + "," + r(child.position.y)
             return (key, child)
         }.sorted { $0.0 < $1.0 }
         for (_, child) in kids {
-            walk(child, path: path + "/" + (child.name ?? String(describing: type(of: child))), inHand: inHand, into: &out)
+            walk(child, path: path + "/" + (child.name ?? child.role ?? String(describing: type(of: child))), inHand: inHand, into: &out)
         }
     }
 }

@@ -80,6 +80,13 @@ class GameSKScene: SKScene, TableRenderer {
                 self.effectsManager.showFrozen(effect, myPosition: self.lastModel?.viewPosition ?? 1)
             }
         }
+        if !UIFixture.chat.isEmpty, didMoveCount == 1 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                guard let self, let gs = self.gameState else { return }
+                for line in UIFixture.chat { _ = gs.apply(serverEvent: "chatMessage", payload: [line]) }
+                self.chatManager.freeze()
+            }
+        }
         #endif
     }
 
@@ -90,19 +97,19 @@ class GameSKScene: SKScene, TableRenderer {
         #if DEBUG
         logLayout()
         #endif
-        backgroundNode.name = "background"
+        backgroundNode.role = "background"  // roles, not names: SpriteKit reads a named node by its name
         backgroundNode.zPosition = -100
         backgroundNode.size = size
+        backgroundNode.hideFromAccessibility()
         addChild(backgroundNode)
-        opponentsLayer.name = "opponents"
+        opponentsLayer.role = "opponents"
         opponentsLayer.zPosition = 10
         addChild(opponentsLayer)
-        myPipsNode.name = "pips.mine"
         opponentsLayer.addChild(myPipsNode)
-        bidsLayer.name = "bids"
+        bidsLayer.role = "bids"
         bidsLayer.zPosition = 60
         addChild(bidsLayer)
-        transientLayer.name = "transient"
+        transientLayer.role = "transient"
         transientLayer.zPosition = 500
         addChild(transientLayer)
 
@@ -323,7 +330,8 @@ class GameSKScene: SKScene, TableRenderer {
         }, animator: animator)
         toTrick.values.forEach { $0.removeFromParent() }
         trickManager.trickHistory.setCounts(team: model.history.team1, opp: model.history.team2, spacing: layout.historySpacing,
-                                            totals: .some(model.pileTotals.map { (team: $0.team1, opp: $0.team2) }))
+                                            totals: .some(model.pileTotals.map { (team: $0.team1, opp: $0.team2) }),
+                                            myTeam: Positions.getTeamNumber(me))
         myPipsNode.update(model.myPips, team: Positions.getTeamNumber(me))
         bidManager.apply(bubbles: model.bidBubbles, viewPosition: me, layout: layout)
         return changes

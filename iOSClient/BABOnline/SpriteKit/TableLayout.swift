@@ -261,12 +261,13 @@ struct TableLayout: Equatable {
         let below = CGPoint(x: x, y: belowTop - h / 2)
         for c in [above, below] {
             let rr = Self.rect(c, bubbleSize)
-            if rr.maxY <= topLimit + 0.01, rr.minY >= liftTop + Self.gap - 0.01, rr.minY >= safeRect.minY - 0.01,
+            if rr.maxY <= topLimit + 0.01, rr.minY >= liftTop + Self.gap - 0.01, rr.minY >= safeRect.minY + chrome.bottomBar - 0.01,
                !cornerRects.contains(where: { $0.intersects(rr) }) {
                 return c
             }
         }
-        let ylo = safeRect.minY + h / 2, yhi = topLimit - h / 2
+        // never under the bottom pill (Spectating / Exit)
+        let ylo = safeRect.minY + chrome.bottomBar + h / 2, yhi = topLimit - h / 2
         return CGPoint(x: x, y: ylo <= yhi ? min(max(above.y, ylo), yhi) : (ylo + yhi) / 2)
     }
 

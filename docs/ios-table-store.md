@@ -220,7 +220,13 @@ active tables when there are any, sized to their content, then the chat with a
 240 pt minimum: when both no longer fit (8 players and two tables in landscape
 with the keyboard up) the standings scroll in what is left. Both use
 `CappedAboveChat` (content above a chat that fills the rest, capped so the
-chat keeps its minimum, scrolling inside the cap).
+chat keeps its minimum, scrolling inside the cap). While more of it is below
+the cap (iOS 18+, `onScrollGeometryChange`) its bottom 32 pt fade out toward
+the chat, and its scroll indicator flashes when it appears, so a cut-off row
+(8 players on a phone or the closed Duo: "ora" half under the chat, already
+so at 5f81865) reads as a list that scrolls rather than a broken layout;
+scrolled to the end, nothing fades (`TournamentListReachTests` scrolls every
+row fully into view).
 
 Compact tournament lobby (owner follow-up 2026-11-09; phones, the closed Duo):
 the chat is pinned and always on screen, as in the game lobby. Header, then
@@ -439,12 +445,23 @@ failures arrive as `error` and/or `serverError`.
   position: a watching owner's line has none) is
   `TableAnimation.spectatorChatBubble` -> `SKChatBubbleManager.showSpectator`:
   "Name: text" in a green bubble (`spectatorFill`, white text, at most 200 pt
-  wide) above the badge (else beside or below it, else higher up its edge;
-  `spectatorBubbleCenter`; seated, never over the bid band, which the panel
-  would cover; on a phone it may cover an empty trick slot, as a seat's chat
-  bubble can, never a seat, the hand or HSI / voice), one at a time,
-  the seats' lifetime and two lines, shown even before the coalesced list
-  makes the badge appear; players' lines keep their seat bubble.
+  wide) above the badge (else beside or below it, else higher up its edge,
+  else the clear spot nearest the first; `spectatorBubbleCenter`; seated,
+  never over the bid band, which the panel would cover; on a phone it may
+  cover an empty trick slot, as a seat's chat bubble can, never a seat, the
+  hand, HSI / voice, the badge itself or the bottom pill's strip
+  (`bottomBarRect`: "Spectating / Exit", the lazy pill; a long line on the
+  Pro Max sat under it before 1.2.0 (3)); a seat's chat bubble's last resort
+  also stays above that strip), one at a time, the seats' lifetime and two
+  lines (`SKChatBubbleManager.fitTwoLines`: SKLabelNode wraps past
+  `numberOfLines`, so a longer text drops words and ends in "…"; "two lines"
+  is measured with two unwrapped lines of the message's own glyphs
+  (`twoLineHeight`), since a line with an emoji is taller than a text line:
+  13 pt, two text lines 32 pt, two emoji lines 45 pt, three text lines 47),
+  shown even
+  before the coalesced list makes the badge appear; players' lines keep their
+  seat bubble. Debug: `-uiChat "lou|text;2|text"` holds spectator / seat
+  lines on a fixture table for screenshots.
 - **Replay**: the harnesses no longer skip spectatorsUpdated and the
   projection compares `watching`, except while a spectatorsUpdated reaches
   the viewer within 1 s of the checkpoint (`RecordedGame.watchingInFlight`:
@@ -504,19 +521,44 @@ failures arrive as `error` and/or `serverError`.
   of that team's tricks have one, else nil (`TableReducer.seatTricks`, the
   web's `_seatTricksFor`), so a relaunch, a rejoin and a spectator see the
   same counts. Drawn by `SeatPipsNode`: on each avatar's ring (dots at
-  radius 25 from the top, clockwise, inside the 60 x 60 glow rect, so the
-  layout is unchanged) and, for my own seat (no avatar), a pill of up to
-  two rows of 7 in a 56 x 20 box at `TableLayout.myPips`
+  radius 25 inside the 60 x 60 glow rect, so the layout is unchanged) as a
+  horseshoe open at the bottom, where the name is (1.2.0 (3): a bore's full
+  circle covered "kim" on the Pro Max): the dots and the bore's red arc span
+  129 degrees each side of the top (`seatArcHalfSpan`), so nothing reaches
+  below `seatPipFloor` (-19 pt; a name's ink starts at -20 at most, an
+  accented capital), 45 degrees apart or closer, centred on the top and
+  filled clockwise from the left end; and, for my own seat (no avatar), a
+  pill of one row up to 7, else two balanced rows (8: 4 + 4, 13: 7 + 6;
+  `myPipRows`) in a 56 x 20 box at `TableLayout.myPips`
   (`TableLayout+Pips.swift`: where my bid bubble was, else up beside my trick
   slot, under it, right of it above HSI / voice, else the nearest clear
   spot; clear of the hand, HSI / voice, the trick cards, the 13-wide
-  history, every seat and its bubble and the corner buttons; the bid band and
-  my bubble are exempt: my pips show once my bubble is gone; the spectator
-  badge and its bubble keep clear of it). VoiceOver: an invisible element per
-  seat over its footprint ("Ann: 2 of 3 tricks", "Your tricks: Team 7 of 10,
-  bore"; identifiers `pips.<position>` / `pips.mine`). Colors: Theme.SK
-  `pipBox` / `pipEmpty` / team / `pipOver` (gold) / `pipBore`
-  (danger.solid).
+  history (by 8 pt past its border plus 2 pt of stroke: `myPipsHistoryKeep`;
+  the closed Duo's box sat on the pile's top edge before 1.2.0 (3)), every
+  seat and its bubble and the corner buttons; the bid band and my bubble are
+  exempt: my pips show once my bubble is gone; the spectator badge and its
+  bubble keep clear of it). VoiceOver: an invisible element per seat whose
+  bid counts, over its footprint ("Ann: 2 of 3 tricks", "Bo: 0 of 1 trick",
+  "Cy: Bid 0, no tricks" (a 0 bid draws no slots: `spokenPips`), "Your
+  tricks: Team 7 of 10, bore"; identifiers `pips.<position>` / `pips.mine`).
+  The drawing nodes (dots, box, bore outline, the history's icons, slots and
+  borders) carry a `role` in userData, never a `name`: SpriteKit lists every
+  named node in the accessibility tree under its name (about 35 raw
+  "pip.3" / "history.team.slot.2" elements per table before 1.2.0 (3)).
+  The same rule for the rest of the scene (SpriteKit reads a node with no
+  accessibilityLabel by its name): the layers, seats, avatar pictures and
+  glows have roles too (`seat.left`, `avatar.image`, `glow.turn`; lookups and
+  SceneDump read `name ?? role`), and every node that keeps a name for
+  lookups speaks (`SKNode.speak`): cards their `displayName` ("Queen of
+  Clubs"; my hand's are buttons, dimmed while illegal, selected while lifted,
+  and VoiceOver's double tap lifts then plays, `accessibilityActivate`), a
+  seat's name label the whole name, chat bubbles the whole message, bid
+  bubbles "Bid 3", effects "Rainbow" / "Double bore" / "Over trump".
+  `PolishAccessibilityTests.testEveryNamedNodeReadsAsWhatItShows` walks a
+  busy scene; `TableAccessibilityTests` fails on any dotted / underscored or
+  layer-name label in the XCUITest tree.
+  Colors: Theme.SK `pipBox` / `pipEmpty` / team / `pipOver` (gold) /
+  `pipBore` (danger.solid).
 - **Bores count as the whole hand** wherever a bid total is shown
   (`Rules/BidTotals.swift`, the web's `rules/bids.js`; capped at the hand):
   the seat pips, the score bar's "Tricks: 2/7" (the team's tricks of its bid

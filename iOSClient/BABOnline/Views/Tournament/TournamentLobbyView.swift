@@ -326,8 +326,11 @@ private struct TournamentLobbyScreen: View {
 /// Content above a chat that fills the rest of the height (the wide lobby's
 /// right column, the compact lobby between its header and buttons): the top
 /// part takes its natural height, capped so the chat keeps `chatMin` of the
-/// region's height, and scrolls inside that cap when it is taller.
-private struct CappedAboveChat<Top: View, Chat: View>: View {
+/// region's height, and scrolls inside that cap when it is taller. While more
+/// of it is below the cap (8 players on a phone or the closed Duo), its last
+/// visible row fades out toward the chat instead of being cut off hard, and the
+/// scroll indicator flashes when it appears, so the list reads as scrollable.
+struct CappedAboveChat<Top: View, Chat: View>: View {
     var showsTop = true
     /// The chat's minimum for the region's height.
     let chatMin: (CGFloat) -> CGFloat
@@ -336,6 +339,15 @@ private struct CappedAboveChat<Top: View, Chat: View>: View {
 
     @State private var height: CGFloat = 0
     @State private var topHeight: CGFloat = 0
+    @State private var moreBelow = false
+
+    /// The fade's height over the cut-off row.
+    static var fadeHeight: CGFloat { 32 }
+
+    /// More content below the visible part (half a point of slack).
+    static func hasMoreBelow(contentHeight: CGFloat, visibleMaxY: CGFloat) -> Bool {
+        contentHeight - visibleMaxY > 0.5
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -345,11 +357,38 @@ private struct CappedAboveChat<Top: View, Chat: View>: View {
                         .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { topHeight = $0 }
                 }
                 .scrollBounceBehavior(.basedOnSize)
+                .scrollIndicatorsFlash(onAppear: true)
+                .modifier(MoreBelowReader(moreBelow: $moreBelow))
+                .mask {
+                    VStack(spacing: 0) {
+                        Color.black
+                        LinearGradient(colors: [.black, .black.opacity(0)], startPoint: .top, endPoint: .bottom)
+                            .frame(height: moreBelow ? Self.fadeHeight : 0)
+                    }
+                }
                 .frame(height: min(topHeight, max(0, height - chatMin(height))))
             }
             chat
                 .frame(maxHeight: .infinity)
         }
         .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height = $0 }
+    }
+}
+
+/// Whether a scroll view has more content below what it shows (iOS 18 and later; iOS 17 keeps the hard edge).
+private struct MoreBelowReader: ViewModifier {
+    @Binding var moreBelow: Bool
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.onScrollGeometryChange(for: Bool.self) { g in
+                CappedAboveChat<EmptyView, EmptyView>.hasMoreBelow(contentHeight: g.contentSize.height + g.contentInsets.bottom,
+                                                                   visibleMaxY: g.visibleRect.maxY)
+            } action: { _, more in
+                if more != moreBelow { moreBelow = more }
+            }
+        } else {
+            content
+        }
     }
 }

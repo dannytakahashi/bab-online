@@ -23,6 +23,18 @@ enum UIFixture {
     /// `-uiEffect rainbow|b|2b|3b|4b|ot|all`: effects held on the table (screenshots of the art).
     static let effect: String? = UserDefaults.standard.string(forKey: "uiEffect")
 
+    /// `-uiChat "lou|that bore is still alive!;2|gl"`: chat lines held on the table
+    /// (screenshots of the bubbles): `<name>|<text>` a spectator's, `<position>|<text>` a seat's.
+    static let chat: [[String: Any]] = (UserDefaults.standard.string(forKey: "uiChat") ?? "")
+        .split(separator: ";").compactMap { line in
+            let parts = line.split(separator: "|", maxSplits: 1).map(String.init)
+            guard parts.count == 2 else { return nil }
+            if let pos = Int(parts[0]), (1...4).contains(pos) {
+                return ["username": "P\(pos)", "message": parts[1], "position": pos, "isSpectator": false]
+            }
+            return ["username": parts[0], "message": parts[1], "isSpectator": true]
+        }
+
     static let screenFixtures: Set<String> = ["main-room", "game-lobby", "tournament-lobby", "tournament-round",
                                               "tournament-between", "sign-in"]
 
@@ -207,7 +219,7 @@ final class TableDebugProbe: ObservableObject {
                 } else {
                     r = f
                 }
-                if !safe.contains(r) { bad.append("\(n.name ?? "?") \(r.integral)") }
+                if !safe.contains(r) { bad.append("\(n.name ?? n.role ?? "?") \(r.integral)") }  // the seats and the history have roles
             }
         }
         let check = bad.isEmpty ? "ok" : bad.joined(separator: "; ")
