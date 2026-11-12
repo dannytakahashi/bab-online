@@ -43,11 +43,13 @@ export function showResignationDialog({ position, username, onConfirm }) {
     body: el('p', { className: 'dialog-copy', attrs: { id: 'resign-message' }, text: `${username} did not reconnect. Replace with a bot?` }),
     actions: [wait, replace],
     dismissible: false,
+    // focus on the dialog, not Wait (see above); the kit leaves it alone
+    // while a pinned modal (the "open in another tab" notice) is on top
+    initialFocus: 'dialog',
     onClose: () => {
       if (current?.modal === modal) current = null;
     },
   });
-  modal.dialog.focus(); // the kit focused Wait; hold focus on the dialog (see above)
   modal.backdrop.dataset.position = String(position);
   current = { position, modal };
   return modal;

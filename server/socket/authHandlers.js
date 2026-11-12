@@ -13,6 +13,9 @@ const { issueSession, verifySession } = require('../utils/sessionTokens');
 const { checkNewUsername, findNameClash, takenMessage, MESSAGES: USERNAME_MESSAGES } = require('../utils/usernameRules');
 const { rememberBlockList } = require('./voiceHandlers');
 const { eraseAccount, forgetAccount } = require('../admin/accountDelete');
+const {
+    belongsTo, releaseIdentity, markSuperseding, cancelSupersede, confirmSupersede, clearSuperseded
+} = require('./sessionIdentity');
 
 /**
  * Accounts merged by scripts/merge-accounts.js stay behind as tombstones
@@ -111,11 +114,13 @@ function releaseClaim(socket, username, previous) {
  * the saved session into every new tab, and currentUsers keeps one entry
  * per name) and a sign-in / restore / rejoin whose write is still in
  * flight. Returns how many were connected. `except`: a socket to leave
- * alone (a player deleting their own account gets its reply first).
+ * alone (a player deleting their own account gets its reply first). A
+ * socket that switched to another account since (the user document's
+ * socketId can still name it) is never touched (sessionIdentity.belongsTo).
  */
 function signOutUser(io, username, { socketId = null, except = null } = {}) {
     const ids = new Set((gameManager.currentUsers || []).filter(u => u.username === username).map(u => u.socketId));
-    if (socketId) ids.add(socketId);
+    if (socketId && belongsTo(socketId, io?.sockets?.sockets?.get(socketId), username)) ids.add(socketId);
     for (const [id, sock] of io?.sockets?.sockets || []) {
         if (sock?.data?.username === username) ids.add(id);
     }
@@ -199,6 +204,8 @@ const entryOf = (username) => (gameManager.currentUsers || []).find(u => u.usern
  */
 function disconnectPreviousSocket(io, previousSocketId, currentSocketId, username) {
     if (!previousSocketId || previousSocketId === currentSocketId) return;
+    // users.socketId may name a socket that is another account now
+    if (!belongsTo(previousSocketId, io?.sockets?.sockets?.get(previousSocketId), username)) return;
     if (signOutSocket(io, previousSocketId)) {
         authLogger.info('User logged out from another device', { username });
     }
@@ -309,6 +316,9 @@ async function signIn(socket, io, data) {
             return;
         }
         succeeded = true;
+        // This socket signed in as another account until now (sign out,
+        // then sign in as someone else): that identity goes first, fully
+        await releaseIdentity(io, socket, username);
         // Family scale: one line per password sign-in so the owner can check
         // after a deploy that different networks get different IPs
         authLogger.info('Sign-in client address', { username, ip: who.ip, ...describeClientAddress(socket) });
@@ -342,9 +352,12 @@ async function signIn(socket, io, data) {
         // Register with game manager, then make sure no revoke landed
         // meanwhile (sessionGoneSince)
         const previousEntry = entryOf(username);
-        gameManager.registerUser(socket.id, username);
+        // The name's previous socket, if still connected, is parked now
+        // and told once this sign-in stands (sessionIdentity: supersede)
+        const parked = markSuperseding(io, gameManager.registerUser(socket.id, username), socket, username);
         const gone = await sessionGoneSince(usersCollection, socket, username, session.hash, session.filter);
         if (gone) {
+            cancelSupersede(parked);
             unregister(io, socket, username, previousEntry, claim.previous);
             claim = null;
             if (gone !== 'disconnected') {
@@ -354,6 +367,8 @@ async function signIn(socket, io, data) {
             return;
         }
         claim = null; // signed in: the name stays claimed
+        clearSuperseded(socket, io);
+        confirmSupersede(io, parked, socket);
 
         // Check if user has an active game they can rejoin
         const activeGameId = user.activeGameId;
@@ -535,6 +550,7 @@ async function signUp(socket, io, data) {
             authLogger.warn('Sign-up undone: a case variant appeared during sign-up, or the re-check failed', { username, reason: clash });
             return;
         }
+        await releaseIdentity(io, socket, username);
         socket.data.sessionHash = session.hash;
         claimSocket(socket, username);
 
@@ -544,6 +560,7 @@ async function signUp(socket, io, data) {
 
         // Auto-login: register with game manager (same as signIn)
         gameManager.registerUser(socket.id, username);
+        clearSuperseded(socket, io);
         rememberBlockList(socket, []);
 
         socket.emit('signUpResponse', { success: true, username, sessionToken, autoLoggedIn: true });
@@ -636,6 +653,8 @@ async function restoreSession(socket, io, data) {
         // A valid saved session proves this network is the account's own:
         // its password sign-ins skip the username-wide limit (signInThrottle)
         signInThrottle.rememberGood({ ip: socket.data?.clientIp ?? null, username });
+        // Another account on this socket until now: released first
+        await releaseIdentity(io, socket, username);
 
         // A different device resuming its saved session takes over the one
         // live connection. The same device reconnecting (same token, e.g. a
@@ -668,9 +687,12 @@ async function restoreSession(socket, io, data) {
         // Register with game manager, then make sure no revoke landed
         // meanwhile (sessionGoneSince)
         const previousEntry = entryOf(username);
-        gameManager.registerUser(socket.id, username);
+        // The tab / socket this session was live on is parked and told once
+        // the restore stands: a second tab of the same saved session
+        const parked = markSuperseding(io, gameManager.registerUser(socket.id, username), socket, username);
         const gone = await sessionGoneSince(usersCollection, socket, username, session.hash, session.filter);
         if (gone) {
+            cancelSupersede(parked);
             unregister(io, socket, username, previousEntry, claim.previous);
             claim = null;
             if (gone !== 'disconnected') {
@@ -680,6 +702,8 @@ async function restoreSession(socket, io, data) {
             return;
         }
         claim = null; // signed in: the name stays claimed
+        clearSuperseded(socket, io);
+        confirmSupersede(io, parked, socket);
 
         // Check if user has an active game they can rejoin
         const activeGameId = user.activeGameId;

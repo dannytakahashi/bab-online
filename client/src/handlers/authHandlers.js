@@ -1,7 +1,7 @@
 /**
  * Authentication-related socket event handlers.
  *
- * Handles: signInResponse, signUpResponse, forceLogout, activeGameFound
+ * Handles: signInResponse, signUpResponse, forceLogout, sessionSuperseded, activeGameFound
  */
 
 import { SERVER_EVENTS } from '../constants/events.js';
@@ -19,6 +19,7 @@ import { rememberSession } from '../utils/sessionPersistence.js';
  * @param {Function} callbacks.onSignUpError - Called on sign up error
  * @param {Function} callbacks.onForceLogout - Called when force logged out
  * @param {Function} callbacks.onActiveGameFound - Called when user has active game
+ * @param {Function} callbacks.onSessionSuperseded - Another tab took the session
  */
 export function registerAuthHandlers(socketManager, callbacks = {}) {
   const {
@@ -28,6 +29,7 @@ export function registerAuthHandlers(socketManager, callbacks = {}) {
     onSignUpError,
     onForceLogout,
     onActiveGameFound,
+    onSessionSuperseded,
   } = callbacks;
 
   const state = getGameState();
@@ -89,6 +91,15 @@ export function registerAuthHandlers(socketManager, callbacks = {}) {
     state.resetSession();
 
     onForceLogout?.(data);
+  });
+
+  // Another tab / window of this browser took the session (the server
+  // keeps one live connection per user). The tab's credentials stay: Use
+  // here restores them. Repeated as the answer to anything this tab sends
+  // meanwhile ({refused}), which changes nothing more
+  socketManager.on(SERVER_EVENTS.SESSION_SUPERSEDED, (data) => {
+    console.log('Session is live in another tab:', data?.refused ? `refused ${data.refused}` : 'paused');
+    onSessionSuperseded?.(data);
   });
 
   // Active game found (user has a game in progress)

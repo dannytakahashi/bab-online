@@ -32,6 +32,7 @@ function createTournament(socket, io) {
     }
 
     const tournament = result.tournament;
+    releaseStaleTournamentSeat(io, result.evicted, user.username);
 
     // Leave main room Socket.IO room
     socket.leave('mainRoom');
@@ -53,6 +54,30 @@ function createTournament(socket, io) {
         socketId: socket.id,
         username: user.username,
         tournamentId: tournament.tournamentId
+    });
+}
+
+/**
+ * A lobby-phase tournament membership the user held from an older socket
+ * was given up (GameManager.giveUpStaleTournament: creating or joining
+ * another one): the old socket leaves the room and is told tournamentLeft
+ * (a half-open socket never receives it); the remaining members get
+ * tournamentPlayerLeft, as for a leave. The caller sends lobbiesUpdated.
+ */
+function releaseStaleTournamentSeat(io, evicted, username) {
+    if (!evicted) return;
+    const { oldSocketId, tournament, leaveResult } = evicted;
+    tournament.leaveRoom(io, oldSocketId);
+    io.to(oldSocketId).emit('tournamentLeft', {});
+    if (leaveResult?.success && !leaveResult.deleted) {
+        tournament.broadcast(io, 'tournamentPlayerLeft', {
+            username,
+            players: tournament.getClientState().players,
+            newCreator: leaveResult.newCreator ? leaveResult.newCreator.username : null
+        });
+    }
+    socketLogger.info('Stale tournament membership given up', {
+        oldSocketId, tournamentId: tournament.tournamentId, deleted: Boolean(leaveResult?.deleted)
     });
 }
 
@@ -86,6 +111,7 @@ async function joinTournament(socket, io, data) {
 
     const tournament = result.tournament;
     const user = gameManager.getUserBySocketId(socket.id);
+    releaseStaleTournamentSeat(io, result.evicted, user.username);
 
     // Leave main room
     socket.leave('mainRoom');

@@ -338,7 +338,8 @@ function reconnectOwner(io, game, pos, socket, username) {
 /**
  * The owner of a bot-controlled seat (lazy or resigned) attaches `socket` to
  * watch it while the bot plays. An older owner socket is demoted to a pure
- * spectator (keeps watching, loses /active and every other seat right).
+ * spectator (keeps watching, loses /active and every other seat right),
+ * unless it is parked (superseded by this socket): then it just leaves.
  * @param {Object} opts
  * @param {'rejoin'|'spectate'} opts.via
  */
@@ -349,7 +350,10 @@ function watchSeat(io, game, pos, socket, username, { via }) {
     if (seat?.ownerSocketId !== socket.id) return false;
     if (prev) {
         unmap(game, prev);
-        if (io.sockets.sockets.has(prev)) {
+        // A parked socket (sessionIdentity: superseded by this one) is not
+        // watching anything: it leaves like a gone one
+        const prevSocket = io.sockets.sockets.get(prev);
+        if (prevSocket && !prevSocket.data?.superseded) {
             gameManager.addSpectator(io, game, prev, username, null);
         } else {
             game.leaveRoom(io, prev);

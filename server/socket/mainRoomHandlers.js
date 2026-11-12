@@ -159,6 +159,21 @@ function joinLobby(socket, io, data) {
 
     const lobby = result.lobby;
 
+    // This socket holds its seat here already (it took a held seat back in
+    // place): it gets the lobby again; the others were told on the resume
+    if (result.alreadySeated) {
+        socket.leave('mainRoom');
+        socket.emit('lobbyCreated', {
+            lobbyId: lobby.id, players: lobby.players, messages: lobby.messages, name: lobby.name,
+            ...gameManager.reconnectingField(lobby.id)
+        });
+        const peers = lobby.players
+            .filter(p => p.socketId !== socket.id && !gameManager.isBot(p.socketId))
+            .map(p => ({ socketId: p.socketId, username: p.username }));
+        if (peers.length > 0) socket.emit('voicePeerList', { peers });
+        return;
+    }
+
     // Re-entry from a new socket: the seat moved here from the older one
     // (or a seat in another lobby was given up). The joined notifications
     // below carry the updated list.
@@ -171,12 +186,13 @@ function joinLobby(socket, io, data) {
     // Leave main room Socket.IO room
     socket.leave('mainRoom');
 
-    // Notify the joining player
+    // Notify the joining player (with the seats held for a reconnect)
     socket.emit('lobbyCreated', {
         lobbyId: lobby.id,
         players: lobby.players,
         messages: lobby.messages,
-        name: lobby.name
+        name: lobby.name,
+        ...gameManager.reconnectingField(lobby.id)
     });
 
     // Notify existing players in the lobby

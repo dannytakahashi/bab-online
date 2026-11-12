@@ -480,6 +480,19 @@ body > #spectating-indicator {
     z-index: 300;
 }
 
+/* "Open in another tab" (ui/components/SupersededNotice.js): a kit modal
+   over the whole page, opaque so the paused screen behind never shows, and
+   above the connection banner and the table's transition overlay */
+.kit-modal-backdrop.superseded-notice-backdrop {
+    background: var(--surface-0);
+    z-index: var(--z-banner);
+}
+
+.superseded-notice__text {
+    color: var(--text-secondary);
+    margin: 0 0 var(--space-4);
+}
+
 .hud-voice > button {
     position: relative; /* its hit extension (::before) stays on the button */
     width: var(--voice-btn, 36px);

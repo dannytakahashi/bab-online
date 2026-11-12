@@ -19,7 +19,12 @@ jest.mock('../../database', () => ({
 
 jest.mock('../../game/GameManager', () => ({
     registerUser: jest.fn(),
-    handleDisconnect: jest.fn(),
+    // one socket signs up several accounts in a row: each releases the last
+    // (sessionIdentity.releaseIdentity)
+    removeUserSocket: jest.fn(),
+    handleDisconnect: jest.fn(() => ({})),
+    releaseHeldLobbySeat: jest.fn(() => null),
+    getOnlineUsernames: jest.fn(() => []),
     getGameById: jest.fn(() => null),
     getTournamentById: jest.fn(() => null),
     clearActiveGame: jest.fn(),
@@ -40,7 +45,7 @@ const EXISTING = ['Alan T', 'JoAnn Jameson', 'Danny', 'Al', 'x', 'An Exceptional
 let io;
 let n = 0;
 const connect = () => {
-    const socket = { id: `s-${++n}`, data: {}, emit: jest.fn(), disconnect: jest.fn() };
+    const socket = { id: `s-${++n}`, data: {}, emit: jest.fn(), disconnect: jest.fn(), join: jest.fn(), leave: jest.fn() };
     io.sockets.sockets.set(socket.id, socket);
     return socket;
 };

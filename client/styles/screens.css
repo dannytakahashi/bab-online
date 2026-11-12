@@ -550,6 +550,12 @@
     color: var(--success);
 }
 
+/* a seat the server holds while its player reloads / reconnects */
+.seat-row__status.is-reconnecting {
+    color: var(--warning);
+    font-style: italic;
+}
+
 .seat-row--compact {
     min-height: 32px;
     font-size: var(--type-sm);

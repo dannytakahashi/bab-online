@@ -36,7 +36,8 @@ async function playerReady(socket, io) {
             io.to(player.socketId).emit('playerReadyUpdate', {
                 lobbyId: lobby.id,
                 players: lobby.players,
-                readySocketId: socket.id
+                readySocketId: socket.id,
+                ...gameManager.reconnectingField(lobby.id)
             });
         }
     });
@@ -161,7 +162,8 @@ function playerUnready(socket, io) {
         io.to(player.socketId).emit('playerReadyUpdate', {
             lobbyId: lobby.id,
             players: lobby.players,
-            unreadySocketId: socket.id
+            unreadySocketId: socket.id,
+            ...gameManager.reconnectingField(lobby.id)
         });
     });
 
@@ -264,7 +266,8 @@ function releaseStaleLobbySeat(io, change) {
     if (!change || !change.oldSocketId) return;
     const { oldSocketId, newSocketId } = change;
 
-    io.to(oldSocketId).emit('leftLobby', {});
+    // tellOld false: the old socket is someone else now (it switched accounts)
+    if (change.tellOld !== false) io.to(oldSocketId).emit('leftLobby', {});
 
     const leave = change.leaveResult;
     const lobby = leave ? (leave.lobbyDeleted ? null : leave.lobby) : change.lobby;
@@ -289,6 +292,64 @@ function releaseStaleLobbySeat(io, change) {
         oldSocketId,
         newSocketId,
         lobbyId: lobby.id
+    });
+}
+
+/**
+ * A lobby seat's socket dropped and the seat is held for its grace
+ * (GameManager.suspendLobbySeat): the lobby's other humans get the player
+ * list (playerReadyUpdate: both clients redraw the seats from it; iOS
+ * 1.1.0 shows the player as not ready) with `reconnecting` naming the
+ * held seats (additive: every playerReadyUpdate carries it while a seat
+ * is held; web shows "Reconnecting…") and drop the old socket's voice
+ * peer. The caller sends lobbiesUpdated.
+ */
+function lobbySeatSuspended(io, lobby, oldSocketId) {
+    lobby.players.forEach(player => {
+        if (player.socketId === oldSocketId || gameManager.isBot(player.socketId)) return;
+        io.to(player.socketId).emit('playerReadyUpdate', { lobbyId: lobby.id, players: lobby.players, ...gameManager.reconnectingField(lobby.id) });
+        io.to(player.socketId).emit('voicePeerLeft', { socketId: oldSocketId });
+    });
+    socketLogger.info('Lobby seat held for reconnection', {
+        lobbyId: lobby.id, oldSocketId, graceMs: gameManager.constructor.LOBBY_SEAT_GRACE_MS
+    });
+}
+
+/**
+ * A held seat's own socket is live again as the same player
+ * (GameManager.resumeHeldLobbySeat): the lobby's other humans get the list
+ * without it under `reconnecting` and its voice peer back, the main room
+ * the lobby list.
+ */
+function lobbySeatResumed(io, lobby, socketId, username) {
+    lobby.players.forEach(player => {
+        if (player.socketId === socketId || gameManager.isBot(player.socketId)) return;
+        io.to(player.socketId).emit('playerReadyUpdate', { lobbyId: lobby.id, players: lobby.players, ...gameManager.reconnectingField(lobby.id) });
+        io.to(player.socketId).emit('voicePeerJoined', { socketId, username });
+    });
+    io.to('mainRoom').emit('lobbiesUpdated', {
+        lobbies: gameManager.getAllLobbies(),
+        inProgressGames: gameManager.getInProgressGames(),
+        tournaments: gameManager.getAllTournaments()
+    });
+    socketLogger.info('Held lobby seat resumed by its own socket', { lobbyId: lobby.id, socketId });
+}
+
+/**
+ * Nobody came back for a held seat (GameManager.expireLobbySeat): it left,
+ * as a leave (lobbyPlayerLeft to the rest; the lobby is gone when no human
+ * is left), and the main room's list updates.
+ */
+function lobbySeatExpired(io, expired, { tellOld = true } = {}) {
+    if (!expired) return;
+    releaseStaleLobbySeat(io, { oldSocketId: expired.oldSocketId, newSocketId: null, leaveResult: expired.leaveResult, username: expired.username, tellOld });
+    io.to('mainRoom').emit('lobbiesUpdated', {
+        lobbies: gameManager.getAllLobbies(),
+        inProgressGames: gameManager.getInProgressGames(),
+        tournaments: gameManager.getAllTournaments()
+    });
+    socketLogger.info('Held lobby seat expired', {
+        lobbyId: expired.lobbyId, lobbyDeleted: Boolean(expired.leaveResult?.lobbyDeleted)
     });
 }
 
@@ -326,7 +387,8 @@ function addBot(socket, io) {
         if (!gameManager.isBot(player.socketId)) {
             io.to(player.socketId).emit('playerReadyUpdate', {
                 lobbyId: lobby.id,
-                players: lobby.players
+                players: lobby.players,
+                ...gameManager.reconnectingField(lobby.id)
             });
         }
     });
@@ -370,7 +432,8 @@ function removeBot(socket, io, data) {
         if (!gameManager.isBot(player.socketId)) {
             io.to(player.socketId).emit('playerReadyUpdate', {
                 lobbyId: lobby.id,
-                players: lobby.players
+                players: lobby.players,
+                ...gameManager.reconnectingField(lobby.id)
             });
         }
     });
@@ -389,6 +452,9 @@ module.exports = {
     lobbyChat,
     leaveLobby,
     releaseStaleLobbySeat,
+    lobbySeatSuspended,
+    lobbySeatExpired,
+    lobbySeatResumed,
     addBot,
     removeBot
 };

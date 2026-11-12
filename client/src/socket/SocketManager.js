@@ -45,6 +45,10 @@ export class SocketManager {
     this._isForceReconnecting = false;
     this._probe = null;
     this._probeSeq = 0;
+    // Parked (another tab took the session: sessionSuperseded): no ping
+    // after a background and no forced reconnect, which would restore the
+    // session here and take it back without the player asking
+    this._parked = false;
 
     // The seq gate (state/SeqGate.js): every listener registered here runs
     // through it, so sequenced events apply in seq order. One handler per
@@ -74,6 +78,16 @@ export class SocketManager {
    */
   get id() {
     return this._socket?.id || null;
+  }
+
+  /** Park / unpark (ui/components/SupersededNotice.js: Use here unparks first). */
+  setParked(parked) {
+    this._parked = Boolean(parked);
+    if (this._parked) this._cancelProbe();
+  }
+
+  get isParked() {
+    return this._parked;
   }
 
   /**
@@ -218,7 +232,7 @@ export class SocketManager {
    * @returns {boolean} whether a ping went out
    */
   probeConnection(timeoutMs = PROBE_TIMEOUT_MS) {
-    if (!this._socket || this._probe || this._isForceReconnecting) return false;
+    if (!this._socket || this._probe || this._isForceReconnecting || this._parked) return false;
     if (this._socket.connected === false) return false;
 
     const requestId = `ping-${Date.now().toString(36)}-${++this._probeSeq}`;
@@ -256,7 +270,7 @@ export class SocketManager {
    */
   /** A dead-looking connection (an unanswered ack resync): reconnect cleanly. */
   forceReconnect() {
-    if (!this._socket) return;
+    if (!this._socket || this._parked) return;
     this._forceReconnect();
   }
 

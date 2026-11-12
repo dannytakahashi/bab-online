@@ -89,6 +89,7 @@ export const SERVER_EVENTS = {
   SIGN_IN_RESPONSE: 'signInResponse',
   SIGN_UP_RESPONSE: 'signUpResponse',
   FORCE_LOGOUT: 'forceLogout',
+  SESSION_SUPERSEDED: 'sessionSuperseded',
   ACTIVE_GAME_FOUND: 'activeGameFound',
   DELETE_ACCOUNT_RESPONSE: 'deleteAccountResponse',
   RESTORE_SESSION_RESPONSE: 'restoreSessionResponse',

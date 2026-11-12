@@ -4309,6 +4309,37 @@
         "server/socket/authHandlers.js:deleteAccount"
       ]
     },
+    "sessionSuperseded": {
+      "payload": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "const": "newerConnection"
+          },
+          "refused": {
+            "type": "string",
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "additionalProperties": false
+      },
+      "status": "active",
+      "to": "socket",
+      "clientReads": {
+        "web": [
+          "client/src/handlers/authHandlers.js:registerAuthHandlers"
+        ],
+        "ios": []
+      },
+      "emittedFrom": [
+        "server/socket/sessionIdentity.js:confirmSupersede",
+        "server/socket/sessionIdentity.js:supersededGate"
+      ],
+      "notes": "New (2026-11-11). One live connection per user: a newer socket of the SAME saved session (another web tab adopting it, or a reload whose old socket the server still holds) took over; this socket is parked. Sent once when it happens and again (refused: the event name, at most once a second) for every event the parked socket sends other than signIn / signUp / restoreSession / clientHello, which are dropped, never answered with error. Web: a full-screen notice, \"Use here\" reconnects and restores, which parks the other tab. iOS 1.1.0 has no handler (unknown events are ignored) and never shares a token between live sockets; a different session gets forceLogout as before."
+    },
     "deleteAccountResponse": {
       "payload": {
         "anyOf": [
@@ -4720,6 +4751,7 @@
         "server/socket/lobbyHandlers.js:leaveLobby",
         "server/socket/lobbyHandlers.js:addBot",
         "server/socket/lobbyHandlers.js:removeBot",
+        "server/socket/lobbyHandlers.js:lobbySeatExpired",
         "server/socket/tournamentHandlers.js:createTournament",
         "server/socket/tournamentHandlers.js:joinTournament",
         "server/socket/tournamentHandlers.js:leaveTournament",
@@ -4752,6 +4784,14 @@
               },
               "name": {
                 "type": "string"
+              },
+              "reconnecting": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1,
+                "maxItems": 4
               }
             },
             "required": [
@@ -4766,6 +4806,9 @@
       },
       "status": "active",
       "to": "self",
+      "added": [
+        "reconnecting"
+      ],
       "reserved": [
         {
           "key": "lobbyName",
@@ -4952,6 +4995,14 @@
               },
               "readySocketId": {
                 "type": "string"
+              },
+              "reconnecting": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1,
+                "maxItems": 4
               }
             },
             "required": [
@@ -4977,6 +5028,14 @@
               },
               "unreadySocketId": {
                 "type": "string"
+              },
+              "reconnecting": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1,
+                "maxItems": 4
               }
             },
             "required": [
@@ -4999,6 +5058,14 @@
                   "$ref": "#/$defs/lobbyMember"
                 },
                 "maxItems": 4
+              },
+              "reconnecting": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1,
+                "maxItems": 4
               }
             },
             "required": [
@@ -5011,6 +5078,10 @@
       },
       "status": "active",
       "to": "socket",
+      "added": [
+        "reconnecting"
+      ],
+      "notes": "reconnecting (additive, 2026-11-11; present only while a seat is held): the usernames whose lobby seat waits for its player to come back (GameManager.suspendLobbySeat, LOBBY_SEAT_GRACE_MS 30 s after a disconnect or a newer tab taking over). Every playerReadyUpdate carries it while one is held, lobbyCreated from joinLobby too; web shows \"Reconnecting…\" on those seats. iOS 1.1.0 reads the reply as a dictionary and ignores it.",
       "clientReads": {
         "web": [
           "client/src/handlers/lobbyHandlers.js:registerLobbyHandlers"
@@ -5023,7 +5094,8 @@
         "server/socket/lobbyHandlers.js:playerReady",
         "server/socket/lobbyHandlers.js:playerUnready",
         "server/socket/lobbyHandlers.js:addBot",
-        "server/socket/lobbyHandlers.js:removeBot"
+        "server/socket/lobbyHandlers.js:removeBot",
+        "server/socket/lobbyHandlers.js:lobbySeatSuspended"
       ]
     },
     "allPlayersReady": {
@@ -8204,7 +8276,8 @@
       },
       "emittedFrom": [
         "server/socket/tournamentHandlers.js:leaveTournament",
-        "server/socket/queueHandlers.js:handleDisconnect"
+        "server/socket/queueHandlers.js:handleDisconnect",
+        "server/socket/tournamentHandlers.js:releaseStaleTournamentSeat"
       ],
       "notes": "username is absent when the leaver had no registered user (user?.username)."
     },
@@ -8506,7 +8579,8 @@
       "emittedFrom": [
         "server/socket/tournamentHandlers.js:leaveTournament",
         "server/socket/tournamentHandlers.js:returnToTournament",
-        "server/socket/upgradeGate.js:replyLeave"
+        "server/socket/upgradeGate.js:replyLeave",
+        "server/socket/tournamentHandlers.js:releaseStaleTournamentSeat"
       ]
     },
     "tournamentCancelled": {
@@ -10068,7 +10142,8 @@
         "server/socket/seatLifecycle.js:disconnectOwner",
         "server/socket/lobbyHandlers.js:leaveLobby",
         "server/socket/lobbyHandlers.js:releaseStaleLobbySeat",
-        "server/socket/queueHandlers.js:handleDisconnect"
+        "server/socket/queueHandlers.js:handleDisconnect",
+        "server/socket/lobbyHandlers.js:lobbySeatSuspended"
       ],
       "notes": "room: a game seat owner dropped (game.broadcast); private: lobby peers (io.to(socketId)).",
       "added": [
