@@ -8,6 +8,17 @@ import Combine
 /// Full-mesh topology: one RTCPeerConnection per human peer.
 /// Server only relays signaling messages (SDP offers/answers, ICE candidates).
 ///
+/// ICE servers (1.2, V1_REMOVALS "iOS TURN"): asked from the server
+/// (`IceServerStore`: getVoiceIceServers -> voiceIceServers, Cloudflare TURN
+/// credentials or the public STUN pair) in parallel with the microphone
+/// prompt and awaited before the first peer connection, at most 4 s, else
+/// STUN. A TURN answer is reused for the session and refreshed 30 min before
+/// it expires (`setConfiguration` on the open connections); a STUN answer is
+/// asked again on every voice start and restart. A connection that fails (or
+/// is not up within 20 s) gets ONE restart (`VoiceRecovery`: the lower socket
+/// id offers again, the other waits 15 s), then the peer shows "voice
+/// unavailable". Credentials are never logged or persisted.
+///
 /// All state lives on the main actor. WebRTC calls its completion handlers and
 /// delegate methods on its own signaling thread, so every such callback hops back
 /// to main (`DispatchQueue.main.async`) before touching manager state.
@@ -33,19 +44,28 @@ final class VoiceChatManager: ObservableObject {
     struct PeerInfo {
         let username: String
         var isMuted: Bool = false
+        /// The connection failed after its one restart (a later offer from the peer retries).
+        var isUnavailable: Bool = false
     }
 
     // MARK: - Private State
 
-    private static let iceConfig: RTCConfiguration = {
+    /// The RTCConfiguration for `ice` (nil: the STUN pair).
+    nonisolated static func rtcConfiguration(_ ice: IceConfig?) -> RTCConfiguration {
         let config = RTCConfiguration()
-        config.iceServers = [
-            RTCIceServer(urlStrings: ["stun:stun.l.google.com:19302"]),
-            RTCIceServer(urlStrings: ["stun:stun1.l.google.com:19302"])
-        ]
+        config.iceServers = (ice?.servers ?? IcePolicy.stunServers).map {
+            RTCIceServer(urlStrings: $0.urls, username: $0.username, credential: $0.credential)
+        }
         config.sdpSemantics = .unifiedPlan
         return config
-    }()
+    }
+
+    /// The session's ICE servers (asked from the server; never persisted).
+    let iceStore = IceServerStore(emit: { VoiceEmitter.getIceServers($0) })
+    private var recovery = VoiceRecovery()
+    private var connectTimers: [String: DispatchWorkItem] = [:]
+    private var restartTimers: [String: DispatchWorkItem] = [:]
+    private var iceRefresh: DispatchWorkItem?
 
     private static let speakingThreshold: Float = 0.005
     private static let speakingPollInterval: TimeInterval = 0.1
@@ -96,8 +116,12 @@ final class VoiceChatManager: ObservableObject {
 
     /// Bumped by every shutdown(), so a start that was in flight does not finish after it.
     private var startGeneration = 0
+    /// Between the mic being ready and the ICE servers answering: peers and offers are buffered.
+    private var awaitingIce = false
 
-    private init() {}
+    private init() {
+        iceStore.onChange = { [weak self] config in self?.applyIce(config) }
+    }
 
     // MARK: - Lifecycle
 
@@ -105,6 +129,10 @@ final class VoiceChatManager: ObservableObject {
     func initialize() async throws {
         guard !isActive, !Self.voiceDisabled else { return }
         let generation = startGeneration
+
+        // ICE servers in parallel with the permission prompt (re-asked on every start unless TURN is reusable)
+        let username = SocketService.shared.authState?.username
+        let iceReady = Task { @MainActor in await self.iceStore.ensure(username: username) }
 
         // Request mic permission
         let granted = await AVAudioSession.sharedInstance().requestRecordPermission()
@@ -133,6 +161,13 @@ final class VoiceChatManager: ObservableObject {
 
         // Start speaking detection (main run loop, since we're on the main actor)
         startSpeakingDetection()
+
+        // The first peer connection waits for the ICE servers (<= IcePolicy.fetchTimeout, else STUN)
+        awaitingIce = true
+        let ice = await iceReady.value
+        awaitingIce = false
+        guard isActive, generation == startGeneration else { return }
+        if iceRefresh == nil { applyIce(ice) }  // a reused TURN answer: arm its refresh
 
         // Flush buffered events
         flushPendingEvents()
@@ -164,6 +199,7 @@ final class VoiceChatManager: ObservableObject {
         startGeneration &+= 1  // an initialize() still awaiting the permission prompt gives up
         guard isActive else { return }
         isActive = false
+        awaitingIce = false
 
         // Stop speaking detection
         speakingTimer?.invalidate()
@@ -175,6 +211,14 @@ final class VoiceChatManager: ObservableObject {
             print("[Voice] Closed peer: \(socketId)")
         }
         peers.removeAll()
+        connectTimers.values.forEach { $0.cancel() }
+        connectTimers.removeAll()
+        restartTimers.values.forEach { $0.cancel() }
+        restartTimers.removeAll()
+        iceRefresh?.cancel()
+        iceRefresh = nil
+        recovery.reset()
+        iceStore.reset()
 
         // Stop local audio
         localAudioTrack?.isEnabled = false
@@ -204,7 +248,7 @@ final class VoiceChatManager: ObservableObject {
     /// Create a peer connection and send an offer (initiator side).
     /// Called when we receive voicePeerList — we initiate to existing peers.
     func connectToPeer(_ socketId: String, username: String) {
-        guard isActive, localAudioTrack != nil else {
+        guard isActive, localAudioTrack != nil, !awaitingIce else {
             print("[Voice] Buffering connectToPeer \(socketId) \(username)")
             pendingPeers.append((socketId: socketId, username: username))
             return
@@ -251,7 +295,7 @@ final class VoiceChatManager: ObservableObject {
 
     /// Handle an incoming offer from a peer (responder side).
     func handleOffer(fromSocketId: String, offer: RTCSessionDescription, username: String) {
-        guard isActive, localAudioTrack != nil else {
+        guard isActive, localAudioTrack != nil, !awaitingIce else {
             print("[Voice] Buffering handleOffer \(fromSocketId) \(username)")
             pendingOffers.append((fromSocketId: fromSocketId, offer: offer, username: username))
             return
@@ -259,10 +303,13 @@ final class VoiceChatManager: ObservableObject {
 
         print("[Voice] handleOffer from \(fromSocketId) \(username)")
 
-        // If we already have a connection, close it and recreate
+        // If we already have a connection, close it and recreate (a restart keeps its count;
+        // the peer is trying again, so it is no longer "unavailable")
         if peers[fromSocketId] != nil {
-            closePeer(fromSocketId)
+            closePeer(fromSocketId, keepRecovery: true)
         }
+        recovery.offered(fromSocketId)
+        restartTimers.removeValue(forKey: fromSocketId)?.cancel()
 
         let pc = createPeerConnection(socketId: fromSocketId, username: username)
 
@@ -386,7 +433,7 @@ final class VoiceChatManager: ObservableObject {
     }
 
     private func createPeerConnection(socketId: String, username: String) -> RTCPeerConnection {
-        let pc = factory.peerConnection(with: Self.iceConfig, constraints: mediaConstraints, delegate: nil)!
+        let pc = factory.peerConnection(with: Self.rtcConfiguration(iceStore.current), constraints: mediaConstraints, delegate: nil)!
 
         let delegate = PeerConnectionDelegate(manager: self, socketId: socketId)
         pc.delegate = delegate
@@ -394,22 +441,131 @@ final class VoiceChatManager: ObservableObject {
         objc_setAssociatedObject(pc, "delegate", delegate, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
 
         peers[socketId] = PeerState(connection: pc, username: username)
-        peerInfos[socketId] = PeerInfo(username: username)
+        let muted = peerInfos[socketId]?.isMuted ?? false
+        peerInfos[socketId] = PeerInfo(username: username, isMuted: muted)
+        armConnectTimer(socketId, pc)
 
         return pc
     }
 
-    private func closePeer(_ socketId: String) {
-        guard let peer = peers.removeValue(forKey: socketId) else { return }
+    /// keepRecovery: the connection is replaced by its restart (keeps the restart count and
+    /// the peer's row); otherwise the peer left.
+    private func closePeer(_ socketId: String, keepRecovery: Bool = false) {
+        connectTimers.removeValue(forKey: socketId)?.cancel()
+        restartTimers.removeValue(forKey: socketId)?.cancel()
+        recovery.closed(socketId, keepRecovery: keepRecovery)
+        guard let peer = peers.removeValue(forKey: socketId) else {
+            if !keepRecovery { peerInfos.removeValue(forKey: socketId) }
+            return
+        }
         peer.connection.close()
         speakingLastActive.removeValue(forKey: socketId)
         speakingStates.removeValue(forKey: socketId)
 
-        peerInfos.removeValue(forKey: socketId)
+        // the speaking glow goes off while the peer's username is still known (seat by username)
         speakingPeers.remove(socketId)
         speakingChangedSubject.send((socketId, false))
+        if !keepRecovery { peerInfos.removeValue(forKey: socketId) }
 
         print("[Voice] Closed peer: \(socketId)")
+    }
+
+    // MARK: - ICE servers and recovery
+
+    /// New ICE servers: onto the open connections (a TURN refresh needs it), then the next refresh.
+    private func applyIce(_ config: IceConfig) {
+        let rtc = Self.rtcConfiguration(config)
+        for peer in peers.values where peer.connection.signalingState != .closed {
+            if !peer.connection.setConfiguration(rtc) {
+                print("[Voice] setConfiguration refused")
+            }
+        }
+        iceRefresh?.cancel()
+        iceRefresh = nil
+        guard isActive, let delay = IcePolicy.refreshDelay(config, now: Date()) else { return }
+        let item = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.isActive else { return }
+                Task { @MainActor in _ = await self.iceStore.fetch(username: self.localUsername) }
+            }
+        }
+        iceRefresh = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)
+    }
+
+    /// No connection within IcePolicy.connectTimeout counts as a failure (it may never report one).
+    private func armConnectTimer(_ socketId: String, _ pc: RTCPeerConnection) {
+        connectTimers.removeValue(forKey: socketId)?.cancel()
+        let item = DispatchWorkItem { [weak self, weak pc] in
+            MainActor.assumeIsolated {
+                guard let self, let pc, self.peers[socketId]?.connection === pc else { return }
+                self.connectTimers[socketId] = nil
+                guard pc.signalingState != .closed, !Self.isUp(pc.iceConnectionState) else { return }
+                print("[Voice] connection to \(socketId) not up after \(Int(IcePolicy.connectTimeout)) s")
+                self.peerFailed(socketId)
+            }
+        }
+        connectTimers[socketId] = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + IcePolicy.connectTimeout, execute: item)
+    }
+
+    static func isUp(_ state: RTCIceConnectionState) -> Bool { state == .connected || state == .completed }
+
+    /// From the delegate (on main): connected clears any failure, failed starts recovery.
+    func iceStateChanged(_ socketId: String, _ pc: RTCPeerConnection, _ state: RTCIceConnectionState) {
+        guard peers[socketId]?.connection === pc else { return }  // a replaced connection
+        if Self.isUp(state) {
+            connectTimers.removeValue(forKey: socketId)?.cancel()
+            restartTimers.removeValue(forKey: socketId)?.cancel()
+            recovery.connected(socketId)
+            peerInfos[socketId]?.isUnavailable = false
+        } else if state == .failed {
+            peerFailed(socketId)
+        }
+    }
+
+    private func peerFailed(_ socketId: String) {
+        guard isActive, let peer = peers[socketId] else { return }
+        switch recovery.failed(socketId, myId: SocketService.shared.socketId ?? "") {
+        case .none:
+            break
+        case .restartAsOfferer:
+            print("[Voice] connection to \(socketId) failed: restarting once")
+            let username = peer.username
+            Task { @MainActor in
+                _ = await self.iceStore.ensure(username: self.localUsername)
+                guard self.isActive, self.peers[socketId]?.connection === peer.connection else { return }
+                self.closePeer(socketId, keepRecovery: true)
+                self.connectToPeer(socketId, username: username)
+            }
+        case .waitForRestart:
+            print("[Voice] connection to \(socketId) failed: waiting for its restart")
+            Task { @MainActor in _ = await self.iceStore.ensure(username: self.localUsername) }
+            let item = DispatchWorkItem { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.restartTimers[socketId] = nil
+                    if self.recovery.waitExpired(socketId) == .markUnavailable { self.markUnavailable(socketId) }
+                }
+            }
+            restartTimers[socketId] = item
+            DispatchQueue.main.asyncAfter(deadline: .now() + IcePolicy.restartWait, execute: item)
+        case .markUnavailable:
+            markUnavailable(socketId)
+        }
+    }
+
+    /// Voice unavailable for this peer: the connection closes, its row stays (marked).
+    private func markUnavailable(_ socketId: String) {
+        print("[Voice] voice unavailable for \(socketId)")
+        connectTimers.removeValue(forKey: socketId)?.cancel()
+        if let peer = peers[socketId], peer.connection.signalingState != .closed { peer.connection.close() }
+        peerInfos[socketId]?.isUnavailable = true
+        if speakingStates[socketId] == true {
+            speakingStates[socketId] = false
+            speakingPeers.remove(socketId)
+            speakingChangedSubject.send((socketId, false))
+        }
     }
 
     private func flushPendingEvents() {
@@ -569,6 +725,11 @@ private class PeerConnectionDelegate: NSObject, RTCPeerConnectionDelegate {
 
     func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceConnectionState) {
         print("[Voice] Peer \(socketId) ICE: \(newState.rawValue)")
+        let id = socketId
+        DispatchQueue.main.async { [weak self, weak peerConnection] in
+            guard let self, let pc = peerConnection else { return }
+            self.manager?.iceStateChanged(id, pc, newState)
+        }
     }
 
     func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceGatheringState) {}

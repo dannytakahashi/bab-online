@@ -38,6 +38,13 @@ struct VoicePanelSheet: View {
                             Text(info.username)
                                 .foregroundColor(Color.Theme.textPrimary)
 
+                            if info.isUnavailable {
+                                // the connection failed after its one restart (VoiceRecovery)
+                                Text("voice unavailable")
+                                    .font(.caption)
+                                    .foregroundColor(Color.Theme.textSecondary)
+                            }
+
                             Spacer()
 
                             Button(action: {

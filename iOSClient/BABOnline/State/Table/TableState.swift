@@ -28,7 +28,10 @@ struct PlayersSlice: Equatable {
     /// Voice only (speaking glows): from positionUpdate and the legacy players[].socketId; kept across snapshots.
     var socketBySeat: [Int: String] = [:]
     var resignationOffer: ResignationOffer?
+    /// The spectator SOCKET count (cc865b4's meaning, from the notices); the badge reads `watching.count`.
     var spectatorCount = 0
+    /// Who is watching (spectatorsUpdated, every snapshot's `watching`); a new game starts empty.
+    var watching = WatchingList()
 
     /// Seats whose human owner is away (21.6: derived from presence, so a restore rebuilds it).
     var disconnected: [Int: String] {

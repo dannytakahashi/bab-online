@@ -44,6 +44,8 @@ enum TableAnimation: Equatable {
     case rainbow(position: Int, dealSeq: Int)
     case overTrump(TrickKey)
     case chatBubble(position: Int, message: String)
+    /// A spectator's chat ("Name: text") by the spectator badge, one at a time (isSpectator, not `type`).
+    case spectatorChatBubble(username: String, message: String)
     case sceneReset
 }
 

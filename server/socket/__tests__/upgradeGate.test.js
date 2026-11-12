@@ -31,6 +31,8 @@ const { hashToken, verifySession, SESSION_TTL_MS } = require('../../utils/sessio
 // Captured 2026-11-11 (socket.handshake.headers['user-agent'], polling handshake)
 const UA_100 = 'BAB%20Online/1 CFNetwork/3896.200.61 Darwin/27.2.0';
 const UA_110 = 'BAB%20Online/2 CFNetwork/3896.200.61 Darwin/27.2.0';
+// 1.2.0 (build 3, the iOS 1.2 release): the same URLSession form, one build later
+const UA_120 = 'BAB%20Online/3 CFNetwork/3896.200.61 Darwin/27.2.0';
 // The built-in browser of the live check (Chromium) and common browsers
 const BROWSERS = [
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36',
@@ -65,6 +67,7 @@ describe('parseIosUserAgent', () => {
         expect(gate.parseIosUserAgent(UA_110)).toEqual({ client: 'ios', build: 2 });
         expect(gate.isOutdatedIosApp(UA_100)).toBe(true);
         expect(gate.isOutdatedIosApp(UA_110)).toBe(false);
+        expect(gate.isOutdatedIosApp(UA_120)).toBe(false);
         expect(gate.isOutdatedIosApp('BAB%20Online/17 CFNetwork/1500 Darwin/25.0.0')).toBe(false);
         // the same app on another iOS / CFNetwork, or the unencoded name
         expect(gate.isOutdatedIosApp('BAB%20Online/1 CFNetwork/1568.100.1 Darwin/24.0.0')).toBe(true);
@@ -373,7 +376,7 @@ describe('a 1.0.0 socket', () => {
 });
 
 describe('never gated', () => {
-    test.each([['1.1.0 build 2', UA_110], ['a later build', 'BAB%20Online/3 CFNetwork/3896.200.61 Darwin/27.2.0'],
+    test.each([['1.1.0 build 2', UA_110], ['1.2.0 build 3', UA_120], ['a later build', 'BAB%20Online/40 CFNetwork/3896.200.61 Darwin/27.2.0'],
         ...BROWSERS.map((b) => [b.slice(0, 50), b]), ['no User-Agent', undefined], ...GARBAGE.filter((g) => typeof g === 'string').map((g) => [g.slice(0, 50), g])])(
         '%s: the real handlers', async (_l, ua) => {
             const w = wired(ua);
@@ -399,6 +402,14 @@ describe('never gated', () => {
         expect(socketLogger.info).toHaveBeenCalledWith('iOS app connected', { socketId: w.socket.id, build: 2 });
         const web = wired(BROWSERS[0]);
         expect(web.socket.data.appBuild).toBeUndefined();
+    });
+
+    test('1.2.0 (build 3) is current: parsed, recorded, never gated', () => {
+        expect(gate.parseIosUserAgent(UA_120)).toEqual({ client: 'ios', build: 3 });
+        const w = wired(UA_120);
+        expect(w.socket.data.appBuild).toBe(3);
+        expect(w.handlers.has('playCard')).toBe(true);
+        expect(socketLogger.info).toHaveBeenCalledWith('iOS app connected', { socketId: w.socket.id, build: 3 });
     });
 });
 

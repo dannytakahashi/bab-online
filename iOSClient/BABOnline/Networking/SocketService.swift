@@ -10,6 +10,32 @@ struct ServerErrorNotice: Equatable {
     let message: String
 }
 
+/// The server sends one failure twice while V1_REMOVALS #1 is in phase A: the
+/// app-level `error` ({type?, message, handler?}; Socket.IO-Client-Swift
+/// delivers it as `clientEvent: .error`) and `serverError` ({code, message,
+/// handler}). Phase B drops `error`. Whichever arrives first is shown (toast,
+/// table resync); the other copy, the same message and handler from the
+/// other channel within `window`, is dropped. The same message again on the
+/// same channel is a new failure (a repeated tap) and is shown again.
+struct ServerErrorDeduper {
+    enum Channel: Equatable { case error, serverError }
+    static let window: TimeInterval = 1.5
+
+    private var last: (channel: Channel, message: String, handler: String?, at: Date)?
+
+    /// true: handle this one; false: the other channel's copy of the failure just handled
+    /// (same handler; with no handler, the same message: the two may word it differently).
+    mutating func accept(_ channel: Channel, message: String, handler: String?, at now: Date = Date()) -> Bool {
+        if let l = last, l.channel != channel, now.timeIntervalSince(l.at) < Self.window,
+           l.handler == handler, handler != nil || l.message == message {
+            last = nil  // one twin per failure: a third copy is a new one
+            return false
+        }
+        last = (channel, message, handler, now)
+        return true
+    }
+}
+
 /// Singleton managing the Socket.IO connection.
 final class SocketService: ObservableObject {
     static let shared = SocketService()
@@ -40,12 +66,11 @@ final class SocketService: ObservableObject {
     /// Set by BABOnlineApp so SocketService can auto-restore session on reconnect
     weak var authState: AuthState?
 
-    /// The server URL — simulator uses localhost, physical device uses production
-    #if targetEnvironment(simulator)
-    private let serverURL = "http://localhost:3000"
-    #else
-    private let serverURL = "https://babonline.io"
-    #endif
+    /// The server URL — simulator uses localhost, physical device uses production (ServerConfig)
+    private var serverURL: String { ServerConfig.baseURL }
+    /// `serverError` (V1_REMOVALS #1 phase A/B; its constant joins SocketEvents.swift with the contract entry).
+    static let serverErrorEvent = "serverError"
+    private var errorDeduper = ServerErrorDeduper()
 
     var socketId: String? { socket?.sid }
 
@@ -96,6 +121,9 @@ final class SocketService: ObservableObject {
                 self?.connectionError = nil
                 print("[Socket] Connected: \(self?.socket?.sid ?? "?")")
             }
+            // Capabilities first (every connect, a new socket each time): the restore's replies
+            // and every later payload already use the avatarUrl shapes
+            self?.socket?.emit(SocketEvents.Client.clientHello, ClientHello.payload())
             // Auto-restore session on any connection (handles force-reconnect,
             // auto-reconnect, and app relaunch with stored credentials)
             if let authState = self?.authState, authState.hasStoredSession {
@@ -116,10 +144,7 @@ final class SocketService: ObservableObject {
         socket?.on(clientEvent: .error) { [weak self] data, _ in
             DispatchQueue.main.async {
                 if let dict = data.first as? [String: Any] {
-                    let msg = dict["message"] as? String ?? "Something went wrong"
-                    self?.serverError = ServerErrorNotice(message: msg)
-                    print("[Socket] Server error: \(msg)")
-                    if let store = self?.gameState { Self.routeTableError(dict, to: store) }
+                    self?.handleServerError(dict, channel: .error)
                 } else {
                     let msg = (data.first as? String) ?? "Unknown error"
                     self?.connectionError = msg
@@ -128,7 +153,23 @@ final class SocketService: ObservableObject {
             }
         }
 
+        // The same failures as {code, message, handler} (V1_REMOVALS #1): the only one after phase B
+        socket?.on(Self.serverErrorEvent) { [weak self] data, _ in
+            guard let dict = data.first as? [String: Any] else { return }
+            DispatchQueue.main.async { self?.handleServerError(dict, channel: .serverError) }
+        }
+
         socket?.connect()
+    }
+
+    /// A server-side failure from either channel: one toast and one table resync per failure.
+    @MainActor
+    func handleServerError(_ dict: [String: Any], channel: ServerErrorDeduper.Channel, at now: Date = Date()) {
+        let msg = dict["message"] as? String ?? "Something went wrong"
+        guard errorDeduper.accept(channel, message: msg, handler: dict["handler"] as? String, at: now) else { return }
+        serverError = ServerErrorNotice(message: msg)
+        print("[Socket] Server error: \(msg)")
+        if let store = gameState { Self.routeTableError(dict, to: store) }
     }
 
     /// Force a full disconnect/reconnect cycle.

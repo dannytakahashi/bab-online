@@ -20,7 +20,8 @@ import Foundation
 /// seat), spectatorCount only moves with a notice (a spectator's /leave is
 /// silent; no recording has one), and a lazy / resigned seat's away vs
 /// connected (its owner's socket dropping or coming back sends nothing; the
-/// client shows no presence for a bot-controlled seat).
+/// client shows no presence for a bot-controlled seat), and `watching` while a
+/// spectatorsUpdated is in flight (`diff(_:watchingInFlight:)`).
 struct TableProjection: Equatable {
     var phase: String
     var role: String
@@ -46,6 +47,7 @@ struct TableProjection: Equatable {
     var seats: [String]              // "pos username pic owner controller presence isBot lazy cards"
     var offered: Int?                // the resignation offer's seat
     var spectatorCount: Int
+    var watching: String             // "count: name pic, ..." (spectatorsUpdated, snapshot watching)
     var draw: [String]               // "drawOrder username card", draw stages only
     var tournamentId: String?
     var seq: Int?
@@ -90,6 +92,7 @@ struct TableProjection: Equatable {
         seats = s.seats.map { "\($0.position) \($0.username ?? "-") \($0.pic.map(String.init) ?? "-") \($0.ownerUsername ?? "-") \($0.controller.rawValue) \(Self.presence($0.presence.rawValue, $0.controller.rawValue)) \($0.isBot) \($0.lazy) \($0.cardsInHand)" }
         offered = s.seats.first(where: \.offered)?.position
         spectatorCount = s.spectatorCount
+        watching = Self.watching(WatchingList(s.watching))
         let drawStage = [.drawing, .drawResolving, .teamsAnnounced].contains(s.stage)
         draw = drawStage ? (s.draw?.drawn ?? []).sorted { $0.drawOrder < $1.drawOrder }.map { "\($0.drawOrder) \($0.username ?? "-") \($0.card.id)" } : []
         tournamentId = s.tournament?.tournamentId
@@ -126,6 +129,7 @@ struct TableProjection: Equatable {
         }
         offered = t.players.resignationOffer?.position
         spectatorCount = t.players.spectatorCount
+        watching = Self.watching(t.players.watching)
         if let d = t.table.phase.draw, d.stage != .dealing {
             draw = d.results.sorted { $0.drawOrder < $1.drawOrder }.map { "\($0.drawOrder) \($0.username) \($0.card?.id ?? "-")" }
         } else {
@@ -135,14 +139,23 @@ struct TableProjection: Equatable {
         seq = t.sync.lastSeq
     }
 
+    static func watching(_ w: WatchingList) -> String {
+        "\(w.count): " + w.spectators.map { "\($0.username) \($0.pic.map(String.init) ?? "-")" }.joined(separator: ", ")
+    }
+
     /// A lazy / resigned seat's owner presence (away / connected) is not on the wire.
     static func presence(_ p: String, _ controller: String) -> String {
         (controller == "lazyBot" || controller == "resignBot") && (p == "away" || p == "connected") ? "connected|away" : p
     }
 
     /// "field: client != server" lines (empty when equal).
-    func diff(_ snapshot: TableProjection) -> [String] {
+    /// `watchingInFlight`: a spectatorsUpdated reaches this viewer within `RecordedGame.watchingLag`
+    /// after the checkpoint (the server coalesces the list for 250 ms and fills in a joiner's
+    /// picture after its lookup, while a snapshot shows the list at once): the client's list
+    /// may lag the snapshot's until it lands.
+    func diff(_ snapshot: TableProjection, watchingInFlight: Bool = false) -> [String] {
         var server = snapshot
+        if watchingInFlight { server.watching = watching }
         // R3: seating shows in the snapshot before positionUpdate reaches the client
         if phase == "draw" && seats.isEmpty && !server.seats.isEmpty {
             server.seats = []

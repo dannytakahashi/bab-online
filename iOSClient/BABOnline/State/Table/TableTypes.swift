@@ -203,6 +203,31 @@ struct SeatState: Equatable {
     var cardsInHand = 0
 }
 
+/// Who is watching the table (spectatorsUpdated / snapshot v2 `watching`):
+/// the server's whole list, at most 50 names, `count` the true total.
+struct WatchingList: Equatable {
+    struct Watcher: Equatable, Identifiable {
+        var username: String
+        var pic: Int?
+        var avatarUrl: String?
+        var id: String { username }
+        /// What AvatarTextureCache / AvatarImage load: the URL when the server sent one, else the stock number.
+        var pictureKey: String? { avatarUrl ?? pic.map(String.init) }
+    }
+    var spectators: [Watcher] = []
+    var count = 0
+
+    init() {}
+    init(spectators: [TableSnapshot.Spectator], count: Int) {
+        self.spectators = spectators.map { Watcher(username: $0.username, pic: $0.pic, avatarUrl: $0.avatarUrl) }
+        self.count = max(count, 0)
+    }
+    init(_ list: TableSnapshot.SpectatorList) { self.init(spectators: list.spectators, count: list.count) }
+
+    /// "1 person watching" / "2 people watching" (the badge's VoiceOver label).
+    var accessibilityLabel: String { count == 1 ? "1 person watching" : "\(count) people watching" }
+}
+
 struct ResignationOffer: Equatable {
     var position: Int
     var username: String

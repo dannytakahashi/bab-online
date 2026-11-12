@@ -676,9 +676,9 @@ const s2c = {
             count: int({ minimum: 0 }),
         }),
         status: 'active', to: 'room', seq: false,
-        clientReads: reads(W.game, []),
+        clientReads: reads(W.game, I.game('register')),
         emittedFrom: ['server/game/spectatorRoster.js:flush'],
-        notes: "Who is watching (owner, 2026-11-11: the table's spectator badge), the WHOLE list each time: GameState.spectatorList() (pure spectators, one per username in join order, never a seat owner or entrant), at most 50 entries, count the true total (the same as snapshot v2 `watching`; the older spectatorCount fields stay the spectator SOCKET count, cc865b4's meaning). Sent to the game room on every change (join, leave, disconnect, spectating another game, a round start, a reclaim), coalesced to one emit per game per 250 ms, skipped when unchanged, never after end/abort. UNSEQUENCED (no seq, no bump; GameState.emitUnsequenced): an absolute display state, and the App Store build (f05d264) registers no handler for it, so a sequenced form would open a gap in its seq gate on every change. The snapshot's `watching` carries the same {spectators, count}. iOS reads nothing yet (V1_REMOVALS \"iOS spectator badge\").",
+        notes: "Who is watching (owner, 2026-11-11: the table's spectator badge), the WHOLE list each time: GameState.spectatorList() (pure spectators, one per username in join order, never a seat owner or entrant), at most 50 entries, count the true total (the same as snapshot v2 `watching`; the older spectatorCount fields stay the spectator SOCKET count, cc865b4's meaning). Sent to the game room on every change (join, leave, disconnect, spectating another game, a round start, a reclaim), coalesced to one emit per game per 250 ms, skipped when unchanged, never after end/abort. UNSEQUENCED (no seq, no bump; GameState.emitUnsequenced): an absolute display state, and the App Store build (f05d264) registers no handler for it, so a sequenced form would open a gap in its seq gate on every change. The snapshot's `watching` carries the same {spectators, count}. iOS 1.1.0 reads nothing; iOS 1.2.0 routes it around its seq gate (ServerEvent.spectators) and shows the badge (V1_REMOVALS \"iOS spectator badge\").",
     },
 
     // ==================== Profile ====================
@@ -928,7 +928,7 @@ const s2c = {
             requestId: str(),
         }, { optional: ['requestId'] }),
         status: 'active', to: 'self',
-        clientReads: reads('client/src/voice/VoiceChatManager.js:fetchIceServers', []),
+        clientReads: reads('client/src/voice/VoiceChatManager.js:fetchIceServers', I.voice),
         emittedFrom: ['server/socket/voiceHandlers.js:getVoiceIceServers'],
         notes: 'The reply to getVoiceIceServers. iceServers is an RTCPeerConnection iceServers list: turn true = Cloudflare TURN (username / credential on the turn: / turns: entry, valid expiresInSec more seconds; port-53 URLs dropped), false = the public STUN servers both clients used before (expiresInSec null). requestId echoes the request\'s. Never the API token.',
     },

@@ -17,7 +17,7 @@ final class HandlerReplayTests: XCTestCase {
                 for check in game.checks(for: viewer.label) {
                     while next < check.afterIndex { try h.apply(log[next]); next += 1 }
                     let server = TableProjection(snapshot: try TableSnapshot.decode(check.snapshot, strict: true))
-                    let diff = TableProjection(state: h.store.state).diff(server)
+                    let diff = TableProjection(state: h.store.state).diff(server, watchingInFlight: game.watchingInFlight(for: viewer.label, after: check.afterIndex))
                     if !diff.isEmpty && failures < 3 {
                         failures += 1
                         XCTFail("\(game.name)/\(viewer.label) after #\(check.afterIndex): \(diff.joined(separator: "; "))")

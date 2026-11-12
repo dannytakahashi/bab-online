@@ -4,7 +4,8 @@ import UIKit
 /// Seat avatars as ready-to-draw circular textures, shared by every seat and
 /// every table for the app's lifetime (main thread only, like the scene).
 ///
-/// - Keyed by the picture string (a stock number or a data URL): a seat built
+/// - Keyed by the picture string (a stock number, a data URL or an `/avatar`
+///   URL path, which carries the picture's version): a seat built
 ///   again for a new game, or four seats with the same stock picture, reuse one
 ///   texture and one fetch.
 /// - Stock pictures load once: callers that ask while the fetch is in flight
@@ -21,7 +22,7 @@ enum AvatarTextureCache {
         c.countLimit = 64  // ~57 KB each at 3x
         return c
     }()
-    private static var waiting: [Int: [(SKTexture?) -> Void]] = [:]
+    private static var waiting: [String: [(SKTexture?) -> Void]] = [:]
     #if DEBUG
     /// Stock-picture loads started (tests: one per picture, not per seat or game).
     private(set) static var fetches = 0
@@ -40,19 +41,27 @@ enum AvatarTextureCache {
             if let tex { cache.setObject(tex, forKey: pic as NSString) }
             return completion(tex)
         }
-        guard let number = Int(pic) else { return completion(nil) }
-        if waiting[number] != nil {
-            waiting[number]?.append(completion)
+        let start: (@escaping (UIImage?) -> Void) -> Void
+        if let number = Int(pic) {
+            start = { loader.load(number, completion: $0) }
+        } else if pic.hasPrefix("/avatar/") {
+            // a custom picture's versioned URL (clientHello avatarUrl cap): the key is the version
+            start = { loader.load(path: pic, completion: $0) }
+        } else {
+            return completion(nil)
+        }
+        if waiting[pic] != nil {
+            waiting[pic]?.append(completion)
             return
         }
-        waiting[number] = [completion]
+        waiting[pic] = [completion]
         #if DEBUG
         fetches += 1
         #endif
-        loader.load(number) { image in
+        start { image in
             let tex = image.map(circular)
             if let tex { cache.setObject(tex, forKey: pic as NSString) }
-            let callbacks = waiting.removeValue(forKey: number) ?? []
+            let callbacks = waiting.removeValue(forKey: pic) ?? []
             callbacks.forEach { $0(tex) }
         }
     }

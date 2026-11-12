@@ -54,6 +54,14 @@ final class VoiceSocketHandler {
             }
         }
 
+        // ICE servers for this session (the answer to getVoiceIceServers; credentials stay in memory)
+        socket.on(SocketEvents.Server.voiceIceServers) { data, _ in
+            guard let dict = data.first as? [String: Any] else { return }
+            DispatchQueue.main.async {
+                VoiceChatManager.shared.iceStore.handleReply(dict)
+            }
+        }
+
         // SDP offer from a peer
         socket.on(SocketEvents.Server.voiceOffer) { data, _ in
             guard let dict = data.first as? [String: Any],

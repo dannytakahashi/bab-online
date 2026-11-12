@@ -123,14 +123,16 @@ class GameSKScene: SKScene, TableRenderer {
         #endif
     }
 
-    /// Voice speaking indicators (the one Combine sink left): socket id -> seat.
+    /// Voice speaking indicators (the one Combine sink left): voice peer -> seat, by the
+    /// peer's username (TableRenderModel.seat(forVoicePeer:)), the seat socket id as a fallback.
     private func subscribeSpeaking() {
         cancellables.removeAll()
         VoiceChatManager.shared.speakingChangedSubject
             .receive(on: DispatchQueue.main)
             .sink { [weak self] (socketId, isSpeaking) in
-                guard let self, socketId != "self",
-                      let pos = self.lastModel?.opponents.first(where: { $0.socketId == socketId })?.position else { return }
+                guard let self, socketId != "self" else { return }
+                let username = VoiceChatManager.shared.peerInfos[socketId]?.username
+                guard let pos = self.lastModel?.seat(forVoicePeer: socketId, username: username) else { return }
                 self.opponentManager?.setSpeaking(position: pos, speaking: isSpeaking)
             }
             .store(in: &cancellables)
@@ -244,6 +246,10 @@ class GameSKScene: SKScene, TableRenderer {
                 // Not over my own hand (the bottom seat's spot): the log shows my line
                 guard model.showsTable, !(model.hand != nil && pos == model.viewPosition) else { break }
                 chatManager.show(position: pos, message: message, viewPosition: view, layout: layout, animator: animator)
+            case .spectatorChatBubble(let username, let message):
+                // by the spectator badge, shown even before the coalesced list makes the badge appear
+                guard model.showsTable else { break }
+                chatManager.showSpectator(username: username, message: message, spectating: model.hand == nil, layout: layout, animator: animator)
             default:
                 break
             }

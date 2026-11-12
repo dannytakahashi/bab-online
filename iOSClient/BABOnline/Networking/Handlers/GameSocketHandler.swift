@@ -20,6 +20,8 @@ final class GameSocketHandler {
         SocketEvents.Server.gameLogEntry, SocketEvents.Server.rejoinSuccess, SocketEvents.Server.rejoinFailed,
         SocketEvents.Server.spectatorJoined, SocketEvents.Server.playerLazyMode, SocketEvents.Server.playerActiveMode,
         SocketEvents.Server.leftGame, SocketEvents.Server.restorePlayerState, SocketEvents.Server.stateSnapshot,
+        // unsequenced: ServerEvent decodes it with seq nil, so it goes around the seq gate
+        SocketEvents.Server.spectatorsUpdated,
     ]
 
     init(socket: SocketService, gameState: GameState, appState: AppState) {

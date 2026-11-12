@@ -32,6 +32,8 @@ enum WirePayload {
 
     struct GameStart: Decodable, Equatable {
         var gameId: String?
+        /// Custom pictures by position (clientHello avatarUrl cap: the playerInfo slot is null then).
+        var avatarUrls: [String: String]?
         var players: [String]?
         var hand: [Card]?
         var trump: Card?
@@ -106,6 +108,13 @@ enum WirePayload {
         var username: String?; var message: String?; var position: Int?; var type: String?; var isSpectator: Bool?; var seq: Int?
     }
 
+    /// spectatorsUpdated: the whole list each time, UNSEQUENCED (never carries seq).
+    struct SpectatorsUpdated: Decodable, Equatable {
+        var gameId: String?
+        var spectators: [TableSnapshot.Spectator]?
+        var count: Int?
+    }
+
     struct SpectatorNotice: Decodable, Equatable { var username: String?; var spectatorCount: Int?; var seq: Int? }
 
     /// rejoinSuccess / restorePlayerState / the spectator full state: only the
@@ -115,6 +124,7 @@ enum WirePayload {
     struct RejoinEnvelope: Decodable, Equatable {
         struct Player: Decodable, Equatable { var position: Int?; var socketId: String?; var username: String?; var pic: PicWire? }
         var gameId: String?
+        var avatarUrls: [String: String]?
         var snapshot: TableSnapshot?
         var isLazy: Bool?
         var tournamentId: String?
@@ -122,11 +132,12 @@ enum WirePayload {
         var players: [Player]?
         var hasFullState: Bool  // spectatorJoined: the full state (players + trump), not the notice
 
-        enum CodingKeys: String, CodingKey { case gameId, snapshot, isLazy, tournamentId, players, trump }
+        enum CodingKeys: String, CodingKey { case gameId, snapshot, isLazy, tournamentId, players, trump, avatarUrls }
 
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             gameId = try c.decodeIfPresent(String.self, forKey: .gameId)
+            avatarUrls = try c.decodeIfPresent([String: String].self, forKey: .avatarUrls)
             snapshot = try c.decodeIfPresent(TableSnapshot.self, forKey: .snapshot)
             isLazy = try c.decodeIfPresent(Bool.self, forKey: .isLazy)
             hasTournamentId = c.contains(.tournamentId)
@@ -142,6 +153,7 @@ enum WirePayload {
                 if let pic = p.pic?.pic { h.pics[pos] = pic }
                 if let sid = p.socketId, !sid.isEmpty { h.sockets[pos] = sid }
             }
+            for (k, url) in avatarUrls ?? [:] { if let pos = Position.valid(Int(k)) { h.avatarUrls[pos] = url } }
             return h
         }
     }
@@ -151,7 +163,8 @@ enum WirePayload {
     /// stateSnapshot: `{snapshot, requestId?}` or `{snapshot: null, reason: 'not_in_game', requestId?}`.
     struct StateSnapshot: Decodable, Equatable { var snapshot: TableSnapshot?; var reason: String?; var requestId: String? }
 
-    struct ServerError: Decodable, Equatable { var type: String?; var message: String?; var handler: String? }
+    /// The app-level `error` ({type?, message, handler?}) and `serverError` ({code, message, handler}, V1_REMOVALS #1).
+    struct ServerError: Decodable, Equatable { var type: String?; var code: String?; var message: String?; var handler: String? }
 
     struct RejoinFailed: Decodable, Equatable { var reason: String? }
 }
@@ -161,6 +174,8 @@ enum WirePayload {
 struct LegacySeatHints: Equatable {
     var pics: [Int: Pic] = [:]
     var sockets: [Int: String] = [:]
+    /// Custom pictures as URLs (the carrier's `avatarUrls`, clientHello avatarUrl cap).
+    var avatarUrls: [Int: String] = [:]
     /// rejoinSuccess always carries tournamentId (null for casual games); nil here = the key was absent.
     var tournamentId: String?? = nil
 }

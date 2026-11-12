@@ -35,6 +35,9 @@ enum ServerEvent: Equatable {
     case gameLogEntry(WirePayload.GameLogEntry)
     case chatMessage(WirePayload.Chat, blocked: Bool, mine: Bool)
     case spectatorNotice(WirePayload.SpectatorNotice)
+    /// spectatorsUpdated: UNSEQUENCED (decoded with seq nil whatever the payload says), so it
+    /// goes around the seq gate and never opens or fills a gap (V1_REMOVALS "iOS spectator badge")
+    case spectators(WirePayload.SpectatorsUpdated)
     case seqOnly
     // snapshot carriers
     case rejoinSuccess(WirePayload.RejoinEnvelope)
@@ -69,7 +72,7 @@ extension ServerEvent {
             guard let first, !(first is NSNull) else { throw WireError.missingPayload(name) }
             return try Wire.decode(t, first, strict: strict)
         }
-        let seq: Int? = ((first as? [String: Any])?["seq"] as? NSNumber).flatMap { CFGetTypeID($0) == CFBooleanGetTypeID() ? nil : $0.intValue }
+        var seq: Int? = ((first as? [String: Any])?["seq"] as? NSNumber).flatMap { CFGetTypeID($0) == CFBooleanGetTypeID() ? nil : $0.intValue }
         do {
             let event: ServerEvent
             switch name {
@@ -104,6 +107,9 @@ extension ServerEvent {
             case "gameLogEntry": event = .gameLogEntry(try d(WirePayload.GameLogEntry.self))
             case "chatMessage": event = .chatMessage(try d(WirePayload.Chat.self), blocked: chatBlocked, mine: chatMine)
             case "voicePeerLeft": event = .seqOnly
+            case "spectatorsUpdated":
+                event = .spectators(try d(WirePayload.SpectatorsUpdated.self))
+                seq = nil
             case "spectatorJoined":
                 // The joiner's own full state, or the notice about someone else
                 let env = try d(WirePayload.RejoinEnvelope.self)

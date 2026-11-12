@@ -279,7 +279,8 @@ final class SceneRenderTests: XCTestCase {
         h.store.apply(T.ev("chatMessage", ["username": "x", "message": "nice", "position": 3, "type": "player", "seq": h.store.state.sync.lastSeq! + 1]))
         XCTAssertNotNil(scene.transientLayer.childNode(withName: "chat.3"))
         h.store.apply(T.ev("chatMessage", ["username": "fan", "message": "go", "position": NSNull(), "isSpectator": true, "type": "spectator", "seq": h.store.state.sync.lastSeq! + 1]))
-        XCTAssertEqual(scene.transientLayer.children.filter { $0.name?.hasPrefix("chat.") == true }.count, 1, "no bubble without a seat")
+        // a spectator's line (isSpectator, no seat) goes by the spectator badge, not over a seat
+        XCTAssertEqual(Set(scene.transientLayer.children.compactMap(\.name).filter { $0.hasPrefix("chat.") }), ["chat.3", "chat.spectator"])
     }
 
     func testSpectatorAndResizeKeepOpponentNodes() throws {

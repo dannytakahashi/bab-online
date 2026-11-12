@@ -404,6 +404,104 @@ card survives fold and unfold, the trick collects across a fold.
   sprite per seat. Opponent seats are built once per layout and reload only when
   the picture changes (item 23).
 
+## iOS 1.2.0 (build 3): the release after 1.1.0 (roadmap 29 track)
+
+Version: `MARKETING_VERSION` 1.2.0, `CURRENT_PROJECT_VERSION` 3 (Info.plist
+reads them; `ReleaseMetadataTests` pins build >= 3). The upgrade gate gates
+only builds < 2, so build 3 is current (`upgradeGate.test.js` "1.2.0 (build
+3) is current"). It works against today's server and against the server
+after the V1 removals: `cardPlayed` is read as `trumpBroken ?? trump`, chat
+routes on `isSpectator` (`type` only for an older server), and the server's
+failures arrive as `error` and/or `serverError`.
+
+- **Spectators** (`contract/V1_REMOVALS.md` "iOS spectator badge"):
+  `spectatorsUpdated` decodes to `ServerEvent.spectators` with seq nil, so the
+  gate applies it at once (also while a gap is buffered) and never moves
+  `lastSeq`; a list for another gameId is dropped. `PlayersSlice.watching`
+  (`WatchingList`) comes from the event and from every snapshot's `watching`;
+  `spectatorCount` keeps the socket-count meaning. The badge is SwiftUI
+  (`SpectatorBadgeView`, eye.fill + count, a 44 pt target, hidden at 0,
+  VoiceOver "2 people watching"; a tap opens a popover: names with avatars,
+  "(you)", scrolling past 8 rows, "and N more" past the server's 50) placed at
+  `TableLayout.spectatorBadge(spectating:)` (`TableLayout+Spectators.swift`, a
+  pure function of the solved layout; it does not move anything else):
+  seated, right of HSI / voice, else above it at the right edge, else the
+  nearest clear spot along the edges; spectating (no hand), the bottom-right
+  corner above the pill. It keeps clear of the hand, the accessory's content,
+  the trick cards, every seat (glow, name, bid bubble), the history and the
+  corner buttons; on a packed table (375 x 667 at zero insets) it may cover
+  a bid bubble or the history, never the rest; the bid band is exempt: like
+  HSI / voice, the badge hides while my bid panel shows. A spectator's chat (`isSpectator`, with or without a
+  position: a watching owner's line has none) is
+  `TableAnimation.spectatorChatBubble` -> `SKChatBubbleManager.showSpectator`:
+  "Name: text" in a green bubble (`spectatorFill`, white text, at most 200 pt
+  wide) above the badge (else beside or below it, else higher up its edge;
+  `spectatorBubbleCenter`; seated, never over the bid band, which the panel
+  would cover; on a phone it may cover an empty trick slot, as a seat's chat
+  bubble can, never a seat, the hand or HSI / voice), one at a time,
+  the seats' lifetime and two lines, shown even before the coalesced list
+  makes the badge appear; players' lines keep their seat bubble.
+- **Replay**: the harnesses no longer skip spectatorsUpdated and the
+  projection compares `watching`, except while a spectatorsUpdated reaches
+  the viewer within 1 s of the checkpoint (`RecordedGame.watchingInFlight`:
+  the server coalesces 250 ms and fills a joiner's picture in after its
+  lookup, while a snapshot shows the list at once).
+- **Voice TURN** (V1_REMOVALS "iOS TURN"): `Voice/IceServerStore.swift`.
+  `VoiceChatManager.initialize` asks in parallel with the microphone prompt and
+  buffers peers / offers until the answer (<= 4 s, else STUN) is in;
+  `rtcConfiguration(_:)` maps the entries to `RTCIceServer(urlStrings:username:credential:)`.
+  Recovery per peer (`VoiceRecovery`): `RTCIceConnectionState.failed` or no
+  connection within 20 s -> one restart (lower socket id refreshes the ICE
+  servers and offers on a new connection; the other refreshes and waits 15 s),
+  then `PeerInfo.isUnavailable` ("voice unavailable" in the voice panel); a
+  later offer from the peer retries. The DEBUG log prints only "ICE servers:
+  TURN (n servers)" / "STUN only"; `IceServerEntry`'s descriptions leave the
+  credential out. End-to-end audio cannot be checked in the simulator.
+- **Voice peers without socket ids**: the speaking glow finds the seat by the
+  peer's username (`TableRenderModel.seat(forVoicePeer:username:)`: a seat's
+  owner, so a lazy seat's bot still glows for its owner), the seat socket id
+  only as a fallback; `closePeer` turns the glow off before it forgets the
+  username.
+- **`serverError`**: SocketService listens to it next to `clientEvent: .error`;
+  `ServerErrorDeduper` drops the other channel's copy (same handler, or the
+  same message without one, within 1.5 s), so a failure shows one toast and
+  runs `routeTableError` once; a repeat on the same channel is a new failure.
+  `WirePayload.ServerError` decodes both shapes (`type` / `code`).
+- **`clientHello`** (`Networking/ServerConfig.swift` `ClientHello`): `{client:
+  'ios', version, build, caps: ['avatarUrl']}` on every connect, before
+  restoreSession. From then on custom pictures come as URLs:
+  `Opponent.pictureKey` is the seat's `avatarUrl` (positionUpdate.avatarUrls,
+  gameStart.avatarUrls, playerActiveMode.avatarUrl, the snapshot seat's, a
+  rejoin carrier's `avatarUrls` as a hint, or the one held for that username),
+  else the stock number / inline picture, which is also the fallback when the
+  URL fails (`OpponentHandNode.fallbackPic`). `AvatarTextureCache` loads
+  `/avatar/<name>?v=` paths through `AvatarLoading.load(path:)`
+  (`HTTPAvatarLoader`: same origin only, URLSession's shared cache; the
+  versioned URL is immutable) with one fetch per version.
+- **Resign offer**: the reducer clears it on the offered seat's
+  `playerReconnected` and `playerActiveMode`, on any `playerResigned`, when a
+  new `resignationAvailable` moves it, and on every snapshot (rebuilt from
+  `seats[].offered`); `GameState.resignationAvailable` also hides an offer
+  whose seat is no longer resignable.
+- **Live checks**: Debug builds take `-serverURL http://localhost:<port>`
+  (`ServerConfig`, localhost / 127.0.0.1 origins only) for the socket and the
+  avatar URLs, so the simulator can talk to a local server that is not on 3000.
+
+Tests: `BABOnlineTests/Release12Tests.swift`, `ReleaseMetadataTests`,
+`ServerEventDecodingTests` (spectatorsUpdated decodes strictly, with no seq),
+`SceneRenderTests.testChatBubbleAppearsInTransient`.
+
+## Visible changes to review on the next build (1.2.0)
+
+An eye with the number of people watching sits by the HSI / voice buttons
+(a spectator: the bottom-right corner); tapping it lists them. A spectator's
+chat shows as "Name: text" in a green bubble by the eye instead of only in
+the log. Custom pictures load from the server's avatar URLs. Voice asks the
+server for relay (TURN) servers, so it connects behind strict NATs; a peer
+that still cannot connect after one retry shows "voice unavailable" in the
+voice panel. A server error that arrives twice (old and new event) shows one
+toast. The "Replace with Bot" banner never outlives the seat's reconnect.
+
 ## Items 21 / 22 status
 
 All bullets are done except these, which are follow-ups:
@@ -414,9 +512,10 @@ All bullets are done except these, which are follow-ups:
   to a tournament table; emitting it to everyone would reach the App Store
   build, which buffers peers while voice is inactive and later offers to
   stale sockets. It needs clientHello capabilities (item C10) to gate it.
-- **21.10b `serverError`**: the server does not emit it yet; deferred to
-  `contract/V1_REMOVALS.md` #1 Phase A. The `error` dictionary already shows
-  a toast and, for playCard / playerBid / requestSnapshot, resyncs the table.
+- **21.10b `serverError`**: listened to since 1.2.0 (deduped against the
+  `error` twin, above); the server emits it with V1_REMOVALS #1 phase A. The
+  `error` dictionary still shows a toast and, for playCard / playerBid /
+  requestSnapshot, resyncs the table.
 - `spectateState` does not exist: the store routes `spectatorJoined` by its
   `snapshot` key (V1_REMOVALS #8).
 

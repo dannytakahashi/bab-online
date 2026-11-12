@@ -356,6 +356,10 @@ private struct GameScreen: View {
                     if showsTable && !showsBidOverlay {
                         accessory(layout)
                     }
+                    // hidden under my bid panel's turn, as HSI / voice (the panel may span its spot)
+                    if showsTable && !showsBidOverlay && gameState.watching.count > 0 {
+                        spectatorBadge(layout)
+                    }
                 }
                 .frame(width: full.width, height: full.height, alignment: .topLeading)
     }
@@ -511,6 +515,15 @@ private struct GameScreen: View {
             .frame(width: rect.width, height: rect.height, alignment: .bottomLeading)
             .offset(x: rect.minX, y: rect.minY)
         }
+    }
+
+    // MARK: - Spectator badge (layout.spectatorBadge: by HSI / voice, a spectator's in the corner)
+
+    private func spectatorBadge(_ layout: TableLayout) -> some View {
+        let rect = layout.window(layout.spectatorBadge(spectating: !gameState.table.viewer.holdsSeat))
+        return SpectatorBadgeView(watching: gameState.watching, myUsername: gameState.username)
+            .frame(width: rect.width, height: rect.height, alignment: .trailing)
+            .offset(x: rect.minX, y: rect.minY)
     }
 
     @ViewBuilder
