@@ -402,6 +402,7 @@ private struct GameScreen: View {
                 Button(action: handleLeaveTapped) {
                     HStack(spacing: Theme.Space.s1) {
                         Image(systemName: "rectangle.portrait.and.arrow.right")
+                            .accessibilityHidden(true)  // the button reads "Leave game"
                         Text(isPureSpectator ? "Exit" : "Leave")
                     }
                     .font(.caption.bold())
@@ -464,7 +465,12 @@ private struct GameScreen: View {
 
     private var leaveBarButton: some View {
         Button(action: handleLeaveTapped) {
-            Label(isPureSpectator ? "Exit" : "Leave", systemImage: "rectangle.portrait.and.arrow.right")
+            Label {
+                Text(isPureSpectator ? "Exit" : "Leave")
+            } icon: {
+                Image(systemName: "rectangle.portrait.and.arrow.right")
+                    .accessibilityHidden(true)
+            }
         }
         .disabled(gameState.phase == .draw)  // as the corner button under the draw overlay
         .accessibilityIdentifier("leave")
@@ -544,13 +550,13 @@ private struct GameScreen: View {
 
     // MARK: - Trick pips for VoiceOver (the scene draws them; SeatPips)
 
-    /// One element per seat with pips, over the seat (or, mine, over my pips' box): "Ann: 2 of 3 tricks",
-    /// "Your tricks: Team 7 of 10, bore". Taps go through to the table.
+    /// One element per seat whose bid counts, over the seat (or, mine, over my pips' box): "Ann: 2 of 3 tricks",
+    /// "Your tricks: Team 7 of 10, bore", "Bo: Bid 0, no tricks". Taps go through to the table.
     @ViewBuilder
     private func pipsAccessibility(_ layout: TableLayout) -> some View {
         let model = TableRenderModel(gameState.state)
         ForEach(model.opponents, id: \.position) { o in
-            if let p = model.pips[o.position] {
+            if let p = model.spokenPips[o.position] {
                 let rect = layout.window(layout.seatFootprint(o.rel))
                 Color.clear
                     .frame(width: rect.width, height: rect.height)
@@ -561,7 +567,7 @@ private struct GameScreen: View {
                     .offset(x: rect.minX, y: rect.minY)
             }
         }
-        if let mine = model.myPips {
+        if let mine = model.mySpokenPips {
             let rect = layout.window(layout.myPips)
             Color.clear
                 .frame(width: rect.width, height: rect.height)

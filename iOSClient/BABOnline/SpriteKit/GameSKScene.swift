@@ -80,6 +80,13 @@ class GameSKScene: SKScene, TableRenderer {
                 self.effectsManager.showFrozen(effect, myPosition: self.lastModel?.viewPosition ?? 1)
             }
         }
+        if !UIFixture.chat.isEmpty, didMoveCount == 1 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                guard let self, let gs = self.gameState else { return }
+                for line in UIFixture.chat { _ = gs.apply(serverEvent: "chatMessage", payload: [line]) }
+                self.chatManager.freeze()
+            }
+        }
         #endif
     }
 
@@ -97,7 +104,7 @@ class GameSKScene: SKScene, TableRenderer {
         opponentsLayer.name = "opponents"
         opponentsLayer.zPosition = 10
         addChild(opponentsLayer)
-        myPipsNode.name = "pips.mine"
+        // no name (role "pips.mine"): a named node is an accessibility element
         opponentsLayer.addChild(myPipsNode)
         bidsLayer.name = "bids"
         bidsLayer.zPosition = 60

@@ -131,13 +131,21 @@ extension TableLayout {
                       width: r.width, height: r.height)
     }
 
+    /// The bottom pill's strip (Spectating / Exit, the lazy pill): the bottom of the safe
+    /// rect up to the measured bar; empty without one.
+    var bottomBarRect: CGRect {
+        CGRect(x: safeRect.minX, y: safeRect.minY, width: safeRect.width, height: max(0, chrome.bottomBar))
+    }
+
     /// The spectator chat bubble's center (`size` measured): above the badge, right-aligned
-    /// with it; else left of it; else below it; clear of the same keeps where it can be,
-    /// always inside the safe rect below the top bar.
+    /// with it; else left of it; else below it; else up the badge's edge; else the clear
+    /// spot nearest the first; clear of the same keeps where it can be, and always of the
+    /// badge and the bottom pill, inside the safe rect below the top bar.
     func spectatorBubbleCenter(badge: CGRect, bubbleSize size: CGSize, spectating: Bool) -> CGPoint {
         let G = Self.gap, M = Self.margin
         // the bid panel covers the transient layer on my bid turn: keep the bubble off its band
-        let keeps = spectatorKeeps(spectating: spectating) + (spectating ? [] : [bidBand])
+        let keeps = spectatorKeeps(spectating: spectating) + (spectating ? [] : [bidBand]) + [badge, bottomBarRect]
+        let hard = spectatorBubbleHardKeeps(spectating: spectating) + [badge, bottomBarRect]
         let minX = safeRect.minX + M, maxX = safeRect.maxX - M
         func fit(_ x: CGFloat) -> CGFloat { min(max(x, minX), max(minX, maxX - size.width)) }
         func at(_ x: CGFloat, _ y: CGFloat) -> CGRect { CGRect(x: fit(x), y: y, width: size.width, height: size.height) }
@@ -156,9 +164,37 @@ extension TableLayout {
         // then cover a trick slot, a bid bubble or the history, never a seat, the hand, HSI / voice,
         // the corner buttons or (seated) the bid band
         let chosen = spots.first { isClear($0, keeps: keeps) }
-            ?? spots.first { isClear($0, keeps: spectatorBubbleHardKeeps(spectating: spectating)) }
-            ?? clampIntoSafe(spots[0])
+            ?? spots.first { isClear($0, keeps: hard) }
+            ?? nearestClearBubble(to: spots[0], size: size, keeps: hard)
+            ?? clampAboveBottomBar(spots[0])
         return CGPoint(x: chosen.midX, y: chosen.midY)
+    }
+
+    /// The clear spot for a `size` bubble nearest `first`, on a 4 pt grid of the safe rect.
+    private func nearestClearBubble(to first: CGRect, size: CGSize, keeps: [CGRect]) -> CGRect? {
+        let M = Self.margin
+        var best: CGRect?
+        var bestD = CGFloat.infinity
+        var y = safeRect.minY + chrome.bottomBar
+        while y + size.height <= min(safeRect.maxY, topLimit) {
+            var x = safeRect.minX + M
+            while x + size.width <= safeRect.maxX - M {
+                let r = CGRect(x: x, y: y, width: size.width, height: size.height)
+                let d = hypot(x - first.minX, y - first.minY)
+                if d < bestD, isClear(r, keeps: keeps) { best = r; bestD = d }
+                x += 4
+            }
+            y += 4
+        }
+        return best
+    }
+
+    /// `r` clamped into the safe rect, above the bottom pill and below the top bar.
+    private func clampAboveBottomBar(_ r: CGRect) -> CGRect {
+        func c(_ v: CGFloat, _ lo: CGFloat, _ hi: CGFloat) -> CGFloat { lo <= hi ? min(max(v, lo), hi) : lo }
+        let top = min(safeRect.maxY, topLimit)
+        return CGRect(x: c(r.minX, safeRect.minX + Self.margin, safeRect.maxX - Self.margin - r.width),
+                      y: c(r.minY, safeRect.minY + chrome.bottomBar, top - r.height), width: r.width, height: r.height)
     }
 
     /// What a spectator chat bubble never covers.

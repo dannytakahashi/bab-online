@@ -11,7 +11,7 @@ import CoreGraphics
 ///   (left of my trick slot; the pips show once that bubble is gone), else
 ///   higher up beside my slot, under it, right of it above HSI / voice, else
 ///   the clear spot nearest the first. It keeps clear of the hand, HSI / voice,
-///   the trick cards, the history (all 13 per row), every seat (glow, name,
+///   the trick cards, the history (all 13 per row; 8 pt past its border), every seat (glow, name,
 ///   bid bubble) and the corner buttons. The bid band is exempt (the pips
 ///   hide while bidding). The spectator badge and its bubble keep clear of it.
 extension TableLayout {
@@ -36,6 +36,17 @@ extension TableLayout {
         return cands.first ?? .zero
     }
 
+    /// The clear gap between my pips' box and the trick piles (their drawn border included).
+    static let myPipsPileGap: CGFloat = 8
+
+    /// The trick piles grown by their border's pad, the gap and 2 pt for the strokes and their
+    /// antialiasing (the pill's bore outline, the pile border; SpriteKit's frames include it):
+    /// my pips' box stays outside it.
+    var myPipsHistoryKeep: CGRect {
+        let m = TrickHistoryNode.borderPad + Self.myPipsPileGap + 2
+        return historyRect.insetBy(dx: -m, dy: -m)
+    }
+
     /// What my pips must not cover. `soft: false` leaves out the other seats' bid bubbles
     /// (on screen only until the hand's first card).
     func myPipsKeeps(soft: Bool) -> [CGRect] {
@@ -44,7 +55,7 @@ extension TableLayout {
             keeps.append(seatFootprint(r))
             if soft { keeps.append(bubbleRect(r)) }
         }
-        keeps.append(historyRect)
+        keeps.append(myPipsHistoryKeep)
         keeps.append(contentsOf: cornerRects)
         keeps.append(CGRect(x: safeRect.minX, y: safeRect.minY, width: safeRect.width, height: max(0, liftTop - safeRect.minY)))
         keeps.append(accessoryContent)
@@ -101,12 +112,18 @@ extension TableLayout {
         return best
     }
 
-    /// Dot centers for `n` pips inside a box of `size` centred at the origin: one row up
-    /// to 7, else 7 over the rest (the box's own coordinates, y up).
-    static func myPipDots(_ n: Int) -> [CGPoint] {
+    /// The rows `n` box pips take: one row up to 7 (the box's width), else two balanced
+    /// rows, the longer on top (8: 4 + 4, 9: 5 + 4, 13: 7 + 6).
+    static func myPipRows(_ n: Int) -> [Int] {
         guard n > 0 else { return [] }
+        return n <= 7 ? [n] : [(n + 1) / 2, n / 2]
+    }
+
+    /// Dot centers for `n` pips inside a box of `size` centred at the origin (myPipRows;
+    /// each row centred; the box's own coordinates, y up).
+    static func myPipDots(_ n: Int) -> [CGPoint] {
         let step = pipDot + pipGap
-        let rows = n > 7 ? [7, n - 7] : [n]
+        let rows = myPipRows(n)
         let rowY: [CGFloat] = rows.count == 2 ? [step / 2, -step / 2] : [0]
         var out: [CGPoint] = []
         for (r, count) in rows.enumerated() {
@@ -119,16 +136,39 @@ extension TableLayout {
     /// The pill drawn around `n` dots (centred on the box): its size.
     static func myPipsPill(_ n: Int) -> CGSize {
         let step = pipDot + pipGap
-        let cols = min(7, max(1, n)), rows = n > 7 ? 2 : 1
-        return CGSize(width: CGFloat(cols - 1) * step + pipDot + 6, height: CGFloat(rows - 1) * step + pipDot + 6)
+        let rows = myPipRows(max(1, n))
+        let cols = rows.max() ?? 1
+        return CGSize(width: CGFloat(cols - 1) * step + pipDot + 6, height: CGFloat(rows.count - 1) * step + pipDot + 6)
     }
 
-    /// Dot centers on the seat ring for `n` pips (seat-local; the first at the top, then clockwise).
+    /// The lowest point (seat-local, y up) any seat pip or the bore outline may reach:
+    /// the seat's name starts below it. A name's ink reaches -24 (lowercase ascenders,
+    /// capitals) and -20 at most (an accented capital, OpponentHandNode's 14 pt bold
+    /// label at -36); the ring leaves 1 pt.
+    static let seatPipFloor: CGFloat = -19
+    /// The bore outline's radius (outside the dots) and stroke.
+    static let seatBoreRadius: CGFloat = seatPipRadius + pipDot / 2 + 1.5
+    static let seatBoreLine: CGFloat = 1.5
+    /// The ring is a horseshoe open at the bottom, where the name is: the dots and the
+    /// bore outline span this angle each side of the top (radians), so neither reaches
+    /// below `seatPipFloor` (the outline's outer edge is the lower: 129 degrees).
+    static let seatArcHalfSpan: CGFloat = {
+        let outer = seatBoreRadius + seatBoreLine / 2
+        let outline = acos(seatPipFloor / outer)
+        let dots = acos((seatPipFloor + pipDot / 2) / seatPipRadius)
+        return (min(outline, dots) * 180 / .pi).rounded(.down) * .pi / 180
+    }()
+
+    /// Dot centers on the seat ring for `n` pips (seat-local): along the horseshoe, centred
+    /// on the top, 45 degrees apart or closer when that would pass its ends (filled
+    /// clockwise from the left end, as a gauge).
     static func seatPipDots(_ n: Int) -> [CGPoint] {
         guard n > 0 else { return [] }
+        let step = n > 1 ? min(CGFloat.pi / 4, 2 * seatArcHalfSpan / CGFloat(n - 1)) : 0
         return (0..<n).map { i in
-            let a = CGFloat.pi / 2 - 2 * CGFloat.pi * CGFloat(i) / CGFloat(max(n, 8))
-            return CGPoint(x: seatPipRadius * cos(a), y: seatPipRadius * sin(a))
+            // clockwise from the top: x = r sin(a), y = r cos(a)
+            let a = (CGFloat(i) - CGFloat(n - 1) / 2) * step
+            return CGPoint(x: seatPipRadius * sin(a), y: seatPipRadius * cos(a))
         }
     }
 }

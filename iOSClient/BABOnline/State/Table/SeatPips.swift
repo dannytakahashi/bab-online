@@ -36,15 +36,21 @@ struct SeatPips: Equatable {
         over = max(0, min(won, n) - need)
     }
 
-    /// "2 of 3 tricks" / "Team 7 of 10, bore" / "Team 2 of 5 tricks" (VoiceOver; the web's title).
+    /// "2 of 3 tricks" / "0 of 1 trick" / "Team 7 of 10, bore" / "Team 2 of 5 tricks" (VoiceOver;
+    /// the web's title); a 0 bid, which has no slots: "Bid 0, no tricks" / "Bid 0, 2 tricks".
     var accessibilityLabel: String {
         if isBore { return "Team \(won) of \(need), bore" }
-        if countsTeam { return "Team \(won) of \(need) tricks" }
-        return "\(won) of \(need) tricks"
+        if need == 0 && !countsTeam { return won == 0 ? "Bid 0, no tricks" : "Bid 0, \(Self.tricks(won))" }
+        if countsTeam { return "Team \(won) of \(Self.tricks(need))" }
+        return "\(won) of \(Self.tricks(need))"
     }
 
-    /// Every seat's pips (1...4); a seat without pips is absent.
-    static func all(_ s: TableState) -> [Int: SeatPips] {
+    /// "1 trick", "3 tricks".
+    static func tricks(_ n: Int) -> String { n == 1 ? "1 trick" : "\(n) tricks" }
+
+    /// Every seat's pips (1...4); a seat without pips is absent, unless `spoken`: then
+    /// every seat whose bid counts (a 0 bid with no tricks too: VoiceOver says so).
+    static func all(_ s: TableState, spoken: Bool = false) -> [Int: SeatPips] {
         let bids: BidBook
         switch s.table.phase {
         case .playing(let p): bids = p.bids
@@ -54,7 +60,7 @@ struct SeatPips: Equatable {
         let size = s.table.deal?.handSize
         var out: [Int: SeatPips] = [:]
         for pos in 1...4 {
-            if let p = pips(pos, bids: bids, handSize: size, scores: s.scores), p.slots > 0 { out[pos] = p }
+            if let p = pips(pos, bids: bids, handSize: size, scores: s.scores), p.slots > 0 || spoken { out[pos] = p }
         }
         return out
     }

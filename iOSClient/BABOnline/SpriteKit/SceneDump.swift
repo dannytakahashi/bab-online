@@ -11,7 +11,10 @@ enum SceneDump {
     static func dump(_ scene: SKScene) -> [String] {
         var out: [String] = []
         for name in stableLayers {
-            if let layer = scene.children.first(where: { $0.name == name }) { walk(layer, path: name, inHand: name == "hand", into: &out) }
+            // the history has no name (a named node is an accessibility element): its role
+            if let layer = scene.children.first(where: { $0.name == name || ($0.name == nil && $0.role == name) }) {
+                walk(layer, path: name, inHand: name == "hand", into: &out)
+            }
         }
         return out
     }
@@ -50,11 +53,11 @@ enum SceneDump {
     private static func walk(_ node: SKNode, path: String, inHand: Bool, into out: inout [String]) {
         out.append(line(node, path: path, inHand: inHand))
         let kids = node.children.map { child -> (String, SKNode) in
-            let key = (child.name ?? "~") + "|" + String(describing: type(of: child)) + "|" + r(child.position.x) + "," + r(child.position.y)
+            let key = (child.name ?? child.role ?? "~") + "|" + String(describing: type(of: child)) + "|" + r(child.position.x) + "," + r(child.position.y)
             return (key, child)
         }.sorted { $0.0 < $1.0 }
         for (_, child) in kids {
-            walk(child, path: path + "/" + (child.name ?? String(describing: type(of: child))), inHand: inHand, into: &out)
+            walk(child, path: path + "/" + (child.name ?? child.role ?? String(describing: type(of: child))), inHand: inHand, into: &out)
         }
     }
 }

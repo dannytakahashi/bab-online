@@ -99,6 +99,28 @@ class SKChatBubbleManager {
     /// The spectator tint (the lit felt), dark enough for text.primary 13 pt text (a tokens.json AA pair).
     static let spectatorFill = Theme.SK.spectatorChatFill
 
+    /// SKLabelNode wraps past `numberOfLines` (a long spectator line took three): drop words
+    /// (or, for one long word, characters) from the end until the text fits two lines, ending in "…".
+    static func fitTwoLines(_ label: SKLabelNode) {
+        guard let text = label.text, !text.isEmpty else { return }
+        let probe = SKLabelNode(text: "Ag\nAg")
+        probe.fontName = label.fontName
+        probe.fontSize = label.fontSize
+        probe.numberOfLines = 0
+        let twoLines = probe.frame.height + 0.5
+        guard label.frame.height > twoLines else { return }
+        var body = text.hasSuffix("\u{2026}") ? String(text.dropLast()) : text
+        while !body.isEmpty {
+            if let space = body.lastIndex(of: " "), body[..<space].trimmingCharacters(in: .whitespaces).count > 0 {
+                body = String(body[..<space])
+            } else {
+                body.removeLast()
+            }
+            label.text = body.trimmingCharacters(in: .whitespaces) + "\u{2026}"
+            if label.frame.height <= twoLines { return }
+        }
+    }
+
     /// One bubble node: the text (at most `limit` characters, two lines) on a rounded background.
     static func makeBubble(_ message: String, maxWidth: CGFloat, name: String, fill: UIColor, text: UIColor, limit: Int = 40) -> (SKNode, CGSize) {
         let label = SKLabelNode(text: message.count > limit ? String(message.prefix(limit - 1)) + "\u{2026}" : message)
@@ -110,6 +132,7 @@ class SKChatBubbleManager {
         label.preferredMaxLayoutWidth = maxWidth - 16
         label.verticalAlignmentMode = .center
         label.horizontalAlignmentMode = .center
+        Self.fitTwoLines(label)
         let size = CGSize(width: max(40, label.frame.width + 16), height: label.frame.height + 10)
         let bg = SKShapeNode(rectOf: size, cornerRadius: Theme.Radius.md)
         bg.fillColor = fill
@@ -123,6 +146,16 @@ class SKChatBubbleManager {
         bubble.zPosition = 80
         return (bubble, size)
     }
+
+    #if DEBUG
+    /// Fixture screenshots (`-uiChat`): the live bubbles stay up.
+    func freeze() {
+        for n in bubbles.values.map(\.node) + [spectatorBubble?.node].compactMap({ $0 }) {
+            n.removeAllActions()
+            n.alpha = 1
+        }
+    }
+    #endif
 
     /// Relayout: live bubbles to their new place; gone ones are forgotten.
     func apply(layout: TableLayout) {

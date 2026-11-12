@@ -17,7 +17,7 @@ struct ScoreBarView: View {
 
                 HStack(spacing: Theme.Space.s2) {
                     if let bids = gameState.teamBids {
-                        Label(bids, systemImage: "target")
+                        Self.bidLabel(bids)
                             .font(.caption2)
                             .foregroundColor(Theme.textSecondary)
                     }
@@ -66,7 +66,7 @@ struct ScoreBarView: View {
 
                 HStack(spacing: Theme.Space.s2) {
                     if let bids = gameState.oppBids {
-                        Label(bids, systemImage: "target")
+                        Self.bidLabel(bids)
                             .font(.caption2)
                             .foregroundColor(Theme.textSecondary)
                     }
@@ -89,6 +89,21 @@ struct ScoreBarView: View {
         // caption2 labels (Dynamic Type) reach it at xLarge
         .dynamicTypeSize(...DynamicTypeSize.xLarge)
     }
+
+    /// The team's bids ("2/4", "B/1") behind the target icon, read as "Bid 2/4" (the icon is
+    /// decorative: VoiceOver said "Target With Concentric Rings").
+    static func bidLabel(_ bids: String) -> some View {
+        Label {
+            Text(bids)
+        } icon: {
+            Image(systemName: "target")
+                .accessibilityHidden(true)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(bidAccessibilityLabel(bids))
+    }
+
+    static func bidAccessibilityLabel(_ bids: String) -> String { "Bid \(bids)" }
 
     /// "Tricks: 2" while bidding, then "Tricks: 2/7" (the team's bid total: a bore is the whole hand).
     static func tricksText(_ won: Int, of total: Int?) -> String {
