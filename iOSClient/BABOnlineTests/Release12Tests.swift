@@ -1,5 +1,6 @@
 import XCTest
 import SpriteKit
+import SwiftUI
 @preconcurrency import WebRTC
 @testable import BAB_Online
 
@@ -634,5 +635,90 @@ final class SpectatorBubbleSceneTests: XCTestCase {
         XCTAssertEqual(label?.text, "Amy: nice")
         let badge = scene.layout.spectatorBadge(spectating: true)
         XCTAssertLessThan(hypot(bubbles[0].position.x - badge.midX, bubbles[0].position.y - badge.midY), 200, "by the badge")
+    }
+}
+
+/// The badge's real content fits the layout's `spectatorBadgeSize` rect at every
+/// Dynamic Type size (the badge caps its own scaling), for one, two and three
+/// character counts: a too-narrow rect squeezed "12" to "1".
+@MainActor
+final class SpectatorBadgeFitTests: XCTestCase {
+    static let counts = [1, 9, 12, 50, 99, 100, 250]
+
+    private func idealSize(count: Int, _ size: DynamicTypeSize) -> CGSize {
+        let watching = WatchingList(spectators: [], count: count)
+        let vc = UIHostingController(rootView: SpectatorBadgeView(watching: watching, myUsername: nil)
+            .environment(\.dynamicTypeSize, size))
+        return vc.sizeThatFits(in: CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude))
+    }
+
+    func testBadgeFitsItsRectAtEveryTextSize() {
+        let rect = TableLayout.spectatorBadgeSize
+        for size in DynamicTypeSize.allCases {
+            for n in Self.counts {
+                let s = idealSize(count: n, size)
+                XCTAssertLessThanOrEqual(s.width, rect.width + 0.5, "count \(n) at \(size): \(s.width) pt wide in a \(rect.width) pt rect")
+                XCTAssertLessThanOrEqual(s.height, rect.height + 0.5, "count \(n) at \(size)")
+                XCTAssertGreaterThanOrEqual(s.width, 44, "the 44 pt target")
+            }
+        }
+    }
+
+    func testBadgeTextStopsAtThreeCharacters() {
+        XCTAssertEqual(WatchingList(spectators: [], count: 1).badgeText, "1")
+        XCTAssertEqual(WatchingList(spectators: [], count: 99).badgeText, "99")
+        XCTAssertEqual(WatchingList(spectators: [], count: 100).badgeText, "99+")
+        XCTAssertEqual(WatchingList(spectators: [], count: 100).accessibilityLabel, "100 people watching", "VoiceOver reads the real count")
+    }
+}
+
+/// Reduce Motion (HIG; Theme+Motion.swift): the repeating rings hold still under it
+/// and pulse without it; a slide becomes a cross-fade.
+@MainActor
+final class ReduceMotionTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        OpponentHandNode.avatarLoader = StubAvatarLoader()
+    }
+
+    override func tearDown() {
+        Theme.Motion.reduceMotionOverride = nil
+        super.tearDown()
+    }
+
+    func testRingsHoldStillUnderReduceMotion() throws {
+        Theme.Motion.reduceMotionOverride = true
+        XCTAssertTrue(Theme.Motion.reduceMotion)
+        let seat = OpponentHandNode(position: .left, username: "A")
+        seat.showTurnGlow()
+        seat.showSpeakingGlow()
+        for name in ["glow.turn", "glow.speaking"] {
+            let glow = try XCTUnwrap(seat.childNode(withName: name), name)
+            XCTAssertFalse(glow.hasActions(), "\(name): no repeating pulse under Reduce Motion")
+            XCTAssertEqual(glow.alpha, Theme.Motion.steadyGlowAlpha, accuracy: 0.001, "\(name): held at the lit alpha")
+        }
+    }
+
+    func testRingsPulseWithoutReduceMotion() throws {
+        Theme.Motion.reduceMotionOverride = false
+        let seat = OpponentHandNode(position: .left, username: "A")
+        seat.showTurnGlow()
+        seat.showSpeakingGlow()
+        for name in ["glow.turn", "glow.speaking"] {
+            XCTAssertTrue(try XCTUnwrap(seat.childNode(withName: name), name).hasActions(), "\(name) pulses")
+        }
+    }
+
+    func testStartPulseGlowFollowsTheArgument() {
+        let still = SKNode(), pulsing = SKNode()
+        CardAnimations.startPulseGlow(on: still, reduceMotion: true)
+        CardAnimations.startPulseGlow(on: pulsing, reduceMotion: false)
+        XCTAssertFalse(still.hasActions())
+        XCTAssertTrue(pulsing.hasActions())
+    }
+
+    func testReadsTheSystemSettingWhenNotPinned() {
+        Theme.Motion.reduceMotionOverride = nil
+        XCTAssertEqual(Theme.Motion.reduceMotion, UIAccessibility.isReduceMotionEnabled)
     }
 }

@@ -167,7 +167,7 @@ class OpponentHandNode: SKNode {
         glow.fillColor = Theme.SK.turnGlow
         glow.strokeColor = .clear
         glow.zPosition = -1
-        glow.run(CardAnimations.pulseGlow())
+        CardAnimations.startPulseGlow(on: glow)
         addChild(glow)
         turnGlow = glow
     }
@@ -187,7 +187,7 @@ class OpponentHandNode: SKNode {
         glow.strokeColor = Theme.SK.speakingStroke
         glow.lineWidth = 1.5
         glow.zPosition = -2
-        glow.run(CardAnimations.pulseGlow())
+        CardAnimations.startPulseGlow(on: glow)
         addChild(glow)
         speakingGlow = glow
     }

@@ -421,7 +421,11 @@ failures arrive as `error` and/or `serverError`.
   (`WatchingList`) comes from the event and from every snapshot's `watching`;
   `spectatorCount` keeps the socket-count meaning. The badge is SwiftUI
   (`SpectatorBadgeView`, eye.fill + count, a 44 pt target, hidden at 0,
-  VoiceOver "2 people watching"; a tap opens a popover: names with avatars,
+  "99+" past 99, VoiceOver "2 people watching" with the real count; its text
+  stops growing at Dynamic Type .large, where "99+" still fits the layout's
+  60 x 44 pt `spectatorBadgeSize` (`SpectatorBadgeFitTests` hosts the view at
+  every text size; a wider rect no longer keeps clear on a 375 x 667 phone),
+  and a long press shows the Large Content Viewer; a tap opens a popover: names with avatars,
   "(you)", scrolling past 8 rows, "and N more" past the server's 50) placed at
   `TableLayout.spectatorBadge(spectating:)` (`TableLayout+Spectators.swift`, a
   pure function of the solved layout; it does not move anything else):

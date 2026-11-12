@@ -2,9 +2,14 @@ import SwiftUI
 import UIKit
 
 /// Who is watching (V1_REMOVALS "iOS spectator badge"): an eye and the count at
-/// the layout's `spectatorBadge` rect, hidden at 0. A tap opens the names with
-/// their avatars ("(you)" on mine; scrolls past ~8; "and N more" past the
-/// server's 50). VoiceOver: "2 people watching", a button.
+/// the layout's `spectatorBadge` rect, hidden at 0; "99+" past 99. A tap opens
+/// the names with their avatars ("(you)" on mine; scrolls past ~8; "and N more"
+/// past the server's 50). VoiceOver: "2 people watching", a button.
+///
+/// The badge sits in a fixed 60 x 44 pt rect between the trick cards, the seats
+/// and HSI / voice, so its text stops growing at Dynamic Type .large, where "99+"
+/// still fits (SpectatorBadgeFitTests); a long press shows it in the Large
+/// Content Viewer at the larger sizes, as a tab bar does.
 struct SpectatorBadgeView: View {
     let watching: WatchingList
     let myUsername: String?
@@ -14,20 +19,27 @@ struct SpectatorBadgeView: View {
         Button { showsList = true } label: {
             HStack(spacing: Theme.Space.s1) {
                 Image(systemName: "eye.fill")
+                    .font(.caption)
                     .imageScale(.small)
-                Text("\(watching.count)")
+                Text(watching.badgeText)
                     .font(.caption.bold().monospacedDigit())
+                    .lineLimit(1)
+                    .fixedSize()  // never squeezed: the layout's rect is sized for "99+" (SpectatorBadgeFitTests)
             }
             .foregroundColor(Theme.textPrimary)
-            .padding(.horizontal, Theme.Space.s3)
+            .padding(.horizontal, Theme.Space.s2)
             .padding(.vertical, Theme.Space.s2)
             .background(Capsule().fill(Theme.Palette.Surface.s2.opacity(0.86).color))
             .overlay(Capsule().stroke(Theme.inputBorder, lineWidth: 1))
-            .dynamicTypeSize(...DynamicTypeSize.xxLarge)
+            .dynamicTypeSize(...DynamicTypeSize.large)
             .frame(minWidth: 44, minHeight: 44)  // the 44 pt target (HIG)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityShowsLargeContentViewer {
+            Image(systemName: "eye.fill")
+            Text(watching.accessibilityLabel)
+        }
         .accessibilityLabel(watching.accessibilityLabel)
         .accessibilityHint("Shows who is watching")
         .accessibilityIdentifier("table.spectators")

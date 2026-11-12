@@ -10,6 +10,7 @@ struct DrawPhaseView: View {
     @State private var teamsOpacity: Double = 0
     @State private var dismissing = false
     @State private var pulseOpacity: Double = 1.0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack {
@@ -93,6 +94,7 @@ struct DrawPhaseView: View {
                 .foregroundStyle(Theme.textSecondary)
                 .opacity(pulseOpacity)
                 .onAppear {
+                    guard !reduceMotion else { return }  // Reduce Motion: the prompt holds still
                     withAnimation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true)) {
                         pulseOpacity = 0.4
                     }

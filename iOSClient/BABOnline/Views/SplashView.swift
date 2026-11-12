@@ -4,6 +4,7 @@ import SwiftUI
 struct SplashView: View {
     @State private var showSymbols = false
     @State private var showTitle = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private let suitColors: [Color] = [.spades, .hearts, .diamonds, .clubs].map(Theme.suitOnDark)
 
@@ -33,7 +34,7 @@ struct SplashView: View {
                     .themeFont(Theme.TypeScale.xxl, weight: Theme.Weight.bold, design: .rounded, relativeTo: .largeTitle)
                     .foregroundStyle(Theme.primary)
                     .opacity(showTitle ? 1 : 0)
-                    .scaleEffect(showTitle ? 1 : 0.8)
+                    .scaleEffect(showTitle || reduceMotion ? 1 : 0.8)  // Reduce Motion: fade only
             }
         }
         .onAppear {
@@ -51,7 +52,7 @@ struct SplashView: View {
             .themeFont(Theme.TypeScale.display, weight: Theme.Weight.bold, relativeTo: .largeTitle)
             .foregroundStyle(color)
             .opacity(showSymbols ? 1 : 0)
-            .offset(y: showSymbols ? 0 : 10)
+            .offset(y: showSymbols || reduceMotion ? 0 : 10)
             .animation(.easeOut(duration: 0.4).delay(delay), value: showSymbols)
     }
 }

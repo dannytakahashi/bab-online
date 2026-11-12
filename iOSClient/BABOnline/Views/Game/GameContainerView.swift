@@ -61,6 +61,7 @@ private struct GameScreen: View {
     // Item 27-4: the fold and the docked log
     @Environment(\.horizontalSizeClass) private var hSizeClass
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverOn
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.verticalSizeClass) private var vSizeClass
     /// Bumped by every hinge change so the fold is read again at the same size.
     @State private var hingeTick = 0
@@ -266,7 +267,7 @@ private struct GameScreen: View {
             // Game log panel
             if showGameLog {
                 GameLogView(isShowing: $showGameLog)
-                    .transition(.move(edge: .trailing))
+                    .transition(.motion(.move(edge: .trailing), reduceMotion: reduceMotion))
             }
 
             // Disconnect banner (below the corner buttons)
@@ -351,7 +352,7 @@ private struct GameScreen: View {
                         }
                         .frame(width: full.width, height: full.height)
                         .offset(x: layout.window(layout.bidBand).midX - full.width / 2)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .transition(.motion(.move(edge: .bottom).combined(with: .opacity), reduceMotion: reduceMotion))
                     }
                     if showsTable && !showsBidOverlay {
                         accessory(layout)

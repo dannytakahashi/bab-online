@@ -224,6 +224,9 @@ struct WatchingList: Equatable {
     }
     init(_ list: TableSnapshot.SpectatorList) { self.init(spectators: list.spectators, count: list.count) }
 
+    /// The badge's count: "99+" past 99, so the badge keeps its rect (VoiceOver reads the real count).
+    var badgeText: String { count > 99 ? "99+" : "\(count)" }
+
     /// "1 person watching" / "2 people watching" (the badge's VoiceOver label).
     var accessibilityLabel: String { count == 1 ? "1 person watching" : "\(count) people watching" }
 }

@@ -17,7 +17,9 @@ import CoreGraphics
 /// even that fails (a degraded layout) the first candidate clamped into the
 /// safe rect.
 extension TableLayout {
-    static let spectatorBadgeSize = CGSize(width: 56, height: 44)
+    /// Wide enough for the badge's widest form ("99+" at its Dynamic Type cap, .large;
+    /// SpectatorBadgeFitTests measures it) and no wider: 66 pt no longer keeps clear on an SE.
+    static let spectatorBadgeSize = CGSize(width: 60, height: 44)
 
     /// The badge's rect in scene coordinates.
     func spectatorBadge(spectating: Bool) -> CGRect {

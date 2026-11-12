@@ -48,8 +48,18 @@ enum CardAnimations {
 
     /// Pulse glow effect (for turn indicator)
     static func pulseGlow() -> SKAction {
-        let fadeUp = SKAction.fadeAlpha(to: 0.8, duration: 0.6)
+        let fadeUp = SKAction.fadeAlpha(to: Theme.Motion.steadyGlowAlpha, duration: 0.6)
         let fadeDown = SKAction.fadeAlpha(to: 0.3, duration: 0.6)
         return SKAction.repeatForever(SKAction.sequence([fadeUp, fadeDown]))
+    }
+
+    /// Starts `node`'s pulse (the turn and speaking rings), or under Reduce Motion
+    /// holds it still at the pulse's lit alpha (Theme+Motion.swift).
+    static func startPulseGlow(on node: SKNode, reduceMotion: Bool = Theme.Motion.reduceMotion) {
+        if reduceMotion {
+            node.alpha = Theme.Motion.steadyGlowAlpha
+        } else {
+            node.run(pulseGlow())
+        }
     }
 }

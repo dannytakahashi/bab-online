@@ -6,6 +6,7 @@ struct ConnectionStatusToast: View {
     @State private var wasDisconnected = false
     @State private var showToast = false
     @State private var isReconnected = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack {
@@ -27,7 +28,7 @@ struct ConnectionStatusToast: View {
                 .background(Theme.surface)
                 .clipShape(Capsule())
                 .elevation(Theme.Elevation.e2)
-                .transition(.move(edge: .top).combined(with: .opacity))
+                .transition(.motion(.move(edge: .top).combined(with: .opacity), reduceMotion: reduceMotion))
                 .padding(.top, Theme.Space.s2)
             }
             Spacer()
@@ -61,6 +62,7 @@ struct ConnectionStatusToast: View {
 private struct ServerErrorToast: View {
     @EnvironmentObject var socketService: SocketService
     @State private var notice: ServerErrorNotice?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack {
@@ -78,7 +80,7 @@ private struct ServerErrorToast: View {
                 .background(Theme.surface)
                 .clipShape(Capsule())
                 .elevation(Theme.Elevation.e2)
-                .transition(.move(edge: .top).combined(with: .opacity))
+                .transition(.motion(.move(edge: .top).combined(with: .opacity), reduceMotion: reduceMotion))
                 .padding(.top, Theme.Space.s2)
                 .padding(.horizontal, Theme.Space.s4)
                 .onTapGesture {
