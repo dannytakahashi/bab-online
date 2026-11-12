@@ -2234,41 +2234,6 @@
           }
         }
       ]
-    },
-    "voiceRelayAudio": {
-      "payload": {
-        "type": "object",
-        "properties": {
-          "targetSocketId": {
-            "type": "string"
-          },
-          "audio": {
-            "type": [
-              "string",
-              "object",
-              "array"
-            ]
-          }
-        },
-        "required": [
-          "targetSocketId",
-          "audio"
-        ],
-        "additionalProperties": true
-      },
-      "status": "active",
-      "joi": null,
-      "rateLimit": null,
-      "sentBy": {
-        "web": true,
-        "ios": false
-      },
-      "examples": [
-        {
-          "targetSocketId": "s1",
-          "audio": "AAAA"
-        }
-      ]
     }
   },
   "s2c": {
@@ -6269,39 +6234,6 @@
       },
       "emittedFrom": [
         "server/socket/voiceHandlers.js:voiceIceCandidate"
-      ]
-    },
-    "voiceRelayAudio": {
-      "payload": {
-        "type": "object",
-        "properties": {
-          "fromSocketId": {
-            "type": "string"
-          },
-          "audio": {
-            "type": [
-              "string",
-              "object",
-              "array"
-            ]
-          }
-        },
-        "required": [
-          "fromSocketId",
-          "audio"
-        ],
-        "additionalProperties": false
-      },
-      "status": "active",
-      "to": "socket",
-      "clientReads": {
-        "web": [
-          "client/src/handlers/voiceHandlers.js:registerVoiceHandlers"
-        ],
-        "ios": []
-      },
-      "emittedFrom": [
-        "server/socket/voiceHandlers.js:voiceRelayAudio"
       ]
     },
     "voicePeerList": {

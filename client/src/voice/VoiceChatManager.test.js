@@ -261,7 +261,7 @@ describe('no PCM relay any more', () => {
     await vm.connectToPeer('sock-b', 'bob');
     FakePC.all[0].set('failed');
     await vi.advanceTimersByTimeAsync(RESTART_WAIT_MS * 2);
-    expect(sm.sent.some((s) => s.event === CLIENT_EVENTS.VOICE_RELAY_AUDIO)).toBe(false);
+    expect(sm.sent.some((s) => s.event === 'voiceRelayAudio')).toBe(false);
     expect(vm._onRelayAudio).toBeUndefined();
     expect(vm.isRelayed).toBeUndefined();
     const src = readClientFile('src/voice/VoiceChatManager.js');
@@ -271,6 +271,17 @@ describe('no PCM relay any more', () => {
     expect(handlers).toContain('SERVER_EVENTS.VOICE_ICE_SERVERS');
     expect(SERVER_EVENTS.VOICE_ICE_SERVERS).toBe('voiceIceServers');
     vm.shutdown();
+  });
+
+  it('V1_REMOVALS #20: the generated constants no longer name the relay, in either direction', () => {
+    expect(CLIENT_EVENTS).not.toHaveProperty('VOICE_RELAY_AUDIO');
+    expect(SERVER_EVENTS).not.toHaveProperty('VOICE_RELAY_AUDIO');
+    expect(Object.values(CLIENT_EVENTS)).not.toContain('voiceRelayAudio');
+    expect(Object.values(SERVER_EVENTS)).not.toContain('voiceRelayAudio');
+    // the voice events that stay
+    expect(CLIENT_EVENTS.VOICE_OFFER).toBe('voiceOffer');
+    expect(CLIENT_EVENTS.GET_VOICE_ICE_SERVERS).toBe('getVoiceIceServers');
+    expect(SERVER_EVENTS.VOICE_PEER_LEFT).toBe('voicePeerLeft');
   });
 });
 

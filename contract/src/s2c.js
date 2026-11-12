@@ -890,13 +890,6 @@ const s2c = {
         clientReads: reads(W.voice, I.voice),
         emittedFrom: ['server/socket/voiceHandlers.js:voiceIceCandidate'],
     },
-    voiceRelayAudio: {
-        payload: obj({ fromSocketId: str(), audio: { type: ['string', 'object', 'array'] } }),
-        status: 'deprecated', to: 'socket',
-        clientReads: reads([], []),
-        emittedFrom: ['server/socket/voiceHandlers.js:voiceRelayAudio'],
-        notes: 'The web PCM fallback, replaced by TURN (2026-11-11): no current client listens. Still forwarded between two web bundles cached before that deploy; removal is V1_REMOVALS #20.',
-    },
     voicePeerList: {
         payload: obj({ peers: arr(ref('voicePeer')) }),
         status: 'active', to: 'self',

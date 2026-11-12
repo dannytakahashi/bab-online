@@ -307,7 +307,7 @@ transport close, so both clients reconnect by themselves
 `joinLobby {lobbyId: uuid}` and `removeBot {botSocketId: 'bot:...'}` (both
 now `syncHandler`), `searchPlayers {query <= 500}`, `getPlayerProfile
 {username 1-100}` (their wrappers already named them), and the four voice
-relays, checked inside voiceHandlers after the peer check so a bad one is
+relays (three since #20 removed voiceRelayAudio), checked inside voiceHandlers after the peer check so a bad one is
 dropped silently (contract key `joiInHandler`; `joi` stays null for them).
 The shared-room relay check was already in place (#211:
 `voiceHandlers.authorize`). `GameManager.removeBotFromLobby` also refuses a
@@ -355,6 +355,26 @@ is logged per socket (server/socket/clientInfo.js).
 
 ### 20. `voiceRelayAudio` (the web PCM relay, both directions)
 
+**Done 2026-11-12 (PR #TBD),** after the one-day window (TURN deploy
+2026-11-11 10:46 PST). Removed: the c2s registration
+(`server/socket/index.js`), `voiceHandlers.voiceRelayAudio`,
+`isRelayChunk` and `MAX_RELAY_BYTES`, the `voiceRelayAudio` rate-limit key,
+its #18 Joi schema (`validators.schemas.voiceRelayAudio`), both schema
+entries (c2s + s2c; baseline hand-edited), the web constants
+`CLIENT_EVENTS.VOICE_RELAY_AUDIO` / `SERVER_EVENTS.VOICE_RELAY_AUDIO`
+(`legacyConstants.golden.json` updated; Swift never had one, so
+`SocketEvents.swift` is unchanged) and the relay cases of
+voiceSignaling.test.js. `wireGolden.test.js` `v1Projection` names #20 (a
+no-op there: those games have no voice). A `voiceRelayAudio` packet now
+reaches no handler: Socket.IO drops it, nothing is forwarded, no `error`.
+Re-checked: no web code on main sends or listens to it; iOS 1.1.0 (f05d264)
+and 1.2.0 never had it. Rollback caveat: a web tab still running a bundle
+from before the TURN deploy loses only its PCM fallback (P2P/STUN as
+before). Tests: `voiceSignaling.test.js` ("V1_REMOVALS #20"),
+`client/src/voice/VoiceChatManager.test.js`.
+
+The entry as planned:
+
 Replaced by Cloudflare TURN (owner, 2026-11-11; `getVoiceIceServers` →
 `voiceIceServers`, server/voice/turnCredentials.js). The current web bundle
 neither sends nor listens to it; both schema entries are `deprecated`. The
@@ -373,9 +393,9 @@ relay cases of voiceSignaling.test.js. Precondition: one day after the TURN
 deploy (no tab can still hold the old bundle in practice).
 
 **Not run 2026-11-11** with the "safe now" steps: the TURN deploy (#213)
-merged 2026-11-11 10:46 PST, so the one-day window ends 2026-11-12 10:46
-PST. (1.1.0 never sent it; the blocker is the cached web bundle.) #18 gave
-it a Joi schema meanwhile; remove that with the handler.
+merged 2026-11-11 10:46 PST, so the one-day window ended 2026-11-12 10:46
+PST. (1.1.0 never sent it; the blocker was the cached web bundle.) #18 gave
+it a Joi schema meanwhile; removed with the handler (done, above).
 
 ## iOS TURN (next App Store release, roadmap 29 track; not a removal)
 
@@ -550,6 +570,9 @@ step, in this order; nothing is removed by the gate PR itself.
    it (web: restart banner, then what ended). Nothing to remove.
 10. **#1 phase A only** (`serverError` dual emit with `{code, message,
     handler}`): additive, safe now. **Done 2026-11-11 (PR #TBD).**
+11. **#20 `voiceRelayAudio`**: no reader in 1.1.0, 1.2.0 or web on main;
+    it waited only for the one-day window after the TURN deploy. **Done
+    2026-11-12 (PR #TBD).**
 
 **Still blocked (by what a shipped client reads):**
 

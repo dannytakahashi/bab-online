@@ -1,5 +1,5 @@
 {
-  "$comment": "Every web [KEY, value] and Swift [name, value] constant at cc865b4. legacyConstants.test.js: each must still exist unchanged.",
+  "$comment": "Every web [KEY, value] and Swift [name, value] constant at cc865b4. legacyConstants.test.js: each must still exist unchanged. Executed contract/V1_REMOVALS.md entries take theirs out on purpose: #20 VOICE_RELAY_AUDIO (web, both objects; Swift never had it).",
   "web": {
     "CLIENT_EVENTS": [
       [
@@ -153,10 +153,6 @@
       [
         "VOICE_ICE_CANDIDATE",
         "voiceIceCandidate"
-      ],
-      [
-        "VOICE_RELAY_AUDIO",
-        "voiceRelayAudio"
       ],
       [
         "DELETE_ACCOUNT",
@@ -503,10 +499,6 @@
       [
         "VOICE_PEER_LEFT",
         "voicePeerLeft"
-      ],
-      [
-        "VOICE_RELAY_AUDIO",
-        "voiceRelayAudio"
       ]
     ]
   },
