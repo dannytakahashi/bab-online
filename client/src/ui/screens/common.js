@@ -66,6 +66,59 @@ export function chatForm({ inputId, label = 'Chat message', onSend }) {
   return { row: el('div', { className: 'chat-form', children: [input, send] }), input, send };
 }
 
+/**
+ * A chat log follows the newest message while the reader is at (or within
+ * this many px of) the bottom; scrolled further up, a new message or a
+ * resize keeps their place.
+ */
+export const CHAT_STICK_SLACK_PX = 24;
+
+/** Is the log scrolled to (about) its newest message? */
+export function isChatAtEnd(log) {
+  return log.scrollHeight - log.scrollTop - log.clientHeight <= CHAT_STICK_SLACK_PX;
+}
+
+/** Scroll the log to its newest message. */
+export function scrollChatToEnd(log) {
+  log.scrollTop = log.scrollHeight;
+}
+
+/** Append one line; the log follows it only if the reader was at the end. */
+export function appendChatLine(log, line) {
+  const atEnd = isChatAtEnd(log);
+  log.appendChild(line);
+  if (atEnd) scrollChatToEnd(log);
+}
+
+/**
+ * Keep a chat log that fills its column on its newest message when the
+ * column changes height (a window resize, the compact breakpoint): the log
+ * remembers whether the reader was at the end (on every scroll) and, if so,
+ * goes back there after the resize. Stops itself once the log leaves the
+ * page. Returns the stop function.
+ */
+export function followChatOnResize(log) {
+  let atEnd = true;
+  const onScroll = () => { atEnd = isChatAtEnd(log); };
+  log.addEventListener('scroll', onScroll, { passive: true });
+  if (typeof ResizeObserver === 'undefined') {
+    return () => log.removeEventListener('scroll', onScroll);
+  }
+  const observer = new ResizeObserver(() => {
+    if (!log.isConnected) {
+      stop();
+      return;
+    }
+    if (atEnd) scrollChatToEnd(log);
+  });
+  function stop() {
+    observer.disconnect();
+    log.removeEventListener('scroll', onScroll);
+  }
+  observer.observe(log);
+  return stop;
+}
+
 /** Switch a kit button's variant in place. */
 export function setButtonVariant(btn, variant) {
   if (!btn) return;

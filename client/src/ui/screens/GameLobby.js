@@ -7,7 +7,10 @@
 
 import { generateDistinctColor } from '../../utils/colors.js';
 import { el, createButton, createIconButton, createPanel } from '../kit/index.js';
-import { chatLine, chatForm, setButtonVariant } from './common.js';
+import { chatLine, chatForm, setButtonVariant, appendChatLine, scrollChatToEnd, followChatOnResize } from './common.js';
+
+/** The lobby header's voice slot (VoiceChatUI.js places the voice buttons in it). */
+export const LOBBY_VOICE_SLOT_ID = 'lobbyVoiceSlot';
 
 /**
  * Module state.
@@ -130,17 +133,30 @@ export function showGameLobby(lobbyData, socket, username) {
   currentLobbyId = lobbyData.lobbyId;
   isPlayerReady = false;
 
-  // Remove any existing game lobby
+  // Remove any existing game lobby (a re-render: a reconnect's lobbyJoined
+  // keeps the voice running, so its buttons move to the new header)
   const oldGameLobby = document.getElementById('gameLobbyContainer');
+  const voiceButtons = oldGameLobby ? [...(oldGameLobby.querySelector(`#${LOBBY_VOICE_SLOT_ID}`)?.children || [])] : [];
   if (oldGameLobby) oldGameLobby.remove();
 
-  const container = createPanel({ elevation: 3, className: 'screen screen--lobby' });
+  const container = createPanel({ elevation: 3, className: 'screen screen--full screen--lobby' });
   container.id = 'gameLobbyContainer';
 
+  // The voice slot (VoiceChatUI.js puts the mute and microphone buttons in
+  // it while voice runs): in the header, clear of the chat's Send in the
+  // window's bottom-right corner
+  const voiceSlot = el('div', { className: 'lobby-voice', attrs: { id: LOBBY_VOICE_SLOT_ID, role: 'group', 'aria-label': 'Voice chat' } });
+  voiceSlot.append(...voiceButtons);
   container.appendChild(el('header', {
     className: 'screen-header',
-    children: [el('h1', { className: 'screen-title screen-title--brand', text: 'Game Lobby' })],
+    children: [el('h1', { className: 'screen-title screen-title--brand', text: 'Game Lobby' }), voiceSlot],
   }));
+
+  // The window's two columns (styles/screens.css .screen--full): the seats
+  // and Ready / Add Bot / Leave on the left, the lobby chat full height on
+  // the right (as on iOS). Reading and focus order follow it.
+  const mainColumn = el('section', { className: 'screen-main', attrs: { 'aria-label': 'Seats' } });
+  container.appendChild(mainColumn);
 
   // Players list
   const playersDiv = el('div', { className: 'screen-section seat-list', attrs: { id: 'lobbyPlayersList' } });
@@ -152,10 +168,12 @@ export function showGameLobby(lobbyData, socket, username) {
       socket.emit('removeBot', { botSocketId: removeBtn.dataset.botSocketId });
     }
   });
-  container.appendChild(playersDiv);
+  mainColumn.appendChild(playersDiv);
 
-  // Chat area
-  const chatArea = el('div', { className: 'chat-log chat-log--short', attrs: { id: 'lobbyChatArea', role: 'log', 'aria-live': 'polite' } });
+  // Right column - the lobby chat
+  const chatPanel = el('section', { className: 'screen-chat screen-section', attrs: { 'aria-label': 'Lobby chat' } });
+  chatPanel.appendChild(el('h2', { className: 'section-title', text: 'Lobby Chat' }));
+  const chatArea = el('div', { className: 'chat-log', attrs: { id: 'lobbyChatArea', role: 'log', 'aria-live': 'polite' } });
 
   // Add any existing messages
   if (lobbyData.messages) {
@@ -165,16 +183,16 @@ export function showGameLobby(lobbyData, socket, username) {
       chatArea.appendChild(chatLine({ username: msg.username, message: msg.message, color: lobbyUserColors[msg.username] }));
     });
   }
-  container.appendChild(chatArea);
+  chatPanel.appendChild(chatArea);
 
   const { row: chatInputRow } = chatForm({
     inputId: 'lobbyChatInput',
     label: 'Message the lobby',
     onSend: (message) => socket.emit('lobbyChat', { message }),
   });
-  container.appendChild(chatInputRow);
+  chatPanel.appendChild(chatInputRow);
 
-  // Button row
+  // Button row (under the seats)
   const buttonRow = el('div', { className: 'screen-actions' });
 
   const readyBtn = createButton({ label: 'Ready', variant: 'primary', size: 'lg' });
@@ -205,9 +223,13 @@ export function showGameLobby(lobbyData, socket, username) {
   buttonRow.appendChild(addBotBtn);
 
   buttonRow.appendChild(createButton({ label: 'Leave', variant: 'secondary', size: 'lg', onClick: () => socket.emit('leaveLobby') }));
-  container.appendChild(buttonRow);
+  mainColumn.appendChild(buttonRow);
+  container.appendChild(chatPanel);
 
   document.body.appendChild(container);
+  // Open on the newest message and stay there through resizes
+  scrollChatToEnd(chatArea);
+  followChatOnResize(chatArea);
 }
 
 /**
@@ -223,8 +245,8 @@ export function addLobbyChatMessage(username, message) {
   // Assign distinct color if new user
   colorFor(username);
 
-  chatArea.appendChild(chatLine({ username, message, color: lobbyUserColors[username] }));
-  chatArea.scrollTop = chatArea.scrollHeight;
+  // Follows the newest message unless the reader scrolled up
+  appendChatLine(chatArea, chatLine({ username, message, color: lobbyUserColors[username] }));
 }
 
 /**
@@ -232,7 +254,19 @@ export function addLobbyChatMessage(username, message) {
  */
 export function removeGameLobby() {
   const gameLobby = document.getElementById('gameLobbyContainer');
-  if (gameLobby) gameLobby.remove();
+  if (gameLobby) {
+    // Lobby voice carries on into its game: its buttons outlive the lobby
+    // (back to the page, until the table's HUD slot takes them, or stopVoice
+    // removes them)
+    const voiceSlot = gameLobby.querySelector(`#${LOBBY_VOICE_SLOT_ID}`);
+    if (voiceSlot) {
+      for (const btn of [...voiceSlot.children]) {
+        btn.dataset.place = 'page';
+        document.body.appendChild(btn);
+      }
+    }
+    gameLobby.remove();
+  }
   currentLobbyId = null;
   isPlayerReady = false;
   lobbyUserColors = {};

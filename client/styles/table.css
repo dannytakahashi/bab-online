@@ -409,6 +409,27 @@ body > .voice-btn {
     right: var(--voice-right, 20px);
 }
 
+/* in the game lobby: its header's voice slot (GameLobby.js), clear of the
+   chat's Send in the window's bottom-right corner */
+.lobby-voice {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex: 0 0 auto;
+}
+
+.lobby-voice > .voice-btn {
+    --icon-btn-size: 36px;
+    position: relative;
+    flex: 0 0 auto;
+}
+
+/* the lobby's popover opens below its button (the header is at the top) */
+.voice-popover.voice-popover--below {
+    top: var(--pop-top, 0px);
+    bottom: auto;
+}
+
 .hud-voice > .voice-btn {
     /* positioned, so each button's 44 px hit extension (kit .kit-icon-btn::before)
        hangs off its own button, not the whole slot */

@@ -4,9 +4,10 @@
  * A. Mute button (and the microphone picker beside it): at the table, in
  *    the HUD's voice slot (ui/tableHud.js; under my HSI box, or the table's
  *    bottom-right corner for a spectator), sized by the layout; elsewhere
- *    (the lobby) at the page's bottom right (ui-20: the fallback used to sit
- *    under the game log, and the global 44 px button rule pushed it off
- *    centre)
+ *    in the game lobby, in its header's voice slot (the full-window lobby's
+ *    chat and Send fill the window's bottom-right corner); with neither, at
+ *    the page's bottom right (ui-20: the fallback used to sit under the game
+ *    log, and the global 44 px button rule pushed it off centre)
  * B. Tab overlay - player list with speaking indicators and per-player mute
  */
 
@@ -16,6 +17,7 @@ import { getGameState } from '../../state/GameState.js';
 import { hudVoiceSlot, hudLayout } from '../tableHud.js';
 import { getClientSession, SCREEN } from '../../state/ClientSession.js';
 import { el, createButton, createIconButton, openModal } from '../kit/index.js';
+import { LOBBY_VOICE_SLOT_ID } from '../screens/GameLobby.js';
 
 /*
  * The buttons are kit icon buttons (.kit-icon-btn.voice-btn, table.css):
@@ -34,7 +36,7 @@ function showMuted(btn, muted) {
 
 /**
  * Put a voice button in the table's voice slot (device first, then mute),
- * or at the page's bottom right when there is no table.
+ * else the game lobby header's slot, else the page's bottom right.
  * @returns {boolean} whether it is in the slot
  */
 /**
@@ -47,22 +49,38 @@ function atTable() {
   return screen === SCREEN.TABLE || screen === SCREEN.GAME_END;
 }
 
+/** In a slot (a flex row): the device button left of the mute button. */
+function orderInSlot(slot) {
+  const mute = slot.querySelector('#voice-mute-btn');
+  const device = slot.querySelector('#voice-device-btn');
+  if (mute && device && device.nextSibling !== mute) slot.insertBefore(device, mute);
+}
+
 function placeVoiceButton(btn, { rightOffset }) {
   // only at a table the HUD has laid out (not the lobby)
   const slot = atTable() && hudLayout() ? hudVoiceSlot({ create: true }) : null;
   if (slot) {
     if (btn.parentElement !== slot) slot.appendChild(btn);
-    // the slot is a flex row: device button left of the mute button
-    const mute = slot.querySelector('#voice-mute-btn');
-    const device = slot.querySelector('#voice-device-btn');
-    if (mute && device && device.nextSibling !== mute) slot.insertBefore(device, mute);
+    orderInSlot(slot);
     btn.dataset.place = 'hud';
     return true;
   }
-  if (btn.parentElement !== document.body) document.body.appendChild(btn);
-  // (table.css: body > .voice-btn sits at the page's bottom right)
-  btn.dataset.place = 'page';
+  // Off the table, the game lobby's own voice slot (its header, GameLobby.js):
+  // the full-window lobby's chat column, and its Send, end in the window's
+  // bottom-right corner, and the lobby is a window-sized layer at the same
+  // z-index, so a body-level button there would cover Send or be covered
+  // (table.css: body > .voice-btn sits at the page's bottom right; kept
+  // set in the lobby slot too, for when the lobby goes and they fall back)
   btn.style.setProperty('--voice-right', `${rightOffset}px`);
+  const lobbySlot = atTable() ? null : document.getElementById(LOBBY_VOICE_SLOT_ID);
+  if (lobbySlot) {
+    if (btn.parentElement !== lobbySlot) lobbySlot.appendChild(btn);
+    orderInSlot(lobbySlot);
+    btn.dataset.place = 'lobby';
+    return false;
+  }
+  if (btn.parentElement !== document.body) document.body.appendChild(btn);
+  btn.dataset.place = 'page';
   return false;
 }
 
@@ -100,7 +118,7 @@ export function createMuteButton() {
 }
 
 /**
- * The mute button's place: the table's voice slot, else bottom-right.
+ * The mute button's place: the table's voice slot, the lobby's, else bottom-right.
  */
 function _positionMuteButton(btn) {
   placeVoiceButton(btn, { rightOffset: 20 });
@@ -219,7 +237,13 @@ async function toggleDevicePopover() {
     // its anchor (dynamic geometry: CSS variables, table.css .voice-popover)
     const rect = btn.getBoundingClientRect();
     popover.style.setProperty('--pop-right', `${window.innerWidth - rect.right}px`);
-    popover.style.setProperty('--pop-bottom', `${window.innerHeight - rect.top + 6}px`);
+    if (btn.dataset.place === 'lobby') {
+      // the lobby's slot is in its header, at the top: open downwards
+      popover.classList.add('voice-popover--below');
+      popover.style.setProperty('--pop-top', `${rect.bottom + 6}px`);
+    } else {
+      popover.style.setProperty('--pop-bottom', `${window.innerHeight - rect.top + 6}px`);
+    }
   }
 
   document.body.appendChild(popover);

@@ -9,7 +9,7 @@
 import { generateDistinctColor } from '../../utils/colors.js';
 import { el, createButton, createPanel } from '../kit/index.js';
 import { createTournamentScoreboard } from '../components/TournamentScoreboard.js';
-import { chatLine, chatForm, setButtonVariant } from './common.js';
+import { chatLine, chatForm, setButtonVariant, appendChatLine, scrollChatToEnd, followChatOnResize } from './common.js';
 
 /**
  * Module state
@@ -57,7 +57,7 @@ export function showTournamentLobby(data, socket, username) {
   const isSpectator = data.isSpectator || false;
   const isCreator = data.creatorUsername === username;
 
-  const container = createPanel({ elevation: 3, className: 'screen screen--tournament' });
+  const container = createPanel({ elevation: 3, className: 'screen screen--full screen--tournament' });
   container.id = 'tournamentLobbyContainer';
   container.dataset.isCreator = String(isCreator);
 
@@ -72,18 +72,34 @@ export function showTournamentLobby(data, socket, username) {
     children: [el('h1', { className: 'screen-title screen-title--md', text: data.name || 'Tournament' }), roundIndicator],
   }));
 
-  // Main content area (two panels)
-  const contentArea = el('div', { className: 'screen-columns screen-columns--tight' });
+  // The window's two columns (styles/screens.css .screen--full): the
+  // standings and the round's tables on top of the left column with the
+  // players and the controls under them, the tournament chat full height on
+  // the right (as on iOS). Reading and focus order follow it.
+  const mainColumn = el('section', { className: 'screen-main', attrs: { 'aria-label': 'Standings' } });
+  mainColumn.appendChild(el('h2', { className: 'section-title section-title--sm', text: 'Scoreboard' }));
 
-  // Left panel — Players + Chat
-  const leftPanel = el('div', { className: 'screen-column' });
+  const scoreboardContainer = el('div', { className: 'tournament-scoreboard-wrap', attrs: { id: 'tournamentScoreboardContainer' } });
+  scoreboardContainer.appendChild(createTournamentScoreboard(data.scoreboard || [], data.currentRound, data.totalRounds));
+  mainColumn.appendChild(scoreboardContainer);
+
+  // The round's tables (visible during round_active) beside the players
+  const roster = el('div', { className: 'tournament-roster' });
+
+  const activeGamesContainer = el('div', { className: 'screen-section tournament-games', attrs: { id: 'tournamentActiveGames' } });
+  updateActiveGames(activeGamesContainer, data.activeGames || [], socket);
+  roster.appendChild(activeGamesContainer);
 
   // Players list (scrollable)
   const playersDiv = el('div', { className: 'screen-section tournament-players', attrs: { id: 'tournamentPlayersList' } });
   updateTournamentPlayersList(playersDiv, data.players, username, isCreator);
-  leftPanel.appendChild(playersDiv);
+  roster.appendChild(playersDiv);
+  mainColumn.appendChild(roster);
+  container.appendChild(mainColumn);
 
-  // Chat area
+  // Right column - the tournament chat
+  const chatPanel = el('section', { className: 'screen-chat screen-section', attrs: { 'aria-label': 'Tournament chat' } });
+  chatPanel.appendChild(el('h2', { className: 'section-title', text: 'Tournament Chat' }));
   const chatArea = el('div', { className: 'chat-log', attrs: { id: 'tournamentChatArea', role: 'log', 'aria-live': 'polite' } });
 
   // Add existing messages
@@ -93,32 +109,14 @@ export function showTournamentLobby(data, socket, username) {
       appendChatMessage(chatArea, msg.username, msg.message, msg.isSpectator);
     });
   }
-  leftPanel.appendChild(chatArea);
+  chatPanel.appendChild(chatArea);
 
   const { row: chatInputRow } = chatForm({
     inputId: 'tournamentChatInput',
     label: 'Message the tournament',
     onSend: (message) => socket.emit('tournamentChat', { message }),
   });
-  leftPanel.appendChild(chatInputRow);
-
-  contentArea.appendChild(leftPanel);
-
-  // Right panel — Scoreboard + Active Games
-  const rightPanel = el('div', { className: 'screen-column' });
-  rightPanel.appendChild(el('h2', { className: 'section-title section-title--sm', text: 'Scoreboard' }));
-
-  const scoreboardContainer = el('div', { className: 'tournament-scoreboard-wrap', attrs: { id: 'tournamentScoreboardContainer' } });
-  scoreboardContainer.appendChild(createTournamentScoreboard(data.scoreboard || [], data.currentRound, data.totalRounds));
-  rightPanel.appendChild(scoreboardContainer);
-
-  // Active games section (visible during round_active)
-  const activeGamesContainer = el('div', { className: 'screen-section tournament-games', attrs: { id: 'tournamentActiveGames' } });
-  updateActiveGames(activeGamesContainer, data.activeGames || [], socket);
-  rightPanel.appendChild(activeGamesContainer);
-
-  contentArea.appendChild(rightPanel);
-  container.appendChild(contentArea);
+  chatPanel.appendChild(chatInputRow);
 
   // Button row
   const buttonRow = el('div', { className: 'screen-actions', attrs: { id: 'tournamentButtonRow' } });
@@ -192,8 +190,12 @@ export function showTournamentLobby(data, socket, username) {
     onClick: () => socket.emit('leaveTournament'),
   }));
 
-  container.appendChild(buttonRow);
+  mainColumn.appendChild(buttonRow);
+  container.appendChild(chatPanel);
   document.body.appendChild(container);
+  // Open on the newest message and stay there through resizes
+  scrollChatToEnd(chatArea);
+  followChatOnResize(chatArea);
 
   // Store phase for begin button logic
   container.dataset.phase = data.phase;
@@ -282,8 +284,8 @@ function appendChatMessage(chatArea, username, message, isSpectator) {
   }
   if (!chatArea) return;
 
-  chatArea.appendChild(chatLine({ username, message, color: colorFor(username), isSpectator: !!isSpectator }));
-  chatArea.scrollTop = chatArea.scrollHeight;
+  // Follows the newest message unless the reader scrolled up
+  appendChatLine(chatArea, chatLine({ username, message, color: colorFor(username), isSpectator: !!isSpectator }));
 }
 
 /**
