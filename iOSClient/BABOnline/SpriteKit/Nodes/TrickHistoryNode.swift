@@ -1,8 +1,9 @@
 import SpriteKit
 
 /// Stacked won tricks for each team, set from the trick counts (idempotent):
-/// `history.team.<i>` (my team's, team A's color) and `history.opp.<i>` (theirs, team B),
-/// `spacing` apart (from the layout).
+/// `history.team.<i>` (my team's) and `history.opp.<i>` (theirs), `spacing` apart (from the
+/// layout), each in its team's absolute color (team 1 blue, team 2 coral), as the score bar
+/// and the pips: a viewer on team 2 has a coral top row.
 ///
 /// Once the bidding is over each row also shows its team's bid total (the web's
 /// TrickManager piles; a bore counts as the whole hand, BidTotals): the bid's slots not
@@ -18,6 +19,8 @@ class TrickHistoryNode: SKNode {
     private(set) var counts = (team: 0, opp: 0)
     /// (my team's, theirs) bid totals; nil while bidding / between hands.
     private(set) var totals: (team: Int, opp: Int)?
+    /// The viewer's team (1 or 2; 1 for a spectator), which colors the rows.
+    private(set) var myTeam = 1
 
     static let borderPad: CGFloat = 2
 
@@ -31,11 +34,14 @@ class TrickHistoryNode: SKNode {
 
     /// `spacing`: the layout's icon step (nil keeps the current one); existing icons move to it.
     /// `totals`: the bid totals the border and slots show (nil: none).
-    func setCounts(team: Int, opp: Int, spacing: CGFloat? = nil, totals: (team: Int, opp: Int)?? = .none) {
+    /// `myTeam`: the viewer's team (nil keeps the current one); existing icons recolor.
+    func setCounts(team: Int, opp: Int, spacing: CGFloat? = nil, totals: (team: Int, opp: Int)?? = .none,
+                   myTeam: Int? = nil) {
         if let spacing { stackSpacing = spacing }
         if case .some(let t) = totals { self.totals = t }
-        sync(prefix: "history.team.", count: team, y: 0, color: Theme.SK.teamA)
-        sync(prefix: "history.opp.", count: opp, y: -30, color: Theme.SK.teamB)
+        if let myTeam { self.myTeam = myTeam == 2 ? 2 : 1 }
+        sync(prefix: "history.team.", count: team, y: 0, color: Theme.SK.team(self.myTeam))
+        sync(prefix: "history.opp.", count: opp, y: -30, color: Theme.SK.team(3 - self.myTeam))
         counts = (team, opp)
         syncPile(row: "team", count: team, total: self.totals?.team, y: 0)
         syncPile(row: "opp", count: opp, total: self.totals?.opp, y: -30)
@@ -53,7 +59,9 @@ class TrickHistoryNode: SKNode {
         let existing = children.filter { ($0.role?.hasPrefix(prefix) == true) && Int($0.role!.dropFirst(prefix.count)) != nil }
         for node in existing {
             guard let i = Int(node.role!.dropFirst(prefix.count)) else { continue }
-            if i >= count { node.removeFromParent() } else { node.position = CGPoint(x: CGFloat(i) * stackSpacing, y: y) }
+            if i >= count { node.removeFromParent(); continue }
+            node.position = CGPoint(x: CGFloat(i) * stackSpacing, y: y)
+            (node as? SKSpriteNode)?.color = color
         }
         for i in 0..<max(0, count) where !children.contains(where: { $0.role == "\(prefix)\(i)" }) {
             let icon = SKSpriteNode(color: color, size: TableLayout.historyIcon)

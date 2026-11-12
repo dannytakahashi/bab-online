@@ -330,7 +330,8 @@ class GameSKScene: SKScene, TableRenderer {
         }, animator: animator)
         toTrick.values.forEach { $0.removeFromParent() }
         trickManager.trickHistory.setCounts(team: model.history.team1, opp: model.history.team2, spacing: layout.historySpacing,
-                                            totals: .some(model.pileTotals.map { (team: $0.team1, opp: $0.team2) }))
+                                            totals: .some(model.pileTotals.map { (team: $0.team1, opp: $0.team2) }),
+                                            myTeam: Positions.getTeamNumber(me))
         myPipsNode.update(model.myPips, team: Positions.getTeamNumber(me))
         bidManager.apply(bubbles: model.bidBubbles, viewPosition: me, layout: layout)
         return changes
