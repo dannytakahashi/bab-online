@@ -47,94 +47,68 @@ describe('GameManager', () => {
         });
     });
 
-    describe('joinQueue', () => {
-        test('creates lobby immediately for first player', () => {
+    // The first player opens a named lobby, the rest join it (the
+    // matchmaking queue that used to do this is gone: V1_REMOVALS #2)
+    function join(socketId) {
+        const open = [...gameManager.lobbies.values()].find((l) => l.players.length < 4);
+        return open ? gameManager.joinSpecificLobby(socketId, open.id) : gameManager.createNamedLobby(socketId);
+    }
+
+    describe('lobbies', () => {
+        test('the first player opens a lobby', () => {
             gameManager.registerUser('socket1', 'player1');
-            const result = gameManager.joinQueue('socket1');
+            const result = join('socket1');
             expect(result.success).toBe(true);
-            expect(result.lobbyCreated).toBe(true);
-            expect(result.lobby).toBeDefined();
             expect(result.lobby.players).toHaveLength(1);
+            expect(result.lobby.name).toBe("player1's Game");
         });
 
-        test('subsequent players join existing lobby', () => {
+        test('the next player joins it', () => {
             gameManager.registerUser('socket1', 'player1');
             gameManager.registerUser('socket2', 'player2');
-            gameManager.joinQueue('socket1');
-            const result = gameManager.joinQueue('socket2');
+            join('socket1');
+            const result = join('socket2');
             expect(result.success).toBe(true);
-            expect(result.joinedExisting).toBe(true);
             expect(result.lobby.players).toHaveLength(2);
         });
 
         test('prevents duplicate joins', () => {
             gameManager.registerUser('socket1', 'player1');
-            gameManager.joinQueue('socket1');
-            const result = gameManager.joinQueue('socket1');
-            expect(result.success).toBe(false);
-            expect(result.error).toBe('Already in lobby');
+            const { lobby } = join('socket1');
+            expect(gameManager.joinSpecificLobby('socket1', lobby.id)).toMatchObject({ success: false, error: 'Already in a lobby' });
+            expect(gameManager.createNamedLobby('socket1')).toMatchObject({ success: false, error: 'Already in lobby' });
         });
 
-        test('lobby fills with 4 players', () => {
-            gameManager.registerUser('socket1', 'player1');
-            gameManager.registerUser('socket2', 'player2');
-            gameManager.registerUser('socket3', 'player3');
-            gameManager.registerUser('socket4', 'player4');
-            gameManager.joinQueue('socket1');
-            gameManager.joinQueue('socket2');
-            gameManager.joinQueue('socket3');
-            const result = gameManager.joinQueue('socket4');
-
-            expect(result.success).toBe(true);
-            expect(result.lobby.players).toHaveLength(4);
+        test('a full lobby takes no fifth player', () => {
+            for (let i = 1; i <= 5; i++) gameManager.registerUser(`socket${i}`, `player${i}`);
+            for (let i = 1; i <= 4; i++) join(`socket${i}`);
+            const lobby = gameManager.getPlayerLobby('socket1');
+            expect(lobby.players).toHaveLength(4);
+            expect(gameManager.joinSpecificLobby('socket5', lobby.id).success).toBe(false);
         });
 
-        test('prevents joining if already in game', () => {
-            // Register and create lobby with 4 players
-            gameManager.registerUser('socket1', 'player1');
-            gameManager.registerUser('socket2', 'player2');
-            gameManager.registerUser('socket3', 'player3');
-            gameManager.registerUser('socket4', 'player4');
-            gameManager.joinQueue('socket1');
-            gameManager.joinQueue('socket2');
-            gameManager.joinQueue('socket3');
-            gameManager.joinQueue('socket4');
-
-            // Start game from lobby
+        test('prevents opening a lobby while in a game', () => {
+            for (let i = 1; i <= 4; i++) gameManager.registerUser(`socket${i}`, `player${i}`);
+            for (let i = 1; i <= 4; i++) join(`socket${i}`);
             const lobby = gameManager.getPlayerLobby('socket1');
             lobby.players.forEach(p => gameManager.setPlayerReady(p.socketId));
             gameManager.startGameFromLobby(lobby.id);
-
-            // Try to join again
-            const result = gameManager.joinQueue('socket1');
-            expect(result.success).toBe(false);
-            expect(result.error).toBe('Already in game');
+            expect(gameManager.createNamedLobby('socket1')).toMatchObject({ success: false, error: 'Already in game' });
         });
 
-        test('5th player creates new lobby', () => {
-            // Register and fill first lobby
-            gameManager.registerUser('socket1', 'player1');
-            gameManager.registerUser('socket2', 'player2');
-            gameManager.registerUser('socket3', 'player3');
-            gameManager.registerUser('socket4', 'player4');
-            gameManager.registerUser('socket5', 'player5');
-            gameManager.joinQueue('socket1');
-            gameManager.joinQueue('socket2');
-            gameManager.joinQueue('socket3');
-            gameManager.joinQueue('socket4');
-
-            // 5th player creates new lobby
-            const result = gameManager.joinQueue('socket5');
-            expect(result.success).toBe(true);
-            expect(result.lobbyCreated).toBe(true);
-            expect(result.lobby.players).toHaveLength(1);
+        test('the matchmaking queue is gone', () => {
+            for (const k of ['joinQueue', 'leaveQueue', 'getQueueStatus', 'fillLobbyFromQueue', 'addPlayerToLobby']) {
+                expect({ k, fn: typeof gameManager[k] }).toEqual({ k, fn: 'undefined' });
+            }
+            expect(gameManager.queue).toBeUndefined();
+            expect(gameManager.queuedUsers).toBeUndefined();
         });
     });
 
     describe('leaveLobby', () => {
         test('removes player from lobby', () => {
             gameManager.registerUser('socket1', 'player1');
-            gameManager.joinQueue('socket1');
+            join('socket1');
             const result = gameManager.leaveLobby('socket1');
             expect(result.success).toBe(true);
             expect(result.lobbyDeleted).toBe(true); // Last player, lobby deleted
@@ -148,8 +122,8 @@ describe('GameManager', () => {
         test('lobby remains when other players exist', () => {
             gameManager.registerUser('socket1', 'player1');
             gameManager.registerUser('socket2', 'player2');
-            gameManager.joinQueue('socket1');
-            gameManager.joinQueue('socket2');
+            join('socket1');
+            join('socket2');
             const result = gameManager.leaveLobby('socket1');
 
             expect(result.success).toBe(true);
@@ -163,10 +137,10 @@ describe('GameManager', () => {
         gameManager.registerUser('socket2', 'player2');
         gameManager.registerUser('socket3', 'player3');
         gameManager.registerUser('socket4', 'player4');
-        gameManager.joinQueue('socket1');
-        gameManager.joinQueue('socket2');
-        gameManager.joinQueue('socket3');
-        gameManager.joinQueue('socket4');
+        join('socket1');
+        join('socket2');
+        join('socket3');
+        join('socket4');
 
         const lobby = gameManager.getPlayerLobby('socket1');
         lobby.players.forEach(p => gameManager.setPlayerReady(p.socketId));
@@ -204,7 +178,7 @@ describe('GameManager', () => {
     describe('handleDisconnect', () => {
         test('removes from lobby on disconnect', () => {
             gameManager.registerUser('socket1', 'player1');
-            gameManager.joinQueue('socket1');
+            join('socket1');
             const result = gameManager.handleDisconnect('socket1');
 
             expect(result.wasInLobby).toBe(true);
@@ -255,26 +229,6 @@ describe('GameManager', () => {
         test('returns empty array for non-existent game', () => {
             const socketIds = gameManager.abortGame('nonexistent');
             expect(socketIds).toEqual([]);
-        });
-    });
-
-    describe('getQueueStatus', () => {
-        test('returns correct queue size (always 0 with lobby system)', () => {
-            const status1 = gameManager.getQueueStatus();
-            expect(status1.size).toBe(0);
-
-            // Players now go directly to lobbies, not queue
-            gameManager.joinQueue('socket1');
-            const status2 = gameManager.getQueueStatus();
-            expect(status2.size).toBe(0); // Queue is empty, player is in lobby
-        });
-
-        test('queuedUsers is empty with lobby system', () => {
-            gameManager.registerUser('socket1', 'player1');
-            gameManager.joinQueue('socket1');
-
-            const status = gameManager.getQueueStatus();
-            expect(status.queuedUsers).toHaveLength(0); // Players go to lobbies now
         });
     });
 

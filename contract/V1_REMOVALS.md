@@ -26,7 +26,8 @@ payload, so no removal below can break it any more.
   `signUpResponse`, `mainRoomJoined` (with `recentMessages`, the key 1.0.0
   reads), `leftGame`, `leftLobby` and `tournamentLeft` in their v1 shapes. A
   removal that touches one of those shapes must keep the gate's copy valid
-  (it is a 1.0.0-only emitter), e.g. #13 below.
+  (it is a 1.0.0-only emitter), e.g. #13 below (done: only the gate still
+  sends `recentMessages`).
 - **Its one database touch.** A gated restoreSession refreshes that
   session's `lastUsedAt` (nothing else), so the 90-day session TTL does not
   run out while a player keeps opening 1.0.0 before updating.
@@ -44,6 +45,10 @@ One PR per entry:
 3. Update `additiveOnly.test.js` expectations if needed,
    `legacyConstants.golden.json` (constants), `transcripts.test.js` and
    `wireProjection.test.js` (legacy key sets), `wireCompat.test.js` goldens.
+   `wireGolden.test.js` hashes the wire through `v1Projection`, which
+   undoes exactly the executed removals (one line each, naming its entry),
+   so the fcdd885 golden keeps pinning everything else: add the removal
+   there, never regenerate the golden for it.
 4. Verify: `npm test`, `npm run test:contract` (also `NODE_ENV=production`),
    `npm run test:client`, `npm run build`, xcodebuild, and a manual pass on
    web and the 1.1.0 iOS build against a local server (a 1.0.0 build must
@@ -67,7 +72,28 @@ One PR per entry:
     0fd6ef1 do not.
 - Phase A (additive, can run before the iOS build): an `emitError(socket,
   {code, message, handler})` helper that sends both `error` and `serverError`;
-  a shared code enum in the contract.
+  a shared code enum in the contract. **Done 2026-11-11 (PR #TBD):**
+  `server/socket/serverError.js` `emitError(socket, errorPayload, handler?)`
+  sends `error` and then `serverError {code, message, handler}` (code
+  `$defs.serverErrorCode`: rateLimit / validation / server from the error's
+  type, rejected for a handler's `{message}` refusal; handler = the c2s
+  event, null when unknown). Both copies carry the same handler, so a
+  client reading both channels (iOS 1.2's ServerErrorDeduper drops the
+  second copy only on equal handlers) shows one failure once: a refusal's
+  `error` is `{message, handler}` (contract variant `rejected`, additive:
+  1.1.0's routeTableError and web act only on playCard / playerBid /
+  requestSnapshot, which no refusal names), and the wrappers report the
+  registered `socket.on` name (errorHandler `options.event`: mainRoomChat /
+  lobbyChat / tournamentChat, not their shared chatMessage schema and
+  rate-limit key; clientHello, not its function `handle`) on every path.
+  Every emit site uses it (the
+  wrappers, ~45 handler refusals, chat's `sendError`); only the dead
+  `withValidation` does not. Constants: web `SERVER_EVENTS.SERVER_ERROR`,
+  Swift `SocketEvents.Server.serverError` (appended to Connection). The
+  iOS fixture `events-humans-s13` now records the twin; the iOS test
+  harness (ServerEventDecodingTests, ReplayHarness, RecordedGame) skips it
+  like spectatorsUpdated, since 1.1.0 registers no handler. Test:
+  `serverError.test.js`.
 - **Prerequisite of Phase B:** the new iOS build listens to `serverError`
   (not only `clientEvent: .error`); otherwise dropping `error` silently loses
   the iOS error toast. Same for web.
@@ -80,6 +106,15 @@ One PR per entry:
   Delete withValidation and the variant with this entry.
 
 ### 2. The matchmaking queue
+
+**Done 2026-11-11 (PR #TBD).** Gone: c2s `joinQueue` / `leaveQueue` /
+`getLobbies` (handlers, registrations, Joi and rate-limit entries), s2c
+`queueUpdate`, `GameManager.queue` / `queuedUsers` / `joinQueue` /
+`leaveQueue` / `addPlayerToLobby` / `fillLobbyFromQueue` /
+`getQueueStatus`, the merge lock's joinQueue refusal and the `lobbyCreated`
+`withoutName` variant (`lobbiesUpdated` now goes only to the main room).
+`queueHandlers.js` keeps only `handleDisconnect`. Re-checked first: no
+sender or listener in 1.1.0 (f05d264) or web on main.
 
 - `queueUpdate` (only from `queueHandlers.leaveQueue`); c2s `joinQueue`,
   `leaveQueue`, `getLobbies` (status `unsent`: no client sends them);
@@ -100,6 +135,12 @@ One PR per entry:
   apps back into their game) until the old app is gone.
 
 ### 4. s2c `joinMainRoom`
+
+**Done 2026-11-11 (PR #TBD).** Both emits are gone; the /leave answer is
+`leftGame` alone (both clients go back to the main room on it and send the
+c2s `joinMainRoom` themselves, which stays). Re-checked first: no listener
+in 1.1.0 (f05d264: only `LobbyEmitter.joinMainRoom` emits it) or web on
+main.
 
 - Emit sites: `seatLifecycle.leaveSeat` (watch view), `chatHandlers.spectatorCommand` (/leave).
 - Consumers: none in either client. Drop it.
@@ -168,11 +209,28 @@ decoded but never read. Web (item 16) does not render from v2 yet.
 
 ### 10. `cardPlayed.trump` → `trumpBroken`; drop `playerId`
 
+**Done 2026-11-11 (PR #TBD), two commits:** first `trumpBroken` is sent
+beside `trump` (the reservation was for 1.0.0 only), then `trump` and
+`playerId` are dropped: cardPlayed is `{card, position, trumpBroken,
+resumeInMs?, seq}` (`GameState.cardPlayedPayload(card, position)`).
+Re-checked first: 1.1.0 (f05d264) `WirePayloads.CardPlayed` decodes both
+names and `TableReducer+Events` takes `trumpBroken ?? trump`; web
+`GameState.applyCardPlayed` reads either; neither reads `playerId` (1.1.0's
+`playerId` is its own socket id, from AuthSocketHandler). iOS event
+fixtures re-recorded; web `soloPacing.test.js` tells bot leads by seat.
+
 `trump` is a Bool meaning "trump is broken" (iOS GameSocketHandler.swift:531
 reads `trumpBroken` first, then `trump`). Rename in the new builds; drop
 `playerId` (a socket id).
 
 ### 11. `bidReceived.bid` always a string; `bidArray` → v2
+
+**Done 2026-11-11 (PR #TBD), the string half:** the echo is the
+normalized bid string (`bidString`, the value `bidArray` already holds);
+`$defs.bidWire` is gone. c2s `playerBid.bid` still takes an Int (1.1.0
+sends one for every numeric bid; `bid13.test.js` pins the Int -> string
+round trip through Joi and the handler). `bidArray` stays (web and 1.1.0
+read it). iOS event fixtures re-recorded.
 
 iOS sends numeric bids as Int and the server echoes them (`$defs.bidWire`;
 not an audit finding: ctr-22 is iOS feature work, out of scope). v2
@@ -180,12 +238,29 @@ not an audit finding: ctr-22 is iOS feature work, out of scope). v2
 
 ### 12. `chatMessage`: keep one of `isSpectator` / `type`
 
+**Done 2026-11-11 (PR #TBD): `isSpectator` kept, `type` dropped** (human
+and bot chat). Re-checked first: web's onChatMessage and its spectator
+bubble (#220) route on `isSpectator` only; 1.1.0 (f05d264) reads
+`isSpectator ?? (type == "spectator")` in TableReducer+Events and
+`ChatMessage.from` (lobby / tournament lines, which never carried `type`)
+defaults a missing `type` to player and lets `isSpectator` win. The iOS
+event fixtures and `contract/fixtures/web/spectator-chat.json` were
+re-recorded (only `type` left them).
+
 Web reads `isSpectator` (main.js:3217); the App Store iOS build reads `type`
 (ChatSocketHandler.swift at cc9059f) and the new iOS build reads
 `isSpectator ?? (type == 'spectator')` (TableReducer+Events.swift). Item 8
 sends both; once the App Store build is gone either can go.
 
 ### 13. `mainRoomJoined.recentMessages`
+
+**Done 2026-11-11 (PR #TBD).** The main-room handlers (joinMainRoom,
+leaveLobby, a tournament's sendToMainRoom) send `messages` only; the
+upgrade gate's 1.0.0-only payload (`upgradeGate.sendMainRoom`) keeps
+`recentMessages`, so the property stays in the schema, optional (baseline:
+no longer required). Re-checked first: 1.1.0 (f05d264) LobbySocketHandler
+reads `recentMessages ?? messages`, web reads `messages`. Test:
+`mainRoomJoined.test.js`.
 
 Duplicates `messages`; iOS reads `recentMessages` first with `messages` as the
 fallback (LobbySocketHandler.swift:33). Drop once the old app is gone.
@@ -198,10 +273,18 @@ today), `players[].socketId` in the legacy states.
 
 ### 15. `rejoinFailed.debug.playersInGame`
 
+**Done 2026-11-11 (PR #TBD).** rejoinFailed is `{reason}` only; the names
+stay in the server's debug log. Test: `v1LeakFixes.test.js`.
+
 Leaks usernames to whoever asks. Safe for both clients now (neither reads
 `debug`), so this one may move earlier if the owner agrees.
 
 ### 16. Lobby players' `personality`
+
+**Done 2026-11-11 (PR #TBD).** `$defs.lobbyMember` has no `personality`;
+the server keeps it in `lobby.botPersonalities` (by bot socket id,
+`GameManager.lobbyBotPersonality`) for the reveal at game start. Test:
+`v1LeakFixes.test.js`.
 
 Leaks a bot's real personality name before the game starts (the lobby shows
 "🤖 Bot"). Drop from lobby payloads.
@@ -212,6 +295,20 @@ No listener in either client today (constants added in item 8). Handle it in
 the new builds (show "server restarting") or drop it.
 
 ### 18. Hardening that could reject inputs
+
+**Done 2026-11-11 (PR #TBD).** Joi schemas (`server/socket/validators.js`):
+`joinLobby {lobbyId: uuid}` and `removeBot {botSocketId: 'bot:...'}` (both
+now `syncHandler`), `searchPlayers {query <= 500}`, `getPlayerProfile
+{username 1-100}` (their wrappers already named them), and the four voice
+relays, checked inside voiceHandlers after the peer check so a bad one is
+dropped silently (contract key `joiInHandler`; `joi` stays null for them).
+The shared-room relay check was already in place (#211:
+`voiceHandlers.authorize`). `GameManager.removeBotFromLobby` also refuses a
+human member's socket id (before, any lobby member could remove another by
+the socket id the lobby list shows). Payloads checked against what web on
+main and 1.1.0 (f05d264 LobbyEmitter / VoiceEmitter: `username: ""`,
+`sdpMid: ""`) send; the iOS fixture logs carry no c2s lobby or voice
+events. Tests: `v1Hardening.test.js`, `voiceSignaling.test.js`.
 
 Joi schemas for `searchPlayers`, `getPlayerProfile`, `joinLobby`,
 `removeBot` and the voice relays (`voiceOffer`, `voiceAnswer`,
@@ -267,6 +364,11 @@ baseline edit, since cc865b4 had them), the web constants
 `VOICE_RELAY_AUDIO` (legacyConstants pins them: update the golden) and the
 relay cases of voiceSignaling.test.js. Precondition: one day after the TURN
 deploy (no tab can still hold the old bundle in practice).
+
+**Not run 2026-11-11** with the "safe now" steps: the TURN deploy (#213)
+merged 2026-11-11 10:46 PST, so the one-day window ends 2026-11-12 10:46
+PST. (1.1.0 never sent it; the blocker is the cached web bundle.) #18 gave
+it a Joi schema meanwhile; remove that with the handler.
 
 ## iOS TURN (next App Store release, roadmap 29 track; not a removal)
 
@@ -357,13 +459,13 @@ synthesized Decodable that skips unknown keys). The next iOS build needs:
 - **Re-sending `mainRoomPlayerJoined` on leave.** Would fix the stale online
   count on both current clients, but changes the event's meaning. Item 8 sends
   the new `mainRoomPlayerLeft` instead (current builds keep a stale count).
-- **Normalizing `bidReceived.bid` to a string** (see #11).
+- **Normalizing `bidReceived.bid` to a string** (see #11): done 2026-11-11.
 - **Draw-phase rejoin** (contract/README.md "Draw-phase rejoin"): stays
   refused; a future opt-in `rejoinGame {protocol: 2}` → entrant re-key →
   `stateSnapshot`, never replaying v1 draw events.
 - **`seq` on private emits.** Not needed: Socket.IO keeps per-socket order and
   snapshots carry seq.
-- **`serverError` dual emit** (#1 phase A).
+- **`serverError` dual emit** (#1 phase A): done 2026-11-11.
 
 ## Plan after the gate (2026-11-11): re-checked against 1.1.0 and web
 
@@ -376,19 +478,21 @@ step, in this order; nothing is removed by the gate PR itself.
 
 1. **#15 `rejoinFailed.debug`** and **#16 lobby players' `personality`**:
    neither client reads them (1.1.0 only *sends* `addBot {personality}`).
-   Pure leak fixes, smallest PR.
+   Pure leak fixes, smallest PR. **Done 2026-11-11 (PR #TBD).**
 2. **#2 the matchmaking queue** (`queueUpdate`, c2s `joinQueue` /
    `leaveQueue` / `getLobbies`, `GameManager.queue`): no sender or listener
-   in 1.1.0 or web.
-3. **#4 s2c `joinMainRoom`**: no listener in 1.1.0 or web.
+   in 1.1.0 or web. **Done 2026-11-11 (PR #TBD).**
+3. **#4 s2c `joinMainRoom`**: no listener in 1.1.0 or web. **Done
+   2026-11-11 (PR #TBD).**
 4. **#12 `chatMessage.type`**: web reads `isSpectator`, 1.1.0 reads
    `isSpectator` first (`type` was only for 1.0.0). Drop `type`, keep
-   `isSpectator`.
+   `isSpectator`. **Done 2026-11-11 (PR #TBD).**
 5. **#10 `cardPlayed.trump` → `trumpBroken`, drop `playerId`**: 1.1.0
    decodes `trumpBroken ?? trump` (WirePayloads.CardPlayed) and web
    `GameState.applyCardPlayed` reads either. `trumpBroken` is in the
    event's `reserved` list only for 1.0.0, so: lift the reservation and send
-   `trumpBroken`, then drop `trump`. `playerId` is read by neither.
+   `trumpBroken`, then drop `trump`. `playerId` is read by neither. **Done
+   2026-11-11 (PR #TBD).**
 6. **#11 `bidReceived.bid` always a string**: 1.1.0 still SENDS numeric
    bids as an Int (`GameEmitter.playerBid` → `String(bid)` →
    `LiveGameEmitter.playerBidPayload`, which turns a numeric string back into
@@ -396,19 +500,23 @@ step, in this order; nothing is removed by the gate PR itself.
    (`BidWire` in WireDecoding.swift; web `applyBid` calls `String(data.bid)`).
    So normalize only the s2c echo to a string; c2s `playerBid.bid` must keep
    accepting an Int (the contract's `{ bid: 3 }` example), or every numeric
-   bid from the App Store app is refused. Web already sends strings.
+   bid from the App Store app is refused. Web already sends strings. **Done
+   2026-11-11 (PR #TBD).**
 7. **#13 `mainRoomJoined.recentMessages`**: 1.1.0 reads `recentMessages ??
    messages` (falls back) and web reads `messages`, so the main-room handler
    can drop it; the gate's 1.0.0-only copy keeps it (variant or `added`
-   note), since 1.0.0 reads only `recentMessages` first.
+   note), since 1.0.0 reads only `recentMessages` first. **Done 2026-11-11
+   (PR #TBD).**
 8. **#18 hardening Joi**: 1.1.0 now sends `removeBot {botSocketId}` (the
    "no payload" note is 1.0.0-only) and web sends the same; the Joi schemas
    for `removeBot`, `joinLobby`, `searchPlayers`, `getPlayerProfile` and the
-   voice relays (plus the shared-room relay check) can land.
+   voice relays (plus the shared-room relay check) can land. **Done
+   2026-11-11 (PR #TBD).**
 9. **#17 `serverShutdown`**: no listener anywhere; either drop it or add the
-   "server restarting" handling in a later client build. Owner call.
+   "server restarting" handling in a later client build. Owner call (left
+   as it is 2026-11-11).
 10. **#1 phase A only** (`serverError` dual emit with `{code, message,
-    handler}`): additive, safe now.
+    handler}`): additive, safe now. **Done 2026-11-11 (PR #TBD).**
 
 **Still blocked (by what a shipped client reads):**
 

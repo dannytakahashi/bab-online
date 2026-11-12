@@ -41,6 +41,7 @@ describe('a solo game at the recorded clock', () => {
     const scene = () => page.scene;
     const seen = { cards: 0, botLeads: 0, deals: 0, onCollect: [], whileDealing: [], dealWhileCollecting: [] };
     let trickCards = 0;
+    let myPos = null; // the recorded human's seat (every other seat is a bot)
     const ff0 = page.scene.director.stats.fastForwards;
     replay.replayLog(page, log, {
       before: (e) => {
@@ -51,13 +52,15 @@ describe('a solo game at the recorded clock', () => {
           // A bot's lead (the first card after trickComplete) is the server's
           // pacing; the scripted human leads at once, which a web player
           // cannot (the hand stays dimmed until the collect lands)
-          const botLead = trickCards === 0 && String(e.data.playerId).startsWith('bot:');
+          // (cardPlayed has no playerId since V1_REMOVALS #10: by seat)
+          const botLead = trickCards === 0 && myPos !== null && e.data.position !== myPos;
           if (botLead) seen.botLeads++;
           if (botLead && s.trickManager.isCollecting()) seen.onCollect.push(e.i);
           if (s.cardManager._isDealing) seen.whileDealing.push(e.i);
           trickCards = (trickCards + 1) % 4;
         }
         if (e.event === 'gameStart' && e.data.hand) {
+          myPos = e.data.position;
           seen.deals++;
           if (s.trickManager.isCollecting()) seen.dealWhileCollecting.push(e.i);
         }

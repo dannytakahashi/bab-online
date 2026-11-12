@@ -4,8 +4,8 @@
  * handlers, stub io/sockets (gameDriver: every emit is contract-checked),
  * fake timers. Pins what the web client keys the bubble on:
  *
- *   - a pure spectator's chat: {position: null, isSpectator: true, type:
- *     'spectator'} to the room, the spectator's own socket included; one
+ *   - a pure spectator's chat: {position: null, isSpectator: true} to the
+ *     room, the spectator's own socket included; one
  *     who chats as it joins is heard before the coalesced spectatorsUpdated
  *     lists it (the badge may still be hidden: the web anchors the bubble
  *     at the layout's spot);
@@ -122,7 +122,7 @@ test('spectator chat: shapes, the early chat before the list, the watching owner
     say(t, fan, 'hello');
     const early = events(t.log, 'chatMessage');
     expect(early.map((l) => l.to)).toEqual([t.game.roomName]);
-    expect(early[0].data).toEqual({ position: null, message: 'hello', username: 'fan', isSpectator: true, type: 'spectator', seq: expect.any(Number) });
+    expect(early[0].data).toEqual({ position: null, message: 'hello', username: 'fan', isSpectator: true, seq: expect.any(Number) });
     expect(events(t.log, 'spectatorsUpdated')).toEqual([]);
     // the fan's own socket is in the room: it hears its own message
     expect(t.io.rooms.get(t.game.roomName).has(fan.id)).toBe(true);
@@ -155,11 +155,11 @@ test('spectator chat: shapes, the early chat before the list, the watching owner
         return rest;
     });
     expect(chats).toEqual([
-        { position: null, message: 'hello', username: 'fan', isSpectator: true, type: 'spectator' },
-        { position: null, message: 'me too', username: 'kim', isSpectator: true, type: 'spectator' },
-        { position: 1, message: 'gl', username: 'user1', isSpectator: false, type: 'player' },
-        { position: 2, message: 'brb', username: 'user2', isSpectator: false, type: 'player' },
-        { position: null, message: 'watching my bot', username: 'user4', isSpectator: true, type: 'spectator' },
+        { position: null, message: 'hello', username: 'fan', isSpectator: true },
+        { position: null, message: 'me too', username: 'kim', isSpectator: true },
+        { position: 1, message: 'gl', username: 'user1', isSpectator: false },
+        { position: 2, message: 'brb', username: 'user2', isSpectator: false },
+        { position: null, message: 'watching my bot', username: 'user4', isSpectator: true },
     ]);
 
     const recording = { note: 'server/socket/__tests__/spectatorChat.test.js (UPDATE_WEB_FIXTURES=1 rewrites it)', room: roomSequence(t) };

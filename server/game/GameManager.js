@@ -1,5 +1,5 @@
 /**
- * Manages game queue and active game instances
+ * Manages the main room, lobbies, active game instances and tournaments
  * Singleton pattern for server-wide coordination
  */
 
@@ -16,10 +16,6 @@ const MERGE_LOCKED = 'This account is being updated. Please try again in a minut
 
 class GameManager {
     constructor() {
-        // Queue of players waiting for a game
-        this.queue = [];
-        this.queuedUsers = [];
-
         // Main room (global chat + lobby browser)
         this.mainRoomMessages = [];       // Global chat history (capped at MAX_MAIN_ROOM_MESSAGES)
         this.mainRoomSocketIds = new Set(); // Players currently in main room
@@ -51,7 +47,7 @@ class GameManager {
 
         // Accounts a panel merge is retiring, a panel delete is removing or
         // a panel rename is moving right now (both names; adminHandlers):
-        // they cannot sign in, restore, rejoin, queue, open or join a lobby
+        // they cannot sign in, restore, rejoin, open or join a lobby
         // or a tournament (and a rename's new name cannot be signed up)
         // until it is done
         this.mergeLocks = new Set();
@@ -135,107 +131,6 @@ class GameManager {
             }
         }
         return null;
-    }
-
-    /**
-     * Add player to lobby (creates one immediately or joins existing)
-     */
-    joinQueue(socketId) {
-        if (this._mergeLockedUser(socketId)) return { success: false, error: MERGE_LOCKED };
-        // Check if already in lobby
-        if (this.playerLobbies.has(socketId)) {
-            return { success: false, error: 'Already in lobby' };
-        }
-
-        // Check if already in game
-        if (this.playerGames.has(socketId)) {
-            return { success: false, error: 'Already in game' };
-        }
-
-        // Verify user is registered (prevents race condition with auth)
-        const user = this.getUserBySocketId(socketId);
-        if (!user) {
-            return { success: false, error: 'User not registered yet' };
-        }
-
-        // Re-entry from a new socket (half-open reconnect): the user's seat
-        // moves to this socket, full lobby or not
-        const stale = this.findStaleLobbySeat(user.username, socketId);
-        if (stale) {
-            const takeover = this.takeOverLobbySeat(socketId, stale.lobby.id);
-            return {
-                success: true,
-                lobbyCreated: false,
-                joinedExisting: true,
-                lobby: takeover.lobby,
-                players: takeover.lobby.players.map(p => p.socketId),
-                replacedSocketId: takeover.replacedSocketId
-            };
-        }
-
-        // Find an existing open lobby (less than 4 players)
-        let openLobby = null;
-        for (const [lobbyId, lobby] of this.lobbies) {
-            if (lobby.players.length < 4) {
-                openLobby = lobby;
-                break;
-            }
-        }
-
-        if (openLobby) {
-            // Join existing lobby
-            const result = this.addPlayerToLobby(socketId, openLobby.id);
-            return {
-                success: true,
-                lobbyCreated: false,
-                joinedExisting: true,
-                lobby: openLobby,
-                players: openLobby.players.map(p => p.socketId)
-            };
-        } else {
-            // Create new lobby with just this player
-            const lobby = this.createLobby([socketId]);
-            return {
-                success: true,
-                lobbyCreated: true,
-                lobby,
-                players: [socketId]
-            };
-        }
-    }
-
-    /**
-     * Add a player to an existing lobby
-     */
-    addPlayerToLobby(socketId, lobbyId) {
-        const lobby = this.lobbies.get(lobbyId);
-        if (!lobby) return { success: false, error: 'Lobby not found' };
-        if (lobby.players.length >= 4) return { success: false, error: 'Lobby is full' };
-
-        const user = this.getUserBySocketId(socketId);
-        const newPlayer = {
-            socketId,
-            username: user?.username || 'Unknown',
-            ready: false
-        };
-
-        lobby.players.push(newPlayer);
-        this.playerLobbies.set(socketId, lobbyId);
-
-        return { success: true, lobby, newPlayer };
-    }
-
-    /**
-     * Remove player from queue
-     */
-    leaveQueue(socketId) {
-        const index = this.queue.indexOf(socketId);
-        if (index !== -1) {
-            this.queue.splice(index, 1);
-            this.queuedUsers = this.queuedUsers.filter(u => u.socketId !== socketId);
-            return { success: true, queuedUsers: this.queuedUsers };
-        }
-        return { success: false };
     }
 
     // ==================== MAIN ROOM METHODS ====================
@@ -527,7 +422,10 @@ class GameManager {
     // ==================== LOBBY METHODS ====================
 
     /**
-     * Create a new lobby with 4 players
+     * Create an unnamed lobby holding `playerSocketIds` (no checks). Tests
+     * and harnesses build lobbies with it; players open one with
+     * createNamedLobby (the matchmaking queue that also used it is gone:
+     * V1_REMOVALS #2).
      */
     createLobby(playerSocketIds) {
         const lobbyId = uuidv4();
@@ -554,11 +452,6 @@ class GameManager {
         playerSocketIds.forEach(socketId => {
             this.playerLobbies.set(socketId, lobbyId);
         });
-
-        // Clear queued users who are now in lobby
-        this.queuedUsers = this.queuedUsers.filter(
-            u => !playerSocketIds.includes(u.socketId)
-        );
 
         return lobby;
     }
@@ -689,33 +582,6 @@ class GameManager {
     }
 
     /**
-     * Try to fill an empty lobby slot from the queue
-     */
-    fillLobbyFromQueue(lobbyId) {
-        const lobby = this.lobbies.get(lobbyId);
-        if (!lobby || lobby.players.length >= 4) return null;
-
-        // Get next player from queue
-        if (this.queue.length === 0) return null;
-
-        const socketId = this.queue.shift();
-        const user = this.getUserBySocketId(socketId);
-
-        // Remove from queuedUsers
-        this.queuedUsers = this.queuedUsers.filter(u => u.socketId !== socketId);
-
-        // Add to lobby
-        lobby.players.push({
-            socketId,
-            username: user?.username || 'Unknown',
-            ready: false
-        });
-        this.playerLobbies.set(socketId, lobbyId);
-
-        return { socketId, username: user?.username };
-    }
-
-    /**
      * Convert lobby to game when all players are ready
      */
     startGameFromLobby(lobbyId) {
@@ -773,10 +639,14 @@ class GameManager {
             return { success: false, error: 'Lobby is full' };
         }
 
-        // Pick a random personality not already in this lobby
+        // Pick a random personality not already in this lobby. It stays
+        // server-side (lobby.botPersonalities, by bot socket id): the lobby
+        // shows "🤖 Bot" and lobby payloads never carry it (V1_REMOVALS #16)
+        if (!lobby.botPersonalities) lobby.botPersonalities = new Map();
         const usedPersonalities = lobby.players
-            .filter(p => p.isBot && p.personality)
-            .map(p => p.personality);
+            .filter(p => p.isBot)
+            .map(p => lobby.botPersonalities.get(p.socketId))
+            .filter(Boolean);
         const available = PERSONALITY_LIST.filter(p => !usedPersonalities.includes(p));
         const personality = available[Math.floor(Math.random() * available.length)];
 
@@ -788,19 +658,25 @@ class GameManager {
         // Create bot with generic lobby name
         const bot = botController.createBot(lobbyName, personality);
 
-        // Add bot to lobby as a player (personality stored for name reveal at game start)
+        // Add bot to lobby as a player (personality kept for the name
+        // reveal at game start: lobbyBotPersonality)
         const botPlayer = {
             socketId: bot.socketId,
             username: bot.username,
             ready: false,
-            isBot: true,
-            personality
+            isBot: true
         };
+        lobby.botPersonalities.set(bot.socketId, personality);
 
         lobby.players.push(botPlayer);
         // Don't add to playerLobbies since bots don't have real sockets
 
         return { success: true, botPlayer, lobby, bot };
+    }
+
+    /** The personality of a lobby bot (server-side only; 'mary' if unknown). */
+    lobbyBotPersonality(lobby, botSocketId) {
+        return lobby?.botPersonalities?.get(botSocketId) || 'mary';
     }
 
     /**
@@ -815,7 +691,8 @@ class GameManager {
             return { success: false, error: 'Lobby not found' };
         }
 
-        const botIndex = lobby.players.findIndex(p => p.socketId === botSocketId);
+        // Bots only: a lobby payload lists every member's socket id
+        const botIndex = lobby.players.findIndex(p => p.socketId === botSocketId && p.isBot);
         if (botIndex === -1) {
             return { success: false, error: 'Bot not found in lobby' };
         }
@@ -823,6 +700,7 @@ class GameManager {
         // Remove bot
         lobby.players.splice(botIndex, 1);
         lobby.readyPlayers.delete(botSocketId);
+        lobby.botPersonalities?.delete(botSocketId);
 
         // Reset all ready states when someone leaves
         lobby.readyPlayers.clear();
@@ -874,11 +752,6 @@ class GameManager {
         }));
 
         this.games.set(gameId, game);
-
-        // Clear queued users who are now in game
-        this.queuedUsers = this.queuedUsers.filter(
-            u => !playerSocketIds.includes(u.socketId)
-        );
 
         return game;
     }
@@ -1140,16 +1013,6 @@ class GameManager {
             });
         }
         return games;
-    }
-
-    /**
-     * Get queue status
-     */
-    getQueueStatus() {
-        return {
-            size: this.queue.length,
-            queuedUsers: this.queuedUsers
-        };
     }
 
     // ==================== ACTIVE GAME TRACKING ====================

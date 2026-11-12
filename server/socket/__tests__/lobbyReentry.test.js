@@ -172,7 +172,7 @@ describe('re-entering a pre-game lobby from a new socket', () => {
         const eve = await w.connect(`eve${seq}`);
         const from2 = w.log.length;
         mainRoomHandlers.joinLobby(eve, w.io, { lobbyId });
-        expect(w.to(eve.id, from2).map((l) => [l.event, l.data?.message])).toEqual([['error', 'Lobby is full']]);
+        expect(w.to(eve.id, from2).map((l) => [l.event, l.data?.message])).toEqual([['error', 'Lobby is full'], ['serverError', 'Lobby is full']]);
         expect(seats(lobby)).toEqual(names);
     });
 
@@ -193,7 +193,7 @@ describe('re-entering a pre-game lobby from a new socket', () => {
         // The old socket can no longer ready on the seat's behalf
         const from = w.log.length;
         lobbyHandlers.playerReady(ann1, w.io);
-        expect(w.to(ann1.id, from).map((l) => [l.event, l.data?.message])).toEqual([['error', 'Not in a lobby']]);
+        expect(w.to(ann1.id, from).map((l) => [l.event, l.data?.message])).toEqual([['error', 'Not in a lobby'], ['serverError', 'Not in a lobby']]);
         expect(lobby.readyPlayers.has(ann1.id)).toBe(false);
     });
 
@@ -249,24 +249,6 @@ describe('re-entering a pre-game lobby from a new socket', () => {
         await jest.advanceTimersByTimeAsync(pacing().PREDRAW_COUNTDOWN_MS);
         expect(game.stage).toBe(Phase.DRAWING);
         await Promise.all(starting);
-    });
-
-    test('joinQueue from the new socket takes the seat back, even in a full lobby', async () => {
-        const w = world();
-        const names = [`ann${seq}`, `bob${seq}`, `cat${seq}`, `dan${seq}`];
-        const { socks, lobbyId, lobby } = await lobbyOf(w, names);
-
-        const bob2 = await w.connect(names[1]);
-        const from = w.log.length;
-        await queueHandlers.joinQueue(bob2, w.io);
-
-        expect(seats(lobby)).toEqual(names);
-        expect(lobby.players[1].socketId).toBe(bob2.id);
-        expect(gameManager.playerLobbies.get(bob2.id)).toBe(lobbyId);
-        expect(gameManager.playerLobbies.has(socks[1].id)).toBe(false);
-        expect(w.to(bob2.id, from).map((l) => l.event)).toContain('lobbyCreated');
-        expect(w.to(socks[1].id, from).map((l) => l.event)).toEqual(['leftLobby']);
-        expect(gameManager.lobbies.size).toBe(1);
     });
 
     test('creating or joining another lobby gives up the seat held from the old socket', async () => {

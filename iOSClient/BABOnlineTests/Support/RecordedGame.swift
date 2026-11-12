@@ -83,8 +83,9 @@ struct ReducerReplay {
         switch e.event {
         case "voicePeerJoined", "voicePeerList":
             return
-        case "spectatorsUpdated":
+        case "spectatorsUpdated", "serverError":
             // no handler in the app yet (as in the App Store build): unsequenced, so skipping it moves no seq
+            // (serverError: the additive twin of 'error', V1_REMOVALS #1 phase A)
             return
         case "tournamentGameAssignment":
             let d = e.data as? [String: Any]

@@ -364,7 +364,7 @@ class BotController {
             game.isTrumpBroken = true;
         }
 
-        game.broadcast(io, 'cardPlayed', game.cardPlayedPayload(bot.socketId, card, bot.position));
+        game.broadcast(io, 'cardPlayed', game.cardPlayedPayload(card, bot.position));
 
         // Notify all bots about this card play
         this.notifyCardPlayed(game.gameId, card, bot.position, game.trump, game.leadPosition);
@@ -445,10 +445,8 @@ class BotController {
                 position: bot.position,
                 message,
                 username: bot.username,
-                // additive: same shape as human chat (web treats a missing
-                // isSpectator as false; iOS reads type)
-                isSpectator: false,
-                type: 'player'
+                // same shape as human chat
+                isSpectator: false
             });
         }, delay);
 

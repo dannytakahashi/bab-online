@@ -23,7 +23,9 @@
  *     fail closed, while it is loaded);
  *   - the sender is inside the event's per-socket rate limit
  *     (rateLimiter keys voiceOffer, voiceAnswer, voiceIceCandidate,
- *     voiceRelayAudio; checked here, so the wrapper stays safeHandler).
+ *     voiceRelayAudio; checked here, so the wrapper stays safeHandler);
+ *   - the payload passes its Joi schema (validators.schemas.voiceOffer,
+ *     ... ; V1_REMOVALS #18), also checked here.
  * Anything else is dropped silently: the contract has no rejection event
  * for voice and both clients treat a lost signal as a peer that never
  * answers.
@@ -32,6 +34,7 @@
 const { socketLogger } = require('../utils/logger');
 const gameManager = require('../game/GameManager');
 const { rateLimiter } = require('./errorHandler');
+const { validate } = require('./validators');
 const turnCredentials = require('../voice/turnCredentials');
 
 /** Largest relayed PCM chunk (web sends 4096 input frames as 8 kHz Int16: <= 8 KB). */
@@ -116,10 +119,24 @@ function authorize(socket, io, event, targetSocketId) {
     return target;
 }
 
+/**
+ * `data` checked against the event's Joi schema, or null: a malformed
+ * signal is dropped silently like every other refusal (never error).
+ */
+function checked(socket, event, data) {
+    try {
+        return validate(event, data);
+    } catch (_) {
+        socketLogger.debug('Voice signal dropped', { event, from: socket.id, reason: 'invalid' });
+        return null;
+    }
+}
+
 function voiceOffer(socket, io, data) {
     const { targetSocketId, offer } = data || {};
     if (!targetSocketId || !offer) return;
     if (!authorize(socket, io, 'voiceOffer', targetSocketId)) return;
+    if (!checked(socket, 'voiceOffer', data)) return;
 
     // Look up username server-side — don't trust client payload
     const user = gameManager.getUserBySocketId(socket.id);
@@ -135,6 +152,7 @@ function voiceAnswer(socket, io, data) {
     const { targetSocketId, answer } = data || {};
     if (!targetSocketId || !answer) return;
     if (!authorize(socket, io, 'voiceAnswer', targetSocketId)) return;
+    if (!checked(socket, 'voiceAnswer', data)) return;
 
     io.to(targetSocketId).emit('voiceAnswer', {
         fromSocketId: socket.id,
@@ -146,6 +164,7 @@ function voiceIceCandidate(socket, io, data) {
     const { targetSocketId, candidate } = data || {};
     if (!targetSocketId || !candidate) return;
     if (!authorize(socket, io, 'voiceIceCandidate', targetSocketId)) return;
+    if (!checked(socket, 'voiceIceCandidate', data)) return;
 
     io.to(targetSocketId).emit('voiceIceCandidate', {
         fromSocketId: socket.id,
@@ -172,6 +191,7 @@ function voiceRelayAudio(socket, io, data) {
     const { targetSocketId, audio } = data || {};
     if (!targetSocketId || !isRelayChunk(audio)) return;
     if (!authorize(socket, io, 'voiceRelayAudio', targetSocketId)) return;
+    if (!checked(socket, 'voiceRelayAudio', data)) return;
 
     io.to(targetSocketId).emit('voiceRelayAudio', {
         fromSocketId: socket.id,

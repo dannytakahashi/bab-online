@@ -1145,7 +1145,6 @@ describe('actions', () => {
                     expect(gameManager.getUserBySocketId(r.id)).toBeUndefined();
                     // a socket registered as Cy some other way still cannot start anything
                     const z = w.user(`adm-z-${n}`, 'Cy', { db: false });
-                    expect(gameManager.joinQueue(z.id)).toMatchObject({ success: false });
                     expect(gameManager.createNamedLobby(z.id, 'x')).toMatchObject({ success: false });
                     expect(gameManager.createTournament(z.id, 't')).toMatchObject({ success: false });
                     gameManager.removeUserSocket(z.id);

@@ -357,7 +357,7 @@ describe('R8/R9 the newest socket owns the seat (#181 nit)', () => {
         expect(selfEvents(t, s1).filter((e) => e === 'leftGame')).toHaveLength(1);
         expect(gameManager.spectatorGames.has(s1.id)).toBe(false);
         gameManager.registerUser(s1.id, 'user2'); // s2 took the user entry
-        expect(gameManager.joinQueue(s1.id).success).toBe(true);
+        expect(gameManager.createNamedLobby(s1.id).success).toBe(true);
         gameManager.leaveLobby(s1.id);
 
         chat(t, 2, '/active', s2);
@@ -427,7 +427,8 @@ describe('R11/R12 lazy bots are ordinary BotController bots (srv-15)', () => {
         await jest.advanceTimersByTimeAsync(5000);
         const played = events(u.log, 'cardPlayed');
         expect(played).toHaveLength(1);
-        expect(played[0].data).toMatchObject({ playerId: uBot, position: 1 });
+        expect(played[0].data).toMatchObject({ position: 1 });
+        expect(u.game.positions[1]).toBe(uBot); // the lazy bot played it
     });
 });
 
@@ -480,8 +481,6 @@ describe('R16-R19 watchers', () => {
         await Promise.all(pending);
         expect(events(t.log, 'gameEnd')).toHaveLength(1);
         expect(gameManager.playerGames.has(w.id)).toBe(false);
-        expect(gameManager.joinQueue(w.id).success).toBe(true);
-        gameManager.leaveLobby(w.id);
         expect(gameManager.createNamedLobby(w.id).success).toBe(true);
         gameManager.leaveLobby(w.id);
     });
@@ -495,7 +494,7 @@ describe('R16-R19 watchers', () => {
         expect(t.game.seat(1)).toMatchObject({ controller: 'resignBot', presence: 'connected', ownerView: 'watch' });
         expect(() => chat(t, 1, '/leave', w)).not.toThrow();
         expect(t.game.seat(1).presence).toBe('gone');
-        expect(selfEvents(t, w).filter((e) => e === 'leftGame' || e === 'joinMainRoom')).toEqual(['leftGame', 'joinMainRoom']);
+        expect(selfEvents(t, w).filter((e) => e === 'leftGame' || e === 'joinMainRoom')).toEqual(['leftGame']); // no s2c joinMainRoom (V1_REMOVALS #4)
         expect(aborts(t)).toHaveLength(0); // seat 2 is still here
         // A gone seat cannot be rejoined
         const again = await rejoin(t, 'user1');
@@ -757,8 +756,8 @@ describe('lazy seat chat', () => {
         chat(t, 1, '/lazy');
         chat(t, 1, 'brb');
         expect(events(t.log, 'chatMessage').map((l) => l.data)).toEqual([
-            // CHANGED (snapshot v2 item, additive): + type (iOS spectator label), + seq
-            { position: 1, message: 'brb', username: 'user1', isSpectator: false, type: 'player', seq: expect.any(Number) },
+            // CHANGED (snapshot v2 item, additive): + seq; type dropped (V1_REMOVALS #12)
+            { position: 1, message: 'brb', username: 'user1', isSpectator: false, seq: expect.any(Number) },
         ]);
     });
 
@@ -768,8 +767,8 @@ describe('lazy seat chat', () => {
         const w = await rejoin(t, 'user1');
         chat(t, 1, 'back', w);
         expect(events(t.log, 'chatMessage').map((l) => l.data)).toEqual([
-            // CHANGED (snapshot v2 item, additive): + type (iOS spectator label), + seq
-            { position: null, message: 'back', username: 'user1', isSpectator: true, type: 'spectator', seq: expect.any(Number) },
+            // CHANGED (snapshot v2 item, additive): + seq; type dropped (V1_REMOVALS #12)
+            { position: null, message: 'back', username: 'user1', isSpectator: true, seq: expect.any(Number) },
         ]);
     });
 });
@@ -876,7 +875,7 @@ describe('review fixes (seat records)', () => {
         const mark = t.log.length;
         chat(t, 2, '/active', t.sockets[2]);
         expect(t.game.seatController(2)).toBe('lazyBot');
-        expect(t.log.slice(mark).filter((l) => l.to === t.sockets[2].id).map((l) => l.event)).toEqual(['error']);
+        expect(t.log.slice(mark).filter((l) => l.to === t.sockets[2].id).map((l) => l.event)).toEqual(['error', 'serverError']);
         // An ordinary spectator still gets nothing
         const fan = newSocket(t, 'fan');
         mainRoomHandlers.joinAsSpectator(fan, t.io, { gameId: t.game.gameId });

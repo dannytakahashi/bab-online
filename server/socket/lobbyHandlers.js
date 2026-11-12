@@ -5,6 +5,7 @@
 
 const gameManager = require('../game/GameManager');
 const { socketLogger } = require('../utils/logger');
+const { emitError } = require('./serverError');
 const { beginDraw } = require('./gameLifecycle');
 const { delay } = require('../utils/timing');
 const pacing = require('../game/pacing');
@@ -18,7 +19,7 @@ async function playerReady(socket, io) {
     const result = gameManager.setPlayerReady(socket.id);
 
     if (!result.success) {
-        socket.emit('error', { message: result.error });
+        emitError(socket, { message: result.error }, 'playerReady');
         return;
     }
 
@@ -67,8 +68,9 @@ async function playerReady(socket, io) {
             // Register bots with bot controller (reveal real personality names)
             for (const player of lobby.players) {
                 if (player.isBot) {
-                    const realName = `🤖 ${getDisplayName(player.personality)}`;
-                    const bot = botController.createBot(realName, player.personality);
+                    const personality = gameManager.lobbyBotPersonality(lobby, player.socketId);
+                    const realName = `🤖 ${getDisplayName(personality)}`;
+                    const bot = botController.createBot(realName, personality);
                     bot.socketId = player.socketId; // Use existing socket ID
                     botController.registerBot(game.gameId, bot);
                 }
@@ -148,7 +150,7 @@ function playerUnready(socket, io) {
     const result = gameManager.unsetPlayerReady(socket.id);
 
     if (!result.success) {
-        socket.emit('error', { message: result.error });
+        emitError(socket, { message: result.error }, 'playerUnready');
         return;
     }
 
@@ -177,7 +179,7 @@ function leaveLobby(socket, io) {
     const result = gameManager.leaveLobby(socket.id);
 
     if (!result.success) {
-        socket.emit('error', { message: result.error });
+        emitError(socket, { message: result.error }, 'leaveLobby');
         return;
     }
 
@@ -194,7 +196,6 @@ function leaveLobby(socket, io) {
     socket.emit('leftLobby', {});
     socket.emit('mainRoomJoined', {
         messages: mainRoomResult.messages,
-        recentMessages: mainRoomResult.messages, // iOS reads this key
         lobbies: mainRoomResult.lobbies,
         onlineCount: onlineUsers.length,
         onlineUsers,
@@ -298,19 +299,19 @@ function addBot(socket, io) {
     const lobby = gameManager.getPlayerLobby(socket.id);
 
     if (!lobby) {
-        socket.emit('error', { message: 'Not in a lobby' });
+        emitError(socket, { message: 'Not in a lobby' }, 'addBot');
         return;
     }
 
     if (lobby.players.length >= 4) {
-        socket.emit('error', { message: 'Lobby is full' });
+        emitError(socket, { message: 'Lobby is full' }, 'addBot');
         return;
     }
 
     const result = gameManager.addBotToLobby(lobby.id);
 
     if (!result.success) {
-        socket.emit('error', { message: result.error });
+        emitError(socket, { message: result.error }, 'addBot');
         return;
     }
 
@@ -347,14 +348,14 @@ function removeBot(socket, io, data) {
     const lobby = gameManager.getPlayerLobby(socket.id);
 
     if (!lobby) {
-        socket.emit('error', { message: 'Not in a lobby' });
+        emitError(socket, { message: 'Not in a lobby' }, 'removeBot');
         return;
     }
 
     const result = gameManager.removeBotFromLobby(lobby.id, botSocketId);
 
     if (!result.success) {
-        socket.emit('error', { message: result.error });
+        emitError(socket, { message: result.error }, 'removeBot');
         return;
     }
 
