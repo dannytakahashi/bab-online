@@ -111,7 +111,10 @@ const ACTIONS = Object.keys(ACTION_SCHEMAS);
 if (ACTIONS.join() !== require('../admin/actions').ADMIN_ACTIONS.join()) {
     throw new Error('adminHandlers: ACTION_SCHEMAS must list server/admin/actions.js ADMIN_ACTIONS in order');
 }
-const NOT_AUDITED = new Set(['listAudit']);
+// Read-only views an admin opens all the time (the Audit tab itself, the
+// Players table on every open/refresh) would bury the real actions; a
+// refused (non-admin) request is still audited above
+const NOT_AUDITED = new Set(['listAudit', 'listPlayers']);
 
 function adminDb() {
     return {

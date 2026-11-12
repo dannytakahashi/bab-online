@@ -423,7 +423,8 @@ describe('actions', () => {
         expect(res.players[3].lastSeenAt).toEqual(expect.any(String));
         expect(Object.keys(res.players[3]).sort()).toEqual(['createdAt', 'gamesPlayed', 'isAdmin', 'lastSeenAt', 'mergedInto', 'online', 'renameUnfinished', 'renamed', 'username']);
         expect(JSON.stringify(res)).not.toMatch(/\$2[ab]\$|hash|socketId|sessionToken|password/i);
-        expect(audit().pop()).toMatchObject({ actor: 'Owner', action: 'listPlayers', target: null, result: 'ok', detail: '4 of 4 account(s)' });
+        // read-only and opened constantly: not audited (a non-admin's attempt still is)
+        expect(audit().some(e => e.action === 'listPlayers')).toBe(false);
     });
 
     describe('delete from the panel', () => {
