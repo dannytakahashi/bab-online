@@ -1,9 +1,9 @@
 import CoreGraphics
 
 /// The disconnect banner ("X disconnected", "Replace with Bot"; SwiftUI) keeps
-/// off the seat avatars where the table has the room: just below the partner's
-/// seat (its glow and name), centred, at most `disconnectBannerMaxWidth`
-/// wide, when that rect is clear of every seat, the trick cards, the history,
+/// off the seat avatars where the table has the room: the highest full-width
+/// strip (centred, at most `disconnectBannerMaxWidth` wide; right under the
+/// top bar between the corner buttons on a wide window) that is clear of every seat, the trick cards, the history,
 /// HSI / voice, the hand, the corner buttons and the fold (the iPad, a tall
 /// window). On a phone the partner and the trick cluster leave no such gap
 /// (15 pt at most between the partner's glow and the top trick card, and the
@@ -19,7 +19,6 @@ extension TableLayout {
         let w = min(Self.disconnectBannerMaxWidth, safeRect.width - 2 * Self.margin)
         guard w > 0 else { return nil }
         let x = safeRect.midX - w / 2
-        let top = seatFootprint(.top).minY - Self.gap
         var keeps: [CGRect] = [Positions.RelativePosition.top, .left, .right, .bottom].map(trickRect)
         let seats: [Positions.RelativePosition] = spectating ? [.top, .left, .right, .bottom] : [.top, .left, .right]
         for r in seats { keeps.append(seatFootprint(r)); keeps.append(bubbleRect(r)) }
@@ -29,10 +28,18 @@ extension TableLayout {
             keeps.append(CGRect(x: safeRect.minX, y: safeRect.minY, width: safeRect.width, height: max(0, liftTop - safeRect.minY)))
             keeps.append(accessoryContent)
             keeps.append(myPips)
+            keeps.append(bidBand)  // never over my bid panel's buttons
         }
+        keeps.append(spectatorBadge(spectating: spectating))
         if let f = chrome.fold, !foldIgnored { keeps.append(f) }
-        let r = CGRect(x: x, y: top - h, width: w, height: h)
-        guard r.minY >= safeRect.minY, !keeps.contains(where: { Self.overlaps($0, r) }) else { return nil }
-        return r
+        // the highest clear strip: right under the top bar between the corner buttons (a wide
+        // window), else lower down (below the partner where the cluster leaves room)
+        var y = topLimit - h
+        while y >= safeRect.minY {
+            let r = CGRect(x: x, y: y, width: w, height: h)
+            if !keeps.contains(where: { Self.overlaps($0, r) }) { return r }
+            y -= 2
+        }
+        return nil
     }
 }
