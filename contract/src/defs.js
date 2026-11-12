@@ -103,13 +103,14 @@ const SPECTATOR_STATE_V1_PROPS = {
     spectatorCount: int({ minimum: 0 }),
 };
 
+// A bot's personality never reaches the wire (V1_REMOVALS #16, 2026-11-11:
+// the lobby shows "🤖 Bot"; it stays server-side until the game starts)
 const lobbyMember = obj({
     socketId: str(),
     username: str(),
     ready: bool(),
     isBot: konst(true),
-    personality: str(),
-}, { optional: ['isBot', 'personality'] });
+}, { optional: ['isBot'] });
 
 const chatLine = obj({ username: str(), message: str(), timestamp: int() });
 
@@ -119,9 +120,6 @@ const defs = {
     cardIn: obj({ suit: enm(...SUITS), rank: enm(...RANKS) }, { open: true }),
     position: int({ minimum: 1, maximum: 4 }),
     bidString: enm(...BID_STRINGS),
-    // bidReceived.bid echoes what the client sent (V1_REMOVALS #11): iOS sends an
-    // Int for numeric bids, web a string; bot bids are strings
-    bidWire: anyOf(int({ minimum: 0, maximum: 13 }), ref('bidString')),
     // playerBids after a JSON round-trip: holes are null, trailing holes absent
     bidArray: arr(orNull(ref('bidString')), { maxItems: 4 }),
     playedCards: arr(orNull(ref('card')), { maxItems: 4 }),
@@ -150,6 +148,8 @@ const defs = {
     }),
     lobbyPlayer: obj({ username: str(), ready: bool() }),
     lobbyMember,
+    // serverError.code (V1_REMOVALS #1 phase A): one list with the server
+    serverErrorCode: enm(...require('../../server/socket/serverError').CODES),
     lobbyChatLine: chatLine,
     mainRoomChatLine: chatLine,
     inProgressGame: obj({

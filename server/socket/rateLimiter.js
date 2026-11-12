@@ -51,10 +51,6 @@ class RateLimiter {
             // Custom picture uploads (each one is decoded + re-encoded)
             uploadProfilePic: { max: 5, windowMs: 60000 },
 
-            // Queue - prevent queue spam
-            joinQueue: { max: 5, windowMs: 30000 },    // 5 per 30 seconds
-            leaveQueue: { max: 5, windowMs: 30000 },   // 5 per 30 seconds
-
             // Lobby creation
             createLobby: { max: 5, windowMs: 60000 },
 

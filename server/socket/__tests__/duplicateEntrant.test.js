@@ -6,7 +6,7 @@
  * user somewhere must find the old socket's place by USERNAME:
  *
  *   lobby      joinLobby (same lobby: takeover; another: eviction),
- *              joinQueue, createLobby (#205), all with the reload grace
+ *              createLobby (#205), all with the reload grace
  *   tournament joinTournament of the same one (reattach by username),
  *              createTournament / joinTournament of ANOTHER one (fixed
  *              here: a lobby-phase membership is given up as a leave, a
@@ -105,7 +105,6 @@ const inTournaments = (username) => [...gameManager.tournaments.values()]
 describe('lobbies: every join path finds the old seat by username', () => {
     test.each([
         ['joinLobby (the same lobby)', (w, s, lobbyId) => mainRoomHandlers.joinLobby(s, w.io, { lobbyId })],
-        ['joinQueue', (w, s) => queueHandlers.joinQueue(s, w.io)],
         ['createLobby', (w, s) => mainRoomHandlers.createLobby(s, w.io, {})],
         ['joinLobby (another lobby)', (w, s, _id, other) => mainRoomHandlers.joinLobby(s, w.io, { lobbyId: other })],
     ])('%s: listed once with the old socket alive, and after it drops', async (_label, join) => {

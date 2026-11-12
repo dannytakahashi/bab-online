@@ -135,10 +135,9 @@ async function rejoinGame(socket, io, data) {
     const refuse = () => {
         const playersInGame = Array.from(game.players.values()).map(p => p.username);
         socketLogger.debug('Rejoin failed: player not in game', { username, playersInGame });
-        socket.emit('rejoinFailed', {
-            reason: 'Not a player in this game',
-            debug: { lookingFor: username, playersInGame }
-        });
+        // The names stay in the server log: rejoinFailed.debug told them
+        // to whoever asked (V1_REMOVALS #15)
+        socket.emit('rejoinFailed', { reason: 'Not a player in this game' });
     };
 
     // Before seats exist there is nothing to rejoin into yet

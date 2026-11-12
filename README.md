@@ -402,7 +402,7 @@ The iOS client uses SwiftUI for UI and SpriteKit for the game canvas:
 | Client → Server | Description |
 |-----------------|-------------|
 | `signIn` | Authenticate user |
-| `joinQueue` | Enter matchmaking / join lobby |
+| `createLobby` / `joinLobby` | Open a named lobby / join one from the main room |
 | `playerReady` | Mark ready in lobby |
 | `lobbyChat` | Send lobby chat message |
 | `leaveLobby` | Leave lobby before game starts |

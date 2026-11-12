@@ -107,18 +107,6 @@
         "4B"
       ]
     },
-    "bidWire": {
-      "anyOf": [
-        {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 13
-        },
-        {
-          "$ref": "#/$defs/bidString"
-        }
-      ]
-    },
     "bidArray": {
       "type": "array",
       "items": {
@@ -360,9 +348,6 @@
         },
         "isBot": {
           "const": true
-        },
-        "personality": {
-          "type": "string"
         }
       },
       "required": [
@@ -1146,44 +1131,6 @@
         }
       ]
     },
-    "joinQueue": {
-      "payload": {
-        "type": "object",
-        "properties": {},
-        "additionalProperties": true
-      },
-      "optionalPayload": true,
-      "status": "unsent",
-      "joi": null,
-      "rateLimit": null,
-      "sentBy": {
-        "web": false,
-        "ios": false
-      },
-      "examples": [
-        {}
-      ],
-      "notes": "Registered with safeHandler (no Joi, no rate limit). V1_REMOVALS #2."
-    },
-    "leaveQueue": {
-      "payload": {
-        "type": "object",
-        "properties": {},
-        "additionalProperties": true
-      },
-      "optionalPayload": true,
-      "status": "unsent",
-      "joi": null,
-      "rateLimit": null,
-      "sentBy": {
-        "web": false,
-        "ios": false
-      },
-      "examples": [
-        {}
-      ],
-      "notes": "Emits the deprecated queueUpdate. V1_REMOVALS #2."
-    },
     "joinMainRoom": {
       "payload": {
         "type": "object",
@@ -1270,7 +1217,7 @@
         "additionalProperties": true
       },
       "status": "active",
-      "joi": null,
+      "joi": "joinLobby",
       "rateLimit": null,
       "sentBy": {
         "web": true,
@@ -1282,24 +1229,6 @@
         }
       ],
       "notes": "No Joi schema yet (hardening: V1_REMOVALS #18)."
-    },
-    "getLobbies": {
-      "payload": {
-        "type": "object",
-        "properties": {},
-        "additionalProperties": true
-      },
-      "optionalPayload": true,
-      "status": "unsent",
-      "joi": null,
-      "rateLimit": null,
-      "sentBy": {
-        "web": false,
-        "ios": false
-      },
-      "examples": [
-        {}
-      ]
     },
     "joinAsSpectator": {
       "payload": {
@@ -1442,9 +1371,8 @@
         ],
         "additionalProperties": true
       },
-      "optionalPayload": true,
       "status": "active",
-      "joi": null,
+      "joi": "removeBot",
       "rateLimit": null,
       "sentBy": {
         "web": true,
@@ -1815,7 +1743,7 @@
         "additionalProperties": true
       },
       "status": "active",
-      "joi": null,
+      "joi": "searchPlayers",
       "rateLimit": null,
       "sentBy": {
         "web": true,
@@ -1842,7 +1770,7 @@
         "additionalProperties": true
       },
       "status": "active",
-      "joi": null,
+      "joi": "getPlayerProfile",
       "rateLimit": null,
       "sentBy": {
         "web": true,
@@ -2785,7 +2713,6 @@
         },
         "required": [
           "messages",
-          "recentMessages",
           "lobbies",
           "onlineCount",
           "onlineUsers",
@@ -2968,34 +2895,6 @@
               "players",
               "messages",
               "name"
-            ],
-            "additionalProperties": false
-          },
-          {
-            "variant": "withoutName",
-            "type": "object",
-            "properties": {
-              "lobbyId": {
-                "type": "string"
-              },
-              "players": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/$defs/lobbyMember"
-                },
-                "maxItems": 4
-              },
-              "messages": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/$defs/lobbyChatLine"
-                }
-              }
-            },
-            "required": [
-              "lobbyId",
-              "players",
-              "messages"
             ],
             "additionalProperties": false
           }
@@ -3329,35 +3228,6 @@
         "server/socket/lobbyHandlers.js:lobbyChat"
       ],
       "notes": "Sent to every lobby member, bots included (bot: ids never reach a wire)."
-    },
-    "queueUpdate": {
-      "payload": {
-        "type": "object",
-        "properties": {
-          "queuedUsers": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {},
-              "additionalProperties": true
-            }
-          }
-        },
-        "required": [
-          "queuedUsers"
-        ],
-        "additionalProperties": false
-      },
-      "status": "deprecated",
-      "to": "all",
-      "clientReads": {
-        "web": [],
-        "ios": []
-      },
-      "emittedFrom": [
-        "server/socket/queueHandlers.js:leaveQueue"
-      ],
-      "notes": "Only from the unsent leaveQueue; no listener in either client. V1_REMOVALS #2."
     },
     "startDraw": {
       "payload": {
@@ -3798,7 +3668,7 @@
         "type": "object",
         "properties": {
           "bid": {
-            "$ref": "#/$defs/bidWire"
+            "$ref": "#/$defs/bidString"
           },
           "position": {
             "$ref": "#/$defs/position"
@@ -3983,25 +3853,16 @@
       "payload": {
         "type": "object",
         "properties": {
-          "playerId": {
-            "type": "string"
-          },
           "card": {
             "$ref": "#/$defs/card"
           },
           "position": {
             "$ref": "#/$defs/position"
-          },
-          "trump": {
-            "type": "boolean",
-            "description": "trumpBroken after this card"
           }
         },
         "required": [
-          "playerId",
           "card",
-          "position",
-          "trump"
+          "position"
         ],
         "additionalProperties": false
       },
@@ -4917,25 +4778,6 @@
         "properties": {
           "reason": {
             "type": "string"
-          },
-          "debug": {
-            "type": "object",
-            "properties": {
-              "lookingFor": {
-                "type": "string"
-              },
-              "playersInGame": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              }
-            },
-            "required": [
-              "lookingFor",
-              "playersInGame"
-            ],
-            "additionalProperties": false
           }
         },
         "required": [
@@ -5067,20 +4909,6 @@
         "server/socket/chatHandlers.js:spectatorCommand",
         "server/socket/chatHandlers.js:handleDrawPhaseLeave"
       ]
-    },
-    "joinMainRoom": {
-      "payload": null,
-      "status": "deprecated",
-      "to": "self",
-      "clientReads": {
-        "web": [],
-        "ios": []
-      },
-      "emittedFrom": [
-        "server/socket/seatLifecycle.js:leaveSeat",
-        "server/socket/chatHandlers.js:spectatorCommand"
-      ],
-      "notes": "No listener in either client (V1_REMOVALS #4)."
     },
     "roomFull": {
       "payload": {

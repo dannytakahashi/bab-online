@@ -6,7 +6,8 @@ final class ServerEventDecodingTests: XCTestCase {
     /// Events the table store does not decode (voice signalling, the 'error'
     /// toast, the tournament handler's assignment: a local enterGameContext).
     /// spectatorsUpdated: unsequenced, and the app registers no handler for it yet (V1_REMOVALS "iOS spectator badge")
-    static let notStoreEvents: Set<String> = ["voicePeerJoined", "voicePeerList", "error", "tournamentGameAssignment", "spectatorsUpdated"]
+    /// serverError: the additive twin of 'error' (V1_REMOVALS #1 phase A); this build listens only to 'error'
+    static let notStoreEvents: Set<String> = ["voicePeerJoined", "voicePeerList", "error", "tournamentGameAssignment", "spectatorsUpdated", "serverError"]
 
     func testEveryRecordedEventDecodesStrictly() throws {
         var counts: [String: Int] = [:]

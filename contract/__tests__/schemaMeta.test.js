@@ -67,8 +67,9 @@ test('reserved keys are absent from their event unless activated', () => {
             expect({ name, key, present: keys.includes(key) }).toEqual({ name, key, present: false });
         }
     }
-    // cardPlayed.trump stays a Bool (it means trumpBroken)
-    expect(schema.s2c.cardPlayed.payload.properties.trump.type).toBe('boolean');
+    // cardPlayed: trumpBroken is a Bool; the old trump Bool is gone (V1_REMOVALS #10)
+    expect(schema.s2c.cardPlayed.payload.properties.trumpBroken.type).toBe('boolean');
+    expect(schema.s2c.cardPlayed.payload.properties.trump).toBeUndefined();
     // gameLogEntry: only 'system' entries may omit playerPosition
     const gle = schema.s2c.gameLogEntry.payload;
     expect(gle.properties.type.const === 'system' || (gle.required || []).includes('playerPosition')).toBe(true);
@@ -125,6 +126,7 @@ test('s2c metadata: to, emittedFrom (file:function, no line numbers), clientRead
 test('c2s metadata: joi and rateLimit name real schemas / limits', () => {
     for (const [name, e] of Object.entries(schema.c2s)) {
         if (e.joi !== null) expect({ name, joi: Object.prototype.hasOwnProperty.call(validators.schemas, e.joi) }).toEqual({ name, joi: true });
+        if (e.joiInHandler !== undefined) expect({ name, joiInHandler: e.joi === null && Object.prototype.hasOwnProperty.call(validators.schemas, e.joiInHandler) }).toEqual({ name, joiInHandler: true });
         if (e.rateLimit !== null) expect({ name, rl: Object.prototype.hasOwnProperty.call(rateLimiter.limits, e.rateLimit) }).toEqual({ name, rl: true });
         expect(typeof e.sentBy.web === 'boolean' && typeof e.sentBy.ios === 'boolean').toBe(true);
     }

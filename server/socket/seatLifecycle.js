@@ -554,14 +554,14 @@ function resignSeat(io, game, pos) {
 function leaveSeat(io, game, pos, socket) {
     const seat = game.seat(pos);
     if (seat.controller === Controller.HUMAN && !goLazy(io, game, pos)) return false;
-    const view = seat.ownerView;
     if (!game.seatLeave(pos)) return false;
     game.leaveRoom(io, socket.id);
     unmap(game, socket.id);
     // Lets them create / join new lobbies and tournaments
     gameManager.clearActiveGame(seat.ownerUsername, game.gameId);
+    // leftGame only, from either view (the watch view's extra s2c
+    // joinMainRoom had no listener: V1_REMOVALS #4)
     socket.emit('leftGame');
-    if (view === 'watch') socket.emit('joinMainRoom');
     socketLogger.info('Player left game (permanent)', { gameId: game.gameId, position: pos });
     maybeAbort(io, game);
     return true;
