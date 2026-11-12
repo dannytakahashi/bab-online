@@ -16,6 +16,13 @@
  * NODE_ENV=test default) and ON with no clientHello (invariants I3/I4 of
  * docs/avatars.md). UPDATE_WIRE_GOLDEN=1 rewrites the file — only ever at
  * fcdd885-equivalent wire behaviour.
+ *
+ * The executed contract/V1_REMOVALS.md entries change the wire on purpose,
+ * so emits, bytes and the hash are taken over the wire AFTER `v1Projection`
+ * (below), which undoes exactly those removals and nothing else: the golden
+ * then still proves every other byte and the RNG order are fcdd885's. The
+ * file was regenerated once at 71343c5 (raw wire still fcdd885's), with the
+ * projection in place, before any removal ran.
  */
 
 const fs = require('fs');
@@ -74,6 +81,41 @@ afterEach(() => {
 let CUSTOM;
 beforeAll(async () => { CUSTOM = fx.dataUrl(await fx.avatarPng(200)); });
 
+/**
+ * The wire as it is with the executed V1_REMOVALS.md entries projected
+ * away (each one names its entry). Applied to the fcdd885-equivalent wire
+ * it only drops what the removals drop, so one golden pins both.
+ */
+const V1_DROPPED_EVENTS = new Set([
+    'queueUpdate', // #2 the matchmaking queue
+    'joinMainRoom', // #4 s2c joinMainRoom
+    'serverError', // #1 phase A: the additive dual emit of app-level error
+]);
+const DROP = Symbol('dropped by a V1 removal');
+function v1Projection(event, data) {
+    if (V1_DROPPED_EVENTS.has(event)) return DROP;
+    if (!data || typeof data !== 'object') return data;
+    const d = { ...data };
+    // #16 lobby bots' personality (every lobby payload's players[])
+    if (Array.isArray(d.players)) {
+        d.players = d.players.map((p) => {
+            if (!p || typeof p !== 'object' || !('personality' in p)) return p;
+            const { personality, ...rest } = p;
+            return rest;
+        });
+    }
+    if (event === 'rejoinFailed') delete d.debug; // #15
+    if (event === 'mainRoomJoined') delete d.recentMessages; // #13
+    if (event === 'chatMessage') delete d.type; // #12 (isSpectator stays)
+    if (event === 'cardPlayed') { // #10: trump (a Bool) became trumpBroken; playerId dropped
+        const broken = 'trumpBroken' in d ? d.trumpBroken : d.trump;
+        delete d.trump; delete d.playerId; delete d.trumpBroken;
+        d.trumpBroken = broken;
+    }
+    if (event === 'bidReceived' && d.bid != null) d.bid = String(d.bid); // #11
+    return d;
+}
+
 const picClass = (p) => (typeof p === 'number' ? 'number' : typeof p === 'string' && p.startsWith('data:image') ? 'custom' : String(p));
 
 /**
@@ -122,10 +164,19 @@ async function play({ seed, opts }) {
     });
     const pu = r.wire.find((x) => x.event === 'positionUpdate');
     const hash = crypto.createHash('sha256');
-    for (const x of r.wire) hash.update(`${x.to}|${(x.members || []).join(',')}|${x.event}|${JSON.stringify(x.data)}\n`);
+    let emits = 0;
+    let bytes = 0;
+    for (const x of r.wire) {
+        const data = v1Projection(x.event, x.data);
+        if (data === DROP) continue;
+        const json = JSON.stringify(data);
+        emits++;
+        bytes += json === undefined ? 0 : Buffer.byteLength(json);
+        hash.update(`${x.to}|${(x.members || []).join(',')}|${x.event}|${json}\n`);
+    }
     const rec = {
-        emits: r.wire.length,
-        bytes: r.wire.reduce((a, x) => a + x.bytes, 0),
+        emits,
+        bytes,
         wireSha256: hash.digest('hex'),
         seatPics: pu.data.pics,
         seatPicClasses: pu.data.pics.map(picClass),

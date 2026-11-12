@@ -44,6 +44,10 @@ One PR per entry:
 3. Update `additiveOnly.test.js` expectations if needed,
    `legacyConstants.golden.json` (constants), `transcripts.test.js` and
    `wireProjection.test.js` (legacy key sets), `wireCompat.test.js` goldens.
+   `wireGolden.test.js` hashes the wire through `v1Projection`, which
+   undoes exactly the executed removals (one line each, naming its entry),
+   so the fcdd885 golden keeps pinning everything else: add the removal
+   there, never regenerate the golden for it.
 4. Verify: `npm test`, `npm run test:contract` (also `NODE_ENV=production`),
    `npm run test:client`, `npm run build`, xcodebuild, and a manual pass on
    web and the 1.1.0 iOS build against a local server (a 1.0.0 build must
