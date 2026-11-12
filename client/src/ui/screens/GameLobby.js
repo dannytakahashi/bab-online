@@ -9,6 +9,9 @@ import { generateDistinctColor } from '../../utils/colors.js';
 import { el, createButton, createIconButton, createPanel } from '../kit/index.js';
 import { chatLine, chatForm, setButtonVariant, appendChatLine, scrollChatToEnd, followChatOnResize } from './common.js';
 
+/** The lobby header's voice slot (VoiceChatUI.js places the voice buttons in it). */
+export const LOBBY_VOICE_SLOT_ID = 'lobbyVoiceSlot';
+
 /**
  * Module state.
  */
@@ -130,16 +133,23 @@ export function showGameLobby(lobbyData, socket, username) {
   currentLobbyId = lobbyData.lobbyId;
   isPlayerReady = false;
 
-  // Remove any existing game lobby
+  // Remove any existing game lobby (a re-render: a reconnect's lobbyJoined
+  // keeps the voice running, so its buttons move to the new header)
   const oldGameLobby = document.getElementById('gameLobbyContainer');
+  const voiceButtons = oldGameLobby ? [...(oldGameLobby.querySelector(`#${LOBBY_VOICE_SLOT_ID}`)?.children || [])] : [];
   if (oldGameLobby) oldGameLobby.remove();
 
   const container = createPanel({ elevation: 3, className: 'screen screen--full screen--lobby' });
   container.id = 'gameLobbyContainer';
 
+  // The voice slot (VoiceChatUI.js puts the mute and microphone buttons in
+  // it while voice runs): in the header, clear of the chat's Send in the
+  // window's bottom-right corner
+  const voiceSlot = el('div', { className: 'lobby-voice', attrs: { id: LOBBY_VOICE_SLOT_ID, role: 'group', 'aria-label': 'Voice chat' } });
+  voiceSlot.append(...voiceButtons);
   container.appendChild(el('header', {
     className: 'screen-header',
-    children: [el('h1', { className: 'screen-title screen-title--brand', text: 'Game Lobby' })],
+    children: [el('h1', { className: 'screen-title screen-title--brand', text: 'Game Lobby' }), voiceSlot],
   }));
 
   // The window's two columns (styles/screens.css .screen--full): the seats
@@ -244,7 +254,19 @@ export function addLobbyChatMessage(username, message) {
  */
 export function removeGameLobby() {
   const gameLobby = document.getElementById('gameLobbyContainer');
-  if (gameLobby) gameLobby.remove();
+  if (gameLobby) {
+    // Lobby voice carries on into its game: its buttons outlive the lobby
+    // (back to the page, until the table's HUD slot takes them, or stopVoice
+    // removes them)
+    const voiceSlot = gameLobby.querySelector(`#${LOBBY_VOICE_SLOT_ID}`);
+    if (voiceSlot) {
+      for (const btn of [...voiceSlot.children]) {
+        btn.dataset.place = 'page';
+        document.body.appendChild(btn);
+      }
+    }
+    gameLobby.remove();
+  }
   currentLobbyId = null;
   isPlayerReady = false;
   lobbyUserColors = {};

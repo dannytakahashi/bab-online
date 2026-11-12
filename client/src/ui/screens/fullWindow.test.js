@@ -176,6 +176,12 @@ function layoutProblems(css) {
     if (r['min-height'] !== '0' || r['min-width'] !== '0') problems.push(`${sel} cannot shrink (min-height / min-width 0)`);
   }
   if (rule(top, '.screen-main')['grid-area'] !== 'main') problems.push('.screen-main is not in the main area');
+  // a window too short for the content column (stacked at about 700 x 600:
+  // the lobby's seats and Ready / Add Bot / Leave): the column scrolls, its
+  // focus rings inside the clip, instead of running under the chat
+  const mainScroll = rule(top, '.screen--full > .screen-main');
+  if (mainScroll['overflow-y'] !== 'auto') problems.push('the content column does not scroll when the window is too short for it');
+  if (mainScroll.padding !== 'var(--space-1)' || mainScroll.margin !== 'calc(-1 * var(--space-1))') problems.push('the content column clips its focus rings');
   if (rule(top, '.screen-chat')['grid-area'] !== 'chat') problems.push('.screen-chat is not in the chat area');
   // what grows scrolls inside itself
   const scrollers = {
@@ -285,6 +291,8 @@ describe('fault injection: each broken guarantee is caught', () => {
     'no stacked breakpoint': () => swap('@media (max-width: 759px)', '@media (max-width: 2px)'),
     'the tournament roster cannot shrink': () => swap('.tournament-roster {\n    display: flex;\n    gap: var(--space-3);\n    flex: 0 1 auto;', '.tournament-roster {\n    display: flex;\n    gap: var(--space-3);\n    flex: none;'),
     'the standings cannot shrink': () => swap('.screen--tournament .tournament-scoreboard-wrap {\n    flex: 0 1 auto;', '.screen--tournament .tournament-scoreboard-wrap {\n    flex: none;'),
+    'the content column cannot scroll (a short stacked lobby runs under the chat)': () => swap('.screen--full > .screen-main {\n    overflow-y: auto;', '.screen--full > .screen-main {\n    overflow-y: visible;'),
+    'the content column clips its focus rings': () => swap('    padding: var(--space-1);\n    margin: calc(-1 * var(--space-1));', '    padding: 0;\n    margin: 0;'),
     'the lobby list does not scroll inside itself': () => swap('.room-list {\n    flex: 1;\n    min-height: 0;\n    overflow-y: auto;', '.room-list {\n    flex: 1;\n    min-height: 0;\n    overflow-y: visible;'),
   };
   for (const [name, mutate] of Object.entries(cases)) {

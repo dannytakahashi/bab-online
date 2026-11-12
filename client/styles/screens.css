@@ -209,6 +209,18 @@
     }
 }
 
+/* a window too short for the content column (the stacked layout's share of
+   a short window, or a short desktop window): the column scrolls inside
+   itself, so the lobby's Ready / Add Bot / Leave and the tournament's
+   controls stay reachable instead of running under the chat. The padding
+   (taken back by the margin) keeps the focus rings inside the clip */
+.screen--full > .screen-main {
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: var(--space-1);
+    margin: calc(-1 * var(--space-1));
+}
+
 .screen--queue {
     min-width: 16vw;
     text-align: center;
