@@ -171,7 +171,8 @@ private struct GameScreen: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("A bot will finish your hand for you.")
+            // the server's outcome: a bot keeps my seat, or (no other owner) the game ends
+            Text(gameState.leaveOutcome.alertMessage)
         }
         .onAppear {
             scene.configure(gameState: gameState, actions: actions)

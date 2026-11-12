@@ -568,6 +568,41 @@ describe('R16-R19 watchers', () => {
     });
 });
 
+/**
+ * What /leave from a human seat does, which the clients' Leave text says
+ * (owner, 2026-11-12: iOS's alert said a bot would finish a solo game that
+ * the server ended). iOS LeaveOutcome and the web /leave help mirror these.
+ */
+describe('/leave outcome and its log line', () => {
+    const logLines = (t, from = 0) => events(t.log.slice(from), 'gameLogEntry').map((l) => l.data.message);
+
+    test('the only human leaving a bot game ends it at once (native bots are no one)', () => {
+        const t = table({ bots: { 2: 'mary', 3: 'sharon', 4: 'danny' } });
+        chat(t, 1, '/leave');
+        expect(aborts(t).map((l) => l.data.reason)).toEqual(['All players left']);
+        expect(t.game.stage).toBe(Phase.ABORTED);
+    });
+
+    test('another owner here, or one who may come back, keeps the game: a bot plays the leaver\'s seat', async () => {
+        const t = table({ bots: { 3: 'mary', 4: 'sharon' } });
+        await drop(t, t.sockets[2]); // seat 2 in grace: returnable
+        chat(t, 1, '/leave');
+        expect(aborts(t)).toHaveLength(0);
+        expect(t.game.seat(1)).toMatchObject({ controller: 'lazyBot', presence: 'gone' });
+    });
+
+    test('the room is told the player left (not that they went lazy, which /active could undo)', () => {
+        const t = table({ bots: { 3: 'mary', 4: 'sharon' } });
+        chat(t, 1, '/leave');
+        const bot = t.game.getPlayerByPosition(1).username;
+        expect(logLines(t)).toEqual([`user1 left the game. ${bot} is playing for them.`]);
+        // /lazy keeps its own line
+        const mark = t.log.length;
+        chat(t, 2, '/lazy');
+        expect(logLines(t, mark)).toEqual([`user2 entered lazy mode. ${t.game.getPlayerByPosition(2).username} is playing.`]);
+    });
+});
+
 describe('R20 stats', () => {
     async function statsFor(setup) {
         const t = table();
