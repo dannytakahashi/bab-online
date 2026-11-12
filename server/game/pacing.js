@@ -35,9 +35,10 @@
  * game.resume = {kind, at}; the wire carries the remaining time as a
  * relative `resumeInMs` (contract/README.md), never an absolute time.
  *
- * Retuning: every non-zero profile must respect SHIPPED_IOS_FLOORS (the App
- * Store iOS build, 1.1.0 build 2, has no resumeInMs handling; pacing.test.js
- * enforces it). standard and legacy also still meet IOS_1_0_FLOORS (1.0.0,
+ * Retuning: every non-zero profile must respect SHIPPED_IOS_FLOORS (measured
+ * on 1.1.0 build 2; 1.2.0 build 4, the App Store build once MIN_IOS_BUILD is
+ * 3, has the same animation timings and also never reads resumeInMs;
+ * pacing.test.js enforces it). standard and legacy also still meet IOS_1_0_FLOORS (1.0.0,
  * cc9059f), because UPGRADE_GATE=off lets that build play again; going below
  * those needs the gate on (server/socket/upgradeGate.js). Measured budget: server/socket/__tests__/pacingBudget.test.js
  * (BAB_PACING_REPORT=1 prints the components). A 1-human/3-bot game with
