@@ -154,7 +154,6 @@
         "section": "Lobby",
         "events": [
           "lobbyCreated",
-          "lobbyJoined",
           "lobbyMessage",
           "lobbyPlayerJoined",
           "lobbyPlayerLeft",
@@ -205,7 +204,6 @@
           "playerReconnected",
           "playerAssigned",
           "abortGame",
-          "roomFull",
           "stateSnapshot"
         ]
       },
@@ -276,8 +274,7 @@
           "tournamentRoundComplete",
           "tournamentComplete",
           "tournamentLeft",
-          "tournamentCancelled",
-          "activeTournamentFound"
+          "tournamentCancelled"
         ]
       },
       {
@@ -444,7 +441,6 @@
         "section": "Lobby",
         "events": [
           "lobbyCreated",
-          "lobbyJoined",
           "lobbyMessage",
           "lobbyPlayerJoined",
           "lobbyPlayerLeft",
@@ -495,8 +491,7 @@
           "playerDisconnected",
           "playerReconnected",
           "playerAssigned",
-          "abortGame",
-          "roomFull"
+          "abortGame"
         ]
       },
       {
@@ -527,8 +522,7 @@
           "tournamentRoundComplete",
           "tournamentComplete",
           "tournamentLeft",
-          "tournamentCancelled",
-          "activeTournamentFound"
+          "tournamentCancelled"
         ]
       },
       {

@@ -106,7 +106,6 @@ export const SERVER_EVENTS = {
 
   // Lobby
   LOBBY_CREATED: 'lobbyCreated',
-  LOBBY_JOINED: 'lobbyJoined',
   LOBBY_MESSAGE: 'lobbyMessage',
   LOBBY_PLAYER_JOINED: 'lobbyPlayerJoined',
   LOBBY_PLAYER_LEFT: 'lobbyPlayerLeft',
@@ -145,7 +144,6 @@ export const SERVER_EVENTS = {
   PLAYER_RECONNECTED: 'playerReconnected',
   PLAYER_ASSIGNED: 'playerAssigned',
   ABORT_GAME: 'abortGame',
-  ROOM_FULL: 'roomFull',
   STATE_SNAPSHOT: 'stateSnapshot',
 
   // Resignation & Lazy Mode
@@ -196,7 +194,6 @@ export const SERVER_EVENTS = {
   TOURNAMENT_COMPLETE: 'tournamentComplete',
   TOURNAMENT_LEFT: 'tournamentLeft',
   TOURNAMENT_CANCELLED: 'tournamentCancelled',
-  ACTIVE_TOURNAMENT_FOUND: 'activeTournamentFound',
 
   // Voice Chat
   VOICE_OFFER: 'voiceOffer',

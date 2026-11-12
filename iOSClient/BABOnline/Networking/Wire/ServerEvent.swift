@@ -46,7 +46,6 @@ enum ServerEvent: Equatable {
     case spectatorState(WirePayload.RejoinEnvelope)
     case actionRejected(WirePayload.ActionRejected)
     case stateSnapshot(WirePayload.StateSnapshot)
-    case roomFull
 }
 
 struct SequencedEvent: Equatable {
@@ -123,7 +122,6 @@ extension ServerEvent {
             case "restorePlayerState": event = .restorePlayerState(try d(WirePayload.RejoinEnvelope.self))
             case "actionRejected": event = .actionRejected(try d(WirePayload.ActionRejected.self))
             case "stateSnapshot": event = .stateSnapshot(try d(WirePayload.StateSnapshot.self))
-            case "roomFull": event = .roomFull
             default: return .failure(.unknownEvent(name))
             }
             return .success(SequencedEvent(name: name, seq: seq, event: event))

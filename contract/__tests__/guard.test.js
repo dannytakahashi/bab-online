@@ -35,11 +35,11 @@ test('payloads are checked in wire form at push time (live refs mutated later do
 test('unknown and clientOnly events are violations; bot: targets and __markers are skipped', () => {
     const log = contractCheck.instrument([]);
     log.push({ to: 'self:s', event: 'noSuchEvent', data: {} });
-    log.push({ to: 'self:s', event: 'roomFull', data: {} });
+    log.push({ to: 'self:s', event: 'activeGameFound', data: { gameId: 'g' } });
     log.push({ to: 'bot:Bot:1', event: 'noSuchEvent', data: {} });
     log.push({ to: 'db', event: '__marker' });
     const v = contractCheck.takeViolations();
-    expect(v.map((x) => x.event)).toEqual(['noSuchEvent', 'roomFull']);
+    expect(v.map((x) => x.event)).toEqual(['noSuchEvent', 'activeGameFound']);
     expect(contractCheck.unknownEvents().has('noSuchEvent')).toBe(true);
 });
 

@@ -232,6 +232,21 @@ sender or listener in 1.1.0 (f05d264) or web on main.
   schema entries go. `activeGameFound` is kept. Test:
   `client/src/eventHandlerMap.test.js` (no listener for a `clientOnly`
   event but activeGameFound). iOS 1.2.0 still registers all four.
+- **Done 2026-11-12 (PR #TBD), after the 1.1.0 gate:** the three schema
+  entries (src + hand-edited baseline), the web `SERVER_EVENTS`
+  LOBBY_JOINED / ROOM_FULL / ACTIVE_TOURNAMENT_FOUND and the Swift
+  `SocketEvents.Server` constants (layout, legacyConstants golden), and the
+  iOS source's listeners for the next build (LobbySocketHandler lobbyJoined,
+  TournamentSocketHandler activeTournamentFound, GameSocketHandler.events /
+  ServerEvent / TableReducer roomFull). Nothing changes on the wire (the
+  server never sent them). iOS 1.2.0 (build 5, `iOSClient/` at 92d0c75)
+  keeps its four listeners (LobbySocketHandler.swift:119 lobbyJoined,
+  TournamentSocketHandler.swift:189 activeTournamentFound,
+  GameSocketHandler.swift:18 roomFull, AuthSocketHandler.swift:41
+  activeGameFound); they never fire. `activeGameFound` stays (schema, both constants, iOS
+  AuthSocketHandler, web authHandlers). Tests:
+  `contract/__tests__/v1Removed.test.js`, `eventHandlerMap.test.js`,
+  iOS `V1RemovalsTests`.
 - **CAUTION `activeGameFound`**: it is the only event that makes the shipped
   iOS app emit `rejoinGame` by itself (`AuthSocketHandler.swift:41`,
   handleActiveGameFound). Keep it as a possible server hook (e.g. to nudge old
@@ -761,7 +776,8 @@ step, in this order; nothing is removed by the gate PR itself.
   `activeTournamentFound`, `activeGameFound`): nothing to remove server
   side (never emitted); 1.1.0 still registers them and web has its own.
   Drop schema entries / constants with the next client builds. (Web's are
-  gone since 2026-11-12; activeGameFound kept.)
+  gone since 2026-11-12; activeGameFound kept. Done 2026-11-12: schema
+  entries, constants and the iOS source's listeners, #3.)
 - **#5 `gameStart.playerInfo`**: 1.1.0 reads it every deal
   (TableReducer.gameStart: names and pictures). (Web: not needed since
   2026-11-12: GameState.applyDeal / avatar.js foldAvatarPayload read it
@@ -833,5 +849,7 @@ above; after it, what 1.2.0 itself still reads is the remaining blocker:
   fallback) and reads `recentMessages ?? messages`.
 - **#3 client-only listeners**: 1.2.0 still registers `lobbyJoined`,
   `roomFull` and `activeTournamentFound` (and `activeGameFound`); they are
-  harmless (never emitted) and can go in a later build.
+  harmless (never emitted) and can go in a later build. (Done 2026-11-12:
+  the schema entries and constants are gone and the iOS source no longer
+  registers the three; 1.2.0's listeners never fire. #3.)
 - **#17 `serverShutdown`**: not handled by 1.2.0.
