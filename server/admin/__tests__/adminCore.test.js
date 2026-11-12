@@ -278,7 +278,7 @@ describe('player search', () => {
         expect(rows[0]).toMatchObject({ isAdmin: true, online: true, gamesPlayed: 9, mergedInto: null, lastSeenAt: null });
         expect(rows[1]).toMatchObject({ isAdmin: false, online: false, gamesPlayed: 3, lastSeenAt: seen.toISOString() });
         expect(rows[2]).toMatchObject({ mergedInto: 'alan', isAdmin: false, online: false });
-        expect(Object.keys(rows[0]).sort()).toEqual(['createdAt', 'gamesPlayed', 'isAdmin', 'lastSeenAt', 'mergedInto', 'online', 'renamed', 'username']);
+        expect(Object.keys(rows[0]).sort()).toEqual(['createdAt', 'gamesPlayed', 'isAdmin', 'lastSeenAt', 'mergedInto', 'online', 'renameUnfinished', 'renamed', 'username']);
         expect(JSON.stringify(rows)).not.toMatch(/HASH|SECRET|data:x/);
         expect(await searchPlayers(db, '   ')).toEqual([]);
         expect(await searchPlayers(db, 'x'.repeat(51))).toEqual([]);

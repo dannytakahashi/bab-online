@@ -636,4 +636,60 @@ describe('real mongod', () => {
             mockHolder.adminAudit = null;
         }
     });
+    test('(m) batch 2 review fixes on the real driver: a tombstone delete moves its mergedFrom entry ($pull + $push), the name-guarded delete, renamePending, report sides marked deleted, the sign-up case re-check', async () => {
+        if (!client) return;
+        const { deleteTombstone, eraseAccount } = require('../admin/accountDelete');
+        const { renameUserDoc, renameEverywhere, finishRename, unfinishedRenameOf } = require('../admin/accountRename');
+        const { listPlayers } = require('../admin/players');
+        const passwordHash = require('../utils/passwordHash');
+        const users = mockHolder.users;
+        const dbs = { users, gameRecords: mockHolder.gameRecords, reports: mockHolder.reports };
+        // TOMB-REMERGE
+        await users.updateOne({ username: 'Bea' }, { $set: { mergedFrom: [{ username: 'OldBea', stats: { gamesPlayed: 2 }, mergedAt: new Date() }, { username: 'Other', mergedAt: new Date() }] } });
+        await users.insertOne({ username: 'OldBea', mergedInto: 'Bea', mergedAt: new Date() });
+        expect(await deleteTombstone(dbs, 'OldBea')).toEqual({ username: 'OldBea', mergedInto: 'Bea' });
+        const bea = await users.findOne({ username: 'Bea' });
+        expect(bea.mergedFrom.map(e => e.username)).toEqual(['Other']);
+        expect(bea.mergedFromFreed).toEqual([expect.objectContaining({ username: 'OldBea', stats: { gamesPlayed: 2 }, nameFreedAt: expect.any(Date) })]);
+        expect(await users.findOne({ username: 'OldBea' })).toBeNull();
+        // SD-RACE: never delete a renamed document under its old name
+        await users.insertOne({ username: 'Gus', password: 'x' });
+        const gus = await users.findOne({ username: 'Gus' });
+        await users.updateOne({ _id: gus._id }, { $set: { username: 'Gustav' } });
+        await expect(eraseAccount(dbs, { _id: gus._id, username: 'Gus' })).rejects.toThrow(/changed/);
+        expect(await users.findOne({ username: 'Gustav' })).not.toBeNull();
+        // renamePending: set by the guarded write, found, listed, cleared
+        await mockHolder.reports.insertOne({ reporter: 'x', reported: 'Gustav', reason: 'earlier holder', createdAt: new Date(), reportedDeletedAt: new Date() });
+        await mockHolder.reports.insertOne({ reporter: 'x', reported: 'Gustav', reason: 'this one', createdAt: new Date() });
+        const renamed = await renameUserDoc({ users }, { _id: gus._id, username: 'Gustav' }, 'Gaston');
+        expect(renamed).toMatchObject({ ok: true });
+        expect(await users.findOne({ username: 'Gaston' })).toMatchObject({ renamePending: { from: 'Gustav', at: expect.any(Date) } });
+        expect(await unfinishedRenameOf(dbs, 'Gustav')).toMatchObject({ username: 'Gaston' });
+        const { players } = await listPlayers(dbs);
+        expect(players.find(p => p.username === 'Gaston')).toMatchObject({ renameUnfinished: 'Gustav' });
+        expect(players.find(p => p.username === 'Bea')).toMatchObject({ renameUnfinished: null });
+        // a second rename of it is refused by the guarded write itself
+        expect(await renameUserDoc({ users }, { _id: gus._id, username: 'Gaston' }, 'Gaspard')).toEqual({ ok: false, reason: 'changed' });
+        const moved = await renameEverywhere(dbs, 'Gustav', 'Gaston', { selfId: gus._id });
+        expect(moved.reports).toBe(1);
+        expect((await mockHolder.reports.find({ reason: { $in: ['earlier holder', 'this one'] } }).sort({ reason: 1 }).toArray()).map(r => r.reported)).toEqual(['Gustav', 'Gaston']);
+        await finishRename(dbs, gus._id, 'Gustav');
+        expect((await users.findOne({ username: 'Gaston' })).renamePending).toBeUndefined();
+        expect(await unfinishedRenameOf(dbs, 'Gustav')).toBeNull();
+        // SU-CASE: a case variant written while the sign-up hashed: the sign-up is undone
+        const realHash = passwordHash.hash;
+        const spy = jest.spyOn(passwordHash, 'hash').mockImplementationOnce(async (...args) => {
+            await users.insertOne({ username: 'ZEDD', password: 'x' });
+            return realHash.apply(passwordHash, args);
+        });
+        try {
+            const up = sock();
+            await auth.signUp(up, io, { username: 'zedd', password: 'pw' });
+            expect(last('signUpResponse')).toEqual({ success: false, message: 'That name is taken.' });
+        } finally {
+            spy.mockRestore();
+        }
+        expect(await users.countDocuments({ username: { $regex: '^zedd$', $options: 'i' } })).toBe(1);
+        expect(await users.findOne({ username: 'zedd' })).toBeNull();
+    });
 });

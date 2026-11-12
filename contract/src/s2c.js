@@ -86,6 +86,7 @@ const isoOrNull = () => orNull(str());
 const adminPlayerRow = obj({
     username: str(), createdAt: isoOrNull(), lastSeenAt: isoOrNull(), online: bool(),
     gamesPlayed: int({ minimum: 0 }), isAdmin: bool(), mergedInto: orNull(str()), renamed: bool(),
+    renameUnfinished: orNull(str()),
 });
 const adminStats = obj({ gamesPlayed: num(), wins: num(), losses: num(), draws: num(), totalPoints: num() });
 const teams = obj({ team1: arr(str()), team2: arr(str()) });
@@ -189,11 +190,11 @@ const s2c = {
         emittedFrom: ['server/socket/safetyHandlers.js:reportUser'],
     },
     blockListUpdated: {
-        payload: okFail({ blockedUsers: arr(str()) }),
+        payload: okFail({ blockedUsers: arr(str()), silent: konst(true) }, { optional: ['silent'] }),
         status: 'active', to: 'self',
         clientReads: reads(W.main('blockListUpdated'), I.safety),
         emittedFrom: ['server/socket/safetyHandlers.js:updateBlockList', 'server/admin/accountDelete.js:refreshBlockLists'],
-        notes: 'Also sent unasked (success) to a player whose saved block list an admin changed: a deleted account pulled from it, a renamed one re-pointed (accountDelete.refreshBlockLists); both clients just replace their list (web shows its usual "Block list updated" info toast).',
+        notes: 'Also sent unasked (success, with silent: true) to a player whose saved block list an admin RENAME re-pointed (accountDelete.refreshBlockLists), so the renamed player\'s chat stays hidden; both clients replace their list. Web shows its "Block list updated" info toast only without silent. The App Store iOS build (1.1.0, f05d264) ignores silent and shows its "Block list updated." alert (SafetySocketHandler / .safetyAlerts) wherever the player is: accepted for renames, which are rare and owner-run. An admin DELETE sends nothing (the dead name stays in the client list, harmless, until the next sign-in; only the voice list is refreshed), and a player\'s own Delete account leaves other players\' lists alone.',
     },
 
     // ==================== Main room ====================
@@ -870,7 +871,7 @@ const s2c = {
         status: 'active', to: 'self',
         clientReads: reads('client/src/admin/adminApi.js:createAdminApi', []),
         emittedFrom: ['server/socket/adminHandlers.js:adminRequest'],
-        notes: 'The reply to adminRequest, to the requesting socket only (requestId and action echoed). failure: forbidden = not an admin right now (the one uniform refusal for every action and target: no account information), invalid = bad args or a wrong typed confirmation, not_found / refused / last_admin / stale_plan (the merge changed since its preview: preview again) / server; message is for the admin. createResetLink.token is the one-time link secret (/reset#<token>): shown to the admin once, never logged or audited. planMerge.plan is formatPlan\'s content as data (no picture bytes); planHash fingerprints the whole plan and applyMerge applies only when a fresh plan has the same hash. listPlayers: every account newest first, at most `limit` (500) rows; `total` is the true count (the panel says when the list is capped). deleteAccount: kind \'account\' = the player\'s own deletion (server/admin/accountDelete.js; counts of what changed), \'tombstone\' = only that merged / renamed name was removed (mergedInto names the account it pointed at, which is unchanged). renameAccount: username is the old name, newName the new; every saved session was revoked (the player signs in once with the new name); the old name became a redirect (oldNameKept; mergedInto + renamedAt, so sign-in says "This account is now called X"); resumed = a second rename with the same names finished a partial one; a player row\'s renamed = that redirect. The iOS app has no handler (layout: excluded from Swift).',
+        notes: 'The reply to adminRequest, to the requesting socket only (requestId and action echoed). failure: forbidden = not an admin right now (the one uniform refusal for every action and target: no account information), invalid = bad args or a wrong typed confirmation, not_found / refused / last_admin / stale_plan (the merge changed since its preview: preview again) / server; message is for the admin. createResetLink.token is the one-time link secret (/reset#<token>): shown to the admin once, never logged or audited. planMerge.plan is formatPlan\'s content as data (no picture bytes); planHash fingerprints the whole plan and applyMerge applies only when a fresh plan has the same hash. listPlayers: every account newest first, at most `limit` (500) rows; `total` is the true count (the panel says when the list is capped). deleteAccount: kind \'account\' = the player\'s own deletion (server/admin/accountDelete.js; counts of what changed), \'tombstone\' = only that merged / renamed name was removed (mergedInto names the account it pointed at, which is unchanged). renameAccount: username is the old name, newName the new; every saved session was revoked (the player signs in once with the new name); the old name became a redirect (oldNameKept; mergedInto + renamedAt, so sign-in says "This account is now called X"); resumed = a second rename with the same names finished a partial one (also when the redirect was never written: oldNameKept then says whether it is now); a player row\'s renamed = that redirect, renameUnfinished = on a live account, the old name of its rename that stopped partway (the panel\'s Finish rename sends renameAccount {username: old, newName: the row}); an admin cannot rename their own account (refused). applyMerge / deleteAccount / renameAccount wait in one queue and are authorized again when their turn comes (forbidden if the admin lost the flag or was signed out meanwhile). The iOS app has no handler (layout: excluded from Swift).',
     },
 
     // ==================== Voice (relays) ====================

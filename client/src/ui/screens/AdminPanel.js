@@ -159,8 +159,13 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
   };
 
   let closed = false;
-  /** One request; a 'forbidden' answer closes the panel (admin access is gone). */
-  async function call(action, args) {
+  /**
+   * One request; a 'forbidden' answer closes the panel (admin access is
+   * gone). quiet: a refusal is not written to the panel's alert line (a
+   * dialog that shows it in its own alert line: one announcement, and no
+   * stale error left above the table after Cancel).
+   */
+  async function call(action, args, { quiet = false } = {}) {
     let res;
     try {
       res = await adminApi.request(action, args);
@@ -181,7 +186,7 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
       toast('Admin access is not available on this connection.', { type: 'error' });
       return null;
     }
-    if (!res.ok) say(res.message, 'error');
+    if (!res.ok && !quiet) say(res.message, 'error');
     return res;
   }
 
@@ -299,6 +304,17 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
     }, 600);
   });
 
+  let linkFor = null; // whose link the box shows
+  function hideLink() {
+    linkFor = null;
+    linkBox.hidden = true;
+    linkBox.replaceChildren();
+  }
+  /** A delete, rename or sign out everywhere cancels that player's open links: drop the box. */
+  function dropLinkOf(user) {
+    if (linkFor !== null && linkFor === user) hideLink();
+  }
+
   function showLink(user, token, expiresAt) {
     const url = `${window.location.origin}/reset#${token}`;
     const id = 'adminResetLinkInput';
@@ -309,13 +325,14 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
       const okCopy = await copyText(url, input);
       say(okCopy ? 'Link copied. Text it to the player.' : 'Copy failed: select the link and copy it by hand.', okCopy ? 'success' : 'error');
     });
-    const hide = createButton({ label: 'Done', variant: 'ghost', onClick: () => { linkBox.hidden = true; linkBox.replaceChildren(); filterField.input.focus(); } });
+    const hide = createButton({ label: 'Done', variant: 'ghost', onClick: () => { hideLink(); filterField.input.focus(); } });
     linkBox.replaceChildren(
       el('label', { className: 'field__label', attrs: { for: id }, text: `Reset link for ${user}` }),
       el('div', { className: 'admin-row', children: [input, copy, hide] }),
       el('p', { className: 'admin-note', attrs: { id: 'adminResetLinkNote' }, text: `Shown once: copy it now. It works once, until ${fmtDate(expiresAt)}. Making a new link cancels this one. Using it signs the player out everywhere.` }),
     );
     linkBox.hidden = false;
+    linkFor = user;
     copy.focus();
   }
 
@@ -377,7 +394,15 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
     const name = el('div', { className: 'admin-name', children: [el('span', { text: p.username })] });
     if (p.username === username) name.appendChild(chip('you', 'neutral'));
     if (p.online) name.appendChild(chip('online', 'success'));
+    if (!tomb && p.renameUnfinished) name.appendChild(chip('rename unfinished', 'gold'));
     const actions = el('div', { className: 'admin-actions' });
+    if (!tomb && p.renameUnfinished) {
+      actions.appendChild(createButton({
+        label: 'Finish rename', variant: 'secondary', size: 'sm',
+        attrs: { 'aria-label': `Finish rename: ${p.renameUnfinished} to ${p.username}`, 'data-focus-key': `finish:${p.username}` },
+        onClick: () => finishRename(p),
+      }));
+    }
     if (tomb) {
       actions.appendChild(createButton({
         label: `Show ${p.mergedInto}`, variant: 'ghost', size: 'sm',
@@ -427,18 +452,51 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
     });
   }
 
+  /** A rename that stopped partway: the same rename again finishes it (server: resumed). */
+  async function finishRename(p) {
+    const from = p.renameUnfinished;
+    const yes = await confirmAction({
+      title: `Finish renaming ${from} to ${p.username}?`,
+      text: `The rename stopped partway: ${p.username} is renamed, but games, reports and block lists may still say ${from}. Finishing moves them to ${p.username} and keeps ${from} as an old name that redirects.`,
+      confirmLabel: 'Finish rename',
+      danger: false,
+    });
+    if (!yes) return;
+    const res = await call('renameAccount', { username: from, newName: p.username, confirm: p.username });
+    if (!res?.ok) return;
+    say(`The rename of ${from} to ${p.username} is finished: ${res.gameRecords} game record update(s), ${res.reports} report field(s), ${res.otherUsersBlocks} block list(s) moved.`, 'success');
+    await refreshPlayersAt(`more:${p.username}`)();
+  }
+
   async function renameAccount(p) {
+    // The server refuses it too (every tab of the account, this one
+    // included, would be signed out before the answer arrives)
+    if (p.username === username) {
+      say('You cannot rename your own account here: it would sign you out before you see the result. Ask another admin to rename it.', 'error');
+      return;
+    }
+    let stoppedPartway = false;
     const res = await openRenameDialog({
       oldName: p.username,
       rules: '3 to 20 letters (A-Z), numbers, spaces and _ - . ; it starts with a letter or number. It must not be taken, ignoring capital letters (old merged or renamed names count).',
       lines: [
-        `${p.username} is signed out everywhere (refused while they are in a game or tournament). They sign in again with the new name and the same password.`,
+        `${p.username} is signed out everywhere (refused while they are in a game or tournament) and any open reset link is cancelled. They sign in again with the new name and the same password.`,
         'Their games, stats, reports and block lists move to the new name.',
-        `Signing in as ${p.username} will say to use the new name. You can delete that old name later to free it.`,
+        `${p.username} stays as an old name that redirects: anyone who types it at sign-in or sign-up is told the new name, with no password needed. Delete that old name later to stop that and free it.`,
       ],
-      submit: ({ newName, confirm }) => call('renameAccount', { username: p.username, newName, confirm }),
+      submit: async ({ newName, confirm }) => {
+        const r = await call('renameAccount', { username: p.username, newName, confirm }, { quiet: true });
+        if (r && !r.ok && r.error === 'server') stoppedPartway = true;
+        return r;
+      },
     });
-    if (!res?.ok) return;
+    if (!res?.ok) {
+      // A rename that stopped partway changed the table (its row now
+      // offers Finish rename) even though the dialog was cancelled
+      if (stoppedPartway) await loadPlayers({ quiet: true });
+      return;
+    }
+    dropLinkOf(res.username);
     const kept = res.oldNameKept ? '' : ` The old name ${res.username} was taken meanwhile, so it does not redirect.`;
     say(`${res.username} is now called ${res.newName}: ${res.signedOut} live connection(s) signed out; they sign in again as ${res.newName} with the same password.${kept}`, 'success');
     await loadPlayers({ quiet: true });
@@ -474,9 +532,10 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
       ],
       expected: p.username,
       confirmLabel: 'Delete account',
-      submit: (typed) => call('deleteAccount', { username: p.username, confirm: typed }),
+      submit: (typed) => call('deleteAccount', { username: p.username, confirm: typed }, { quiet: true }),
     });
     if (!res?.ok) return;
+    dropLinkOf(res.username);
     say(`${res.username} is deleted: ${res.gameRecords} game record update(s) to [deleted], ${res.reports} report(s) marked, ${res.signedOut} live connection(s) closed.`, 'success');
     await afterDelete();
   }
@@ -490,7 +549,7 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
       ],
       expected: p.username,
       confirmLabel: 'Delete name',
-      submit: (typed) => call('deleteAccount', { username: p.username, confirm: typed }),
+      submit: (typed) => call('deleteAccount', { username: p.username, confirm: typed }, { quiet: true }),
     });
     if (!res?.ok) return;
     say(`The old name ${res.username} is deleted and free again. ${res.mergedInto} is unchanged.`, 'success');
@@ -506,6 +565,7 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
     if (!yes) return;
     const res = await call('signOutEverywhere', { username: user });
     if (res?.ok) {
+      dropLinkOf(res.username);
       say(`${res.username} is signed out: ${res.revokedSessions} saved session(s) revoked, ${res.disconnected} live connection(s) closed.`, 'success');
       await refreshPlayersAt(key)();
     }

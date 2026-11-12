@@ -10,14 +10,20 @@
  *     account anyway, this closes the link itself);
  *   - gameRecords: the name becomes '[deleted]' in team1Players /
  *     team2Players (shared documents: the other players keep their games);
- *   - other players' blockedUsers: the name is pulled, so a new account
- *     that later takes the freed name does not start out blocked;
+ *   - other players' blockedUsers: for an ADMIN delete the name is pulled,
+ *     so a new account that later takes the freed name does not start out
+ *     blocked; a player's OWN delete keeps them (pullBlocks: false), so a
+ *     blocked player cannot clear every block on their name by deleting
+ *     the account and signing up again as the same name;
  *   - reports: KEPT for the record (the owner keeps the history of who
  *     reported whom), marked `reporterDeletedAt` / `reportedDeletedAt`, so
  *     a report about a deleted account is never read as one about a new
  *     account with the same name;
  *   - the user document itself (password hash, sessions, stats and with
- *     them the leaderboard row, pictures, block list, admin fields);
+ *     them the leaderboard row, pictures, block list, admin fields),
+ *     deleted by _id AND name: if the account was renamed meanwhile (the
+ *     CLI, another process; the panel and the self-delete share one queue,
+ *     mergeQueue.js) nothing is deleted and eraseAccount throws;
  *   - the tombstones that point at it (`mergedInto: <name>`: accounts
  *     merged into it and the redirects its renames left), so nothing tied
  *     to the person remains and those names are free again.
@@ -28,12 +34,17 @@
  *
  * In memory (forgetAccount): the leaderboard / records caches, the avatar
  * store, `gameManager.deletedUsernames` (an in-flight game cannot write
- * the name back into a new game record), and the live block lists of the
- * players whose lists changed (refreshBlockLists).
+ * the name back into a new game record), and the voice block lists of the
+ * players whose lists changed (refreshBlockLists, without telling their
+ * clients: a dead name in a client's list is harmless, and the App Store
+ * iOS build shows every blockListUpdated as a "Block list updated." alert).
  *
  * Deleting a TOMBSTONE (deleteTombstone) is different: it removes only
- * that document, which frees the name. The account it points at is not
- * touched (its merge history, `mergedFrom`, stays).
+ * that document, which frees the name. The account it points at keeps its
+ * games and stats; for a merged name its `mergedFrom` entry moves to
+ * `mergedFromFreed` (history kept), because `mergedFrom` is the merge's
+ * "already merged" guard: a new account that signs up with the freed name
+ * and is merged into the same account later gets its stats added.
  */
 
 'use strict';
@@ -51,7 +62,7 @@ const DELETED_NAME = '[deleted]';
  * @param {{now?: Date}} [options]
  * @returns {Promise<{resetLinks: number, gameRecords: number, blockLists: number, blockers: string[], reports: number, tombstones: number}>}
  */
-async function eraseAccount(db, user, { now = new Date() } = {}) {
+async function eraseAccount(db, user, { now = new Date(), pullBlocks = true } = {}) {
     const { username } = user;
     const out = { resetLinks: 0, gameRecords: 0, blockLists: 0, blockers: [], reports: 0, tombstones: 0 };
 
@@ -69,10 +80,10 @@ async function eraseAccount(db, user, { now = new Date() } = {}) {
     }
 
     // Who blocked this name (their live sockets are told afterwards)
-    const blockers = await db.users.find(
+    const blockers = pullBlocks ? await db.users.find(
         { blockedUsers: username, _id: { $ne: user._id } },
         { projection: { username: 1 } }
-    ).toArray();
+    ).toArray() : [];
     if (blockers.length) {
         const res = await db.users.updateMany(
             { blockedUsers: username, _id: { $ne: user._id } },
@@ -92,7 +103,12 @@ async function eraseAccount(db, user, { now = new Date() } = {}) {
         }
     }
 
-    await db.users.deleteOne({ _id: user._id });
+    const gone = await db.users.deleteOne({ _id: user._id, username, mergedInto: { $exists: false } });
+    if (!gone?.deletedCount) {
+        // Renamed or merged since the caller read it: never delete the
+        // document under another name (deleting again finds it by its name)
+        throw new Error(`eraseAccount: "${username}" changed before its document was deleted`);
+    }
     out.tombstones = (await db.users.deleteMany({ mergedInto: username }))?.deletedCount || 0;
     return out;
 }
@@ -103,9 +119,25 @@ async function eraseAccount(db, user, { now = new Date() } = {}) {
  * the time of the write.
  * @returns {Promise<{username: string, mergedInto: string}|null>}
  */
-async function deleteTombstone(db, username) {
+async function deleteTombstone(db, username, { now = new Date() } = {}) {
     const doc = await db.users.findOne({ username, mergedInto: { $exists: true } }, { projection: { username: 1, mergedInto: 1 } });
     if (!doc) return null;
+    // First (safe to repeat): the kept account's merge record of this name
+    // stops counting as "already merged"
+    const kept = await db.users.findOne(
+        { username: doc.mergedInto, 'mergedFrom.username': username },
+        { projection: { mergedFrom: 1 } }
+    );
+    const entries = (kept?.mergedFrom || []).filter(e => e && e.username === username);
+    if (entries.length) {
+        await db.users.updateOne(
+            { _id: kept._id },
+            {
+                $pull: { mergedFrom: { username } },
+                $push: { mergedFromFreed: { $each: entries.map(e => ({ ...e, nameFreedAt: now })) } }
+            }
+        );
+    }
     const res = await db.users.deleteOne({ _id: doc._id, mergedInto: { $exists: true } });
     return res?.deletedCount ? { username: doc.username, mergedInto: doc.mergedInto } : null;
 }
@@ -128,20 +160,23 @@ function forgetAccount(io, db, username, erased = {}) {
     // Keep an in-flight game from re-inserting this username into a new
     // game record after the anonymization
     gameManager.deletedUsernames?.add(username);
-    return refreshBlockLists(io, db, erased.blockers || []);
+    return refreshBlockLists(io, db, erased.blockers || [], { emit: false });
 }
 
 /**
  * Players whose saved block list changed (a deletion pulled a name, a
- * rename re-pointed one): their live sockets get the new list, for voice
- * signaling (socket.data.blockedUsers) and for the clients, which hide
- * blocked players' chat by name (blockListUpdated, the reply both
- * clients already handle). Read from the database, so it is the list as
- * saved. Best effort: a failure only means the list refreshes at the
- * player's next sign-in.
+ * rename re-pointed one): their live sockets get the new list for voice
+ * signaling (socket.data.blockedUsers). With `emit` (a rename) the clients
+ * get it too, since they hide blocked players' chat by name and the
+ * renamed player's chat would otherwise show: blockListUpdated, the reply
+ * both clients already handle, with `silent: true` when asked (web then
+ * updates without its "Block list updated" toast; the App Store iOS build
+ * ignores the field and shows its "Block list updated." alert). Read from
+ * the database, so it is the list as saved. Best effort: a failure only
+ * means the list refreshes at the player's next sign-in.
  * @returns {Promise<number>} sockets updated
  */
-async function refreshBlockLists(io, db, usernames) {
+async function refreshBlockLists(io, db, usernames, { emit = true, silent = false } = {}) {
     if (!usernames.length || !io?.sockets?.sockets || !db?.users) return 0;
     const gameManager = require('../game/GameManager');
     const { rememberBlockList } = require('../socket/voiceHandlers');
@@ -154,7 +189,7 @@ async function refreshBlockLists(io, db, usernames) {
             const name = owners.get(id) || sock?.data?.username;
             if (!lists.has(name)) continue;
             rememberBlockList(sock, lists.get(name));
-            sock.emit('blockListUpdated', { success: true, blockedUsers: lists.get(name) });
+            if (emit) sock.emit('blockListUpdated', { success: true, blockedUsers: lists.get(name), ...(silent ? { silent: true } : {}) });
             n++;
         }
     } catch (error) {

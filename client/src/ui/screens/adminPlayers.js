@@ -191,7 +191,10 @@ function inputField({ id, label, describedBy = null, value = '' }) {
  * The shared shell: a form in a kit Modal with Cancel and a confirm button
  * that `ready()` enables. submit(values) answers {ok, message?} or null (no
  * answer, or the panel closed): ok or null closes, a refusal stays open
- * with its message in the dialog's alert line.
+ * with its message in the dialog's alert line. While the request is in
+ * flight the dialog cannot be dismissed (Cancel disabled, Escape and the
+ * backdrop ignored): the action may already be happening on the server,
+ * and its answer must reach the caller (the success line, the reload).
  */
 function formDialog({ title, body, fields, ready, values, confirmLabel, danger, submit, initialFocus }) {
   return new Promise((resolve) => {
@@ -218,8 +221,16 @@ function formDialog({ title, body, fields, ready, values, confirmLabel, danger, 
       if (busy || !ready()) return;
       busy = true;
       ok.disabled = true;
-      const res = await submit(values());
-      busy = false;
+      cancel.disabled = true;
+      form.setAttribute('aria-busy', 'true');
+      let res;
+      try {
+        res = await submit(values());
+      } finally {
+        busy = false;
+        cancel.disabled = false;
+        form.removeAttribute('aria-busy');
+      }
       if (!modal.isOpen()) return finish(res);
       if (!res || res.ok) {
         finish(res); // before close: its onClose would settle it as cancelled
@@ -236,6 +247,7 @@ function formDialog({ title, body, fields, ready, values, confirmLabel, danger, 
       actions: [cancel, ok],
       className: 'admin-confirm admin-dialog',
       dialogId: 'adminConfirmDialog',
+      dismissible: () => !busy,
       initialFocus: initialFocus ? initialFocus(fields) : fields[0]?.input,
       onClose: () => finish(null),
     });

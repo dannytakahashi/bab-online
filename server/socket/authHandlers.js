@@ -24,6 +24,7 @@ const THROTTLED_MESSAGE = 'Too many failed sign-in attempts. Please wait a few m
 const SIGN_UP_LIMIT_MESSAGE = 'Too many sign-up attempts. Please wait a few minutes and try again.';
 const LAST_ADMIN_DELETE_MESSAGE = 'You are the only admin. Make someone else an admin before deleting your account.';
 const SESSIONS_CHANGED_MESSAGE = 'Your account was just signed out everywhere. Please sign in again.';
+const ACCOUNT_CHANGED_MESSAGE = 'Your account was just changed by an admin (renamed or merged). Nothing was deleted. Sign in again and try again.';
 const isHashBusy = (error) => Boolean(error && error.code === 'HASH_BUSY');
 
 function mergedAccountMessage(username, mergedInto) {
@@ -465,7 +466,7 @@ async function signUp(socket, io, data) {
         const hashedPassword = await passwordHash.hash(password, 10);
         // Generate random profile pic (1-82)
         const profilePic = Math.floor(Math.random() * 82) + 1;
-        await usersCollection.insertOne({
+        const inserted = await usersCollection.insertOne({
             username,
             password: hashedPassword,
             socketId: socket.id,  // Set socketId immediately for auto-login
@@ -480,6 +481,22 @@ async function signUp(socket, io, data) {
                 totalTricksTaken: 0
             }
         });
+        // The check above ran before the hash: a case variant written since
+        // (another sign-up, an admin rename to "Bob" while this one hashed
+        // "bob") is caught now. Of two racing writes, the later one's
+        // re-check sees the earlier one (accountRename.renameUserDoc
+        // re-checks after its write the same way), so the two can never
+        // stay side by side; the unique index only catches the exact name
+        const clash = await caseVariantSince(usersCollection, username, inserted?.insertedId);
+        if (clash) {
+            await usersCollection.deleteOne({ _id: inserted.insertedId, username });
+            socket.emit('signUpResponse', {
+                success: false,
+                message: clash === 'error' ? 'Database error. Try again.' : USERNAME_MESSAGES.taken
+            });
+            authLogger.warn('Sign-up undone: a case variant appeared during sign-up, or the re-check failed', { username, reason: clash });
+            return;
+        }
         socket.data.sessionHash = session.hash;
         claimSocket(socket, username);
 
@@ -512,6 +529,28 @@ async function signUp(socket, io, data) {
             success: false,
             message: 'Database error. Try again.'
         });
+    }
+}
+
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * Another account whose name equals `username` ignoring case and
+ * surrounding whitespace (findNameClash's rule), other than the document
+ * just inserted: 'taken', or 'error' when the read failed (fails closed:
+ * the sign-up is undone), else null.
+ */
+async function caseVariantSince(usersCollection, username, insertedId) {
+    if (!insertedId) return null;
+    try {
+        const other = await usersCollection.findOne(
+            { _id: { $ne: insertedId }, username: { $regex: `^\\s*${escapeRegex(username)}\\s*$`, $options: 'i' } },
+            { projection: { _id: 1 } }
+        );
+        return other ? 'taken' : null;
+    } catch (error) {
+        authLogger.error('Sign-up re-check failed', { username, error: error.message });
+        return 'error';
     }
 }
 
@@ -707,39 +746,58 @@ async function deleteAccount(socket, io, data) {
             return;
         }
 
-        // The last admin cannot delete their account (it would leave nobody
-        // able to open the admin panel). The flag comes off first through
-        // the same guard as the panel's Remove admin (remove, count, put it
-        // back if nobody is left), so two last admins deleting at once
-        // cannot both go
-        if (user.isAdmin === true) {
-            const { setAdminFlag } = require('../admin/adminRole');
-            try {
-                await setAdminFlag({ users: usersCollection }, username, false, { by: username });
-            } catch (error) {
-                if (error && error.code === 'last_admin') {
-                    socket.emit('deleteAccountResponse', { success: false, message: LAST_ADMIN_DELETE_MESSAGE });
-                    authLogger.warn('Account deletion refused: the only admin', { username });
-                    return;
-                }
-                throw error;
-            }
-        }
+        // From here the deletion waits its turn in the admin panel's queue
+        // (server/admin/mergeQueue.js), so an admin rename, merge or delete
+        // of this account can never interleave with it, and the account is
+        // read again by _id AND name: renamed or merged while the password
+        // was checked, nothing is deleted
+        const { serializeMerges } = require('../admin/mergeQueue');
+        const refused = await serializeMerges(async () => {
+            if (gameManager.isMergeLocked?.(username)) return MERGE_LOCKED_MESSAGE;
+            const current = await usersCollection.findOne(
+                { _id: user._id, username, mergedInto: { $exists: false } },
+                { projection: { isAdmin: 1 } }
+            );
+            if (!current) return ACCOUNT_CHANGED_MESSAGE;
 
-        // The shared deletion (server/admin/accountDelete.js, also the admin
-        // panel's): game records anonymized, open reset links revoked, the
-        // name pulled from other players' block lists, reports marked, the
-        // user document and its tombstones deleted, then the in-memory
-        // caches, the avatar store and deletedUsernames
-        const database = require('../database');
-        const db = {
-            users: usersCollection,
-            gameRecords: getGameRecordsCollection(),
-            reports: database.getReportsCollection?.(),
-            passwordResets: database.getPasswordResetsCollection?.()
-        };
-        const erased = await eraseAccount(db, { _id: user._id, username });
-        await forgetAccount(io, db, username, erased);
+            // The last admin cannot delete their account (it would leave
+            // nobody able to open the admin panel). The flag comes off first
+            // through the same guard as the panel's Remove admin (remove,
+            // count, put it back if nobody is left), so two last admins
+            // deleting at once cannot both go
+            if (current.isAdmin === true) {
+                const { setAdminFlag } = require('../admin/adminRole');
+                try {
+                    await setAdminFlag({ users: usersCollection }, username, false, { by: username });
+                } catch (error) {
+                    if (error && error.code === 'last_admin') return LAST_ADMIN_DELETE_MESSAGE;
+                    throw error;
+                }
+            }
+
+            // The shared deletion (server/admin/accountDelete.js, also the
+            // admin panel's): game records anonymized, open reset links
+            // revoked, reports marked, the user document and its tombstones
+            // deleted, then the in-memory caches, the avatar store and
+            // deletedUsernames. Other players' blocks of this name stay
+            // (pullBlocks: false): deleting the account and signing up again
+            // as the same name must not clear them
+            const database = require('../database');
+            const db = {
+                users: usersCollection,
+                gameRecords: getGameRecordsCollection(),
+                reports: database.getReportsCollection?.(),
+                passwordResets: database.getPasswordResetsCollection?.()
+            };
+            const erased = await eraseAccount(db, { _id: user._id, username }, { pullBlocks: false });
+            await forgetAccount(io, db, username, erased);
+            return null;
+        });
+        if (refused) {
+            socket.emit('deleteAccountResponse', { success: false, message: refused });
+            authLogger.warn('Account deletion refused', { username, reason: refused });
+            return;
+        }
 
         // Every other tab and device signed in as this account goes to the
         // sign-in screen (this socket gets its reply first, below)

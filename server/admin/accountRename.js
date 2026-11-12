@@ -27,7 +27,10 @@
  *                             account is now called X. Sign in as X."; the
  *                             admin can delete it later to free the name
  *   gameRecords               team1Players / team2Players
- *   reports                   reporter, reported, resolvedBy
+ *   reports                   reporter, reported, resolvedBy (not a report
+ *                             marked reporterDeletedAt / reportedDeletedAt:
+ *                             that side was an earlier, deleted holder of
+ *                             the name, not this account)
  *   users.blockedUsers        other players' lists (de-duplicated)
  *   users.mergedInto          tombstones that pointed at the old name (merged
  *                             accounts, earlier renames) point at the new one
@@ -37,13 +40,22 @@
  * createdBy (history). Tournament history is in memory only.
  *
  * Order: the guarded rename first (the step that can be refused: the name
- * appeared meanwhile, the account entered a game or was merged), then a
- * re-check for a case-variant clash (a sign-up racing the rename; the
- * unique index only catches the exact name, and a database running on the
- * non-unique fallback index catches nothing) that puts the old name back,
- * then the redirect, then the shared documents. Those are pure renames:
- * when one fails, renaming again with the same names finishes them (the
- * redirect shows the rename happened: `resume`).
+ * appeared meanwhile, the account entered a game or was merged; it also
+ * sets `renamePending: {from, at}`), then a re-check for a case-variant
+ * clash that puts the old name back, then the redirect, then the shared
+ * documents, then renamePending is cleared. The shared documents are pure
+ * renames: when a step after the guarded write fails (the redirect's
+ * insert included), renaming again with the same names finishes them
+ * (renamePending, or the redirect, shows the rename happened: `resumed`),
+ * and the panel's row for the account offers Finish rename while
+ * renamePending is set.
+ *
+ * The case-variant race with a sign-up: the rename re-checks after ITS
+ * write, and signUp re-checks after ITS insert (authHandlers.signUp); of
+ * two writes racing, the later one's re-check sees the earlier one, so a
+ * case variant of the new name can never stay beside it (the unique index
+ * only catches the exact name, and a database on the non-unique fallback
+ * index catches nothing).
  */
 
 'use strict';
@@ -68,7 +80,7 @@ function renameList(list, from, to) {
  * @returns {Promise<{ok: true, revokedSessions: number, socketId: string|null}
  *          | {ok: false, reason: 'changed'|'taken'}>}
  */
-async function renameUserDoc(db, user, to) {
+async function renameUserDoc(db, user, to, { now = new Date() } = {}) {
     let before;
     try {
         before = await db.users.findOneAndUpdate(
@@ -76,11 +88,12 @@ async function renameUserDoc(db, user, to) {
                 _id: user._id,
                 username: user.username,
                 mergedInto: { $exists: false },
+                renamePending: { $exists: false },
                 activeGameId: { $exists: false },
                 activeTournamentId: { $exists: false }
             },
             {
-                $set: { username: to },
+                $set: { username: to, renamePending: { from: user.username, at: now } },
                 $unset: { ...REVOKE_ALL_SESSIONS.$unset, socketId: '' },
                 $inc: { ...REVOKE_ALL_SESSIONS.$inc }
             },
@@ -98,7 +111,7 @@ async function renameUserDoc(db, user, to) {
         { projection: { username: 1 } }
     );
     if (clash) {
-        await db.users.updateOne({ _id: user._id, username: to }, { $set: { username: user.username } });
+        await db.users.updateOne({ _id: user._id, username: to }, { $set: { username: user.username }, $unset: { renamePending: '' } });
         return { ok: false, reason: 'taken' };
     }
     return {
@@ -139,8 +152,9 @@ async function renameEverywhere(db, from, to, { selfId }) {
         }
     }
     if (db.reports) {
-        for (const field of ['reporter', 'reported', 'resolvedBy']) {
-            const res = await db.reports.updateMany({ [field]: from }, { $set: { [field]: to } });
+        for (const [field, deletedMark] of [['reporter', 'reporterDeletedAt'], ['reported', 'reportedDeletedAt'], ['resolvedBy', null]]) {
+            const filter = deletedMark ? { [field]: from, [deletedMark]: { $exists: false } } : { [field]: from };
+            const res = await db.reports.updateMany(filter, { $set: { [field]: to } });
             out.reports += res?.modifiedCount || 0;
         }
     }
@@ -162,4 +176,21 @@ async function renameEverywhere(db, from, to, { selfId }) {
     return out;
 }
 
-module.exports = { renameUserDoc, leaveRedirect, renameEverywhere, revokeOpenResetLinks, isRenameRedirect };
+/** Step 4: the rename is complete (renameEverywhere ran to its end). */
+async function finishRename(db, id, from) {
+    await db.users.updateOne({ _id: id, 'renamePending.from': from }, { $unset: { renamePending: '' } });
+}
+
+/**
+ * The live account whose rename from `oldName` has not finished, or null
+ * (its redirect must not be deleted yet: the old name still keys games,
+ * reports and block lists).
+ */
+async function unfinishedRenameOf(db, oldName) {
+    return db.users.findOne(
+        { 'renamePending.from': oldName, mergedInto: { $exists: false } },
+        { projection: { username: 1 } }
+    );
+}
+
+module.exports = { renameUserDoc, leaveRedirect, renameEverywhere, finishRename, unfinishedRenameOf, revokeOpenResetLinks, isRenameRedirect };

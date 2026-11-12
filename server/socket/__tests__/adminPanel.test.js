@@ -421,7 +421,7 @@ describe('actions', () => {
         expect(res.players[0]).toMatchObject({ mergedInto: 'Bea', isAdmin: false, online: false, gamesPlayed: 0, lastSeenAt: null });
         expect(res.players[3]).toMatchObject({ username: 'Owner', isAdmin: true, online: true, gamesPlayed: 4, mergedInto: null });
         expect(res.players[3].lastSeenAt).toEqual(expect.any(String));
-        expect(Object.keys(res.players[3]).sort()).toEqual(['createdAt', 'gamesPlayed', 'isAdmin', 'lastSeenAt', 'mergedInto', 'online', 'renamed', 'username']);
+        expect(Object.keys(res.players[3]).sort()).toEqual(['createdAt', 'gamesPlayed', 'isAdmin', 'lastSeenAt', 'mergedInto', 'online', 'renameUnfinished', 'renamed', 'username']);
         expect(JSON.stringify(res)).not.toMatch(/\$2[ab]\$|hash|socketId|sessionToken|password/i);
         expect(audit().pop()).toMatchObject({ actor: 'Owner', action: 'listPlayers', target: null, result: 'ok', detail: '4 of 4 account(s)' });
     });
@@ -461,10 +461,12 @@ describe('actions', () => {
                 [['p', 'q'], ['r', '[deleted]']]
             ]);
             expect(JSON.stringify(records)).not.toContain('"Cy"');
-            // the blocker's saved list and live socket (voice + the client's chat filter)
+            // the blocker's saved list and live voice list; the client is not
+            // told (C1: iOS 1.1.0 would show a "Block list updated." alert;
+            // a dead name in its list is harmless)
             expect((await users().findOne({ username: 'Bea' })).blockedUsers).toEqual(['Zed']);
             expect([...bea.data.blockedUsers]).toEqual(['Zed']);
-            expect(w.log.filter(l => l.to === `self:${bea.id}` && l.event === 'blockListUpdated').pop().data).toEqual({ success: true, blockedUsers: ['Zed'] });
+            expect(gotEvent(bea, 'blockListUpdated')).toBe(false);
             expect(linksOf('Cy').map(l => l.state)).toEqual(['revoked']);
             // reports stay for the record, marked
             const reps = mockDb.current.reports.all();
@@ -615,7 +617,9 @@ describe('actions', () => {
             expect(gotEvent(cy2, 'forceLogout')).toBe(true);
             expect(await users().findOne({ username: 'Cy' })).toBeNull();
             expect(await users().findOne({ username: 'CyOld' })).toBeNull();
-            expect((await users().findOne({ username: 'Bea' })).blockedUsers).toEqual(['Zed']);
+            // other players' blocks of the name stay (BLK-EVADE: deleting and
+            // signing up again as Cy must not clear them)
+            expect((await users().findOne({ username: 'Bea' })).blockedUsers).toEqual(['Cy', 'Zed']);
             expect(linksOf('Cy').map(l => l.state)).toEqual(['revoked']);
             expect(mockDb.current.reports.all().every(r => r.reporterDeletedAt || r.reportedDeletedAt)).toBe(true);
             expect(JSON.stringify(mockDb.current.gameRecords.all())).not.toContain('"Cy"');
@@ -685,7 +689,7 @@ describe('actions', () => {
             expect(await users().findOne({ username: 'CyOld' })).toMatchObject({ mergedInto: 'Cyrus' });
             // the blocker's live socket has the new list (voice; the client's chat filter)
             expect([...bea.data.blockedUsers]).toEqual(['Cyrus', 'Zed']);
-            expect(w.log.filter(l => l.to === `self:${bea.id}` && l.event === 'blockListUpdated').pop().data).toEqual({ success: true, blockedUsers: ['Cyrus', 'Zed'] });
+            expect(w.log.filter(l => l.to === `self:${bea.id}` && l.event === 'blockListUpdated').pop().data).toEqual({ success: true, blockedUsers: ['Cyrus', 'Zed'], silent: true });
             for (const s of [cy, cy2]) {
                 expect(gotEvent(s, 'forceLogout')).toBe(true);
                 expect(w.io.sockets.sockets.has(s.id)).toBe(false);
@@ -1096,6 +1100,215 @@ describe('actions', () => {
             await users().insertOne({ username: 'bea2', stats: { gamesPlayed: 1 } });
             const res = await request(owner, 'findDuplicates', {});
             expect(res.groups.map(g => g.map(u => u.username))).toEqual([['Bea', 'bea2']]);
+        });
+    });
+
+    describe('review fixes (batch 2 findings)', () => {
+        const passwordHash = require('../../utils/passwordHash');
+        const { eraseAccount } = require('../../admin/accountDelete');
+        const replyOf = (s, event) => w.log.filter(l => l.to === `self:${s.id}` && l.event === event).pop()?.data;
+        const caseCount = (name) => users().countDocuments({ username: { $regex: `^${name}$`, $options: 'i' } });
+        beforeEach(async () => {
+            await users().updateOne({ username: 'Cy' }, { $set: { stats: { gamesPlayed: 3, wins: 1 } } });
+            await mockDb.current.gameRecords.insertOne({ gameId: 'g1', team1Players: ['Cy', 'Bea'], team2Players: ['y', 'z'], completedAt: new Date() });
+        });
+
+        test('SD-RACE: a self-delete whose password check overlaps an admin rename deletes nothing; the renamed account and its redirect stay', async () => {
+            const cy = await signedIn('Cy');
+            const hold = holdNextWrite(passwordHash, 'compare');
+            const deleting = auth.deleteAccount(cy, w.io, { password: 'pw' });
+            try {
+                await hold.reached;
+                expect(await request(owner, 'renameAccount', { username: 'Cy', newName: 'Cyrus', confirm: 'Cyrus' })).toMatchObject({ ok: true });
+            } finally {
+                hold.release();
+            }
+            await deleting;
+            expect(replyOf(cy, 'deleteAccountResponse')).toEqual({ success: false, message: expect.stringMatching(/changed by an admin.*Nothing was deleted/) });
+            expect(await users().findOne({ username: 'Cyrus' })).toMatchObject({ stats: { gamesPlayed: 3 }, password: expect.any(String) });
+            expect(await users().findOne({ username: 'Cy' })).toMatchObject({ mergedInto: 'Cyrus' });
+            expect(mockDb.current.gameRecords.all()[0].team1Players).toEqual(['Cyrus', 'Bea']);
+            expect(gameManager.deletedUsernames.has('Cyrus')).toBe(false);
+            expect(gameManager.deletedUsernames.has('Cy')).toBe(false);
+        });
+
+        test('SELFDEL-UNSERIALIZED: a self-delete waits for a panel rename of the same account already running (one queue), then is refused', async () => {
+            const cy = await signedIn('Cy');
+            const compare = holdNextWrite(passwordHash, 'compare');
+            const deleting = auth.deleteAccount(cy, w.io, { password: 'pw' });
+            await compare.reached;
+            const write = holdNextWrite(users(), 'findOneAndUpdate'); // the rename's guarded write
+            const renaming = request(owner, 'renameAccount', { username: 'Cy', newName: 'Cyrus', confirm: 'Cyrus' });
+            try {
+                await write.reached;
+                compare.release();
+                await new Promise(r => setTimeout(r, 30)); // the self-delete gets as far as it can
+                expect(await users().findOne({ username: 'Cy' })).toMatchObject({ stats: { gamesPlayed: 3 } });
+                expect(replyOf(cy, 'deleteAccountResponse')).toBeUndefined(); // waiting its turn
+            } finally {
+                compare.release();
+                write.release();
+            }
+            expect(await renaming).toMatchObject({ ok: true, newName: 'Cyrus' });
+            await deleting;
+            expect(replyOf(cy, 'deleteAccountResponse')).toEqual({ success: false, message: expect.stringMatching(/changed by an admin/) });
+            expect(await users().findOne({ username: 'Cyrus' })).toMatchObject({ stats: { gamesPlayed: 3 } });
+        });
+
+        test('SD-RACE: eraseAccount deletes the document only under the name it was given', async () => {
+            const doc = await users().findOne({ username: 'Cy' });
+            await users().updateOne({ _id: doc._id }, { $set: { username: 'Cyrus' } });
+            await expect(eraseAccount(mockDb.current, { _id: doc._id, username: 'Cy' })).rejects.toThrow(/changed/);
+            expect(await users().findOne({ username: 'Cyrus' })).toMatchObject({ stats: { gamesPlayed: 3 } });
+        });
+
+        test('BLK-EVADE: a player deleting their own account and signing up again as the same name stays blocked', async () => {
+            await users().insertOne({ username: 'Hal', password: PW });
+            await users().updateOne({ username: 'Bea' }, { $set: { blockedUsers: ['Hal'] } });
+            const bea = await signedIn('Bea');
+            const hal = await signedIn('Hal');
+            jest.useFakeTimers();
+            try {
+                await auth.deleteAccount(hal, w.io, { password: 'pw' });
+            } finally {
+                jest.useRealTimers();
+            }
+            expect(replyOf(hal, 'deleteAccountResponse')).toEqual({ success: true });
+            expect(await users().findOne({ username: 'Hal' })).toBeNull();
+            const up = w.socket(`adm-${++n}`);
+            await auth.signUp(up, w.io, { username: 'Hal', password: 'pw' });
+            expect(replyOf(up, 'signUpResponse')).toMatchObject({ success: true });
+            expect((await users().findOne({ username: 'Bea' })).blockedUsers).toEqual(['Hal']);
+            expect([...bea.data.blockedUsers]).toEqual(['Hal']);
+            expect(gotEvent(bea, 'blockListUpdated')).toBe(false);
+        });
+
+        test('Q-REAUTH: a delete queued behind a running merge is authorized again on its turn; an admin removed meanwhile gets the uniform refusal and nothing is deleted', async () => {
+            await users().insertOne({ username: 'Dee', password: PW });
+            const plan = await request(owner, 'planMerge', { target: 'Bea', sources: ['Cy'] });
+            const hold = holdNextWrite(mockDb.current.gameRecords); // the merge's first write
+            const merging = request(owner, 'applyMerge', { target: 'Bea', sources: ['Cy'], planHash: plan.planHash, confirm: 'Bea' });
+            let deleting;
+            try {
+                await hold.reached;
+                deleting = request(owner, 'deleteAccount', { username: 'Dee', confirm: 'Dee' });
+                await new Promise(r => setTimeout(r, 20));
+                await users().updateOne({ username: 'Owner' }, { $set: { isAdmin: false } });
+            } finally {
+                hold.release();
+            }
+            expect(await merging).toMatchObject({ ok: true });
+            expect(await deleting).toEqual({ requestId: expect.any(String), action: 'deleteAccount', ok: false, error: 'forbidden', message: admin.FORBIDDEN_MESSAGE });
+            expect(await users().findOne({ username: 'Dee' })).not.toBeNull();
+        });
+
+        test('SU-CASE: a sign-up of a case variant whose hash overlaps a rename to that name is undone after its insert', async () => {
+            const hold = holdNextWrite(passwordHash, 'hash');
+            const up = w.socket(`adm-${++n}`);
+            const signing = auth.signUp(up, w.io, { username: 'cyrus', password: 'pw' });
+            try {
+                await hold.reached;
+                expect(await request(owner, 'renameAccount', { username: 'Cy', newName: 'Cyrus', confirm: 'Cyrus' })).toMatchObject({ ok: true });
+            } finally {
+                hold.release();
+            }
+            await signing;
+            expect(replyOf(up, 'signUpResponse')).toEqual({ success: false, message: 'That name is taken.' });
+            expect(await caseCount('cyrus')).toBe(1);
+            expect(await users().findOne({ username: 'Cyrus' })).toMatchObject({ stats: { gamesPlayed: 3 } });
+            expect(gameManager.getUserBySocketId(up.id)).toBeFalsy();
+        });
+
+        test('TOMB-REMERGE: after its merged name is deleted, a new account with that name merged into the same account has its stats added', async () => {
+            const plan = await request(owner, 'planMerge', { target: 'Bea', sources: ['Cy'] });
+            expect(await request(owner, 'applyMerge', { target: 'Bea', sources: ['Cy'], planHash: plan.planHash, confirm: 'Bea' })).toMatchObject({ ok: true });
+            expect((await users().findOne({ username: 'Bea' })).stats.gamesPlayed).toBe(5);
+            expect(await request(owner, 'deleteAccount', { username: 'Cy', confirm: 'Cy' })).toMatchObject({ ok: true, kind: 'tombstone' });
+            const bea = await users().findOne({ username: 'Bea' });
+            expect(bea.mergedFrom.map(e => e.username)).not.toContain('Cy');
+            expect(bea.mergedFromFreed).toEqual([expect.objectContaining({ username: 'Cy', stats: expect.objectContaining({ gamesPlayed: 3 }), nameFreedAt: expect.any(Date) })]);
+            await users().insertOne({ username: 'Cy', password: PW, stats: { gamesPlayed: 7, wins: 2 } });
+            const again = await request(owner, 'planMerge', { target: 'Bea', sources: ['Cy'] });
+            expect(again.plan.errors).toEqual([]);
+            expect(again.plan.accounts.find(a => a.role === 'result').stats.gamesPlayed).toBe(12);
+            expect(await request(owner, 'applyMerge', { target: 'Bea', sources: ['Cy'], planHash: again.planHash, confirm: 'Bea' })).toMatchObject({ ok: true, result: { statsMerged: ['Cy'] } });
+            expect((await users().findOne({ username: 'Bea' })).stats.gamesPlayed).toBe(12);
+        });
+
+        test('REN-NOREDIRECT-RESUME / C3 / RN-RESUME: the redirect write failing is finishable: the table flags it, deleting is refused until done, renaming again writes the redirect and moves the rest', async () => {
+            const coll = users();
+            coll.insertOne = async () => { delete coll.insertOne; throw new Error('network blip'); };
+            let res;
+            try {
+                res = await request(owner, 'renameAccount', { username: 'Cy', newName: 'Cyrus', confirm: 'Cyrus' });
+            } finally {
+                delete coll.insertOne;
+            }
+            expect(res).toMatchObject({ ok: false, error: 'server', message: expect.stringMatching(/Rename Cy to Cyrus again to finish/) });
+            expect(await users().findOne({ username: 'Cy' })).toBeNull();
+            expect(mockDb.current.gameRecords.all()[0].team1Players).toEqual(['Cy', 'Bea']);
+            const list = await request(owner, 'listPlayers', {});
+            expect(list.players.find(p => p.username === 'Cyrus')).toMatchObject({ renameUnfinished: 'Cy' });
+            expect(list.players.find(p => p.username === 'Bea')).toMatchObject({ renameUnfinished: null });
+            // the unfinished account can be neither renamed again nor deleted
+            expect(await request(owner, 'renameAccount', { username: 'Cyrus', newName: 'Cyril', confirm: 'Cyril' })).toMatchObject({ ok: false, error: 'refused', message: expect.stringMatching(/unfinished rename from "Cy"/) });
+            expect(await request(owner, 'deleteAccount', { username: 'Cyrus', confirm: 'Cyrus' })).toMatchObject({ ok: false, error: 'refused', message: expect.stringMatching(/unfinished rename/) });
+            const done = await request(owner, 'renameAccount', { username: 'Cy', newName: 'Cyrus', confirm: 'Cyrus' });
+            expect(done).toMatchObject({ ok: true, resumed: true, oldNameKept: true, gameRecords: 1 });
+            expect(await users().findOne({ username: 'Cy' })).toMatchObject({ mergedInto: 'Cyrus', renamedAt: expect.any(Date) });
+            expect((await users().findOne({ username: 'Cyrus' })).renamePending).toBeUndefined();
+            expect(mockDb.current.gameRecords.all()[0].team1Players).toEqual(['Cyrus', 'Bea']);
+            expect((await request(owner, 'listPlayers', {})).players.find(p => p.username === 'Cyrus')).toMatchObject({ renameUnfinished: null });
+        });
+
+        test('RN-RESUME: the redirect of an unfinished rename cannot be deleted until the rename is finished', async () => {
+            const original = mockDb.current.gameRecords.updateMany;
+            mockDb.current.gameRecords.updateMany = async () => { throw new Error('disk on fire'); };
+            try {
+                expect(await request(owner, 'renameAccount', { username: 'Cy', newName: 'Cyrus', confirm: 'Cyrus' })).toMatchObject({ ok: false, error: 'server' });
+            } finally {
+                mockDb.current.gameRecords.updateMany = original;
+            }
+            expect(await request(owner, 'deleteAccount', { username: 'Cy', confirm: 'Cy' })).toMatchObject({ ok: false, error: 'refused', message: expect.stringMatching(/has not finished/) });
+            expect(await users().findOne({ username: 'Cy' })).toMatchObject({ mergedInto: 'Cyrus' });
+            expect(await request(owner, 'renameAccount', { username: 'Cy', newName: 'Cyrus', confirm: 'Cyrus' })).toMatchObject({ ok: true, resumed: true });
+            expect(await request(owner, 'deleteAccount', { username: 'Cy', confirm: 'Cy' })).toMatchObject({ ok: true, kind: 'tombstone' });
+        });
+
+        test('C3: a new account that took the old name before the rename finished: finishing is refused, nothing of it moved', async () => {
+            const coll = users();
+            coll.insertOne = async () => { delete coll.insertOne; throw new Error('network blip'); };
+            try {
+                await request(owner, 'renameAccount', { username: 'Cy', newName: 'Cyrus', confirm: 'Cyrus' });
+            } finally {
+                delete coll.insertOne;
+            }
+            await users().insertOne({ username: 'Cy', password: PW });
+            const before = JSON.stringify([users().all(), mockDb.current.gameRecords.all()]);
+            expect(await request(owner, 'renameAccount', { username: 'Cy', newName: 'Cyrus', confirm: 'Cyrus' })).toMatchObject({ ok: false, error: 'refused', message: expect.stringMatching(/taken by a new account before the rename/) });
+            expect(JSON.stringify([users().all(), mockDb.current.gameRecords.all()])).toBe(before);
+        });
+
+        test('REN-DELETED-REPORTS: a rename leaves reports about an earlier, deleted holder of the name alone; merge plans do too', async () => {
+            await mockDb.current.reports.insertOne({ reporter: 'Bea', reported: 'Cy', reason: 'old', createdAt: new Date(), reportedDeletedAt: new Date() });
+            await mockDb.current.reports.insertOne({ reporter: 'Cy', reported: 'Bea', reason: 'old2', createdAt: new Date(), reporterDeletedAt: new Date() });
+            await mockDb.current.reports.insertOne({ reporter: 'Bea', reported: 'Cy', reason: 'new', createdAt: new Date() });
+            await users().insertOne({ username: 'Dee', password: PW });
+            const merge = await request(owner, 'planMerge', { target: 'Dee', sources: ['Cy'] });
+            expect(merge.plan.reports.map(r => r.newReported || r.newReporter)).toEqual(['Dee']);
+            expect(await request(owner, 'renameAccount', { username: 'Cy', newName: 'Cyrus', confirm: 'Cyrus' })).toMatchObject({ ok: true, reports: 1 });
+            expect(mockDb.current.reports.all().map(r => [r.reason, r.reporter, r.reported])).toEqual([
+                ['old', 'Bea', 'Cy'], ['old2', 'Cy', 'Bea'], ['new', 'Bea', 'Cyrus']
+            ]);
+        });
+
+        test('REN-SELF / C2: an admin cannot rename their own account (they would be signed out before the answer); nothing changes', async () => {
+            const res = await request(owner, 'renameAccount', { username: 'Owner', newName: 'Owner2', confirm: 'Owner2' });
+            expect(res).toMatchObject({ ok: false, error: 'refused', message: expect.stringMatching(/cannot rename your own account/) });
+            expect(gotEvent(owner, 'forceLogout')).toBe(false);
+            expect(w.io.sockets.sockets.has(owner.id)).toBe(true);
+            expect(await users().findOne({ username: 'Owner2' })).toBeNull();
+            expect(await users().findOne({ username: 'Owner' })).toMatchObject({ isAdmin: true });
         });
     });
 

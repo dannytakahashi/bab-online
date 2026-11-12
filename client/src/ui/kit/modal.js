@@ -43,7 +43,8 @@ function prune() {
  * @param {string} [o.title]
  * @param {Node|Node[]} [o.body]
  * @param {Node[]} [o.actions] - buttons for the footer
- * @param {boolean} [o.dismissible=true] - Escape and a backdrop click close it
+ * @param {boolean|function(): boolean} [o.dismissible=true] - Escape and a backdrop click close it
+ *   (a function is asked at each key / click: a dialog busy with a request says no)
  * @param {boolean} [o.closable=false] - a close button beside the title (reason 'button')
  * @param {string} [o.closeLabel='Close'] - its accessible name
  * @param {HTMLElement} [o.initialFocus]
@@ -84,6 +85,7 @@ export function openModal({
 
   const backdrop = el('div', { className: 'kit-modal-backdrop', attrs: { id }, children: [dialog] });
 
+  const canDismiss = () => (typeof dismissible === 'function' ? dismissible() === true : Boolean(dismissible));
   let open = true;
   const entry = { backdrop, release: null };
   const isTop = () => stack[stack.length - 1] === entry;
@@ -109,7 +111,7 @@ export function openModal({
     prune();
     if (!open || !isTop()) return;
     if (e.key === 'Escape') {
-      if (!dismissible) return;
+      if (!canDismiss()) return;
       e.preventDefault();
       e.stopPropagation();
       close('escape');
@@ -137,7 +139,7 @@ export function openModal({
 
   closeBtn?.addEventListener('click', () => close('button'));
   backdrop.addEventListener('mousedown', (e) => {
-    if (e.target === backdrop && dismissible && isTop()) close('backdrop');
+    if (e.target === backdrop && canDismiss() && isTop()) close('backdrop');
   });
   // focus leaving the dialog (a click on the page behind) comes back; a
   // modal opened on top of this one keeps its own focus

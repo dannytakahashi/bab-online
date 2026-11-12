@@ -387,7 +387,8 @@ describe('the panel', () => {
     expect(dialog.textContent).toMatch(/Rename Bea/);
     expect(dialog.textContent).toMatch(/signed out everywhere/);
     expect(dialog.textContent).toMatch(/same password/);
-    expect(dialog.textContent).toMatch(/Signing in as Bea will say to use the new name/);
+    expect(dialog.textContent).toMatch(/any open reset link is cancelled/);
+    expect(dialog.textContent).toMatch(/Bea stays as an old name that redirects: anyone who types it at sign-in or sign-up is told the new name, with no password needed/);
     expect($('label[for="adminRenameNew"]').textContent).toBe('New name');
     expect($('#adminRenameNew').getAttribute('aria-describedby')).toBe('adminRenameRules');
     expect($('#adminRenameRules').textContent).toMatch(/3 to 20 letters/);
@@ -609,6 +610,154 @@ describe('the panel', () => {
     expect(document.querySelector('#adminPlayerTable img, #adminPlayerTable b')).toBeNull();
     expect($('#adminPlayerTable').textContent).toContain('<img src=x onerror=alert(1)>');
     expect($('#adminPlayerTable').textContent).toContain('into <b>x</b>');
+  });
+});
+
+describe('review fixes (batch 2 findings)', () => {
+  /** An api whose `action` answers only when release(answer) is called. */
+  function heldApi(action, extra = {}) {
+    let release;
+    const answered = new Promise((r) => { release = r; });
+    const a = fakeApi({ listPlayers: { ok: true, players: PLAYERS, total: 3, limit: 500 }, ...extra });
+    const plain = a.request;
+    a.request = vi.fn(async (act, args) => {
+      if (act !== action) return plain(act, args);
+      a.calls.push([act, args]);
+      return { requestId: 'x', action: act, ...(await answered) };
+    });
+    return { api: a, release };
+  }
+
+  it('STALE-LINK: a reset link box goes away when that player is renamed, deleted or signed out everywhere (each cancels it)', async () => {
+    api = fakeApi({
+      listPlayers: { ok: true, players: PLAYERS, total: 3, limit: 500 },
+      createResetLink: (a) => ({ ok: true, username: a.username, token: 'T'.repeat(43), expiresAt: '2026-11-12T12:00:00.000Z' }),
+      renameAccount: (a) => ({ ok: true, username: a.username, newName: a.newName, resumed: false, oldNameKept: true, gameRecords: 0, reports: 0, otherUsersBlocks: 0, chainedTombstones: 0, adminSetBy: 0, resetLinks: 1, revokedSessions: 0, signedOut: 0 }),
+      deleteAccount: (a) => ({ ok: true, username: a.username, kind: 'account', mergedInto: null, gameRecords: 0, reports: 0, blockLists: 0, resetLinks: 1, tombstones: 0, signedOut: 0 }),
+      signOutEverywhere: (a) => ({ ok: true, username: a.username, revokedSessions: 0, disconnected: 0 }),
+    });
+    await openPlayers();
+    const makeLink = async () => {
+      byText('Reset link', rowOf('Bea')).click();
+      await flush();
+      expect($('#adminResetLink').hidden).toBe(false);
+    };
+    await makeLink();
+    await menuPick('Bea', 'Rename…');
+    typeInto($('#adminRenameNew'), 'Bee');
+    typeInto($('#adminRenameConfirm'), 'Bee');
+    $('#adminConfirmDialog [data-confirm="yes"]').click();
+    await flush();
+    expect($('#adminResetLink').hidden).toBe(true);
+    expect($('#adminResetLinkInput')).toBeNull();
+    await makeLink();
+    await menuPick('Bea', 'Delete account…');
+    typeInto($('#adminDialogConfirm'), 'Bea');
+    $('#adminConfirmDialog [data-confirm="yes"]').click();
+    await flush();
+    expect($('#adminResetLink').hidden).toBe(true);
+    await makeLink();
+    await menuPick('Bea', 'Sign out everywhere…');
+    $('#adminConfirmDialog [data-confirm="yes"]').click();
+    await flush();
+    expect($('#adminResetLink').hidden).toBe(true);
+  });
+
+  it('INFLIGHT-CANCEL: while a delete is in flight the dialog cannot be dismissed; its answer still reaches the panel (message, reload)', async () => {
+    const held = heldApi('deleteAccount');
+    api = held.api;
+    await openPlayers();
+    await menuPick('Bea', 'Delete account…');
+    typeInto($('#adminDialogConfirm'), 'Bea');
+    $('#adminConfirmDialog [data-confirm="yes"]').click();
+    await flush();
+    const cancel = byText('Cancel', $('#adminConfirmDialog'));
+    expect(cancel.disabled).toBe(true);
+    cancel.click();
+    keyOn(document.activeElement || document.body, 'Escape');
+    const backdrop = $('#adminConfirmDialog').parentElement;
+    backdrop.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    await flush();
+    expect($('#adminConfirmDialog')).not.toBeNull();
+    held.release({ ok: true, username: 'Bea', kind: 'account', mergedInto: null, gameRecords: 1, reports: 0, blockLists: 0, resetLinks: 0, tombstones: 0, signedOut: 1 });
+    await flush();
+    expect($('#adminConfirmDialog')).toBeNull();
+    expect($('#adminStatus').textContent).toMatch(/^Bea is deleted/);
+    expect(api.calls.filter((c) => c[0] === 'listPlayers')).toHaveLength(2);
+    // after the answer the dialog is dismissible again
+    await menuPick('Bea', 'Delete account…');
+    keyOn(document.activeElement, 'Escape');
+    await flush();
+    expect($('#adminConfirmDialog')).toBeNull();
+  });
+
+  it('DOUBLE-ALERT: a refusal inside a dialog is announced once, in the dialog; nothing stale stays above the table', async () => {
+    api = fakeApi({
+      listPlayers: { ok: true, players: PLAYERS, total: 3, limit: 500 },
+      renameAccount: { ok: false, error: 'refused', message: 'That name is taken.' },
+      deleteAccount: { ok: false, error: 'refused', message: '"Bea" is in a game right now.' },
+    });
+    await openPlayers();
+    await menuPick('Bea', 'Rename…');
+    typeInto($('#adminRenameNew'), 'Bee');
+    typeInto($('#adminRenameConfirm'), 'Bee');
+    $('#adminConfirmDialog [data-confirm="yes"]').click();
+    await flush();
+    expect($('#adminDialogAlert').textContent).toBe('That name is taken.');
+    expect($('#adminAlert').textContent).toBe('');
+    byText('Cancel', $('#adminConfirmDialog')).click();
+    await menuPick('Bea', 'Delete account…');
+    typeInto($('#adminDialogConfirm'), 'Bea');
+    $('#adminConfirmDialog [data-confirm="yes"]').click();
+    await flush();
+    expect($('#adminDialogAlert').textContent).toMatch(/in a game right now/);
+    expect($('#adminAlert').textContent).toBe('');
+  });
+
+  it('RN-RESUME: an account whose rename stopped partway is marked and offers Finish rename, which sends the same rename again', async () => {
+    const renamed = { ...PLAYERS[0], username: 'Bee', renameUnfinished: 'Bea' };
+    api = fakeApi({
+      listPlayers: { ok: true, players: [renamed, PLAYERS[1]], total: 2, limit: 500 },
+      renameAccount: (a) => ({ ok: true, username: a.username, newName: a.newName, resumed: true, oldNameKept: true, gameRecords: 3, reports: 1, otherUsersBlocks: 1, chainedTombstones: 0, adminSetBy: 0, resetLinks: 0, revokedSessions: 0, signedOut: 0 }),
+    });
+    await openPlayers();
+    expect(rowOf('Bee').textContent).toMatch(/rename unfinished/);
+    expect(byText('Finish rename', rowOf('Owner'))).toBeUndefined();
+    const finish = byText('Finish rename', rowOf('Bee'));
+    expect(finish.getAttribute('aria-label')).toBe('Finish rename: Bea to Bee');
+    finish.click();
+    await flush();
+    expect($('#adminConfirmDialog').textContent).toMatch(/Finish renaming Bea to Bee\?/);
+    $('#adminConfirmDialog [data-confirm="yes"]').click();
+    await flush();
+    expect(api.calls.filter((c) => c[0] === 'renameAccount')).toEqual([['renameAccount', { username: 'Bea', newName: 'Bee', confirm: 'Bee' }]]);
+    expect($('#adminStatus').textContent).toMatch(/^The rename of Bea to Bee is finished: 3 game record update/);
+    expect(api.calls.filter((c) => c[0] === 'listPlayers')).toHaveLength(2);
+  });
+
+  it('RN-RESUME: a rename that stopped partway reloads the table when its dialog is cancelled (its row now offers Finish rename)', async () => {
+    api = fakeApi({
+      listPlayers: { ok: true, players: PLAYERS, total: 3, limit: 500 },
+      renameAccount: { ok: false, error: 'server', message: '"Bea" is now called "Bee" (signed out everywhere), but updating its games, reports and block lists stopped partway. Rename Bea to Bee again to finish.' },
+    });
+    await openPlayers();
+    await menuPick('Bea', 'Rename…');
+    typeInto($('#adminRenameNew'), 'Bee');
+    typeInto($('#adminRenameConfirm'), 'Bee');
+    $('#adminConfirmDialog [data-confirm="yes"]').click();
+    await flush();
+    expect($('#adminDialogAlert').textContent).toMatch(/again to finish/);
+    byText('Cancel', $('#adminConfirmDialog')).click();
+    await flush();
+    expect(api.calls.filter((c) => c[0] === 'listPlayers')).toHaveLength(2);
+  });
+
+  it('REN-SELF: renaming your own account is explained without a dialog (the server refuses it too)', async () => {
+    await openPlayers();
+    await menuPick('Owner', 'Rename…');
+    expect($('#adminConfirmDialog')).toBeNull();
+    expect($('#adminAlert').textContent).toMatch(/cannot rename your own account here/);
+    expect(api.calls.filter((c) => c[0] === 'renameAccount')).toEqual([]);
   });
 });
 
