@@ -50,6 +50,13 @@
  *     gets leftGame, a lobby's Leave gets leftLobby, a tournament's leave /
  *     return gets tournamentLeft, so every way out lands in that main room.
  *     (No game-log copy: gameLogEntry is a room broadcast that carries seq.)
+ *   - the draw (warm reconnect while "Draw for Deal" is up): 1.1.0 disables
+ *     its Leave under the draw overlay (GameContainerView
+ *     `.disabled(gameState.phase == .draw)`; found in the 2026-11-12 live
+ *     check), so Tap to Draw (`draw`) is the only way out and gets leftGame
+ *     too (both builds send `draw` only from DrawPhaseView). A player who had
+ *     already drawn before the deploy has no button left: force-quitting
+ *     lands on sign-in with the message.
  * Nothing else is registered for a gated socket (setupSocketHandlers returns
  * before its handlers), so every other event is ignored: it never signs in,
  * is never registered as online, never joins a room, never touches a game,
@@ -235,6 +242,9 @@ function attach(socket, app) {
     socket.on('chatMessage', (data) => {
         if (typeof data?.message === 'string' && data.message.trim().toLowerCase() === '/leave') replyLeave('leftGame');
     });
+    // Tap to Draw: the only control a stale draw screen leaves (1.1.0's Leave
+    // is disabled under the draw overlay)
+    socket.on('draw', () => replyLeave('leftGame'));
     socket.on('leaveLobby', () => replyLeave('leftLobby'));
     socket.on('leaveTournament', () => replyLeave('tournamentLeft'));
     socket.on('returnToTournament', () => replyLeave('tournamentLeft'));

@@ -26,9 +26,10 @@ gated. The gate's payloads were re-checked against what 1.1.0 reads
 (SignInView / RegisterView show `signInResponse` / `signUpResponse`
 messages in red under the fields; LobbySocketHandler reads
 `recentMessages ?? messages`; leftGame / leftLobby / tournamentLeft land in
-the main room, whose joinMainRoom gets the update-only room; the
-upgradeGate.js header and upgradeGate.test.js run every gated-socket check
-for both builds). From that PR on, "the shipped iOS app" in the entries
+the main room, whose joinMainRoom gets the update-only room; 1.1.0 disables
+its table Leave during the draw, so the gate answers Tap to Draw (`draw`)
+with leftGame too; the upgradeGate.js header and upgradeGate.test.js run
+every gated-socket check for both builds). From that PR on, "the shipped iOS app" in the entries
 below means 1.2.0, and the 1.1.0 blockers in "Plan after the gate" are
 lifted: see "What iOS 1.2.0 unblocks".
 

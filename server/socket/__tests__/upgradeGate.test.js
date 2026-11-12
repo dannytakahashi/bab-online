@@ -173,7 +173,7 @@ describe.each(OLD_BUILDS)('a %s socket', (_version, UA_OLD, BUILD) => {
             .filter((m) => users[m]).map((m) => jest.spyOn(users, m));
 
         const w = wired(UA_OLD);
-        expect([...w.handlers.keys()].sort()).toEqual(['chatMessage', 'disconnect', 'joinMainRoom', 'leaveLobby', 'leaveTournament',
+        expect([...w.handlers.keys()].sort()).toEqual(['chatMessage', 'disconnect', 'draw', 'joinMainRoom', 'leaveLobby', 'leaveTournament',
             'restoreSession', 'returnToTournament', 'signIn', 'signUp'].sort());
         await w.send('restoreSession', { username: 'Alan', sessionToken: ALAN_TOKEN });
         expect(w.emits('restoreSessionResponse')).toEqual([]);
@@ -258,7 +258,7 @@ describe.each(OLD_BUILDS)('a %s socket', (_version, UA_OLD, BUILD) => {
             ['joinMainRoom'], ['mainRoomChat', { message: 'hi' }], ['createLobby', { name: 'x' }], ['joinQueue'],
             ['joinLobby', { lobbyId: 'nope' }], ['addBot'], ['playerReady'], ['createTournament'], ['joinTournament', { tournamentId: 't' }],
             ['rejoinGame', { gameId: 'g', username: 'Alan', sessionToken: ALAN_TOKEN }], ['playCard', { card: { suit: 'spades', rank: 'A' } }],
-            ['playerBid', { bid: '1' }], ['draw', { num: 1 }], ['deleteAccount', { password: 'pw' }], ['getProfile'], ['getLeaderboard'],
+            ['playerBid', { bid: '1' }], ['deleteAccount', { password: 'pw' }], ['getProfile'], ['getLeaderboard'],
             ['requestSnapshot', {}], ['clientHello', { client: 'ios', version: _version, caps: ['avatarUrl'] }], ['voiceOffer', { to: 'x' }],
             ['chatMessage', { message: 'hello' }], ['blockUser', { username: 'Bob' }],
         ]) await w.send(ev, d);
@@ -274,15 +274,19 @@ describe.each(OLD_BUILDS)('a %s socket', (_version, UA_OLD, BUILD) => {
         await w.send('disconnect');
     });
 
-    test('the ways out of a stale screen land in that main room: /leave, leaveLobby, leaveTournament, returnToTournament', async () => {
+    test('the ways out of a stale screen land in that main room: /leave, Tap to Draw, leaveLobby, leaveTournament, returnToTournament', async () => {
+        const before = serverState();
         const w = wired(UA_OLD);
         await w.send('chatMessage', { message: ' /LEAVE ' });
+        // 1.1.0 disables Leave under the draw overlay: Tap to Draw is the way out
+        await w.send('draw', { num: 17 });
         await w.send('leaveLobby');
         await w.send('leaveTournament');
         await w.send('returnToTournament');
         expect(w.log.map((l) => [l.event, l.data])).toEqual([
-            ['leftGame', undefined], ['leftLobby', {}], ['tournamentLeft', {}], ['tournamentLeft', {}],
+            ['leftGame', undefined], ['leftGame', undefined], ['leftLobby', {}], ['tournamentLeft', {}], ['tournamentLeft', {}],
         ]);
+        expect(serverState()).toBe(before);
         await w.send('disconnect');
     });
 
@@ -293,19 +297,19 @@ describe.each(OLD_BUILDS)('a %s socket', (_version, UA_OLD, BUILD) => {
         // recentMessages ?? messages
         const w = wired(UA_OLD);
         await w.send('restoreSession', { username: 'Alan', sessionToken: ALAN_TOKEN });
-        for (const [ev, d] of [['chatMessage', { message: '/leave' }], ['returnToTournament'], ['leaveLobby'], ['leaveTournament']]) {
+        for (const [ev, d] of [['chatMessage', { message: '/leave' }], ['draw', { num: 3 }], ['returnToTournament'], ['leaveLobby'], ['leaveTournament']]) {
             await w.send(ev, d);
             await w.send('joinMainRoom');
         }
         const rooms = w.emits('mainRoomJoined').map((l) => l.data);
-        expect(rooms).toHaveLength(4);
+        expect(rooms).toHaveLength(5);
         for (const room of rooms) {
             expect(room).toMatchObject({ lobbies: [], onlineCount: 0, onlineUsers: [], inProgressGames: [], tournaments: [] });
             expect(room.messages).toEqual([{ username: 'BAB Online', message: MSG, timestamp: expect.any(Number) }]);
             expect(room.recentMessages).toEqual(room.messages);
         }
         expect(w.log.map((l) => l.event).filter((e) => e !== 'mainRoomJoined' && e !== 'signInResponse'))
-            .toEqual(['leftGame', 'tournamentLeft', 'leftLobby', 'tournamentLeft']);
+            .toEqual(['leftGame', 'leftGame', 'tournamentLeft', 'leftLobby', 'tournamentLeft']);
         expect(w.emits('error')).toEqual([]);
         expect(gameManager.getOnlineUsernames()).not.toContain('Alan');
         await w.send('disconnect');
