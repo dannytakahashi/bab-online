@@ -181,9 +181,11 @@ describe('the panel', () => {
     expect(tomb.querySelector('[aria-haspopup="menu"]')).toBeNull();
     // live accounts: a reset link and a More menu; destructive items last, after a separator, in the danger style
     expect(byText('Reset link', rowOf('Bea'))).toBeTruthy();
-    expect(menuItems('Bea').map((i) => i.textContent)).toEqual(['Make admin…', 'Sign out everywhere…']);
-    expect(menuItems('Owner').map((i) => i.textContent)).toEqual(['Sign out everywhere…', 'Remove admin…']);
-    expect(menuItems('Bea').map((i) => i.classList.contains('admin-menu__item--danger'))).toEqual([false, true]);
+    expect(menuItems('Bea').map((i) => i.textContent)).toEqual(['Make admin…', 'Sign out everywhere…', 'Delete account…']);
+    expect(menuItems('Owner').map((i) => i.textContent)).toEqual(['Sign out everywhere…', 'Remove admin…', 'Delete account…']);
+    expect(menuItems('Bea').map((i) => i.classList.contains('admin-menu__item--danger'))).toEqual([false, true, true]);
+    // a tombstone's own action: delete the old name (a quiet button, not a filled red one)
+    expect(byText('Delete…', tomb)).toBeTruthy();
     expect(rowOf('Bea').querySelector('[role="menu"] [role="separator"]')).toBeTruthy();
     // no button in a row is the filled red one: the destructive actions are not the most prominent control
     expect(document.querySelectorAll('#adminPlayerTable .kit-btn--danger')).toHaveLength(0);
@@ -266,10 +268,14 @@ describe('the panel', () => {
     keyOn(items[0], 'ArrowDown');
     expect(document.activeElement).toBe(items[1]);
     keyOn(items[1], 'ArrowDown');
+    expect(document.activeElement).toBe(items[2]);
+    keyOn(items[2], 'ArrowDown');
     expect(document.activeElement).toBe(items[0]); // wraps
-    keyOn(items[0], 'End');
-    expect(document.activeElement).toBe(items[1]);
-    keyOn(items[1], 'Home');
+    keyOn(items[0], 'ArrowUp');
+    expect(document.activeElement).toBe(items[2]);
+    keyOn(items[2], 'End');
+    expect(document.activeElement).toBe(items[2]);
+    keyOn(items[2], 'Home');
     expect(document.activeElement).toBe(items[0]);
     keyOn(items[0], 'Escape');
     expect(menu.hidden).toBe(true);
@@ -284,6 +290,97 @@ describe('the panel', () => {
     expect(menuButton('Owner').getAttribute('aria-expanded')).toBe('false');
     // items are not in the tab order; the button is
     expect(items.every((i) => i.tabIndex === -1)).toBe(true);
+  });
+
+  it('delete account: a dialog that says what happens, the name typed exactly, then the request; the table reloads and focus lands on the filter', async () => {
+    api = fakeApi({
+      listPlayers: { ok: true, players: PLAYERS, total: 3, limit: 500 },
+      deleteAccount: (a) => ({ ok: true, username: a.username, kind: 'account', mergedInto: null, gameRecords: 4, reports: 1, blockLists: 1, resetLinks: 0, tombstones: 1, signedOut: 2 }),
+    });
+    await openPlayers();
+    await menuPick('Bea', 'Delete account…');
+    const dialog = $('#adminConfirmDialog');
+    expect(dialog.getAttribute('role')).toBe('dialog');
+    expect(dialog.textContent).toMatch(/Delete Bea\?/);
+    expect(dialog.textContent).toMatch(/cannot be undone/);
+    expect(dialog.textContent).toMatch(/\[deleted\] in past games/);
+    expect(dialog.textContent).toMatch(/keeps reports by or about them, marked deleted/);
+    expect(dialog.textContent).toMatch(/frees the name Bea/);
+    const typed = $('#adminDialogConfirm');
+    expect($('label[for="adminDialogConfirm"]').textContent).toBe('Type Bea to confirm');
+    expect(document.activeElement).toBe(typed);
+    const yes = $('#adminConfirmDialog [data-confirm="yes"]');
+    expect(yes.textContent).toBe('Delete account');
+    expect(yes.disabled).toBe(true);
+    typeInto(typed, 'bea');
+    expect(yes.disabled).toBe(true); // exactly, case included
+    typeInto(typed, 'Bea');
+    expect(yes.disabled).toBe(false);
+    yes.click();
+    await flush();
+    expect(api.calls.filter((c) => c[0] === 'deleteAccount')).toEqual([['deleteAccount', { username: 'Bea', confirm: 'Bea' }]]);
+    expect($('#adminConfirmDialog')).toBeNull();
+    expect($('#adminStatus').textContent).toBe('Bea is deleted: 4 game record update(s) to [deleted], 1 report(s) marked, 2 live connection(s) closed.');
+    expect(api.calls.filter((c) => c[0] === 'listPlayers')).toHaveLength(2);
+    expect(document.activeElement).toBe($('#adminPlayerFilter'));
+  });
+
+  it('delete account: Cancel and Escape send nothing and give focus back; a refusal stays in the dialog', async () => {
+    api = fakeApi({
+      listPlayers: { ok: true, players: PLAYERS, total: 3, limit: 500 },
+      deleteAccount: { ok: false, error: 'refused', message: '"Bea" is in a game right now. Wait until it finishes and delete again.' },
+    });
+    await openPlayers();
+    await menuPick('Bea', 'Delete account…');
+    byText('Cancel', $('#adminConfirmDialog')).click();
+    await flush();
+    expect($('#adminConfirmDialog')).toBeNull();
+    expect(document.activeElement).toBe(menuButton('Bea'));
+    await menuPick('Bea', 'Delete account…');
+    document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await flush();
+    expect($('#adminConfirmDialog')).toBeNull();
+    expect($('#adminPanelModal')).not.toBeNull(); // only the dialog closed
+    expect(api.calls.filter((c) => c[0] === 'deleteAccount')).toEqual([]);
+    await menuPick('Bea', 'Delete account…');
+    typeInto($('#adminDialogConfirm'), 'Bea');
+    $('#adminConfirmDialog [data-confirm="yes"]').click();
+    await flush();
+    expect($('#adminConfirmDialog')).not.toBeNull();
+    expect($('#adminDialogAlert').textContent).toMatch(/is in a game right now/);
+    expect($('#adminDialogAlert').getAttribute('role')).toBe('alert');
+    expect(document.activeElement).toBe($('#adminDialogConfirm'));
+  });
+
+  it('delete account: an admin or yourself is explained without a dialog (the server refuses them too)', async () => {
+    await openPlayers();
+    await menuPick('Owner', 'Delete account…');
+    expect($('#adminConfirmDialog')).toBeNull();
+    expect($('#adminAlert').textContent).toMatch(/your own account, use Delete account on your profile/);
+    api = fakeApi({ listPlayers: { ok: true, players: [{ ...PLAYERS[0], isAdmin: true }], total: 1, limit: 500 } });
+    removeAdminPanel();
+    await openPlayers();
+    await menuPick('Bea', 'Delete account…');
+    expect($('#adminConfirmDialog')).toBeNull();
+    expect($('#adminAlert').textContent).toBe('Bea is an admin. Remove their admin first, then delete the account.');
+    expect(api.calls.filter((c) => c[0] === 'deleteAccount')).toEqual([]);
+  });
+
+  it('delete a tombstone: only the old name, the kept account named as unchanged', async () => {
+    api = fakeApi({
+      listPlayers: { ok: true, players: PLAYERS, total: 3, limit: 500 },
+      deleteAccount: (a) => ({ ok: true, username: a.username, kind: 'tombstone', mergedInto: 'Bea', gameRecords: 0, reports: 0, blockLists: 0, resetLinks: 0, tombstones: 0, signedOut: 0 }),
+    });
+    await openPlayers();
+    byText('Delete…', rowOf('Bea2')).click();
+    await flush();
+    expect($('#adminConfirmDialog').textContent).toMatch(/Delete the old name Bea2\?/);
+    expect($('#adminConfirmDialog').textContent).toMatch(/Bea is not changed/);
+    typeInto($('#adminDialogConfirm'), 'Bea2');
+    $('#adminConfirmDialog [data-confirm="yes"]').click();
+    await flush();
+    expect(api.calls.filter((c) => c[0] === 'deleteAccount')).toEqual([['deleteAccount', { username: 'Bea2', confirm: 'Bea2' }]]);
+    expect($('#adminStatus').textContent).toBe('The old name Bea2 is deleted and free again. Bea is unchanged.');
   });
 
   it('reset link: shown once in a labelled field with Copy, the /reset#token URL', async () => {
@@ -403,6 +500,7 @@ describe('the panel', () => {
     await flush();
     const card = $('#adminReportList article');
     expect(card.textContent).toMatch(/Bea reported Owner.*open/);
+    expect(card.textContent).not.toMatch(/deleted/);
     expect(card.textContent).toMatch(/rude/);
     const note = card.querySelector('textarea');
     expect($(`label[for="${note.id}"]`).textContent).toBe('Note (optional)');

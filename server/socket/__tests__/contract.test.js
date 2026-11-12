@@ -635,6 +635,10 @@ describe('(e) failure variants and rarely reached emit sites', () => {
 
 describe('(e2) admin panel', () => {
     test('every adminResponse variant, and isAdmin on the sign-in replies', async () => {
+        // the blocker (adm_bea, signed out by then: adm_owner's live socket stands in) gets the unasked blockListUpdated
+        const users_block = async (users) => {
+            await users.updateOne({ username: 'adm_owner' }, { $set: { blockedUsers: ['adm_cy'] } });
+        };
         jest.useRealTimers();
         const bcrypt = require('bcryptjs');
         const hash = await bcrypt.hash('pw', 4);
@@ -679,6 +683,10 @@ describe('(e2) admin panel', () => {
         expect((await req(restorer, 'listAdmins', {})).admins.length).toBe(2);
         expect((await req(restorer, 'listAudit', {})).entries.length).toBeGreaterThan(5);
         expect((await req(restorer, 'setAdmin', { username: 'adm_old', isAdmin: true })).error).toBe('refused');
+        expect(await req(restorer, 'deleteAccount', { username: 'adm_old', confirm: 'adm_old' })).toMatchObject({ ok: true, kind: 'tombstone' });
+        mockDb.current.users._insert({ username: 'adm_cy', password: hash, blockedUsers: [] });
+        await users_block(mockDb.current.users);
+        expect(await req(restorer, 'deleteAccount', { username: 'adm_cy', confirm: 'adm_cy' })).toMatchObject({ ok: true, kind: 'account', blockLists: 1 });
         void owner;
     });
 });

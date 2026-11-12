@@ -105,6 +105,7 @@ const mergePlanView = obj({
 const adminReportRow = obj({
     id: str(), reporter: str(), reported: str(), reason: str(), context: str(), createdAt: isoOrNull(),
     status: enm('open', 'resolved', 'dismissed'), resolvedBy: orNull(str()), resolvedAt: isoOrNull(), note: orNull(str()),
+    reporterDeleted: bool(), reportedDeleted: bool(),
 });
 const adminAuditRow = obj({
     id: str(), at: str(), actor: orNull(str()), action: str(), target: orNull(str()),
@@ -191,7 +192,8 @@ const s2c = {
         payload: okFail({ blockedUsers: arr(str()) }),
         status: 'active', to: 'self',
         clientReads: reads(W.main('blockListUpdated'), I.safety),
-        emittedFrom: ['server/socket/safetyHandlers.js:updateBlockList'],
+        emittedFrom: ['server/socket/safetyHandlers.js:updateBlockList', 'server/admin/accountDelete.js:refreshBlockLists'],
+        notes: 'Also sent unasked (success) to a player whose saved block list an admin changed: a deleted account pulled from it, a renamed one re-pointed (accountDelete.refreshBlockLists); both clients just replace their list (web shows its usual "Block list updated" info toast).',
     },
 
     // ==================== Main room ====================
@@ -853,11 +855,16 @@ const s2c = {
             adminOk('setAdmin', { username: str(), isAdmin: bool(), changed: bool() }),
             adminOk('listAudit', { entries: arr(adminAuditRow), hasMore: bool() }),
             adminOk('listPlayers', { players: arr(adminPlayerRow), total: int({ minimum: 0 }), limit: int({ minimum: 1 }) }),
+            adminOk('deleteAccount', {
+                username: str(), kind: enm('account', 'tombstone'), mergedInto: orNull(str()),
+                gameRecords: int({ minimum: 0 }), reports: int({ minimum: 0 }), blockLists: int({ minimum: 0 }),
+                resetLinks: int({ minimum: 0 }), tombstones: int({ minimum: 0 }), signedOut: int({ minimum: 0 }),
+            }),
         ),
         status: 'active', to: 'self',
         clientReads: reads('client/src/admin/adminApi.js:createAdminApi', []),
         emittedFrom: ['server/socket/adminHandlers.js:adminRequest'],
-        notes: 'The reply to adminRequest, to the requesting socket only (requestId and action echoed). failure: forbidden = not an admin right now (the one uniform refusal for every action and target: no account information), invalid = bad args or a wrong typed confirmation, not_found / refused / last_admin / stale_plan (the merge changed since its preview: preview again) / server; message is for the admin. createResetLink.token is the one-time link secret (/reset#<token>): shown to the admin once, never logged or audited. planMerge.plan is formatPlan\'s content as data (no picture bytes); planHash fingerprints the whole plan and applyMerge applies only when a fresh plan has the same hash. listPlayers: every account newest first, at most `limit` (500) rows; `total` is the true count (the panel says when the list is capped). The iOS app has no handler (layout: excluded from Swift).',
+        notes: 'The reply to adminRequest, to the requesting socket only (requestId and action echoed). failure: forbidden = not an admin right now (the one uniform refusal for every action and target: no account information), invalid = bad args or a wrong typed confirmation, not_found / refused / last_admin / stale_plan (the merge changed since its preview: preview again) / server; message is for the admin. createResetLink.token is the one-time link secret (/reset#<token>): shown to the admin once, never logged or audited. planMerge.plan is formatPlan\'s content as data (no picture bytes); planHash fingerprints the whole plan and applyMerge applies only when a fresh plan has the same hash. listPlayers: every account newest first, at most `limit` (500) rows; `total` is the true count (the panel says when the list is capped). deleteAccount: kind \'account\' = the player\'s own deletion (server/admin/accountDelete.js; counts of what changed), \'tombstone\' = only that merged / renamed name was removed (mergedInto names the account it pointed at, which is unchanged). The iOS app has no handler (layout: excluded from Swift).',
     },
 
     // ==================== Voice (relays) ====================

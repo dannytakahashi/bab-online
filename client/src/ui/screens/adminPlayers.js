@@ -222,8 +222,8 @@ function formDialog({ title, body, fields, ready, values, confirmLabel, danger, 
       busy = false;
       if (!modal.isOpen()) return finish(res);
       if (!res || res.ok) {
+        finish(res); // before close: its onClose would settle it as cancelled
         modal.close('action');
-        finish(res);
         return;
       }
       alertLine.textContent = res.message || 'Refused.';

@@ -1475,6 +1475,11 @@
     color: var(--danger-text);
 }
 
+/* a tombstone row's Delete: a quiet button with the danger text color */
+.kit-btn.admin-btn--quiet-danger {
+    color: var(--danger-text);
+}
+
 .admin-menu__sep {
     height: 1px;
     margin: var(--space-1) 0;

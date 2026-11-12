@@ -158,7 +158,8 @@ const ARGS = {
     listAdmins: {},
     setAdmin: { username: 'Bea', isAdmin: true },
     listAudit: {},
-    listPlayers: {}
+    listPlayers: {},
+    deleteAccount: { username: 'Cy', confirm: 'Cy' }
 };
 // The same with a target that does not exist
 const MISSING = {
@@ -168,7 +169,8 @@ const MISSING = {
     planMerge: { target: 'Nobody', sources: ['Ghost'] },
     applyMerge: { target: 'Nobody', sources: ['Ghost'], planHash: 'b'.repeat(64), confirm: 'Nobody' },
     setAdmin: { username: 'Nobody', isAdmin: true },
-    searchPlayers: { query: 'Nobody' }
+    searchPlayers: { query: 'Nobody' },
+    deleteAccount: { username: 'Nobody', confirm: 'Nobody' }
 };
 
 test('the action list is the contract\'s and the handlers\'', () => {
@@ -420,6 +422,182 @@ describe('actions', () => {
         expect(Object.keys(res.players[3]).sort()).toEqual(['createdAt', 'gamesPlayed', 'isAdmin', 'lastSeenAt', 'mergedInto', 'online', 'username']);
         expect(JSON.stringify(res)).not.toMatch(/\$2[ab]\$|hash|socketId|sessionToken|password/i);
         expect(audit().pop()).toMatchObject({ actor: 'Owner', action: 'listPlayers', target: null, result: 'ok', detail: '4 of 4 account(s)' });
+    });
+
+    describe('delete from the panel', () => {
+        const linksOf = (name) => mockDb.current.passwordResets.all().filter(l => l.username === name);
+        beforeEach(async () => {
+            await mockDb.current.gameRecords.insertOne({ gameId: 'g1', team1Players: ['Cy', 'Bea'], team2Players: ['y', 'z'], completedAt: new Date() });
+            await mockDb.current.gameRecords.insertOne({ gameId: 'g2', team1Players: ['p', 'q'], team2Players: ['r', 'Cy'], completedAt: new Date() });
+            await mockDb.current.reports.insertOne({ reporter: 'Cy', reported: 'Bea', reason: 'r1', createdAt: new Date() });
+            await mockDb.current.reports.insertOne({ reporter: 'Bea', reported: 'Cy', reason: 'r2', createdAt: new Date() });
+            await users().updateOne({ username: 'Bea' }, { $set: { blockedUsers: ['Cy', 'Zed'] } });
+            await users().insertOne({ username: 'CyOld', mergedInto: 'Cy', mergedAt: new Date() });
+        });
+
+        test('a normal account: both tabs signed out, records anonymized, block lists and reset links cleaned, reports kept and marked, its tombstones gone; one audit entry; the name can be signed up again', async () => {
+            const cy = await signedIn('Cy');
+            const cy2 = await restoredTab('Cy', cy.sessionToken);
+            const bea = await signedIn('Bea');
+            expect(await request(owner, 'createResetLink', { username: 'Cy' })).toMatchObject({ ok: true });
+            const auditBefore = audit().length;
+            const res = await request(owner, 'deleteAccount', { username: 'Cy', confirm: 'Cy' });
+            expect(res).toMatchObject({
+                ok: true, username: 'Cy', kind: 'account', mergedInto: null,
+                gameRecords: 2, reports: 2, blockLists: 1, resetLinks: 1, tombstones: 1, signedOut: 2
+            });
+            for (const s of [cy, cy2]) {
+                expect(gotEvent(s, 'forceLogout')).toBe(true);
+                expect(w.io.sockets.sockets.has(s.id)).toBe(false);
+            }
+            expect(w.io.sockets.sockets.has(owner.id)).toBe(true);
+            expect(await users().findOne({ username: 'Cy' })).toBeNull();
+            expect(await users().findOne({ username: 'CyOld' })).toBeNull();
+            const records = mockDb.current.gameRecords.all();
+            expect(records.map(r => [r.team1Players, r.team2Players])).toEqual([
+                [['[deleted]', 'Bea'], ['y', 'z']],
+                [['p', 'q'], ['r', '[deleted]']]
+            ]);
+            expect(JSON.stringify(records)).not.toContain('"Cy"');
+            // the blocker's saved list and live socket (voice + the client's chat filter)
+            expect((await users().findOne({ username: 'Bea' })).blockedUsers).toEqual(['Zed']);
+            expect([...bea.data.blockedUsers]).toEqual(['Zed']);
+            expect(w.log.filter(l => l.to === `self:${bea.id}` && l.event === 'blockListUpdated').pop().data).toEqual({ success: true, blockedUsers: ['Zed'] });
+            expect(linksOf('Cy').map(l => l.state)).toEqual(['revoked']);
+            // reports stay for the record, marked
+            const reps = mockDb.current.reports.all();
+            expect(reps.map(r => [r.reporter, r.reported, Boolean(r.reporterDeletedAt), Boolean(r.reportedDeletedAt)])).toEqual([
+                ['Cy', 'Bea', true, false],
+                ['Bea', 'Cy', false, true]
+            ]);
+            const rows = (await request(owner, 'listReports', { status: 'all' })).reports;
+            expect(rows.find(r => r.reason === 'r2')).toMatchObject({ reported: 'Cy', reportedDeleted: true, reporterDeleted: false });
+            expect(gameManager.deletedUsernames.has('Cy')).toBe(true);
+            // exactly one audit entry for the delete, names and counts only
+            const entries = audit().slice(auditBefore);
+            expect(entries.filter(e => e.action === 'deleteAccount')).toHaveLength(1);
+            expect(entries.find(e => e.action === 'deleteAccount')).toMatchObject({ actor: 'Owner', target: 'Cy', result: 'ok', detail: expect.stringMatching(/^account deleted: 2 game record/) });
+            expect(JSON.stringify(entries)).not.toMatch(/\$2[ab]\$|hash|token/i);
+            // the name is free: nothing clashes with it any more (a new
+            // sign-up would need 3+ characters; the tombstone test signs one up)
+            const { findNameClash } = require('../../utils/usernameRules');
+            expect(await findNameClash(users(), 'Cy')).toBeNull();
+            expect(await findNameClash(users(), 'CyOld')).toBeNull();
+            gameManager.deletedUsernames.delete('Cy');
+        });
+
+        test('the typed name must match exactly; a wrong one changes nothing', async () => {
+            const before = JSON.stringify(users().all());
+            expect(await request(owner, 'deleteAccount', { username: 'Cy', confirm: 'cy' })).toMatchObject({ ok: false, error: 'invalid' });
+            expect(JSON.stringify(users().all())).toBe(before);
+            expect(audit().pop()).toMatchObject({ action: 'deleteAccount', target: 'Cy', result: 'failed' });
+            expect(await request(owner, 'deleteAccount', { username: 'Nobody', confirm: 'Nobody' })).toMatchObject({ ok: false, error: 'not_found' });
+        });
+
+        test('a tombstone: only that document goes, the name is free, the kept account is untouched', async () => {
+            const beaBefore = JSON.stringify(await users().findOne({ username: 'Bea' }));
+            const res = await request(owner, 'deleteAccount', { username: 'Old', confirm: 'Old' });
+            expect(res).toMatchObject({ ok: true, username: 'Old', kind: 'tombstone', mergedInto: 'Bea', gameRecords: 0, tombstones: 0, signedOut: 0 });
+            expect(await users().findOne({ username: 'Old' })).toBeNull();
+            expect(JSON.stringify(await users().findOne({ username: 'Bea' }))).toBe(beaBefore);
+            expect(audit().pop()).toMatchObject({ action: 'deleteAccount', target: 'Old', result: 'ok', detail: expect.stringMatching(/tombstone deleted/) });
+            const s = w.socket(`adm-${++n}`);
+            await auth.signUp(s, w.io, { username: 'Old', password: 'pw' });
+            expect(w.log.filter(l => l.to === `self:${s.id}` && l.event === 'signUpResponse').pop().data).toMatchObject({ success: true });
+        });
+
+        test('refused: an admin (remove the flag first), the acting admin (self-delete), nothing changed', async () => {
+            await users().updateOne({ username: 'Bea' }, { $set: { isAdmin: true } });
+            const before = JSON.stringify([users().all(), mockDb.current.gameRecords.all()]);
+            const asAdmin = await request(owner, 'deleteAccount', { username: 'Bea', confirm: 'Bea' });
+            expect(asAdmin).toMatchObject({ ok: false, error: 'refused', message: expect.stringMatching(/is an admin\. Remove their admin first/) });
+            const self = await request(owner, 'deleteAccount', { username: 'Owner', confirm: 'Owner' });
+            expect(self).toMatchObject({ ok: false, error: 'refused', message: expect.stringMatching(/your own account.*profile/) });
+            expect(JSON.stringify([users().all(), mockDb.current.gameRecords.all()])).toBe(before);
+            expect(w.io.sockets.sockets.has(owner.id)).toBe(true);
+        });
+
+        test('refused: a player in a game still in its draw (memory), or one the database shows in a game; nothing written, not signed out, not locked', async () => {
+            const cy = await signedIn('Cy');
+            const others = ['P1', 'P2', 'P3'].map((u, i) => w.user(`adm-dg${i}-${n}`, u));
+            const game = gameManager.createGame([cy.id, ...others.map(o => o.id)]);
+            expect((await users().findOne({ username: 'Cy' })).activeGameId).toBeUndefined();
+            const before = JSON.stringify([users().all(), mockDb.current.gameRecords.all()]);
+            const res = await request(owner, 'deleteAccount', { username: 'Cy', confirm: 'Cy' });
+            expect(res).toMatchObject({ ok: false, error: 'refused', message: expect.stringMatching(/"Cy" is in a game right now/) });
+            expect(JSON.stringify([users().all(), mockDb.current.gameRecords.all()])).toBe(before);
+            expect(gotEvent(cy, 'forceLogout')).toBe(false);
+            expect(gameManager.isMergeLocked('Cy')).toBe(false);
+            gameManager.abortGame(game.gameId, w.io);
+            await users().updateOne({ username: 'Cy' }, { $set: { activeTournamentId: 't-elsewhere' } });
+            expect(await request(owner, 'deleteAccount', { username: 'Cy', confirm: 'Cy' })).toMatchObject({ ok: false, error: 'refused', message: expect.stringMatching(/in a tournament/) });
+            await users().updateOne({ username: 'Cy' }, { $unset: { activeTournamentId: '' } });
+            expect(await request(owner, 'deleteAccount', { username: 'Cy', confirm: 'Cy' })).toMatchObject({ ok: true, kind: 'account' });
+        });
+
+        test('while it runs the name is locked and signed out; an account made an admin before the guarded write is refused and kept', async () => {
+            const cy = await signedIn('Cy');
+            const hold = holdNextWrite(users(), 'findOneAndUpdate'); // the lock-down write
+            const pending = request(owner, 'deleteAccount', { username: 'Cy', confirm: 'Cy' });
+            try {
+                await hold.reached;
+                expect(gotEvent(cy, 'forceLogout')).toBe(true);
+                expect(gameManager.isMergeLocked('Cy')).toBe(true);
+                const s = w.socket(`adm-${++n}`);
+                await auth.signIn(s, w.io, { username: 'Cy', password: 'pw' });
+                expect(w.log.filter(l => l.to === `self:${s.id}` && l.event === 'signInResponse').pop().data)
+                    .toEqual({ success: false, message: auth.MERGE_LOCKED_MESSAGE });
+                // another admin makes Cy an admin meanwhile (e.g. the CLI)
+                await users().updateOne({ username: 'Cy' }, { $set: { isAdmin: true } });
+            } finally {
+                hold.release();
+            }
+            expect(await pending).toMatchObject({ ok: false, error: 'refused', message: expect.stringMatching(/changed while this ran/) });
+            expect(gameManager.isMergeLocked('Cy')).toBe(false);
+            const doc = await users().findOne({ username: 'Cy' });
+            expect(doc).toMatchObject({ username: 'Cy', isAdmin: true });
+            expect(mockDb.current.gameRecords.all()[0].team1Players).toEqual(['Cy', 'Bea']);
+        });
+
+        test('a failure partway says the account is not deleted yet; deleting again finishes it', async () => {
+            const original = mockDb.current.gameRecords.updateMany;
+            mockDb.current.gameRecords.updateMany = async () => { throw new Error('disk on fire'); };
+            let res;
+            try {
+                res = await request(owner, 'deleteAccount', { username: 'Cy', confirm: 'Cy' });
+            } finally {
+                mockDb.current.gameRecords.updateMany = original;
+            }
+            expect(res).toMatchObject({ ok: false, error: 'server', message: expect.stringMatching(/stopped partway: "Cy" is signed out everywhere but not deleted yet\. Delete again/) });
+            expect(JSON.stringify(res)).not.toContain('disk on fire');
+            expect(await users().findOne({ username: 'Cy' })).not.toBeNull();
+            expect(gameManager.isMergeLocked('Cy')).toBe(false);
+            expect(await request(owner, 'deleteAccount', { username: 'Cy', confirm: 'Cy' })).toMatchObject({ ok: true, gameRecords: 2 });
+            expect(await users().findOne({ username: 'Cy' })).toBeNull();
+        });
+
+        test('the player\'s own Delete account runs the same deletion: block lists, reset links, reports, tombstones, every other tab signed out', async () => {
+            const cy = await signedIn('Cy');
+            const cy2 = await restoredTab('Cy', cy.sessionToken);
+            gameManager.registerUser(cy.id, 'Cy'); // the tab that asks is the registered one
+            expect(await request(owner, 'createResetLink', { username: 'Cy' })).toMatchObject({ ok: true });
+            jest.useFakeTimers();
+            try {
+                await auth.deleteAccount(cy, w.io, { password: 'pw' });
+            } finally {
+                jest.useRealTimers();
+            }
+            expect(w.log.filter(l => l.to === `self:${cy.id}` && l.event === 'deleteAccountResponse').pop().data).toEqual({ success: true });
+            expect(gotEvent(cy, 'forceLogout')).toBe(false); // the asking tab gets its reply, then closes
+            expect(gotEvent(cy2, 'forceLogout')).toBe(true);
+            expect(await users().findOne({ username: 'Cy' })).toBeNull();
+            expect(await users().findOne({ username: 'CyOld' })).toBeNull();
+            expect((await users().findOne({ username: 'Bea' })).blockedUsers).toEqual(['Zed']);
+            expect(linksOf('Cy').map(l => l.state)).toEqual(['revoked']);
+            expect(mockDb.current.reports.all().every(r => r.reporterDeletedAt || r.reportedDeletedAt)).toBe(true);
+            expect(JSON.stringify(mockDb.current.gameRecords.all())).not.toContain('"Cy"');
+            gameManager.deletedUsernames.delete('Cy');
+        });
     });
 
     describe('merge from the panel', () => {

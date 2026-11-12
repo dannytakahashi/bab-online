@@ -8,7 +8,8 @@
  *            capped by the server with a note); per row a one-time reset
  *            link (shown once, Copy button) and a More menu (make admin,
  *            then the destructive ones last: sign out everywhere, remove
- *            admin); tombstones offer only what applies to them
+ *            admin, delete account); tombstones offer only what applies
+ *            to them (show the kept account, delete the old name)
  *   Merge    find look-alike names, preview a merge (formatPlan's content),
  *            type the kept name to confirm, apply (refused if the data
  *            changed since the preview)
@@ -16,8 +17,8 @@
  *   Admins   who is an admin; remove (the last admin cannot remove themselves)
  *   Audit    every admin action, newest first
  *
- * Destructive actions (sign out everywhere, remove admin, merge) ask for
- * confirmation first. Tabs follow the WAI-ARIA tabs pattern with MANUAL
+ * Destructive actions (sign out everywhere, remove admin, merge, delete)
+ * ask for confirmation first; merge and delete need the name typed. Tabs follow the WAI-ARIA tabs pattern with MANUAL
  * activation (arrow keys / Home / End move focus, Enter or Space opens a
  * tab: opening one loads it from the server, and requests are rate
  * limited). Results are announced by one status line (role=status) and
@@ -31,7 +32,7 @@
 import { el, createButton, openModal, toast } from '../kit/index.js';
 import { createAdminApi, setIsAdmin } from '../../admin/adminApi.js';
 import {
-  PLAYER_COLUMNS, DEFAULT_SORT, sortPlayers, filterPlayers, createActionMenu, closeOpenMenu,
+  PLAYER_COLUMNS, DEFAULT_SORT, sortPlayers, filterPlayers, createActionMenu, closeOpenMenu, openTypedConfirm,
 } from './adminPlayers.js';
 
 const TABS = [
@@ -379,6 +380,11 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
         label: `Show ${p.mergedInto}`, variant: 'ghost', size: 'sm',
         onClick: () => showPlayer(p.mergedInto),
       }));
+      actions.appendChild(createButton({
+        label: 'Delete…', variant: 'secondary', size: 'sm', className: 'admin-btn--quiet-danger',
+        attrs: { 'aria-label': `Delete… the old name ${p.username}`, 'data-focus-key': `del:${p.username}` },
+        onClick: () => deleteTombstone(p),
+      }));
     } else {
       actions.appendChild(createButton({
         label: 'Reset link', variant: 'secondary', size: 'sm', attrs: { 'aria-label': `Reset link: ${p.username}` },
@@ -399,6 +405,7 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
           'separator',
           { label: 'Sign out everywhere…', danger: true, onSelect: () => signOutEverywhere(p.username, key) },
           p.isAdmin ? { label: 'Remove admin…', danger: true, onSelect: () => changeAdmin(p.username, false, refreshPlayersAt(key)) } : null,
+          { label: 'Delete account…', danger: true, onSelect: () => deleteAccount(p) },
         ],
       }));
     }
@@ -414,6 +421,58 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
         td(actions),
       ],
     });
+  }
+
+  /** After a delete the row is gone: focus the filter (the table's first control). */
+  async function afterDelete() {
+    await loadPlayers({ quiet: true });
+    refocus(results, null, filterField.input);
+  }
+
+  async function deleteAccount(p) {
+    // The server refuses these too; saying so here spares typing the name
+    if (p.username === username) {
+      say('To delete your own account, use Delete account on your profile (it asks for your password).', 'error');
+      return;
+    }
+    if (p.isAdmin) {
+      say(`${p.username} is an admin. Remove their admin first, then delete the account.`, 'error');
+      return;
+    }
+    const res = await openTypedConfirm({
+      title: `Delete ${p.username}?`,
+      intro: 'This cannot be undone. Deleting the account:',
+      lines: [
+        `signs ${p.username} out everywhere; they can never sign in to it again;`,
+        'deletes their stats (and leaderboard row), pictures and saved sessions;',
+        'shows their name as [deleted] in past games (the other players keep those games);',
+        'keeps reports by or about them, marked deleted;',
+        "removes them from other players' block lists and cancels any open reset link;",
+        `deletes the old names merged into it, and frees the name ${p.username} for a new sign-up.`,
+      ],
+      expected: p.username,
+      confirmLabel: 'Delete account',
+      submit: (typed) => call('deleteAccount', { username: p.username, confirm: typed }),
+    });
+    if (!res?.ok) return;
+    say(`${res.username} is deleted: ${res.gameRecords} game record update(s) to [deleted], ${res.reports} report(s) marked, ${res.signedOut} live connection(s) closed.`, 'success');
+    await afterDelete();
+  }
+
+  async function deleteTombstone(p) {
+    const res = await openTypedConfirm({
+      title: `Delete the old name ${p.username}?`,
+      lines: [
+        `Only the name ${p.username} is removed. ${p.mergedInto} is not changed (its games, stats and merge history stay).`,
+        `Signing in as ${p.username} will no longer say to use ${p.mergedInto}, and anyone can sign up as ${p.username}.`,
+      ],
+      expected: p.username,
+      confirmLabel: 'Delete name',
+      submit: (typed) => call('deleteAccount', { username: p.username, confirm: typed }),
+    });
+    if (!res?.ok) return;
+    say(`The old name ${res.username} is deleted and free again. ${res.mergedInto} is unchanged.`, 'success');
+    await afterDelete();
   }
 
   async function signOutEverywhere(user, key) {
@@ -644,11 +703,12 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
   function renderReport(r) {
     const card = el('article', { className: 'admin-report kit-panel kit-elev-1', attrs: { 'aria-label': `Report against ${r.reported}` } });
     const who = el('div', { className: 'admin-report__who' });
-    who.append(el('span', { text: `${r.reporter} reported ` }));
+    who.append(el('span', { text: `${r.reporter}${r.reporterDeleted ? ' (deleted)' : ''} reported ` }));
     who.append(createButton({
-      label: r.reported, variant: 'ghost', size: 'sm', attrs: { 'aria-label': `Find ${r.reported}` },
+      label: r.reported, variant: 'ghost', size: 'sm', attrs: { 'aria-label': `${r.reported}: show in Players` },
       onClick: () => { filterField.input.value = r.reported; select('players', { focus: true }); },
     }));
+    if (r.reportedDeleted) who.append(chip('account deleted', 'neutral'));
     who.append(chip(r.status, r.status === 'open' ? 'gold' : 'neutral'));
     card.append(
       el('div', { className: 'admin-report__head', children: [who, el('span', { className: 'admin-note', text: fmtDate(r.createdAt) })] }),

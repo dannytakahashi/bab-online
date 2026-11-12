@@ -12,6 +12,7 @@ const { authLogger } = require('../utils/logger');
 const { issueSession, verifySession } = require('../utils/sessionTokens');
 const { checkNewUsername, findNameClash, takenMessage, MESSAGES: USERNAME_MESSAGES } = require('../utils/usernameRules');
 const { rememberBlockList } = require('./voiceHandlers');
+const { eraseAccount, forgetAccount } = require('../admin/accountDelete');
 
 /**
  * Accounts merged by scripts/merge-accounts.js stay behind as tombstones
@@ -72,14 +73,16 @@ function releaseClaim(socket, username, previous) {
  * second tab restored from the same saved session (the web client copies
  * the saved session into every new tab, and currentUsers keeps one entry
  * per name) and a sign-in / restore / rejoin whose write is still in
- * flight. Returns how many were connected.
+ * flight. Returns how many were connected. `except`: a socket to leave
+ * alone (a player deleting their own account gets its reply first).
  */
-function signOutUser(io, username, { socketId = null } = {}) {
+function signOutUser(io, username, { socketId = null, except = null } = {}) {
     const ids = new Set((gameManager.currentUsers || []).filter(u => u.username === username).map(u => u.socketId));
     if (socketId) ids.add(socketId);
     for (const [id, sock] of io?.sockets?.sockets || []) {
         if (sock?.data?.username === username) ids.add(id);
     }
+    if (except) ids.delete(except);
     let n = 0;
     for (const id of ids) if (signOutSocket(io, id)) n++;
     if (n) authLogger.info('Signed out live sockets', { username, sockets: n });
@@ -639,7 +642,8 @@ async function restoreSession(socket, io, data) {
  * Permanently delete the signed-in user's account (App Store Guideline
  * 5.1.1(v) requires in-app deletion). Requires password re-confirmation.
  * Removes the user document and anonymizes the username in historical game
- * records, which are shared documents describing other players' games too.
+ * records, which are shared documents describing other players' games too
+ * (server/admin/accountDelete.js, shared with the admin panel's delete).
  */
 async function deleteAccount(socket, io, data) {
     const usersCollection = getUsersCollection();
@@ -704,47 +708,24 @@ async function deleteAccount(socket, io, data) {
             }
         }
 
-        const gameRecords = getGameRecordsCollection();
-        if (gameRecords) {
-            await gameRecords.updateMany(
-                { team1Players: username },
-                { $set: { 'team1Players.$[p]': '[deleted]' } },
-                { arrayFilters: [{ p: username }] }
-            );
-            await gameRecords.updateMany(
-                { team2Players: username },
-                { $set: { 'team2Players.$[p]': '[deleted]' } },
-                { arrayFilters: [{ p: username }] }
-            );
-        }
+        // The shared deletion (server/admin/accountDelete.js, also the admin
+        // panel's): game records anonymized, open reset links revoked, the
+        // name pulled from other players' block lists, reports marked, the
+        // user document and its tombstones deleted, then the in-memory
+        // caches, the avatar store and deletedUsernames
+        const database = require('../database');
+        const db = {
+            users: usersCollection,
+            gameRecords: getGameRecordsCollection(),
+            reports: database.getReportsCollection?.(),
+            passwordResets: database.getPasswordResetsCollection?.()
+        };
+        const erased = await eraseAccount(db, { _id: user._id, username });
+        await forgetAccount(io, db, username, erased);
 
-        // Removes password hash, session token, stats (and with them the
-        // leaderboard entry), profile pictures, and active game/tournament
-        // pointers in one shot — everything else is keyed by this document
-        await usersCollection.deleteOne({ username });
-
-        // Old accounts merged into this one only reserve their names; remove
-        // them too so nothing tied to this person remains
-        await usersCollection.deleteMany({ mergedInto: username });
-
-        // The leaderboard row is gone and the records now say '[deleted]'
-        const { invalidateLeaderboard, invalidateRecords } = require('./profileHandlers');
-        invalidateLeaderboard?.();
-        invalidateRecords?.();
-        require('../avatar/avatarStore').forgetUser(username);
-
-        // Keep an in-flight game from re-inserting this username into a new
-        // game record after the anonymization above
-        gameManager.deletedUsernames.add(username);
-
-        // Force-logout any other device signed into this account
-        if (user.socketId && user.socketId !== socket.id) {
-            const otherSocket = io.sockets.sockets.get(user.socketId);
-            if (otherSocket) {
-                otherSocket.emit('forceLogout');
-                otherSocket.disconnect();
-            }
-        }
+        // Every other tab and device signed in as this account goes to the
+        // sign-in screen (this socket gets its reply first, below)
+        signOutUser(io, username, { socketId: user.socketId, except: socket.id });
 
         socket.emit('deleteAccountResponse', { success: true });
         authLogger.info('Account deleted', { username, socketId: socket.id });

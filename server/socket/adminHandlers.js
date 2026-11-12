@@ -55,6 +55,7 @@ const { listReports, resolveReport } = require('../admin/reports');
 const { searchPlayers, listPlayers } = require('../admin/players');
 const { planMerge, applyMerge, countChanges, findDuplicateCandidates } = require('../admin/accountMerge');
 const { planView, planHash } = require('../admin/mergeView');
+const { eraseAccount, deleteTombstone, forgetAccount } = require('../admin/accountDelete');
 const { signOutUser } = require('./authHandlers');
 
 const logger = createModuleLogger('admin');
@@ -88,7 +89,11 @@ const ACTION_SCHEMAS = {
         beforeId: Joi.string().hex().length(24).optional(),
         limit: Joi.number().integer().min(1).max(100).default(50)
     }),
-    listPlayers: Joi.object({})
+    listPlayers: Joi.object({}),
+    deleteAccount: Joi.object({
+        username: name().required(),
+        confirm: Joi.string().max(50).allow('').required()
+    })
 };
 
 const ACTIONS = Object.keys(ACTION_SCHEMAS);
@@ -140,8 +145,9 @@ function isOnline(username) {
 const iso = (d) => new Date(d).toISOString();
 
 /**
- * Panel merges run one after another (single server process: an
- * in-process queue is enough). A failed merge does not block the next.
+ * Panel merges, deletes and renames run one after another (single server
+ * process: an in-process queue is enough), so two of them can never
+ * interleave on the same names. A failed one does not block the next.
  */
 let mergeQueue = Promise.resolve();
 function serializeMerges(fn) {
@@ -252,6 +258,107 @@ async function applyMergeNow({ db, io, actor }, { target, sources, planHash: pre
 }
 
 /**
+ * Delete an account from the panel, under the merge queue. The same
+ * deletion as the player's own (server/admin/accountDelete.js eraseAccount
+ * + forgetAccount); refused for an admin (remove the flag first), for the
+ * acting admin (their profile's Delete account, with its password check),
+ * and for a player in a game, a tournament or a draw (from memory first,
+ * then the database's pointers in the guarded write). Order: refuse →
+ * lock the name and sign out its live sockets in one synchronous step
+ * (GameManager.mergeLocks: no sign-in, restore, rejoin, queue, lobby or
+ * tournament can start) → one guarded write that revokes every session
+ * and refuses if the account became an admin, entered a game or was
+ * merged meanwhile → erase → unlock → forget in memory.
+ *
+ * A tombstone (merged account or rename redirect) is only removed: that
+ * frees its name and touches nothing on the account it points at.
+ */
+async function deleteAccountNow({ db, io, actor }, { username }) {
+    const found = await db.users.findOne(
+        { username },
+        { projection: { username: 1, mergedInto: 1, isAdmin: 1, activeGameId: 1, activeTournamentId: 1, socketId: 1 } }
+    );
+    if (!found) throw new AdminError('not_found', `No account is named "${username}" (names are case-sensitive).`);
+    const counts = { gameRecords: 0, reports: 0, blockLists: 0, resetLinks: 0, tombstones: 0, signedOut: 0 };
+    if (found.mergedInto) {
+        const gone = await deleteTombstone(db, username);
+        if (!gone) throw new AdminError('refused', `"${username}" changed while this ran. Try again.`);
+        require('../avatar/avatarStore').forgetUser?.(username);
+        return {
+            reply: { username, kind: 'tombstone', mergedInto: gone.mergedInto, ...counts },
+            target: username,
+            detail: `tombstone deleted (it pointed at ${gone.mergedInto}); the name is free; ${gone.mergedInto} not changed`
+        };
+    }
+    if (username === actor.username) {
+        throw new AdminError('refused', 'You cannot delete your own account here. Use Delete account on your profile (it asks for your password).');
+    }
+    if (found.isAdmin === true) {
+        throw new AdminError('refused', `"${username}" is an admin. Remove their admin first, then delete the account.`);
+    }
+    if (found.activeGameId || found.activeTournamentId) {
+        throw new AdminError('refused', `"${username}" is in ${found.activeGameId ? 'a game' : 'a tournament'} right now. Wait until it finishes and delete again.`);
+    }
+    // Playing right now, from memory (a game in its draw has no
+    // activeGameId yet). From here to the lock is synchronous
+    const live = gameManager.findLiveActivity(username);
+    if (live) {
+        throw new AdminError('refused', `"${username}" is in ${live.kind === 'game' ? 'a game' : 'a tournament'} right now. Wait until it finishes and delete again.`);
+    }
+    gameManager.lockForMerge([username]);
+    let erased;
+    try {
+        counts.signedOut += signOutUser(io, username, { socketId: found.socketId });
+        // The lock-down write: every saved session revoked (sessionEpoch
+        // bumped, so a restore in flight cannot write them back), only
+        // while the account is still a plain one that is not playing
+        const locked = await db.users.findOneAndUpdate(
+            {
+                _id: found._id,
+                username,
+                mergedInto: { $exists: false },
+                isAdmin: { $ne: true },
+                activeGameId: { $exists: false },
+                activeTournamentId: { $exists: false }
+            },
+            { $unset: { ...REVOKE_ALL_SESSIONS.$unset, socketId: '' }, $inc: { ...REVOKE_ALL_SESSIONS.$inc } },
+            { returnDocument: 'before', projection: { socketId: 1 } }
+        );
+        if (!locked) {
+            throw new AdminError('refused', `"${username}" changed while this ran (made an admin, in a game, or merged). Nothing was deleted.`);
+        }
+        if (locked.socketId) counts.signedOut += signOutUser(io, username, { socketId: locked.socketId });
+        erased = await eraseAccount(db, found);
+    } catch (error) {
+        if (error instanceof AdminError) throw error;
+        // Stopped partway: say what is true now. The user document goes
+        // last, so while it is still there, deleting again finishes
+        logger.error('Delete stopped partway', { actor: actor.username, target: username, error: error.message });
+        let still = true;
+        try {
+            still = Boolean(await db.users.findOne({ username, mergedInto: { $exists: false } }, { projection: { _id: 1 } }));
+        } catch { /* unknown: assume it is still there */ }
+        throw new AdminError('server', still
+            ? `The delete stopped partway: "${username}" is signed out everywhere but not deleted yet. Delete again to finish.`
+            : `"${username}" is deleted, but the clean-up stopped partway (accounts merged into it may remain). Check the table.`);
+    } finally {
+        gameManager.unlockMerge([username]);
+    }
+    // Backstop: nothing of the name should be connected by now
+    counts.signedOut += signOutUser(io, username);
+    await forgetAccount(io, db, username, erased);
+    Object.assign(counts, {
+        gameRecords: erased.gameRecords, reports: erased.reports, blockLists: erased.blockLists,
+        resetLinks: erased.resetLinks, tombstones: erased.tombstones
+    });
+    return {
+        reply: { username, kind: 'account', mergedInto: null, ...counts },
+        target: username,
+        detail: `account deleted: ${counts.gameRecords} game record update(s) to [deleted], ${counts.reports} report(s) marked, ${counts.blockLists} block list(s) and ${counts.resetLinks} open reset link(s) cleared, ${counts.tombstones} tombstone(s) removed; ${counts.signedOut} signed out`
+    };
+}
+
+/**
  * Each action: run(ctx, args) → {reply, target, detail}. `reply` is spread
  * into the ok response; target/detail go to the audit entry (names and
  * counts only).
@@ -351,6 +458,13 @@ const RUN = {
     async listAudit({ db }, { before, beforeId, limit }) {
         const page = await listAudit(db, { before: before || null, beforeId: beforeId || null, limit });
         return { reply: page, target: null, detail: null };
+    },
+
+    async deleteAccount(ctx, args) {
+        if (args.confirm !== args.username) {
+            throw new AdminError('invalid', `Type the account's name, ${args.username}, exactly to confirm.`);
+        }
+        return serializeMerges(() => deleteAccountNow(ctx, args));
     },
 
     async listPlayers({ db }) {

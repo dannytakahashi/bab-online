@@ -146,6 +146,7 @@ const c2s = {
             { requestId: 'adm-1', action: 'searchPlayers', args: { query: 'alan' } },
             { requestId: 'adm-2', action: 'listAdmins' },
             { requestId: 'adm-4', action: 'listPlayers', args: {} },
+            { requestId: 'adm-5', action: 'deleteAccount', args: { username: 'keyprobe00001', confirm: 'keyprobe00001' } },
             { requestId: 'adm-3', action: 'applyMerge', args: { target: 'Alan', sources: ['alan2'], planHash: 'a'.repeat(64), confirm: 'Alan' } },
         ],
         invalid: [{ requestId: '', action: 'listAdmins' }, { requestId: 'a', action: 'dropDatabase' }, { action: 'listAdmins' }, { requestId: 'a', action: 'listAdmins', args: 'x' }, { requestId: 'x'.repeat(65), action: 'listAdmins' }],

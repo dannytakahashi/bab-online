@@ -3806,7 +3806,8 @@
               "listAdmins",
               "setAdmin",
               "listAudit",
-              "listPlayers"
+              "listPlayers",
+              "deleteAccount"
             ]
           },
           "args": {
@@ -3844,6 +3845,14 @@
           "requestId": "adm-4",
           "action": "listPlayers",
           "args": {}
+        },
+        {
+          "requestId": "adm-5",
+          "action": "deleteAccount",
+          "args": {
+            "username": "keyprobe00001",
+            "confirm": "keyprobe00001"
+          }
         },
         {
           "requestId": "adm-3",
@@ -4291,8 +4300,10 @@
         ]
       },
       "emittedFrom": [
-        "server/socket/safetyHandlers.js:updateBlockList"
-      ]
+        "server/socket/safetyHandlers.js:updateBlockList",
+        "server/admin/accountDelete.js:refreshBlockLists"
+      ],
+      "notes": "Also sent unasked (success) to a player whose saved block list an admin changed: a deleted account pulled from it, a renamed one re-pointed (accountDelete.refreshBlockLists); both clients just replace their list (web shows its usual \"Block list updated\" info toast)."
     },
     "mainRoomJoined": {
       "payload": {
@@ -9199,6 +9210,12 @@
                         "string",
                         "null"
                       ]
+                    },
+                    "reporterDeleted": {
+                      "type": "boolean"
+                    },
+                    "reportedDeleted": {
+                      "type": "boolean"
                     }
                   },
                   "required": [
@@ -9211,7 +9228,9 @@
                     "status",
                     "resolvedBy",
                     "resolvedAt",
-                    "note"
+                    "note",
+                    "reporterDeleted",
+                    "reportedDeleted"
                   ],
                   "additionalProperties": false
                 }
@@ -9286,6 +9305,12 @@
                       "string",
                       "null"
                     ]
+                  },
+                  "reporterDeleted": {
+                    "type": "boolean"
+                  },
+                  "reportedDeleted": {
+                    "type": "boolean"
                   }
                 },
                 "required": [
@@ -9298,7 +9323,9 @@
                   "status",
                   "resolvedBy",
                   "resolvedAt",
-                  "note"
+                  "note",
+                  "reporterDeleted",
+                  "reportedDeleted"
                 ],
                 "additionalProperties": false
               }
@@ -9546,6 +9573,75 @@
               "limit"
             ],
             "additionalProperties": false
+          },
+          {
+            "variant": "deleteAccount",
+            "type": "object",
+            "properties": {
+              "requestId": {
+                "type": "string"
+              },
+              "action": {
+                "const": "deleteAccount"
+              },
+              "ok": {
+                "const": true
+              },
+              "username": {
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "account",
+                  "tombstone"
+                ]
+              },
+              "mergedInto": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "gameRecords": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "reports": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "blockLists": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "resetLinks": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "tombstones": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "signedOut": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "requestId",
+              "action",
+              "ok",
+              "username",
+              "kind",
+              "mergedInto",
+              "gameRecords",
+              "reports",
+              "blockLists",
+              "resetLinks",
+              "tombstones",
+              "signedOut"
+            ],
+            "additionalProperties": false
           }
         ]
       },
@@ -9560,7 +9656,7 @@
       "emittedFrom": [
         "server/socket/adminHandlers.js:adminRequest"
       ],
-      "notes": "The reply to adminRequest, to the requesting socket only (requestId and action echoed). failure: forbidden = not an admin right now (the one uniform refusal for every action and target: no account information), invalid = bad args or a wrong typed confirmation, not_found / refused / last_admin / stale_plan (the merge changed since its preview: preview again) / server; message is for the admin. createResetLink.token is the one-time link secret (/reset#<token>): shown to the admin once, never logged or audited. planMerge.plan is formatPlan's content as data (no picture bytes); planHash fingerprints the whole plan and applyMerge applies only when a fresh plan has the same hash. listPlayers: every account newest first, at most `limit` (500) rows; `total` is the true count (the panel says when the list is capped). The iOS app has no handler (layout: excluded from Swift)."
+      "notes": "The reply to adminRequest, to the requesting socket only (requestId and action echoed). failure: forbidden = not an admin right now (the one uniform refusal for every action and target: no account information), invalid = bad args or a wrong typed confirmation, not_found / refused / last_admin / stale_plan (the merge changed since its preview: preview again) / server; message is for the admin. createResetLink.token is the one-time link secret (/reset#<token>): shown to the admin once, never logged or audited. planMerge.plan is formatPlan's content as data (no picture bytes); planHash fingerprints the whole plan and applyMerge applies only when a fresh plan has the same hash. listPlayers: every account newest first, at most `limit` (500) rows; `total` is the true count (the panel says when the list is capped). deleteAccount: kind 'account' = the player's own deletion (server/admin/accountDelete.js; counts of what changed), 'tombstone' = only that merged / renamed name was removed (mergedInto names the account it pointed at, which is unchanged). The iOS app has no handler (layout: excluded from Swift)."
     },
     "voiceOffer": {
       "payload": {

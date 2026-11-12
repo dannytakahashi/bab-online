@@ -509,4 +509,67 @@ describe('real mongod', () => {
         expect(capped).toMatchObject({ total: 7, limit: 3 });
         expect(capped.players.map(p => p.username)).toEqual(['Eve', 'Dot', 'Cy']);
     });
+
+    test('(k) admin delete on the real driver: records anonymized (arrayFilters), block lists pulled, reports marked, reset links revoked, tombstones gone; a tombstone delete frees only its name; an admin or in-game account is refused', async () => {
+        if (!client) return;
+        const admin = require('../socket/adminHandlers');
+        const gameManager = require('../game/GameManager');
+        for (const name of ['passwordResets', 'adminAudit']) await db.collection(name).drop().catch(() => {});
+        mockHolder.passwordResets = db.collection('passwordResets');
+        mockHolder.adminAudit = db.collection('adminAudit');
+        await database.ensureIndexes(mockHolder);
+        const users = mockHolder.users;
+        try {
+            await users.updateOne({ username: 'Dot' }, { $set: { isAdmin: true } });
+            await users.updateOne({ username: 'Bea' }, { $set: { blockedUsers: ['Cy', 'Mallory'] } });
+            await users.insertOne({ username: 'OldCy', mergedInto: 'Cy', mergedAt: new Date() });
+            await mockHolder.reports.insertMany([
+                { reporter: 'Cy', reported: 'Bea', reason: 'a', createdAt: new Date() },
+                { reporter: 'Eve', reported: 'Cy', reason: 'b', createdAt: new Date() }
+            ]);
+            const dot = sock();
+            await auth.signIn(dot, io, { username: 'Dot', password: 'pw' });
+            expect(last('signInResponse')).toMatchObject({ success: true });
+            let rid = 0;
+            const ask = async (action, args) => {
+                const requestId = `rm-del-${++rid}`;
+                await admin.adminRequest(dot, io, { requestId, action, args });
+                return log.filter(l => l.event === 'adminResponse' && l.data.requestId === requestId).pop().data;
+            };
+            expect(await ask('createResetLink', { username: 'Cy' })).toMatchObject({ ok: true });
+            // refusals first: an admin, and an account the database shows in a game
+            await users.updateOne({ username: 'Eve' }, { $set: { isAdmin: true } });
+            expect(await ask('deleteAccount', { username: 'Eve', confirm: 'Eve' })).toMatchObject({ ok: false, error: 'refused' });
+            await users.updateOne({ username: 'Eve' }, { $unset: { isAdmin: '' }, $set: { activeGameId: 'g-live' } });
+            expect(await ask('deleteAccount', { username: 'Eve', confirm: 'Eve' })).toMatchObject({ ok: false, error: 'refused' });
+            expect(await users.findOne({ username: 'Eve' })).not.toBeNull();
+
+            const res = await ask('deleteAccount', { username: 'Cy', confirm: 'Cy' });
+            expect(res).toMatchObject({ ok: true, kind: 'account', gameRecords: 5, reports: 2, blockLists: 1, resetLinks: 1, tombstones: 1 });
+            expect(await users.findOne({ username: 'Cy' })).toBeNull();
+            expect(await users.findOne({ username: 'OldCy' })).toBeNull();
+            expect(await mockHolder.gameRecords.countDocuments({ $or: [{ team1Players: 'Cy' }, { team2Players: 'Cy' }] })).toBe(0);
+            expect((await mockHolder.gameRecords.findOne({ gameId: 'g1' })).team1Players).toEqual(['Bea', '[deleted]']);
+            expect((await users.findOne({ username: 'Bea' })).blockedUsers).toEqual(['Mallory']);
+            const reps = await mockHolder.reports.find({}).toArray();
+            expect(reps.map(r => [r.reporter, r.reported, Boolean(r.reporterDeletedAt), Boolean(r.reportedDeletedAt)])).toEqual([
+                ['Cy', 'Bea', true, false], ['Eve', 'Cy', false, true]
+            ]);
+            expect(await mockHolder.passwordResets.countDocuments({ username: 'Cy', state: 'open' })).toBe(0);
+            expect(await mockHolder.adminAudit.countDocuments({ action: 'deleteAccount', result: 'ok' })).toBe(1);
+            // a tombstone: only that document; its kept account is unchanged
+            const alanBefore = await users.findOne({ username: 'Alan' });
+            expect(await ask('deleteAccount', { username: 'OldAlan', confirm: 'OldAlan' })).toMatchObject({ ok: true, kind: 'tombstone', mergedInto: 'Alan' });
+            expect(await users.findOne({ username: 'OldAlan' })).toBeNull();
+            expect(await users.findOne({ username: 'Alan' })).toEqual(alanBefore);
+            // both names are free on the real unique index
+            await users.insertOne({ username: 'OldAlan', password: 'x' });
+            await users.insertOne({ username: 'Cy', password: 'x' });
+        } finally {
+            gameManager.currentUsers = [];
+            gameManager.deletedUsernames.clear();
+            mockHolder.passwordResets = null;
+            mockHolder.adminAudit = null;
+        }
+    });
 });
