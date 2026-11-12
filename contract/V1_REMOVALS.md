@@ -658,7 +658,9 @@ step, in this order; nothing is removed by the gate PR itself.
   Drop schema entries / constants with the next client builds. (Web's are
   gone since 2026-11-12; activeGameFound kept.)
 - **#5 `gameStart.playerInfo`**: 1.1.0 reads it every deal
-  (TableReducer.gameStart: names and pictures); web `main.js` too.
+  (TableReducer.gameStart: names and pictures). (Web: not needed since
+  2026-11-12: GameState.applyDeal / avatar.js foldAvatarPayload read it
+  only when present; #5 audit.)
 - **#6 `gameStart.players`**: web voice speaking indicator reads it.
   (Not since 2026-11-12: by owner / username, #6.)
 - **#7 `playerAssigned`**: 1.1.0 ignores it, web `main.js` reads it. (Not
@@ -678,7 +680,7 @@ step, in this order; nothing is removed by the gate PR itself.
 Next client work that unblocks the most: an iOS build that listens to
 `serverError`, sends `clientHello {caps:['avatarUrl']}` and maps voice
 peers without socket ids (#1B, #19, #9, #14), and web reading v2 seats /
-spectator snapshots (#5, #6, #7, #8).
+spectator snapshots (#5, #6, #7, #8; web done 2026-11-12).
 
 ## What iOS 1.2.0 unblocks (once it is widely adopted)
 
