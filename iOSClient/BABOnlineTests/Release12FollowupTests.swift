@@ -186,6 +186,14 @@ final class RestartNoticeTests: XCTestCase {
         // a finished game loses nothing; a finished tournament game still loses the tournament
         XCTAssertNil(P.place(screen: .game, role: .seat, phase: .ended, inTournament: false))
         XCTAssertEqual(P.place(screen: .game, role: .seat, phase: .ended, inTournament: true), .tournament)
+        // a spectator of a finished game (GameEndView) loses nothing either
+        XCTAssertNil(P.place(screen: .game, role: .spectator, phase: .ended, inTournament: false))
+        XCTAssertNil(P.place(screen: .game, role: .spectator, phase: .none, inTournament: false))
+        XCTAssertNil(P.place(screen: .game, role: .spectator, phase: .ended, inTournament: true))
+        // a complete tournament (its results screen, or the last game's end) loses nothing
+        XCTAssertNil(P.place(screen: .tournamentLobby, role: .none, phase: .none, inTournament: true, tournamentComplete: true))
+        XCTAssertNil(P.place(screen: .game, role: .seat, phase: .ended, inTournament: true, tournamentComplete: true))
+        XCTAssertEqual(P.place(screen: .tournamentLobby, role: .none, phase: .none, inTournament: true, tournamentComplete: false), .tournament)
     }
 
     /// The app's store: the toast state through the reconnect, then one alert.

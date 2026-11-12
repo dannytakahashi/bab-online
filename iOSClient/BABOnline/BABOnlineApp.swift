@@ -71,7 +71,8 @@ struct BABOnlineApp: App {
         let app = appState, store = gameState, tournament = tournamentState
         socketService.restartPlace = {
             RestartNotice.place(screen: app.screen, role: store.table.viewer.role, phase: store.phase,
-                                inTournament: !tournament.tournamentId.isEmpty || store.tournamentId != nil)
+                                inTournament: !tournament.tournamentId.isEmpty || store.tournamentId != nil,
+                                tournamentComplete: tournament.phase == "complete")
         }
         socketService.connect()
 

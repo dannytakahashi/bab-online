@@ -73,18 +73,22 @@ struct RestartNotice: Equatable {
         }
     }
 
-    /// What a serverShutdown would cost the player on `screen`.
-    static func place(screen: AppState.Screen, role: ViewerRole, phase: PhaseKind, inTournament: Bool) -> Place? {
+    /// What a serverShutdown would cost the player on `screen`. A finished
+    /// game or a complete tournament (its results, TournamentLobbyView) loses
+    /// nothing, for a spectator as for a seat.
+    static func place(screen: AppState.Screen, role: ViewerRole, phase: PhaseKind, inTournament: Bool,
+                      tournamentComplete: Bool = false) -> Place? {
         switch screen {
         case .signIn, .register, .mainRoom:
             return nil
         case .gameLobby:
             return .lobby
         case .tournamentLobby:
-            return .tournament
+            return tournamentComplete ? nil : .tournament
         case .game:
-            if role == .spectator { return .spectating }
-            if phase == .ended || phase == .none { return inTournament ? .tournament : nil }
+            let finished = phase == .ended || phase == .none
+            if role == .spectator { return finished ? nil : .spectating }
+            if finished { return inTournament && !tournamentComplete ? .tournament : nil }
             return inTournament ? .tournamentGame : .seat
         }
     }

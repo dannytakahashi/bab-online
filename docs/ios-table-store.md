@@ -532,7 +532,9 @@ failures arrive as `error` and/or `serverError`.
   `SocketService.connect`, next to the serverError listener) records what the
   player would lose (`RestartNotice.place`: a seat (the draw and a lazy seat
   included), spectating, a lobby, a tournament lobby, a tournament game; the
-  main room, sign-in and a finished casual game lose nothing) and the
+  main room, sign-in, a finished casual game (watched or played: the
+  spectator's GameEndView too) and a complete tournament (its results, or
+  the last game's end) lose nothing) and the
   ConnectionStatusToast reads "Restarting for an update…" (VoiceOver
   announcement) until the socket is back (a `.reconnectAttempt` counts as the
   drop: Socket.IO-Client-Swift sends no `.disconnect` when the server closes
