@@ -49,23 +49,164 @@
     z-index: var(--z-panel);
 }
 
-.screen--main-room {
-    width: 800px;
-    height: 600px;
+/*
+ * ---------- Full-window screens: main room, game lobby, tournament ----------
+ *
+ * Owner decision 2026-11-11: these three use the whole window instead of
+ * the January client's fixed centred box (800 x 600, a 400 px column,
+ * 800 x 650). One grid: the header (title, nav, online count) across the
+ * top, the screen's content on the left (.screen-main) and its chat in a
+ * full-height right-hand column (.screen-chat), as the iOS wide layouts
+ * (PR 198) do. The content is capped (--screen-cap) and centred, so a big
+ * monitor gets margins, not stretched rows; the chat column is capped so
+ * its lines stay readable and the left column takes the rest.
+ *
+ * Nothing in them is taller than the window: the lists, the scoreboard and
+ * the chat log scroll inside themselves and the page never scrolls, down to
+ * the 1024 x 668 desktop minimum (phones are gated, item 19). Below
+ * 1100 px wide the layout is compact (narrower chat, tighter gutters);
+ * below 760 px (a narrow desktop window) the chat stacks under the content.
+ * src/ui/screens/fullWindow.test.js holds these numbers.
+ * The kit modals (z-modal), toasts, the transition overlay and the
+ * connection banner all stack above z-panel.
+ */
+.screen--full {
+    --screen-cap: 1400px;
+    --screen-gutter: clamp(var(--space-4), 2.5vw, var(--space-8));
+    --screen-gutter-block: clamp(var(--space-4), 3vh, var(--space-8));
+    --screen-chat-w: clamp(360px, 30vw, 480px);
+    --screen-gap: var(--space-6);
+    /* the least a list that scrolls inside itself keeps */
+    --screen-min-scroller: 96px;
+    inset: 0;
+    transform: none;
+    width: auto;
+    height: auto;
+    max-width: none;
+    max-height: none;
+    /* the gutter, or the margin that centres a capped content box */
+    padding: var(--screen-gutter-block) max(var(--screen-gutter), calc((100% - var(--screen-cap)) / 2));
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) var(--screen-chat-w);
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-areas:
+        "header header"
+        "main chat";
+    gap: var(--space-4) var(--screen-gap);
+    overflow: hidden;
+    /* the room itself, edge to edge: no card edge, no drop shadow */
+    background: var(--page-bg);
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
 }
 
-/* the lobby scrolls inside 90vh instead of running off a short window */
-.screen--lobby {
-    width: 400px;
-    overflow-x: hidden;
-    overflow-y: auto;
-    text-align: center;
+.screen--full > .screen-header {
+    grid-area: header;
+    flex-wrap: wrap;
+    margin-bottom: 0;
 }
 
-.screen--tournament {
-    width: 800px;
-    height: 650px;
-    padding: var(--space-6);
+.screen--full .screen-nav {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.screen-main {
+    grid-area: main;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+}
+
+.screen-chat {
+    grid-area: chat;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+}
+
+/* the actions follow the content they act on, from the column's start */
+.screen--full .screen-actions {
+    justify-content: flex-start;
+}
+
+/* main room: the create buttons side by side, the lobby cards in a grid
+   that fills the column (one column when it is narrow) */
+.screen--main-room .room-create {
+    flex-direction: row;
+}
+
+.screen--main-room .room-create > .kit-btn {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+.screen--main-room .room-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+    align-content: start;
+}
+
+.screen--main-room .room-list > :is(.room-list__heading, .muted-note) {
+    grid-column: 1 / -1;
+}
+
+/* game lobby: the seats, then Ready / Add Bot / Leave */
+.screen--lobby .seat-list {
+    flex-shrink: 0;
+}
+
+/* tournament: the standings, then the round's tables beside the players,
+   then the controls. The standings and the roster are as tall as they are;
+   when the window is too short for both, they share what is left (each
+   scrolls inside itself, never below --screen-min-scroller) */
+.screen--tournament .tournament-scoreboard-wrap {
+    flex: 0 1 auto;
+    min-height: var(--screen-min-scroller);
+}
+
+.tournament-roster {
+    display: flex;
+    gap: var(--space-3);
+    flex: 0 1 auto;
+    min-height: var(--screen-min-scroller);
+}
+
+.tournament-roster > .screen-section {
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 0;
+    max-height: none;
+    margin-bottom: 0;
+}
+
+/* compact: below 1100 px wide (down to the 1024 x 668 minimum) */
+@media (max-width: 1099px) {
+    .screen--full {
+        --screen-gutter: var(--space-4);
+        --screen-gutter-block: var(--space-4);
+        --screen-chat-w: clamp(280px, 32vw, 340px);
+        --screen-gap: var(--space-4);
+    }
+
+    .screen--full .screen-title {
+        font-size: var(--type-xl);
+    }
+}
+
+/* stacked: a narrow desktop window; the chat goes under the content */
+@media (max-width: 759px) {
+    .screen--full {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: auto minmax(0, 1fr) minmax(0, 0.8fr);
+        grid-template-areas:
+            "header"
+            "main"
+            "chat";
+    }
 }
 
 .screen--queue {
@@ -114,43 +255,12 @@
     gap: var(--space-2);
 }
 
-.screen-columns {
-    display: flex;
-    gap: var(--space-5);
-    flex: 1;
-    min-height: 0;
-    overflow: hidden;
-}
-
-.screen-columns--tight {
-    gap: var(--space-4);
-}
-
-.screen-column {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-    min-width: 0;
-}
-
-.screen-column--wide {
-    flex: 1.4;
-}
-
 .screen-section {
     box-sizing: border-box;
     background: var(--surface-2);
     border: 1px solid var(--line-subtle);
     border-radius: var(--radius-md);
     padding: var(--space-4);
-}
-
-.screen-column > .screen-section.is-fill {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
 }
 
 .section-title {
@@ -217,44 +327,6 @@
     line-height: 1.45;
     text-align: left;
     overflow-wrap: anywhere;
-}
-
-.chat-log--short {
-    flex: none;
-    height: 150px;
-}
-
-/* short windows: the lobby keeps its actions in view (it scrolls below that):
-   it may use the window but its gutter (as max-width does), and its chat log
-   gives up height before the panel scrolls (a lobby that is not full has the
-   Add Bot row too: 628 px, which used to scroll ~30 px at 1024 x 668) */
-@media (max-height: 820px) {
-    .screen--lobby {
-        max-height: calc(100vh - 2 * var(--space-4));
-        padding: var(--space-6);
-    }
-
-    .screen--lobby .screen-header {
-        margin-bottom: var(--space-3);
-    }
-
-    .screen--lobby .seat-list {
-        margin-bottom: var(--space-3);
-    }
-
-    .chat-log--short {
-        height: 96px;
-    }
-
-    .screen--lobby .chat-log--short {
-        flex: 0 1 96px;
-        height: auto;
-        min-height: 64px;
-    }
-
-    .screen--lobby .screen-actions {
-        margin-top: var(--space-3);
-    }
 }
 
 .chat-line {

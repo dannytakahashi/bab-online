@@ -8,7 +8,7 @@
 
 import { generateDistinctColor } from '../../utils/colors.js';
 import { el, createButton, createPanel } from '../kit/index.js';
-import { chatLine, chatForm } from './common.js';
+import { chatLine, chatForm, appendChatLine, scrollChatToEnd, followChatOnResize } from './common.js';
 import { showPlayerSearchPage } from './PlayerSearchPage.js';
 import { showAdminPanel, removeAdminPanel } from './AdminPanel.js';
 import { isAdmin, onAdminChange } from '../../admin/adminApi.js';
@@ -212,7 +212,7 @@ export function showMainRoom(data, socket, username = null) {
   mainRoomUserColors = {};
   currentUsername = username;
 
-  const container = createPanel({ elevation: 3, className: 'screen screen--main-room' });
+  const container = createPanel({ elevation: 3, className: 'screen screen--full screen--main-room' });
   container.id = 'mainRoomContainer';
 
   // Header row: title, page buttons, online count
@@ -250,11 +250,31 @@ export function showMainRoom(data, socket, username = null) {
     children: [el('h1', { className: 'screen-title screen-title--brand', text: 'BAB Online' }), nav],
   }));
 
-  // Main content area (two panels)
-  const contentArea = el('div', { className: 'screen-columns' });
+  // The window's two columns (styles/screens.css .screen--full): the game
+  // lobbies on the left, Global Chat full height on the right (as on iOS).
+  // Reading and focus order follow it: header, lobbies, chat.
+  const lobbyPanel = el('section', { className: 'screen-main screen-section', attrs: { 'aria-label': 'Game lobbies' } });
+  lobbyPanel.appendChild(el('h2', { className: 'section-title', text: 'Game Lobbies' }));
 
-  // Left panel - Global Chat
-  const chatPanel = el('section', { className: 'screen-column screen-column--wide screen-section', attrs: { 'aria-label': 'Global chat' } });
+  lobbyPanel.appendChild(el('div', {
+    className: 'room-create',
+    children: [
+      createButton({ label: '+ Create Game', variant: 'primary', className: 'is-block', onClick: () => socket.emit('createLobby', {}) }),
+      createButton({ label: '+ Create Tournament', variant: 'secondary', className: 'is-block', onClick: () => socket.emit('createTournament') }),
+    ],
+  }));
+
+  // Lobby list container (it scrolls inside itself; the page never does)
+  const lobbyList = el('div', { className: 'room-list', attrs: { id: 'mainRoomLobbyList' } });
+
+  // Populate with existing lobbies, in-progress games, and tournaments
+  updateLobbyListContent(lobbyList, data.lobbies || [], socket, data.inProgressGames || [], data.tournaments || []);
+
+  lobbyPanel.appendChild(lobbyList);
+  container.appendChild(lobbyPanel);
+
+  // Right column - Global Chat
+  const chatPanel = el('section', { className: 'screen-chat screen-section', attrs: { 'aria-label': 'Global chat' } });
   chatPanel.appendChild(el('h2', { className: 'section-title', text: 'Global Chat' }));
 
   const chatMessages = el('div', { className: 'chat-log', attrs: { id: 'mainRoomChatMessages', role: 'log', 'aria-live': 'polite' } });
@@ -266,9 +286,6 @@ export function showMainRoom(data, socket, username = null) {
     data.messages.forEach((msg) => {
       chatMessages.appendChild(createChatMessageElement(msg.username, msg.message, msg.timestamp));
     });
-    setTimeout(() => {
-      chatMessages.scrollTop = chatMessages.scrollHeight;
-    }, 0);
   }
   chatPanel.appendChild(chatMessages);
 
@@ -278,31 +295,12 @@ export function showMainRoom(data, socket, username = null) {
     onSend: (message) => socket.emit('mainRoomChat', { message }),
   });
   chatPanel.appendChild(chatInputRow);
-  contentArea.appendChild(chatPanel);
+  container.appendChild(chatPanel);
 
-  // Right panel - Lobby Browser
-  const lobbyPanel = el('section', { className: 'screen-column screen-section', attrs: { 'aria-label': 'Game lobbies' } });
-  lobbyPanel.appendChild(el('h2', { className: 'section-title', text: 'Game Lobbies' }));
-
-  lobbyPanel.appendChild(el('div', {
-    className: 'room-create',
-    children: [
-      createButton({ label: '+ Create Game', variant: 'primary', className: 'is-block', onClick: () => socket.emit('createLobby', {}) }),
-      createButton({ label: '+ Create Tournament', variant: 'secondary', className: 'is-block', onClick: () => socket.emit('createTournament') }),
-    ],
-  }));
-
-  // Lobby list container
-  const lobbyList = el('div', { className: 'room-list', attrs: { id: 'mainRoomLobbyList' } });
-
-  // Populate with existing lobbies, in-progress games, and tournaments
-  updateLobbyListContent(lobbyList, data.lobbies || [], socket, data.inProgressGames || [], data.tournaments || []);
-
-  lobbyPanel.appendChild(lobbyList);
-  contentArea.appendChild(lobbyPanel);
-
-  container.appendChild(contentArea);
   document.body.appendChild(container);
+  // Open on the newest message and stay there through resizes
+  scrollChatToEnd(chatMessages);
+  followChatOnResize(chatMessages);
 }
 
 /**
@@ -318,8 +316,8 @@ export function addMainRoomChatMessage(username, message, timestamp) {
   // Assign distinct color if new user
   colorFor(username);
 
-  chatMessages.appendChild(createChatMessageElement(username, message, timestamp));
-  chatMessages.scrollTop = chatMessages.scrollHeight;
+  // Follows the newest message unless the reader scrolled up
+  appendChatLine(chatMessages, createChatMessageElement(username, message, timestamp));
 }
 
 /**
