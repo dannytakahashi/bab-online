@@ -4322,7 +4322,10 @@
         "type": "object",
         "properties": {
           "reason": {
-            "const": "newerConnection"
+            "enum": [
+              "newerConnection",
+              "otherClosed"
+            ]
           },
           "refused": {
             "type": "string",
@@ -4338,15 +4341,18 @@
       "to": "socket",
       "clientReads": {
         "web": [
-          "client/src/handlers/authHandlers.js:registerAuthHandlers"
+          "client/src/handlers/authHandlers.js:registerAuthHandlers",
+          "client/src/main.js:onSessionSuperseded#reads:reason,refused"
         ],
         "ios": []
       },
       "emittedFrom": [
         "server/socket/sessionIdentity.js:confirmSupersede",
-        "server/socket/sessionIdentity.js:supersededGate"
+        "server/socket/sessionIdentity.js:supersededGate",
+        "server/socket/sessionIdentity.js:tellOtherClosed",
+        "server/socket/sessionIdentity.js:reparkClosedNotices"
       ],
-      "notes": "New (2026-11-11). One live connection per user: a newer socket of the SAME saved session (another web tab adopting it, or a reload whose old socket the server still holds) took over; this socket is parked. Sent once when it happens and again (refused: the event name, at most once a second) for every event the parked socket sends other than signIn / signUp / restoreSession / clientHello, which are dropped, never answered with error. Web: a full-screen notice, \"Use here\" reconnects and restores, which parks the other tab. iOS 1.1.0 has no handler (unknown events are ignored) and never shares a token between live sockets; a different session gets forceLogout as before."
+      "notes": "New (2026-11-11). One live connection per user: a newer socket of the SAME saved session (another web tab adopting it, or a reload whose old socket the server still holds) took over; this socket is parked. Sent once when it happens and again (refused: the event name, at most once a second, with the reason it was last told) for every event the parked socket sends other than signIn / signUp / restoreSession / clientHello, which are dropped, never answered with error. Web: a full-screen notice, \"Use here\" reconnects and restores, which parks the other tab. reason 'otherClosed' (additive, 2026-11-11): the user's LIVE socket disconnected and, 2 s later (OTHER_CLOSED_DELAY_MS: a reload of that tab re-takes the session first and nothing is sent), no socket holds the session; only that user's parked sockets are told, and nothing is taken back by itself (web: \"The other BAB Online tab was closed. Use here to continue.\"). A socket that takes the session after that sends 'newerConnection' again to the parked sockets told 'otherClosed' (reparkClosedNotices). iOS 1.1.0 has no handler (unknown events are ignored) and never shares a token between live sockets, so it never has a parked socket; a different session gets forceLogout as before."
     },
     "deleteAccountResponse": {
       "payload": {
@@ -10223,13 +10229,16 @@
       "status": "active",
       "to": "all",
       "clientReads": {
-        "web": [],
+        "web": [
+          "client/src/handlers/authHandlers.js:registerAuthHandlers",
+          "client/src/main.js:onServerShutdown"
+        ],
         "ios": []
       },
       "emittedFrom": [
         "server/utils/shutdown.js:gracefulShutdown"
       ],
-      "notes": "No listener in either client today (V1_REMOVALS #17)."
+      "notes": "Every deploy (SIGTERM -> gracefulShutdown): sent to every socket, which is closed about 1 s later (a transport close, so the clients reconnect by themselves). Kept (owner 2026-11-11, V1_REMOVALS #17): web shows a restart banner and, after reconnect, what ended (the game, the watched game, the lobby or the tournament the player was in; nothing for the main room); the message text is not read. iOS 1.1.0 ignores it (no handler); iOS 1.2 shows it."
     },
     "error": {
       "payload": {

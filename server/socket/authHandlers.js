@@ -14,7 +14,8 @@ const { checkNewUsername, findNameClash, takenMessage, MESSAGES: USERNAME_MESSAG
 const { rememberBlockList } = require('./voiceHandlers');
 const { eraseAccount, forgetAccount } = require('../admin/accountDelete');
 const {
-    belongsTo, releaseIdentity, markSuperseding, cancelSupersede, confirmSupersede, clearSuperseded
+    belongsTo, releaseIdentity, markSuperseding, cancelSupersede, confirmSupersede, clearSuperseded,
+    reparkClosedNotices
 } = require('./sessionIdentity');
 
 /**
@@ -369,6 +370,7 @@ async function signIn(socket, io, data) {
         claim = null; // signed in: the name stays claimed
         clearSuperseded(socket, io);
         confirmSupersede(io, parked, socket);
+        reparkClosedNotices(io, socket);
 
         // Check if user has an active game they can rejoin
         const activeGameId = user.activeGameId;
@@ -704,6 +706,7 @@ async function restoreSession(socket, io, data) {
         claim = null; // signed in: the name stays claimed
         clearSuperseded(socket, io);
         confirmSupersede(io, parked, socket);
+        reparkClosedNotices(io, socket);
 
         // Check if user has an active game they can rejoin
         const activeGameId = user.activeGameId;
