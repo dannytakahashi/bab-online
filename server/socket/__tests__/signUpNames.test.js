@@ -23,6 +23,7 @@ jest.mock('../../game/GameManager', () => ({
     // (sessionIdentity.releaseIdentity)
     removeUserSocket: jest.fn(),
     handleDisconnect: jest.fn(),
+    releaseHeldLobbySeat: jest.fn(() => null),
     getGameById: jest.fn(() => null),
     getTournamentById: jest.fn(() => null),
     clearActiveGame: jest.fn(),
