@@ -276,6 +276,44 @@ final class PolishLayoutTests: XCTestCase {
         XCTAssertTrue(CGRect(origin: CGPoint(x: -size.width / 2, y: -size.height / 2), size: size)
             .insetBy(dx: -0.5, dy: -0.5).contains(node.calculateAccumulatedFrame()), "the text inside its bubble \(label.frame)")
     }
+
+    /// A line with an emoji is taller than a text line (Apple Color Emoji), so two lines with one
+    /// measure more than a fixed "Ag\nAg" probe: such a message still shows in full on two lines
+    /// (seat and spectator bubbles), and a longer one stops at two lines, not one.
+    func testEmojiBubbleTextKeepsBothLines() {
+        let seat: CGFloat = 260, spectator = SKChatBubbleManager.spectatorMaxWidth
+        let full: [(String, CGFloat, Int)] = [
+            ("\u{1F602} WOW WHAT A HAND PARTNER, WELL PLAYED", seat, 40),
+            ("Mmm, what a hand partner! Well done \u{1F44F}\u{1F44F}", seat, 40),
+            ("WOW WHAT A HAND PARTNER, WELL PLAYED \u{1F602}", seat, 40),
+            ("lou: that bore is still alive! \u{1F525} go go", spectator, 5 + 40),
+        ]
+        func label(_ node: SKNode) -> SKLabelNode { node.children.compactMap { $0 as? SKLabelNode }.first! }
+        let oneLine = SKLabelNode(text: "Ag\u{1F44F}")
+        oneLine.fontName = Theme.SK.fontName(.regular)
+        oneLine.fontSize = 13
+        for (message, width, limit) in full {
+            let (node, size) = SKChatBubbleManager.makeBubble(message, maxWidth: width, name: "t", fill: .black, text: .white, limit: limit)
+            let l = label(node)
+            XCTAssertEqual(l.text, message, "shown in full")
+            XCTAssertGreaterThan(l.frame.height, oneLine.frame.height + 5, "two lines: \(message) \(l.frame)")
+            XCTAssertLessThanOrEqual(size.width, width + 1.01)  // the label may round up a point past its wrap width
+        }
+        // past two lines: cut to two (the emoji kept), ending in an ellipsis
+        let long = "lou: \u{1F525} " + String(repeating: "abcdefghij ", count: 8)
+        let (node, _) = SKChatBubbleManager.makeBubble(long, maxWidth: spectator, name: "t", fill: .black, text: .white, limit: 200)
+        let l = label(node)
+        XCTAssertTrue(l.text!.hasSuffix("\u{2026}"), l.text!)
+        XCTAssertTrue(l.text!.contains("\u{1F525}"), l.text!)
+        XCTAssertGreaterThan(l.frame.height, oneLine.frame.height + 5, "two lines, not one: \(l.text!)")
+        XCTAssertLessThanOrEqual(l.frame.height, SKChatBubbleManager.twoLineHeight(long, like: l) + 0.5, "at most two lines")
+        // three lines of plain text are still more than two lines with an emoji
+        let threeText = SKLabelNode(text: "Ag\nAg\nAg")
+        threeText.fontName = Theme.SK.fontName(.regular)
+        threeText.fontSize = 13
+        threeText.numberOfLines = 0
+        XCTAssertGreaterThan(threeText.frame.height, SKChatBubbleManager.twoLineHeight("x \u{1F525}", like: l) + 0.5)
+    }
 }
 
 /// The tournament lobby's capped list fades only while more is below.
@@ -357,6 +395,159 @@ final class PolishAccessibilityTests: XCTestCase {
     }
 
     static func descendants(_ n: SKNode) -> [SKNode] { n.children.flatMap { [$0] + descendants($0) } }
+
+    /// Instant moves; fades and effect actions never run (the transient nodes stay for the walk).
+    final class KeepingAnimator: Animator {
+        private let instant = InstantAnimator()
+        func move(_ node: SKNode, to point: CGPoint, duration: TimeInterval, completion: (() -> Void)?) { instant.move(node, to: point, duration: duration, completion: completion) }
+        func collect(_ nodes: [SKNode], to point: CGPoint, completion: @escaping () -> Void) { instant.collect(nodes, to: point, completion: completion) }
+        func pop(_ node: SKNode) { instant.pop(node) }
+        func fadeAndRemove(_ node: SKNode, after delay: TimeInterval) {}
+        func run(_ node: SKNode, _ action: SKAction, final: (SKNode) -> Void) {}
+    }
+
+    /// Answers every avatar at once with a picture (so the seats draw `avatar.image`).
+    struct PictureAvatarLoader: AvatarLoading {
+        func load(_ picNumber: Int, completion: @escaping (UIImage?) -> Void) {
+            completion(UIGraphicsImageRenderer(size: CGSize(width: 64, height: 64)).image { ctx in
+                UIColor.red.setFill()
+                ctx.fill(CGRect(x: 0, y: 0, width: 64, height: 64))
+            })
+        }
+    }
+
+    /// The trick-mid-lead3 table with everything the scene can draw: avatar pictures, turn and
+    /// speaking glows, bid bubbles, seat and spectator chat, the rainbow, bore and OT effects.
+    func busyScene() throws -> (ReplayHarness, GameSKScene) {
+        AvatarTextureCache.resetForTesting()
+        OpponentHandNode.avatarLoader = PictureAvatarLoader()
+        addTeardownBlock {
+            AvatarTextureCache.resetForTesting()
+            OpponentHandNode.avatarLoader = StubAvatarLoader()
+        }
+        let h = ReplayHarness()
+        let size = CGSize(width: 440, height: 956)
+        let scene = GameSKScene(size: size)
+        scene.animator = InstantAnimator()
+        scene.configure(gameState: h.store, actions: h.actions)
+        scene.didMove(to: SKView(frame: CGRect(origin: .zero, size: size)))
+        h.store.apply(.snapshot(try T.snapshot("trick-mid-lead3"), .rejoin, hints: nil))
+        for seat in scene.opponentManager.nodes.values {
+            seat.showTurnGlow()
+            seat.showSpeakingGlow()
+        }
+        scene.animator = KeepingAnimator()  // the bubbles and effects stay up
+        scene.bidManager.apply(bubbles: [2: "3", 3: "B"], viewPosition: 1, layout: scene.layout)
+        scene.chatManager.show(position: 2, message: "nice one partner", viewPosition: 1, layout: scene.layout, animator: scene.animator)
+        scene.chatManager.showSpectator(username: "lou", message: "go go", spectating: false, layout: scene.layout, animator: scene.animator)
+        scene.effectsManager.showRainbow(position: 3, myPosition: 1)
+        scene.effectsManager.showBoreBadge("2B")
+        scene.effectsManager.showOverTrump()
+        return (h, scene)
+    }
+
+    /// SpriteKit reads a node without an accessibilityLabel by its name (the XCUITest tree listed
+    /// "hand.card.Q_clubs", "trick.4.6_clubs", "seat.left", "avatar.image", "opponents", ...): every
+    /// named node carries a real label, the rest have a role.
+    func testEveryNamedNodeReadsAsWhatItShows() throws {
+        let (_, scene) = try busyScene()
+        var named = 0
+        for n in Self.descendants(scene) {
+            guard let name = n.name else { continue }
+            if let l = n as? SKLabelNode, !(l.text ?? "").isEmpty { continue }  // a label reads its text
+            named += 1
+            let label = n.accessibilityLabel ?? ""
+            XCTAssertFalse(label.isEmpty, "\(name) is read as its name")
+            XCTAssertNotEqual(label, name)
+            XCTAssertTrue(n.isAccessibilityElement, name)
+        }
+        XCTAssertGreaterThan(named, 15, "cards, bubbles, effects")
+        for role in ["background", "opponents", "bids", "transient", "trick", "hand"] {
+            XCTAssertTrue(scene.children.contains { $0.role == role && $0.name == nil }, "the \(role) layer has a role")
+        }
+        for seat in scene.opponentManager.nodes.values {
+            XCTAssertNil(seat.name)
+            XCTAssertEqual(seat.avatarImageCount, 1, "the picture drawn")
+            for part in Self.descendants(seat) where part.role == "avatar.image" || part.role?.hasPrefix("glow.") == true {
+                XCTAssertNil(part.name)
+                XCTAssertFalse(part.isAccessibilityElement)
+            }
+            let nameLabel = try XCTUnwrap(seat.children.compactMap { $0 as? SKLabelNode }.first)
+            XCTAssertEqual(nameLabel.accessibilityLabel, seat.fullName, "the seat reads its whole name")
+        }
+        // the cards read as cards: my hand's as buttons (dimmed while illegal), the table's not
+        let queen = try XCTUnwrap(scene.handNode.sprite(for: "Q_clubs"))
+        XCTAssertEqual(queen.accessibilityLabel, "Queen of Clubs")
+        for s in scene.handNode.sprites.values {
+            XCTAssertEqual(s.accessibilityLabel, s.card.displayName)
+            XCTAssertTrue(s.accessibilityTraits.contains(.button))
+            XCTAssertEqual(s.accessibilityTraits.contains(.notEnabled), !s.isLegal, s.card.id)
+        }
+        XCTAssertEqual(Set(scene.trickArea.cardSprites.map { $0.accessibilityLabel ?? "" }), ["6 of Clubs", "4 of Clubs"])
+        XCTAssertTrue(scene.trickArea.cardSprites.allSatisfy { !$0.accessibilityTraits.contains(.button) })
+        // the bubbles read what they say, the effects what they are
+        let transient = scene.transientLayer.children
+        XCTAssertEqual(transient.first { $0.name == "chat.2" }?.accessibilityLabel, "nice one partner")
+        XCTAssertEqual(transient.first { $0.name == "chat.spectator" }?.accessibilityLabel, "lou: go go")
+        XCTAssertEqual(Set(scene.bidsLayer.children.compactMap(\.accessibilityLabel)), ["Bid 3", "Bid B"])
+        XCTAssertEqual(transient.first { $0.name == "effect.rainbow" }?.accessibilityLabel, "Rainbow")
+        XCTAssertEqual(transient.first { $0.name == "effect.bore" }?.accessibilityLabel, "Double bore")
+        XCTAssertEqual(transient.first { $0.name == "effect.overTrump" }?.accessibilityLabel, "Over trump")
+    }
+
+    /// VoiceOver's double tap on a hand card does what a touch does: lift, then play.
+    func testDoubleTapOnAHandCardLiftsThenPlays() throws {
+        OpponentHandNode.avatarLoader = StubAvatarLoader()
+        let h = ReplayHarness()
+        let size = CGSize(width: 440, height: 956)
+        let scene = GameSKScene(size: size)
+        scene.animator = InstantAnimator()
+        scene.configure(gameState: h.store, actions: h.actions)
+        scene.didMove(to: SKView(frame: CGRect(origin: .zero, size: size)))
+        h.store.apply(.snapshot(try T.snapshot("trick-mid-lead3"), .rejoin, hints: nil))
+        let hand = try XCTUnwrap(TableRenderModel(h.store.state).hand)
+        let legal = try XCTUnwrap(hand.cards.first { hand.legalIds.contains($0.id) })
+        let sprite = try XCTUnwrap(scene.handNode.sprite(for: legal.id))
+        if let illegal = hand.cards.first(where: { !hand.legalIds.contains($0.id) }) {
+            XCTAssertTrue(try XCTUnwrap(scene.handNode.sprite(for: illegal.id)).accessibilityActivate())
+            XCTAssertNil(scene.handNode.liftedCardId, "an illegal card does not lift")
+        }
+        XCTAssertTrue(sprite.accessibilityActivate())
+        XCTAssertEqual(scene.handNode.liftedCardId, legal.id)
+        XCTAssertTrue(sprite.accessibilityTraits.contains(.selected))
+        XCTAssertTrue(sprite.accessibilityActivate())
+        let played = try XCTUnwrap(scene.trickArea.sprite(named: TrickAreaNode.spriteName(1, legal)), "played")
+        XCTAssertTrue(played === sprite)
+        XCTAssertFalse(played.accessibilityActivate(), "a card on the table is not a button")
+        XCTAssertFalse(played.accessibilityTraits.contains(.button))
+    }
+
+    /// The fixture's layoutCheck names a node off the safe rect by its name or its role (the
+    /// history and the seats have roles, which read "?" before).
+    func testLayoutCheckNamesNodesByTheirRole() throws {
+        OpponentHandNode.avatarLoader = StubAvatarLoader()
+        let h = ReplayHarness()
+        let size = CGSize(width: 440, height: 956)
+        let scene = GameSKScene(size: size)
+        scene.animator = InstantAnimator()
+        scene.configure(gameState: h.store, actions: h.actions)
+        scene.didMove(to: SKView(frame: CGRect(origin: .zero, size: size)))
+        h.store.apply(.snapshot(try T.snapshot("trick-mid-lead3") { raw in
+            raw["tricks"] = ["team1": 2, "team2": 1]
+            raw["tricksByPosition"] = [1, 1, 1, 0]
+        }, .rejoin, hints: nil))
+        let probe = TableDebugProbe()
+        probe.update(scene: scene)
+        XCTAssertEqual(probe.layoutCheck, "ok")
+        XCTAssertFalse(scene.trickManager.trickHistory.children.isEmpty)
+        scene.trickManager.trickHistory.position = CGPoint(x: -2000, y: -2000)
+        let seat = try XCTUnwrap(scene.opponentManager.nodes.values.first)
+        seat.position = CGPoint(x: 2000, y: 0)
+        probe.update(scene: scene)
+        XCTAssertTrue(probe.layoutCheck.contains("history ("), probe.layoutCheck)
+        XCTAssertTrue(probe.layoutCheck.contains("seat.\(seat.relativePosition.rawValue) ("), probe.layoutCheck)
+        XCTAssertFalse(probe.layoutCheck.contains("? ("), probe.layoutCheck)
+    }
 
     /// The decorative icons inside labelled controls are hidden from VoiceOver (the XCUITest tree
     /// still lists hidden children on iOS 27, so this reads the source, as AccessibilityLabelSourceTests).

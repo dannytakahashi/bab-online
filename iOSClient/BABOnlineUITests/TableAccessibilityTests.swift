@@ -2,7 +2,9 @@ import XCTest
 
 /// VoiceOver at the table (1.2.0 (3) polish): the scene's drawing nodes (pip
 /// dots, the pips' box and bore outline, the trick piles' slots, icons and
-/// borders) are not in the accessibility tree at all, the SwiftUI pips
+/// borders) are not in the accessibility tree at all, no element reads as a
+/// raw node name (cards read "Queen of Clubs", seats their name, bubbles their
+/// words), the SwiftUI pips
 /// elements speak the counts, and the score bar's bid icon is part of a "Bid
 /// 2/4" element instead of its own "Target With Concentric Rings" element.
 ///
@@ -27,6 +29,20 @@ final class TableAccessibilityTests: XCTestCase {
         return patterns.contains { s.range(of: $0, options: .regularExpression) != nil }
     }
 
+    /// The fixture's own probes: their label is their identifier.
+    static let probes: Set<String> = ["ui.pose", "table.layoutCheck", "table.state"]
+    /// The scene's layer names (one word, so the dotted rule below misses them).
+    static let layerNames: Set<String> = ["background", "opponents", "bids", "transient", "trick", "hand", "history", "pips"]
+
+    /// A label that is a raw node name, any node: SpriteKit reads a node without an accessibility
+    /// label by its name ("hand.card.Q_clubs", "trick.4.6_clubs", "seat.left", "avatar.image",
+    /// "glow.turn", "chat.2", "effect.bore"), and the layers by theirs. A spoken label has words.
+    static func isRawNodeLabel(id: String, label: String) -> Bool {
+        if probes.contains(label) && label == id { return false }
+        if layerNames.contains(label) || isDrawingNode(label) { return true }
+        return label.range(of: #"^[A-Za-z][A-Za-z0-9]*([._][A-Za-z0-9]+)+$"#, options: .regularExpression) != nil
+    }
+
     private func check(_ app: XCUIApplication, _ tag: String) {
         let all = elements(app)
         let dump = all.map { "\($0.id) | \($0.label)" }.joined(separator: "\n")
@@ -34,7 +50,7 @@ final class TableAccessibilityTests: XCTestCase {
         a.name = "a11y-\(tag)"
         a.lifetime = .keepAlways
         add(a)
-        let raw = all.filter { Self.isDrawingNode($0.id) || Self.isDrawingNode($0.label) }
+        let raw = all.filter { Self.isDrawingNode($0.id) || Self.isRawNodeLabel(id: $0.id, label: $0.label) }
         XCTAssertEqual(raw.count, 0, "\(tag): raw node elements \(raw.prefix(12).map { $0.id.isEmpty ? $0.label : $0.id })")
         // "pips.mine" / "pips.<n>" are only the SwiftUI elements, each speaking a count
         // (the scene's own "pips.mine" node made the identifier ambiguous)
@@ -65,6 +81,26 @@ final class TableAccessibilityTests: XCTestCase {
         XCTAssertEqual(app.otherElements.matching(NSPredicate(format: "label BEGINSWITH 'Bid '")).count, 2)
         XCTAssertTrue(app.otherElements["Bid 2/4"].exists)
         XCTAssertEqual(app.buttons["leave"].label, "Leave game")
+        // the scene's cards and seats read as what they are
+        let labels = Set(elements(app).map(\.label))
+        for spoken in ["Queen of Clubs", "High Joker", "6 of Clubs", "4 of Clubs", "kim", "jon", "hal"] {
+            XCTAssertTrue(labels.contains(spoken), "no \"\(spoken)\" element")
+        }
+        app.terminate()
+    }
+
+    /// The chat bubbles and the effects read their words, not "chat.2" / "effect.bore".
+    func testChatAndEffectsHaveNoRawNodeElements() {
+        let app = Fixture.launch("trick-mid-lead3", extra: ["-uiChat", "lou|go go;2|nice one partner", "-uiEffect", "all"])
+        XCTAssertTrue(app.buttons["leave"].waitForExistence(timeout: 20))
+        _ = Fixture.settledState(app)
+        let bubble = app.descendants(matching: .any)["nice one partner"]
+        XCTAssertTrue(bubble.waitForExistence(timeout: 10), "the seat's chat bubble")
+        check(app, "trick-mid-lead3-chat-effects")
+        let labels = Set(elements(app).map(\.label))
+        for spoken in ["lou: go go", "Rainbow", "Triple bore", "Over trump"] {
+            XCTAssertTrue(labels.contains(spoken), "no \"\(spoken)\" element")
+        }
         app.terminate()
     }
 

@@ -454,7 +454,11 @@ failures arrive as `error` and/or `serverError`.
   Pro Max sat under it before 1.2.0 (3)); a seat's chat bubble's last resort
   also stays above that strip), one at a time, the seats' lifetime and two
   lines (`SKChatBubbleManager.fitTwoLines`: SKLabelNode wraps past
-  `numberOfLines`, so a longer text drops words and ends in "…"), shown even
+  `numberOfLines`, so a longer text drops words and ends in "…"; "two lines"
+  is measured with two unwrapped lines of the message's own glyphs
+  (`twoLineHeight`), since a line with an emoji is taller than a text line:
+  13 pt, two text lines 32 pt, two emoji lines 45 pt, three text lines 47),
+  shown even
   before the coalesced list makes the badge appear; players' lines keep their
   seat bubble. Debug: `-uiChat "lou|text;2|text"` holds spectator / seat
   lines on a fixture table for screenshots.
@@ -541,6 +545,18 @@ failures arrive as `error` and/or `serverError`.
   borders) carry a `role` in userData, never a `name`: SpriteKit lists every
   named node in the accessibility tree under its name (about 35 raw
   "pip.3" / "history.team.slot.2" elements per table before 1.2.0 (3)).
+  The same rule for the rest of the scene (SpriteKit reads a node with no
+  accessibilityLabel by its name): the layers, seats, avatar pictures and
+  glows have roles too (`seat.left`, `avatar.image`, `glow.turn`; lookups and
+  SceneDump read `name ?? role`), and every node that keeps a name for
+  lookups speaks (`SKNode.speak`): cards their `displayName` ("Queen of
+  Clubs"; my hand's are buttons, dimmed while illegal, selected while lifted,
+  and VoiceOver's double tap lifts then plays, `accessibilityActivate`), a
+  seat's name label the whole name, chat bubbles the whole message, bid
+  bubbles "Bid 3", effects "Rainbow" / "Double bore" / "Over trump".
+  `PolishAccessibilityTests.testEveryNamedNodeReadsAsWhatItShows` walks a
+  busy scene; `TableAccessibilityTests` fails on any dotted / underscored or
+  layer-name label in the XCUITest tree.
   Colors: Theme.SK `pipBox` / `pipEmpty` / team / `pipOver` (gold) /
   `pipBore` (danger.solid).
 - **Bores count as the whole hand** wherever a bid total is shown

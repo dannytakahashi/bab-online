@@ -693,7 +693,7 @@ final class ReduceMotionTests: XCTestCase {
         seat.showTurnGlow()
         seat.showSpeakingGlow()
         for name in ["glow.turn", "glow.speaking"] {
-            let glow = try XCTUnwrap(seat.childNode(withName: name), name)
+            let glow = try XCTUnwrap(seat.children.first { $0.role == name }, name)
             XCTAssertFalse(glow.hasActions(), "\(name): no repeating pulse under Reduce Motion")
             XCTAssertEqual(glow.alpha, Theme.Motion.steadyGlowAlpha, accuracy: 0.001, "\(name): held at the lit alpha")
         }
@@ -705,7 +705,7 @@ final class ReduceMotionTests: XCTestCase {
         seat.showTurnGlow()
         seat.showSpeakingGlow()
         for name in ["glow.turn", "glow.speaking"] {
-            XCTAssertTrue(try XCTUnwrap(seat.childNode(withName: name), name).hasActions(), "\(name) pulses")
+            XCTAssertTrue(try XCTUnwrap(seat.children.first { $0.role == name }, name).hasActions(), "\(name) pulses")
         }
     }
 

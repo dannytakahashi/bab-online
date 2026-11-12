@@ -117,4 +117,13 @@ extension SKNode {
         isAccessibilityElement = false
         accessibilityElementsHidden = true
     }
+
+    /// An accessibility element reading `label` (a card, a seat's name, a chat line, a bid). A named
+    /// node may keep its `name` for lookups only with a label: SpriteKit reads a node without one by
+    /// its name ("hand.card.Q_clubs", "seat.left"). Containers and drawing nodes take a `role` instead.
+    func speak(_ label: String, traits: UIAccessibilityTraits = .none) {
+        isAccessibilityElement = true
+        accessibilityLabel = label
+        accessibilityTraits = traits
+    }
 }

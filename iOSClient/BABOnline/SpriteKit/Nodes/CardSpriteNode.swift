@@ -22,6 +22,27 @@ class CardSpriteNode: SKSpriteNode {
 
         self.name = "card_\(card.id)"
         self.isUserInteractionEnabled = true
+        speak(card.displayName)
+    }
+
+    /// VoiceOver: a hand card is a button (dimmed while illegal, selected while lifted); once it
+    /// is on the table (no taps) just the card.
+    override var accessibilityTraits: UIAccessibilityTraits {
+        get {
+            guard isUserInteractionEnabled else { return .none }
+            var t: UIAccessibilityTraits = .button
+            if !isLegal { t.insert(.notEnabled) }
+            if isLifted { t.insert(.selected) }
+            return t
+        }
+        set { _ = newValue }
+    }
+
+    /// VoiceOver's double tap: what a touch does (lift, then play the lifted card).
+    override func accessibilityActivate() -> Bool {
+        guard isUserInteractionEnabled else { return false }
+        handleTap()
+        return true
     }
 
     /// Create a card-back sprite
@@ -32,6 +53,7 @@ class CardSpriteNode: SKSpriteNode {
             height: LayoutConstants.opponentCardHeight
         ))
         sprite.name = "card_back"
+        sprite.speak("Card")
         return sprite
     }
 
@@ -53,6 +75,10 @@ class CardSpriteNode: SKSpriteNode {
     }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        handleTap()
+    }
+
+    private func handleTap() {
         guard isLegal else {
             HapticManager.warning()
             return

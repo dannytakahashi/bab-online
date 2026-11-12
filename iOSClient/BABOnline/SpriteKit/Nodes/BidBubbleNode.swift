@@ -21,6 +21,8 @@ class BidBubbleNode: SKNode {
 
         super.init()
         self.name = "bid_bubble"
+        speak("Bid \(bid)")  // not "bid_bubble" / "bid.2" (SpriteKit reads a named node by its name)
+        label.hideFromAccessibility()
         addChild(background)
         addChild(label)
     }

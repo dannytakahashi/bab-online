@@ -1,7 +1,7 @@
 import SpriteKit
 
 /// The cards on the table, reconciled from the model: one sprite per played
-/// card, named `trick.<pos>.<cardId>`, tagged with its TrickKey, z by play
+/// card, named `trick.<pos>.<cardId>` (read by VoiceOver as the card), tagged with its TrickKey, z by play
 /// order (22.1c). Collected sprites leave for the scene's transient layer, so
 /// a reconcile never touches them.
 class TrickAreaNode: SKNode {
@@ -11,7 +11,7 @@ class TrickAreaNode: SKNode {
 
     override init() {
         super.init()
-        name = "trick"
+        role = "trick"  // not a name: SpriteKit reads a named node by its name
     }
 
     required init?(coder aDecoder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -72,6 +72,7 @@ class TrickAreaNode: SKNode {
                 created.insert(name)
             }
             sprite.name = name
+            if !(sprite is CardSpriteNode) { sprite.speak(c.card.displayName) }  // a hand card already reads as its card
             sprite.zPosition = 100 + CGFloat(c.playIndex)
             if sprite.userData == nil { sprite.userData = [:] }
             sprite.userData?["key"] = Self.keyString(key)

@@ -97,19 +97,19 @@ class GameSKScene: SKScene, TableRenderer {
         #if DEBUG
         logLayout()
         #endif
-        backgroundNode.name = "background"
+        backgroundNode.role = "background"  // roles, not names: SpriteKit reads a named node by its name
         backgroundNode.zPosition = -100
         backgroundNode.size = size
+        backgroundNode.hideFromAccessibility()
         addChild(backgroundNode)
-        opponentsLayer.name = "opponents"
+        opponentsLayer.role = "opponents"
         opponentsLayer.zPosition = 10
         addChild(opponentsLayer)
-        // no name (role "pips.mine"): a named node is an accessibility element
         opponentsLayer.addChild(myPipsNode)
-        bidsLayer.name = "bids"
+        bidsLayer.role = "bids"
         bidsLayer.zPosition = 60
         addChild(bidsLayer)
-        transientLayer.name = "transient"
+        transientLayer.role = "transient"
         transientLayer.zPosition = 500
         addChild(transientLayer)
 

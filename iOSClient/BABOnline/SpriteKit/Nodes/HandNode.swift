@@ -1,7 +1,7 @@
 import SpriteKit
 
 /// The player's hand as a reconciled fan: one CardSpriteNode per card id
-/// (`hand.card.<id>`), created or removed only when the hand changes,
+/// (`hand.card.<id>`, read by VoiceOver as the card, "Queen of Clubs"), created or removed only when the hand changes,
 /// legality toggled in place, the lifted card kept while it is held (22.9)
 /// within one play window: a lift from before the window (my bid turn, the
 /// other seats' turns, a collect) is dropped when the hand becomes playable,
@@ -16,7 +16,7 @@ class HandNode: SKNode {
 
     override init() {
         super.init()
-        name = "hand"
+        role = "hand"  // not a name: SpriteKit reads a named node by its name
     }
 
     required init?(coder aDecoder: NSCoder) { fatalError("init(coder:) has not been implemented") }

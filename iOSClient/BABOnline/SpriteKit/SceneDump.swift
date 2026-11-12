@@ -11,8 +11,8 @@ enum SceneDump {
     static func dump(_ scene: SKScene) -> [String] {
         var out: [String] = []
         for name in stableLayers {
-            // the history has no name (a named node is an accessibility element): its role
-            if let layer = scene.children.first(where: { $0.name == name || ($0.name == nil && $0.role == name) }) {
+            // the layers have no name (SpriteKit reads a named node by its name): their role
+            if let layer = scene.children.first(where: { ($0.name ?? $0.role) == name }) {
                 walk(layer, path: name, inHand: name == "hand", into: &out)
             }
         }
@@ -34,7 +34,7 @@ enum SceneDump {
             if let sprite = node as? SKSpriteNode { parts.append("size=\(r(sprite.frame.width))x\(r(sprite.frame.height))") }
         }
         parts.append("pos=(\(r(node.position.x)),\(r(node.position.y))) z=\(r(node.zPosition))")
-        if !(node.name?.hasPrefix("glow.") ?? false) { parts.append("a=\(r(node.alpha))") }  // glows pulse
+        if !((node.name ?? node.role)?.hasPrefix("glow.") ?? false) { parts.append("a=\(r(node.alpha))") }  // glows pulse
         if node.isHidden { parts.append("hidden") }
         // a scaled container (the hand at s < 1); sprites already print their on-screen size
         if !(node is SKSpriteNode) && node.xScale != 1 { parts.append("scale=\(String(format: "%.2f", node.xScale))") }

@@ -219,7 +219,7 @@ final class TableDebugProbe: ObservableObject {
                 } else {
                     r = f
                 }
-                if !safe.contains(r) { bad.append("\(n.name ?? "?") \(r.integral)") }
+                if !safe.contains(r) { bad.append("\(n.name ?? n.role ?? "?") \(r.integral)") }  // the seats and the history have roles
             }
         }
         let check = bad.isEmpty ? "ok" : bad.joined(separator: "; ")

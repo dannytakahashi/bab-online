@@ -103,11 +103,7 @@ class SKChatBubbleManager {
     /// (or, for one long word, characters) from the end until the text fits two lines, ending in "…".
     static func fitTwoLines(_ label: SKLabelNode) {
         guard let text = label.text, !text.isEmpty else { return }
-        let probe = SKLabelNode(text: "Ag\nAg")
-        probe.fontName = label.fontName
-        probe.fontSize = label.fontSize
-        probe.numberOfLines = 0
-        let twoLines = probe.frame.height + 0.5
+        let twoLines = twoLineHeight(text, like: label) + 0.5
         guard label.frame.height > twoLines else { return }
         var body = text.hasSuffix("\u{2026}") ? String(text.dropLast()) : text
         while !body.isEmpty {
@@ -119,6 +115,21 @@ class SKChatBubbleManager {
             label.text = body.trimmingCharacters(in: .whitespaces) + "\u{2026}"
             if label.frame.height <= twoLines { return }
         }
+    }
+
+    /// The tallest two lines `text` can wrap to in `label`'s font: two unwrapped lines that each hold
+    /// every glyph of it (and "Ag"). A line with an emoji is taller than a text line (13 pt: two text
+    /// lines 32 pt, two emoji lines 45 pt), so a fixed "Ag\nAg" probe took an emoji message on two lines
+    /// for three and cut it to one; any three lines are still taller (three text lines 47 pt, with an
+    /// emoji 53 pt).
+    static func twoLineHeight(_ text: String, like label: SKLabelNode) -> CGFloat {
+        let line = "Ag" + text.replacingOccurrences(of: "\n", with: " ")
+        let probe = SKLabelNode(text: line + "\n" + line)
+        probe.fontName = label.fontName
+        probe.fontSize = label.fontSize
+        probe.numberOfLines = 0
+        probe.preferredMaxLayoutWidth = 0  // no wrapping: exactly two lines
+        return probe.frame.height
     }
 
     /// One bubble node: the text (at most `limit` characters, two lines) on a rounded background.
@@ -141,6 +152,8 @@ class SKChatBubbleManager {
         label.position = CGPoint(x: -label.frame.midX, y: -label.frame.midY)
         let bubble = SKNode()
         bubble.name = name
+        bubble.speak(message)  // the whole line, not "chat.2" (SpriteKit reads a named node by its name)
+        label.hideFromAccessibility()
         bubble.addChild(bg)
         bubble.addChild(label)
         bubble.zPosition = 80
