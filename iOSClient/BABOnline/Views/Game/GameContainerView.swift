@@ -550,12 +550,8 @@ private struct GameScreen: View {
                 let compact = row.mode == .compact
                 HStack(alignment: compact ? .bottom : .center,
                        spacing: compact ? TableLayout.seatRowColumnSpacing : TableLayout.seatRowSpacing) {
-                    if let hsi {
-                        HSIBadge(value: hsi)
-                    } else {
-                        // the button keeps its slot
-                        Color.clear.frame(width: TableLayout.hsiSize.width, height: 1).accessibilityHidden(true)
-                    }
+                    // the button keeps its slot whatever HSI reads, or with none
+                    SeatRowHSISlot(value: hsi)
                     if voice { VoiceMuteButton(onLongPress: { showVoicePanel = true }) }
                 }
                 .frame(width: rect.width, height: rect.height, alignment: compact ? .bottomLeading : .leading)
@@ -676,6 +672,21 @@ private struct GameScreen: View {
 /// is its largest): the web's HSI box (text.secondary on the seat-plate glass). `.panel` is the
 /// same text inside the bid panel (no box: the panel is the surface, and a box there would read
 /// as one more button). VoiceOver reads both "Hand strength index 119.2".
+/// HSI's slot in my seat's row (TableLayout.hsiSize wide, the badge leading-aligned in it), so
+/// the voice button after it (`.row`, `.compact`) never moves with the text's width; with no
+/// value the slot stays empty.
+struct SeatRowHSISlot: View {
+    let value: Double?
+
+    var body: some View {
+        if let value {
+            HSIBadge(value: value).frame(width: TableLayout.hsiSize.width, alignment: .leading)
+        } else {
+            Color.clear.frame(width: TableLayout.hsiSize.width, height: 1).accessibilityHidden(true)
+        }
+    }
+}
+
 struct HSIBadge: View {
     enum Style { case table, panel }
     let value: Double

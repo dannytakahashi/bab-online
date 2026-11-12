@@ -348,12 +348,33 @@ final class SceneLayoutTests: XCTestCase {
             for mode in [TableLayout.SeatRow.Mode.row, .compact] {
                 // the HStack the row draws: HSI then the button, within the row's HSI + voice slots
                 let spacing = mode == .row ? TableLayout.seatRowSpacing : TableLayout.seatRowColumnSpacing
-                let pair = fit(HStack(spacing: spacing) { HSIBadge(value: 999.9); VoiceMuteButton(onLongPress: {}) }
+                let pair = fit(HStack(spacing: spacing) { SeatRowHSISlot(value: 999.9); VoiceMuteButton(onLongPress: {}) }
                                 .environment(\.dynamicTypeSize, type).fixedSize(), width: 400)
                 let R = TableLayout.seatRow(mode, CGRect(origin: .zero, size: TableLayout.seatRowSize(mode)), fits: true)
                 XCTAssertLessThanOrEqual(pair.width, R.voice.maxX - R.hsi.minX + 0.01, "\(mode) \(type)")
             }
         }
         XCTAssertEqual(TableLayout.voiceButtonSize, Theme.hitTarget)
+    }
+
+    /// The voice button after HSI (`.row`, `.compact`) stays at its slot whatever HSI reads:
+    /// "HSI 79.1" is a character narrower than "HSI 119.2", and no HSI keeps the slot too.
+    func testVoiceButtonDoesNotMoveWithHSI() {
+        for type in [DynamicTypeSize.xSmall, .large, .xxxLarge, .accessibility5] {
+            for spacing in [TableLayout.seatRowSpacing, TableLayout.seatRowColumnSpacing] {
+                var widths: [String: CGFloat] = [:]
+                for value in [Double?.none, 7.5, 79.1, 119.2, 999.9] {
+                    let slot = fit(SeatRowHSISlot(value: value).environment(\.dynamicTypeSize, type).fixedSize(), width: 400)
+                    XCTAssertEqual(slot.width, TableLayout.hsiSize.width, accuracy: 0.01, "\(String(describing: value)) \(type)")
+                    let pair = fit(HStack(spacing: spacing) { SeatRowHSISlot(value: value); VoiceMuteButton(onLongPress: {}) }
+                                    .environment(\.dynamicTypeSize, type).fixedSize(), width: 400)
+                    widths[String(describing: value)] = pair.width
+                }
+                let expected = TableLayout.hsiSize.width + spacing + TableLayout.voiceButtonSize
+                for (value, w) in widths {
+                    XCTAssertEqual(w, expected, accuracy: 0.01, "HSI \(value) moves the button (\(type), spacing \(spacing))")
+                }
+            }
+        }
     }
 }

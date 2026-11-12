@@ -246,7 +246,37 @@ struct TableLayout: Equatable {
     // MARK: chat
 
     /// Chat bubble center: above the seat, else below it (side seats: below the bid bubble), clamped into the safe rect.
+    /// My own bubble then keeps `seatRowGap` from my seat's row (`clearOfSeatRow`).
     func chatPosition(_ r: Positions.RelativePosition, bubbleSize: CGSize) -> CGPoint {
+        let c = seatChatPosition(r, bubbleSize: bubbleSize)
+        return r == .bottom ? clearOfSeatRow(c, size: bubbleSize, xRange: chatXRange(bubbleSize.width), bottom: safeRect.minY + chrome.bottomBar) : c
+    }
+
+    /// The centres a chat bubble `w` wide may take (8 pt inside the safe rect).
+    private func chatXRange(_ w: CGFloat) -> ClosedRange<CGFloat> {
+        let lo = safeRect.minX + Self.margin + w / 2, hi = safeRect.maxX - Self.margin - w / 2
+        return lo <= hi ? lo...hi : safeRect.midX...safeRect.midX
+    }
+
+    /// `c` (a `size` box of mine: my chat bubble, my rainbow) moved the least way that keeps
+    /// `seatRowGap` from my seat's row: down (over my hand, never below `bottom`), else left
+    /// (its centre within `xRange`), else up (below topLimit, clear of the corner buttons);
+    /// unchanged when it is clear already or nothing works.
+    func clearOfSeatRow(_ c: CGPoint, size s: CGSize, xRange: ClosedRange<CGFloat>, bottom: CGFloat) -> CGPoint {
+        let G = Self.seatRowGap, row = seatRow.content
+        let keep = row.insetBy(dx: -G, dy: -G)
+        guard row.width > 0, Self.overlaps(keep, Self.rect(c, s)) else { return c }
+        var options: [CGPoint] = []
+        let down = CGPoint(x: c.x, y: keep.minY - s.height / 2)
+        if down.y - s.height / 2 >= bottom - 0.01 { options.append(down) }
+        options.append(CGPoint(x: keep.minX - s.width / 2, y: c.y))
+        let up = CGPoint(x: c.x, y: keep.maxY + s.height / 2)
+        if up.y + s.height / 2 <= topLimit + 0.01, !cornerRects.contains(where: { $0.intersects(Self.rect(up, s)) }) { options.append(up) }
+        let fits = options.filter { $0.x >= xRange.lowerBound - 0.01 && $0.x <= xRange.upperBound + 0.01 }
+        return fits.min { hypot($0.x - c.x, $0.y - c.y) < hypot($1.x - c.x, $1.y - c.y) } ?? c
+    }
+
+    private func seatChatPosition(_ r: Positions.RelativePosition, bubbleSize: CGSize) -> CGPoint {
         let w = bubbleSize.width, h = bubbleSize.height
         let a = seatAnchor(r)
         let foot = seatFootprint(r)
@@ -276,7 +306,12 @@ struct TableLayout: Equatable {
     /// Rainbow center: the seat, clamped into the safe rect below topLimit (mine above my lifted hand).
     func rainbowCenter(_ r: Positions.RelativePosition) -> CGPoint {
         let p = r == .bottom ? CGPoint(x: tcx, y: liftTop + Self.gap + Self.rainbowSize.height / 2) : seatAnchor(r)
-        return Self.clamp(p, size: Self.rainbowSize, into: safeRect, top: topLimit)
+        let c = Self.clamp(p, size: Self.rainbowSize, into: safeRect, top: topLimit)
+        guard r == .bottom else { return c }
+        // mine plays as the play phase starts, with my seat's row showing: it keeps 8 pt from the row
+        let w = Self.rainbowSize.width
+        let xs = (safeRect.minX + w / 2)...max(safeRect.minX + w / 2, safeRect.maxX - w / 2)
+        return clearOfSeatRow(c, size: Self.rainbowSize, xRange: xs, bottom: safeRect.minY)
     }
 
     // MARK: SwiftUI

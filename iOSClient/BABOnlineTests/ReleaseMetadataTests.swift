@@ -5,6 +5,9 @@ import XCTest
 /// literal in Info.plist), export compliance is answered in the plist, and the
 /// privacy manifest is bundled at the app root.
 final class ReleaseMetadataTests: XCTestCase {
+    /// The lowest build this release may carry (1.2.0 (3) was uploaded, never submitted).
+    static let minimumBuild = 4
+
     private func info(_ key: String) -> Any? { Bundle.main.object(forInfoDictionaryKey: key) }
 
     func testVersionComesFromBuildSettings() throws {
@@ -21,8 +24,20 @@ final class ReleaseMetadataTests: XCTestCase {
     /// build 3 went to App Store Connect, so 1.2.0 is submitted as build 4.
     func testBuildIsNeverGatedByTheServer() throws {
         let build = try XCTUnwrap(Int(try XCTUnwrap(info("CFBundleVersion") as? String)))
-        XCTAssertGreaterThanOrEqual(build, 4, "1.2.0 (3) was uploaded; 1.2.0 ships as build 4 and builds never go back")
+        XCTAssertGreaterThanOrEqual(build, Self.minimumBuild, "1.2.0 (3) was uploaded; 1.2.0 ships as build 4 and builds never go back")
         XCTAssertEqual(info("CFBundleShortVersionString") as? String, "1.2.0", "build 4 is still 1.2.0")
+    }
+
+    /// README "Releasing (App Store)", which the owner follows to archive and upload, names
+    /// the build being shipped and the floor this file checks.
+    func testReadmeReleaseHistoryNamesThisBuild() throws {
+        let version = try XCTUnwrap(info("CFBundleShortVersionString") as? String)
+        let build = try XCTUnwrap(info("CFBundleVersion") as? String)
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let readme = try String(contentsOf: root.appendingPathComponent("README.md"), encoding: .utf8)
+        let line = try XCTUnwrap(readme.components(separatedBy: "\n").first { $0.contains("History: 1.0.0 (1)") }, "README version history")
+        XCTAssertTrue(line.contains("\(version) (\(build)"), "README history lacks \(version) (\(build)): \(line)")
+        XCTAssertTrue(line.contains("build number drops below \(Self.minimumBuild)"), "README's documented floor is not \(Self.minimumBuild)")
     }
 
     func testExportComplianceAndUsageStrings() {

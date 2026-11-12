@@ -6,7 +6,8 @@ import CoreGraphics
 /// hand (in a tabletop pose below the fold, with the hand), and keeps 8 pt (`seatRowGap`) from the trick cards, the trick piles,
 /// every other seat (glow, name, bid bubble), the corner buttons, the fold and
 /// the safe area's edges. The spectator badge keeps 8 pt from it
-/// (TableLayout+Spectators.swift). The bid panel is exempt: the row is hidden
+/// (TableLayout+Spectators.swift), and so do my own chat bubble and my rainbow
+/// (TableLayout.clearOfSeatRow). The bid panel is exempt: the row is hidden
 /// on my bid turn (HSI shows inside the panel then), and my pips show only once
 /// the bidding is over.
 ///
@@ -24,7 +25,7 @@ import CoreGraphics
 /// cap, the 44 pt button), so nothing moves when the pips appear or HSI changes.
 /// My pips are a SpriteKit node (GameSKScene.myPipsNode at `myPipsCenter`), HSI and
 /// voice SwiftUI (GameContainerView.seatRow at `hsi` / `voice`; in `.row` and
-/// `.compact` the button follows HSI, at most at its slot).
+/// `.compact` the button follows HSI's fixed-width slot, SeatRowHSISlot).
 extension TableLayout {
     struct SeatRow: Equatable {
         enum Mode: Equatable, CaseIterable { case row, compact, narrow, stacked }

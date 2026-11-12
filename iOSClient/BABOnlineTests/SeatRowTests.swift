@@ -123,6 +123,12 @@ final class SeatRowTests: XCTestCase {
                 keeps.append(("\(g).chat \(Int(size.width))", TableLayout.rect(L.chatPosition(r, bubbleSize: size), size)))
             }
         }
+        // my own chat bubble (a lazy owner still chats from my seat, over the bottom pill)
+        for size in [CGSize(width: 60, height: 30), CGSize(width: 150, height: 48), CGSize(width: L.chatMaxWidth, height: 48)] {
+            keeps.append(("my.chat \(Int(size.width))", TableLayout.rect(L.chatPosition(.bottom, bubbleSize: size), size)))
+        }
+        // my rainbow (it plays as the play phase starts, with the row showing)
+        keeps.append(("my.rainbow", TableLayout.rect(L.rainbowCenter(.bottom), TableLayout.rainbowSize)))
         let badge = L.spectatorBadge(spectating: false)
         keeps.append(("spectatorBadge", badge))
         for size in [CGSize(width: 120, height: 34), CGSize(width: 200, height: 52)] {
@@ -144,7 +150,15 @@ final class SeatRowTests: XCTestCase {
 
     static var configs: [(String, TableLayout)] {
         var out: [(String, TableLayout)] = []
-        for (name, size, chrome, _) in devices { out.append((name, TableLayout(size: size, chrome: chrome))) }
+        for (name, size, chrome, _) in devices {
+            out.append((name, TableLayout(size: size, chrome: chrome)))
+            // a lazy owner's pill (Spectating / Exit) raises my seat, and my chat bubble with it
+            for bottomBar in [CGFloat(44), 45, 50] {
+                var lazy = chrome
+                lazy.bottomBar = bottomBar
+                out.append(("\(name) bottomBar \(bottomBar)", TableLayout(size: size, chrome: lazy)))
+            }
+        }
         for (device, size, ins) in PolishLayoutTests.devices {
             for topBar in [CGFloat(70), 75.5, 84] {
                 for bottomBar in [CGFloat(0), 45] {   // a lazy seat's pill
@@ -175,7 +189,7 @@ final class SeatRowTests: XCTestCase {
             Self.checkOrder(L.seatRow, tag)
             checked += 1
         }
-        XCTAssertGreaterThan(checked, 120)
+        XCTAssertGreaterThan(checked, 150)
     }
 
     /// Fuzz: every window from 320 x 480 up (the corner buttons of both measured sizes) that is
@@ -184,12 +198,14 @@ final class SeatRowTests: XCTestCase {
         var forms: [Mode: Int] = [:]
         for w in stride(from: CGFloat(320), through: 1400, by: 9) {
             for h in stride(from: CGFloat(480), through: 1400, by: 13) {
-                for corner in [CGSize(width: 96, height: 52), CGSize(width: 80, height: 50.5)] {
-                    let L = TableLayout(size: CGSize(width: w, height: h), chrome: TableLayoutTests.chrome(topBar: 75.5, corner: corner))
+                for (corner, bottomBar) in [(CGSize(width: 96, height: 52), CGFloat(0)), (CGSize(width: 80, height: 50.5), 0),
+                                            (CGSize(width: 80, height: 50.5), 45)] {   // and a lazy owner's pill
+                    let L = TableLayout(size: CGSize(width: w, height: h),
+                                        chrome: TableLayoutTests.chrome(topBar: 75.5, corner: corner, bottomBar: bottomBar))
                     guard !L.isDegraded else { continue }
                     forms[L.seatRow.mode, default: 0] += 1
                     let p = Self.clearanceProblems(L)
-                    if !p.isEmpty { XCTFail("\(w)x\(h) \(corner): \(p)"); return }
+                    if !p.isEmpty { XCTFail("\(w)x\(h) \(corner) bottomBar \(bottomBar): \(p)"); return }
                 }
             }
         }

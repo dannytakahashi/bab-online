@@ -629,8 +629,10 @@ failures arrive as `error` and/or `serverError`.
   lifted hand (in a tabletop pose below the fold, with the hand), and keeps
   8 pt (`seatRowGap`) from the trick cards, the piles as drawn, every other
   seat (glow, name, bid bubble, chat bubbles), the corner buttons, the fold
-  and the safe area; the spectator badge and a spectator's chat bubble keep
-  8 pt from it. Every slot is reserved at its largest (13 pips 56 x 20,
+  and the safe area; the spectator badge, a spectator's chat bubble, my own
+  chat bubble (a lazy owner still chats from my seat, over the pill) and my
+  rainbow keep 8 pt from it (`TableLayout.clearOfSeatRow`: the least move
+  down, left or up). Every slot is reserved at its largest (13 pips 56 x 20,
   "HSI 999.9" 74 x 20, the 44 pt button), so nothing moves when the pips
   appear or HSI changes. Forms, the first that fits: `.row` pips | HSI | voice
   (186 x 44: the iPad, the open Duo, its landscape and docked-log panes);
@@ -641,8 +643,9 @@ failures arrive as `error` and/or `serverError`.
   (beside HSI or the button, or on top of HSI). My pips stay a SpriteKit node
   (`GameSKScene.myPipsNode`, `role` drawing nodes as before); HSI and the
   button are SwiftUI (`GameContainerView.seatRow`; in `.row` / `.compact` an
-  HStack, the button following HSI, at most at its slot, and keeping its slot
-  when there is no HSI). The "Your tricks" VoiceOver element is over the box.
+  HStack, the button following HSI's slot, `SeatRowHSISlot`, fixed at 74 pt
+  wide so the button never moves between "HSI 96.2" and "HSI 119.2", nor
+  with no HSI). The "Your tricks" VoiceOver element is over the box.
   The row hides on my bid turn (the panel covers its spot) and the voice
   button with it, as before; a spectator has no row (their table is
   unchanged, pinned by `SeatRowTests.testSpectatorTableUnchanged`).
