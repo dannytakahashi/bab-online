@@ -668,10 +668,6 @@ private struct GameScreen: View {
     }
 }
 
-/// "HSI 119.2", 11 pt monospaced, in my seat's row beside the voice button (TableLayout.hsiSize
-/// is its largest): the web's HSI box (text.secondary on the seat-plate glass). `.panel` is the
-/// same text inside the bid panel (no box: the panel is the surface, and a box there would read
-/// as one more button). VoiceOver reads both "Hand strength index 119.2".
 /// HSI's slot in my seat's row (TableLayout.hsiSize wide, the badge leading-aligned in it), so
 /// the voice button after it (`.row`, `.compact`) never moves with the text's width; with no
 /// value the slot stays empty.
@@ -687,6 +683,10 @@ struct SeatRowHSISlot: View {
     }
 }
 
+/// "HSI 119.2", 11 pt monospaced, in my seat's row beside the voice button (TableLayout.hsiSize
+/// is its largest): the web's HSI box (text.secondary on the seat-plate glass). `.panel` is the
+/// same text inside the bid panel (no box: the panel is the surface, and a box there would read
+/// as one more button). VoiceOver reads both "Hand strength index 119.2".
 struct HSIBadge: View {
     enum Style { case table, panel }
     let value: Double

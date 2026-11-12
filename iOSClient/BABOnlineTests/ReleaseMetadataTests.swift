@@ -34,7 +34,10 @@ final class ReleaseMetadataTests: XCTestCase {
         let version = try XCTUnwrap(info("CFBundleShortVersionString") as? String)
         let build = try XCTUnwrap(info("CFBundleVersion") as? String)
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let readme = try String(contentsOf: root.appendingPathComponent("README.md"), encoding: .utf8)
+        // The README is read from the checkout through #filePath: there on a simulator, not on a device.
+        let url = root.appendingPathComponent("README.md")
+        guard FileManager.default.fileExists(atPath: url.path) else { throw XCTSkip("README.md is not reachable from this test host") }
+        let readme = try String(contentsOf: url, encoding: .utf8)
         let line = try XCTUnwrap(readme.components(separatedBy: "\n").first { $0.contains("History: 1.0.0 (1)") }, "README version history")
         XCTAssertTrue(line.contains("\(version) (\(build)"), "README history lacks \(version) (\(build)): \(line)")
         XCTAssertTrue(line.contains("build number drops below \(Self.minimumBuild)"), "README's documented floor is not \(Self.minimumBuild)")
