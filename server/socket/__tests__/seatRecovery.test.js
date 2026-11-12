@@ -94,7 +94,7 @@ describe('draw-phase leave and disconnect', () => {
         expect(game.isBot(seat.socketId)).toBe(true);
         expect(botController.getBot(game.gameId, seat.socketId)).toBeDefined();
         // The leaver is in the main room: no seat assignment, no activeGameId
-        expect(log.some((l) => l.to === leaver && l.event === 'playerAssigned')).toBe(false);
+        expect(log.some((l) => (l.to === leaver || l.to === `self:${leaver}`) && l.event === 'gameStart')).toBe(false);
         const sets = updateSpy.mock.calls.filter(([, u]) => u.$set && 'activeGameId' in u.$set);
         expect(sets.some(([f]) => f.username === `user_${leaver}`)).toBe(false);
         expect(sets).toHaveLength(3);

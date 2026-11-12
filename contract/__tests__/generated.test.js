@@ -30,12 +30,14 @@ describe('layout rules', () => {
         l.web.CLIENT_EVENTS[0].events.push('notAnEvent');
         const auth = l.web.CLIENT_EVENTS.find((sec) => sec.section === 'Auth');
         auth.events = auth.events.filter((e) => e !== 'restoreSession');
-        l.swift.Server[0].events.push('playerAssigned');
+        // no deprecated event is left (playerAssigned went with V1_REMOVALS #7): a made-up one
+        const withDeprecated = { ...schema, s2c: { ...schema.s2c, oldEvent: { ...schema.s2c.teamsAnnounced, status: 'deprecated' } } };
+        l.swift.Server[0].events.push('oldEvent');
         const legacy = { web: [], swift: [] };
-        const problems = gen.checkLayout(l, schema, legacy).join('\n');
+        const problems = gen.checkLayout(l, withDeprecated, legacy).join('\n');
         expect(problems).toMatch(/'notAnEvent' is not a c2s event/);
         expect(problems).toMatch(/active event 'restoreSession' is neither listed nor excluded/);
-        expect(problems).toMatch(/'playerAssigned' is deprecated/);
+        expect(problems).toMatch(/'oldEvent' is deprecated/);
     });
 
     test('the default web key covers CREATE_UI and the reconnect_* names', () => {

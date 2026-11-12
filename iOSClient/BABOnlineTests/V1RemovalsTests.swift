@@ -23,4 +23,17 @@ final class V1RemovalsTests: XCTestCase {
         // kept: the server hook that makes the app rejoin its game by itself
         XCTAssertEqual(SocketEvents.Server.activeGameFound, "activeGameFound")
     }
+
+    /// #7: the server no longer sends playerAssigned; the seat comes from positionUpdate
+    /// (my socket / username) and every seat gameStart's position.
+    @MainActor
+    func testPlayerAssignedIsGoneAndTheSeatStillComesFromTheDeal() throws {
+        XCTAssertFalse(GameSocketHandler.events.contains("playerAssigned"))
+        guard case .failure(.unknownEvent("playerAssigned")) = ServerEvent.decode(name: "playerAssigned", payload: [["playerId": "s", "position": 3]]) else {
+            return XCTFail("playerAssigned still decodes")
+        }
+        var s = TableState()
+        _ = TableReducer.reduce(&s, T.ev("gameStart", ["gameId": "g1", "position": 3, "hand": [], "currentHand": 1, "dealer": 1]))
+        XCTAssertEqual(s.table.viewer.position, 3)
+    }
 }

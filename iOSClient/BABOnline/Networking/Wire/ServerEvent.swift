@@ -7,7 +7,6 @@ enum ServerEvent: Equatable {
     case startDraw
     case youDrew(WirePayload.YouDrew)
     case playerDrew(WirePayload.PlayerDrew)
-    case playerAssigned
     case positionUpdate(WirePayload.PositionUpdate)
     case teamsAnnounced(WirePayload.TeamsAnnounced)
     case createUI
@@ -79,7 +78,6 @@ extension ServerEvent {
             case "startDraw": event = .startDraw
             case "youDrew": event = .youDrew(try d(WirePayload.YouDrew.self))
             case "playerDrew": event = .playerDrew(try d(WirePayload.PlayerDrew.self))
-            case "playerAssigned": event = .playerAssigned
             case "positionUpdate": event = .positionUpdate(try d(WirePayload.PositionUpdate.self))
             case "teamsAnnounced": event = .teamsAnnounced(try d(WirePayload.TeamsAnnounced.self))
             case "createUI": event = .createUI

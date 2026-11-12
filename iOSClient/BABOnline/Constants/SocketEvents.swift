@@ -135,7 +135,6 @@ enum SocketEvents {
         static let rejoinFailed = "rejoinFailed"
         static let playerDisconnected = "playerDisconnected"
         static let playerReconnected = "playerReconnected"
-        static let playerAssigned = "playerAssigned"
         static let abortGame = "abortGame"
 
         // Resignation & Lazy Mode

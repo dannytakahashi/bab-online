@@ -5278,34 +5278,6 @@
         "seq"
       ]
     },
-    "playerAssigned": {
-      "payload": {
-        "type": "object",
-        "properties": {
-          "playerId": {
-            "type": "string"
-          },
-          "position": {
-            "$ref": "#/$defs/position"
-          }
-        },
-        "required": [
-          "playerId",
-          "position"
-        ],
-        "additionalProperties": false
-      },
-      "status": "deprecated",
-      "to": "socket",
-      "clientReads": {
-        "web": [],
-        "ios": []
-      },
-      "emittedFrom": [
-        "server/socket/gameHandlers.js:handleDrawComplete"
-      ],
-      "notes": "Read by no client since 2026-11-12 (V1_REMOVALS #7): web takes its seat from positionUpdate (its username, GameState.applyPositionUpdate), every seat gameStart.position and snapshot viewer.position; iOS never read it."
-    },
     "teamsAnnounced": {
       "payload": {
         "type": "object",

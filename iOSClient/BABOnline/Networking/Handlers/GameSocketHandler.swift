@@ -10,7 +10,7 @@ final class GameSocketHandler {
     /// Every event this handler routes into the store (SeqCoverageTests).
     static let events: [String] = [
         SocketEvents.Server.positionUpdate, SocketEvents.Server.startDraw, SocketEvents.Server.youDrew,
-        SocketEvents.Server.playerDrew, SocketEvents.Server.playerAssigned, SocketEvents.Server.teamsAnnounced,
+        SocketEvents.Server.playerDrew, SocketEvents.Server.teamsAnnounced,
         SocketEvents.Server.createUI, SocketEvents.Server.gameStart, SocketEvents.Server.bidReceived,
         SocketEvents.Server.doneBidding, SocketEvents.Server.updateTurn, SocketEvents.Server.cardPlayed,
         SocketEvents.Server.actionRejected, SocketEvents.Server.trickComplete, SocketEvents.Server.handComplete,

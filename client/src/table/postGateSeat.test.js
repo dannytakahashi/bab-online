@@ -24,9 +24,11 @@ beforeAll(async () => {
   const raw = replay.loadRecording('events-humans-s13');
   // the transforms really bite on this log
   const events = (log) => new Set(log.filter((e) => e.dir === 's2c').map((e) => e.event));
-  expect([...events(raw.logs.seat3)]).toEqual(expect.arrayContaining(['serverError', 'playerAssigned', 'restorePlayerState']));
+  expect([...events(raw.logs.seat3)]).toEqual(expect.arrayContaining(['serverError', 'restorePlayerState']));
   // #1 phase B is on the server now: the recording itself has no error
   expect(events(raw.logs.seat3).has('error')).toBe(false);
+  // #7 is executed: the server no longer sends playerAssigned, so the recording has none
+  expect(events(raw.logs.seat3).has('playerAssigned')).toBe(false);
   rec = postGateRecording(raw);
   expect(events(rec.logs.seat3).has('playerAssigned')).toBe(false);
   page = await replay.realTablePage({ username: 'ios_dee' });
