@@ -20,7 +20,7 @@ class SKOpponentManager {
             cleanup()
             layoutKey = key
             for o in model.opponents {
-                let node = OpponentHandNode(position: o.rel, username: o.name, pic: o.pic.string)
+                let node = OpponentHandNode(position: o.rel, username: o.name, pic: o.pictureKey, fallback: o.fallbackPicture)
                 node.zPosition = 10
                 layer.addChild(node)
                 nodes[o.position] = node
@@ -29,7 +29,7 @@ class SKOpponentManager {
         for o in model.opponents {
             guard let node = nodes[o.position] else { continue }
             if !node.hasActions() { node.position = layout.seatAnchor(o.rel) }
-            node.update(name: o.name, pic: o.pic.string, isTurn: o.isTurn)
+            node.update(name: o.name, pic: o.pictureKey, fallback: o.fallbackPicture, isTurn: o.isTurn)
         }
     }
 

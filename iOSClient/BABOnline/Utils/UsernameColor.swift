@@ -17,14 +17,6 @@ enum UsernameColor {
         return Color(hue: hue, saturation: 0.7, brightness: 0.85)
     }
 
-    /// Team 1 color (positions 1, 3) — matches web client's #63b3ed
-    static let team1Color = Color(red: 0x63 / 255.0, green: 0xb3 / 255.0, blue: 0xed / 255.0)
-
-    /// Team 2 color (positions 2, 4) — matches web client's #fc8181
-    static let team2Color = Color(red: 0xfc / 255.0, green: 0x81 / 255.0, blue: 0x81 / 255.0)
-
-    /// Get team-based color for a game position.
-    static func teamColor(for position: Int) -> Color {
-        (position == 1 || position == 3) ? team1Color : team2Color
-    }
+    /// Team-based color for a game position (team A for seats 1 and 3, as on the web).
+    static func teamColor(for position: Int) -> Color { Theme.team(forPosition: position) }
 }

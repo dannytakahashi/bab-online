@@ -19,6 +19,11 @@ enum VoiceEmitter {
         ])
     }
 
+    /// getVoiceIceServers {requestId}: answered by voiceIceServers to this socket.
+    static func getIceServers(_ payload: [String: Any]) {
+        socket.emit(SocketEvents.Client.getVoiceIceServers, payload)
+    }
+
     static func sendIceCandidate(targetSocketId: String, candidate: RTCIceCandidate) {
         socket.emit(SocketEvents.Client.voiceIceCandidate, [
             "targetSocketId": targetSocketId,

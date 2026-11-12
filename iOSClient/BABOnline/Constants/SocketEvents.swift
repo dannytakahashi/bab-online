@@ -29,6 +29,7 @@ enum SocketEvents {
 
         // Session
         static let restoreSession = "restoreSession"
+        static let clientHello = "clientHello"
 
         // Game
         static let draw = "draw"
@@ -66,6 +67,7 @@ enum SocketEvents {
         static let voiceOffer = "voiceOffer"
         static let voiceAnswer = "voiceAnswer"
         static let voiceIceCandidate = "voiceIceCandidate"
+        static let getVoiceIceServers = "getVoiceIceServers"
 
         // Snapshot v2
         static let requestSnapshot = "requestSnapshot"
@@ -145,6 +147,7 @@ enum SocketEvents {
         static let leftGame = "leftGame"
         static let restorePlayerState = "restorePlayerState"
         static let spectatorJoined = "spectatorJoined"
+        static let spectatorsUpdated = "spectatorsUpdated"
 
         // Tournament
         static let tournamentCreated = "tournamentCreated"
@@ -172,6 +175,7 @@ enum SocketEvents {
         static let voicePeerList = "voicePeerList"
         static let voicePeerJoined = "voicePeerJoined"
         static let voicePeerLeft = "voicePeerLeft"
+        static let voiceIceServers = "voiceIceServers"
 
         // Connection
         static let connect = "connect"

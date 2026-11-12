@@ -42,6 +42,16 @@ struct RecordedGame {
 
     func viewer(_ label: String) -> Viewer { viewers.first { $0.label == label }! }
 
+    /// The spectatorsUpdated coalescing window (250 ms) plus the joiner's picture lookup.
+    static let watchingLag = 1000
+
+    /// Does a spectatorsUpdated reach `label` within `watchingLag` ms after entry `afterIndex`?
+    func watchingInFlight(for label: String, after afterIndex: Int) -> Bool {
+        guard let log = logs[label], afterIndex > 0, afterIndex <= log.count else { return false }
+        let t0 = log[afterIndex - 1].t
+        return log[afterIndex...].contains { $0.event == "spectatorsUpdated" && $0.t - t0 <= Self.watchingLag }
+    }
+
     /// Every (afterIndex, snapshot) to check for a viewer, the final one included.
     func checks(for label: String) -> [(afterIndex: Int, snapshot: [String: Any], isFinal: Bool)] {
         var out = checkpoints.filter { $0.viewer == label }.map { (afterIndex: $0.afterIndex, snapshot: $0.snapshot, isFinal: false) }
@@ -83,9 +93,8 @@ struct ReducerReplay {
         switch e.event {
         case "voicePeerJoined", "voicePeerList":
             return
-        case "spectatorsUpdated", "serverError":
-            // no handler in the app yet (as in the App Store build): unsequenced, so skipping it moves no seq
-            // (serverError: the additive twin of 'error', V1_REMOVALS #1 phase A)
+        case "serverError":
+            // SocketService handles it (toast, deduped against the 'error' twin, V1_REMOVALS #1 phase A); the table store never sees it
             return
         case "tournamentGameAssignment":
             let d = e.data as? [String: Any]

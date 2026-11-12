@@ -16,41 +16,43 @@ struct MainRoomChatView: View {
             HStack {
                 Text("Chat")
                     .font(.headline)
-                    .foregroundColor(Color.Theme.textPrimary)
+                    .foregroundColor(Theme.textPrimary)
                 Spacer()
                 if showsOnlineCount {
                     Text("\(mainRoomState.onlineCount) online")
                         .font(.caption)
                         .lineLimit(1)
-                        .foregroundColor(Color.Theme.textSecondary)
+                        .foregroundColor(Theme.textSecondary)
                 }
             }
             .padding(.horizontal)
             .padding(.vertical, 10)
 
-            Divider().background(Color.Theme.inputBorder, ignoresSafeAreaEdges: .vertical)
+            Divider().background(Theme.inputBorder, ignoresSafeAreaEdges: .vertical)
 
             // Messages
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 6) {
-                        ForEach(mainRoomState.messages) { msg in
+                        let dividers = ChatTimestamps.dividerIndices(mainRoomState.messages.map(\.timestamp))
+                        ForEach(Array(mainRoomState.messages.enumerated()), id: \.element.id) { i, msg in
                             ChatBubbleView(message: msg)
                                 .id(msg.id)
                                 .reportBlockMenu(for: msg, currentUsername: authState.username, reportTarget: $reportTarget)
+                                .chatTimeDivider(dividers.contains(i), date: msg.timestamp)
                         }
                     }
                     .padding(.horizontal)
-                    .padding(.vertical, 8)
+                    .padding(.vertical, Theme.Space.s2)
                 }
                 .scrollDismissesKeyboard(.interactively)
                 .followsNewestMessage(proxy, lastID: mainRoomState.messages.last?.id, count: mainRoomState.messages.count)
             }
 
-            Divider().background(Color.Theme.inputBorder, ignoresSafeAreaEdges: .vertical)
+            Divider().background(Theme.inputBorder, ignoresSafeAreaEdges: .vertical)
 
             // Input
-            HStack(spacing: 8) {
+            HStack(spacing: Theme.Space.s2) {
                 TextField("Type a message...", text: $message)
                     .textFieldStyle(BABTextFieldStyle())
                     .accessibilityIdentifier("mainRoomChatField")
@@ -59,7 +61,7 @@ struct MainRoomChatView: View {
                 Button(action: sendMessage) {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.title2)
-                        .foregroundColor(message.isEmpty ? Color.Theme.textDim : Color.Theme.primary)
+                        .foregroundColor(message.isEmpty ? Theme.textDim : Theme.primary)
                 }
                 .disabled(message.isEmpty)
             }
@@ -90,7 +92,7 @@ struct ChatBubbleView: View {
             if message.type == .system {
                 Text(message.message)
                     .font(.caption)
-                    .foregroundColor(Color.Theme.textDim)
+                    .foregroundColor(Theme.textDim)
                     .italic()
             } else {
                 Text(message.username)
@@ -98,14 +100,14 @@ struct ChatBubbleView: View {
                     .foregroundColor(usernameColor)
                 Text(message.message)
                     .font(.caption)
-                    .foregroundColor(Color.Theme.textPrimary)
+                    .foregroundColor(Theme.textPrimary)
             }
         }
     }
 
     private var usernameColor: Color {
         if message.type == .spectator {
-            return Color.Theme.textDim
+            return Theme.textDim
         }
         return UsernameColor.color(for: message.username)
     }

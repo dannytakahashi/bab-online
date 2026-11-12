@@ -7,53 +7,53 @@ struct GameEndView: View {
 
     var body: some View {
         ZStack {
-            Color.black.opacity(0.7).ignoresSafeArea()
+            Theme.scrim.ignoresSafeArea()
 
-            VStack(spacing: 24) {
+            VStack(spacing: Theme.Space.s6) {
                 if let data = gameState.gameEndData {
                     // Winner banner
                     if gameState.isSpectator {
                         Text("Game Over")
-                            .font(.system(size: 36, weight: .bold, design: .rounded))
-                            .foregroundColor(Color.Theme.textSecondary)
+                            .themeFont(Theme.TypeScale.xxl, weight: Theme.Weight.bold, design: .rounded, relativeTo: .largeTitle)
+                            .foregroundColor(Theme.textSecondary)
                     } else {
                         let myTeam = Positions.getTeamNumber(gameState.position ?? 1)
                         let didWin = data.winningTeam == myTeam
 
                         Text(didWin ? "Victory!" : "Defeat")
-                            .font(.system(size: 36, weight: .bold, design: .rounded))
-                            .foregroundColor(didWin ? Color.Theme.success : Color.Theme.oppColor)
+                            .themeFont(Theme.TypeScale.xxl, weight: Theme.Weight.bold, design: .rounded, relativeTo: .largeTitle)
+                            .foregroundColor(didWin ? Theme.success : Theme.error)
                     }
 
                     // Score summary
-                    HStack(spacing: 40) {
-                        VStack(spacing: 8) {
+                    HStack(spacing: Theme.Space.s10) {
+                        VStack(spacing: Theme.Space.s2) {
                             Text("Team 1")
                                 .font(.caption.bold())
-                                .foregroundColor(Color.Theme.teamColor)
+                                .foregroundColor(Theme.teamA)
                             Text(data.team1Players.joined(separator: "\n"))
                                 .font(.caption)
-                                .foregroundColor(Color.Theme.textSecondary)
+                                .foregroundColor(Theme.textSecondary)
                                 .multilineTextAlignment(.center)
                             Text("\(data.team1Score)")
                                 .font(.title.bold())
-                                .foregroundColor(data.winningTeam == 1 ? Color.Theme.success : Color.Theme.textPrimary)
+                                .foregroundColor(data.winningTeam == 1 ? Theme.success : Theme.textPrimary)
                         }
 
                         Text("vs")
-                            .foregroundColor(Color.Theme.textDim)
+                            .foregroundColor(Theme.textDim)
 
-                        VStack(spacing: 8) {
+                        VStack(spacing: Theme.Space.s2) {
                             Text("Team 2")
                                 .font(.caption.bold())
-                                .foregroundColor(Color.Theme.oppColor)
+                                .foregroundColor(Theme.teamB)
                             Text(data.team2Players.joined(separator: "\n"))
                                 .font(.caption)
-                                .foregroundColor(Color.Theme.textSecondary)
+                                .foregroundColor(Theme.textSecondary)
                                 .multilineTextAlignment(.center)
                             Text("\(data.team2Score)")
                                 .font(.title.bold())
-                                .foregroundColor(data.winningTeam == 2 ? Color.Theme.success : Color.Theme.textPrimary)
+                                .foregroundColor(data.winningTeam == 2 ? Theme.success : Theme.textPrimary)
                         }
                     }
                 }
@@ -63,21 +63,21 @@ struct GameEndView: View {
                         .font(.body.bold())
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
-                        .background(gameState.tournamentId != nil ? Color.Theme.warning : Color.Theme.buttonBackground)
-                        .foregroundColor(.white)
-                        .cornerRadius(10)
+                        .background(gameState.tournamentId != nil ? Theme.warning : Theme.buttonBackground)
+                        .foregroundColor(gameState.tournamentId != nil ? Theme.warningForeground : Theme.buttonForeground)
+                        .cornerRadius(Theme.Radius.md)
                 }
-                .padding(.horizontal, 40)
+                .padding(.horizontal, Theme.Space.s10)
             }
-            .padding(32)
+            .padding(Theme.Space.s8)
             .background(
-                RoundedRectangle(cornerRadius: 20)
-                    .fill(Color.Theme.surface)
+                RoundedRectangle(cornerRadius: Theme.Radius.lg)
+                    .fill(Theme.surface)
             )
             .frame(maxWidth: 460)  // readable on the open Duo and the iPad
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("gameEnd")
-            .padding(.horizontal, 24)
+            .padding(.horizontal, Theme.Space.s6)
         }
     }
 

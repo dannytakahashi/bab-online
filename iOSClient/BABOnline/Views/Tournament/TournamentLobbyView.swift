@@ -21,7 +21,7 @@ private struct TournamentLobbyScreen: View {
 
     var body: some View {
         ZStack {
-            Color.Theme.background.ignoresSafeArea()
+            Theme.background.ignoresSafeArea()
 
             // measures the room above the keyboard for the compact layout (draws
             // nothing; compact only: in the wide layout this extra layer changed
@@ -50,7 +50,7 @@ private struct TournamentLobbyScreen: View {
                         if let hinge {
                             Color.clear.frame(width: hinge.upperBound - hinge.lowerBound)
                         } else {
-                            Divider().background(Color.Theme.inputBorder)
+                            Divider().background(Theme.inputBorder)
                         }
                         rightPanel
                             .frame(maxWidth: .infinity)
@@ -116,11 +116,11 @@ private struct TournamentLobbyScreen: View {
     /// keyboard up); the chat fills the rest of the column.
     private var rightPanel: some View {
         CappedAboveChat(showsTop: hasStandings, chatMin: { _ in Self.chatMinHeight }) {
-            VStack(spacing: 12) {
+            VStack(spacing: Theme.Space.s3) {
                 TournamentScoreboardView()
                 TournamentActiveGamesView()
             }
-            .padding(.vertical, 12)
+            .padding(.vertical, Theme.Space.s3)
         } chat: {
             TournamentChatView(showsTitle: true)
         }
@@ -157,13 +157,13 @@ private struct TournamentLobbyScreen: View {
             headerBar
                 .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { headerHeight = $0 }
             CappedAboveChat(chatMin: Self.compactChatMin) {
-                VStack(spacing: 16) {
+                VStack(spacing: Theme.Space.s4) {
                     TournamentPlayerListView()
                     TournamentScoreboardView()
                     TournamentActiveGamesView()
                     if !pinned { measuredButtons }
                 }
-                .padding(.bottom, 8)
+                .padding(.bottom, Theme.Space.s2)
             } chat: {
                 TournamentChatView()
             }
@@ -185,11 +185,11 @@ private struct TournamentLobbyScreen: View {
                 // in the vertical bar Leave is a toolbar item and the title leads
                 if !bar.usesVerticalBar {
                     Button(action: leaveTournament) {
-                        HStack(spacing: 4) {
+                        HStack(spacing: Theme.Space.s1) {
                             Image(systemName: "chevron.left")
                             Text("Leave")
                         }
-                        .foregroundColor(Color.Theme.textSecondary)
+                        .foregroundColor(Theme.textSecondary)
                     }
 
                     Spacer()
@@ -198,25 +198,25 @@ private struct TournamentLobbyScreen: View {
                 VStack(alignment: bar.usesVerticalBar ? .leading : .center, spacing: 2) {
                     HStack(spacing: 6) {
                         Image(systemName: "trophy.fill")
-                            .foregroundColor(Color.Theme.warning)
+                            .foregroundColor(Theme.warning)
                         Text(tournamentState.name.isEmpty ? "Tournament" : tournamentState.name)
                             .font(.headline)
-                            .foregroundColor(Color.Theme.warning)
+                            .foregroundColor(Theme.warning)
                     }
                     Text(roundIndicator)
                         .font(.caption)
-                        .foregroundColor(Color.Theme.textSecondary)
+                        .foregroundColor(Theme.textSecondary)
                 }
 
                 Spacer()
 
                 Text("\(tournamentState.players.count) players")
                     .font(.caption)
-                    .foregroundColor(Color.Theme.textSecondary)
+                    .foregroundColor(Theme.textSecondary)
             }
             .padding()
 
-            Divider().background(Color.Theme.inputBorder, ignoresSafeAreaEdges: .vertical)
+            Divider().background(Theme.inputBorder, ignoresSafeAreaEdges: .vertical)
         }
     }
 
@@ -244,7 +244,7 @@ private struct TournamentLobbyScreen: View {
     }
 
     private var bottomButtons: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: Theme.Space.s2) {
             if tournamentState.phase == "lobby" || tournamentState.phase == "between_rounds" {
                 // Ready / Unready (spectators can't ready up)
                 if !tournamentState.isSpectator {
@@ -253,9 +253,9 @@ private struct TournamentLobbyScreen: View {
                             .font(.title3.bold())
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 14)
-                            .background(tournamentState.isReady ? Color.Theme.oppColor : Color.Theme.buttonBackground)
-                            .foregroundColor(.white)
-                            .cornerRadius(10)
+                            .background(tournamentState.isReady ? Theme.danger : Theme.buttonBackground)
+                            .foregroundColor(tournamentState.isReady ? Theme.dangerForeground : Theme.buttonForeground)
+                            .cornerRadius(Theme.Radius.md)
                     }
                 }
 
@@ -267,9 +267,9 @@ private struct TournamentLobbyScreen: View {
                             .font(.title3.bold())
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 14)
-                            .background(allReady ? Color.Theme.warning : Color.Theme.buttonDisabled)
-                            .foregroundColor(.white)
-                            .cornerRadius(10)
+                            .background(allReady ? Theme.warning : Theme.buttonDisabled)
+                            .foregroundColor(allReady ? Theme.warningForeground : Theme.buttonDisabledForeground)
+                            .cornerRadius(Theme.Radius.md)
                     }
                     .disabled(!allReady)
                 }
@@ -281,15 +281,15 @@ private struct TournamentLobbyScreen: View {
                     Text("Cancel Tournament")
                         .font(.subheadline.bold())
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(Color(red: 0.6, green: 0.1, blue: 0.1))
-                        .foregroundColor(.white)
-                        .cornerRadius(10)
+                        .padding(.vertical, Theme.Space.s3)
+                        .background(Theme.danger)
+                        .foregroundColor(Theme.dangerForeground)
+                        .cornerRadius(Theme.Radius.md)
                 }
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, Theme.Space.s3)
+        .padding(.vertical, Theme.Space.s2)
     }
 
     // MARK: - Actions

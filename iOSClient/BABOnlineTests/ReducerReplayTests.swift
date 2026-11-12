@@ -25,7 +25,7 @@ final class ReducerReplayTests: XCTestCase {
                         }
                     }
                     let server = TableProjection(snapshot: try TableSnapshot.decode(check.snapshot, strict: true))
-                    let diff = TableProjection(state: replay.state).diff(server)
+                    let diff = TableProjection(state: replay.state).diff(server, watchingInFlight: game.watchingInFlight(for: viewer.label, after: check.afterIndex))
                     if !diff.isEmpty && failures < 3 {
                         failures += 1
                         XCTFail("\(game.name)/\(viewer.label) after #\(check.afterIndex)\(check.isFinal ? " (final)" : ""): \(diff.joined(separator: "; "))")

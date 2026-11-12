@@ -4,27 +4,23 @@ import SwiftUI
 struct SplashView: View {
     @State private var showSymbols = false
     @State private var showTitle = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private let suitColors: [Color] = [
-        .white,                              // spade
-        Color(red: 0.9, green: 0.3, blue: 0.3), // heart
-        Color(red: 0.9, green: 0.3, blue: 0.3), // diamond
-        .white,                              // club
-    ]
+    private let suitColors: [Color] = [.spades, .hearts, .diamonds, .clubs].map(Theme.suitOnDark)
 
     var body: some View {
         ZStack {
-            Color.Theme.background
+            Theme.background
                 .ignoresSafeArea()
 
-            VStack(spacing: 32) {
+            VStack(spacing: Theme.Space.s8) {
                 // Card suits in a diamond layout
-                VStack(spacing: 8) {
+                VStack(spacing: Theme.Space.s2) {
                     // Top: spade
                     suitText("\u{2660}", color: suitColors[0], delay: 0.1)
 
                     // Middle row: heart + diamond
-                    HStack(spacing: 40) {
+                    HStack(spacing: Theme.Space.s10) {
                         suitText("\u{2665}", color: suitColors[1], delay: 0.2)
                         suitText("\u{2666}", color: suitColors[2], delay: 0.3)
                     }
@@ -35,14 +31,14 @@ struct SplashView: View {
 
                 // Title
                 Text("BAB Online")
-                    .font(.system(size: 32, weight: .bold, design: .rounded))
-                    .foregroundStyle(Color.Theme.primary)
+                    .themeFont(Theme.TypeScale.xxl, weight: Theme.Weight.bold, design: .rounded, relativeTo: .largeTitle)
+                    .foregroundStyle(Theme.primary)
                     .opacity(showTitle ? 1 : 0)
-                    .scaleEffect(showTitle ? 1 : 0.8)
+                    .scaleEffect(showTitle || reduceMotion ? 1 : 0.8)  // Reduce Motion: fade only
             }
         }
         .onAppear {
-            withAnimation(.easeOut(duration: 0.5)) {
+            withAnimation(.easeOut(duration: Theme.Motion.slow)) {
                 showSymbols = true
             }
             withAnimation(.easeOut(duration: 0.5).delay(0.5)) {
@@ -53,10 +49,10 @@ struct SplashView: View {
 
     private func suitText(_ symbol: String, color: Color, delay: Double) -> some View {
         Text(symbol)
-            .font(.system(size: 44, weight: .bold))
+            .themeFont(Theme.TypeScale.display, weight: Theme.Weight.bold, relativeTo: .largeTitle)
             .foregroundStyle(color)
             .opacity(showSymbols ? 1 : 0)
-            .offset(y: showSymbols ? 0 : 10)
+            .offset(y: showSymbols || reduceMotion ? 0 : 10)
             .animation(.easeOut(duration: 0.4).delay(delay), value: showSymbols)
     }
 }

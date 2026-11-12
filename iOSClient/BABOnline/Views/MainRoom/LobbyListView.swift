@@ -7,15 +7,15 @@ struct LobbyListView: View {
         ScrollView {
             LazyVStack(spacing: 1) {
                 if mainRoomState.lobbies.isEmpty && mainRoomState.inProgressGames.isEmpty && mainRoomState.tournaments.isEmpty {
-                    VStack(spacing: 12) {
+                    VStack(spacing: Theme.Space.s3) {
                         Image(systemName: "gamecontroller")
-                            .font(.system(size: 40))
-                            .foregroundColor(Color.Theme.textDim)
+                            .font(.largeTitle)
+                            .foregroundColor(Theme.textDim)
                         Text("No games available")
-                            .foregroundColor(Color.Theme.textDim)
+                            .foregroundColor(Theme.textDim)
                         Text("Create one to get started!")
                             .font(.caption)
-                            .foregroundColor(Color.Theme.textDim)
+                            .foregroundColor(Theme.textDim)
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.top, 60)
@@ -29,10 +29,10 @@ struct LobbyListView: View {
                     if !mainRoomState.inProgressGames.isEmpty {
                         Text("In Progress")
                             .font(.caption.bold())
-                            .foregroundColor(Color.Theme.textSecondary)
+                            .foregroundColor(Theme.textSecondary)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal)
-                            .padding(.top, 12)
+                            .padding(.top, Theme.Space.s3)
 
                         ForEach(mainRoomState.inProgressGames) { game in
                             LobbyRowView(lobby: game, isInProgress: true)
@@ -43,10 +43,10 @@ struct LobbyListView: View {
                     if !mainRoomState.tournaments.isEmpty {
                         Text("Tournaments")
                             .font(.caption.bold())
-                            .foregroundColor(Color.Theme.warning)
+                            .foregroundColor(Theme.warning)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal)
-                            .padding(.top, 12)
+                            .padding(.top, Theme.Space.s3)
 
                         ForEach(mainRoomState.tournaments) { tournament in
                             TournamentRowView(tournament: tournament)
@@ -64,14 +64,14 @@ struct LobbyRowView: View {
 
     var body: some View {
         HStack {
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: Theme.Space.s1) {
                 Text(lobby.name)
                     .font(.body.bold())
-                    .foregroundColor(Color.Theme.textPrimary)
+                    .foregroundColor(Theme.textPrimary)
 
                 Text("\(lobby.playerCount)/4 players")
                     .font(.caption)
-                    .foregroundColor(Color.Theme.textSecondary)
+                    .foregroundColor(Theme.textSecondary)
             }
 
             Spacer()
@@ -82,37 +82,35 @@ struct LobbyRowView: View {
                 }) {
                     Text("Spectate")
                         .font(.callout.bold())
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                        .background(Color(red: 0.376, green: 0.647, blue: 0.98)) // #60a5fa
-                        .cornerRadius(8)
+                        .padding(.horizontal, Theme.Space.s4)
+                        .padding(.vertical, Theme.Space.s2)
+                        .secondaryButtonStyle()
                 }
             } else if lobby.playerCount >= 4 {
                 Text("Full")
                     .font(.callout.bold())
-                    .foregroundColor(Color.Theme.textDim)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 8)
-                    .background(Color(red: 0.42, green: 0.44, blue: 0.47))
-                    .cornerRadius(8)
+                    .foregroundColor(Theme.buttonDisabledForeground)
+                    .padding(.horizontal, Theme.Space.s5)
+                    .padding(.vertical, Theme.Space.s2)
+                    .background(Theme.buttonDisabled)
+                    .cornerRadius(Theme.Radius.sm)
             } else {
                 Button(action: {
                     LobbyEmitter.joinLobby(lobbyId: lobby.id)
                 }) {
                     Text("Join")
                         .font(.callout.bold())
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 8)
-                        .background(Color.Theme.buttonBackground)
-                        .cornerRadius(8)
+                        .foregroundColor(Theme.buttonForeground)
+                        .padding(.horizontal, Theme.Space.s5)
+                        .padding(.vertical, Theme.Space.s2)
+                        .background(Theme.buttonBackground)
+                        .cornerRadius(Theme.Radius.sm)
                 }
             }
         }
         .padding(.horizontal)
-        .padding(.vertical, 12)
-        .background(Color.Theme.surface, ignoresSafeAreaEdges: .vertical)
+        .padding(.vertical, Theme.Space.s3)
+        .background(Theme.surface, ignoresSafeAreaEdges: .vertical)
     }
 }
 
@@ -141,19 +139,19 @@ struct TournamentRowView: View {
 
     var body: some View {
         HStack {
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: Theme.Space.s1) {
                 HStack(spacing: 6) {
                     Image(systemName: "trophy.fill")
                         .font(.caption)
-                        .foregroundColor(Color.Theme.warning)
+                        .foregroundColor(Theme.warning)
                     Text(tournament.name)
                         .font(.body.bold())
-                        .foregroundColor(Color.Theme.warning)
+                        .foregroundColor(Theme.warning)
                 }
 
                 Text("\(tournament.playerCount) players \u{2022} \(phaseDescription)")
                     .font(.caption)
-                    .foregroundColor(Color.Theme.textSecondary)
+                    .foregroundColor(Theme.textSecondary)
             }
 
             Spacer()
@@ -164,11 +162,11 @@ struct TournamentRowView: View {
                 }) {
                     Text("Join")
                         .font(.callout.bold())
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 8)
-                        .background(Color.Theme.buttonBackground)
-                        .cornerRadius(8)
+                        .foregroundColor(Theme.buttonForeground)
+                        .padding(.horizontal, Theme.Space.s5)
+                        .padding(.vertical, Theme.Space.s2)
+                        .background(Theme.buttonBackground)
+                        .cornerRadius(Theme.Radius.sm)
                 }
             } else if canSpectate {
                 Button(action: {
@@ -176,16 +174,14 @@ struct TournamentRowView: View {
                 }) {
                     Text("Spectate")
                         .font(.callout.bold())
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                        .background(Color(red: 0.376, green: 0.647, blue: 0.98))
-                        .cornerRadius(8)
+                        .padding(.horizontal, Theme.Space.s4)
+                        .padding(.vertical, Theme.Space.s2)
+                        .secondaryButtonStyle()
                 }
             }
         }
         .padding(.horizontal)
-        .padding(.vertical, 12)
-        .background(Color.Theme.surface, ignoresSafeAreaEdges: .vertical)
+        .padding(.vertical, Theme.Space.s3)
+        .background(Theme.surface, ignoresSafeAreaEdges: .vertical)
     }
 }

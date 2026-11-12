@@ -10,18 +10,19 @@ struct DrawPhaseView: View {
     @State private var teamsOpacity: Double = 0
     @State private var dismissing = false
     @State private var pulseOpacity: Double = 1.0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack {
             // Dark overlay
-            Color.black.opacity(0.7)
+            Theme.scrim
                 .ignoresSafeArea()
 
-            VStack(spacing: 24) {
+            VStack(spacing: Theme.Space.s6) {
                 // Title
                 Text("Draw for Deal")
-                    .font(.system(size: 28, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
+                    .themeFont(Theme.TypeScale.xl, weight: Theme.Weight.bold, design: .rounded, relativeTo: .title)
+                    .foregroundStyle(Theme.textPrimary)
                     .padding(.top, 60)
 
                 Spacer()
@@ -73,7 +74,7 @@ struct DrawPhaseView: View {
     // MARK: - Deck View
 
     private var deckView: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: Theme.Space.s4) {
             // Stacked card backs
             Button(action: handleTap) {
                 ZStack {
@@ -89,10 +90,11 @@ struct DrawPhaseView: View {
 
             // Prompt
             Text("Tap to Draw")
-                .font(.system(size: 18, weight: .medium))
-                .foregroundStyle(Color.Theme.textSecondary)
+                .themeFont(Theme.TypeScale.lg, weight: Theme.Weight.medium, relativeTo: .title3)
+                .foregroundStyle(Theme.textSecondary)
                 .opacity(pulseOpacity)
                 .onAppear {
+                    guard !reduceMotion else { return }  // Reduce Motion: the prompt holds still
                     withAnimation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true)) {
                         pulseOpacity = 0.4
                     }
@@ -103,12 +105,12 @@ struct DrawPhaseView: View {
     // MARK: - Draw Results
 
     private var drawResultsView: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Theme.Space.s3) {
             ForEach(0..<4, id: \.self) { index in
                 drawSlot(index: index)
             }
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, Theme.Space.s4)
     }
 
     private func drawSlot(index: Int) -> some View {
@@ -117,11 +119,11 @@ struct DrawPhaseView: View {
         let isFlipped = flippedSlots.contains(index)
         let isLocal = result?.username == gameState.username
 
-        return VStack(spacing: 8) {
+        return VStack(spacing: Theme.Space.s2) {
             // Username
             Text(result?.username ?? "...")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(isLocal ? Color.Theme.primary : .white)
+                .themeFont(Theme.TypeScale.sm, weight: Theme.Weight.semibold, relativeTo: .subheadline)
+                .foregroundStyle(isLocal ? Theme.primary : Theme.textPrimary)
                 .lineLimit(1)
 
             // Card
@@ -155,34 +157,34 @@ struct DrawPhaseView: View {
 
     private var teamsOverlayView: some View {
         ZStack {
-            Color.black.opacity(0.8)
+            Theme.scrim
                 .ignoresSafeArea()
 
-            VStack(spacing: 20) {
+            VStack(spacing: Theme.Space.s5) {
                 if let teams = gameState.teamsAnnounced {
                     let team1 = teams.team1
                     let team2 = teams.team2
 
                     Text("Team 1")
-                        .font(.system(size: 26, weight: .bold))
-                        .foregroundStyle(Color.Theme.teamColor)
+                        .themeFont(Theme.TypeScale.xl, weight: Theme.Weight.bold, relativeTo: .title)
+                        .foregroundStyle(Theme.teamA)
 
                     Text(team1.joined(separator: " & "))
-                        .font(.system(size: 20))
-                        .foregroundStyle(.white)
+                        .themeFont(Theme.TypeScale.lg, relativeTo: .title3)
+                        .foregroundStyle(Theme.textPrimary)
 
                     Text("vs")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(Color.Theme.textDim)
-                        .padding(.vertical, 4)
+                        .themeFont(Theme.TypeScale.md, weight: Theme.Weight.medium)
+                        .foregroundStyle(Theme.textDim)
+                        .padding(.vertical, Theme.Space.s1)
 
                     Text("Team 2")
-                        .font(.system(size: 26, weight: .bold))
-                        .foregroundStyle(Color.Theme.oppColor)
+                        .themeFont(Theme.TypeScale.xl, weight: Theme.Weight.bold, relativeTo: .title)
+                        .foregroundStyle(Theme.teamB)
 
                     Text(team2.joined(separator: " & "))
-                        .font(.system(size: 20))
-                        .foregroundStyle(.white)
+                        .themeFont(Theme.TypeScale.lg, relativeTo: .title3)
+                        .foregroundStyle(Theme.textPrimary)
                 }
             }
         }
@@ -205,38 +207,39 @@ private struct CardBackShape: View {
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 8)
-                .fill(Color(red: 0.1, green: 0.3, blue: 0.15))
+                .fill(Theme.Palette.Card.back.color)
 
             RoundedRectangle(cornerRadius: 8)
-                .strokeBorder(Color(red: 0.2, green: 0.5, blue: 0.25), lineWidth: 2)
+                .strokeBorder(Theme.Palette.Card.backBorder.color, lineWidth: 2)
 
             RoundedRectangle(cornerRadius: 6)
-                .strokeBorder(Color(red: 0.15, green: 0.4, blue: 0.2), lineWidth: 1)
+                .strokeBorder(Theme.Palette.Card.backInner.color, lineWidth: 1)
                 .padding(6)
 
             // Center diamond
             Diamond()
-                .fill(Color(red: 0.25, green: 0.55, blue: 0.3))
+                .fill(Theme.Palette.Card.backDiamond.color)
                 .frame(width: 20, height: 28)
 
             Diamond()
-                .stroke(Color(red: 0.3, green: 0.65, blue: 0.35), lineWidth: 1)
+                .stroke(Theme.Palette.Card.backDiamondStroke.color, lineWidth: 1)
                 .frame(width: 20, height: 28)
         }
     }
 }
 
-/// A SwiftUI rendition of a card face.
+/// A SwiftUI rendition of a card face (card art like CardTextureGenerator's: its
+/// glyph sizes and radii are the card's geometry, not type, so they stay fixed).
 private struct CardFaceShape: View {
     let card: Card?
 
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 8)
-                .fill(Color.white)
+                .fill(Theme.Palette.Card.face.color)
 
             RoundedRectangle(cornerRadius: 8)
-                .strokeBorder(Color(white: 0.7), lineWidth: 1)
+                .strokeBorder(Theme.Palette.Card.border.color, lineWidth: 1)
 
             if let card = card {
                 VStack(spacing: 0) {
@@ -249,8 +252,8 @@ private struct CardFaceShape: View {
                                 .font(.system(size: 12))
                         }
                         .foregroundStyle(suitColor(card.suit))
-                        .padding(.leading, 4)
-                        .padding(.top, 4)
+                        .padding(.leading, Theme.Space.s1)
+                        .padding(.top, Theme.Space.s1)
                         Spacer()
                     }
 
@@ -259,7 +262,7 @@ private struct CardFaceShape: View {
                     // Center suit
                     Text(card.isJoker ? "\u{2605}" : suitSymbol(card.suit))
                         .font(.system(size: 32))
-                        .foregroundStyle(card.isJoker ? .purple : suitColor(card.suit))
+                        .foregroundStyle(card.isJoker ? Theme.CardInk.joker.color : suitColor(card.suit))
 
                     Spacer()
 
@@ -274,24 +277,24 @@ private struct CardFaceShape: View {
                         }
                         .foregroundStyle(suitColor(card.suit))
                         .rotationEffect(.degrees(180))
-                        .padding(.trailing, 4)
-                        .padding(.bottom, 4)
+                        .padding(.trailing, Theme.Space.s1)
+                        .padding(.bottom, Theme.Space.s1)
                     }
                 }
             } else {
                 // Unknown card — show question mark
                 Text("?")
                     .font(.system(size: 28, weight: .bold))
-                    .foregroundStyle(Color(white: 0.6))
+                    .foregroundStyle(Theme.Palette.Card.dimTint.color)
             }
         }
     }
 
     private func suitColor(_ suit: Suit) -> Color {
         switch suit {
-        case .hearts, .diamonds: return Color(red: 0.85, green: 0.1, blue: 0.1)
-        case .spades, .clubs: return Color(red: 0.1, green: 0.1, blue: 0.1)
-        case .joker: return .purple
+        case .hearts, .diamonds: return Theme.CardInk.red.color
+        case .spades, .clubs: return Theme.CardInk.black.color
+        case .joker: return Theme.CardInk.joker.color
         }
     }
 

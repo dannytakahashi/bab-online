@@ -8,15 +8,15 @@ class BidBubbleNode: SKNode {
 
     init(bid: String) {
         self.bid = bid
-        background = SKShapeNode(rectOf: CGSize(width: LayoutConstants.bidBubbleWidth, height: LayoutConstants.bidBubbleHeight), cornerRadius: 8)
-        background.fillColor = UIColor(red: 0.15, green: 0.25, blue: 0.15, alpha: 0.9)
-        background.strokeColor = UIColor(red: 0.3, green: 0.6, blue: 0.3, alpha: 1)
+        background = SKShapeNode(rectOf: CGSize(width: LayoutConstants.bidBubbleWidth, height: LayoutConstants.bidBubbleHeight), cornerRadius: Theme.Radius.sm)
+        background.fillColor = Theme.SK.bidBubbleFill
+        background.strokeColor = Theme.SK.bidBubbleStroke
         background.lineWidth = 1.5
 
         label = SKLabelNode(text: bid)
-        label.fontName = "Helvetica-Bold"
+        label.fontName = Theme.SK.fontName(.bold)
         label.fontSize = 18
-        label.fontColor = .white
+        label.fontColor = Theme.SK.label
         label.verticalAlignmentMode = .center
 
         super.init()

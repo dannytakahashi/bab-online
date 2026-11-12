@@ -1,20 +1,40 @@
 import SpriteKit
 
-/// Loads numbered avatars (stubbed in tests so a render is deterministic).
+/// Loads avatars (stubbed in tests so a render is deterministic): stock numbers
+/// (`/assets/profile<N>.png`) and, from the clientHello avatarUrl cap on, the
+/// server's custom-picture paths (`/avatar/<name>?v=<version>`, immutable).
 protocol AvatarLoading {
     func load(_ picNumber: Int, completion: @escaping (UIImage?) -> Void)
+    /// An `/avatar/...` path on the game server (default: none, the caller falls back).
+    func load(path: String, completion: @escaping (UIImage?) -> Void)
+}
+
+extension AvatarLoading {
+    func load(path: String, completion: @escaping (UIImage?) -> Void) { completion(nil) }
 }
 
 struct HTTPAvatarLoader: AvatarLoading {
+    /// Avatars come from the game server's origin (ServerConfig), through URLSession's
+    /// shared cache: a versioned `/avatar` URL is `immutable` for a year, stock art a day.
     func load(_ picNumber: Int, completion: @escaping (UIImage?) -> Void) {
-        #if targetEnvironment(simulator)
-        let baseURL = "http://localhost:3000"
-        #else
-        let baseURL = "https://babonline.io"
-        #endif
-        guard let url = URL(string: "\(baseURL)/assets/profile\(picNumber).png") else { return completion(nil) }
-        URLSession.shared.dataTask(with: url) { data, _, _ in
-            let image = data.flatMap { UIImage(data: $0) }
+        fetch("/assets/profile\(picNumber).png", completion: completion)
+    }
+
+    func load(path: String, completion: @escaping (UIImage?) -> Void) {
+        guard Self.isAvatarPath(path) else { return completion(nil) }
+        fetch(path, completion: completion)
+    }
+
+    /// Only a same-origin `/avatar/<name>?v=` path ($defs.avatarUrl), never an absolute URL from the wire.
+    static func isAvatarPath(_ path: String) -> Bool {
+        path.hasPrefix("/avatar/") && !path.contains("//") && !path.contains(" ") && path.count <= 512
+    }
+
+    private func fetch(_ path: String, completion: @escaping (UIImage?) -> Void) {
+        guard let url = URL(string: ServerConfig.baseURL + path) else { return completion(nil) }
+        URLSession.shared.dataTask(with: url) { data, response, _ in
+            let ok = (response as? HTTPURLResponse).map { (200..<300).contains($0.statusCode) } ?? false
+            let image = ok ? data.flatMap { UIImage(data: $0) } : nil
             DispatchQueue.main.async { completion(image) }
         }.resume()
     }
@@ -38,13 +58,13 @@ class OpponentHandNode: SKNode {
     private(set) var fullName: String
     static var avatarLoader: AvatarLoading = HTTPAvatarLoader()
 
-    init(position: Positions.RelativePosition, username: String, pic: String? = nil) {
+    init(position: Positions.RelativePosition, username: String, pic: String? = nil, fallback: String? = nil) {
         self.relativePosition = position
 
         nameLabel = SKLabelNode(text: username)
-        nameLabel.fontName = "Helvetica-Bold"
-        nameLabel.fontSize = 14
-        nameLabel.fontColor = .white
+        nameLabel.fontName = Theme.SK.fontName(.bold)
+        nameLabel.fontSize = Theme.TypeScale.sm
+        nameLabel.fontColor = Theme.SK.label
         fullName = username
 
         super.init()
@@ -52,11 +72,12 @@ class OpponentHandNode: SKNode {
 
         self.name = "seat.\(position.rawValue)"
         self.pic = pic
+        self.fallbackPic = fallback
 
         // Avatar circle
         let circle = SKShapeNode(circleOfRadius: avatarRadius)
-        circle.fillColor = UIColor(red: 0.2, green: 0.3, blue: 0.2, alpha: 1)
-        circle.strokeColor = UIColor(white: 0.4, alpha: 1)
+        circle.fillColor = Theme.SK.avatarFill
+        circle.strokeColor = Theme.SK.avatarStroke
         circle.lineWidth = 1.5
         circle.position = .zero
         addChild(circle)
@@ -64,9 +85,9 @@ class OpponentHandNode: SKNode {
 
         // Initial letter fallback
         let initial = SKLabelNode(text: String(username.prefix(1)).uppercased())
-        initial.fontName = "Helvetica-Bold"
+        initial.fontName = Theme.SK.fontName(.bold)
         initial.fontSize = avatarRadius * 0.9
-        initial.fontColor = .white
+        initial.fontColor = Theme.SK.label
         initial.verticalAlignmentMode = .center
         initial.horizontalAlignmentMode = .center
         initial.name = "avatar_initial"
@@ -105,9 +126,13 @@ class OpponentHandNode: SKNode {
         }
     }
 
+    /// What the avatar shows when `pic` (an `/avatar` URL) cannot be loaded: the inline / stock picture.
+    private(set) var fallbackPic: String?
+
     /// In-place update from the model (22.8): the avatar reloads only when the picture changes.
-    func update(name: String, pic newPic: String?, isTurn: Bool) {
+    func update(name: String, pic newPic: String?, fallback: String? = nil, isTurn: Bool) {
         updateUsername(name)
+        fallbackPic = fallback
         if newPic != pic {
             pic = newPic
             if let p = newPic { updatePic(p) } else { clearPic(initial: name) }
@@ -121,9 +146,9 @@ class OpponentHandNode: SKNode {
         removeAvatarImage(from: circle)
         if circle.childNode(withName: "avatar_initial") == nil {
             let initial = SKLabelNode(text: String(name.prefix(1)).uppercased())
-            initial.fontName = "Helvetica-Bold"
+            initial.fontName = Theme.SK.fontName(.bold)
             initial.fontSize = avatarRadius * 0.9
-            initial.fontColor = .white
+            initial.fontColor = Theme.SK.label
             initial.verticalAlignmentMode = .center
             initial.horizontalAlignmentMode = .center
             initial.name = "avatar_initial"
@@ -139,10 +164,10 @@ class OpponentHandNode: SKNode {
         guard turnGlow == nil else { return }
         let glow = SKShapeNode(circleOfRadius: 30)
         glow.name = "glow.turn"
-        glow.fillColor = UIColor(red: 0.2, green: 0.8, blue: 0.4, alpha: 0.5)
+        glow.fillColor = Theme.SK.turnGlow
         glow.strokeColor = .clear
         glow.zPosition = -1
-        glow.run(CardAnimations.pulseGlow())
+        CardAnimations.startPulseGlow(on: glow)
         addChild(glow)
         turnGlow = glow
     }
@@ -158,11 +183,11 @@ class OpponentHandNode: SKNode {
         guard speakingGlow == nil else { return }
         let glow = SKShapeNode(circleOfRadius: 28)
         glow.name = "glow.speaking"
-        glow.fillColor = UIColor(red: 0.1, green: 0.9, blue: 0.3, alpha: 0.4)
-        glow.strokeColor = UIColor(red: 0.1, green: 0.9, blue: 0.3, alpha: 0.7)
+        glow.fillColor = Theme.SK.speakingFill
+        glow.strokeColor = Theme.SK.speakingStroke
         glow.lineWidth = 1.5
         glow.zPosition = -2
-        glow.run(CardAnimations.pulseGlow())
+        CardAnimations.startPulseGlow(on: glow)
         addChild(glow)
         speakingGlow = glow
     }
@@ -193,8 +218,14 @@ class OpponentHandNode: SKNode {
         avatarGeneration += 1
         let generation = avatarGeneration
         AvatarTextureCache.texture(for: pic, loader: Self.avatarLoader) { [weak self] texture in
-            guard let self, let texture, self.avatarGeneration == generation, self.pic == pic else { return }
-            self.applyAvatar(texture)
+            guard let self, self.avatarGeneration == generation, self.pic == pic else { return }
+            if let texture { return self.applyAvatar(texture) }
+            // an /avatar URL that failed (429, 503, a 404 after a picture change): the inline copy
+            guard let fallback = self.fallbackPic, fallback != pic else { return }
+            AvatarTextureCache.texture(for: fallback, loader: Self.avatarLoader) { [weak self] texture in
+                guard let self, let texture, self.avatarGeneration == generation, self.pic == pic else { return }
+                self.applyAvatar(texture)
+            }
         }
     }
 

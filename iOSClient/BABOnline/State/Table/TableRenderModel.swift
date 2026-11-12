@@ -13,6 +13,15 @@ struct TableRenderModel: Equatable {
         var presence: SeatPresence
         var isTurn: Bool
         var socketId: String?
+        /// The custom picture's URL (`/avatar/<name>?v=`), preferred over `pic` (clientHello avatarUrl cap).
+        var avatarUrl: String? = nil
+        /// The seat's human owner (a lazy / resigned seat shows its bot's name): voice peers are matched by it.
+        var ownerName: String? = nil
+
+        /// What the seat's avatar loads first: the URL, else the stock number or inline picture.
+        var pictureKey: String? { avatarUrl ?? pic.string }
+        /// What it falls back to when the URL cannot be loaded (docs/avatars.md I6).
+        var fallbackPicture: String? { avatarUrl == nil ? nil : pic.string }
     }
 
     struct Hand: Equatable {
@@ -41,6 +50,8 @@ struct TableRenderModel: Equatable {
     var turn: Int?
     var history: TeamPair          // team1 = my team's tricks, team2 = theirs
     var bidBubbles: [Int: String]
+    /// Who is watching (the badge itself is SwiftUI; the scene places the spectator chat bubble by it).
+    var watching: WatchingList
 
     init(_ s: TableState) {
         let viewer = s.table.viewer
@@ -61,8 +72,10 @@ struct TableRenderModel: Equatable {
             return Opponent(rel: Positions.getRelative(target: pos, from: view), position: pos,
                             name: seat?.username ?? "P\(pos)", pic: seat?.pic ?? .none, isBot: seat?.isBot ?? false,
                             lazy: seat?.lazy ?? false, presence: seat?.presence ?? .none, isTurn: s.table.phase.turn == pos,
-                            socketId: s.players.socketBySeat[pos])
+                            socketId: s.players.socketBySeat[pos], avatarUrl: seat?.avatarUrl,
+                            ownerName: seat?.ownerUsername ?? seat?.username)
         }
+        watching = s.players.watching
 
         // my submitted card leaves the hand and sits in my trick slot until confirmed
         var pendingCard: Card?
@@ -109,5 +122,18 @@ struct TableRenderModel: Equatable {
             for pos in 1...4 { if let b = bids.bid(at: pos) { bubbles[pos] = b } }
         }
         bidBubbles = bubbles
+    }
+}
+
+extension TableRenderModel {
+    /// The seat a voice peer speaks from (speaking glows): by the peer's username, which
+    /// voicePeerList / voiceOffer carry, so no seat socket id is needed (V1_REMOVALS #9 / #14);
+    /// the seat socket id (positionUpdate.sockets, players[].socketId) only as the fallback.
+    func seat(forVoicePeer socketId: String, username: String?) -> Int? {
+        // (a native bot's ownerName is its 🤖 name, which no human username can be)
+        if let name = username, !name.isEmpty, let o = opponents.first(where: { $0.ownerName == name }) {
+            return o.position
+        }
+        return opponents.first(where: { $0.socketId == socketId })?.position
     }
 }

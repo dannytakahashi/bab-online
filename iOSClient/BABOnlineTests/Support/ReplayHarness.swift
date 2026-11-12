@@ -119,13 +119,8 @@ final class ReplayHarness {
         case "voicePeerJoined", "voicePeerList":
             break
         case "serverError":
-            // the additive twin of 'error' (V1_REMOVALS #1 phase A): this
-            // build registers no handler for it, as the App Store build
-            break
-        case "spectatorsUpdated":
-            // unsequenced and not routed: the app registers no handler for
-            // it yet (contract layout.json exclude.swift; V1_REMOVALS
-            // "iOS spectator badge"), as the App Store build does not
+            // SocketService handles it (toast, deduped against the 'error' twin,
+            // V1_REMOVALS #1 phase A); the table handlers never see it
             break
         default:
             XCTAssertTrue(GameSocketHandler.events.contains(e.event), "unrouted event \(e.event)")

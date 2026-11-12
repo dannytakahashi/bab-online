@@ -2158,13 +2158,21 @@
       "rateLimit": "clientHello",
       "sentBy": {
         "web": true,
-        "ios": false
+        "ios": true
       },
       "examples": [
         {
           "client": "web",
           "version": "1.0.0",
           "build": "abc1234",
+          "caps": [
+            "avatarUrl"
+          ]
+        },
+        {
+          "client": "ios",
+          "version": "1.2.0",
+          "build": "3",
           "caps": [
             "avatarUrl"
           ]
@@ -2196,7 +2204,7 @@
           "caps": []
         }
       ],
-      "notes": "Sent on every connect by clients that read avatarUrl / avatarUrls ($defs.clientCap). No reply. Absent = legacy shape (the App Store iOS build, cached old web bundles). Unknown caps are ignored; the last hello wins (one without avatarUrl downgrades the socket). Over the rate limit it is dropped silently. Logged with the client version (telemetry for V1_REMOVALS)."
+      "notes": "Sent on every connect by clients that read avatarUrl / avatarUrls ($defs.clientCap). No reply. Absent = legacy shape (iOS 1.1.0, cached old web bundles); iOS sends it from 1.2.0 (SocketService, on every connect before restoreSession). Unknown caps are ignored; the last hello wins (one without avatarUrl downgrades the socket). Over the rate limit it is dropped silently. Logged with the client version (telemetry for V1_REMOVALS)."
     },
     "deleteAccount": {
       "payload": {
@@ -3939,7 +3947,7 @@
       "rateLimit": "getVoiceIceServers",
       "sentBy": {
         "web": true,
-        "ios": false
+        "ios": true
       },
       "examples": [
         {},
@@ -3958,7 +3966,7 @@
           "requestId": 7
         }
       ],
-      "notes": "Answered by voiceIceServers to this socket only (requestId echoed). Web asks before its first peer connection of a voice session and again before the credentials expire. TURN credentials (Cloudflare Realtime, minted server-side, cached per user) only for a signed-in socket that is a voice peer now (in a lobby, or an entrant / seat owner of a game); everyone else, and every failure (env unset, Cloudflare timeout or error), gets the public STUN servers. iOS 1.1.0 does not send it (it hard-codes STUN); the next iOS release will (V1_REMOVALS \"iOS TURN\")."
+      "notes": "Answered by voiceIceServers to this socket only (requestId echoed). Web asks before its first peer connection of a voice session and again before the credentials expire. TURN credentials (Cloudflare Realtime, minted server-side, cached per user) only for a signed-in socket that is a voice peer now (in a lobby, or an entrant / seat owner of a game); everyone else, and every failure (env unset, Cloudflare timeout or error), gets the public STUN servers. iOS 1.1.0 does not send it (it hard-codes STUN); iOS 1.2.0 asks on every voice start and before its restart (Voice/IceServerStore.swift; V1_REMOVALS \"iOS TURN\")."
     },
     "adminRequest": {
       "payload": {
@@ -7643,12 +7651,14 @@
         "web": [
           "client/src/handlers/gameHandlers.js:registerGameHandlers"
         ],
-        "ios": []
+        "ios": [
+          "iOSClient/BABOnline/Networking/Handlers/GameSocketHandler.swift:register"
+        ]
       },
       "emittedFrom": [
         "server/game/spectatorRoster.js:flush"
       ],
-      "notes": "Who is watching (owner, 2026-11-11: the table's spectator badge), the WHOLE list each time: GameState.spectatorList() (pure spectators, one per username in join order, never a seat owner or entrant), at most 50 entries, count the true total (the same as snapshot v2 `watching`; the older spectatorCount fields stay the spectator SOCKET count, cc865b4's meaning). Sent to the game room on every change (join, leave, disconnect, spectating another game, a round start, a reclaim), coalesced to one emit per game per 250 ms, skipped when unchanged, never after end/abort. UNSEQUENCED (no seq, no bump; GameState.emitUnsequenced): an absolute display state, and the App Store build (f05d264) registers no handler for it, so a sequenced form would open a gap in its seq gate on every change. The snapshot's `watching` carries the same {spectators, count}. iOS reads nothing yet (V1_REMOVALS \"iOS spectator badge\")."
+      "notes": "Who is watching (owner, 2026-11-11: the table's spectator badge), the WHOLE list each time: GameState.spectatorList() (pure spectators, one per username in join order, never a seat owner or entrant), at most 50 entries, count the true total (the same as snapshot v2 `watching`; the older spectatorCount fields stay the spectator SOCKET count, cc865b4's meaning). Sent to the game room on every change (join, leave, disconnect, spectating another game, a round start, a reclaim), coalesced to one emit per game per 250 ms, skipped when unchanged, never after end/abort. UNSEQUENCED (no seq, no bump; GameState.emitUnsequenced): an absolute display state, and the App Store build (f05d264) registers no handler for it, so a sequenced form would open a gap in its seq gate on every change. The snapshot's `watching` carries the same {spectators, count}. iOS 1.1.0 reads nothing; iOS 1.2.0 routes it around its seq gate (ServerEvent.spectators) and shows the badge (V1_REMOVALS \"iOS spectator badge\")."
     },
     "profileResponse": {
       "payload": {
@@ -10188,7 +10198,9 @@
         "web": [
           "client/src/voice/VoiceChatManager.js:fetchIceServers"
         ],
-        "ios": []
+        "ios": [
+          "iOSClient/BABOnline/Networking/Handlers/VoiceSocketHandler.swift:register"
+        ]
       },
       "emittedFrom": [
         "server/socket/voiceHandlers.js:getVoiceIceServers"

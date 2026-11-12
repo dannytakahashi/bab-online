@@ -135,6 +135,8 @@ extension TableReducer {
                 seat.pic = p.pic?.pic ?? .none
                 seat.avatarUrl = p.avatarUrl
             }
+            // the seat is human and connected again: an offer to replace it is moot
+            if s.players.resignationOffer?.position == pos { s.players.resignationOffer = nil }
             if pos == s.table.viewer.position && s.table.viewer.role == .lazyWatcher {
                 s.table.viewer.role = .seat
                 s.table.viewer.ownerView = "seat"
@@ -146,12 +148,22 @@ extension TableReducer {
             s.log.entries.append(ChatMessage(username: "System", message: p.message ?? "", type: type))
         case .chatMessage(let p, let blocked, let mine):
             guard !blocked else { break }
-            let isSpectator = p.isSpectator ?? (p.type == "spectator")  // 21.8
+            // 21.8: `isSpectator` routes (the server drops `type` with V1_REMOVALS #12); `type` only for an older server
+            let isSpectator = p.isSpectator ?? (p.type == "spectator")
             let message = p.message ?? ""
             let pos = Position.valid(p.position)
             s.log.entries.append(ChatMessage(username: p.username ?? "", message: message, type: isSpectator ? .spectator : .player, position: pos))
             if !mine { s.log.unread += 1 }
-            if let pos { fx.append(.animate(.chatBubble(position: pos, message: message))) }
+            if isSpectator {
+                // a pure spectator's line, and a watching owner's (sent without a position): by the badge
+                fx.append(.animate(.spectatorChatBubble(username: p.username ?? "", message: message)))
+            } else if let pos {
+                fx.append(.animate(.chatBubble(position: pos, message: message)))
+            }
+        case .spectators(let p):
+            // the whole list each time; another game's list (a late one after leaving) is dropped
+            guard let gid = p.gameId, gid == s.table.gameId else { break }
+            s.players.watching = WatchingList(spectators: p.spectators ?? [], count: p.count ?? p.spectators?.count ?? 0)
         case .spectatorNotice(let p):
             if let n = p.spectatorCount { s.players.spectatorCount = n }
             addLog(&s, "\(p.username ?? "Someone") joined as spectator")
@@ -281,6 +293,13 @@ extension TableReducer {
             mutateSeat(&s, pos) { seat in
                 if let name = info.username { seat.username = name }
                 if let pic = info.pic?.pic { seat.pic = pic }
+                // avatarUrl cap: a custom picture's slot is null and its URL is in avatarUrls (only
+                // when a rendition exists; else the slot carries the inline picture, docs/avatars.md I6)
+                if let urls = p.avatarUrls {
+                    seat.avatarUrl = urls[String(pos)]
+                } else if case .avatar = seat.pic {
+                    seat.avatarUrl = nil
+                }
             }
         }
         for pos in 1...4 where s.players.seats[pos] != nil { s.players.seats[pos]!.cardsInHand = size }

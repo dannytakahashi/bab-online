@@ -5,9 +5,8 @@ import XCTest
 final class ServerEventDecodingTests: XCTestCase {
     /// Events the table store does not decode (voice signalling, the 'error'
     /// toast, the tournament handler's assignment: a local enterGameContext).
-    /// spectatorsUpdated: unsequenced, and the app registers no handler for it yet (V1_REMOVALS "iOS spectator badge")
-    /// serverError: the additive twin of 'error' (V1_REMOVALS #1 phase A); this build listens only to 'error'
-    static let notStoreEvents: Set<String> = ["voicePeerJoined", "voicePeerList", "error", "tournamentGameAssignment", "spectatorsUpdated", "serverError"]
+    /// serverError: handled by SocketService (deduped against its 'error' twin), like 'error', not by the table store
+    static let notStoreEvents: Set<String> = ["voicePeerJoined", "voicePeerList", "error", "tournamentGameAssignment", "serverError"]
 
     func testEveryRecordedEventDecodesStrictly() throws {
         var counts: [String: Int] = [:]
@@ -22,16 +21,14 @@ final class ServerEventDecodingTests: XCTestCase {
                         if event == "error" {
                             XCTAssertNoThrow(try Wire.decode(WirePayload.ServerError.self, payload.first, strict: true))
                         }
-                        if event == "spectatorsUpdated" {
-                            // never sequenced: skipping it leaves no gap in the seq gate
-                            XCTAssertNil((payload.first as? [String: Any])?["seq"], "\(name)/\(label) spectatorsUpdated carries seq")
-                        }
                         continue
                     }
                     switch ServerEvent.decode(name: event, payload: payload, strict: true) {
                     case .success(let ev):
                         counts[event, default: 0] += 1
-                        let rawSeq = (payload.first as? [String: Any])?["seq"] as? Int
+                        // spectatorsUpdated is UNSEQUENCED: decoded with no seq (it goes around the gate)
+                        let rawSeq = event == "spectatorsUpdated" ? nil : (payload.first as? [String: Any])?["seq"] as? Int
+                        if event == "spectatorsUpdated" { XCTAssertNil((payload.first as? [String: Any])?["seq"], "\(name)/\(label) spectatorsUpdated carries seq") }
                         XCTAssertEqual(ev.seq, rawSeq, "\(name)/\(label) #\(entry["i"] ?? "?") \(event)")
                     case .failure(let err):
                         XCTFail("\(name)/\(label) #\(entry["i"] ?? "?") \(event): \(err)")
@@ -39,7 +36,7 @@ final class ServerEventDecodingTests: XCTestCase {
                 }
             }
         }
-        for e in ["gameStart", "cardPlayed", "bidReceived", "rejoinSuccess", "spectatorJoined", "actionRejected", "restorePlayerState", "playerResigned"] {
+        for e in ["gameStart", "cardPlayed", "bidReceived", "rejoinSuccess", "spectatorJoined", "actionRejected", "restorePlayerState", "playerResigned", "spectatorsUpdated"] {
             XCTAssertGreaterThan(counts[e] ?? 0, 0, e)
         }
     }

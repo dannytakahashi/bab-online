@@ -12,12 +12,12 @@ struct TournamentScoreboardView: View {
                 HStack {
                     Text("Scoreboard")
                         .font(.caption.bold())
-                        .foregroundColor(Color.Theme.textSecondary)
+                        .foregroundColor(Theme.textSecondary)
                     Spacer()
                 }
                 .padding(.horizontal)
-                .padding(.top, 12)
-                .padding(.bottom, 4)
+                .padding(.top, Theme.Space.s3)
+                .padding(.bottom, Theme.Space.s1)
 
                 // Header row
                 HStack(spacing: 0) {
@@ -32,9 +32,9 @@ struct TournamentScoreboardView: View {
                         .bold()
                 }
                 .font(.caption)
-                .foregroundColor(Color.Theme.textDim)
+                .foregroundColor(Theme.textDim)
                 .padding(.horizontal)
-                .padding(.vertical, 4)
+                .padding(.vertical, Theme.Space.s1)
 
                 // Score rows
                 ForEach(Array(tournamentState.scoreboard.enumerated()), id: \.element.id) { index, entry in
@@ -56,7 +56,7 @@ struct TournamentScoreboardView: View {
                             } else {
                                 Text("-")
                                     .frame(width: 40)
-                                    .foregroundColor(Color.Theme.textDim)
+                                    .foregroundColor(Theme.textDim)
                             }
                         }
 
@@ -65,14 +65,14 @@ struct TournamentScoreboardView: View {
                             .bold()
                     }
                     .font(.caption)
-                    .foregroundColor(isCurrentUser ? Color.Theme.primary : Color.Theme.textPrimary)
+                    .foregroundColor(isCurrentUser ? Theme.primary : Theme.textPrimary)
                     .padding(.horizontal)
                     .padding(.vertical, 6)
-                    .background(isCurrentUser ? Color.Theme.primary.opacity(0.1) : Color.clear)
+                    .background(isCurrentUser ? Theme.primary.opacity(0.1) : Color.clear)
                 }
             }
-            .background(Color.Theme.surface)
-            .cornerRadius(10)
+            .background(Theme.surface)
+            .cornerRadius(Theme.Radius.md)
             .padding(.horizontal)
         }
     }
@@ -82,15 +82,15 @@ struct TournamentScoreboardView: View {
         switch index {
         case 0:
             Image(systemName: "medal.fill")
-                .foregroundColor(Color(red: 1.0, green: 0.84, blue: 0.0))  // gold
+                .foregroundColor(Theme.medalGold)
                 .font(.caption2)
         case 1:
             Image(systemName: "medal.fill")
-                .foregroundColor(Color(white: 0.75))  // silver
+                .foregroundColor(Theme.medalSilver)
                 .font(.caption2)
         case 2:
             Image(systemName: "medal.fill")
-                .foregroundColor(Color(red: 0.8, green: 0.5, blue: 0.2))  // bronze
+                .foregroundColor(Theme.medalBronze)
                 .font(.caption2)
         default:
             EmptyView()

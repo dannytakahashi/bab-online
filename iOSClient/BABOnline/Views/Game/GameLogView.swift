@@ -18,10 +18,10 @@ struct GameLogView: View {
 
                 GameLogPanel(style: .drawer, onClose: { withAnimation { isShowing = false } })
                     .frame(width: min(320, geo.size.width * 0.8))
-                    .background(Color.Theme.surface.opacity(0.95))
-                    .cornerRadius(12)
-                    .shadow(color: .black.opacity(0.5), radius: 10)
-                    .padding(.trailing, 8)
+                    .background(Theme.surface.opacity(0.95))
+                    .cornerRadius(Theme.Radius.md)
+                    .elevation(Theme.Elevation.e3)
+                    .padding(.trailing, Theme.Space.s2)
                     .padding(.vertical, 60)
             }
         }
@@ -66,30 +66,32 @@ struct GameLogPanel: View {
                     HStack {
                         Text("Game Log")
                             .font(.headline)
-                            .foregroundColor(Color.Theme.textPrimary)
+                            .foregroundColor(Theme.textPrimary)
                         Spacer()
                         if style == .drawer {
                             Button(action: { onClose?() }) {
                                 Image(systemName: "xmark.circle.fill")
-                                    .foregroundColor(Color.Theme.textDim)
+                                    .foregroundColor(Theme.textDim)
                             }
                         }
                     }
-                    .padding(12)
+                    .padding(Theme.Space.s3)
 
-                    Divider().background(Color.Theme.inputBorder, ignoresSafeAreaEdges: [])  // not into the vertical bar
+                    Divider().background(Theme.inputBorder, ignoresSafeAreaEdges: [])  // not into the vertical bar
 
                     // Messages
                     ScrollViewReader { proxy in
                         ScrollView {
-                            LazyVStack(alignment: .leading, spacing: 4) {
-                                ForEach(gameState.gameLog) { entry in
+                            LazyVStack(alignment: .leading, spacing: Theme.Space.s1) {
+                                let dividers = ChatTimestamps.dividerIndices(gameState.gameLog.map(\.timestamp))
+                                ForEach(Array(gameState.gameLog.enumerated()), id: \.element.id) { i, entry in
                                     GameLogEntryView(entry: entry)
                                         .id(entry.id)
                                         .reportBlockMenu(for: entry, currentUsername: gameState.username ?? "", reportTarget: $reportTarget)
+                                        .chatTimeDivider(dividers.contains(i), date: entry.timestamp)
                                 }
                             }
-                            .padding(.horizontal, 12)
+                            .padding(.horizontal, Theme.Space.s3)
                             .padding(.vertical, 6)
                         }
                         .onAppear {
@@ -106,32 +108,32 @@ struct GameLogPanel: View {
                         }
                     }
 
-                    Divider().background(Color.Theme.inputBorder, ignoresSafeAreaEdges: [])  // not into the vertical bar
+                    Divider().background(Theme.inputBorder, ignoresSafeAreaEdges: [])  // not into the vertical bar
 
                     // Slash command autocomplete
                     if showAutocomplete && !filteredCommands.isEmpty {
                         VStack(spacing: 0) {
                             ForEach(filteredCommands, id: \.command) { cmd in
                                 Button(action: { submitCommand(cmd.command) }) {
-                                    HStack(spacing: 8) {
+                                    HStack(spacing: Theme.Space.s2) {
                                         Text(cmd.command)
-                                            .font(.system(size: 13, weight: .bold, design: .monospaced))
-                                            .foregroundColor(.green)
+                                            .font(.footnote.bold().monospaced())
+                                            .foregroundColor(Theme.success)
                                         Text(cmd.description)
-                                            .font(.system(size: 12))
-                                            .foregroundColor(Color.Theme.textDim)
+                                            .font(.caption)
+                                            .foregroundColor(Theme.textDim)
                                         Spacer()
                                     }
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 8)
+                                    .padding(.horizontal, Theme.Space.s3)
+                                    .padding(.vertical, Theme.Space.s2)
                                 }
                             }
                         }
-                        .background(Color.Theme.surface, ignoresSafeAreaEdges: .bottom)
+                        .background(Theme.surface, ignoresSafeAreaEdges: .bottom)
                     }
 
                     // Chat input
-                    HStack(spacing: 8) {
+                    HStack(spacing: Theme.Space.s2) {
                         TextField("Chat...", text: $chatMessage)
                             .textFieldStyle(BABTextFieldStyle())
                             .onChange(of: chatMessage) {
@@ -144,11 +146,11 @@ struct GameLogPanel: View {
                         Button(action: sendChat) {
                             Image(systemName: "arrow.up.circle.fill")
                                 .font(.title3)
-                                .foregroundColor(chatMessage.isEmpty ? Color.Theme.textDim : Color.Theme.primary)
+                                .foregroundColor(chatMessage.isEmpty ? Theme.textDim : Theme.primary)
                         }
                         .disabled(chatMessage.isEmpty)
                     }
-                    .padding(8)
+                    .padding(Theme.Space.s2)
                 }
         // docked and visible: what it shows is read
         .onAppear { if style == .docked { gameState.apply(.local(.chatRead)) } }
@@ -187,26 +189,26 @@ struct GameLogEntryView: View {
     let entry: ChatMessage
 
     var body: some View {
-        HStack(alignment: .top, spacing: 4) {
+        HStack(alignment: .top, spacing: Theme.Space.s1) {
             if entry.type == .system {
                 Text(entry.message)
-                    .font(.system(size: 11))
-                    .foregroundColor(Color.Theme.textDim)
+                    .font(.caption2)
+                    .foregroundColor(Theme.textDim)
                     .italic()
             } else {
                 Text("\(entry.username):")
-                    .font(.system(size: 11, weight: .bold))
+                    .font(.caption2.bold())
                     .foregroundColor(usernameColor)
                 Text(entry.message)
-                    .font(.system(size: 11))
-                    .foregroundColor(Color.Theme.textPrimary)
+                    .font(.caption2)
+                    .foregroundColor(Theme.textPrimary)
             }
         }
     }
 
     private var usernameColor: Color {
         if entry.type == .spectator {
-            return Color.Theme.textDim
+            return Theme.textDim
         }
         // Use team-based color if position is available
         if let position = entry.position {

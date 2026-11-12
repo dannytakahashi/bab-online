@@ -39,9 +39,9 @@ struct BidOverlayView: View {
                         Text("\(bid)")
                             .font(.callout.bold())
                             .frame(width: Self.face, height: Self.face)
-                            .background(selectedBid == bidStr ? Color.Theme.primary : Color.Theme.surfaceLight)
-                            .foregroundColor(selectedBid == bidStr ? .black : Color.Theme.textPrimary)
-                            .cornerRadius(6)
+                            .background(selectedBid == bidStr ? Theme.primary : Theme.surfaceLight)
+                            .foregroundColor(selectedBid == bidStr ? Theme.buttonForeground : Theme.textPrimary)
+                            .cornerRadius(Theme.Radius.sm)
                             .frame(width: Self.cell, height: Self.cell)
                             .contentShape(Rectangle())
                     }
@@ -50,7 +50,7 @@ struct BidOverlayView: View {
             }
             .padding(.horizontal, 6)
 
-            HStack(spacing: 8) {
+            HStack(spacing: Theme.Space.s2) {
                 // Bore buttons inline with submit
                 if !availableBoreLevels.isEmpty {
                     ForEach(availableBoreLevels, id: \.self) { level in
@@ -58,11 +58,11 @@ struct BidOverlayView: View {
                             Text(level)
                                 .font(.caption.bold())
                                 .frame(minWidth: Self.cell - 4)
-                                .padding(.horizontal, 8)
+                                .padding(.horizontal, Theme.Space.s2)
                                 .frame(height: Self.rowHeight)
-                                .background(selectedBid == level ? Color.Theme.oppColor : Color.Theme.surfaceLight)
-                                .foregroundColor(selectedBid == level ? .white : Color.Theme.textPrimary)
-                                .cornerRadius(6)
+                                .background(selectedBid == level ? Theme.danger : Theme.surfaceLight)
+                                .foregroundColor(selectedBid == level ? Theme.dangerForeground : Theme.textPrimary)
+                                .cornerRadius(Theme.Radius.sm)
                                 .contentShape(Rectangle().inset(by: -2))
                         }
                         .accessibilityShowsLargeContentViewer()
@@ -75,32 +75,32 @@ struct BidOverlayView: View {
                 Button(action: submitBid) {
                     Group {
                         if isSubmitted {
-                            ProgressView().tint(.white)
+                            ProgressView().tint(Theme.buttonDisabledForeground)
                         } else {
                             Text("Submit")
                         }
                     }
                     .font(.callout.bold())
-                    .padding(.horizontal, 24)
+                    .padding(.horizontal, Theme.Space.s6)
                     .frame(height: Self.rowHeight)
-                    .background(selectedBid != nil && !isSubmitted ? Color.Theme.buttonBackground : Color.Theme.buttonDisabled)
-                    .foregroundColor(.white)
-                    .cornerRadius(8)
+                    .background(selectedBid != nil && !isSubmitted ? Theme.buttonBackground : Theme.buttonDisabled)
+                    .foregroundColor(selectedBid != nil && !isSubmitted ? Theme.buttonForeground : Theme.buttonDisabledForeground)
+                    .cornerRadius(Theme.Radius.md)
                     .contentShape(Rectangle().inset(by: -2))
                 }
                 .disabled(selectedBid == nil || isSubmitted)
                 .accessibilityShowsLargeContentViewer()
             }
-            .padding(.horizontal, 8)
+            .padding(.horizontal, Theme.Space.s2)
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, Theme.Space.s1)
         .disabled(isSubmitted)
         .background(
-            RoundedRectangle(cornerRadius: 14)
-                .fill(Color.Theme.surface.opacity(0.95))
-                .shadow(color: .black.opacity(0.4), radius: 10)
+            RoundedRectangle(cornerRadius: Theme.Radius.lg)
+                .fill(Theme.surface.opacity(0.95))
+                .elevation(Theme.Elevation.e2)
         )
-        .padding(.horizontal, 8)
+        .padding(.horizontal, Theme.Space.s2)
         // capped so the panel fits the layout's 340 x 140 bid band
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
         .accessibilityElement(children: .contain)

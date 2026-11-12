@@ -53,10 +53,10 @@ const c2s = {
             build: str({ maxLength: 64 }),
             caps: arr(str({ minLength: 1, maxLength: 32 }), { maxItems: 16 }),
         }, { optional: ['build'] }),
-        status: 'active', joi: 'clientHello', rateLimit: 'clientHello', sentBy: { web: true, ios: false },
-        examples: [{ client: 'web', version: '1.0.0', build: 'abc1234', caps: ['avatarUrl'] }, { client: 'ios', version: '1.1.0', caps: [] }],
+        status: 'active', joi: 'clientHello', rateLimit: 'clientHello', sentBy: both,
+        examples: [{ client: 'web', version: '1.0.0', build: 'abc1234', caps: ['avatarUrl'] }, { client: 'ios', version: '1.2.0', build: '3', caps: ['avatarUrl'] }, { client: 'ios', version: '1.1.0', caps: [] }],
         invalid: [{ client: 'web', version: '1.0.0' }, { client: 'web', version: '1', caps: 'avatarUrl' }, { client: '', version: '1', caps: [] }, { client: 'Web!', version: '1', caps: [] }],
-        notes: 'Sent on every connect by clients that read avatarUrl / avatarUrls ($defs.clientCap). No reply. Absent = legacy shape (the App Store iOS build, cached old web bundles). Unknown caps are ignored; the last hello wins (one without avatarUrl downgrades the socket). Over the rate limit it is dropped silently. Logged with the client version (telemetry for V1_REMOVALS).',
+        notes: 'Sent on every connect by clients that read avatarUrl / avatarUrls ($defs.clientCap). No reply. Absent = legacy shape (iOS 1.1.0, cached old web bundles); iOS sends it from 1.2.0 (SocketService, on every connect before restoreSession). Unknown caps are ignored; the last hello wins (one without avatarUrl downgrades the socket). Over the rate limit it is dropped silently. Logged with the client version (telemetry for V1_REMOVALS).',
     },
     deleteAccount: { payload: open({ password: password() }), status: 'active', joi: 'deleteAccount', rateLimit: 'deleteAccount', sentBy: both, examples: [{ password: 'pw' }], invalid: [{ password: '' }, {}] },
 
@@ -129,10 +129,10 @@ const c2s = {
     voiceRelayAudio: { payload: open({ targetSocketId: str({ minLength: 1, maxLength: 64 }), audio: { type: ['string', 'object', 'array'] } }), status: 'deprecated', joi: null, joiInHandler: 'voiceRelayAudio', rateLimit: null, sentBy: webOnly, examples: [{ targetSocketId: 's1', audio: 'AAAA' }], invalid: [{ targetSocketId: 's1' }, { targetSocketId: '', audio: 'AAAA' }], notes: 'Its Joi schema (joiInHandler, V1_REMOVALS #18) bounds the target; the audio is checked by isRelayChunk. Forwarded only to a connected socket id (never a room) of a signed-in peer in the sender\'s lobby or game (entrant / seat owner; not a pure spectator), when neither user blocked the other, within the per-socket limit rateLimiter.voiceRelayAudio (1200 / 10 s), checked in-handler; anything else is dropped silently (no reply, never error). The web PCM fallback after a failed P2P connection. Only binary audio is forwarded (the web client emits an Int16Array\'s ArrayBuffer; the server receives a Buffer): non-empty, an even byte count, at most 64 KB. A string, array, number or plain object is dropped (the web receiver decodes with new Int16Array, which reads those as a sample count). No current web bundle sends it (TURN replaced it, 2026-11-11); the handler stays for web bundles cached before that deploy (V1_REMOVALS #20).' },
     getVoiceIceServers: {
         payload: open({ requestId: str({ minLength: 1, maxLength: 64 }) }, { optional: ['requestId'] }),
-        optionalPayload: true, status: 'active', joi: 'getVoiceIceServers', rateLimit: 'getVoiceIceServers', sentBy: webOnly,
+        optionalPayload: true, status: 'active', joi: 'getVoiceIceServers', rateLimit: 'getVoiceIceServers', sentBy: both,
         examples: [{}, { requestId: 'ice-1' }],
         invalid: [{ requestId: '' }, { requestId: 'x'.repeat(65) }, { requestId: 7 }],
-        notes: 'Answered by voiceIceServers to this socket only (requestId echoed). Web asks before its first peer connection of a voice session and again before the credentials expire. TURN credentials (Cloudflare Realtime, minted server-side, cached per user) only for a signed-in socket that is a voice peer now (in a lobby, or an entrant / seat owner of a game); everyone else, and every failure (env unset, Cloudflare timeout or error), gets the public STUN servers. iOS 1.1.0 does not send it (it hard-codes STUN); the next iOS release will (V1_REMOVALS "iOS TURN").',
+        notes: 'Answered by voiceIceServers to this socket only (requestId echoed). Web asks before its first peer connection of a voice session and again before the credentials expire. TURN credentials (Cloudflare Realtime, minted server-side, cached per user) only for a signed-in socket that is a voice peer now (in a lobby, or an entrant / seat owner of a game); everyone else, and every failure (env unset, Cloudflare timeout or error), gets the public STUN servers. iOS 1.1.0 does not send it (it hard-codes STUN); iOS 1.2.0 asks on every voice start and before its restart (Voice/IceServerStore.swift; V1_REMOVALS "iOS TURN").',
     },
 
     // Admin panel (web only; the iOS app never sends it)

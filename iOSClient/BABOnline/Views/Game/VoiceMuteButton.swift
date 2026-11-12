@@ -11,15 +11,16 @@ struct VoiceMuteButton: View {
             HapticManager.lightImpact()
         }) {
             Image(systemName: voiceManager.isSelfMuted ? "mic.slash.fill" : "mic.fill")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundColor(.white)
-                .frame(width: 44, height: 44)
-                .background(voiceManager.isSelfMuted ? Color.red.opacity(0.9) : Color(white: 0.2).opacity(0.9))
+                .font(.body.weight(.semibold))
+                .dynamicTypeSize(...DynamicTypeSize.xxLarge)  // the glyph stays inside the 44 pt circle
+                .foregroundColor(Theme.textPrimary)
+                .frame(width: Theme.hitTarget, height: Theme.hitTarget)
+                .background(voiceManager.isSelfMuted ? Theme.danger : Theme.Palette.Surface.s2.opacity(0.9).color)
                 .clipShape(Circle())
                 .overlay(
                     Circle()
                         .stroke(voiceManager.isSelfSpeaking && !voiceManager.isSelfMuted
-                                ? Color.green : Color(white: 0.4),
+                                ? Theme.success : Theme.inputBorder,
                                 lineWidth: voiceManager.isSelfSpeaking && !voiceManager.isSelfMuted ? 2 : 1)
                 )
         }

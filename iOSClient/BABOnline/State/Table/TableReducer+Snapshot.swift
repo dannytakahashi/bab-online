@@ -69,6 +69,7 @@ extension TableReducer {
         s.players.socketBySeat = sameGame ? prev.players.socketBySeat : [:]
         for (pos, sid) in hints?.sockets ?? [:] { s.players.socketBySeat[pos] = sid }
         s.players.spectatorCount = snap.spectatorCount
+        s.players.watching = WatchingList(snap.watching)
         if let offered = snap.seats.first(where: { $0.offered }) {
             s.players.resignationOffer = ResignationOffer(position: offered.position, username: offered.ownerUsername ?? offered.username ?? "")
         }
@@ -79,7 +80,7 @@ extension TableReducer {
         } else {
             s.log.entries = snap.log.map { entry in
                 ChatMessage(username: "System", message: entry.message, type: ChatMessage.MessageType(rawValue: entry.type.rawValue) ?? .system,
-                            position: Position.valid(entry.position))
+                            position: Position.valid(entry.position), timestamp: ChatMessage.serverDate(entry.at) ?? Date())
             }
         }
 
@@ -170,7 +171,12 @@ extension TableReducer {
         case .gone: presence = .gone
         case .none, .unknown: presence = .none
         }
-        return SeatState(position: seat.position, username: seat.username, pic: pic, avatarUrl: seat.avatarUrl,
+        // the URL: the snapshot's, else the carrier's avatarUrls, else the one held for that username
+        var avatarUrl = seat.avatarUrl ?? hints?.avatarUrls[seat.position]
+        if avatarUrl == nil, seat.hasCustomPic {
+            avatarUrl = prev.values.first(where: { $0.username == seat.username && $0.avatarUrl != nil })?.avatarUrl
+        }
+        return SeatState(position: seat.position, username: seat.username, pic: pic, avatarUrl: avatarUrl,
                          ownerUsername: seat.ownerUsername, controller: controller, presence: presence,
                          isBot: seat.isBot, lazy: seat.lazy, cardsInHand: seat.cardsInHand)
     }

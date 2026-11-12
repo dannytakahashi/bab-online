@@ -80,6 +80,10 @@
     --card-dim-tint-rgb: 153 153 153;
     --card-shadow: rgb(0 0 0 / 0.451);
     --card-shadow-rgb: 0 0 0;
+    --medal-silver: #c0c7c4;
+    --medal-silver-rgb: 192 199 196;
+    --medal-bronze: #cd8034;
+    --medal-bronze-rgb: 205 128 52;
     --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     --weight-regular: 400;
     --weight-medium: 500;

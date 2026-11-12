@@ -21,26 +21,26 @@ struct TournamentResultsView: View {
 
     var body: some View {
         ZStack {
-            Color.black.opacity(0.7).ignoresSafeArea()
+            Theme.scrim.ignoresSafeArea()
 
-            VStack(spacing: 24) {
+            VStack(spacing: Theme.Space.s6) {
                 // Trophy icon
                 Image(systemName: "trophy.fill")
-                    .font(.system(size: 48))
-                    .foregroundColor(Color.Theme.warning)
+                    .themeFont(Theme.TypeScale.display, relativeTo: .largeTitle)
+                    .foregroundColor(Theme.warning)
 
                 Text("Tournament Complete!")
-                    .font(.system(size: 28, weight: .bold, design: .rounded))
-                    .foregroundColor(Color.Theme.warning)
+                    .themeFont(Theme.TypeScale.xl, weight: Theme.Weight.bold, design: .rounded, relativeTo: .title)
+                    .foregroundColor(Theme.warning)
 
                 if let winnerText = winnerText {
                     Text(winnerText)
                         .font(.title2.bold())
-                        .foregroundColor(Color.Theme.textPrimary)
+                        .foregroundColor(Theme.textPrimary)
                 }
 
                 // Final standings
-                VStack(spacing: 4) {
+                VStack(spacing: Theme.Space.s1) {
                     ForEach(Array(tournamentState.scoreboard.enumerated()), id: \.element.id) { index, entry in
                         HStack {
                             Text("\(index + 1).")
@@ -50,7 +50,7 @@ struct TournamentResultsView: View {
 
                             Text(entry.username)
                                 .font(.body)
-                                .foregroundColor(Color.Theme.textPrimary)
+                                .foregroundColor(Theme.textPrimary)
 
                             Spacer()
 
@@ -58,39 +58,34 @@ struct TournamentResultsView: View {
                                 .font(.body.bold())
                                 .foregroundColor(rankColor(index))
                         }
-                        .padding(.horizontal, 20)
+                        .padding(.horizontal, Theme.Space.s5)
                         .padding(.vertical, 6)
                     }
                 }
-                .padding(.vertical, 8)
+                .padding(.vertical, Theme.Space.s2)
 
                 Button(action: returnToMainRoom) {
                     Text("Return to Main Room")
                         .font(.body.bold())
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
-                        .background(Color.Theme.buttonBackground)
-                        .foregroundColor(.white)
-                        .cornerRadius(10)
+                        .background(Theme.buttonBackground)
+                        .foregroundColor(Theme.buttonForeground)
+                        .cornerRadius(Theme.Radius.md)
                 }
-                .padding(.horizontal, 40)
+                .padding(.horizontal, Theme.Space.s10)
             }
-            .padding(32)
+            .padding(Theme.Space.s8)
             .background(
-                RoundedRectangle(cornerRadius: 20)
-                    .fill(Color.Theme.surface)
+                RoundedRectangle(cornerRadius: Theme.Radius.lg)
+                    .fill(Theme.surface)
             )
-            .padding(.horizontal, 24)
+            .padding(.horizontal, Theme.Space.s6)
         }
     }
 
     private func rankColor(_ index: Int) -> Color {
-        switch index {
-        case 0: return Color(red: 1.0, green: 0.84, blue: 0.0)   // gold
-        case 1: return Color(white: 0.75)                          // silver
-        case 2: return Color(red: 0.8, green: 0.5, blue: 0.2)    // bronze
-        default: return Color.Theme.textSecondary
-        }
+        return Theme.medal(rank: index + 1) ?? Theme.textSecondary
     }
 
     private func returnToMainRoom() {

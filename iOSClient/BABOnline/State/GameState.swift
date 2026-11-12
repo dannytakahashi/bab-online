@@ -161,9 +161,15 @@ final class GameState: ObservableObject {
     var hsiValues: [Int: Double] { table.hsi }
 
     var disconnectedPlayers: [Int: String] { players.disconnected }
+    /// The "Replace with Bot" offer, only while its seat is still resignable (the reducer
+    /// clears it on playerReconnected / playerActiveMode / playerResigned / a moved offer /
+    /// every snapshot; this guard keeps a stale one off screen whatever the order).
     var resignationAvailable: (position: Int, username: String)? {
-        players.resignationOffer.map { (position: $0.position, username: $0.username) }
+        guard let offer = players.resignationOffer, players.seats[offer.position]?.presence == .resignable else { return nil }
+        return (position: offer.position, username: offer.username)
     }
+    /// Who is watching (the spectator badge).
+    var watching: WatchingList { players.watching }
 
     var gameLog: [ChatMessage] { log.entries }
     var unreadChatCount: Int { log.unread }

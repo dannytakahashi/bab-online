@@ -23,7 +23,7 @@ private struct MainRoomScreen: View {
 
     var body: some View {
         ZStack {
-            Color.Theme.background.ignoresSafeArea()
+            Theme.background.ignoresSafeArea()
 
             // Regular width (iPad, the open Duo): side by side; compact: stacked.
             // One AnyLayout keeps the children's identity (and the chat field's
@@ -89,7 +89,7 @@ private struct MainRoomScreen: View {
                 }
                 .padding()
 
-                Divider().background(Color.Theme.inputBorder, ignoresSafeAreaEdges: .vertical)
+                Divider().background(Theme.inputBorder, ignoresSafeAreaEdges: .vertical)
             }
 
             // Lobby list
@@ -99,11 +99,11 @@ private struct MainRoomScreen: View {
 
     private func lobbyHeader(iconsOnly: Bool) -> some View {
         HStack(spacing: iconsOnly ? 4 : 8) {
-            headerButton("New Game", icon: "suit.spade.fill", color: Color.Theme.primary,
+            headerButton("New Game", icon: "suit.spade.fill", color: Theme.primary,
                          iconsOnly: iconsOnly) { LobbyEmitter.createLobby() }
-            headerButton("Tournament", icon: "trophy.fill", color: Color.Theme.warning,
+            headerButton("Tournament", icon: "trophy.fill", color: Theme.warning,
                          iconsOnly: iconsOnly) { TournamentEmitter.createTournament() }
-            headerButton("Stats", icon: "chart.bar.fill", color: Color.Theme.textSecondary,
+            headerButton("Stats", icon: "chart.bar.fill", color: Theme.textSecondary,
                          iconsOnly: iconsOnly) { showLeaderboard = true }
 
             Spacer(minLength: 8)
@@ -113,13 +113,13 @@ private struct MainRoomScreen: View {
                     .font(.caption)
                     .lineLimit(1)
                     .fixedSize()
-                    .foregroundColor(Color.Theme.textSecondary)
+                    .foregroundColor(Theme.textSecondary)
             }
 
             Button(action: { showAccountSettings = true }) {
                 Image(systemName: "gearshape.fill")
                     .font(.callout)
-                    .foregroundColor(Color.Theme.textSecondary)
+                    .foregroundColor(Theme.textSecondary)
                     .frame(minWidth: 32, minHeight: 32)
                     .contentShape(Rectangle())
             }
@@ -134,9 +134,9 @@ private struct MainRoomScreen: View {
     @ToolbarContentBuilder
     private var barControls: some ToolbarContent {
         ToolbarItemGroup(placement: .topBarLeading) {
-            barButton("New Game", icon: "suit.spade.fill", color: Color.Theme.primary) { LobbyEmitter.createLobby() }
-            barButton("Tournament", icon: "trophy.fill", color: Color.Theme.warning) { TournamentEmitter.createTournament() }
-            barButton("Stats", icon: "chart.bar.fill", color: Color.Theme.textSecondary) { showLeaderboard = true }
+            barButton("New Game", icon: "suit.spade.fill", color: Theme.primary) { LobbyEmitter.createLobby() }
+            barButton("Tournament", icon: "trophy.fill", color: Theme.warning) { TournamentEmitter.createTournament() }
+            barButton("Stats", icon: "chart.bar.fill", color: Theme.textSecondary) { showLeaderboard = true }
         }
         ToolbarItemGroup(placement: .topBarTrailing) {
             // The vertical bar lays out symbols only (a text or custom label lands outside
@@ -195,10 +195,10 @@ private struct OnlineUsersSheet: View {
         NavigationView {
             List(users, id: \.self) { username in
                 Text(username)
-                    .foregroundColor(Color.Theme.textPrimary)
+                    .foregroundColor(Theme.textPrimary)
             }
             .listStyle(.plain)
-            .background(Color.Theme.background)
+            .background(Theme.background)
             .scrollContentBackground(.hidden)
             .navigationTitle("Online Players")
             .navigationBarTitleDisplayMode(.inline)

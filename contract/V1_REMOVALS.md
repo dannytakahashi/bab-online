@@ -372,6 +372,17 @@ it a Joi schema meanwhile; remove that with the handler.
 
 ## iOS TURN (next App Store release, roadmap 29 track; not a removal)
 
+**Done in iOS 1.2.0 (build 3, branch ios/release-1.2):** `Voice/IceServerStore.swift`
+(`IcePolicy`, `IceServerStore`, `VoiceRecovery`) + `VoiceChatManager`: the
+request goes out in parallel with the microphone prompt on every voice start
+(`ice-<n>`, 4 s, else STUN), a TURN answer is reused per username and
+refreshed 30 min before expiry (`setConfiguration`), a STUN answer is asked
+again on every start and restart; one restart (lower socket id offers, the
+other waits 15 s), a 20 s connect timeout, then "voice unavailable" in the
+voice panel; credentials are never logged (the descriptions leave them out)
+or persisted. Tests: `Release12Tests.swift` (IcePolicyTests,
+IceServerStoreTests, VoiceRecoveryTests). The spec as written for it:
+
 iOS 1.1.0 hard-codes Google STUN (`VoiceChatManager.iceConfig`,
 `iOSClient/BABOnline/Voice/VoiceChatManager.swift`), so an iOS peer behind
 a strict NAT still cannot connect, to web or iOS. The next iOS build needs:
@@ -403,6 +414,22 @@ The App Privacy answers do not change: TURN relays the encrypted SRTP
 stream and nothing is stored.
 
 ## iOS spectator badge (next App Store release, roadmap 29 track; not a removal)
+
+**Done in iOS 1.2.0:** `ServerEvent.spectators` (decoded with seq nil, so it
+goes around the gate; another game's list is dropped), `PlayersSlice.watching`
+(from the event and every snapshot's `watching`; a new game and reset clear
+it), `TableLayout+Spectators.swift` (`spectatorBadge(spectating:)`: beside
+HSI / voice, a spectator's in the bottom-right corner; `spectatorBubbleCenter`),
+`Views/Game/SpectatorBadgeView.swift` (eye.fill + count, "2 people watching",
+the list with avatars and "(you)", "and N more"), and the bubble
+(`TableAnimation.spectatorChatBubble`, `SKChatBubbleManager.showSpectator`:
+"Name: text", one at a time, the seats' 5 s, routed on `isSpectator`).
+Tests: `Release12Tests.swift` (SpectatorStateTests, ChatRoutingTests,
+SpectatorBadgeLayoutTests, SpectatorBubbleSceneTests), the replay harnesses
+(they no longer skip spectatorsUpdated; `TableProjection.watching`). One
+difference from point 3: the generated `TableSnapshot.watching` is required,
+so a snapshot without the key fails to decode (every server since 2026-11-11
+sends it). The spec as written for it:
 
 Web shows who is watching at the table since 2026-11-11 (an eye and the
 count in the bottom-right corner, the names with avatars on tap; owner's
@@ -547,3 +574,48 @@ Next client work that unblocks the most: an iOS build that listens to
 `serverError`, sends `clientHello {caps:['avatarUrl']}` and maps voice
 peers without socket ids (#1B, #19, #9, #14), and web reading v2 seats /
 spectator snapshots (#5, #6, #7, #8).
+
+## What iOS 1.2.0 unblocks (once it is widely adopted)
+
+iOS 1.2.0 (build 3) does that iOS work. "Widely adopted" = the
+`iOS app connected {build}` log shows (almost) no build-2 sockets, and then
+`MIN_IOS_BUILD` in `server/socket/upgradeGate.js` goes to 3, which gates
+1.1.0 the way 1.0.0 is gated today (its own PR, with the gate's v1 payloads
+re-checked against what 1.1.0 reads). Until then 1.1.0 keeps every blocker
+listed above. What 1.2.0 itself still reads is the remaining blocker:
+
+- **#1 phase B (drop app-level `error`)**: 1.2.0 listens to `serverError
+  {code, message, handler}` (SocketService; `error` and `serverError` twins
+  are deduped, one toast and one table resync) and keeps the `error` path
+  for today's server. iOS no longer blocks it; web still listens to `error`.
+- **#19 inline avatar images**: 1.2.0 sends `clientHello {client:'ios',
+  version, build, caps:['avatarUrl']}` on every connect (before
+  restoreSession) and renders `avatarUrl` / `avatarUrls` (positionUpdate,
+  gameStart, playerActiveMode, rejoin / restore / spectator carriers,
+  snapshot seats, the spectator list) through `AvatarTextureCache`
+  (`/avatar/...` paths, URLSession's cache), with the inline picture as the
+  fallback when a URL fails. Step "the clientHello log shows no socket
+  without the cap for 2+ weeks" can start counting once 1.1.0 is gated.
+  1.2.0 does not show profile, leaderboard or search pictures, so #19 B
+  never mattered to iOS.
+- **#9 legacy client-state keys**: `players[].pic` is now only a fallback
+  (the carrier's `avatarUrls` and the snapshot's `avatarUrl` come first) and
+  `players[].socketId` is no longer needed for the speaking glows (below).
+  iOS no longer blocks #9; web (item 16) still does.
+- **#14 socket ids on the wire**: the speaking glows map a voice peer to its
+  seat by the peer's username (voicePeerList / voiceOffer carry it;
+  `TableRenderModel.seat(forVoicePeer:username:)`), the seat socket id only
+  as a fallback. Still read by 1.2.0: `positionUpdate.sockets` tells a native
+  bot (`bot:` prefix) from a human and finds my own seat (a username match is
+  the fallback), and the voice signaling itself targets socket ids
+  (`voiceOffer.targetSocketId`, `fromSocketId`), which #14 does not remove.
+  Before dropping `positionUpdate.sockets`, add a seat kind to positionUpdate
+  (e.g. `isBot[]`) and have a later iOS build read it.
+- **#10 `cardPlayed.trump`**, **#12 `chatMessage.type`**, **#13
+  `recentMessages`**: already safe for 1.1.0; 1.2.0 reads `trumpBroken ??
+  trump`, routes chat on `isSpectator` (`type` only as the older server's
+  fallback) and reads `recentMessages ?? messages`.
+- **#3 client-only listeners**: 1.2.0 still registers `lobbyJoined`,
+  `roomFull` and `activeTournamentFound` (and `activeGameFound`); they are
+  harmless (never emitted) and can go in a later build.
+- **#17 `serverShutdown`**: not handled by 1.2.0.

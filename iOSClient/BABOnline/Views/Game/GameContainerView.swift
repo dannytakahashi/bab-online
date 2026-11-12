@@ -61,6 +61,7 @@ private struct GameScreen: View {
     // Item 27-4: the fold and the docked log
     @Environment(\.horizontalSizeClass) private var hSizeClass
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverOn
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.verticalSizeClass) private var vSizeClass
     /// Bumped by every hinge change so the fold is read again at the same size.
     @State private var hingeTick = 0
@@ -132,7 +133,7 @@ private struct GameScreen: View {
                             .frame(width: dockWidth(mode))
                             // only up and down: the side insets are the Duo's vertical bar (the
                             // status column and the Leave / Log items), which shows the felt
-                            .background(Color.Theme.surface.ignoresSafeArea(edges: .vertical))
+                            .background(Theme.surface.ignoresSafeArea(edges: .vertical))
                     }
                 }
                 .onChange(of: mode, initial: true) { _, m in
@@ -148,7 +149,7 @@ private struct GameScreen: View {
             }
             .modifier(HingeTick(tick: $hingeTick))
             // the felt behind everything: what the vertical bar shows beside the docked log
-            .background(Color(red: 0.05, green: 0.22, blue: 0.08).ignoresSafeArea())
+            .background(Theme.Palette.Felt.edge.color.ignoresSafeArea())
 
             // Draw phase overlay
             if gameState.phase == .draw {
@@ -266,7 +267,7 @@ private struct GameScreen: View {
             // Game log panel
             if showGameLog {
                 GameLogView(isShowing: $showGameLog)
-                    .transition(.move(edge: .trailing))
+                    .transition(.motion(.move(edge: .trailing), reduceMotion: reduceMotion))
             }
 
             // Disconnect banner (below the corner buttons)
@@ -351,10 +352,14 @@ private struct GameScreen: View {
                         }
                         .frame(width: full.width, height: full.height)
                         .offset(x: layout.window(layout.bidBand).midX - full.width / 2)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .transition(.motion(.move(edge: .bottom).combined(with: .opacity), reduceMotion: reduceMotion))
                     }
                     if showsTable && !showsBidOverlay {
                         accessory(layout)
+                    }
+                    // hidden under my bid panel's turn, as HSI / voice (the panel may span its spot)
+                    if showsTable && !showsBidOverlay && gameState.watching.count > 0 {
+                        spectatorBadge(layout)
                     }
                 }
                 .frame(width: full.width, height: full.height, alignment: .topLeading)
@@ -378,15 +383,15 @@ private struct GameScreen: View {
                 // Leave/exit game button (always on screen during play — Guideline 4; in the
                 // Duo's vertical bar the system may fold it into the bar's overflow menu)
                 Button(action: handleLeaveTapped) {
-                    HStack(spacing: 4) {
+                    HStack(spacing: Theme.Space.s1) {
                         Image(systemName: "rectangle.portrait.and.arrow.right")
                         Text(isPureSpectator ? "Exit" : "Leave")
                     }
                     .font(.caption.bold())
-                    .foregroundColor(Color.Theme.textSecondary)
-                    .padding(.horizontal, 12)
+                    .foregroundColor(Theme.textSecondary)
+                    .padding(.horizontal, Theme.Space.s3)
                     .padding(.vertical, 10)
-                    .background(Color.Theme.surface.opacity(0.8))
+                    .background(Theme.surface.opacity(0.8))
                     .clipShape(Capsule())
                 }
                 .accessibilityIdentifier("leave")
@@ -403,17 +408,18 @@ private struct GameScreen: View {
                 Button(action: toggleLog) {
                     Image(systemName: logIsOpen ? "xmark.circle.fill" : "text.bubble.fill")
                         .font(.title2)
-                        .foregroundColor(Color.Theme.textSecondary)
-                        .padding(12)
-                        .background(Color.Theme.surface.opacity(0.8))
+                        .foregroundColor(Theme.textSecondary)
+                        .padding(Theme.Space.s3)
+                        .background(Theme.surface.opacity(0.8))
                         .clipShape(Circle())
                         .overlay(alignment: .topTrailing) {
                             if !logIsOpen && gameState.unreadChatCount > 0 {
                                 Text("\(gameState.unreadChatCount)")
-                                    .font(.system(size: 11, weight: .bold))
-                                    .foregroundStyle(.white)
+                                    .font(.caption2.bold())
+                                    .dynamicTypeSize(...DynamicTypeSize.xLarge)
+                                    .foregroundStyle(Theme.dangerForeground)
                                     .frame(minWidth: 18, minHeight: 18)
-                                    .background(Color.Theme.error)
+                                    .background(Theme.danger)
                                     .clipShape(Circle())
                                     .offset(x: 4, y: -4)
                             }
@@ -513,6 +519,15 @@ private struct GameScreen: View {
         }
     }
 
+    // MARK: - Spectator badge (layout.spectatorBadge: by HSI / voice, a spectator's in the corner)
+
+    private func spectatorBadge(_ layout: TableLayout) -> some View {
+        let rect = layout.window(layout.spectatorBadge(spectating: !gameState.table.viewer.holdsSeat))
+        return SpectatorBadgeView(watching: gameState.watching, myUsername: gameState.username)
+            .frame(width: rect.width, height: rect.height, alignment: .trailing)
+            .offset(x: rect.minX, y: rect.minY)
+    }
+
     @ViewBuilder
     private func accessoryItems(hsi: Double?, voice: Bool) -> some View {
         if let hsi {
@@ -531,38 +546,39 @@ private struct GameScreen: View {
             VStack {
                 Spacer()
                 HStack(spacing: 10) {
+                    // the web's spectating indicator: team.a on the panel surface
                     Text("Spectating")
                         .font(.caption.bold())
-                        .foregroundColor(.white)
+                        .foregroundColor(Theme.teamA)
                     Button(action: { ChatEmitter.sendMessage("/leave") }) {
                         Text("Exit")
                             .font(.caption.bold())
-                            .foregroundColor(Color(red: 0.376, green: 0.647, blue: 0.98))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 4)
-                            .background(Color.white)
-                            .cornerRadius(6)
+                            .padding(.horizontal, Theme.Space.s3)
+                            .padding(.vertical, Theme.Space.s1)
+                            .secondaryButtonStyle()
                     }
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .background(Color(red: 0.376, green: 0.647, blue: 0.98).opacity(0.9))
-                .cornerRadius(8)
+                .padding(.horizontal, Theme.Space.s4)
+                .padding(.vertical, Theme.Space.s2)
+                .background(Theme.surface.opacity(0.95))
+                .overlay(RoundedRectangle(cornerRadius: Theme.Radius.md).stroke(Theme.teamA, lineWidth: 1))
+                .cornerRadius(Theme.Radius.md)
                 .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { pillHeight = $0 }
-                .padding(.bottom, 12)
+                .padding(.bottom, Theme.Space.s3)
             }
         } else if gameState.isLazy {
             VStack {
                 Spacer()
                 Text("Spectating \u{2014} type /active to take back control")
                     .font(.caption.bold())
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(Color.green.opacity(0.8))
-                    .cornerRadius(8)
+                    .foregroundColor(Theme.success)
+                    .padding(.horizontal, Theme.Space.s4)
+                    .padding(.vertical, Theme.Space.s2)
+                    .background(Theme.surface.opacity(0.95))
+                    .overlay(RoundedRectangle(cornerRadius: Theme.Radius.md).stroke(Theme.success, lineWidth: 1))
+                    .cornerRadius(Theme.Radius.md)
                     .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { pillHeight = $0 }
-                    .padding(.bottom, 12)
+                    .padding(.bottom, Theme.Space.s3)
             }
         }
     }
@@ -577,21 +593,23 @@ private struct GameScreen: View {
     }
 }
 
-/// "HSI 119.2", 11 pt monospaced (fits the layout's accessory rect beside the voice button).
+/// "HSI 119.2", 11 pt monospaced (fits the layout's accessory rect beside the voice button):
+/// the web's HSI box (text.secondary on the seat-plate glass).
 struct HSIBadge: View {
     let value: Double
 
     var body: some View {
         Text("HSI \(String(format: "%.1f", value))")
-            .font(.system(size: 11, design: .monospaced))
-            .foregroundColor(Color(white: 0.67))
+            .font(.caption2.monospaced())
+            .dynamicTypeSize(...DynamicTypeSize.large)  // the accessory rect is sized for 11 pt
+            .foregroundColor(Theme.textSecondary)
             .padding(.horizontal, 6)
             .padding(.vertical, 3)
-            .background(Color.black.opacity(0.7))
-            .cornerRadius(4)
+            .background(Theme.Palette.Surface.s2.opacity(0.86).color)
+            .cornerRadius(Theme.Radius.sm)
             .overlay(
-                RoundedRectangle(cornerRadius: 4)
-                    .stroke(Color(white: 0.4), lineWidth: 1)
+                RoundedRectangle(cornerRadius: Theme.Radius.sm)
+                    .stroke(Theme.inputBorder, lineWidth: 1)
             )
             .fixedSize()
     }

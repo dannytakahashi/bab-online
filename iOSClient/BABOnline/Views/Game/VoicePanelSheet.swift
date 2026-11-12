@@ -9,11 +9,11 @@ struct VoicePanelSheet: View {
         NavigationView {
             List {
                 // Self row
-                HStack(spacing: 12) {
+                HStack(spacing: Theme.Space.s3) {
                     speakingDot(isSpeaking: voiceManager.isSelfSpeaking && !voiceManager.isSelfMuted)
 
                     Text("You")
-                        .foregroundColor(Color.Theme.textPrimary)
+                        .foregroundColor(Theme.textPrimary)
                         .fontWeight(.medium)
 
                     Spacer()
@@ -23,20 +23,27 @@ struct VoicePanelSheet: View {
                         HapticManager.lightImpact()
                     }) {
                         Image(systemName: voiceManager.isSelfMuted ? "mic.slash.fill" : "mic.fill")
-                            .foregroundColor(voiceManager.isSelfMuted ? .red : Color.Theme.textSecondary)
-                            .frame(width: 32, height: 32)
+                            .foregroundColor(voiceManager.isSelfMuted ? Theme.error : Theme.textSecondary)
+                            .frame(width: Theme.hitTarget, height: Theme.hitTarget)
                     }
                 }
-                .listRowBackground(Color.Theme.surface)
+                .listRowBackground(Theme.surface)
 
                 // Peer rows
                 ForEach(Array(voiceManager.peerInfos.keys.sorted()), id: \.self) { socketId in
                     if let info = voiceManager.peerInfos[socketId] {
-                        HStack(spacing: 12) {
+                        HStack(spacing: Theme.Space.s3) {
                             speakingDot(isSpeaking: voiceManager.speakingPeers.contains(socketId))
 
                             Text(info.username)
-                                .foregroundColor(Color.Theme.textPrimary)
+                                .foregroundColor(Theme.textPrimary)
+
+                            if info.isUnavailable {
+                                // the connection failed after its one restart (VoiceRecovery)
+                                Text("voice unavailable")
+                                    .font(.caption)
+                                    .foregroundColor(Theme.textSecondary)
+                            }
 
                             Spacer()
 
@@ -45,17 +52,17 @@ struct VoicePanelSheet: View {
                                 HapticManager.lightImpact()
                             }) {
                                 Image(systemName: info.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                                    .foregroundColor(info.isMuted ? .red : Color.Theme.textSecondary)
-                                    .frame(width: 32, height: 32)
+                                    .foregroundColor(info.isMuted ? Theme.error : Theme.textSecondary)
+                                    .frame(width: Theme.hitTarget, height: Theme.hitTarget)
                             }
                         }
-                        .listRowBackground(Color.Theme.surface)
+                        .listRowBackground(Theme.surface)
                     }
                 }
             }
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
-            .background(Color.Theme.background)
+            .background(Theme.background)
             .navigationTitle("Voice Chat")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -68,8 +75,8 @@ struct VoicePanelSheet: View {
 
     private func speakingDot(isSpeaking: Bool) -> some View {
         Circle()
-            .fill(isSpeaking ? Color.green : Color(white: 0.3))
+            .fill(isSpeaking ? Theme.success : Theme.surfaceRaised)
             .frame(width: 10, height: 10)
-            .animation(.easeInOut(duration: 0.2), value: isSpeaking)
+            .animation(.easeInOut(duration: Theme.Motion.base), value: isSpeaking)
     }
 }
