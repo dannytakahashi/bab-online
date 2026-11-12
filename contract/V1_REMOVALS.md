@@ -356,6 +356,11 @@ baseline edit, since cc865b4 had them), the web constants
 relay cases of voiceSignaling.test.js. Precondition: one day after the TURN
 deploy (no tab can still hold the old bundle in practice).
 
+**Not run 2026-11-11** with the "safe now" steps: the TURN deploy (#213)
+merged 2026-11-11 10:46 PST, so the one-day window ends 2026-11-12 10:46
+PST. (1.1.0 never sent it; the blocker is the cached web bundle.) #18 gave
+it a Joi schema meanwhile; remove that with the handler.
+
 ## iOS TURN (next App Store release, roadmap 29 track; not a removal)
 
 iOS 1.1.0 hard-codes Google STUN (`VoiceChatManager.iceConfig`,
@@ -499,7 +504,8 @@ step, in this order; nothing is removed by the gate PR itself.
    voice relays (plus the shared-room relay check) can land. **Done
    2026-11-11 (PR #TBD).**
 9. **#17 `serverShutdown`**: no listener anywhere; either drop it or add the
-   "server restarting" handling in a later client build. Owner call.
+   "server restarting" handling in a later client build. Owner call (left
+   as it is 2026-11-11).
 10. **#1 phase A only** (`serverError` dual emit with `{code, message,
     handler}`): additive, safe now. **Done 2026-11-11 (PR #TBD).**
 
