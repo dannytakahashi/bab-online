@@ -84,14 +84,17 @@ struct TournamentScoreboardView: View {
             Image(systemName: "medal.fill")
                 .foregroundColor(Theme.medalGold)
                 .font(.caption2)
+                .accessibilityLabel("1st")
         case 1:
             Image(systemName: "medal.fill")
                 .foregroundColor(Theme.medalSilver)
                 .font(.caption2)
+                .accessibilityLabel("2nd")
         case 2:
             Image(systemName: "medal.fill")
                 .foregroundColor(Theme.medalBronze)
                 .font(.caption2)
+                .accessibilityLabel("3rd")
         default:
             EmptyView()
         }

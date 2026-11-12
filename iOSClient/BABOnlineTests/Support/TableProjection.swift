@@ -40,7 +40,7 @@ struct TableProjection: Equatable {
     var trickLead: Int?
     var trickCards: [String]         // "pos:cardId" in play order
     var tricks: [Int]
-    var tricksByPosition: [Int]
+    var tricksByPosition: [Int?]
     var score: [Int]
     var rainbows: [Int]
     var hsi: [Int: Double]
@@ -83,7 +83,7 @@ struct TableProjection: Equatable {
         trickLead = s.trick.leadPosition
         trickCards = s.trick.cards.map { "\($0.position):\($0.card.id)" }
         tricks = [s.tricks.team1, s.tricks.team2]
-        tricksByPosition = s.tricksByPosition
+        tricksByPosition = s.tricksByPosition.map { Optional($0) }
         score = [s.score.team1, s.score.team2]
         rainbows = [s.rainbows.team1, s.rainbows.team2]
         var h: [Int: Double] = [:]

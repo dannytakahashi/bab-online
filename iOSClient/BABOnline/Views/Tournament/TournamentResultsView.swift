@@ -28,6 +28,7 @@ struct TournamentResultsView: View {
                 Image(systemName: "trophy.fill")
                     .themeFont(Theme.TypeScale.display, relativeTo: .largeTitle)
                     .foregroundColor(Theme.warning)
+                    .accessibilityHidden(true)
 
                 Text("Tournament Complete!")
                     .themeFont(Theme.TypeScale.xl, weight: Theme.Weight.bold, design: .rounded, relativeTo: .title)

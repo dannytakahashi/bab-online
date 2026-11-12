@@ -26,6 +26,7 @@ struct VoicePanelSheet: View {
                             .foregroundColor(voiceManager.isSelfMuted ? Theme.error : Theme.textSecondary)
                             .frame(width: Theme.hitTarget, height: Theme.hitTarget)
                     }
+                    .accessibilityLabel(voiceManager.isSelfMuted ? "Unmute microphone" : "Mute microphone")
                 }
                 .listRowBackground(Theme.surface)
 
@@ -55,6 +56,7 @@ struct VoicePanelSheet: View {
                                     .foregroundColor(info.isMuted ? Theme.error : Theme.textSecondary)
                                     .frame(width: Theme.hitTarget, height: Theme.hitTarget)
                             }
+                            .accessibilityLabel(info.isMuted ? "Unmute \(info.username)" : "Mute \(info.username)")
                         }
                         .listRowBackground(Theme.surface)
                     }

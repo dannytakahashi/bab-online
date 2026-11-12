@@ -42,6 +42,8 @@ class GameSKScene: SKScene, TableRenderer {
     let opponentsLayer = SKNode()
     let bidsLayer = SKNode()
     let transientLayer = SKNode()
+    /// My own seat's trick pips (I have no avatar): at `layout.myPips`, in the opponents layer.
+    let myPipsNode = SeatPipsNode(style: .box)
     private(set) var cardManager: SKCardManager!
     private(set) var opponentManager: SKOpponentManager!
     private(set) var trickManager: SKTrickManager!
@@ -95,6 +97,8 @@ class GameSKScene: SKScene, TableRenderer {
         opponentsLayer.name = "opponents"
         opponentsLayer.zPosition = 10
         addChild(opponentsLayer)
+        myPipsNode.name = "pips.mine"
+        opponentsLayer.addChild(myPipsNode)
         bidsLayer.name = "bids"
         bidsLayer.zPosition = 60
         addChild(bidsLayer)
@@ -279,13 +283,15 @@ class GameSKScene: SKScene, TableRenderer {
         handNode.position = layout.handBaseline
         handNode.setScale(layout.handScale)
         trickManager.trickHistory.position = layout.historyOrigin
+        myPipsNode.position = CGPoint(x: layout.myPips.midX, y: layout.myPips.midY)
         // Game over: the final table stays behind GameEndView (as before 23)
         if model.keepsLastTable { return .init() }
         guard model.showsTable else {
             opponentManager.cleanup()
             handNode.cleanup()
             trickArea.clearAllCards()
-            trickManager.trickHistory.setCounts(team: 0, opp: 0, spacing: layout.historySpacing)
+            trickManager.trickHistory.setCounts(team: 0, opp: 0, spacing: layout.historySpacing, totals: .some(nil))
+            myPipsNode.update(nil, team: 1)
             bidManager.cleanup()
             return .init()
         }
@@ -316,7 +322,9 @@ class GameSKScene: SKScene, TableRenderer {
             c.position == me ? toTrick.removeValue(forKey: c.card.id) : nil
         }, animator: animator)
         toTrick.values.forEach { $0.removeFromParent() }
-        trickManager.trickHistory.setCounts(team: model.history.team1, opp: model.history.team2, spacing: layout.historySpacing)
+        trickManager.trickHistory.setCounts(team: model.history.team1, opp: model.history.team2, spacing: layout.historySpacing,
+                                            totals: .some(model.pileTotals.map { (team: $0.team1, opp: $0.team2) }))
+        myPipsNode.update(model.myPips, team: Positions.getTeamNumber(me))
         bidManager.apply(bubbles: model.bidBubbles, viewPosition: me, layout: layout)
         return changes
     }

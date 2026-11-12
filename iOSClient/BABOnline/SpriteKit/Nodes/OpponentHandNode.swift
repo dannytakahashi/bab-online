@@ -97,6 +97,9 @@ class OpponentHandNode: SKNode {
         nameLabel.position = CGPoint(x: 0, y: -(avatarRadius + 16))
         addChild(nameLabel)
 
+        // Trick pips on the avatar's ring (inside the glow rect)
+        addChild(pipsNode)
+
         // Load profile pic async
         if let pic = pic {
             loadProfilePic(pic)
@@ -157,6 +160,11 @@ class OpponentHandNode: SKNode {
     }
 
     var hasTurnGlow: Bool { turnGlow != nil }
+
+    /// The seat's trick pips around the avatar (SeatPips; nil: none).
+    let pipsNode = SeatPipsNode(style: .ring)
+
+    func setPips(_ pips: SeatPips?, team: Int) { pipsNode.update(pips, team: team) }
 
     // MARK: - Turn Glow
 

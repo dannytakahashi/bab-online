@@ -73,6 +73,7 @@ struct GameLogPanel: View {
                                 Image(systemName: "xmark.circle.fill")
                                     .foregroundColor(Theme.textDim)
                             }
+                            .accessibilityLabel("Close game log")
                         }
                     }
                     .padding(Theme.Space.s3)
@@ -149,6 +150,7 @@ struct GameLogPanel: View {
                                 .foregroundColor(chatMessage.isEmpty ? Theme.textDim : Theme.primary)
                         }
                         .disabled(chatMessage.isEmpty)
+                        .accessibilityLabel("Send")  // not the symbol's "Arrow Up Circle"
                     }
                     .padding(Theme.Space.s2)
                 }

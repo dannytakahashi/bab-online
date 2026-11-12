@@ -15,9 +15,11 @@ struct LobbyPlayerRow: View {
                         if player.isBot {
                             Image(systemName: "cpu")
                                 .foregroundColor(Theme.warning)
+                                .accessibilityHidden(true)
                         } else {
                             Image(systemName: "person.fill")
                                 .foregroundColor(isCurrentUser ? Theme.primary : Theme.textSecondary)
+                                .accessibilityHidden(true)
                         }
                     }
                 )
@@ -53,10 +55,12 @@ struct LobbyPlayerRow: View {
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundColor(Theme.success)
                     .font(.title3)
+                    .accessibilityLabel("Ready")
             } else {
                 Image(systemName: "circle")
                     .foregroundColor(Theme.textDim)
                     .font(.title3)
+                    .accessibilityLabel("Not ready")
             }
         }
         .padding(.horizontal)

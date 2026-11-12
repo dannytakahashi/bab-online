@@ -187,6 +187,7 @@ private struct TournamentLobbyScreen: View {
                     Button(action: leaveTournament) {
                         HStack(spacing: Theme.Space.s1) {
                             Image(systemName: "chevron.left")
+                                .accessibilityHidden(true)
                             Text("Leave")
                         }
                         .foregroundColor(Theme.textSecondary)
@@ -199,6 +200,7 @@ private struct TournamentLobbyScreen: View {
                     HStack(spacing: 6) {
                         Image(systemName: "trophy.fill")
                             .foregroundColor(Theme.warning)
+                            .accessibilityHidden(true)
                         Text(tournamentState.name.isEmpty ? "Tournament" : tournamentState.name)
                             .font(.headline)
                             .foregroundColor(Theme.warning)

@@ -108,8 +108,11 @@ final class SocketService: ObservableObject {
             .forceWebsockets(false),
         ]
         #if DEBUG
-        // Verbose transport logging only in development builds
-        config.insert(.log(true))
+        // Transport logging is opt-in (`-socketLog YES`), and even then payloads that carry
+        // credentials are redacted (RedactingSocketLogger). Release builds never log payloads.
+        if RedactingSocketLogger.isEnabled {
+            config.insert(.logger(RedactingSocketLogger()))
+        }
         #endif
         manager = SocketManager(socketURL: url, config: config)
 
@@ -119,6 +122,7 @@ final class SocketService: ObservableObject {
             DispatchQueue.main.async {
                 self?.isConnected = true
                 self?.connectionError = nil
+                RestartNotices.shared.reconnected()
                 print("[Socket] Connected: \(self?.socket?.sid ?? "?")")
             }
             // Capabilities first (every connect, a new socket each time): the restore's replies
@@ -135,6 +139,7 @@ final class SocketService: ObservableObject {
         socket?.on(clientEvent: .disconnect) { [weak self] _, _ in
             DispatchQueue.main.async {
                 self?.isConnected = false
+                RestartNotices.shared.disconnected()
                 print("[Socket] Disconnected")
             }
         }
@@ -159,6 +164,18 @@ final class SocketService: ObservableObject {
             DispatchQueue.main.async { self?.handleServerError(dict, channel: .serverError) }
         }
 
+        // A server that closes the connection (a deploy) leaves Socket.IO-Client-Swift reconnecting
+        // without a .disconnect event (isConnected stays true): the restart toast learns it here
+        socket?.on(clientEvent: .reconnectAttempt) { _, _ in
+            DispatchQueue.main.async { RestartNotices.shared.disconnected() }
+        }
+
+        // ~1 s before every deploy closes the sockets (roadmap #17): the toast, and what will be lost
+        socket?.on(SocketEvents.Server.serverShutdown) { [weak self] data, _ in
+            let dict = data.first as? [String: Any]
+            DispatchQueue.main.async { self?.handleServerShutdown(dict) }
+        }
+
         socket?.connect()
     }
 
@@ -170,6 +187,19 @@ final class SocketService: ObservableObject {
         serverError = ServerErrorNotice(message: msg)
         print("[Socket] Server error: \(msg)")
         if let store = gameState { Self.routeTableError(dict, to: store) }
+    }
+
+    /// What a restart would cost the player now (set by BABOnlineApp: screen, table role, tournament).
+    var restartPlace: (@MainActor () -> RestartNotice.Place?)?
+
+    /// `serverShutdown {message}` (contract s2c serverShutdown; server/utils/shutdown.js): the
+    /// ConnectionStatusToast shows "Restarting for an update…" until the socket is back, and
+    /// the notice remembers what the player was in, for the one message after the restore.
+    @MainActor
+    func handleServerShutdown(_ dict: [String: Any]?, now: Date = Date()) {
+        let place = restartPlace?()
+        print("[Socket] Server restarting (\(place?.rawValue ?? "nothing to lose"))")
+        RestartNotices.shared.serverShutdown(place: place, now: now)
     }
 
     /// Force a full disconnect/reconnect cycle.

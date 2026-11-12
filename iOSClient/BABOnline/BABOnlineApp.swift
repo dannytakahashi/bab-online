@@ -67,6 +67,13 @@ struct BABOnlineApp: App {
         #endif
         socketService.authState = authState
         socketService.gameState = gameState
+        // what a serverShutdown would cost the player now (RestartNotice)
+        let app = appState, store = gameState, tournament = tournamentState
+        socketService.restartPlace = {
+            RestartNotice.place(screen: app.screen, role: store.table.viewer.role, phase: store.phase,
+                                inTournament: !tournament.tournamentId.isEmpty || store.tournamentId != nil,
+                                tournamentComplete: tournament.phase == "complete")
+        }
         socketService.connect()
 
         // Register event router — stored on socketService so handlers stay alive

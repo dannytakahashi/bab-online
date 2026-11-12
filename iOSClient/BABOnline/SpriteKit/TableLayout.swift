@@ -96,6 +96,8 @@ struct TableLayout: Equatable {
     let bidBand: CGRect
     /// HSI + voice button rect (Q3, right of my trick slot).
     let accessory: CGRect
+    /// My own trick pips' box (TableLayout+Pips.swift), derived from the rest.
+    private(set) var myPipsRect: CGRect = .zero
 
     private let tcx: CGFloat, cc: CGFloat, ox: CGFloat, oy: CGFloat
     private let yP: CGFloat, yS: CGFloat, lx: CGFloat, rx: CGFloat, yLo: CGFloat
@@ -157,6 +159,7 @@ struct TableLayout: Equatable {
         let half = Self.overTrumpSize / 2
         overTrumpCenter = Self.clamp(CGPoint(x: sol.tcx - 40 * sol.k - Self.gap - half, y: sol.cc + 58 * sol.k + Self.gap + half),
                                      size: CGSize(width: Self.overTrumpSize, height: Self.overTrumpSize), into: sol.safe, top: sol.topLimit)
+        myPipsRect = computeMyPips()
     }
 
     // MARK: hand

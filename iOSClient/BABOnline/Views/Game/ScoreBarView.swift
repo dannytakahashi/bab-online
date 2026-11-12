@@ -21,10 +21,13 @@ struct ScoreBarView: View {
                             .font(.caption2)
                             .foregroundColor(Theme.textSecondary)
                     }
-                    Text("Tricks: \(gameState.teamTricks)")
+                    Text(Self.tricksText(gameState.teamTricks, of: gameState.bidTotals?.mine))
                         .font(.caption2)
                         .foregroundColor(Theme.textSecondary)
                 }
+                // one line ("Tricks: 12/13" beside "3B/2" on a 375 pt phone): shrink, never wrap
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
             }
             .frame(maxWidth: .infinity)
 
@@ -67,10 +70,13 @@ struct ScoreBarView: View {
                             .font(.caption2)
                             .foregroundColor(Theme.textSecondary)
                     }
-                    Text("Tricks: \(gameState.oppTricks)")
+                    Text(Self.tricksText(gameState.oppTricks, of: gameState.bidTotals?.theirs))
                         .font(.caption2)
                         .foregroundColor(Theme.textSecondary)
                 }
+                // one line ("Tricks: 12/13" beside "3B/2" on a 375 pt phone): shrink, never wrap
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
             }
             .frame(maxWidth: .infinity)
         }
@@ -82,6 +88,11 @@ struct ScoreBarView: View {
         // capped so the table layout's top bar stays <= 84 pt (TableLayoutTests): the
         // caption2 labels (Dynamic Type) reach it at xLarge
         .dynamicTypeSize(...DynamicTypeSize.xLarge)
+    }
+
+    /// "Tricks: 2" while bidding, then "Tricks: 2/7" (the team's bid total: a bore is the whole hand).
+    static func tricksText(_ won: Int, of total: Int?) -> String {
+        total.map { "Tricks: \(won)/\($0)" } ?? "Tricks: \(won)"
     }
 
     /// The viewer's team (1 for a spectator: seats 1 and 3 on the left), colored as on the web.

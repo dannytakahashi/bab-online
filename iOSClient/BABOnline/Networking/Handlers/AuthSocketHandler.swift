@@ -78,6 +78,7 @@ final class AuthSocketHandler {
                 } else {
                     self.appState.screen = .mainRoom
                     LobbyEmitter.joinMainRoom()
+                    RestartNotices.shared.lost()
                 }
                 print("[Auth] Signed in as: \(username)")
             } else {
@@ -151,10 +152,13 @@ final class AuthSocketHandler {
                     print("[Auth] Session restored for: \(username)")
                     self.appState.screen = .mainRoom
                     LobbyEmitter.joinMainRoom()
+                    // no game or tournament to go back to: after a serverShutdown, it ended
+                    RestartNotices.shared.lost()
                 }
             } else {
                 let message = data["message"] as? String ?? "Session expired"
                 print("[Auth] Session restore failed: \(message)")
+                RestartNotices.shared.lost()
                 // Clear stale credentials and show sign-in
                 self.authState.sessionToken = ""
                 self.authState.saveCredentials()

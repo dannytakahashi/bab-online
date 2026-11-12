@@ -131,6 +131,18 @@ extension Theme {
         static let spectatorChatText = Palette.Text.primary.uiColor
         static let teamA = Palette.Team.a.uiColor
         static let teamB = Palette.Team.b.uiColor
+        /// Seat pips (the web's .hud-pips): the box (surface.s0@0.85), an empty slot's edge
+        /// (text.primary@0.55), a won slot in the seat's team color, past the bid gold, and a
+        /// bore seat's outline in the bore chip's red (danger.solid).
+        static let pipBox = Palette.Surface.s0.opacity(0.85).uiColor
+        static let pipEmpty = Palette.Text.primary.opacity(0.55).uiColor
+        static let pipOver = Palette.gold.uiColor
+        static let pipBore = Palette.Danger.solid.uiColor
+        /// The trick history's bid border (the web's TrickManager piles): danger.text until the
+        /// team has its bid total, then success; an unwon bid slot is surface.s3.
+        static let pileSafe = Palette.success.uiColor
+        static let pileDanger = Palette.Danger.text.uiColor
+        static let pileSlot = Palette.Surface.s3.opacity(0.9).uiColor
 
         static func team(_ teamNumber: Int) -> UIColor { teamNumber == 2 ? teamB : teamA }
 

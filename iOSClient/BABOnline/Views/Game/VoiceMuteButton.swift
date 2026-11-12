@@ -24,6 +24,8 @@ struct VoiceMuteButton: View {
                                 lineWidth: voiceManager.isSelfSpeaking && !voiceManager.isSelfMuted ? 2 : 1)
                 )
         }
+        .accessibilityLabel(voiceManager.isSelfMuted ? "Unmute microphone" : "Mute microphone")
+        .accessibilityHint("Touch and hold for the voice panel")
         .simultaneousGesture(
             LongPressGesture(minimumDuration: 0.5)
                 .onEnded { _ in

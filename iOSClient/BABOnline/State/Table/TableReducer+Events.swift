@@ -386,7 +386,7 @@ extension TableReducer {
     static func trickComplete(_ s: inout TableState, _ p: WirePayload.TrickComplete, _ fx: inout [TableEffect]) {
         guard let winner = Position.valid(p.winner), case .playing(let pl) = s.table.phase else { return }
         s.scores.tricks[team: Positions.getTeamNumber(winner)] += 1
-        s.scores.tricksByPosition[winner - 1] += 1
+        if let n = s.scores.tricksByPosition[winner - 1] { s.scores.tricksByPosition[winner - 1] = n + 1 }
         let key = currentKey(s)
         s.table.trickNo += 1
         if s.table.trickNo > (s.table.deal?.handSize ?? 0) {

@@ -12,6 +12,8 @@ struct ContentView: View {
     @Environment(\.horizontalSizeClass) private var hSizeClass
     @Environment(\.verticalSizeClass) private var vSizeClass
     @State private var showSplash = true
+    /// The one "the server restarted" message after a reconnect (RestartNotice).
+    @ObservedObject private var restart = RestartNotices.shared
 
     /// Card faces render off the main thread from the game / tournament lobby on (or a
     /// rejoin straight into the game), so the first deal finds them cached (once per process).
@@ -65,6 +67,13 @@ struct ContentView: View {
             }
         }
         #endif
+        // a standard alert: VoiceOver moves to it and reads it
+        .alert("Server restarted", isPresented: Binding(get: { restart.message != nil && !showSplash },
+                                                         set: { if !$0 { restart.message = nil } })) {
+            Button("OK", role: .cancel) { restart.message = nil }
+        } message: {
+            Text(restart.message ?? "")
+        }
         .preferredColorScheme(.dark)
         // the orientation mask follows the window scene's size classes (Duo fold / unfold)
         .onChange(of: hSizeClass) { OrientationLock.refresh() }

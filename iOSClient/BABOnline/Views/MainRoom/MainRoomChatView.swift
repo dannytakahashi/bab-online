@@ -64,6 +64,7 @@ struct MainRoomChatView: View {
                         .foregroundColor(message.isEmpty ? Theme.textDim : Theme.primary)
                 }
                 .disabled(message.isEmpty)
+                .accessibilityLabel("Send")  // not the symbol's "Arrow Up Circle"
             }
             .padding(10)
         }

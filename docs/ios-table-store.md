@@ -491,9 +491,101 @@ failures arrive as `error` and/or `serverError`.
   (`ServerConfig`, localhost / 127.0.0.1 origins only) for the socket and the
   avatar URLs, so the simulator can talk to a local server that is not on 3000.
 
+- **Per-player trick pips** (owner 2026-11-11; web #215 parity):
+  `State/Table/SeatPips.swift` is the projection: each seat its OWN bid as
+  slots and its own tricks won (past the bid: gold "over" dots; a 0 bid no
+  slots until it wins one), a bore seat (B to 4B) the hand size filled with
+  the TEAM's tricks and outlined in the bore chip's red (both rings when both
+  partners bore), nothing while bidding or before both partners have bid; a
+  seat whose own count is unknown shows its team's tricks out of the team
+  total. Counts: `ScoreSlice.tricksByPosition` (`[Int?]`), +1 per
+  trickComplete winner; a snapshot's `tricksByPosition` when its team's two
+  seats add up to the team's count, else the trickHistory winners when all
+  of that team's tricks have one, else nil (`TableReducer.seatTricks`, the
+  web's `_seatTricksFor`), so a relaunch, a rejoin and a spectator see the
+  same counts. Drawn by `SeatPipsNode`: on each avatar's ring (dots at
+  radius 25 from the top, clockwise, inside the 60 x 60 glow rect, so the
+  layout is unchanged) and, for my own seat (no avatar), a pill of up to
+  two rows of 7 in a 56 x 20 box at `TableLayout.myPips`
+  (`TableLayout+Pips.swift`: where my bid bubble was, else up beside my trick
+  slot, under it, right of it above HSI / voice, else the nearest clear
+  spot; clear of the hand, HSI / voice, the trick cards, the 13-wide
+  history, every seat and its bubble and the corner buttons; the bid band and
+  my bubble are exempt: my pips show once my bubble is gone; the spectator
+  badge and its bubble keep clear of it). VoiceOver: an invisible element per
+  seat over its footprint ("Ann: 2 of 3 tricks", "Your tricks: Team 7 of 10,
+  bore"; identifiers `pips.<position>` / `pips.mine`). Colors: Theme.SK
+  `pipBox` / `pipEmpty` / team / `pipOver` (gold) / `pipBore`
+  (danger.solid).
+- **Bores count as the whole hand** wherever a bid total is shown
+  (`Rules/BidTotals.swift`, the web's `rules/bids.js`; capped at the hand):
+  the seat pips, the score bar's "Tricks: 2/7" (the team's tricks of its bid
+  total once bidding is over; one line, shrinking to 75 % on a 375 pt phone)
+  and the trick history's bid border (`TrickHistoryNode`: per row the bid's
+  unwon slots as dim boxes and a border in danger.text until the team has its
+  total, then success; the web's TrickManager piles). iOS had no bid total
+  before (the score bar showed the bids as "3/B" only, the history only the
+  won tricks).
+- **Restart notice** (owner 2026-11-11, roadmap #17; `State/RestartNotice.swift`):
+  the server sends `serverShutdown {message}` about 1 s before it closes every
+  socket on every deploy. `SocketService.handleServerShutdown` (registered in
+  `SocketService.connect`, next to the serverError listener) records what the
+  player would lose (`RestartNotice.place`: a seat (the draw and a lazy seat
+  included), spectating, a lobby, a tournament lobby, a tournament game; the
+  main room, sign-in, a finished casual game (watched or played: the
+  spectator's GameEndView too) and a complete tournament (its results, or
+  the last game's end) lose nothing) and the
+  ConnectionStatusToast reads "Restarting for an update…" (VoiceOver
+  announcement) until the socket is back (a `.reconnectAttempt` counts as the
+  drop: Socket.IO-Client-Swift sends no `.disconnect` when the server closes
+  the connection and reconnects by itself; 8 s with neither drops the toast).
+  After the reconnect the restore paths report: `lost` (restoreSession with
+  no activeGameId / activeTournamentId, a failed restore, signIn to the main
+  room, rejoinFailed, a `not_in_game` stateSnapshot, tournamentLeft) or
+  `survived` (rejoinSuccess, a spectator's full state, tournamentJoined). The
+  first `lost` within 2 minutes shows ONE alert ("Server restarted": "Your
+  game ended because the server restarted for an update. It won't count
+  toward your stats." / "The game you were watching ended ..." / "Your lobby
+  closed ..." / "Your tournament ended ..."); later paths show nothing, and
+  nothing shows when nothing was lost. The stats sentence holds: stats and
+  gameRecords are written only after `gameEnd` (gameHandlers.js
+  `recordGameStats`), never on abort or shutdown (`RestartNoticeTests` reads
+  the server source). In memory only (the process outlives the restart;
+  persisting would put UserDefaults, a required-reason API, into release
+  code), so a relaunch inside the window shows nothing.
+- **Socket log**: Debug builds no longer set Socket.IO `.log(true)` (it printed
+  every payload: the TURN username and credential of voiceIceServers, the
+  sign-in / restore payloads). `-socketLog YES` installs
+  `Networking/RedactingSocketLogger.swift`, which replaces everything from a
+  line's first `[` / `{` with `<redacted>` when the line is about
+  voiceIceServers, signIn, signUp or restoreSession or mentions a credential,
+  password or token. Release builds never install it (and read no
+  UserDefaults for it).
+- **VoiceOver** (pre-submission audit): chat Send buttons read "Send" (not
+  "Arrow Up Circle"), the table's Leave reads "Leave game" ("Exit game" for a
+  spectator), the log drawer's close "Close game log", the voice buttons
+  "Mute microphone" / "Unmute microphone" / "Mute <name>"; ready indicators
+  "Ready" / "Not ready", medals "1st" to "3rd"; decorative symbols are hidden
+  (`AccessibilityLabelSourceTests` fails on an icon-only Button without an
+  accessibilityLabel).
+- **Disconnect banner**: `TableLayout.disconnectBanner(height:spectating:)`
+  (`TableLayout+Banner.swift`) gives the highest full-width strip clear of
+  every seat, the trick cards, the history, the hand, HSI / voice, my pips,
+  the bid band, the badge and the corner buttons: a wide window (the iPad)
+  shows the banner there, off the avatars. A phone has no such strip (the
+  partner sits right above the cluster, the side seats and the cluster fill
+  every row below), so the banner keeps its old place under the corner
+  buttons, over the partner: making room would shrink the table for a
+  transient banner.
+
 Tests: `BABOnlineTests/Release12Tests.swift`, `ReleaseMetadataTests`,
 `ServerEventDecodingTests` (spectatorsUpdated decodes strictly, with no seq),
-`SceneRenderTests.testChatBubbleAppearsInTransient`.
+`SceneRenderTests.testChatBubbleAppearsInTransient`; the follow-up:
+`SeatPipsTests` (the recorded games replayed into a live scene: seated with a
+bore, rejoin with B + 2B, a spectator, every viewer in the store, a reload mid
+bore hand, unknown counts), `Release12FollowupTests.swift` (`MyPipsLayoutTests`
+at every listed size and Duo pose, `RestartNoticeTests`,
+`SocketLogRedactionTests`, `AccessibilityLabelSourceTests`).
 
 ## Visible changes to review on the next build (1.2.0)
 
@@ -505,6 +597,15 @@ server for relay (TURN) servers, so it connects behind strict NATs; a peer
 that still cannot connect after one retry shows "voice unavailable" in the
 voice panel. A server error that arrives twice (old and new event) shows one
 toast. The "Replace with Bot" banner never outlives the seat's reconnect.
+Each seat's avatar ring shows its own bid as dots and fills them with its
+own tricks (gold past the bid); a bore ring is outlined red and fills with
+the team's tricks; my own dots sit in a small box left of my trick slot once
+my bid bubble is gone. The score bar reads "Tricks: 2/7" and the trick
+history shows the bid's slots with a red border until the team makes it
+(green after), a bore counting as the whole hand. On a deploy the toast says
+"Restarting for an update…", and after the reconnect one alert says what
+ended (nothing from the main room). VoiceOver reads Send and Leave game; on
+the iPad the disconnect banner sits off the avatars.
 
 ## Items 21 / 22 status
 

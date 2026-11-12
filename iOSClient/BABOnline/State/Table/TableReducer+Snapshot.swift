@@ -54,7 +54,7 @@ extension TableReducer {
         s.table.hsi = hsi
         s.table.trickNo = snap.trick.number ?? (snap.tricks.team1 + snap.tricks.team2 + 1)
 
-        s.scores = ScoreSlice(tricks: pair(snap.tricks), tricksByPosition: padded(snap.tricksByPosition),
+        s.scores = ScoreSlice(tricks: pair(snap.tricks), tricksByPosition: seatTricks(snap),
                               score: pair(snap.score), rainbows: pair(snap.rainbows))
 
         // seats: [] until all four exist; keep ours meanwhile
@@ -141,7 +141,26 @@ extension TableReducer {
     static func pair(_ p: TableSnapshot.TeamPair) -> TeamPair { TeamPair(team1: p.team1, team2: p.team2) }
 
     static func padded<T>(_ a: [T?], to n: Int) -> [T?] { Array((a + Array(repeating: nil, count: max(0, n - a.count))).prefix(n)) }
-    static func padded(_ a: [Int]) -> [Int] { Array((a + [0, 0, 0, 0]).prefix(4)) }
+
+    /// Each seat's tricks for a snapshot, per team (the web's GameState._seatTricksFor): the
+    /// snapshot's tricksByPosition when that team's two seats add up to its count (the server's
+    /// own count), else the winners in trickHistory when every one of that team's tricks has a
+    /// winner on that team, else nil for both seats (the pips then show the team's tricks).
+    static func seatTricks(_ snap: TableSnapshot) -> [Int?] {
+        let byPos = snap.tricksByPosition.count == 4 && snap.tricksByPosition.allSatisfy { $0 >= 0 } ? snap.tricksByPosition : nil
+        var out: [Int?] = [nil, nil, nil, nil]
+        for (team, seats) in [(1, [1, 3]), (2, [2, 4])] {
+            let count = team == 1 ? snap.tricks.team1 : snap.tricks.team2
+            if let b = byPos, b[seats[0] - 1] + b[seats[1] - 1] == count {
+                for p in seats { out[p - 1] = b[p - 1] }
+                continue
+            }
+            let won = snap.trickHistory.filter { Positions.getTeamNumber($0.winner) == team }
+            let known = won.count == count && won.allSatisfy { seats.contains($0.winner) }
+            for p in seats { out[p - 1] = known ? won.filter { $0.winner == p }.count : nil }
+        }
+        return out
+    }
 
     static func seatState(_ seat: TableSnapshot.Seat, snap: TableSnapshot, prev: [Int: SeatState], hints: LegacySeatHints?) -> SeatState {
         var pic: Pic = seat.pic.map { .avatar($0) } ?? .none

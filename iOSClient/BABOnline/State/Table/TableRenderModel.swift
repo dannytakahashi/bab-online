@@ -49,6 +49,10 @@ struct TableRenderModel: Equatable {
     var trick: [TrickCard]
     var turn: Int?
     var history: TeamPair          // team1 = my team's tricks, team2 = theirs
+    /// The history's bid totals once bidding is over (team1 = my team's; a bore = the hand): nil while bidding.
+    var pileTotals: TeamPair?
+    /// Every seat's trick pips by absolute position (SeatPips), my own seat's included.
+    var pips: [Int: SeatPips]
     var bidBubbles: [Int: String]
     /// Who is watching (the badge itself is SwiftUI; the scene places the spectator chat bubble by it).
     var watching: WatchingList
@@ -109,6 +113,17 @@ struct TableRenderModel: Equatable {
 
         let rel = s.scores.tricks.relative(to: view)
         history = TeamPair(team1: rel.mine, team2: rel.theirs)
+        let doneBidding: BidBook?
+        switch s.table.phase {
+        case .playing(let p): doneBidding = p.bids
+        case .handResolving(let h): doneBidding = h.bids
+        default: doneBidding = nil
+        }
+        pileTotals = doneBidding.map { book in
+            let t = BidTotals.totals(book, handSize: s.table.deal?.handSize).relative(to: view)
+            return TeamPair(team1: t.mine, team2: t.theirs)
+        }
+        pips = SeatPips.all(s)
 
         // bid bubbles: from the first bid until the hand's first card is down
         var bubbles: [Int: String] = [:]
@@ -122,6 +137,13 @@ struct TableRenderModel: Equatable {
             for pos in 1...4 { if let b = bids.bid(at: pos) { bubbles[pos] = b } }
         }
         bidBubbles = bubbles
+    }
+
+    /// My own seat's pips (seated or a lazy owner), shown once my bid bubble is gone
+    /// (its spot is where they go: TableLayout.myPips).
+    var myPips: SeatPips? {
+        guard hand != nil, bidBubbles[viewPosition] == nil else { return nil }
+        return pips[viewPosition]
     }
 }
 

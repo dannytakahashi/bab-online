@@ -75,6 +75,7 @@ extension TableLayout {
         if !spectating {
             keeps.append(CGRect(x: safeRect.minX, y: safeRect.minY, width: safeRect.width, height: max(0, liftTop - safeRect.minY)))
             keeps.append(accessoryContent)
+            keeps.append(myPips)
             if soft { keeps.append(bubbleRect(.bottom)) }
         }
         return keeps

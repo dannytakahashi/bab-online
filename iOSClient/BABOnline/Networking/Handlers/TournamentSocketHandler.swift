@@ -44,6 +44,7 @@ final class TournamentSocketHandler {
                 self.tournamentState.loadFromServerState(dict)
                 self.tournamentState.messages.removeAll { self.safetyState.isBlocked($0.username) }
                 self.appState.screen = .tournamentLobby
+                RestartNotices.shared.survived()  // the tournament is still there after a reconnect
                 print("[Tournament] Joined tournament: \(self.tournamentState.tournamentId)")
             }
         }
@@ -170,6 +171,7 @@ final class TournamentSocketHandler {
                 self.tournamentState.reset()
                 self.appState.screen = .mainRoom
                 LobbyEmitter.joinMainRoom()
+                RestartNotices.shared.lost()  // a server restart took it (shown only after a serverShutdown)
                 print("[Tournament] Left tournament")
             }
         }
