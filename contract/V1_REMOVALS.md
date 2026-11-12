@@ -202,10 +202,18 @@ today), `players[].socketId` in the legacy states.
 
 ### 15. `rejoinFailed.debug.playersInGame`
 
+**Done 2026-11-11 (PR #TBD).** rejoinFailed is `{reason}` only; the names
+stay in the server's debug log. Test: `v1LeakFixes.test.js`.
+
 Leaks usernames to whoever asks. Safe for both clients now (neither reads
 `debug`), so this one may move earlier if the owner agrees.
 
 ### 16. Lobby players' `personality`
+
+**Done 2026-11-11 (PR #TBD).** `$defs.lobbyMember` has no `personality`;
+the server keeps it in `lobby.botPersonalities` (by bot socket id,
+`GameManager.lobbyBotPersonality`) for the reveal at game start. Test:
+`v1LeakFixes.test.js`.
 
 Leaks a bot's real personality name before the game starts (the lobby shows
 "🤖 Bot"). Drop from lobby payloads.
@@ -380,7 +388,7 @@ step, in this order; nothing is removed by the gate PR itself.
 
 1. **#15 `rejoinFailed.debug`** and **#16 lobby players' `personality`**:
    neither client reads them (1.1.0 only *sends* `addBot {personality}`).
-   Pure leak fixes, smallest PR.
+   Pure leak fixes, smallest PR. **Done 2026-11-11 (PR #TBD).**
 2. **#2 the matchmaking queue** (`queueUpdate`, c2s `joinQueue` /
    `leaveQueue` / `getLobbies`, `GameManager.queue`): no sender or listener
    in 1.1.0 or web.

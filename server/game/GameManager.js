@@ -773,10 +773,14 @@ class GameManager {
             return { success: false, error: 'Lobby is full' };
         }
 
-        // Pick a random personality not already in this lobby
+        // Pick a random personality not already in this lobby. It stays
+        // server-side (lobby.botPersonalities, by bot socket id): the lobby
+        // shows "🤖 Bot" and lobby payloads never carry it (V1_REMOVALS #16)
+        if (!lobby.botPersonalities) lobby.botPersonalities = new Map();
         const usedPersonalities = lobby.players
-            .filter(p => p.isBot && p.personality)
-            .map(p => p.personality);
+            .filter(p => p.isBot)
+            .map(p => lobby.botPersonalities.get(p.socketId))
+            .filter(Boolean);
         const available = PERSONALITY_LIST.filter(p => !usedPersonalities.includes(p));
         const personality = available[Math.floor(Math.random() * available.length)];
 
@@ -788,19 +792,25 @@ class GameManager {
         // Create bot with generic lobby name
         const bot = botController.createBot(lobbyName, personality);
 
-        // Add bot to lobby as a player (personality stored for name reveal at game start)
+        // Add bot to lobby as a player (personality kept for the name
+        // reveal at game start: lobbyBotPersonality)
         const botPlayer = {
             socketId: bot.socketId,
             username: bot.username,
             ready: false,
-            isBot: true,
-            personality
+            isBot: true
         };
+        lobby.botPersonalities.set(bot.socketId, personality);
 
         lobby.players.push(botPlayer);
         // Don't add to playerLobbies since bots don't have real sockets
 
         return { success: true, botPlayer, lobby, bot };
+    }
+
+    /** The personality of a lobby bot (server-side only; 'mary' if unknown). */
+    lobbyBotPersonality(lobby, botSocketId) {
+        return lobby?.botPersonalities?.get(botSocketId) || 'mary';
     }
 
     /**
@@ -823,6 +833,7 @@ class GameManager {
         // Remove bot
         lobby.players.splice(botIndex, 1);
         lobby.readyPlayers.delete(botSocketId);
+        lobby.botPersonalities?.delete(botSocketId);
 
         // Reset all ready states when someone leaves
         lobby.readyPlayers.clear();

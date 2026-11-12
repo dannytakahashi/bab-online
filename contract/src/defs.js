@@ -103,13 +103,14 @@ const SPECTATOR_STATE_V1_PROPS = {
     spectatorCount: int({ minimum: 0 }),
 };
 
+// A bot's personality never reaches the wire (V1_REMOVALS #16, 2026-11-11:
+// the lobby shows "🤖 Bot"; it stays server-side until the game starts)
 const lobbyMember = obj({
     socketId: str(),
     username: str(),
     ready: bool(),
     isBot: konst(true),
-    personality: str(),
-}, { optional: ['isBot', 'personality'] });
+}, { optional: ['isBot'] });
 
 const chatLine = obj({ username: str(), message: str(), timestamp: int() });
 

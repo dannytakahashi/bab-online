@@ -575,14 +575,11 @@ const s2c = {
         notes: 'New in snapshot v2: the reply to requestSnapshot. The log is included unless the request sends log:false; custom (data-URL) seat pictures only with customPics:true (partial lists what was left out). notInGame: the socket is in no live game - also once its game ENDED or ABORTED (the terminal state arrives as gameEnd / abortGame, never as a snapshot).',
     },
     rejoinFailed: {
-        payload: obj({
-            reason: str(),
-            debug: obj({ lookingFor: str(), playersInGame: arr(str()) }),
-        }, { optional: ['debug'] }),
+        payload: obj({ reason: str() }),
         status: 'active', to: 'self',
         clientReads: reads([W.game, W.main('onRejoinFailed')], I.game('registerReconnection')),
         emittedFrom: ['server/socket/reconnectHandlers.js:rejoinGame'],
-        notes: 'Web drops its game on ANY rejoinFailed.',
+        notes: 'Web drops its game on ANY rejoinFailed. debug {lookingFor, playersInGame} was dropped (V1_REMOVALS #15, 2026-11-11: it told the table\'s usernames to whoever asked; no client read it).',
     },
     playerDisconnected: {
         payload: anyOf(variant('room', seatNotice), variant('private', seatNotice)),

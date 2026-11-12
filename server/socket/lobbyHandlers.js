@@ -67,8 +67,9 @@ async function playerReady(socket, io) {
             // Register bots with bot controller (reveal real personality names)
             for (const player of lobby.players) {
                 if (player.isBot) {
-                    const realName = `🤖 ${getDisplayName(player.personality)}`;
-                    const bot = botController.createBot(realName, player.personality);
+                    const personality = gameManager.lobbyBotPersonality(lobby, player.socketId);
+                    const realName = `🤖 ${getDisplayName(personality)}`;
+                    const bot = botController.createBot(realName, personality);
                     bot.socketId = player.socketId; // Use existing socket ID
                     botController.registerBot(game.gameId, bot);
                 }

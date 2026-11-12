@@ -360,9 +360,6 @@
         },
         "isBot": {
           "const": true
-        },
-        "personality": {
-          "type": "string"
         }
       },
       "required": [
@@ -4917,25 +4914,6 @@
         "properties": {
           "reason": {
             "type": "string"
-          },
-          "debug": {
-            "type": "object",
-            "properties": {
-              "lookingFor": {
-                "type": "string"
-              },
-              "playersInGame": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              }
-            },
-            "required": [
-              "lookingFor",
-              "playersInGame"
-            ],
-            "additionalProperties": false
           }
         },
         "required": [

@@ -360,9 +360,6 @@
         },
         "isBot": {
           "const": true
-        },
-        "personality": {
-          "type": "string"
         }
       },
       "required": [
@@ -6876,25 +6873,6 @@
         "properties": {
           "reason": {
             "type": "string"
-          },
-          "debug": {
-            "type": "object",
-            "properties": {
-              "lookingFor": {
-                "type": "string"
-              },
-              "playersInGame": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              }
-            },
-            "required": [
-              "lookingFor",
-              "playersInGame"
-            ],
-            "additionalProperties": false
           }
         },
         "required": [
@@ -6916,7 +6894,7 @@
       "emittedFrom": [
         "server/socket/reconnectHandlers.js:rejoinGame"
       ],
-      "notes": "Web drops its game on ANY rejoinFailed."
+      "notes": "Web drops its game on ANY rejoinFailed. debug {lookingFor, playersInGame} was dropped (V1_REMOVALS #15, 2026-11-11: it told the table's usernames to whoever asked; no client read it)."
     },
     "playerDisconnected": {
       "payload": {
