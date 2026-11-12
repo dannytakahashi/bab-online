@@ -4,6 +4,7 @@ import {
   forgetSession,
   adoptSavedSession,
   clearAllSessionData,
+  isDeviceSignedOut,
 } from './sessionPersistence.js';
 
 // Node 25+ ships its own global localStorage (unusable without
@@ -78,5 +79,19 @@ describe('sessionPersistence', () => {
     expect(sessionStorage.getItem('username')).toBeNull();
     expect(sessionStorage.getItem('gameId')).toBeNull();
     expect(adoptSavedSession()).toBe(false);
+  });
+
+  it('isDeviceSignedOut: only when storage reads and holds no saved session', () => {
+    rememberSession('Alan', 'tok-1');
+    expect(isDeviceSignedOut()).toBe(false);
+    clearAllSessionData();
+    expect(isDeviceSignedOut()).toBe(true);
+    localStorage.setItem('bab.savedSession', JSON.stringify({ username: 'Alan' }));
+    expect(isDeviceSignedOut()).toBe(true);
+    // garbled or unreadable storage says nothing
+    localStorage.setItem('bab.savedSession', '{not json');
+    expect(isDeviceSignedOut()).toBe(false);
+    vi.stubGlobal('localStorage', { getItem: () => { throw new Error('blocked'); } });
+    expect(isDeviceSignedOut()).toBe(false);
   });
 });

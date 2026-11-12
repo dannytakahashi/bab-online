@@ -7,11 +7,15 @@
  * never takes the session back by itself. When a tab takes the session
  * again (a slow reload of the other tab) the server says 'newerConnection'
  * and the notice says "open in another tab" again. A refusal never changes
- * the text, and 'otherClosed' never parks a live tab.
+ * the text, and 'otherClosed' never parks a live tab. The reason is in the
+ * live text itself (a title change is not announced; review 2026-11-12),
+ * and after this tab's own socket reconnects (a deploy: the server no
+ * longer knows it as parked) the notice only says the other tab MAY still
+ * be open.
  */
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import { loadPage, tick, mainRoomPayload } from '../testing/fakePage.js';
-import { NOTICE_ID, NOTICE_TITLE, NOTICE_CLOSED_TITLE, NOTICE_CLOSED_TEXT } from '../ui/components/SupersededNotice.js';
+import { NOTICE_ID, NOTICE_TITLE, NOTICE_CLOSED_TITLE, NOTICE_CLOSED_TEXT, NOTICE_RECONNECTED_TEXT } from '../ui/components/SupersededNotice.js';
 
 vi.mock('../vendor.js', () => ({}));
 vi.mock('../socket/createSocket.js', () => ({ createSocket: () => globalThis.__fakeSocket }));
@@ -72,18 +76,32 @@ describe('the parked tab after the active tab closes', () => {
     expect(document.activeElement).toBe(button);
     expect(title()).toBe(NOTICE_CLOSED_TITLE);
     expect(description().textContent).toBe(NOTICE_CLOSED_TEXT);
-    expect(`${title()}. ${description().textContent}`).toBe('The other BAB Online tab was closed. Use here to continue.');
+    // what a screen reader announces: the polite live region, which says why
+    expect(description().getAttribute('aria-live')).toBe('polite');
+    expect(description().textContent).toBe('The other BAB Online tab was closed. Use here to continue.');
     expect(dialog().dataset.variant).toBe('otherClosed');
     // still paused: no restore, no reconnect by itself
     expect(page.session.isParked).toBe(true);
     expect(socket.emittedNames()).toEqual([]);
+  });
+
+  it("this tab's socket reconnects while parked: no restore, and the notice no longer says where the session is", () => {
+    const button = useHere();
     socket.reconnect(nextId());
     expect(socket.emitted('restoreSession')).toEqual([]);
-    expect(dialog().dataset.variant).toBe('otherClosed');
+    expect(page.session.isParked).toBe(true);
+    expect(dialog().dataset.variant).toBe('reconnected');
+    expect(description().textContent).toBe(NOTICE_RECONNECTED_TEXT);
+    expect(description().textContent).toMatch(/may still be open in another tab/);
+    expect(useHere()).toBe(button);
+    expect(document.activeElement).toBe(button);
   });
 
   it('a refusal keeps the text; a newer tab taking the session puts the first text back', () => {
+    socket.fire('sessionSuperseded', { reason: 'otherClosed' });
+    expect(dialog().dataset.variant).toBe('otherClosed');
     socket.fire('sessionSuperseded', { reason: 'newerConnection', refused: 'mainRoomChat' });
+    expect(dialog().dataset.variant).toBe('otherClosed');
     expect(title()).toBe(NOTICE_CLOSED_TITLE);
     socket.fire('sessionSuperseded', { reason: 'newerConnection' });
     expect(title()).toBe(NOTICE_TITLE);

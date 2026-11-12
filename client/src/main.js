@@ -13,7 +13,7 @@ import { RANK_VALUES } from './constants/ranks.js';
 
 // Utilities
 import { getPlayerName } from './utils/positions.js';
-import { adoptSavedSession, forgetSession, clearAllSessionData } from './utils/sessionPersistence.js';
+import { adoptSavedSession, forgetSession, clearAllSessionData, isDeviceSignedOut, SAVED_SESSION_KEY } from './utils/sessionPersistence.js';
 import { installAvatarSupport } from './utils/avatar.js';
 
 // Rules
@@ -561,6 +561,24 @@ function initializeApp() {
   // notice: serverShutdown)
   const connectionBanner = installConnectionBanner(socketMgr);
 
+  // A parked tab whose socket reconnected (a deploy, a network blip): a
+  // parked tab never restores, so the server no longer knows the new
+  // socket as this player's parked one and tells it nothing ('otherClosed'
+  // cannot reach it): the notice no longer claims where the session is
+  socketMgr.onStateChange((event, data) => {
+    if (event === 'stateChanged' && data?.newState === 'connected' && session.isParked) {
+      setSupersededNoticeVariant(NOTICE_VARIANT.RECONNECTED);
+    }
+  });
+
+  // Signed out in another tab of this browser (it clears the saved
+  // session): a parked tab signs out at once
+  window.addEventListener('storage', (e) => {
+    if (!session.isParked || e.newValue != null) return;
+    if (e.key !== null && e.key !== SAVED_SESSION_KEY) return;
+    if (isDeviceSignedOut()) signOutParkedTab();
+  });
+
   // Initialize UI manager
   const uiManager = initializeUIManager(socket);
 
@@ -925,7 +943,11 @@ function initializeApp() {
       // it never parks a live tab nor takes the session back by itself
       const closed = data?.reason === NOTICE_VARIANT.CLOSED;
       if (closed) {
-        if (session.isParked) setSupersededNoticeVariant(NOTICE_VARIANT.CLOSED);
+        if (!session.isParked) return;
+        // The other tab signed out (Profile Sign Out): no "continue" for
+        // the next person at this computer, this tab signs out too
+        if (isDeviceSignedOut()) signOutParkedTab();
+        else setSupersededNoticeVariant(NOTICE_VARIANT.CLOSED);
         return;
       }
       // Another tab of this browser has the session now: pause here (no
@@ -942,6 +964,12 @@ function initializeApp() {
       stopVoice();
       showSupersededNotice({
         onUseHere: () => {
+          // Signed out on this device meanwhile: the sign-in screen, never
+          // the signed-out player's session from this tab's own copy
+          if (isDeviceSignedOut()) {
+            signOutParkedTab();
+            return;
+          }
           // A fresh socket: it restores the session (which parks the other
           // tab) and re-enters this tab's screen (rejoin, lobby, main room)
           session.unpark();
@@ -1893,6 +1921,27 @@ function leaveParked() {
   session.unpark();
   getSocketManager().setParked(false);
   hideSupersededNotice();
+}
+
+/**
+ * This tab is parked and this device was signed out in another tab
+ * (Profile Sign Out clears the saved session; review 2026-11-12): this tab
+ * signs out as well, on a fresh anonymous socket, so its own copy of the
+ * session cannot be continued with one click on Use here by the next
+ * person at a shared computer.
+ */
+function signOutParkedTab() {
+  if (!session.isParked && !isSupersededNoticeShown()) return;
+  console.log('Signed out in another tab: this paused tab signs out too');
+  clearAllSessionData();
+  restartNotice.clear();
+  leaveParked();
+  session.clearIdentity();
+  setIsAdmin(false);
+  setBlockedUsers([]);
+  displaySignInScreen(EXIT.SIGN_OUT);
+  // The parked socket still claims the player on the server
+  getSocketManager().forceReconnect();
 }
 
 /** restoreSessionResponse failures that need no explanation (sign in again). */

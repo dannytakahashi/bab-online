@@ -173,10 +173,11 @@ export function createFakeScene() {
 export const tick = (ms = 0) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * Load the page: sessionStorage first (a reload), then main.js and the
- * window load event. Returns the page's handles.
+ * Load the page: sessionStorage first (a reload; with a session, the
+ * device's saved copy in localStorage too unless `savedSession: false`),
+ * then main.js and the window load event. Returns the page's handles.
  */
-export async function loadPage({ session = {}, connected = true, socketId = 'sock-1', realScene = false, createScene = true } = {}) {
+export async function loadPage({ session = {}, connected = true, socketId = 'sock-1', realScene = false, createScene = true, savedSession = true } = {}) {
   if (realScene) {
     // The real GameScene and managers on testing/fakePhaser.js
     const { installFakePhaser } = await import('./fakePhaser.js');
@@ -185,8 +186,17 @@ export async function loadPage({ session = {}, connected = true, socketId = 'soc
     globalThis.Phaser = { Scene: class {}, Game: class {}, AUTO: 0, Scale: {} };
   }
   sessionStorage.clear();
-  try { window.localStorage?.clear(); } catch { /* no storage in this environment */ }
+  try { globalThis.localStorage?.clear(); } catch { /* no storage in this environment */ }
   for (const [k, v] of Object.entries(session)) sessionStorage.setItem(k, v);
+  // A signed-in tab's session is the device's saved one too (every sign-in
+  // writes it, a new tab adopts it), unless the test says otherwise. (Node
+  // 25+ shadows jsdom's localStorage with an unusable one: a test that
+  // needs it stubs a plain one before loadPage.)
+  if (savedSession && session.username && session.sessionToken) {
+    try {
+      globalThis.localStorage?.setItem('bab.savedSession', JSON.stringify({ username: session.username, sessionToken: session.sessionToken }));
+    } catch { /* no storage in this environment */ }
+  }
   const socket = createFakeSocket({ id: socketId, connected });
   const voice = createFakeVoice();
   globalThis.__fakeSocket = socket;

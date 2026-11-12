@@ -14,16 +14,22 @@
  * on the button; the backdrop is opaque (nothing stale behind it shows
  * through). Reduced motion: the kit's fade is off.
  *
- * Two texts (variants of `sessionSuperseded.reason`): 'newerConnection',
- * the session is live in another tab; 'otherClosed' (2026-11-11, the
- * session-quirks follow-up), that tab was closed and nothing holds the
- * session now, so Use here continues here. The server tells it ~2 s after
- * the other tab's socket dropped and only if no tab took the session back
- * meanwhile (a reload of the other tab does), and goes back to
- * 'newerConnection' when one does. The text changes in place: focus stays
- * on Use here and the new text is announced (the description is a polite
- * live region). The session is never taken back by itself: a reload of
- * the other tab would then flip-flop between the two.
+ * Texts (variants of `sessionSuperseded.reason`, plus one of the page's
+ * own): 'newerConnection', the session is live in another tab;
+ * 'otherClosed' (2026-11-11, the session-quirks follow-up), that tab was
+ * closed and nothing holds the session now, so Use here continues here.
+ * The server tells it ~2 s after the other tab's socket dropped and only
+ * if no tab took the session back meanwhile (a reload of the other tab
+ * does), and goes back to 'newerConnection' when one does. 'reconnected'
+ * (the page's, review 2026-11-12): this tab's socket reconnected while
+ * parked (a deploy, a network blip); a parked tab never restores, so the
+ * server no longer knows the new socket as parked and tells it nothing:
+ * the notice says only that the other tab may still be open. The text
+ * changes in place: focus stays on Use here and the new text is announced
+ * (the description is a polite live region, and it carries the reason
+ * itself: the title is not announced again, review 2026-11-12). The
+ * session is never taken back by itself: a reload of the other tab would
+ * then flip-flop between the two.
  */
 import { el, createButton, openModal } from '../kit/index.js';
 
@@ -31,14 +37,20 @@ export const NOTICE_ID = 'supersededNotice';
 export const NOTICE_TITLE = 'BAB Online is open in another tab';
 export const NOTICE_TEXT = 'You are signed in to BAB Online in another tab or window, so this one is paused. '
   + 'Choose Use here to play in this tab instead; the other one will pause.';
-export const NOTICE_CLOSED_TITLE = 'The other BAB Online tab was closed';
-export const NOTICE_CLOSED_TEXT = 'Use here to continue.';
+// The two texts below share a title, so a change between them is the
+// live text alone, and each says why on its own
+export const NOTICE_PAUSED_TITLE = 'BAB Online is paused in this tab';
+export const NOTICE_CLOSED_TITLE = NOTICE_PAUSED_TITLE;
+export const NOTICE_CLOSED_TEXT = 'The other BAB Online tab was closed. Use here to continue.';
+export const NOTICE_RECONNECTED_TEXT = 'BAB Online may still be open in another tab or window. '
+  + 'Choose Use here to play in this tab instead.';
 
-export const NOTICE_VARIANT = Object.freeze({ NEWER: 'newerConnection', CLOSED: 'otherClosed' });
+export const NOTICE_VARIANT = Object.freeze({ NEWER: 'newerConnection', CLOSED: 'otherClosed', RECONNECTED: 'reconnected' });
 
 const COPY = {
   [NOTICE_VARIANT.NEWER]: { title: NOTICE_TITLE, text: NOTICE_TEXT },
-  [NOTICE_VARIANT.CLOSED]: { title: NOTICE_CLOSED_TITLE, text: NOTICE_CLOSED_TEXT },
+  [NOTICE_VARIANT.CLOSED]: { title: NOTICE_PAUSED_TITLE, text: NOTICE_CLOSED_TEXT },
+  [NOTICE_VARIANT.RECONNECTED]: { title: NOTICE_PAUSED_TITLE, text: NOTICE_RECONNECTED_TEXT },
 };
 
 let current = null;

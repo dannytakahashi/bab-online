@@ -46,6 +46,13 @@
  * 'otherClosed' are told 'newerConnection' again (reparkClosedNotices).
  * Only that user's own parked sockets are told. iOS 1.1.0 never has a
  * parked socket (it never shares a token between live sockets).
+ * Limitation (review 2026-11-12): a parked tab never restores, so after
+ * its socket reconnects (a deploy, a network blip) the new socket has no
+ * data.username / data.superseded and parkedSocketsOf cannot find it: it
+ * is told nothing more (the web notice then says only that the other tab
+ * may still be open). Profile Sign Out is client-only (no token revoked):
+ * a parked web tab signs itself out when the device's saved session is
+ * gone, before it offers to continue.
  */
 
 const gameManager = require('../game/GameManager');
