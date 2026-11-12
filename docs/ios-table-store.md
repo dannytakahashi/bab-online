@@ -414,9 +414,11 @@ All bullets are done except these, which are follow-ups:
   to a tournament table; emitting it to everyone would reach the App Store
   build, which buffers peers while voice is inactive and later offers to
   stale sockets. It needs clientHello capabilities (item C10) to gate it.
-- **21.10b `serverError`**: the server does not emit it yet; deferred to
-  `contract/V1_REMOVALS.md` #1 Phase A. The `error` dictionary already shows
-  a toast and, for playCard / playerBid / requestSnapshot, resyncs the table.
+- **21.10b `serverError`**: the server sends it since 2026-11-11
+  (`contract/V1_REMOVALS.md` #1 Phase A: `{code, message, handler}` right
+  after every app-level `error`); this source does not listen to it yet.
+  The `error` dictionary already shows a toast and, for playCard /
+  playerBid / requestSnapshot, resyncs the table.
 - `spectateState` does not exist: the store routes `spectatorJoined` by its
   `snapshot` key (V1_REMOVALS #8).
 

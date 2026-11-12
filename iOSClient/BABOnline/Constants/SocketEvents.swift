@@ -177,6 +177,7 @@ enum SocketEvents {
         static let connect = "connect"
         static let disconnect = "disconnect"
         static let serverShutdown = "serverShutdown"
+        static let serverError = "serverError"
 
         // Snapshot v2
         static let stateSnapshot = "stateSnapshot"

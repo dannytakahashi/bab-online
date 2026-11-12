@@ -231,7 +231,8 @@
           "reconnect_attempt",
           "reconnect_failed",
           "error",
-          "serverShutdown"
+          "serverShutdown",
+          "serverError"
         ]
       },
       {
@@ -550,7 +551,8 @@
         "events": [
           "connect",
           "disconnect",
-          "serverShutdown"
+          "serverShutdown",
+          "serverError"
         ]
       },
       {

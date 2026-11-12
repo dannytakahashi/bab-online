@@ -72,7 +72,19 @@ One PR per entry:
     0fd6ef1 do not.
 - Phase A (additive, can run before the iOS build): an `emitError(socket,
   {code, message, handler})` helper that sends both `error` and `serverError`;
-  a shared code enum in the contract.
+  a shared code enum in the contract. **Done 2026-11-11 (PR #TBD):**
+  `server/socket/serverError.js` `emitError(socket, errorPayload, handler?)`
+  sends the unchanged `error` and then `serverError {code, message,
+  handler}` (code `$defs.serverErrorCode`: rateLimit / validation / server
+  from the error's type, rejected for a handler's `{message}` refusal;
+  handler = the c2s event, null when unknown). Every emit site uses it (the
+  wrappers, ~45 handler refusals, chat's `sendError`); only the dead
+  `withValidation` does not. Constants: web `SERVER_EVENTS.SERVER_ERROR`,
+  Swift `SocketEvents.Server.serverError` (appended to Connection). The
+  iOS fixture `events-humans-s13` now records the twin; the iOS test
+  harness (ServerEventDecodingTests, ReplayHarness, RecordedGame) skips it
+  like spectatorsUpdated, since 1.1.0 registers no handler. Test:
+  `serverError.test.js`.
 - **Prerequisite of Phase B:** the new iOS build listens to `serverError`
   (not only `clientEvent: .error`); otherwise dropping `error` silently loses
   the iOS error toast. Same for web.
@@ -439,7 +451,7 @@ synthesized Decodable that skips unknown keys). The next iOS build needs:
   `stateSnapshot`, never replaying v1 draw events.
 - **`seq` on private emits.** Not needed: Socket.IO keeps per-socket order and
   snapshots carry seq.
-- **`serverError` dual emit** (#1 phase A).
+- **`serverError` dual emit** (#1 phase A): done 2026-11-11.
 
 ## Plan after the gate (2026-11-11): re-checked against 1.1.0 and web
 
@@ -489,7 +501,7 @@ step, in this order; nothing is removed by the gate PR itself.
 9. **#17 `serverShutdown`**: no listener anywhere; either drop it or add the
    "server restarting" handling in a later client build. Owner call.
 10. **#1 phase A only** (`serverError` dual emit with `{code, message,
-    handler}`): additive, safe now.
+    handler}`): additive, safe now. **Done 2026-11-11 (PR #TBD).**
 
 **Still blocked (by what a shipped client reads):**
 

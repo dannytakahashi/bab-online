@@ -357,6 +357,14 @@
       ],
       "additionalProperties": false
     },
+    "serverErrorCode": {
+      "enum": [
+        "rateLimit",
+        "validation",
+        "server",
+        "rejected"
+      ]
+    },
     "lobbyChatLine": {
       "type": "object",
       "properties": {
@@ -10208,14 +10216,51 @@
         ]
       },
       "emittedFrom": [
+        "server/socket/serverError.js:emitError",
         "server/socket/errorHandler.js:asyncHandler",
         "server/socket/errorHandler.js:syncHandler",
         "server/socket/errorHandler.js:handleError",
         "server/socket/validators.js:withValidation",
-        "server/socket/*.js:<many handlers> (socket.emit('error', {message}))",
+        "server/socket/*.js:<many handlers> (emitError(socket, {message}, handler))",
         "server/socket/chatHandlers.js:sendError"
       ],
-      "notes": "App-level event (not the transport's error). iOS receives it through Socket.IO-Client-Swift's clientEvent .error (the reserved name) and, since 0fd6ef1, shows message as a toast. variant validation is dead today (validators.withValidation has no caller). Rename to serverError is V1_REMOVALS #1. The admin panel's api (adminApi.js) reads {type:'rateLimit', handler:'adminRequest'} to fail a dropped admin request fast as rate_limited."
+      "notes": "App-level event (not the transport's error). iOS receives it through Socket.IO-Client-Swift's clientEvent .error (the reserved name) and, since 0fd6ef1, shows message as a toast. variant validation is dead today (validators.withValidation has no caller). Every emit (but the dead withValidation) is followed by its serverError twin (V1_REMOVALS #1 phase A, 2026-11-11); dropping this event is phase B, blocked until an iOS build and web read serverError. The admin panel's api (adminApi.js) reads {type:'rateLimit', handler:'adminRequest'} to fail a dropped admin request fast as rate_limited."
+    },
+    "serverError": {
+      "payload": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "$ref": "#/$defs/serverErrorCode"
+          },
+          "message": {
+            "type": "string"
+          },
+          "handler": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "handler"
+        ],
+        "additionalProperties": false
+      },
+      "status": "active",
+      "to": "self",
+      "clientReads": {
+        "web": [],
+        "ios": []
+      },
+      "emittedFrom": [
+        "server/socket/serverError.js:emitError",
+        "server/socket/chatHandlers.js:sendError"
+      ],
+      "notes": "V1_REMOVALS #1 phase A (2026-11-11, additive): the twin of every app-level error, sent right after it to the same socket. code: rateLimit / validation / server (the error's type) or rejected (a handler's {message} refusal); message: the error's message; handler: the c2s event it answers (from the wrapper, or the handler that refused), null when unknown. Read by no shipped client yet (iOS 1.1.0 and web listen to error); its own name because Socket.IO-Client-Swift reserves 'error'. When iOS and web read it, phase B drops error."
     }
   },
   "builtins": {

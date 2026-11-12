@@ -875,7 +875,7 @@ describe('review fixes (seat records)', () => {
         const mark = t.log.length;
         chat(t, 2, '/active', t.sockets[2]);
         expect(t.game.seatController(2)).toBe('lazyBot');
-        expect(t.log.slice(mark).filter((l) => l.to === t.sockets[2].id).map((l) => l.event)).toEqual(['error']);
+        expect(t.log.slice(mark).filter((l) => l.to === t.sockets[2].id).map((l) => l.event)).toEqual(['error', 'serverError']);
         // An ordinary spectator still gets nothing
         const fan = newSocket(t, 'fan');
         mainRoomHandlers.joinAsSpectator(fan, t.io, { gameId: t.game.gameId });

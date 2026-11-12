@@ -148,6 +148,8 @@ const defs = {
     }),
     lobbyPlayer: obj({ username: str(), ready: bool() }),
     lobbyMember,
+    // serverError.code (V1_REMOVALS #1 phase A): one list with the server
+    serverErrorCode: enm(...require('../../server/socket/serverError').CODES),
     lobbyChatLine: chatLine,
     mainRoomChatLine: chatLine,
     inProgressGame: obj({

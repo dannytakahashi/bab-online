@@ -19,6 +19,7 @@ const {
     BID_RANKS
 } = require('../game/rules');
 const { gameLogger } = require('../utils/logger');
+const { emitError } = require('./serverError');
 const { Phase, reportViolation } = require('../game/GamePhase');
 const { botController } = require('../game/bot');
 const { Controller, Presence } = require('../game/SeatState');
@@ -1092,7 +1093,7 @@ async function handleHandComplete(game, io) {
 async function forceResign(socket, io, data) {
     const game = gameManager.getPlayerGame(socket.id);
     if (!game) {
-        socket.emit('error', { message: 'Not in a game' });
+        emitError(socket, { message: 'Not in a game' }, 'forceResign');
         return;
     }
 
@@ -1101,16 +1102,16 @@ async function forceResign(socket, io, data) {
     // Validate: the requesting socket owns a seat in this game
     const requestingPosition = game.seatByOwnerSocket(socket.id);
     if (!requestingPosition || !game.isHumanPresent(requestingPosition)) {
-        socket.emit('error', { message: 'Not a player in this game' });
+        emitError(socket, { message: 'Not a player in this game' }, 'forceResign');
         return;
     }
 
     // Validate: the target seat's grace period has run out
     const targetPresence = game.seatPresence(position);
     if (targetPresence !== Presence.RESIGNABLE) {
-        socket.emit('error', {
+        emitError(socket, {
             message: targetPresence === Presence.GRACE ? 'Player is still reconnecting' : 'Player is not disconnected'
-        });
+        }, 'forceResign');
         return;
     }
 

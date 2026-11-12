@@ -166,6 +166,7 @@ export const SERVER_EVENTS = {
   RECONNECT_FAILED: 'reconnect_failed',
   ERROR: 'error',
   SERVER_SHUTDOWN: 'serverShutdown',
+  SERVER_ERROR: 'serverError',
 
   // Profile
   PROFILE_RESPONSE: 'profileResponse',

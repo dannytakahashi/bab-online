@@ -172,7 +172,7 @@ describe('re-entering a pre-game lobby from a new socket', () => {
         const eve = await w.connect(`eve${seq}`);
         const from2 = w.log.length;
         mainRoomHandlers.joinLobby(eve, w.io, { lobbyId });
-        expect(w.to(eve.id, from2).map((l) => [l.event, l.data?.message])).toEqual([['error', 'Lobby is full']]);
+        expect(w.to(eve.id, from2).map((l) => [l.event, l.data?.message])).toEqual([['error', 'Lobby is full'], ['serverError', 'Lobby is full']]);
         expect(seats(lobby)).toEqual(names);
     });
 
@@ -193,7 +193,7 @@ describe('re-entering a pre-game lobby from a new socket', () => {
         // The old socket can no longer ready on the seat's behalf
         const from = w.log.length;
         lobbyHandlers.playerReady(ann1, w.io);
-        expect(w.to(ann1.id, from).map((l) => [l.event, l.data?.message])).toEqual([['error', 'Not in a lobby']]);
+        expect(w.to(ann1.id, from).map((l) => [l.event, l.data?.message])).toEqual([['error', 'Not in a lobby'], ['serverError', 'Not in a lobby']]);
         expect(lobby.readyPlayers.has(ann1.id)).toBe(false);
     });
 

@@ -7,6 +7,7 @@
 const { validate, ValidationError } = require('./validators');
 const rateLimiter = require('./rateLimiter');
 const { socketLogger } = require('../utils/logger');
+const { emitError } = require('./serverError');
 
 /**
  * Wrap an async socket handler with rate limiting, validation, and error handling
@@ -20,7 +21,7 @@ function asyncHandler(schemaName, handler, options = { rateLimit: true }) {
         try {
             // Check rate limit first
             if (options.rateLimit && schemaName && !rateLimiter.check(socket.id, schemaName)) {
-                socket.emit('error', {
+                emitError(socket, {
                     type: 'rateLimit',
                     message: 'Too many requests, please slow down',
                     handler: schemaName
@@ -55,7 +56,7 @@ function syncHandler(schemaName, handler, options = { rateLimit: true }) {
         try {
             // Check rate limit first
             if (options.rateLimit && schemaName && !rateLimiter.check(socket.id, schemaName)) {
-                socket.emit('error', {
+                emitError(socket, {
                     type: 'rateLimit',
                     message: 'Too many requests, please slow down',
                     handler: schemaName
@@ -96,7 +97,7 @@ function handleError(socket, handlerName, error) {
     if (error.isValidation || error.isOperational) {
         // Expected errors - log as warning
         socketLogger.warn(error.message, errorContext);
-        socket.emit('error', {
+        emitError(socket, {
             type: error.code || 'validation',
             message: error.message,
             handler: handlerName
@@ -108,7 +109,7 @@ function handleError(socket, handlerName, error) {
             stack: error.stack
         });
         // Don't expose internal error details to client
-        socket.emit('error', {
+        emitError(socket, {
             type: 'server',
             message: 'An error occurred processing your request',
             handler: handlerName

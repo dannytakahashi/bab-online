@@ -5,6 +5,7 @@
 
 const gameManager = require('../game/GameManager');
 const { socketLogger } = require('../utils/logger');
+const { emitError } = require('./serverError');
 const { Controller, Presence } = require('../game/SeatState');
 const seatLifecycle = require('./seatLifecycle');
 const { spectatorJoinState, snapshotFor } = require('./snapshotHandlers');
@@ -22,7 +23,7 @@ function joinMainRoom(socket, io) {
     const result = gameManager.joinMainRoom(socket.id);
 
     if (!result.success) {
-        socket.emit('error', { message: result.error || 'Failed to join main room' });
+        emitError(socket, { message: result.error || 'Failed to join main room' }, 'joinMainRoom');
         return;
     }
 
@@ -70,7 +71,7 @@ function mainRoomChat(socket, io, data) {
     }
 
     if (!gameManager.isInMainRoom(socket.id)) {
-        socket.emit('error', { message: 'Not in main room' });
+        emitError(socket, { message: 'Not in main room' }, 'mainRoomChat');
         return;
     }
 
@@ -78,7 +79,7 @@ function mainRoomChat(socket, io, data) {
     const result = gameManager.addMainRoomMessage(socket.id, filterProfanity(message.trim()));
 
     if (!result.success) {
-        socket.emit('error', { message: result.error });
+        emitError(socket, { message: result.error }, 'mainRoomChat');
         return;
     }
 
@@ -104,7 +105,7 @@ function createLobby(socket, io, data) {
     const result = gameManager.createNamedLobby(socket.id, name ? filterProfanity(name) : name);
 
     if (!result.success) {
-        socket.emit('error', { message: result.error });
+        emitError(socket, { message: result.error }, 'createLobby');
         return;
     }
 
@@ -145,14 +146,14 @@ function joinLobby(socket, io, data) {
     const { lobbyId } = data;
 
     if (!lobbyId) {
-        socket.emit('error', { message: 'Lobby ID required' });
+        emitError(socket, { message: 'Lobby ID required' }, 'joinLobby');
         return;
     }
 
     const result = gameManager.joinSpecificLobby(socket.id, lobbyId);
 
     if (!result.success) {
-        socket.emit('error', { message: result.error });
+        emitError(socket, { message: result.error }, 'joinLobby');
         return;
     }
 
@@ -226,13 +227,13 @@ function joinAsSpectator(socket, io, data) {
 
     const game = gameManager.getGameById(gameId);
     if (!game) {
-        socket.emit('error', { message: 'Game not found' });
+        emitError(socket, { message: 'Game not found' }, 'joinAsSpectator');
         return;
     }
 
     const user = gameManager.getUserBySocketId(socket.id);
     if (!user) {
-        socket.emit('error', { message: 'User not found' });
+        emitError(socket, { message: 'User not found' }, 'joinAsSpectator');
         return;
     }
 
@@ -256,7 +257,7 @@ function joinAsSpectator(socket, io, data) {
     // A pure spectator (of one game at a time), in the game's room
     if (!gameManager.addSpectator(io, game, socket.id, user.username, null)) {
         socketLogger.warn('Spectate refused: socket is in a game', { socketId: socket.id, gameId });
-        socket.emit('error', { message: 'Leave your current game before spectating another' });
+        emitError(socket, { message: 'Leave your current game before spectating another' }, 'joinAsSpectator');
         return;
     }
 

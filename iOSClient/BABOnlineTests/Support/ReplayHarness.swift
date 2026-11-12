@@ -118,6 +118,10 @@ final class ReplayHarness {
             SocketService.routeTableError(dict ?? [:], to: store)
         case "voicePeerJoined", "voicePeerList":
             break
+        case "serverError":
+            // the additive twin of 'error' (V1_REMOVALS #1 phase A): this
+            // build registers no handler for it, as the App Store build
+            break
         case "spectatorsUpdated":
             // unsequenced and not routed: the app registers no handler for
             // it yet (contract layout.json exclude.swift; V1_REMOVALS
