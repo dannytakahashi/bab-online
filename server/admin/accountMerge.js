@@ -233,9 +233,12 @@ async function planMerge(db, { target, sources }) {
         $or: [{ reporter: { $in: plan.sources } }, { reported: { $in: plan.sources } }]
     }).toArray();
     for (const rep of reports) {
+        // A side marked deleted was an earlier holder of the name (deleted;
+        // accountDelete.js), not the source: it keeps its name
         const set = {};
-        if (plan.sources.includes(rep.reporter)) set.reporter = target;
-        if (plan.sources.includes(rep.reported)) set.reported = target;
+        if (plan.sources.includes(rep.reporter) && !rep.reporterDeletedAt) set.reporter = target;
+        if (plan.sources.includes(rep.reported) && !rep.reportedDeletedAt) set.reported = target;
+        if (!Object.keys(set).length) continue;
         plan.reports.push({ id: rep._id, before: { reporter: rep.reporter, reported: rep.reported }, set });
     }
 

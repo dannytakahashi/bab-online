@@ -3,6 +3,10 @@
  * admin panel reviews them. A report without `status` is open; an admin
  * closes it as resolved or dismissed with a note:
  *   { status, resolvedBy, resolvedAt, resolutionNote }
+ * Reports outlive a deleted account (server/admin/accountDelete.js marks
+ * them `reporterDeletedAt` / `reportedDeletedAt`): the rows say so, so a
+ * report about a deleted player is never read as one about a new account
+ * that took the same name.
  */
 
 'use strict';
@@ -27,7 +31,9 @@ function reportRow(r) {
         status: r.status === 'resolved' || r.status === 'dismissed' ? r.status : 'open',
         resolvedBy: r.resolvedBy || null,
         resolvedAt: iso(r.resolvedAt),
-        note: r.resolutionNote === undefined || r.resolutionNote === null ? null : String(r.resolutionNote)
+        note: r.resolutionNote === undefined || r.resolutionNote === null ? null : String(r.resolutionNote),
+        reporterDeleted: Boolean(r.reporterDeletedAt),
+        reportedDeleted: Boolean(r.reportedDeletedAt)
     };
 }
 

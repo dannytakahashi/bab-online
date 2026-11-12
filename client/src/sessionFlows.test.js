@@ -492,6 +492,35 @@ describe('identity and errors', () => {
     expect(toast.textContent).toBe('Not all players are ready');
   });
 
+  it('a block list the server pushes after an admin rename (silent) updates without a toast; a player\'s own block still toasts', async () => {
+    const { clearToasts } = await import('./ui/kit/toast.js');
+    const { isUserBlocked } = await import('./main.js');
+    clearToasts();
+    socket.fire('blockListUpdated', { success: true, blockedUsers: ['Cyrus'], silent: true });
+    expect(isUserBlocked('Cyrus')).toBe(true);
+    expect(document.querySelector('.kit-toast')).toBeNull();
+    socket.fire('blockListUpdated', { success: true, blockedUsers: ['Cyrus', 'Zed'] });
+    expect(isUserBlocked('Zed')).toBe(true);
+    expect(document.querySelector('.kit-toast').textContent).toBe('Block list updated');
+    clearToasts();
+  });
+
+  it('a failed restore says why when the server says something to act on (a renamed account), not for an expired session', async () => {
+    const { clearToasts } = await import('./ui/kit/toast.js');
+    clearToasts();
+    socket.reconnect(nextSocketId());
+    socket.fire('restoreSessionResponse', { success: false, message: 'Invalid session token' });
+    expect(page.session.screen).toBe(SCREEN.SIGN_IN);
+    expect(document.querySelector('.kit-toast')).toBeNull();
+    await signIn();
+    socket.reconnect(nextSocketId());
+    socket.fire('restoreSessionResponse', { success: false, message: 'This account is now called Cyrus. Sign in as Cyrus.' });
+    expect(page.session.screen).toBe(SCREEN.SIGN_IN);
+    expect(document.querySelector('.kit-toast').textContent).toBe('This account is now called Cyrus. Sign in as Cyrus.');
+    clearToasts();
+    await signIn();
+  });
+
   it("a spectator's score header names the seats, not '<me>/null'", async () => {
     socket.fire('spectatorJoined', spectatorState({ gameId: 'g2' }));
     // a spectator deal names the seats (setPlayerData at view seat 1)

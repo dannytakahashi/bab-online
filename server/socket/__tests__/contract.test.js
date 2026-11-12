@@ -635,6 +635,10 @@ describe('(e) failure variants and rarely reached emit sites', () => {
 
 describe('(e2) admin panel', () => {
     test('every adminResponse variant, and isAdmin on the sign-in replies', async () => {
+        // the blocker (adm_bea, signed out by then: adm_owner's live socket stands in) gets the unasked blockListUpdated
+        const users_block = async (users) => {
+            await users.updateOne({ username: 'adm_owner' }, { $set: { blockedUsers: ['adm_cy'] } });
+        };
         jest.useRealTimers();
         const bcrypt = require('bcryptjs');
         const hash = await bcrypt.hash('pw', 4);
@@ -664,6 +668,7 @@ describe('(e2) admin panel', () => {
         };
         expect((await req(bea, 'listAdmins', {})).error).toBe('forbidden');
         expect((await req(restorer, 'searchPlayers', { query: 'adm' })).players.length).toBe(4);
+        expect(await req(restorer, 'listPlayers', {})).toMatchObject({ ok: true, total: 4, limit: 500 });
         expect((await req(restorer, 'createResetLink', { username: 'adm_bea' })).ok).toBe(true);
         expect((await req(restorer, 'signOutEverywhere', { username: 'adm_bea' })).disconnected).toBe(1);
         expect((await req(restorer, 'findDuplicates', {})).groups.length).toBe(1);
@@ -678,6 +683,16 @@ describe('(e2) admin panel', () => {
         expect((await req(restorer, 'listAdmins', {})).admins.length).toBe(2);
         expect((await req(restorer, 'listAudit', {})).entries.length).toBeGreaterThan(5);
         expect((await req(restorer, 'setAdmin', { username: 'adm_old', isAdmin: true })).error).toBe('refused');
+        expect(await req(restorer, 'deleteAccount', { username: 'adm_old', confirm: 'adm_old' })).toMatchObject({ ok: true, kind: 'tombstone' });
+        mockDb.current.users._insert({ username: 'adm_cy', password: hash, blockedUsers: [] });
+        await users_block(mockDb.current.users);
+        expect(await req(restorer, 'deleteAccount', { username: 'adm_cy', confirm: 'adm_cy' })).toMatchObject({ ok: true, kind: 'account', blockLists: 1 });
+        expect(await req(restorer, 'renameAccount', { username: 'adm_bea', newName: 'adm_bee', confirm: 'adm_bee' })).toMatchObject({ ok: true, newName: 'adm_bee', oldNameKept: true });
+        const tomb = (await req(restorer, 'listPlayers', {})).players.find((p) => p.username === 'adm_bea');
+        expect(tomb).toMatchObject({ mergedInto: 'adm_bee', renamed: true });
+        const signInOld = w.socket('adm-old');
+        await authHandlers.signIn(signInOld, w.io, { username: 'adm_bea', password: 'pw' });
+        expect(w.log.filter((l) => l.event === 'signInResponse' && l.to === 'self:adm-old').pop().data).toEqual({ success: false, message: 'This account is now called adm_bee. Sign in as adm_bee.' });
         void owner;
     });
 });

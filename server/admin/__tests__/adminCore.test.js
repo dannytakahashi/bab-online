@@ -13,7 +13,7 @@ const { listAdmins, setAdminFlag, isAdminDoc } = require('../adminRole');
 const { createResetLink, useResetLink, RESET_TTL_MS, INVALID_LINK, INVALID_PASSWORD } = require('../passwordReset');
 const { recordAudit, listAudit, redactDetail } = require('../audit');
 const { listReports, resolveReport } = require('../reports');
-const { searchPlayers } = require('../players');
+const { searchPlayers, listPlayers, LIST_MAX } = require('../players');
 const { planView, planHash } = require('../mergeView');
 const { planMerge, applyMerge, formatPlan, countChanges } = require('../accountMerge');
 const { hashToken } = require('../../utils/sessionTokens');
@@ -278,11 +278,32 @@ describe('player search', () => {
         expect(rows[0]).toMatchObject({ isAdmin: true, online: true, gamesPlayed: 9, mergedInto: null, lastSeenAt: null });
         expect(rows[1]).toMatchObject({ isAdmin: false, online: false, gamesPlayed: 3, lastSeenAt: seen.toISOString() });
         expect(rows[2]).toMatchObject({ mergedInto: 'alan', isAdmin: false, online: false });
-        expect(Object.keys(rows[0]).sort()).toEqual(['createdAt', 'gamesPlayed', 'isAdmin', 'lastSeenAt', 'mergedInto', 'online', 'username']);
+        expect(Object.keys(rows[0]).sort()).toEqual(['createdAt', 'gamesPlayed', 'isAdmin', 'lastSeenAt', 'mergedInto', 'online', 'renameUnfinished', 'renamed', 'username']);
         expect(JSON.stringify(rows)).not.toMatch(/HASH|SECRET|data:x/);
         expect(await searchPlayers(db, '   ')).toEqual([]);
         expect(await searchPlayers(db, 'x'.repeat(51))).toEqual([]);
         expect(await searchPlayers(db, '.*')).toEqual([]); // regex-escaped
+    });
+
+    test('the Players table: every account newest first, capped, with the true total and the same rows', async () => {
+        const at = (s) => ObjectId.createFromTime(Date.parse(s) / 1000);
+        const db = makeDb([
+            { _id: at('2026-06-01T00:00:00Z'), username: 'keyprobe00001', password: 'HASH' },
+            { _id: at('2026-09-01T00:00:00Z'), username: 'Bea', password: 'HASH', stats: { gamesPlayed: 2 }, sessionTokens: [{ hash: 'SECRET' }] },
+            { _id: at('2026-03-01T00:00:00Z'), username: 'Ann', isAdmin: true },
+            { _id: at('2026-10-01T00:00:00Z'), username: 'Bea2', mergedInto: 'Bea', mergedAt: new Date() }
+        ]);
+        const all = await listPlayers(db, { isOnline: (u) => u === 'Bea' });
+        expect(all.total).toBe(4);
+        expect(all.limit).toBe(LIST_MAX);
+        expect(LIST_MAX).toBe(500);
+        expect(all.players.map(p => p.username)).toEqual(['Bea2', 'Bea', 'keyprobe00001', 'Ann']);
+        expect(all.players[0]).toMatchObject({ mergedInto: 'Bea', online: false, createdAt: '2026-10-01T00:00:00.000Z' });
+        expect(all.players[1]).toMatchObject({ online: true, gamesPlayed: 2 });
+        expect(JSON.stringify(all)).not.toMatch(/HASH|SECRET/);
+        const capped = await listPlayers(db, { limit: 2 });
+        expect(capped).toMatchObject({ total: 4, limit: 2 });
+        expect(capped.players.map(p => p.username)).toEqual(['Bea2', 'Bea']);
     });
 });
 

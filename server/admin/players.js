@@ -1,8 +1,12 @@
 /**
- * "Find a player" for the admin panel: name search with what an admin
- * needs and nothing more — created (the _id timestamp), last seen (the
+ * The admin panel's player rows: the Players table (listPlayers: every
+ * account, newest first, capped at LIST_MAX) and the name search
+ * (searchPlayers), with what an admin needs and nothing more — created (the _id timestamp), last seen (the
  * newest saved-session use: sign-in or restore), online now, games played,
- * the admin flag, and for a merged tombstone the account it points at.
+ * the admin flag, and for a tombstone the account it points at (merged
+ * into it, or `renamed`: the old name a rename left), and for an account
+ * whose rename stopped partway the old name (`renameUnfinished`: the
+ * panel offers Finish rename).
  *
  * Never password data: the projection reads no password, no session hash
  * (only each session entry's timestamps), no IP, no picture.
@@ -12,9 +16,17 @@
 
 const LIMIT = 25;
 const MAX_QUERY = 50;
+/**
+ * The Players table lists at most this many accounts (newest first) and
+ * says so above the table when there are more (production has about 180).
+ * The rows are small (no picture, no password, no session data), so 500
+ * is one modest reply; past it the owner pages by sorting and filtering
+ * the newest ones, or the cap is raised.
+ */
+const LIST_MAX = 500;
 
 const PROJECTION = {
-    username: 1, mergedInto: 1, isAdmin: 1, 'stats.gamesPlayed': 1,
+    username: 1, mergedInto: 1, renamedAt: 1, isAdmin: 1, 'stats.gamesPlayed': 1, 'renamePending.from': 1,
     'sessionTokens.lastUsedAt': 1, 'sessionTokens.createdAt': 1
 };
 
@@ -41,7 +53,11 @@ function playerRow(user, isOnline) {
         online: !user.mergedInto && Boolean(isOnline(user.username)),
         gamesPlayed: user.mergedInto ? 0 : Number(user.stats?.gamesPlayed) || 0,
         isAdmin: !user.mergedInto && user.isAdmin === true,
-        mergedInto: user.mergedInto || null
+        mergedInto: user.mergedInto || null,
+        // a rename's redirect (accountRename.js), not a merged account
+        renamed: Boolean(user.mergedInto && user.renamedAt),
+        // accountRename.js renamePending: the old name, while unfinished
+        renameUnfinished: !user.mergedInto && typeof user.renamePending?.from === 'string' ? user.renamePending.from : null
     };
 }
 
@@ -70,4 +86,22 @@ async function searchPlayers(db, query, { isOnline = () => false } = {}) {
             || a.username.localeCompare(b.username));
 }
 
-module.exports = { searchPlayers, playerRow, LIMIT, PROJECTION };
+/**
+ * Every account for the Players table, newest first (by _id time), at most
+ * `limit`; tombstones included and marked (the table offers them Delete
+ * only). `total` is the true count, so the panel can say when the list is
+ * capped. Sorting and filtering happen in the panel.
+ *
+ * @param {{users}} db
+ * @param {{isOnline?: (username: string) => boolean, limit?: number}} [options]
+ * @returns {Promise<{players: Object[], total: number, limit: number}>}
+ */
+async function listPlayers(db, { isOnline = () => false, limit = LIST_MAX } = {}) {
+    const [total, users] = await Promise.all([
+        db.users.countDocuments({}),
+        db.users.find({}, { projection: PROJECTION }).sort({ _id: -1 }).limit(limit).toArray()
+    ]);
+    return { players: users.map(u => playerRow(u, isOnline)), total, limit };
+}
+
+module.exports = { searchPlayers, listPlayers, playerRow, LIMIT, LIST_MAX, PROJECTION };

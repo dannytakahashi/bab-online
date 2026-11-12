@@ -3805,7 +3805,10 @@
               "resolveReport",
               "listAdmins",
               "setAdmin",
-              "listAudit"
+              "listAudit",
+              "listPlayers",
+              "deleteAccount",
+              "renameAccount"
             ]
           },
           "args": {
@@ -3838,6 +3841,28 @@
         {
           "requestId": "adm-2",
           "action": "listAdmins"
+        },
+        {
+          "requestId": "adm-4",
+          "action": "listPlayers",
+          "args": {}
+        },
+        {
+          "requestId": "adm-5",
+          "action": "deleteAccount",
+          "args": {
+            "username": "keyprobe00001",
+            "confirm": "keyprobe00001"
+          }
+        },
+        {
+          "requestId": "adm-6",
+          "action": "renameAccount",
+          "args": {
+            "username": "alan2",
+            "newName": "Alan T",
+            "confirm": "Alan T"
+          }
         },
         {
           "requestId": "adm-3",
@@ -4247,6 +4272,9 @@
                 "items": {
                   "type": "string"
                 }
+              },
+              "silent": {
+                "const": true
               }
             },
             "required": [
@@ -4285,8 +4313,10 @@
         ]
       },
       "emittedFrom": [
-        "server/socket/safetyHandlers.js:updateBlockList"
-      ]
+        "server/socket/safetyHandlers.js:updateBlockList",
+        "server/admin/accountDelete.js:refreshBlockLists"
+      ],
+      "notes": "Also sent unasked (success, with silent: true) to a player whose saved block list an admin RENAME re-pointed (accountDelete.refreshBlockLists), so the renamed player's chat stays hidden; both clients replace their list. Web shows its \"Block list updated\" info toast only without silent. The App Store iOS build (1.1.0, f05d264) ignores silent and shows its \"Block list updated.\" alert (SafetySocketHandler / .safetyAlerts) wherever the player is: accepted for renames, which are rare and owner-run. An admin DELETE sends nothing (the dead name stays in the client list, harmless, until the next sign-in; only the voice list is refreshed), and a player's own Delete account leaves other players' lists alone."
     },
     "mainRoomJoined": {
       "payload": {
@@ -8553,6 +8583,15 @@
                         "string",
                         "null"
                       ]
+                    },
+                    "renamed": {
+                      "type": "boolean"
+                    },
+                    "renameUnfinished": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
                     }
                   },
                   "required": [
@@ -8562,7 +8601,9 @@
                     "online",
                     "gamesPlayed",
                     "isAdmin",
-                    "mergedInto"
+                    "mergedInto",
+                    "renamed",
+                    "renameUnfinished"
                   ],
                   "additionalProperties": false
                 }
@@ -9193,6 +9234,12 @@
                         "string",
                         "null"
                       ]
+                    },
+                    "reporterDeleted": {
+                      "type": "boolean"
+                    },
+                    "reportedDeleted": {
+                      "type": "boolean"
                     }
                   },
                   "required": [
@@ -9205,7 +9252,9 @@
                     "status",
                     "resolvedBy",
                     "resolvedAt",
-                    "note"
+                    "note",
+                    "reporterDeleted",
+                    "reportedDeleted"
                   ],
                   "additionalProperties": false
                 }
@@ -9280,6 +9329,12 @@
                       "string",
                       "null"
                     ]
+                  },
+                  "reporterDeleted": {
+                    "type": "boolean"
+                  },
+                  "reportedDeleted": {
+                    "type": "boolean"
                   }
                 },
                 "required": [
@@ -9292,7 +9347,9 @@
                   "status",
                   "resolvedBy",
                   "resolvedAt",
-                  "note"
+                  "note",
+                  "reporterDeleted",
+                  "reportedDeleted"
                 ],
                 "additionalProperties": false
               }
@@ -9459,6 +9516,244 @@
               "hasMore"
             ],
             "additionalProperties": false
+          },
+          {
+            "variant": "listPlayers",
+            "type": "object",
+            "properties": {
+              "requestId": {
+                "type": "string"
+              },
+              "action": {
+                "const": "listPlayers"
+              },
+              "ok": {
+                "const": true
+              },
+              "players": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "username": {
+                      "type": "string"
+                    },
+                    "createdAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "lastSeenAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "online": {
+                      "type": "boolean"
+                    },
+                    "gamesPlayed": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "isAdmin": {
+                      "type": "boolean"
+                    },
+                    "mergedInto": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "renamed": {
+                      "type": "boolean"
+                    },
+                    "renameUnfinished": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "username",
+                    "createdAt",
+                    "lastSeenAt",
+                    "online",
+                    "gamesPlayed",
+                    "isAdmin",
+                    "mergedInto",
+                    "renamed",
+                    "renameUnfinished"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "required": [
+              "requestId",
+              "action",
+              "ok",
+              "players",
+              "total",
+              "limit"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "variant": "renameAccount",
+            "type": "object",
+            "properties": {
+              "requestId": {
+                "type": "string"
+              },
+              "action": {
+                "const": "renameAccount"
+              },
+              "ok": {
+                "const": true
+              },
+              "username": {
+                "type": "string"
+              },
+              "newName": {
+                "type": "string"
+              },
+              "resumed": {
+                "type": "boolean"
+              },
+              "oldNameKept": {
+                "type": "boolean"
+              },
+              "gameRecords": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "reports": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "otherUsersBlocks": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "chainedTombstones": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "adminSetBy": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "resetLinks": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "revokedSessions": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "signedOut": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "requestId",
+              "action",
+              "ok",
+              "username",
+              "newName",
+              "resumed",
+              "oldNameKept",
+              "gameRecords",
+              "reports",
+              "otherUsersBlocks",
+              "chainedTombstones",
+              "adminSetBy",
+              "resetLinks",
+              "revokedSessions",
+              "signedOut"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "variant": "deleteAccount",
+            "type": "object",
+            "properties": {
+              "requestId": {
+                "type": "string"
+              },
+              "action": {
+                "const": "deleteAccount"
+              },
+              "ok": {
+                "const": true
+              },
+              "username": {
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "account",
+                  "tombstone"
+                ]
+              },
+              "mergedInto": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "gameRecords": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "reports": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "blockLists": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "resetLinks": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "tombstones": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "signedOut": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "requestId",
+              "action",
+              "ok",
+              "username",
+              "kind",
+              "mergedInto",
+              "gameRecords",
+              "reports",
+              "blockLists",
+              "resetLinks",
+              "tombstones",
+              "signedOut"
+            ],
+            "additionalProperties": false
           }
         ]
       },
@@ -9473,7 +9768,7 @@
       "emittedFrom": [
         "server/socket/adminHandlers.js:adminRequest"
       ],
-      "notes": "The reply to adminRequest, to the requesting socket only (requestId and action echoed). failure: forbidden = not an admin right now (the one uniform refusal for every action and target: no account information), invalid = bad args or a wrong typed confirmation, not_found / refused / last_admin / stale_plan (the merge changed since its preview: preview again) / server; message is for the admin. createResetLink.token is the one-time link secret (/reset#<token>): shown to the admin once, never logged or audited. planMerge.plan is formatPlan's content as data (no picture bytes); planHash fingerprints the whole plan and applyMerge applies only when a fresh plan has the same hash. The iOS app has no handler (layout: excluded from Swift)."
+      "notes": "The reply to adminRequest, to the requesting socket only (requestId and action echoed). failure: forbidden = not an admin right now (the one uniform refusal for every action and target: no account information), invalid = bad args or a wrong typed confirmation, not_found / refused / last_admin / stale_plan (the merge changed since its preview: preview again) / server; message is for the admin. createResetLink.token is the one-time link secret (/reset#<token>): shown to the admin once, never logged or audited. planMerge.plan is formatPlan's content as data (no picture bytes); planHash fingerprints the whole plan and applyMerge applies only when a fresh plan has the same hash. listPlayers: every account newest first, at most `limit` (500) rows; `total` is the true count (the panel says when the list is capped). deleteAccount: kind 'account' = the player's own deletion (server/admin/accountDelete.js; counts of what changed), 'tombstone' = only that merged / renamed name was removed (mergedInto names the account it pointed at, which is unchanged). renameAccount: username is the old name, newName the new; every saved session was revoked (the player signs in once with the new name); the old name became a redirect (oldNameKept; mergedInto + renamedAt, so sign-in with the old name and the account's password says \"This account is now called X\"; nobody else is told the new name); resumed = a second rename with the same names finished a partial one (also when the redirect was never written: oldNameKept then says whether it is now); a player row's renamed = that redirect, renameUnfinished = on a live account, the old name of its rename that stopped partway (the panel's Finish rename sends renameAccount {username: old, newName: the row}); an admin cannot rename their own account (refused). applyMerge / deleteAccount / renameAccount wait in one queue and are authorized again when their turn comes (forbidden if the admin lost the flag or was signed out meanwhile). The iOS app has no handler (layout: excluded from Swift)."
     },
     "voiceOffer": {
       "payload": {

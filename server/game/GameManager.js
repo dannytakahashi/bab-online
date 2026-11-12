@@ -49,9 +49,11 @@ class GameManager {
         // from re-inserting a deleted username into new gameRecords
         this.deletedUsernames = new Set();
 
-        // Accounts a panel merge is retiring right now (adminHandlers
-        // applyMerge): they cannot sign in, restore, rejoin, queue, open or
-        // join a lobby or a tournament until the merge is done
+        // Accounts a panel merge is retiring, a panel delete is removing or
+        // a panel rename is moving right now (both names; adminHandlers):
+        // they cannot sign in, restore, rejoin, queue, open or join a lobby
+        // or a tournament (and a rename's new name cannot be signed up)
+        // until it is done
         this.mergeLocks = new Set();
     }
 
@@ -91,6 +93,14 @@ class GameManager {
 
     unlockMerge(usernames) {
         for (const name of usernames) this.mergeLocks.delete(name);
+    }
+
+    /** A locked name ignoring case (sign-up: a rename's new name is taken while it runs). */
+    isNameLockedIgnoringCase(username) {
+        if (username == null || this.mergeLocks.size === 0) return false;
+        const key = String(username).trim().toLowerCase();
+        for (const name of this.mergeLocks) if (name.toLowerCase() === key) return true;
+        return false;
     }
 
     /** The signed-in user of `socketId` when a merge holds their name. */

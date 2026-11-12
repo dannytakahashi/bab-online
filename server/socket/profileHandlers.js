@@ -41,8 +41,8 @@ const emptyStats = () => ({
     totalHSI: 0
 });
 
-/** Fields a profile reply is built from (plus mergedInto for the redirect). */
-const PROFILE_PROJECTION = { username: 1, profilePic: 1, customProfilePic: 1, stats: 1, mergedInto: 1 };
+/** Fields a profile reply is built from (plus mergedInto / renamedAt / targetRenamedAt for the redirect). */
+const PROFILE_PROJECTION = { username: 1, profilePic: 1, customProfilePic: 1, stats: 1, mergedInto: 1, renamedAt: 1, targetRenamedAt: 1 };
 
 /**
  * Get user profile with stats
@@ -669,9 +669,13 @@ async function getPlayerProfile(socket, io, data) {
         let dbUser = await usersCollection.findOne({ username: username.trim() }, { projection: PROFILE_PROJECTION });
 
         // Old names from merged accounts (e.g. in game records) show the
-        // account they were merged into
+        // account they were merged into. A rename's old name (or a merged
+        // one a rename re-pointed) does not: it would tell anyone the new
+        // name (authHandlers.hidesNewName)
         if (dbUser?.mergedInto) {
-            dbUser = await usersCollection.findOne({ username: dbUser.mergedInto }, { projection: PROFILE_PROJECTION });
+            dbUser = dbUser.renamedAt || dbUser.targetRenamedAt
+                ? null
+                : await usersCollection.findOne({ username: dbUser.mergedInto }, { projection: PROFILE_PROJECTION });
         }
 
         if (!dbUser) {

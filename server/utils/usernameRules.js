@@ -68,7 +68,8 @@ const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
  * @returns {Promise<{username: string, mergedInto?: string, exact: boolean}|null>}
  */
 async function findNameClash(usersCollection, name) {
-    const projection = { projection: { username: 1, mergedInto: 1 } };
+    // renamedAt: a rename's redirect never names its new name here (authHandlers, takenMessage)
+    const projection = { projection: { username: 1, mergedInto: 1, renamedAt: 1, targetRenamedAt: 1 } };
     const exact = await usersCollection.findOne({ username: name }, projection);
     if (exact) return { ...exact, exact: true };
     const similar = await usersCollection.findOne(
@@ -88,7 +89,10 @@ async function findNameClash(usersCollection, name) {
  */
 function takenMessage(name, existing) {
     if (existing.exact) return MESSAGES.taken;
-    const shown = existing.mergedInto || existing.username;
+    // A rename's old name (or a merged one a rename re-pointed) is shown as
+    // itself: the new name is told only to the account's owner
+    // (authHandlers.hidesNewName)
+    const shown = existing.mergedInto && !existing.renamedAt && !existing.targetRenamedAt ? existing.mergedInto : existing.username;
     return `That name is taken: "${shown}" already exists, and capital letters don't make a different name.`;
 }
 

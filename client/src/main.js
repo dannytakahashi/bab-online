@@ -330,7 +330,9 @@ export function setBlockedUsers(list) {
 socket.on('blockListUpdated', (data) => {
   if (data.success) {
     setBlockedUsers(data.blockedUsers);
-    showInfo('Block list updated');
+    // silent: pushed by the server after an admin renamed someone on the
+    // list (the player did nothing, so no toast)
+    if (!data.silent) showInfo('Block list updated');
   } else {
     showError(data.message || 'Failed to update block list');
   }
@@ -1765,6 +1767,9 @@ function displayRegisterScreen(prefillUsername = '', prefillPassword = '') {
   });
 }
 
+/** restoreSessionResponse failures that need no explanation (sign in again). */
+const ROUTINE_RESTORE_FAILURES = new Set(['Invalid session token', 'User not found']);
+
 // restoreSessionResponse: sent for session.resume() (every connect of a
 // signed-in tab, once per socket)
 socket.on('restoreSessionResponse', (data) => {
@@ -1784,6 +1789,11 @@ socket.on('restoreSessionResponse', (data) => {
     session.clearIdentity();
     setIsAdmin(false);
     displaySignInScreen(EXIT.SIGN_OUT);
+    // Say why when the server said something a player can act on ("This
+    // account is now called X. Sign in as X.", a merged account's redirect,
+    // "being updated", a database error); an expired or revoked saved
+    // session just shows the sign-in screen
+    if (data.message && !ROUTINE_RESTORE_FAILURES.has(data.message)) showInfo(data.message);
   }
 });
 

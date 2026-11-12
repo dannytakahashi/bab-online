@@ -3,9 +3,14 @@
  * room's Admin entry, shown only to admins (adminApi.isAdmin, display
  * only: the server re-checks the database on every request). Tabs:
  *
- *   Players  find a player (created, last seen, games, admin, merged);
- *            make a one-time reset link (shown once, Copy button), sign
- *            out everywhere, make / remove admin
+ *   Players  every account in a sortable table (created, last seen,
+ *            games, admin, merged; newest first, filtered as you type,
+ *            capped by the server with a note); per row a one-time reset
+ *            link (shown once, Copy button) and a More menu (rename, make
+ *            admin, then the destructive ones last: sign out everywhere,
+ *            remove admin, delete account); tombstones (merged into X,
+ *            renamed to X) offer only what applies to them (show the kept
+ *            account, delete the old name)
  *   Merge    find look-alike names, preview a merge (formatPlan's content),
  *            type the kept name to confirm, apply (refused if the data
  *            changed since the preview)
@@ -13,8 +18,8 @@
  *   Admins   who is an admin; remove (the last admin cannot remove themselves)
  *   Audit    every admin action, newest first
  *
- * Destructive actions (sign out everywhere, remove admin, merge) ask for
- * confirmation first. Tabs follow the WAI-ARIA tabs pattern with MANUAL
+ * Destructive actions (sign out everywhere, remove admin, merge, delete)
+ * ask for confirmation first; merge and delete need the name typed. Tabs follow the WAI-ARIA tabs pattern with MANUAL
  * activation (arrow keys / Home / End move focus, Enter or Space opens a
  * tab: opening one loads it from the server, and requests are rate
  * limited). Results are announced by one status line (role=status) and
@@ -22,10 +27,14 @@
  * an action redraws the list holding the focused button, focus goes back to
  * the same action in the new rows, else to the tab's panel. Kit classes and
  * tokens only (styles/screens.css "Admin panel"); every name and server
- * text goes in as text, never markup.
+ * text goes in as text, never markup. The table's sort / filter, the row
+ * menu and the typed-confirmation dialogs are in ./adminPlayers.js.
  */
 import { el, createButton, openModal, toast } from '../kit/index.js';
 import { createAdminApi, setIsAdmin } from '../../admin/adminApi.js';
+import {
+  PLAYER_COLUMNS, DEFAULT_SORT, sortPlayers, filterPlayers, createActionMenu, closeOpenMenu, openTypedConfirm, openRenameDialog,
+} from './adminPlayers.js';
 
 const TABS = [
   ['players', 'Players'],
@@ -150,8 +159,13 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
   };
 
   let closed = false;
-  /** One request; a 'forbidden' answer closes the panel (admin access is gone). */
-  async function call(action, args) {
+  /**
+   * One request; a 'forbidden' answer closes the panel (admin access is
+   * gone). quiet: a refusal is not written to the panel's alert line (a
+   * dialog that shows it in its own alert line: one announcement, and no
+   * stale error left above the table after Cancel).
+   */
+  async function call(action, args, { quiet = false } = {}) {
     let res;
     try {
       res = await adminApi.request(action, args);
@@ -172,7 +186,7 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
       toast('Admin access is not available on this connection.', { type: 'error' });
       return null;
     }
-    if (!res.ok) say(res.message, 'error');
+    if (!res.ok && !quiet) say(res.message, 'error');
     return res;
   }
 
@@ -243,32 +257,63 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
   });
 
   // ---------- Players ----------
+  // Every account in one sortable table (owner, 2026-11-11: "a table would
+  // be helpful (like the leaderboard)"), newest first; the filter narrows
+  // it as you type. Per row: Reset link, and the rest in a More menu
+  // (destructive items last).
   const players = panels.players;
-  const search = field({ id: 'adminSearchInput', label: 'Find a player', type: 'search', placeholder: 'Part of a name' });
-  const searchBtn = createButton({ label: 'Search', variant: 'primary', type: 'submit' });
-  const searchForm = el('form', { className: 'admin-row', attrs: { role: 'search' }, children: [search.wrap, searchBtn] });
+  const filterField = field({ id: 'adminPlayerFilter', label: 'Filter by name', type: 'search', placeholder: 'Part of a name', describedBy: 'adminPlayersCount' });
+  const reloadBtn = createButton({ label: 'Refresh', variant: 'secondary' });
+  const toolbar = el('div', { className: 'admin-row', attrs: { role: 'search' }, children: [filterField.wrap, reloadBtn] });
+  const capNote = el('p', { className: 'admin-note admin-cap-note', attrs: { id: 'adminPlayersCap', hidden: true } });
+  const countLine = el('p', { className: 'admin-note', attrs: { id: 'adminPlayersCount' } });
   const linkBox = el('div', { className: 'admin-link', attrs: { id: 'adminResetLink', hidden: true } });
-  const results = el('div', { className: 'admin-results', attrs: { id: 'adminSearchResults' } });
-  players.append(searchForm, linkBox, results);
-  let lastQuery = '';
+  const results = el('div', { className: 'admin-results', attrs: { id: 'adminPlayerTable' } });
+  players.append(toolbar, capNote, countLine, linkBox, results);
+  let roster = null; // {players, total, limit} from listPlayers
+  let sortBy = { ...DEFAULT_SORT };
 
   /** quiet: a refresh after an action keeps that action's message */
-  async function runSearch(query = search.input.value.trim(), { quiet = false } = {}) {
-    if (!query) {
-      say('Type part of a name to search.', 'error');
-      search.input.focus();
-      return;
-    }
-    lastQuery = query;
-    const res = await call('searchPlayers', { query });
+  async function loadPlayers({ quiet = false } = {}) {
+    const res = await call('listPlayers', {});
     if (!res || !res.ok) return;
-    renderPlayers(res.players);
-    if (!quiet) say(`${res.players.length} player${res.players.length === 1 ? '' : 's'} found for "${query}".`);
+    const list = Array.isArray(res.players) ? res.players : [];
+    roster = { players: list, total: Number(res.total) || list.length, limit: res.limit };
+    renderRoster();
+    if (!quiet) say(`${list.length} account${list.length === 1 ? '' : 's'} listed.`);
   }
-  searchForm.addEventListener('submit', (e) => {
-    e.preventDefault();
-    runSearch();
+  // Opening the tab is quiet (the count line under the filter, which
+  // describes it, already says how many); Refresh announces the result
+  loaders.players = () => loadPlayers({ quiet: true });
+  reloadBtn.addEventListener('click', () => loadPlayers());
+
+  /** Show `name` in the table (a tombstone's kept account). */
+  function showPlayer(name) {
+    filterField.input.value = name;
+    renderRoster();
+    filterField.input.focus();
+  }
+
+  let announceTimer = null;
+  filterField.input.addEventListener('input', () => {
+    renderRoster();
+    // one polite summary once typing pauses, not one per key
+    clearTimeout(announceTimer);
+    announceTimer = setTimeout(() => {
+      if (!closed && roster) say(countLine.textContent);
+    }, 600);
   });
+
+  let linkFor = null; // whose link the box shows
+  function hideLink() {
+    linkFor = null;
+    linkBox.hidden = true;
+    linkBox.replaceChildren();
+  }
+  /** A delete, rename or sign out everywhere cancels that player's open links: drop the box. */
+  function dropLinkOf(user) {
+    if (linkFor !== null && linkFor === user) hideLink();
+  }
 
   function showLink(user, token, expiresAt) {
     const url = `${window.location.origin}/reset#${token}`;
@@ -280,81 +325,251 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
       const okCopy = await copyText(url, input);
       say(okCopy ? 'Link copied. Text it to the player.' : 'Copy failed: select the link and copy it by hand.', okCopy ? 'success' : 'error');
     });
-    const hide = createButton({ label: 'Done', variant: 'ghost', onClick: () => { linkBox.hidden = true; linkBox.replaceChildren(); search.input.focus(); } });
+    const hide = createButton({ label: 'Done', variant: 'ghost', onClick: () => { hideLink(); filterField.input.focus(); } });
     linkBox.replaceChildren(
       el('label', { className: 'field__label', attrs: { for: id }, text: `Reset link for ${user}` }),
       el('div', { className: 'admin-row', children: [input, copy, hide] }),
       el('p', { className: 'admin-note', attrs: { id: 'adminResetLinkNote' }, text: `Shown once: copy it now. It works once, until ${fmtDate(expiresAt)}. Making a new link cancels this one. Using it signs the player out everywhere.` }),
     );
     linkBox.hidden = false;
+    linkFor = user;
     copy.focus();
   }
 
-  function renderPlayers(list) {
-    if (!list.length) {
-      results.replaceChildren(el('p', { className: 'muted-note', text: 'No players found.' }));
-      return;
-    }
-    const rows = list.map((p) => {
-      const name = el('div', { className: 'admin-name', children: [el('span', { text: p.username })] });
-      if (p.isAdmin) name.appendChild(chip('admin', 'gold'));
-      if (p.online) name.appendChild(chip('online', 'success'));
-      if (p.mergedInto) name.appendChild(chip(`merged into ${p.mergedInto}`, 'neutral'));
-      const actions = el('div', { className: 'admin-actions' });
-      if (p.mergedInto) {
-        actions.appendChild(createButton({ label: `Find ${p.mergedInto}`, variant: 'ghost', size: 'sm', onClick: () => { search.input.value = p.mergedInto; runSearch(p.mergedInto); } }));
-      } else {
-        actions.appendChild(createButton({
-          label: 'Reset link', variant: 'secondary', size: 'sm', attrs: { 'aria-label': `Reset link: ${p.username}` },
-          onClick: async () => {
-            const res = await call('createResetLink', { username: p.username });
-            if (res?.ok) {
-              showLink(res.username, res.token, res.expiresAt);
-              say(`Reset link made for ${res.username}.`, 'success');
-            }
-          },
-        }));
-        actions.appendChild(createButton({
-          label: 'Sign out everywhere', variant: 'danger', size: 'sm', attrs: { 'aria-label': `Sign out everywhere: ${p.username}`, 'data-focus-key': `signout:${p.username}` },
-          onClick: async () => {
-            const yes = await confirmAction({
-              title: `Sign ${p.username} out everywhere?`,
-              text: `Every device ${p.username} is signed in on goes back to the sign-in screen, including a game in progress (it continues without them until they sign in again).`,
-              confirmLabel: 'Sign out everywhere',
-            });
-            if (!yes) return;
-            const res = await call('signOutEverywhere', { username: p.username });
-            if (res?.ok) {
-              say(`${res.username} is signed out: ${res.revokedSessions} saved session(s) revoked, ${res.disconnected} live connection(s) closed.`, 'success');
-              await runSearch(lastQuery, { quiet: true });
-              refocus(results, `signout:${p.username}`, players);
-            }
-          },
-        }));
-        actions.appendChild(p.isAdmin
-          ? createButton({
-            label: 'Remove admin', variant: 'danger', size: 'sm', attrs: { 'aria-label': `Remove admin: ${p.username}`, 'data-focus-key': `admin:${p.username}` },
-            onClick: () => changeAdmin(p.username, false, refreshPlayersAt(`admin:${p.username}`)),
-          })
-          : createButton({
-            label: 'Make admin', variant: 'secondary', size: 'sm', attrs: { 'aria-label': `Make admin: ${p.username}`, 'data-focus-key': `admin:${p.username}` },
-            onClick: () => changeAdmin(p.username, true, refreshPlayersAt(`admin:${p.username}`)),
-          }));
-      }
-      return el('tr', {
-        children: [
-          td(name), td(fmtDay(p.createdAt)), td(p.online ? 'now' : fmtDate(p.lastSeenAt)), td(p.mergedInto ? '—' : p.gamesPlayed, 'is-num'), td(actions),
-        ],
-      });
+  function headerCell(column) {
+    const th = el('th', { attrs: { scope: 'col' }, className: column.numeric ? 'is-num' : '' });
+    const active = sortBy.key === column.key;
+    if (active) th.setAttribute('aria-sort', sortBy.ascending ? 'ascending' : 'descending');
+    const btn = el('button', {
+      className: 'admin-sort',
+      attrs: { type: 'button', 'data-sort-key': column.key },
+      children: [el('span', { text: column.label })],
     });
-    results.replaceChildren(table(['Player', 'Created', 'Last seen', 'Games', 'Actions'], rows, { caption: 'Players found' }));
+    if (active) btn.appendChild(el('span', { className: 'admin-sort__dir', attrs: { 'aria-hidden': 'true' }, text: sortBy.ascending ? ' ▲' : ' ▼' }));
+    btn.addEventListener('click', () => {
+      sortBy = sortBy.key === column.key
+        ? { key: column.key, ascending: !sortBy.ascending }
+        : { key: column.key, ascending: column.defaultAscending };
+      renderRoster();
+      results.querySelector(`[data-sort-key="${column.key}"]`)?.focus();
+    });
+    th.appendChild(btn);
+    return th;
   }
 
-  /** Re-run the search, then focus the row's toggled button (same key). */
+  function renderRoster() {
+    closeOpenMenu();
+    if (!roster) return;
+    const all = roster.players;
+    const capped = roster.total > all.length;
+    capNote.hidden = !capped;
+    capNote.textContent = capped
+      ? `Showing the newest ${all.length} of ${roster.total} accounts. Sorting and the filter cover only these.`
+      : '';
+    const query = filterField.input.value.trim();
+    const shown = sortPlayers(filterPlayers(all, query), sortBy);
+    countLine.textContent = query
+      ? `${shown.length} of ${all.length} account${all.length === 1 ? '' : 's'} match "${query}".`
+      : `${all.length} account${all.length === 1 ? '' : 's'}${capped ? ` (of ${roster.total})` : ''}.`;
+    const tableEl = el('table', {
+      className: 'admin-table admin-players',
+      children: [
+        el('caption', { className: 'admin-sr-only', text: 'Players' }),
+        el('thead', { children: [el('tr', { children: [...PLAYER_COLUMNS.map(headerCell), el('th', { attrs: { scope: 'col' }, text: 'Actions' })] })] }),
+        el('tbody', { children: shown.map(playerRow) }),
+      ],
+    });
+    results.replaceChildren(tableEl);
+    if (!shown.length) results.appendChild(el('p', { className: 'muted-note', text: query ? 'No account matches the filter.' : 'No accounts.' }));
+  }
+
+  /** After an action: reload the table, then focus that row's menu button (same key). */
   const refreshPlayersAt = (key) => async () => {
-    await runSearch(lastQuery, { quiet: true });
+    await loadPlayers({ quiet: true });
     refocus(results, key, players);
   };
+
+  function playerRow(p) {
+    const tomb = Boolean(p.mergedInto);
+    const name = el('div', { className: 'admin-name', children: [el('span', { text: p.username })] });
+    if (p.username === username) name.appendChild(chip('you', 'neutral'));
+    if (p.online) name.appendChild(chip('online', 'success'));
+    if (!tomb && p.renameUnfinished) name.appendChild(chip('rename unfinished', 'gold'));
+    const actions = el('div', { className: 'admin-actions' });
+    if (!tomb && p.renameUnfinished) {
+      actions.appendChild(createButton({
+        label: 'Finish rename', variant: 'secondary', size: 'sm',
+        attrs: { 'aria-label': `Finish rename: ${p.renameUnfinished} to ${p.username}`, 'data-focus-key': `finish:${p.username}` },
+        onClick: () => finishRename(p),
+      }));
+    }
+    if (tomb) {
+      actions.appendChild(createButton({
+        label: `Show ${p.mergedInto}`, variant: 'ghost', size: 'sm',
+        onClick: () => showPlayer(p.mergedInto),
+      }));
+      actions.appendChild(createButton({
+        label: 'Delete…', variant: 'secondary', size: 'sm', className: 'admin-btn--quiet-danger',
+        attrs: { 'aria-label': `Delete… the old name ${p.username}`, 'data-focus-key': `del:${p.username}` },
+        onClick: () => deleteTombstone(p),
+      }));
+    } else {
+      actions.appendChild(createButton({
+        label: 'Reset link', variant: 'secondary', size: 'sm', attrs: { 'aria-label': `Reset link: ${p.username}` },
+        onClick: async () => {
+          const res = await call('createResetLink', { username: p.username });
+          if (res?.ok) {
+            showLink(res.username, res.token, res.expiresAt);
+            say(`Reset link made for ${res.username}.`, 'success');
+          }
+        },
+      }));
+      const key = `more:${p.username}`;
+      actions.appendChild(createActionMenu({
+        ariaLabel: `More actions: ${p.username}`,
+        focusKey: key,
+        items: [
+          { label: 'Rename…', onSelect: () => renameAccount(p) },
+          p.isAdmin ? null : { label: 'Make admin…', onSelect: () => changeAdmin(p.username, true, refreshPlayersAt(key)) },
+          'separator',
+          { label: 'Sign out everywhere…', danger: true, onSelect: () => signOutEverywhere(p.username, key) },
+          p.isAdmin ? { label: 'Remove admin…', danger: true, onSelect: () => changeAdmin(p.username, false, refreshPlayersAt(key)) } : null,
+          { label: 'Delete account…', danger: true, onSelect: () => deleteAccount(p) },
+        ],
+      }));
+    }
+    return el('tr', {
+      className: tomb ? 'admin-row--tombstone' : '',
+      children: [
+        td(name),
+        td(fmtDay(p.createdAt)),
+        td(tomb ? '—' : (p.online ? 'now' : fmtDate(p.lastSeenAt))),
+        td(tomb ? '—' : p.gamesPlayed, 'is-num'),
+        td(p.isAdmin ? chip('admin', 'gold') : '—'),
+        td(tomb ? `${p.renamed ? 'renamed to' : 'into'} ${p.mergedInto}` : '—'),
+        td(actions),
+      ],
+    });
+  }
+
+  /** A rename that stopped partway: the same rename again finishes it (server: resumed). */
+  async function finishRename(p) {
+    const from = p.renameUnfinished;
+    const yes = await confirmAction({
+      title: `Finish renaming ${from} to ${p.username}?`,
+      text: `The rename stopped partway: ${p.username} is renamed, but games, reports and block lists may still say ${from}. Finishing moves them to ${p.username} and keeps ${from} as an old name that redirects.`,
+      confirmLabel: 'Finish rename',
+      danger: false,
+    });
+    if (!yes) return;
+    const res = await call('renameAccount', { username: from, newName: p.username, confirm: p.username });
+    if (!res?.ok) return;
+    say(`The rename of ${from} to ${p.username} is finished: ${res.gameRecords} game record update(s), ${res.reports} report field(s), ${res.otherUsersBlocks} block list(s) moved.`, 'success');
+    await refreshPlayersAt(`more:${p.username}`)();
+  }
+
+  async function renameAccount(p) {
+    // The server refuses it too (every tab of the account, this one
+    // included, would be signed out before the answer arrives)
+    if (p.username === username) {
+      say('You cannot rename your own account here: it would sign you out before you see the result. Ask another admin to rename it.', 'error');
+      return;
+    }
+    let stoppedPartway = false;
+    const res = await openRenameDialog({
+      oldName: p.username,
+      rules: '3 to 20 letters (A-Z), numbers, spaces and _ - . ; it starts with a letter or number. It must not be taken, ignoring capital letters (old merged or renamed names count).',
+      lines: [
+        `${p.username} is signed out everywhere (refused while they are in a game or tournament) and any open reset link is cancelled. They sign in again with the new name and the same password.`,
+        'Their games, stats, reports and block lists move to the new name.',
+        `${p.username} stays as a reserved old name. Signing in with it and the account's password tells them the new name; nobody else is told it (not a wrong password, a sign-up or a profile). Delete that old name later to free it.`,
+      ],
+      submit: async ({ newName, confirm }) => {
+        const r = await call('renameAccount', { username: p.username, newName, confirm }, { quiet: true });
+        if (r && !r.ok && r.error === 'server') stoppedPartway = true;
+        return r;
+      },
+    });
+    if (!res?.ok) {
+      // A rename that stopped partway changed the table (its row now
+      // offers Finish rename) even though the dialog was cancelled
+      if (stoppedPartway) await loadPlayers({ quiet: true });
+      return;
+    }
+    dropLinkOf(res.username);
+    const kept = res.oldNameKept ? '' : ` The old name ${res.username} was taken meanwhile, so it does not redirect.`;
+    say(`${res.username} is now called ${res.newName}: ${res.signedOut} live connection(s) signed out; they sign in again as ${res.newName} with the same password.${kept}`, 'success');
+    await loadPlayers({ quiet: true });
+    refocus(results, `more:${res.newName}`, filterField.input);
+  }
+
+  /** After a delete the row is gone: focus the filter (the table's first control). */
+  async function afterDelete() {
+    await loadPlayers({ quiet: true });
+    refocus(results, null, filterField.input);
+  }
+
+  async function deleteAccount(p) {
+    // The server refuses these too; saying so here spares typing the name
+    if (p.username === username) {
+      say('To delete your own account, use Delete account on your profile (it asks for your password).', 'error');
+      return;
+    }
+    if (p.isAdmin) {
+      say(`${p.username} is an admin. Remove their admin first, then delete the account.`, 'error');
+      return;
+    }
+    const res = await openTypedConfirm({
+      title: `Delete ${p.username}?`,
+      intro: 'This cannot be undone. Deleting the account:',
+      lines: [
+        `signs ${p.username} out everywhere; they can never sign in to it again;`,
+        'deletes their stats (and leaderboard row), pictures and saved sessions;',
+        'shows their name as [deleted] in past games (the other players keep those games);',
+        'keeps reports by or about them, marked deleted;',
+        "removes them from other players' block lists and cancels any open reset link;",
+        `deletes the old names merged into it, and frees the name ${p.username} for a new sign-up.`,
+      ],
+      expected: p.username,
+      confirmLabel: 'Delete account',
+      submit: (typed) => call('deleteAccount', { username: p.username, confirm: typed }, { quiet: true }),
+    });
+    if (!res?.ok) return;
+    dropLinkOf(res.username);
+    say(`${res.username} is deleted: ${res.gameRecords} game record update(s) to [deleted], ${res.reports} report(s) marked, ${res.signedOut} live connection(s) closed.`, 'success');
+    await afterDelete();
+  }
+
+  async function deleteTombstone(p) {
+    const res = await openTypedConfirm({
+      title: `Delete the old name ${p.username}?`,
+      lines: [
+        `Only the name ${p.username} is removed. ${p.mergedInto} is not changed (its games, stats and merge history stay).`,
+        `Signing in as ${p.username} will no longer say to use ${p.mergedInto}, and anyone can sign up as ${p.username}.`,
+      ],
+      expected: p.username,
+      confirmLabel: 'Delete name',
+      submit: (typed) => call('deleteAccount', { username: p.username, confirm: typed }, { quiet: true }),
+    });
+    if (!res?.ok) return;
+    say(`The old name ${res.username} is deleted and free again. ${res.mergedInto} is unchanged.`, 'success');
+    await afterDelete();
+  }
+
+  async function signOutEverywhere(user, key) {
+    const yes = await confirmAction({
+      title: `Sign ${user} out everywhere?`,
+      text: `Every device ${user} is signed in on goes back to the sign-in screen, including a game in progress (it continues without them until they sign in again).`,
+      confirmLabel: 'Sign out everywhere',
+    });
+    if (!yes) return;
+    const res = await call('signOutEverywhere', { username: user });
+    if (res?.ok) {
+      dropLinkOf(res.username);
+      say(`${res.username} is signed out: ${res.revokedSessions} saved session(s) revoked, ${res.disconnected} live connection(s) closed.`, 'success');
+      await refreshPlayersAt(key)();
+    }
+  }
 
   async function changeAdmin(user, on, after) {
     const self = user === username;
@@ -570,11 +785,12 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
   function renderReport(r) {
     const card = el('article', { className: 'admin-report kit-panel kit-elev-1', attrs: { 'aria-label': `Report against ${r.reported}` } });
     const who = el('div', { className: 'admin-report__who' });
-    who.append(el('span', { text: `${r.reporter} reported ` }));
+    who.append(el('span', { text: `${r.reporter}${r.reporterDeleted ? ' (deleted)' : ''} reported ` }));
     who.append(createButton({
-      label: r.reported, variant: 'ghost', size: 'sm', attrs: { 'aria-label': `Find ${r.reported}` },
-      onClick: () => { select('players', { focus: true }); search.input.value = r.reported; runSearch(r.reported); },
+      label: r.reported, variant: 'ghost', size: 'sm', attrs: { 'aria-label': `${r.reported}: show in Players` },
+      onClick: () => { filterField.input.value = r.reported; select('players', { focus: true }); },
     }));
+    if (r.reportedDeleted) who.append(chip('account deleted', 'neutral'));
     who.append(chip(r.status, r.status === 'open' ? 'gold' : 'neutral'));
     card.append(
       el('div', { className: 'admin-report__head', children: [who, el('span', { className: 'admin-note', text: fmtDate(r.createdAt) })] }),
@@ -672,17 +888,19 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
     dialogId: 'adminPanelModal',
     className: 'page-modal page-modal--wide admin-modal',
     body: [tablist, statusBox, ...TABS.map(([k]) => panels[k])],
-    initialFocus: search.input,
+    initialFocus: filterField.input,
     onClose: () => {
       closed = true;
+      clearTimeout(announceTimer);
+      closeOpenMenu();
       adminApi.dispose?.();
       if (current?.modal === modal) current = null;
     },
   });
   current = { modal, api: adminApi };
   select('players');
-  search.input.focus();
-  return { modal, select, runSearch };
+  filterField.input.focus();
+  return { modal, select, loadPlayers };
 }
 
 /** Close the panel (sign-out, admin removed, leaving the main room). */
