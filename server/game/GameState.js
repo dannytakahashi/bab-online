@@ -355,7 +355,9 @@ class GameState {
      * the server holds the full trick before trickComplete.
      */
     cardPlayedPayload(playerId, card, position) {
-        const payload = { playerId, card, position, trump: this.isTrumpBroken };
+        // trumpBroken: the name both 1.1.0 (trumpBroken ?? trump) and web
+        // read; its 1.0.0-only reservation is lifted (V1_REMOVALS #10)
+        const payload = { playerId, card, position, trump: this.isTrumpBroken, trumpBroken: this.isTrumpBroken };
         if (this.playedCardsIndex === 4) payload.resumeInMs = pacing(this).TRICK_VIEW_MS;
         return payload;
     }
