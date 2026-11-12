@@ -74,6 +74,7 @@ let errorLogs;
 // Variants of anyOf payloads (event#variant) these scenarios do not reach, with why
 const NOT_EXERCISED_VARIANTS = {
     'error#validation': 'dead: only validators.withValidation emits it, and nothing calls withValidation (the wrappers send error#handler)',
+    'error#message': 'no live site since 2026-11-11: every refusal names its event (error#rejected, the same handler as its serverError twin); emitError without a handler would still send it',
 };
 
 const observedVariants = new Map();

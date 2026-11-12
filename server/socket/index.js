@@ -39,7 +39,7 @@ function setupSocketHandlers(io) {
         // Client capabilities (avatarUrl): socket.data.client, no reply.
         // Rate limited inside the handler (silently dropped over the limit)
         socket.on('clientHello', (data) =>
-            syncHandler('clientHello', clientInfo.handle, { rateLimit: false })(socket, io, data)
+            syncHandler('clientHello', clientInfo.handle, { rateLimit: false, event: 'clientHello' })(socket, io, data)
         );
 
         // Auth events - with validation
@@ -61,7 +61,7 @@ function setupSocketHandlers(io) {
             safeHandler(mainRoomHandlers.joinMainRoom)(socket, io, {})
         );
         socket.on('mainRoomChat', (data) =>
-            syncHandler('chatMessage', mainRoomHandlers.mainRoomChat)(socket, io, data)
+            syncHandler('chatMessage', mainRoomHandlers.mainRoomChat, { event: 'mainRoomChat' })(socket, io, data)
         );
         socket.on('createLobby', (data) =>
             asyncHandler('createLobby', mainRoomHandlers.createLobby)(socket, io, data || {})
@@ -81,7 +81,7 @@ function setupSocketHandlers(io) {
             safeHandler(lobbyHandlers.playerUnready)(socket, io, {})
         );
         socket.on('lobbyChat', (data) =>
-            syncHandler('chatMessage', lobbyHandlers.lobbyChat)(socket, io, data)
+            syncHandler('chatMessage', lobbyHandlers.lobbyChat, { event: 'lobbyChat' })(socket, io, data)
         );
         socket.on('leaveLobby', () =>
             safeHandler(lobbyHandlers.leaveLobby)(socket, io, {})
@@ -168,7 +168,7 @@ function setupSocketHandlers(io) {
             asyncHandler('beginNextRound', tournamentHandlers.beginNextRound)(socket, io, {})
         );
         socket.on('tournamentChat', (data) =>
-            syncHandler('chatMessage', tournamentHandlers.tournamentChat)(socket, io, data)
+            syncHandler('chatMessage', tournamentHandlers.tournamentChat, { event: 'tournamentChat' })(socket, io, data)
         );
         socket.on('spectateTournament', (data) =>
             asyncHandler('spectateTournament', tournamentHandlers.spectateTournament)(socket, io, data)

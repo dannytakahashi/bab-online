@@ -929,18 +929,20 @@ const s2c = {
             variant('handler', obj({ type: enm('rateLimit', 'validation', 'server'), message: str(), handler: str() })),
             variant('validation', obj({ type: konst('validation'), message: str() })),
             variant('message', obj({ message: str() })),
+            // a handler's refusal names its event (2026-11-11, additive: the same handler as its serverError twin)
+            variant('rejected', obj({ message: str(), handler: str() })),
         ),
         status: 'active', to: 'self',
         clientReads: reads([W.main('setupSocketErrorHandler'), 'client/src/admin/adminApi.js:createAdminApi#reads:type,handler'], ['iOSClient/BABOnline/Networking/SocketService.swift:connect#reads:message']),
         emittedFrom: ['server/socket/serverError.js:emitError', 'server/socket/errorHandler.js:asyncHandler', 'server/socket/errorHandler.js:syncHandler', 'server/socket/errorHandler.js:handleError', 'server/socket/validators.js:withValidation', 'server/socket/*.js:<many handlers> (emitError(socket, {message}, handler))', 'server/socket/chatHandlers.js:sendError'],
-        notes: "App-level event (not the transport's error). iOS receives it through Socket.IO-Client-Swift's clientEvent .error (the reserved name) and, since 0fd6ef1, shows message as a toast. variant validation is dead today (validators.withValidation has no caller). Every emit (but the dead withValidation) is followed by its serverError twin (V1_REMOVALS #1 phase A, 2026-11-11); dropping this event is phase B, blocked until an iOS build and web read serverError. The admin panel's api (adminApi.js) reads {type:'rateLimit', handler:'adminRequest'} to fail a dropped admin request fast as rate_limited.",
+        notes: "App-level event (not the transport's error). iOS receives it through Socket.IO-Client-Swift's clientEvent .error (the reserved name) and, since 0fd6ef1, shows message as a toast. variant validation is dead today (validators.withValidation has no caller). Every emit (but the dead withValidation) is followed by its serverError twin (V1_REMOVALS #1 phase A, 2026-11-11), with the same handler, so a client reading both channels can drop the second copy: variant rejected (a handler's refusal, {message, handler}) is new with phase A and additive (1.1.0's routeTableError and web act only on handler playCard / playerBid / requestSnapshot, which no refusal names; variant message is what emitError sends without a handler, which no call site does today). handler is the c2s event the error answers on every path (the chat events: mainRoomChat / lobbyChat / tournamentChat, not their shared chatMessage schema). Dropping this event is phase B, blocked until an iOS build and web read serverError. The admin panel's api (adminApi.js) reads {type:'rateLimit', handler:'adminRequest'} to fail a dropped admin request fast as rate_limited.",
     },
     serverError: {
         payload: obj({ code: ref('serverErrorCode'), message: str(), handler: orNull(str()) }),
         status: 'active', to: 'self',
         clientReads: reads([], []),
         emittedFrom: ['server/socket/serverError.js:emitError', 'server/socket/chatHandlers.js:sendError'],
-        notes: "V1_REMOVALS #1 phase A (2026-11-11, additive): the twin of every app-level error, sent right after it to the same socket. code: rateLimit / validation / server (the error's type) or rejected (a handler's {message} refusal); message: the error's message; handler: the c2s event it answers (from the wrapper, or the handler that refused), null when unknown. Read by no shipped client yet (iOS 1.1.0 and web listen to error); its own name because Socket.IO-Client-Swift reserves 'error'. When iOS and web read it, phase B drops error.",
+        notes: "V1_REMOVALS #1 phase A (2026-11-11, additive): the twin of every app-level error, sent right after it to the same socket. code: rateLimit / validation / server (the error's type) or rejected (a handler's {message} refusal); message: the error's message; handler: the c2s event it answers (the registered socket.on name: errorHandler options.event, else the schema; or the handler that refused), the same as on its error copy, null when unknown. Read by no shipped client yet (iOS 1.1.0 and web listen to error); its own name because Socket.IO-Client-Swift reserves 'error'. When iOS and web read it, phase B drops error.",
     },
 };
 

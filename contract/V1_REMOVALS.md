@@ -74,10 +74,19 @@ One PR per entry:
   {code, message, handler})` helper that sends both `error` and `serverError`;
   a shared code enum in the contract. **Done 2026-11-11 (PR #TBD):**
   `server/socket/serverError.js` `emitError(socket, errorPayload, handler?)`
-  sends the unchanged `error` and then `serverError {code, message,
-  handler}` (code `$defs.serverErrorCode`: rateLimit / validation / server
-  from the error's type, rejected for a handler's `{message}` refusal;
-  handler = the c2s event, null when unknown). Every emit site uses it (the
+  sends `error` and then `serverError {code, message, handler}` (code
+  `$defs.serverErrorCode`: rateLimit / validation / server from the error's
+  type, rejected for a handler's `{message}` refusal; handler = the c2s
+  event, null when unknown). Both copies carry the same handler, so a
+  client reading both channels (iOS 1.2's ServerErrorDeduper drops the
+  second copy only on equal handlers) shows one failure once: a refusal's
+  `error` is `{message, handler}` (contract variant `rejected`, additive:
+  1.1.0's routeTableError and web act only on playCard / playerBid /
+  requestSnapshot, which no refusal names), and the wrappers report the
+  registered `socket.on` name (errorHandler `options.event`: mainRoomChat /
+  lobbyChat / tournamentChat, not their shared chatMessage schema and
+  rate-limit key; clientHello, not its function `handle`) on every path.
+  Every emit site uses it (the
   wrappers, ~45 handler refusals, chat's `sendError`); only the dead
   `withValidation` does not. Constants: web `SERVER_EVENTS.SERVER_ERROR`,
   Swift `SocketEvents.Server.serverError` (appended to Connection). The
