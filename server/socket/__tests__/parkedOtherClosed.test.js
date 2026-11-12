@@ -155,6 +155,24 @@ describe("the parked tab hears that the other tab closed", () => {
         expect(gameManager.getUserBySocketId(tab2b.id)?.username).toBe(w.name);
     });
 
+    test('a socket holding the session by another path (a token rejoin registers it, no restore): nothing is sent', async () => {
+        const w = world();
+        const tab1 = await w.tab();
+        const tab2 = await w.tab();
+        const from = w.log.length;
+        await w.close(tab2);
+        // the reloaded tab's rejoinGame (token) registers it without a restoreSession
+        const tab2b = makeSocket(`pc-rejoin${seq}`, w.log, w.io);
+        tab2b.data.username = w.name;
+        gameManager.registerUser(tab2b.id, w.name);
+        jest.advanceTimersByTime(DELAY);
+        expect(w.told(tab1.id, from)).toEqual([]);
+        // ...and once that one is gone too, the parked tab is told
+        await w.close(tab2b);
+        jest.advanceTimersByTime(DELAY);
+        expect(w.told(tab1.id, from)).toEqual([{ reason: 'otherClosed' }]);
+    });
+
     test('a slow reload (after the delay): told otherClosed, then newerConnection when the reloaded tab restores', async () => {
         const w = world();
         const tab1 = await w.tab();

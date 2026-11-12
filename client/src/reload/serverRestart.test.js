@@ -12,7 +12,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vite
 import { loadPage, tick, mainRoomPayload, clientState, seatDeal, spectatorState, tournamentPayload, tableLeftovers, CLEAN } from '../testing/fakePage.js';
 import { BANNER_ID, BANNER_TEXT } from '../ui/components/ConnectionBanner.js';
 import { RESTART_LOSS_TEXT, LOSS, getRestartNotice, RESTART_NOTICE_KEY } from '../state/restartNotice.js';
-import { clearToasts } from '../ui/kit/toast.js';
+import { clearToasts, toastQueueLength } from '../ui/kit/toast.js';
 import { NOTICE_ID } from '../ui/components/SupersededNotice.js';
 
 vi.mock('../vendor.js', () => ({}));
@@ -41,11 +41,22 @@ beforeEach(() => {
   errors = vi.spyOn(console, 'error');
   clearToasts();
   toasts = [];
-  // a toast replaces the text of one of its kind on screen: record every text
-  observer = new MutationObserver(() => {
-    for (const t of document.querySelectorAll('.kit-toast')) {
-      const text = t.textContent;
-      if (toasts[toasts.length - 1] !== text) toasts.push(text);
+  // every toast shown, including one that replaced the text of one of its
+  // kind on screen (even with the same text)
+  // (each text node once: a new one per message)
+  const seen = new WeakSet();
+  const record = (textNode) => {
+    if (!textNode || seen.has(textNode)) return;
+    seen.add(textNode);
+    toasts.push(textNode.textContent);
+  };
+  observer = new MutationObserver((records) => {
+    for (const r of records) {
+      for (const node of r.addedNodes) {
+        if (node.classList?.contains('kit-toast')) record(node.firstChild);
+        else if (node.nodeType === 3 && r.target.classList?.contains('kit-toast')) record(node);
+        else node.querySelectorAll?.('.kit-toast').forEach((t) => record(t.firstChild));
+      }
     }
   });
   observer.observe(document.body, { childList: true, subtree: true, characterData: true });
@@ -123,6 +134,7 @@ describe('the server restarts for an update', () => {
     socket.fire('stateSnapshot', { snapshot: null, reason: 'not_in_game' });
     socket.fire('mainRoomJoined', mainRoomPayload());
     await tick();
+    expect(toastQueueLength()).toBe(1);
     expect(restartToasts()).toEqual([RESTART_LOSS_TEXT[LOSS.SEAT]]);
     expect(getRestartNotice().pending).toBeNull();
   });
@@ -165,6 +177,7 @@ describe('the server restarts for an update', () => {
     await tick();
     expect(page.session.screen).toBe('mainRoom');
     expect(toasts).toEqual([RESTART_LOSS_TEXT[LOSS.LOBBY]]);
+    expect(toastQueueLength()).toBe(1); // nothing else waiting behind it
     expect(socket.emitted('joinMainRoom')).toHaveLength(1);
     socket.fire('mainRoomJoined', mainRoomPayload());
   });
@@ -181,6 +194,7 @@ describe('the server restarts for an update', () => {
     await tick();
     expect(page.session.screen).toBe('mainRoom');
     expect(toasts).toEqual([RESTART_LOSS_TEXT[LOSS.TOURNAMENT]]);
+    expect(toastQueueLength()).toBe(1); // nothing else waiting behind it
   });
 
   it('at a tournament table: one message although the rejoin and the tournament re-entry both fail', async () => {
@@ -201,6 +215,7 @@ describe('the server restarts for an update', () => {
     expect(page.session.screen).toBe('mainRoom');
     expect(restartToasts()).toEqual([RESTART_LOSS_TEXT[LOSS.TOURNAMENT]]);
     expect(toasts).toEqual([RESTART_LOSS_TEXT[LOSS.TOURNAMENT]]);
+    expect(toastQueueLength()).toBe(1); // nothing else waiting behind it
     expect(tableLeftovers(page)).toEqual(CLEAN);
   });
 
