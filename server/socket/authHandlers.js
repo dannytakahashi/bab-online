@@ -13,7 +13,9 @@ const { issueSession, verifySession } = require('../utils/sessionTokens');
 const { checkNewUsername, findNameClash, takenMessage, MESSAGES: USERNAME_MESSAGES } = require('../utils/usernameRules');
 const { rememberBlockList } = require('./voiceHandlers');
 const { eraseAccount, forgetAccount } = require('../admin/accountDelete');
-const { belongsTo, releaseIdentity } = require('./sessionIdentity');
+const {
+    belongsTo, releaseIdentity, markSuperseding, cancelSupersede, confirmSupersede, clearSuperseded
+} = require('./sessionIdentity');
 
 /**
  * Accounts merged by scripts/merge-accounts.js stay behind as tombstones
@@ -350,9 +352,12 @@ async function signIn(socket, io, data) {
         // Register with game manager, then make sure no revoke landed
         // meanwhile (sessionGoneSince)
         const previousEntry = entryOf(username);
-        gameManager.registerUser(socket.id, username);
+        // The name's previous socket, if still connected, is parked now
+        // and told once this sign-in stands (sessionIdentity: supersede)
+        const parked = markSuperseding(io, gameManager.registerUser(socket.id, username), socket, username);
         const gone = await sessionGoneSince(usersCollection, socket, username, session.hash, session.filter);
         if (gone) {
+            cancelSupersede(parked);
             unregister(io, socket, username, previousEntry, claim.previous);
             claim = null;
             if (gone !== 'disconnected') {
@@ -362,6 +367,8 @@ async function signIn(socket, io, data) {
             return;
         }
         claim = null; // signed in: the name stays claimed
+        clearSuperseded(socket);
+        confirmSupersede(io, parked, socket);
 
         // Check if user has an active game they can rejoin
         const activeGameId = user.activeGameId;
@@ -553,6 +560,7 @@ async function signUp(socket, io, data) {
 
         // Auto-login: register with game manager (same as signIn)
         gameManager.registerUser(socket.id, username);
+        clearSuperseded(socket);
         rememberBlockList(socket, []);
 
         socket.emit('signUpResponse', { success: true, username, sessionToken, autoLoggedIn: true });
@@ -679,9 +687,12 @@ async function restoreSession(socket, io, data) {
         // Register with game manager, then make sure no revoke landed
         // meanwhile (sessionGoneSince)
         const previousEntry = entryOf(username);
-        gameManager.registerUser(socket.id, username);
+        // The tab / socket this session was live on is parked and told once
+        // the restore stands: a second tab of the same saved session
+        const parked = markSuperseding(io, gameManager.registerUser(socket.id, username), socket, username);
         const gone = await sessionGoneSince(usersCollection, socket, username, session.hash, session.filter);
         if (gone) {
+            cancelSupersede(parked);
             unregister(io, socket, username, previousEntry, claim.previous);
             claim = null;
             if (gone !== 'disconnected') {
@@ -691,6 +702,8 @@ async function restoreSession(socket, io, data) {
             return;
         }
         claim = null; // signed in: the name stays claimed
+        clearSuperseded(socket);
+        confirmSupersede(io, parked, socket);
 
         // Check if user has an active game they can rejoin
         const activeGameId = user.activeGameId;

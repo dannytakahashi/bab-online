@@ -158,6 +158,7 @@ export class ClientSession {
     this._rejoinSucceededFor = null; // `${socketId}:${gameId}`
     this._restoreSentFor = null; // socket id
     this._restoredSocketId = null;
+    this._superseded = false; // another tab has the session (sessionSuperseded)
     this._routeInFlight = null; // { kind, at }
     this._pendingLobbyRejoin = null; // lobbyId
     this._pendingSpectate = null; // gameId
@@ -195,6 +196,28 @@ export class ClientSession {
   setHooks({ screens = {}, teardownTable = null } = {}) {
     this._hooks = { ...this._hooks, ...screens };
     if (teardownTable) this._teardownTable = teardownTable;
+  }
+
+  /**
+   * Another tab of this browser took the session (sessionSuperseded): this
+   * tab stays where it is, paused, and a reconnect does NOT restore the
+   * session (that would silently take it back). Use here unparks and
+   * reconnects; a sign-out or a restore that lands here unparks too.
+   */
+  park() {
+    this._superseded = true;
+    this._routeInFlight = null;
+    this._pendingLobbyRejoin = null;
+    this._pendingTournamentRejoin = null;
+    this._pendingSpectate = null;
+  }
+
+  unpark() {
+    this._superseded = false;
+  }
+
+  get isParked() {
+    return this._superseded;
   }
 
   /** The page is wired (handlers registered): connects may resume the session now. */
@@ -511,7 +534,7 @@ export class ClientSession {
    * socket. @returns {boolean} whether restoreSession went out
    */
   resume() {
-    if (!this._started) return false;
+    if (!this._started || this._superseded) return false;
     const id = this._socketManager?.id;
     if (!id) return false;
     this._routeInFlight = null;
@@ -683,6 +706,7 @@ export class ClientSession {
 
   /** Sign-out / forceLogout: forget the identity too. */
   clearIdentity() {
+    this._superseded = false;
     this._gameState?.resetSession?.();
     this._forgetTournamentLobby();
     this._storage.removeItem(STORAGE.LOBBY);

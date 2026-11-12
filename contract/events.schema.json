@@ -4133,6 +4133,37 @@
         "server/socket/authHandlers.js:deleteAccount"
       ]
     },
+    "sessionSuperseded": {
+      "payload": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "const": "newerConnection"
+          },
+          "refused": {
+            "type": "string",
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "additionalProperties": false
+      },
+      "status": "active",
+      "to": "socket",
+      "clientReads": {
+        "web": [
+          "client/src/handlers/authHandlers.js:registerAuthHandlers"
+        ],
+        "ios": []
+      },
+      "emittedFrom": [
+        "server/socket/sessionIdentity.js:confirmSupersede",
+        "server/socket/sessionIdentity.js:supersededGate"
+      ],
+      "notes": "New (2026-11-11). One live connection per user: a newer socket of the SAME saved session (another web tab adopting it, or a reload whose old socket the server still holds) took over; this socket is parked. Sent once when it happens and again (refused: the event name, at most once a second) for every event the parked socket sends other than signIn / signUp / restoreSession / clientHello, which are dropped, never answered with error. Web: a full-screen notice, \"Use here\" reconnects and restores, which parks the other tab. iOS 1.1.0 has no handler (unknown events are ignored) and never shares a token between live sockets; a different session gets forceLogout as before."
+    },
     "deleteAccountResponse": {
       "payload": {
         "anyOf": [

@@ -17,6 +17,7 @@ const safetyHandlers = require('./safetyHandlers');
 const snapshotHandlers = require('./snapshotHandlers');
 const adminHandlers = require('./adminHandlers');
 const clientInfo = require('./clientInfo');
+const sessionIdentity = require('./sessionIdentity');
 const upgradeGate = require('./upgradeGate');
 const { asyncHandler, syncHandler, safeHandler, rateLimiter } = require('./errorHandler');
 const { socketLogger } = require('../utils/logger');
@@ -35,6 +36,11 @@ function setupSocketHandlers(io) {
         // handler at all: nothing below is registered for it (upgradeGate.js;
         // kill switch UPGRADE_GATE=off). Also records socket.data.appBuild
         if (upgradeGate.gate(socket)) return;
+
+        // A connection a newer one of the same session replaced (another
+        // tab): its events are refused with sessionSuperseded until it
+        // takes the session back (sessionIdentity.supersededGate)
+        socket.use?.(sessionIdentity.supersededGate(socket)); // (stub sockets in tests have no use)
 
         // Client capabilities (avatarUrl): socket.data.client, no reply.
         // Rate limited inside the handler (silently dropped over the limit)
