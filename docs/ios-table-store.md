@@ -417,8 +417,9 @@ Version: `MARKETING_VERSION` 1.2.0, `CURRENT_PROJECT_VERSION` 4 (Info.plist
 reads them; `ReleaseMetadataTests` pins build >= 4). Build 3 was uploaded but
 never submitted; build 4 adds the owner's two changes from the screenshots
 (2026-11-12: my pips in my seat's row, HSI in the bid panel; below). The
-upgrade gate gates only builds < 2, so builds 3 and 4 are current
-(`upgradeGate.test.js` "1.2.0 (build 3) is current"; MIN_IOS_BUILD 2). It works against today's server and against the server
+upgrade gate gates builds < 3 (1.0.0 and 1.1.0, once 1.2.0 is live), so
+builds 3 and 4 are current (`upgradeGate.test.js` "1.2.0 (build 4) is
+current"; MIN_IOS_BUILD 3). It works against today's server and against the server
 after the V1 removals: `cardPlayed` is read as `trumpBroken ?? trump`, chat
 routes on `isSpectator` (`type` only for an older server), and the server's
 failures arrive as `error` and/or `serverError`.

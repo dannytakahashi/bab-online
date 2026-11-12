@@ -1,9 +1,10 @@
 /**
- * server/socket/upgradeGate.js: the old App Store iOS build (1.0.0 build 1)
- * sees only the update message and keeps its saved session; every other
- * client (1.1.0 build 2+, browsers, a missing or garbled User-Agent) is
- * never gated. User-Agents below were captured from simulator builds of
- * cc9059f (1.0.0) and f05d264 (1.1.0) against a header-logging server.
+ * server/socket/upgradeGate.js: the old App Store iOS builds (1.0.0 build 1,
+ * 1.1.0 build 2; MIN_IOS_BUILD 3) see only the update message and keep their
+ * saved session; every other client (1.2.0 build 3+, browsers, a missing or
+ * garbled User-Agent) is never gated. User-Agents below were captured from
+ * simulator builds of cc9059f (1.0.0) and f05d264 (1.1.0) against a
+ * header-logging server.
  */
 
 const http = require('http');
@@ -31,8 +32,12 @@ const { hashToken, verifySession, SESSION_TTL_MS } = require('../../utils/sessio
 // Captured 2026-11-11 (socket.handshake.headers['user-agent'], polling handshake)
 const UA_100 = 'BAB%20Online/1 CFNetwork/3896.200.61 Darwin/27.2.0';
 const UA_110 = 'BAB%20Online/2 CFNetwork/3896.200.61 Darwin/27.2.0';
-// 1.2.0 (build 3, the iOS 1.2 release): the same URLSession form, one build later
+// 1.2.0: build 3 was uploaded but never submitted, build 4 is the release;
+// the same URLSession form
 const UA_120 = 'BAB%20Online/3 CFNetwork/3896.200.61 Darwin/27.2.0';
+const UA_124 = 'BAB%20Online/4 CFNetwork/3896.200.61 Darwin/27.2.0';
+// Every gated build: [label, User-Agent, build]
+const OLD_BUILDS = [['1.0.0', UA_100, 1], ['1.1.0', UA_110, 2]];
 // The built-in browser of the live check (Chromium) and common browsers
 const BROWSERS = [
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36',
@@ -65,13 +70,24 @@ describe('parseIosUserAgent', () => {
     test('the captured simulator User-Agents', () => {
         expect(gate.parseIosUserAgent(UA_100)).toEqual({ client: 'ios', build: 1 });
         expect(gate.parseIosUserAgent(UA_110)).toEqual({ client: 'ios', build: 2 });
+        expect(gate.parseIosUserAgent(UA_124)).toEqual({ client: 'ios', build: 4 });
         expect(gate.isOutdatedIosApp(UA_100)).toBe(true);
-        expect(gate.isOutdatedIosApp(UA_110)).toBe(false);
+        expect(gate.isOutdatedIosApp(UA_110)).toBe(true);
         expect(gate.isOutdatedIosApp(UA_120)).toBe(false);
+        expect(gate.isOutdatedIosApp(UA_124)).toBe(false);
         expect(gate.isOutdatedIosApp('BAB%20Online/17 CFNetwork/1500 Darwin/25.0.0')).toBe(false);
         // the same app on another iOS / CFNetwork, or the unencoded name
-        expect(gate.isOutdatedIosApp('BAB%20Online/1 CFNetwork/1568.100.1 Darwin/24.0.0')).toBe(true);
-        expect(gate.isOutdatedIosApp('BAB Online/1 CFNetwork/1568.100.1 Darwin/24.0.0')).toBe(true);
+        for (const b of [1, 2]) {
+            expect(gate.isOutdatedIosApp(`BAB%20Online/${b} CFNetwork/1568.100.1 Darwin/24.0.0`)).toBe(true);
+            expect(gate.isOutdatedIosApp(`BAB Online/${b} CFNetwork/1568.100.1 Darwin/24.0.0`)).toBe(true);
+        }
+        expect(gate.isOutdatedIosApp('BAB Online/3 CFNetwork/1568.100.1 Darwin/24.0.0')).toBe(false);
+    });
+
+    test('the boundary: builds 1 and 2 (1.0.0, 1.1.0) are gated, 3 and later are not', () => {
+        expect(gate.MIN_IOS_BUILD).toBe(3);
+        const at = (b) => gate.isOutdatedIosApp(`BAB%20Online/${b} CFNetwork/3896.200.61 Darwin/27.2.0`);
+        expect([0, 1, 2, 3, 4, 5, 100].map(at)).toEqual([true, true, true, false, false, false, false]);
     });
 
     test.each(BROWSERS)('browser: %s', (ua) => {
@@ -146,7 +162,7 @@ function serverState() {
     });
 }
 
-describe('a 1.0.0 socket', () => {
+describe.each(OLD_BUILDS)('a %s socket', (_version, UA_OLD, BUILD) => {
     test('restoreSession: no restoreSessionResponse, a signInResponse failure; the DB token is kept, only its lastUsedAt moves', async () => {
         const users = mockDb.current.users;
         const old = new Date(Date.now() - 10 * 24 * 3600 * 1000);
@@ -156,7 +172,7 @@ describe('a 1.0.0 socket', () => {
         const writes = ['updateOne', 'updateMany', 'findOneAndUpdate', 'insertOne', 'deleteOne', 'deleteMany', 'replaceOne']
             .filter((m) => users[m]).map((m) => jest.spyOn(users, m));
 
-        const w = wired(UA_100);
+        const w = wired(UA_OLD);
         expect([...w.handlers.keys()].sort()).toEqual(['chatMessage', 'disconnect', 'joinMainRoom', 'leaveLobby', 'leaveTournament',
             'restoreSession', 'returnToTournament', 'signIn', 'signUp'].sort());
         await w.send('restoreSession', { username: 'Alan', sessionToken: ALAN_TOKEN });
@@ -172,18 +188,18 @@ describe('a 1.0.0 socket', () => {
         expect(after.sessionTokens[1].lastUsedAt.getTime()).toBeGreaterThan(old.getTime());
         expect({ ...after, sessionTokens: after.sessionTokens.map((e, i) => (i === 1 ? { ...e, lastUsedAt: old } : e)) }).toEqual(before);
         expect(gameManager.getOnlineUsernames()).not.toContain('Alan');
-        expect(w.socket.data.appBuild).toBe(1);
+        expect(w.socket.data.appBuild).toBe(BUILD);
         expect(w.socket.data.username).toBeUndefined();
         await w.send('disconnect');
     });
 
-    test('a player who keeps opening 1.0.0 keeps the session 1.1.0 restores (TTL refreshed)', async () => {
+    test('a player who keeps opening the old build keeps the session the update restores (TTL refreshed)', async () => {
         const users = mockDb.current.users;
         const t0 = Date.now();
         const day = 24 * 3600 * 1000;
         const lastPreGate = new Date(t0 - 85 * day);
         await users.updateOne({ username: 'Alan' }, { $set: { sessionTokens: [{ hash: hashToken(ALAN_TOKEN), createdAt: lastPreGate, lastUsedAt: lastPreGate }] } });
-        const w = wired(UA_100);
+        const w = wired(UA_OLD);
         await w.send('restoreSession', { username: 'Alan', sessionToken: ALAN_TOKEN });
         await w.send('disconnect');
         // they update 10 days later: 95 days after their last pre-gate use
@@ -202,7 +218,7 @@ describe('a 1.0.0 socket', () => {
         await users.updateOne({ username: 'Alan' }, { $set: { sessionTokens: [{ hash: hashToken(ALAN_TOKEN), createdAt: lastUsedAt, lastUsedAt }] } });
         const before = await users.findOne({ username: 'Alan' });
         const upd = jest.spyOn(users, 'updateOne');
-        const w = wired(UA_100);
+        const w = wired(UA_OLD);
         await w.send('restoreSession', { username, sessionToken: token });
         expect(upd).not.toHaveBeenCalled();
         expect(await users.findOne({ username: 'Alan' })).toEqual(before);
@@ -215,7 +231,7 @@ describe('a 1.0.0 socket', () => {
         const users = mockDb.current.users;
         jest.spyOn(users, 'findOne').mockRejectedValue(new Error('db down'));
         const upd = jest.spyOn(users, 'updateOne');
-        const w = wired(UA_100);
+        const w = wired(UA_OLD);
         await w.send('restoreSession', { username: 'Alan', sessionToken: ALAN_TOKEN });
         await w.send('signIn', { username: 'Alan', password: 'x' });
         expect(upd).not.toHaveBeenCalled();
@@ -224,7 +240,7 @@ describe('a 1.0.0 socket', () => {
     });
 
     test('signIn (even with the right password) and signUp fail with the update message', async () => {
-        const w = wired(UA_100);
+        const w = wired(UA_OLD);
         await w.send('signIn', { username: 'Alan', password: 'pw' });
         await w.send('signUp', { username: 'Newbie', password: 'secret1' });
         expect(w.emits('signInResponse').map((l) => l.data)).toEqual([{ success: false, message: MSG_OUT }]);
@@ -236,14 +252,14 @@ describe('a 1.0.0 socket', () => {
 
     test('every other event changes no state and never registers it as online', async () => {
         const before = serverState();
-        const w = wired(UA_100);
+        const w = wired(UA_OLD);
         await w.send('restoreSession', { username: 'Alan', sessionToken: ALAN_TOKEN });
         for (const [ev, d] of [
             ['joinMainRoom'], ['mainRoomChat', { message: 'hi' }], ['createLobby', { name: 'x' }], ['joinQueue'],
             ['joinLobby', { lobbyId: 'nope' }], ['addBot'], ['playerReady'], ['createTournament'], ['joinTournament', { tournamentId: 't' }],
             ['rejoinGame', { gameId: 'g', username: 'Alan', sessionToken: ALAN_TOKEN }], ['playCard', { card: { suit: 'spades', rank: 'A' } }],
             ['playerBid', { bid: '1' }], ['draw', { num: 1 }], ['deleteAccount', { password: 'pw' }], ['getProfile'], ['getLeaderboard'],
-            ['requestSnapshot', {}], ['clientHello', { client: 'ios', version: '1.0.0', caps: ['avatarUrl'] }], ['voiceOffer', { to: 'x' }],
+            ['requestSnapshot', {}], ['clientHello', { client: 'ios', version: _version, caps: ['avatarUrl'] }], ['voiceOffer', { to: 'x' }],
             ['chatMessage', { message: 'hello' }], ['blockUser', { username: 'Bob' }],
         ]) await w.send(ev, d);
         expect(serverState()).toBe(before);
@@ -259,7 +275,7 @@ describe('a 1.0.0 socket', () => {
     });
 
     test('the ways out of a stale screen land in that main room: /leave, leaveLobby, leaveTournament, returnToTournament', async () => {
-        const w = wired(UA_100);
+        const w = wired(UA_OLD);
         await w.send('chatMessage', { message: ' /LEAVE ' });
         await w.send('leaveLobby');
         await w.send('leaveTournament');
@@ -270,9 +286,34 @@ describe('a 1.0.0 socket', () => {
         await w.send('disconnect');
     });
 
+    test('back in the main room: the joinMainRoom 1.1.0 sends after each way out gets the update-only room under both keys', async () => {
+        // f05d264: leftGame -> joinMainRoom (casual) or returnToTournament
+        // (tournament game) -> tournamentLeft -> joinMainRoom; leftLobby ->
+        // MainRoomView.onAppear -> joinMainRoom; LobbySocketHandler reads
+        // recentMessages ?? messages
+        const w = wired(UA_OLD);
+        await w.send('restoreSession', { username: 'Alan', sessionToken: ALAN_TOKEN });
+        for (const [ev, d] of [['chatMessage', { message: '/leave' }], ['returnToTournament'], ['leaveLobby'], ['leaveTournament']]) {
+            await w.send(ev, d);
+            await w.send('joinMainRoom');
+        }
+        const rooms = w.emits('mainRoomJoined').map((l) => l.data);
+        expect(rooms).toHaveLength(4);
+        for (const room of rooms) {
+            expect(room).toMatchObject({ lobbies: [], onlineCount: 0, onlineUsers: [], inProgressGames: [], tournaments: [] });
+            expect(room.messages).toEqual([{ username: 'BAB Online', message: MSG, timestamp: expect.any(Number) }]);
+            expect(room.recentMessages).toEqual(room.messages);
+        }
+        expect(w.log.map((l) => l.event).filter((e) => e !== 'mainRoomJoined' && e !== 'signInResponse'))
+            .toEqual(['leftGame', 'tournamentLeft', 'leftLobby', 'tournamentLeft']);
+        expect(w.emits('error')).toEqual([]);
+        expect(gameManager.getOnlineUsernames()).not.toContain('Alan');
+        await w.send('disconnect');
+    });
+
     test('pushes after connect: 0.3 s, 2 s (+ main room, one log line), 5 s; none after disconnect', async () => {
         jest.useFakeTimers();
-        const w = wired(UA_100);
+        const w = wired(UA_OLD);
         const at = () => w.log.map((l) => l.event);
         jest.advanceTimersByTime(299);
         expect(at()).toEqual([]);
@@ -285,13 +326,13 @@ describe('a 1.0.0 socket', () => {
         expect(at()).toEqual(['signInResponse', 'signInResponse', 'signInResponse', 'mainRoomJoined']);
         expect(w.emits('mainRoomJoined')[0].data.recentMessages[0].message).toBe(MSG);
         const gated = socketLogger.info.mock.calls.filter(([m]) => m === 'Upgrade gate: outdated iOS app');
-        expect(gated).toEqual([['Upgrade gate: outdated iOS app', { socketId: w.socket.id, build: 1, username: 'Alan', savedSession: true }]]);
+        expect(gated).toEqual([['Upgrade gate: outdated iOS app', { socketId: w.socket.id, build: BUILD, username: 'Alan', savedSession: true }]]);
         expect(JSON.stringify(gated)).not.toContain(ALAN_TOKEN);
         jest.advanceTimersByTime(3000);
         expect(w.emits('signInResponse')).toHaveLength(4);
         expect(w.emits('signInResponse').map((l) => l.data.message)).toEqual([MSG_OUT, MSG, MSG, MSG]);
 
-        const w2 = wired(UA_100);
+        const w2 = wired(UA_OLD);
         jest.advanceTimersByTime(500);
         w2.handlers.get('disconnect')();
         jest.advanceTimersByTime(10000);
@@ -300,19 +341,19 @@ describe('a 1.0.0 socket', () => {
         // dropped before the main push with no username: one debug line only
         expect(socketLogger.info.mock.calls.filter(([m, d]) => /Upgrade gate/.test(m) && d.socketId === w2.socket.id)).toEqual([]);
         expect(socketLogger.debug.mock.calls.filter(([m, d]) => /Upgrade gate/.test(m) && d.socketId === w2.socket.id))
-            .toEqual([['Upgrade gate: outdated iOS app (dropped at once)', { socketId: w2.socket.id, build: 1, username: null, savedSession: false }]]);
+            .toEqual([['Upgrade gate: outdated iOS app (dropped at once)', { socketId: w2.socket.id, build: BUILD, username: null, savedSession: false }]]);
         // one that sent a username before dropping is an info line
-        const w3 = wired(UA_100);
+        const w3 = wired(UA_OLD);
         w3.handlers.get('signIn')({ username: 'Zed', password: 'x' });
         w3.handlers.get('disconnect')();
         expect(socketLogger.info.mock.calls.filter(([m, d]) => /Upgrade gate/.test(m) && d.socketId === w3.socket.id))
-            .toEqual([['Upgrade gate: outdated iOS app', { socketId: w3.socket.id, build: 1, username: 'Zed', savedSession: false }]]);
+            .toEqual([['Upgrade gate: outdated iOS app', { socketId: w3.socket.id, build: BUILD, username: 'Zed', savedSession: false }]]);
         expect(JSON.stringify(socketLogger.info.mock.calls)).not.toContain('"x"');
     });
 
     test('after the 5 s push, signInResponse again every REPEAT_MS while connected (Register -> Sign In clears it)', () => {
         jest.useFakeTimers();
-        const w = wired(UA_100);
+        const w = wired(UA_OLD);
         const pushes = () => w.emits('signInResponse').length;
         jest.advanceTimersByTime(5000);
         expect(pushes()).toBe(3);
@@ -331,7 +372,7 @@ describe('a 1.0.0 socket', () => {
 
     test('rate limit: at most EMIT_LIMIT emits per socket per window; the timed pushes leave REPLY_RESERVE for replies', () => {
         jest.useFakeTimers();
-        const w = wired(UA_100);
+        const w = wired(UA_OLD);
         for (let i = 0; i < 50; i++) w.handlers.get('signIn')({ username: 'Alan', password: 'x' });
         expect(w.log).toHaveLength(gate.EMIT_LIMIT);
         jest.advanceTimersByTime(5000); // the pushes are over the limit too
@@ -345,7 +386,7 @@ describe('a 1.0.0 socket', () => {
         // a quiet socket left on sign-in for 10 minutes: the timed pushes
         // never use the replies' reserve, and a burst of taps still gets
         // REPLY_RESERVE replies in any window
-        const q = wired(UA_100);
+        const q = wired(UA_OLD);
         const inWindow = () => q.log.filter((l) => Date.now() - l.at < gate.EMIT_WINDOW_MS).length;
         for (let s = 0; s < 600; s++) {
             jest.advanceTimersByTime(1000);
@@ -359,24 +400,24 @@ describe('a 1.0.0 socket', () => {
 
     test.each(['off', 'OFF', 'false', '0', 'disabled'])('kill switch UPGRADE_GATE=%s: the real handlers run', async (v) => {
         process.env.UPGRADE_GATE = v;
-        const w = wired(UA_100);
+        const w = wired(UA_OLD);
         expect(w.handlers.has('playCard')).toBe(true);
         await w.send('restoreSession', { username: 'Alan', sessionToken: ALAN_TOKEN });
         expect(w.emits('restoreSessionResponse').map((l) => l.data)).toEqual([expect.objectContaining({ success: true, username: 'Alan' })]);
-        expect(w.socket.data.appBuild).toBe(1);
+        expect(w.socket.data.appBuild).toBe(BUILD);
         gameManager.removeUserSocket(w.socket.id);
     });
 
     test('UPGRADE_GATE=on (or anything else) keeps the gate', () => {
         process.env.UPGRADE_GATE = 'on';
-        const w = wired(UA_100);
+        const w = wired(UA_OLD);
         expect(w.handlers.has('playCard')).toBe(false);
         w.handlers.get('disconnect')();
     });
 });
 
 describe('never gated', () => {
-    test.each([['1.1.0 build 2', UA_110], ['1.2.0 build 3', UA_120], ['a later build', 'BAB%20Online/40 CFNetwork/3896.200.61 Darwin/27.2.0'],
+    test.each([['1.2.0 build 3', UA_120], ['1.2.0 build 4', UA_124], ['a later build', 'BAB%20Online/40 CFNetwork/3896.200.61 Darwin/27.2.0'],
         ...BROWSERS.map((b) => [b.slice(0, 50), b]), ['no User-Agent', undefined], ...GARBAGE.filter((g) => typeof g === 'string').map((g) => [g.slice(0, 50), g])])(
         '%s: the real handlers', async (_l, ua) => {
             const w = wired(ua);
@@ -396,20 +437,21 @@ describe('never gated', () => {
         expect(handlers.has('playCard')).toBe(true);
     });
 
-    test('1.1.0 records its build (adoption telemetry)', () => {
-        const w = wired(UA_110);
-        expect(w.socket.data.appBuild).toBe(2);
-        expect(socketLogger.info).toHaveBeenCalledWith('iOS app connected', { socketId: w.socket.id, build: 2 });
+    test('every iOS socket records its build (adoption telemetry), gated or not', () => {
+        const old = wired(UA_110);
+        expect(old.socket.data.appBuild).toBe(2);
+        expect(socketLogger.info).toHaveBeenCalledWith('iOS app connected', { socketId: old.socket.id, build: 2 });
+        old.handlers.get('disconnect')();
         const web = wired(BROWSERS[0]);
         expect(web.socket.data.appBuild).toBeUndefined();
     });
 
-    test('1.2.0 (build 3) is current: parsed, recorded, never gated', () => {
-        expect(gate.parseIosUserAgent(UA_120)).toEqual({ client: 'ios', build: 3 });
-        const w = wired(UA_120);
-        expect(w.socket.data.appBuild).toBe(3);
+    test.each([[3, UA_120], [4, UA_124]])('1.2.0 (build %i) is current: parsed, recorded, never gated', (build, ua) => {
+        expect(gate.parseIosUserAgent(ua)).toEqual({ client: 'ios', build });
+        const w = wired(ua);
+        expect(w.socket.data.appBuild).toBe(build);
         expect(w.handlers.has('playCard')).toBe(true);
-        expect(socketLogger.info).toHaveBeenCalledWith('iOS app connected', { socketId: w.socket.id, build: 3 });
+        expect(socketLogger.info).toHaveBeenCalledWith('iOS app connected', { socketId: w.socket.id, build });
     });
 });
 
@@ -449,12 +491,12 @@ describe('over a real Socket.IO connection', () => {
     };
     const serverSocket = (c) => io.sockets.sockets.get(c.id);
 
-    test('1.0.0: gated after the websocket upgrade and again after a reconnect', async () => {
-        const c = connect(UA_100);
+    test.each(OLD_BUILDS)('%s: gated after the websocket upgrade and again after a reconnect', async (_v, UA_OLD) => {
+        const c = connect(UA_OLD);
         await once(c, 'connect');
         await upgraded(c);
         expect(serverSocket(c).conn.transport.name).toBe('websocket');
-        expect(serverSocket(c).handshake.headers['user-agent']).toBe(UA_100);
+        expect(serverSocket(c).handshake.headers['user-agent']).toBe(UA_OLD);
         const reply = once(c, 'signInResponse');
         c.emit('restoreSession', { username: 'Alan', sessionToken: ALAN_TOKEN });
         expect(await reply).toEqual({ success: false, message: MSG });
@@ -468,7 +510,7 @@ describe('over a real Socket.IO connection', () => {
         c.close();
     });
 
-    test.each([['1.1.0', UA_110], ['a browser', BROWSERS[0]], ['no User-Agent override', null], ['garbage', 'BAB%20Online/1.0 x']])(
+    test.each([['1.2.0 build 4', UA_124], ['1.2.0 build 3', UA_120], ['a browser', BROWSERS[0]], ['no User-Agent override', null], ['garbage', 'BAB%20Online/1.0 x']])(
         '%s: never gated, after the upgrade and after a reconnect', async (_l, ua) => {
             const c = connect(ua);
             let gated = false;

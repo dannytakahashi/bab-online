@@ -9,7 +9,7 @@ new iOS build has shipped and the old one is gone.
 File:line references are as of cc865b4 + item 8 and will drift; the
 function names will not.
 
-## Step 0: the old app is gone from the wire (satisfied 2026-11-11)
+## Step 0: the old app is gone from the wire (satisfied 2026-11-11; 1.1.0 too with MIN_IOS_BUILD 3)
 
 Originally: log a client version and wait for **zero `protocol < 2` iOS
 sessions for 2+ weeks**. Owner decision 2026-11-11 replaces that: iOS 1.1.0
@@ -19,18 +19,32 @@ is answered only with an update message by `server/socket/upgradeGate.js`
 gated socket never signs in, never joins a room and never receives a game
 payload, so no removal below can break it any more.
 
-- **Kill switch caveat.** `UPGRADE_GATE=off` lets 1.0.0 play again. After
+Second step (owner decision: once 1.2.0 is approved and live):
+`MIN_IOS_BUILD` 3 gates 1.1.0 (f05d264, build 2, `BAB%20Online/2 ...`) the
+same way; 1.2.0 (build 4; build 3 was never submitted) and later are never
+gated. The gate's payloads were re-checked against what 1.1.0 reads
+(SignInView / RegisterView show `signInResponse` / `signUpResponse`
+messages in red under the fields; LobbySocketHandler reads
+`recentMessages ?? messages`; leftGame / leftLobby / tournamentLeft land in
+the main room, whose joinMainRoom gets the update-only room; the
+upgradeGate.js header and upgradeGate.test.js run every gated-socket check
+for both builds). From that PR on, "the shipped iOS app" in the entries
+below means 1.2.0, and the 1.1.0 blockers in "Plan after the gate" are
+lifted: see "What iOS 1.2.0 unblocks".
+
+- **Kill switch caveat.** `UPGRADE_GATE=off` lets 1.0.0 and 1.1.0 play again. After
   the first removal below merges, that is no longer a full rollback: the
   old app would meet the new wire. Treat the gate as permanent from then on.
 - **The gate's own payloads.** The gate sends `signInResponse`,
   `signUpResponse`, `mainRoomJoined` (with `recentMessages`, the key 1.0.0
-  reads), `leftGame`, `leftLobby` and `tournamentLeft` in their v1 shapes. A
-  removal that touches one of those shapes must keep the gate's copy valid
-  (it is a 1.0.0-only emitter), e.g. #13 below (done: only the gate still
-  sends `recentMessages`).
+  reads; 1.1.0 reads `recentMessages ?? messages`), `leftGame`, `leftLobby`
+  and `tournamentLeft` in their v1 shapes. A removal that touches one of
+  those shapes must keep the gate's copy valid (it is an old-builds-only
+  emitter), e.g. #13 below (done: only the gate still sends
+  `recentMessages`).
 - **Its one database touch.** A gated restoreSession refreshes that
   session's `lastUsedAt` (nothing else), so the 90-day session TTL does not
-  run out while a player keeps opening 1.0.0 before updating.
+  run out while a player keeps opening an old build before updating.
 - **Telemetry.** Every iOS socket logs `iOS app connected {build}` and every
   gated connection `Upgrade gate: outdated iOS app {build, username}`. 1.1.0
   sends no `clientHello`, so clientHello caps still say nothing about iOS.
@@ -581,14 +595,14 @@ Next client work that unblocks the most: an iOS build that listens to
 peers without socket ids (#1B, #19, #9, #14), and web reading v2 seats /
 spectator snapshots (#5, #6, #7, #8).
 
-## What iOS 1.2.0 unblocks (once it is widely adopted)
+## What iOS 1.2.0 unblocks (once 1.1.0 is gated)
 
-iOS 1.2.0 (build 3) does that iOS work. "Widely adopted" = the
-`iOS app connected {build}` log shows (almost) no build-2 sockets, and then
-`MIN_IOS_BUILD` in `server/socket/upgradeGate.js` goes to 3, which gates
-1.1.0 the way 1.0.0 is gated today (its own PR, with the gate's v1 payloads
-re-checked against what 1.1.0 reads). Until then 1.1.0 keeps every blocker
-listed above. What 1.2.0 itself still reads is the remaining blocker:
+iOS 1.2.0 (build 4; build 3 was uploaded, never submitted) does that iOS
+work. Owner decision: once 1.2.0 is approved and live, `MIN_IOS_BUILD` in
+`server/socket/upgradeGate.js` goes to 3, which gates 1.1.0 the way 1.0.0
+is gated (its own PR, the gate's v1 payloads re-checked against what 1.1.0
+reads: Step 0). Until that PR merges, 1.1.0 keeps every blocker listed
+above; after it, what 1.2.0 itself still reads is the remaining blocker:
 
 - **#1 phase B (drop app-level `error`)**: 1.2.0 listens to `serverError
   {code, message, handler}` (SocketService; `error` and `serverError` twins
