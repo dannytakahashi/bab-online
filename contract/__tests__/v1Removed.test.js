@@ -70,3 +70,27 @@ describe('#7 playerAssigned', () => {
         expect(seatStart.required).toContain('position');
     });
 });
+
+describe('#6 gameStart.players (seat socket ids)', () => {
+    const variants = (s) => s.s2c.gameStart.payload.anyOf;
+
+    test('gone from both gameStart variants, in the schema and the baseline; nothing cites a read of it', () => {
+        for (const s of [schema, baseline]) {
+            for (const v of variants(s)) {
+                expect({ variant: v.variant, has: 'players' in v.properties }).toEqual({ variant: v.variant, has: false });
+                expect(v.required).not.toContain('players');
+            }
+        }
+        expect(schema.s2c.gameStart.clientReads.web.filter((r) => /players/.test(r))).toEqual([]);
+        // the iOS source no longer decodes it (1.2.0 decoded it optionally and never read it)
+        const wire = read('iOSClient/BABOnline/Networking/Wire/WirePayloads.swift');
+        const gameStart = wire.slice(wire.indexOf('struct GameStart'), wire.indexOf('}', wire.indexOf('struct GameStart')));
+        expect(gameStart).not.toMatch(/\bplayers\b/);
+    });
+
+    test('the seat ids a client may still need stay on positionUpdate (sockets, usernames[].socketId; #14)', () => {
+        const pu = schema.s2c.positionUpdate.payload;
+        expect(pu.properties.sockets).toBeDefined();
+        expect(pu.properties.usernames.items.properties.socketId).toBeDefined();
+    });
+});

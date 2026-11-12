@@ -194,7 +194,8 @@ function watchLegacy() {
             }
             case 'gameStart': {
                 const game = gameManager.getGameById(wire.gameId);
-                if ('position' in wire) compare('gameStart:seat', 'gameStart', wire, legacySeatGameStart(game, game.seat(wire.position)));
+                // V1_REMOVALS #6 (executed): the seat variant no longer carries players
+                if ('position' in wire) compare('gameStart:seat', 'gameStart', wire, omit(legacySeatGameStart(game, game.seat(wire.position)), ['players']));
                 else compare('gameStart:spectator', 'gameStart', wire, legacySpectatorGameStart(game));
                 return;
             }

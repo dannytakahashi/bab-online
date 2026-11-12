@@ -307,6 +307,28 @@ the seat shows, the seat socket id only as the fallback, as iOS 1.2's
 `voice/speakingSlot.test.js` (no socket ids, a lazy owner),
 `state/seating.test.js`.
 
+**Done 2026-11-12 (PR #TBD), after the 1.1.0 gate:** dealHand's seat
+gameStart no longer carries `players`. Re-checked first at eeeeb23: web reads
+it only in `GameState.applyDeal` (`Array.isArray(data.players) ? ... :` the
+ids positionUpdate gave; voice glow by username first, the socket id only as
+the fallback, `voice/speakingSlot.js`); iOS 1.2.0 decodes it optionally
+(`WirePayload.GameStart.players`) and never reads it. (At eeeeb23 web paired
+these deal-order ids with playerInfo's position order, so its fallback ids
+were per-seat wrong whenever deal order differed from seat order; without
+`players` it keeps positionUpdate's position-ordered ids.) Gone with it: the
+schema and hand-edited baseline property (seat variant), the iOS source's
+dead `GameStart.players` (next build). positionUpdate's `sockets` stay (#14).
+iOS fixtures re-recorded (only the key goes), wireCompat compares the
+cc865b4 seat gameStart without it, and wireGolden's `v1Restore` puts it back
+so the fcdd885 golden still pins the rest. Tests: `lifecycle.test.js` (#6
+block), `contract/__tests__/v1Removed.test.js`, transcripts, iOS
+`V1RemovalsTests`.
+Re-checked 2026-11-13 for iOS 1.2.0 build 5 (`iOSClient/` at main 92d0c75,
+the submitted build): `WirePayload.GameStart.players` is still decoded
+(WirePayloads.swift:40) and still never read: `TableReducer.gameStart`
+(TableReducer+Events.swift:276) reads only gameId, currentHand, dealer,
+position, trump, hand, hsiValues, score1/score2, playerInfo and avatarUrls.
+
 ### 7. `playerAssigned`
 
 - Emit: `gameHandlers.handleDrawComplete` (to each connected human).
@@ -804,7 +826,7 @@ step, in this order; nothing is removed by the gate PR itself.
   2026-11-12: GameState.applyDeal / avatar.js foldAvatarPayload read it
   only when present; #5 audit.)
 - **#6 `gameStart.players`**: web voice speaking indicator reads it.
-  (Not since 2026-11-12: by owner / username, #6.)
+  (Not since 2026-11-12: by owner / username, #6. Done 2026-11-12, #6.)
 - **#7 `playerAssigned`**: 1.1.0 ignores it, web `main.js` reads it. (Not
   since 2026-11-12: no reader left. Done 2026-11-12, #7.)
 - **#8 split `spectatorJoined`**: 1.1.0 routes on the `snapshot` key (fine);

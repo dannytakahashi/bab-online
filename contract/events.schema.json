@@ -5464,13 +5464,6 @@
               "gameId": {
                 "type": "string"
               },
-              "players": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                },
-                "maxItems": 4
-              },
               "hand": {
                 "type": "array",
                 "items": {
@@ -5517,7 +5510,6 @@
             },
             "required": [
               "gameId",
-              "players",
               "hand",
               "trump",
               "score1",
@@ -5601,8 +5593,7 @@
       "clientReads": {
         "web": [
           "client/src/handlers/gameHandlers.js:registerGameHandlers",
-          "client/src/main.js:onGameStart#reads:players",
-          "client/src/main.js:startVoice#reads:players"
+          "client/src/state/GameState.js:applyDeal"
         ],
         "ios": [
           "iOSClient/BABOnline/Networking/Handlers/GameSocketHandler.swift:handleGameStart"
@@ -5611,7 +5602,7 @@
       "emittedFrom": [
         "server/socket/gameHandlers.js:dealHand"
       ],
-      "notes": "One per connected seat owner (seat) and per spectator (spectator), each deal. players: seat socket ids, read by web as playerData.socket to map a voice peer to a seat (the speaking indicator; V1_REMOVALS #6). playerInfo rebuilds web avatars every hand (V1_REMOVALS #5)."
+      "notes": "One per connected seat owner (seat) and per spectator (spectator), each deal. The seat variant's players (seat socket ids in deal order) went with V1_REMOVALS #6 (2026-11-12): web maps a voice peer to a seat by username (voice/speakingSlot.js) and keeps the ids positionUpdate gave (GameState.applyDeal); iOS 1.2.0 decodes it optionally and never reads it. playerInfo rebuilds web avatars every hand (V1_REMOVALS #5)."
     },
     "bidReceived": {
       "payload": {

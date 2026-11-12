@@ -36,4 +36,18 @@ final class V1RemovalsTests: XCTestCase {
         _ = TableReducer.reduce(&s, T.ev("gameStart", ["gameId": "g1", "position": 3, "hand": [], "currentHand": 1, "dealer": 1]))
         XCTAssertEqual(s.table.viewer.position, 3)
     }
+
+    /// #6: gameStart no longer carries `players` (seat socket ids); the app never read it and
+    /// no longer decodes it. A deal without it still seats me, names the seats and deals the hand.
+    @MainActor
+    func testGameStartWithoutSeatSocketIds() throws {
+        let gs = try Wire.decode(WirePayload.GameStart.self, ["gameId": "g1", "position": 2, "hand": [], "currentHand": 1, "dealer": 1] as [String: Any], strict: true)
+        XCTAssertFalse(Mirror(reflecting: gs).children.contains { $0.label == "players" }, "GameStart still decodes players")
+        var s = TableState()
+        _ = TableReducer.reduce(&s, T.ev("gameStart", ["gameId": "g1", "position": 2, "hand": [["suit": "spades", "rank": "A"]], "currentHand": 1, "dealer": 1,
+                                                       "playerInfo": [["position": 1, "username": "ann", "pic": 3], ["position": 2, "username": "me", "pic": 4]]]))
+        XCTAssertEqual(s.table.viewer.position, 2)
+        XCTAssertEqual(s.table.hand.count, 1)
+        XCTAssertEqual(s.players.seats[1]?.username, "ann")
+    }
 }
