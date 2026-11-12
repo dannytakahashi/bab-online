@@ -30,6 +30,7 @@ class SKOpponentManager {
             guard let node = nodes[o.position] else { continue }
             if !node.hasActions() { node.position = layout.seatAnchor(o.rel) }
             node.update(name: o.name, pic: o.pictureKey, fallback: o.fallbackPicture, isTurn: o.isTurn)
+            node.setPips(model.pips[o.position], team: Positions.getTeamNumber(o.position))
         }
     }
 

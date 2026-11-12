@@ -18,7 +18,10 @@ struct TableSlice: Equatable {
 /// Absolute (team1/team2) counts; views make them relative.
 struct ScoreSlice: Equatable {
     var tricks = TeamPair()
-    var tricksByPosition = [0, 0, 0, 0]
+    /// Tricks each seat won this deal (index = position - 1): trickComplete winners and the
+    /// snapshot's tricksByPosition (else its trickHistory winners); nil for both seats of a
+    /// team whose winners are not known, so the seat pips show that team's count (SeatPips).
+    var tricksByPosition: [Int?] = [0, 0, 0, 0]
     var score = TeamPair()
     var rainbows = TeamPair()
 }

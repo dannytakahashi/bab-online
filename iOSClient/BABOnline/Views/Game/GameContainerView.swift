@@ -354,6 +354,9 @@ private struct GameScreen: View {
                         .offset(x: layout.window(layout.bidBand).midX - full.width / 2)
                         .transition(.motion(.move(edge: .bottom).combined(with: .opacity), reduceMotion: reduceMotion))
                     }
+                    if showsTable {
+                        pipsAccessibility(layout)
+                    }
                     if showsTable && !showsBidOverlay {
                         accessory(layout)
                     }
@@ -516,6 +519,37 @@ private struct GameScreen: View {
             }
             .frame(width: rect.width, height: rect.height, alignment: .bottomLeading)
             .offset(x: rect.minX, y: rect.minY)
+        }
+    }
+
+    // MARK: - Trick pips for VoiceOver (the scene draws them; SeatPips)
+
+    /// One element per seat with pips, over the seat (or, mine, over my pips' box): "Ann: 2 of 3 tricks",
+    /// "Your tricks: Team 7 of 10, bore". Taps go through to the table.
+    @ViewBuilder
+    private func pipsAccessibility(_ layout: TableLayout) -> some View {
+        let model = TableRenderModel(gameState.state)
+        ForEach(model.opponents, id: \.position) { o in
+            if let p = model.pips[o.position] {
+                let rect = layout.window(layout.seatFootprint(o.rel))
+                Color.clear
+                    .frame(width: rect.width, height: rect.height)
+                    .accessibilityElement()
+                    .accessibilityLabel("\(o.name): \(p.accessibilityLabel)")
+                    .accessibilityIdentifier("pips.\(o.position)")
+                    .allowsHitTesting(false)
+                    .offset(x: rect.minX, y: rect.minY)
+            }
+        }
+        if let mine = model.myPips {
+            let rect = layout.window(layout.myPips)
+            Color.clear
+                .frame(width: rect.width, height: rect.height)
+                .accessibilityElement()
+                .accessibilityLabel("Your tricks: \(mine.accessibilityLabel)")
+                .accessibilityIdentifier("pips.mine")
+                .allowsHitTesting(false)
+                .offset(x: rect.minX, y: rect.minY)
         }
     }
 

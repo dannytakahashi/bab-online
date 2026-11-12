@@ -131,6 +131,15 @@ final class GameState: ObservableObject {
         let opp = me % 2 == 1 ? [2, 4] : [1, 3]
         return "\(book.bid(at: opp[0]) ?? "-")/\(book.bid(at: opp[1]) ?? "-")"
     }
+    /// (my team's, theirs) bid totals once the bidding is over (a bore counts as the whole
+    /// hand, each capped at it: BidTotals); nil while bidding.
+    var bidTotals: (mine: Int, theirs: Int)? {
+        switch table.phase {
+        case .playing(let p): return BidTotals.totals(p.bids, handSize: table.deal?.handSize).relative(to: viewPosition)
+        case .handResolving(let h): return BidTotals.totals(h.bids, handSize: table.deal?.handSize).relative(to: viewPosition)
+        default: return nil
+        }
+    }
     var team1Mult: Int { bidBook?.mults.team1 ?? 1 }
     var team2Mult: Int { bidBook?.mults.team2 ?? 1 }
 
