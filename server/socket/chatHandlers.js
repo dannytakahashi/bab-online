@@ -80,8 +80,9 @@ function spectatorCommand(socket, io, game, message) {
     const command = message.trim().toLowerCase();
     if (command === '/leave') {
         gameManager.leaveSpectating(io, socket.id);
+        // leftGame only: both clients go back to the main room on it (the
+        // s2c joinMainRoom no client listened to is gone: V1_REMOVALS #4)
         socket.emit('leftGame');
-        socket.emit('joinMainRoom');
         return;
     }
     if (command !== '/active') return;

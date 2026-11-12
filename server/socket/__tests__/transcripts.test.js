@@ -232,8 +232,7 @@ describe('seat transcripts (wire characterization)', () => {
         const mark = t.log.length;
         chat(t, s, '/leave');
         expect(t.rec.take(mark)).toEqual([
-            'self(r1):leftGame{}',
-            'self(r1):joinMainRoom{}',
+            'self(r1):leftGame{}', // no s2c joinMainRoom after it any more (V1_REMOVALS #4)
         ]);
     });
 

@@ -4933,20 +4933,6 @@
         "server/socket/chatHandlers.js:handleDrawPhaseLeave"
       ]
     },
-    "joinMainRoom": {
-      "payload": null,
-      "status": "deprecated",
-      "to": "self",
-      "clientReads": {
-        "web": [],
-        "ios": []
-      },
-      "emittedFrom": [
-        "server/socket/seatLifecycle.js:leaveSeat",
-        "server/socket/chatHandlers.js:spectatorCommand"
-      ],
-      "notes": "No listener in either client (V1_REMOVALS #4)."
-    },
     "roomFull": {
       "payload": {
         "type": "object",

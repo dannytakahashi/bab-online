@@ -493,7 +493,7 @@ describe('R16-R19 watchers', () => {
         expect(t.game.seat(1)).toMatchObject({ controller: 'resignBot', presence: 'connected', ownerView: 'watch' });
         expect(() => chat(t, 1, '/leave', w)).not.toThrow();
         expect(t.game.seat(1).presence).toBe('gone');
-        expect(selfEvents(t, w).filter((e) => e === 'leftGame' || e === 'joinMainRoom')).toEqual(['leftGame', 'joinMainRoom']);
+        expect(selfEvents(t, w).filter((e) => e === 'leftGame' || e === 'joinMainRoom')).toEqual(['leftGame']); // no s2c joinMainRoom (V1_REMOVALS #4)
         expect(aborts(t)).toHaveLength(0); // seat 2 is still here
         // A gone seat cannot be rejoined
         const again = await rejoin(t, 'user1');

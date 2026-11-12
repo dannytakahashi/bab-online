@@ -114,6 +114,12 @@ sender or listener in 1.1.0 (f05d264) or web on main.
 
 ### 4. s2c `joinMainRoom`
 
+**Done 2026-11-11 (PR #TBD).** Both emits are gone; the /leave answer is
+`leftGame` alone (both clients go back to the main room on it and send the
+c2s `joinMainRoom` themselves, which stays). Re-checked first: no listener
+in 1.1.0 (f05d264: only `LobbyEmitter.joinMainRoom` emits it) or web on
+main.
+
 - Emit sites: `seatLifecycle.leaveSeat` (watch view), `chatHandlers.spectatorCommand` (/leave).
 - Consumers: none in either client. Drop it.
 
@@ -401,7 +407,8 @@ step, in this order; nothing is removed by the gate PR itself.
 2. **#2 the matchmaking queue** (`queueUpdate`, c2s `joinQueue` /
    `leaveQueue` / `getLobbies`, `GameManager.queue`): no sender or listener
    in 1.1.0 or web. **Done 2026-11-11 (PR #TBD).**
-3. **#4 s2c `joinMainRoom`**: no listener in 1.1.0 or web.
+3. **#4 s2c `joinMainRoom`**: no listener in 1.1.0 or web. **Done
+   2026-11-11 (PR #TBD).**
 4. **#12 `chatMessage.type`**: web reads `isSpectator`, 1.1.0 reads
    `isSpectator` first (`type` was only for 1.0.0). Drop `type`, keep
    `isSpectator`.

@@ -592,13 +592,6 @@ const s2c = {
         clientReads: reads(W.game, I.game('registerSpectatorAndLazy')),
         emittedFrom: ['server/socket/seatLifecycle.js:leaveSeat', 'server/socket/chatHandlers.js:spectatorCommand', 'server/socket/chatHandlers.js:handleDrawPhaseLeave', 'server/socket/upgradeGate.js:replyLeave'],
     },
-    joinMainRoom: {
-        payload: null,
-        status: 'deprecated', to: 'self',
-        clientReads: reads([], []),
-        emittedFrom: ['server/socket/seatLifecycle.js:leaveSeat', 'server/socket/chatHandlers.js:spectatorCommand'],
-        notes: 'No listener in either client (V1_REMOVALS #4).',
-    },
     roomFull: {
         payload: obj({}, { open: true }),
         status: 'clientOnly', to: 'self',
