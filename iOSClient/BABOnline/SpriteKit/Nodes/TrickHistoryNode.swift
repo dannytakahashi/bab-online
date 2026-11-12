@@ -66,7 +66,7 @@ class TrickHistoryNode: SKNode {
         guard let total else { return }
         let slots = min(SeatPips.maxSlots, max(1, total, count))
         let icon = TableLayout.historyIcon
-        for i in max(0, count)..<max(0, min(total, SeatPips.maxSlots)) {
+        for i in stride(from: max(0, count), to: min(total, SeatPips.maxSlots), by: 1) {
             let slot = SKSpriteNode(color: Theme.SK.pileSlot, size: icon)
             slot.name = "history.\(row).slot.\(i)"
             slot.position = CGPoint(x: CGFloat(i) * stackSpacing, y: y)

@@ -29,7 +29,7 @@ enum ChatTimestamps {
         let time = format(date, template: "jmm", locale: locale, calendar: calendar)
         switch dayKind(date, now: now, calendar: calendar) {
         case .today, .yesterday:
-            return "\(relativeDay(date, locale: locale, calendar: calendar)) \(time)"
+            return "\(relativeDay(relativeAnchor(date, now: now, calendar: calendar), locale: locale, calendar: calendar)) \(time)"
         case .thisWeek:
             return "\(format(date, template: "EEE", locale: locale, calendar: calendar)) \(time)"
         case .older(let sameYear):
@@ -52,7 +52,7 @@ enum ChatTimestamps {
         switch dayKind(date, now: now, calendar: calendar) {
         case .today, .yesterday:
             f.dateStyle = .long
-            return f.string(from: date)
+            return f.string(from: relativeAnchor(date, now: now, calendar: calendar))
         case .thisWeek, .older:
             f.doesRelativeDateFormatting = false
             f.dateStyle = .full
@@ -71,6 +71,15 @@ enum ChatTimestamps {
         case 2...6: return .thisWeek
         default: return .older(sameYear: calendar.component(.year, from: date) == calendar.component(.year, from: now))
         }
+    }
+
+    /// DateFormatter's relative words ("Today", "Yesterday") compare with the device's real
+    /// today, not `now`: `date` moved by the days between `now` and the real today, so the
+    /// word matches `dayKind` whatever `now` is (tests pin it; the app passes Date()).
+    private static func relativeAnchor(_ date: Date, now: Date, calendar: Calendar) -> Date {
+        let shift = calendar.dateComponents([.day], from: calendar.startOfDay(for: now), to: calendar.startOfDay(for: Date())).day ?? 0
+        guard shift != 0 else { return date }
+        return calendar.date(byAdding: .day, value: shift, to: date) ?? date
     }
 
     private static func relativeDay(_ date: Date, locale: Locale, calendar: Calendar) -> String {
