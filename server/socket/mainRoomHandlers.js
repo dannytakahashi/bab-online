@@ -5,6 +5,7 @@
 
 const gameManager = require('../game/GameManager');
 const { socketLogger } = require('../utils/logger');
+const { emitError } = require('./serverError');
 const { Controller, Presence } = require('../game/SeatState');
 const seatLifecycle = require('./seatLifecycle');
 const { spectatorJoinState, snapshotFor } = require('./snapshotHandlers');
@@ -22,7 +23,7 @@ function joinMainRoom(socket, io) {
     const result = gameManager.joinMainRoom(socket.id);
 
     if (!result.success) {
-        socket.emit('error', { message: result.error || 'Failed to join main room' });
+        emitError(socket, { message: result.error || 'Failed to join main room' }, 'joinMainRoom');
         return;
     }
 
@@ -32,12 +33,12 @@ function joinMainRoom(socket, io) {
     // Compute online users once so count and list always agree
     const onlineUsers = gameManager.getOnlineUsernames();
 
-    // Send initial state to the player.
-    // recentMessages duplicates messages: the iOS client reads that key for
-    // the chat history replay (web reads messages) — keep both populated.
+    // Send initial state to the player. Both clients read the chat replay
+    // from messages (iOS 1.1.0: recentMessages ?? messages); the
+    // recentMessages copy is only in the upgrade gate's 1.0.0 payload
+    // (V1_REMOVALS #13)
     socket.emit('mainRoomJoined', {
         messages: result.messages,
-        recentMessages: result.messages,
         lobbies: result.lobbies,
         onlineCount: onlineUsers.length,
         onlineUsers,
@@ -70,7 +71,7 @@ function mainRoomChat(socket, io, data) {
     }
 
     if (!gameManager.isInMainRoom(socket.id)) {
-        socket.emit('error', { message: 'Not in main room' });
+        emitError(socket, { message: 'Not in main room' }, 'mainRoomChat');
         return;
     }
 
@@ -78,7 +79,7 @@ function mainRoomChat(socket, io, data) {
     const result = gameManager.addMainRoomMessage(socket.id, filterProfanity(message.trim()));
 
     if (!result.success) {
-        socket.emit('error', { message: result.error });
+        emitError(socket, { message: result.error }, 'mainRoomChat');
         return;
     }
 
@@ -104,7 +105,7 @@ function createLobby(socket, io, data) {
     const result = gameManager.createNamedLobby(socket.id, name ? filterProfanity(name) : name);
 
     if (!result.success) {
-        socket.emit('error', { message: result.error });
+        emitError(socket, { message: result.error }, 'createLobby');
         return;
     }
 
@@ -145,18 +146,33 @@ function joinLobby(socket, io, data) {
     const { lobbyId } = data;
 
     if (!lobbyId) {
-        socket.emit('error', { message: 'Lobby ID required' });
+        emitError(socket, { message: 'Lobby ID required' }, 'joinLobby');
         return;
     }
 
     const result = gameManager.joinSpecificLobby(socket.id, lobbyId);
 
     if (!result.success) {
-        socket.emit('error', { message: result.error });
+        emitError(socket, { message: result.error }, 'joinLobby');
         return;
     }
 
     const lobby = result.lobby;
+
+    // This socket holds its seat here already (it took a held seat back in
+    // place): it gets the lobby again; the others were told on the resume
+    if (result.alreadySeated) {
+        socket.leave('mainRoom');
+        socket.emit('lobbyCreated', {
+            lobbyId: lobby.id, players: lobby.players, messages: lobby.messages, name: lobby.name,
+            ...gameManager.reconnectingField(lobby.id)
+        });
+        const peers = lobby.players
+            .filter(p => p.socketId !== socket.id && !gameManager.isBot(p.socketId))
+            .map(p => ({ socketId: p.socketId, username: p.username }));
+        if (peers.length > 0) socket.emit('voicePeerList', { peers });
+        return;
+    }
 
     // Re-entry from a new socket: the seat moved here from the older one
     // (or a seat in another lobby was given up). The joined notifications
@@ -170,12 +186,13 @@ function joinLobby(socket, io, data) {
     // Leave main room Socket.IO room
     socket.leave('mainRoom');
 
-    // Notify the joining player
+    // Notify the joining player (with the seats held for a reconnect)
     socket.emit('lobbyCreated', {
         lobbyId: lobby.id,
         players: lobby.players,
         messages: lobby.messages,
-        name: lobby.name
+        name: lobby.name,
+        ...gameManager.reconnectingField(lobby.id)
     });
 
     // Notify existing players in the lobby
@@ -219,15 +236,6 @@ function joinLobby(socket, io, data) {
 }
 
 /**
- * Handle player requesting current lobby list
- */
-function getLobbies(socket, io) {
-    const lobbies = gameManager.getAllLobbies();
-    const inProgressGames = gameManager.getInProgressGames();
-    socket.emit('lobbiesUpdated', { lobbies, inProgressGames, tournaments: gameManager.getAllTournaments() });
-}
-
-/**
  * Handle player joining a game as a spectator
  */
 function joinAsSpectator(socket, io, data) {
@@ -235,13 +243,13 @@ function joinAsSpectator(socket, io, data) {
 
     const game = gameManager.getGameById(gameId);
     if (!game) {
-        socket.emit('error', { message: 'Game not found' });
+        emitError(socket, { message: 'Game not found' }, 'joinAsSpectator');
         return;
     }
 
     const user = gameManager.getUserBySocketId(socket.id);
     if (!user) {
-        socket.emit('error', { message: 'User not found' });
+        emitError(socket, { message: 'User not found' }, 'joinAsSpectator');
         return;
     }
 
@@ -265,7 +273,7 @@ function joinAsSpectator(socket, io, data) {
     // A pure spectator (of one game at a time), in the game's room
     if (!gameManager.addSpectator(io, game, socket.id, user.username, null)) {
         socketLogger.warn('Spectate refused: socket is in a game', { socketId: socket.id, gameId });
-        socket.emit('error', { message: 'Leave your current game before spectating another' });
+        emitError(socket, { message: 'Leave your current game before spectating another' }, 'joinAsSpectator');
         return;
     }
 
@@ -298,6 +306,5 @@ module.exports = {
     mainRoomChat,
     createLobby,
     joinLobby,
-    getLobbies,
     joinAsSpectator
 };

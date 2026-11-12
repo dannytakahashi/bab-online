@@ -19,6 +19,9 @@ jest.mock('../../database', () => ({
 
 jest.mock('../../game/GameManager', () => ({
     registerUser: jest.fn(),
+    // one socket signs up several accounts in a row: each releases the last
+    // (sessionIdentity.releaseIdentity)
+    removeUserSocket: jest.fn(),
     handleDisconnect: jest.fn(),
     getGameById: jest.fn(() => null),
     getTournamentById: jest.fn(() => null),

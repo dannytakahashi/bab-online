@@ -196,6 +196,8 @@ function attach(socket, app) {
     function sendMainRoom() {
         const line = [{ username: SENDER, message: message(), timestamp: Date.now() }];
         send('mainRoomJoined', {
+            // recentMessages: the key 1.0.0 reads first (the main-room
+            // handlers no longer send it: V1_REMOVALS #13)
             messages: line, recentMessages: line, lobbies: [], onlineCount: 0, onlineUsers: [], inProgressGames: [], tournaments: [],
         });
     }

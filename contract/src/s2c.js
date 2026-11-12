@@ -73,6 +73,7 @@ const lobbyLists = {
 };
 const mainRoomState = {
     messages: arr(ref('mainRoomChatLine')),
+    // only in the upgrade gate's 1.0.0 payload (V1_REMOVALS #13)
     recentMessages: arr(ref('mainRoomChatLine')),
     lobbies: arr(ref('lobby')),
     onlineCount: int({ minimum: 0 }),
@@ -168,6 +169,13 @@ const s2c = {
         clientReads: reads(W.auth, I.auth),
         emittedFrom: ['server/socket/authHandlers.js:disconnectPreviousSocket', 'server/socket/authHandlers.js:deleteAccount'],
     },
+    sessionSuperseded: {
+        payload: obj({ reason: konst('newerConnection'), refused: str({ maxLength: 64 }) }, { optional: ['refused'] }),
+        status: 'active', to: 'socket',
+        clientReads: reads(W.auth, []),
+        emittedFrom: ['server/socket/sessionIdentity.js:confirmSupersede', 'server/socket/sessionIdentity.js:supersededGate'],
+        notes: 'New (2026-11-11). One live connection per user: a newer socket of the SAME saved session (another web tab adopting it, or a reload whose old socket the server still holds) took over; this socket is parked. Sent once when it happens and again (refused: the event name, at most once a second) for every event the parked socket sends other than signIn / signUp / restoreSession / clientHello, which are dropped, never answered with error. Web: a full-screen notice, "Use here" reconnects and restores, which parks the other tab. iOS 1.1.0 has no handler (unknown events are ignored) and never shares a token between live sockets; a different session gets forceLogout as before.',
+    },
     deleteAccountResponse: {
         payload: anyOf(variant('success', obj({ success: konst(true) })), fail()),
         status: 'active', to: 'self',
@@ -199,11 +207,11 @@ const s2c = {
 
     // ==================== Main room ====================
     mainRoomJoined: {
-        payload: obj(mainRoomState),
+        payload: obj(mainRoomState, { optional: ['recentMessages'] }),
         status: 'active', to: 'self',
         clientReads: reads(W.lobby, I.lobby),
         emittedFrom: ['server/socket/mainRoomHandlers.js:joinMainRoom', 'server/socket/lobbyHandlers.js:leaveLobby', 'server/socket/tournamentHandlers.js:sendToMainRoom', 'server/socket/upgradeGate.js:sendMainRoom'],
-        notes: 'recentMessages duplicates messages (iOS reads recentMessages first).',
+        notes: 'recentMessages (a copy of messages) is sent only by upgradeGate.sendMainRoom, to the gated iOS 1.0.0, which reads it first. The main-room handlers dropped it (V1_REMOVALS #13, 2026-11-11): web reads messages and iOS 1.1.0 recentMessages ?? messages (LobbySocketHandler, f05d264).',
     },
     mainRoomMessage: {
         payload: ref('mainRoomChatLine'),
@@ -227,24 +235,24 @@ const s2c = {
     },
     lobbiesUpdated: {
         payload: obj(lobbyLists),
-        status: 'active', to: ['mainRoom', 'self'],
+        status: 'active', to: 'mainRoom',
         reserved: [{ key: 'lobbyName', why: 'iOS reads lobbyName ?? name' }, { key: 'inProgress', why: 'reserved lobby key (iOS Lobby.from)' }],
         clientReads: reads(W.lobby, I.lobby),
-        emittedFrom: ['server/socket/gameLifecycle.js:emitLobbiesUpdated', 'server/socket/mainRoomHandlers.js:createLobby', 'server/socket/mainRoomHandlers.js:joinLobby', 'server/socket/mainRoomHandlers.js:getLobbies', 'server/socket/lobbyHandlers.js:leaveLobby', 'server/socket/lobbyHandlers.js:addBot', 'server/socket/lobbyHandlers.js:removeBot', 'server/socket/tournamentHandlers.js:createTournament', 'server/socket/tournamentHandlers.js:joinTournament', 'server/socket/tournamentHandlers.js:leaveTournament', 'server/socket/tournamentHandlers.js:scheduleTournamentCleanup'],
-        notes: 'getLobbies answers the requesting socket with the same shape.',
+        emittedFrom: ['server/socket/gameLifecycle.js:emitLobbiesUpdated', 'server/socket/mainRoomHandlers.js:createLobby', 'server/socket/mainRoomHandlers.js:joinLobby', 'server/socket/lobbyHandlers.js:leaveLobby', 'server/socket/lobbyHandlers.js:addBot', 'server/socket/lobbyHandlers.js:removeBot', 'server/socket/lobbyHandlers.js:lobbySeatExpired', 'server/socket/tournamentHandlers.js:createTournament', 'server/socket/tournamentHandlers.js:joinTournament', 'server/socket/tournamentHandlers.js:leaveTournament', 'server/socket/tournamentHandlers.js:scheduleTournamentCleanup'],
+        notes: 'Only to the main room since getLobbies (its one reply to a single socket) went with the matchmaking queue (V1_REMOVALS #2, 2026-11-11).',
     },
 
     // ==================== Lobby ====================
     lobbyCreated: {
         payload: anyOf(
-            variant('withName', obj({ lobbyId: str(), players: arr(ref('lobbyMember'), { maxItems: 4 }), messages: arr(ref('lobbyChatLine')), name: str() })),
-            variant('withoutName', obj({ lobbyId: str(), players: arr(ref('lobbyMember'), { maxItems: 4 }), messages: arr(ref('lobbyChatLine')) })),
+            variant('withName', obj({ lobbyId: str(), players: arr(ref('lobbyMember'), { maxItems: 4 }), messages: arr(ref('lobbyChatLine')), name: str(), reconnecting: arr(str(), { minItems: 1, maxItems: 4 }) }, { optional: ['reconnecting'] })),
         ),
         status: 'active', to: 'self',
+        added: ['reconnecting'],
         reserved: [{ key: 'lobbyName', why: 'iOS reads lobbyName ?? name' }],
         clientReads: reads(W.lobby, I.lobby),
-        emittedFrom: ['server/socket/mainRoomHandlers.js:createLobby', 'server/socket/mainRoomHandlers.js:joinLobby', 'server/socket/queueHandlers.js:joinQueue'],
-        notes: 'withoutName only from the unsent joinQueue path.',
+        emittedFrom: ['server/socket/mainRoomHandlers.js:createLobby', 'server/socket/mainRoomHandlers.js:joinLobby'],
+        notes: 'The withoutName variant went with the matchmaking queue (V1_REMOVALS #2, 2026-11-11): every lobby a player can open or join is named.',
     },
     lobbyJoined: {
         payload: obj({ lobbyId: str() }, { open: true }),
@@ -261,7 +269,7 @@ const s2c = {
         }),
         status: 'active', to: 'socket',
         clientReads: reads(W.lobby, I.lobby),
-        emittedFrom: ['server/socket/mainRoomHandlers.js:joinLobby', 'server/socket/queueHandlers.js:joinQueue'],
+        emittedFrom: ['server/socket/mainRoomHandlers.js:joinLobby'],
     },
     lobbyPlayerLeft: {
         payload: obj({ lobbyId: str(), players: arr(ref('lobbyMember'), { maxItems: 4 }), leftUsername: str(), needsMorePlayers: bool() }),
@@ -277,13 +285,15 @@ const s2c = {
     },
     playerReadyUpdate: {
         payload: anyOf(
-            variant('readySocketId', obj({ lobbyId: str(), players: arr(ref('lobbyMember'), { maxItems: 4 }), readySocketId: str() })),
-            variant('unreadySocketId', obj({ lobbyId: str(), players: arr(ref('lobbyMember'), { maxItems: 4 }), unreadySocketId: str() })),
-            variant('neither', obj({ lobbyId: str(), players: arr(ref('lobbyMember'), { maxItems: 4 }) })),
+            variant('readySocketId', obj({ lobbyId: str(), players: arr(ref('lobbyMember'), { maxItems: 4 }), readySocketId: str(), reconnecting: arr(str(), { minItems: 1, maxItems: 4 }) }, { optional: ['reconnecting'] })),
+            variant('unreadySocketId', obj({ lobbyId: str(), players: arr(ref('lobbyMember'), { maxItems: 4 }), unreadySocketId: str(), reconnecting: arr(str(), { minItems: 1, maxItems: 4 }) }, { optional: ['reconnecting'] })),
+            variant('neither', obj({ lobbyId: str(), players: arr(ref('lobbyMember'), { maxItems: 4 }), reconnecting: arr(str(), { minItems: 1, maxItems: 4 }) }, { optional: ['reconnecting'] })),
         ),
         status: 'active', to: 'socket',
+        added: ['reconnecting'],
+        notes: 'reconnecting (additive, 2026-11-11; present only while a seat is held): the usernames whose lobby seat waits for its player to come back (GameManager.suspendLobbySeat, LOBBY_SEAT_GRACE_MS 30 s after a disconnect or a newer tab taking over). Every playerReadyUpdate carries it while one is held, lobbyCreated from joinLobby too; web shows "Reconnecting…" on those seats. iOS 1.1.0 reads the reply as a dictionary and ignores it.',
         clientReads: reads(W.lobby, I.lobby),
-        emittedFrom: ['server/socket/lobbyHandlers.js:playerReady', 'server/socket/lobbyHandlers.js:playerUnready', 'server/socket/lobbyHandlers.js:addBot', 'server/socket/lobbyHandlers.js:removeBot'],
+        emittedFrom: ['server/socket/lobbyHandlers.js:playerReady', 'server/socket/lobbyHandlers.js:playerUnready', 'server/socket/lobbyHandlers.js:addBot', 'server/socket/lobbyHandlers.js:removeBot', 'server/socket/lobbyHandlers.js:lobbySeatSuspended'],
     },
     allPlayersReady: {
         payload: obj({ gameId: str() }),
@@ -297,13 +307,6 @@ const s2c = {
         clientReads: reads(W.lobby, I.lobby),
         emittedFrom: ['server/socket/lobbyHandlers.js:lobbyChat'],
         notes: 'Sent to every lobby member, bots included (bot: ids never reach a wire).',
-    },
-    queueUpdate: {
-        payload: obj({ queuedUsers: arr(obj({}, { open: true })) }),
-        status: 'deprecated', to: 'all',
-        clientReads: reads([], []),
-        emittedFrom: ['server/socket/queueHandlers.js:leaveQueue'],
-        notes: 'Only from the unsent leaveQueue; no listener in either client. V1_REMOVALS #2.',
     },
 
     // ==================== Draw ====================
@@ -407,7 +410,7 @@ const s2c = {
         notes: 'One per connected seat owner (seat) and per spectator (spectator), each deal. players: seat socket ids, read by web as playerData.socket to map a voice peer to a seat (the speaking indicator; V1_REMOVALS #6). playerInfo rebuilds web avatars every hand (V1_REMOVALS #5).',
     },
     bidReceived: {
-        payload: obj({ bid: ref('bidWire'), position: ref('position'), bidArray: ref('bidArray') }),
+        payload: obj({ bid: ref('bidString'), position: ref('position'), bidArray: ref('bidArray') }),
         status: 'active', to: 'room', seq: false,
         reserved: [
             { key: 'team1Mult', why: 'deferred: the shipped iOS app resets mults only in reset(), so a bore badge would persist into the next deal (V1_REMOVALS.md "Deferred additive")' },
@@ -415,7 +418,7 @@ const s2c = {
         ],
         clientReads: reads(W.game, I.game('registerBiddingPhase')),
         emittedFrom: ['server/socket/gameHandlers.js:playerBid', 'server/game/bot/BotController.js:processBotBid'],
-        notes: 'bid echoes the client value: an Int from iOS numeric bids (bidWire; V1_REMOVALS #11).',
+        notes: 'bid is always the normalized string (bidString), also for an iOS numeric bid sent as an Int (c2s playerBid keeps accepting Int: iOS 1.1.0 sends one). Until 2026-11-11 it echoed the client value ($defs.bidWire, Int | string; V1_REMOVALS #11); 1.1.0 decodes either (BidWire) and web applyBid calls String(data.bid).',
     },
     doneBidding: {
         payload: obj({ bids: ref('bidArray'), lead: ref('position'), teamBids: ref('teamPair'), mults: obj({ team1: int({ minimum: 1 }), team2: int({ minimum: 1 }) }) }),
@@ -450,14 +453,15 @@ const s2c = {
     },
     cardPlayed: {
         payload: obj({
-            playerId: str(), card: ref('card'), position: ref('position'), trump: bool({ description: 'trumpBroken after this card' }),
+            card: ref('card'), position: ref('position'),
+            trumpBroken: bool({ description: 'trump is broken after this card' }),
             resumeInMs: int({ minimum: 0, description: 'Only on the card that completes a trick: TRICK_VIEW_MS until trickComplete' }),
         }, { optional: ['resumeInMs'] }),
         status: 'active', to: 'room', seq: false,
-        added: ['resumeInMs'],
-        notes: 'resumeInMs (additive, relative; contract/README.md "Resume holds") only on the 4th card of a trick; built by GameState.cardPlayedPayload for both emit sites.',
-        reserved: [{ key: 'trumpBroken', why: 'iOS reads trumpBroken ?? trump; trump must stay a Bool' }],
-        clientReads: reads(W.game, I.game('handleCardPlayed')),
+        added: ['resumeInMs', 'trumpBroken'],
+        activates: ['trumpBroken'],
+        notes: 'resumeInMs (additive, relative; contract/README.md "Resume holds") only on the 4th card of a trick; built by GameState.cardPlayedPayload for both emit sites. trumpBroken (V1_REMOVALS #10, 2026-11-11): its reservation was for iOS 1.0.0 only (gated); 1.1.0 decodes trumpBroken ?? trump (WirePayloads.CardPlayed, TableReducer+Events) and web GameState.applyCardPlayed reads either. The `trump` Bool it replaced and `playerId` (a socket id read by neither client) were dropped the same day.',
+        clientReads: reads([W.game, 'client/src/state/GameState.js:applyCardPlayed#reads:trumpBroken'], [I.game('handleCardPlayed'), 'iOSClient/BABOnline/State/Table/TableReducer+Events.swift:cardPlayed#reads:trumpBroken']),
         emittedFrom: ['server/socket/gameHandlers.js:playCard', 'server/game/bot/BotController.js:processBotPlay'],
     },
     actionRejected: {
@@ -514,16 +518,15 @@ const s2c = {
     chatMessage: {
         payload: anyOf(
             variant('humanOrSpectator', obj({
-                position: orNull(ref('position')), message: str(), username: str(), isSpectator: bool(), type: enm('player', 'spectator'),
+                position: orNull(ref('position')), message: str(), username: str(), isSpectator: bool(),
             })),
-            variant('bot', obj({ position: ref('position'), message: str(), username: str(), isSpectator: konst(false), type: konst('player') })),
+            variant('bot', obj({ position: ref('position'), message: str(), username: str(), isSpectator: konst(false) })),
         ),
         status: 'active', to: 'room', seq: false,
-        added: ['type', 'isSpectator'],
-        activates: ['type'],
-        clientReads: reads([W.chat, W.main('onChatMessage')], `${I.chat}#reads:type`),
+        added: ['isSpectator'],
+        clientReads: reads([W.chat, W.main('onChatMessage')], 'iOSClient/BABOnline/State/Table/TableReducer+Events.swift:chatMessage'),
         emittedFrom: ['server/socket/chatHandlers.js:chatMessage', 'server/game/bot/BotController.js:sendBotChat'],
-        notes: "type ('player' | 'spectator') is additive and switches on the shipped iOS spectator label (ChatSocketHandler reads type == 'spectator'; ctr-14). Bot chat also gains isSpectator:false (web: undefined and false read the same). Keep one of isSpectator / type in v2 (V1_REMOVALS #12).",
+        notes: "isSpectator labels spectator chat: web (onChatMessage, the spectator bubble) and iOS 1.1.0 (TableReducer+Events: isSpectator ?? type == 'spectator', f05d264) read it; bot chat sends false. The `type` ('player' | 'spectator') copy, read only by the gated iOS 1.0.0, was dropped (V1_REMOVALS #12, 2026-11-11).",
     },
     gameLogEntry: {
         payload: obj({ message: str(), type: konst('system') }),
@@ -575,14 +578,11 @@ const s2c = {
         notes: 'New in snapshot v2: the reply to requestSnapshot. The log is included unless the request sends log:false; custom (data-URL) seat pictures only with customPics:true (partial lists what was left out). notInGame: the socket is in no live game - also once its game ENDED or ABORTED (the terminal state arrives as gameEnd / abortGame, never as a snapshot).',
     },
     rejoinFailed: {
-        payload: obj({
-            reason: str(),
-            debug: obj({ lookingFor: str(), playersInGame: arr(str()) }),
-        }, { optional: ['debug'] }),
+        payload: obj({ reason: str() }),
         status: 'active', to: 'self',
         clientReads: reads([W.game, W.main('onRejoinFailed')], I.game('registerReconnection')),
         emittedFrom: ['server/socket/reconnectHandlers.js:rejoinGame'],
-        notes: 'Web drops its game on ANY rejoinFailed.',
+        notes: 'Web drops its game on ANY rejoinFailed. debug {lookingFor, playersInGame} was dropped (V1_REMOVALS #15, 2026-11-11: it told the table\'s usernames to whoever asked; no client read it).',
     },
     playerDisconnected: {
         payload: anyOf(variant('room', seatNotice), variant('private', seatNotice)),
@@ -602,13 +602,6 @@ const s2c = {
         status: 'active', to: 'self',
         clientReads: reads(W.game, I.game('registerSpectatorAndLazy')),
         emittedFrom: ['server/socket/seatLifecycle.js:leaveSeat', 'server/socket/chatHandlers.js:spectatorCommand', 'server/socket/chatHandlers.js:handleDrawPhaseLeave', 'server/socket/upgradeGate.js:replyLeave'],
-    },
-    joinMainRoom: {
-        payload: null,
-        status: 'deprecated', to: 'self',
-        clientReads: reads([], []),
-        emittedFrom: ['server/socket/seatLifecycle.js:leaveSeat', 'server/socket/chatHandlers.js:spectatorCommand'],
-        notes: 'No listener in either client (V1_REMOVALS #4).',
     },
     roomFull: {
         payload: obj({}, { open: true }),
@@ -761,7 +754,7 @@ const s2c = {
         payload: obj({ username: str(), players: arr(ref('tournamentPlayer')), newCreator: orNull(str()) }, { optional: ['username'] }),
         status: 'active', to: 'tournament',
         clientReads: reads(W.tour, I.tour),
-        emittedFrom: ['server/socket/tournamentHandlers.js:leaveTournament', 'server/socket/queueHandlers.js:handleDisconnect'],
+        emittedFrom: ['server/socket/tournamentHandlers.js:leaveTournament', 'server/socket/queueHandlers.js:handleDisconnect', 'server/socket/tournamentHandlers.js:releaseStaleTournamentSeat'],
         notes: 'username is absent when the leaver had no registered user (user?.username).',
     },
     tournamentReadyUpdate: {
@@ -813,7 +806,7 @@ const s2c = {
         payload: empty,
         status: 'active', to: 'self',
         clientReads: reads(W.tour, I.tour),
-        emittedFrom: ['server/socket/tournamentHandlers.js:leaveTournament', 'server/socket/tournamentHandlers.js:returnToTournament', 'server/socket/upgradeGate.js:replyLeave'],
+        emittedFrom: ['server/socket/tournamentHandlers.js:leaveTournament', 'server/socket/tournamentHandlers.js:returnToTournament', 'server/socket/upgradeGate.js:replyLeave', 'server/socket/tournamentHandlers.js:releaseStaleTournamentSeat'],
     },
     tournamentCancelled: {
         payload: empty,
@@ -905,19 +898,19 @@ const s2c = {
         payload: obj({ peers: arr(ref('voicePeer')) }),
         status: 'active', to: 'self',
         clientReads: reads(W.voice, I.voice),
-        emittedFrom: ['server/socket/mainRoomHandlers.js:joinLobby', 'server/socket/queueHandlers.js:joinQueue', 'server/socket/seatLifecycle.js:reconnectOwner'],
+        emittedFrom: ['server/socket/mainRoomHandlers.js:joinLobby', 'server/socket/seatLifecycle.js:reconnectOwner'],
     },
     voicePeerJoined: {
         payload: ref('voicePeer'),
         status: 'active', to: 'socket',
         clientReads: reads(W.voice, I.voice),
-        emittedFrom: ['server/socket/mainRoomHandlers.js:joinLobby', 'server/socket/queueHandlers.js:joinQueue', 'server/socket/seatLifecycle.js:reconnectOwner'],
+        emittedFrom: ['server/socket/mainRoomHandlers.js:joinLobby', 'server/socket/seatLifecycle.js:reconnectOwner'],
     },
     voicePeerLeft: {
         payload: anyOf(variant('room', obj({ socketId: str() })), variant('private', obj({ socketId: str() }))),
         status: 'active', to: ['room', 'socket'], seq: false,
         clientReads: reads(W.voice, I.voice),
-        emittedFrom: ['server/socket/seatLifecycle.js:disconnectOwner', 'server/socket/lobbyHandlers.js:leaveLobby', 'server/socket/lobbyHandlers.js:releaseStaleLobbySeat', 'server/socket/queueHandlers.js:handleDisconnect'],
+        emittedFrom: ['server/socket/seatLifecycle.js:disconnectOwner', 'server/socket/lobbyHandlers.js:leaveLobby', 'server/socket/lobbyHandlers.js:releaseStaleLobbySeat', 'server/socket/queueHandlers.js:handleDisconnect', 'server/socket/lobbyHandlers.js:lobbySeatSuspended'],
         notes: 'room: a game seat owner dropped (game.broadcast); private: lobby peers (io.to(socketId)).',
     },
     voiceIceServers: {
@@ -946,11 +939,20 @@ const s2c = {
             variant('handler', obj({ type: enm('rateLimit', 'validation', 'server'), message: str(), handler: str() })),
             variant('validation', obj({ type: konst('validation'), message: str() })),
             variant('message', obj({ message: str() })),
+            // a handler's refusal names its event (2026-11-11, additive: the same handler as its serverError twin)
+            variant('rejected', obj({ message: str(), handler: str() })),
         ),
         status: 'active', to: 'self',
         clientReads: reads([W.main('setupSocketErrorHandler'), 'client/src/admin/adminApi.js:createAdminApi#reads:type,handler'], ['iOSClient/BABOnline/Networking/SocketService.swift:connect#reads:message']),
-        emittedFrom: ['server/socket/errorHandler.js:asyncHandler', 'server/socket/errorHandler.js:syncHandler', 'server/socket/errorHandler.js:handleError', 'server/socket/validators.js:withValidation', 'server/socket/*.js:<many handlers> (socket.emit(\'error\', {message}))', 'server/socket/chatHandlers.js:sendError'],
-        notes: "App-level event (not the transport's error). iOS receives it through Socket.IO-Client-Swift's clientEvent .error (the reserved name) and, since 0fd6ef1, shows message as a toast. variant validation is dead today (validators.withValidation has no caller). Rename to serverError is V1_REMOVALS #1. The admin panel's api (adminApi.js) reads {type:'rateLimit', handler:'adminRequest'} to fail a dropped admin request fast as rate_limited.",
+        emittedFrom: ['server/socket/serverError.js:emitError', 'server/socket/errorHandler.js:asyncHandler', 'server/socket/errorHandler.js:syncHandler', 'server/socket/errorHandler.js:handleError', 'server/socket/validators.js:withValidation', 'server/socket/*.js:<many handlers> (emitError(socket, {message}, handler))', 'server/socket/chatHandlers.js:sendError'],
+        notes: "App-level event (not the transport's error). iOS receives it through Socket.IO-Client-Swift's clientEvent .error (the reserved name) and, since 0fd6ef1, shows message as a toast. variant validation is dead today (validators.withValidation has no caller). Every emit (but the dead withValidation) is followed by its serverError twin (V1_REMOVALS #1 phase A, 2026-11-11), with the same handler, so a client reading both channels can drop the second copy: variant rejected (a handler's refusal, {message, handler}) is new with phase A and additive (1.1.0's routeTableError and web act only on handler playCard / playerBid / requestSnapshot, which no refusal names; variant message is what emitError sends without a handler, which no call site does today). handler is the c2s event the error answers on every path (the chat events: mainRoomChat / lobbyChat / tournamentChat, not their shared chatMessage schema). Dropping this event is phase B, blocked until an iOS build and web read serverError. The admin panel's api (adminApi.js) reads {type:'rateLimit', handler:'adminRequest'} to fail a dropped admin request fast as rate_limited.",
+    },
+    serverError: {
+        payload: obj({ code: ref('serverErrorCode'), message: str(), handler: orNull(str()) }),
+        status: 'active', to: 'self',
+        clientReads: reads([], []),
+        emittedFrom: ['server/socket/serverError.js:emitError', 'server/socket/chatHandlers.js:sendError'],
+        notes: "V1_REMOVALS #1 phase A (2026-11-11, additive): the twin of every app-level error, sent right after it to the same socket. code: rateLimit / validation / server (the error's type) or rejected (a handler's {message} refusal); message: the error's message; handler: the c2s event it answers (the registered socket.on name: errorHandler options.event, else the schema; or the handler that refused), the same as on its error copy, null when unknown. Read by no shipped client yet (iOS 1.1.0 and web listen to error); its own name because Socket.IO-Client-Swift reserves 'error'. When iOS and web read it, phase B drops error.",
     },
 };
 

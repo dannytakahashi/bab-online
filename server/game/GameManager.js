@@ -1,5 +1,5 @@
 /**
- * Manages game queue and active game instances
+ * Manages the main room, lobbies, active game instances and tournaments
  * Singleton pattern for server-wide coordination
  */
 
@@ -16,10 +16,6 @@ const MERGE_LOCKED = 'This account is being updated. Please try again in a minut
 
 class GameManager {
     constructor() {
-        // Queue of players waiting for a game
-        this.queue = [];
-        this.queuedUsers = [];
-
         // Main room (global chat + lobby browser)
         this.mainRoomMessages = [];       // Global chat history (capped at MAX_MAIN_ROOM_MESSAGES)
         this.mainRoomSocketIds = new Set(); // Players currently in main room
@@ -31,6 +27,9 @@ class GameManager {
         // Lobbies (pre-game waiting rooms)
         this.lobbies = new Map();      // lobbyId → { players: [], readyPlayers: Set, messages: [] }
         this.playerLobbies = new Map(); // socketId → lobbyId
+        // Lobby seats whose socket dropped, held for LOBBY_SEAT_GRACE_MS
+        // (suspendLobbySeat): old socketId → { lobbyId, username, timer }
+        this.lobbyGrace = new Map();
 
         // Active games
         this.games = new Map();        // gameId → GameState
@@ -51,7 +50,7 @@ class GameManager {
 
         // Accounts a panel merge is retiring, a panel delete is removing or
         // a panel rename is moving right now (both names; adminHandlers):
-        // they cannot sign in, restore, rejoin, queue, open or join a lobby
+        // they cannot sign in, restore, rejoin, open or join a lobby
         // or a tournament (and a rename's new name cannot be signed up)
         // until it is done
         this.mergeLocks = new Set();
@@ -59,14 +58,23 @@ class GameManager {
 
     // Constants
     static MAX_MAIN_ROOM_MESSAGES = 50;
+    // A lobby seat outlives its socket by this long (a reload, a short
+    // network drop): the player's next socket re-entering takes it back
+    static LOBBY_SEAT_GRACE_MS = 30000;
 
     /**
-     * Register a logged-in user
+     * Register a logged-in user. One entry per username AND one per socket:
+     * a socket that was signed in as another account is that account no
+     * longer (sessionIdentity.releaseIdentity tears the old identity down
+     * first). Returns the socket id the name was registered on before, when
+     * it was another socket (the caller tells that socket it was replaced).
+     * @returns {string|null}
      */
     registerUser(socketId, username) {
-        // Remove any existing entry for this username
-        this.currentUsers = this.currentUsers.filter(u => u.username !== username);
+        const previous = this.currentUsers.find(u => u.username === username);
+        this.currentUsers = this.currentUsers.filter(u => u.username !== username && u.socketId !== socketId);
         this.currentUsers.push({ username, socketId });
+        return previous && previous.socketId !== socketId ? previous.socketId : null;
     }
 
     /** Forget a (dead) socket's signed-in user entry. */
@@ -135,107 +143,6 @@ class GameManager {
             }
         }
         return null;
-    }
-
-    /**
-     * Add player to lobby (creates one immediately or joins existing)
-     */
-    joinQueue(socketId) {
-        if (this._mergeLockedUser(socketId)) return { success: false, error: MERGE_LOCKED };
-        // Check if already in lobby
-        if (this.playerLobbies.has(socketId)) {
-            return { success: false, error: 'Already in lobby' };
-        }
-
-        // Check if already in game
-        if (this.playerGames.has(socketId)) {
-            return { success: false, error: 'Already in game' };
-        }
-
-        // Verify user is registered (prevents race condition with auth)
-        const user = this.getUserBySocketId(socketId);
-        if (!user) {
-            return { success: false, error: 'User not registered yet' };
-        }
-
-        // Re-entry from a new socket (half-open reconnect): the user's seat
-        // moves to this socket, full lobby or not
-        const stale = this.findStaleLobbySeat(user.username, socketId);
-        if (stale) {
-            const takeover = this.takeOverLobbySeat(socketId, stale.lobby.id);
-            return {
-                success: true,
-                lobbyCreated: false,
-                joinedExisting: true,
-                lobby: takeover.lobby,
-                players: takeover.lobby.players.map(p => p.socketId),
-                replacedSocketId: takeover.replacedSocketId
-            };
-        }
-
-        // Find an existing open lobby (less than 4 players)
-        let openLobby = null;
-        for (const [lobbyId, lobby] of this.lobbies) {
-            if (lobby.players.length < 4) {
-                openLobby = lobby;
-                break;
-            }
-        }
-
-        if (openLobby) {
-            // Join existing lobby
-            const result = this.addPlayerToLobby(socketId, openLobby.id);
-            return {
-                success: true,
-                lobbyCreated: false,
-                joinedExisting: true,
-                lobby: openLobby,
-                players: openLobby.players.map(p => p.socketId)
-            };
-        } else {
-            // Create new lobby with just this player
-            const lobby = this.createLobby([socketId]);
-            return {
-                success: true,
-                lobbyCreated: true,
-                lobby,
-                players: [socketId]
-            };
-        }
-    }
-
-    /**
-     * Add a player to an existing lobby
-     */
-    addPlayerToLobby(socketId, lobbyId) {
-        const lobby = this.lobbies.get(lobbyId);
-        if (!lobby) return { success: false, error: 'Lobby not found' };
-        if (lobby.players.length >= 4) return { success: false, error: 'Lobby is full' };
-
-        const user = this.getUserBySocketId(socketId);
-        const newPlayer = {
-            socketId,
-            username: user?.username || 'Unknown',
-            ready: false
-        };
-
-        lobby.players.push(newPlayer);
-        this.playerLobbies.set(socketId, lobbyId);
-
-        return { success: true, lobby, newPlayer };
-    }
-
-    /**
-     * Remove player from queue
-     */
-    leaveQueue(socketId) {
-        const index = this.queue.indexOf(socketId);
-        if (index !== -1) {
-            this.queue.splice(index, 1);
-            this.queuedUsers = this.queuedUsers.filter(u => u.socketId !== socketId);
-            return { success: true, queuedUsers: this.queuedUsers };
-        }
-        return { success: false };
     }
 
     // ==================== MAIN ROOM METHODS ====================
@@ -406,6 +313,15 @@ class GameManager {
      */
     joinSpecificLobby(socketId, lobbyId) {
         if (this._mergeLockedUser(socketId)) return { success: false, error: MERGE_LOCKED };
+        // Already seated in THIS lobby (a socket that took its held seat
+        // back in place, sessionIdentity.clearSuperseded, then re-sends the
+        // join as clients do after a restore): the lobby again, no change
+        const seatedIn = this.playerLobbies.get(socketId);
+        if (seatedIn != null && seatedIn === lobbyId) {
+            const lobby = this.lobbies.get(lobbyId);
+            const seat = lobby?.players.find(p => !p.isBot && p.socketId === socketId);
+            if (seat) return { success: true, lobby, newPlayer: seat, alreadySeated: true };
+        }
         // Check if already in a lobby
         if (this.playerLobbies.has(socketId)) {
             return { success: false, error: 'Already in a lobby' };
@@ -495,6 +411,7 @@ class GameManager {
         if (!seat) return { success: false, error: 'Seat not found' };
 
         const replacedSocketId = seat.socketId;
+        this._clearLobbyGrace(replacedSocketId);
         lobby.readyPlayers.delete(replacedSocketId);
         if (this.playerLobbies.get(replacedSocketId) === lobbyId) {
             this.playerLobbies.delete(replacedSocketId);
@@ -524,10 +441,115 @@ class GameManager {
         return { oldSocketId, leaveResult: this.leaveLobby(oldSocketId) };
     }
 
+    /**
+     * The socket holding a human lobby seat dropped (a reload, a network
+     * drop) or was replaced by a newer socket of the same player: the seat
+     * stays for LOBBY_SEAT_GRACE_MS (`reconnectingIn` lists it: the lobby's
+     * playerReadyUpdate / lobbyCreated carry the names, additive). Its ready flag resets (the others keep theirs, as
+     * on a takeover) and the socket loses its mapping, so it can no longer
+     * act on the seat. A re-entry from the player's next socket
+     * (findStaleLobbySeat -> takeOverLobbySeat) takes it back in place;
+     * otherwise it is removed exactly as a leave (expireLobbySeat) and
+     * `onExpire(result)` lets the socket layer tell the others.
+     * @returns {{lobby, player}|null} null when the socket holds no human seat
+     */
+    suspendLobbySeat(socketId, onExpire = null) {
+        const lobbyId = this.playerLobbies.get(socketId);
+        const lobby = lobbyId ? this.lobbies.get(lobbyId) : null;
+        const player = lobby?.players.find(p => !p.isBot && p.socketId === socketId);
+        if (!player) return null;
+        player.ready = false;
+        lobby.readyPlayers.delete(socketId);
+        this.playerLobbies.delete(socketId);
+        this._clearLobbyGrace(socketId);
+        const timer = setTimeout(() => {
+            const result = this.expireLobbySeat(lobbyId, socketId);
+            this.lobbyGrace.delete(socketId);
+            if (result && onExpire) onExpire(result);
+        }, GameManager.LOBBY_SEAT_GRACE_MS);
+        timer.unref?.();
+        this.lobbyGrace.set(socketId, { lobbyId, username: player.username, timer });
+        return { lobby, player };
+    }
+
+    /**
+     * The grace of a suspended seat ran out: the seat leaves as with
+     * leaveLobby (ready flags reset, a lobby with no human left is deleted).
+     * @returns {{lobbyId, oldSocketId, username, leaveResult}|null}
+     */
+    expireLobbySeat(lobbyId, socketId) {
+        const lobby = this.lobbies.get(lobbyId);
+        const player = this.lobbyGrace.get(socketId)?.lobbyId === lobbyId
+            ? lobby?.players.find(p => p.socketId === socketId) : null;
+        if (!player) return null;
+        this.playerLobbies.set(socketId, lobbyId);
+        return { lobbyId, oldSocketId: socketId, username: player.username, leaveResult: this.leaveLobby(socketId) };
+    }
+
+    /**
+     * The socket whose seat is held is live again as the same player (a
+     * parked socket took the session back: sessionIdentity.clearSuperseded).
+     * The re-entry machinery only moves a seat between DIFFERENT sockets
+     * (findStaleLobbySeat skips this one), so the seat comes back in place:
+     * mapping restored, grace over. Without this a later join pushed a
+     * second seat for the same socket, and the grace expiry removed both.
+     * @returns {{lobby, player}|null}
+     */
+    resumeHeldLobbySeat(socketId, username) {
+        const held = this.lobbyGrace.get(socketId);
+        if (!held || held.username !== username) return null;
+        const lobby = this.lobbies.get(held.lobbyId);
+        const player = lobby?.players.find(p => !p.isBot && p.socketId === socketId);
+        if (!player || this.playerLobbies.has(socketId)) return null;
+        this._clearLobbyGrace(socketId);
+        this.playerLobbies.set(socketId, held.lobbyId);
+        this.leaveMainRoom(socketId);
+        return { lobby, player };
+    }
+
+    /**
+     * Give up at once the seat held for this socket (it switches accounts:
+     * sessionIdentity.releaseIdentity), as expireLobbySeat would after the
+     * grace, timer cancelled.
+     * @returns {{lobbyId, oldSocketId, username, leaveResult}|null}
+     */
+    releaseHeldLobbySeat(socketId) {
+        const held = this.lobbyGrace.get(socketId);
+        if (!held) return null;
+        const result = this.expireLobbySeat(held.lobbyId, socketId);
+        this._clearLobbyGrace(socketId);
+        return result;
+    }
+
+    /** Usernames whose seat in `lobbyId` is held for its grace, in seat order. */
+    reconnectingIn(lobbyId) {
+        const lobby = this.lobbies.get(lobbyId);
+        if (!lobby || this.lobbyGrace.size === 0) return [];
+        return lobby.players
+            .filter(p => this.lobbyGrace.get(p.socketId)?.lobbyId === lobbyId)
+            .map(p => p.username);
+    }
+
+    /** `{reconnecting: [...]}` for a lobby event while a seat is held, else {} (the wire as before). */
+    reconnectingField(lobbyId) {
+        const names = this.reconnectingIn(lobbyId);
+        return names.length ? { reconnecting: names } : {};
+    }
+
+    _clearLobbyGrace(socketId) {
+        const held = this.lobbyGrace.get(socketId);
+        if (!held) return;
+        clearTimeout(held.timer);
+        this.lobbyGrace.delete(socketId);
+    }
+
     // ==================== LOBBY METHODS ====================
 
     /**
-     * Create a new lobby with 4 players
+     * Create an unnamed lobby holding `playerSocketIds` (no checks). Tests
+     * and harnesses build lobbies with it; players open one with
+     * createNamedLobby (the matchmaking queue that also used it is gone:
+     * V1_REMOVALS #2).
      */
     createLobby(playerSocketIds) {
         const lobbyId = uuidv4();
@@ -554,11 +576,6 @@ class GameManager {
         playerSocketIds.forEach(socketId => {
             this.playerLobbies.set(socketId, lobbyId);
         });
-
-        // Clear queued users who are now in lobby
-        this.queuedUsers = this.queuedUsers.filter(
-            u => !playerSocketIds.includes(u.socketId)
-        );
 
         return lobby;
     }
@@ -655,6 +672,7 @@ class GameManager {
         lobby.players = lobby.players.filter(p => p.socketId !== socketId);
         lobby.readyPlayers.delete(socketId);
         this.playerLobbies.delete(socketId);
+        this._clearLobbyGrace(socketId);
 
         // If lobby is now empty, or only bots remain, delete it
         const onlyBotsRemain = lobby.players.length > 0 &&
@@ -686,33 +704,6 @@ class GameManager {
             playerLeft: socketId,
             needsMorePlayers: lobby.players.length < 4
         };
-    }
-
-    /**
-     * Try to fill an empty lobby slot from the queue
-     */
-    fillLobbyFromQueue(lobbyId) {
-        const lobby = this.lobbies.get(lobbyId);
-        if (!lobby || lobby.players.length >= 4) return null;
-
-        // Get next player from queue
-        if (this.queue.length === 0) return null;
-
-        const socketId = this.queue.shift();
-        const user = this.getUserBySocketId(socketId);
-
-        // Remove from queuedUsers
-        this.queuedUsers = this.queuedUsers.filter(u => u.socketId !== socketId);
-
-        // Add to lobby
-        lobby.players.push({
-            socketId,
-            username: user?.username || 'Unknown',
-            ready: false
-        });
-        this.playerLobbies.set(socketId, lobbyId);
-
-        return { socketId, username: user?.username };
     }
 
     /**
@@ -773,10 +764,14 @@ class GameManager {
             return { success: false, error: 'Lobby is full' };
         }
 
-        // Pick a random personality not already in this lobby
+        // Pick a random personality not already in this lobby. It stays
+        // server-side (lobby.botPersonalities, by bot socket id): the lobby
+        // shows "🤖 Bot" and lobby payloads never carry it (V1_REMOVALS #16)
+        if (!lobby.botPersonalities) lobby.botPersonalities = new Map();
         const usedPersonalities = lobby.players
-            .filter(p => p.isBot && p.personality)
-            .map(p => p.personality);
+            .filter(p => p.isBot)
+            .map(p => lobby.botPersonalities.get(p.socketId))
+            .filter(Boolean);
         const available = PERSONALITY_LIST.filter(p => !usedPersonalities.includes(p));
         const personality = available[Math.floor(Math.random() * available.length)];
 
@@ -788,19 +783,25 @@ class GameManager {
         // Create bot with generic lobby name
         const bot = botController.createBot(lobbyName, personality);
 
-        // Add bot to lobby as a player (personality stored for name reveal at game start)
+        // Add bot to lobby as a player (personality kept for the name
+        // reveal at game start: lobbyBotPersonality)
         const botPlayer = {
             socketId: bot.socketId,
             username: bot.username,
             ready: false,
-            isBot: true,
-            personality
+            isBot: true
         };
+        lobby.botPersonalities.set(bot.socketId, personality);
 
         lobby.players.push(botPlayer);
         // Don't add to playerLobbies since bots don't have real sockets
 
         return { success: true, botPlayer, lobby, bot };
+    }
+
+    /** The personality of a lobby bot (server-side only; 'mary' if unknown). */
+    lobbyBotPersonality(lobby, botSocketId) {
+        return lobby?.botPersonalities?.get(botSocketId) || 'mary';
     }
 
     /**
@@ -815,7 +816,8 @@ class GameManager {
             return { success: false, error: 'Lobby not found' };
         }
 
-        const botIndex = lobby.players.findIndex(p => p.socketId === botSocketId);
+        // Bots only: a lobby payload lists every member's socket id
+        const botIndex = lobby.players.findIndex(p => p.socketId === botSocketId && p.isBot);
         if (botIndex === -1) {
             return { success: false, error: 'Bot not found in lobby' };
         }
@@ -823,6 +825,7 @@ class GameManager {
         // Remove bot
         lobby.players.splice(botIndex, 1);
         lobby.readyPlayers.delete(botSocketId);
+        lobby.botPersonalities?.delete(botSocketId);
 
         // Reset all ready states when someone leaves
         lobby.readyPlayers.clear();
@@ -874,11 +877,6 @@ class GameManager {
         }));
 
         this.games.set(gameId, game);
-
-        // Clear queued users who are now in game
-        this.queuedUsers = this.queuedUsers.filter(
-            u => !playerSocketIds.includes(u.socketId)
-        );
 
         return game;
     }
@@ -969,13 +967,15 @@ class GameManager {
      * (queueHandlers.handleDisconnect) routes an in-game socket to its
      * entrant / seat-owner transition.
      */
-    handleDisconnect(socketId) {
+    handleDisconnect(socketId, { lobbyGrace = false, onLobbyGraceExpire = null } = {}) {
         // Remove from main room (if in main room)
         const wasInMainRoom = this.mainRoomSocketIds.has(socketId);
         this.leaveMainRoom(socketId);
 
-        // Remove from lobby (if in lobby, not in game)
-        const lobbyResult = this.leaveLobby(socketId);
+        // A lobby seat: held for its grace (a transport disconnect), else
+        // left at once (a sign-out, an account switch)
+        const lobbySuspended = lobbyGrace ? this.suspendLobbySeat(socketId, onLobbyGraceExpire) : null;
+        const lobbyResult = lobbySuspended ? { success: false } : this.leaveLobby(socketId);
         const wasInLobby = lobbyResult.success;
 
         // A pure spectator watches at most one game
@@ -1002,6 +1002,7 @@ class GameManager {
                 wasInGame: true,
                 wasInTournament,
                 tournamentResult,
+                lobbySuspended,
                 game: this.games.get(gameId) || null,
                 gameId,
                 spectatorGame,
@@ -1025,6 +1026,7 @@ class GameManager {
             wasInLobby, wasInMainRoom, wasInGame: false,
             wasInTournament, tournamentResult,
             lobby: lobbyResult.lobby,
+            lobbySuspended,
             spectatorGame
         };
     }
@@ -1142,16 +1144,6 @@ class GameManager {
         return games;
     }
 
-    /**
-     * Get queue status
-     */
-    getQueueStatus() {
-        return {
-            size: this.queue.length,
-            queuedUsers: this.queuedUsers
-        };
-    }
-
     // ==================== ACTIVE GAME TRACKING ====================
 
     /**
@@ -1240,6 +1232,10 @@ class GameManager {
         if (this.playerTournaments.has(socketId)) {
             return { success: false, error: 'Already in a tournament' };
         }
+        // One tournament per user: a membership an older socket of theirs
+        // still holds (half-open reconnect, a parked tab)
+        const stale = this.giveUpStaleTournament(user.username, socketId);
+        if (stale.refused) return { success: false, error: 'Already in a tournament' };
 
         const tournamentId = uuidv4();
         const tournament = new TournamentState(tournamentId, name, socketId, user.username);
@@ -1251,7 +1247,7 @@ class GameManager {
         // Leave main room
         this.leaveMainRoom(socketId);
 
-        return { success: true, tournament };
+        return { success: true, tournament, evicted: stale.evicted };
     }
 
     /**
@@ -1293,6 +1289,9 @@ class GameManager {
         if (tournament.phase !== 'lobby') {
             return { success: false, error: 'Tournament is not accepting players' };
         }
+        // One tournament per user (another one an older socket still holds)
+        const stale = this.giveUpStaleTournament(user.username, socketId);
+        if (stale.refused) return { success: false, error: 'Already in a tournament' };
 
         tournament.addPlayer(socketId, user.username, null);
         this.playerTournaments.set(socketId, tournamentId);
@@ -1300,7 +1299,43 @@ class GameManager {
         // Leave main room
         this.leaveMainRoom(socketId);
 
-        return { success: true, tournament };
+        return { success: true, tournament, evicted: stale.evicted };
+    }
+
+    /**
+     * A live tournament `username` belongs to from a socket other than
+     * `socketId` (the same tournament reattaches by username in
+     * joinTournament; this is for creating or joining ANOTHER one).
+     * @returns {{tournament, oldSocketId}|null}
+     */
+    findStaleTournamentMembership(username, socketId) {
+        if (!username) return null;
+        for (const tournament of this.tournaments.values()) {
+            if (tournament.phase === 'complete') continue;
+            for (const [sid, player] of tournament.players) {
+                if (player.username === username && sid !== socketId) return { tournament, oldSocketId: sid };
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Before `socketId` creates or joins another tournament: a membership
+     * the user holds from an older socket is given up as a leave while that
+     * tournament is still in its lobby (as a lobby seat is,
+     * evictStaleLobbySeat); once it has begun, the new one is refused (the
+     * player belongs at that table: sign-in and restore route them back).
+     * @returns {{refused: boolean, evicted: ({oldSocketId, tournament, leaveResult}|null)}}
+     */
+    giveUpStaleTournament(username, socketId) {
+        const stale = this.findStaleTournamentMembership(username, socketId);
+        if (!stale) return { refused: false, evicted: null };
+        if (stale.tournament.phase !== 'lobby') return { refused: true, evicted: null };
+        this.playerTournaments.set(stale.oldSocketId, stale.tournament.tournamentId);
+        return {
+            refused: false,
+            evicted: { oldSocketId: stale.oldSocketId, tournament: stale.tournament, leaveResult: this.leaveTournament(stale.oldSocketId) },
+        };
     }
 
     /**

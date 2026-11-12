@@ -11,7 +11,12 @@
  *     form over a player's profile): only the top one takes keys and keeps
  *     focus, so Escape closes the picker, not the profile under it;
  *   - `closable` puts a labelled close button next to the title (the
- *     screens' pages: profile, leaderboard, records, player search).
+ *     screens' pages: profile, leaderboard, records, player search);
+ *   - `pinned` keeps a modal on top while it is open (the "open in another
+ *     tab" notice): a modal opened meanwhile goes in under it, inert, with
+ *     no focus or keys, and becomes live (focused) once the pinned one
+ *     closes. Otherwise a dialog the player cannot see would take focus
+ *     and the Tab trap from behind the opaque notice.
  */
 import { el } from './elements.js';
 
@@ -31,11 +36,25 @@ export function focusables(root) {
   return [...root.querySelectorAll(FOCUSABLE)].filter((n) => !n.hidden && !n.closest('[hidden]') && !n.closest('[inert]'));
 }
 
+/** Index of the lowest pinned modal, or -1. */
+const pinnedAt = () => stack.findIndex((e) => e.pinned);
+
 /** A modal whose backdrop was removed from the page by hand is closed (no focus restore). */
 function prune() {
+  let unpinned = false;
   for (let i = stack.length - 1; i >= 0; i--) {
-    if (!stack[i].backdrop.isConnected) stack[i].release();
+    if (!stack[i].backdrop.isConnected) {
+      unpinned = unpinned || stack[i].pinned;
+      stack[i].release();
+    }
   }
+  if (unpinned) unpin();
+}
+
+/** No pinned modal is left: the ones under it are live again. */
+function unpin() {
+  if (pinnedAt() !== -1) return;
+  for (const e of stack) e.backdrop.removeAttribute('inert');
 }
 
 /**
@@ -47,20 +66,27 @@ function prune() {
  *   (a function is asked at each key / click: a dialog busy with a request says no)
  * @param {boolean} [o.closable=false] - a close button beside the title (reason 'button')
  * @param {string} [o.closeLabel='Close'] - its accessible name
- * @param {HTMLElement} [o.initialFocus]
+ * @param {HTMLElement|'dialog'} [o.initialFocus] - 'dialog': the dialog itself, not a control
  * @param {Function} [o.onClose] - (reason: 'escape'|'backdrop'|'button'|'action'|'api')
  * @param {string} [o.id] - the backdrop's id
  * @param {string} [o.dialogId] - the dialog's id
  * @param {string} [o.className] - extra classes on the dialog
  * @param {HTMLElement} [o.parent=document.body]
+ * @param {boolean} [o.pinned=false] - stays the top modal while open (see the header)
  * @returns {{backdrop: HTMLElement, dialog: HTMLElement, close: Function, isOpen: Function}}
  */
 export function openModal({
   title = '', body = null, actions = [], dismissible = true, closable = false, closeLabel = 'Close',
   initialFocus = null, onClose = null, id = null, dialogId = null, className = '', parent = null,
+  pinned = false,
 } = {}) {
   prune();
-  const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  // Under a pinned modal: in below it, inert, focus left where it is; its
+  // focus restore goes to what had focus before the pinned one
+  const under = pinned ? -1 : pinnedAt();
+  const previous = under !== -1
+    ? stack[under].previous
+    : document.activeElement instanceof HTMLElement ? document.activeElement : null;
   const titleId = `kit-modal-title-${++ids}`;
 
   const dialog = el('div', {
@@ -87,7 +113,7 @@ export function openModal({
 
   const canDismiss = () => (typeof dismissible === 'function' ? dismissible() === true : Boolean(dismissible));
   let open = true;
-  const entry = { backdrop, release: null };
+  const entry = { backdrop, release: null, pinned, previous, focusIn: null };
   const isTop = () => stack[stack.length - 1] === entry;
 
   // Take it off the stack and drop the key listener (no focus move)
@@ -101,9 +127,18 @@ export function openModal({
   };
 
   const close = (reason = 'api') => {
+    const coveredByPin = pinnedAt() > stack.indexOf(entry);
     if (!entry.release()) return;
     backdrop.remove();
-    if (previous && previous.isConnected && typeof previous.focus === 'function') previous.focus();
+    if (coveredByPin) {
+      // closed under a pinned modal: focus stays on the pinned one
+    } else if (pinned && pinnedAt() === -1 && stack.length) {
+      // the modals under it are live now: the top one takes focus
+      unpin();
+      stack[stack.length - 1].focusIn();
+    } else if (previous && previous.isConnected && typeof previous.focus === 'function') {
+      previous.focus();
+    }
     onClose?.(reason);
   };
 
@@ -148,10 +183,21 @@ export function openModal({
   });
 
   (parent || document.body).appendChild(backdrop);
-  stack.push(entry);
   document.addEventListener('keydown', onKey, true);
-  const target = initialFocus || focusables(dialog).find((n) => n !== closeBtn) || closeBtn || dialog;
-  target.focus();
+  entry.focusIn = () => {
+    const target = initialFocus === 'dialog' ? dialog
+      : initialFocus || focusables(dialog).find((n) => n !== closeBtn) || closeBtn || dialog;
+    target.focus();
+  };
+  if (under !== -1) {
+    stack.splice(under, 0, entry);
+    backdrop.setAttribute('inert', '');
+  } else {
+    // a pinned modal makes the ones already open inert until it closes
+    if (pinned) for (const e of stack) e.backdrop.setAttribute('inert', '');
+    stack.push(entry);
+    entry.focusIn();
+  }
 
   return { backdrop, dialog, close, isOpen: () => open };
 }

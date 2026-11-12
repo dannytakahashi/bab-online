@@ -7,23 +7,38 @@
 const { validate, ValidationError } = require('./validators');
 const rateLimiter = require('./rateLimiter');
 const { socketLogger } = require('../utils/logger');
+const { emitError } = require('./serverError');
+
+/**
+ * The c2s event an error of this wrapper answers (error.handler and
+ * serverError.handler, the same on every path: rate limit, validation,
+ * exception): options.event, else the schema name, else the handler's
+ * function name (safeHandler, no schema), else 'unknown'.
+ */
+function eventOf(schemaName, handler, options) {
+    return options.event || schemaName || (handler && handler.name) || 'unknown';
+}
 
 /**
  * Wrap an async socket handler with rate limiting, validation, and error handling
  * @param {string} schemaName - Name of validation schema (or null to skip validation)
  * @param {Function} handler - Async handler function (socket, io, data) => Promise
- * @param {Object} options - Options { rateLimit: boolean }
+ * @param {Object} options - { rateLimit = true, event }: event is the c2s
+ *   event name reported as the error's handler, when it is not schemaName
+ *   (the chat events share the chatMessage schema and rate-limit key)
  * @returns {Function} - Wrapped handler
  */
-function asyncHandler(schemaName, handler, options = { rateLimit: true }) {
+function asyncHandler(schemaName, handler, options = {}) {
+    const { rateLimit = true } = options;
+    const event = eventOf(schemaName, handler, options);
     return async (socket, io, data) => {
         try {
             // Check rate limit first
-            if (options.rateLimit && schemaName && !rateLimiter.check(socket.id, schemaName)) {
-                socket.emit('error', {
+            if (rateLimit && schemaName && !rateLimiter.check(socket.id, schemaName)) {
+                emitError(socket, {
                     type: 'rateLimit',
                     message: 'Too many requests, please slow down',
-                    handler: schemaName
+                    handler: event
                 });
                 return;
             }
@@ -38,7 +53,7 @@ function asyncHandler(schemaName, handler, options = { rateLimit: true }) {
             await handler(socket, io, validatedData);
 
         } catch (error) {
-            handleError(socket, handler.name || schemaName || 'unknown', error);
+            handleError(socket, event, error);
         }
     };
 }
@@ -47,18 +62,22 @@ function asyncHandler(schemaName, handler, options = { rateLimit: true }) {
  * Wrap a sync socket handler with rate limiting, validation, and error handling
  * @param {string} schemaName - Name of validation schema (or null to skip validation)
  * @param {Function} handler - Sync handler function (socket, io, data) => void
- * @param {Object} options - Options { rateLimit: boolean }
+ * @param {Object} options - { rateLimit = true, event }: event is the c2s
+ *   event name reported as the error's handler, when it is not schemaName
+ *   (the chat events share the chatMessage schema and rate-limit key)
  * @returns {Function} - Wrapped handler
  */
-function syncHandler(schemaName, handler, options = { rateLimit: true }) {
+function syncHandler(schemaName, handler, options = {}) {
+    const { rateLimit = true } = options;
+    const event = eventOf(schemaName, handler, options);
     return (socket, io, data) => {
         try {
             // Check rate limit first
-            if (options.rateLimit && schemaName && !rateLimiter.check(socket.id, schemaName)) {
-                socket.emit('error', {
+            if (rateLimit && schemaName && !rateLimiter.check(socket.id, schemaName)) {
+                emitError(socket, {
                     type: 'rateLimit',
                     message: 'Too many requests, please slow down',
-                    handler: schemaName
+                    handler: event
                 });
                 return;
             }
@@ -73,7 +92,7 @@ function syncHandler(schemaName, handler, options = { rateLimit: true }) {
             handler(socket, io, validatedData);
 
         } catch (error) {
-            handleError(socket, handler.name || schemaName || 'unknown', error);
+            handleError(socket, event, error);
         }
     };
 }
@@ -96,7 +115,7 @@ function handleError(socket, handlerName, error) {
     if (error.isValidation || error.isOperational) {
         // Expected errors - log as warning
         socketLogger.warn(error.message, errorContext);
-        socket.emit('error', {
+        emitError(socket, {
             type: error.code || 'validation',
             message: error.message,
             handler: handlerName
@@ -108,7 +127,7 @@ function handleError(socket, handlerName, error) {
             stack: error.stack
         });
         // Don't expose internal error details to client
-        socket.emit('error', {
+        emitError(socket, {
             type: 'server',
             message: 'An error occurred processing your request',
             handler: handlerName

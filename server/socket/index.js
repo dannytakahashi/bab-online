@@ -17,6 +17,7 @@ const safetyHandlers = require('./safetyHandlers');
 const snapshotHandlers = require('./snapshotHandlers');
 const adminHandlers = require('./adminHandlers');
 const clientInfo = require('./clientInfo');
+const sessionIdentity = require('./sessionIdentity');
 const upgradeGate = require('./upgradeGate');
 const { asyncHandler, syncHandler, safeHandler, rateLimiter } = require('./errorHandler');
 const { socketLogger } = require('../utils/logger');
@@ -36,10 +37,15 @@ function setupSocketHandlers(io) {
         // kill switch UPGRADE_GATE=off). Also records socket.data.appBuild
         if (upgradeGate.gate(socket)) return;
 
+        // A connection a newer one of the same session replaced (another
+        // tab): its events are refused with sessionSuperseded until it
+        // takes the session back (sessionIdentity.supersededGate)
+        socket.use?.(sessionIdentity.supersededGate(socket)); // (stub sockets in tests have no use)
+
         // Client capabilities (avatarUrl): socket.data.client, no reply.
         // Rate limited inside the handler (silently dropped over the limit)
         socket.on('clientHello', (data) =>
-            syncHandler('clientHello', clientInfo.handle, { rateLimit: false })(socket, io, data)
+            syncHandler('clientHello', clientInfo.handle, { rateLimit: false, event: 'clientHello' })(socket, io, data)
         );
 
         // Auth events - with validation
@@ -56,29 +62,18 @@ function setupSocketHandlers(io) {
             asyncHandler('deleteAccount', authHandlers.deleteAccount)(socket, io, data)
         );
 
-        // Queue events - no data to validate
-        socket.on('joinQueue', () =>
-            safeHandler(queueHandlers.joinQueue)(socket, io, {})
-        );
-        socket.on('leaveQueue', () =>
-            safeHandler(queueHandlers.leaveQueue)(socket, io, {})
-        );
-
         // Main room events
         socket.on('joinMainRoom', () =>
             safeHandler(mainRoomHandlers.joinMainRoom)(socket, io, {})
         );
         socket.on('mainRoomChat', (data) =>
-            syncHandler('chatMessage', mainRoomHandlers.mainRoomChat)(socket, io, data)
+            syncHandler('chatMessage', mainRoomHandlers.mainRoomChat, { event: 'mainRoomChat' })(socket, io, data)
         );
         socket.on('createLobby', (data) =>
             asyncHandler('createLobby', mainRoomHandlers.createLobby)(socket, io, data || {})
         );
         socket.on('joinLobby', (data) =>
-            safeHandler(mainRoomHandlers.joinLobby)(socket, io, data)
-        );
-        socket.on('getLobbies', () =>
-            safeHandler(mainRoomHandlers.getLobbies)(socket, io, {})
+            syncHandler('joinLobby', mainRoomHandlers.joinLobby)(socket, io, data)
         );
         socket.on('joinAsSpectator', (data) =>
             asyncHandler('joinAsSpectator', mainRoomHandlers.joinAsSpectator)(socket, io, data)
@@ -92,7 +87,7 @@ function setupSocketHandlers(io) {
             safeHandler(lobbyHandlers.playerUnready)(socket, io, {})
         );
         socket.on('lobbyChat', (data) =>
-            syncHandler('chatMessage', lobbyHandlers.lobbyChat)(socket, io, data)
+            syncHandler('chatMessage', lobbyHandlers.lobbyChat, { event: 'lobbyChat' })(socket, io, data)
         );
         socket.on('leaveLobby', () =>
             safeHandler(lobbyHandlers.leaveLobby)(socket, io, {})
@@ -101,7 +96,7 @@ function setupSocketHandlers(io) {
             safeHandler(lobbyHandlers.addBot)(socket, io, {})
         );
         socket.on('removeBot', (data) =>
-            safeHandler(lobbyHandlers.removeBot)(socket, io, data)
+            syncHandler('removeBot', lobbyHandlers.removeBot)(socket, io, data)
         );
 
         // Game events - with validation
@@ -179,7 +174,7 @@ function setupSocketHandlers(io) {
             asyncHandler('beginNextRound', tournamentHandlers.beginNextRound)(socket, io, {})
         );
         socket.on('tournamentChat', (data) =>
-            syncHandler('chatMessage', tournamentHandlers.tournamentChat)(socket, io, data)
+            syncHandler('chatMessage', tournamentHandlers.tournamentChat, { event: 'tournamentChat' })(socket, io, data)
         );
         socket.on('spectateTournament', (data) =>
             asyncHandler('spectateTournament', tournamentHandlers.spectateTournament)(socket, io, data)
@@ -211,7 +206,8 @@ function setupSocketHandlers(io) {
             asyncHandler('adminRequest', adminHandlers.adminRequest)(socket, io, data)
         );
 
-        // Voice chat signaling relay
+        // Voice chat signaling relay (Joi, rate limit and peer checks run
+        // inside voiceHandlers: a refused signal is dropped silently)
         socket.on('voiceOffer', (data) =>
             safeHandler(voiceHandlers.voiceOffer)(socket, io, data)
         );
@@ -235,7 +231,7 @@ function setupSocketHandlers(io) {
                 // Clear rate limit data for this socket
                 rateLimiter.clearSocket(socket.id);
 
-                // Handle game/queue disconnect (async: a rejection must not
+                // Handle game/lobby disconnect (async: a rejection must not
                 // become an unhandledRejection)
                 queueHandlers.handleDisconnect(socket, io).catch(error =>
                     socketLogger.error('Error in disconnect handler', {

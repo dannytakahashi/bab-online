@@ -93,6 +93,9 @@ struct ReducerReplay {
         switch e.event {
         case "voicePeerJoined", "voicePeerList":
             return
+        case "serverError":
+            // SocketService handles it (toast, deduped against the 'error' twin, V1_REMOVALS #1 phase A); the table store never sees it
+            return
         case "tournamentGameAssignment":
             let d = e.data as? [String: Any]
             if let gid = d?["gameId"] as? String {

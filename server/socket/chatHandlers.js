@@ -16,6 +16,7 @@ const gameManager = require('../game/GameManager');
 const { socketLogger } = require('../utils/logger');
 const { Controller, Presence } = require('../game/SeatState');
 const seatLifecycle = require('./seatLifecycle');
+const { errorOf, serverErrorOf } = require('./serverError');
 
 /** @returns {{game, role, pos}|null} */
 function resolveSender(socketId) {
@@ -33,7 +34,11 @@ function resolveSender(socketId) {
 }
 
 function sendError(io, game, socket, message) {
-    game.sendToPlayer(io, socket.id, 'error', { message });
+    // error and its serverError twin, the same handler on both
+    // (server/socket/serverError.js)
+    const payload = errorOf({ message }, 'chatMessage');
+    game.sendToPlayer(io, socket.id, 'error', payload);
+    game.sendToPlayer(io, socket.id, 'serverError', serverErrorOf(payload));
 }
 
 /** Slash commands from a seat owner. */
@@ -80,8 +85,9 @@ function spectatorCommand(socket, io, game, message) {
     const command = message.trim().toLowerCase();
     if (command === '/leave') {
         gameManager.leaveSpectating(io, socket.id);
+        // leftGame only: both clients go back to the main room on it (the
+        // s2c joinMainRoom no client listened to is gone: V1_REMOVALS #4)
         socket.emit('leftGame');
-        socket.emit('joinMainRoom');
         return;
     }
     if (command !== '/active') return;
@@ -198,15 +204,14 @@ function chatMessage(socket, io, data) {
     // Add to game log for reconnection persistence
     game.addLogEntry(`${username}: ${cleanMessage}`, position, 'chat');
 
-    // Broadcast to players in the same game only. `type` is additive: the
-    // shipped iOS app labels a message as spectator chat only from
-    // type == 'spectator' (web reads isSpectator)
+    // Broadcast to players in the same game only. Both clients label
+    // spectator chat from isSpectator (the `type` copy only iOS 1.0.0 read
+    // is gone: V1_REMOVALS #12)
     game.broadcast(io, 'chatMessage', {
         position,
         message: cleanMessage,
         username,
-        isSpectator,
-        type: isSpectator ? 'spectator' : 'player'
+        isSpectator
     });
 }
 

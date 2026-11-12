@@ -68,6 +68,7 @@ export function clearAllSessionData() {
     sessionStorage.removeItem('sessionToken');
     sessionStorage.removeItem('gameId');
     sessionStorage.removeItem('spectatingGameId');
+    sessionStorage.removeItem('lobbyId');
   } catch {
     // ignore
   }

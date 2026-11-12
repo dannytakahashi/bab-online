@@ -13,6 +13,7 @@ const { getUsersCollection } = require('../database');
 const { verifySession } = require('../utils/sessionTokens');
 const { rememberBlockList } = require('./voiceHandlers');
 const { claimSocket, releaseClaim } = require('./authHandlers');
+const { releaseIdentity } = require('./sessionIdentity');
 
 /**
  * A rejoin binds this socket to `username` and hands it that seat's hand, so
@@ -21,7 +22,7 @@ const { claimSocket, releaseClaim } = require('./authHandlers');
  * (the web client rejoins straight after a reload or reconnect, before any
  * restoreSession round trip).
  */
-async function isAuthorizedForUser(socket, username, sessionToken) {
+async function isAuthorizedForUser(io, socket, username, sessionToken) {
     // A name a panel merge is retiring right now cannot come back in
     // (adminHandlers applyMerge signs its sockets out first)
     if (gameManager.isMergeLocked?.(username)) return false;
@@ -46,6 +47,8 @@ async function isAuthorizedForUser(socket, username, sessionToken) {
         // migrates a legacy plaintext sessionToken
         const session = verifySession(user, sessionToken);
         if (!session) return false;
+        // Signed in as another account until now: that identity goes first
+        await releaseIdentity(io, socket, username);
         // Claimed before the write (authHandlers.claimSocket): a revoke
         // landing while it is in flight signs this socket out (signOutUser
         // finds it by the claim), and rejoinGame then sees it disconnected
@@ -92,7 +95,7 @@ async function rejoinGame(socket, io, data) {
 
     socketLogger.debug('Rejoin attempt', { username, gameId });
 
-    if (!(await isAuthorizedForUser(socket, username, sessionToken))) {
+    if (!(await isAuthorizedForUser(io, socket, username, sessionToken))) {
         socketLogger.warn('Rejoin refused: not authenticated as user', { username, gameId, socketId: socket.id });
         socket.emit('rejoinFailed', { reason: 'Not authenticated' });
         return;
@@ -132,10 +135,9 @@ async function rejoinGame(socket, io, data) {
     const refuse = () => {
         const playersInGame = Array.from(game.players.values()).map(p => p.username);
         socketLogger.debug('Rejoin failed: player not in game', { username, playersInGame });
-        socket.emit('rejoinFailed', {
-            reason: 'Not a player in this game',
-            debug: { lookingFor: username, playersInGame }
-        });
+        // The names stay in the server log: rejoinFailed.debug told them
+        // to whoever asked (V1_REMOVALS #15)
+        socket.emit('rejoinFailed', { reason: 'Not a player in this game' });
     };
 
     // Before seats exist there is nothing to rejoin into yet

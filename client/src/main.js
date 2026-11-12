@@ -28,6 +28,7 @@ import { getClientSession, SCREEN, ROLE, EXIT } from './state/ClientSession.js';
 import { getSocketManager, initializeSocketManager } from './socket/SocketManager.js';
 import { createSocket } from './socket/createSocket.js';
 import { installConnectionBanner } from './ui/components/ConnectionBanner.js';
+import { showSupersededNotice, hideSupersededNotice, isSupersededNoticeShown } from './ui/components/SupersededNotice.js';
 import { removeTransitionOverlay } from './ui/transitionOverlay.js';
 import { getTableDirector } from './phaser/TableDirector.js';
 import { getSeqGate } from './state/SeqGate.js';
@@ -819,6 +820,7 @@ function initializeApp() {
     // Auth callbacks
     onSignInSuccess: (data) => {
       console.log('Sign in success, going to main room');
+      leaveParked();
       // Signed in on this socket: no restoreSession needed for it
       session.noteSignedIn(data.username);
       // The main room's Admin entry (display only; the server checks)
@@ -858,8 +860,27 @@ function initializeApp() {
     onSignUpError: (message) => {
       showError(`Registration failed: ${message}`);
     },
+    onSessionSuperseded: () => {
+      // Another tab of this browser has the session now: pause here (no
+      // reconnect or ping takes it back by itself) until Use here
+      if (session.isParked && isSupersededNoticeShown()) return;
+      session.park();
+      socketMgr.setParked(true);
+      // This tab's microphone and peer connections go (the active tab has its own)
+      stopVoice();
+      showSupersededNotice({
+        onUseHere: () => {
+          // A fresh socket: it restores the session (which parks the other
+          // tab) and re-enters this tab's screen (rejoin, lobby, main room)
+          session.unpark();
+          socketMgr.setParked(false);
+          socketMgr.forceReconnect();
+        },
+      });
+    },
     onForceLogout: (data) => {
       console.warn('Force logout:', data?.reason || 'Unknown reason');
+      leaveParked();
       // authHandlers cleared the tab's credentials; the server disconnects
       // this socket next, so nothing it showed will be finished (createUI
       // never comes to lift a transition overlay): exitTable takes it all down
@@ -913,6 +934,7 @@ function initializeApp() {
       session.transition(SCREEN.LOBBY, {
         lobbyId: data.lobbyId,
         players: data.players,
+        reconnecting: data.reconnecting,
         messages: (data.messages || []).filter(m => !isUserBlocked(m.username))
       });
       session.noteLobby(data.lobbyId);
@@ -934,7 +956,8 @@ function initializeApp() {
       session.noteLobby(data.lobbyId);
     },
     onPlayerReadyUpdate: (data) => {
-      updateLobbyPlayersList(null, data.players, gameState.username);
+      // Every playerReadyUpdate names the held seats while there are any
+      updateLobbyPlayersList(null, data.players, gameState.username, { reconnecting: data.reconnecting || [] });
     },
     onLobbyMessage: (data) => {
       if (isUserBlocked(data.username)) return;
@@ -944,7 +967,7 @@ function initializeApp() {
       updateLobbyPlayersList(null, data.players, gameState.username);
     },
     onLobbyPlayerJoined: (data) => {
-      updateLobbyPlayersList(null, data.players, gameState.username);
+      updateLobbyPlayersList(null, data.players, gameState.username, { returned: data.newPlayer?.username });
     },
     onLeftLobby: () => {
       console.log('Left lobby, returning to main room');
@@ -1767,12 +1790,25 @@ function displayRegisterScreen(prefillUsername = '', prefillPassword = '') {
   });
 }
 
+/**
+ * This tab is live again (its own restore or sign-in answered, or it was
+ * signed out): the "open in another tab" notice and the parking go.
+ */
+function leaveParked() {
+  if (!session.isParked && !isSupersededNoticeShown()) return;
+  session.unpark();
+  getSocketManager().setParked(false);
+  hideSupersededNotice();
+}
+
 /** restoreSessionResponse failures that need no explanation (sign in again). */
 const ROUTINE_RESTORE_FAILURES = new Set(['Invalid session token', 'User not found']);
 
 // restoreSessionResponse: sent for session.resume() (every connect of a
 // signed-in tab, once per socket)
 socket.on('restoreSessionResponse', (data) => {
+  // Whatever the answer, this tab is no longer paused behind another one
+  leaveParked();
   if (data.success) {
     console.log('Session restored successfully');
     setBlockedUsers(data.blockedUsers);

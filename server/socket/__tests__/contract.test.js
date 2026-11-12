@@ -39,7 +39,6 @@ const validators = require('../validators');
 const gameManager = require('../../game/GameManager');
 const gameHandlers = require('../gameHandlers');
 const chatHandlers = require('../chatHandlers');
-const queueHandlers = require('../queueHandlers');
 const reconnectHandlers = require('../reconnectHandlers');
 const mainRoomHandlers = require('../mainRoomHandlers');
 const lobbyHandlers = require('../lobbyHandlers');
@@ -75,6 +74,7 @@ let errorLogs;
 // Variants of anyOf payloads (event#variant) these scenarios do not reach, with why
 const NOT_EXERCISED_VARIANTS = {
     'error#validation': 'dead: only validators.withValidation emits it, and nothing calls withValidation (the wrappers send error#handler)',
+    'error#message': 'no live site since 2026-11-11: every refusal names its event (error#rejected, the same handler as its serverError twin); emitError without a handler would still send it',
 };
 
 const observedVariants = new Map();
@@ -120,6 +120,7 @@ afterEach(() => {
 
 describe('(a) client -> server events', () => {
     const indexSrc = fs.readFileSync(path.join(__dirname, '..', 'index.js'), 'utf8');
+    const voiceSrc = fs.readFileSync(path.join(__dirname, '..', 'voiceHandlers.js'), 'utf8');
 
     function registrations() {
         const names = [];
@@ -151,9 +152,10 @@ describe('(a) client -> server events', () => {
         for (const name of contract.c2sNames()) {
             const entry = contract.schema.c2s[name];
             expect(Array.isArray(entry.examples) && entry.examples.length > 0).toBe(true);
+            const joi = entry.joi || entry.joiInHandler;
             for (const ex of entry.examples) {
                 expect({ name, ex, ...contract.validateC2S(name, ex) }).toMatchObject({ name, ok: true });
-                if (entry.joi) expect(() => validators.validate(entry.joi, ex)).not.toThrow();
+                if (joi) expect(() => validators.validate(joi, ex)).not.toThrow();
             }
             if (entry.optionalPayload) expect(contract.validateC2S(name, undefined).ok).toBe(true);
         }
@@ -163,17 +165,18 @@ describe('(a) client -> server events', () => {
         let n = 0;
         for (const name of contract.c2sNames()) {
             const entry = contract.schema.c2s[name];
+            const joi = entry.joi || entry.joiInHandler;
             for (const bad of entry.invalid || []) {
                 n++;
                 expect({ name, bad, schemaOk: contract.validateC2S(name, bad).ok }).toEqual({ name, bad, schemaOk: false });
-                expect(entry.joi).not.toBeNull();
-                expect(() => validators.validate(entry.joi, bad)).toThrow();
+                expect(joi).toBeTruthy();
+                expect(() => validators.validate(joi, bad)).toThrow();
             }
         }
         // Every Joi-wrapped event with a payload has negative examples
         const withPayload = contract.c2sNames().filter((n2) => {
             const e = contract.schema.c2s[n2];
-            return e.joi && Object.keys(e.payload?.properties || {}).length > 0;
+            return (e.joi || e.joiInHandler) && Object.keys(e.payload?.properties || {}).length > 0;
         });
         expect(withPayload.filter((n2) => !(contract.schema.c2s[n2].invalid || []).length)).toEqual([]);
         expect(n).toBeGreaterThan(50);
@@ -182,11 +185,17 @@ describe('(a) client -> server events', () => {
         expect(contract.schema.c2s.playCard.payload.required).toEqual(expect.arrayContaining(['card', 'position']));
     });
 
-    test('the c2s events without a Joi schema are a frozen list (hardening is a separate item)', () => {
-        const noJoi = contract.c2sNames().filter((n) => contract.schema.c2s[n].joi === null &&
+    test('every c2s event with a payload has a Joi schema (V1_REMOVALS #18): the wrapper\'s, or one its handler checks', () => {
+        const noJoi = contract.c2sNames().filter((n) => contract.schema.c2s[n].joi === null && !contract.schema.c2s[n].joiInHandler &&
             contract.schema.c2s[n].payload && Object.keys(contract.schema.c2s[n].payload.properties || {}).length > 0);
-        expect(noJoi.sort()).toEqual(['getPlayerProfile', 'joinLobby', 'removeBot', 'searchPlayers',
-            'voiceAnswer', 'voiceIceCandidate', 'voiceOffer', 'voiceRelayAudio'].sort());
+        expect(noJoi).toEqual([]);
+        // joiInHandler only where the handler drops a bad payload silently (voice), and only with no wrapper schema
+        const inHandler = contract.c2sNames().filter((n) => contract.schema.c2s[n].joiInHandler);
+        expect(inHandler.sort()).toEqual(['voiceAnswer', 'voiceIceCandidate', 'voiceOffer', 'voiceRelayAudio']);
+        for (const n of inHandler) {
+            expect({ n, joi: contract.schema.c2s[n].joi }).toEqual({ n, joi: null });
+            expect({ n, src: new RegExp(`checked\\(socket, '${n}', data\\)`).test(voiceSrc) }).toEqual({ n, src: true });
+        }
     });
 
     test('every test suite that records socket emits has them contract-checked', () => {
@@ -282,9 +291,9 @@ describe('(b) F1 full human game through the lobby', () => {
         const bySelf = (e) => events(w.log, e).filter((l) => l.to.startsWith('self:'));
         expect(bySelf('rejoinSuccess').length).toBeGreaterThanOrEqual(4);
         const chats = events(w.log, 'chatMessage').map((l) => l.data);
-        expect(chats.some((d) => d.username.startsWith('🤖') && d.isSpectator === false && d.type === 'player')).toBe(true); // bot chat
-        expect(chats.some((d) => d.isSpectator === true && d.type === 'spectator')).toBe(true);
-        expect(chats.every((d) => d.type === (d.isSpectator ? 'spectator' : 'player'))).toBe(true);
+        expect(chats.some((d) => d.username.startsWith('🤖') && d.isSpectator === false)).toBe(true); // bot chat
+        expect(chats.some((d) => d.isSpectator === true)).toBe(true);
+        expect(chats.every((d) => typeof d.isSpectator === 'boolean' && !('type' in d))).toBe(true); // type dropped (V1_REMOVALS #12)
     }, 120000);
 });
 
@@ -478,7 +487,6 @@ describe('(e) non-game handlers', () => {
         mainRoomHandlers.joinMainRoom(d, w.io);
         mainRoomHandlers.mainRoomChat(d, w.io, { message: 'hello room' });
         ambient.maybePostChat(w.io);
-        mainRoomHandlers.getLobbies(d, w.io);
         mainRoomHandlers.createLobby(d, w.io, {});
         const lobbyId = gameManager.getPlayerLobby(d.id).id;
         mainRoomHandlers.joinLobby(e, w.io, { lobbyId });
@@ -499,15 +507,6 @@ describe('(e) non-game handlers', () => {
         lobbyHandlers.leaveLobby(e, w.io);
         lobbyHandlers.leaveLobby(d, w.io);
         lobbyHandlers.leaveLobby(d, w.io); // not in a lobby: error
-
-        // Queue (handled, no client sends it)
-        const q = w.user('e-q', 'e_quinn');
-        const q2 = w.user('e-q2', 'e_quill');
-        await queueHandlers.joinQueue(q, w.io);
-        await queueHandlers.joinQueue(q2, w.io);
-        gameManager.queue.push(q.id);
-        gameManager.queuedUsers.push({ socketId: q.id, username: 'e_quinn' });
-        queueHandlers.leaveQueue(q, w.io);
 
         // Wrapper errors: rate limit and validation
         const r = w.socket('e-r');

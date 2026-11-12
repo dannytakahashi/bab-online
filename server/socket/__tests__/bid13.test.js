@@ -161,8 +161,26 @@ describe('the handler', () => {
         expect(t.game.playerBids[0]).toBe('13');
         const br = events(t.log, 'bidReceived')[0].data;
         expect(br.bidArray[0]).toBe('13');
+        expect(br.bid).toBe('13'); // always a string on the wire (V1_REMOVALS #11)
         expect(t.game.gameLog.some((e) => e.message === `${t.names[0]} bid 13.`)).toBe(true);
     });
+
+    test.each([[3, '3'], ['3', '3'], [0, '0'], ['2B', '2B']])(
+        'V1_REMOVALS #11: playerBid %p (an Int from iOS 1.1.0, a string from web) is accepted and echoed as %p',
+        async (sent, echoed) => {
+            const t = setup({ handSize: 12 });
+            expect(() => validate('playerBid', { bid: sent, position: 1 })).not.toThrow();
+            expect(validateC2S('playerBid', { bid: sent, position: 1 }).ok).toBe(true);
+            // a bore level needs the one below on the table: seat 1 opens with B
+            if (sent === '2B') await gameHandlers.playerBid(t.sockets[0], t.io, { bid: 'B' });
+            const seat = sent === '2B' ? 1 : 0;
+            await gameHandlers.playerBid(t.sockets[seat], t.io, { bid: sent });
+            expect(events(t.log, 'actionRejected')).toHaveLength(0);
+            const br = events(t.log, 'bidReceived').pop().data;
+            expect(br.bid).toBe(echoed);
+            expect(br.bidArray[seat]).toBe(echoed);
+        },
+    );
 
     test.each([12, 11, 1])('refuses 13 on a %i-card hand with invalid_bid', async (handSize) => {
         const t = setup({ handSize });

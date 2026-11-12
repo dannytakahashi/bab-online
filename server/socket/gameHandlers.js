@@ -19,6 +19,7 @@ const {
     BID_RANKS
 } = require('../game/rules');
 const { gameLogger } = require('../utils/logger');
+const { emitError } = require('./serverError');
 const { Phase, reportViolation } = require('../game/GamePhase');
 const { botController } = require('../game/bot');
 const { Controller, Presence } = require('../game/SeatState');
@@ -730,8 +731,11 @@ async function playerBid(socket, io, data) {
     game.addLogEntry(`${player.username} bid ${bid}.`, position, 'bid');
 
     gameLogger.debug('Bid received', { position, bid, gameId: game.gameId });
+    // The echo is the normalized string, as bidArray and bot bids are; iOS
+    // 1.1.0 still SENDS numeric bids as an Int (accepted above) and decodes
+    // either form (BidWire). V1_REMOVALS #11
     game.broadcast(io, 'bidReceived', {
-        bid: data.bid,
+        bid,
         position,
         bidArray: game.playerBids
     });
@@ -820,7 +824,7 @@ async function playCard(socket, io, data) {
         game.isTrumpBroken = true;
     }
 
-    game.broadcast(io, 'cardPlayed', game.cardPlayedPayload(socket.id, card, position));
+    game.broadcast(io, 'cardPlayed', game.cardPlayedPayload(card, position));
 
     // Notify bots about this card play
     botController.notifyCardPlayed(game.gameId, card, position, game.trump, game.leadPosition);
@@ -1089,7 +1093,7 @@ async function handleHandComplete(game, io) {
 async function forceResign(socket, io, data) {
     const game = gameManager.getPlayerGame(socket.id);
     if (!game) {
-        socket.emit('error', { message: 'Not in a game' });
+        emitError(socket, { message: 'Not in a game' }, 'forceResign');
         return;
     }
 
@@ -1098,16 +1102,16 @@ async function forceResign(socket, io, data) {
     // Validate: the requesting socket owns a seat in this game
     const requestingPosition = game.seatByOwnerSocket(socket.id);
     if (!requestingPosition || !game.isHumanPresent(requestingPosition)) {
-        socket.emit('error', { message: 'Not a player in this game' });
+        emitError(socket, { message: 'Not a player in this game' }, 'forceResign');
         return;
     }
 
     // Validate: the target seat's grace period has run out
     const targetPresence = game.seatPresence(position);
     if (targetPresence !== Presence.RESIGNABLE) {
-        socket.emit('error', {
+        emitError(socket, {
             message: targetPresence === Presence.GRACE ? 'Player is still reconnecting' : 'Player is not disconnected'
-        });
+        }, 'forceResign');
         return;
     }
 

@@ -338,7 +338,8 @@ function reconnectOwner(io, game, pos, socket, username) {
 /**
  * The owner of a bot-controlled seat (lazy or resigned) attaches `socket` to
  * watch it while the bot plays. An older owner socket is demoted to a pure
- * spectator (keeps watching, loses /active and every other seat right).
+ * spectator (keeps watching, loses /active and every other seat right),
+ * unless it is parked (superseded by this socket): then it just leaves.
  * @param {Object} opts
  * @param {'rejoin'|'spectate'} opts.via
  */
@@ -349,7 +350,10 @@ function watchSeat(io, game, pos, socket, username, { via }) {
     if (seat?.ownerSocketId !== socket.id) return false;
     if (prev) {
         unmap(game, prev);
-        if (io.sockets.sockets.has(prev)) {
+        // A parked socket (sessionIdentity: superseded by this one) is not
+        // watching anything: it leaves like a gone one
+        const prevSocket = io.sockets.sockets.get(prev);
+        if (prevSocket && !prevSocket.data?.superseded) {
             gameManager.addSpectator(io, game, prev, username, null);
         } else {
             game.leaveRoom(io, prev);
@@ -550,14 +554,14 @@ function resignSeat(io, game, pos) {
 function leaveSeat(io, game, pos, socket) {
     const seat = game.seat(pos);
     if (seat.controller === Controller.HUMAN && !goLazy(io, game, pos)) return false;
-    const view = seat.ownerView;
     if (!game.seatLeave(pos)) return false;
     game.leaveRoom(io, socket.id);
     unmap(game, socket.id);
     // Lets them create / join new lobbies and tournaments
     gameManager.clearActiveGame(seat.ownerUsername, game.gameId);
+    // leftGame only, from either view (the watch view's extra s2c
+    // joinMainRoom had no listener: V1_REMOVALS #4)
     socket.emit('leftGame');
-    if (view === 'watch') socket.emit('joinMainRoom');
     socketLogger.info('Player left game (permanent)', { gameId: game.gameId, position: pos });
     maybeAbort(io, game);
     return true;

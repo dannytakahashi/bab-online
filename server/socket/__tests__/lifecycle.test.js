@@ -306,7 +306,7 @@ describe('3. abort during the lobby countdown', () => {
         expect(events(log, 'startDraw')).toHaveLength(0);
         expect(Array.from(gameManager.playerGames.values())).not.toContain(game.gameId);
         for (const id of ids) {
-            const result = gameManager.joinQueue(id);
+            const result = gameManager.createNamedLobby(id);
             expect(result.success).toBe(true);
             gameManager.leaveLobby(id);
         }
@@ -828,7 +828,7 @@ describe('13. leavers and watchers', () => {
         expect(log.some((l) => l.to === `self:${shadow.id}` && l.event === 'leftGame')).toBe(true);
         expect(gameManager.playerGames.has(shadow.id)).toBe(false);
         expect(io.rooms.get(game.roomName).has(shadow.id)).toBe(false);
-        expect(gameManager.joinQueue(shadow.id).success).toBe(true);
+        expect(gameManager.createNamedLobby(shadow.id).success).toBe(true);
         gameManager.leaveLobby(shadow.id);
     });
 });

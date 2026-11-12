@@ -390,7 +390,11 @@ describe('actions', () => {
         // one game-manager entry per name, and users.socketId: only the second tab
         expect(gameManager.getUserBySocketId(first.id)).toBeUndefined();
         expect((await users().findOne({ username: 'Bea' })).socketId).toBe(second.id);
-        expect(gameManager.mainRoomSocketIds.has(first.id)).toBe(true);
+        // the first tab is parked by the second (sessionSuperseded, out of
+        // the main room) but still claims the name, so the sign-out finds it
+        expect(gotEvent(first, 'sessionSuperseded')).toBe(true);
+        expect(gameManager.mainRoomSocketIds.has(first.id)).toBe(false);
+        expect(first.data.username).toBe('Bea');
 
         const res = await request(owner, 'signOutEverywhere', { username: 'Bea' });
         expect(res).toMatchObject({ ok: true, disconnected: 2 });
@@ -1145,7 +1149,6 @@ describe('actions', () => {
                     expect(gameManager.getUserBySocketId(r.id)).toBeUndefined();
                     // a socket registered as Cy some other way still cannot start anything
                     const z = w.user(`adm-z-${n}`, 'Cy', { db: false });
-                    expect(gameManager.joinQueue(z.id)).toMatchObject({ success: false });
                     expect(gameManager.createNamedLobby(z.id, 'x')).toMatchObject({ success: false });
                     expect(gameManager.createTournament(z.id, 't')).toMatchObject({ success: false });
                     gameManager.removeUserSocket(z.id);

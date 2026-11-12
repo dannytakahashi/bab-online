@@ -5,7 +5,8 @@ import XCTest
 final class ServerEventDecodingTests: XCTestCase {
     /// Events the table store does not decode (voice signalling, the 'error'
     /// toast, the tournament handler's assignment: a local enterGameContext).
-    static let notStoreEvents: Set<String> = ["voicePeerJoined", "voicePeerList", "error", "tournamentGameAssignment"]
+    /// serverError: handled by SocketService (deduped against its 'error' twin), like 'error', not by the table store
+    static let notStoreEvents: Set<String> = ["voicePeerJoined", "voicePeerList", "error", "tournamentGameAssignment", "serverError"]
 
     func testEveryRecordedEventDecodesStrictly() throws {
         var counts: [String: Int] = [:]

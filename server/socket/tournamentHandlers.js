@@ -6,6 +6,7 @@
 const gameManager = require('../game/GameManager');
 const TournamentState = require('../game/TournamentState');
 const { socketLogger } = require('../utils/logger');
+const { emitError } = require('./serverError');
 const { beginDraw, abortGame, emitLobbiesUpdated } = require('./gameLifecycle');
 const { delay } = require('../utils/timing');
 const pacing = require('../game/pacing');
@@ -20,17 +21,18 @@ const { PERSONALITY_LIST, getDisplayName } = personalities;
 function createTournament(socket, io) {
     const user = gameManager.getUserBySocketId(socket.id);
     if (!user) {
-        socket.emit('error', { message: 'User not found' });
+        emitError(socket, { message: 'User not found' }, 'createTournament');
         return;
     }
 
     const result = gameManager.createTournament(socket.id, `${user.username}'s Tournament`);
     if (!result.success) {
-        socket.emit('error', { message: result.error });
+        emitError(socket, { message: result.error }, 'createTournament');
         return;
     }
 
     const tournament = result.tournament;
+    releaseStaleTournamentSeat(io, result.evicted, user.username);
 
     // Leave main room Socket.IO room
     socket.leave('mainRoom');
@@ -56,18 +58,42 @@ function createTournament(socket, io) {
 }
 
 /**
+ * A lobby-phase tournament membership the user held from an older socket
+ * was given up (GameManager.giveUpStaleTournament: creating or joining
+ * another one): the old socket leaves the room and is told tournamentLeft
+ * (a half-open socket never receives it); the remaining members get
+ * tournamentPlayerLeft, as for a leave. The caller sends lobbiesUpdated.
+ */
+function releaseStaleTournamentSeat(io, evicted, username) {
+    if (!evicted) return;
+    const { oldSocketId, tournament, leaveResult } = evicted;
+    tournament.leaveRoom(io, oldSocketId);
+    io.to(oldSocketId).emit('tournamentLeft', {});
+    if (leaveResult?.success && !leaveResult.deleted) {
+        tournament.broadcast(io, 'tournamentPlayerLeft', {
+            username,
+            players: tournament.getClientState().players,
+            newCreator: leaveResult.newCreator ? leaveResult.newCreator.username : null
+        });
+    }
+    socketLogger.info('Stale tournament membership given up', {
+        oldSocketId, tournamentId: tournament.tournamentId, deleted: Boolean(leaveResult?.deleted)
+    });
+}
+
+/**
  * Join an existing tournament
  */
 async function joinTournament(socket, io, data) {
     const { tournamentId } = data;
     if (!tournamentId) {
-        socket.emit('error', { message: 'Tournament ID required' });
+        emitError(socket, { message: 'Tournament ID required' }, 'joinTournament');
         return;
     }
 
     const result = gameManager.joinTournament(socket.id, tournamentId);
     if (!result.success) {
-        socket.emit('error', { message: result.error });
+        emitError(socket, { message: result.error }, 'joinTournament');
         // An active member of another tournament stays where they are — only
         // genuinely unattached players get dropped into the main room (the
         // clients auto-emit joinTournament after sign-in, so a failure must
@@ -85,6 +111,7 @@ async function joinTournament(socket, io, data) {
 
     const tournament = result.tournament;
     const user = gameManager.getUserBySocketId(socket.id);
+    releaseStaleTournamentSeat(io, result.evicted, user.username);
 
     // Leave main room
     socket.leave('mainRoom');
@@ -129,7 +156,6 @@ function sendToMainRoom(socket) {
     const onlineUsers = gameManager.getOnlineUsernames();
     socket.emit('mainRoomJoined', {
         messages: mainRoomResult.messages,
-        recentMessages: mainRoomResult.messages, // iOS reads this key
         lobbies: mainRoomResult.lobbies,
         onlineCount: onlineUsers.length,
         onlineUsers,
@@ -185,7 +211,7 @@ async function leaveTournament(socket, io) {
 
     const result = gameManager.leaveTournament(socket.id);
     if (!result.success) {
-        socket.emit('error', { message: result.error });
+        emitError(socket, { message: result.error }, 'leaveTournament');
         return;
     }
 
@@ -249,7 +275,7 @@ async function leaveTournament(socket, io) {
 function tournamentReady(socket, io) {
     const tournament = gameManager.getPlayerTournament(socket.id);
     if (!tournament) {
-        socket.emit('error', { message: 'Not in a tournament' });
+        emitError(socket, { message: 'Not in a tournament' }, 'tournamentReady');
         return;
     }
 
@@ -264,7 +290,7 @@ function tournamentReady(socket, io) {
 function tournamentUnready(socket, io) {
     const tournament = gameManager.getPlayerTournament(socket.id);
     if (!tournament) {
-        socket.emit('error', { message: 'Not in a tournament' });
+        emitError(socket, { message: 'Not in a tournament' }, 'tournamentUnready');
         return;
     }
 
@@ -282,22 +308,22 @@ function tournamentUnready(socket, io) {
 async function beginTournament(socket, io) {
     const tournament = gameManager.getPlayerTournament(socket.id);
     if (!tournament) {
-        socket.emit('error', { message: 'Not in a tournament' });
+        emitError(socket, { message: 'Not in a tournament' }, 'beginTournament');
         return;
     }
 
     if (tournament.createdBy !== socket.id) {
-        socket.emit('error', { message: 'Only the creator can start the tournament' });
+        emitError(socket, { message: 'Only the creator can start the tournament' }, 'beginTournament');
         return;
     }
 
     if (tournament.phase !== 'lobby') {
-        socket.emit('error', { message: 'Tournament already started' });
+        emitError(socket, { message: 'Tournament already started' }, 'beginTournament');
         return;
     }
 
     if (!tournament.allPlayersReady()) {
-        socket.emit('error', { message: 'Not all players are ready' });
+        emitError(socket, { message: 'Not all players are ready' }, 'beginTournament');
         return;
     }
 
@@ -336,28 +362,28 @@ async function beginTournament(socket, io) {
 async function beginNextRound(socket, io) {
     const tournament = gameManager.getPlayerTournament(socket.id);
     if (!tournament) {
-        socket.emit('error', { message: 'Not in a tournament' });
+        emitError(socket, { message: 'Not in a tournament' }, 'beginNextRound');
         return;
     }
 
     if (tournament.createdBy !== socket.id) {
-        socket.emit('error', { message: 'Only the creator can start the next round' });
+        emitError(socket, { message: 'Only the creator can start the next round' }, 'beginNextRound');
         return;
     }
 
     if (tournament.phase !== 'between_rounds') {
-        socket.emit('error', { message: 'Not between rounds' });
+        emitError(socket, { message: 'Not between rounds' }, 'beginNextRound');
         return;
     }
 
     if (!tournament.allPlayersReady()) {
-        socket.emit('error', { message: 'Not all players are ready' });
+        emitError(socket, { message: 'Not all players are ready' }, 'beginNextRound');
         return;
     }
 
     const nextRound = tournament.currentRound + 1;
     if (nextRound > tournament.totalRounds) {
-        socket.emit('error', { message: 'Tournament is complete' });
+        emitError(socket, { message: 'Tournament is complete' }, 'beginNextRound');
         return;
     }
 
@@ -632,7 +658,7 @@ function tournamentChat(socket, io, data) {
     }
 
     if (!foundTournament) {
-        socket.emit('error', { message: 'Not in a tournament' });
+        emitError(socket, { message: 'Not in a tournament' }, 'tournamentChat');
         return;
     }
 
@@ -659,13 +685,13 @@ function spectateTournament(socket, io, data) {
     const { tournamentId } = data;
     const tournament = gameManager.getTournamentById(tournamentId);
     if (!tournament) {
-        socket.emit('error', { message: 'Tournament not found' });
+        emitError(socket, { message: 'Tournament not found' }, 'spectateTournament');
         return;
     }
 
     const user = gameManager.getUserBySocketId(socket.id);
     if (!user) {
-        socket.emit('error', { message: 'User not found' });
+        emitError(socket, { message: 'User not found' }, 'spectateTournament');
         return;
     }
 
@@ -705,20 +731,20 @@ function spectateTournamentGame(socket, io, data) {
 
     const game = gameManager.getGameById(gameId);
     if (!game) {
-        socket.emit('error', { message: 'Game not found' });
+        emitError(socket, { message: 'Game not found' }, 'spectateTournamentGame');
         return;
     }
 
     const user = gameManager.getUserBySocketId(socket.id);
     if (!user) {
-        socket.emit('error', { message: 'User not found' });
+        emitError(socket, { message: 'User not found' }, 'spectateTournamentGame');
         return;
     }
 
     // A pure spectator of this one game (leaves any other game it watched)
     if (!gameManager.addSpectator(io, game, socket.id, user.username, null)) {
         socketLogger.warn('Spectate refused: socket is in a game', { socketId: socket.id, gameId });
-        socket.emit('error', { message: 'Leave your current game before spectating another' });
+        emitError(socket, { message: 'Leave your current game before spectating another' }, 'spectateTournamentGame');
         return;
     }
 
@@ -758,12 +784,12 @@ function spectateTournamentGame(socket, io, data) {
 async function cancelTournament(socket, io) {
     const tournament = gameManager.getPlayerTournament(socket.id);
     if (!tournament) {
-        socket.emit('error', { message: 'Not in a tournament' });
+        emitError(socket, { message: 'Not in a tournament' }, 'cancelTournament');
         return;
     }
 
     if (tournament.createdBy !== socket.id) {
-        socket.emit('error', { message: 'Only the creator can cancel the tournament' });
+        emitError(socket, { message: 'Only the creator can cancel the tournament' }, 'cancelTournament');
         return;
     }
 

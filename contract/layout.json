@@ -128,6 +128,7 @@
           "signInResponse",
           "signUpResponse",
           "forceLogout",
+          "sessionSuperseded",
           "activeGameFound",
           "deleteAccountResponse",
           "restoreSessionResponse"
@@ -231,7 +232,8 @@
           "reconnect_attempt",
           "reconnect_failed",
           "error",
-          "serverShutdown"
+          "serverShutdown",
+          "serverError"
         ]
       },
       {
@@ -554,7 +556,8 @@
         "events": [
           "connect",
           "disconnect",
-          "serverShutdown"
+          "serverShutdown",
+          "serverError"
         ]
       },
       {
@@ -583,7 +586,8 @@
       "recordsResponse": "iOS has no profile / records / search / upload / relay-audio screens yet (item 22)",
       "error": "app-level 'error' collides with Socket.IO-Client-Swift's own client 'error' event; the rename to serverError is V1_REMOVALS #1",
       "adminRequest": "the admin panel is web only; the iOS app never sends or reads it",
-      "adminResponse": "the admin panel is web only; the iOS app never sends or reads it"
+      "adminResponse": "the admin panel is web only; the iOS app never sends or reads it",
+      "sessionSuperseded": "web only: iOS 1.1.0 never shares a saved session between live sockets (a different session gets forceLogout); the server never needs it to read this"
     }
   }
 }
