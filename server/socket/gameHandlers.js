@@ -730,8 +730,11 @@ async function playerBid(socket, io, data) {
     game.addLogEntry(`${player.username} bid ${bid}.`, position, 'bid');
 
     gameLogger.debug('Bid received', { position, bid, gameId: game.gameId });
+    // The echo is the normalized string, as bidArray and bot bids are; iOS
+    // 1.1.0 still SENDS numeric bids as an Int (accepted above) and decodes
+    // either form (BidWire). V1_REMOVALS #11
     game.broadcast(io, 'bidReceived', {
-        bid: data.bid,
+        bid,
         position,
         bidArray: game.playerBids
     });

@@ -107,18 +107,6 @@
         "4B"
       ]
     },
-    "bidWire": {
-      "anyOf": [
-        {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 13
-        },
-        {
-          "$ref": "#/$defs/bidString"
-        }
-      ]
-    },
     "bidArray": {
       "type": "array",
       "items": {
@@ -5369,7 +5357,7 @@
         "type": "object",
         "properties": {
           "bid": {
-            "$ref": "#/$defs/bidWire"
+            "$ref": "#/$defs/bidString"
           },
           "position": {
             "$ref": "#/$defs/position"
@@ -5414,7 +5402,7 @@
         "server/socket/gameHandlers.js:playerBid",
         "server/game/bot/BotController.js:processBotBid"
       ],
-      "notes": "bid echoes the client value: an Int from iOS numeric bids (bidWire; V1_REMOVALS #11).",
+      "notes": "bid is always the normalized string (bidString), also for an iOS numeric bid sent as an Int (c2s playerBid keeps accepting Int: iOS 1.1.0 sends one). Until 2026-11-11 it echoed the client value ($defs.bidWire, Int | string; V1_REMOVALS #11); 1.1.0 decodes either (BidWire) and web applyBid calls String(data.bid).",
       "added": [
         "seq"
       ]

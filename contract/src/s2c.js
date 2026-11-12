@@ -399,7 +399,7 @@ const s2c = {
         notes: 'One per connected seat owner (seat) and per spectator (spectator), each deal. players: seat socket ids, read by web as playerData.socket to map a voice peer to a seat (the speaking indicator; V1_REMOVALS #6). playerInfo rebuilds web avatars every hand (V1_REMOVALS #5).',
     },
     bidReceived: {
-        payload: obj({ bid: ref('bidWire'), position: ref('position'), bidArray: ref('bidArray') }),
+        payload: obj({ bid: ref('bidString'), position: ref('position'), bidArray: ref('bidArray') }),
         status: 'active', to: 'room', seq: false,
         reserved: [
             { key: 'team1Mult', why: 'deferred: the shipped iOS app resets mults only in reset(), so a bore badge would persist into the next deal (V1_REMOVALS.md "Deferred additive")' },
@@ -407,7 +407,7 @@ const s2c = {
         ],
         clientReads: reads(W.game, I.game('registerBiddingPhase')),
         emittedFrom: ['server/socket/gameHandlers.js:playerBid', 'server/game/bot/BotController.js:processBotBid'],
-        notes: 'bid echoes the client value: an Int from iOS numeric bids (bidWire; V1_REMOVALS #11).',
+        notes: 'bid is always the normalized string (bidString), also for an iOS numeric bid sent as an Int (c2s playerBid keeps accepting Int: iOS 1.1.0 sends one). Until 2026-11-11 it echoed the client value ($defs.bidWire, Int | string; V1_REMOVALS #11); 1.1.0 decodes either (BidWire) and web applyBid calls String(data.bid).',
     },
     doneBidding: {
         payload: obj({ bids: ref('bidArray'), lead: ref('position'), teamBids: ref('teamPair'), mults: obj({ team1: int({ minimum: 1 }), team2: int({ minimum: 1 }) }) }),

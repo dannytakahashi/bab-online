@@ -120,9 +120,6 @@ const defs = {
     cardIn: obj({ suit: enm(...SUITS), rank: enm(...RANKS) }, { open: true }),
     position: int({ minimum: 1, maximum: 4 }),
     bidString: enm(...BID_STRINGS),
-    // bidReceived.bid echoes what the client sent (V1_REMOVALS #11): iOS sends an
-    // Int for numeric bids, web a string; bot bids are strings
-    bidWire: anyOf(int({ minimum: 0, maximum: 13 }), ref('bidString')),
     // playerBids after a JSON round-trip: holes are null, trailing holes absent
     bidArray: arr(orNull(ref('bidString')), { maxItems: 4 }),
     playedCards: arr(orNull(ref('card')), { maxItems: 4 }),

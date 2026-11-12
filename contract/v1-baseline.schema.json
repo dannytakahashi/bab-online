@@ -107,18 +107,6 @@
         "4B"
       ]
     },
-    "bidWire": {
-      "anyOf": [
-        {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 13
-        },
-        {
-          "$ref": "#/$defs/bidString"
-        }
-      ]
-    },
     "bidArray": {
       "type": "array",
       "items": {
@@ -3682,7 +3670,7 @@
         "type": "object",
         "properties": {
           "bid": {
-            "$ref": "#/$defs/bidWire"
+            "$ref": "#/$defs/bidString"
           },
           "position": {
             "$ref": "#/$defs/position"

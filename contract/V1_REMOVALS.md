@@ -203,6 +203,13 @@ reads `trumpBroken` first, then `trump`). Rename in the new builds; drop
 
 ### 11. `bidReceived.bid` always a string; `bidArray` → v2
 
+**Done 2026-11-11 (PR #TBD), the string half:** the echo is the
+normalized bid string (`bidString`, the value `bidArray` already holds);
+`$defs.bidWire` is gone. c2s `playerBid.bid` still takes an Int (1.1.0
+sends one for every numeric bid; `bid13.test.js` pins the Int -> string
+round trip through Joi and the handler). `bidArray` stays (web and 1.1.0
+read it). iOS event fixtures re-recorded.
+
 iOS sends numeric bids as Int and the server echoes them (`$defs.bidWire`;
 not an audit finding: ctr-22 is iOS feature work, out of scope). v2
 `bids.byPosition` is already strings.
@@ -403,7 +410,7 @@ synthesized Decodable that skips unknown keys). The next iOS build needs:
 - **Re-sending `mainRoomPlayerJoined` on leave.** Would fix the stale online
   count on both current clients, but changes the event's meaning. Item 8 sends
   the new `mainRoomPlayerLeft` instead (current builds keep a stale count).
-- **Normalizing `bidReceived.bid` to a string** (see #11).
+- **Normalizing `bidReceived.bid` to a string** (see #11): done 2026-11-11.
 - **Draw-phase rejoin** (contract/README.md "Draw-phase rejoin"): stays
   refused; a future opt-in `rejoinGame {protocol: 2}` → entrant re-key →
   `stateSnapshot`, never replaying v1 draw events.
@@ -444,7 +451,8 @@ step, in this order; nothing is removed by the gate PR itself.
    (`BidWire` in WireDecoding.swift; web `applyBid` calls `String(data.bid)`).
    So normalize only the s2c echo to a string; c2s `playerBid.bid` must keep
    accepting an Int (the contract's `{ bid: 3 }` example), or every numeric
-   bid from the App Store app is refused. Web already sends strings.
+   bid from the App Store app is refused. Web already sends strings. **Done
+   2026-11-11 (PR #TBD).**
 7. **#13 `mainRoomJoined.recentMessages`**: 1.1.0 reads `recentMessages ??
    messages` (falls back) and web reads `messages`, so the main-room handler
    can drop it; the gate's 1.0.0-only copy keeps it (variant or `added`
