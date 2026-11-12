@@ -767,6 +767,76 @@ relays (today any socket can relay to any socket id). Note iOS
 
 ### 19. Inline avatar images (roadmap item 10; docs/avatars.md)
 
+**A, B, C, D and F done 2026-11-12 (PR #TBD); E kept (blocked by iOS 1.2.0
+and web).** The 2-week clientHello wait was waived by the owner. Readers
+re-checked at BASE eeeeb23 (iOSClient/ = 1.2.0 build 4, web on main), and
+again 2026-11-13 for iOS 1.2.0 build 5 (`iOSClient/` at main 92d0c75, the
+submitted build; build 4 was pulled from review). Build 5 gets every picture
+by `avatarUrl ?? pic`: the table seats (`TableRenderModel.swift:22`
+pictureKey -> `OpponentHandNode.swift:239` -> `AvatarTextureCache.texture`,
+`AvatarTextureCache.swift:35-66`: a stock number loads
+`/assets/profile<N>.png`, an `/avatar/...` path its URL; #241 only renders
+the circle at the table zoom's scale, :72-74) and the Draw for Deal refresh
+(#239: `DrawPhaseView.swift:249-251` pictureKey from the seat, drawn by
+`AvatarImageCache.image`, `SpectatorBadgeView.swift:130-145`, which loads
+only a stock number or an `/avatar/` path and never drew an inline picture).
+Both read the seat's `avatarUrl`, which positionUpdate's `avatarUrls` sets
+(`TableReducer+Events.swift:256`) before the teams show, so after A every
+custom picture still reaches both (by URL); a stock picture is the same
+number as before:
+- **A** (no inline seat picture; `$defs.pic` integer | null, baseline
+  narrowed): web folds `avatarUrls` / `avatarUrl` into the pic fields on
+  ingress (`client/src/utils/avatar.js` `foldAvatarPayload`: positionUpdate,
+  gameStart, rejoinSuccess / restorePlayerState / spectatorJoined,
+  playerActiveMode) and renders null as its neutral picture. iOS 1.2.0
+  decodes a null slot (`PicWire` → `.none`) and renders `avatarUrl` first
+  (TableReducer+Events positionUpdate / gameStart / playerActiveMode,
+  TableReducer+Snapshot `seatState` with the carrier's hints). What both lose:
+  the inline copy as the fallback when a URL fails (web retries the URL once,
+  then its neutral picture), and a picture whose rendition is not ready or
+  is hostile / undecodable shows as neutral instead of inline.
+- **B** (profile / leaderboard / search rows: `customProfilePic` always null;
+  `$defs.profile`, `$defs.playerSearchRow` narrowed): web reads them through
+  `profileAvatarSrc` after folding `avatarUrls` / `avatarUrl`; iOS 1.2.0 has
+  no reader of `customProfilePic` (no profile / leaderboard / search
+  pictures). `profilePicUploadResponse` still echoes the uploader's stored
+  WebP data URL (+ avatarUrl): not a profile row, kept.
+- **C** (snapshot seats: `customPic` always null, `partial` never
+  `'customPics'`, the request's `customPics` accepted and ignored): web's
+  `parseSnapshotV2` requires the key (null is fine) and `GameState`
+  `_seatsToPlayerData` prefers `avatarUrl`; iOS 1.2.0's generated
+  `TableSnapshot.Seat` decodes `customPic: String?` and `hasCustomPic`
+  (kept), and `seatState` falls back to the held picture or the carrier's
+  hints. The schema types stay `string | null` / the enum keeps
+  `'customPics'`: the generated Swift mirrors them (the generator has no
+  null type), so narrowing would change iOS source.
+- **D**: `avatarWire` has no legacy branch (`resolve` → `{url}`, one
+  `mapPlayers` / `mapProfileRows` shape), the store keeps no inline copy,
+  `AVATAR_LEGACY_INLINE` and `server/avatar/placeholder.js` are gone
+  (scripts/build-avatars.js no longer writes it). `AVATAR_PIPELINE=off` now
+  means no custom pictures at all, not the pre-pipeline wire.
+- **E not done**: iOS 1.2.0 loads `/assets/profile<N>.png` directly
+  (`HTTPAvatarLoader.load`, iOSClient/BABOnline/SpriteKit/Nodes/
+  OpponentHandNode.swift), and web falls back to `assets/profile<N>.png`
+  (utils/avatar.js `applyAvatarImg`) and `assets/frog.png`
+  (OpponentManager.js). Needs a later iOS build on `avatars/v1` and a web
+  change.
+- **F**: no call site checks the cap any more (gameHandlers, seatLifecycle,
+  reconnectHandlers, mainRoomHandlers, tournamentHandlers, snapshotHandlers,
+  profileHandlers); `clientInfo.hasCap` / `socketHasCap` and the
+  clientHello log stay for version prompts and future caps.
+Tests: `avatarPayloads.test.js`, `profilePayloads.test.js`,
+`avatarWire.test.js`, `snapshotV2.test.js`; wireGolden is unchanged (its
+games hold no custom picture).
+Stacked on #9: the snapshot carriers (`snapshotHandlers.carrierFor`) map
+`players[]` the same way, so its `pic` is a stock number or null and a
+custom picture is only `avatarUrls`; the carrier snapshot is built like any
+other (no `customPics: false`). The R5 fallback #9 kept `players[]` for (a
+custom picture whose rendition is pending / failed, or
+`AVATAR_PIPELINE=off`) now shows the neutral picture on a fresh restore,
+like every other payload under A. `players[]` itself stays (names, stock
+numbers, the pre-#233 web routing). Test: `snapshotCarriers.test.js`.
+
 Precondition (on top of step 0): the App Store build that sends
 `clientHello caps ['avatarUrl']` has shipped AND the `clientHello` log shows
 no socket without the cap for 2+ weeks (old web bundles are gone after one
@@ -1055,6 +1125,8 @@ step, in this order; nothing is removed by the gate PR itself.
 - **#19 inline avatar images**: 1.1.0 never sends `clientHello` (no
   `avatarUrl` cap), so it renders only the inline pictures. Needs an iOS
   build that sends the cap, then the 2-week clientHello check for iOS.
+  (A-D and F done 2026-11-12, the wait waived by the owner; E still blocked
+  by iOS 1.2.0's `/assets/profile<N>.png` loads.)
 
 Next client work that unblocks the most: an iOS build that listens to
 `serverError`, sends `clientHello {caps:['avatarUrl']}` and maps voice

@@ -101,7 +101,7 @@ const c2s = {
         payload: open({ requestId: anyOf(str({ minLength: 1, maxLength: 64 }), int()), customPics: { type: 'boolean' }, log: { type: 'boolean' } }, { optional: ['requestId', 'customPics', 'log'] }),
         optionalPayload: true, status: 'active', joi: 'requestSnapshot', rateLimit: 'requestSnapshot', sentBy: { web: true, ios: false },
         examples: [{}, { requestId: 'r1' }, { requestId: 7, customPics: false, log: false }], invalid: [{ requestId: 'x'.repeat(65) }, { requestId: '' }, { requestId: 1.5 }, { customPics: 'yes' }],
-        notes: 'New in snapshot v2 (no shipped iOS client sends it yet). Answered by stateSnapshot to this socket only. Web always sends {requestId, customPics:false, log:false}: "ping-*" its liveness ping after the tab was hidden > 5 s (item 15; a reconnect only when no reply arrives), "gap-*" on a seq gap (debounced: one in flight), "ack-*" when its bid/play got no answer for 5 s (item 16); every reply with a snapshot of its table is applied and rendered.',
+        notes: 'New in snapshot v2. Answered by stateSnapshot to this socket only. customPics is accepted and ignored since V1_REMOVALS #19 C (no snapshot carries an inline picture; web and iOS 1.2.0 send customPics:false). Web always sends {requestId, customPics:false, log:false}: "ping-*" its liveness ping after the tab was hidden > 5 s (item 15; a reconnect only when no reply arrives), "gap-*" on a seq gap (debounced: one in flight), "ack-*" when its bid/play got no answer for 5 s (item 16); every reply with a snapshot of its table is applied and rendered.',
     },
 
     // Profile

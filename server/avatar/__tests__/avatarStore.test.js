@@ -65,7 +65,7 @@ test('versionOf: 16 hex of sha256("bab-avatar-r1\\n" + raw), stable', () => {
 
 test('the LRU is bounded by bytes: 40+ MB of renditions into a 32 MB budget', async () => {
     store.configure({ cacheBytes: 32 * MB });
-    fakeDerive(MB); // 1 MB webp + 1.33 MB inline per entry
+    fakeDerive(2 * MB); // 2 MB webp per entry (no inline copy since V1_REMOVALS #19 D)
     for (let i = 0; i < 18; i++) await store.ensure(`u${i}`, fakePic(i));
     const s = store.stats();
     expect(s.derives).toBe(18);
@@ -144,13 +144,13 @@ test('missing: 60 s TTL, at most 5,000 names', () => {
     expect(store.isMissing('n5099')).toBe(true);
 });
 
-test('real sharp: a stored PNG becomes an inline WebP the shipped app decodes; hostile and non-image values are classified', async () => {
+test('real sharp: a stored PNG becomes a WebP rendition (no inline copy: #19 D); hostile and non-image values are classified', async () => {
     const raw = fx.dataUrl(await fx.avatarPng(200));
     const e = await store.ensure('kim', raw);
     expect(e.status).toBe('ok');
-    expect(e.inline).toMatch(fx.I1_RE);
-    expect(e.inline.length).toBeLessThan(16384);
-    expect(await fx.iosLegacyDecodes(e.inline)).toBe(true);
+    expect(e).not.toHaveProperty('inline');
+    expect((await require('sharp')(e.webp).metadata()).format).toBe('webp');
+    expect(e.bytes).toBe(e.webp.length);
     expect((await store.ensure('x', fx.dataUrl(fx.SVG))).status).toBe('hostile');
     expect((await store.ensure('x', fx.dataUrl(fx.bombPng())))).toMatchObject({ status: 'hostile', reason: 'pixels' });
     expect((await store.ensure('x', 'data:image/svg+xml;base64,PHN2Zz4='))).toMatchObject({ status: 'hostile', reason: 'format' });

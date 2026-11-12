@@ -178,7 +178,6 @@
     "pic": {
       "type": [
         "integer",
-        "string",
         "null"
       ]
     },
@@ -693,10 +692,7 @@
           "type": "integer"
         },
         "customProfilePic": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": "null"
         },
         "stats": {
           "type": "object",
@@ -883,10 +879,7 @@
           "type": "integer"
         },
         "customProfilePic": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": "null"
         },
         "gamesPlayed": {
           "type": "integer"
@@ -2969,7 +2962,7 @@
           "customPics": "yes"
         }
       ],
-      "notes": "New in snapshot v2 (no shipped iOS client sends it yet). Answered by stateSnapshot to this socket only. Web always sends {requestId, customPics:false, log:false}: \"ping-*\" its liveness ping after the tab was hidden > 5 s (item 15; a reconnect only when no reply arrives), \"gap-*\" on a seq gap (debounced: one in flight), \"ack-*\" when its bid/play got no answer for 5 s (item 16); every reply with a snapshot of its table is applied and rendered."
+      "notes": "New in snapshot v2. Answered by stateSnapshot to this socket only. customPics is accepted and ignored since V1_REMOVALS #19 C (no snapshot carries an inline picture; web and iOS 1.2.0 send customPics:false). Web always sends {requestId, customPics:false, log:false}: \"ping-*\" its liveness ping after the tab was hidden > 5 s (item 15; a reconnect only when no reply arrives), \"gap-*\" on a seq gap (debounced: one in flight), \"ack-*\" when its bid/play got no answer for 5 s (item 16); every reply with a snapshot of its table is applied and rendered."
     },
     "getProfile": {
       "payload": {
@@ -5402,7 +5395,7 @@
         "isBot",
         "seq"
       ],
-      "notes": "pics: the legacy value for every recipient (one room broadcast): number, null, or for a custom picture the small derived inline WebP data URL (docs/avatars.md). avatarUrls (additive, only when a rendition exists): {position: /avatar URL}, preferred by capable clients; the shipped iOS app and old web ignore it. V1_REMOVALS #14 (2026-11-12): usernames[] has no socketId (read by neither client); isBot (additive) is the bot: prefix of each seat socket id as a flag; iOS 1.2.0 build 5 reads it first (TableReducer.positionUpdate) and web ignores it. sockets stays for now: build 5 reads it only as fallbacks (the prefix when isBot is absent or short, my seat before the username, the voice glow after the username), web only after yourPosition / the username, and the never-shipped TestFlight builds 3-4 tell a bot only by the prefix (V1_REMOVALS #14).",
+      "notes": "pics: a stock number or null for every recipient (one room broadcast); since V1_REMOVALS #19 A (2026-11-12) a custom picture is null here and travels only in avatarUrls (additive, only when a rendition exists): {position: /avatar URL} (docs/avatars.md). V1_REMOVALS #14 (2026-11-12): usernames[] has no socketId (read by neither client); isBot (additive) is the bot: prefix of each seat socket id as a flag; iOS 1.2.0 build 5 reads it first (TableReducer.positionUpdate) and web ignores it. sockets stays for now: build 5 reads it only as fallbacks (the prefix when isBot is absent or short, my seat before the username, the voice glow after the username), web only after yourPosition / the username, and the never-shipped TestFlight builds 3-4 tell a bot only by the prefix (V1_REMOVALS #14).",
       "reserved": [
         {
           "key": "yourPosition",
@@ -6631,7 +6624,7 @@
       "emittedFrom": [
         "server/socket/snapshotHandlers.js:requestSnapshot"
       ],
-      "notes": "New in snapshot v2: the reply to requestSnapshot. The log is included unless the request sends log:false; custom (data-URL) seat pictures only with customPics:true (partial lists what was left out). notInGame: the socket is in no live game - also once its game ENDED or ABORTED (the terminal state arrives as gameEnd / abortGame, never as a snapshot)."
+      "notes": "New in snapshot v2: the reply to requestSnapshot. The log is included unless the request sends log:false; no seat carries a picture inline (V1_REMOVALS #19 C: customPic always null, a custom picture is the seat's avatarUrl; customPics in the request is ignored and partial never lists 'customPics'). notInGame: the socket is in no live game - also once its game ENDED or ABORTED (the terminal state arrives as gameEnd / abortGame, never as a snapshot)."
     },
     "rejoinFailed": {
       "payload": {
@@ -6983,7 +6976,7 @@
         "avatarUrl",
         "seq"
       ],
-      "notes": "One room broadcast: pic is the legacy value (the small inline WebP for a custom picture); avatarUrl (additive, only with a rendition) is preferred by capable clients.",
+      "notes": "One room broadcast: pic is a stock number or null; a custom picture is only avatarUrl (additive, only with a rendition; V1_REMOVALS #19 A).",
       "clientReads": {
         "web": [
           "client/src/handlers/gameHandlers.js:registerGameHandlers"
@@ -7510,7 +7503,7 @@
         "avatarUrls",
         "scope"
       ],
-      "notes": "Rows by recipient (docs/avatars.md): a capable socket gets customProfilePic null + avatarUrls {username: url}; a legacy one the small inline rendition. The App Store iOS build reads neither; the next iOS build (after 1.2.0 build 6) shows avatarUrls[username], else the stock profilePic, in Stats. scope (additive 2026-11-13): the stats scope the request asked for (human | bots | all; an unknown value is human), echoed ONLY when the request carried a scope key, so a payload-less request (iOS, every shipped build) gets exactly the earlier reply. leaderboardResponse and recordsResponse failures echo it too (iOS 1.2.1 build 8 keeps a request in flight per scope and files a failure under the scope that asked); profile failures do not. The web client drops a reply whose scope is not its current choice (a stale reply after a fast switch).",
+      "notes": "Every row has customProfilePic null; custom pictures are avatarUrls {username: url} (V1_REMOVALS #19 B, docs/avatars.md). iOS 1.2.0 (build 6, the App Store build) shows no leaderboard picture; the next iOS build (after 1.2.0 build 6) shows avatarUrls[username], else the stock profilePic, in Stats. scope (additive 2026-11-13): the stats scope the request asked for (human | bots | all; an unknown value is human), echoed ONLY when the request carried a scope key, so a payload-less request (iOS, every shipped build) gets exactly the earlier reply. leaderboardResponse and recordsResponse failures echo it too (iOS 1.2.1 build 8 keeps a request in flight per scope and files a failure under the scope that asked); profile failures do not. The web client drops a reply whose scope is not its current choice (a stale reply after a fast switch).",
       "clientReads": {
         "web": [
           "client/src/handlers/leaderboardHandlers.js:registerLeaderboardHandlers"

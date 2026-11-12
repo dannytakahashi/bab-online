@@ -513,10 +513,10 @@ function goActive(io, game, pos, socket) {
     unmap(game, bot.socketId);
     gameManager.leaveSpectating(null, socket.id); // defensive: owners are never spectators
 
-    // One room broadcast: the legacy pic (small inline image for a custom
-    // one) for everyone, plus the additive avatarUrl capable clients prefer
+    // One room broadcast: a stock number or null (V1_REMOVALS #19: no
+    // inline picture), plus the additive avatarUrl of a custom picture
     const r = avatarWire.seatResolve(game, seat.ownerPic, seat.ownerUsername);
-    const activeMode = { position: pos, username: seat.ownerUsername, pic: r.legacy };
+    const activeMode = { position: pos, username: seat.ownerUsername, pic: avatarWire.slot(seat.ownerPic) };
     if (r.url) activeMode.avatarUrl = r.url;
     game.broadcast(io, 'playerActiveMode', activeMode);
     logEntry(io, game, `${seat.ownerUsername} is back in control.`);

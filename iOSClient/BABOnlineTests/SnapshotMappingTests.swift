@@ -73,7 +73,14 @@ final class SnapshotMappingTests: XCTestCase {
     }
 
     func testCustomPicsAreKeptForPartialSnapshots() throws {
-        let full = try T.state(fixture: "trick-mid-lead3")
+        // an inline custom picture as servers before V1_REMOVALS #19 C sent it (the
+        // fixtures no longer carry one); 1.2.0 still keeps it across partial snapshots
+        let inline = try T.snapshot("trick-mid-lead3") { raw in
+            var seats = raw["seats"] as! [[String: Any]]
+            for i in seats.indices where seats[i]["hasCustomPic"] as? Bool == true { seats[i]["customPic"] = "data:image/png;base64,AAAA" }
+            raw["seats"] = seats
+        }
+        let full = TableReducer.state(from: inline, hints: nil, previous: nil, source: .requested("t"))
         let customSeat = try XCTUnwrap(full.players.seats.values.first { if case .custom = $0.pic { return true }; return false })
         let partial = try T.snapshot("trick-mid-lead3") { raw in
             raw["partial"] = ["customPics"]

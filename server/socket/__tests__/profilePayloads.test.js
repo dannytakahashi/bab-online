@@ -1,7 +1,9 @@
 /**
  * Profile replies and uploads with the avatar pipeline ON (roadmap item
- * 10; docs/avatars.md): leaderboard (both shapes cached together), search,
- * profiles, and new uploads stored as the canonical WebP. Real sharp, real
+ * 10; docs/avatars.md): leaderboard, search and profiles carry
+ * customProfilePic null plus avatarUrls / avatarUrl for every socket
+ * (V1_REMOVALS #19 B, F: the clientHello cap no longer picks a shape), and
+ * new uploads are stored as the canonical WebP. Real sharp, real
  * timers, memoryDb. AVATAR_REPORT=1 prints the byte table.
  */
 
@@ -19,7 +21,6 @@ const gameManager = require('../../game/GameManager');
 const profile = require('../profileHandlers');
 const clientInfo = require('../clientInfo');
 const avatarStore = require('../../avatar/avatarStore');
-const { PLACEHOLDER_INLINE } = require('../../avatar/placeholder');
 const { asyncHandler, rateLimiter } = require('../errorHandler');
 const { makeIo, makeSocket } = require('../../testUtils/gameDriver');
 const fx = require('../../testUtils/avatarFixtures');
@@ -86,7 +87,10 @@ async function leaderboardBoth(custom) {
     return { cap: lastTo(cap, 'leaderboardResponse'), leg: lastTo(leg, 'leaderboardResponse') };
 }
 
-test('leaderboard, 30 rows with 10 custom pictures: capable <= 12 KB, legacy <= 200 KB; both shapes from one fill', async () => {
+/** No reply carries a picture inline any more (V1_REMOVALS #19 B). */
+const noInline = (rows) => rows.every((r) => r.customProfilePic === undefined || r.customProfilePic === null);
+
+test('leaderboard, 30 rows with 10 custom pictures: every socket the same <= 12 KB reply, customProfilePic null + avatarUrls (#19 B, F)', async () => {
     expect(PICS[0].length).toBeGreaterThan(40000);
     avatarStore.configure({ enabled: false });
     const off = await leaderboardBoth(10);
@@ -94,29 +98,24 @@ test('leaderboard, 30 rows with 10 custom pictures: capable <= 12 KB, legacy <= 
     avatarStore.configure({ enabled: true });
     const on = await leaderboardBoth(10);
 
+    // no clientHello no longer means another shape (#19 F)
+    expect(on.leg).toEqual(on.cap);
     expect(bytes(on.cap)).toBeLessThanOrEqual(12000);
-    expect(bytes(on.leg)).toBeLessThanOrEqual(200000);
     expect(Object.keys(on.cap.avatarUrls)).toHaveLength(10);
     for (const u of Object.values(on.cap.avatarUrls)) expect(u).toMatch(URL_RE);
-    expect(on.leg.avatarUrls).toBeUndefined();
-    for (const row of on.cap.leaderboard) {
-        expect(row.customProfilePic ?? null).toBeNull();
-    }
-    for (const row of on.leg.leaderboard.filter((r) => r.customProfilePic)) {
-        expect(row.customProfilePic.length).toBeLessThanOrEqual(16384);
-        expect(await fx.iosLegacyDecodes(row.customProfilePic)).toBe(true);
-    }
+    expect(noInline(on.cap.leaderboard)).toBe(true);
     // everything but the pictures is today's reply
     const strip = (rows) => rows.map(({ customProfilePic, ...rest }) => rest);
     expect(strip(on.cap.leaderboard)).toEqual(strip(off.leg.leaderboard));
-    expect(strip(on.leg.leaderboard)).toEqual(strip(off.leg.leaderboard));
-    // pipeline off: both sockets get exactly today's payload
+    // pipeline off: no URL, and still no inline picture
     expect(off.cap).toEqual(off.leg);
+    expect(off.cap.avatarUrls).toBeUndefined();
+    expect(noInline(off.cap.leaderboard)).toBe(true);
     // the cache holds no long string
     const cached = profile._peekLeaderboardCache();
     const long = JSON.stringify(cached).match(/"[^"]{16385,}"/g);
     expect(long).toBeNull();
-    report.push({ scenario: 'leaderboard 30 rows, 10 custom (~46 K chars each)', off: bytes(off.leg), legacy: bytes(on.leg), capable: bytes(on.cap) });
+    report.push({ scenario: 'leaderboard 30 rows, 10 custom (~46 K chars each)', off: bytes(off.leg), on: bytes(on.cap) });
 });
 
 test('leaderboard with 0 and 30 custom pictures', async () => {
@@ -125,15 +124,13 @@ test('leaderboard with 0 and 30 custom pictures', async () => {
     expect(none.cap.avatarUrls).toBeUndefined();
     profile._resetCachesForTests();
     const all = await leaderboardBoth(30);
-    expect(bytes(all.leg)).toBeLessThanOrEqual(30 * (300 + 16384));
+    expect(all.leg).toEqual(all.cap);
     expect(bytes(all.cap)).toBeLessThanOrEqual(15000);
-    avatarStore.configure({ enabled: false });
-    profile._resetCachesForTests();
-    const allOff = await leaderboardBoth(30);
-    report.push({ scenario: 'leaderboard 30 rows, 30 custom', off: bytes(allOff.leg), legacy: bytes(all.leg), capable: bytes(all.cap), noCustom: bytes(none.leg) });
+    expect(Object.keys(all.cap.avatarUrls)).toHaveLength(30);
+    report.push({ scenario: 'leaderboard 30 rows, 30 custom', on: bytes(all.cap), noCustom: bytes(none.leg) });
 });
 
-test('throttled replies (over the soft limit) still pick the shape per socket', async () => {
+test('throttled replies (over the soft limit) carry the same URLs for every socket', async () => {
     mockDb.current = createMemoryDb({ users: users(5) });
     const cap = sock(true);
     const leg = sock(false);
@@ -144,16 +141,15 @@ test('throttled replies (over the soft limit) still pick the shape per socket', 
     const capThrottled = log.filter((l) => l.to === `self:${cap.id}` && l.event === 'leaderboardResponse');
     const legThrottled = log.filter((l) => l.to === `self:${leg.id}` && l.event === 'leaderboardResponse');
     expect(capThrottled.length).toBe(12);
-    for (const l of capThrottled) expect(Object.keys(l.data.avatarUrls)).toHaveLength(5);
-    for (const l of legThrottled) {
-        expect(l.data.avatarUrls).toBeUndefined();
-        expect(l.data.leaderboard.filter((r) => r.customProfilePic)).toHaveLength(5);
+    for (const l of [...capThrottled, ...legThrottled]) {
+        expect(Object.keys(l.data.avatarUrls)).toHaveLength(5);
+        expect(noInline(l.data.leaderboard)).toBe(true);
     }
     rateLimiter.clearSocket(cap.id);
     rateLimiter.clearSocket(leg.id);
 });
 
-test('search, 10 custom hits: capable <= 5 KB with avatarUrls; legacy rows inline', async () => {
+test('search, 10 custom hits: <= 5 KB with avatarUrls for every socket; no inline row', async () => {
     mockDb.current = createMemoryDb({ users: users(10) });
     const cap = sock(true);
     const leg = sock(false);
@@ -165,15 +161,11 @@ test('search, 10 custom hits: capable <= 5 KB with avatarUrls; legacy rows inlin
     expect(bytes(c)).toBeLessThanOrEqual(5000);
     expect(Object.keys(c.avatarUrls)).toHaveLength(10);
     expect(c.players.every((p) => p.customProfilePic === null)).toBe(true);
-    expect(l.avatarUrls).toBeUndefined();
-    for (const p of l.players) expect(await fx.iosLegacyDecodes(p.customProfilePic)).toBe(true);
-    avatarStore.configure({ enabled: false });
-    const o = sock(false);
-    await profile.searchPlayers(o, io, { query: 'player0' });
-    report.push({ scenario: 'search, 10 custom hits', off: bytes(lastTo(o, 'searchPlayersResponse')), legacy: bytes(l), capable: bytes(c) });
+    expect(l).toEqual(c);
+    report.push({ scenario: 'search, 10 custom hits', on: bytes(c) });
 });
 
-test('getProfile and getPlayerProfile in both shapes; a hostile stored picture gives the placeholder', async () => {
+test('getProfile and getPlayerProfile: customProfilePic null + avatarUrl for every socket; a hostile stored picture has no URL', async () => {
     mockDb.current = createMemoryDb({ users: [...users(2), { username: 'eve', profilePic: 4, customProfilePic: fx.dataUrl(fx.SVG) }] });
     const cap = sock(true, 'player00');
     const leg = sock(false, 'player01');
@@ -181,22 +173,22 @@ test('getProfile and getPlayerProfile in both shapes; a hostile stored picture g
     await profile.getProfile(leg, io);
     const c = lastTo(cap, 'profileResponse');
     const l = lastTo(leg, 'profileResponse');
-    expect(c.profile.customProfilePic).toBeNull();
-    expect(c.avatarUrl).toMatch(URL_RE);
-    expect(l.avatarUrl).toBeUndefined();
-    expect(await fx.iosLegacyDecodes(l.profile.customProfilePic)).toBe(true);
-    expect(Object.keys(l)).toEqual(['success', 'profile']);
-    expect(Object.keys(l.profile)).toEqual(['username', 'profilePic', 'customProfilePic', 'stats']);
+    for (const r of [c, l]) {
+        expect(r.profile.customProfilePic).toBeNull();
+        expect(r.avatarUrl).toMatch(URL_RE);
+        expect(Object.keys(r)).toEqual(['success', 'profile', 'avatarUrl']);
+        expect(Object.keys(r.profile)).toEqual(['username', 'profilePic', 'customProfilePic', 'stats']);
+    }
 
-    await profile.getPlayerProfile(cap, io, { username: 'player01' });
-    expect(lastTo(cap, 'playerProfileResponse').avatarUrl).toMatch(/^\/avatar\/player01\?v=/);
+    await profile.getPlayerProfile(leg, io, { username: 'player00' });
+    expect(lastTo(leg, 'playerProfileResponse').avatarUrl).toMatch(/^\/avatar\/player00\?v=/);
     await profile.getPlayerProfile(cap, io, { username: 'eve' });
     const eve = lastTo(cap, 'playerProfileResponse');
     expect(eve.avatarUrl).toBeUndefined();
-    expect(eve.profile.customProfilePic).toBe(PLACEHOLDER_INLINE);
+    expect(eve.profile.customProfilePic).toBeNull();
     await profile.getPlayerProfile(leg, io, { username: 'player05' });
     expect(lastTo(leg, 'playerProfileResponse').profile.customProfilePic).toBeNull();
-    report.push({ scenario: 'getProfile (~46 K-char custom)', off: bytes({ success: true, profile: { ...l.profile, customProfilePic: PICS[0] } }), legacy: bytes(l), capable: bytes(c) });
+    report.push({ scenario: 'getProfile (~46 K-char custom)', off: bytes({ success: true, profile: { ...c.profile, customProfilePic: PICS[0] } }), on: bytes(c) });
 });
 
 describe('uploads', () => {
@@ -224,11 +216,12 @@ describe('uploads', () => {
         expect(await fx.iosLegacyDecodes(stored())).toBe(true);
         expect(r.avatarUrl).toBe(`/avatar/player03?v=${avatarStore.versionOf(stored())}`);
         expect(avatarStore.peek(avatarStore.versionOf(stored())).owners.has('player03')).toBe(true);
-        // the leaderboard re-reads (invalidated) and shows the new picture
+        // the leaderboard re-reads (invalidated) and shows the new picture's URL
         await profile.getLeaderboard(leg, io);
         const after = lastTo(leg, 'leaderboardResponse');
-        expect(after.leaderboard.find((x) => x.username === 'player03').customProfilePic).toBe(stored());
-        expect(before.leaderboard.find((x) => x.username === 'player03').customProfilePic).toBeNull();
+        expect(after.leaderboard.find((x) => x.username === 'player03').customProfilePic).toBeNull();
+        expect(after.avatarUrls).toEqual({ player03: r.avatarUrl });
+        expect(before.avatarUrls).toBeUndefined();
         const v1 = avatarStore.versionOf(stored());
         await upload(s, { imageData: fx.dataUrl(await fx.avatarPng(200, 77)) });
         expect(avatarStore.versionOf(stored())).not.toBe(v1);

@@ -129,6 +129,8 @@ function v1Projection(event, data, seatIds = new Map()) {
         delete d.isBot;
         if (Array.isArray(d.usernames)) d.usernames = d.usernames.map((u, i) => ('socketId' in u ? u : { username: u.username, socketId: d.sockets[i] }));
     }
+    // #19 inline avatar images: nothing to undo here (these games hold no custom
+    // picture, so every pic slot was already a number); kept as the record
     if (LEGACY_STATE_EVENTS.has(event) && Array.isArray(d.players)) {
         d.players = d.players.map((p) => ('socketId' in p ? p : { position: p.position, username: p.username, pic: p.pic, socketId: seatIds.get(p.username) }));
     }
@@ -277,5 +279,8 @@ test('a custom picture: the pipeline never changes the RNG (same hands, trumps, 
     for (const k of ['hands', 'trumps', 'seatPicClasses', 'finalScore']) expect({ k, v: on[k] }).toEqual({ k, v: off[k] });
     expect(off.avatarVersions).toEqual({});
     expect(on.avatarVersions).toEqual({ gold_c: require('../../avatar/avatarStore').versionOf(CUSTOM) });
-    expect(on.seatPicClasses.filter((c) => c === 'custom')).toHaveLength(1);
+    // V1_REMOVALS #19 A: the custom seat is null in positionUpdate.pics (its URL is
+    // in avatarUrls), with the pipeline on and off alike
+    expect(on.seatPicClasses.filter((c) => c === 'custom')).toHaveLength(0);
+    expect(on.seatPicClasses.filter((c) => c === 'null')).toHaveLength(1);
 }, 60000);

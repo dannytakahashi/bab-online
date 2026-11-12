@@ -131,9 +131,10 @@ const seatNotice = obj({ position: ref('position'), username: str() });
 // The snapshot carriers (rejoinSuccess, restorePlayerState, the spectator
 // full state) since V1_REMOVALS #9 (2026-11-12): {snapshot} plus only the v1
 // keys a client still reads (server/socket/snapshotHandlers.js carrierFor).
-// players[] (position, username, pic): iOS 1.2.0 reads pic (R5: the
-// carrier snapshot withholds custom pictures), web lets it win for names /
-// pictures; its socketId (an iOS voice glow fallback) went with #14. gameId (and isLazy on
+// players[] (position, username, pic): iOS 1.2.0 reads pic (a stock number
+// or null since #19 A; a custom picture is only avatarUrls), web lets it win
+// for names / pictures; its socketId (an iOS voice glow fallback) went with
+// #14. gameId (and isLazy on
 // rejoinSuccess, trump on the spectator state): what a web page from before
 // #233 routes on. avatarUrls: iOS 1.2.0's hints. tournamentId: rejoinSuccess.
 const CARRIER_PROPS = {
@@ -376,7 +377,7 @@ const s2c = {
         }, { optional: ['avatarUrls'] }),
         status: 'active', to: 'room', seq: false,
         added: ['avatarUrls', 'isBot'],
-        notes: 'pics: the legacy value for every recipient (one room broadcast): number, null, or for a custom picture the small derived inline WebP data URL (docs/avatars.md). avatarUrls (additive, only when a rendition exists): {position: /avatar URL}, preferred by capable clients; the shipped iOS app and old web ignore it. V1_REMOVALS #14 (2026-11-12): usernames[] has no socketId (read by neither client); isBot (additive) is the bot: prefix of each seat socket id as a flag; iOS 1.2.0 build 5 reads it first (TableReducer.positionUpdate) and web ignores it. sockets stays for now: build 5 reads it only as fallbacks (the prefix when isBot is absent or short, my seat before the username, the voice glow after the username), web only after yourPosition / the username, and the never-shipped TestFlight builds 3-4 tell a bot only by the prefix (V1_REMOVALS #14).',
+        notes: 'pics: a stock number or null for every recipient (one room broadcast); since V1_REMOVALS #19 A (2026-11-12) a custom picture is null here and travels only in avatarUrls (additive, only when a rendition exists): {position: /avatar URL} (docs/avatars.md). V1_REMOVALS #14 (2026-11-12): usernames[] has no socketId (read by neither client); isBot (additive) is the bot: prefix of each seat socket id as a flag; iOS 1.2.0 build 5 reads it first (TableReducer.positionUpdate) and web ignores it. sockets stays for now: build 5 reads it only as fallbacks (the prefix when isBot is absent or short, my seat before the username, the voice glow after the username), web only after yourPosition / the username, and the never-shipped TestFlight builds 3-4 tell a bot only by the prefix (V1_REMOVALS #14).',
         reserved: [{ key: 'yourPosition', why: 'iOS reads yourPosition as the viewer seat' }],
         clientReads: reads(W.game, I.game('registerSetupPhase')),
         emittedFrom: ['server/socket/gameHandlers.js:handleDrawComplete'],
@@ -587,7 +588,7 @@ const s2c = {
         status: 'active', to: 'self',
         clientReads: reads([W.game, W.main('onStateSnapshot'), 'client/src/socket/SocketManager.js:probeConnection'], []),
         emittedFrom: ['server/socket/snapshotHandlers.js:requestSnapshot'],
-        notes: 'New in snapshot v2: the reply to requestSnapshot. The log is included unless the request sends log:false; custom (data-URL) seat pictures only with customPics:true (partial lists what was left out). notInGame: the socket is in no live game - also once its game ENDED or ABORTED (the terminal state arrives as gameEnd / abortGame, never as a snapshot).',
+        notes: 'New in snapshot v2: the reply to requestSnapshot. The log is included unless the request sends log:false; no seat carries a picture inline (V1_REMOVALS #19 C: customPic always null, a custom picture is the seat\'s avatarUrl; customPics in the request is ignored and partial never lists \'customPics\'). notInGame: the socket is in no live game - also once its game ENDED or ABORTED (the terminal state arrives as gameEnd / abortGame, never as a snapshot).',
     },
     rejoinFailed: {
         payload: obj({ reason: str() }),
@@ -639,7 +640,7 @@ const s2c = {
         payload: obj({ position: ref('position'), username: str(), pic: ref('pic'), avatarUrl: ref('avatarUrl') }, { optional: ['avatarUrl'] }),
         status: 'active', to: 'room', seq: false,
         added: ['avatarUrl'],
-        notes: 'One room broadcast: pic is the legacy value (the small inline WebP for a custom picture); avatarUrl (additive, only with a rendition) is preferred by capable clients.',
+        notes: 'One room broadcast: pic is a stock number or null; a custom picture is only avatarUrl (additive, only with a rendition; V1_REMOVALS #19 A).',
         clientReads: reads(W.game, I.game('registerSpectatorAndLazy')),
         emittedFrom: ['server/socket/seatLifecycle.js:goActive'],
     },
@@ -717,7 +718,7 @@ const s2c = {
         payload: okFail({ leaderboard: arr(ref('leaderboardRow')), avatarUrls: ref('avatarUrlsByUsername'), scope: statsScope }, { optional: ['avatarUrls', 'scope'], failScope: true }),
         status: 'active', to: 'self',
         added: ['avatarUrls', 'scope'],
-        notes: 'Rows by recipient (docs/avatars.md): a capable socket gets customProfilePic null + avatarUrls {username: url}; a legacy one the small inline rendition. The App Store iOS build reads neither; the next iOS build (after 1.2.0 build 6) shows avatarUrls[username], else the stock profilePic, in Stats. ' + SCOPE_ECHO_NOTE,
+        notes: 'Every row has customProfilePic null; custom pictures are avatarUrls {username: url} (V1_REMOVALS #19 B, docs/avatars.md). iOS 1.2.0 (build 6, the App Store build) shows no leaderboard picture; the next iOS build (after 1.2.0 build 6) shows avatarUrls[username], else the stock profilePic, in Stats. ' + SCOPE_ECHO_NOTE,
         clientReads: reads(W.board, I.board),
         emittedFrom: ['server/socket/profileHandlers.js:getLeaderboard'],
     },

@@ -2,9 +2,9 @@
  * V1_REMOVALS #9: the snapshot carriers (rejoinSuccess, restorePlayerState,
  * the spectator full state) send the v2 snapshot plus only the v1 keys a
  * client still reads (snapshotHandlers.carrierFor):
- *   - players[] {position, username, pic}: iOS 1.2.0's R5 custom-picture
- *     fallback (the carrier snapshot withholds custom pictures); web lets
- *     it win for names (its socketId went with V1_REMOVALS #14);
+ *   - players[] {position, username, pic}: iOS 1.2.0 reads pic, web lets
+ *     it win for names (its socketId went with V1_REMOVALS #14; since #19
+ *     A pic is a stock number or null);
  *   - gameId, isLazy (rejoinSuccess), trump (spectator): a pre-#233 web
  *     page routes on them;
  *   - tournamentId (rejoinSuccess), avatarUrls (capable, with a URL).
@@ -96,17 +96,22 @@ function newSocket(t, username) {
 const mine = (t, s, event) => t.log.filter((l) => l.to === `self:${s.id}` && l.event === event).map((l) => l.data);
 const keys = (d) => Object.keys(d).sort();
 
-/** players[] as every carrier sends it: the seat display identity, no socket id (#14). */
+/**
+ * players[] as every carrier sends it: the seat display identity, no socket
+ * id (#14), and no inline picture (#19 A: a custom picture's slot is null,
+ * its URL in avatarUrls once a rendition exists; the pipeline is off here).
+ */
 function expectPlayers(t, data) {
     expect(data.players).toEqual([1, 2, 3, 4].map((pos) => {
         const p = t.game.getPlayerByPosition(pos);
-        return { position: pos, username: p.username, pic: p.pic };
+        return { position: pos, username: p.username, pic: typeof p.pic === 'number' ? p.pic : null };
     }));
-    // the reason players[] stays: the carrier snapshot withholds the custom picture (R5)
+    expect(data.players.find((p) => p.position === 2).pic).toBeNull();
+    expect(JSON.stringify(data)).not.toContain(CUSTOM);
+    // the snapshot carries no inline picture either (#19 C)
     const seat2 = data.snapshot.seats.find((s) => s.position === 2);
     expect(seat2).toMatchObject({ hasCustomPic: true, customPic: null });
-    expect(data.snapshot.partial).toContain('customPics');
-    expect(data.players.find((p) => p.position === 2).pic).toBe(CUSTOM);
+    expect(data.snapshot.partial || []).not.toContain('customPics');
 }
 
 test('rejoinSuccess (reconnectOwner): gameId, players, isLazy, tournamentId, snapshot', async () => {

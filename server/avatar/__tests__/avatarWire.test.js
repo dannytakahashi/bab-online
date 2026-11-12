@@ -1,15 +1,13 @@
 /**
- * server/avatar/avatarWire.js: the full matrix of picture kinds x
- * recipients x modes. Invariant I1 (docs/avatars.md): a legacy recipient
- * never sees a URL in a pic slot; every custom slot it gets is a data URL
- * the shipped iOS app decodes, today's raw stored string, or the
- * placeholder. Avatar keys are omitted when there is no URL; a slot is null
- * only for a capable recipient with a URL.
+ * server/avatar/avatarWire.js: the full matrix of picture kinds, since
+ * contract/V1_REMOVALS.md #19 (2026-11-12): no payload carries a picture
+ * inline. A picture slot is a stock number or null for EVERY recipient; a
+ * custom picture is only its URL (avatarUrls / avatarUrl), when its
+ * rendition exists. Avatar keys are omitted when there is no URL.
  */
 
 const store = require('../avatarStore');
 const wire = require('../avatarWire');
-const { PLACEHOLDER_INLINE } = require('../placeholder');
 const fx = require('../../testUtils/avatarFixtures');
 const { logger } = require('../../utils/logger');
 
@@ -48,96 +46,82 @@ async function primed() {
     };
 }
 
-async function legacyOk(value, kind, stored) {
-    if (value === stored) return true;                           // today's value (b)
-    if (value === PLACEHOLDER_INLINE) return kind === 'hostile'; // (c)
-    return typeof value === 'string' && fx.I1_RE.test(value) && await fx.iosLegacyDecodes(value); // (a)
-}
-
-test.each(['derived', 'raw'])('matrix with AVATAR_LEGACY_INLINE=%s', async (mode) => {
+test('matrix: a URL only for a derived custom picture; every slot a stock number or null (#19 A)', async () => {
     const kinds = await primed();
-    store.configure({ legacyInline: mode });
-    const want = {
-        number: { url: false, legacy: 'same' },
-        null: { url: false, legacy: 'same' },
-        raw: { url: false, legacy: 'same' },
-        ok: { url: true, legacy: mode === 'raw' ? 'same' : 'derived' },
-        hostile: { url: false, legacy: 'placeholder' },
-        undecodable: { url: false, legacy: 'same' },
-    };
+    const want = { number: [false, 12], null: [false, null], raw: [false, null], ok: [true, null], hostile: [false, null], undecodable: [false, null] };
     for (const [kind, { username, pic }] of Object.entries(kinds)) {
         const r = wire.resolve(pic, username);
-        const got = {
-            url: !!r.url,
-            legacy: r.legacy === pic ? 'same' : r.legacy === PLACEHOLDER_INLINE ? 'placeholder' : 'derived',
-        };
-        expect({ kind, ...got }).toEqual({ kind, ...want[kind] });
+        expect(Object.keys(r)).toEqual(['url']);
+        expect({ kind, url: !!r.url, slot: wire.slot(pic) }).toEqual({ kind, url: want[kind][0], slot: want[kind][1] });
         if (r.url) expect(r.url).toBe(`/avatar/${username}?v=${store.versionOf(pic)}`);
-        // I1 for the legacy slot, every kind
-        expect({ kind, ok: await legacyOk(wire.slot(r, false), kind, pic) }).toEqual({ kind, ok: true });
-        expect(String(wire.slot(r, false))).not.toMatch(/^\/avatar\//);
-        // slot null only for capable with a URL
-        expect(wire.slot(r, true) === null).toBe(!!r.url || pic === null);
     }
-    // the first resolve of an unseen picture started its derive (pending, raw on the wire)
+    // the first resolve of an unseen picture started its derive (pending: no URL yet)
     expect(store.peek(store.versionOf(OK2))).toBeDefined();
+    // a slot is never a string, whatever comes in
+    for (const v of ['5', '/avatar/x?v=0123456789abcdef', OK, undefined, {}]) expect(wire.slot(v)).toBeNull();
 });
 
-test('derived legacy inline is much smaller than the stored picture', async () => {
-    await primed();
-    const r = wire.resolve(OK, 'ok');
-    expect(r.legacy.length).toBeLessThan(16384);
-    expect(r.legacy.length * 5).toBeLessThan(OK.length);
-});
-
-test('pipeline off: every kind resolves to exactly today\'s value, no URL', async () => {
+test('pipeline off: no URL for any kind, and still no inline picture', async () => {
     await primed();
     store.configure({ enabled: false });
-    for (const pic of [12, null, OK, HOSTILE(), TINY]) expect(wire.resolve(pic, 'ok')).toEqual({ legacy: pic, url: null });
+    for (const pic of [12, null, OK, HOSTILE(), TINY]) expect(wire.resolve(pic, 'ok')).toEqual({ url: null });
+    expect(wire.mapPlayers(null, [{ position: 1, username: 'ok', pic: OK }])).toEqual({ players: [{ position: 1, username: 'ok', pic: null }], avatarUrls: undefined });
 });
 
-test('mapPlayers / wireClientState per recipient kind; keys omitted without a URL; inputs never mutated', async () => {
+test('mapPlayers / wireClientState: one shape for everyone; keys omitted without a URL; inputs never mutated', async () => {
     await primed();
     const players = [
-        { position: 1, username: 'ok', pic: OK, socketId: 's1' },
-        { position: 2, username: 'num', pic: 7, socketId: 's2' },
-        { position: 3, username: 'hostile', pic: HOSTILE(), socketId: 's3' },
-        { position: 4, username: 'undecodable', pic: TINY, socketId: 's4' },
+        { position: 1, username: 'ok', pic: OK },
+        { position: 2, username: 'num', pic: 7 },
+        { position: 3, username: 'hostile', pic: HOSTILE() },
+        { position: 4, username: 'undecodable', pic: TINY },
     ];
     const frozen = JSON.stringify(players);
     const game = { avatarVersions: new Map([['ok', store.versionOf(OK)]]) };
     const url = `/avatar/ok?v=${store.versionOf(OK)}`;
 
-    const cap = wire.mapPlayers(game, players, 'capable');
-    expect(cap.players.map((p) => p.pic)).toEqual([null, 7, PLACEHOLDER_INLINE, TINY]);
-    expect(cap.avatarUrls).toEqual({ 1: url });
-    const leg = wire.mapPlayers(game, players, 'legacy');
-    expect(leg.avatarUrls).toBeUndefined();
-    expect(await fx.iosLegacyDecodes(leg.players[0].pic)).toBe(true);
-    const bc = wire.mapPlayers(game, players, 'broadcast');
-    expect(bc.players[0].pic).toBe(leg.players[0].pic);
-    expect(bc.avatarUrls).toEqual({ 1: url });
+    const m = wire.mapPlayers(game, players);
+    expect(m.players.map((p) => p.pic)).toEqual([null, 7, null, null]);
+    expect(m.avatarUrls).toEqual({ 1: url });
+    expect(m.players[1]).toBe(players[1]); // a stock seat is shared, not copied
     expect(JSON.stringify(players)).toBe(frozen);
 
     const state = { gameId: 'g', players, phase: 'bidding' };
-    const cs = wire.wireClientState(game, state, true);
+    const cs = wire.wireClientState(game, state);
     expect(Object.keys(cs)).toEqual(['gameId', 'players', 'phase', 'avatarUrls']);
-    expect(Object.keys(wire.wireClientState(game, state, false))).toEqual(['gameId', 'players', 'phase']);
-    // no custom picture with a URL: no avatar keys for anyone
-    const plain = { players: [players[1], players[3]] };
-    expect(wire.wireClientState(game, plain, true)).toEqual(plain);
+    // no custom picture at all: the same content, no avatar keys
+    const plain = { players: [players[1]] };
+    expect(wire.wireClientState(game, plain)).toEqual(plain);
+    // a custom picture without a URL: the slot is still null, no avatarUrls
+    const noUrl = wire.wireClientState(game, { players: [players[3]] });
+    expect(noUrl).toEqual({ players: [{ ...players[3], pic: null }] });
     expect(JSON.stringify(players)).toBe(frozen);
 });
 
-test('a transient derive failure resolves to today\'s stored value with no URL, and gets its URL once re-derived', async () => {
+test('mapProfileRows: customProfilePic null on every row, URLs by username (#19 B)', async () => {
+    await primed();
+    const rows = [
+        { username: 'ok', profilePic: 3, customProfilePic: OK },
+        { username: 'num', profilePic: 4, customProfilePic: null },
+        { username: 'hostile', profilePic: 5, customProfilePic: HOSTILE() },
+    ];
+    const frozen = JSON.stringify(rows);
+    const m = await wire.mapProfileRows(rows);
+    expect(m.rows.map((r) => r.customProfilePic)).toEqual([null, null, null]);
+    expect(m.rows[1]).toBe(rows[1]);
+    expect(m.avatarUrls).toEqual({ ok: `/avatar/ok?v=${store.versionOf(OK)}` });
+    expect(JSON.stringify(rows)).toBe(frozen);
+});
+
+test('a transient derive failure has no URL (slot null), and gets its URL once re-derived', async () => {
     let t = 1_000_000;
     store.configure({ enabled: true, now: () => t });
     const image = require('../image');
     jest.spyOn(image, 'derive').mockResolvedValueOnce({ status: 'error' });
     await store.ensure('kim', OK);
-    expect(wire.resolve(OK, 'kim')).toEqual({ legacy: OK, url: null });
-    expect(wire.mapPlayers(null, [{ position: 1, username: 'kim', pic: OK }], 'capable'))
-        .toEqual({ players: [{ position: 1, username: 'kim', pic: OK }], avatarUrls: undefined });
+    expect(wire.resolve(OK, 'kim')).toEqual({ url: null });
+    expect(wire.mapPlayers(null, [{ position: 1, username: 'kim', pic: OK }]))
+        .toEqual({ players: [{ position: 1, username: 'kim', pic: null }], avatarUrls: undefined });
     t += store.ERROR_TTL_MS;
     expect(wire.resolve(OK, 'kim').url).toBeNull(); // expired: warm restarts the derive
     await store.ensure('kim', OK);
@@ -154,4 +138,11 @@ test('names are percent-encoded in URLs', async () => {
     expect(v(wire.resolve(OK, 'Zoë & co').url)).toEqual([]);
     expect(v('http://evil/avatar/x?v=0123456789abcdef').length).toBeGreaterThan(0);
     expect(v('data:image/png;base64,AAAA').length).toBeGreaterThan(0);
+});
+
+test('the legacy inline machinery is gone (#19 D)', () => {
+    expect(wire).not.toHaveProperty('legacy');
+    expect(store).not.toHaveProperty('legacyInlineMode');
+    expect(require('../../config').avatar).not.toHaveProperty('legacyInline');
+    expect(() => require('../placeholder')).toThrow();
 });

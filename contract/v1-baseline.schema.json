@@ -178,7 +178,6 @@
     "pic": {
       "type": [
         "integer",
-        "string",
         "null"
       ]
     },
@@ -685,10 +684,7 @@
           "type": "integer"
         },
         "customProfilePic": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": "null"
         },
         "stats": {
           "type": "object",
@@ -734,10 +730,7 @@
           "type": "integer"
         },
         "customProfilePic": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": "null"
         },
         "gamesPlayed": {
           "type": "integer"
