@@ -183,6 +183,13 @@
     transform: translate(-50%, 0);
 }
 
+/* A restart for an update (serverShutdown): expected and short, so calm
+   text instead of the warning colour */
+.connection-banner.is-restart {
+    border-color: var(--line-strong);
+    color: var(--text-primary);
+}
+
 @media (prefers-reduced-motion: reduce) {
     .connection-banner,
     .connection-banner.visible {

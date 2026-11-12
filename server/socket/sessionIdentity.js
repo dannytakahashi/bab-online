@@ -32,12 +32,37 @@
  * lobby seat if that is still held for it (clearSuperseded). A parked
  * socket that signs in as another account gives its held seat up at once
  * (releaseIdentity).
+ *
+ * The other tab closed (2026-11-11, session-quirks follow-up): when the
+ * user's LIVE socket disconnects while a parked socket of that same user
+ * is still connected, the parked socket(s) are told `sessionSuperseded
+ * {reason: 'otherClosed'}` (additive variant; web: "The other BAB Online
+ * tab was closed. Use here to continue.") OTHER_CLOSED_DELAY_MS later, and
+ * only if no socket holds the session by then: a reload of the active tab
+ * drops its old socket and re-takes the session within moments, so it
+ * never flashes. Nothing is taken back by itself (the parked tab still
+ * waits for Use here, else a reload of the other tab would flip-flop);
+ * when a socket takes the session after that, the parked ones told
+ * 'otherClosed' are told 'newerConnection' again (reparkClosedNotices).
+ * Only that user's own parked sockets are told. iOS 1.1.0 never has a
+ * parked socket (it never shares a token between live sockets).
+ * Limitation (review 2026-11-12): a parked tab never restores, so after
+ * its socket reconnects (a deploy, a network blip) the new socket has no
+ * data.username / data.superseded and parkedSocketsOf cannot find it: it
+ * is told nothing more (the web notice then says only that the other tab
+ * may still be open). Profile Sign Out is client-only (no token revoked):
+ * a parked web tab signs itself out when the device's saved session is
+ * gone, before it offers to continue.
  */
 
 const gameManager = require('../game/GameManager');
 const { authLogger } = require('../utils/logger');
 
 const SUPERSEDED_REASON = 'newerConnection';
+const OTHER_CLOSED_REASON = 'otherClosed';
+// Long enough for a reload of the active tab to re-take the session
+const OTHER_CLOSED_DELAY_MS = 2000;
+const otherClosedTimers = new Map(); // username -> timeout
 // Events a parked socket may still send: taking the session back, or
 // signing in as someone else
 const ALLOWED_WHILE_SUPERSEDED = new Set(['restoreSession', 'signIn', 'signUp', 'clientHello']);
@@ -92,7 +117,8 @@ async function releaseIdentity(io, socket, nextUsername) {
         const expired = gameManager.releaseHeldLobbySeat(socket.id);
         if (expired) require('./lobbyHandlers').lobbySeatExpired(io, expired, { tellOld: false });
         const { handleDisconnect } = require('./queueHandlers');
-        await handleDisconnect(socket, io, { lobbyGrace: false });
+        // (the socket stays connected: no 'otherClosed' for its parked tabs)
+        await handleDisconnect(socket, io, { lobbyGrace: false, closed: false });
     } catch (error) {
         authLogger.error('Releasing the previous identity failed', { from: previous, error: error.message });
     }
@@ -203,10 +229,102 @@ function supersededGate(socket) {
         const now = Date.now();
         if (!parked.noticeAt || now - parked.noticeAt >= REFUSAL_EVERY_MS) {
             parked.noticeAt = now;
-            socket.emit('sessionSuperseded', { reason: SUPERSEDED_REASON, refused: String(event).slice(0, 64) });
+            // the reason it was last told: a refusal never changes its text
+            socket.emit('sessionSuperseded', { reason: parked.reason || SUPERSEDED_REASON, refused: String(event).slice(0, 64) });
         }
         return undefined;
     };
+}
+
+/** The user's parked (told, not pending) sockets that are still connected. */
+function parkedSocketsOf(io, username, exceptId = null) {
+    const sockets = io?.sockets?.sockets;
+    if (!sockets || username == null) return [];
+    const out = [];
+    for (const s of sockets.values()) {
+        if (!s || s.id === exceptId || s.connected === false || !s.data) continue;
+        if (s.data.username !== username) continue;
+        const parked = s.data.superseded;
+        if (!parked || parked.pending) continue;
+        // registered: that is the live socket, not a parked one
+        if (gameManager.getUserBySocketId(s.id)) continue;
+        out.push(s);
+    }
+    return out;
+}
+
+/** Does a connected socket hold the user's session (registered as them)? */
+function hasLiveSocket(io, username) {
+    const entry = gameManager.currentUsers.find((u) => u.username === username);
+    if (!entry) return false;
+    const live = io?.sockets?.sockets?.get(entry.socketId);
+    return Boolean(live) && live.connected !== false;
+}
+
+function cancelOtherClosed(username) {
+    const timer = otherClosedTimers.get(username);
+    if (timer) clearTimeout(timer);
+    otherClosedTimers.delete(username);
+}
+
+/**
+ * queueHandlers.handleDisconnect, for a socket that closed (not one
+ * switching accounts): when it was `username`'s live socket and a parked
+ * socket of that user is still connected, tell the parked ones the other
+ * tab closed, OTHER_CLOSED_DELAY_MS from now (see the header).
+ * @returns {boolean} whether the notice was scheduled
+ */
+function liveSocketClosed(io, socket, username) {
+    if (username == null || !socket || socket.data?.superseded) return false;
+    if (parkedSocketsOf(io, username, socket.id).length === 0) return false;
+    cancelOtherClosed(username);
+    const timer = setTimeout(() => {
+        otherClosedTimers.delete(username);
+        tellOtherClosed(io, username);
+    }, OTHER_CLOSED_DELAY_MS);
+    timer.unref?.();
+    otherClosedTimers.set(username, timer);
+    return true;
+}
+
+/** The delay is over: nobody holds the session, so the parked sockets are told. */
+function tellOtherClosed(io, username) {
+    if (hasLiveSocket(io, username)) return 0;
+    let told = 0;
+    for (const s of parkedSocketsOf(io, username)) {
+        if (s.data.superseded.reason === OTHER_CLOSED_REASON) continue;
+        s.data.superseded.reason = OTHER_CLOSED_REASON;
+        s.emit('sessionSuperseded', { reason: OTHER_CLOSED_REASON });
+        told++;
+    }
+    if (told) authLogger.info('Parked connection told the live one closed', { username, told });
+    return told;
+}
+
+/**
+ * A sign-in / restore stands on `bySocket`: a socket holds the session
+ * again, so the parked ones told 'otherClosed' are told 'newerConnection'
+ * (the web notice says "open in another tab" again) and any pending
+ * 'otherClosed' is dropped.
+ */
+function reparkClosedNotices(io, bySocket) {
+    const username = bySocket?.data?.username;
+    if (username == null) return 0;
+    cancelOtherClosed(username);
+    let told = 0;
+    for (const s of parkedSocketsOf(io, username, bySocket.id)) {
+        if (s.data.superseded.reason !== OTHER_CLOSED_REASON) continue;
+        s.data.superseded = { by: bySocket.id, at: Date.now() };
+        s.emit('sessionSuperseded', { reason: SUPERSEDED_REASON });
+        told++;
+    }
+    return told;
+}
+
+/** For tests. */
+function _resetOtherClosedTimers() {
+    for (const timer of otherClosedTimers.values()) clearTimeout(timer);
+    otherClosedTimers.clear();
 }
 
 module.exports = {
@@ -218,6 +336,12 @@ module.exports = {
     confirmSupersede,
     clearSuperseded,
     supersededGate,
+    liveSocketClosed,
+    tellOtherClosed,
+    reparkClosedNotices,
+    _resetOtherClosedTimers,
     ALLOWED_WHILE_SUPERSEDED,
-    SUPERSEDED_REASON
+    SUPERSEDED_REASON,
+    OTHER_CLOSED_REASON,
+    OTHER_CLOSED_DELAY_MS
 };

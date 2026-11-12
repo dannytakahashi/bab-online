@@ -8,7 +8,7 @@
  * The server keeps one token per device (see server/utils/sessionTokens.js).
  */
 
-const SAVED_SESSION_KEY = 'bab.savedSession';
+export const SAVED_SESSION_KEY = 'bab.savedSession';
 
 function readSaved() {
   try {
@@ -55,6 +55,24 @@ export function adoptSavedSession() {
     sessionStorage.setItem('username', saved.username);
     sessionStorage.setItem('sessionToken', saved.sessionToken);
     return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Was this device signed out? True when localStorage can be read and holds
+ * no saved session (Profile Sign Out, or a delete, in any tab clears it;
+ * every sign-in writes it). Storage that throws says nothing: false.
+ * A parked tab checks it before it offers to continue (review 2026-11-12):
+ * its own sessionStorage copy of the session must not outlive a sign-out.
+ */
+export function isDeviceSignedOut() {
+  try {
+    const raw = localStorage.getItem(SAVED_SESSION_KEY);
+    if (raw == null) return true;
+    const saved = JSON.parse(raw);
+    return !(saved && saved.username && saved.sessionToken);
   } catch {
     return false;
   }

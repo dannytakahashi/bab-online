@@ -690,11 +690,15 @@ export class ClientSession {
 
   /**
    * An error while re-entering a tournament after a reload or reconnect: it
-   * is gone. @returns {{tournamentId: string, spectator: boolean}|null}
+   * is gone. The tournament route it was is over too, so a requestMainRoom
+   * after it goes out (a failed spectateTournament gets only the error: a
+   * route still "in flight" left a blank main room, review 2026-11-12).
+   * @returns {{tournamentId: string, spectator: boolean}|null}
    */
   takePendingTournamentRejoin() {
     const id = this._pendingTournamentRejoin;
     this._pendingTournamentRejoin = null;
+    if (id && this._routeInFlight?.kind === 'tournament') this._routeInFlight = null;
     return id;
   }
 

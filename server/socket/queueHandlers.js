@@ -8,6 +8,7 @@ const { socketLogger } = require('../utils/logger');
 const { emitLobbiesUpdated } = require('./gameLifecycle');
 const { disconnectOwner } = require('./seatLifecycle');
 const { lobbySeatSuspended, lobbySeatExpired } = require('./lobbyHandlers');
+const sessionIdentity = require('./sessionIdentity');
 
 /**
  * A socket disconnected: drop it from the main room / lobby / tournament /
@@ -23,9 +24,12 @@ const { lobbySeatSuspended, lobbySeatExpired } = require('./lobbyHandlers');
  * same lobby and seat. sessionIdentity.releaseIdentity passes false (the
  * player switched accounts: the seat goes at once).
  */
-async function handleDisconnect(socket, io, { lobbyGrace = true } = {}) {
+async function handleDisconnect(socket, io, { lobbyGrace = true, closed = true } = {}) {
     // Resolve the name before the socket's entry can go away
     const user = gameManager.getUserBySocketId(socket.id);
+    // The user's live socket closed: a parked tab of theirs is told (after
+    // a short delay, if nothing took the session back: sessionIdentity)
+    if (closed && user) sessionIdentity.liveSocketClosed(io, socket, user.username);
     const onlineBefore = gameManager.getOnlineUsernames().length;
     const result = gameManager.handleDisconnect(socket.id, {
         lobbyGrace,
