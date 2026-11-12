@@ -771,7 +771,7 @@ const s2c = {
         payload: obj({ username: str(), players: arr(ref('tournamentPlayer')), newCreator: orNull(str()) }, { optional: ['username'] }),
         status: 'active', to: 'tournament',
         clientReads: reads(W.tour, I.tour),
-        emittedFrom: ['server/socket/tournamentHandlers.js:leaveTournament', 'server/socket/queueHandlers.js:handleDisconnect'],
+        emittedFrom: ['server/socket/tournamentHandlers.js:leaveTournament', 'server/socket/queueHandlers.js:handleDisconnect', 'server/socket/tournamentHandlers.js:releaseStaleTournamentSeat'],
         notes: 'username is absent when the leaver had no registered user (user?.username).',
     },
     tournamentReadyUpdate: {
@@ -823,7 +823,7 @@ const s2c = {
         payload: empty,
         status: 'active', to: 'self',
         clientReads: reads(W.tour, I.tour),
-        emittedFrom: ['server/socket/tournamentHandlers.js:leaveTournament', 'server/socket/tournamentHandlers.js:returnToTournament', 'server/socket/upgradeGate.js:replyLeave'],
+        emittedFrom: ['server/socket/tournamentHandlers.js:leaveTournament', 'server/socket/tournamentHandlers.js:returnToTournament', 'server/socket/upgradeGate.js:replyLeave', 'server/socket/tournamentHandlers.js:releaseStaleTournamentSeat'],
     },
     tournamentCancelled: {
         payload: empty,

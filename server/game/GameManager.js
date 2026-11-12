@@ -1325,6 +1325,10 @@ class GameManager {
         if (this.playerTournaments.has(socketId)) {
             return { success: false, error: 'Already in a tournament' };
         }
+        // One tournament per user: a membership an older socket of theirs
+        // still holds (half-open reconnect, a parked tab)
+        const stale = this.giveUpStaleTournament(user.username, socketId);
+        if (stale.refused) return { success: false, error: 'Already in a tournament' };
 
         const tournamentId = uuidv4();
         const tournament = new TournamentState(tournamentId, name, socketId, user.username);
@@ -1336,7 +1340,7 @@ class GameManager {
         // Leave main room
         this.leaveMainRoom(socketId);
 
-        return { success: true, tournament };
+        return { success: true, tournament, evicted: stale.evicted };
     }
 
     /**
@@ -1378,6 +1382,9 @@ class GameManager {
         if (tournament.phase !== 'lobby') {
             return { success: false, error: 'Tournament is not accepting players' };
         }
+        // One tournament per user (another one an older socket still holds)
+        const stale = this.giveUpStaleTournament(user.username, socketId);
+        if (stale.refused) return { success: false, error: 'Already in a tournament' };
 
         tournament.addPlayer(socketId, user.username, null);
         this.playerTournaments.set(socketId, tournamentId);
@@ -1385,7 +1392,43 @@ class GameManager {
         // Leave main room
         this.leaveMainRoom(socketId);
 
-        return { success: true, tournament };
+        return { success: true, tournament, evicted: stale.evicted };
+    }
+
+    /**
+     * A live tournament `username` belongs to from a socket other than
+     * `socketId` (the same tournament reattaches by username in
+     * joinTournament; this is for creating or joining ANOTHER one).
+     * @returns {{tournament, oldSocketId}|null}
+     */
+    findStaleTournamentMembership(username, socketId) {
+        if (!username) return null;
+        for (const tournament of this.tournaments.values()) {
+            if (tournament.phase === 'complete') continue;
+            for (const [sid, player] of tournament.players) {
+                if (player.username === username && sid !== socketId) return { tournament, oldSocketId: sid };
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Before `socketId` creates or joins another tournament: a membership
+     * the user holds from an older socket is given up as a leave while that
+     * tournament is still in its lobby (as a lobby seat is,
+     * evictStaleLobbySeat); once it has begun, the new one is refused (the
+     * player belongs at that table: sign-in and restore route them back).
+     * @returns {{refused: boolean, evicted: ({oldSocketId, tournament, leaveResult}|null)}}
+     */
+    giveUpStaleTournament(username, socketId) {
+        const stale = this.findStaleTournamentMembership(username, socketId);
+        if (!stale) return { refused: false, evicted: null };
+        if (stale.tournament.phase !== 'lobby') return { refused: true, evicted: null };
+        this.playerTournaments.set(stale.oldSocketId, stale.tournament.tournamentId);
+        return {
+            refused: false,
+            evicted: { oldSocketId: stale.oldSocketId, tournament: stale.tournament, leaveResult: this.leaveTournament(stale.oldSocketId) },
+        };
     }
 
     /**
