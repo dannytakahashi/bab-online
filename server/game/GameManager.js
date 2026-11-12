@@ -61,12 +61,18 @@ class GameManager {
     static MAX_MAIN_ROOM_MESSAGES = 50;
 
     /**
-     * Register a logged-in user
+     * Register a logged-in user. One entry per username AND one per socket:
+     * a socket that was signed in as another account is that account no
+     * longer (sessionIdentity.releaseIdentity tears the old identity down
+     * first). Returns the socket id the name was registered on before, when
+     * it was another socket (the caller tells that socket it was replaced).
+     * @returns {string|null}
      */
     registerUser(socketId, username) {
-        // Remove any existing entry for this username
-        this.currentUsers = this.currentUsers.filter(u => u.username !== username);
+        const previous = this.currentUsers.find(u => u.username === username);
+        this.currentUsers = this.currentUsers.filter(u => u.username !== username && u.socketId !== socketId);
         this.currentUsers.push({ username, socketId });
+        return previous && previous.socketId !== socketId ? previous.socketId : null;
     }
 
     /** Forget a (dead) socket's signed-in user entry. */
