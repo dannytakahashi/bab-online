@@ -427,7 +427,8 @@ describe('R11/R12 lazy bots are ordinary BotController bots (srv-15)', () => {
         await jest.advanceTimersByTimeAsync(5000);
         const played = events(u.log, 'cardPlayed');
         expect(played).toHaveLength(1);
-        expect(played[0].data).toMatchObject({ playerId: uBot, position: 1 });
+        expect(played[0].data).toMatchObject({ position: 1 });
+        expect(u.game.positions[1]).toBe(uBot); // the lazy bot played it
     });
 });
 

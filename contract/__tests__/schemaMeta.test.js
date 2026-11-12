@@ -67,8 +67,9 @@ test('reserved keys are absent from their event unless activated', () => {
             expect({ name, key, present: keys.includes(key) }).toEqual({ name, key, present: false });
         }
     }
-    // cardPlayed.trump stays a Bool (it means trumpBroken)
-    expect(schema.s2c.cardPlayed.payload.properties.trump.type).toBe('boolean');
+    // cardPlayed: trumpBroken is a Bool; the old trump Bool is gone (V1_REMOVALS #10)
+    expect(schema.s2c.cardPlayed.payload.properties.trumpBroken.type).toBe('boolean');
+    expect(schema.s2c.cardPlayed.payload.properties.trump).toBeUndefined();
     // gameLogEntry: only 'system' entries may omit playerPosition
     const gle = schema.s2c.gameLogEntry.payload;
     expect(gle.properties.type.const === 'system' || (gle.required || []).includes('playerPosition')).toBe(true);

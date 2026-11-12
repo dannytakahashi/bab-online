@@ -3867,25 +3867,16 @@
       "payload": {
         "type": "object",
         "properties": {
-          "playerId": {
-            "type": "string"
-          },
           "card": {
             "$ref": "#/$defs/card"
           },
           "position": {
             "$ref": "#/$defs/position"
-          },
-          "trump": {
-            "type": "boolean",
-            "description": "trumpBroken after this card"
           }
         },
         "required": [
-          "playerId",
           "card",
-          "position",
-          "trump"
+          "position"
         ],
         "additionalProperties": false
       },

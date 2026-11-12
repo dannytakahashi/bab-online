@@ -442,14 +442,14 @@ const s2c = {
     },
     cardPlayed: {
         payload: obj({
-            playerId: str(), card: ref('card'), position: ref('position'), trump: bool({ description: 'trumpBroken after this card' }),
+            card: ref('card'), position: ref('position'),
             trumpBroken: bool({ description: 'trump is broken after this card' }),
             resumeInMs: int({ minimum: 0, description: 'Only on the card that completes a trick: TRICK_VIEW_MS until trickComplete' }),
         }, { optional: ['resumeInMs'] }),
         status: 'active', to: 'room', seq: false,
         added: ['resumeInMs', 'trumpBroken'],
         activates: ['trumpBroken'],
-        notes: 'resumeInMs (additive, relative; contract/README.md "Resume holds") only on the 4th card of a trick; built by GameState.cardPlayedPayload for both emit sites. trumpBroken (V1_REMOVALS #10, 2026-11-11): its reservation was for iOS 1.0.0 only (gated); 1.1.0 decodes trumpBroken ?? trump (WirePayloads.CardPlayed, TableReducer+Events) and web GameState.applyCardPlayed reads either.',
+        notes: 'resumeInMs (additive, relative; contract/README.md "Resume holds") only on the 4th card of a trick; built by GameState.cardPlayedPayload for both emit sites. trumpBroken (V1_REMOVALS #10, 2026-11-11): its reservation was for iOS 1.0.0 only (gated); 1.1.0 decodes trumpBroken ?? trump (WirePayloads.CardPlayed, TableReducer+Events) and web GameState.applyCardPlayed reads either. The `trump` Bool it replaced and `playerId` (a socket id read by neither client) were dropped the same day.',
         clientReads: reads([W.game, 'client/src/state/GameState.js:applyCardPlayed#reads:trumpBroken'], [I.game('handleCardPlayed'), 'iOSClient/BABOnline/State/Table/TableReducer+Events.swift:cardPlayed#reads:trumpBroken']),
         emittedFrom: ['server/socket/gameHandlers.js:playCard', 'server/game/bot/BotController.js:processBotPlay'],
     },

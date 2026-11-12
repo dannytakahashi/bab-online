@@ -820,7 +820,7 @@ async function playCard(socket, io, data) {
         game.isTrumpBroken = true;
     }
 
-    game.broadcast(io, 'cardPlayed', game.cardPlayedPayload(socket.id, card, position));
+    game.broadcast(io, 'cardPlayed', game.cardPlayedPayload(card, position));
 
     // Notify bots about this card play
     botController.notifyCardPlayed(game.gameId, card, position, game.trump, game.leadPosition);

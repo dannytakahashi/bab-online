@@ -12,9 +12,9 @@ afterEach(() => contractCheck.takeViolations());
 
 test('a valid emit passes, a bad one is reported with event and path', () => {
     const log = contractCheck.instrument([]);
-    log.push({ to: 'game:x', event: 'cardPlayed', data: { playerId: 'a', card, position: 1, trump: false, trumpBroken: false, seq: 1 } });
+    log.push({ to: 'game:x', event: 'cardPlayed', data: { card, position: 1, trumpBroken: false, seq: 1 } });
     expect(contractCheck.takeViolations()).toEqual([]);
-    log.push({ to: 'game:x', event: 'cardPlayed', data: { playerId: 'a', card, position: 5, trump: false, trumpBroken: 'no', seq: 2 } });
+    log.push({ to: 'game:x', event: 'cardPlayed', data: { card, position: 5, trumpBroken: 'no', seq: 2 } });
     const [v] = contractCheck.takeViolations();
     expect(v.event).toBe('cardPlayed');
     expect(v.errors.map((e) => e.path)).toEqual(expect.arrayContaining(['$.position', '$.trumpBroken']));

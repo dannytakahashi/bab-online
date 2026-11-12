@@ -354,10 +354,11 @@ class GameState {
      * card that completes a trick carries resumeInMs (additive): how long
      * the server holds the full trick before trickComplete.
      */
-    cardPlayedPayload(playerId, card, position) {
+    cardPlayedPayload(card, position) {
         // trumpBroken: the name both 1.1.0 (trumpBroken ?? trump) and web
-        // read; its 1.0.0-only reservation is lifted (V1_REMOVALS #10)
-        const payload = { playerId, card, position, trump: this.isTrumpBroken, trumpBroken: this.isTrumpBroken };
+        // read. The old `trump` Bool and `playerId` (a socket id no client
+        // read) are gone (V1_REMOVALS #10)
+        const payload = { card, position, trumpBroken: this.isTrumpBroken };
         if (this.playedCardsIndex === 4) payload.resumeInMs = pacing(this).TRICK_VIEW_MS;
         return payload;
     }

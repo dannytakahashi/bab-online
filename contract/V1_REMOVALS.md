@@ -187,6 +187,16 @@ decoded but never read. Web (item 16) does not render from v2 yet.
 
 ### 10. `cardPlayed.trump` → `trumpBroken`; drop `playerId`
 
+**Done 2026-11-11 (PR #TBD), two commits:** first `trumpBroken` is sent
+beside `trump` (the reservation was for 1.0.0 only), then `trump` and
+`playerId` are dropped: cardPlayed is `{card, position, trumpBroken,
+resumeInMs?, seq}` (`GameState.cardPlayedPayload(card, position)`).
+Re-checked first: 1.1.0 (f05d264) `WirePayloads.CardPlayed` decodes both
+names and `TableReducer+Events` takes `trumpBroken ?? trump`; web
+`GameState.applyCardPlayed` reads either; neither reads `playerId` (1.1.0's
+`playerId` is its own socket id, from AuthSocketHandler). iOS event
+fixtures re-recorded; web `soloPacing.test.js` tells bot leads by seat.
+
 `trump` is a Bool meaning "trump is broken" (iOS GameSocketHandler.swift:531
 reads `trumpBroken` first, then `trump`). Rename in the new builds; drop
 `playerId` (a socket id).
@@ -425,7 +435,8 @@ step, in this order; nothing is removed by the gate PR itself.
    decodes `trumpBroken ?? trump` (WirePayloads.CardPlayed) and web
    `GameState.applyCardPlayed` reads either. `trumpBroken` is in the
    event's `reserved` list only for 1.0.0, so: lift the reservation and send
-   `trumpBroken`, then drop `trump`. `playerId` is read by neither.
+   `trumpBroken`, then drop `trump`. `playerId` is read by neither. **Done
+   2026-11-11 (PR #TBD).**
 6. **#11 `bidReceived.bid` always a string**: 1.1.0 still SENDS numeric
    bids as an Int (`GameEmitter.playerBid` → `String(bid)` →
    `LiveGameEmitter.playerBidPayload`, which turns a numeric string back into
