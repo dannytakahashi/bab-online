@@ -534,7 +534,9 @@ failures arrive as `error` and/or `serverError`.
   included), spectating, a lobby, a tournament lobby, a tournament game; the
   main room, sign-in and a finished casual game lose nothing) and the
   ConnectionStatusToast reads "Restarting for an update…" (VoiceOver
-  announcement) until the socket is back (8 s with no disconnect drops it).
+  announcement) until the socket is back (a `.reconnectAttempt` counts as the
+  drop: Socket.IO-Client-Swift sends no `.disconnect` when the server closes
+  the connection and reconnects by itself; 8 s with neither drops the toast).
   After the reconnect the restore paths report: `lost` (restoreSession with
   no activeGameId / activeTournamentId, a failed restore, signIn to the main
   room, rejoinFailed, a `not_in_game` stateSnapshot, tournamentLeft) or
