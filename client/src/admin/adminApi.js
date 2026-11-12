@@ -60,8 +60,10 @@ export function createAdminApi(socket, { timeoutMs = REQUEST_TIMEOUT_MS, rateLim
   };
   socket.on(SERVER_EVENTS.ADMIN_RESPONSE, onResponse);
 
+  // `error` {type} today and its `serverError` {code} twin (V1_REMOVALS #1;
+  // phase B sends only serverError): either one re-arms the same timers
   const onError = (err) => {
-    if (!err || err.type !== 'rateLimit' || err.handler !== CLIENT_EVENTS.ADMIN_REQUEST) return;
+    if (!err || (err.type ?? err.code) !== 'rateLimit' || err.handler !== CLIENT_EVENTS.ADMIN_REQUEST) return;
     for (const [requestId, p] of pending) {
       clearTimeout(p.timer);
       p.timer = setTimeout(() => {
@@ -71,6 +73,7 @@ export function createAdminApi(socket, { timeoutMs = REQUEST_TIMEOUT_MS, rateLim
     }
   };
   socket.on(SERVER_EVENTS.ERROR, onError);
+  socket.on(SERVER_EVENTS.SERVER_ERROR, onError);
 
   function request(action, args = {}) {
     const requestId = `adm-${Date.now().toString(36)}-${++seq}`;
@@ -87,6 +90,7 @@ export function createAdminApi(socket, { timeoutMs = REQUEST_TIMEOUT_MS, rateLim
   function dispose() {
     socket.off(SERVER_EVENTS.ADMIN_RESPONSE, onResponse);
     socket.off(SERVER_EVENTS.ERROR, onError);
+    socket.off(SERVER_EVENTS.SERVER_ERROR, onError);
     for (const [, p] of pending) {
       clearTimeout(p.timer);
       p.reject(new Error('closed'));

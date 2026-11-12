@@ -38,7 +38,6 @@ export function registerAllHandlers(socketManager, callbacks = {}) {
     onLobbiesUpdated,
     onMainRoomPlayerJoined,
     onLobbyCreated,
-    onLobbyJoined,
     onPlayerReadyUpdate,
     onLobbyMessage,
     onLobbyPlayerLeft,
@@ -65,7 +64,6 @@ export function registerAllHandlers(socketManager, callbacks = {}) {
     onRainbow,
     onDestroyHands,
     onAbortGame,
-    onRoomFull,
     onPlayerDisconnected,
     onPlayerReconnected,
     onRejoinSuccess,
@@ -112,7 +110,6 @@ export function registerAllHandlers(socketManager, callbacks = {}) {
     onTournamentComplete,
     onTournamentLeft,
     onTournamentCancelled,
-    onActiveTournamentFound,
   } = callbacks;
 
   // Register auth handlers
@@ -134,7 +131,6 @@ export function registerAllHandlers(socketManager, callbacks = {}) {
     onLobbiesUpdated,
     onMainRoomPlayerJoined,
     onLobbyCreated,
-    onLobbyJoined,
     onPlayerReadyUpdate,
     onLobbyMessage,
     onLobbyPlayerLeft,
@@ -163,7 +159,6 @@ export function registerAllHandlers(socketManager, callbacks = {}) {
     onRainbow,
     onDestroyHands,
     onAbortGame,
-    onRoomFull,
     onPlayerDisconnected,
     onPlayerReconnected,
     onRejoinSuccess,
@@ -227,7 +222,6 @@ export function registerAllHandlers(socketManager, callbacks = {}) {
     onTournamentComplete,
     onTournamentLeft,
     onTournamentCancelled,
-    onActiveTournamentFound,
   });
 }
 

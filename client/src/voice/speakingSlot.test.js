@@ -33,3 +33,29 @@ describe('speakingSlotFor', () => {
     expect(speakingSlotFor({ username: 'bob', socketId: 'x', playerData: pd, myPosition: 3 })).toBe('opp2');
   });
 });
+
+describe('speakingSlotFor without socket ids on the wire (V1_REMOVALS #6 / #14)', () => {
+  // what GameState holds once gameStart.players and positionUpdate.sockets are gone
+  const noSockets = { position: [1, 2, 3, 4], socket: [null, null, null, null], username: playerData.username };
+  const owners = { 1: 'me', 2: 'bob', 3: 'cat', 4: 'dan' };
+
+  it('maps every peer by username alone', () => {
+    expect(speakingSlotFor({ username: 'cat', socketId: 'x', playerData: noSockets, myPosition: 1, owners })).toBe('partner');
+    expect(speakingSlotFor({ username: 'bob', socketId: 'x', playerData: noSockets, myPosition: 1, owners })).toBe('opp1');
+    expect(speakingSlotFor({ username: 'dan', socketId: 'x', playerData: noSockets, myPosition: 1, owners })).toBe('opp2');
+  });
+
+  it('a lazy owner (a bot plays the seat, the owner still talks) lights the seat by its owner', () => {
+    const lazy = { ...noSockets, username: [{ username: 'me' }, { username: 'Bot Mary' }, { username: 'cat' }, { username: 'dan' }] };
+    expect(speakingSlotFor({ username: 'bob', socketId: 's-bob2', playerData: lazy, myPosition: 1, owners })).toBe('opp1');
+  });
+
+  it('the owner wins over a stale socket id another seat lists', () => {
+    expect(speakingSlotFor({ username: 'dan', socketId: 's-bob', playerData, myPosition: 1, owners })).toBe('opp2');
+  });
+
+  it('no owners known (an older page state): the shown name, then the socket id, as before', () => {
+    expect(speakingSlotFor({ username: 'cat', socketId: 'x', playerData, myPosition: 1, owners: {} })).toBe('partner');
+    expect(speakingSlotFor({ username: null, socketId: 's-dan', playerData, myPosition: 1, owners: {} })).toBe('opp2');
+  });
+});

@@ -100,6 +100,27 @@ describe('server event -> handler map', () => {
     expect(overlap).toEqual([]);
   });
 
+  it('no listener for an event the server never sends, but activeGameFound (V1_REMOVALS #3)', () => {
+    const root = existsSync(resolve(process.cwd(), 'contract')) ? process.cwd() : resolve(process.cwd(), '..');
+    const schema = JSON.parse(readFileSync(resolve(root, 'contract/events.schema.json'), 'utf8'));
+    const neverSent = Object.entries(schema.s2c).filter(([, e]) => e.status === 'clientOnly').map(([name]) => name);
+    expect(neverSent).toEqual(expect.arrayContaining(['lobbyJoined', 'roomFull', 'activeTournamentFound', 'activeGameFound']));
+    const heard = (e) => managed.has(e) || (listeners.get(e) || []).length > 0;
+    // activeGameFound stays: a possible server hook to nudge an old app back into its game
+    expect(neverSent.filter((e) => e !== 'activeGameFound' && heard(e))).toEqual([]);
+    expect(heard('activeGameFound')).toBe(true);
+  });
+
+  it('no playerAssigned listener: my seat comes from positionUpdate / gameStart / the snapshot (V1_REMOVALS #7)', () => {
+    expect(managed.has('playerAssigned')).toBe(false);
+    expect((listeners.get('playerAssigned') || []).length).toBe(0);
+  });
+
+  it('app-level errors are heard on both channels, error and serverError (V1_REMOVALS #1)', () => {
+    expect((listeners.get('error') || []).length).toBeGreaterThan(0);
+    expect((listeners.get('serverError') || []).length).toBeGreaterThan(0);
+  });
+
   it('setGameScene adds no handler functions to the scene (GameScene owns them all)', () => {
     const scene = new GameScene();
     const before = new Set(Object.keys(scene));
