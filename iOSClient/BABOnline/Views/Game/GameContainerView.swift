@@ -352,7 +352,7 @@ private struct GameScreen: View {
         }
     }
 
-    /// The bid panel and HSI / voice, placed from the layout in the full pane's coordinates.
+    /// The bid panel and my seat's row (HSI / voice), placed from the layout in the full pane's coordinates.
     private func layoutOverlays(_ layout: TableLayout, full: CGSize) -> some View {
                 ZStack(alignment: .topLeading) {
                     Color.clear.allowsHitTesting(false)
@@ -371,10 +371,12 @@ private struct GameScreen: View {
                     if showsTable {
                         pipsAccessibility(layout)
                     }
+                    // my seat's row (my pips are the scene's; HSI and voice here); on my bid turn
+                    // the panel covers its spot and shows HSI itself (BidOverlayView)
                     if showsTable && !showsBidOverlay {
-                        accessory(layout)
+                        seatRow(layout)
                     }
-                    // hidden under my bid panel's turn, as HSI / voice (the panel may span its spot)
+                    // hidden under my bid panel's turn, as my seat's row (the panel may span its spot)
                     if showsTable && !showsBidOverlay && gameState.watching.count > 0 {
                         spectatorBadge(layout)
                     }
@@ -528,29 +530,52 @@ private struct GameScreen: View {
     @State private var leaveSize: CGSize = .zero
     @State private var logSize: CGSize = .zero
 
-    // MARK: - HSI + voice (layout.accessory, right of my trick slot)
+    // MARK: - My seat's row: my pips (the scene's), HSI, voice (layout.seatRow)
 
+    /// HSI and the voice button at their slots of my seat's row (TableLayout+SeatRow.swift):
+    /// side by side after my pips (`.row`) or beside the column of my pips over HSI
+    /// (`.compact`), the button following HSI; each at its own slot in `.narrow` / `.stacked`.
     @ViewBuilder
-    private func accessory(_ layout: TableLayout) -> some View {
-        let rect = layout.window(layout.accessory)
-        let hsi: Double? = gameState.isSpectator ? nil : gameState.position.flatMap { gameState.hsiValues[$0] }
+    private func seatRow(_ layout: TableLayout) -> some View {
+        let row = layout.seatRow
+        let hsi = gameState.myHSI
+        #if DEBUG
+        let voice = voiceManager.isActive || UIFixture.showsVoiceButton
+        #else
         let voice = voiceManager.isActive
-        if hsi != nil || voice {
-            Group {
-                if layout.accessoryStacked {
-                    VStack(alignment: .leading, spacing: 6) { accessoryItems(hsi: hsi, voice: voice) }
-                } else {
-                    HStack(spacing: 6) { accessoryItems(hsi: hsi, voice: voice) }
+        #endif
+        if row.voiceFollowsHSI {
+            if hsi != nil || voice {
+                let rect = layout.window(row.hsi.union(row.voice))
+                let compact = row.mode == .compact
+                HStack(alignment: compact ? .bottom : .center,
+                       spacing: compact ? TableLayout.seatRowColumnSpacing : TableLayout.seatRowSpacing) {
+                    // the button keeps its slot whatever HSI reads, or with none
+                    SeatRowHSISlot(value: hsi)
+                    if voice { VoiceMuteButton(onLongPress: { showVoicePanel = true }) }
                 }
+                .frame(width: rect.width, height: rect.height, alignment: compact ? .bottomLeading : .leading)
+                .offset(x: rect.minX, y: rect.minY)
             }
-            .frame(width: rect.width, height: rect.height, alignment: .bottomLeading)
-            .offset(x: rect.minX, y: rect.minY)
+        } else {
+            if let hsi {
+                let rect = layout.window(row.hsi)
+                HSIBadge(value: hsi)
+                    .frame(width: rect.width, height: rect.height, alignment: .leading)
+                    .offset(x: rect.minX, y: rect.minY)
+            }
+            if voice {
+                let rect = layout.window(row.voice)
+                VoiceMuteButton(onLongPress: { showVoicePanel = true })
+                    .frame(width: rect.width, height: rect.height)
+                    .offset(x: rect.minX, y: rect.minY)
+            }
         }
     }
 
     // MARK: - Trick pips for VoiceOver (the scene draws them; SeatPips)
 
-    /// One element per seat whose bid counts, over the seat (or, mine, over my pips' box): "Ann: 2 of 3 tricks",
+    /// One element per seat whose bid counts, over the seat (or, mine, over my pips' box in my seat's row): "Ann: 2 of 3 tricks",
     /// "Your tricks: Team 7 of 10, bore", "Bo: Bid 0, no tricks". Taps go through to the table.
     @ViewBuilder
     private func pipsAccessibility(_ layout: TableLayout) -> some View {
@@ -586,16 +611,6 @@ private struct GameScreen: View {
         return SpectatorBadgeView(watching: gameState.watching, myUsername: gameState.username)
             .frame(width: rect.width, height: rect.height, alignment: .trailing)
             .offset(x: rect.minX, y: rect.minY)
-    }
-
-    @ViewBuilder
-    private func accessoryItems(hsi: Double?, voice: Bool) -> some View {
-        if let hsi {
-            HSIBadge(value: hsi)
-        }
-        if voice {
-            VoiceMuteButton(onLongPress: { showVoicePanel = true })
-        }
     }
 
     // MARK: - Spectator / lazy pill (bottom)
@@ -653,24 +668,51 @@ private struct GameScreen: View {
     }
 }
 
-/// "HSI 119.2", 11 pt monospaced (fits the layout's accessory rect beside the voice button):
-/// the web's HSI box (text.secondary on the seat-plate glass).
-struct HSIBadge: View {
-    let value: Double
+/// HSI's slot in my seat's row (TableLayout.hsiSize wide, the badge leading-aligned in it), so
+/// the voice button after it (`.row`, `.compact`) never moves with the text's width; with no
+/// value the slot stays empty.
+struct SeatRowHSISlot: View {
+    let value: Double?
 
     var body: some View {
-        Text("HSI \(String(format: "%.1f", value))")
+        if let value {
+            HSIBadge(value: value).frame(width: TableLayout.hsiSize.width, alignment: .leading)
+        } else {
+            Color.clear.frame(width: TableLayout.hsiSize.width, height: 1).accessibilityHidden(true)
+        }
+    }
+}
+
+/// "HSI 119.2", 11 pt monospaced, in my seat's row beside the voice button (TableLayout.hsiSize
+/// is its largest): the web's HSI box (text.secondary on the seat-plate glass). `.panel` is the
+/// same text inside the bid panel (no box: the panel is the surface, and a box there would read
+/// as one more button). VoiceOver reads both "Hand strength index 119.2".
+struct HSIBadge: View {
+    enum Style { case table, panel }
+    let value: Double
+    var style: Style = .table
+
+    /// "HSI 119.2".
+    static func text(_ value: Double) -> String { "HSI \(String(format: "%.1f", value))" }
+    /// "Hand strength index 119.2" (VoiceOver: "HSI" is not a word).
+    static func spoken(_ value: Double) -> String { "Hand strength index \(String(format: "%.1f", value))" }
+
+    var body: some View {
+        Text(Self.text(value))
             .font(.caption2.monospaced())
-            .dynamicTypeSize(...DynamicTypeSize.large)  // the accessory rect is sized for 11 pt
+            .dynamicTypeSize(...DynamicTypeSize.large)  // the row's HSI slot (and the panel's row) is sized for 11 pt
             .foregroundColor(Theme.textSecondary)
             .padding(.horizontal, 6)
             .padding(.vertical, 3)
-            .background(Theme.Palette.Surface.s2.opacity(0.86).color)
+            .background(style == .table ? Theme.Palette.Surface.s2.opacity(0.86).color : Color.clear)
             .cornerRadius(Theme.Radius.sm)
             .overlay(
                 RoundedRectangle(cornerRadius: Theme.Radius.sm)
-                    .stroke(Theme.inputBorder, lineWidth: 1)
+                    .stroke(style == .table ? Theme.inputBorder : Color.clear, lineWidth: 1)
             )
             .fixedSize()
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Self.spoken(value))
+            .accessibilityIdentifier(style == .table ? "hsi" : "bidOverlay.hsi")
     }
 }

@@ -42,7 +42,8 @@ class GameSKScene: SKScene, TableRenderer {
     let opponentsLayer = SKNode()
     let bidsLayer = SKNode()
     let transientLayer = SKNode()
-    /// My own seat's trick pips (I have no avatar): at `layout.myPips`, in the opponents layer.
+    /// My own seat's trick pips (I have no avatar): in my seat's row at `layout.myPips`
+    /// (`layout.myPipsCenter`), in the opponents layer.
     let myPipsNode = SeatPipsNode(style: .box)
     private(set) var cardManager: SKCardManager!
     private(set) var opponentManager: SKOpponentManager!
@@ -290,7 +291,7 @@ class GameSKScene: SKScene, TableRenderer {
         handNode.position = layout.handBaseline
         handNode.setScale(layout.handScale)
         trickManager.trickHistory.position = layout.historyOrigin
-        myPipsNode.position = CGPoint(x: layout.myPips.midX, y: layout.myPips.midY)
+        placeMyPips()
         // Game over: the final table stays behind GameEndView (as before 23)
         if model.keepsLastTable { return .init() }
         guard model.showsTable else {
@@ -299,6 +300,7 @@ class GameSKScene: SKScene, TableRenderer {
             trickArea.clearAllCards()
             trickManager.trickHistory.setCounts(team: 0, opp: 0, spacing: layout.historySpacing, totals: .some(nil))
             myPipsNode.update(nil, team: 1)
+            placeMyPips()
             bidManager.cleanup()
             return .init()
         }
@@ -333,8 +335,16 @@ class GameSKScene: SKScene, TableRenderer {
                                             totals: .some(model.pileTotals.map { (team: $0.team1, opp: $0.team2) }),
                                             myTeam: Positions.getTeamNumber(me))
         myPipsNode.update(model.myPips, team: Positions.getTeamNumber(me))
+        placeMyPips()
         bidManager.apply(bubbles: model.bidBubbles, viewPosition: me, layout: layout)
         return changes
+    }
+
+    /// My pips' pill in my seat's row, against its neighbour (TableLayout.myPipsCenter); an
+    /// empty node waits at its box's centre (a pure function of what it shows: idempotent).
+    private func placeMyPips() {
+        let slots = myPipsNode.pips?.slots ?? 0
+        myPipsNode.position = slots > 0 ? layout.myPipsCenter(slots: slots) : CGPoint(x: layout.myPips.midX, y: layout.myPips.midY)
     }
 
     #if DEBUG

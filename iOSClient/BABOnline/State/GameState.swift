@@ -168,6 +168,9 @@ final class GameState: ObservableObject {
     var drawResults: [DrawResult] { table.phase.draw?.results ?? [] }
     var teamsAnnounced: TeamsAnnounced? { table.phase.draw?.teams }
     var hsiValues: [Int: Double] { table.hsi }
+    /// My seat's HSI (my seat's row, the bid panel); nil for a pure spectator (no seat) or
+    /// before the deal's values arrive.
+    var myHSI: Double? { isSpectator ? nil : position.flatMap { hsiValues[$0] } }
 
     var disconnectedPlayers: [Int: String] { players.disconnected }
     /// The "Replace with Bot" offer, only while its seat is still resignable (the reducer

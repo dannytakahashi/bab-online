@@ -35,6 +35,10 @@ enum UIFixture {
             return ["username": parts[0], "message": parts[1], "isSpectator": true]
         }
 
+    /// `-uiVoice YES`: my seat's row shows the voice button as if voice were on (fixture mode
+    /// never starts voice; screenshots and the seat-row UI tests).
+    static let showsVoiceButton: Bool = isActive && UserDefaults.standard.bool(forKey: "uiVoice")
+
     static let screenFixtures: Set<String> = ["main-room", "game-lobby", "tournament-lobby", "tournament-round",
                                               "tournament-between", "sign-in"]
 

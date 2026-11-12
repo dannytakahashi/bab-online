@@ -1,11 +1,20 @@
 import SwiftUI
 
 /// Bidding UI — bottom sheet with bid grid and bore buttons.
+///
+/// My HSI shows in the bottom row, centred in the gap between the bore button and
+/// Submit (owner, 2026-11-12: my seat's row, where HSI usually is, hides under the
+/// panel on my bid turn). It is an overlay of that gap, so it never moves or shrinks
+/// a button; where the gap is too narrow for it (none of today's sizes) it moves to
+/// a header line above the grid instead.
 struct BidOverlayView: View {
     @EnvironmentObject var gameState: GameState
     @EnvironmentObject var actions: ActionCoordinator
 
     @State private var selectedBid: String?
+    /// The bottom row's gap between the bore button and Submit, and HSI's width (measured).
+    @State private var gapWidth: CGFloat = .infinity
+    @State private var hsiWidth: CGFloat = 0
 
     /// Sent, waiting for bidReceived (or a reject): no second submit.
     private var isSubmitted: Bool { gameState.myTurn.isSubmitted }
@@ -27,8 +36,21 @@ struct BidOverlayView: View {
     static let face: CGFloat = 40
     static let rowHeight: CGFloat = 40
 
+    /// Room HSI keeps on each side in the gap.
+    static let hsiMargin: CGFloat = Theme.Space.s2
+
+    /// HSI goes in the bottom row's gap when it fits there with `hsiMargin` each side, else in the header.
+    static func hsiFitsRow(gap: CGFloat, hsi: CGFloat) -> Bool { hsi + 2 * hsiMargin <= gap + 0.5 }
+
+    private var hsiInHeader: Bool { gameState.myHSI != nil && !Self.hsiFitsRow(gap: gapWidth, hsi: hsiWidth) }
+
     var body: some View {
         VStack(spacing: 2) {
+            if hsiInHeader, let hsi = gameState.myHSI {
+                HSIBadge(value: hsi, style: .panel)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .padding(.horizontal, Theme.Space.s2)
+            }
             // Fixed-width bid grid: at most 7 cells a row (7 x 44 + padding fits the 340 x 140 bid band)
             let columns = Array(repeating: GridItem(.fixed(Self.cell), spacing: 0), count: min(maxBid + 1, 7))
 
@@ -69,7 +91,18 @@ struct BidOverlayView: View {
                     }
                 }
 
-                Spacer()
+                // the gap (a Spacer's 8 pt minimum); HSI is an overlay of it, so the buttons never move
+                Color.clear
+                    .frame(minWidth: 8, maxWidth: .infinity, maxHeight: Self.rowHeight)
+                    .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { gapWidth = $0 }
+                    .overlay {
+                        if let hsi = gameState.myHSI {
+                            HSIBadge(value: hsi, style: .panel)
+                                .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { hsiWidth = $0 }
+                                .opacity(hsiInHeader ? 0 : 1)
+                                .accessibilityHidden(hsiInHeader)
+                        }
+                    }
 
                 // Submit button
                 Button(action: submitBid) {

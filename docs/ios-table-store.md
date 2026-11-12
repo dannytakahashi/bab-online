@@ -99,9 +99,10 @@ from the card size) is centered between the floor (lifted hand + 6, or the
 tabletop fold + 6) and the partner (below the top bar and the corner
 buttons); side seats sit at the table radius in a "row" (beside the
 cluster) or "raised" (above the side cards) mode; the history goes left of
-my trick slot (Q2), HSI + voice right of it (Q3, a 124 x 48 row or an 84 x 76
-stack, kept clear of the right seat's bid bubble), my bid bubble left of my
-slot. A book fold puts the cluster on the wider page and keeps the seats off
+my trick slot (Q2), room for my seat's row right of it (Q3, `accessory`: a
+124 x 48 row or an 84 x 76 stack, kept clear of the right seat's bid bubble;
+the row itself is `seatRow`, see "My seat's row" under iOS 1.2.0), my bid
+bubble left of my slot. A book fold puts the cluster on the wider page and keeps the seats off
 the hinge, a spectator's bottom seat included (it sits under the cluster);
 a seated player's 13-card hand and the bid band are wider than a page and
 span the hinge. A tabletop fold puts the table above it (the cluster rises
@@ -410,12 +411,14 @@ card survives fold and unfold, the trick collects across a fold.
   sprite per seat. Opponent seats are built once per layout and reload only when
   the picture changes (item 23).
 
-## iOS 1.2.0 (build 3): the release after 1.1.0 (roadmap 29 track)
+## iOS 1.2.0 (build 4): the release after 1.1.0 (roadmap 29 track)
 
-Version: `MARKETING_VERSION` 1.2.0, `CURRENT_PROJECT_VERSION` 3 (Info.plist
-reads them; `ReleaseMetadataTests` pins build >= 3). The upgrade gate gates
-only builds < 2, so build 3 is current (`upgradeGate.test.js` "1.2.0 (build
-3) is current"). It works against today's server and against the server
+Version: `MARKETING_VERSION` 1.2.0, `CURRENT_PROJECT_VERSION` 4 (Info.plist
+reads them; `ReleaseMetadataTests` pins build >= 4). Build 3 was uploaded but
+never submitted; build 4 adds the owner's two changes from the screenshots
+(2026-11-12: my pips in my seat's row, HSI in the bid panel; below). The
+upgrade gate gates only builds < 2, so builds 3 and 4 are current
+(`upgradeGate.test.js` "1.2.0 (build 3) is current"; MIN_IOS_BUILD 2). It works against today's server and against the server
 after the V1 removals: `cardPlayed` is read as `trumpBroken ?? trump`, chat
 routes on `isSpectator` (`type` only for an older server), and the server's
 failures arrive as `error` and/or `serverError`.
@@ -435,13 +438,14 @@ failures arrive as `error` and/or `serverError`.
   "(you)", scrolling past 8 rows, "and N more" past the server's 50) placed at
   `TableLayout.spectatorBadge(spectating:)` (`TableLayout+Spectators.swift`, a
   pure function of the solved layout; it does not move anything else):
-  seated, right of HSI / voice, else above it at the right edge, else the
+  seated, right of my seat's row, else above it at the right edge (both 8 pt
+  from the row), else the
   nearest clear spot along the edges; spectating (no hand), the bottom-right
-  corner above the pill. It keeps clear of the hand, the accessory's content,
+  corner above the pill. It keeps clear of the hand, my seat's row (by 8 pt),
   the trick cards, every seat (glow, name, bid bubble), the history and the
   corner buttons; on a packed table (375 x 667 at zero insets) it may cover
   a bid bubble or the history, never the rest; the bid band is exempt: like
-  HSI / voice, the badge hides while my bid panel shows. A spectator's chat (`isSpectator`, with or without a
+  my seat's row, the badge hides while my bid panel shows. A spectator's chat (`isSpectator`, with or without a
   position: a watching owner's line has none) is
   `TableAnimation.spectatorChatBubble` -> `SKChatBubbleManager.showSpectator`:
   "Name: text" in a green bubble (`spectatorFill`, white text, at most 200 pt
@@ -529,15 +533,11 @@ failures arrive as `error` and/or `serverError`.
   accented capital), 45 degrees apart or closer, centred on the top and
   filled clockwise from the left end; and, for my own seat (no avatar), a
   pill of one row up to 7, else two balanced rows (8: 4 + 4, 13: 7 + 6;
-  `myPipRows`) in a 56 x 20 box at `TableLayout.myPips`
-  (`TableLayout+Pips.swift`: where my bid bubble was, else up beside my trick
-  slot, under it, right of it above HSI / voice, else the nearest clear
-  spot; clear of the hand, HSI / voice, the trick cards, the 13-wide
-  history (by 8 pt past its border plus 2 pt of stroke: `myPipsHistoryKeep`;
-  the closed Duo's box sat on the pile's top edge before 1.2.0 (3)), every
-  seat and its bubble and the corner buttons; the bid band and my bubble are
-  exempt: my pips show once my bubble is gone; the spectator badge and its
-  bubble keep clear of it). VoiceOver: an invisible element per seat whose
+  `myPipRows`) in a 56 x 20 box at `TableLayout.myPips`, the first item of
+  my seat's row just above my hand (build 4; see "My seat's row" below; in
+  build 3 the box sat where my bid bubble was, left of my trick slot); the
+  pill sits against its neighbour in the box (`myPipsCenter`). My pips show
+  once my bubble is gone. VoiceOver: an invisible element per seat whose
   bid counts, over its footprint ("Ann: 2 of 3 tricks", "Bo: 0 of 1 trick",
   "Cy: Bid 0, no tricks" (a 0 bid draws no slots: `spokenPips`), "Your
   tricks: Team 7 of 10, bore"; identifiers `pips.<position>` / `pips.mine`).
@@ -612,7 +612,7 @@ failures arrive as `error` and/or `serverError`.
   accessibilityLabel).
 - **Disconnect banner**: `TableLayout.disconnectBanner(height:spectating:)`
   (`TableLayout+Banner.swift`) gives the highest full-width strip clear of
-  every seat, the trick cards, the history, the hand, HSI / voice, my pips,
+  every seat, the trick cards, the history, the hand, my seat's row (pips, HSI, voice),
   the bid band, the badge and the corner buttons: a wide window (the iPad)
   shows the banner there, off the avatars. A phone has no such strip (the
   partner sits right above the cluster, the side seats and the cluster fill
@@ -620,7 +620,55 @@ failures arrive as `error` and/or `serverError`.
   buttons, over the partner: making room would shrink the table for a
   transient banner.
 
+- **My seat's row** (build 4, owner 2026-11-12: "the pip counter for your
+  own hand, it might be nicer to have it next to your hand"): everything about
+  my own seat reads as one group just above my hand, on the right of my trick
+  slot: my pips, then HSI, then the voice button (`TableLayout+SeatRow.swift`,
+  `TableLayout.seatRow`, derived from the solved layout without moving
+  anything else). It starts 8 pt right of my trick slot and 8 pt above my
+  lifted hand (in a tabletop pose below the fold, with the hand), and keeps
+  8 pt (`seatRowGap`) from the trick cards, the piles as drawn, every other
+  seat (glow, name, bid bubble, chat bubbles), the corner buttons, the fold
+  and the safe area; the spectator badge, a spectator's chat bubble, my own
+  chat bubble (a lazy owner still chats from my seat, over the pill) and my
+  rainbow keep 8 pt from it (`TableLayout.clearOfSeatRow`: the least move
+  down, left or up). Every slot is reserved at its largest (13 pips 56 x 20,
+  "HSI 999.9" 74 x 20, the 44 pt button), so nothing moves when the pips
+  appear or HSI changes. Forms, the first that fits: `.row` pips | HSI | voice
+  (186 x 44: the iPad, the open Duo, its landscape and docked-log panes);
+  `.compact` my pips over HSI with the button beside the column (122 x 44:
+  every phone, the closed Duo, a book page); `.narrow` HSI over pips | voice
+  (104 x 68: a short iPad Slide Over window); `.stacked` voice, HSI, pips in
+  one column (74 x 92). The pill sits in its box against its neighbour
+  (beside HSI or the button, or on top of HSI). My pips stay a SpriteKit node
+  (`GameSKScene.myPipsNode`, `role` drawing nodes as before); HSI and the
+  button are SwiftUI (`GameContainerView.seatRow`; in `.row` / `.compact` an
+  HStack, the button following HSI's slot, `SeatRowHSISlot`, fixed at 74 pt
+  wide so the button never moves between "HSI 96.2" and "HSI 119.2", nor
+  with no HSI). The "Your tricks" VoiceOver element is over the box.
+  The row hides on my bid turn (the panel covers its spot) and the voice
+  button with it, as before; a spectator has no row (their table is
+  unchanged, pinned by `SeatRowTests.testSpectatorTableUnchanged`).
+  `-uiVoice YES` (fixture mode) shows the button for screenshots.
+- **HSI in the bid panel** (build 4, owner 2026-11-12: "there's no HSI shown
+  on iOS" while bidding, because the row hides then): `BidOverlayView` shows
+  my HSI in its bottom row, centred in the gap between the bore button and
+  Submit, as `HSIBadge(style: .panel)` (the same "HSI 119.2" text in 11 pt
+  mono, text.secondary, without the box: the panel is the surface and a box
+  would read as a button). It is an overlay of the gap (`hsiFitsRow`: 8 pt
+  each side), so it never moves or shrinks a bid button or Submit; where the
+  gap is too narrow it moves to a header line above the grid (no size today
+  needs it). Only with a value for my seat, never for a spectator
+  (`GameState.myHSI`). VoiceOver reads both "Hand strength index 119.2"
+  (`HSIBadge.spoken`; identifiers `hsi` and `bidOverlay.hsi`).
+
 Tests: `BABOnlineTests/Release12Tests.swift`, `ReleaseMetadataTests`,
+`SeatRowTests` (build 4: the row's form, place, order and 8 pt clearances at
+every device, pose, fold and a window sweep; every pip state drawn on the
+scene; the spectator table pinned; HSI text and the panel rule),
+`BABOnlineUITests/SeatRowUITests` (the row's frames on a live table, HSI in
+the bid panel between the bore button and Submit for B / 2B / 3B / 4B,
+Submit where it is without HSI, Dynamic Type xxLarge),
 `ServerEventDecodingTests` (spectatorsUpdated decodes strictly, with no seq),
 `SceneRenderTests.testChatBubbleAppearsInTransient`; the follow-up:
 `SeatPipsTests` (the recorded games replayed into a live scene: seated with a
@@ -630,6 +678,11 @@ at every listed size and Duo pose, `RestartNoticeTests`,
 `SocketLogRedactionTests`, `AccessibilityLabelSourceTests`).
 
 ## Visible changes to review on the next build (1.2.0)
+
+Build 4: my own trick pips moved next to my hand, as one group with HSI and
+the voice button just above the hand on the right (pips, HSI, voice; on a
+phone my pips sit over HSI with the button beside them), and HSI shows inside
+the bid panel between the bore button and Submit while I bid.
 
 An eye with the number of people watching sits by the HSI / voice buttons
 (a spectator: the bottom-right corner); tapping it lists them. A spectator's
