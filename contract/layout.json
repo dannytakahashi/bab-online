@@ -230,7 +230,6 @@
           "disconnect",
           "reconnect_attempt",
           "reconnect_failed",
-          "error",
           "serverShutdown",
           "serverError"
         ]
@@ -581,7 +580,6 @@
       "profilePicUploadResponse": "iOS has no profile / search / upload screens yet (item 22; Records is a Stats tab from the next iOS build)",
       "searchPlayersResponse": "iOS has no profile / search / upload screens yet (item 22; Records is a Stats tab from the next iOS build)",
       "playerProfileResponse": "iOS has no profile / search / upload screens yet (item 22; Records is a Stats tab from the next iOS build)",
-      "error": "app-level 'error' collides with Socket.IO-Client-Swift's own client 'error' event; the rename to serverError is V1_REMOVALS #1",
       "adminRequest": "the admin panel is web only; the iOS app never sends or reads it",
       "adminResponse": "the admin panel is web only; the iOS app never sends or reads it",
       "sessionSuperseded": "web only: iOS 1.1.0 never shares a saved session between live sockets (a different session gets forceLogout); the server never needs it to read this"

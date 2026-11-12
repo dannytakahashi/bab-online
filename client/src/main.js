@@ -27,7 +27,7 @@ import { getClientSession, SCREEN, ROLE, EXIT } from './state/ClientSession.js';
 // Socket
 import { getSocketManager, initializeSocketManager } from './socket/SocketManager.js';
 import { createSocket } from './socket/createSocket.js';
-import { ServerErrorDeduper, CHANNEL, failureOf, TABLE_ERROR_HANDLERS } from './socket/serverErrors.js';
+import { failureOf, TABLE_ERROR_HANDLERS } from './socket/serverErrors.js';
 import { installConnectionBanner } from './ui/components/ConnectionBanner.js';
 import { showSupersededNotice, hideSupersededNotice, isSupersededNoticeShown, setSupersededNoticeVariant, NOTICE_VARIANT } from './ui/components/SupersededNotice.js';
 import { removeTransitionOverlay } from './ui/transitionOverlay.js';
@@ -782,23 +782,17 @@ function initializeApp() {
     }
   });
 
-  // App-level server errors (V1_REMOVALS #1): today's server sends each
-  // one as `error` and then its `serverError {code, message, handler}`
-  // twin; phase B sends only serverError. Both channels lead here, and the
-  // second copy of one failure is dropped (equal handler, as iOS 1.2's
-  // ServerErrorDeduper), so a failure shows one toast and resyncs once.
-  const errorDeduper = new ServerErrorDeduper();
-  const onServerFailure = (channel) => (payload) => {
-    const failure = failureOf(channel, payload);
-    if (!errorDeduper.accept(channel, failure)) return;
+  // App-level server errors: `serverError {code, message, handler}`, one per
+  // failure (V1_REMOVALS #1; the v1 `error` twin is gone since phase B)
+  const onServerFailure = (payload) => {
+    const failure = failureOf(payload);
     routeTableError(failure);
     // A restore finding its place gone (e.g. after a server restart) is
     // expected: logged, not reported as an error
     if (handleSocketError(failure, socket)) console.log('Restore refused:', failure.message);
     else console.error('Server error:', failure);
   };
-  socket.on(CHANNEL.ERROR, onServerFailure(CHANNEL.ERROR));
-  socket.on(CHANNEL.SERVER_ERROR, onServerFailure(CHANNEL.SERVER_ERROR));
+  socket.on('serverError', onServerFailure);
 
   /**
    * A refused table request resyncs the table at once instead of waiting

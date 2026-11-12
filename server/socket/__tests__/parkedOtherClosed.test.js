@@ -125,7 +125,7 @@ describe("the parked tab hears that the other tab closed", () => {
         expect(gameManager.getUserBySocketId(tab1.id)).toBeUndefined();
         jest.advanceTimersByTime(DELAY * 5);
         expect(w.told(tab1.id, from)).toHaveLength(1);
-        expect(w.log.slice(from).filter((l) => l.event === 'error')).toEqual([]);
+        expect(w.log.slice(from).filter((l) => l.event === 'serverError')).toEqual([]);
     });
 
     test('a refusal while told otherClosed carries that reason (the notice keeps its text)', async () => {
@@ -306,6 +306,6 @@ describe("the parked tab hears that the other tab closed", () => {
         expect(game.seat(1)).toMatchObject({ ownerSocketId: tab1b.id, presence: Presence.CONNECTED });
         expect(events(w.log.slice(from), 'rejoinSuccess').some((l) => l.to === `self:${tab1b.id}`)).toBe(true);
         expect(game.stage).not.toBe(Phase.ABORTED);
-        expect(w.log.filter((l) => l.event === 'error')).toEqual([]);
+        expect(w.log.filter((l) => l.event === 'serverError')).toEqual([]);
     });
 });

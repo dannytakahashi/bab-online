@@ -1,5 +1,5 @@
 {
-  "$comment": "Every web [KEY, value] and Swift [name, value] constant at cc865b4. legacyConstants.test.js: each must still exist unchanged. Executed contract/V1_REMOVALS.md entries take theirs out on purpose: #20 VOICE_RELAY_AUDIO (web, both objects; Swift never had it).",
+  "$comment": "Every web [KEY, value] and Swift [name, value] constant at cc865b4. legacyConstants.test.js: each must still exist unchanged. Executed contract/V1_REMOVALS.md entries take theirs out on purpose: #20 VOICE_RELAY_AUDIO (web, both objects; Swift never had it); #1 phase B ERROR (web SERVER_EVENTS; Swift never had it: the name is reserved there).",
   "web": {
     "CLIENT_EVENTS": [
       [
@@ -391,10 +391,6 @@
       [
         "RECONNECT_FAILED",
         "reconnect_failed"
-      ],
-      [
-        "ERROR",
-        "error"
       ],
       [
         "PROFILE_RESPONSE",

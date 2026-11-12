@@ -3,10 +3,11 @@ import XCTest
 
 /// Every recorded server → client event decodes into the typed wire layer.
 final class ServerEventDecodingTests: XCTestCase {
-    /// Events the table store does not decode (voice signalling, the 'error'
-    /// toast, the tournament handler's assignment: a local enterGameContext).
-    /// serverError: handled by SocketService (deduped against its 'error' twin), like 'error', not by the table store
-    static let notStoreEvents: Set<String> = ["voicePeerJoined", "voicePeerList", "error", "tournamentGameAssignment", "serverError"]
+    /// Events the table store does not decode (voice signalling, the serverError
+    /// toast: SocketService.handleServerError, the tournament handler's assignment:
+    /// a local enterGameContext). The app-level 'error' is gone from the wire
+    /// (V1_REMOVALS #1 phase B), so a recording holding one fails as an unknown event.
+    static let notStoreEvents: Set<String> = ["voicePeerJoined", "voicePeerList", "tournamentGameAssignment", "serverError"]
 
     func testEveryRecordedEventDecodesStrictly() throws {
         var counts: [String: Int] = [:]
@@ -18,7 +19,7 @@ final class ServerEventDecodingTests: XCTestCase {
                     let event = try XCTUnwrap(entry["event"] as? String)
                     let payload: [Any] = entry["data"].map { $0 is NSNull ? [] : [$0] } ?? []
                     if Self.notStoreEvents.contains(event) {
-                        if event == "error" {
+                        if event == "serverError" {
                             XCTAssertNoThrow(try Wire.decode(WirePayload.ServerError.self, payload.first, strict: true))
                         }
                         continue

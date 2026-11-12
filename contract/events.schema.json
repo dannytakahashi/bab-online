@@ -10308,105 +10308,6 @@
       ],
       "notes": "Every deploy (SIGTERM -> gracefulShutdown): sent to every socket, which is closed about 1 s later (a transport close, so the clients reconnect by themselves). Kept (owner 2026-11-11, V1_REMOVALS #17): web shows a restart banner and, after reconnect, what ended (the game, the watched game, the lobby or the tournament the player was in; nothing for the main room); the message text is not read. iOS 1.1.0 ignores it (no handler); iOS 1.2 shows a \"Restarting for an update\" toast and, after the restore, one alert for what ended (RestartNotice.swift; the message text is not read)."
     },
-    "error": {
-      "payload": {
-        "anyOf": [
-          {
-            "variant": "handler",
-            "type": "object",
-            "properties": {
-              "type": {
-                "enum": [
-                  "rateLimit",
-                  "validation",
-                  "server"
-                ]
-              },
-              "message": {
-                "type": "string"
-              },
-              "handler": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "type",
-              "message",
-              "handler"
-            ],
-            "additionalProperties": false
-          },
-          {
-            "variant": "validation",
-            "type": "object",
-            "properties": {
-              "type": {
-                "const": "validation"
-              },
-              "message": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "type",
-              "message"
-            ],
-            "additionalProperties": false
-          },
-          {
-            "variant": "message",
-            "type": "object",
-            "properties": {
-              "message": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "message"
-            ],
-            "additionalProperties": false
-          },
-          {
-            "variant": "rejected",
-            "type": "object",
-            "properties": {
-              "message": {
-                "type": "string"
-              },
-              "handler": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "message",
-              "handler"
-            ],
-            "additionalProperties": false
-          }
-        ]
-      },
-      "status": "active",
-      "to": "self",
-      "clientReads": {
-        "web": [
-          "client/src/main.js:onServerFailure",
-          "client/src/admin/adminApi.js:createAdminApi#reads:type,handler"
-        ],
-        "ios": [
-          "iOSClient/BABOnline/Networking/SocketService.swift:connect#reads:message"
-        ]
-      },
-      "emittedFrom": [
-        "server/socket/serverError.js:emitError",
-        "server/socket/errorHandler.js:asyncHandler",
-        "server/socket/errorHandler.js:syncHandler",
-        "server/socket/errorHandler.js:handleError",
-        "server/socket/validators.js:withValidation",
-        "server/socket/*.js:<many handlers> (emitError(socket, {message}, handler))",
-        "server/socket/chatHandlers.js:sendError"
-      ],
-      "notes": "App-level event (not the transport's error). iOS receives it through Socket.IO-Client-Swift's clientEvent .error (the reserved name) and, since 0fd6ef1, shows message as a toast. variant validation is dead today (validators.withValidation has no caller). Every emit (but the dead withValidation) is followed by its serverError twin (V1_REMOVALS #1 phase A, 2026-11-11), with the same handler, so a client reading both channels can drop the second copy: variant rejected (a handler's refusal, {message, handler}) is new with phase A and additive (1.1.0's routeTableError and web act only on handler playCard / playerBid / requestSnapshot, which no refusal names; variant message is what emitError sends without a handler, which no call site does today). handler is the c2s event the error answers on every path (the chat events: mainRoomChat / lobbyChat / tournamentChat, not their shared chatMessage schema). Dropping this event is phase B, blocked only by iOS 1.1.0 (web and iOS 1.2.0 read serverError and drop this twin, 2026-11-12). The admin panel's api (adminApi.js) reads {type:'rateLimit', handler:'adminRequest'} to fail a dropped admin request fast as rate_limited."
-    },
     "serverError": {
       "payload": {
         "type": "object",
@@ -10446,7 +10347,7 @@
         "server/socket/serverError.js:emitError",
         "server/socket/chatHandlers.js:sendError"
       ],
-      "notes": "V1_REMOVALS #1 phase A (2026-11-11, additive): the twin of every app-level error, sent right after it to the same socket. code: rateLimit / validation / server (the error's type) or rejected (a handler's {message} refusal); message: the error's message; handler: the c2s event it answers (the registered socket.on name: errorHandler options.event, else the schema; or the handler that refused), the same as on its error copy, null when unknown. Read by web (2026-11-12: main.js onServerFailure and adminApi listen to both channels and drop the twin with an equal handler, client/src/socket/serverErrors.js) and iOS 1.2.0 (ServerErrorDeduper), not by iOS 1.1.0; its own name because Socket.IO-Client-Swift reserves 'error'. Once 1.1.0 is gated, phase B drops error."
+      "notes": "Every app-level server error (V1_REMOVALS #1): the wrappers' rate limit / Joi validation / unexpected exception, a handler's refusal, a chat command error. Phase A (2026-11-11) added it as the twin of the v1 `error`; phase B (2026-11-12, once iOS 1.1.0 was gated) dropped `error`, so this is the only copy. code: rateLimit / validation / server, or rejected (a handler's {message} refusal); handler: the c2s event it answers (the registered socket.on name: errorHandler options.event, else the schema; or the handler that refused; the chat events: mainRoomChat / lobbyChat / tournamentChat, in-game chat chatMessage), null when unknown. Read by web (main.js onServerFailure: a toast, and a table resync for playCard / playerBid / requestSnapshot; adminApi.js fails a dropped admin request fast as rate_limited on {code:'rateLimit', handler:'adminRequest'}) and iOS 1.2.0 (SocketService handleServerError: toast + routeTableError); its own name because Socket.IO-Client-Swift reserves 'error' for transport errors (clientEvent .error, which 1.2.0 still listens to for those). Gated builds 1 and 2 never get it (upgradeGate.js registers no handler for them)."
     }
   },
   "builtins": {

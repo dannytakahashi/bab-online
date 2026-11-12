@@ -21,8 +21,7 @@ afterEach(() => vi.useRealTimers());
 
 describe('adminApi rate limit', () => {
   for (const [label, events] of [
-    ['serverError alone (phase B)', [['serverError', { code: 'rateLimit', message: 'Too many requests', handler: 'adminRequest' }]]],
-    ['both copies', [['error', { type: 'rateLimit', message: 'Too many requests', handler: 'adminRequest' }], ['serverError', { code: 'rateLimit', message: 'Too many requests', handler: 'adminRequest' }]]],
+    ['serverError (V1_REMOVALS #1 phase B: the only copy)', [['serverError', { code: 'rateLimit', message: 'Too many requests', handler: 'adminRequest' }]]],
   ]) {
     it(`${label}: the dropped request fails as rate_limited after the grace`, async () => {
       vi.useFakeTimers();
@@ -50,13 +49,25 @@ describe('adminApi rate limit', () => {
     api.dispose();
   });
 
-  it('dispose removes both listeners', () => {
+  it('a v1 error {type: rateLimit} is not read any more (phase B: the server never sends it)', async () => {
+    vi.useFakeTimers();
+    const socket = fakeSocket();
+    const api = createAdminApi(socket, { timeoutMs: 15000, rateLimitGraceMs: 3000 });
+    const outcome = api.request('listAdmins').then(() => 'resolved', (e) => e.message);
+    socket.fire('error', { type: 'rateLimit', message: 'Too many requests', handler: 'adminRequest' });
+    await vi.advanceTimersByTimeAsync(3000);
+    const { requestId } = socket.emit.mock.calls[0][1];
+    socket.fire('adminResponse', { requestId, action: 'listAdmins', ok: true });
+    expect(await outcome).toBe('resolved');
+    api.dispose();
+  });
+
+  it('dispose removes its listener (serverError only)', () => {
     const socket = fakeSocket();
     const api = createAdminApi(socket);
-    expect(socket.count('error')).toBe(1);
+    expect(socket.count('error')).toBe(0);
     expect(socket.count('serverError')).toBe(1);
     api.dispose();
-    expect(socket.count('error')).toBe(0);
     expect(socket.count('serverError')).toBe(0);
   });
 });

@@ -50,7 +50,7 @@ describe('reload in a game lobby', () => {
     socket.fire('restoreSessionResponse', { success: true, username: 'me', blockedUsers: [] });
     expect(socket.emitted('joinLobby')).toHaveLength(2);
     socket.clearEmits();
-    socket.fire('error', { message: 'Lobby not found' });
+    socket.fire('serverError', { code: 'rejected', message: 'Lobby not found', handler: null });
     expect(socket.emitted('joinMainRoom')).toHaveLength(1);
     expect(page.session.screen).toBe('mainRoom');
     expect(sessionStorage.getItem('lobbyId')).toBeNull();

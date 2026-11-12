@@ -321,7 +321,7 @@ describe.each(OLD_BUILDS)('a %s socket', (_version, UA_OLD, BUILD) => {
         }
         expect(w.log.map((l) => l.event).filter((e) => e !== 'mainRoomJoined' && e !== 'signInResponse'))
             .toEqual(['leftGame', 'leftGame', 'tournamentLeft', 'leftLobby', 'tournamentLeft']);
-        expect(w.emits('error')).toEqual([]);
+        for (const e of ['error', 'serverError']) expect(w.emits(e)).toEqual([]);
         expect(gameManager.getOnlineUsernames()).not.toContain('Alan');
         await w.send('disconnect');
     });

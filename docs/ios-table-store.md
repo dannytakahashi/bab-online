@@ -802,9 +802,13 @@ All bullets are done except these, which are follow-ups:
   build, which buffers peers while voice is inactive and later offers to
   stale sockets. It needs clientHello capabilities (item C10) to gate it.
 - **21.10b `serverError`**: listened to since 1.2.0 (deduped against the
-  `error` twin, above); the server emits it with V1_REMOVALS #1 phase A. The
-  `error` dictionary still shows a toast and, for playCard / playerBid /
-  requestSnapshot, resyncs the table.
+  `error` twin, above); the server emits it since V1_REMOVALS #1 phase A and,
+  since phase B, ONLY it (no app-level `error`). It shows a toast and, for
+  playCard / playerBid / requestSnapshot, resyncs the table; the `error`
+  dictionary path stays in 1.2.0 for older servers, and `clientEvent: .error`
+  still carries Socket.IO-Client-Swift's own transport errors (a String).
+  The replay harness (RecordedGame, ReplayHarness) routes the recorded
+  serverError the same way.
 - `spectateState` does not exist: the store routes `spectatorJoined` by its
   `snapshot` key (V1_REMOVALS #8).
 

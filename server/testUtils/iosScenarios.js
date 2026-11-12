@@ -251,7 +251,7 @@ async function scenarioHumans(w, rec, seed) {
             const illegal = game.getHand(s.id).find((c) => !legal.some((l) => l.suit === c.suit && l.rank === c.rank));
             if (illegal) await a.play(s, illegal, pos);
             await a.bid(s, '1', pos); // a bid while playing
-            // A Joi-invalid play: the server answers 'error'
+            // A Joi-invalid play: the server answers serverError {code: 'validation'}
             rec.recordC2S(s.id, 'playCard', { card: { suit: 'stars', rank: 'Z' }, position: pos });
             await playCardWrapped(s, w.io, { card: { suit: 'stars', rank: 'Z' }, position: pos });
             // A double play: the second is refused, the first card stays played

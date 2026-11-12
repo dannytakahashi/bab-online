@@ -32,7 +32,7 @@ describe('reload during a server restart', () => {
     const errors = vi.spyOn(console, 'error');
     socket.fire('restoreSessionResponse', { success: true, username: 'me', blockedUsers: [] });
     expect(socket.emitted('joinLobby')).toEqual([{ lobbyId: 'L9' }]);
-    socket.fire('error', { message: 'Lobby not found' });
+    socket.fire('serverError', { code: 'rejected', message: 'Lobby not found', handler: null });
     socket.fire('mainRoomJoined', mainRoomPayload());
     await tick();
     expect(page.session.screen).toBe('mainRoom');

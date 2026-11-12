@@ -507,7 +507,7 @@ async function signUp(socket, io, data) {
         // Refusals above (name rules, profanity, taken) only count against
         // the wrapper's wider signUp cap, so a player trying names is never
         // locked out by the rules. Over the budget: an ordinary refusal,
-        // which both clients show (never `error`, a generic toast on iOS).
+        // which both clients show (never serverError, a generic toast on iOS).
         if (!rateLimiter.check(socket.id, 'signUpAccount')) {
             socket.emit('signUpResponse', { success: false, message: SIGN_UP_LIMIT_MESSAGE });
             authLogger.warn('Sign-up refused: account budget spent', { socketId: socket.id });

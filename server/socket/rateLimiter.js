@@ -28,8 +28,9 @@ class RateLimiter {
             chatMessage: { max: 10, windowMs: 10000 }, // 10 per 10 seconds
 
             // Game actions - reasonable limits for gameplay
-            // An over-limit play gets `error` and no actionRejected, which loses
-            // the card on the shipped iOS app: keep these far above real play.
+            // An over-limit play gets `serverError {code: rateLimit}` and no
+            // actionRejected (web and iOS 1.2.0 then resync the table at once;
+            // 1.0.0 lost the card): keep these far above real play.
             // The fastest trick (pacing.js) is about 2.4 s, so about 25 plays a
             // minute per seat; 90 leaves room for a one-socket Duo (about 50)
             playCard: { max: 90, windowMs: 60000 },
@@ -41,8 +42,8 @@ class RateLimiter {
 
             // Profile pages. getLeaderboard/getRecords are checked inside
             // their handlers (safeHandler) and over the limit answer with the
-            // cached page, never 'error'. searchPlayers/getPlayerProfile go
-            // through asyncHandler (error {type:'rateLimit'}, a web toast);
+            // cached page, never serverError. searchPlayers/getPlayerProfile go
+            // through asyncHandler (serverError {code:'rateLimit'}, a web toast);
             // web debounces search at 300 ms (about 3/s while typing)
             getLeaderboard: { max: 10, windowMs: 10000 },
             getRecords: { max: 10, windowMs: 10000 },
@@ -72,7 +73,7 @@ class RateLimiter {
             deleteAccount: { max: 3, windowMs: 300000 },  // 3 per 5 minutes
 
             // Voice signaling (checked inside voiceHandlers: over the limit
-            // the message is dropped silently, never 'error', which the
+            // the message is dropped silently, never serverError, which the
             // clients would show as a toast). Per socket, all peers together
             // (a full table is 3 peers). Measured 2026-11-11 in the desktop
             // app's Chromium with the clients' two Google STUN servers: 2

@@ -73,8 +73,6 @@ let errorLogs;
 
 // Variants of anyOf payloads (event#variant) these scenarios do not reach, with why
 const NOT_EXERCISED_VARIANTS = {
-    'error#validation': 'dead: only validators.withValidation emits it, and nothing calls withValidation (the wrappers send error#handler)',
-    'error#message': 'no live site since 2026-11-11: every refusal names its event (error#rejected, the same handler as its serverError twin); emitError without a handler would still send it',
 };
 
 const observedVariants = new Map();
@@ -332,8 +330,8 @@ describe('(f) requestSnapshot -> stateSnapshot', () => {
         for (let i = 0; i < 10; i++) handlers.get('requestSnapshot')({ requestId: i });
         const mine = w.log.slice(mark).filter((l) => l.to === `self:${fake.id}`);
         expect(mine[0]).toMatchObject({ event: 'stateSnapshot', data: { snapshot: null, reason: 'not_in_game' } });
-        expect(mine[1]).toMatchObject({ event: 'error', data: { type: 'validation', handler: 'requestSnapshot' } });
-        expect(mine.filter((l) => l.event === 'error' && l.data.type === 'rateLimit')).toHaveLength(2);
+        expect(mine[1]).toMatchObject({ event: 'serverError', data: { code: 'validation', handler: 'requestSnapshot' } });
+        expect(mine.filter((l) => l.event === 'serverError' && l.data.code === 'rateLimit')).toHaveLength(2);
         rateLimiter.clearSocket(fake.id);
 
         // (the 4th draw awaits the seating pauses: never await it under fake timers)
@@ -545,7 +543,7 @@ describe('(e) non-game handlers', () => {
         for (let i = 0; i < 6; i++) await signIn(r, w.io, { username: 'e_none', password: 'x' });
         await asyncHandler('playerBid', gameHandlers.playerBid)(r, w.io, { bid: 'X' });
         syncHandler('chatMessage', mainRoomHandlers.mainRoomChat)(r, w.io, { message: 'not in room' });
-        const errs = events(w.log, 'error').map((l) => l.data.type);
+        const errs = events(w.log, 'serverError').map((l) => l.data.code);
         expect(errs).toEqual(expect.arrayContaining(['rateLimit', 'validation']));
         rateLimiter.clearSocket('e-r');
 
@@ -637,12 +635,14 @@ describe('(e) failure variants and rarely reached emit sites', () => {
         mockDb.current.gameRecords = records;
         expect(events(w.log, 'recordsResponse').pop().data).toEqual({ success: false, message: 'Database not available' });
 
-        // A handler throwing something unexpected: error {type:'server', handler}
+        // A handler throwing something unexpected: serverError {code:'server', handler}
         await asyncHandler('searchPlayers', async () => { throw new Error('boom'); })(u, w.io, { query: 'x' });
-        expect(events(w.log, 'error').pop()).toMatchObject({
-            to: `self:${u.id}`, data: { type: 'server', message: 'An error occurred processing your request', handler: 'searchPlayers' },
+        expect(events(w.log, 'serverError').pop()).toMatchObject({
+            to: `self:${u.id}`, data: { code: 'server', message: 'An error occurred processing your request', handler: 'searchPlayers' },
         });
-        expect(contract.validateS2C('error', { type: 'server', message: 'm', handlr: 'searchPlayers' }).ok).toBe(false);
+        expect(contract.validateS2C('serverError', { code: 'server', message: 'm', handlr: 'searchPlayers' }).ok).toBe(false);
+        // #1 phase B: the app-level error event is gone from the contract
+        expect(contract.validateS2C('error', { message: 'm' }).ok).toBe(false);
         rateLimiter.clearSocket(u.id);
 
         // A lobby member drops while others are still in the lobby:

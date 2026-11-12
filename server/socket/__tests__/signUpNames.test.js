@@ -244,7 +244,7 @@ describe('the sign-up budget (one socket, through the real asyncHandler wrapper)
     const attempt = async (username) => {
         socket.emit.mockClear();
         await wrapped(socket, io, { username, password: 'secret' });
-        return { reply: lastEmit(socket, 'signUpResponse'), error: lastEmit(socket, 'error') };
+        return { reply: lastEmit(socket, 'signUpResponse'), error: lastEmit(socket, 'serverError') };
     };
 
     beforeEach(() => { socket = connect(); });
@@ -268,7 +268,7 @@ describe('the sign-up budget (one socket, through the real asyncHandler wrapper)
         for (let i = 0; i < max; i++) expect((await attempt('ab')).reply.success).toBe(false);
         const over = await attempt('Fresh Name');
         expect(over.reply).toBeUndefined();
-        expect(over.error).toMatchObject({ type: 'rateLimit', handler: 'signUp' });
+        expect(over.error).toMatchObject({ code: 'rateLimit', handler: 'signUp' });
         expect(await mockDb.current.users.countDocuments({ username: 'Fresh Name' })).toBe(0);
     });
 

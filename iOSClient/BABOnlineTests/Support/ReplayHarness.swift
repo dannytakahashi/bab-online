@@ -114,14 +114,11 @@ final class ReplayHarness {
             ChatSocketHandler.route(payload, to: store, isBlocked: { _ in false })
         case "voicePeerLeft":
             VoiceSocketHandler.routeTable(payload, to: store)
-        case "error":
-            SocketService.routeTableError(dict ?? [:], to: store)
         case "voicePeerJoined", "voicePeerList":
             break
         case "serverError":
-            // SocketService handles it (toast, deduped against the 'error' twin,
-            // V1_REMOVALS #1 phase A); the table handlers never see it
-            break
+            // SocketService.handleServerError's table part (V1_REMOVALS #1: the only error event since phase B)
+            SocketService.routeTableError(dict ?? [:], to: store)
         default:
             XCTAssertTrue(GameSocketHandler.events.contains(e.event), "unrouted event \(e.event)")
             handler.handle(event: e.event, payload: payload)

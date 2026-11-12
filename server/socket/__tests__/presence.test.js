@@ -265,7 +265,7 @@ describe('R4/R5 resign offers', () => {
         const t = table();
         await drop(t, t.sockets[1]);
         await gameHandlers.forceResign(t.sockets[2], t.io, { position: 1 });
-        expect(events(t.log, 'error').map((l) => l.data.message)).toEqual(['Player is still reconnecting']);
+        expect(events(t.log, 'serverError').map((l) => l.data.message)).toEqual(['Player is still reconnecting']);
         expect(t.game.seat(1)).toMatchObject({ controller: 'human', presence: 'grace' });
         expect(events(t.log, 'playerResigned')).toHaveLength(0);
     });
@@ -279,7 +279,7 @@ describe('R4/R5 resign offers', () => {
         expect(t.game.seatController(1)).toBe('resignBot');
         // A stale or unrelated socket may not
         await gameHandlers.forceResign(newSocket(t, 'nobody'), t.io, { position: 4 });
-        expect(events(t.log, 'error').map((l) => l.data.message)).toEqual(['Not in a game']);
+        expect(events(t.log, 'serverError').map((l) => l.data.message)).toEqual(['Not in a game']);
     });
 });
 
@@ -948,7 +948,7 @@ describe('review fixes (seat records)', () => {
         expect(heldOffer(u4.id)).toBe(3);
         await gameHandlers.forceResign(u4, t.io, { position: heldOffer(u4.id) });
         expect(t.game.seatController(3)).toBe('resignBot');
-        expect(events(t.log, 'error')).toHaveLength(0);
+        expect(events(t.log, 'serverError')).toHaveLength(0);
     });
 
     test('a returner whose own seat was the standing offer: the room gets the next one', async () => {
@@ -990,7 +990,7 @@ describe('review fixes (seat records)', () => {
         const mark = t.log.length;
         chat(t, 2, '/active', t.sockets[2]);
         expect(t.game.seatController(2)).toBe('lazyBot');
-        expect(t.log.slice(mark).filter((l) => l.to === t.sockets[2].id).map((l) => l.event)).toEqual(['error', 'serverError']);
+        expect(t.log.slice(mark).filter((l) => l.to === t.sockets[2].id).map((l) => l.event)).toEqual(['serverError']);
         // An ordinary spectator still gets nothing
         const fan = newSocket(t, 'fan');
         mainRoomHandlers.joinAsSpectator(fan, t.io, { gameId: t.game.gameId });
@@ -1001,7 +1001,7 @@ describe('review fixes (seat records)', () => {
 
     test('an owner-named spectator\'s /active error matches the seat state', async () => {
         const errorsTo = (t, s, mark) => t.log.slice(mark)
-            .filter((l) => l.event === 'error' && (l.to === s.id || l.to === `self:${s.id}`))
+            .filter((l) => l.event === 'serverError' && (l.to === s.id || l.to === `self:${s.id}`))
             .map((l) => l.data.message);
 
         // Human seat in grace, nothing attached: told to reconnect, not that another connection holds it
@@ -1095,7 +1095,7 @@ describe('review fixes (seat records)', () => {
         gameManager.registerUser(t.sockets[1].id, 'user1');
         mainRoomHandlers.joinAsSpectator(t.sockets[1], t.io, { gameId: other.game.gameId });
         tournamentHandlers.spectateTournamentGame(t.sockets[1], t.io, { gameId: other.game.gameId });
-        expect(events(t.log, 'error').map((l) => l.data.message)).toEqual([
+        expect(events(t.log, 'serverError').map((l) => l.data.message)).toEqual([
             'Leave your current game before spectating another', 'Leave your current game before spectating another',
         ]);
     });
@@ -1105,6 +1105,6 @@ describe('review fixes (seat records)', () => {
         await drop(t, t.sockets[1]);
         await gameHandlers.forceResign(t.sockets[2], t.io, { position: 1 });
         await gameHandlers.forceResign(t.sockets[2], t.io, { position: 3 });
-        expect(events(t.log, 'error').map((l) => l.data.message)).toEqual(['Player is still reconnecting', 'Player is not disconnected']);
+        expect(events(t.log, 'serverError').map((l) => l.data.message)).toEqual(['Player is still reconnecting', 'Player is not disconnected']);
     });
 });

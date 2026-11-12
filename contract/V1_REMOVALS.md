@@ -140,6 +140,66 @@ One PR per entry:
   `client/src/serverErrorPage.test.js` (both copies and serverError alone),
   `socket/serverErrors.test.js`, `admin/adminApi.test.js`,
   `table/postGateSeat.test.js`.
+- **Phase B done (2026-11-12, PR #TBD; stacked on the MIN_IOS_BUILD 3
+  gate, merges after it):** `emitError` (server/socket/serverError.js) and
+  chat's `sendError` send `serverError {code, message, handler}` ONLY; the
+  app-level `error` is gone (no `emit('error'` / `sendToPlayer(..., 'error')`
+  left under server/, serverError.test.js scans it), and so are
+  `errorOf`, `validators.withValidation` and the `error` event's variants
+  (handler / validation / message / rejected): contract s2c `error` removed
+  (baseline hand-edited), web `SERVER_EVENTS.ERROR` removed (layout +
+  legacyConstants golden; Swift never had it: the name is reserved there,
+  so SocketEvents.swift is unchanged), the Swift `exclude.error` reason
+  dropped, wireGolden `v1Projection` names #1 phase B (the golden games
+  send no error: a no-op kept as the record). `events-humans-s13` was
+  re-recorded (only its one `error` entry is gone: every other entry,
+  checkpoint and final snapshot is equal up to the shifted indices).
+  Readers re-checked at eeeeb23, and again for iOS 1.2.0 build 5 (the
+  submitted build, `iOSClient/` at main 92d0c75; build 4 was pulled from
+  review):
+  - iOS 1.2.0 (build 5, `iOSClient/`): `SocketService.swift:193` listens to
+    `serverError` (toast via `handleServerError:213`, table resync via
+    `routeTableError:52` for playCard / playerBid / requestSnapshot). Build
+    5's background-resume fix (#240) builds a new manager and socket on
+    every `forceReconnect` (`openConnection:131`), and `registerHandlers:140`
+    registers the serverError listener on each one, so a reconnected socket
+    still hears it; `isSessionReady` is set only by a successful sign-in /
+    sign-up / restore (`noteSessionEstablished:301`), never by an error
+    event, so dropping `error` does not touch the session gate. Its
+    `clientEvent: .error` listener (`:180`) stays for Socket.IO-Client-Swift's
+    own transport errors (a String payload -> `connectionError`), which this
+    removal does not touch; its dictionary branch (the app-level `error`) is
+    simply never hit. The iOS replay harness (BABOnlineTests
+    `RecordedGame`, `ReplayHarness`, `ServerEventDecodingTests`) now routes
+    the recorded serverError as the app does; app source unchanged.
+  - web on main: `main.js:795-796` (at 92d0c75) listens to both channels and
+    `serverErrors.js:31` reads serverError's `code`, `adminApi.js:66,76`
+    reads `err.type ?? err.code` on serverError, so web on main needs no
+    change (serverErrorPage.test.js at eeeeb23 passes its serverError-only
+    cases; live check below). This PR then drops the web's own `error`
+    listeners and the twin deduper (main.js `onServerFailure` on serverError
+    only, `serverErrors.js` `failureOf(payload)`, adminApi on serverError
+    only).
+  - The gate's own payloads: upgradeGate.js never sends `error` (header:
+    "app-level `error` never sent") and registers no handler for builds 1
+    and 2, so they get neither event; upgradeGate.test.js asserts no
+    `error` and no `serverError` for a gated socket.
+  - Kill switch: with `UPGRADE_GATE=off`, 1.0.0 and 1.1.0 would play again
+    but get no error toast or immediate table resync (1.1.0's 5 s ack
+    timeout still resyncs a refused play; 1.0.0 loses the card on a
+    rate-limited play), as Step 0's caveat says.
+  - Stale web tabs: the server never forces a loaded bundle to reload
+    (index.html is no-cache, so any reload gets the new one; an open tab
+    keeps its JS through a deploy's reconnect). A bundle from before #233
+    listens only to `error` (`socket.on('error')` in setupSocketErrorHandler,
+    adminApi on `SERVER_EVENTS.ERROR`): it loses the error toasts; a refused
+    play / bid still resyncs through MyAction's 5 s ack timeout; a restore
+    refusal (`Lobby not found` / `Game not found` / `Tournament not found`
+    after a reconnect) gets no answer, so such a tab can sit on a lobby or
+    tournament screen that is gone until it reloads; an admin request
+    dropped by the rate limit fails by its 15 s timeout instead of at once.
+    Nothing hard-breaks, and only a tab left open since before #233 (days
+    before this merges) is affected. Bundles from #233 on read serverError.
 
 ### 2. The matchmaking queue
 
@@ -696,7 +756,7 @@ step, in this order; nothing is removed by the gate PR itself.
   `clientEvent: .error` (SocketService.swift; toast + table resync), not to
   `serverError`; web listens to `error`. Needs an iOS build (and web) that
   read `serverError`. (Web and iOS 1.2.0 read it since 2026-11-12: only
-  1.1.0 is left.)
+  1.1.0 is left. Done 2026-11-12 on top of the MIN_IOS_BUILD 3 gate, #1.)
 - **#3 client-only listeners** (`lobbyJoined`, `roomFull`,
   `activeTournamentFound`, `activeGameFound`): nothing to remove server
   side (never emitted); 1.1.0 still registers them and web has its own.
@@ -742,7 +802,8 @@ above; after it, what 1.2.0 itself still reads is the remaining blocker:
   {code, message, handler}` (SocketService; `error` and `serverError` twins
   are deduped, one toast and one table resync) and keeps the `error` path
   for today's server. iOS no longer blocks it, nor does web (2026-11-12:
-  both channels, the twin dropped; #1).
+  both channels, the twin dropped; #1). **Done 2026-11-12 (PR #TBD, after
+  the gate PR).**
 - **#19 inline avatar images**: 1.2.0 sends `clientHello {client:'ios',
   version, build, caps:['avatarUrl']}` on every connect (before
   restoreSession) and renders `avatarUrl` / `avatarUrls` (positionUpdate,
