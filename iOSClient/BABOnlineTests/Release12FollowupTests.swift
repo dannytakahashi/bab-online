@@ -188,33 +188,35 @@ final class RestartNoticeTests: XCTestCase {
         XCTAssertEqual(P.place(screen: .game, role: .seat, phase: .ended, inTournament: true), .tournament)
     }
 
-    /// The app's store: persisted through a relaunch, one alert, the toast state.
+    /// The app's store: the toast state through the reconnect, then one alert.
     @MainActor
-    func testStorePersistsAndShowsOnce() throws {
-        let suite = "RestartNoticeTests-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-        let a = RestartNotices(defaults: defaults)
+    func testStoreShowsOnce() {
+        let a = RestartNotices()
         a.serverShutdown(place: .spectating)
         XCTAssertTrue(a.isRestarting)
+        a.reconnected()                    // still connected: the server has not closed it yet
+        XCTAssertTrue(a.isRestarting)
         a.disconnected()
+        XCTAssertTrue(a.isRestarting)      // "Restarting for an update…" until the socket is back
         a.reconnected()
         XCTAssertFalse(a.isRestarting)
-        // a relaunch inside the window still knows
-        let b = RestartNotices(defaults: defaults)
-        b.lost()
-        XCTAssertEqual(b.message, RestartNotice.message(.spectating))
-        b.message = nil
-        b.lost()
-        XCTAssertNil(b.message)
-        XCTAssertNil(RestartNotices(defaults: defaults).notice.place)
-        // survived: no message, nothing kept
-        let c = RestartNotices(defaults: defaults)
+        // the restore found it gone (several paths fire): one message
+        a.lost()
+        XCTAssertEqual(a.message, RestartNotice.message(.spectating))
+        a.message = nil
+        a.lost()
+        XCTAssertNil(a.message)
+        XCTAssertNil(a.notice.place)
+        // survived: no message
+        let c = RestartNotices()
         c.serverShutdown(place: .seat)
         c.survived()
         c.lost()
         XCTAssertNil(c.message)
-        XCTAssertNil(defaults.dictionary(forKey: "restartNotice"))
+        // no notice (every launch's restore): nothing
+        let d = RestartNotices()
+        d.lost()
+        XCTAssertNil(d.message)
     }
 
     /// SocketService.handleServerShutdown asks what is at stake and records it.

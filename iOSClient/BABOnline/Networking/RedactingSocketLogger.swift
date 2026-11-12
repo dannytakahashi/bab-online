@@ -21,8 +21,15 @@ final class RedactingSocketLogger: SocketLogger {
     /// Lower-cased: events whose payloads carry secrets, and words that name one.
     static let sensitive = ["voiceiceservers", "signin", "signup", "restoresession", "credential", "password", "token"]
 
-    /// `-socketLog YES` (Debug builds read it; see SocketService.connect).
-    static var isEnabled: Bool { UserDefaults.standard.bool(forKey: "socketLog") }
+    /// `-socketLog YES` (Debug builds only, like `-serverURL`: release code reads no UserDefaults,
+    /// README "Privacy manifest").
+    static var isEnabled: Bool {
+        #if DEBUG
+        return UserDefaults.standard.bool(forKey: "socketLog")
+        #else
+        return false
+        #endif
+    }
 
     /// The line as it may be printed.
     static func redact(_ message: String) -> String {

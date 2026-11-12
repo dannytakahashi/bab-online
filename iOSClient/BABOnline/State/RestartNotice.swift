@@ -22,7 +22,7 @@ struct RestartNotice: Equatable {
         case seat, spectating, lobby, tournament, tournamentGame
     }
 
-    /// About 2 minutes, through the reconnect (a relaunch too: RestartNotices persists it).
+    /// About 2 minutes, through the reconnect (in memory: RestartNotices).
     static let window: TimeInterval = 120
 
     private(set) var place: Place?
@@ -90,9 +90,12 @@ struct RestartNotice: Equatable {
     }
 }
 
-/// The app's one RestartNotice: the toast state while the server restarts,
-/// the alert message after it, and the persisted notice (UserDefaults, a place
-/// and a time: nothing personal) so a relaunch inside the window still knows.
+/// The app's one RestartNotice: the toast state while the server restarts and
+/// the alert message after it. In memory only: the app process outlives the
+/// server's restart (the socket reconnects by itself), and persisting it would
+/// put UserDefaults, a required-reason API, into release code and the privacy
+/// manifest (README "Privacy manifest"). A relaunch inside the window shows
+/// nothing; the player lands in the main room as before.
 @MainActor
 final class RestartNotices: ObservableObject {
     static let shared = RestartNotices()
@@ -102,27 +105,16 @@ final class RestartNotices: ObservableObject {
     /// The one message to show (an alert); nil once dismissed.
     @Published var message: String?
 
-    private(set) var notice: RestartNotice
-    private let defaults: UserDefaults
-    private static let key = "restartNotice"
+    private(set) var notice = RestartNotice()
     /// How long the toast waits for the disconnect a serverShutdown announces before giving up.
     static let disconnectWait: TimeInterval = 8
     private var waitGeneration = 0
 
-    init(defaults: UserDefaults = .standard) {
-        self.defaults = defaults
-        if let d = defaults.dictionary(forKey: Self.key), let raw = d["place"] as? String, let place = RestartNotice.Place(rawValue: raw),
-           let t = d["at"] as? Double {
-            notice = RestartNotice(place: place, at: Date(timeIntervalSince1970: t))
-        } else {
-            notice = RestartNotice()
-        }
-    }
+    init() {}
 
     /// serverShutdown {message} (SocketService.handleServerShutdown).
     func serverShutdown(place: RestartNotice.Place?, now: Date = Date()) {
         notice.shutdown(place: place, at: now)
-        save()
         isRestarting = true
         UIAccessibility.post(notification: .announcement, argument: Self.restartingText)
         // a notice the server never followed with a disconnect must not leave the toast up
@@ -148,25 +140,14 @@ final class RestartNotices: ObservableObject {
     /// The restore found the place gone: show the message once (VoiceOver reads the alert).
     func lost(now: Date = Date()) {
         guard notice.isPending else { return }
-        let text = notice.lost(at: now)
-        save()
-        if let text { message = text }
+        if let text = notice.lost(at: now) { message = text }
     }
 
     /// The place came back: forget the notice.
     func survived() {
         guard notice.isPending else { return }
         notice.survived()
-        save()
     }
 
     static let restartingText = "Restarting for an update\u{2026}"
-
-    private func save() {
-        if let p = notice.place, let t = notice.at {
-            defaults.set(["place": p.rawValue, "at": t.timeIntervalSince1970], forKey: Self.key)
-        } else {
-            defaults.removeObject(forKey: Self.key)
-        }
-    }
 }
