@@ -75,7 +75,12 @@ describe('GameManager', () => {
         test('prevents duplicate joins', () => {
             gameManager.registerUser('socket1', 'player1');
             const { lobby } = join('socket1');
-            expect(gameManager.joinSpecificLobby('socket1', lobby.id)).toMatchObject({ success: false, error: 'Already in a lobby' });
+            // the same lobby again (a re-sent join after a restore): that lobby, no second seat
+            expect(gameManager.joinSpecificLobby('socket1', lobby.id)).toMatchObject({ success: true, alreadySeated: true });
+            expect(lobby.players.filter((p) => p.socketId === 'socket1')).toHaveLength(1);
+            gameManager.registerUser('socket9', 'player9');
+            const other = gameManager.createNamedLobby('socket9');
+            expect(gameManager.joinSpecificLobby('socket1', other.lobby.id)).toMatchObject({ success: false, error: 'Already in a lobby' });
             expect(gameManager.createNamedLobby('socket1')).toMatchObject({ success: false, error: 'Already in lobby' });
         });
 
