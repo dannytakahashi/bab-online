@@ -3,10 +3,10 @@
  * Forwards WebRTC signaling messages (SDP offers/answers, ICE candidates)
  * between peers, and hands out ICE servers (getVoiceIceServers: Cloudflare
  * TURN credentials, else STUN). Audio never touches the game server: it goes
- * peer to peer or through Cloudflare's TURN relay. voiceRelayAudio, the old
- * web PCM fallback, is deprecated (TURN replaced it, 2026-11-11): still
- * forwarded only for web bundles cached before that deploy
- * (contract/V1_REMOVALS.md #20).
+ * peer to peer or through Cloudflare's TURN relay. The old web PCM fallback
+ * (voiceRelayAudio) is gone: TURN replaced it (2026-11-11) and the handler
+ * was removed a day after that deploy (contract/V1_REMOVALS.md #20); a
+ * voiceRelayAudio packet now reaches no handler.
  *
  * Authorization (roadmap 30, security part): a message is forwarded only
  * when
@@ -22,8 +22,8 @@
  *     blockUser / unblockUser; a signed-in socket without one is refused,
  *     fail closed, while it is loaded);
  *   - the sender is inside the event's per-socket rate limit
- *     (rateLimiter keys voiceOffer, voiceAnswer, voiceIceCandidate,
- *     voiceRelayAudio; checked here, so the wrapper stays safeHandler);
+ *     (rateLimiter keys voiceOffer, voiceAnswer, voiceIceCandidate;
+ *     checked here, so the wrapper stays safeHandler);
  *   - the payload passes its Joi schema (validators.schemas.voiceOffer,
  *     ... ; V1_REMOVALS #18), also checked here.
  * Anything else is dropped silently: the contract has no rejection event
@@ -36,9 +36,6 @@ const gameManager = require('../game/GameManager');
 const { rateLimiter } = require('./errorHandler');
 const { validate } = require('./validators');
 const turnCredentials = require('../voice/turnCredentials');
-
-/** Largest relayed PCM chunk (web sends 4096 input frames as 8 kHz Int16: <= 8 KB). */
-const MAX_RELAY_BYTES = 64 * 1024;
 
 /**
  * Has `sock`'s user blocked `username`? Each side is checked against its
@@ -173,33 +170,6 @@ function voiceIceCandidate(socket, io, data) {
 }
 
 /**
- * Is `audio` a relay chunk worth forwarding? Only real binary PCM: the web
- * client emits an Int16Array's ArrayBuffer, which socket.io hands the server
- * as a Buffer. Non-empty, an even number of bytes (whole Int16 samples) and
- * at most MAX_RELAY_BYTES. A string, array or plain object is dropped: the
- * web receiver runs `new Int16Array(audio)`, which reads a numeric string or
- * an object's .length as an element count, so a few bytes could make it
- * allocate hundreds of MB.
- */
-function isRelayChunk(audio) {
-    if (!Buffer.isBuffer(audio) && !(audio instanceof ArrayBuffer) && !ArrayBuffer.isView(audio)) return false;
-    const n = audio.byteLength;
-    return n > 0 && n <= MAX_RELAY_BYTES && n % 2 === 0;
-}
-
-function voiceRelayAudio(socket, io, data) {
-    const { targetSocketId, audio } = data || {};
-    if (!targetSocketId || !isRelayChunk(audio)) return;
-    if (!authorize(socket, io, 'voiceRelayAudio', targetSocketId)) return;
-    if (!checked(socket, 'voiceRelayAudio', data)) return;
-
-    io.to(targetSocketId).emit('voiceRelayAudio', {
-        fromSocketId: socket.id,
-        audio
-    });
-}
-
-/**
  * getVoiceIceServers {requestId?} -> voiceIceServers {iceServers, turn,
  * expiresInSec, requestId?} to this socket only (server/voice/turnCredentials.js).
  * TURN credentials go only to a signed-in socket that is a voice peer right
@@ -238,9 +208,6 @@ module.exports = {
     voiceOffer,
     voiceAnswer,
     voiceIceCandidate,
-    voiceRelayAudio,
     getVoiceIceServers,
-    isRelayChunk,
-    rememberBlockList,
-    MAX_RELAY_BYTES
+    rememberBlockList
 };

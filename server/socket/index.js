@@ -217,9 +217,6 @@ function setupSocketHandlers(io) {
         socket.on('voiceIceCandidate', (data) =>
             safeHandler(voiceHandlers.voiceIceCandidate)(socket, io, data)
         );
-        socket.on('voiceRelayAudio', (data) =>
-            safeHandler(voiceHandlers.voiceRelayAudio)(socket, io, data)
-        );
         // ICE servers (Cloudflare TURN credentials, else STUN) for voice peers
         socket.on('getVoiceIceServers', (data) =>
             asyncHandler('getVoiceIceServers', voiceHandlers.getVoiceIceServers)(socket, io, data)

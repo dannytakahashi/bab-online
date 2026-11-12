@@ -122,11 +122,6 @@ const schemas = {
             usernameFragment: Joi.string().allow('', null).max(256).optional()
         }).unknown(true).required()
     }).required(),
-    // The audio itself is checked by voiceHandlers.isRelayChunk (binary only)
-    voiceRelayAudio: Joi.object({
-        targetSocketId: voiceTarget.required(),
-        audio: Joi.any().required()
-    }).required(),
 
     // Reconnection
     rejoinGame: Joi.object({
