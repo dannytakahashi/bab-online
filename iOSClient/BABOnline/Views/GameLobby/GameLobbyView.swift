@@ -64,6 +64,7 @@ private struct GameLobbyScreen: View {
                         Button(action: leaveLobby) {
                             HStack(spacing: Theme.Space.s1) {
                                 Image(systemName: "chevron.left")
+                                    .accessibilityHidden(true)
                                 Text("Leave")
                             }
                             .foregroundColor(Theme.textSecondary)
@@ -211,7 +212,7 @@ private struct GameLobbyScreen: View {
             Circle()
                 .fill(Theme.surfaceLight)
                 .frame(width: 40, height: 40)
-                .overlay(Image(systemName: "person.fill").foregroundColor(Theme.textDim))
+                .overlay(Image(systemName: "person.fill").foregroundColor(Theme.textDim).accessibilityHidden(true))
 
             Text("Waiting for player...")
                 .foregroundColor(Theme.textDim)

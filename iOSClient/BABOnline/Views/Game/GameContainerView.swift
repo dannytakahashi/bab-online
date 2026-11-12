@@ -270,16 +270,30 @@ private struct GameScreen: View {
                     .transition(.motion(.move(edge: .trailing), reduceMotion: reduceMotion))
             }
 
-            // Disconnect banner (below the corner buttons)
+            // Disconnect banner: below the partner's seat where the table has room
+            // (TableLayout.disconnectBanner), else below the corner buttons
             if !gameState.disconnectedPlayers.isEmpty {
                 VStack {
                     DisconnectBannerView()
-                        .frame(maxWidth: 420)
-                        .padding(.top, showsTable ? chrome.topBar + 8 + chrome.cornerButton.height + 8 : 0)
+                        .frame(maxWidth: TableLayout.disconnectBannerMaxWidth)
+                        .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { bannerHeight = $0 }
+                        .padding(.top, bannerTop)
                     Spacer()
                 }
             }
         }
+    }
+
+    @State private var bannerHeight: CGFloat = 0
+
+    /// The banner's top inset in the safe area: the layout's spot off the avatars, else under the corner buttons.
+    private var bannerTop: CGFloat {
+        guard showsTable else { return 0 }
+        let L = scene.layout
+        if let r = L.disconnectBanner(height: bannerHeight, spectating: !gameState.table.viewer.holdsSeat) {
+            return max(0, L.window(r).minY - paneSafeArea.top)
+        }
+        return chrome.topBar + 8 + chrome.cornerButton.height + 8
     }
 
     /// One GeometryReader measures the pane: its size plus the safe-area
@@ -398,6 +412,8 @@ private struct GameScreen: View {
                     .clipShape(Capsule())
                 }
                 .accessibilityIdentifier("leave")
+                // not the symbol's "Portrait Rectangle With A Right Arrow, Leave"
+                .accessibilityLabel(leaveLabel)
                 .dynamicTypeSize(...DynamicTypeSize.xxLarge)
                 .accessibilityShowsLargeContentViewer()  // text stops growing at xxLarge
                 .onGeometryChange(for: CGSize.self, of: { $0.size }) { leaveSize = $0 }
@@ -452,7 +468,11 @@ private struct GameScreen: View {
         }
         .disabled(gameState.phase == .draw)  // as the corner button under the draw overlay
         .accessibilityIdentifier("leave")
+        .accessibilityLabel(leaveLabel)
     }
+
+    /// "Leave game" at a seat, "Exit game" for a pure spectator (VoiceOver; the button shows Leave / Exit).
+    private var leaveLabel: String { isPureSpectator ? "Exit game" : "Leave game" }
 
     /// The unread count is the standard toolbar badge. The vertical bar (seen with
     /// the iOS 27.2 SDK) draws a badge only when it builds the item, not when the

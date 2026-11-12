@@ -1,12 +1,19 @@
 import SwiftUI
 
-/// Floating pill that shows reconnection status after the app foregrounds.
+/// Floating pill that shows reconnection status after the app foregrounds, and
+/// "Restarting for an update…" from the server's serverShutdown until the socket is back.
 struct ConnectionStatusToast: View {
     @EnvironmentObject var socketService: SocketService
+    @ObservedObject private var restart = RestartNotices.shared
     @State private var wasDisconnected = false
     @State private var showToast = false
     @State private var isReconnected = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    static func text(reconnected: Bool, restarting: Bool) -> String {
+        if reconnected { return "Connected!" }
+        return restarting ? RestartNotices.restartingText : "Reconnecting..."
+    }
 
     var body: some View {
         VStack {
@@ -15,14 +22,18 @@ struct ConnectionStatusToast: View {
                     if isReconnected {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundColor(Theme.success)
+                            .accessibilityHidden(true)
                     } else {
                         ProgressView()
                             .tint(Theme.warning)
+                            .accessibilityHidden(true)
                     }
-                    Text(isReconnected ? "Connected!" : "Reconnecting...")
+                    Text(Self.text(reconnected: isReconnected, restarting: restart.isRestarting))
                         .font(.callout.bold())
                         .foregroundColor(Theme.textPrimary)
                 }
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("connectionToast")
                 .padding(.horizontal, Theme.Space.s4)
                 .padding(.vertical, 10)
                 .background(Theme.surface)
@@ -35,6 +46,18 @@ struct ConnectionStatusToast: View {
         }
         .overlay(alignment: .top) {
             ServerErrorToast()
+        }
+        // the notice comes ~1 s before the server closes the socket: show it at once
+        .onChange(of: restart.isRestarting) { _, restarting in
+            if restarting {
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    isReconnected = false
+                    showToast = true
+                }
+            } else if socketService.isConnected && !wasDisconnected {
+                // the server never closed the socket after all
+                withAnimation(.easeInOut(duration: 0.3)) { showToast = false }
+            }
         }
         .onChange(of: socketService.isConnected) { _, connected in
             if !connected {
@@ -70,6 +93,7 @@ private struct ServerErrorToast: View {
                 HStack(spacing: Theme.Space.s2) {
                     Image(systemName: "exclamationmark.circle.fill")
                         .foregroundColor(Theme.warning)
+                        .accessibilityHidden(true)
                     Text(notice.message)
                         .font(.callout.bold())
                         .foregroundColor(Theme.textPrimary)

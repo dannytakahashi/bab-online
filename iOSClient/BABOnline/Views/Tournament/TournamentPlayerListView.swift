@@ -39,6 +39,7 @@ struct TournamentPlayerListView: View {
                 .overlay(
                     Image(systemName: "person.fill")
                         .foregroundColor(isCurrentUser ? Theme.primary : Theme.textSecondary)
+                        .accessibilityHidden(true)
                 )
 
             VStack(alignment: .leading, spacing: 2) {
@@ -79,10 +80,12 @@ struct TournamentPlayerListView: View {
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundColor(Theme.success)
                     .font(.title3)
+                    .accessibilityLabel("Ready")
             } else {
                 Image(systemName: "circle")
                     .foregroundColor(Theme.textDim)
                     .font(.title3)
+                    .accessibilityLabel("Not ready")
             }
         }
         .padding(.horizontal)

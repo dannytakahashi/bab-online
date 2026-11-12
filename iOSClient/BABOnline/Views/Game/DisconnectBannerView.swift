@@ -11,6 +11,7 @@ struct DisconnectBannerView: View {
                     Image(systemName: "wifi.slash")
                         .foregroundColor(Theme.dangerForeground)
                         .font(.caption)
+                        .accessibilityHidden(true)
 
                     Text("\(username) disconnected")
                         .font(.caption.bold())

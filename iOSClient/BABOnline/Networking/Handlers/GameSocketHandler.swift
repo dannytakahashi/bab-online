@@ -53,9 +53,11 @@ final class GameSocketHandler {
             // 21.14: a seat owner (or its lazy watcher) talks again after a rejoin;
             // reconnectOwner sends the peer list, buffered while voice starts
             if gameState.table.viewer.holdsSeat { VoiceChatManager.shared.ensureStarted() }
+            RestartNotices.shared.survived()
             print("[Game] Rejoin success")
         case .rejoinFailed(let p):
             print("[Game] Rejoin failed: \(p.reason ?? "Rejoin failed")")
+            RestartNotices.shared.lost()  // after a serverShutdown: the game ended with the restart
             // Don't navigate away if we're already in a game (a duplicate rejoin whose first succeeded)
             if appState.screen != .game {
                 appState.screen = .mainRoom
@@ -76,7 +78,11 @@ final class GameSocketHandler {
             }
         case .spectatorState:
             appState.screen = .game
+            RestartNotices.shared.survived()
             print("[Game] Joined as spectator")
+        case .stateSnapshot(let p) where p.snapshot == nil:
+            // not_in_game: after a serverShutdown, the game is gone
+            RestartNotices.shared.lost()
         case .restorePlayerState:
             appState.screen = .game
             print("[Game] Player state restored")
