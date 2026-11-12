@@ -445,10 +445,8 @@ class BotController {
                 position: bot.position,
                 message,
                 username: bot.username,
-                // additive: same shape as human chat (web treats a missing
-                // isSpectator as false; iOS reads type)
-                isSpectator: false,
-                type: 'player'
+                // same shape as human chat
+                isSpectator: false
             });
         }, delay);
 

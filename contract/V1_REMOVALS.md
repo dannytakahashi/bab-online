@@ -199,6 +199,15 @@ not an audit finding: ctr-22 is iOS feature work, out of scope). v2
 
 ### 12. `chatMessage`: keep one of `isSpectator` / `type`
 
+**Done 2026-11-11 (PR #TBD): `isSpectator` kept, `type` dropped** (human
+and bot chat). Re-checked first: web's onChatMessage and its spectator
+bubble (#220) route on `isSpectator` only; 1.1.0 (f05d264) reads
+`isSpectator ?? (type == "spectator")` in TableReducer+Events and
+`ChatMessage.from` (lobby / tournament lines, which never carried `type`)
+defaults a missing `type` to player and lets `isSpectator` win. The iOS
+event fixtures and `contract/fixtures/web/spectator-chat.json` were
+re-recorded (only `type` left them).
+
 Web reads `isSpectator` (main.js:3217); the App Store iOS build reads `type`
 (ChatSocketHandler.swift at cc9059f) and the new iOS build reads
 `isSpectator ?? (type == 'spectator')` (TableReducer+Events.swift). Item 8
@@ -411,7 +420,7 @@ step, in this order; nothing is removed by the gate PR itself.
    2026-11-11 (PR #TBD).**
 4. **#12 `chatMessage.type`**: web reads `isSpectator`, 1.1.0 reads
    `isSpectator` first (`type` was only for 1.0.0). Drop `type`, keep
-   `isSpectator`.
+   `isSpectator`. **Done 2026-11-11 (PR #TBD).**
 5. **#10 `cardPlayed.trump` → `trumpBroken`, drop `playerId`**: 1.1.0
    decodes `trumpBroken ?? trump` (WirePayloads.CardPlayed) and web
    `GameState.applyCardPlayed` reads either. `trumpBroken` is in the

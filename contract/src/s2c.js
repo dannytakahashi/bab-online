@@ -506,16 +506,15 @@ const s2c = {
     chatMessage: {
         payload: anyOf(
             variant('humanOrSpectator', obj({
-                position: orNull(ref('position')), message: str(), username: str(), isSpectator: bool(), type: enm('player', 'spectator'),
+                position: orNull(ref('position')), message: str(), username: str(), isSpectator: bool(),
             })),
-            variant('bot', obj({ position: ref('position'), message: str(), username: str(), isSpectator: konst(false), type: konst('player') })),
+            variant('bot', obj({ position: ref('position'), message: str(), username: str(), isSpectator: konst(false) })),
         ),
         status: 'active', to: 'room', seq: false,
-        added: ['type', 'isSpectator'],
-        activates: ['type'],
-        clientReads: reads([W.chat, W.main('onChatMessage')], `${I.chat}#reads:type`),
+        added: ['isSpectator'],
+        clientReads: reads([W.chat, W.main('onChatMessage')], 'iOSClient/BABOnline/State/Table/TableReducer+Events.swift:chatMessage'),
         emittedFrom: ['server/socket/chatHandlers.js:chatMessage', 'server/game/bot/BotController.js:sendBotChat'],
-        notes: "type ('player' | 'spectator') is additive and switches on the shipped iOS spectator label (ChatSocketHandler reads type == 'spectator'; ctr-14). Bot chat also gains isSpectator:false (web: undefined and false read the same). Keep one of isSpectator / type in v2 (V1_REMOVALS #12).",
+        notes: "isSpectator labels spectator chat: web (onChatMessage, the spectator bubble) and iOS 1.1.0 (TableReducer+Events: isSpectator ?? type == 'spectator', f05d264) read it; bot chat sends false. The `type` ('player' | 'spectator') copy, read only by the gated iOS 1.0.0, was dropped (V1_REMOVALS #12, 2026-11-11).",
     },
     gameLogEntry: {
         payload: obj({ message: str(), type: konst('system') }),

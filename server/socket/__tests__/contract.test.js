@@ -281,9 +281,9 @@ describe('(b) F1 full human game through the lobby', () => {
         const bySelf = (e) => events(w.log, e).filter((l) => l.to.startsWith('self:'));
         expect(bySelf('rejoinSuccess').length).toBeGreaterThanOrEqual(4);
         const chats = events(w.log, 'chatMessage').map((l) => l.data);
-        expect(chats.some((d) => d.username.startsWith('🤖') && d.isSpectator === false && d.type === 'player')).toBe(true); // bot chat
-        expect(chats.some((d) => d.isSpectator === true && d.type === 'spectator')).toBe(true);
-        expect(chats.every((d) => d.type === (d.isSpectator ? 'spectator' : 'player'))).toBe(true);
+        expect(chats.some((d) => d.username.startsWith('🤖') && d.isSpectator === false)).toBe(true); // bot chat
+        expect(chats.some((d) => d.isSpectator === true)).toBe(true);
+        expect(chats.every((d) => typeof d.isSpectator === 'boolean' && !('type' in d))).toBe(true); // type dropped (V1_REMOVALS #12)
     }, 120000);
 });
 

@@ -755,8 +755,8 @@ describe('lazy seat chat', () => {
         chat(t, 1, '/lazy');
         chat(t, 1, 'brb');
         expect(events(t.log, 'chatMessage').map((l) => l.data)).toEqual([
-            // CHANGED (snapshot v2 item, additive): + type (iOS spectator label), + seq
-            { position: 1, message: 'brb', username: 'user1', isSpectator: false, type: 'player', seq: expect.any(Number) },
+            // CHANGED (snapshot v2 item, additive): + seq; type dropped (V1_REMOVALS #12)
+            { position: 1, message: 'brb', username: 'user1', isSpectator: false, seq: expect.any(Number) },
         ]);
     });
 
@@ -766,8 +766,8 @@ describe('lazy seat chat', () => {
         const w = await rejoin(t, 'user1');
         chat(t, 1, 'back', w);
         expect(events(t.log, 'chatMessage').map((l) => l.data)).toEqual([
-            // CHANGED (snapshot v2 item, additive): + type (iOS spectator label), + seq
-            { position: null, message: 'back', username: 'user1', isSpectator: true, type: 'spectator', seq: expect.any(Number) },
+            // CHANGED (snapshot v2 item, additive): + seq; type dropped (V1_REMOVALS #12)
+            { position: null, message: 'back', username: 'user1', isSpectator: true, seq: expect.any(Number) },
         ]);
     });
 });

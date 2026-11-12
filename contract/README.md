@@ -61,10 +61,10 @@ switch on read paths the shipped app already has, so its screen changes
   `leadPosition` on the same payload is read only by iOS source builds after
   10d1538 (2026-11-07); the App Store build ignores it and infers the lead
   from the first card.
-- `chatMessage.type`: the App Store build's ChatSocketHandler (since
-  ad956b2, 2026-02-16) styles `type == "spectator"` lines as spectator chat.
-  Unread counting treats player and spectator lines alike; bubbles still key
-  off `position` (null for spectators).
+- `chatMessage.type` (dropped again 2026-11-11, V1_REMOVALS #12): the
+  1.0.0 build's ChatSocketHandler (since ad956b2, 2026-02-16) styled
+  `type == "spectator"` lines as spectator chat. 1.0.0 is gated now, and
+  1.1.0 and web read `isSpectator`, which stays.
 
 Guards: the always-on contract guard (every emit), `additiveOnly.test.js`
 (against the frozen baseline), `legacyConstants.test.js` (every cc865b4

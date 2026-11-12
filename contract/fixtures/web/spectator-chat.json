@@ -7,8 +7,7 @@
     "position": null,
     "message": "hello",
     "username": "fan",
-    "isSpectator": true,
-    "type": "spectator"
+    "isSpectator": true
    }
   },
   {
@@ -45,8 +44,7 @@
     "position": null,
     "message": "me too",
     "username": "kim",
-    "isSpectator": true,
-    "type": "spectator"
+    "isSpectator": true
    }
   },
   {
@@ -55,8 +53,7 @@
     "position": 1,
     "message": "gl",
     "username": "user1",
-    "isSpectator": false,
-    "type": "player"
+    "isSpectator": false
    }
   },
   {
@@ -65,8 +62,7 @@
     "position": 2,
     "message": "brb",
     "username": "user2",
-    "isSpectator": false,
-    "type": "player"
+    "isSpectator": false
    }
   },
   {
@@ -75,8 +71,7 @@
     "position": null,
     "message": "watching my bot",
     "username": "user4",
-    "isSpectator": true,
-    "type": "spectator"
+    "isSpectator": true
    }
   }
  ]

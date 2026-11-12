@@ -5993,12 +5993,6 @@
               "isSpectator": {
                 "type": "boolean"
               },
-              "type": {
-                "enum": [
-                  "player",
-                  "spectator"
-                ]
-              },
               "seq": {
                 "$ref": "#/$defs/seq"
               }
@@ -6008,7 +6002,6 @@
               "message",
               "username",
               "isSpectator",
-              "type",
               "seq"
             ],
             "additionalProperties": false
@@ -6029,9 +6022,6 @@
               "isSpectator": {
                 "const": false
               },
-              "type": {
-                "const": "player"
-              },
               "seq": {
                 "$ref": "#/$defs/seq"
               }
@@ -6041,7 +6031,6 @@
               "message",
               "username",
               "isSpectator",
-              "type",
               "seq"
             ],
             "additionalProperties": false
@@ -6052,12 +6041,8 @@
       "to": "room",
       "seq": true,
       "added": [
-        "type",
         "isSpectator",
         "seq"
-      ],
-      "activates": [
-        "type"
       ],
       "clientReads": {
         "web": [
@@ -6065,14 +6050,14 @@
           "client/src/main.js:onChatMessage"
         ],
         "ios": [
-          "iOSClient/BABOnline/Networking/Handlers/ChatSocketHandler.swift:register#reads:type"
+          "iOSClient/BABOnline/State/Table/TableReducer+Events.swift:chatMessage"
         ]
       },
       "emittedFrom": [
         "server/socket/chatHandlers.js:chatMessage",
         "server/game/bot/BotController.js:sendBotChat"
       ],
-      "notes": "type ('player' | 'spectator') is additive and switches on the shipped iOS spectator label (ChatSocketHandler reads type == 'spectator'; ctr-14). Bot chat also gains isSpectator:false (web: undefined and false read the same). Keep one of isSpectator / type in v2 (V1_REMOVALS #12)."
+      "notes": "isSpectator labels spectator chat: web (onChatMessage, the spectator bubble) and iOS 1.1.0 (TableReducer+Events: isSpectator ?? type == 'spectator', f05d264) read it; bot chat sends false. The `type` ('player' | 'spectator') copy, read only by the gated iOS 1.0.0, was dropped (V1_REMOVALS #12, 2026-11-11)."
     },
     "gameLogEntry": {
       "payload": {
