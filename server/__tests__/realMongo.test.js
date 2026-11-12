@@ -15,7 +15,7 @@ const ENV_URI = process.env.MONGO_URI;
 const { MongoClient } = require('mongodb');
 const bcrypt = require('bcryptjs');
 
-const mockHolder = { users: null, gameRecords: null, reports: null };
+const mockHolder = { users: null, gameRecords: null, reports: null, passwordResets: null, adminAudit: null };
 jest.mock('../database', () => {
     const actual = jest.requireActual('../database');
     return {
@@ -24,6 +24,8 @@ jest.mock('../database', () => {
         getUsersCollection: () => mockHolder.users,
         getGameRecordsCollection: () => mockHolder.gameRecords,
         getReportsCollection: () => mockHolder.reports,
+        getPasswordResetsCollection: () => mockHolder.passwordResets,
+        getAdminAuditCollection: () => mockHolder.adminAudit,
         whenReady: async () => true
     };
 });
@@ -424,5 +426,72 @@ describe('real mongod', () => {
         const fresh = last('signInResponse').sessionToken;
         await auth.restoreSession(device(), io, { username: 'Alan', sessionToken: fresh });
         expect(last('restoreSessionResponse')).toMatchObject({ success: true });
+    });
+    test('(i) panel merges on the real driver: two merges of one source at once run one at a time; the retire filter refuses an in-game or merged-elsewhere source', async () => {
+        if (!client) return;
+        const { planMerge, applyMerge } = require('../admin/accountMerge');
+        const admin = require('../socket/adminHandlers');
+        const gameManager = require('../game/GameManager');
+        for (const name of ['passwordResets', 'adminAudit']) await db.collection(name).drop().catch(() => {});
+        mockHolder.passwordResets = db.collection('passwordResets');
+        mockHolder.adminAudit = db.collection('adminAudit');
+        const users = mockHolder.users;
+        const adb = { users, gameRecords: mockHolder.gameRecords, reports: mockHolder.reports, passwordResets: mockHolder.passwordResets };
+        try {
+            // The retire filter itself ($exists / $or on the real server)
+            const toBea = await planMerge(adb, { target: 'Bea', sources: ['Dot'] });
+            await users.updateOne({ username: 'Dot' }, { $set: { activeGameId: 'g-live' } });
+            const partial = await applyMerge(adb, toBea);
+            expect(partial).toMatchObject({ retired: [], notRetired: ['Dot'] });
+            expect((await users.findOne({ username: 'Dot' })).mergedInto).toBeUndefined();
+            await users.updateOne({ username: 'Dot' }, { $unset: { activeGameId: '' } });
+            const toEve = await planMerge(adb, { target: 'Eve', sources: ['alan'] });
+            const toAlan = await planMerge(adb, { target: 'Alan', sources: ['alan'] });
+            expect((await applyMerge(adb, toEve)).retired).toEqual(['alan']);
+            expect((await applyMerge(adb, toAlan)).notRetired).toEqual(['alan']); // merged elsewhere: stays Eve's
+            expect((await users.findOne({ username: 'alan' })).mergedInto).toBe('Eve');
+
+            // Two admins merging the same source into two accounts at once,
+            // through the panel: one runs, the other re-plans after it and is refused
+            await users.updateOne({ username: 'Dot' }, { $set: { isAdmin: true } });
+            const dot = sock();
+            await auth.signIn(dot, io, { username: 'Dot', password: 'pw' });
+            expect(last('signInResponse')).toMatchObject({ success: true });
+            let rid = 0;
+            const ask = async (action, args) => {
+                const requestId = `rm-req-${++rid}`;
+                await admin.adminRequest(dot, io, { requestId, action, args });
+                return log.filter(l => l.event === 'adminResponse' && l.data.requestId === requestId).pop().data;
+            };
+            const cyBefore = (await users.findOne({ username: 'Cy' })).stats;
+            const beaBefore = (await users.findOne({ username: 'Bea' })).stats || {};
+            const eveBefore = (await users.findOne({ username: 'Eve' })).stats;
+            const pBea = await ask('planMerge', { target: 'Bea', sources: ['Cy'] });
+            const pEve = await ask('planMerge', { target: 'Eve', sources: ['Cy'] });
+            expect(pBea.ok && pEve.ok).toBe(true);
+            const [a, b] = await Promise.all([
+                ask('applyMerge', { target: 'Bea', sources: ['Cy'], planHash: pBea.planHash, confirm: 'Bea' }),
+                ask('applyMerge', { target: 'Eve', sources: ['Cy'], planHash: pEve.planHash, confirm: 'Eve' })
+            ]);
+            // whichever reached the merge queue first runs; the other re-plans after it
+            const [win, lose] = a.ok ? [a, b] : [b, a];
+            const winner = win.result.target;
+            const loser = winner === 'Bea' ? 'Eve' : 'Bea';
+            expect(win).toMatchObject({ ok: true, result: { retired: ['Cy'], statsMerged: ['Cy'] } });
+            expect(lose).toMatchObject({ ok: false, error: 'refused' });
+            expect(lose.message).toMatch(new RegExp(`already merged into "${winner}"`));
+            const before = { Bea: beaBefore, Eve: eveBefore };
+            expect((await users.findOne({ username: winner })).stats.gamesPlayed).toBe((before[winner].gamesPlayed || 0) + cyBefore.gamesPlayed);
+            expect((await users.findOne({ username: loser })).stats || {}).toEqual(before[loser]);
+            expect((await users.findOne({ username: loser })).mergedFrom || []).not.toContainEqual(expect.objectContaining({ username: 'Cy' }));
+            expect((await users.findOne({ username: 'Cy' })).mergedInto).toBe(winner);
+            // every game record of Cy was re-pointed, none left behind
+            expect(await mockHolder.gameRecords.countDocuments({ $or: [{ team1Players: 'Cy' }, { team2Players: 'Cy' }] })).toBe(0);
+            expect(await mockHolder.adminAudit.countDocuments({ action: 'applyMerge' })).toBe(2);
+        } finally {
+            gameManager.currentUsers = [];
+            mockHolder.passwordResets = null;
+            mockHolder.adminAudit = null;
+        }
     });
 });

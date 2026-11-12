@@ -139,6 +139,118 @@ function isOnline(username) {
 const iso = (d) => new Date(d).toISOString();
 
 /**
+ * Panel merges run one after another (single server process: an
+ * in-process queue is enough). A failed merge does not block the next.
+ */
+let mergeQueue = Promise.resolve();
+function serializeMerges(fn) {
+    const run = mergeQueue.then(fn, fn);
+    mergeQueue = run.catch(() => {});
+    return run;
+}
+
+/**
+ * applyMerge under the merge queue. Order: re-plan (stale_plan when it
+ * differs from the preview) → refuse a source that is playing right now
+ * (from memory: a game in its draw has no activeGameId yet) → lock the
+ * sources' names and sign out their live sockets, in the same synchronous
+ * step, so no game, queue, lobby, tournament, sign-in or restore can start
+ * for them until the merge is done → apply → unlock. A source whose retire
+ * the database still refuses (accountMerge: in a game or merged elsewhere
+ * meanwhile, e.g. by the CLI) is reported as a partial merge.
+ */
+async function applyMergeNow({ db, io, actor }, { target, sources, planHash: previewed }) {
+    // Plan again right before writing: apply only what was previewed
+    const plan = await planMerge(db, { target, sources });
+    if (plan.errors.length) throw new AdminError('refused', plan.errors.join(' '));
+    if (planHash(plan) !== previewed) {
+        throw new AdminError('stale_plan', 'These accounts changed since the preview. Preview again before merging.');
+    }
+    // In-process caches see the merge at once (the CLI waits for the TTL)
+    const invalidateCaches = () => {
+        const profile = require('./profileHandlers');
+        profile.invalidateLeaderboard?.();
+        profile.invalidateRecords?.();
+        const avatarStore = require('../avatar/avatarStore');
+        for (const name of [target, ...plan.sources]) avatarStore.forgetUser?.(name);
+    };
+    if (countChanges(plan) === 0) {
+        // Already complete (possibly by an earlier apply that stopped
+        // after retiring): a source still connected is signed out now
+        for (const name of plan.sources) signOutUser(io, name);
+        throw new AdminError('refused', 'Nothing to do. This merge is already complete.');
+    }
+    // Playing right now, from memory (the plan saw only the database's
+    // activeGameId / activeTournamentId, written after the draw): refused,
+    // nothing written. From here to the lock below is synchronous
+    for (const name of plan.sources) {
+        const live = gameManager.findLiveActivity(name);
+        if (live) {
+            throw new AdminError('refused', `Source "${name}" is in ${live.kind === 'game' ? 'a game' : 'a tournament'} right now. Wait until it finishes and merge again.`);
+        }
+    }
+    // Lock the names (no new sign-in, restore, rejoin, queue, lobby or
+    // tournament: GameManager.mergeLocks) and sign out every live socket
+    // of a source now, before the first write
+    gameManager.lockForMerge(plan.sources);
+    let signedOut = 0;
+    let result;
+    try {
+        for (const name of plan.sources) signedOut += signOutUser(io, name);
+        result = await applyMerge(db, plan);
+    } catch (error) {
+        // Stopped partway: what ran before the throw is saved (renames,
+        // stats, maybe tombstones). Never say "nothing changed": sign
+        // out whatever is retired by now, refresh the caches, and send
+        // the admin back to the preview (a retry plans what is left)
+        logger.error('Merge stopped partway', { actor: actor.username, target, error: error.message });
+        let retiredNow = [];
+        try {
+            retiredNow = (await db.users.find(
+                { username: { $in: plan.sources }, mergedInto: target },
+                { projection: { username: 1 } }
+            ).toArray()).map(u => u.username);
+        } catch { /* the database is struggling: sign out every source */
+            retiredNow = [...plan.sources];
+        }
+        for (const name of retiredNow) signOutUser(io, name);
+        invalidateCaches();
+        const done = retiredNow.length ? `${retiredNow.join(', ')} retired and signed out` : 'no account retired yet';
+        throw new AdminError('server', `The merge stopped partway and may be partly applied (${done}). Preview again to see what is left, then merge again.`);
+    } finally {
+        gameManager.unlockMerge(plan.sources);
+    }
+    // Backstop: nothing of a retired name should be connected by now
+    for (const name of result.retired) signedOut += signOutUser(io, name);
+    invalidateCaches();
+    if (result.notRetired.length) {
+        // The database refused to retire a source (in a game or a
+        // tournament, or merged into another account, since the plan: the
+        // CLI in another process can do that). Everything else ran
+        logger.warn('Merge partly applied: a source was not retired', { actor: actor.username, target, notRetired: result.notRetired });
+        const retired = result.retired.length ? `; retired: ${result.retired.join(', ')}` : '';
+        throw new AdminError('server', `The merge is only partly applied: ${result.notRetired.map(n => `"${n}"`).join(', ')} could not be retired (in a game, or merged into another account, since the preview)${retired}. Preview again to see what is left, then merge again.`);
+    }
+    return {
+        reply: {
+            result: {
+                target,
+                statsMerged: result.statsMerged,
+                retired: result.retired,
+                gameRecords: result.gameRecords,
+                reports: result.reports,
+                otherUsersBlocks: result.otherUsersBlocks,
+                chainedTombstones: result.chainedTombstones,
+                profilePic: result.profilePic,
+                signedOut
+            }
+        },
+        target,
+        detail: `merged ${sources.join(', ')}: retired ${result.retired.join(', ') || 'none'}; ${result.gameRecords} game record(s), ${result.reports} report(s); ${signedOut} signed out`
+    };
+}
+
+/**
  * Each action: run(ctx, args) → {reply, target, detail}. `reply` is spread
  * into the ok response; target/detail go to the audit entry (names and
  * counts only).
@@ -201,75 +313,14 @@ const RUN = {
         };
     },
 
-    async applyMerge({ db, io, actor }, { target, sources, planHash: previewed, confirm }) {
-        if (confirm !== target) {
-            throw new AdminError('invalid', `Type the kept account's name, ${target}, exactly to confirm.`);
+    async applyMerge(ctx, args) {
+        if (args.confirm !== args.target) {
+            throw new AdminError('invalid', `Type the kept account's name, ${args.target}, exactly to confirm.`);
         }
-        // Plan again right before writing: apply only what was previewed
-        const plan = await planMerge(db, { target, sources });
-        if (plan.errors.length) throw new AdminError('refused', plan.errors.join(' '));
-        if (planHash(plan) !== previewed) {
-            throw new AdminError('stale_plan', 'These accounts changed since the preview. Preview again before merging.');
-        }
-        // In-process caches see the merge at once (the CLI waits for the TTL)
-        const invalidateCaches = () => {
-            const profile = require('./profileHandlers');
-            profile.invalidateLeaderboard?.();
-            profile.invalidateRecords?.();
-            const avatarStore = require('../avatar/avatarStore');
-            for (const name of [target, ...plan.sources]) avatarStore.forgetUser?.(name);
-        };
-        if (countChanges(plan) === 0) {
-            // Already complete (possibly by an earlier apply that stopped
-            // after retiring): a source still connected is signed out now
-            for (const name of plan.sources) signOutUser(io, name);
-            throw new AdminError('refused', 'Nothing to do. This merge is already complete.');
-        }
-        let result;
-        try {
-            result = await applyMerge(db, plan);
-        } catch (error) {
-            // Stopped partway: what ran before the throw is saved (renames,
-            // stats, maybe tombstones). Never say "nothing changed": sign
-            // out whatever is retired by now, refresh the caches, and send
-            // the admin back to the preview (a retry plans what is left)
-            logger.error('Merge stopped partway', { actor: actor.username, target, error: error.message });
-            let retiredNow = [];
-            try {
-                retiredNow = (await db.users.find(
-                    { username: { $in: plan.sources }, mergedInto: target },
-                    { projection: { username: 1 } }
-                ).toArray()).map(u => u.username);
-            } catch { /* the database is struggling: sign out every source */
-                retiredNow = [...plan.sources];
-            }
-            for (const name of retiredNow) signOutUser(io, name);
-            invalidateCaches();
-            const done = retiredNow.length ? `${retiredNow.join(', ')} retired and signed out` : 'no account retired yet';
-            throw new AdminError('server', `The merge stopped partway and may be partly applied (${done}). Preview again to see what is left, then merge again.`);
-        }
-        // Retired names cannot keep playing on a connection signed in
-        // before the merge (their stats would land on a tombstone)
-        let signedOut = 0;
-        for (const name of result.retired) signedOut += signOutUser(io, name);
-        invalidateCaches();
-        return {
-            reply: {
-                result: {
-                    target,
-                    statsMerged: result.statsMerged,
-                    retired: result.retired,
-                    gameRecords: result.gameRecords,
-                    reports: result.reports,
-                    otherUsersBlocks: result.otherUsersBlocks,
-                    chainedTombstones: result.chainedTombstones,
-                    profilePic: result.profilePic,
-                    signedOut
-                }
-            },
-            target,
-            detail: `merged ${sources.join(', ')}: retired ${result.retired.join(', ') || 'none'}; ${result.gameRecords} game record(s), ${result.reports} report(s); ${signedOut} signed out`
-        };
+        // One panel merge at a time (the server is one process): a second
+        // merge of the same source re-plans after the first is done, sees it
+        // retired, and is refused instead of adding its stats twice
+        return serializeMerges(() => applyMergeNow(ctx, args));
     },
 
     async listReports({ db }, { status }) {

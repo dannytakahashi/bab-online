@@ -116,7 +116,8 @@ describe('reset links', () => {
     test('valid -> used: new password works, old fails, every session revoked; reuse refused', async () => {
         const { token } = await createResetLink(db, 'Bea', { now });
         const res = await useResetLink(db, token, 'new-pass', { now, hash: hashFast });
-        expect(res).toEqual({ ok: true, username: 'Bea', revokedSessions: 3 });
+        // socketId: the connection the revoke found (none here)
+        expect(res).toEqual({ ok: true, username: 'Bea', revokedSessions: 3, socketId: null });
         const bea = await db.users.findOne({ username: 'Bea' });
         expect(await bcrypt.compare('new-pass', bea.password)).toBe(true);
         expect(await bcrypt.compare('old', bea.password)).toBe(false);
@@ -178,10 +179,10 @@ describe('reset links', () => {
 
     test('a failed password write releases the link (a database hiccup does not burn it)', async () => {
         const { token } = await createResetLink(db, 'Bea', { now });
-        const real = db.users.updateOne.bind(db.users);
-        db.users.updateOne = jest.fn(async () => { throw new Error('write failed'); });
+        const real = db.users.findOneAndUpdate.bind(db.users);
+        db.users.findOneAndUpdate = jest.fn(async () => { throw new Error('write failed'); });
         await expect(useResetLink(db, token, 'pw', { now, hash: hashFast })).rejects.toThrow('write failed');
-        db.users.updateOne = real;
+        db.users.findOneAndUpdate = real;
         expect(db.passwordResets.all()[0].state).toBe('open');
         expect(await useResetLink(db, token, 'pw', { now, hash: hashFast })).toMatchObject({ ok: true });
     });

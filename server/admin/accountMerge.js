@@ -266,7 +266,9 @@ async function applyMerge(db, plan, { now = new Date() } = {}) {
     const { target, sources } = plan;
     const result = {
         gameRecords: 0, reports: 0, otherUsersBlocks: 0, chainedTombstones: 0,
-        statsMerged: [], profilePic: false, targetBlockedUsers: false, retired: []
+        statsMerged: [], profilePic: false, targetBlockedUsers: false, retired: [],
+        // sources whose retire was refused (see step 3): a partial merge
+        notRetired: []
     };
 
     // 1. Shared documents first. These are pure renames, so re-running them
@@ -318,22 +320,35 @@ async function applyMerge(db, plan, { now = new Date() } = {}) {
         result.targetBlockedUsers = true;
     }
 
-    // 3. Retire sources last, after their stats are safely on the target
+    // 3. Retire sources last, after their stats are safely on the target.
+    //    Only a source that is still free: not in a game or a tournament
+    //    (one that started one since the plan would keep playing on a
+    //    tombstone, and that game's stats would be lost) and not merged into
+    //    another account meanwhile (a second merge of the same source). A
+    //    refused retire leaves the source a normal account and is reported
+    //    in notRetired: a partial merge.
     for (const src of plan.retire) {
         const unset = {};
         for (const field of TOMBSTONE_UNSET) unset[field] = '';
-        await db.users.updateOne(
-            { _id: src.id, username: { $in: sources } },
+        const res = await db.users.updateOne(
+            {
+                _id: src.id,
+                username: { $in: sources },
+                activeGameId: { $exists: false },
+                activeTournamentId: { $exists: false },
+                $or: [{ mergedInto: { $exists: false } }, { mergedInto: target }]
+            },
             // sessionEpoch: a restore in flight cannot write the sessions back
             { $set: { mergedInto: target, mergedAt: now }, $unset: unset, $inc: { sessionEpoch: 1 } }
         );
-        result.retired.push(src.username);
+        if (res && res.matchedCount === 0) result.notRetired.push(src.username);
+        else result.retired.push(src.username);
     }
     // A retired name can no longer use a reset link made for it (the link
     // page refuses a tombstone anyway; this closes the link itself)
-    if (db.passwordResets && plan.retire.length) {
+    if (db.passwordResets && result.retired.length) {
         await db.passwordResets.updateMany(
-            { username: { $in: plan.retire.map(r => r.username) }, state: 'open' },
+            { username: { $in: result.retired }, state: 'open' },
             { $set: { state: 'revoked', revokedAt: now } }
         );
     }

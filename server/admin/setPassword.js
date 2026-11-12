@@ -30,21 +30,33 @@ function generateFriendlyPassword() {
  * bumped so an in-flight sign-in or restore cannot write them back), so
  * every device has to sign in with the new password.
  *
+ * One atomic findOneAndUpdate that returns the document as it was (like
+ * the panel's Sign out everywhere): the count of sessions revoked is the
+ * one actually removed, and its socketId names the newest live connection,
+ * so the caller can sign it out even when the game manager has not
+ * registered it yet (a sign-in or restore whose write landed just before
+ * this one: authHandlers.signOutUser's socketId option).
+ *
  * @param {{users}} db
- * @param {Object} user - the user document (at least _id, sessionTokens, sessionToken)
+ * @param {Object} user - the user document (at least _id)
  * @param {string} hash - bcrypt hash of the new password
  * @param {{now?: Date, stampField?: string}} [options]
- * @returns {Promise<number>} how many saved sessions were revoked
+ * @returns {Promise<{revokedSessions: number, socketId: string|null}>}
  */
 async function writePasswordHash(db, user, hash, { now = new Date(), stampField = 'passwordResetByAdminAt' } = {}) {
-    await db.users.updateOne(
+    const before = await db.users.findOneAndUpdate(
         { _id: user._id },
         {
             $set: { password: hash, [stampField]: now },
             ...REVOKE_ALL_SESSIONS
-        }
+        },
+        { returnDocument: 'before', projection: { socketId: 1, 'sessionTokens.hash': 1, sessionToken: 1 } }
     );
-    return (user.sessionTokens?.length || 0) + (user.sessionToken ? 1 : 0);
+    const was = before || {};
+    return {
+        revokedSessions: (was.sessionTokens?.length || 0) + (was.sessionToken ? 1 : 0),
+        socketId: typeof was.socketId === 'string' ? was.socketId : null
+    };
 }
 
 /** The sign-up password rule (validators.js signUp: 1-100 characters). */
@@ -93,7 +105,7 @@ async function setPassword(db, username, newPassword, { now = new Date(), rounds
 
     const hash = await bcrypt.hash(newPassword, rounds);
     const revokedLinks = await revokeOpenResetLinks(db, user, { now });
-    const revokedSessions = await writePasswordHash(db, user, hash, { now });
+    const { revokedSessions } = await writePasswordHash(db, user, hash, { now });
     return { username, revokedSessions, revokedLinks };
 }
 

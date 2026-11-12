@@ -19,8 +19,18 @@ const { cspMiddleware } = require('../middleware/csp');
 const { createCompression } = require('../middleware/compression');
 const { createResetLink, RESET_TTL_MS } = require('../admin/passwordReset');
 const { logger } = require('../utils/logger');
+// The real signIn / restoreSession read the test's memoryDb (mockDb.current)
+const mockDb = { current: null };
+jest.mock('../database', () => ({
+    ...jest.requireActual('../database'),
+    getUsersCollection: () => mockDb.current && mockDb.current.users,
+    whenReady: async () => true
+}));
+
 const gameManager = require('../game/GameManager');
-const { signOutUser } = require('../socket/authHandlers');
+const auth = require('../socket/authHandlers');
+const { signOutUser } = auth;
+const { makeIo, makeSocket } = require('../testUtils/gameDriver');
 
 // Capture every log line (every level) to check the token is never in one
 const logLines = [];
@@ -329,13 +339,127 @@ describe('POST /api/password-reset', () => {
         expect((await post({ token: cy, password: 'pw' })).status).toBe(200);
     });
 
+    describe('every live connection of the player is signed out', () => {
+        let log;
+        let wio;
+        let k = 0;
+        // A tab on the real auth handlers (socket.data, rooms, connected)
+        const tab = () => {
+            const s = makeSocket(`tab-${++k}`, log, wio);
+            s.disconnect = () => {
+                wio.sockets.sockets.delete(s.id);
+                for (const m of wio.rooms.values()) m.delete(s.id);
+            };
+            return s;
+        };
+        const reply = (s, event) => log.filter(l => l.to === `self:${s.id}` && l.event === event).pop()?.data;
+        const got = (s, event) => log.some(l => l.to === `self:${s.id}` && l.event === event);
+
+        beforeEach(() => {
+            log = [];
+            wio = makeIo(log);
+            io = wio;
+            mockDb.current = db;
+            gameManager.currentUsers = [];
+            gameManager.mainRoomSocketIds.clear();
+        });
+        afterEach(() => { mockDb.current = null; });
+
+        async function signedInTab() {
+            const s = tab();
+            await auth.signIn(s, wio, { username: 'Bea', password: 'old' });
+            expect(reply(s, 'signInResponse')).toMatchObject({ success: true });
+            return { s, token: reply(s, 'signInResponse').sessionToken };
+        }
+
+        test('two tabs restored from one saved session (RST-DUPSOCK): both signed out and out of the main room', async () => {
+            await start();
+            const { s: first, token } = await signedInTab();
+            gameManager.joinMainRoom(first.id);
+            first.join('mainRoom');
+            // The web client copies the saved session into every new tab
+            const second = tab();
+            await auth.restoreSession(second, wio, { username: 'Bea', sessionToken: token });
+            expect(reply(second, 'restoreSessionResponse')).toMatchObject({ success: true });
+            gameManager.joinMainRoom(second.id);
+            second.join('mainRoom');
+            // the game manager keeps one entry per name: only the newer tab
+            expect(gameManager.currentUsers.filter(u => u.username === 'Bea').map(u => u.socketId)).toEqual([second.id]);
+
+            const { token: link } = await createResetLink(db, 'Bea', { now: new Date(clock) });
+            expect((await post({ token: link, password: 'brand-new' })).status).toBe(200);
+            for (const s of [first, second]) {
+                expect(got(s, 'forceLogout')).toBe(true);
+                expect(wio.sockets.sockets.has(s.id)).toBe(false);
+                expect(gameManager.mainRoomSocketIds.has(s.id)).toBe(false);
+            }
+            expect(wio.rooms.get('mainRoom').size).toBe(0);
+            expect(db.adminAudit.all().pop().detail).toMatch(/2 live connection\(s\) signed out/);
+        });
+
+        test('the connection the revoke found on the account (findOneAndUpdate before) is signed out even if never registered', async () => {
+            await start();
+            // bea-sock (beforeEach): users.socketId, not in the game manager
+            // (a restore whose reply is still in flight), no claim on it
+            io = { sockets: { sockets: new Map([['bea-sock', liveSocket]]) } };
+            const { token } = await createResetLink(db, 'Bea', { now: new Date(clock) });
+            expect((await post({ token, password: 'brand-new' })).status).toBe(200);
+            expect(liveSocket.emit).toHaveBeenCalledWith('forceLogout');
+            expect(liveSocket.disconnect).toHaveBeenCalled();
+            expect(db.adminAudit.all().pop().detail).toMatch(/1 live connection\(s\) signed out/);
+        });
+
+        test('a restore whose write landed before the reset but resumes after it ends signed out (RST-SOCK)', async () => {
+            await start();
+            const { s: phone, token } = await signedInTab();
+            // A controllable database: the attacker's restore lands its write
+            // (epoch 0: it matches) and its reply is held
+            const users = db.users;
+            const original = users.updateOne.bind(users);
+            let release;
+            let landed;
+            const gate = new Promise(r => { release = r; });
+            const writeLanded = new Promise(r => { landed = r; });
+            users.updateOne = async (...args) => {
+                users.updateOne = original;
+                const res = await original(...args);
+                landed();
+                await gate;
+                return res;
+            };
+            const attacker = tab();
+            const restoring = auth.restoreSession(attacker, wio, { username: 'Bea', sessionToken: token });
+            await writeLanded;
+            expect((await db.users.findOne({ username: 'Bea' })).socketId).toBe(attacker.id);
+            expect(gameManager.getUserBySocketId(attacker.id)).toBeUndefined(); // not registered yet
+
+            // The player uses the link while that reply is in flight
+            const { token: link } = await createResetLink(db, 'Bea', { now: new Date(clock) });
+            expect((await post({ token: link, password: 'brand-new' })).status).toBe(200);
+            release();
+            await restoring;
+
+            expect(got(attacker, 'forceLogout')).toBe(true);
+            expect(wio.sockets.sockets.has(attacker.id)).toBe(false);
+            expect(log.filter(l => l.to === `self:${attacker.id}` && l.event === 'restoreSessionResponse' && l.data.success)).toEqual([]);
+            expect(gameManager.getUserBySocketId(attacker.id)).toBeUndefined();
+            expect(gameManager.currentUsers.filter(u => u.username === 'Bea')).toEqual([]);
+            expect(got(phone, 'forceLogout')).toBe(true);
+            expect(db.adminAudit.all().pop().detail).toMatch(/2 live connection\(s\) signed out/);
+            // and the saved session stays dead
+            const again = tab();
+            await auth.restoreSession(again, wio, { username: 'Bea', sessionToken: token });
+            expect(reply(again, 'restoreSessionResponse')).toMatchObject({ success: false });
+        });
+    });
+
     test('database not ready or failing: 503, the link survives', async () => {
         await start();
         const { token } = await createResetLink(db, 'Bea', { now: new Date(clock) });
-        const real = db.users.updateOne.bind(db.users);
-        db.users.updateOne = async () => { throw new Error('write failed'); };
+        const real = db.users.findOneAndUpdate.bind(db.users);
+        db.users.findOneAndUpdate = async () => { throw new Error('write failed'); };
         expect((await post({ token, password: 'pw' })).status).toBe(503);
-        db.users.updateOne = real;
+        db.users.findOneAndUpdate = real;
         expect((await post({ token, password: 'pw' })).status).toBe(200);
         const saved = db;
         db = { users: undefined, passwordResets: undefined };

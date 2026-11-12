@@ -12,6 +12,8 @@ const { PERSONALITY_LIST } = personalities;
 const { Phase } = require('./GamePhase');
 const spectatorRoster = require('./spectatorRoster');
 
+const MERGE_LOCKED = 'This account is being updated. Please try again in a minute.';
+
 class GameManager {
     constructor() {
         // Queue of players waiting for a game
@@ -46,6 +48,11 @@ class GameManager {
         // Usernames deleted this server lifetime — keeps an in-flight game
         // from re-inserting a deleted username into new gameRecords
         this.deletedUsernames = new Set();
+
+        // Accounts a panel merge is retiring right now (adminHandlers
+        // applyMerge): they cannot sign in, restore, rejoin, queue, open or
+        // join a lobby or a tournament until the merge is done
+        this.mergeLocks = new Set();
     }
 
     // Constants
@@ -72,10 +79,59 @@ class GameManager {
         return this.currentUsers.find(u => u.socketId === socketId);
     }
 
+    // ==================== MERGE LOCK ====================
+
+    isMergeLocked(username) {
+        return username != null && this.mergeLocks.has(username);
+    }
+
+    lockForMerge(usernames) {
+        for (const name of usernames) this.mergeLocks.add(name);
+    }
+
+    unlockMerge(usernames) {
+        for (const name of usernames) this.mergeLocks.delete(name);
+    }
+
+    /** The signed-in user of `socketId` when a merge holds their name. */
+    _mergeLockedUser(socketId) {
+        const user = this.getUserBySocketId(socketId);
+        return user && this.isMergeLocked(user.username) ? user : null;
+    }
+
+    /**
+     * Where `username` plays right now, from memory (not the database's
+     * activeGameId, which is written only once the draw is over): a live
+     * game that has them as an entrant (draw phase), a seat owner (any
+     * presence) or a player, or a tournament that is not complete.
+     * @returns {{kind: 'game'|'tournament', id: string}|null}
+     */
+    findLiveActivity(username) {
+        if (username == null) return null;
+        for (const game of this.games.values()) {
+            if (game.isTerminal?.()) continue;
+            const isEntrant = game.entrants
+                ? [...game.entrants.values()].some(e => !e.isBot && e.username === username)
+                : false;
+            const isPlayer = [...(game.players?.values?.() || [])].some(p => p && p.username === username);
+            if (isEntrant || isPlayer || game.seatByUsername?.(username) != null) {
+                return { kind: 'game', id: game.gameId };
+            }
+        }
+        for (const t of this.tournaments.values()) {
+            if (t.phase === 'complete') continue;
+            for (const p of t.players.values()) {
+                if (p.username === username) return { kind: 'tournament', id: t.tournamentId };
+            }
+        }
+        return null;
+    }
+
     /**
      * Add player to lobby (creates one immediately or joins existing)
      */
     joinQueue(socketId) {
+        if (this._mergeLockedUser(socketId)) return { success: false, error: MERGE_LOCKED };
         // Check if already in lobby
         if (this.playerLobbies.has(socketId)) {
             return { success: false, error: 'Already in lobby' };
@@ -291,6 +347,7 @@ class GameManager {
      * Create a named lobby from main room
      */
     createNamedLobby(socketId, name = null) {
+        if (this._mergeLockedUser(socketId)) return { success: false, error: MERGE_LOCKED };
         // Check if already in lobby
         if (this.playerLobbies.has(socketId)) {
             return { success: false, error: 'Already in lobby' };
@@ -338,6 +395,7 @@ class GameManager {
      * Join a specific lobby by ID
      */
     joinSpecificLobby(socketId, lobbyId) {
+        if (this._mergeLockedUser(socketId)) return { success: false, error: MERGE_LOCKED };
         // Check if already in a lobby
         if (this.playerLobbies.has(socketId)) {
             return { success: false, error: 'Already in a lobby' };
@@ -656,6 +714,11 @@ class GameManager {
 
         if (lobby.readyPlayers.size !== 4) {
             return { success: false, error: 'Not all players ready' };
+        }
+        // A seat whose account a merge is retiring right now never starts
+        // (the merge signs it out, which empties the seat)
+        if (lobby.players.some(p => !p.isBot && this.isMergeLocked(p.username))) {
+            return { success: false, error: MERGE_LOCKED };
         }
 
         // Get player socket IDs
@@ -1157,6 +1220,7 @@ class GameManager {
     createTournament(socketId, name) {
         const user = this.getUserBySocketId(socketId);
         if (!user) return { success: false, error: 'User not found' };
+        if (this.isMergeLocked(user.username)) return { success: false, error: MERGE_LOCKED };
 
         // A finished tournament lingering for its results window must not
         // block new ones
@@ -1186,6 +1250,7 @@ class GameManager {
     joinTournament(socketId, tournamentId) {
         const user = this.getUserBySocketId(socketId);
         if (!user) return { success: false, error: 'User not found' };
+        if (this.isMergeLocked(user.username)) return { success: false, error: MERGE_LOCKED };
 
         // A finished tournament lingering for its results window must not
         // block joining a new one (unless they're rejoining that same one)

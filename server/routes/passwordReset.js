@@ -215,7 +215,9 @@ function createPasswordResetRouter({ getDb, getIo, signOutUser, hash = (pw) => p
             if (!db.users || !db.passwordResets) return send(res, 503, 'unavailable');
             const result = await useResetLink(db, token, password, { now: new Date(now()), hash: gatedHash });
             if (!result.ok) return send(res, 400, result === INVALID_LINK ? 'invalid_link' : 'invalid_password');
-            const disconnected = signOutUser(getIo(), result.username);
+            // socketId: the newest connection as the revoke found it (a
+            // restore or sign-in the game manager has not registered yet)
+            const disconnected = signOutUser(getIo(), result.username, { socketId: result.socketId });
             logger.info('Password changed by reset link', { username: result.username, revokedSessions: result.revokedSessions, disconnected });
             await recordAudit(db, {
                 actor: result.username,

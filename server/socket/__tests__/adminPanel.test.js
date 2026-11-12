@@ -106,6 +106,34 @@ async function signedIn(username) {
     return s;
 }
 
+/** Another tab restored from `token` (the web client copies the saved session into every new tab). */
+async function restoredTab(username, token) {
+    const s = w.socket(`adm-${++n}`);
+    await auth.restoreSession(s, w.io, { username, sessionToken: token });
+    const res = w.log.filter(l => l.to === `self:${s.id}` && l.event === 'restoreSessionResponse').pop().data;
+    expect(res.success).toBe(true);
+    return s;
+}
+
+const gotEvent = (s, event) => w.log.some(l => l.to === `self:${s.id}` && l.event === event);
+
+/** The next write of `coll` waits at the gate (it has not happened yet when `reached` resolves). */
+function holdNextWrite(coll, method = 'updateOne') {
+    const own = Object.prototype.hasOwnProperty.call(coll, method);
+    const original = coll[method];
+    let release;
+    let reached;
+    const gate = new Promise(r => { release = r; });
+    const reachedP = new Promise(r => { reached = r; });
+    coll[method] = async function (...args) {
+        if (own) coll[method] = original; else delete coll[method];
+        reached();
+        await gate;
+        return original.apply(coll, args);
+    };
+    return { reached: reachedP, release };
+}
+
 let rid = 0;
 /** Send one adminRequest through the real wrapper; resolve its adminResponse. */
 async function request(socket, action, args) {
@@ -348,6 +376,29 @@ describe('actions', () => {
         expect(await request(owner, 'signOutEverywhere', { username: 'Old' })).toMatchObject({ ok: false, error: 'refused' });
     });
 
+    test('sign out everywhere reaches EVERY tab of the player, including one restored from the same saved session (RST-DUPSOCK)', async () => {
+        const mainRoom = require('../mainRoomHandlers');
+        const first = await signedIn('Bea');
+        mainRoom.joinMainRoom(first, w.io);
+        const second = await restoredTab('Bea', first.sessionToken);
+        mainRoom.joinMainRoom(second, w.io);
+        // one game-manager entry per name, and users.socketId: only the second tab
+        expect(gameManager.getUserBySocketId(first.id)).toBeUndefined();
+        expect((await users().findOne({ username: 'Bea' })).socketId).toBe(second.id);
+        expect(gameManager.mainRoomSocketIds.has(first.id)).toBe(true);
+
+        const res = await request(owner, 'signOutEverywhere', { username: 'Bea' });
+        expect(res).toMatchObject({ ok: true, disconnected: 2 });
+        for (const s of [first, second]) {
+            expect(gotEvent(s, 'forceLogout')).toBe(true);
+            expect(w.io.sockets.sockets.has(s.id)).toBe(false);
+            expect(gameManager.mainRoomSocketIds.has(s.id)).toBe(false);
+        }
+        expect([...(w.io.rooms.get('mainRoom') || [])]).not.toEqual(expect.arrayContaining([first.id]));
+        // nobody else was touched
+        expect(w.io.sockets.sockets.has(owner.id)).toBe(true);
+    });
+
     test('search: rows for admins, tombstones marked, no password data', async () => {
         const res = await request(owner, 'searchPlayers', { query: 'O' });
         expect(res.players.map(p => [p.username, p.isAdmin, p.mergedInto, p.online])).toEqual([
@@ -426,7 +477,7 @@ describe('actions', () => {
             expect(replan.plan.changeCount).toBe(0);
         });
 
-        test('a merge that throws before retiring: nobody signed out; preview + apply again finishes it', async () => {
+        test('a merge that throws before retiring: the source was signed out before the first write, is not retired and can sign in again; preview + apply again finishes it', async () => {
             const cy = await signedIn('Cy');
             const prev = await request(owner, 'planMerge', { target: 'Bea', sources: ['Cy'] });
             const recs = mockDb.current.gameRecords;
@@ -435,10 +486,14 @@ describe('actions', () => {
             delete recs.updateOne;
             expect(res).toMatchObject({ ok: false, error: 'server' });
             expect(res.message).toMatch(/no account retired yet/);
-            expect(w.log.filter(l => l.to === `self:${cy.id}`).map(l => l.event)).not.toContain('forceLogout');
+            expect(w.log.filter(l => l.to === `self:${cy.id}`).map(l => l.event)).toContain('forceLogout');
+            expect((await users().findOne({ username: 'Cy' })).mergedInto).toBeUndefined();
+            expect(gameManager.isMergeLocked('Cy')).toBe(false); // the lock is released on failure
+            const cy2 = await signedIn('Cy');
             const again = await request(owner, 'planMerge', { target: 'Bea', sources: ['Cy'] });
             const done = await request(owner, 'applyMerge', { target: 'Bea', sources: ['Cy'], planHash: again.planHash, confirm: 'Bea' });
             expect(done).toMatchObject({ ok: true, result: { retired: ['Cy'], signedOut: 1 } });
+            expect(w.io.sockets.sockets.has(cy2.id)).toBe(false);
         });
 
         test('"already complete" still signs out a retired name that is connected', async () => {
@@ -453,6 +508,120 @@ describe('actions', () => {
                 .toMatchObject({ ok: false, error: 'refused', message: 'Nothing to do. This merge is already complete.' });
             expect(w.log.filter(l => l.to === `self:${cy.id}`).map(l => l.event)).toContain('forceLogout');
             expect(gameManager.getUserBySocketId(cy.id)).toBeUndefined();
+        });
+
+        test('a retired source\'s second tab (same saved session) is signed out too', async () => {
+            const cy = await signedIn('Cy');
+            const cy2 = await restoredTab('Cy', cy.sessionToken);
+            const prev = await request(owner, 'planMerge', { target: 'Bea', sources: ['Cy'] });
+            const done = await request(owner, 'applyMerge', { target: 'Bea', sources: ['Cy'], planHash: prev.planHash, confirm: 'Bea' });
+            expect(done).toMatchObject({ ok: true, result: { retired: ['Cy'], signedOut: 2 } });
+            for (const s of [cy, cy2]) expect(w.io.sockets.sockets.has(s.id)).toBe(false);
+        });
+
+        describe('races (MRG-WIN)', () => {
+            beforeEach(async () => {
+                await users().insertOne({ username: 'Dee', password: PW, stats: { gamesPlayed: 1 } });
+            });
+            const statsOf = async (name) => (await users().findOne({ username: name })).stats || {};
+
+            test('two merges of the same source into different accounts at once: one runs, the other is refused; stats counted once', async () => {
+                const toBea = await request(owner, 'planMerge', { target: 'Bea', sources: ['Cy'] });
+                const toDee = await request(owner, 'planMerge', { target: 'Dee', sources: ['Cy'] });
+                const owner2 = await signedIn('Owner'); // a second admin tab (same account is fine)
+                const [a, b] = await Promise.all([
+                    request(owner2, 'applyMerge', { target: 'Bea', sources: ['Cy'], planHash: toBea.planHash, confirm: 'Bea' }),
+                    request(owner2, 'applyMerge', { target: 'Dee', sources: ['Cy'], planHash: toDee.planHash, confirm: 'Dee' })
+                ]);
+                // whichever reached the merge queue first runs; the other re-plans after it
+                const [win, lose] = a.ok ? [a, b] : [b, a];
+                const winner = win.result.target;
+                const loser = winner === 'Bea' ? 'Dee' : 'Bea';
+                expect(win).toMatchObject({ ok: true, result: { retired: ['Cy'], statsMerged: ['Cy'] } });
+                expect(lose).toMatchObject({ ok: false, error: 'refused' });
+                expect(lose.message).toMatch(new RegExp(`already merged into "${winner}"`));
+                const before = { Bea: 2, Dee: 1 };
+                expect((await statsOf(winner)).gamesPlayed).toBe(before[winner] + 3);
+                expect((await statsOf(loser)).gamesPlayed).toBe(before[loser]);
+                expect((await users().findOne({ username: loser })).mergedFrom).toBeUndefined();
+                expect((await users().findOne({ username: 'Cy' })).mergedInto).toBe(winner);
+                expect(mockDb.current.gameRecords.all()[0].team1Players).toEqual([winner, 'x']);
+            });
+
+            test('a source seated in a game still in its draw (no activeGameId yet) is refused before anything is written', async () => {
+                const cy = await signedIn('Cy');
+                const others = ['P1', 'P2', 'P3'].map((u, i) => w.user(`adm-g${i}-${n}`, u));
+                const game = gameManager.createGame([cy.id, ...others.map(o => o.id)]);
+                expect((await users().findOne({ username: 'Cy' })).activeGameId).toBeUndefined();
+                const prev = await request(owner, 'planMerge', { target: 'Bea', sources: ['Cy'] });
+                expect(prev.plan.errors).toEqual([]);
+                const before = JSON.stringify([users().all(), mockDb.current.gameRecords.all()]);
+                const res = await request(owner, 'applyMerge', { target: 'Bea', sources: ['Cy'], planHash: prev.planHash, confirm: 'Bea' });
+                expect(res).toMatchObject({ ok: false, error: 'refused' });
+                expect(res.message).toMatch(/"Cy" is in a game right now/);
+                expect(JSON.stringify([users().all(), mockDb.current.gameRecords.all()])).toBe(before);
+                expect(gotEvent(cy, 'forceLogout')).toBe(false); // still playing
+                expect(gameManager.isMergeLocked('Cy')).toBe(false);
+                // once that game is over the same preview applies
+                gameManager.abortGame(game.gameId, w.io);
+                const done = await request(owner, 'applyMerge', { target: 'Bea', sources: ['Cy'], planHash: prev.planHash, confirm: 'Bea' });
+                expect(done).toMatchObject({ ok: true, result: { retired: ['Cy'] } });
+            });
+
+            test('while the merge runs the source is signed out and locked: no sign-in, restore, queue, lobby or tournament', async () => {
+                const cy = await signedIn('Cy');
+                const prev = await request(owner, 'planMerge', { target: 'Bea', sources: ['Cy'] });
+                const hold = holdNextWrite(mockDb.current.gameRecords); // the apply's first write
+                const pending = request(owner, 'applyMerge', { target: 'Bea', sources: ['Cy'], planHash: prev.planHash, confirm: 'Bea' });
+                try {
+                    await hold.reached;
+                    // signed out before the first write
+                    expect(gotEvent(cy, 'forceLogout')).toBe(true);
+                    expect(gameManager.getUserBySocketId(cy.id)).toBeUndefined();
+                    expect(gameManager.isMergeLocked('Cy')).toBe(true);
+                    // a fresh password sign-in and a restore of the saved session are refused
+                    const s = w.socket(`adm-${++n}`);
+                    await auth.signIn(s, w.io, { username: 'Cy', password: 'pw' });
+                    expect(w.log.filter(l => l.to === `self:${s.id}` && l.event === 'signInResponse').pop().data)
+                        .toEqual({ success: false, message: auth.MERGE_LOCKED_MESSAGE });
+                    expect(gameManager.getUserBySocketId(s.id)).toBeUndefined();
+                    const r = w.socket(`adm-${++n}`);
+                    await auth.restoreSession(r, w.io, { username: 'Cy', sessionToken: cy.sessionToken });
+                    expect(w.log.filter(l => l.to === `self:${r.id}` && l.event === 'restoreSessionResponse').pop().data).toMatchObject({ success: false });
+                    expect(gameManager.getUserBySocketId(r.id)).toBeUndefined();
+                    // a socket registered as Cy some other way still cannot start anything
+                    const z = w.user(`adm-z-${n}`, 'Cy', { db: false });
+                    expect(gameManager.joinQueue(z.id)).toMatchObject({ success: false });
+                    expect(gameManager.createNamedLobby(z.id, 'x')).toMatchObject({ success: false });
+                    expect(gameManager.createTournament(z.id, 't')).toMatchObject({ success: false });
+                    gameManager.removeUserSocket(z.id);
+                } finally {
+                    hold.release(); // a failed check must not leave the merge queue blocked
+                }
+                expect(await pending).toMatchObject({ ok: true, result: { retired: ['Cy'], signedOut: 1 } });
+                expect(gameManager.isMergeLocked('Cy')).toBe(false);
+                expect((await users().findOne({ username: 'Cy' })).mergedInto).toBe('Bea');
+            });
+
+            test('a source the database shows in a game by retire time (e.g. set from another process) is not retired: reported as a partial merge', async () => {
+                const prev = await request(owner, 'planMerge', { target: 'Bea', sources: ['Cy'] });
+                const hold = holdNextWrite(mockDb.current.gameRecords);
+                const pending = request(owner, 'applyMerge', { target: 'Bea', sources: ['Cy'], planHash: prev.planHash, confirm: 'Bea' });
+                try {
+                    await hold.reached;
+                    await users().updateOne({ username: 'Cy' }, { $set: { activeGameId: 'g-elsewhere' } });
+                } finally {
+                    hold.release();
+                }
+                const res = await pending;
+                expect(res).toMatchObject({ ok: false, error: 'server' });
+                expect(res.message).toMatch(/only partly applied: "Cy" could not be retired/);
+                const cyDoc = await users().findOne({ username: 'Cy' });
+                expect(cyDoc.mergedInto).toBeUndefined();
+                expect(cyDoc.activeGameId).toBe('g-elsewhere');
+                expect(cyDoc.password).toBeDefined();
+                expect(audit().pop()).toMatchObject({ action: 'applyMerge', result: 'failed', detail: expect.stringMatching(/partly applied/) });
+            });
         });
 
         test('find duplicates lists look-alike groups', async () => {

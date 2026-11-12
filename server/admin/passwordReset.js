@@ -108,7 +108,7 @@ function isTokenShaped(token) {
  * @param {string} token
  * @param {string} password
  * @param {{now?: Date, hash: (pw: string) => Promise<string>}} options
- * @returns {Promise<{ok: true, username: string, revokedSessions: number}
+ * @returns {Promise<{ok: true, username: string, revokedSessions: number, socketId: string|null}
  *                  | {ok: false, error: 'invalid_link'|'invalid_password'}>}
  */
 async function useResetLink(db, token, password, { now = new Date(), hash }) {
@@ -136,8 +136,8 @@ async function useResetLink(db, token, password, { now = new Date(), hash }) {
     if (!user || user.mergedInto) return INVALID_LINK; // deleted or merged since
 
     try {
-        const revokedSessions = await writePasswordHash(db, user, passwordHash, { now, stampField: 'passwordResetByLinkAt' });
-        return { ok: true, username: user.username, revokedSessions };
+        const { revokedSessions, socketId } = await writePasswordHash(db, user, passwordHash, { now, stampField: 'passwordResetByLinkAt' });
+        return { ok: true, username: user.username, revokedSessions, socketId };
     } catch (error) {
         await db.passwordResets.updateOne(
             { _id: claimed._id, state: 'used', usedAt: now },
