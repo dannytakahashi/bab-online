@@ -260,9 +260,9 @@ const s2c = {
     lobbyJoined: {
         payload: obj({ lobbyId: str() }, { open: true }),
         status: 'clientOnly', to: 'self',
-        clientReads: reads(W.lobby, I.lobby),
+        clientReads: reads([], I.lobby),
         emittedFrom: [],
-        notes: 'Never emitted: joining a lobby answers lobbyCreated.',
+        notes: 'Never emitted: joining a lobby answers lobbyCreated. Web registers no listener (2026-11-12, V1_REMOVALS #3); iOS 1.1.0 and 1.2.0 still do.',
     },
     lobbyPlayerJoined: {
         payload: obj({
@@ -338,9 +338,9 @@ const s2c = {
     playerAssigned: {
         payload: obj({ playerId: str(), position: ref('position') }),
         status: 'deprecated', to: 'socket',
-        clientReads: reads(W.main('playerAssigned'), []),
+        clientReads: reads([], []),
         emittedFrom: ['server/socket/gameHandlers.js:handleDrawComplete'],
-        notes: 'Web main.js reads it; replaced by v2 viewer.position (V1_REMOVALS #7).',
+        notes: 'Read by no client since 2026-11-12 (V1_REMOVALS #7): web takes its seat from positionUpdate (its username, GameState.applyPositionUpdate), every seat gameStart.position and snapshot viewer.position; iOS never read it.',
     },
     teamsAnnounced: {
         payload: obj({
@@ -609,8 +609,9 @@ const s2c = {
     roomFull: {
         payload: obj({}, { open: true }),
         status: 'clientOnly', to: 'self',
-        clientReads: reads(W.game, I.game('registerSpecialEvents')),
+        clientReads: reads([], I.game('registerSpecialEvents')),
         emittedFrom: [],
+        notes: 'Never emitted. Web registers no listener (2026-11-12, V1_REMOVALS #3); iOS 1.1.0 and 1.2.0 still do.',
     },
 
     // ==================== Presence ====================
@@ -820,9 +821,9 @@ const s2c = {
     activeTournamentFound: {
         payload: obj({ tournamentId: str() }, { open: true }),
         status: 'clientOnly', to: 'self',
-        clientReads: reads(W.tour, I.tour),
+        clientReads: reads([], I.tour),
         emittedFrom: [],
-        notes: 'Never emitted (signInResponse.activeTournamentId replaced it).',
+        notes: 'Never emitted (signInResponse.activeTournamentId replaced it). Web registers no listener (2026-11-12, V1_REMOVALS #3); iOS 1.1.0 and 1.2.0 still do.',
     },
 
 
@@ -890,13 +891,6 @@ const s2c = {
         clientReads: reads(W.voice, I.voice),
         emittedFrom: ['server/socket/voiceHandlers.js:voiceIceCandidate'],
     },
-    voiceRelayAudio: {
-        payload: obj({ fromSocketId: str(), audio: { type: ['string', 'object', 'array'] } }),
-        status: 'deprecated', to: 'socket',
-        clientReads: reads([], []),
-        emittedFrom: ['server/socket/voiceHandlers.js:voiceRelayAudio'],
-        notes: 'The web PCM fallback, replaced by TURN (2026-11-11): no current client listens. Still forwarded between two web bundles cached before that deploy; removal is V1_REMOVALS #20.',
-    },
     voicePeerList: {
         payload: obj({ peers: arr(ref('voicePeer')) }),
         status: 'active', to: 'self',
@@ -946,16 +940,16 @@ const s2c = {
             variant('rejected', obj({ message: str(), handler: str() })),
         ),
         status: 'active', to: 'self',
-        clientReads: reads([W.main('setupSocketErrorHandler'), 'client/src/admin/adminApi.js:createAdminApi#reads:type,handler'], ['iOSClient/BABOnline/Networking/SocketService.swift:connect#reads:message']),
+        clientReads: reads([W.main('onServerFailure'), 'client/src/admin/adminApi.js:createAdminApi#reads:type,handler'], ['iOSClient/BABOnline/Networking/SocketService.swift:connect#reads:message']),
         emittedFrom: ['server/socket/serverError.js:emitError', 'server/socket/errorHandler.js:asyncHandler', 'server/socket/errorHandler.js:syncHandler', 'server/socket/errorHandler.js:handleError', 'server/socket/validators.js:withValidation', 'server/socket/*.js:<many handlers> (emitError(socket, {message}, handler))', 'server/socket/chatHandlers.js:sendError'],
-        notes: "App-level event (not the transport's error). iOS receives it through Socket.IO-Client-Swift's clientEvent .error (the reserved name) and, since 0fd6ef1, shows message as a toast. variant validation is dead today (validators.withValidation has no caller). Every emit (but the dead withValidation) is followed by its serverError twin (V1_REMOVALS #1 phase A, 2026-11-11), with the same handler, so a client reading both channels can drop the second copy: variant rejected (a handler's refusal, {message, handler}) is new with phase A and additive (1.1.0's routeTableError and web act only on handler playCard / playerBid / requestSnapshot, which no refusal names; variant message is what emitError sends without a handler, which no call site does today). handler is the c2s event the error answers on every path (the chat events: mainRoomChat / lobbyChat / tournamentChat, not their shared chatMessage schema). Dropping this event is phase B, blocked until an iOS build and web read serverError. The admin panel's api (adminApi.js) reads {type:'rateLimit', handler:'adminRequest'} to fail a dropped admin request fast as rate_limited.",
+        notes: "App-level event (not the transport's error). iOS receives it through Socket.IO-Client-Swift's clientEvent .error (the reserved name) and, since 0fd6ef1, shows message as a toast. variant validation is dead today (validators.withValidation has no caller). Every emit (but the dead withValidation) is followed by its serverError twin (V1_REMOVALS #1 phase A, 2026-11-11), with the same handler, so a client reading both channels can drop the second copy: variant rejected (a handler's refusal, {message, handler}) is new with phase A and additive (1.1.0's routeTableError and web act only on handler playCard / playerBid / requestSnapshot, which no refusal names; variant message is what emitError sends without a handler, which no call site does today). handler is the c2s event the error answers on every path (the chat events: mainRoomChat / lobbyChat / tournamentChat, not their shared chatMessage schema). Dropping this event is phase B, blocked only by iOS 1.1.0 (web and iOS 1.2.0 read serverError and drop this twin, 2026-11-12). The admin panel's api (adminApi.js) reads {type:'rateLimit', handler:'adminRequest'} to fail a dropped admin request fast as rate_limited.",
     },
     serverError: {
         payload: obj({ code: ref('serverErrorCode'), message: str(), handler: orNull(str()) }),
         status: 'active', to: 'self',
-        clientReads: reads([], []),
+        clientReads: reads([W.main('onServerFailure'), 'client/src/admin/adminApi.js:createAdminApi#reads:code,handler'], ['iOSClient/BABOnline/Networking/SocketService.swift:handleServerError']),
         emittedFrom: ['server/socket/serverError.js:emitError', 'server/socket/chatHandlers.js:sendError'],
-        notes: "V1_REMOVALS #1 phase A (2026-11-11, additive): the twin of every app-level error, sent right after it to the same socket. code: rateLimit / validation / server (the error's type) or rejected (a handler's {message} refusal); message: the error's message; handler: the c2s event it answers (the registered socket.on name: errorHandler options.event, else the schema; or the handler that refused), the same as on its error copy, null when unknown. Read by no shipped client yet (iOS 1.1.0 and web listen to error); its own name because Socket.IO-Client-Swift reserves 'error'. When iOS and web read it, phase B drops error.",
+        notes: "V1_REMOVALS #1 phase A (2026-11-11, additive): the twin of every app-level error, sent right after it to the same socket. code: rateLimit / validation / server (the error's type) or rejected (a handler's {message} refusal); message: the error's message; handler: the c2s event it answers (the registered socket.on name: errorHandler options.event, else the schema; or the handler that refused), the same as on its error copy, null when unknown. Read by web (2026-11-12: main.js onServerFailure and adminApi listen to both channels and drop the twin with an equal handler, client/src/socket/serverErrors.js) and iOS 1.2.0 (ServerErrorDeduper), not by iOS 1.1.0; its own name because Socket.IO-Client-Swift reserves 'error'. Once 1.1.0 is gated, phase B drops error.",
     },
 };
 

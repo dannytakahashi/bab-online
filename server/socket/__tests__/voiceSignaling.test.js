@@ -1,9 +1,10 @@
 /**
  * Voice signaling authorization (roadmap 30, security part): offers,
- * answers, ICE candidates and the web PCM relay reach only a connected peer
+ * answers and ICE candidates reach only a connected peer
  * of the sender's lobby or game, never a room, a stranger, a blocked user or
  * a socket in another game, and each event is rate limited per socket
  * (dropped silently over the limit). Allowed peers relay exactly as before.
+ * The web PCM relay (voiceRelayAudio) is gone (V1_REMOVALS #20, last block).
  */
 
 const { createMemoryDb } = require('../../testUtils/memoryDb');
@@ -85,20 +86,17 @@ function lobbyPair() {
     return [a, b];
 }
 
-// One relay chunk as the server receives it: the web client's Int16 ArrayBuffer arrives as a Buffer
-const PCM = Buffer.alloc(1364);
 const relayed = (event) => log.filter((l) => l.event === event);
 
 function sendAll(from, targetSocketId) {
     voice.voiceOffer(from, io, { targetSocketId, offer: OFFER });
     voice.voiceAnswer(from, io, { targetSocketId, answer: ANSWER });
     voice.voiceIceCandidate(from, io, { targetSocketId, candidate: CAND });
-    voice.voiceRelayAudio(from, io, { targetSocketId, audio: PCM });
 }
-const VOICE_EVENTS = ['voiceOffer', 'voiceAnswer', 'voiceIceCandidate', 'voiceRelayAudio'];
+const VOICE_EVENTS = ['voiceOffer', 'voiceAnswer', 'voiceIceCandidate'];
 
 describe('allowed peers relay exactly as before', () => {
-    test('same lobby: all four events reach the target with the sender id (and the server-side name on offers)', () => {
+    test('same lobby: all three events reach the target with the sender id (and the server-side name on offers)', () => {
         const [a, b] = lobbyPair();
         sendAll(a, b.id);
         for (const ev of VOICE_EVENTS) {
@@ -108,7 +106,6 @@ describe('allowed peers relay exactly as before', () => {
             expect(out[0].data.fromSocketId).toBe(a.id);
         }
         expect(relayed('voiceOffer')[0].data).toEqual({ fromSocketId: a.id, offer: OFFER, username: gameManager.getUserBySocketId(a.id).username });
-        expect(relayed('voiceRelayAudio')[0].data).toEqual({ fromSocketId: a.id, audio: PCM });
     });
 
     test('same game: seat owners, both ways', () => {
@@ -201,33 +198,6 @@ describe('refused (dropped silently: no relay, no error)', () => {
         sendAll(b, a.id);
         for (const ev of VOICE_EVENTS) expect(relayed(ev)).toHaveLength(1);
     });
-
-    test('a relay chunk over 64 KB', () => {
-        const [a, b] = lobbyPair();
-        voice.voiceRelayAudio(a, io, { targetSocketId: b.id, audio: new ArrayBuffer(voice.MAX_RELAY_BYTES + 1) });
-        expect(relayed('voiceRelayAudio')).toHaveLength(0);
-        voice.voiceRelayAudio(a, io, { targetSocketId: b.id, audio: new ArrayBuffer(1364) }); // 4096 frames at 48 kHz -> 8 kHz Int16
-        expect(relayed('voiceRelayAudio')).toHaveLength(1);
-    });
-
-    test.each([
-        ['a numeric string (new Int16Array("400000000") allocates 400M samples)', '400000000'],
-        ['a short string', 'AAAA'],
-        ['an array-like object (read by its .length)', { length: 4e8 }],
-        ['a plain object with a fake byteLength', { byteLength: 8, length: 4e8 }],
-        ['an array', [1, 2, 3, 4]],
-        ['a number', 400000000],
-        ['an empty Buffer', Buffer.alloc(0)],
-        ['an odd byte count (not whole Int16 samples)', Buffer.alloc(1365)],
-        ['a Buffer over 64 KB', Buffer.alloc(voice.MAX_RELAY_BYTES + 2)],
-    ])('relay audio that is not a binary PCM chunk: %s', (_label, audio) => {
-        const [a, b] = lobbyPair();
-        voice.voiceRelayAudio(a, io, { targetSocketId: b.id, audio });
-        expect(relayed('voiceRelayAudio')).toHaveLength(0);
-        expect(log.filter((l) => l.event === 'error')).toHaveLength(0);
-        voice.voiceRelayAudio(a, io, { targetSocketId: b.id, audio: Buffer.alloc(voice.MAX_RELAY_BYTES) });
-        expect(relayed('voiceRelayAudio')).toHaveLength(1);
-    });
 });
 
 describe('rate limits (per socket, dropped silently)', () => {
@@ -235,7 +205,6 @@ describe('rate limits (per socket, dropped silently)', () => {
         ['voiceOffer', (a, t) => voice.voiceOffer(a, io, { targetSocketId: t, offer: OFFER })],
         ['voiceAnswer', (a, t) => voice.voiceAnswer(a, io, { targetSocketId: t, answer: ANSWER })],
         ['voiceIceCandidate', (a, t) => voice.voiceIceCandidate(a, io, { targetSocketId: t, candidate: CAND })],
-        ['voiceRelayAudio', (a, t) => voice.voiceRelayAudio(a, io, { targetSocketId: t, audio: PCM })],
     ])('%s: the limit passes, one more is dropped, a new window passes again', (event, send) => {
         jest.useFakeTimers();
         try {
@@ -253,12 +222,10 @@ describe('rate limits (per socket, dropped silently)', () => {
         }
     });
 
-    test('generous for a real call: ICE bursts to 3 peers and 48-96 kHz relay to 3 peers fit', () => {
+    test('generous for a real call: ICE bursts to 3 peers fit', () => {
         const L = rateLimiter.limits;
         // A trickle-ICE burst: up to ~30 candidates per peer (host/srflx per interface, IPv4+IPv6, iOS cellular)
         expect(L.voiceIceCandidate.max).toBeGreaterThanOrEqual(3 * 30 * 3);
-        // Relay: one 4096-frame chunk per relayed peer per buffer, 96 kHz worst case
-        expect(L.voiceRelayAudio.max / (L.voiceRelayAudio.windowMs / 1000)).toBeGreaterThanOrEqual(3 * 96000 / 4096);
         expect(L.voiceOffer.max).toBeGreaterThanOrEqual(3 * 3);
     });
 });
@@ -368,5 +335,43 @@ describe('V1_REMOVALS #18: every relay payload passes its Joi schema, else it is
         const [a] = lobbyPair();
         sendAll(a, 'x'.repeat(65));
         for (const ev of VOICE_EVENTS) expect(relayed(ev)).toHaveLength(0);
+    });
+});
+
+describe('V1_REMOVALS #20: the web PCM relay (voiceRelayAudio) is gone, both directions', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const ROOT = path.join(__dirname, '..', '..', '..');
+
+    /** The listeners the real wiring (index.js) registers on one connection. */
+    function wired() {
+        const listeners = new Map();
+        const s = { id: `v${seq}-wired`, data: {}, on: (ev, fn) => listeners.set(ev, fn) };
+        require('../index').setupSocketHandlers({ on: (ev, cb) => cb(s) });
+        return listeners;
+    }
+
+    test('no c2s registration: a voiceRelayAudio packet reaches no handler (the other voice events still do)', () => {
+        const listeners = wired();
+        expect(listeners.has('voiceRelayAudio')).toBe(false);
+        expect([...listeners.keys()]).toEqual(expect.arrayContaining(['voiceOffer', 'voiceAnswer', 'voiceIceCandidate', 'getVoiceIceServers']));
+    });
+
+    test('no handler, chunk check, rate-limit key or Joi schema is left', () => {
+        expect(Object.keys(voice).sort()).toEqual(['getVoiceIceServers', 'rememberBlockList', 'voiceAnswer', 'voiceIceCandidate', 'voiceOffer']);
+        expect(rateLimiter.limits).not.toHaveProperty('voiceRelayAudio');
+        expect(require('../validators').schemas).not.toHaveProperty('voiceRelayAudio');
+    });
+
+    test('the contract and its baseline have neither direction; the generated constants and the layout do not name it', () => {
+        const { schema } = require('../../../contract');
+        const baseline = require('../../../contract/v1-baseline.schema.json');
+        for (const s of [schema, baseline]) {
+            expect(s.c2s).not.toHaveProperty('voiceRelayAudio');
+            expect(s.s2c).not.toHaveProperty('voiceRelayAudio');
+        }
+        for (const f of ['client/src/constants/events.js', 'iOSClient/BABOnline/Constants/SocketEvents.swift', 'contract/layout.json']) {
+            expect({ f, named: fs.readFileSync(path.join(ROOT, f), 'utf8').includes('voiceRelayAudio') }).toEqual({ f, named: false });
+        }
     });
 });

@@ -152,6 +152,11 @@ export class GameState {
     // show that team's count (ui/seatPlates.js)
     this.tricksByPosition = GameState._noSeatTricks();
     this.seats = []; // snapshot v2 seat records, when known
+    // Who owns each seat ({1..4} -> username): set at seating and by every
+    // snapshot (seat ownerUsername), never by a bot taking the seat over
+    // (playerData shows the bot then). Voice maps a speaking peer to its
+    // seat by it (voice/speakingSlot.js), so a lazy owner still lights up
+    this.seatOwners = {};
     // Who is watching (spectatorsUpdated / snapshot.watching): the badge
     this.watching = { spectators: [], count: 0 };
     this.resume = null;
@@ -745,9 +750,13 @@ export class GameState {
       this.oppScore = theirs;
     }
     if (Array.isArray(data.playerInfo) && data.playerInfo.length) {
+      // gameStart.players (seat socket ids) is only the voice glow's
+      // fallback and goes with V1_REMOVALS #6: without it the ids
+      // positionUpdate gave stay
+      const oldSockets = this._socketsByPosition();
       this.setPlayerData({
         positions: data.playerInfo.map((p) => p.position),
-        sockets: data.players,
+        sockets: Array.isArray(data.players) ? data.players : data.playerInfo.map((p) => oldSockets[p.position] ?? null),
         usernames: data.playerInfo.map((p) => ({ username: p.username })),
         pics: data.playerInfo.map((p) => p.pic),
       });
@@ -1039,8 +1048,54 @@ export class GameState {
     this._emit('stateRestored', snap);
   }
 
+  /** {position -> seat socket id} from playerData (the voice glow's fallback). */
+  _socketsByPosition() {
+    return this.playerData?.position
+      ? Object.fromEntries(this.playerData.position.map((pos, i) => [pos, this.playerData.socket?.[i] ?? null]))
+      : {};
+  }
+
+  /**
+   * positionUpdate {positions, usernames[{username}], sockets?, pics}: the
+   * seating. My position is my username's seat (the seat socket id as a
+   * fallback): it no longer needs playerAssigned (V1_REMOVALS #7) or
+   * positionUpdate.sockets (#14). `yourPosition` wins when present. The
+   * names seated here are the seats' owners.
+   * @param {Object} data
+   * @param {Object} [opts]
+   * @param {string|null} [opts.socketId] - this page's socket id
+   */
+  applyPositionUpdate(data, { socketId = null } = {}) {
+    const d = data || {};
+    const positions = Array.isArray(d.positions) ? d.positions : [];
+    const names = Array.isArray(d.usernames) ? d.usernames.map((u) => u?.username ?? u) : [];
+    let mine = d.yourPosition || null;
+    if (!mine && this.username) {
+      const i = names.indexOf(this.username);
+      if (i !== -1) mine = positions[i] || null;
+    }
+    if (!mine && socketId && Array.isArray(d.sockets)) {
+      const i = d.sockets.indexOf(socketId);
+      if (i !== -1) mine = positions[i] || null;
+    }
+    if (mine) this.position = mine;
+    this.seatOwners = {};
+    positions.forEach((pos, i) => {
+      if (typeof names[i] === 'string') this.seatOwners[pos] = names[i];
+    });
+    this.setPlayerData(d);
+  }
+
   /** playerData (names, pictures) from the snapshot's seats; a v1 players[] wins for pictures. */
   _seatsToPlayerData(seats, players) {
+    if (Array.isArray(seats) && seats.length) {
+      const owners = {};
+      for (const s of seats) {
+        const owner = s?.ownerUsername ?? s?.username;
+        if (s?.position && typeof owner === 'string') owners[s.position] = owner;
+      }
+      if (Object.keys(owners).length) this.seatOwners = owners;
+    }
     if (Array.isArray(players) && players.length) {
       this.setPlayerData({
         position: players.map((p) => p.position),
@@ -1069,9 +1124,7 @@ export class GameState {
       if (s.hasCustomPic && typeof held[s.username] === 'string') return held[s.username];
       return s.pic ?? held[s.username] ?? null;
     };
-    const oldSockets = this.playerData?.position
-      ? Object.fromEntries(this.playerData.position.map((pos, i) => [pos, this.playerData.socket?.[i] ?? null]))
-      : {};
+    const oldSockets = this._socketsByPosition();
     this.setPlayerData({
       position: seats.map((s) => s.position),
       sockets: seats.map((s) => oldSockets[s.position] ?? null),

@@ -161,6 +161,25 @@ export class MyAction {
     return outcome;
   }
 
+  /**
+   * The server refused my play / bid with an app-level error (rate limit,
+   * validation, server; its `handler` is playCard / playerBid): it was not
+   * taken, so ask for the snapshot now instead of after the ack timeout
+   * (the iOS reducer's transportError). Its reply reconciles as an 'ack';
+   * the timer restarts, so silence still ends in the usual resync and
+   * reconnect.
+   * @param {'play'|'bid'} kind
+   * @returns {boolean} whether a snapshot was asked for
+   */
+  transportError(kind) {
+    const p = this.pending;
+    if (!p || p.kind !== kind) return false;
+    this._note('transportError');
+    this._requestSnapshot(`ack-${p.reqId}`);
+    this._arm();
+    return true;
+  }
+
   /** My own cardPlayed / bidReceived. */
   confirm(kind, data = {}) {
     if (!this.pending || this.pending.kind !== kind) return null;

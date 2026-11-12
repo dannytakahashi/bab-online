@@ -191,7 +191,7 @@ describe('(a) client -> server events', () => {
         expect(noJoi).toEqual([]);
         // joiInHandler only where the handler drops a bad payload silently (voice), and only with no wrapper schema
         const inHandler = contract.c2sNames().filter((n) => contract.schema.c2s[n].joiInHandler);
-        expect(inHandler.sort()).toEqual(['voiceAnswer', 'voiceIceCandidate', 'voiceOffer', 'voiceRelayAudio']);
+        expect(inHandler.sort()).toEqual(['voiceAnswer', 'voiceIceCandidate', 'voiceOffer']);
         for (const n of inHandler) {
             expect({ n, joi: contract.schema.c2s[n].joi }).toEqual({ n, joi: null });
             expect({ n, src: new RegExp(`checked\\(socket, '${n}', data\\)`).test(voiceSrc) }).toEqual({ n, src: true });
@@ -500,7 +500,6 @@ describe('(e) non-game handlers', () => {
         voiceHandlers.voiceOffer(d, w.io, { targetSocketId: 'e-e', offer: { type: 'offer', sdp: 'v=0' } });
         voiceHandlers.voiceAnswer(e, w.io, { targetSocketId: 'e-d', answer: { type: 'answer', sdp: 'v=0' } });
         voiceHandlers.voiceIceCandidate(e, w.io, { targetSocketId: 'e-d', candidate: { candidate: 'c', sdpMLineIndex: 0, sdpMid: '0' } });
-        voiceHandlers.voiceRelayAudio(e, w.io, { targetSocketId: 'e-d', audio: Buffer.alloc(1364) });
         // ICE servers (no TURN env here: the STUN answer; TURN shape in voiceIceServers.test.js)
         await voiceHandlers.getVoiceIceServers(e, w.io, { requestId: 'ice-1' });
         await voiceHandlers.getVoiceIceServers(e, w.io, undefined);

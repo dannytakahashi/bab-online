@@ -124,6 +124,20 @@ One PR per entry:
 - The `validation` variant (`{type:'validation', message}`, from
   `validators.withValidation`) is dead today: nothing calls withValidation.
   Delete withValidation and the variant with this entry.
+- **Web ready for phase B (2026-11-12, PR #TBD):** main.js
+  `onServerFailure` listens to `error` AND `serverError`, normalizes both
+  (`client/src/socket/serverErrors.js` `failureOf`: serverError `code` is
+  the v1 `type`) and drops the twin as iOS 1.2's ServerErrorDeduper does
+  (`ServerErrorDeduper`: the other channel's copy within 1.5 s with an
+  equal handler; both handlers null: an equal message), so a failure shows
+  one toast, one restore refusal, one retry. A refused playCard / playerBid
+  asks for its snapshot at once (`MyAction.transportError`, the iOS
+  reducer's transportError) and a refused requestSnapshot flushes the seq
+  gate. The admin panel's rate-limit path (`adminApi.js`) reads either. So
+  phase B needs no web change; the `error` listeners stay until it. Tests:
+  `client/src/serverErrorPage.test.js` (both copies and serverError alone),
+  `socket/serverErrors.test.js`, `admin/adminApi.test.js`,
+  `table/postGateSeat.test.js`.
 
 ### 2. The matchmaking queue
 
@@ -149,6 +163,13 @@ sender or listener in 1.1.0 (f05d264) or web on main.
   `activeTournamentFound` (web tournamentHandlers.js:102, iOS
   TournamentSocketHandler.swift:181): the server never emits them. Remove the
   listeners in the new builds; then drop the constants and the schema entries.
+- **Web listeners removed 2026-11-12 (PR #TBD):** no `lobbyJoined`, `roomFull`
+  or `activeTournamentFound` listener or callback (lobbyHandlers.js,
+  gameHandlers.js, tournamentHandlers.js, handlers/index.js, main.js); the
+  web constants stay (generated; legacyConstants pins them) until the
+  schema entries go. `activeGameFound` is kept. Test:
+  `client/src/eventHandlerMap.test.js` (no listener for a `clientOnly`
+  event but activeGameFound). iOS 1.2.0 still registers all four.
 - **CAUTION `activeGameFound`**: it is the only event that makes the shipped
   iOS app emit `rejoinGame` by itself (`AuthSocketHandler.swift:41`,
   handleActiveGameFound). Keep it as a possible server hook (e.g. to nudge old
@@ -172,6 +193,22 @@ The roadmap said "drop gameStart.playerInfo". It is read: web
 from it every hand. Prerequisite: item 16 renders seats from snapshot v2
 (`seats[]`) and item 10 turns pictures into references. Only then drop it.
 
+**Web no longer needs it (audit 2026-11-12).** What web reads from it:
+`client/src/state/GameState.js` `applyDeal` (positions, usernames, pics to
+`playerData`, when present; else it keeps what it has and only recomputes
+the names) and `client/src/utils/avatar.js` `foldAvatarPayload`
+('gameStart': folds `avatarUrls` into its pics). Names and pictures also
+come from positionUpdate (seating), playerLazyMode / playerActiveMode /
+playerResigned (`applySeatDisplay`) and every snapshot's `seats`, so a
+gameStart without it changes nothing on the table: the post-gate replays
+(`client/src/table/postGate*.test.js`, `testing/postGateWire.js` '#5')
+match the server's seat names and counts at every checkpoint, and so did a
+scratch run over humans-s13 seat1 / seat3 / seat2-rejoin, presence-s21
+seat1-rejoin, tournament-s15 seat1 and bots-s12 spectator. The reads can
+stay (harmless when the key is gone). iOS 1.2.0 decodes it optionally
+(`TableReducer+Events` gameStart, `p.playerInfo ?? []`); whether its table
+keeps names and pictures without it is not checked here, and 1.1.0 needs it.
+
 ### 6. `gameStart.players` (seat socket ids)
 
 Leaks socket ids, but it is READ: web `main.js` gameStart handler stores it
@@ -182,11 +219,31 @@ read it. Prerequisite: a v2 seat ↔ voice-peer mapping (e.g. voice peers
 carry a position, or a voice-only id per seat) used by web; only then drop
 it. Until then dropping it silently breaks the web speaking indicator.
 
+**Web ready 2026-11-12 (PR #TBD).** The speaking glow
+(`client/src/voice/speakingSlot.js`, main.js startVoice) maps a peer by its
+username (voicePeerList / voiceOffer, named by the server): first the seat's
+OWNER (`GameState.seatOwners`, from positionUpdate and every snapshot's
+`ownerUsername`, never overwritten by a lazy / resign bot), then the name
+the seat shows, the seat socket id only as the fallback, as iOS 1.2's
+`TableRenderModel.seat(forVoicePeer:username:)`. A gameStart without
+`players` keeps the socket ids positionUpdate gave (`applyDeal`). Tests:
+`voice/speakingSlot.test.js` (no socket ids, a lazy owner),
+`state/seating.test.js`.
+
 ### 7. `playerAssigned`
 
 - Emit: `gameHandlers.handleDrawComplete` (to each connected human).
 - Consumer: web `client/src/main.js:1495` (playerId, position).
 - Replacement: v2 `viewer.position`.
+- **No consumer since 2026-11-12 (PR #TBD):** the web listener is gone. My
+  seat comes from positionUpdate (my username's position, the socket id as
+  a fallback: `GameState.applyPositionUpdate`), every seat gameStart's
+  `position` and every snapshot's `viewer.position`; `playerId` (my socket
+  id) is set at sign-in and read by nothing but the debug toJSON. Neither
+  iOS build reads it, so the server may drop the emit once 1.1.0 is gated.
+  Tests: `state/seating.test.js`, `eventHandlerMap.test.js`,
+  `table/postGateSeat.test.js` (my seat and partner known before the first
+  deal with no playerAssigned).
 
 ### 8. Split `spectatorJoined`
 
@@ -200,6 +257,12 @@ it. Until then dropping it silently breaks the web speaking indicator.
   `players != nil && trump != nil`); iOS source after item 23 routes on the
   `snapshot` key (ServerEvent.decode), so a self-only snapshot carrier works
   for it. `spectateState` still does not exist.
+- **Web (2026-11-12):** onSpectatorJoined takes the full state from the v1
+  keys OR the snapshot (`trump` dealt and `players` / `snapshot.seats`, the
+  same rule as before), so a `spectatorJoined {snapshot}` to the joiner plus
+  the notice via `socket.to(room)` needs no web change
+  (`table/postGateSpectator.test.js`). A NEW event name (`spectateState`)
+  would still need a web listener.
 
 ### 9. Legacy client-state keys → snapshot-only rejoin / restore
 
@@ -226,6 +289,28 @@ have iOS follow a restore with `requestSnapshot {customPics: true}` (or
 avatar URLs, C10) and take socket ids from another source (e.g. a voice peer
 list). It also reads `tournamentId` (kept while web needs it); `isLazy` is
 decoded but never read. Web (item 16) does not render from v2 yet.
+
+**Web ready 2026-11-12 (PR #TBD); audit of what it still reads.** Every
+carrier goes through `state/tableSync.applyTableSnapshot`: the v2
+`snapshot` is the table; `state/legacySnapshot.js` builds one from the v1
+keys only when a carrier has no valid snapshot (an older server). Reads of
+legacy keys left, all with a snapshot fallback:
+- `players[]` (`tableSync.js` `applyTableSnapshot` to
+  `GameState._seatsToPlayerData`): when present it wins for names /
+  pictures (`pic`) and gives the voice glow's socket-id fallback
+  (`socketId`); without it the snapshot's seats (`avatarUrl`, `customPic`,
+  the picture already held) are used. `utils/avatar.js` folds `avatarUrls`
+  into it.
+- rejoinSuccess `gameId` and `isLazy` (main.js onRejoinSuccess): else
+  `snapshot.gameId` and `snapshot.viewer.role === 'lazyWatcher'`;
+  `tournamentId` (kept by the plan).
+- restorePlayerState / spectator full state `gameId`: else `snapshot.gameId`.
+- spectator full state routing `players && trump`: else `snapshot.seats` /
+  `snapshot.trump` (#8).
+
+So `{snapshot}` (+ rejoinSuccess's `tournamentId`) carriers need no web
+change: `table/postGateRejoin.test.js` (a lazy rejoin, /active,
+restorePlayerState, to the game end) and `postGateSpectator.test.js`.
 
 ### 10. `cardPlayed.trump` → `trumpBroken`; drop `playerId`
 
@@ -291,6 +376,15 @@ fallback (LobbySocketHandler.swift:33). Drop once the old app is gone.
 lobby `players[].socketId` where replaceable (removeBot needs the bot's id
 today), `players[].socketId` in the legacy states.
 
+**Web (2026-11-12):** needs none of positionUpdate's socket ids (my seat by
+username, the glow by owner / username: #6, #7), `playerDrew.socketId`
+(never read) or the legacy states' `players[].socketId` (fallback only:
+#9). Still read by web: lobby `players[].socketId` (GameLobby.js, removeBot's
+`botSocketId`) and the voice signaling's own ids (`voicePeerList` /
+`voicePeerJoined` / `voicePeerLeft` `socketId`, `voiceOffer` / `voiceAnswer`
+/ `voiceIceCandidate` `fromSocketId`, the c2s `targetSocketId`), which #14
+does not remove.
+
 ### 15. `rejoinFailed.debug.playersInGame`
 
 **Done 2026-11-11 (PR #TBD).** rejoinFailed is `{reason}` only; the names
@@ -327,7 +421,7 @@ transport close, so both clients reconnect by themselves
 `joinLobby {lobbyId: uuid}` and `removeBot {botSocketId: 'bot:...'}` (both
 now `syncHandler`), `searchPlayers {query <= 500}`, `getPlayerProfile
 {username 1-100}` (their wrappers already named them), and the four voice
-relays, checked inside voiceHandlers after the peer check so a bad one is
+relays (three since #20 removed voiceRelayAudio), checked inside voiceHandlers after the peer check so a bad one is
 dropped silently (contract key `joiInHandler`; `joi` stays null for them).
 The shared-room relay check was already in place (#211:
 `voiceHandlers.authorize`). `GameManager.removeBotFromLobby` also refuses a
@@ -375,6 +469,26 @@ is logged per socket (server/socket/clientInfo.js).
 
 ### 20. `voiceRelayAudio` (the web PCM relay, both directions)
 
+**Done 2026-11-12 (PR #TBD),** after the one-day window (TURN deploy
+2026-11-11 10:46 PST). Removed: the c2s registration
+(`server/socket/index.js`), `voiceHandlers.voiceRelayAudio`,
+`isRelayChunk` and `MAX_RELAY_BYTES`, the `voiceRelayAudio` rate-limit key,
+its #18 Joi schema (`validators.schemas.voiceRelayAudio`), both schema
+entries (c2s + s2c; baseline hand-edited), the web constants
+`CLIENT_EVENTS.VOICE_RELAY_AUDIO` / `SERVER_EVENTS.VOICE_RELAY_AUDIO`
+(`legacyConstants.golden.json` updated; Swift never had one, so
+`SocketEvents.swift` is unchanged) and the relay cases of
+voiceSignaling.test.js. `wireGolden.test.js` `v1Projection` names #20 (a
+no-op there: those games have no voice). A `voiceRelayAudio` packet now
+reaches no handler: Socket.IO drops it, nothing is forwarded, no `error`.
+Re-checked: no web code on main sends or listens to it; iOS 1.1.0 (f05d264)
+and 1.2.0 never had it. Rollback caveat: a web tab still running a bundle
+from before the TURN deploy loses only its PCM fallback (P2P/STUN as
+before). Tests: `voiceSignaling.test.js` ("V1_REMOVALS #20"),
+`client/src/voice/VoiceChatManager.test.js`.
+
+The entry as planned:
+
 Replaced by Cloudflare TURN (owner, 2026-11-11; `getVoiceIceServers` →
 `voiceIceServers`, server/voice/turnCredentials.js). The current web bundle
 neither sends nor listens to it; both schema entries are `deprecated`. The
@@ -393,9 +507,9 @@ relay cases of voiceSignaling.test.js. Precondition: one day after the TURN
 deploy (no tab can still hold the old bundle in practice).
 
 **Not run 2026-11-11** with the "safe now" steps: the TURN deploy (#213)
-merged 2026-11-11 10:46 PST, so the one-day window ends 2026-11-12 10:46
-PST. (1.1.0 never sent it; the blocker is the cached web bundle.) #18 gave
-it a Joi schema meanwhile; remove that with the handler.
+merged 2026-11-11 10:46 PST, so the one-day window ended 2026-11-12 10:46
+PST. (1.1.0 never sent it; the blocker was the cached web bundle.) #18 gave
+it a Joi schema meanwhile; removed with the handler (done, above).
 
 ## iOS TURN (next App Store release, roadmap 29 track; not a removal)
 
@@ -570,23 +684,33 @@ step, in this order; nothing is removed by the gate PR itself.
    it (web: restart banner, then what ended). Nothing to remove.
 10. **#1 phase A only** (`serverError` dual emit with `{code, message,
     handler}`): additive, safe now. **Done 2026-11-11 (PR #TBD).**
+11. **#20 `voiceRelayAudio`**: no reader in 1.1.0, 1.2.0 or web on main;
+    it waited only for the one-day window after the TURN deploy. **Done
+    2026-11-12 (PR #TBD).**
 
 **Still blocked (by what a shipped client reads):**
 
 - **#1 phase B** (drop app-level `error`): 1.1.0 listens only to
   `clientEvent: .error` (SocketService.swift; toast + table resync), not to
   `serverError`; web listens to `error`. Needs an iOS build (and web) that
-  read `serverError`.
+  read `serverError`. (Web and iOS 1.2.0 read it since 2026-11-12: only
+  1.1.0 is left.)
 - **#3 client-only listeners** (`lobbyJoined`, `roomFull`,
   `activeTournamentFound`, `activeGameFound`): nothing to remove server
   side (never emitted); 1.1.0 still registers them and web has its own.
-  Drop schema entries / constants with the next client builds.
+  Drop schema entries / constants with the next client builds. (Web's are
+  gone since 2026-11-12; activeGameFound kept.)
 - **#5 `gameStart.playerInfo`**: 1.1.0 reads it every deal
-  (TableReducer.gameStart: names and pictures); web `main.js` too.
+  (TableReducer.gameStart: names and pictures). (Web: not needed since
+  2026-11-12: GameState.applyDeal / avatar.js foldAvatarPayload read it
+  only when present; #5 audit.)
 - **#6 `gameStart.players`**: web voice speaking indicator reads it.
-- **#7 `playerAssigned`**: 1.1.0 ignores it, web `main.js` reads it.
+  (Not since 2026-11-12: by owner / username, #6.)
+- **#7 `playerAssigned`**: 1.1.0 ignores it, web `main.js` reads it. (Not
+  since 2026-11-12: no reader left.)
 - **#8 split `spectatorJoined`**: 1.1.0 routes on the `snapshot` key (fine);
-  web routes on `players && trump`. Blocked by web.
+  web routes on `players && trump`. Blocked by web. (Web routes on the
+  snapshot too since 2026-11-12.)
 - **#9 legacy client-state keys**: 1.1.0 reads `players[].socketId` (voice
   glows) and `players[].pic` (custom pictures) from rejoin / restore /
   spectator payloads.
@@ -599,7 +723,7 @@ step, in this order; nothing is removed by the gate PR itself.
 Next client work that unblocks the most: an iOS build that listens to
 `serverError`, sends `clientHello {caps:['avatarUrl']}` and maps voice
 peers without socket ids (#1B, #19, #9, #14), and web reading v2 seats /
-spectator snapshots (#5, #6, #7, #8).
+spectator snapshots (#5, #6, #7, #8; web done 2026-11-12).
 
 ## What iOS 1.2.0 unblocks (once 1.1.0 is gated)
 
@@ -613,7 +737,8 @@ above; after it, what 1.2.0 itself still reads is the remaining blocker:
 - **#1 phase B (drop app-level `error`)**: 1.2.0 listens to `serverError
   {code, message, handler}` (SocketService; `error` and `serverError` twins
   are deduped, one toast and one table resync) and keeps the `error` path
-  for today's server. iOS no longer blocks it; web still listens to `error`.
+  for today's server. iOS no longer blocks it, nor does web (2026-11-12:
+  both channels, the twin dropped; #1).
 - **#19 inline avatar images**: 1.2.0 sends `clientHello {client:'ios',
   version, build, caps:['avatarUrl']}` on every connect (before
   restoreSession) and renders `avatarUrl` / `avatarUrls` (positionUpdate,
@@ -627,7 +752,7 @@ above; after it, what 1.2.0 itself still reads is the remaining blocker:
 - **#9 legacy client-state keys**: `players[].pic` is now only a fallback
   (the carrier's `avatarUrls` and the snapshot's `avatarUrl` come first) and
   `players[].socketId` is no longer needed for the speaking glows (below).
-  iOS no longer blocks #9; web (item 16) still does.
+  iOS no longer blocks #9, nor does web (2026-11-12; #9).
 - **#14 socket ids on the wire**: the speaking glows map a voice peer to its
   seat by the peer's username (voicePeerList / voiceOffer carry it;
   `TableRenderModel.seat(forVoicePeer:username:)`), the seat socket id only

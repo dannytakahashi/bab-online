@@ -2,8 +2,11 @@
  * Lobby and main room socket event handlers.
  *
  * Handles: mainRoomJoined, mainRoomMessage, lobbiesUpdated, mainRoomPlayerJoined,
- *          lobbyCreated, lobbyJoined, playerReadyUpdate, lobbyMessage,
+ *          lobbyCreated, playerReadyUpdate, lobbyMessage,
  *          lobbyPlayerLeft, lobbyPlayerJoined, leftLobby, allPlayersReady
+ *
+ * No lobbyJoined listener: the server never sends it (joining a lobby is
+ * answered with lobbyCreated; contract status clientOnly, V1_REMOVALS #3).
  */
 
 import { SERVER_EVENTS } from '../constants/events.js';
@@ -24,7 +27,6 @@ export function registerLobbyHandlers(socketManager, callbacks = {}) {
     onMainRoomPlayerJoined,
     // Lobby callbacks
     onLobbyCreated,
-    onLobbyJoined,
     onPlayerReadyUpdate,
     onLobbyMessage,
     onLobbyPlayerLeft,
@@ -67,13 +69,6 @@ export function registerLobbyHandlers(socketManager, callbacks = {}) {
     state.setPhase(PHASE.LOBBY);
     state.lobbyId = data.lobbyId;
     onLobbyCreated?.(data);
-  });
-
-  socketManager.on(SERVER_EVENTS.LOBBY_JOINED, (data) => {
-    console.log('🚪 Joined lobby:', data);
-    state.setPhase(PHASE.LOBBY);
-    state.lobbyId = data.lobbyId;
-    onLobbyJoined?.(data);
   });
 
   socketManager.on(SERVER_EVENTS.PLAYER_READY_UPDATE, (data) => {

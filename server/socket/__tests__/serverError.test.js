@@ -226,8 +226,7 @@ test('every registered c2s event: error and serverError name that event on every
         log.length = 0;
         if (ev === 'clientHello') await listeners.get(ev)('not an object');
         else {
-            // voiceRelayAudio forwards only binary audio (a Buffer on the server)
-            const data = ev === 'voiceRelayAudio' ? { targetSocketId: 's1', audio: Buffer.alloc(4) } : (schema.c2s[ev]?.examples?.[0] ?? {});
+            const data = schema.c2s[ev]?.examples?.[0] ?? {};
             arm();
             await listeners.get(ev)(data);
         }
