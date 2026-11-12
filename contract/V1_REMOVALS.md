@@ -420,6 +420,40 @@ position, trump, hand, hsiValues, score1/score2, playerInfo and avatarUrls.
   the notice via `socket.to(room)` needs no web change
   (`table/postGateSpectator.test.js`). A NEW event name (`spectateState`)
   would still need a web listener.
+- **Done 2026-11-12 (PR #TBD), the option with no client change:** the
+  event keeps its name and both shapes; `snapshotHandlers.sendSpectatorJoin`
+  (joinAsSpectator, spectateTournamentGame) sends the notice to the room
+  except the joiner (`GameState.broadcastExcept`: socket.to(room),
+  sequenced) FIRST, then the joiner's full state + snapshot, built after
+  it, so `snapshot.seq` counts the notice and the joiner's next room event
+  is `snapshot.seq + 1` (sending the notice second would open a seq gap in
+  the joiner's gate: a requestSnapshot on every spectate). watchSeat via
+  'spectate' (an owner watching their own bot-controlled seat) sends no
+  notice. Readers checked at eeeeb23: web `handlers/lobbyHandlers.js:108` ->
+  `main.js:1107` onSpectatorJoined routes `(trump || snapshot.trump) &&
+  (players || snapshot.seats)` as the full state, else `username` as the
+  "X joined as a spectator." line (others still get it; the joiner no
+  longer logs its own); iOS 1.2.0 `ServerEvent.swift:113-119` routes
+  `snapshot != nil || players + trump` to `.spectatorState`, else
+  `.spectatorNotice` (`TableReducer+Events.swift:167`: spectatorCount + the
+  log line; the joiner's count comes from `snapshot.spectatorCount`,
+  `TableReducer+Snapshot.swift:71`). The full state's keys are unchanged
+  here (#9 trims them). Tests: `spectatorJoinSplit.test.js`; `seqCheck.js`
+  now continues a receiver from any snapshot sent to it and keeps a socket
+  left out by socket.to(room) in the room, so chaos / contract catch a
+  joiner gap (the reversed order fails them). The iOS event fixtures lost
+  only the spectator viewer's own notice (seq renumbered).
+  Re-checked 2026-11-13 for iOS 1.2.0 build 5 (`iOSClient/` at main
+  92d0c75, the submitted build) and web on main: the routing is unchanged
+  (ServerEvent.swift:113-120; the joiner's full state lands in
+  TableReducer+Events.swift:179, the notice in :172; count from
+  TableReducer+Snapshot.swift:73; web main.js:1101 via
+  handlers/lobbyHandlers.js:110). Build 5's single Exit while spectating
+  (#238) only sends `/leave` (GameContainerView.swift:689, and the corner /
+  bar Leave), which this split does not touch; build 5's draw for deal
+  shows a spectator the draws (#239) from the same full-state snapshot.
+  `mainRoomHandlers.joinMainRoom`'s new lobby Leave flow (#240) is kept
+  beside `sendSpectatorJoin` (conflict on the imports only).
 
 ### 9. Legacy client-state keys → snapshot-only rejoin / restore
 
@@ -870,7 +904,8 @@ step, in this order; nothing is removed by the gate PR itself.
   since 2026-11-12: no reader left. Done 2026-11-12, #7.)
 - **#8 split `spectatorJoined`**: 1.1.0 routes on the `snapshot` key (fine);
   web routes on `players && trump`. Blocked by web. (Web routes on the
-  snapshot too since 2026-11-12.)
+  snapshot too since 2026-11-12.) (Done 2026-11-12, after the 1.1.0 gate:
+  notice to the room except the joiner, sent first; #8.)
 - **#9 legacy client-state keys**: 1.1.0 reads `players[].socketId` (voice
   glows) and `players[].pic` (custom pictures) from rejoin / restore /
   spectator payloads.
