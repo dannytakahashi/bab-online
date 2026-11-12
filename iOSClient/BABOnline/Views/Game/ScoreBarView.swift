@@ -9,21 +9,21 @@ struct ScoreBarView: View {
             // Team side (positions 1 & 3)
             VStack(spacing: 2) {
                 Text(team1Label)
-                    .font(.system(size: 10))
-                    .foregroundColor(Color.Theme.textDim)
+                    .font(.caption2)
+                    .foregroundColor(Theme.textDim)
                 Text("\(gameState.teamScore)")
                     .font(.title3.bold())
-                    .foregroundColor(Color.Theme.teamColor)
+                    .foregroundColor(Theme.team(myTeam))
 
-                HStack(spacing: 8) {
+                HStack(spacing: Theme.Space.s2) {
                     if let bids = gameState.teamBids {
                         Label(bids, systemImage: "target")
-                            .font(.system(size: 11))
-                            .foregroundColor(Color.Theme.textSecondary)
+                            .font(.caption2)
+                            .foregroundColor(Theme.textSecondary)
                     }
                     Text("Tricks: \(gameState.teamTricks)")
-                        .font(.system(size: 11))
-                        .foregroundColor(Color.Theme.textSecondary)
+                        .font(.caption2)
+                        .foregroundColor(Theme.textSecondary)
                 }
             }
             .frame(maxWidth: .infinity)
@@ -31,23 +31,23 @@ struct ScoreBarView: View {
             // Center info
             VStack(spacing: 2) {
                 if let trump = gameState.trump {
-                    HStack(spacing: 4) {
+                    HStack(spacing: Theme.Space.s1) {
                         Text("Trump:")
-                            .font(.system(size: 10))
-                            .foregroundColor(Color.Theme.textDim)
+                            .font(.caption2)
+                            .foregroundColor(Theme.textDim)
                         Text(trumpDisplay(trump))
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(.footnote.weight(.semibold))
                             .foregroundColor(trumpColor(trump))
                     }
                 }
                 Text("Hand \(handNumber)")
-                    .font(.system(size: 10))
-                    .foregroundColor(Color.Theme.textDim)
+                    .font(.caption2)
+                    .foregroundColor(Theme.textDim)
 
                 if gameState.team1Mult > 1 || gameState.team2Mult > 1 {
                     Text(multiplierText)
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(Color.Theme.warning)
+                        .font(.caption2.bold())
+                        .foregroundColor(Theme.warning)
                 }
             }
             .frame(width: 100)
@@ -55,33 +55,37 @@ struct ScoreBarView: View {
             // Opponent side (positions 2 & 4)
             VStack(spacing: 2) {
                 Text(team2Label)
-                    .font(.system(size: 10))
-                    .foregroundColor(Color.Theme.textDim)
+                    .font(.caption2)
+                    .foregroundColor(Theme.textDim)
                 Text("\(gameState.oppScore)")
                     .font(.title3.bold())
-                    .foregroundColor(Color.Theme.oppColor)
+                    .foregroundColor(Theme.team(3 - myTeam))
 
-                HStack(spacing: 8) {
+                HStack(spacing: Theme.Space.s2) {
                     if let bids = gameState.oppBids {
                         Label(bids, systemImage: "target")
-                            .font(.system(size: 11))
-                            .foregroundColor(Color.Theme.textSecondary)
+                            .font(.caption2)
+                            .foregroundColor(Theme.textSecondary)
                     }
                     Text("Tricks: \(gameState.oppTricks)")
-                        .font(.system(size: 11))
-                        .foregroundColor(Color.Theme.textSecondary)
+                        .font(.caption2)
+                        .foregroundColor(Theme.textSecondary)
                 }
             }
             .frame(maxWidth: .infinity)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, Theme.Space.s3)
+        .padding(.vertical, Theme.Space.s2)
         // never into a safe-area inset: the system's zones (the status band on top, the
         // Duo's vertical bar on the side) show the felt, like the table
-        .background(Color.Theme.surface.opacity(0.9), ignoresSafeAreaEdges: [])
-        // capped so the table layout's top bar stays <= 84 pt (TableLayoutTests)
-        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
+        .background(Theme.surface.opacity(0.9), ignoresSafeAreaEdges: [])
+        // capped so the table layout's top bar stays <= 84 pt (TableLayoutTests): the
+        // caption2 labels (Dynamic Type) reach it at xLarge
+        .dynamicTypeSize(...DynamicTypeSize.xLarge)
     }
+
+    /// The viewer's team (1 for a spectator: seats 1 and 3 on the left), colored as on the web.
+    private var myTeam: Int { Positions.getTeamNumber(gameState.viewPosition) }
 
     private var team1Label: String {
         if gameState.isSpectator {
@@ -134,10 +138,6 @@ struct ScoreBarView: View {
     }
 
     private func trumpColor(_ trump: Card) -> Color {
-        switch trump.suit {
-        case .hearts, .diamonds: return .red
-        case .spades, .clubs: return .white
-        case .joker: return Color.Theme.warning
-        }
+        return Theme.suitOnDark(trump.suit)
     }
 }

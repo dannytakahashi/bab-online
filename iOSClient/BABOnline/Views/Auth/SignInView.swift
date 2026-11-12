@@ -11,38 +11,38 @@ struct SignInView: View {
 
     var body: some View {
         ZStack {
-            Color.Theme.background.ignoresSafeArea()
+            Theme.background.ignoresSafeArea()
 
             // Scrolls on short heights (keyboard, landscape), capped at a readable width
             GeometryReader { g in
             ScrollView {
-            VStack(spacing: 32) {
+            VStack(spacing: Theme.Space.s8) {
                 Spacer(minLength: 24)
 
                 // Logo / Title
-                VStack(spacing: 8) {
+                VStack(spacing: Theme.Space.s2) {
                     Text("BAB")
-                        .font(.system(size: 48, weight: .bold, design: .rounded))
-                        .foregroundColor(Color.Theme.primary)
+                        .themeFont(Theme.TypeScale.display, weight: Theme.Weight.bold, design: .rounded, relativeTo: .largeTitle)
+                        .foregroundColor(Theme.primary)
                     Text("Back Alley Bridge")
                         .font(.title3)
-                        .foregroundColor(Color.Theme.textSecondary)
+                        .foregroundColor(Theme.textSecondary)
                 }
 
                 // Connection status
                 if !socketService.isConnected {
                     HStack(spacing: 6) {
                         ProgressView()
-                            .tint(Color.Theme.warning)
+                            .tint(Theme.warning)
                             .scaleEffect(0.8)
                         Text("Connecting to server...")
                             .font(.caption)
-                            .foregroundColor(Color.Theme.warning)
+                            .foregroundColor(Theme.warning)
                     }
                 }
 
                 // Form
-                VStack(spacing: 16) {
+                VStack(spacing: Theme.Space.s4) {
                     TextField("Username", text: $username)
                         .textFieldStyle(BABTextFieldStyle())
                         .textContentType(.username)
@@ -56,7 +56,7 @@ struct SignInView: View {
                     if let error = authState.error {
                         Text(error)
                             .font(.caption)
-                            .foregroundColor(Color.Theme.error)
+                            .foregroundColor(Theme.error)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
 
@@ -64,7 +64,7 @@ struct SignInView: View {
                         HStack {
                             if isLoading {
                                 ProgressView()
-                                    .tint(.white)
+                                    .tint(Theme.buttonForeground)
                                     .scaleEffect(0.8)
                             }
                             Text("Sign In")
@@ -72,19 +72,19 @@ struct SignInView: View {
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
-                        .background(canSignIn ? Color.Theme.buttonBackground : Color.Theme.buttonDisabled)
-                        .foregroundColor(.white)
-                        .cornerRadius(10)
+                        .background(canSignIn ? Theme.buttonBackground : Theme.buttonDisabled)
+                        .foregroundColor(canSignIn ? Theme.buttonForeground : Theme.buttonDisabledForeground)
+                        .cornerRadius(Theme.Radius.md)
                     }
                     .disabled(!canSignIn)
                 }
-                .padding(.horizontal, 32)
+                .padding(.horizontal, Theme.Space.s8)
 
                 Button(action: { appState.screen = .register }) {
                     Text("Don't have an account? ")
-                        .foregroundColor(Color.Theme.textSecondary) +
+                        .foregroundColor(Theme.textSecondary) +
                     Text("Register")
-                        .foregroundColor(Color.Theme.primary)
+                        .foregroundColor(Theme.primary)
                         .bold()
                 }
                 .font(.callout)
@@ -128,10 +128,10 @@ struct SignInView: View {
 struct BABTextFieldStyle: TextFieldStyle {
     func _body(configuration: TextField<Self._Label>) -> some View {
         configuration
-            .padding(12)
-            .background(Color.Theme.inputBackground)
-            .cornerRadius(8)
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.Theme.inputBorder, lineWidth: 1))
-            .foregroundColor(Color.Theme.textPrimary)
+            .padding(Theme.Space.s3)
+            .background(Theme.inputBackground)
+            .cornerRadius(Theme.Radius.md)
+            .overlay(RoundedRectangle(cornerRadius: Theme.Radius.md).stroke(Theme.inputBorder, lineWidth: 1))
+            .foregroundColor(Theme.textPrimary)
     }
 }

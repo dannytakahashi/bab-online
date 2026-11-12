@@ -11,25 +11,25 @@ struct TournamentActiveGamesView: View {
                 HStack {
                     Text("Active Games")
                         .font(.caption.bold())
-                        .foregroundColor(Color.Theme.textSecondary)
+                        .foregroundColor(Theme.textSecondary)
                     Spacer()
                 }
                 .padding(.horizontal)
-                .padding(.top, 12)
-                .padding(.bottom, 4)
+                .padding(.top, Theme.Space.s3)
+                .padding(.bottom, Theme.Space.s1)
 
                 ForEach(activeGames) { game in
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(game.humanPlayers.joined(separator: ", "))
                                 .font(.caption)
-                                .foregroundColor(Color.Theme.textPrimary)
+                                .foregroundColor(Theme.textPrimary)
                                 .lineLimit(1)
 
                             if game.botCount > 0 {
                                 Text("+ \(game.botCount) bot\(game.botCount == 1 ? "" : "s")")
                                     .font(.caption2)
-                                    .foregroundColor(Color.Theme.textDim)
+                                    .foregroundColor(Theme.textDim)
                             }
                         }
 
@@ -40,19 +40,17 @@ struct TournamentActiveGamesView: View {
                         }) {
                             Text("Watch")
                                 .font(.caption.bold())
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 6)
-                                .background(Color(red: 0.376, green: 0.647, blue: 0.98))
-                                .cornerRadius(6)
+                                .padding(.horizontal, Theme.Space.s3)
+                                .padding(.vertical, Theme.Space.s2)
+                                .secondaryButtonStyle()
                         }
                     }
                     .padding(.horizontal)
-                    .padding(.vertical, 8)
+                    .padding(.vertical, Theme.Space.s2)
                 }
             }
-            .background(Color.Theme.surface)
-            .cornerRadius(10)
+            .background(Theme.surface)
+            .cornerRadius(Theme.Radius.md)
             .padding(.horizontal)
         }
     }

@@ -62,9 +62,9 @@ class OpponentHandNode: SKNode {
         self.relativePosition = position
 
         nameLabel = SKLabelNode(text: username)
-        nameLabel.fontName = "Helvetica-Bold"
-        nameLabel.fontSize = 14
-        nameLabel.fontColor = .white
+        nameLabel.fontName = Theme.SK.fontName(.bold)
+        nameLabel.fontSize = Theme.TypeScale.sm
+        nameLabel.fontColor = Theme.SK.label
         fullName = username
 
         super.init()
@@ -76,8 +76,8 @@ class OpponentHandNode: SKNode {
 
         // Avatar circle
         let circle = SKShapeNode(circleOfRadius: avatarRadius)
-        circle.fillColor = UIColor(red: 0.2, green: 0.3, blue: 0.2, alpha: 1)
-        circle.strokeColor = UIColor(white: 0.4, alpha: 1)
+        circle.fillColor = Theme.SK.avatarFill
+        circle.strokeColor = Theme.SK.avatarStroke
         circle.lineWidth = 1.5
         circle.position = .zero
         addChild(circle)
@@ -85,9 +85,9 @@ class OpponentHandNode: SKNode {
 
         // Initial letter fallback
         let initial = SKLabelNode(text: String(username.prefix(1)).uppercased())
-        initial.fontName = "Helvetica-Bold"
+        initial.fontName = Theme.SK.fontName(.bold)
         initial.fontSize = avatarRadius * 0.9
-        initial.fontColor = .white
+        initial.fontColor = Theme.SK.label
         initial.verticalAlignmentMode = .center
         initial.horizontalAlignmentMode = .center
         initial.name = "avatar_initial"
@@ -146,9 +146,9 @@ class OpponentHandNode: SKNode {
         removeAvatarImage(from: circle)
         if circle.childNode(withName: "avatar_initial") == nil {
             let initial = SKLabelNode(text: String(name.prefix(1)).uppercased())
-            initial.fontName = "Helvetica-Bold"
+            initial.fontName = Theme.SK.fontName(.bold)
             initial.fontSize = avatarRadius * 0.9
-            initial.fontColor = .white
+            initial.fontColor = Theme.SK.label
             initial.verticalAlignmentMode = .center
             initial.horizontalAlignmentMode = .center
             initial.name = "avatar_initial"
@@ -164,7 +164,7 @@ class OpponentHandNode: SKNode {
         guard turnGlow == nil else { return }
         let glow = SKShapeNode(circleOfRadius: 30)
         glow.name = "glow.turn"
-        glow.fillColor = UIColor(red: 0.2, green: 0.8, blue: 0.4, alpha: 0.5)
+        glow.fillColor = Theme.SK.turnGlow
         glow.strokeColor = .clear
         glow.zPosition = -1
         glow.run(CardAnimations.pulseGlow())
@@ -183,8 +183,8 @@ class OpponentHandNode: SKNode {
         guard speakingGlow == nil else { return }
         let glow = SKShapeNode(circleOfRadius: 28)
         glow.name = "glow.speaking"
-        glow.fillColor = UIColor(red: 0.1, green: 0.9, blue: 0.3, alpha: 0.4)
-        glow.strokeColor = UIColor(red: 0.1, green: 0.9, blue: 0.3, alpha: 0.7)
+        glow.fillColor = Theme.SK.speakingFill
+        glow.strokeColor = Theme.SK.speakingStroke
         glow.lineWidth = 1.5
         glow.zPosition = -2
         glow.run(CardAnimations.pulseGlow())

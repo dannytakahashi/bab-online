@@ -80,7 +80,7 @@ extension TableReducer {
         } else {
             s.log.entries = snap.log.map { entry in
                 ChatMessage(username: "System", message: entry.message, type: ChatMessage.MessageType(rawValue: entry.type.rawValue) ?? .system,
-                            position: Position.valid(entry.position))
+                            position: Position.valid(entry.position), timestamp: ChatMessage.serverDate(entry.at) ?? Date())
             }
         }
 

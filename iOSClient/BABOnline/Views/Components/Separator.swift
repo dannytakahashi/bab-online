@@ -7,7 +7,7 @@ struct Separator: View {
 
     var body: some View {
         Rectangle()
-            .fill(Color.Theme.inputBorder)
+            .fill(Theme.inputBorder)
             .frame(width: vertical ? 1 : nil, height: vertical ? nil : 1)
             .frame(maxWidth: vertical ? nil : .infinity, maxHeight: vertical ? .infinity : nil)
     }

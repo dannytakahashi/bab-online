@@ -1,9 +1,9 @@
 /**
  * Design token generator (roadmap item 18a): tokens.json -> CSS custom
  * properties (client/styles/tokens.css) and an ES module of numbers and
- * hex values for Phaser (client/src/ui/tokens.js). Pure functions, so the
+ * hex values for Phaser (client/src/ui/tokens.js), and (item 29) the iOS
+ * app's iOSClient/BABOnline/Generated/Theme.swift. Pure functions, so the
  * stale-file test (tokens.test.js) and scripts/build-tokens.js share them.
- * Item 29 adds a Theme.swift writer beside these two.
  */
 
 /** camelCase -> kebab-case. */
@@ -184,10 +184,157 @@ export function renderJs(tokens) {
   ].join('\n');
 }
 
-/** Both outputs, keyed by their path from the repo root. */
+const SWIFT_PATH = 'iOSClient/BABOnline/Generated/Theme.swift';
+
+/** surface -> Surface, onPrimary -> OnPrimary: a Swift type name. */
+const typeName = (k) => k.charAt(0).toUpperCase() + k.slice(1);
+
+/** A Swift literal for a number (12 -> 12, 0.2 -> 0.2). */
+const num = (v) => String(v);
+
+/** ThemeColor(0x0c1411) or ThemeColor(0x000000, alpha: 0.722). */
+const swiftColor = (hex) => {
+  const { r, g, b, a } = parseColor(hex);
+  const rgb = `0x${[r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
+  return a < 1 ? `ThemeColor(${rgb}, alpha: ${a})` : `ThemeColor(${rgb})`;
+};
+
+const SWIFT_WEIGHT = { 100: 'ultraLight', 200: 'thin', 300: 'light', 400: 'regular', 500: 'medium', 600: 'semibold', 700: 'bold', 800: 'heavy', 900: 'black' };
+
+/** iOSClient/BABOnline/Generated/Theme.swift */
+export function renderSwift(tokens) {
+  const out = [];
+  const line = (depth, text = '') => out.push(text ? `${'    '.repeat(depth)}${text}` : '');
+  const colorTree = (node, depth) => {
+    const leaves = Object.entries(node).filter(([, v]) => typeof v === 'string');
+    const groups = Object.entries(node).filter(([, v]) => typeof v !== 'string');
+    for (const [k, v] of leaves) line(depth, `static let ${k} = ${swiftColor(v)}`);
+    for (const [k, v] of groups) {
+      line(depth, `enum ${typeName(k)} {`);
+      colorTree(v, depth + 1);
+      line(depth, '}');
+    }
+  };
+  const scalars = (name, doc, obj, type, fmt = num) => {
+    line(1, `/// ${doc}`);
+    line(1, `enum ${name} {`);
+    for (const [k, v] of Object.entries(obj)) line(2, `static let ${k}: ${type} = ${fmt(v)}`);
+    line(1, '}');
+    line(1);
+  };
+  const seconds = (ms) => num(Math.round(ms) / 1000);
+
+  out.push(`// ${HEADER('Swift for the iOS app')}`);
+  out.push('');
+  out.push('import SwiftUI');
+  out.push('import UIKit');
+  out.push('');
+  out.push('/// A token color: sRGB components in 0...1 (SwiftUI `color`, UIKit/SpriteKit `uiColor`).');
+  out.push('struct ThemeColor: Equatable, Sendable {');
+  line(1, 'let red: Double');
+  line(1, 'let green: Double');
+  line(1, 'let blue: Double');
+  line(1, 'let alpha: Double');
+  line(0);
+  line(1, 'init(_ rgb: UInt32, alpha: Double = 1) {');
+  line(2, 'red = Double((rgb >> 16) & 0xff) / 255');
+  line(2, 'green = Double((rgb >> 8) & 0xff) / 255');
+  line(2, 'blue = Double(rgb & 0xff) / 255');
+  line(2, 'self.alpha = alpha');
+  line(1, '}');
+  line(0);
+  line(1, 'private init(red: Double, green: Double, blue: Double, alpha: Double) {');
+  line(2, 'self.red = red');
+  line(2, 'self.green = green');
+  line(2, 'self.blue = blue');
+  line(2, 'self.alpha = alpha');
+  line(1, '}');
+  line(0);
+  line(1, '/// The same color at another alpha (a token path with @alpha in tokens.json).');
+  line(1, 'func opacity(_ alpha: Double) -> ThemeColor {');
+  line(2, 'ThemeColor(red: red, green: green, blue: blue, alpha: alpha)');
+  line(1, '}');
+  line(0);
+  line(1, 'var color: Color { Color(.sRGB, red: red, green: green, blue: blue, opacity: alpha) }');
+  line(1, 'var uiColor: UIColor { UIColor(red: CGFloat(red), green: CGFloat(green), blue: CGFloat(blue), alpha: CGFloat(alpha)) }');
+  out.push('}');
+  out.push('');
+  out.push('/// The shared design tokens (roadmap item 29): the same tokens.json as the web\'s');
+  out.push('/// tokens.css. Semantic roles for views and nodes are in Theme+Roles.swift.');
+  out.push('enum Theme {');
+  line(1, '/// Every color of tokens.json `color`, by its path (Palette.Surface.s2 is surface.s2).');
+  line(1, 'enum Palette {');
+  colorTree(tokens.color, 2);
+  line(1, '}');
+  line(1);
+  line(1, '/// The UI font: the system font (tokens.json font.ui starts with -apple-system).');
+  line(1, `static let fontStack: [String] = [${tokens.font.ui.map((f) => JSON.stringify(f)).join(', ')}]`);
+  line(1);
+  scalars('Weight', 'Font weights (tokens.json font.weight, CSS 400 = regular).', tokens.font.weight, 'Font.Weight', (v) => {
+    if (!SWIFT_WEIGHT[v]) throw new Error(`no Swift weight for ${v}`);
+    return `.${SWIFT_WEIGHT[v]}`;
+  });
+  scalars('TypeScale', 'Type sizes in points at the default Dynamic Type size (Theme.font scales them).', tokens.type, 'CGFloat');
+  scalars('Space', 'Spacing in points (a 4 pt grid).', tokens.space, 'CGFloat');
+  scalars('Radius', 'Corner radii in points.', tokens.radius, 'CGFloat');
+  line(1, '/// One shadow layer (x, y, blur, spread in points).');
+  line(1, 'struct ShadowLayer: Equatable, Sendable {');
+  line(2, 'let x: CGFloat');
+  line(2, 'let y: CGFloat');
+  line(2, 'let blur: CGFloat');
+  line(2, 'let spread: CGFloat');
+  line(2, 'let color: ThemeColor');
+  line(1, '}');
+  line(1);
+  line(1, '/// Elevation shadows, top layer first.');
+  line(1, 'enum Elevation {');
+  for (const [k, layers] of Object.entries(tokens.elevation)) {
+    line(2, `static let ${k}: [ShadowLayer] = [`);
+    for (const l of layers) line(3, `ShadowLayer(x: ${num(l.x)}, y: ${num(l.y)}, blur: ${num(l.blur)}, spread: ${num(l.spread)}, color: ${swiftColor(l.color)}),`);
+    line(2, ']');
+  }
+  line(1, '}');
+  line(1);
+  line(1, '/// Durations in seconds (tokens.json says ms); easings as cubic-bezier control points.');
+  line(1, 'enum Motion {');
+  for (const [k, v] of Object.entries(tokens.motion.duration)) line(2, `static let ${k}: TimeInterval = ${seconds(v)}`);
+  for (const [k, v] of Object.entries(tokens.motion.stagger)) line(2, `static let ${k}Stagger: TimeInterval = ${seconds(v)}`);
+  line(2, `static let glowPeriod: TimeInterval = ${seconds(tokens.motion.glowPeriod)}`);
+  for (const [k, v] of Object.entries(tokens.motion.easing)) line(2, `static let ${k}: [Double] = [${v.map(num).join(', ')}]`);
+  line(1, '}');
+  line(1);
+  line(1, '/// The minimum hit target in points (HIG 44 pt).');
+  line(1, `static let hitTarget: CGFloat = ${num(tokens.hitTarget)}`);
+  line(1);
+  line(1, '/// Every color token by its tokens.json path ("surface.s2"), for the contrast check.');
+  line(1, 'static let colorsByPath: [String: ThemeColor] = [');
+  for (const [path, value] of colorEntries(tokens)) line(2, `${JSON.stringify(path.join('.'))}: ${swiftColor(value)},`);
+  line(1, ']');
+  line(1);
+  line(1, '/// A text-on-surface pair the UI uses: fg over the bg stack (top first; "path@0.86" overrides alpha).');
+  line(1, 'struct ContrastPair: Sendable {');
+  line(2, 'let fg: String');
+  line(2, 'let bg: [String]');
+  line(2, 'let min: Double');
+  line(2, 'let use: String?');
+  line(1, '}');
+  line(1);
+  line(1, '/// tokens.json `contrast`: every pair must reach `min` (WCAG AA), on the web and here.');
+  line(1, 'static let contrastPairs: [ContrastPair] = [');
+  for (const p of tokens.contrast) {
+    line(2, `ContrastPair(fg: ${JSON.stringify(p.fg)}, bg: [${p.bg.map((b) => JSON.stringify(b)).join(', ')}], min: ${num(p.min)}, use: ${p.use ? JSON.stringify(p.use) : 'nil'}),`);
+  }
+  line(1, ']');
+  out.push('}');
+  out.push('');
+  return out.join('\n');
+}
+
+/** Every output, keyed by its path from the repo root. */
 export function renderAll(tokens) {
   return {
     'client/styles/tokens.css': renderCss(tokens),
     'client/src/ui/tokens.js': renderJs(tokens),
+    [SWIFT_PATH]: renderSwift(tokens),
   };
 }

@@ -10,25 +10,25 @@ struct ConnectionStatusToast: View {
     var body: some View {
         VStack {
             if showToast {
-                HStack(spacing: 8) {
+                HStack(spacing: Theme.Space.s2) {
                     if isReconnected {
                         Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(Color.Theme.success)
+                            .foregroundColor(Theme.success)
                     } else {
                         ProgressView()
-                            .tint(Color.Theme.warning)
+                            .tint(Theme.warning)
                     }
                     Text(isReconnected ? "Connected!" : "Reconnecting...")
                         .font(.callout.bold())
-                        .foregroundColor(Color.Theme.textPrimary)
+                        .foregroundColor(Theme.textPrimary)
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, Theme.Space.s4)
                 .padding(.vertical, 10)
-                .background(Color.Theme.surface)
+                .background(Theme.surface)
                 .clipShape(Capsule())
-                .shadow(color: .black.opacity(0.4), radius: 8, y: 4)
+                .elevation(Theme.Elevation.e2)
                 .transition(.move(edge: .top).combined(with: .opacity))
-                .padding(.top, 8)
+                .padding(.top, Theme.Space.s2)
             }
             Spacer()
         }
@@ -65,22 +65,22 @@ private struct ServerErrorToast: View {
     var body: some View {
         VStack {
             if let notice {
-                HStack(spacing: 8) {
+                HStack(spacing: Theme.Space.s2) {
                     Image(systemName: "exclamationmark.circle.fill")
-                        .foregroundColor(Color.Theme.warning)
+                        .foregroundColor(Theme.warning)
                     Text(notice.message)
                         .font(.callout.bold())
-                        .foregroundColor(Color.Theme.textPrimary)
+                        .foregroundColor(Theme.textPrimary)
                         .multilineTextAlignment(.leading)
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, Theme.Space.s4)
                 .padding(.vertical, 10)
-                .background(Color.Theme.surface)
+                .background(Theme.surface)
                 .clipShape(Capsule())
-                .shadow(color: .black.opacity(0.4), radius: 8, y: 4)
+                .elevation(Theme.Elevation.e2)
                 .transition(.move(edge: .top).combined(with: .opacity))
-                .padding(.top, 8)
-                .padding(.horizontal, 16)
+                .padding(.top, Theme.Space.s2)
+                .padding(.horizontal, Theme.Space.s4)
                 .onTapGesture {
                     withAnimation(.easeInOut(duration: 0.3)) { self.notice = nil }
                 }

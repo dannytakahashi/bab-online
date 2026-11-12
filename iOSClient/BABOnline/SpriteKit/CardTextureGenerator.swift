@@ -169,11 +169,11 @@ enum CardTextureGenerator {
 
             // White background with rounded corners
             let path = UIBezierPath(roundedRect: rect, cornerRadius: cornerRadius)
-            UIColor.white.setFill()
+            Theme.Palette.Card.face.uiColor.setFill()
             path.fill()
 
             // Thin gray border
-            UIColor(white: 0.7, alpha: 1).setStroke()
+            Theme.Palette.Card.border.uiColor.setStroke()
             path.lineWidth = 3
             path.stroke()
 
@@ -242,16 +242,16 @@ enum CardTextureGenerator {
 
             // White background with rounded corners
             let path = UIBezierPath(roundedRect: rect, cornerRadius: cornerRadius)
-            UIColor.white.setFill()
+            Theme.Palette.Card.face.uiColor.setFill()
             path.fill()
 
             // Purple border for jokers
-            UIColor.purple.setStroke()
+            Theme.CardInk.joker.uiColor.setStroke()
             path.lineWidth = 4
             path.stroke()
 
             let isHigh = card.rank == .hi
-            let color = UIColor.purple
+            let color = Theme.CardInk.joker.uiColor
             let label = isHigh ? "HI" : "LO"
 
             // Top-left label
@@ -308,11 +308,11 @@ enum CardTextureGenerator {
 
             // Dark green background
             let path = UIBezierPath(roundedRect: rect, cornerRadius: cornerRadius)
-            UIColor(red: 0.1, green: 0.3, blue: 0.15, alpha: 1).setFill()
+            Theme.Palette.Card.back.uiColor.setFill()
             path.fill()
 
             // Lighter green border
-            UIColor(red: 0.2, green: 0.5, blue: 0.25, alpha: 1).setStroke()
+            Theme.Palette.Card.backBorder.uiColor.setStroke()
             path.lineWidth = 4
             path.stroke()
 
@@ -320,7 +320,7 @@ enum CardTextureGenerator {
             let inset: CGFloat = 24
             let innerRect = rect.insetBy(dx: inset, dy: inset)
             let innerPath = UIBezierPath(roundedRect: innerRect, cornerRadius: cornerRadius - 8)
-            UIColor(red: 0.15, green: 0.4, blue: 0.2, alpha: 1).setStroke()
+            Theme.Palette.Card.backInner.uiColor.setStroke()
             innerPath.lineWidth = 2
             innerPath.stroke()
 
@@ -335,9 +335,9 @@ enum CardTextureGenerator {
             diamond.addLine(to: CGPoint(x: centerX, y: centerY + diamondSize))
             diamond.addLine(to: CGPoint(x: centerX - diamondSize * 0.7, y: centerY))
             diamond.close()
-            UIColor(red: 0.25, green: 0.55, blue: 0.3, alpha: 1).setFill()
+            Theme.Palette.Card.backDiamond.uiColor.setFill()
             diamond.fill()
-            UIColor(red: 0.3, green: 0.65, blue: 0.35, alpha: 1).setStroke()
+            Theme.Palette.Card.backDiamondStroke.uiColor.setStroke()
             diamond.lineWidth = 2
             diamond.stroke()
         }
@@ -348,11 +348,11 @@ enum CardTextureGenerator {
     private static func suitColor(_ suit: Suit) -> UIColor {
         switch suit {
         case .hearts, .diamonds:
-            return UIColor(red: 0.85, green: 0.1, blue: 0.1, alpha: 1)
+            return Theme.CardInk.red.uiColor
         case .spades, .clubs:
-            return UIColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1)
+            return Theme.CardInk.black.uiColor
         case .joker:
-            return .purple
+            return Theme.CardInk.joker.uiColor
         }
     }
 

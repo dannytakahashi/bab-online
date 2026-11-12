@@ -16,37 +16,39 @@ struct TournamentChatView: View {
                 HStack {
                     Text("Chat")
                         .font(.caption.bold())
-                        .foregroundColor(Color.Theme.textSecondary)
+                        .foregroundColor(Theme.textSecondary)
                     Spacer()
                 }
                 .padding(.horizontal)
-                .padding(.top, 12)
-                .padding(.bottom, 4)
+                .padding(.top, Theme.Space.s3)
+                .padding(.bottom, Theme.Space.s1)
             }
 
-            Divider().background(Color.Theme.inputBorder, ignoresSafeAreaEdges: .vertical)
+            Divider().background(Theme.inputBorder, ignoresSafeAreaEdges: .vertical)
 
             // Messages
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 4) {
-                        ForEach(tournamentState.messages) { msg in
+                    LazyVStack(alignment: .leading, spacing: Theme.Space.s1) {
+                        let dividers = ChatTimestamps.dividerIndices(tournamentState.messages.map(\.timestamp))
+                        ForEach(Array(tournamentState.messages.enumerated()), id: \.element.id) { i, msg in
                             ChatBubbleView(message: msg)
                                 .id(msg.id)
                                 .reportBlockMenu(for: msg, currentUsername: authState.username, reportTarget: $reportTarget)
+                                .chatTimeDivider(dividers.contains(i), date: msg.timestamp)
                         }
                     }
-                    .padding(.horizontal, 12)
+                    .padding(.horizontal, Theme.Space.s3)
                     .padding(.vertical, 6)
                 }
                 .scrollDismissesKeyboard(.interactively)
                 .followsNewestMessage(proxy, lastID: tournamentState.messages.last?.id, count: tournamentState.messages.count)
             }
 
-            Divider().background(Color.Theme.inputBorder, ignoresSafeAreaEdges: .vertical)
+            Divider().background(Theme.inputBorder, ignoresSafeAreaEdges: .vertical)
 
             // Input
-            HStack(spacing: 8) {
+            HStack(spacing: Theme.Space.s2) {
                 TextField("Chat...", text: $message)
                     .textFieldStyle(BABTextFieldStyle())
                     .onSubmit(sendMessage)
@@ -55,11 +57,11 @@ struct TournamentChatView: View {
                 Button(action: sendMessage) {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.title2)
-                        .foregroundColor(message.isEmpty ? Color.Theme.textDim : Color.Theme.primary)
+                        .foregroundColor(message.isEmpty ? Theme.textDim : Theme.primary)
                 }
                 .disabled(message.isEmpty)
             }
-            .padding(8)
+            .padding(Theme.Space.s2)
         }
         .safetyAlerts(reportTarget: $reportTarget, reportContext: "tournament chat")
         .onAppear { if message.isEmpty { message = tournamentState.chatDraft } }

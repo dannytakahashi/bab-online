@@ -12,19 +12,19 @@ struct RegisterView: View {
 
     var body: some View {
         ZStack {
-            Color.Theme.background.ignoresSafeArea()
+            Theme.background.ignoresSafeArea()
 
             // Scrolls on short heights (keyboard, landscape), capped at a readable width
             GeometryReader { g in
             ScrollView {
-            VStack(spacing: 32) {
+            VStack(spacing: Theme.Space.s8) {
                 Spacer(minLength: 24)
 
                 Text("Create Account")
-                    .font(.system(size: 32, weight: .bold, design: .rounded))
-                    .foregroundColor(Color.Theme.textPrimary)
+                    .themeFont(Theme.TypeScale.xxl, weight: Theme.Weight.bold, design: .rounded, relativeTo: .largeTitle)
+                    .foregroundColor(Theme.textPrimary)
 
-                VStack(spacing: 16) {
+                VStack(spacing: Theme.Space.s4) {
                     TextField("Username", text: $username)
                         .textFieldStyle(BABTextFieldStyle())
                         .textContentType(.username)
@@ -42,14 +42,14 @@ struct RegisterView: View {
                     if let error = authState.error {
                         Text(error)
                             .font(.caption)
-                            .foregroundColor(Color.Theme.error)
+                            .foregroundColor(Theme.error)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
 
                     if !confirmPassword.isEmpty && password != confirmPassword {
                         Text("Passwords do not match")
                             .font(.caption)
-                            .foregroundColor(Color.Theme.error)
+                            .foregroundColor(Theme.error)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
 
@@ -57,7 +57,7 @@ struct RegisterView: View {
                         HStack {
                             if isLoading {
                                 ProgressView()
-                                    .tint(.white)
+                                    .tint(Theme.buttonForeground)
                                     .scaleEffect(0.8)
                             }
                             Text("Register")
@@ -65,26 +65,26 @@ struct RegisterView: View {
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
-                        .background(canRegister ? Color.Theme.buttonBackground : Color.Theme.buttonDisabled)
-                        .foregroundColor(.white)
-                        .cornerRadius(10)
+                        .background(canRegister ? Theme.buttonBackground : Theme.buttonDisabled)
+                        .foregroundColor(canRegister ? Theme.buttonForeground : Theme.buttonDisabledForeground)
+                        .cornerRadius(Theme.Radius.md)
                     }
                     .disabled(!canRegister)
 
                     Text(.init("By creating an account you agree to the [Terms of Use](https://babonline.io/terms) — zero tolerance for abusive content."))
                         .font(.caption2)
-                        .foregroundColor(Color.Theme.textDim)
-                        .tint(Color.Theme.primary)
+                        .foregroundColor(Theme.textDim)
+                        .tint(Theme.primary)
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: .infinity)
                 }
-                .padding(.horizontal, 32)
+                .padding(.horizontal, Theme.Space.s8)
 
                 Button(action: { appState.screen = .signIn }) {
                     Text("Already have an account? ")
-                        .foregroundColor(Color.Theme.textSecondary) +
+                        .foregroundColor(Theme.textSecondary) +
                     Text("Sign In")
-                        .foregroundColor(Color.Theme.primary)
+                        .foregroundColor(Theme.primary)
                         .bold()
                 }
                 .font(.callout)

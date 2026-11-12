@@ -12,17 +12,17 @@ struct SpectatorBadgeView: View {
 
     var body: some View {
         Button { showsList = true } label: {
-            HStack(spacing: 4) {
+            HStack(spacing: Theme.Space.s1) {
                 Image(systemName: "eye.fill")
                     .imageScale(.small)
                 Text("\(watching.count)")
                     .font(.caption.bold().monospacedDigit())
             }
-            .foregroundColor(.white)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(Capsule().fill(Color.black.opacity(0.6)))
-            .overlay(Capsule().stroke(Color.white.opacity(0.35), lineWidth: 1))
+            .foregroundColor(Theme.textPrimary)
+            .padding(.horizontal, Theme.Space.s3)
+            .padding(.vertical, Theme.Space.s2)
+            .background(Capsule().fill(Theme.Palette.Surface.s2.opacity(0.86).color))
+            .overlay(Capsule().stroke(Theme.inputBorder, lineWidth: 1))
             .dynamicTypeSize(...DynamicTypeSize.xxLarge)
             .frame(minWidth: 44, minHeight: 44)  // the 44 pt target (HIG)
             .contentShape(Rectangle())
@@ -53,7 +53,7 @@ struct SpectatorListView: View {
             Text("Watching")
                 .font(.subheadline.bold())
                 .padding(.horizontal, 14)
-                .padding(.top, 12)
+                .padding(.top, Theme.Space.s3)
                 .padding(.bottom, 6)
                 .accessibilityAddTraits(.isHeader)
             ScrollView {
@@ -84,7 +84,7 @@ struct SpectatorListView: View {
             .fixedSize(horizontal: false, vertical: watching.spectators.count + (more > 0 ? 1 : 0) <= Self.visibleRows)
         }
         .frame(minWidth: 200, maxWidth: 280)
-        .padding(.bottom, 8)
+        .padding(.bottom, Theme.Space.s2)
     }
 }
 
@@ -96,13 +96,13 @@ struct AvatarImageView: View {
 
     var body: some View {
         ZStack {
-            Circle().fill(Color(white: 0.3))
+            Circle().fill(Theme.surfaceRaised)
             if let image {
                 Image(uiImage: image).resizable().scaledToFill()
             } else {
                 Text(String(name.prefix(1)).uppercased())
                     .font(.caption.bold())
-                    .foregroundColor(.white)
+                    .foregroundColor(Theme.textPrimary)
             }
         }
         .clipShape(Circle())

@@ -74,8 +74,14 @@ enum UIFixture {
         }
     }
 
+    /// The first half sent about a day ago, the rest in the last minutes, so the
+    /// screens show both kinds of time divider (ChatTimestamps).
     private static func messages(_ lines: [(String, String)]) -> [ChatMessage] {
-        lines.map { ChatMessage(username: $0.0, message: $0.1, type: $0.0 == "System" ? .system : .player) }
+        let now = Date(), half = lines.count / 2
+        return lines.enumerated().map { i, line in
+            let sent = i < half ? now.addingTimeInterval(-26 * 3600 + Double(i) * 60) : now.addingTimeInterval(-Double(lines.count - i) * 60)
+            return ChatMessage(username: line.0, message: line.1, type: line.0 == "System" ? .system : .player, timestamp: sent)
+        }
     }
 
     @MainActor

@@ -32,7 +32,7 @@ private struct GameLobbyScreen: View {
 
     var body: some View {
         ZStack {
-            Color.Theme.background.ignoresSafeArea()
+            Theme.background.ignoresSafeArea()
 
             // measures the room above the keyboard (draws nothing)
             Color.clear
@@ -62,11 +62,11 @@ private struct GameLobbyScreen: View {
                     // in the vertical bar Leave is a toolbar item and the title leads
                     if !bar.usesVerticalBar {
                         Button(action: leaveLobby) {
-                            HStack(spacing: 4) {
+                            HStack(spacing: Theme.Space.s1) {
                                 Image(systemName: "chevron.left")
                                 Text("Leave")
                             }
-                            .foregroundColor(Color.Theme.textSecondary)
+                            .foregroundColor(Theme.textSecondary)
                         }
 
                         Spacer()
@@ -74,11 +74,11 @@ private struct GameLobbyScreen: View {
 
                     Text(lobbyState.lobbyName.isEmpty ? "Game Lobby" : lobbyState.lobbyName)
                         .font(.headline)
-                        .foregroundColor(Color.Theme.textPrimary)
+                        .foregroundColor(Theme.textPrimary)
 
                     Spacer()
 
-                    HStack(spacing: 12) {
+                    HStack(spacing: Theme.Space.s3) {
                         if voiceManager.isActive {
                             VoiceMuteButton(onLongPress: {
                                 showVoicePanel = true
@@ -87,16 +87,16 @@ private struct GameLobbyScreen: View {
                         }
 
                         Text("\(lobbyState.playerCount)/4")
-                            .foregroundColor(Color.Theme.textSecondary)
+                            .foregroundColor(Theme.textSecondary)
                     }
                 }
                 .padding()
                 .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { headerHeight = $0 }
 
-                Divider().background(Color.Theme.inputBorder, ignoresSafeAreaEdges: .vertical)
+                Divider().background(Theme.inputBorder, ignoresSafeAreaEdges: .vertical)
 
                 // Player slots
-                VStack(spacing: 12) {
+                VStack(spacing: Theme.Space.s3) {
                     ForEach(0..<4, id: \.self) { index in
                         if index < lobbyState.players.count {
                             LobbyPlayerRow(player: lobbyState.players[index],
@@ -115,13 +115,13 @@ private struct GameLobbyScreen: View {
                     Button(action: addRandomBot) {
                         Label("Add Bot", systemImage: "cpu")
                             .font(.callout)
-                            .foregroundColor(Color.Theme.textSecondary)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
-                            .background(Color.Theme.surface)
-                            .cornerRadius(8)
+                            .foregroundColor(Theme.textSecondary)
+                            .padding(.horizontal, Theme.Space.s4)
+                            .padding(.vertical, Theme.Space.s2)
+                            .background(Theme.surface)
+                            .cornerRadius(Theme.Radius.md)
                     }
-                    .padding(.bottom, 8)
+                    .padding(.bottom, Theme.Space.s2)
                 }
                 }
                 .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { topHeight = $0 }
@@ -140,13 +140,13 @@ private struct GameLobbyScreen: View {
                     Text(isReady ? "Unready" : "Ready")
                         .font(.title3.bold())
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 16)
-                        .background(isReady ? Color.Theme.oppColor : Color.Theme.buttonBackground)
-                        .foregroundColor(.white)
-                        .cornerRadius(10)
+                        .padding(.vertical, Theme.Space.s4)
+                        .background(isReady ? Theme.danger : Theme.buttonBackground)
+                        .foregroundColor(isReady ? Theme.dangerForeground : Theme.buttonForeground)
+                        .cornerRadius(Theme.Radius.md)
                 }
-                .padding(.horizontal, 12)
-                .padding(.bottom, 4)
+                .padding(.horizontal, Theme.Space.s3)
+                .padding(.bottom, Theme.Space.s1)
                 .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { readyHeight = $0 }
             }
             .frame(maxWidth: wide ? .infinity : 560)
@@ -209,20 +209,20 @@ private struct GameLobbyScreen: View {
     private func emptySlot(index: Int) -> some View {
         HStack {
             Circle()
-                .fill(Color.Theme.surfaceLight)
+                .fill(Theme.surfaceLight)
                 .frame(width: 40, height: 40)
-                .overlay(Image(systemName: "person.fill").foregroundColor(Color.Theme.textDim))
+                .overlay(Image(systemName: "person.fill").foregroundColor(Theme.textDim))
 
             Text("Waiting for player...")
-                .foregroundColor(Color.Theme.textDim)
+                .foregroundColor(Theme.textDim)
                 .italic()
 
             Spacer()
         }
         .padding(.horizontal)
         .padding(.vertical, 10)
-        .background(Color.Theme.surface)
-        .cornerRadius(10)
+        .background(Theme.surface)
+        .cornerRadius(Theme.Radius.md)
     }
 
     private func toggleReady() {

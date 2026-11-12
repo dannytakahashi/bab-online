@@ -35,52 +35,52 @@ struct LeaderboardView: View {
     var body: some View {
         NavigationView {
             ZStack {
-                Color.Theme.background.ignoresSafeArea()
+                Theme.background.ignoresSafeArea()
 
                 VStack(spacing: 0) {
                     // Sort buttons
                     ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
+                        HStack(spacing: Theme.Space.s2) {
                             ForEach(SortField.allCases, id: \.self) { field in
                                 Button(action: { selectedSort = field }) {
                                     Text(field.rawValue)
                                         .font(.caption.bold())
-                                        .padding(.horizontal, 12)
+                                        .padding(.horizontal, Theme.Space.s3)
                                         .padding(.vertical, 6)
-                                        .background(selectedSort == field ? Color.Theme.primary : Color.Theme.surface)
-                                        .foregroundColor(selectedSort == field ? .white : Color.Theme.textSecondary)
-                                        .cornerRadius(16)
+                                        .background(selectedSort == field ? Theme.primary : Theme.surface)
+                                        .foregroundColor(selectedSort == field ? Theme.buttonForeground : Theme.textSecondary)
+                                        .cornerRadius(Theme.Radius.lg)
                                 }
                             }
                         }
                         .padding(.horizontal)
-                        .padding(.vertical, 8)
+                        .padding(.vertical, Theme.Space.s2)
                     }
 
-                    Divider().background(Color.Theme.inputBorder)
+                    Divider().background(Theme.inputBorder)
 
                     if leaderboardState.isLoading {
                         Spacer()
                         ProgressView()
-                            .tint(Color.Theme.textSecondary)
+                            .tint(Theme.textSecondary)
                         Spacer()
                     } else if let error = leaderboardState.error {
                         Spacer()
                         Text(error)
-                            .foregroundColor(Color.Theme.error)
+                            .foregroundColor(Theme.error)
                             .font(.callout)
                         Spacer()
                     } else if sortedEntries.isEmpty {
                         Spacer()
                         Text("No players yet")
-                            .foregroundColor(Color.Theme.textSecondary)
+                            .foregroundColor(Theme.textSecondary)
                             .font(.callout)
                         Spacer()
                     } else {
                         List {
                             ForEach(Array(sortedEntries.enumerated()), id: \.element.id) { index, entry in
                                 leaderboardRow(rank: LeaderboardEntry.rank(at: index, in: sortedEntries), entry: entry)
-                                    .listRowBackground(Color.Theme.background)
+                                    .listRowBackground(Theme.background)
                             }
                         }
                         .listStyle(.plain)
@@ -102,17 +102,17 @@ struct LeaderboardView: View {
     }
 
     private func leaderboardRow(rank: Int?, entry: LeaderboardEntry) -> some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Theme.Space.s3) {
             // Rank
             Text(rank.map { "#\($0)" } ?? "\u{2014}")
                 .font(.callout.bold())
-                .foregroundColor(rank.map { rankColor($0) } ?? Color.Theme.textSecondary)
+                .foregroundColor(rank.map { rankColor($0) } ?? Theme.textSecondary)
                 .frame(width: 36, alignment: .leading)
 
             // Username
             Text(entry.isPopulation ? "Population" : entry.username)
                 .font(.callout.bold())
-                .foregroundColor(Color.Theme.textPrimary)
+                .foregroundColor(Theme.textPrimary)
                 .lineLimit(1)
 
             Spacer()
@@ -121,13 +121,13 @@ struct LeaderboardView: View {
             VStack(alignment: .trailing, spacing: 2) {
                 Text(formattedStat(entry))
                     .font(.callout.bold())
-                    .foregroundColor(Color.Theme.primary)
+                    .foregroundColor(Theme.primary)
                 Text("\(entry.gamesPlayed) games")
                     .font(.caption2)
-                    .foregroundColor(Color.Theme.textSecondary)
+                    .foregroundColor(Theme.textSecondary)
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, Theme.Space.s1)
     }
 
     private func formattedStat(_ entry: LeaderboardEntry) -> String {
@@ -144,11 +144,6 @@ struct LeaderboardView: View {
     }
 
     private func rankColor(_ rank: Int) -> Color {
-        switch rank {
-        case 1: return Color.Theme.warning
-        case 2: return Color.Theme.textSecondary
-        case 3: return Color(red: 0.8, green: 0.5, blue: 0.2)
-        default: return Color.Theme.textSecondary
-        }
+        return Theme.medal(rank: rank) ?? Theme.textSecondary
     }
 }

@@ -250,8 +250,9 @@ npm run dev:client
 # Build client
 npm run build:client
 
-# Regenerate the design tokens after editing client/tokens/tokens.json
-# (tokens:check fails when the generated files are stale)
+# Regenerate the design tokens after editing client/tokens/tokens.json: the web's
+# tokens.css / tokens.js and the iOS app's Generated/Theme.swift
+# (tokens:check fails when a generated file is stale or a contrast pair fails)
 npm run tokens
 ```
 
@@ -397,6 +398,8 @@ The iOS client uses SwiftUI for UI and SpriteKit for the game canvas:
 - **State Objects** - `@Published` properties on ObservableObject classes, injected as `@EnvironmentObject`
 - **SocketService** - Socket.IO connection with `forceReconnect()` on app foreground
 - **Emitters / Handlers** - Static emitter methods and handler classes matching the web client's socket event structure
+- **Design tokens (item 29)** - `iOSClient/BABOnline/Generated/Theme.swift` is generated from the web's `client/tokens/tokens.json` by `npm run tokens` (never hand-edit it): `Theme.Palette` (every color as a `ThemeColor` with `.color` / `.uiColor`), `TypeScale`, `Space`, `Radius`, `Weight`, `Elevation`, `Motion`, `hitTarget` and the tokens.json contrast pairs. Views and SpriteKit nodes use the semantic roles in `Extensions/Theme+Roles.swift` (`Theme.background`, `Theme.buttonBackground` + `buttonForeground`, `Theme.team(_:)` (absolute: team 1 = A, as the web), `Theme.SK.*` for nodes, `themeFont` for Dynamic Type), never a color literal; the felt is the web's radial gradient (`GameSKScene.feltTexture`). Every text-on-surface pair a role is used for is a tokens.json `contrast` entry (iOS-only ones say "iOS:"), checked by `tokens.test.js`, `tokens:check` and `ThemeTests` (which also checks Theme.swift against tokens.json). SpriteKit labels use Helvetica Neue (the first font.ui family SpriteKit can load by name). Off-grid paddings (2, 6, 10, 14 pt) that the table layout and bid band are sized around are still literals
+- **Chat times** - every chat line keeps the server's time (`timestamp` on main room / lobby / tournament lines, `at` on snapshot log entries; a live table line has none and is stamped on arrival: `ChatMessage.serverDate`). The four chat lists show a Messages-style divider (`ChatTimeDivider`, `Utils/ChatTimestamps.swift`) above the first message and after a gap of more than 15 minutes: "Today 2:14 PM", "Yesterday 9:03 PM", a weekday within the week ("Mon 4:10 PM"), else "Nov 3, 4:10 PM" (with the year when it is not this year), in the user's locale and 12/24-hour setting; VoiceOver reads the full date. No per-message times
 
 ### Key Socket Events
 

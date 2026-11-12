@@ -57,6 +57,10 @@ export const COLOR = Object.freeze({
     "backDiamondStroke": "#4da659",
     "dimTint": "#999999",
     "shadow": "#00000073"
+  },
+  "medal": {
+    "silver": "#c0c7c4",
+    "bronze": "#cd8034"
   }
 });
 

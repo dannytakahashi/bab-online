@@ -5,55 +5,57 @@ struct DisconnectBannerView: View {
     @EnvironmentObject var gameState: GameState
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: Theme.Space.s2) {
             ForEach(Array(gameState.disconnectedPlayers), id: \.key) { position, username in
-                HStack(spacing: 8) {
+                HStack(spacing: Theme.Space.s2) {
                     Image(systemName: "wifi.slash")
-                        .foregroundColor(.white)
+                        .foregroundColor(Theme.dangerForeground)
                         .font(.caption)
 
                     Text("\(username) disconnected")
                         .font(.caption.bold())
-                        .foregroundColor(.white)
+                        .foregroundColor(Theme.dangerForeground)
 
                     Text("— waiting for reconnection...")
                         .font(.caption)
-                        .foregroundColor(.white.opacity(0.8))
+                        .foregroundColor(Theme.dangerForeground)
 
                     Spacer()
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(Color.Theme.disconnectBanner)
-                .cornerRadius(8)
+                .padding(.horizontal, Theme.Space.s3)
+                .padding(.vertical, Theme.Space.s2)
+                .background(Theme.danger)
+                .cornerRadius(Theme.Radius.md)
             }
 
             // Resignation prompt
             if let resign = gameState.resignationAvailable {
-                HStack(spacing: 8) {
+                HStack(spacing: Theme.Space.s2) {
                     Text("\(resign.username) timed out")
                         .font(.caption)
-                        .foregroundColor(.white)
+                        .foregroundColor(Theme.textPrimary)
 
                     Spacer()
 
                     Button(action: { replaceWithBot(position: resign.position) }) {
                         Text("Replace with Bot")
                             .font(.caption.bold())
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(Color.Theme.oppColor)
-                            .cornerRadius(6)
+                            .foregroundColor(Theme.dangerForeground)
+                            .padding(.horizontal, Theme.Space.s3)
+                            .padding(.vertical, Theme.Space.s2)
+                            .background(Theme.danger)
+                            .cornerRadius(Theme.Radius.sm)
                     }
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(Color.Theme.warning.opacity(0.8))
-                .cornerRadius(8)
+                .padding(.horizontal, Theme.Space.s3)
+                .padding(.vertical, Theme.Space.s2)
+                // the connection banner's look: the panel surface, a warning edge
+                .background(Theme.surface.opacity(0.95))
+                .overlay(RoundedRectangle(cornerRadius: Theme.Radius.md).stroke(Theme.warning, lineWidth: 1))
+                .cornerRadius(Theme.Radius.md)
             }
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, Theme.Space.s3)
     }
 
     private func replaceWithBot(position: Int) {

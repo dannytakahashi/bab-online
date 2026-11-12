@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 /**
- * Design tokens (roadmap item 18a): writes client/styles/tokens.css and
- * client/src/ui/tokens.js from client/tokens/tokens.json.
+ * Design tokens (roadmap items 18a and 29): writes client/styles/tokens.css,
+ * client/src/ui/tokens.js and iOSClient/BABOnline/Generated/Theme.swift from
+ * client/tokens/tokens.json.
  *
- *   npm run tokens          write both files
- *   npm run tokens:check    exit 1 when a committed file is stale
+ *   npm run tokens          write all three files
+ *   npm run tokens:check    exit 1 when a committed file is stale (or a contrast pair fails)
  *
  * The generator itself is client/tokens/generate.mjs (the client test
  * tokens.test.js runs the same functions).

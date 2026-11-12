@@ -27,7 +27,7 @@ struct AccountSettingsView: View {
             }
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
-            .background(Color.Theme.background)
+            .background(Theme.background)
             .navigationTitle("Account")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -69,53 +69,53 @@ struct AccountSettingsView: View {
         Section {
             HStack {
                 Text("Signed in as")
-                    .foregroundColor(Color.Theme.textSecondary)
+                    .foregroundColor(Theme.textSecondary)
                 Spacer()
                 Text(authState.username)
                     .bold()
-                    .foregroundColor(Color.Theme.textPrimary)
+                    .foregroundColor(Theme.textPrimary)
             }
 
             Button(action: signOut) {
                 Text("Sign Out")
-                    .foregroundColor(Color.Theme.primary)
+                    .foregroundColor(Theme.primary)
             }
         }
-        .listRowBackground(Color.Theme.surface)
+        .listRowBackground(Theme.surface)
     }
 
     private var blockedUsersSection: some View {
         Section("Blocked Users") {
             if safetyState.blockedUsers.isEmpty {
                 Text("No blocked users")
-                    .foregroundColor(Color.Theme.textDim)
+                    .foregroundColor(Theme.textDim)
             } else {
                 ForEach(safetyState.blockedUsers.sorted(), id: \.self) { username in
                     HStack {
                         Text(username)
-                            .foregroundColor(Color.Theme.textPrimary)
+                            .foregroundColor(Theme.textPrimary)
                         Spacer()
                         Button("Unblock") {
                             SafetyEmitter.unblockUser(username: username)
                         }
                         .font(.callout.bold())
-                        .foregroundColor(Color.Theme.primary)
+                        .foregroundColor(Theme.primary)
                         .buttonStyle(.borderless)
                     }
                 }
             }
         }
-        .listRowBackground(Color.Theme.surface)
+        .listRowBackground(Theme.surface)
     }
 
     private var legalSection: some View {
         Section {
             Link("Privacy Policy", destination: URL(string: "https://babonline.io/privacy")!)
-                .foregroundColor(Color.Theme.primary)
+                .foregroundColor(Theme.primary)
             Link("Terms of Use", destination: URL(string: "https://babonline.io/terms")!)
-                .foregroundColor(Color.Theme.primary)
+                .foregroundColor(Theme.primary)
         }
-        .listRowBackground(Color.Theme.surface)
+        .listRowBackground(Theme.surface)
     }
 
     @ViewBuilder
@@ -128,23 +128,23 @@ struct AccountSettingsView: View {
             } else {
                 Text("Permanently deletes your account, statistics, and profile. This cannot be undone.")
                     .font(.caption)
-                    .foregroundColor(Color.Theme.textSecondary)
+                    .foregroundColor(Theme.textSecondary)
 
                 SecureField("Confirm password", text: $deletePassword)
                     .textContentType(.password)
-                    .foregroundColor(Color.Theme.textPrimary)
+                    .foregroundColor(Theme.textPrimary)
 
                 if let error = authState.deleteAccountError {
                     Text(error)
                         .font(.caption)
-                        .foregroundColor(Color.Theme.error)
+                        .foregroundColor(Theme.error)
                 }
 
                 Button(role: .destructive, action: deleteAccount) {
                     HStack {
                         if isDeleting {
                             ProgressView()
-                                .tint(Color.Theme.error)
+                                .tint(Theme.error)
                                 .scaleEffect(0.8)
                         }
                         Text("Permanently Delete")
@@ -158,10 +158,10 @@ struct AccountSettingsView: View {
                     deletePassword = ""
                     authState.deleteAccountError = nil
                 }
-                .foregroundColor(Color.Theme.textSecondary)
+                .foregroundColor(Theme.textSecondary)
             }
         }
-        .listRowBackground(Color.Theme.surface)
+        .listRowBackground(Theme.surface)
     }
 
     // MARK: - Actions

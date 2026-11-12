@@ -72,7 +72,7 @@ class SKChatBubbleManager {
     func show(position: Int, message: String, viewPosition: Int, layout: TableLayout, animator: Animator) {
         bubbles[position]?.node.removeFromParent()
         let (bubble, size) = Self.makeBubble(message, maxWidth: layout.chatMaxWidth, name: "chat.\(position)",
-                                             fill: UIColor(white: 1, alpha: 0.92), text: .black)
+                                             fill: Theme.SK.chatFill, text: Theme.SK.chatText)
         let rel = Positions.getRelative(target: position, from: viewPosition)
         bubble.position = layout.chatPosition(rel, bubbleSize: size)
         layer.addChild(bubble)
@@ -87,7 +87,7 @@ class SKChatBubbleManager {
         let prefix = username.isEmpty ? "" : "\(username): "
         // narrower than a seat's (it wraps sooner), so it fits beside the trick cards by the badge
         let (bubble, size) = Self.makeBubble(prefix + message, maxWidth: min(layout.chatMaxWidth, Self.spectatorMaxWidth), name: "chat.spectator",
-                                             fill: Self.spectatorFill, text: .white, limit: prefix.count + 40)
+                                             fill: Self.spectatorFill, text: Theme.SK.spectatorChatText, limit: prefix.count + 40)
         bubble.position = layout.spectatorBubbleCenter(badge: layout.spectatorBadge(spectating: spectating), bubbleSize: size, spectating: spectating)
         layer.addChild(bubble)
         spectatorBubble = (bubble, size, spectating)
@@ -96,13 +96,13 @@ class SKChatBubbleManager {
 
     static let spectatorMaxWidth: CGFloat = 200
 
-    /// The spectator tint (the log's spectator green), dark enough for white 13 pt text (AA).
-    static let spectatorFill = UIColor(red: 0.08, green: 0.42, blue: 0.24, alpha: 0.95)
+    /// The spectator tint (the lit felt), dark enough for text.primary 13 pt text (a tokens.json AA pair).
+    static let spectatorFill = Theme.SK.spectatorChatFill
 
     /// One bubble node: the text (at most `limit` characters, two lines) on a rounded background.
     static func makeBubble(_ message: String, maxWidth: CGFloat, name: String, fill: UIColor, text: UIColor, limit: Int = 40) -> (SKNode, CGSize) {
         let label = SKLabelNode(text: message.count > limit ? String(message.prefix(limit - 1)) + "\u{2026}" : message)
-        label.fontName = "Helvetica"
+        label.fontName = Theme.SK.fontName(.regular)
         label.fontSize = 13
         label.fontColor = text
         label.numberOfLines = 2
@@ -111,7 +111,7 @@ class SKChatBubbleManager {
         label.verticalAlignmentMode = .center
         label.horizontalAlignmentMode = .center
         let size = CGSize(width: max(40, label.frame.width + 16), height: label.frame.height + 10)
-        let bg = SKShapeNode(rectOf: size, cornerRadius: 10)
+        let bg = SKShapeNode(rectOf: size, cornerRadius: Theme.Radius.md)
         bg.fillColor = fill
         bg.strokeColor = .clear
         // the label's block may sit off the node's origin: center it in the background

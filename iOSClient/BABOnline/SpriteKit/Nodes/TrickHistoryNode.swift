@@ -1,7 +1,8 @@
 import SpriteKit
 
 /// Stacked won tricks for each team, set from the trick counts (idempotent):
-/// `history.team.<i>` and `history.opp.<i>`, `spacing` apart (from the layout).
+/// `history.team.<i>` (team 1, team A's color) and `history.opp.<i>` (team 2, team B),
+/// `spacing` apart (from the layout).
 class TrickHistoryNode: SKNode {
     private(set) var stackSpacing: CGFloat = 14
     private(set) var counts = (team: 0, opp: 0)
@@ -16,8 +17,8 @@ class TrickHistoryNode: SKNode {
     /// `spacing`: the layout's icon step (nil keeps the current one); existing icons move to it.
     func setCounts(team: Int, opp: Int, spacing: CGFloat? = nil) {
         if let spacing { stackSpacing = spacing }
-        sync(prefix: "history.team.", count: team, y: 0, color: UIColor(red: 0.2, green: 0.8, blue: 0.4, alpha: 1))
-        sync(prefix: "history.opp.", count: opp, y: -30, color: UIColor(red: 0.9, green: 0.3, blue: 0.3, alpha: 1))
+        sync(prefix: "history.team.", count: team, y: 0, color: Theme.SK.teamA)
+        sync(prefix: "history.opp.", count: opp, y: -30, color: Theme.SK.teamB)
         counts = (team, opp)
     }
 
