@@ -10233,12 +10233,14 @@
           "client/src/handlers/authHandlers.js:registerAuthHandlers",
           "client/src/main.js:onServerShutdown"
         ],
-        "ios": []
+        "ios": [
+          "iOSClient/BABOnline/Networking/SocketService.swift:handleServerShutdown"
+        ]
       },
       "emittedFrom": [
         "server/utils/shutdown.js:gracefulShutdown"
       ],
-      "notes": "Every deploy (SIGTERM -> gracefulShutdown): sent to every socket, which is closed about 1 s later (a transport close, so the clients reconnect by themselves). Kept (owner 2026-11-11, V1_REMOVALS #17): web shows a restart banner and, after reconnect, what ended (the game, the watched game, the lobby or the tournament the player was in; nothing for the main room); the message text is not read. iOS 1.1.0 ignores it (no handler); iOS 1.2 shows it."
+      "notes": "Every deploy (SIGTERM -> gracefulShutdown): sent to every socket, which is closed about 1 s later (a transport close, so the clients reconnect by themselves). Kept (owner 2026-11-11, V1_REMOVALS #17): web shows a restart banner and, after reconnect, what ended (the game, the watched game, the lobby or the tournament the player was in; nothing for the main room); the message text is not read. iOS 1.1.0 ignores it (no handler); iOS 1.2 shows a \"Restarting for an update\" toast and, after the restore, one alert for what ended (RestartNotice.swift; the message text is not read)."
     },
     "error": {
       "payload": {
