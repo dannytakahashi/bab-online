@@ -159,7 +159,8 @@ const ARGS = {
     setAdmin: { username: 'Bea', isAdmin: true },
     listAudit: {},
     listPlayers: {},
-    deleteAccount: { username: 'Cy', confirm: 'Cy' }
+    deleteAccount: { username: 'Cy', confirm: 'Cy' },
+    renameAccount: { username: 'Cy', newName: 'Cyrus', confirm: 'Cyrus' }
 };
 // The same with a target that does not exist
 const MISSING = {
@@ -170,7 +171,8 @@ const MISSING = {
     applyMerge: { target: 'Nobody', sources: ['Ghost'], planHash: 'b'.repeat(64), confirm: 'Nobody' },
     setAdmin: { username: 'Nobody', isAdmin: true },
     searchPlayers: { query: 'Nobody' },
-    deleteAccount: { username: 'Nobody', confirm: 'Nobody' }
+    deleteAccount: { username: 'Nobody', confirm: 'Nobody' },
+    renameAccount: { username: 'Nobody', newName: 'Ghost1', confirm: 'Ghost1' }
 };
 
 test('the action list is the contract\'s and the handlers\'', () => {
@@ -419,7 +421,7 @@ describe('actions', () => {
         expect(res.players[0]).toMatchObject({ mergedInto: 'Bea', isAdmin: false, online: false, gamesPlayed: 0, lastSeenAt: null });
         expect(res.players[3]).toMatchObject({ username: 'Owner', isAdmin: true, online: true, gamesPlayed: 4, mergedInto: null });
         expect(res.players[3].lastSeenAt).toEqual(expect.any(String));
-        expect(Object.keys(res.players[3]).sort()).toEqual(['createdAt', 'gamesPlayed', 'isAdmin', 'lastSeenAt', 'mergedInto', 'online', 'username']);
+        expect(Object.keys(res.players[3]).sort()).toEqual(['createdAt', 'gamesPlayed', 'isAdmin', 'lastSeenAt', 'mergedInto', 'online', 'renamed', 'username']);
         expect(JSON.stringify(res)).not.toMatch(/\$2[ab]\$|hash|socketId|sessionToken|password/i);
         expect(audit().pop()).toMatchObject({ actor: 'Owner', action: 'listPlayers', target: null, result: 'ok', detail: '4 of 4 account(s)' });
     });
@@ -597,6 +599,241 @@ describe('actions', () => {
             expect(mockDb.current.reports.all().every(r => r.reporterDeletedAt || r.reportedDeletedAt)).toBe(true);
             expect(JSON.stringify(mockDb.current.gameRecords.all())).not.toContain('"Cy"');
             gameManager.deletedUsernames.delete('Cy');
+        });
+    });
+
+    describe('rename from the panel', () => {
+        const signInReply = async (username, password = 'pw') => {
+            const s = w.socket(`adm-${++n}`);
+            await auth.signIn(s, w.io, { username, password });
+            return w.log.filter(l => l.to === `self:${s.id}` && l.event === 'signInResponse').pop().data;
+        };
+        /** Every place a string equal to `name` is stored, as "collection:username-or-id.path". */
+        function scan(name) {
+            const hits = [];
+            const walk = (v, path, out) => {
+                if (v === name) out.push(path);
+                else if (Array.isArray(v)) v.forEach((x, i) => walk(x, `${path}[${i}]`, out));
+                else if (v && typeof v === 'object' && !(v instanceof Date) && !v._bsontype) {
+                    for (const [k, x] of Object.entries(v)) walk(x, path ? `${path}.${k}` : k, out);
+                }
+            };
+            for (const coll of ['users', 'gameRecords', 'reports', 'passwordResets']) {
+                for (const doc of mockDb.current[coll].all()) {
+                    const found = [];
+                    walk({ ...doc, _id: undefined }, '', found);
+                    for (const f of found) hits.push(`${coll}:${f}${coll === 'passwordResets' ? `(${doc.state})` : ''}`);
+                }
+            }
+            return hits.sort();
+        }
+        beforeEach(async () => {
+            await users().updateOne({ username: 'Cy' }, { $set: { stats: { gamesPlayed: 3, wins: 2, losses: 1, draws: 0, totalPoints: 300 }, blockedUsers: ['Zed'] } });
+            await users().updateOne({ username: 'Bea' }, { $set: { blockedUsers: ['Cy', 'Zed'], adminSetBy: 'Cy' } });
+            await mockDb.current.gameRecords.insertOne({ gameId: 'g1', team1Players: ['Cy', 'Bea'], team2Players: ['y', 'z'], completedAt: new Date() });
+            await mockDb.current.gameRecords.insertOne({ gameId: 'g2', team1Players: ['p', 'q'], team2Players: ['r', 'Cy'], completedAt: new Date() });
+            await mockDb.current.reports.insertOne({ reporter: 'Cy', reported: 'Bea', reason: 'r1', createdAt: new Date() });
+            await mockDb.current.reports.insertOne({ reporter: 'Bea', reported: 'Cy', reason: 'r2', createdAt: new Date(), status: 'resolved', resolvedBy: 'Cy' });
+            await users().insertOne({ username: 'CyOld', mergedInto: 'Cy', mergedAt: new Date() });
+        });
+
+        test('every place the name is a key moves (a full scan finds the old name only on the redirect and the link history); both tabs signed out, sessions revoked; the old name redirects; the new one signs in; the leaderboard shows it', async () => {
+            const cy = await signedIn('Cy');
+            const cy2 = await restoredTab('Cy', cy.sessionToken);
+            const bea = await signedIn('Bea');
+            expect(await request(owner, 'createResetLink', { username: 'Cy' })).toMatchObject({ ok: true });
+            const auditBefore = audit().length;
+            const res = await request(owner, 'renameAccount', { username: 'Cy', newName: 'Cyrus', confirm: 'Cyrus' });
+            expect(res).toMatchObject({
+                ok: true, username: 'Cy', newName: 'Cyrus', resumed: false, oldNameKept: true,
+                gameRecords: 2, reports: 3, otherUsersBlocks: 1, chainedTombstones: 1, adminSetBy: 1, resetLinks: 1, revokedSessions: 1, signedOut: 2
+            });
+            expect(scan('Cy')).toEqual(['passwordResets:username(revoked)', 'users:username']);
+            expect(await users().findOne({ username: 'Cy' })).toMatchObject({ mergedInto: 'Cyrus', renamedBy: 'Owner', renamedAt: expect.any(Date) });
+            const doc = await users().findOne({ username: 'Cyrus' });
+            expect(doc).toMatchObject({ stats: { gamesPlayed: 3 }, blockedUsers: ['Zed'], sessionEpoch: 1 });
+            expect(doc.sessionTokens).toBeUndefined();
+            expect(doc.password).toBeDefined();
+            expect(mockDb.current.gameRecords.all().map(r => [r.team1Players, r.team2Players])).toEqual([
+                [['Cyrus', 'Bea'], ['y', 'z']], [['p', 'q'], ['r', 'Cyrus']]
+            ]);
+            expect(mockDb.current.reports.all().map(r => [r.reporter, r.reported, r.resolvedBy || null])).toEqual([
+                ['Cyrus', 'Bea', null], ['Bea', 'Cyrus', 'Cyrus']
+            ]);
+            expect(await users().findOne({ username: 'Bea' })).toMatchObject({ blockedUsers: ['Cyrus', 'Zed'], adminSetBy: 'Cyrus' });
+            expect(await users().findOne({ username: 'CyOld' })).toMatchObject({ mergedInto: 'Cyrus' });
+            // the blocker's live socket has the new list (voice; the client's chat filter)
+            expect([...bea.data.blockedUsers]).toEqual(['Cyrus', 'Zed']);
+            expect(w.log.filter(l => l.to === `self:${bea.id}` && l.event === 'blockListUpdated').pop().data).toEqual({ success: true, blockedUsers: ['Cyrus', 'Zed'] });
+            for (const s of [cy, cy2]) {
+                expect(gotEvent(s, 'forceLogout')).toBe(true);
+                expect(w.io.sockets.sockets.has(s.id)).toBe(false);
+            }
+            // the saved sign-in (username + token) stops working: the restore names the new name
+            const again = w.socket(`adm-${++n}`);
+            await auth.restoreSession(again, w.io, { username: 'Cy', sessionToken: cy.sessionToken });
+            expect(w.log.filter(l => l.to === `self:${again.id}` && l.event === 'restoreSessionResponse').pop().data)
+                .toEqual({ success: false, message: 'This account is now called Cyrus. Sign in as Cyrus.' });
+            const again2 = w.socket(`adm-${++n}`);
+            await auth.restoreSession(again2, w.io, { username: 'Cyrus', sessionToken: cy.sessionToken });
+            expect(w.log.filter(l => l.to === `self:${again2.id}` && l.event === 'restoreSessionResponse').pop().data).toMatchObject({ success: false });
+            expect(await signInReply('Cy')).toEqual({ success: false, message: 'This account is now called Cyrus. Sign in as Cyrus.' });
+            expect(await signInReply('Cyrus')).toMatchObject({ success: true, username: 'Cyrus' });
+            // sign-up of the old name is told the same (the redirect keeps the name)
+            const up = w.socket(`adm-${++n}`);
+            await auth.signUp(up, w.io, { username: 'CyOld', password: 'pw' });
+            expect(w.log.filter(l => l.to === `self:${up.id}` && l.event === 'signUpResponse').pop().data.success).toBe(false);
+            // the leaderboard (cache invalidated) shows the new name
+            const profile = require('../profileHandlers');
+            const lb = w.socket(`adm-${++n}`);
+            await profile.getLeaderboard(lb, w.io);
+            const board = w.log.filter(l => l.to === `self:${lb.id}` && l.event === 'leaderboardResponse').pop().data;
+            expect(board.leaderboard.map(r => r.username)).toContain('Cyrus');
+            expect(board.leaderboard.map(r => r.username)).not.toContain('Cy');
+            // one audit entry, old -> new, no secret
+            const entries = audit().slice(auditBefore).filter(e => e.action === 'renameAccount');
+            expect(entries).toHaveLength(1);
+            expect(entries[0]).toMatchObject({ actor: 'Owner', target: 'Cy', result: 'ok', detail: expect.stringMatching(/^renamed Cy -> Cyrus: /) });
+            expect(JSON.stringify(audit())).not.toMatch(/\$2[ab]\$|hash/i);
+            // the table marks the redirect
+            const list = await request(owner, 'listPlayers', {});
+            expect(list.players.find(p => p.username === 'Cy')).toMatchObject({ mergedInto: 'Cyrus', renamed: true });
+            expect(list.players.find(p => p.username === 'CyOld')).toMatchObject({ mergedInto: 'Cyrus', renamed: false });
+            // and the admin can delete the redirect later, freeing the name
+            expect(await request(owner, 'deleteAccount', { username: 'Cy', confirm: 'Cy' })).toMatchObject({ ok: true, kind: 'tombstone', mergedInto: 'Cyrus' });
+        });
+
+        test('the sign-up rules, taken ignoring case (tombstones too), a tombstone, the same name and a wrong confirmation are refused; nothing changes', async () => {
+            const before = JSON.stringify([users().all(), mockDb.current.gameRecords.all(), mockDb.current.reports.all()]);
+            const cases = [
+                [{ newName: 'C', confirm: 'C' }, 'refused', /at least 3 characters/],
+                [{ newName: ' Cyrus', confirm: ' Cyrus' }, 'refused', /start or end with a space/],
+                [{ newName: 'Cy😀x', confirm: 'Cy😀x' }, 'refused', /emoji/],
+                [{ newName: 'bea', confirm: 'bea' }, 'refused', /That name is taken: "Bea" already exists/],
+                [{ newName: 'BEA', confirm: 'BEA' }, 'refused', /taken/],
+                [{ newName: 'old', confirm: 'old' }, 'refused', /an old name of "Bea"\. Delete that old name first/],
+                [{ newName: 'Cyrus', confirm: 'cyrus' }, 'invalid', /exactly to confirm/],
+                [{ newName: 'Cy', confirm: 'Cy' }, 'invalid', /same as the old one/],
+                [{ newName: '', confirm: '' }, 'invalid', /exactly to confirm/]
+            ];
+            for (const [args, error, message] of cases) {
+                const res = await request(owner, 'renameAccount', { username: 'Cy', ...args });
+                expect({ args, res: { ok: res.ok, error: res.error } }).toEqual({ args, res: { ok: false, error } });
+                expect(res.message).toMatch(message);
+            }
+            expect(await request(owner, 'renameAccount', { username: 'Old', newName: 'Olden', confirm: 'Olden' }))
+                .toMatchObject({ ok: false, error: 'refused', message: expect.stringMatching(/was merged into "Bea" and can't be renamed/) });
+            expect(await request(owner, 'renameAccount', { username: 'Nobody', newName: 'Olden', confirm: 'Olden' })).toMatchObject({ ok: false, error: 'not_found' });
+            expect(JSON.stringify([users().all(), mockDb.current.gameRecords.all(), mockDb.current.reports.all()])).toBe(before);
+            expect(audit().pop()).toMatchObject({ action: 'renameAccount', result: 'failed' });
+        });
+
+        test('a case-only rename is allowed (the account matches itself), and the old spelling redirects', async () => {
+            const res = await request(owner, 'renameAccount', { username: 'Bea', newName: 'BEA', confirm: 'BEA' });
+            expect(res).toMatchObject({ ok: true, newName: 'BEA', chainedTombstones: 1 }); // "Old" pointed at Bea
+            expect(await users().findOne({ username: 'Old' })).toMatchObject({ mergedInto: 'BEA' });
+            expect(await signInReply('Bea')).toEqual({ success: false, message: 'This account is now called BEA. Sign in as BEA.' });
+            expect(await signInReply('BEA')).toMatchObject({ success: true });
+        });
+
+        test('refused for a player in a game still in its draw (memory) or one the database shows in a game; nothing written, not signed out, not locked', async () => {
+            const cy = await signedIn('Cy');
+            const others = ['P1', 'P2', 'P3'].map((u, i) => w.user(`adm-rg${i}-${n}`, u));
+            const game = gameManager.createGame([cy.id, ...others.map(o => o.id)]);
+            const before = JSON.stringify([users().all(), mockDb.current.gameRecords.all()]);
+            const res = await request(owner, 'renameAccount', { username: 'Cy', newName: 'Cyrus', confirm: 'Cyrus' });
+            expect(res).toMatchObject({ ok: false, error: 'refused', message: expect.stringMatching(/"Cy" is in a game right now/) });
+            expect(JSON.stringify([users().all(), mockDb.current.gameRecords.all()])).toBe(before);
+            expect(gotEvent(cy, 'forceLogout')).toBe(false);
+            expect(gameManager.isMergeLocked('Cy')).toBe(false);
+            expect(gameManager.isMergeLocked('Cyrus')).toBe(false);
+            gameManager.abortGame(game.gameId, w.io);
+            await users().updateOne({ username: 'Cy' }, { $set: { activeGameId: 'g-elsewhere' } });
+            expect(await request(owner, 'renameAccount', { username: 'Cy', newName: 'Cyrus', confirm: 'Cyrus' })).toMatchObject({ ok: false, error: 'refused', message: expect.stringMatching(/in a game/) });
+            expect(await users().findOne({ username: 'Cyrus' })).toBeNull();
+        });
+
+        test('while it runs both names are locked: no sign-in as the old name, no sign-up of the new one (any case)', async () => {
+            const cy = await signedIn('Cy');
+            const hold = holdNextWrite(users(), 'findOneAndUpdate'); // the guarded rename
+            const pending = request(owner, 'renameAccount', { username: 'Cy', newName: 'Cyrus', confirm: 'Cyrus' });
+            try {
+                await hold.reached;
+                expect(gotEvent(cy, 'forceLogout')).toBe(true);
+                expect(await signInReply('Cy')).toEqual({ success: false, message: auth.MERGE_LOCKED_MESSAGE });
+                const up = w.socket(`adm-${++n}`);
+                await auth.signUp(up, w.io, { username: 'cyrus', password: 'pw' });
+                expect(w.log.filter(l => l.to === `self:${up.id}` && l.event === 'signUpResponse').pop().data).toEqual({ success: false, message: 'That name is taken.' });
+            } finally {
+                hold.release();
+            }
+            expect(await pending).toMatchObject({ ok: true, newName: 'Cyrus' });
+            expect(gameManager.isMergeLocked('Cy')).toBe(false);
+            expect(gameManager.isMergeLocked('Cyrus')).toBe(false);
+            expect(await users().countDocuments({ username: { $regex: '^cyrus$', $options: 'i' } })).toBe(1);
+        });
+
+        test('the new name appearing while the guarded write runs (a case variant from another process): refused, the old name put back, nothing else moved', async () => {
+            const hold = holdNextWrite(users(), 'findOneAndUpdate');
+            const pending = request(owner, 'renameAccount', { username: 'Cy', newName: 'Cyrus', confirm: 'Cyrus' });
+            try {
+                await hold.reached;
+                await users().insertOne({ username: 'CYRUS', password: PW });
+            } finally {
+                hold.release();
+            }
+            const res = await pending;
+            expect(res).toMatchObject({ ok: false, error: 'refused', message: expect.stringMatching(/"Cyrus" was taken while this ran\. Nothing was renamed/) });
+            expect(await users().findOne({ username: 'Cy' })).toMatchObject({ stats: { gamesPlayed: 3 } });
+            expect((await users().findOne({ username: 'Cy' })).mergedInto).toBeUndefined();
+            expect(await users().findOne({ username: 'Cyrus' })).toBeNull();
+            expect(mockDb.current.gameRecords.all()[0].team1Players).toEqual(['Cy', 'Bea']);
+            expect(gameManager.isMergeLocked('Cy')).toBe(false);
+        });
+
+        test('a failure after the rename is reported as partial; renaming again with the same names finishes it', async () => {
+            const original = mockDb.current.gameRecords.updateMany;
+            mockDb.current.gameRecords.updateMany = async () => { throw new Error('disk on fire'); };
+            let res;
+            try {
+                res = await request(owner, 'renameAccount', { username: 'Cy', newName: 'Cyrus', confirm: 'Cyrus' });
+            } finally {
+                mockDb.current.gameRecords.updateMany = original;
+            }
+            expect(res).toMatchObject({ ok: false, error: 'server', message: expect.stringMatching(/"Cy" is now called "Cyrus".*stopped partway\. Rename Cy to Cyrus again to finish/) });
+            expect(JSON.stringify(res)).not.toContain('disk on fire');
+            expect(mockDb.current.gameRecords.all()[0].team1Players).toEqual(['Cy', 'Bea']);
+            const done = await request(owner, 'renameAccount', { username: 'Cy', newName: 'Cyrus', confirm: 'Cyrus' });
+            expect(done).toMatchObject({ ok: true, resumed: true, gameRecords: 2, reports: 3, otherUsersBlocks: 1 });
+            expect(scan('Cy')).toEqual(['users:username']);
+            // a third time: nothing left to move
+            expect(await request(owner, 'renameAccount', { username: 'Cy', newName: 'Cyrus', confirm: 'Cyrus' })).toMatchObject({ ok: true, resumed: true, gameRecords: 0, reports: 0 });
+            // a different new name for an old name is refused
+            expect(await request(owner, 'renameAccount', { username: 'Cy', newName: 'Cyril', confirm: 'Cyril' })).toMatchObject({ ok: false, error: 'refused', message: expect.stringMatching(/now called "Cyrus"\. Rename "Cyrus" instead/) });
+        });
+
+        test('a rename and a merge of the same name at once run one after the other: exactly one happens, the data stays whole', async () => {
+            await users().insertOne({ username: 'Dee', password: PW, stats: { gamesPlayed: 1 } });
+            const plan = await request(owner, 'planMerge', { target: 'Dee', sources: ['Cy'] });
+            const owner2 = await signedIn('Owner');
+            const [m, r] = await Promise.all([
+                request(owner2, 'applyMerge', { target: 'Dee', sources: ['Cy'], planHash: plan.planHash, confirm: 'Dee' }),
+                request(owner2, 'renameAccount', { username: 'Cy', newName: 'Cyrus', confirm: 'Cyrus' })
+            ]);
+            expect([m.ok, r.ok].filter(Boolean)).toHaveLength(1);
+            const cy = await users().findOne({ username: 'Cy' });
+            if (m.ok) {
+                expect(r).toMatchObject({ ok: false, error: 'refused', message: expect.stringMatching(/merged into "Dee"/) });
+                expect(cy.mergedInto).toBe('Dee');
+                expect(await users().findOne({ username: 'Cyrus' })).toBeNull();
+                expect((await users().findOne({ username: 'Dee' })).stats.gamesPlayed).toBe(4);
+            } else {
+                expect(m).toMatchObject({ ok: false });
+                expect(cy).toMatchObject({ mergedInto: 'Cyrus', renamedAt: expect.any(Date) });
+                expect((await users().findOne({ username: 'Dee' })).stats.gamesPlayed).toBe(1);
+                expect((await users().findOne({ username: 'Cyrus' })).stats.gamesPlayed).toBe(3);
+                expect(scan('Cy')).toEqual(['users:username']);
+            }
         });
     });
 

@@ -129,7 +129,11 @@ const usesIndex = (stages, index) => stages.some(s => /IXSCAN$/.test(s.stage) &&
 let log;
 let io;
 let n = 0;
-const sock = () => makeSocket(`rm-${++n}`, log, io);
+const sock = () => {
+    const s = makeSocket(`rm-${++n}`, log, io);
+    s.disconnect = () => { io.sockets.sockets.delete(s.id); }; // a sign-out closes it
+    return s;
+};
 const last = (event) => log.filter(l => l.event === event).pop()?.data;
 
 beforeEach(async () => {
@@ -568,6 +572,66 @@ describe('real mongod', () => {
         } finally {
             gameManager.currentUsers = [];
             gameManager.deletedUsernames.clear();
+            mockHolder.passwordResets = null;
+            mockHolder.adminAudit = null;
+        }
+    });
+
+    test('(l) admin rename on the real driver: one guarded write, the unique index refuses a taken name, records / reports / block lists / tombstones move, the redirect sits at the old name; sign-in with the old name is told the new one', async () => {
+        if (!client) return;
+        const admin = require('../socket/adminHandlers');
+        const gameManager = require('../game/GameManager');
+        const { renameUserDoc } = require('../admin/accountRename');
+        for (const name of ['passwordResets', 'adminAudit']) await db.collection(name).drop().catch(() => {});
+        mockHolder.passwordResets = db.collection('passwordResets');
+        mockHolder.adminAudit = db.collection('adminAudit');
+        await database.ensureIndexes(mockHolder);
+        const users = mockHolder.users;
+        try {
+            // the unique index: renaming onto an existing exact name is a duplicate key, refused as taken
+            const cyDoc = await users.findOne({ username: 'Cy' });
+            expect(await renameUserDoc({ users }, cyDoc, 'Bea')).toEqual({ ok: false, reason: 'taken' });
+            expect(await users.findOne({ _id: cyDoc._id })).toMatchObject({ username: 'Cy' });
+
+            await users.updateOne({ username: 'Dot' }, { $set: { isAdmin: true } });
+            await users.updateOne({ username: 'Bea' }, { $set: { blockedUsers: ['Cy'] } });
+            await users.insertOne({ username: 'OldCy', mergedInto: 'Cy', mergedAt: new Date() });
+            await mockHolder.reports.insertOne({ reporter: 'Cy', reported: 'Bea', reason: 'a', createdAt: new Date() });
+            const cy = sock();
+            await auth.signIn(cy, io, { username: 'Cy', password: 'pw' });
+            const token = last('signInResponse').sessionToken;
+            const dot = sock();
+            await auth.signIn(dot, io, { username: 'Dot', password: 'pw' });
+            expect(last('signInResponse')).toMatchObject({ success: true });
+            let rid = 0;
+            const ask = async (action, args) => {
+                const requestId = `rm-ren-${++rid}`;
+                await admin.adminRequest(dot, io, { requestId, action, args });
+                return log.filter(l => l.event === 'adminResponse' && l.data.requestId === requestId).pop().data;
+            };
+            expect(await ask('renameAccount', { username: 'Cy', newName: 'alan', confirm: 'alan' })).toMatchObject({ ok: false, error: 'refused' });
+            expect(await ask('renameAccount', { username: 'Cy', newName: 'oldalan', confirm: 'oldalan' })).toMatchObject({ ok: false, error: 'refused', message: expect.stringMatching(/old name of "Alan"/) });
+            const res = await ask('renameAccount', { username: 'Cy', newName: 'Cyrus', confirm: 'Cyrus' });
+            expect(res).toMatchObject({ ok: true, gameRecords: 5, reports: 1, otherUsersBlocks: 1, chainedTombstones: 1, revokedSessions: 1, oldNameKept: true });
+            expect(log.some(l => l.to === `self:${cy.id}` && l.event === 'forceLogout')).toBe(true);
+            const renamed = await users.findOne({ username: 'Cyrus' });
+            expect(renamed).toMatchObject({ _id: cyDoc._id, sessionEpoch: 1 });
+            expect(renamed.sessionTokens).toBeUndefined();
+            expect(await users.findOne({ username: 'Cy' })).toMatchObject({ mergedInto: 'Cyrus', renamedAt: expect.any(Date) });
+            expect(await users.findOne({ username: 'OldCy' })).toMatchObject({ mergedInto: 'Cyrus' });
+            expect((await users.findOne({ username: 'Bea' })).blockedUsers).toEqual(['Cyrus']);
+            expect(await mockHolder.gameRecords.countDocuments({ $or: [{ team1Players: 'Cy' }, { team2Players: 'Cy' }] })).toBe(0);
+            expect(await mockHolder.gameRecords.countDocuments({ $or: [{ team1Players: 'Cyrus' }, { team2Players: 'Cyrus' }] })).toBe(5);
+            expect(await mockHolder.reports.countDocuments({ reporter: 'Cyrus' })).toBe(1);
+            await auth.restoreSession(sock(), io, { username: 'Cy', sessionToken: token });
+            expect(last('restoreSessionResponse')).toEqual({ success: false, message: 'This account is now called Cyrus. Sign in as Cyrus.' });
+            await auth.signIn(sock(), io, { username: 'Cy', password: 'pw' });
+            expect(last('signInResponse')).toEqual({ success: false, message: 'This account is now called Cyrus. Sign in as Cyrus.' });
+            await auth.signIn(sock(), io, { username: 'Cyrus', password: 'pw' });
+            expect(last('signInResponse')).toMatchObject({ success: true, username: 'Cyrus' });
+            expect(await mockHolder.adminAudit.countDocuments({ action: 'renameAccount', result: 'ok' })).toBe(1);
+        } finally {
+            gameManager.currentUsers = [];
             mockHolder.passwordResets = null;
             mockHolder.adminAudit = null;
         }

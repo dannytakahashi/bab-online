@@ -687,6 +687,12 @@ describe('(e2) admin panel', () => {
         mockDb.current.users._insert({ username: 'adm_cy', password: hash, blockedUsers: [] });
         await users_block(mockDb.current.users);
         expect(await req(restorer, 'deleteAccount', { username: 'adm_cy', confirm: 'adm_cy' })).toMatchObject({ ok: true, kind: 'account', blockLists: 1 });
+        expect(await req(restorer, 'renameAccount', { username: 'adm_bea', newName: 'adm_bee', confirm: 'adm_bee' })).toMatchObject({ ok: true, newName: 'adm_bee', oldNameKept: true });
+        const tomb = (await req(restorer, 'listPlayers', {})).players.find((p) => p.username === 'adm_bea');
+        expect(tomb).toMatchObject({ mergedInto: 'adm_bee', renamed: true });
+        const signInOld = w.socket('adm-old');
+        await authHandlers.signIn(signInOld, w.io, { username: 'adm_bea', password: 'pw' });
+        expect(w.log.filter((l) => l.event === 'signInResponse' && l.to === 'self:adm-old').pop().data).toEqual({ success: false, message: 'This account is now called adm_bee. Sign in as adm_bee.' });
         void owner;
     });
 });

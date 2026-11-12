@@ -31,6 +31,16 @@ function mergedAccountMessage(username, mergedInto) {
 }
 
 /**
+ * The message for a tombstone: a merged account names the account it went
+ * into; the redirect an admin rename leaves (server/admin/accountRename.js:
+ * `renamedAt` on the tombstone) names the new name.
+ */
+function tombstoneMessage(username, doc) {
+    if (doc.renamedAt) return `This account is now called ${doc.mergedInto}. Sign in as ${doc.mergedInto}.`;
+    return mergedAccountMessage(username, doc.mergedInto);
+}
+
+/**
  * The normal signed-out flow for one live socket: `forceLogout` (both
  * clients go to their sign-in screen and forget the tab's / app's
  * credentials), the game manager's disconnect bookkeeping, then the
@@ -241,9 +251,9 @@ async function signIn(socket, io, data) {
         if (user.mergedInto) {
             socket.emit('signInResponse', {
                 success: false,
-                message: mergedAccountMessage(username, user.mergedInto)
+                message: tombstoneMessage(username, user)
             });
-            authLogger.info('Sign-in to merged account redirected', { username, mergedInto: user.mergedInto });
+            authLogger.info('Sign-in to merged account redirected', { username, mergedInto: user.mergedInto, renamed: Boolean(user.renamedAt) });
             return;
         }
 
@@ -413,6 +423,14 @@ async function signUp(socket, io, data) {
         return;
     }
 
+    // A name an admin rename / delete / merge holds right now (either side
+    // of a rename): taken until it is done, ignoring case like the check below
+    if (gameManager.isNameLockedIgnoringCase?.(username)) {
+        socket.emit('signUpResponse', { success: false, message: USERNAME_MESSAGES.taken });
+        authLogger.warn('Sign-up refused: the name is locked by an admin action', { username });
+        return;
+    }
+
     try {
         // Taken ignoring case and surrounding whitespace ("alan T" vs "Alan T")
         const existingUser = await findNameClash(usersCollection, username);
@@ -421,7 +439,7 @@ async function signUp(socket, io, data) {
             socket.emit('signUpResponse', {
                 success: false,
                 message: existingUser.exact && existingUser.mergedInto
-                    ? mergedAccountMessage(username, existingUser.mergedInto)
+                    ? tombstoneMessage(username, existingUser)
                     : takenMessage(username, existingUser)
             });
             authLogger.warn('Sign-up failed: username taken', { username, existing: existingUser.username, exact: existingUser.exact });
@@ -521,7 +539,7 @@ async function restoreSession(socket, io, data) {
         if (user.mergedInto) {
             socket.emit('restoreSessionResponse', {
                 success: false,
-                message: mergedAccountMessage(username, user.mergedInto)
+                message: tombstoneMessage(username, user)
             });
             return;
         }
@@ -753,6 +771,7 @@ module.exports = {
     claimSocket,
     releaseClaim,
     MERGE_LOCKED_MESSAGE,
+    tombstoneMessage,
     signIn,
     signUp,
     restoreSession,

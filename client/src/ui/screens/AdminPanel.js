@@ -6,10 +6,11 @@
  *   Players  every account in a sortable table (created, last seen,
  *            games, admin, merged; newest first, filtered as you type,
  *            capped by the server with a note); per row a one-time reset
- *            link (shown once, Copy button) and a More menu (make admin,
- *            then the destructive ones last: sign out everywhere, remove
- *            admin, delete account); tombstones offer only what applies
- *            to them (show the kept account, delete the old name)
+ *            link (shown once, Copy button) and a More menu (rename, make
+ *            admin, then the destructive ones last: sign out everywhere,
+ *            remove admin, delete account); tombstones (merged into X,
+ *            renamed to X) offer only what applies to them (show the kept
+ *            account, delete the old name)
  *   Merge    find look-alike names, preview a merge (formatPlan's content),
  *            type the kept name to confirm, apply (refused if the data
  *            changed since the preview)
@@ -32,7 +33,7 @@
 import { el, createButton, openModal, toast } from '../kit/index.js';
 import { createAdminApi, setIsAdmin } from '../../admin/adminApi.js';
 import {
-  PLAYER_COLUMNS, DEFAULT_SORT, sortPlayers, filterPlayers, createActionMenu, closeOpenMenu, openTypedConfirm,
+  PLAYER_COLUMNS, DEFAULT_SORT, sortPlayers, filterPlayers, createActionMenu, closeOpenMenu, openTypedConfirm, openRenameDialog,
 } from './adminPlayers.js';
 
 const TABS = [
@@ -401,6 +402,7 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
         ariaLabel: `More actions: ${p.username}`,
         focusKey: key,
         items: [
+          { label: 'Rename…', onSelect: () => renameAccount(p) },
           p.isAdmin ? null : { label: 'Make admin…', onSelect: () => changeAdmin(p.username, true, refreshPlayersAt(key)) },
           'separator',
           { label: 'Sign out everywhere…', danger: true, onSelect: () => signOutEverywhere(p.username, key) },
@@ -417,10 +419,28 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
         td(tomb ? '—' : (p.online ? 'now' : fmtDate(p.lastSeenAt))),
         td(tomb ? '—' : p.gamesPlayed, 'is-num'),
         td(p.isAdmin ? chip('admin', 'gold') : '—'),
-        td(tomb ? `into ${p.mergedInto}` : '—'),
+        td(tomb ? `${p.renamed ? 'renamed to' : 'into'} ${p.mergedInto}` : '—'),
         td(actions),
       ],
     });
+  }
+
+  async function renameAccount(p) {
+    const res = await openRenameDialog({
+      oldName: p.username,
+      rules: '3 to 20 letters (A-Z), numbers, spaces and _ - . ; it starts with a letter or number. It must not be taken, ignoring capital letters (old merged or renamed names count).',
+      lines: [
+        `${p.username} is signed out everywhere (refused while they are in a game or tournament). They sign in again with the new name and the same password.`,
+        'Their games, stats, reports and block lists move to the new name.',
+        `Signing in as ${p.username} will say to use the new name. You can delete that old name later to free it.`,
+      ],
+      submit: ({ newName, confirm }) => call('renameAccount', { username: p.username, newName, confirm }),
+    });
+    if (!res?.ok) return;
+    const kept = res.oldNameKept ? '' : ` The old name ${res.username} was taken meanwhile, so it does not redirect.`;
+    say(`${res.username} is now called ${res.newName}: ${res.signedOut} live connection(s) signed out; they sign in again as ${res.newName} with the same password.${kept}`, 'success');
+    await loadPlayers({ quiet: true });
+    refocus(results, `more:${res.newName}`, filterField.input);
   }
 
   /** After a delete the row is gone: focus the filter (the table's first control). */

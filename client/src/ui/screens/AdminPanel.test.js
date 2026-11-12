@@ -181,9 +181,9 @@ describe('the panel', () => {
     expect(tomb.querySelector('[aria-haspopup="menu"]')).toBeNull();
     // live accounts: a reset link and a More menu; destructive items last, after a separator, in the danger style
     expect(byText('Reset link', rowOf('Bea'))).toBeTruthy();
-    expect(menuItems('Bea').map((i) => i.textContent)).toEqual(['Make admin…', 'Sign out everywhere…', 'Delete account…']);
-    expect(menuItems('Owner').map((i) => i.textContent)).toEqual(['Sign out everywhere…', 'Remove admin…', 'Delete account…']);
-    expect(menuItems('Bea').map((i) => i.classList.contains('admin-menu__item--danger'))).toEqual([false, true, true]);
+    expect(menuItems('Bea').map((i) => i.textContent)).toEqual(['Rename…', 'Make admin…', 'Sign out everywhere…', 'Delete account…']);
+    expect(menuItems('Owner').map((i) => i.textContent)).toEqual(['Rename…', 'Sign out everywhere…', 'Remove admin…', 'Delete account…']);
+    expect(menuItems('Bea').map((i) => i.classList.contains('admin-menu__item--danger'))).toEqual([false, false, true, true]);
     // a tombstone's own action: delete the old name (a quiet button, not a filled red one)
     expect(byText('Delete…', tomb)).toBeTruthy();
     expect(rowOf('Bea').querySelector('[role="menu"] [role="separator"]')).toBeTruthy();
@@ -264,19 +264,27 @@ describe('the panel', () => {
     expect(menu.hidden).toBe(false);
     expect(b.getAttribute('aria-expanded')).toBe('true');
     const items = menuItems('Bea');
+    const lastItem = items[items.length - 1];
+    expect(items.length).toBe(4);
     expect(document.activeElement).toBe(items[0]);
-    keyOn(items[0], 'ArrowDown');
-    expect(document.activeElement).toBe(items[1]);
-    keyOn(items[1], 'ArrowDown');
-    expect(document.activeElement).toBe(items[2]);
-    keyOn(items[2], 'ArrowDown');
+    for (let i = 1; i < items.length; i++) {
+      keyOn(items[i - 1], 'ArrowDown');
+      expect(document.activeElement).toBe(items[i]);
+    }
+    keyOn(lastItem, 'ArrowDown');
     expect(document.activeElement).toBe(items[0]); // wraps
     keyOn(items[0], 'ArrowUp');
-    expect(document.activeElement).toBe(items[2]);
-    keyOn(items[2], 'End');
-    expect(document.activeElement).toBe(items[2]);
-    keyOn(items[2], 'Home');
+    expect(document.activeElement).toBe(lastItem);
+    keyOn(lastItem, 'Home');
     expect(document.activeElement).toBe(items[0]);
+    keyOn(items[0], 'End');
+    expect(document.activeElement).toBe(lastItem);
+    keyOn(lastItem, 'Home');
+    expect(document.activeElement).toBe(items[0]);
+    // ArrowUp on the closed button opens it on the last item
+    keyOn(items[0], 'Escape');
+    keyOn(b, 'ArrowUp');
+    expect(document.activeElement).toBe(lastItem);
     keyOn(items[0], 'Escape');
     expect(menu.hidden).toBe(true);
     expect(document.activeElement).toBe(b);
@@ -364,6 +372,63 @@ describe('the panel', () => {
     expect($('#adminConfirmDialog')).toBeNull();
     expect($('#adminAlert').textContent).toBe('Bea is an admin. Remove their admin first, then delete the account.');
     expect(api.calls.filter((c) => c[0] === 'deleteAccount')).toEqual([]);
+  });
+
+  it('rename: old → new shown as you type, the new name typed again to confirm, then the request; a refusal stays in the dialog', async () => {
+    let answer = { ok: false, error: 'refused', message: 'That name is taken: "Bee" already exists, and capital letters don\'t make a different name.' };
+    api = fakeApi({
+      listPlayers: { ok: true, players: PLAYERS, total: 3, limit: 500 },
+      renameAccount: () => answer,
+    });
+    await openPlayers();
+    await menuPick('Bea', 'Rename…');
+    const dialog = $('#adminConfirmDialog');
+    expect(dialog.textContent).toMatch(/Rename Bea/);
+    expect(dialog.textContent).toMatch(/signed out everywhere/);
+    expect(dialog.textContent).toMatch(/same password/);
+    expect(dialog.textContent).toMatch(/Signing in as Bea will say to use the new name/);
+    expect($('label[for="adminRenameNew"]').textContent).toBe('New name');
+    expect($('#adminRenameNew').getAttribute('aria-describedby')).toBe('adminRenameRules');
+    expect($('#adminRenameRules').textContent).toMatch(/3 to 20 letters/);
+    expect(document.activeElement).toBe($('#adminRenameNew'));
+    const yes = $('#adminConfirmDialog [data-confirm="yes"]');
+    expect(yes.textContent).toBe('Rename');
+    expect(yes.disabled).toBe(true);
+    typeInto($('#adminRenameNew'), ' Bee ');
+    expect($('#adminRenameSummary .admin-rename__old').textContent).toBe('Bea');
+    expect($('#adminRenameSummary .admin-sr-only').textContent).toBe(' becomes '); // the arrow is aria-hidden
+    expect($('#adminRenameSummary .admin-rename__new').textContent).toBe('Bee');
+    expect(yes.disabled).toBe(true);
+    typeInto($('#adminRenameConfirm'), 'bee');
+    expect(yes.disabled).toBe(true);
+    typeInto($('#adminRenameConfirm'), 'Bee');
+    expect(yes.disabled).toBe(false);
+    yes.click();
+    await flush();
+    expect(api.calls.filter((c) => c[0] === 'renameAccount')).toEqual([['renameAccount', { username: 'Bea', newName: 'Bee', confirm: 'Bee' }]]);
+    expect($('#adminConfirmDialog')).not.toBeNull();
+    expect($('#adminDialogAlert').textContent).toMatch(/That name is taken/);
+    expect(document.activeElement).toBe($('#adminRenameNew'));
+    // the same name is never sendable
+    typeInto($('#adminRenameNew'), 'Bea');
+    typeInto($('#adminRenameConfirm'), 'Bea');
+    expect(yes.disabled).toBe(true);
+    answer = { ok: true, username: 'Bea', newName: 'Beatrix', resumed: false, oldNameKept: true, gameRecords: 3, reports: 0, otherUsersBlocks: 1, chainedTombstones: 1, adminSetBy: 0, resetLinks: 0, revokedSessions: 2, signedOut: 1 };
+    typeInto($('#adminRenameNew'), 'Beatrix');
+    typeInto($('#adminRenameConfirm'), 'Beatrix');
+    yes.click();
+    await flush();
+    expect($('#adminConfirmDialog')).toBeNull();
+    expect($('#adminStatus').textContent).toBe('Bea is now called Beatrix: 1 live connection(s) signed out; they sign in again as Beatrix with the same password.');
+  });
+
+  it('a rename\'s old name is marked "renamed to X" (a merged one "into X")', async () => {
+    api = fakeApi({ listPlayers: { ok: true, players: [PLAYERS[0], { ...PLAYERS[2], username: 'Bee', renamed: true }, PLAYERS[2]], total: 3, limit: 500 } });
+    await openPlayers();
+    expect(rowOf('Bee').children[5].textContent).toBe('renamed to Bea');
+    expect(rowOf('Bea2').children[5].textContent).toBe('into Bea');
+    expect(rowOf('Bee').querySelector('[aria-haspopup="menu"]')).toBeNull();
+    expect(byText('Delete…', rowOf('Bee'))).toBeTruthy();
   });
 
   it('delete a tombstone: only the old name, the kept account named as unchanged', async () => {

@@ -3807,7 +3807,8 @@
               "setAdmin",
               "listAudit",
               "listPlayers",
-              "deleteAccount"
+              "deleteAccount",
+              "renameAccount"
             ]
           },
           "args": {
@@ -3852,6 +3853,15 @@
           "args": {
             "username": "keyprobe00001",
             "confirm": "keyprobe00001"
+          }
+        },
+        {
+          "requestId": "adm-6",
+          "action": "renameAccount",
+          "args": {
+            "username": "alan2",
+            "newName": "Alan T",
+            "confirm": "Alan T"
           }
         },
         {
@@ -8570,6 +8580,9 @@
                         "string",
                         "null"
                       ]
+                    },
+                    "renamed": {
+                      "type": "boolean"
                     }
                   },
                   "required": [
@@ -8579,7 +8592,8 @@
                     "online",
                     "gamesPlayed",
                     "isAdmin",
-                    "mergedInto"
+                    "mergedInto",
+                    "renamed"
                   ],
                   "additionalProperties": false
                 }
@@ -9541,6 +9555,9 @@
                         "string",
                         "null"
                       ]
+                    },
+                    "renamed": {
+                      "type": "boolean"
                     }
                   },
                   "required": [
@@ -9550,7 +9567,8 @@
                     "online",
                     "gamesPlayed",
                     "isAdmin",
-                    "mergedInto"
+                    "mergedInto",
+                    "renamed"
                   ],
                   "additionalProperties": false
                 }
@@ -9571,6 +9589,83 @@
               "players",
               "total",
               "limit"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "variant": "renameAccount",
+            "type": "object",
+            "properties": {
+              "requestId": {
+                "type": "string"
+              },
+              "action": {
+                "const": "renameAccount"
+              },
+              "ok": {
+                "const": true
+              },
+              "username": {
+                "type": "string"
+              },
+              "newName": {
+                "type": "string"
+              },
+              "resumed": {
+                "type": "boolean"
+              },
+              "oldNameKept": {
+                "type": "boolean"
+              },
+              "gameRecords": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "reports": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "otherUsersBlocks": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "chainedTombstones": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "adminSetBy": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "resetLinks": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "revokedSessions": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "signedOut": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "requestId",
+              "action",
+              "ok",
+              "username",
+              "newName",
+              "resumed",
+              "oldNameKept",
+              "gameRecords",
+              "reports",
+              "otherUsersBlocks",
+              "chainedTombstones",
+              "adminSetBy",
+              "resetLinks",
+              "revokedSessions",
+              "signedOut"
             ],
             "additionalProperties": false
           },
@@ -9656,7 +9751,7 @@
       "emittedFrom": [
         "server/socket/adminHandlers.js:adminRequest"
       ],
-      "notes": "The reply to adminRequest, to the requesting socket only (requestId and action echoed). failure: forbidden = not an admin right now (the one uniform refusal for every action and target: no account information), invalid = bad args or a wrong typed confirmation, not_found / refused / last_admin / stale_plan (the merge changed since its preview: preview again) / server; message is for the admin. createResetLink.token is the one-time link secret (/reset#<token>): shown to the admin once, never logged or audited. planMerge.plan is formatPlan's content as data (no picture bytes); planHash fingerprints the whole plan and applyMerge applies only when a fresh plan has the same hash. listPlayers: every account newest first, at most `limit` (500) rows; `total` is the true count (the panel says when the list is capped). deleteAccount: kind 'account' = the player's own deletion (server/admin/accountDelete.js; counts of what changed), 'tombstone' = only that merged / renamed name was removed (mergedInto names the account it pointed at, which is unchanged). The iOS app has no handler (layout: excluded from Swift)."
+      "notes": "The reply to adminRequest, to the requesting socket only (requestId and action echoed). failure: forbidden = not an admin right now (the one uniform refusal for every action and target: no account information), invalid = bad args or a wrong typed confirmation, not_found / refused / last_admin / stale_plan (the merge changed since its preview: preview again) / server; message is for the admin. createResetLink.token is the one-time link secret (/reset#<token>): shown to the admin once, never logged or audited. planMerge.plan is formatPlan's content as data (no picture bytes); planHash fingerprints the whole plan and applyMerge applies only when a fresh plan has the same hash. listPlayers: every account newest first, at most `limit` (500) rows; `total` is the true count (the panel says when the list is capped). deleteAccount: kind 'account' = the player's own deletion (server/admin/accountDelete.js; counts of what changed), 'tombstone' = only that merged / renamed name was removed (mergedInto names the account it pointed at, which is unchanged). renameAccount: username is the old name, newName the new; every saved session was revoked (the player signs in once with the new name); the old name became a redirect (oldNameKept; mergedInto + renamedAt, so sign-in says \"This account is now called X\"); resumed = a second rename with the same names finished a partial one; a player row's renamed = that redirect. The iOS app has no handler (layout: excluded from Swift)."
     },
     "voiceOffer": {
       "payload": {

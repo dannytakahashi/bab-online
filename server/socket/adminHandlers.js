@@ -55,7 +55,10 @@ const { listReports, resolveReport } = require('../admin/reports');
 const { searchPlayers, listPlayers } = require('../admin/players');
 const { planMerge, applyMerge, countChanges, findDuplicateCandidates } = require('../admin/accountMerge');
 const { planView, planHash } = require('../admin/mergeView');
-const { eraseAccount, deleteTombstone, forgetAccount } = require('../admin/accountDelete');
+const { eraseAccount, deleteTombstone, forgetAccount, refreshBlockLists } = require('../admin/accountDelete');
+const { renameUserDoc, leaveRedirect, renameEverywhere, isRenameRedirect } = require('../admin/accountRename');
+const { checkNewUsername, findNameClash, takenMessage } = require('../utils/usernameRules');
+const { containsProfanitySubstring } = require('../utils/profanityFilter');
 const { signOutUser } = require('./authHandlers');
 
 const logger = createModuleLogger('admin');
@@ -92,6 +95,13 @@ const ACTION_SCHEMAS = {
     listPlayers: Joi.object({}),
     deleteAccount: Joi.object({
         username: name().required(),
+        confirm: Joi.string().max(50).allow('').required()
+    }),
+    // newName as typed (the sign-up rules run in the handler, so a bad
+    // name gets their message, not a validation error)
+    renameAccount: Joi.object({
+        username: name().required(),
+        newName: Joi.string().max(50).allow('').required(),
         confirm: Joi.string().max(50).allow('').required()
     })
 };
@@ -359,6 +369,134 @@ async function deleteAccountNow({ db, io, actor }, { username }) {
 }
 
 /**
+ * Rename an account from the panel, under the merge queue (a rename and a
+ * merge or delete of the same names never interleave). Data steps:
+ * server/admin/accountRename.js. Order: validate the new name (the sign-up
+ * rules, the profanity filter, taken ignoring case incl. tombstones) →
+ * refuse a tombstone and a player in a game, tournament or draw (memory,
+ * then the database's pointers in the guarded write) → lock BOTH names
+ * and sign out the account's live sockets in one synchronous step →
+ * revoke open reset links → the guarded rename (sessions revoked) and its
+ * clash re-check → the redirect at the old name → the shared documents →
+ * unlock → caches, avatar store, the blockers' live lists.
+ *
+ * Renaming again with the same names after a partial failure finishes the
+ * shared documents (`resumed`).
+ */
+async function renameAccountNow({ db, io, actor }, { username: from, newName: to }) {
+    const now = new Date();
+    if (from === to) throw new AdminError('invalid', 'The new name is the same as the old one.');
+    const rule = checkNewUsername(to);
+    if (!rule.ok) throw new AdminError('refused', rule.message);
+    if (containsProfanitySubstring(to)) throw new AdminError('refused', 'That username is not allowed.');
+
+    const user = await db.users.findOne(
+        { username: from },
+        { projection: { username: 1, mergedInto: 1, renamedAt: 1, activeGameId: 1, activeTournamentId: 1, socketId: 1 } }
+    );
+    if (!user) throw new AdminError('not_found', `No account is named "${from}" (names are case-sensitive).`);
+
+    const counts = { gameRecords: 0, reports: 0, otherUsersBlocks: 0, chainedTombstones: 0, adminSetBy: 0, resetLinks: 0, revokedSessions: 0, signedOut: 0 };
+    const invalidate = (names) => {
+        const profile = require('./profileHandlers');
+        profile.invalidateLeaderboard?.();
+        profile.invalidateRecords?.();
+        const avatarStore = require('../avatar/avatarStore');
+        for (const name of names) avatarStore.forgetUser?.(name);
+    };
+
+    if (user.mergedInto) {
+        // A rename that stopped after the redirect: finish its shared documents
+        const target = isRenameRedirect(user) && user.mergedInto === to
+            ? await db.users.findOne({ username: to, mergedInto: { $exists: false } }, { projection: { _id: 1 } })
+            : null;
+        if (!target) {
+            throw new AdminError('refused', isRenameRedirect(user)
+                ? `"${from}" is an old name: the account is now called "${user.mergedInto}". Rename "${user.mergedInto}" instead.`
+                : `"${from}" was merged into "${user.mergedInto}" and can't be renamed. Rename "${user.mergedInto}" instead.`);
+        }
+        const moved = await renameEverywhere(db, from, to, { selfId: target._id });
+        invalidate([from, to]);
+        await refreshBlockLists(io, db, moved.blockers);
+        Object.assign(counts, pick(moved));
+        return {
+            reply: { username: from, newName: to, resumed: true, oldNameKept: true, ...counts },
+            target: from,
+            detail: `renamed ${from} -> ${to} (finished): ${describeMoved(counts)}`
+        };
+    }
+
+    const clash = await findNameClash(db.users, to);
+    if (clash && String(clash._id) !== String(user._id)) {
+        throw new AdminError('refused', clash.mergedInto
+            ? `That name is taken by "${clash.username}", an old name of "${clash.mergedInto}". Delete that old name first if it should be free.`
+            : takenMessage(to, clash));
+    }
+    if (user.activeGameId || user.activeTournamentId) {
+        throw new AdminError('refused', `"${from}" is in ${user.activeGameId ? 'a game' : 'a tournament'} right now. Wait until it finishes and rename again.`);
+    }
+    // From memory (a game in its draw has no activeGameId yet); from here
+    // to the lock is synchronous
+    const live = gameManager.findLiveActivity(from);
+    if (live) {
+        throw new AdminError('refused', `"${from}" is in ${live.kind === 'game' ? 'a game' : 'a tournament'} right now. Wait until it finishes and rename again.`);
+    }
+    // Both names: nothing signs in, restores, rejoins or starts a game as
+    // the old one, and nobody signs up as the new one, until it is done
+    const locked = [from, to];
+    gameManager.lockForMerge(locked);
+    let renamed;
+    let oldNameKept = false;
+    try {
+        counts.signedOut += signOutUser(io, from, { socketId: user.socketId });
+        counts.resetLinks = await revokeOpenResetLinks(db, user, { now });
+        renamed = await renameUserDoc(db, user, to);
+        if (!renamed.ok) {
+            throw new AdminError('refused', renamed.reason === 'taken'
+                ? `"${to}" was taken while this ran. Nothing was renamed; ${from} was signed out.`
+                : `"${from}" changed while this ran (in a game, or merged). Nothing was renamed; ${from} was signed out.`);
+        }
+        counts.revokedSessions = renamed.revokedSessions;
+        if (renamed.socketId) counts.signedOut += signOutUser(io, from, { socketId: renamed.socketId });
+        oldNameKept = await leaveRedirect(db, from, to, { now, by: actor.username });
+        const moved = await renameEverywhere(db, from, to, { selfId: user._id });
+        Object.assign(counts, pick(moved));
+        counts.blockers = moved.blockers;
+    } catch (error) {
+        if (error instanceof AdminError) throw error;
+        logger.error('Rename stopped partway', { actor: actor.username, target: from, error: error.message });
+        invalidate([from, to]);
+        throw new AdminError('server', renamed?.ok
+            ? `"${from}" is now called "${to}" (signed out everywhere), but updating its games, reports and block lists stopped partway. Rename ${from} to ${to} again to finish.`
+            : `The rename stopped partway: "${from}" was signed out but not renamed. Try again.`);
+    } finally {
+        gameManager.unlockMerge(locked);
+    }
+    counts.signedOut += signOutUser(io, from); // backstop
+    // The name now belongs to a live account: stop anonymizing it (a
+    // deleted name re-used, as at sign-up)
+    gameManager.deletedUsernames?.delete(to);
+    invalidate([from, to]);
+    const blockers = counts.blockers || [];
+    delete counts.blockers;
+    await refreshBlockLists(io, db, blockers);
+    if (!oldNameKept) {
+        logger.warn('Rename: the old name was taken before its redirect was written', { actor: actor.username, from, to });
+    }
+    return {
+        reply: { username: from, newName: to, resumed: false, oldNameKept, ...counts },
+        target: from,
+        detail: `renamed ${from} -> ${to}: ${describeMoved(counts)}; ${counts.revokedSessions} saved session(s) revoked, ${counts.signedOut} signed out${counts.resetLinks ? `, ${counts.resetLinks} open reset link(s) cancelled` : ''}${oldNameKept ? '' : `; the old name was taken meanwhile (no redirect)`}`
+    };
+}
+
+const pick = (m) => ({
+    gameRecords: m.gameRecords, reports: m.reports, otherUsersBlocks: m.otherUsersBlocks,
+    chainedTombstones: m.chainedTombstones, adminSetBy: m.adminSetBy
+});
+const describeMoved = (c) => `${c.gameRecords} game record update(s), ${c.reports} report field(s), ${c.otherUsersBlocks} block list(s), ${c.chainedTombstones} old name(s) re-pointed`;
+
+/**
  * Each action: run(ctx, args) → {reply, target, detail}. `reply` is spread
  * into the ok response; target/detail go to the audit entry (names and
  * counts only).
@@ -467,6 +605,14 @@ const RUN = {
         return serializeMerges(() => deleteAccountNow(ctx, args));
     },
 
+    async renameAccount(ctx, args) {
+        const { newName } = args; // as typed: checkNewUsername refuses spaces at the ends
+        if (args.confirm !== newName || !newName) {
+            throw new AdminError('invalid', `Type the new name${newName ? `, ${newName},` : ''} exactly to confirm.`);
+        }
+        return serializeMerges(() => renameAccountNow(ctx, { username: args.username, newName }));
+    },
+
     async listPlayers({ db }) {
         const { players, total, limit } = await listPlayers(db, { isOnline });
         return {
@@ -544,7 +690,7 @@ async function adminRequest(socket, io, data) {
         await audit('ok', out.target ?? null, out.detail ?? null);
         logger.info('Admin action', { actor: actor.username, action, target: out.target ?? null });
     } catch (e) {
-        const target = value.username || value.target || value.id || null;
+        const target = value.username || value.target || value.id || null; // renameAccount: the old name
         if (e instanceof AdminError) {
             reply({ ok: false, error: e.code, message: e.message });
             await audit('failed', target, e.message);

@@ -3,7 +3,8 @@
  * account, newest first, capped at LIST_MAX) and the name search
  * (searchPlayers), with what an admin needs and nothing more — created (the _id timestamp), last seen (the
  * newest saved-session use: sign-in or restore), online now, games played,
- * the admin flag, and for a merged tombstone the account it points at.
+ * the admin flag, and for a tombstone the account it points at (merged
+ * into it, or `renamed`: the old name a rename left).
  *
  * Never password data: the projection reads no password, no session hash
  * (only each session entry's timestamps), no IP, no picture.
@@ -23,7 +24,7 @@ const MAX_QUERY = 50;
 const LIST_MAX = 500;
 
 const PROJECTION = {
-    username: 1, mergedInto: 1, isAdmin: 1, 'stats.gamesPlayed': 1,
+    username: 1, mergedInto: 1, renamedAt: 1, isAdmin: 1, 'stats.gamesPlayed': 1,
     'sessionTokens.lastUsedAt': 1, 'sessionTokens.createdAt': 1
 };
 
@@ -50,7 +51,9 @@ function playerRow(user, isOnline) {
         online: !user.mergedInto && Boolean(isOnline(user.username)),
         gamesPlayed: user.mergedInto ? 0 : Number(user.stats?.gamesPlayed) || 0,
         isAdmin: !user.mergedInto && user.isAdmin === true,
-        mergedInto: user.mergedInto || null
+        mergedInto: user.mergedInto || null,
+        // a rename's redirect (accountRename.js), not a merged account
+        renamed: Boolean(user.mergedInto && user.renamedAt)
     };
 }
 

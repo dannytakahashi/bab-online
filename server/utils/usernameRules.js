@@ -68,7 +68,8 @@ const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
  * @returns {Promise<{username: string, mergedInto?: string, exact: boolean}|null>}
  */
 async function findNameClash(usersCollection, name) {
-    const projection = { projection: { username: 1, mergedInto: 1 } };
+    // renamedAt: a rename's redirect gets its own sign-up message (authHandlers)
+    const projection = { projection: { username: 1, mergedInto: 1, renamedAt: 1 } };
     const exact = await usersCollection.findOne({ username: name }, projection);
     if (exact) return { ...exact, exact: true };
     const similar = await usersCollection.findOne(
