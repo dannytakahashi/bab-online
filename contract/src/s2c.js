@@ -73,6 +73,7 @@ const lobbyLists = {
 };
 const mainRoomState = {
     messages: arr(ref('mainRoomChatLine')),
+    // only in the upgrade gate's 1.0.0 payload (V1_REMOVALS #13)
     recentMessages: arr(ref('mainRoomChatLine')),
     lobbies: arr(ref('lobby')),
     onlineCount: int({ minimum: 0 }),
@@ -199,11 +200,11 @@ const s2c = {
 
     // ==================== Main room ====================
     mainRoomJoined: {
-        payload: obj(mainRoomState),
+        payload: obj(mainRoomState, { optional: ['recentMessages'] }),
         status: 'active', to: 'self',
         clientReads: reads(W.lobby, I.lobby),
         emittedFrom: ['server/socket/mainRoomHandlers.js:joinMainRoom', 'server/socket/lobbyHandlers.js:leaveLobby', 'server/socket/tournamentHandlers.js:sendToMainRoom', 'server/socket/upgradeGate.js:sendMainRoom'],
-        notes: 'recentMessages duplicates messages (iOS reads recentMessages first).',
+        notes: 'recentMessages (a copy of messages) is sent only by upgradeGate.sendMainRoom, to the gated iOS 1.0.0, which reads it first. The main-room handlers dropped it (V1_REMOVALS #13, 2026-11-11): web reads messages and iOS 1.1.0 recentMessages ?? messages (LobbySocketHandler, f05d264).',
     },
     mainRoomMessage: {
         payload: ref('mainRoomChatLine'),

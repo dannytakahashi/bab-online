@@ -26,7 +26,8 @@ payload, so no removal below can break it any more.
   `signUpResponse`, `mainRoomJoined` (with `recentMessages`, the key 1.0.0
   reads), `leftGame`, `leftLobby` and `tournamentLeft` in their v1 shapes. A
   removal that touches one of those shapes must keep the gate's copy valid
-  (it is a 1.0.0-only emitter), e.g. #13 below.
+  (it is a 1.0.0-only emitter), e.g. #13 below (done: only the gate still
+  sends `recentMessages`).
 - **Its one database touch.** A gated restoreSession refreshes that
   session's `lastUsedAt` (nothing else), so the 90-day session TTL does not
   run out while a player keeps opening 1.0.0 before updating.
@@ -231,6 +232,14 @@ Web reads `isSpectator` (main.js:3217); the App Store iOS build reads `type`
 sends both; once the App Store build is gone either can go.
 
 ### 13. `mainRoomJoined.recentMessages`
+
+**Done 2026-11-11 (PR #TBD).** The main-room handlers (joinMainRoom,
+leaveLobby, a tournament's sendToMainRoom) send `messages` only; the
+upgrade gate's 1.0.0-only payload (`upgradeGate.sendMainRoom`) keeps
+`recentMessages`, so the property stays in the schema, optional (baseline:
+no longer required). Re-checked first: 1.1.0 (f05d264) LobbySocketHandler
+reads `recentMessages ?? messages`, web reads `messages`. Test:
+`mainRoomJoined.test.js`.
 
 Duplicates `messages`; iOS reads `recentMessages` first with `messages` as the
 fallback (LobbySocketHandler.swift:33). Drop once the old app is gone.
@@ -456,7 +465,8 @@ step, in this order; nothing is removed by the gate PR itself.
 7. **#13 `mainRoomJoined.recentMessages`**: 1.1.0 reads `recentMessages ??
    messages` (falls back) and web reads `messages`, so the main-room handler
    can drop it; the gate's 1.0.0-only copy keeps it (variant or `added`
-   note), since 1.0.0 reads only `recentMessages` first.
+   note), since 1.0.0 reads only `recentMessages` first. **Done 2026-11-11
+   (PR #TBD).**
 8. **#18 hardening Joi**: 1.1.0 now sends `removeBot {botSocketId}` (the
    "no payload" note is 1.0.0-only) and web sends the same; the Joi schemas
    for `removeBot`, `joinLobby`, `searchPlayers`, `getPlayerProfile` and the

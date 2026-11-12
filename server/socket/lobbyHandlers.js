@@ -195,7 +195,6 @@ function leaveLobby(socket, io) {
     socket.emit('leftLobby', {});
     socket.emit('mainRoomJoined', {
         messages: mainRoomResult.messages,
-        recentMessages: mainRoomResult.messages, // iOS reads this key
         lobbies: mainRoomResult.lobbies,
         onlineCount: onlineUsers.length,
         onlineUsers,

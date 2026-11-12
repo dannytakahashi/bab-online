@@ -2714,7 +2714,6 @@
         },
         "required": [
           "messages",
-          "recentMessages",
           "lobbies",
           "onlineCount",
           "onlineUsers",

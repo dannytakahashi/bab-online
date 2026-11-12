@@ -4294,7 +4294,6 @@
         },
         "required": [
           "messages",
-          "recentMessages",
           "lobbies",
           "onlineCount",
           "onlineUsers",
@@ -4319,7 +4318,7 @@
         "server/socket/tournamentHandlers.js:sendToMainRoom",
         "server/socket/upgradeGate.js:sendMainRoom"
       ],
-      "notes": "recentMessages duplicates messages (iOS reads recentMessages first)."
+      "notes": "recentMessages (a copy of messages) is sent only by upgradeGate.sendMainRoom, to the gated iOS 1.0.0, which reads it first. The main-room handlers dropped it (V1_REMOVALS #13, 2026-11-11): web reads messages and iOS 1.1.0 recentMessages ?? messages (LobbySocketHandler, f05d264)."
     },
     "mainRoomMessage": {
       "payload": {
