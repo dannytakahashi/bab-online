@@ -336,12 +336,24 @@ final class SceneLayoutTests: XCTestCase {
         }
     }
 
+    /// HSI and the voice button fit the seat row's slots (TableLayout+SeatRow.swift) at every Dynamic Type size.
     func testAccessoryFitsItsRect() {
-        let row = fit(HStack(spacing: 6) { HSIBadge(value: 999.9); VoiceMuteButton(onLongPress: {}) }.fixedSize(), width: 400)
-        XCTAssertLessThanOrEqual(row.width, TableLayout.accessoryRow.width)
-        XCTAssertLessThanOrEqual(row.height, TableLayout.accessoryRow.height)
-        let stack = fit(VStack(alignment: .leading, spacing: 6) { HSIBadge(value: 999.9); VoiceMuteButton(onLongPress: {}) }.fixedSize(), width: 400)
-        XCTAssertLessThanOrEqual(stack.width, TableLayout.accessoryStack.width)
-        XCTAssertLessThanOrEqual(stack.height, TableLayout.accessoryStack.height)
+        for type in [DynamicTypeSize.xSmall, .large, .xxxLarge, .accessibility5] {
+            let hsi = fit(HSIBadge(value: 999.9).environment(\.dynamicTypeSize, type), width: 400)
+            XCTAssertLessThanOrEqual(hsi.width, TableLayout.hsiSize.width, "\(type)")
+            XCTAssertLessThanOrEqual(hsi.height, TableLayout.hsiSize.height, "\(type)")
+            let voice = fit(VoiceMuteButton(onLongPress: {}).environment(\.dynamicTypeSize, type), width: 400)
+            XCTAssertLessThanOrEqual(voice.width, TableLayout.voiceButtonSize, "\(type)")
+            XCTAssertLessThanOrEqual(voice.height, TableLayout.voiceButtonSize, "\(type)")
+            for mode in [TableLayout.SeatRow.Mode.row, .compact] {
+                // the HStack the row draws: HSI then the button, within the row's HSI + voice slots
+                let spacing = mode == .row ? TableLayout.seatRowSpacing : TableLayout.seatRowColumnSpacing
+                let pair = fit(HStack(spacing: spacing) { HSIBadge(value: 999.9); VoiceMuteButton(onLongPress: {}) }
+                                .environment(\.dynamicTypeSize, type).fixedSize(), width: 400)
+                let R = TableLayout.seatRow(mode, CGRect(origin: .zero, size: TableLayout.seatRowSize(mode)), fits: true)
+                XCTAssertLessThanOrEqual(pair.width, R.voice.maxX - R.hsi.minX + 0.01, "\(mode) \(type)")
+            }
+        }
+        XCTAssertEqual(TableLayout.voiceButtonSize, Theme.hitTarget)
     }
 }

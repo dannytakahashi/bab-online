@@ -26,8 +26,7 @@ extension TableLayout {
         keeps.append(contentsOf: cornerRects)
         if !spectating {
             keeps.append(CGRect(x: safeRect.minX, y: safeRect.minY, width: safeRect.width, height: max(0, liftTop - safeRect.minY)))
-            keeps.append(accessoryContent)
-            keeps.append(myPips)
+            keeps.append(accessoryContent)  // my seat's row: my pips, HSI, voice
             keeps.append(bidBand)  // never over my bid panel's buttons
         }
         keeps.append(spectatorBadge(spectating: spectating))

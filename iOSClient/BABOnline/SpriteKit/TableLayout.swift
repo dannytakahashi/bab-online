@@ -59,8 +59,8 @@ struct TableLayout: Equatable {
     static let historyIcon = CGSize(width: 12, height: 16)
     static let rainbowSize = CGSize(width: 128, height: 118)
     static let overTrumpSize: CGFloat = 120
-    static let accessoryRow = CGSize(width: 124, height: 48)      // HStack minimum (HSI + voice)
-    static let accessoryStack = CGSize(width: 84, height: 76)     // VStack minimum
+    static let accessoryRow = CGSize(width: 124, height: 48)      // the room the solve keeps for my seat's row (wide)
+    static let accessoryStack = CGSize(width: 84, height: 76)     // ... or (narrow); the row is TableLayout+SeatRow
 
     // MARK: outputs
     let size: CGSize
@@ -94,16 +94,16 @@ struct TableLayout: Equatable {
     let overTrumpCenter: CGPoint
     /// Where the SwiftUI bid panel goes (reserved even while it is hidden).
     let bidBand: CGRect
-    /// HSI + voice button rect (Q3, right of my trick slot).
+    /// The room the solve keeps right of my trick slot for my seat's row (Q3); the row
+    /// itself, with its 8 pt clearances, is `seatRow`.
     let accessory: CGRect
-    /// My own trick pips' box (TableLayout+Pips.swift), derived from the rest.
-    private(set) var myPipsRect: CGRect = .zero
+    /// My seat's row: my pips, HSI, voice (TableLayout+SeatRow.swift), derived from the rest.
+    private(set) var seatRow = SeatRow(mode: .compact, content: .zero, pips: .zero, hsi: .zero, voice: .zero, fits: false)
 
     private let tcx: CGFloat, cc: CGFloat, ox: CGFloat, oy: CGFloat
     private let yP: CGFloat, yS: CGFloat, lx: CGFloat, rx: CGFloat, yLo: CGFloat
 
     var trickSpriteScale: CGFloat { Self.trickBase * trickScale }
-    var accessoryStacked: Bool { accessory.width < Self.accessoryRow.width - 0.01 }
     var bidPanelBottomInset: CGFloat { bidBand.minY + size.height / 2 }
     var chatMaxWidth: CGFloat { min(260, safeRect.width - 16) }
 
@@ -159,7 +159,7 @@ struct TableLayout: Equatable {
         let half = Self.overTrumpSize / 2
         overTrumpCenter = Self.clamp(CGPoint(x: sol.tcx - 40 * sol.k - Self.gap - half, y: sol.cc + 58 * sol.k + Self.gap + half),
                                      size: CGSize(width: Self.overTrumpSize, height: Self.overTrumpSize), into: sol.safe, top: sol.topLimit)
-        myPipsRect = computeMyPips()
+        seatRow = computeSeatRow()
     }
 
     // MARK: hand

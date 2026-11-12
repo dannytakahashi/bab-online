@@ -3,14 +3,16 @@ import SpriteKit
 @testable import BAB_Online
 
 /// My own pips' box keeps clear of the table at every listed size, chrome and
-/// Duo pose (the TableLayoutTests rect model), the spectator badge keeps clear
-/// of it, and the disconnect banner's keep-out spot.
+/// Duo pose (the TableLayoutTests rect model), inside my seat's row (SeatRowTests
+/// checks the row's 8 pt clearances), the spectator badge keeps clear of it, and
+/// the disconnect banner's keep-out spot.
 @MainActor
 final class MyPipsLayoutTests: XCTestCase {
     typealias Rel = Positions.RelativePosition
 
     /// Every rect myPips must not cover (the bid band and my bid bubble are exempt:
-    /// the pips show once the bidding is over and my bubble is gone).
+    /// the pips show once the bidding is over and my bubble is gone); it is my seat's
+    /// row's first item, clear of the row's HSI and voice slots.
     static func problems(_ L: TableLayout) -> [String] {
         let r = L.myPips
         var out: [String] = []
@@ -24,13 +26,15 @@ final class MyPipsLayoutTests: XCTestCase {
         for rel in [Rel.top, .bottom, .left, .right] { keeps.append(("trick.\(rel)", L.trickRect(rel))) }
         keeps.append(("hand", TableLayoutTests.handRect(L, count: 13, lifted: true)))
         keeps.append(("history", TableLayoutTests.historyRect(L, count: 13)))
-        keeps.append(("accessory", L.accessoryContent))
+        keeps.append(("row.hsi", L.seatRow.hsi))
+        keeps.append(("row.voice", L.seatRow.voice))
         for (i, c) in L.cornerRects.enumerated() { keeps.append(("corner\(i)", c)) }
         if let f = L.chrome.fold, !L.foldIgnored { keeps.append(("fold", f)) }
         for (name, k) in keeps where TableLayout.overlaps(k, r) { out.append("myPips x \(name) \(r.intersection(k))") }
         let safe = L.safeRect.insetBy(dx: -0.01, dy: -0.01)
         if r.minX < safe.minX || r.maxX > safe.maxX || r.minY < safe.minY || r.maxY > L.topLimit + 0.01 { out.append("outside \(r)") }
         if r.size != TableLayout.myPipsSize { out.append("size \(r.size)") }
+        if !L.seatRow.content.insetBy(dx: -0.01, dy: -0.01).contains(r) { out.append("not in the seat row \(r) \(L.seatRow.content)") }
         return out
     }
 
@@ -74,7 +78,7 @@ final class MyPipsLayoutTests: XCTestCase {
         }
     }
 
-    /// The scene's box node sits at the layout's spot and its pill stays inside it.
+    /// The scene's box node sits at the layout's spot (its pill against its neighbour in the row) and stays inside it.
     @MainActor
     func testMyPipsNodeOnTheScene() throws {
         OpponentHandNode.avatarLoader = StubAvatarLoader()
@@ -87,8 +91,10 @@ final class MyPipsLayoutTests: XCTestCase {
             scene.didMove(to: SKView(frame: CGRect(origin: .zero, size: size)))
             h.store.apply(.snapshot(try T.snapshot("trick-mid-lead3"), .rejoin, hints: nil))
             let L = scene.layout
-            XCTAssertEqual(scene.myPipsNode.position.x, L.myPips.midX, accuracy: 0.01, "\(size)")
-            XCTAssertEqual(scene.myPipsNode.position.y, L.myPips.midY, accuracy: 0.01, "\(size)")
+            let slots = scene.myPipsNode.pips?.slots ?? 0
+            let want = slots > 0 ? L.myPipsCenter(slots: slots) : CGPoint(x: L.myPips.midX, y: L.myPips.midY)
+            XCTAssertEqual(scene.myPipsNode.position.x, want.x, accuracy: 0.01, "\(size)")
+            XCTAssertEqual(scene.myPipsNode.position.y, want.y, accuracy: 0.01, "\(size)")
             if !scene.myPipsNode.children.isEmpty {
                 let f = scene.myPipsNode.calculateAccumulatedFrame()
                 XCTAssertTrue(L.myPips.insetBy(dx: -0.5, dy: -0.5).contains(f), "\(size) \(f) not in \(L.myPips)")

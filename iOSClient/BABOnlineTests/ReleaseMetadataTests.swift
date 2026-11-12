@@ -16,11 +16,13 @@ final class ReleaseMetadataTests: XCTestCase {
     }
 
     /// server/socket/upgradeGate.js answers builds below MIN_IOS_BUILD (2) with an
-    /// update message only; every build from 1.1.0 (2) on is current (1.2.0 is 3,
-    /// pinned server-side by upgradeGate.test.js). The build number only grows.
+    /// update message only; every build from 1.1.0 (2) on is current (1.2.0 (3),
+    /// pinned server-side by upgradeGate.test.js, and 1.2.0 (4)). The build number only grows:
+    /// build 3 went to App Store Connect, so 1.2.0 is submitted as build 4.
     func testBuildIsNeverGatedByTheServer() throws {
         let build = try XCTUnwrap(Int(try XCTUnwrap(info("CFBundleVersion") as? String)))
-        XCTAssertGreaterThanOrEqual(build, 3, "1.2.0 shipped as build 3; App Store builds never go back")
+        XCTAssertGreaterThanOrEqual(build, 4, "1.2.0 (3) was uploaded; 1.2.0 ships as build 4 and builds never go back")
+        XCTAssertEqual(info("CFBundleShortVersionString") as? String, "1.2.0", "build 4 is still 1.2.0")
     }
 
     func testExportComplianceAndUsageStrings() {

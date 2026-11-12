@@ -3,12 +3,12 @@ import CoreGraphics
 /// The spectator badge (eye + count, a 44 pt target) and its chat bubble
 /// (V1_REMOVALS "iOS spectator badge" 5 and 7), placed from the solved
 /// layout without changing it: the badge takes the first candidate spot that
-/// keeps clear of the hand, my HSI / voice accessory, the trick cards, the
+/// keeps clear of the hand, my seat's row (pips, HSI, voice; by 8 pt), the trick cards, the
 /// trick history, every seat (glow, name, bid bubble) and the corner buttons;
 /// the bid band is exempt (the panel shows only on my bid turn and may cover
 /// the badge then, as it does the accessory).
 ///
-/// - Seated (a hand on screen): beside the accessory (right of it, else above
+/// - Seated (a hand on screen): beside my seat's row (right of it, else above
 ///   it at the right edge), else the left edge above the history, else under
 ///   the Log button.
 /// - Spectating (no hand): the bottom-right corner, above the pill.
@@ -74,19 +74,15 @@ extension TableLayout {
         keeps.append(contentsOf: cornerRects)
         if !spectating {
             keeps.append(CGRect(x: safeRect.minX, y: safeRect.minY, width: safeRect.width, height: max(0, liftTop - safeRect.minY)))
-            keeps.append(accessoryContent)
-            keeps.append(myPips)
+            // my seat's row (pips, HSI, voice) with its 8 pt clearance
+            keeps.append(accessoryContent.insetBy(dx: -Self.seatRowGap, dy: -Self.seatRowGap))
             if soft { keeps.append(bubbleRect(.bottom)) }
         }
         return keeps
     }
 
-    /// What HSI + voice really cover inside `accessory` (GameContainerView draws them bottom-leading:
-    /// a 124 x 48 row, or an 84 x 76 stack where the rect is narrower).
-    var accessoryContent: CGRect {
-        let s = accessoryStacked ? Self.accessoryStack : Self.accessoryRow
-        return CGRect(x: accessory.minX, y: accessory.minY, width: min(s.width, accessory.width), height: min(s.height, accessory.height))
-    }
+    /// What my seat's row (my pips, HSI, voice) may cover: `seatRow.content`.
+    var accessoryContent: CGRect { seatRow.content }
 
     /// The trick history's two rows (Q2: left of my trick slot).
     var historyRect: CGRect {
@@ -106,9 +102,10 @@ extension TableLayout {
                     CGRect(x: right, y: floor + h + G, width: w, height: h),
                     CGRect(x: right, y: underLog, width: w, height: h)]
         }
-        return [CGRect(x: accessoryContent.maxX + G, y: accessory.minY, width: w, height: h),
+        let row = accessoryContent, RG = Self.seatRowGap
+        return [CGRect(x: row.maxX + RG, y: row.minY, width: w, height: h),
+                CGRect(x: right, y: row.maxY + RG, width: w, height: h),
                 CGRect(x: right, y: accessory.maxY + G, width: w, height: h),
-                CGRect(x: right, y: accessory.minY + Self.accessoryRow.height + G, width: w, height: h),
                 CGRect(x: left, y: historyRect.maxY + G, width: w, height: h),
                 CGRect(x: right, y: underLog, width: w, height: h)]
     }
