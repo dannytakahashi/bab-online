@@ -30,6 +30,7 @@ export function registerAllHandlers(socketManager, callbacks = {}) {
     onSignUpError,
     onForceLogout,
     onSessionSuperseded,
+    onServerShutdown,
     onActiveGameFound,
     // Lobby callbacks
     onMainRoomJoined,
@@ -122,6 +123,7 @@ export function registerAllHandlers(socketManager, callbacks = {}) {
     onSignUpError,
     onForceLogout,
     onSessionSuperseded,
+    onServerShutdown,
     onActiveGameFound,
   });
 

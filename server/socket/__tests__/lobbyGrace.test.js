@@ -169,7 +169,7 @@ describe('the only human with 3 bots reloads', () => {
         const s2 = await w.connect(`ann${seq}`);
         const at = w.log.length;
         mainRoomHandlers.joinLobby(s2, w.io, { lobbyId });
-        expect(w.to(s2.id, at).map((l) => [l.event, l.data?.message])).toEqual([['error', 'Lobby not found']]);
+        expect(w.to(s2.id, at).map((l) => [l.event, l.data?.message])).toEqual([['error', 'Lobby not found'], ['serverError', 'Lobby not found']]);
     });
 
     test('a stranger cannot take the held seat of a full lobby', async () => {
@@ -179,7 +179,7 @@ describe('the only human with 3 bots reloads', () => {
         const eve = await w.connect(`eve${seq}`);
         const from = w.log.length;
         mainRoomHandlers.joinLobby(eve, w.io, { lobbyId });
-        expect(w.to(eve.id, from).map((l) => [l.event, l.data?.message])).toEqual([['error', 'Lobby is full']]);
+        expect(w.to(eve.id, from).map((l) => [l.event, l.data?.message])).toEqual([['error', 'Lobby is full'], ['serverError', 'Lobby is full']]);
         expect(seats(lobby)[0]).toBe(`ann${seq}`);
     });
 

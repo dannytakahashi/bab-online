@@ -1,7 +1,7 @@
 /**
  * Authentication-related socket event handlers.
  *
- * Handles: signInResponse, signUpResponse, forceLogout, sessionSuperseded, activeGameFound
+ * Handles: signInResponse, signUpResponse, forceLogout, sessionSuperseded, serverShutdown, activeGameFound
  */
 
 import { SERVER_EVENTS } from '../constants/events.js';
@@ -20,6 +20,7 @@ import { rememberSession } from '../utils/sessionPersistence.js';
  * @param {Function} callbacks.onForceLogout - Called when force logged out
  * @param {Function} callbacks.onActiveGameFound - Called when user has active game
  * @param {Function} callbacks.onSessionSuperseded - Another tab took the session
+ * @param {Function} callbacks.onServerShutdown - The server is restarting (a deploy)
  */
 export function registerAuthHandlers(socketManager, callbacks = {}) {
   const {
@@ -30,6 +31,7 @@ export function registerAuthHandlers(socketManager, callbacks = {}) {
     onForceLogout,
     onActiveGameFound,
     onSessionSuperseded,
+    onServerShutdown,
   } = callbacks;
 
   const state = getGameState();
@@ -100,6 +102,13 @@ export function registerAuthHandlers(socketManager, callbacks = {}) {
   socketManager.on(SERVER_EVENTS.SESSION_SUPERSEDED, (data) => {
     console.log('Session is live in another tab:', data?.refused ? `refused ${data.refused}` : 'paused');
     onSessionSuperseded?.(data);
+  });
+
+  // The server is restarting for an update (every deploy): it closes every
+  // socket about 1 s later and comes back with nothing in memory
+  socketManager.on(SERVER_EVENTS.SERVER_SHUTDOWN, (data) => {
+    console.log('Server restarting:', data?.message || '');
+    onServerShutdown?.(data);
   });
 
   // Active game found (user has a game in progress)

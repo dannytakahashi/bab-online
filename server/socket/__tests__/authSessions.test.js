@@ -18,7 +18,9 @@ jest.mock('../../database', () => ({
 jest.mock('../../game/GameManager', () => ({
     registerUser: jest.fn(),
     removeUserSocket: jest.fn(),
-    handleDisconnect: jest.fn(),
+    handleDisconnect: jest.fn(() => ({})),
+    releaseHeldLobbySeat: jest.fn(() => null),
+    getOnlineUsernames: jest.fn(() => []),
     getGameById: jest.fn(() => null),
     getTournamentById: jest.fn(() => null),
     clearActiveGame: jest.fn(),
@@ -40,7 +42,9 @@ function connect() {
         id: `sock-${++socketCounter}`,
         data: {},
         emit: jest.fn(),
-        disconnect: jest.fn()
+        disconnect: jest.fn(),
+        join: jest.fn(),
+        leave: jest.fn()
     };
     io.sockets.sockets.set(socket.id, socket);
     return socket;

@@ -13,7 +13,7 @@ import { RANK_VALUES } from './constants/ranks.js';
 
 // Utilities
 import { getPlayerName } from './utils/positions.js';
-import { adoptSavedSession, forgetSession, clearAllSessionData } from './utils/sessionPersistence.js';
+import { adoptSavedSession, forgetSession, clearAllSessionData, isDeviceSignedOut, SAVED_SESSION_KEY } from './utils/sessionPersistence.js';
 import { installAvatarSupport } from './utils/avatar.js';
 
 // Rules
@@ -28,12 +28,13 @@ import { getClientSession, SCREEN, ROLE, EXIT } from './state/ClientSession.js';
 import { getSocketManager, initializeSocketManager } from './socket/SocketManager.js';
 import { createSocket } from './socket/createSocket.js';
 import { installConnectionBanner } from './ui/components/ConnectionBanner.js';
-import { showSupersededNotice, hideSupersededNotice, isSupersededNoticeShown } from './ui/components/SupersededNotice.js';
+import { showSupersededNotice, hideSupersededNotice, isSupersededNoticeShown, setSupersededNoticeVariant, NOTICE_VARIANT } from './ui/components/SupersededNotice.js';
 import { removeTransitionOverlay } from './ui/transitionOverlay.js';
 import { getTableDirector } from './phaser/TableDirector.js';
 import { getSeqGate } from './state/SeqGate.js';
 import { getMyAction } from './state/MyAction.js';
 import { applyTableSnapshot, snapshotSource } from './state/tableSync.js';
+import { getRestartNotice, LOSS } from './state/restartNotice.js';
 import { speakingSlotFor } from './voice/speakingSlot.js';
 
 // UI Components
@@ -381,8 +382,59 @@ function showErrorToast(message, duration = 5000) {
 let joinMainRoomRetries = 0;
 const MAX_JOIN_RETRIES = 5;
 
+// ==================== SERVER RESTART ====================
+
+// What a server restart took away (state/restartNotice.js): recorded on
+// serverShutdown, told once by the first restore path that finds it gone
+const restartNotice = getRestartNotice();
+// The message stays up a little longer than an ordinary toast
+const RESTART_LOSS_TOAST_MS = 10000;
+
+/**
+ * Where this tab is when serverShutdown comes: what the restart will take.
+ * Nothing for the main room, the sign-in screen, a finished casual game's
+ * score screen (it was recorded) or a tab paused behind another one.
+ */
+function restartLossKind() {
+  if (session.isParked) return null;
+  const tournamentId = session.tournamentId || session.persistedTournamentId;
+  const watchingTournament = !!tournamentId && session.isTournamentSpectator(tournamentId);
+  switch (session.screen) {
+    case SCREEN.TABLE:
+      if (session.role === ROLE.SPECTATOR) return session.watchedTournamentId ? LOSS.TOURNAMENT_SPECTATOR : LOSS.SPECTATOR;
+      return session.tournamentId && !watchingTournament ? LOSS.TOURNAMENT : LOSS.SEAT;
+    case SCREEN.GAME_END:
+      // The game ended (and counted); a tournament between rounds is lost
+      if (!session.tournamentId) return null;
+      return watchingTournament ? LOSS.TOURNAMENT_SPECTATOR : LOSS.TOURNAMENT;
+    case SCREEN.LOBBY:
+      return LOSS.LOBBY;
+    case SCREEN.TOURNAMENT_LOBBY:
+      return watchingTournament ? LOSS.TOURNAMENT_SPECTATOR : LOSS.TOURNAMENT;
+    default:
+      return null;
+  }
+}
+
+/**
+ * A restore path found its game / lobby / tournament gone. After a server
+ * restart, say so once (an info toast, announced politely).
+ * @returns {boolean} true when the restart explains it (shown now or
+ *   already): the caller's own message is left out
+ */
+function explainRestartLoss() {
+  const text = restartNotice.take();
+  if (text) {
+    showInfo(text, RESTART_LOSS_TOAST_MS);
+    return true;
+  }
+  return restartNotice.shown;
+}
+
 /**
  * Handle socket error based on type.
+ * @returns {boolean} true for an expected refusal of a restore (the watched
+ *   game, the lobby or the tournament is gone): nothing went wrong
  */
 function handleSocketError(error, socket) {
   let message = 'Something went wrong';
@@ -392,7 +444,8 @@ function handleSocketError(error, socket) {
     console.log('Spectated game no longer exists, returning to main room');
     session.takePendingSpectate();
     session.exitTable(EXIT.SPECTATE_FAILED);
-    return;
+    explainRestartLoss();
+    return true;
   }
 
   // Re-entering a lobby after a reconnect: it closed (or filled) meanwhile
@@ -400,12 +453,14 @@ function handleSocketError(error, socket) {
     console.log('Lobby re-entry failed:', error.message);
     // 'Lobby is full' too: the seat may still be held by this player's
     // previous socket until the server notices it dropped
-    showErrorToast(error.message === 'Lobby not found'
-      ? 'The lobby closed while you were offline'
-      : "Couldn't get back into the lobby");
+    if (!explainRestartLoss()) {
+      showErrorToast(error.message === 'Lobby not found'
+        ? 'The lobby closed while you were offline'
+        : "Couldn't get back into the lobby");
+    }
     session.transition(SCREEN.MAIN_ROOM);
     session.requestMainRoom();
-    return;
+    return true;
   }
 
   // Re-entering a tournament after a reload or reconnect: it is gone
@@ -413,12 +468,12 @@ function handleSocketError(error, socket) {
   if (pendingTournament) {
     console.log('Tournament re-entry failed:', error.message);
     getGameState().tournamentId = null;
-    showErrorToast('The tournament is no longer available');
+    if (!explainRestartLoss()) showErrorToast('The tournament is no longer available');
     if (!session.hasTable) session.transition(SCREEN.MAIN_ROOM);
     // The server follows a failed joinTournament with the main room, except
     // for 'Already in a tournament'; a failed spectateTournament with nothing
     if (pendingTournament.spectator || error.message === 'Already in a tournament') session.requestMainRoom();
-    return;
+    return true;
   }
 
   // Handle race condition where joinMainRoom is called before user is registered
@@ -502,8 +557,27 @@ function initializeApp() {
     connectionId: () => (socket.connected ? socket.id || 'connected' : null),
   });
 
-  // Visible connection state while the socket is down
-  installConnectionBanner(socketMgr);
+  // Visible connection state while the socket is down (and the restart
+  // notice: serverShutdown)
+  const connectionBanner = installConnectionBanner(socketMgr);
+
+  // A parked tab whose socket reconnected (a deploy, a network blip): a
+  // parked tab never restores, so the server no longer knows the new
+  // socket as this player's parked one and tells it nothing ('otherClosed'
+  // cannot reach it): the notice no longer claims where the session is
+  socketMgr.onStateChange((event, data) => {
+    if (event === 'stateChanged' && data?.newState === 'connected' && session.isParked) {
+      setSupersededNoticeVariant(NOTICE_VARIANT.RECONNECTED);
+    }
+  });
+
+  // Signed out in another tab of this browser (it clears the saved
+  // session): a parked tab signs out at once
+  window.addEventListener('storage', (e) => {
+    if (!session.isParked || e.newValue != null) return;
+    if (e.key !== null && e.key !== SAVED_SESSION_KEY) return;
+    if (isDeviceSignedOut()) signOutParkedTab();
+  });
 
   // Initialize UI manager
   const uiManager = initializeUIManager(socket);
@@ -709,8 +783,10 @@ function initializeApp() {
 
   // Set up error handler
   socket.on('error', (error) => {
-    console.error('Server error:', error);
-    handleSocketError(error, socket);
+    // A restore finding its place gone (e.g. after a server restart) is
+    // expected: logged, not reported as an error
+    if (handleSocketError(error, socket)) console.log('Restore refused:', error?.message);
+    else console.error('Server error:', error);
   });
 
   /**
@@ -860,16 +936,40 @@ function initializeApp() {
     onSignUpError: (message) => {
       showError(`Registration failed: ${message}`);
     },
-    onSessionSuperseded: () => {
+    onSessionSuperseded: (data) => {
+      // 'otherClosed': the tab that had the session was closed and none
+      // took it since (the server waits ~2 s, so a reload of that tab says
+      // nothing). Only the notice's text changes, focus stays on Use here;
+      // it never parks a live tab nor takes the session back by itself
+      const closed = data?.reason === NOTICE_VARIANT.CLOSED;
+      if (closed) {
+        if (!session.isParked) return;
+        // The other tab signed out (Profile Sign Out): no "continue" for
+        // the next person at this computer, this tab signs out too
+        if (isDeviceSignedOut()) signOutParkedTab();
+        else setSupersededNoticeVariant(NOTICE_VARIANT.CLOSED);
+        return;
+      }
       // Another tab of this browser has the session now: pause here (no
-      // reconnect or ping takes it back by itself) until Use here
-      if (session.isParked && isSupersededNoticeShown()) return;
+      // reconnect or ping takes it back by itself) until Use here. Told
+      // again after an 'otherClosed' (that tab reloaded, or another took
+      // it): the notice says so again. A refusal never changes the text
+      if (session.isParked && isSupersededNoticeShown()) {
+        if (!data?.refused) setSupersededNoticeVariant(NOTICE_VARIANT.NEWER);
+        return;
+      }
       session.park();
       socketMgr.setParked(true);
       // This tab's microphone and peer connections go (the active tab has its own)
       stopVoice();
       showSupersededNotice({
         onUseHere: () => {
+          // Signed out on this device meanwhile: the sign-in screen, never
+          // the signed-out player's session from this tab's own copy
+          if (isDeviceSignedOut()) {
+            signOutParkedTab();
+            return;
+          }
           // A fresh socket: it restores the session (which parks the other
           // tab) and re-enters this tab's screen (rejoin, lobby, main room)
           session.unpark();
@@ -878,8 +978,17 @@ function initializeApp() {
         },
       });
     },
+    onServerShutdown: () => {
+      // A deploy: the server closes every socket in about a second and
+      // comes back without any game, lobby or tournament. The banner says
+      // so until the socket is back; what this tab is in is remembered
+      // (sessionStorage, ~2 min) for the restore to explain
+      connectionBanner.noteServerRestart();
+      restartNotice.note(restartLossKind());
+    },
     onForceLogout: (data) => {
       console.warn('Force logout:', data?.reason || 'Unknown reason');
+      restartNotice.clear();
       leaveParked();
       // authHandlers cleared the tab's credentials; the server disconnects
       // this socket next, so nothing it showed will be finished (createUI
@@ -899,6 +1008,9 @@ function initializeApp() {
       // Reset retry counter on success
       joinMainRoomRetries = 0;
       session.routeArrived();
+      // The restore that explained a restart has landed: the record goes
+      // (later refusals are ordinary ones again)
+      if (restartNotice.shown) restartNotice.clear();
 
       // A late reply while at a table (the session left it before asking)
       if (session.hasTable) {
@@ -938,6 +1050,7 @@ function initializeApp() {
         messages: (data.messages || []).filter(m => !isUserBlocked(m.username))
       });
       session.noteLobby(data.lobbyId);
+      restartNotice.clear();
       // Start voice chat when entering a lobby
       startVoice();
     },
@@ -989,6 +1102,7 @@ function initializeApp() {
       if (data.players && data.trump) {
         const spectatedGameId = data.gameId || data.snapshot?.gameId || session.takePendingSpectate();
         session.routeArrived();
+        restartNotice.clear();
         // Spectators persist spectatingGameId only (a reconnect re-spectates)
         session.enterTable(ROLE.SPECTATOR, spectatedGameId);
         // A re-spectate after a reconnect supersedes one still waiting for the scene
@@ -1337,6 +1451,8 @@ function initializeApp() {
         return;
       }
       session.enterTable(data.isLazy ? ROLE.LAZY : ROLE.PLAYER, data.gameId);
+      // The game survived: nothing to explain
+      restartNotice.clear();
       // Restore tournament context (server includes it when the rejoined game
       // belongs to a tournament) so the game-end screen offers 'Return to Tournament'
       if (data.tournamentId !== undefined) {
@@ -1356,6 +1472,8 @@ function initializeApp() {
       if (reason === 'Already connected') return;
       // The game is gone (or was left): take any table down, route out
       session.exitTable(EXIT.REJOIN_FAILED);
+      // After a server restart: say what ended
+      explainRestartLoss();
     },
     onPlayerReconnected: (data) => {
       console.log(`Player at position ${data.position} (${data.username}) reconnected`);
@@ -1578,6 +1696,7 @@ function initializeApp() {
         data.messages = data.messages.filter(m => !isUserBlocked(m.username));
       }
       session.routeArrived();
+      restartNotice.clear();
       if (session.hasTable) {
         console.log('Tournament joined event ignored - at the table');
         return;
@@ -1687,6 +1806,9 @@ function initializeApp() {
     },
 
     onTournamentLeft: () => {
+      // Back from a tournament's score screen after a restart: it is gone
+      const lost = restartNotice.pending;
+      if (lost === LOSS.TOURNAMENT || lost === LOSS.TOURNAMENT_SPECTATOR) explainRestartLoss();
       gameState.tournamentId = null;
       gameState.pendingTournamentResults = null;
       // The server sends mainRoomJoined next
@@ -1801,6 +1923,27 @@ function leaveParked() {
   hideSupersededNotice();
 }
 
+/**
+ * This tab is parked and this device was signed out in another tab
+ * (Profile Sign Out clears the saved session; review 2026-11-12): this tab
+ * signs out as well, on a fresh anonymous socket, so its own copy of the
+ * session cannot be continued with one click on Use here by the next
+ * person at a shared computer.
+ */
+function signOutParkedTab() {
+  if (!session.isParked && !isSupersededNoticeShown()) return;
+  console.log('Signed out in another tab: this paused tab signs out too');
+  clearAllSessionData();
+  restartNotice.clear();
+  leaveParked();
+  session.clearIdentity();
+  setIsAdmin(false);
+  setBlockedUsers([]);
+  displaySignInScreen(EXIT.SIGN_OUT);
+  // The parked socket still claims the player on the server
+  getSocketManager().forceReconnect();
+}
+
 /** restoreSessionResponse failures that need no explanation (sign in again). */
 const ROUTINE_RESTORE_FAILURES = new Set(['Invalid session token', 'User not found']);
 
@@ -1823,6 +1966,7 @@ socket.on('restoreSessionResponse', (data) => {
     sessionStorage.removeItem('username');
     sessionStorage.removeItem('sessionToken');
     session.clearIdentity();
+    restartNotice.clear();
     setIsAdmin(false);
     displaySignInScreen(EXIT.SIGN_OUT);
     // Say why when the server said something a player can act on ("This
