@@ -418,6 +418,15 @@ class GameManager {
      */
     joinSpecificLobby(socketId, lobbyId) {
         if (this._mergeLockedUser(socketId)) return { success: false, error: MERGE_LOCKED };
+        // Already seated in THIS lobby (a socket that took its held seat
+        // back in place, sessionIdentity.clearSuperseded, then re-sends the
+        // join as clients do after a restore): the lobby again, no change
+        const seatedIn = this.playerLobbies.get(socketId);
+        if (seatedIn != null && seatedIn === lobbyId) {
+            const lobby = this.lobbies.get(lobbyId);
+            const seat = lobby?.players.find(p => !p.isBot && p.socketId === socketId);
+            if (seat) return { success: true, lobby, newPlayer: seat, alreadySeated: true };
+        }
         // Check if already in a lobby
         if (this.playerLobbies.has(socketId)) {
             return { success: false, error: 'Already in a lobby' };
@@ -580,6 +589,41 @@ class GameManager {
         if (!player) return null;
         this.playerLobbies.set(socketId, lobbyId);
         return { lobbyId, oldSocketId: socketId, username: player.username, leaveResult: this.leaveLobby(socketId) };
+    }
+
+    /**
+     * The socket whose seat is held is live again as the same player (a
+     * parked socket took the session back: sessionIdentity.clearSuperseded).
+     * The re-entry machinery only moves a seat between DIFFERENT sockets
+     * (findStaleLobbySeat skips this one), so the seat comes back in place:
+     * mapping restored, grace over. Without this a later join pushed a
+     * second seat for the same socket, and the grace expiry removed both.
+     * @returns {{lobby, player}|null}
+     */
+    resumeHeldLobbySeat(socketId, username) {
+        const held = this.lobbyGrace.get(socketId);
+        if (!held || held.username !== username) return null;
+        const lobby = this.lobbies.get(held.lobbyId);
+        const player = lobby?.players.find(p => !p.isBot && p.socketId === socketId);
+        if (!player || this.playerLobbies.has(socketId)) return null;
+        this._clearLobbyGrace(socketId);
+        this.playerLobbies.set(socketId, held.lobbyId);
+        this.leaveMainRoom(socketId);
+        return { lobby, player };
+    }
+
+    /**
+     * Give up at once the seat held for this socket (it switches accounts:
+     * sessionIdentity.releaseIdentity), as expireLobbySeat would after the
+     * grace, timer cancelled.
+     * @returns {{lobbyId, oldSocketId, username, leaveResult}|null}
+     */
+    releaseHeldLobbySeat(socketId) {
+        const held = this.lobbyGrace.get(socketId);
+        if (!held) return null;
+        const result = this.expireLobbySeat(held.lobbyId, socketId);
+        this._clearLobbyGrace(socketId);
+        return result;
     }
 
     /** Usernames whose seat in `lobbyId` is held for its grace, in seat order. */

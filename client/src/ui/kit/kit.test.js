@@ -143,6 +143,38 @@ describe('Modal', () => {
     expect(openModalCount()).toBe(0);
   });
 
+  it('a pinned modal stays on top: one opened meanwhile goes under it, inert, and takes focus only once the pin closes', () => {
+    const below = openModal({ title: 'Profile', actions: [createButton({ label: 'Below' })] });
+    const keep = createButton({ label: 'Use here', variant: 'primary' });
+    const pin = openModal({ title: 'Paused', actions: [keep], dismissible: false, pinned: true, initialFocus: keep });
+    // what was open already is inert while the pin is up
+    expect(below.backdrop.hasAttribute('inert')).toBe(true);
+    expect(document.activeElement).toBe(keep);
+
+    const wait = createButton({ label: 'Wait' });
+    const later = openModal({ title: 'Player Disconnected', actions: [wait], dismissible: false });
+    const dialogFirst = openModal({ title: 'Game over', actions: [createButton({ label: 'Return' })], dismissible: false, initialFocus: 'dialog' });
+    expect(openModalCount()).toBe(4);
+    expect(document.activeElement).toBe(keep);
+    for (const m of [later, dialogFirst]) expect(m.backdrop.hasAttribute('inert')).toBe(true);
+    document.dispatchEvent(key('Tab'));
+    expect(document.activeElement).toBe(keep);
+    document.dispatchEvent(key('Tab', { shiftKey: true }));
+    expect(document.activeElement).toBe(keep);
+    // one under the pin closes: focus stays on the pin
+    later.close('api');
+    expect(document.activeElement).toBe(keep);
+
+    // the pin closes: the top one under it is live and focused (its 'dialog' focus)
+    pin.close('api');
+    expect(document.querySelector('[inert]')).toBeNull();
+    expect(document.activeElement).toBe(dialogFirst.dialog);
+    dialogFirst.close('action');
+    expect(document.activeElement.textContent).toBe('Below');
+    below.close('api');
+    expect(document.activeElement).toBe(opener);
+  });
+
   it('initialFocus wins; a modal without controls focuses itself', () => {
     const a = createButton({ label: 'A' });
     const b = createButton({ label: 'B' });

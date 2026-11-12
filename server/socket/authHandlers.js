@@ -367,7 +367,7 @@ async function signIn(socket, io, data) {
             return;
         }
         claim = null; // signed in: the name stays claimed
-        clearSuperseded(socket);
+        clearSuperseded(socket, io);
         confirmSupersede(io, parked, socket);
 
         // Check if user has an active game they can rejoin
@@ -560,7 +560,7 @@ async function signUp(socket, io, data) {
 
         // Auto-login: register with game manager (same as signIn)
         gameManager.registerUser(socket.id, username);
-        clearSuperseded(socket);
+        clearSuperseded(socket, io);
         rememberBlockList(socket, []);
 
         socket.emit('signUpResponse', { success: true, username, sessionToken, autoLoggedIn: true });
@@ -702,7 +702,7 @@ async function restoreSession(socket, io, data) {
             return;
         }
         claim = null; // signed in: the name stays claimed
-        clearSuperseded(socket);
+        clearSuperseded(socket, io);
         confirmSupersede(io, parked, socket);
 
         // Check if user has an active game they can rejoin

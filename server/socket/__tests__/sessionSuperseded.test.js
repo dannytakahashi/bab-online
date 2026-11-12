@@ -189,6 +189,101 @@ describe('a second tab of the same saved session (stub sockets)', () => {
         expect(w.log.filter((l) => l.event === 'error')).toEqual([]);
     });
 
+    // A host of another account, in the main room, with a lobby of their own
+    function hostLobby(w) {
+        const host = makeSocket(`host${seq}`, w.log, w.io);
+        gameManager.registerUser(host.id, `hank${seq}`);
+        mainRoomHandlers.joinMainRoom(host, w.io);
+        mainRoomHandlers.createLobby(host, w.io, { name: 'Hank' });
+        return { host, lobby: gameManager.getPlayerLobby(host.id) };
+    }
+    const humanSeats = (lobby, name) => lobby.players.filter((p) => !p.isBot && p.username === name);
+
+    test('the parked socket takes the session back on ITSELF: its held seat is its own again, in place, and outlives the grace', async () => {
+        const w = world();
+        const { host, lobby } = hostLobby(w);
+        const tab1 = await w.tab();
+        mainRoomHandlers.joinMainRoom(tab1, w.io);
+        mainRoomHandlers.joinLobby(tab1, w.io, { lobbyId: lobby.id });
+        const tab2 = await w.tab(); // parks tab1; its seat is held
+        expect(gameManager.reconnectingIn(lobby.id)).toEqual([w.name]);
+
+        const from = w.log.length;
+        await authHandlers.restoreSession(tab1, w.io, { username: w.name, sessionToken: w.token });
+        expect(tab2.data.superseded).toMatchObject({ by: tab1.id });
+        expect(gameManager.playerLobbies.get(tab1.id)).toBe(lobby.id);
+        expect(gameManager.lobbyGrace.has(tab1.id)).toBe(false);
+        expect(gameManager.reconnectingIn(lobby.id)).toEqual([]);
+        const toHost = w.to(host.id, from);
+        expect(toHost.find((l) => l.event === 'playerReadyUpdate').data.reconnecting).toBeUndefined();
+        expect(toHost.map((l) => l.event)).toContain('voicePeerJoined');
+
+        // the join clients re-send after a restore: the lobby again, no second seat
+        mainRoomHandlers.joinLobby(tab1, w.io, { lobbyId: lobby.id });
+        expect(humanSeats(lobby, w.name).map((p) => p.socketId)).toEqual([tab1.id]);
+        expect(w.to(tab1.id, from).map((l) => l.event)).toContain('lobbyCreated');
+
+        jest.advanceTimersByTime(gameManager.constructor.LOBBY_SEAT_GRACE_MS + 1000);
+        expect(gameManager.lobbies.get(lobby.id)).toBe(lobby);
+        expect(humanSeats(lobby, w.name).map((p) => p.socketId)).toEqual([tab1.id]);
+        expect(w.to(tab1.id, from).map((l) => l.event)).not.toContain('leftLobby');
+        expect(w.log.filter((l) => l.event === 'error')).toEqual([]);
+    });
+
+    test('the parked socket signs in as ANOTHER account: the seat held for it goes at once, and nothing of that lobby reaches it after', async () => {
+        const w = world();
+        const { host, lobby } = hostLobby(w);
+        const tab1 = await w.tab();
+        mainRoomHandlers.joinMainRoom(tab1, w.io);
+        mainRoomHandlers.joinLobby(tab1, w.io, { lobbyId: lobby.id });
+        await w.tab(); // parks tab1; its seat is held
+
+        const bob = `bob${seq}`;
+        const bobToken = addUser(bob);
+        const from = w.log.length;
+        await authHandlers.restoreSession(tab1, w.io, { username: bob, sessionToken: bobToken });
+        expect(gameManager.getUserBySocketId(tab1.id)?.username).toBe(bob);
+        expect(lobby.players.some((p) => p.socketId === tab1.id)).toBe(false);
+        expect(gameManager.lobbyGrace.has(tab1.id)).toBe(false);
+        expect(w.to(host.id, from).find((l) => l.event === 'lobbyPlayerLeft')?.data.leftUsername).toBe(w.name);
+
+        // later lobby traffic and the old grace never reach the socket that is bob now
+        const after = w.log.length;
+        lobbyHandlers.lobbyChat(host, w.io, { message: 'still here?' });
+        jest.advanceTimersByTime(gameManager.constructor.LOBBY_SEAT_GRACE_MS + 1000);
+        expect(w.to(tab1.id, after)).toEqual([]);
+        expect(w.to(tab1.id, from).map((l) => l.event)).not.toContain('leftLobby');
+    });
+
+    test('a lazy seat rejoined from the newest tab: the parked tab is not put back to spectating', async () => {
+        const w = world();
+        const tab1 = await w.tab();
+        const others = [2, 3, 4].map((p) => `lz${seq}-${p}`);
+        others.forEach((sid, i) => gameManager.registerUser(sid, `lzo${seq}-${i}`));
+        const game = gameManager.createGame([tab1.id, ...others]);
+        game.addPlayer(tab1.id, w.name, 1, 1, false);
+        others.forEach((sid, i) => game.addPlayer(sid, `lzo${seq}-${i}`, i + 2, i + 2, false));
+        for (let pos = 1; pos <= 4; pos++) game.setHand(game.positions[pos], [C(String(pos + 2), 'hearts')]);
+        game.currentHand = 1;
+        game.trump = C('A', 'spades');
+        game.forcePhase(Phase.BIDDING);
+        game.bidder = 1;
+        game.currentTurn = 2;
+        tab1.join(game.roomName);
+        game.seatGoLazy(1, { socketId: `bot:lz${seq}`, username: 'Mike', personality: 'mike' });
+        expect(game.seat(1).ownerSocketId).toBe(tab1.id);
+        await mockDb.current.users.updateOne({ username: w.name }, { $set: { activeGameId: game.gameId } });
+
+        const tab2 = await w.tab(); // parks tab1
+        expect(tab1.data.superseded).toMatchObject({ by: tab2.id });
+        await reconnectHandlers.rejoinGame(tab2, w.io, { gameId: game.gameId, username: w.name, sessionToken: w.token });
+        expect(game.seat(1).ownerSocketId).toBe(tab2.id);
+        expect(gameManager.spectatorGames.has(tab1.id)).toBe(false);
+        expect(game.spectators.has(tab1.id)).toBe(false);
+        expect(w.io.rooms.get(game.roomName).has(tab1.id)).toBe(false);
+        expect(gameManager.playerGames.has(tab1.id)).toBe(false);
+    });
+
     test('in a game: the seat follows the newest socket with no disconnect shown; the old tab never errors', async () => {
         const w = world();
         const tab1 = await w.tab();

@@ -28,7 +28,10 @@
  * claim (socket.data.username), so signOutUser still reaches it. A
  * previous socket with a DIFFERENT session (another device) gets
  * forceLogout, the documented rule. Restoring or signing in again on the
- * parked socket takes the session back (and parks the other one).
+ * parked socket takes the session back (and parks the other one), with its
+ * lobby seat if that is still held for it (clearSuperseded). A parked
+ * socket that signs in as another account gives its held seat up at once
+ * (releaseIdentity).
  */
 
 const gameManager = require('../game/GameManager');
@@ -84,6 +87,10 @@ async function releaseIdentity(io, socket, nextUsername) {
     // A failure here must not leave the socket half A: log it, and the
     // registration and claim below still go
     try {
+        // A seat held for this very socket (it was parked: confirmSupersede)
+        // has no mapping, so the leave below misses it: given up here, at once
+        const expired = gameManager.releaseHeldLobbySeat(socket.id);
+        if (expired) require('./lobbyHandlers').lobbySeatExpired(io, expired, { tellOld: false });
         const { handleDisconnect } = require('./queueHandlers');
         await handleDisconnect(socket, io, { lobbyGrace: false });
     } catch (error) {
@@ -167,10 +174,18 @@ function confirmSupersede(io, old, bySocket) {
  * restored), unless a newer one registered while its sign-in was being
  * re-checked (that one's confirmSupersede parks this socket next).
  */
-function clearSuperseded(socket) {
+function clearSuperseded(socket, io = null) {
     if (!socket?.data?.superseded) return;
     const registered = gameManager.getUserBySocketId(socket.id);
-    if (registered && registered.username === socket.data.username) delete socket.data.superseded;
+    if (!registered || registered.username !== socket.data.username) return;
+    delete socket.data.superseded;
+    // Its lobby seat, if still held for it (no newer socket took it), is
+    // its own again in place (a re-sent joinLobby then just gets the lobby)
+    const resumed = gameManager.resumeHeldLobbySeat(socket.id, registered.username);
+    if (resumed && io) {
+        socket.leave?.('mainRoom');
+        require('./lobbyHandlers').lobbySeatResumed(io, resumed.lobby, socket.id, registered.username);
+    }
 }
 
 /**

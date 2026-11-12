@@ -8,8 +8,9 @@
  * restores the session and re-enters the screen, which parks the other tab
  * with the same notice).
  *
- * A kit modal (focus trap, focus restore) that cannot be dismissed: the
- * only way out is Use here. role=alertdialog, labelled and described, focus
+ * A pinned kit modal (focus trap, focus restore; a modal opened while it is
+ * up goes in under it, inert) that cannot be dismissed: the only way out is
+ * Use here. role=alertdialog, labelled and described, focus
  * on the button; the backdrop is opaque (nothing stale behind it shows
  * through). Reduced motion: the kit's fade is off.
  */
@@ -44,6 +45,9 @@ export function showSupersededNotice({ onUseHere } = {}) {
     dismissible: false,
     className: 'superseded-notice',
     initialFocus: useHere,
+    // a dialog opened behind it (a game event still reaching this tab)
+    // never takes focus from Use here
+    pinned: true,
   });
   modal.backdrop.classList.add('superseded-notice-backdrop');
   modal.dialog.setAttribute('role', 'alertdialog');

@@ -140,6 +140,28 @@ describe('another tab takes the session', () => {
     expect(notice()).toBeNull();
   });
 
+  it('a dialog from the game still reaching a paused tab opens under the notice: focus and Tab stay on Use here', async () => {
+    socket.fire('sessionSuperseded', { reason: 'newerConnection' });
+    expect(document.activeElement).toBe(useHere());
+    socket.fire('resignationAvailable', { position: 2, username: 'bob' });
+    const offer = document.getElementById('resignation-dialog');
+    expect(offer).not.toBeNull();
+    expect(offer.hasAttribute('inert')).toBe(true);
+    expect(document.activeElement).toBe(useHere());
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+    expect(document.activeElement).toBe(useHere());
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true }));
+    expect(document.activeElement).toBe(useHere());
+    // taken down while paused: focus does not move off the notice
+    socket.fire('playerReconnected', { position: 2, username: 'bob' });
+    expect(document.getElementById('resignation-dialog')).toBeNull();
+    expect(document.activeElement).toBe(useHere());
+    socket.clearEmits();
+    await takeBack();
+    socket.fire('restoreSessionResponse', { success: true, username: 'me', activeGameId: 'g7', blockedUsers: [] });
+    socket.fire('rejoinSuccess', clientState({ gameId: 'g7' }));
+  });
+
   it('a restore answered on this socket after the notice (two restores racing) lifts it', () => {
     socket.fire('sessionSuperseded', { reason: 'newerConnection' });
     expect(page.session.isParked).toBe(true);

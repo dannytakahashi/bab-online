@@ -265,7 +265,8 @@ function releaseStaleLobbySeat(io, change) {
     if (!change || !change.oldSocketId) return;
     const { oldSocketId, newSocketId } = change;
 
-    io.to(oldSocketId).emit('leftLobby', {});
+    // tellOld false: the old socket is someone else now (it switched accounts)
+    if (change.tellOld !== false) io.to(oldSocketId).emit('leftLobby', {});
 
     const leave = change.leaveResult;
     const lobby = leave ? (leave.lobbyDeleted ? null : leave.lobby) : change.lobby;
@@ -314,13 +315,33 @@ function lobbySeatSuspended(io, lobby, oldSocketId) {
 }
 
 /**
+ * A held seat's own socket is live again as the same player
+ * (GameManager.resumeHeldLobbySeat): the lobby's other humans get the list
+ * without it under `reconnecting` and its voice peer back, the main room
+ * the lobby list.
+ */
+function lobbySeatResumed(io, lobby, socketId, username) {
+    lobby.players.forEach(player => {
+        if (player.socketId === socketId || gameManager.isBot(player.socketId)) return;
+        io.to(player.socketId).emit('playerReadyUpdate', { lobbyId: lobby.id, players: lobby.players, ...gameManager.reconnectingField(lobby.id) });
+        io.to(player.socketId).emit('voicePeerJoined', { socketId, username });
+    });
+    io.to('mainRoom').emit('lobbiesUpdated', {
+        lobbies: gameManager.getAllLobbies(),
+        inProgressGames: gameManager.getInProgressGames(),
+        tournaments: gameManager.getAllTournaments()
+    });
+    socketLogger.info('Held lobby seat resumed by its own socket', { lobbyId: lobby.id, socketId });
+}
+
+/**
  * Nobody came back for a held seat (GameManager.expireLobbySeat): it left,
  * as a leave (lobbyPlayerLeft to the rest; the lobby is gone when no human
  * is left), and the main room's list updates.
  */
-function lobbySeatExpired(io, expired) {
+function lobbySeatExpired(io, expired, { tellOld = true } = {}) {
     if (!expired) return;
-    releaseStaleLobbySeat(io, { oldSocketId: expired.oldSocketId, newSocketId: null, leaveResult: expired.leaveResult, username: expired.username });
+    releaseStaleLobbySeat(io, { oldSocketId: expired.oldSocketId, newSocketId: null, leaveResult: expired.leaveResult, username: expired.username, tellOld });
     io.to('mainRoom').emit('lobbiesUpdated', {
         lobbies: gameManager.getAllLobbies(),
         inProgressGames: gameManager.getInProgressGames(),
@@ -432,6 +453,7 @@ module.exports = {
     releaseStaleLobbySeat,
     lobbySeatSuspended,
     lobbySeatExpired,
+    lobbySeatResumed,
     addBot,
     removeBot
 };
