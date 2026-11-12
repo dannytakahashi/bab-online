@@ -852,11 +852,12 @@ const s2c = {
             adminOk('listAdmins', { admins: arr(obj({ username: str(), adminSince: isoOrNull() })) }),
             adminOk('setAdmin', { username: str(), isAdmin: bool(), changed: bool() }),
             adminOk('listAudit', { entries: arr(adminAuditRow), hasMore: bool() }),
+            adminOk('listPlayers', { players: arr(adminPlayerRow), total: int({ minimum: 0 }), limit: int({ minimum: 1 }) }),
         ),
         status: 'active', to: 'self',
         clientReads: reads('client/src/admin/adminApi.js:createAdminApi', []),
         emittedFrom: ['server/socket/adminHandlers.js:adminRequest'],
-        notes: 'The reply to adminRequest, to the requesting socket only (requestId and action echoed). failure: forbidden = not an admin right now (the one uniform refusal for every action and target: no account information), invalid = bad args or a wrong typed confirmation, not_found / refused / last_admin / stale_plan (the merge changed since its preview: preview again) / server; message is for the admin. createResetLink.token is the one-time link secret (/reset#<token>): shown to the admin once, never logged or audited. planMerge.plan is formatPlan\'s content as data (no picture bytes); planHash fingerprints the whole plan and applyMerge applies only when a fresh plan has the same hash. The iOS app has no handler (layout: excluded from Swift).',
+        notes: 'The reply to adminRequest, to the requesting socket only (requestId and action echoed). failure: forbidden = not an admin right now (the one uniform refusal for every action and target: no account information), invalid = bad args or a wrong typed confirmation, not_found / refused / last_admin / stale_plan (the merge changed since its preview: preview again) / server; message is for the admin. createResetLink.token is the one-time link secret (/reset#<token>): shown to the admin once, never logged or audited. planMerge.plan is formatPlan\'s content as data (no picture bytes); planHash fingerprints the whole plan and applyMerge applies only when a fresh plan has the same hash. listPlayers: every account newest first, at most `limit` (500) rows; `total` is the true count (the panel says when the list is capped). The iOS app has no handler (layout: excluded from Swift).',
     },
 
     // ==================== Voice (relays) ====================

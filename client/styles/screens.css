@@ -1382,7 +1382,135 @@
     white-space: nowrap;
 }
 
-.admin-modal :is(select, summary, [role="tab"], [role="tabpanel"]):focus-visible {
+/* the Players table: sortable headers like the leaderboard's (.lb-sort) */
+.admin-sort {
+    box-sizing: border-box;
+    min-height: var(--hit-target);
+    padding: 0 var(--space-1);
+    background: none;
+    border: none;
+    border-radius: var(--radius-sm);
+    color: inherit;
+    font: inherit;
+    letter-spacing: inherit;
+    text-transform: inherit;
+    text-align: inherit;
+    cursor: pointer;
+    transition: color var(--dur-fast) var(--ease-standard);
+}
+
+.admin-sort:hover {
+    color: var(--text-primary);
+}
+
+.admin-table th[aria-sort] .admin-sort {
+    color: var(--primary-base);
+}
+
+.admin-table th.is-num {
+    text-align: right;
+}
+
+.admin-row--tombstone td {
+    color: var(--text-secondary);
+}
+
+.admin-cap-note {
+    color: var(--warning);
+}
+
+.admin-cap-note[hidden] {
+    display: none;
+}
+
+/* the row's More menu (adminPlayers.js createActionMenu) */
+.admin-menu-wrap {
+    position: relative;
+}
+
+.admin-menu__caret {
+    margin-left: var(--space-1);
+}
+
+.admin-menu {
+    position: absolute;
+    right: 0;
+    top: calc(100% + var(--space-1));
+    z-index: 2;
+    min-width: 220px;
+    padding: var(--space-1) 0;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-md);
+    background: var(--surface-2);
+}
+
+.admin-menu[hidden] {
+    display: none;
+}
+
+.admin-menu__item {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    min-height: var(--hit-target);
+    padding: 0 var(--space-4);
+    border: 0;
+    background: transparent;
+    color: var(--text-primary);
+    font: inherit;
+    font-size: var(--type-sm);
+    text-align: left;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.admin-menu__item:hover,
+.admin-menu__item:focus-visible {
+    background: rgb(var(--text-primary-rgb) / 0.08);
+    outline: none;
+}
+
+/* destructive items: named in the danger text color, never a filled red button */
+.admin-menu__item--danger {
+    color: var(--danger-text);
+}
+
+.admin-menu__sep {
+    height: 1px;
+    margin: var(--space-1) 0;
+    background: var(--line-subtle);
+}
+
+/* the typed-confirmation and rename dialogs (adminPlayers.js) */
+.admin-dialog__form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+.admin-dialog__form .admin-list {
+    margin: 0;
+}
+
+.admin-dialog__alert {
+    margin: 0;
+    min-height: 1.4em;
+    color: var(--danger-text);
+    font-size: var(--type-sm);
+}
+
+.admin-rename__summary {
+    margin: 0;
+    color: var(--text-primary);
+    font-weight: var(--weight-semibold);
+    overflow-wrap: anywhere;
+}
+
+.admin-rename__arrow {
+    color: var(--text-secondary);
+}
+
+.admin-modal :is(select, summary, [role="tab"], [role="tabpanel"], .admin-sort, .admin-menu__item):focus-visible {
     outline: 2px solid var(--text-primary);
     outline-offset: 2px;
 }

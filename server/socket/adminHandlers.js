@@ -52,7 +52,7 @@ const { createResetLink } = require('../admin/passwordReset');
 const { revokeOpenResetLinks } = require('../admin/setPassword');
 const { recordAudit, listAudit } = require('../admin/audit');
 const { listReports, resolveReport } = require('../admin/reports');
-const { searchPlayers } = require('../admin/players');
+const { searchPlayers, listPlayers } = require('../admin/players');
 const { planMerge, applyMerge, countChanges, findDuplicateCandidates } = require('../admin/accountMerge');
 const { planView, planHash } = require('../admin/mergeView');
 const { signOutUser } = require('./authHandlers');
@@ -87,7 +87,8 @@ const ACTION_SCHEMAS = {
         before: Joi.date().iso().optional(),
         beforeId: Joi.string().hex().length(24).optional(),
         limit: Joi.number().integer().min(1).max(100).default(50)
-    })
+    }),
+    listPlayers: Joi.object({})
 };
 
 const ACTIONS = Object.keys(ACTION_SCHEMAS);
@@ -350,6 +351,15 @@ const RUN = {
     async listAudit({ db }, { before, beforeId, limit }) {
         const page = await listAudit(db, { before: before || null, beforeId: beforeId || null, limit });
         return { reply: page, target: null, detail: null };
+    },
+
+    async listPlayers({ db }) {
+        const { players, total, limit } = await listPlayers(db, { isOnline });
+        return {
+            reply: { players, total, limit },
+            target: null,
+            detail: `${players.length} of ${total} account(s)`
+        };
     }
 };
 

@@ -3805,7 +3805,8 @@
               "resolveReport",
               "listAdmins",
               "setAdmin",
-              "listAudit"
+              "listAudit",
+              "listPlayers"
             ]
           },
           "args": {
@@ -3838,6 +3839,11 @@
         {
           "requestId": "adm-2",
           "action": "listAdmins"
+        },
+        {
+          "requestId": "adm-4",
+          "action": "listPlayers",
+          "args": {}
         },
         {
           "requestId": "adm-3",
@@ -9459,6 +9465,87 @@
               "hasMore"
             ],
             "additionalProperties": false
+          },
+          {
+            "variant": "listPlayers",
+            "type": "object",
+            "properties": {
+              "requestId": {
+                "type": "string"
+              },
+              "action": {
+                "const": "listPlayers"
+              },
+              "ok": {
+                "const": true
+              },
+              "players": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "username": {
+                      "type": "string"
+                    },
+                    "createdAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "lastSeenAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "online": {
+                      "type": "boolean"
+                    },
+                    "gamesPlayed": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "isAdmin": {
+                      "type": "boolean"
+                    },
+                    "mergedInto": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "username",
+                    "createdAt",
+                    "lastSeenAt",
+                    "online",
+                    "gamesPlayed",
+                    "isAdmin",
+                    "mergedInto"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "required": [
+              "requestId",
+              "action",
+              "ok",
+              "players",
+              "total",
+              "limit"
+            ],
+            "additionalProperties": false
           }
         ]
       },
@@ -9473,7 +9560,7 @@
       "emittedFrom": [
         "server/socket/adminHandlers.js:adminRequest"
       ],
-      "notes": "The reply to adminRequest, to the requesting socket only (requestId and action echoed). failure: forbidden = not an admin right now (the one uniform refusal for every action and target: no account information), invalid = bad args or a wrong typed confirmation, not_found / refused / last_admin / stale_plan (the merge changed since its preview: preview again) / server; message is for the admin. createResetLink.token is the one-time link secret (/reset#<token>): shown to the admin once, never logged or audited. planMerge.plan is formatPlan's content as data (no picture bytes); planHash fingerprints the whole plan and applyMerge applies only when a fresh plan has the same hash. The iOS app has no handler (layout: excluded from Swift)."
+      "notes": "The reply to adminRequest, to the requesting socket only (requestId and action echoed). failure: forbidden = not an admin right now (the one uniform refusal for every action and target: no account information), invalid = bad args or a wrong typed confirmation, not_found / refused / last_admin / stale_plan (the merge changed since its preview: preview again) / server; message is for the admin. createResetLink.token is the one-time link secret (/reset#<token>): shown to the admin once, never logged or audited. planMerge.plan is formatPlan's content as data (no picture bytes); planHash fingerprints the whole plan and applyMerge applies only when a fresh plan has the same hash. listPlayers: every account newest first, at most `limit` (500) rows; `total` is the true count (the panel says when the list is capped). The iOS app has no handler (layout: excluded from Swift)."
     },
     "voiceOffer": {
       "payload": {

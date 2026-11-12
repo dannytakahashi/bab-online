@@ -494,4 +494,19 @@ describe('real mongod', () => {
             mockHolder.adminAudit = null;
         }
     });
+
+    test('(j) the Players table on the real driver: every account newest first by _id, the projection reads no secret, the cap and the true total', async () => {
+        if (!client) return;
+        const { listPlayers } = require('../admin/players');
+        const users = mockHolder.users;
+        const all = await listPlayers({ users });
+        expect(all.total).toBe(7);
+        // insertion order = _id order: newest (Eve) first
+        expect(all.players.map(p => p.username)).toEqual(['Eve', 'Dot', 'Cy', 'Bea', 'OldAlan', 'alan', 'Alan']);
+        expect(all.players.find(p => p.username === 'OldAlan')).toMatchObject({ mergedInto: 'Alan', gamesPlayed: 0 });
+        expect(JSON.stringify(all)).not.toMatch(/\$2[ab]\$|data:image|Mallory/);
+        const capped = await listPlayers({ users }, { limit: 3 });
+        expect(capped).toMatchObject({ total: 7, limit: 3 });
+        expect(capped.players.map(p => p.username)).toEqual(['Eve', 'Dot', 'Cy']);
+    });
 });

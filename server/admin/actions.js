@@ -9,7 +9,9 @@
 const ADMIN_ACTIONS = Object.freeze([
     'searchPlayers', 'createResetLink', 'signOutEverywhere', 'findDuplicates',
     'planMerge', 'applyMerge', 'listReports', 'resolveReport',
-    'listAdmins', 'setAdmin', 'listAudit'
+    'listAdmins', 'setAdmin', 'listAudit',
+    // batch 2 (owner, 2026-11-11): the Players table
+    'listPlayers'
 ]);
 
 module.exports = { ADMIN_ACTIONS };

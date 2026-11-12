@@ -664,6 +664,7 @@ describe('(e2) admin panel', () => {
         };
         expect((await req(bea, 'listAdmins', {})).error).toBe('forbidden');
         expect((await req(restorer, 'searchPlayers', { query: 'adm' })).players.length).toBe(4);
+        expect(await req(restorer, 'listPlayers', {})).toMatchObject({ ok: true, total: 4, limit: 500 });
         expect((await req(restorer, 'createResetLink', { username: 'adm_bea' })).ok).toBe(true);
         expect((await req(restorer, 'signOutEverywhere', { username: 'adm_bea' })).disconnected).toBe(1);
         expect((await req(restorer, 'findDuplicates', {})).groups.length).toBe(1);

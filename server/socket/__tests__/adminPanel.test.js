@@ -157,7 +157,8 @@ const ARGS = {
     resolveReport: { id: 'a'.repeat(24), status: 'resolved', note: 'x' },
     listAdmins: {},
     setAdmin: { username: 'Bea', isAdmin: true },
-    listAudit: {}
+    listAudit: {},
+    listPlayers: {}
 };
 // The same with a target that does not exist
 const MISSING = {
@@ -406,6 +407,19 @@ describe('actions', () => {
             ['Old', false, 'Bea', false]
         ]);
         expect(JSON.stringify(res)).not.toMatch(/\$2[ab]\$|hash/i);
+    });
+
+    test('players table: every account newest first, tombstones marked, the true total, no password or session data', async () => {
+        const res = await request(owner, 'listPlayers', {});
+        expect(res).toMatchObject({ ok: true, total: 4, limit: 500 });
+        // newest first: the fixture inserts Owner, Bea, Cy, Old in that order
+        expect(res.players.map(p => p.username)).toEqual(['Old', 'Cy', 'Bea', 'Owner']);
+        expect(res.players[0]).toMatchObject({ mergedInto: 'Bea', isAdmin: false, online: false, gamesPlayed: 0, lastSeenAt: null });
+        expect(res.players[3]).toMatchObject({ username: 'Owner', isAdmin: true, online: true, gamesPlayed: 4, mergedInto: null });
+        expect(res.players[3].lastSeenAt).toEqual(expect.any(String));
+        expect(Object.keys(res.players[3]).sort()).toEqual(['createdAt', 'gamesPlayed', 'isAdmin', 'lastSeenAt', 'mergedInto', 'online', 'username']);
+        expect(JSON.stringify(res)).not.toMatch(/\$2[ab]\$|hash|socketId|sessionToken|password/i);
+        expect(audit().pop()).toMatchObject({ actor: 'Owner', action: 'listPlayers', target: null, result: 'ok', detail: '4 of 4 account(s)' });
     });
 
     describe('merge from the panel', () => {
