@@ -578,6 +578,27 @@ describe('actions', () => {
             expect(await users().findOne({ username: 'Cy' })).toBeNull();
         });
 
+        test('a delete sent while a merge of the same name is running waits for it (the merge queue): it then finds a tombstone; never stats merged from a deleted account', async () => {
+            await users().updateOne({ username: 'Cy' }, { $set: { stats: { gamesPlayed: 3, wins: 1 } } });
+            const plan = await request(owner, 'planMerge', { target: 'Bea', sources: ['Cy'] });
+            const hold = holdNextWrite(mockDb.current.gameRecords); // the merge's first write
+            const merging = request(owner, 'applyMerge', { target: 'Bea', sources: ['Cy'], planHash: plan.planHash, confirm: 'Bea' });
+            let deleting;
+            try {
+                await hold.reached;
+                deleting = request(owner, 'deleteAccount', { username: 'Cy', confirm: 'Cy' });
+                await new Promise(r => setTimeout(r, 20)); // the delete gets as far as it can
+                expect(await users().findOne({ username: 'Cy' })).not.toBeNull(); // it is waiting, not erasing
+            } finally {
+                hold.release();
+            }
+            const [m, d] = await Promise.all([merging, deleting]);
+            expect(m).toMatchObject({ ok: true, result: { retired: ['Cy'], statsMerged: ['Cy'] } });
+            expect(d).toMatchObject({ ok: true, kind: 'tombstone', mergedInto: 'Bea' });
+            expect((await users().findOne({ username: 'Bea' })).stats.gamesPlayed).toBe(5);
+            expect(await users().findOne({ username: 'Cy' })).toBeNull();
+        });
+
         test('the player\'s own Delete account runs the same deletion: block lists, reset links, reports, tombstones, every other tab signed out', async () => {
             const cy = await signedIn('Cy');
             const cy2 = await restoredTab('Cy', cy.sessionToken);
@@ -709,6 +730,7 @@ describe('actions', () => {
                 [{ newName: 'C', confirm: 'C' }, 'refused', /at least 3 characters/],
                 [{ newName: ' Cyrus', confirm: ' Cyrus' }, 'refused', /start or end with a space/],
                 [{ newName: 'Cy😀x', confirm: 'Cy😀x' }, 'refused', /emoji/],
+                [{ newName: 'shit5', confirm: 'shit5' }, 'refused', /That username is not allowed/],
                 [{ newName: 'bea', confirm: 'bea' }, 'refused', /That name is taken: "Bea" already exists/],
                 [{ newName: 'BEA', confirm: 'BEA' }, 'refused', /taken/],
                 [{ newName: 'old', confirm: 'old' }, 'refused', /an old name of "Bea"\. Delete that old name first/],
@@ -749,8 +771,25 @@ describe('actions', () => {
             expect(gameManager.isMergeLocked('Cyrus')).toBe(false);
             gameManager.abortGame(game.gameId, w.io);
             await users().updateOne({ username: 'Cy' }, { $set: { activeGameId: 'g-elsewhere' } });
-            expect(await request(owner, 'renameAccount', { username: 'Cy', newName: 'Cyrus', confirm: 'Cyrus' })).toMatchObject({ ok: false, error: 'refused', message: expect.stringMatching(/in a game/) });
+            const signedOutBefore = w.log.filter(l => l.event === 'forceLogout').length;
+            expect(await request(owner, 'renameAccount', { username: 'Cy', newName: 'Cyrus', confirm: 'Cyrus' })).toMatchObject({ ok: false, error: 'refused', message: expect.stringMatching(/^"Cy" is in a game right now/) });
+            expect(w.log.filter(l => l.event === 'forceLogout').length).toBe(signedOutBefore); // refused before anything
             expect(await users().findOne({ username: 'Cyrus' })).toBeNull();
+        });
+
+        test('a game the database shows by the time of the guarded write (another process) refuses the rename; nothing renamed', async () => {
+            const hold = holdNextWrite(users(), 'findOneAndUpdate');
+            const pending = request(owner, 'renameAccount', { username: 'Cy', newName: 'Cyrus', confirm: 'Cyrus' });
+            try {
+                await hold.reached;
+                await users().updateOne({ username: 'Cy' }, { $set: { activeGameId: 'g-other-process' } });
+            } finally {
+                hold.release();
+            }
+            expect(await pending).toMatchObject({ ok: false, error: 'refused', message: expect.stringMatching(/changed while this ran.*Nothing was renamed/) });
+            expect(await users().findOne({ username: 'Cyrus' })).toBeNull();
+            expect(await users().findOne({ username: 'Cy' })).toMatchObject({ activeGameId: 'g-other-process' });
+            expect(mockDb.current.gameRecords.all()[0].team1Players).toEqual(['Cy', 'Bea']);
         });
 
         test('while it runs both names are locked: no sign-in as the old name, no sign-up of the new one (any case)', async () => {
