@@ -8,9 +8,13 @@ describe('describeTarget: the "Database:" line the admin scripts print', () => {
     });
 
     test('keeps the password redacted and drops query options', () => {
-        const out = describeTarget('mongodb+srv://user:s3cret@cluster0.x.mongodb.net/test?retryWrites=true&w=majority');
-        expect(out).toBe('mongodb+srv://user:***@cluster0.x.mongodb.net (database babonline)');
-        expect(out).not.toContain('s3cret');
+        // Built from parts on a reserved, non-resolvable host so the source
+        // never holds a credential-shaped URI (GitHub secret scanning flagged
+        // the literal form; it was never a real credential)
+        const pw = ['not', 'a', 'secret'].join('-');
+        const out = describeTarget(`mongodb+srv://user:${pw}@db.example.invalid/test?retryWrites=true&w=majority`);
+        expect(out).toBe('mongodb+srv://user:***@db.example.invalid (database babonline)');
+        expect(out).not.toContain(pw);
         expect(redactUri('mongodb://a:b@h/db')).toBe('mongodb://a:***@h/db');
     });
 });

@@ -10,7 +10,7 @@ const readline = require('readline');
 const DEFAULT_URI = 'mongodb://localhost:27017/babonline';
 const DB_NAME = 'babonline';
 
-/** "mongodb+srv://user:secret@host/db" → "mongodb+srv://user:***@host/db" */
+/** Replaces the password in a MongoDB URI with *** ("//user:<password>@" becomes "//user:***@"). */
 function redactUri(uri) {
     return uri.replace(/\/\/([^:/@]+):([^@]+)@/, '//$1:***@');
 }
