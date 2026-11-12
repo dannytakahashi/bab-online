@@ -124,8 +124,10 @@ function newSocket(t, username) {
 }
 
 const roomOffers = (t) => events(t.log, 'resignationAvailable').filter((l) => l.to === t.game.roomName).map((l) => l.data.position);
+// A snapshot carrier's seat is its snapshot's viewer position (V1_REMOVALS #9: no v1 position key)
+const posOf = (d) => (!d || typeof d !== 'object' ? undefined : 'position' in d ? d.position : d.snapshot?.viewer?.position ?? undefined);
 const selfEvents = (t, s, from = 0) => t.log.slice(from).filter((l) => l.to === `self:${s.id}`)
-    .map((l) => `${l.event}${l.data && typeof l.data === 'object' && 'position' in l.data ? `@${l.data.position}` : ''}`);
+    .map((l) => `${l.event}${posOf(l.data) !== undefined ? `@${posOf(l.data)}` : ''}`);
 const aborts = (t) => events(t.log, 'abortGame');
 const inRoom = (t, sid) => !!t.io.rooms.get(t.game.roomName)?.has(sid);
 
@@ -720,7 +722,7 @@ describe('R21 joinAsSpectator by an owner returns them to their seat', () => {
         const s = newSocket(t, 'user1');
         mainRoomHandlers.joinAsSpectator(s, t.io, { gameId: t.game.gameId });
         const ok = t.log.find((l) => l.to === `self:${s.id}` && l.event === 'rejoinSuccess');
-        expect(ok.data).toMatchObject({ position: 1, isLazy: true });
+        expect(ok.data).toMatchObject({ isLazy: true, snapshot: { viewer: { role: 'lazyWatcher', position: 1 } } });
         expect(t.game.seat(1)).toMatchObject({ presence: 'connected', ownerSocketId: s.id, ownerView: 'watch' });
         expect(t.game.isSpectator(s.id)).toBe(false);
     });

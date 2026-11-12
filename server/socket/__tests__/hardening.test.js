@@ -192,8 +192,8 @@ describe('playCard validation', () => {
         const mine = log.filter((l) => l.to === `self:${ids[0]}`).map((l) => l.event);
         expect(mine).toEqual(['actionRejected', 'restorePlayerState']);
         const restore = log.find((l) => l.event === 'restorePlayerState').data;
-        expect(restore.hand).toEqual([C('2', 'hearts'), C('3', 'hearts')]);
-        expect(restore.position).toBe(1);
+        expect(restore.snapshot.hand).toEqual([C('2', 'hearts'), C('3', 'hearts')]);
+        expect(restore.snapshot.viewer.position).toBe(1);
 
         // Other refusals (wrong turn) do not resync
         const before = log.length;

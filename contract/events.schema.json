@@ -6349,74 +6349,6 @@
               "gameId": {
                 "type": "string"
               },
-              "position": {
-                "anyOf": [
-                  {
-                    "$ref": "#/$defs/position"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "hand": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/$defs/card"
-                }
-              },
-              "trump": {
-                "anyOf": [
-                  {
-                    "$ref": "#/$defs/card"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "currentHand": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 13
-              },
-              "dealer": {
-                "$ref": "#/$defs/position"
-              },
-              "phase": {
-                "enum": [
-                  "waiting",
-                  "drawing",
-                  "bidding"
-                ]
-              },
-              "bidding": {
-                "type": "boolean"
-              },
-              "currentTurn": {
-                "$ref": "#/$defs/position"
-              },
-              "bids": {
-                "$ref": "#/$defs/legacyBids"
-              },
-              "playerBids": {
-                "$ref": "#/$defs/bidArray"
-              },
-              "tricks": {
-                "$ref": "#/$defs/teamPair"
-              },
-              "score": {
-                "$ref": "#/$defs/teamPair"
-              },
-              "playedCards": {
-                "$ref": "#/$defs/playedCards"
-              },
-              "leadPosition": {
-                "$ref": "#/$defs/position"
-              },
-              "isTrumpBroken": {
-                "type": "boolean"
-              },
               "players": {
                 "type": "array",
                 "items": {
@@ -6424,28 +6356,8 @@
                 },
                 "maxItems": 4
               },
-              "gameLog": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/$defs/gameLogEntry"
-                }
-              },
-              "hsiValues": {
-                "$ref": "#/$defs/hsiValues"
-              },
-              "resignedPositions": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/$defs/position"
-                },
-                "maxItems": 4
-              },
-              "lazyPositions": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/$defs/position"
-                },
-                "maxItems": 4
+              "avatarUrls": {
+                "$ref": "#/$defs/avatarUrlsByPosition"
               },
               "isLazy": {
                 "type": "boolean"
@@ -6458,33 +6370,11 @@
               },
               "snapshot": {
                 "$ref": "#/$defs/snapshotV2"
-              },
-              "avatarUrls": {
-                "$ref": "#/$defs/avatarUrlsByPosition"
               }
             },
             "required": [
               "gameId",
-              "position",
-              "hand",
-              "trump",
-              "currentHand",
-              "dealer",
-              "phase",
-              "bidding",
-              "currentTurn",
-              "bids",
-              "playerBids",
-              "tricks",
-              "score",
-              "playedCards",
-              "leadPosition",
-              "isTrumpBroken",
               "players",
-              "gameLog",
-              "hsiValues",
-              "resignedPositions",
-              "lazyPositions",
               "isLazy",
               "tournamentId",
               "snapshot"
@@ -6498,74 +6388,6 @@
               "gameId": {
                 "type": "string"
               },
-              "position": {
-                "anyOf": [
-                  {
-                    "$ref": "#/$defs/position"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "hand": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/$defs/card"
-                }
-              },
-              "trump": {
-                "anyOf": [
-                  {
-                    "$ref": "#/$defs/card"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "currentHand": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 13
-              },
-              "dealer": {
-                "$ref": "#/$defs/position"
-              },
-              "phase": {
-                "enum": [
-                  "waiting",
-                  "drawing",
-                  "bidding"
-                ]
-              },
-              "bidding": {
-                "type": "boolean"
-              },
-              "currentTurn": {
-                "$ref": "#/$defs/position"
-              },
-              "bids": {
-                "$ref": "#/$defs/legacyBids"
-              },
-              "playerBids": {
-                "$ref": "#/$defs/bidArray"
-              },
-              "tricks": {
-                "$ref": "#/$defs/teamPair"
-              },
-              "score": {
-                "$ref": "#/$defs/teamPair"
-              },
-              "playedCards": {
-                "$ref": "#/$defs/playedCards"
-              },
-              "leadPosition": {
-                "$ref": "#/$defs/position"
-              },
-              "isTrumpBroken": {
-                "type": "boolean"
-              },
               "players": {
                 "type": "array",
                 "items": {
@@ -6573,61 +6395,19 @@
                 },
                 "maxItems": 4
               },
-              "gameLog": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/$defs/gameLogEntry"
-                }
-              },
-              "hsiValues": {
-                "$ref": "#/$defs/hsiValues"
-              },
-              "resignedPositions": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/$defs/position"
-                },
-                "maxItems": 4
-              },
-              "lazyPositions": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/$defs/position"
-                },
-                "maxItems": 4
+              "avatarUrls": {
+                "$ref": "#/$defs/avatarUrlsByPosition"
               },
               "isLazy": {
                 "type": "boolean"
               },
               "snapshot": {
                 "$ref": "#/$defs/snapshotV2"
-              },
-              "avatarUrls": {
-                "$ref": "#/$defs/avatarUrlsByPosition"
               }
             },
             "required": [
               "gameId",
-              "position",
-              "hand",
-              "trump",
-              "currentHand",
-              "dealer",
-              "phase",
-              "bidding",
-              "currentTurn",
-              "bids",
-              "playerBids",
-              "tricks",
-              "score",
-              "playedCards",
-              "leadPosition",
-              "isTrumpBroken",
               "players",
-              "gameLog",
-              "hsiValues",
-              "resignedPositions",
-              "lazyPositions",
               "isLazy",
               "snapshot"
             ],
@@ -6678,13 +6458,12 @@
       "clientReads": {
         "web": [
           "client/src/handlers/gameHandlers.js:registerGameHandlers",
-          "client/src/main.js:processRejoinOrRestore",
-          "client/src/state/GameState.js:restoreFromRejoin",
+          "client/src/state/tableSync.js:applyTableSnapshot",
           "client/src/main.js:onRejoinSuccess"
         ],
         "ios": [
-          "iOSClient/BABOnline/Networking/Handlers/GameSocketHandler.swift:registerReconnection",
-          "iOSClient/BABOnline/State/GameState.swift:restoreFromRejoin"
+          "iOSClient/BABOnline/Networking/Wire/WirePayloads.swift:RejoinEnvelope",
+          "iOSClient/BABOnline/State/Table/TableReducer+Snapshot.swift:seatState"
         ]
       },
       "emittedFrom": [
@@ -6692,7 +6471,7 @@
         "server/socket/seatLifecycle.js:watchSeat",
         "server/socket/reconnectHandlers.js:rejoinGame"
       ],
-      "notes": "getClientState + tournamentId (string|null) on a rejoin; watchSeat via joinAsSpectator sends the bare state (web reads tournamentId !== undefined). Before playerReconnected and the presence replays."
+      "notes": "A snapshot carrier (V1_REMOVALS #9, 2026-11-12: the 22 getClientState keys went; the table is the snapshot): gameId, players, avatarUrls (capable sockets with a URL), isLazy, tournamentId (string|null) on a rejoin; watchSeat via joinAsSpectator sends no tournamentId (web reads tournamentId !== undefined). Before playerReconnected and the presence replays."
     },
     "restorePlayerState": {
       "payload": {
@@ -6701,74 +6480,6 @@
           "gameId": {
             "type": "string"
           },
-          "position": {
-            "anyOf": [
-              {
-                "$ref": "#/$defs/position"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "hand": {
-            "type": "array",
-            "items": {
-              "$ref": "#/$defs/card"
-            }
-          },
-          "trump": {
-            "anyOf": [
-              {
-                "$ref": "#/$defs/card"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "currentHand": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 13
-          },
-          "dealer": {
-            "$ref": "#/$defs/position"
-          },
-          "phase": {
-            "enum": [
-              "waiting",
-              "drawing",
-              "bidding"
-            ]
-          },
-          "bidding": {
-            "type": "boolean"
-          },
-          "currentTurn": {
-            "$ref": "#/$defs/position"
-          },
-          "bids": {
-            "$ref": "#/$defs/legacyBids"
-          },
-          "playerBids": {
-            "$ref": "#/$defs/bidArray"
-          },
-          "tricks": {
-            "$ref": "#/$defs/teamPair"
-          },
-          "score": {
-            "$ref": "#/$defs/teamPair"
-          },
-          "playedCards": {
-            "$ref": "#/$defs/playedCards"
-          },
-          "leadPosition": {
-            "$ref": "#/$defs/position"
-          },
-          "isTrumpBroken": {
-            "type": "boolean"
-          },
           "players": {
             "type": "array",
             "items": {
@@ -6776,62 +6487,16 @@
             },
             "maxItems": 4
           },
-          "gameLog": {
-            "type": "array",
-            "items": {
-              "$ref": "#/$defs/gameLogEntry"
-            }
-          },
-          "hsiValues": {
-            "$ref": "#/$defs/hsiValues"
-          },
-          "resignedPositions": {
-            "type": "array",
-            "items": {
-              "$ref": "#/$defs/position"
-            },
-            "maxItems": 4
-          },
-          "lazyPositions": {
-            "type": "array",
-            "items": {
-              "$ref": "#/$defs/position"
-            },
-            "maxItems": 4
-          },
-          "isLazy": {
-            "type": "boolean"
+          "avatarUrls": {
+            "$ref": "#/$defs/avatarUrlsByPosition"
           },
           "snapshot": {
             "$ref": "#/$defs/snapshotV2"
-          },
-          "avatarUrls": {
-            "$ref": "#/$defs/avatarUrlsByPosition"
           }
         },
         "required": [
           "gameId",
-          "position",
-          "hand",
-          "trump",
-          "currentHand",
-          "dealer",
-          "phase",
-          "bidding",
-          "currentTurn",
-          "bids",
-          "playerBids",
-          "tricks",
-          "score",
-          "playedCards",
-          "leadPosition",
-          "isTrumpBroken",
           "players",
-          "gameLog",
-          "hsiValues",
-          "resignedPositions",
-          "lazyPositions",
-          "isLazy",
           "snapshot"
         ],
         "additionalProperties": false
@@ -6883,19 +6548,19 @@
       "clientReads": {
         "web": [
           "client/src/handlers/gameHandlers.js:registerGameHandlers",
-          "client/src/main.js:processRejoinOrRestore",
-          "client/src/state/GameState.js:restoreFromRejoin"
+          "client/src/state/tableSync.js:applyTableSnapshot",
+          "client/src/main.js:onRestorePlayerState"
         ],
         "ios": [
-          "iOSClient/BABOnline/Networking/Handlers/GameSocketHandler.swift:registerReconnection",
-          "iOSClient/BABOnline/State/GameState.swift:restoreFromRejoin"
+          "iOSClient/BABOnline/Networking/Wire/WirePayloads.swift:RejoinEnvelope",
+          "iOSClient/BABOnline/State/Table/TableReducer+Snapshot.swift:seatState"
         ]
       },
       "emittedFrom": [
         "server/socket/gameHandlers.js:playCard",
         "server/socket/seatLifecycle.js:goActive"
       ],
-      "notes": "After actionRejected on a \"Card not in hand\" play (#183), and on /active from the watch view."
+      "notes": "A snapshot carrier (V1_REMOVALS #9, 2026-11-12): gameId, players, avatarUrls (capable sockets with a URL), snapshot. After actionRejected on a \"Card not in hand\" play (#183), and on /active from the watch view."
     },
     "stateSnapshot": {
       "payload": {
@@ -7349,6 +7014,9 @@
                 },
                 "maxItems": 4
               },
+              "avatarUrls": {
+                "$ref": "#/$defs/avatarUrlsByPosition"
+              },
               "trump": {
                 "anyOf": [
                   {
@@ -7359,97 +7027,14 @@
                   }
                 ]
               },
-              "currentHand": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 13
-              },
-              "dealer": {
-                "$ref": "#/$defs/position"
-              },
-              "phase": {
-                "enum": [
-                  "waiting",
-                  "drawing",
-                  "bidding"
-                ]
-              },
-              "bidding": {
-                "type": "boolean"
-              },
-              "currentTurn": {
-                "$ref": "#/$defs/position"
-              },
-              "bids": {
-                "$ref": "#/$defs/legacyBids"
-              },
-              "playerBids": {
-                "$ref": "#/$defs/bidArray"
-              },
-              "tricks": {
-                "$ref": "#/$defs/teamPair"
-              },
-              "score": {
-                "$ref": "#/$defs/teamPair"
-              },
-              "playedCards": {
-                "$ref": "#/$defs/playedCards"
-              },
-              "isTrumpBroken": {
-                "type": "boolean"
-              },
-              "gameLog": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/$defs/gameLogEntry"
-                }
-              },
-              "spectatorCount": {
-                "type": "integer",
-                "minimum": 0
-              },
-              "leadPosition": {
-                "$ref": "#/$defs/position"
-              },
-              "trumpBroken": {
-                "type": "boolean"
-              },
-              "teamTricks": {
-                "type": "integer",
-                "minimum": 0
-              },
-              "oppTricks": {
-                "type": "integer",
-                "minimum": 0
-              },
               "snapshot": {
                 "$ref": "#/$defs/snapshotV2"
-              },
-              "avatarUrls": {
-                "$ref": "#/$defs/avatarUrlsByPosition"
               }
             },
             "required": [
               "gameId",
               "players",
               "trump",
-              "currentHand",
-              "dealer",
-              "phase",
-              "bidding",
-              "currentTurn",
-              "bids",
-              "playerBids",
-              "tricks",
-              "score",
-              "playedCards",
-              "isTrumpBroken",
-              "gameLog",
-              "spectatorCount",
-              "leadPosition",
-              "trumpBroken",
-              "teamTricks",
-              "oppTricks",
               "snapshot"
             ],
             "additionalProperties": false
@@ -7486,18 +7071,8 @@
       "seq": true,
       "added": [
         "snapshot",
-        "leadPosition",
-        "trumpBroken",
-        "teamTricks",
-        "oppTricks",
         "avatarUrls",
         "seq"
-      ],
-      "activates": [
-        "leadPosition",
-        "trumpBroken",
-        "teamTricks",
-        "oppTricks"
       ],
       "reserved": [
         {
@@ -7512,17 +7087,20 @@
       "clientReads": {
         "web": [
           "client/src/handlers/lobbyHandlers.js:registerLobbyHandlers",
-          "client/src/main.js:onSpectatorJoined"
+          "client/src/main.js:onSpectatorJoined",
+          "client/src/handlers/gameHandlers.js:registerGameHandlers",
+          "client/src/state/tableSync.js:applyTableSnapshot"
         ],
         "ios": [
-          "iOSClient/BABOnline/Networking/Handlers/GameSocketHandler.swift:registerSpectatorAndLazy",
-          "iOSClient/BABOnline/State/GameState.swift:restoreFromSpectator#reads:leadPosition,trumpBroken,teamTricks,oppTricks"
+          "iOSClient/BABOnline/Networking/Wire/ServerEvent.swift:decode",
+          "iOSClient/BABOnline/Networking/Wire/WirePayloads.swift:RejoinEnvelope",
+          "iOSClient/BABOnline/State/Table/TableReducer+Snapshot.swift:seatState"
         ]
       },
       "emittedFrom": [
         "server/socket/snapshotHandlers.js:sendSpectatorJoin"
       ],
-      "notes": "Split (V1_REMOVALS #8, 2026-11-12; sendSpectatorJoin, from joinAsSpectator and spectateTournamentGame): the notice goes to the room EXCEPT the joiner (socket.to(room), sequenced) and is sent first; then fullState to the joining socket only (socket.emit), whose snapshot is built after the notice, so snapshot.seq counts it and the joiner's next room event is snapshot.seq + 1. The joiner no longer gets its own notice (ctr-17). An owner watching their own lazy / resigned seat via joinAsSpectator (watchSeat 'spectate') gets rejoinSuccess and sends no notice. Web and iOS 1.2.0 route a payload with a snapshot (or players + trump) as the full state, anything else as the notice, so neither changed. trumpBroken / teamTricks / oppTricks switch on reads the App Store iOS build already has in restoreFromSpectator (since Feb 2026): its spectator view CHANGES visibly, knowingly, as a fix (real trump-broken state and trick counts instead of false and 0-0). leadPosition is read only by iOS source builds after 10d1538 (the App Store build infers the lead from the first card). ctr-1, ctr-8, ios-8d; web reads none of them."
+      "notes": "Split (V1_REMOVALS #8, 2026-11-12; sendSpectatorJoin, from joinAsSpectator and spectateTournamentGame): the notice goes to the room EXCEPT the joiner (socket.to(room), sequenced) and is sent first; then fullState to the joining socket only (socket.emit), whose snapshot is built after the notice, so snapshot.seq counts it and the joiner's next room event is snapshot.seq + 1. The joiner no longer gets its own notice (ctr-17). An owner watching their own lazy / resigned seat via joinAsSpectator (watchSeat 'spectate') gets rejoinSuccess and sends no notice. Web and iOS 1.2.0 route a payload with a snapshot (or players + trump) as the full state, anything else as the notice, so neither changed. fullState is a snapshot carrier (V1_REMOVALS #9, 2026-11-12): gameId, players, avatarUrls (capable sockets with a URL), trump, snapshot; the cc865b4 legacy keys and the leadPosition / trumpBroken / teamTricks / oppTricks aliases (read only by the gated iOS builds) went."
     },
     "spectatorsUpdated": {
       "payload": {
