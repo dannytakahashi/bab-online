@@ -21,6 +21,8 @@ const { rememberBlockList } = require('./voiceHandlers');
 const BUSY_MESSAGE = 'Server is busy. Try again in a moment.';
 const THROTTLED_MESSAGE = 'Too many failed sign-in attempts. Please wait a few minutes and try again.';
 const SIGN_UP_LIMIT_MESSAGE = 'Too many sign-up attempts. Please wait a few minutes and try again.';
+const LAST_ADMIN_DELETE_MESSAGE = 'You are the only admin. Make someone else an admin before deleting your account.';
+const SESSIONS_CHANGED_MESSAGE = 'Your account was just signed out everywhere. Please sign in again.';
 const isHashBusy = (error) => Boolean(error && error.code === 'HASH_BUSY');
 
 function mergedAccountMessage(username, mergedInto) {
@@ -28,17 +30,148 @@ function mergedAccountMessage(username, mergedInto) {
 }
 
 /**
+ * The normal signed-out flow for one live socket: `forceLogout` (both
+ * clients go to their sign-in screen and forget the tab's / app's
+ * credentials), the game manager's disconnect bookkeeping, then the
+ * socket is closed. Returns false when that socket is not connected.
+ */
+function signOutSocket(io, socketId) {
+    const sock = io?.sockets?.sockets?.get(socketId);
+    if (!sock) return false;
+    sock.emit('forceLogout');
+    gameManager.handleDisconnect(socketId);
+    sock.disconnect();
+    return true;
+}
+
+/**
+ * socket.data.username: the account a socket is signed in as, or is about
+ * to be (set once its password or saved session checked out, BEFORE the
+ * write that records the session, so a revoke landing while that write is
+ * in flight still finds the socket). signIn, signUp, restoreSession and a
+ * token rejoin set it; a refused attempt puts the previous value back.
+ * Returns the previous value.
+ */
+function claimSocket(socket, username) {
+    if (!socket.data) return undefined;
+    const previous = socket.data.username;
+    socket.data.username = username;
+    return previous;
+}
+
+function releaseClaim(socket, username, previous) {
+    if (socket.data && socket.data.username === username) socket.data.username = previous;
+}
+
+/**
+ * Sign out every live socket of `username` (sign out everywhere, a
+ * password reset by link, a merge retiring the account): the sockets the
+ * game manager has signed in under that name, the user document's socketId
+ * (the caller reads it with the revoke: findOneAndUpdate 'before'), and
+ * every connected socket that claimed the name (socket.data.username): a
+ * second tab restored from the same saved session (the web client copies
+ * the saved session into every new tab, and currentUsers keeps one entry
+ * per name) and a sign-in / restore / rejoin whose write is still in
+ * flight. Returns how many were connected.
+ */
+function signOutUser(io, username, { socketId = null } = {}) {
+    const ids = new Set((gameManager.currentUsers || []).filter(u => u.username === username).map(u => u.socketId));
+    if (socketId) ids.add(socketId);
+    for (const [id, sock] of io?.sockets?.sockets || []) {
+        if (sock?.data?.username === username) ids.add(id);
+    }
+    let n = 0;
+    for (const id of ids) if (signOutSocket(io, id)) n++;
+    if (n) authLogger.info('Signed out live sockets', { username, sockets: n });
+    return n;
+}
+
+const MERGE_LOCKED_MESSAGE = 'This account is being updated. Please try again in a minute.';
+
+/**
+ * Right after registerUser in signIn / restoreSession: is this sign-in
+ * still good? Read again AFTER registering, so a revoke (sign out
+ * everywhere, a password reset, a merge retiring the account) either
+ * landed before this read (seen here: its session is gone) or runs its
+ * signOutUser after the registration (which then finds this socket). The
+ * write's epoch filter alone misses a revoke that lands after the write
+ * but before the registration. Also refused: a socket that was signed out
+ * meanwhile and a name a panel merge is retiring right now.
+ * @returns {Promise<string|null>} null when still good, else why not
+ */
+async function sessionGoneSince(usersCollection, socket, username, hash, filter = {}) {
+    if (socket.connected === false) return 'disconnected';
+    if (gameManager.isMergeLocked?.(username)) return 'merge';
+    let user;
+    try {
+        user = await usersCollection.findOne(
+            { username },
+            { projection: { mergedInto: 1, sessionEpoch: 1, 'sessionTokens.hash': 1 } }
+        );
+    } catch (error) {
+        authLogger.error('Session re-check failed', { username, error: error.message });
+        return 'error'; // fail closed
+    }
+    if (socket.connected === false) return 'disconnected';
+    if (gameManager.isMergeLocked?.(username)) return 'merge';
+    if (!user || user.mergedInto) return 'revoked';
+    // A revoke (sign out everywhere, a password reset, set-password: every
+    // one goes through REVOKE_ALL_SESSIONS) always bumps sessionEpoch, so
+    // "revoked since our write" is "the epoch moved off the value our write
+    // was filtered on" (session.filter). A missing hash with the epoch
+    // unchanged is another device's concurrent session write replacing the
+    // array (issueSession / verifySession rewrite it whole), not a revoke:
+    // this sign-in stays (its token may need a fresh sign-in later, as before).
+    if (!epochUnchanged(user, filter.sessionEpoch)) return 'revoked';
+    if (!(user.sessionTokens || []).some(t => t && t.hash === hash)) {
+        authLogger.warn('Session hash replaced by a concurrent session write (not a revoke)', { username });
+    }
+    return null;
+}
+
+/** Does the user's sessionEpoch still match a session.filter value ({$exists:false} or a number)? */
+function epochUnchanged(user, expected) {
+    const now = user.sessionEpoch;
+    if (expected && typeof expected === 'object' && expected.$exists === false) return now === undefined || now === null;
+    return now === expected;
+}
+
+/**
+ * Undo registerUser for a sign-in that sessionGoneSince refused: this
+ * socket is no longer that user. registerUser dropped the name's previous
+ * entry, so a previous socket that is still connected gets it back.
+ */
+function unregister(io, socket, username, previousEntry, previousClaim) {
+    gameManager.removeUserSocket(socket.id);
+    if (previousEntry && previousEntry.socketId !== socket.id && io?.sockets?.sockets?.has(previousEntry.socketId)
+        && !(gameManager.currentUsers || []).some(u => u.username === username)) {
+        gameManager.registerUser(previousEntry.socketId, username);
+    }
+    if (socket.data) delete socket.data.sessionHash;
+    releaseClaim(socket, username, previousClaim);
+}
+
+const entryOf = (username) => (gameManager.currentUsers || []).find(u => u.username === username) || null;
+
+/**
  * One live connection per user: kick the previous socket (another device or
  * tab) so a game never has two sockets for the same player.
  */
 function disconnectPreviousSocket(io, previousSocketId, currentSocketId, username) {
     if (!previousSocketId || previousSocketId === currentSocketId) return;
-    const oldSocket = io.sockets.sockets.get(previousSocketId);
-    if (!oldSocket) return;
-    oldSocket.emit('forceLogout');
-    gameManager.handleDisconnect(previousSocketId);
-    oldSocket.disconnect();
-    authLogger.info('User logged out from another device', { username });
+    if (signOutSocket(io, previousSocketId)) {
+        authLogger.info('User logged out from another device', { username });
+    }
+}
+
+/**
+ * isAdmin on signInResponse / restoreSessionResponse (additive, only when
+ * true): the web menu shows its Admin entry. Display only: every admin
+ * request is re-checked against the database (adminHandlers.js); iOS
+ * 1.1.0 reads these replies as dictionaries and ignores the key.
+ */
+function adminDisplay(user) {
+    return user && user.isAdmin === true && !user.mergedInto ? { isAdmin: true } : {};
 }
 
 /**
@@ -86,6 +219,7 @@ async function signIn(socket, io, data) {
     const reservation = signInThrottle.reserve(who);
     let failed = false;
     let succeeded = false;
+    let claim = null; // {previous} while this attempt holds socket.data.username unconfirmed
 
     try {
         const usersCollection = await usersCollectionWhenReady();
@@ -134,18 +268,41 @@ async function signIn(socket, io, data) {
         // New per-device session token; other devices' tokens stay valid
         const session = issueSession(user);
         const sessionToken = session.token;
-        socket.data.sessionHash = session.hash;
+        claim = { previous: claimSocket(socket, username) };
 
-        await usersCollection.updateOne(
-            { username },
+        // session.filter: only while no revoke (sign out everywhere, a
+        // password reset) landed since the read above. Otherwise this write
+        // would put every revoked session back (the bcrypt compare is the
+        // window); the player just signs in again
+        const written = await usersCollection.updateOne(
+            { username, ...session.filter },
             {
                 $set: { socketId: socket.id, ...session.update.$set },
                 $unset: session.update.$unset
             }
         );
+        if (written && written.matchedCount === 0) {
+            socket.emit('signInResponse', { success: false, message: SESSIONS_CHANGED_MESSAGE });
+            authLogger.warn('Sign-in lost a race with a session revoke', { username });
+            return;
+        }
+        socket.data.sessionHash = session.hash;
 
-        // Register with game manager
+        // Register with game manager, then make sure no revoke landed
+        // meanwhile (sessionGoneSince)
+        const previousEntry = entryOf(username);
         gameManager.registerUser(socket.id, username);
+        const gone = await sessionGoneSince(usersCollection, socket, username, session.hash, session.filter);
+        if (gone) {
+            unregister(io, socket, username, previousEntry, claim.previous);
+            claim = null;
+            if (gone !== 'disconnected') {
+                socket.emit('signInResponse', { success: false, message: gone === 'merge' ? MERGE_LOCKED_MESSAGE : SESSIONS_CHANGED_MESSAGE });
+            }
+            authLogger.warn('Sign-in undone: the session ended while it was being recorded', { username, reason: gone });
+            return;
+        }
+        claim = null; // signed in: the name stays claimed
 
         // Check if user has an active game they can rejoin
         const activeGameId = user.activeGameId;
@@ -161,7 +318,8 @@ async function signIn(socket, io, data) {
                 username,
                 sessionToken,
                 activeGameId: activeGameId,
-                blockedUsers
+                blockedUsers,
+                ...adminDisplay(user)
             });
             authLogger.info('User signed in with active game', { username, socketId: socket.id, gameId: activeGameId });
         } else {
@@ -182,14 +340,15 @@ async function signIn(socket, io, data) {
                     username,
                     sessionToken,
                     activeTournamentId,
-                    blockedUsers
+                    blockedUsers,
+                    ...adminDisplay(user)
                 });
                 authLogger.info('User signed in with active tournament', { username, socketId: socket.id, tournamentId: activeTournamentId });
             } else {
                 if (activeTournamentId) {
                     await gameManager.clearActiveTournament(username, activeTournamentId);
                 }
-                socket.emit('signInResponse', { success: true, username, sessionToken, blockedUsers });
+                socket.emit('signInResponse', { success: true, username, sessionToken, blockedUsers, ...adminDisplay(user) });
                 authLogger.info('User signed in', { username, socketId: socket.id });
             }
         }
@@ -206,6 +365,7 @@ async function signIn(socket, io, data) {
             message: 'Database error. Try again.'
         });
     } finally {
+        if (claim) releaseClaim(socket, username, claim.previous);
         // Counted: unknown user, wrong password. Not counted: a merged
         // account, a database error, a busy hash pool. Success clears the pair.
         if (succeeded) signInThrottle.recordSuccess(who, reservation);
@@ -300,6 +460,7 @@ async function signUp(socket, io, data) {
             }
         });
         socket.data.sessionHash = session.hash;
+        claimSocket(socket, username);
 
         // The name now belongs to a fresh account — stop anonymizing it in
         // new game records (only relevant if a deleted name is re-registered)
@@ -339,6 +500,7 @@ async function signUp(socket, io, data) {
 async function restoreSession(socket, io, data) {
     const usersCollection = await usersCollectionWhenReady();
     const { username, sessionToken } = data;
+    let claim = null; // as in signIn
 
     try {
         // Find user and validate session token
@@ -381,19 +543,42 @@ async function restoreSession(socket, io, data) {
         if (previousSocket && previousSocket.data?.sessionHash !== session.hash) {
             disconnectPreviousSocket(io, user.socketId, socket.id, username);
         }
-        socket.data.sessionHash = session.hash;
-
-        // Session token is valid - update socket ID and session last-used time
-        await usersCollection.updateOne(
-            { username },
+        // Session token is valid - update socket ID and session last-used
+        // time, only while no revoke landed since the read above
+        // (session.filter): a restore racing sign out everywhere or a
+        // password reset must not write the revoked sessions back
+        claim = { previous: claimSocket(socket, username) };
+        const written = await usersCollection.updateOne(
+            { username, ...session.filter },
             {
                 $set: { socketId: socket.id, ...session.update.$set },
                 $unset: session.update.$unset
             }
         );
+        if (written && written.matchedCount === 0) {
+            releaseClaim(socket, username, claim.previous);
+            claim = null;
+            socket.emit('restoreSessionResponse', { success: false, message: 'Invalid session token' });
+            authLogger.warn('Session restore failed: sessions revoked meanwhile', { username });
+            return;
+        }
+        socket.data.sessionHash = session.hash;
 
-        // Register with game manager
+        // Register with game manager, then make sure no revoke landed
+        // meanwhile (sessionGoneSince)
+        const previousEntry = entryOf(username);
         gameManager.registerUser(socket.id, username);
+        const gone = await sessionGoneSince(usersCollection, socket, username, session.hash, session.filter);
+        if (gone) {
+            unregister(io, socket, username, previousEntry, claim.previous);
+            claim = null;
+            if (gone !== 'disconnected') {
+                socket.emit('restoreSessionResponse', { success: false, message: gone === 'merge' ? MERGE_LOCKED_MESSAGE : 'Invalid session token' });
+            }
+            authLogger.warn('Session restore undone: the session ended while it was being recorded', { username, reason: gone });
+            return;
+        }
+        claim = null; // signed in: the name stays claimed
 
         // Check if user has an active game they can rejoin
         const activeGameId = user.activeGameId;
@@ -406,7 +591,8 @@ async function restoreSession(socket, io, data) {
                 success: true,
                 username,
                 activeGameId: activeGameId,
-                blockedUsers
+                blockedUsers,
+                ...adminDisplay(user)
             });
             authLogger.info('Session restored with active game', { username, socketId: socket.id, gameId: activeGameId });
         } else {
@@ -426,19 +612,21 @@ async function restoreSession(socket, io, data) {
                     success: true,
                     username,
                     activeTournamentId,
-                    blockedUsers
+                    blockedUsers,
+                    ...adminDisplay(user)
                 });
                 authLogger.info('Session restored with active tournament', { username, socketId: socket.id, tournamentId: activeTournamentId });
             } else {
                 if (activeTournamentId) {
                     await gameManager.clearActiveTournament(username, activeTournamentId);
                 }
-                socket.emit('restoreSessionResponse', { success: true, username, blockedUsers });
+                socket.emit('restoreSessionResponse', { success: true, username, blockedUsers, ...adminDisplay(user) });
                 authLogger.info('Session restored', { username, socketId: socket.id });
             }
         }
 
     } catch (error) {
+        if (claim) releaseClaim(socket, username, claim.previous);
         authLogger.error('Database error during session restore', { username, error: error.message });
         socket.emit('restoreSessionResponse', {
             success: false,
@@ -478,7 +666,7 @@ async function deleteAccount(socket, io, data) {
     const username = sessionUser.username;
 
     try {
-        const user = await usersCollection.findOne({ username }, { projection: { password: 1, socketId: 1 } });
+        const user = await usersCollection.findOne({ username }, { projection: { password: 1, socketId: 1, isAdmin: 1 } });
         if (!user) {
             socket.emit('deleteAccountResponse', {
                 success: false,
@@ -495,6 +683,25 @@ async function deleteAccount(socket, io, data) {
             });
             authLogger.warn('Account deletion failed: incorrect password', { username });
             return;
+        }
+
+        // The last admin cannot delete their account (it would leave nobody
+        // able to open the admin panel). The flag comes off first through
+        // the same guard as the panel's Remove admin (remove, count, put it
+        // back if nobody is left), so two last admins deleting at once
+        // cannot both go
+        if (user.isAdmin === true) {
+            const { setAdminFlag } = require('../admin/adminRole');
+            try {
+                await setAdminFlag({ users: usersCollection }, username, false, { by: username });
+            } catch (error) {
+                if (error && error.code === 'last_admin') {
+                    socket.emit('deleteAccountResponse', { success: false, message: LAST_ADMIN_DELETE_MESSAGE });
+                    authLogger.warn('Account deletion refused: the only admin', { username });
+                    return;
+                }
+                throw error;
+            }
         }
 
         const gameRecords = getGameRecordsCollection();
@@ -560,6 +767,11 @@ async function deleteAccount(socket, io, data) {
 }
 
 module.exports = {
+    signOutSocket,
+    signOutUser,
+    claimSocket,
+    releaseClaim,
+    MERGE_LOCKED_MESSAGE,
     signIn,
     signUp,
     restoreSession,

@@ -48,9 +48,10 @@ async function main() {
             process.exitCode = 1;
             return;
         }
-        const { revokedSessions } = await setPassword(db, username, password);
+        const { revokedSessions, revokedLinks } = await setPassword(db, username, password);
         console.log(`\nPassword for "${username}" is now:  ${password}`);
         console.log(`Signed out ${revokedSessions} saved device session(s).`);
+        if (revokedLinks) console.log(`Cancelled ${revokedLinks} open reset link(s).`);
     } finally {
         await client.close();
     }

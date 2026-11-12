@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite';
 import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
 import { NOT_PHONE_MEDIA } from './src/boot/deviceGate.js';
 
 // clientHello (utils/avatar.js): which bundle a socket runs
@@ -32,6 +33,15 @@ function phaserNoEval() {
 // wait for the entry before starting the download, but only on non-phones
 // (media = NOT_PHONE_MEDIA): a gated phone never fetches Phaser
 const BOOT_MAX_BYTES = 16 * 1024;
+// The reset page's entry (reset.html, a player's one-time link, opened on
+// phones): it may share the kit's small chunk with the app, but never
+// imports the app, the vendor chunk or the boot gate, and stays small
+const RESET_MAX_BYTES = 24 * 1024;
+// An html input's entry chunk has the page as its facade module
+const facade = (c) => c.facadeModuleId || '';
+const isResetFacade = (id) => /\/(reset\.html|src\/reset\/resetEntry\.js)$/.test(id || '');
+const isBootEntry = (c) => c.isEntry && /\/(index\.html|src\/entry\.js)$/.test(facade(c));
+const isResetEntry = (c) => c.isEntry && isResetFacade(facade(c));
 function appChunkPreload() {
   return {
     name: 'bab-app-chunk-preload',
@@ -39,19 +49,41 @@ function appChunkPreload() {
     // The gate path must stay tiny: the entry imports nothing statically
     // (no vendor, no app code) and stays under BOOT_MAX_BYTES
     generateBundle(_options, bundle) {
-      const entry = Object.values(bundle).find((c) => c.type === 'chunk' && c.isEntry);
+      const chunks = Object.values(bundle).filter((c) => c.type === 'chunk');
+      const entry = chunks.find(isBootEntry);
       if (!entry) this.error('no entry chunk');
       if (entry.imports.length) this.error(`the boot entry imports ${entry.imports.join(', ')} statically: a gated phone would load it`);
       if (entry.code.length > BOOT_MAX_BYTES) this.error(`the boot entry is ${entry.code.length} bytes (max ${BOOT_MAX_BYTES})`);
+      const reset = chunks.find(isResetEntry);
+      if (!reset) this.error('no reset entry chunk (reset.html)');
+      const byName = new Map(chunks.map((c) => [c.fileName, c]));
+      const seen = new Set();
+      const walk = (c) => {
+        for (const f of [...c.imports, ...c.dynamicImports]) {
+          if (seen.has(f)) continue;
+          seen.add(f);
+          const dep = byName.get(f);
+          if (!dep) continue;
+          if (/(^|\/)(vendor|main|boot)-/.test(f) || dep.facadeModuleId?.endsWith('/src/main.js')) {
+            this.error(`the reset page imports ${f}: it must load neither the app, the vendor chunk nor the gate`);
+          }
+          walk(dep);
+        }
+      };
+      walk(reset);
+      const size = reset.code.length + [...seen].reduce((n, f) => n + (byName.get(f)?.code.length || 0), 0);
+      if (size > RESET_MAX_BYTES) this.error(`the reset page's scripts are ${size} bytes (max ${RESET_MAX_BYTES})`);
     },
     transformIndexHtml: {
       order: 'post',
       handler(_html, ctx) {
+        // the reset page preloads nothing (it never loads the app)
+        if (ctx.filename?.endsWith('reset.html') || ctx.path?.endsWith('reset.html')) return [];
         const chunks = Object.values(ctx.bundle || {}).filter((c) => c.type === 'chunk');
         const app = chunks.find((c) => c.facadeModuleId?.endsWith('/src/main.js'));
         if (!app) throw new Error('bab-app-chunk-preload: no app chunk (src/main.js)');
         if (app.isEntry) throw new Error('bab-app-chunk-preload: src/main.js must be a dynamic chunk');
-        const entry = chunks.find((c) => c.isEntry);
+        const entry = chunks.find(isBootEntry);
         const files = [app.fileName, ...app.imports.filter((f) => f !== entry?.fileName)];
         return files.map((f) => ({
           tag: 'link',
@@ -91,12 +123,18 @@ export default defineConfig(({ command }) => ({
     // ignores media, so an old phone browser would download Phaser behind
     // the gate. Browsers without modulepreload just skip the hint
     modulePreload: { polyfill: false },
-    // index.html is the input (Vite's default): it gets the hashed entry
-    // script and the hashed stylesheets
+    // Two pages: index.html (the app behind the phone gate) and reset.html
+    // (the one-time password link page, no gate, no app). Each gets its
+    // hashed entry script and hashed stylesheets
     rollupOptions: {
+      input: {
+        index: fileURLToPath(new URL('./index.html', import.meta.url)),
+        reset: fileURLToPath(new URL('./reset.html', import.meta.url)),
+      },
       output: {
-        // the entry is the boot module (phone gate); the app is main-[hash]
-        entryFileNames: 'assets/boot-[hash].js',
+        // the entry is the boot module (phone gate); the app is main-[hash];
+        // the reset page's entry is reset-[hash]
+        entryFileNames: (chunk) => (isResetFacade(chunk.facadeModuleId) ? 'assets/reset-[hash].js' : 'assets/boot-[hash].js'),
         chunkFileNames: 'assets/[name]-[hash].js',
         assetFileNames: 'assets/[name]-[hash][extname]',
         // Phaser and socket.io-client in their own chunk: its hash only

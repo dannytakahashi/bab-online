@@ -316,6 +316,30 @@ Each player's round score is their team's final score from that round's game. Sp
 - **Sign out / delete account**: on iOS, main room gear icon → Account Settings; on web, your profile page. Account deletion confirms with your password, removes the account and stats immediately, and anonymizes the username in match records.
 - Legal pages served by the app: `/privacy`, `/terms`, `/support`.
 
+### Admin
+
+Admins get an **Admin** entry in the web main room's menu (web only; the iOS app has no admin screens). The panel has five tabs:
+
+- **Players**: search by name; see when an account was created, last seen, games played, and whether it is an admin or a merged (retired) name. Per player: **Reset link** (a one-time password link, see below), **Sign out everywhere** (revokes every saved session and signs out live connections, including the iOS app), **Make admin / Remove admin**.
+- **Merge**: find look-alike names, preview a merge of duplicate accounts (the same plan `scripts/merge-accounts.js` prints), type the kept account's name to confirm, apply. If anything changed since the preview, the merge is refused and you preview again.
+- **Reports**: player reports, newest first; resolve or dismiss with a note; open the reported player.
+- **Admins**: who is an admin; remove one. The last admin can never remove their own flag.
+- **Audit**: every admin action (who, what, target, when, result), newest first.
+
+Every admin request is checked against the database on the server (the menu entry is only display), and everything is written to the audit log. Destructive actions ask for confirmation.
+
+**Password reset links.** No email is stored, so a reset is a link you text the player: **Reset link** shows `https://<host>/reset#…` once with a **Copy** button. It works once, for 24 hours; making a new link cancels the old one, and so do **Sign out everywhere** and `scripts/set-password.js` (use either if a link went to the wrong person). The player opens it (it works on phones), chooses a new password, and every device they were signed in on is signed out; they then sign in with the new password on the app or the website.
+
+**Making yourself the first admin** (once; after that, use the panel). Against production, with `MONGO_URI` set as for the server, run the read-only listing first, check the `Database:` line, then apply:
+
+```bash
+node scripts/set-admin.js --list            # read-only: current admins
+node scripts/set-admin.js YourName          # shows the admins, then asks you to type ADMIN
+node scripts/set-admin.js YourName --remove # (asks you to type REMOVE)
+```
+
+Then sign in again on the website (or reload it) and the **Admin** entry appears.
+
 ### Card Rankings
 - High Joker (highest)
 - Low Joker

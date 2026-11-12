@@ -78,6 +78,9 @@ export const CLIENT_EVENTS = {
   REPORT_USER: 'reportUser',
   BLOCK_USER: 'blockUser',
   UNBLOCK_USER: 'unblockUser',
+
+  // Admin
+  ADMIN_REQUEST: 'adminRequest',
 };
 
 // Server -> Client Events
@@ -204,4 +207,7 @@ export const SERVER_EVENTS = {
   VOICE_PEER_LEFT: 'voicePeerLeft',
   VOICE_RELAY_AUDIO: 'voiceRelayAudio',
   VOICE_ICE_SERVERS: 'voiceIceServers',
+
+  // Admin
+  ADMIN_RESPONSE: 'adminResponse',
 };

@@ -100,7 +100,11 @@ class RateLimiter {
             // Safety / moderation
             reportUser: { max: 5, windowMs: 300000 },     // 5 per 5 minutes
             blockUser: { max: 10, windowMs: 60000 },
-            unblockUser: { max: 10, windowMs: 60000 }
+            unblockUser: { max: 10, windowMs: 60000 },
+
+            // Admin panel requests (all actions together, per socket): the
+            // panel sends one per click, a few on opening a tab
+            adminRequest: { max: 60, windowMs: 60000 }
         };
 
         // Track requests: Map<string, number[]> where key is "socketId:event"

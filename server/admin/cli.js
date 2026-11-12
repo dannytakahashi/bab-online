@@ -15,6 +15,17 @@ function redactUri(uri) {
     return uri.replace(/\/\/([^:/@]+):([^@]+)@/, '//$1:***@');
 }
 
+/**
+ * What the scripts print as "Database:". The scripts (like the server,
+ * server/database.js) always use the `babonline` database, whatever path
+ * MONGO_URI names, so show the server without its path plus the database
+ * actually written: "mongodb://host:27017 (database babonline)".
+ */
+function describeTarget(uri, dbName = DB_NAME) {
+    const server = redactUri(uri).replace(/^(mongodb(?:\+srv)?:\/\/[^/?]+)[^?]*/, '$1');
+    return `${server.replace(/\?.*$/, '')} (database ${dbName})`;
+}
+
 async function connect() {
     const { MongoClient } = require('mongodb');
     const uri = process.env.MONGO_URI || DEFAULT_URI;
@@ -22,11 +33,13 @@ async function connect() {
     const db = client.db(DB_NAME);
     return {
         client,
-        uri: redactUri(uri),
+        uri: describeTarget(uri),
         db: {
             users: db.collection('users'),
             gameRecords: db.collection('gameRecords'),
-            reports: db.collection('reports')
+            reports: db.collection('reports'),
+            passwordResets: db.collection('passwordResets'),
+            adminAudit: db.collection('adminAudit')
         }
     };
 }
@@ -43,4 +56,4 @@ function confirm(question, expected) {
     });
 }
 
-module.exports = { connect, confirm, redactUri };
+module.exports = { connect, confirm, redactUri, describeTarget, DB_NAME };

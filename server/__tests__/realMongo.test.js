@@ -15,7 +15,7 @@ const ENV_URI = process.env.MONGO_URI;
 const { MongoClient } = require('mongodb');
 const bcrypt = require('bcryptjs');
 
-const mockHolder = { users: null, gameRecords: null, reports: null };
+const mockHolder = { users: null, gameRecords: null, reports: null, passwordResets: null, adminAudit: null };
 jest.mock('../database', () => {
     const actual = jest.requireActual('../database');
     return {
@@ -24,6 +24,8 @@ jest.mock('../database', () => {
         getUsersCollection: () => mockHolder.users,
         getGameRecordsCollection: () => mockHolder.gameRecords,
         getReportsCollection: () => mockHolder.reports,
+        getPasswordResetsCollection: () => mockHolder.passwordResets,
+        getAdminAuditCollection: () => mockHolder.adminAudit,
         whenReady: async () => true
     };
 });
@@ -306,5 +308,190 @@ describe('real mongod', () => {
         // completedAt_-1 index (newest tied game wins)
         expect(after.records.allTime.highestScore).toEqual({ score: 700, players: ['Alan', 'Bea'] });
         expect(after.records.thisMonth.highestScore).toEqual({ score: 700, players: ['alan', 'Cy'] });
+    });
+
+    test('(g) admin panel: its indexes, one open reset link per player, and a link used exactly once under concurrency', async () => {
+        if (!client) return;
+        const { createResetLink, useResetLink, INVALID_LINK } = require('../admin/passwordReset');
+        const { listAudit, recordAudit } = require('../admin/audit');
+        const { setAdminFlag, listAdmins } = require('../admin/adminRole');
+        for (const name of ['passwordResets', 'adminAudit']) await db.collection(name).drop().catch(() => {});
+        const adb = {
+            users: mockHolder.users, reports: mockHolder.reports, gameRecords: mockHolder.gameRecords,
+            passwordResets: db.collection('passwordResets'), adminAudit: db.collection('adminAudit')
+        };
+        await database.ensureIndexes(adb);
+        await database.ensureIndexes(adb); // idempotent
+
+        const idx = Object.fromEntries((await adb.passwordResets.indexes()).map(i => [i.name, i]));
+        expect(idx.tokenHash_1.unique).toBe(true);
+        expect(idx.username_open_unique).toMatchObject({ unique: true, partialFilterExpression: { state: 'open' } });
+        expect(idx.expiresAt_1.expireAfterSeconds).toBe(7 * 24 * 60 * 60);
+        expect((await adb.adminAudit.indexes()).map(i => i.name)).toContain('at_-1__id_-1');
+        expect((await adb.users.indexes()).find(i => i.name === 'isAdmin_partial')).toMatchObject({ partialFilterExpression: { isAdmin: true } });
+
+        // The database itself keeps one open link per player: a second open
+        // insert for Bea is a duplicate key
+        await adb.passwordResets.insertOne({ tokenHash: 'a', username: 'Bea', state: 'open' });
+        await expect(adb.passwordResets.insertOne({ tokenHash: 'b', username: 'Bea', state: 'open' })).rejects.toMatchObject({ code: 11000 });
+        await adb.passwordResets.insertOne({ tokenHash: 'c', username: 'Bea', state: 'used' });
+        await adb.passwordResets.deleteMany({});
+
+        // Two admins making a link for the same player at once: one open link remains
+        const made = await Promise.all([createResetLink(adb, 'Bea', { by: 'A' }), createResetLink(adb, 'Bea', { by: 'B' })]);
+        expect(made).toHaveLength(2);
+        expect(await adb.passwordResets.countDocuments({ username: 'Bea', state: 'open' })).toBe(1);
+
+        // Concurrent double (quintuple) use of one link: exactly one success
+        const { token } = await createResetLink(adb, 'Bea');
+        const hash = (pw) => bcrypt.hash(pw, 4);
+        const results = await Promise.all([1, 2, 3, 4, 5].map(i => useResetLink(adb, token, `pw-${i}`, { hash })));
+        expect(results.filter(r => r.ok)).toHaveLength(1);
+        expect(results.filter(r => r === INVALID_LINK)).toHaveLength(4);
+        const winner = results.find(r => r.ok);
+        const bea = await adb.users.findOne({ username: 'Bea' });
+        const winning = [1, 2, 3, 4, 5].map(i => `pw-${i}`).filter(pw => bcrypt.compareSync(pw, bea.password));
+        expect(winning).toHaveLength(1);
+        expect(winner.username).toBe('Bea');
+        expect(bea.sessionTokens).toBeUndefined();
+        const tokenDoc = await adb.passwordResets.findOne({ tokenHash: require('../utils/sessionTokens').hashToken(token) });
+        expect(tokenDoc.state).toBe('used');
+        // Locking the account down (set-password.js / Sign out everywhere)
+        // cancels an open link on the real driver; the used one stays used,
+        // and the one-open-link index lets a new link in afterwards
+        const { revokeOpenResetLinks } = require('../admin/setPassword');
+        const leaked = await createResetLink(adb, 'Bea');
+        expect(await revokeOpenResetLinks(adb, { username: 'Bea' })).toBe(1);
+        expect(await useResetLink(adb, leaked.token, 'stranger', { hash })).toBe(INVALID_LINK);
+        expect(tokenDoc.state).toBe((await adb.passwordResets.findOne({ _id: tokenDoc._id })).state);
+        expect(await adb.passwordResets.countDocuments({ username: 'Bea', state: 'open' })).toBe(0);
+        const fresh = await createResetLink(adb, 'Bea');
+        expect(fresh.revoked).toBe(0);
+        expect(await adb.passwordResets.countDocuments({ username: 'Bea', state: 'open' })).toBe(1);
+        // The token itself is nowhere in the database
+        for (const name of ['users', 'passwordResets', 'adminAudit']) {
+            expect(JSON.stringify(await db.collection(name).find({}).toArray())).not.toContain(token);
+        }
+
+        // The audit page is read newest first through its index
+        for (let i = 0; i < 3; i++) await recordAudit(adb, { actor: 'Bea', action: 'searchPlayers', result: 'ok', detail: `q${i}`, now: new Date(now + i) });
+        expect((await listAudit(adb, { limit: 2 })).entries.map(e => e.detail)).toEqual(['q2', 'q1']);
+        const plan = planOf(await adb.adminAudit.find({}).sort({ at: -1, _id: -1 }).limit(51).explain('queryPlanner'));
+        expect(usesIndex(plan, 'at_-1__id_-1')).toBe(true);
+        // Paging on (at, _id): entries sharing the boundary millisecond are all reached
+        const same = new Date(now - 5000);
+        for (let i = 0; i < 4; i++) await recordAudit(adb, { actor: 'Bea', action: 'tie', result: 'ok', detail: `t${i}`, now: same });
+        const seen = [];
+        let pg = await listAudit(adb, { limit: 2, before: new Date(now) });
+        seen.push(...pg.entries);
+        while (pg.hasMore) {
+            const lastRow = pg.entries[pg.entries.length - 1];
+            pg = await listAudit(adb, { limit: 2, before: new Date(lastRow.at), beforeId: lastRow.id });
+            seen.push(...pg.entries);
+        }
+        expect(seen.map(e => e.detail)).toEqual(['t3', 't2', 't1', 't0']);
+
+        // The last-admin guard on the real driver
+        await setAdminFlag(adb, 'Bea', true);
+        await expect(setAdminFlag(adb, 'Bea', false)).rejects.toMatchObject({ code: 'last_admin' });
+        expect((await listAdmins(adb)).map(a => a.username)).toEqual(['Bea']);
+    }, 20000); // real mongod, concurrent bcrypt + index builds: once 5.3 s under load
+
+    test('(h) a revoke between a restore\'s read and its write wins on the real driver: no session comes back', async () => {
+        if (!client) return;
+        const { REVOKE_ALL_SESSIONS, verifySession } = require('../utils/sessionTokens');
+        const users = mockHolder.users;
+        const tokens = [];
+        const device = () => Object.assign(sock(), { disconnect() {} }); // a second sign-in kicks the first
+        for (let i = 0; i < 2; i++) {
+            await auth.signIn(device(), io, { username: 'Alan', password: 'pw' });
+            tokens.push(last('signInResponse').sessionToken);
+        }
+        expect((await users.findOne({ username: 'Alan' })).sessionTokens).toHaveLength(2);
+        // Sign out everywhere lands right after the restore's findOne
+        users.findOne = async function (...args) {
+            delete users.findOne;
+            const doc = await Object.getPrototypeOf(users).findOne.apply(users, args);
+            await users.updateOne({ username: 'Alan' }, REVOKE_ALL_SESSIONS);
+            return doc;
+        };
+        await auth.restoreSession(device(), io, { username: 'Alan', sessionToken: tokens[0] });
+        expect(last('restoreSessionResponse')).toEqual({ success: false, message: 'Invalid session token' });
+        const alan = await users.findOne({ username: 'Alan' });
+        expect(alan.sessionTokens).toBeUndefined();
+        expect(alan.sessionEpoch).toBe(1);
+        for (const t of tokens) expect(verifySession(alan, t)).toBeNull();
+        // Afterwards sessions work again on the new epoch
+        await auth.signIn(device(), io, { username: 'Alan', password: 'pw' });
+        const fresh = last('signInResponse').sessionToken;
+        await auth.restoreSession(device(), io, { username: 'Alan', sessionToken: fresh });
+        expect(last('restoreSessionResponse')).toMatchObject({ success: true });
+    });
+    test('(i) panel merges on the real driver: two merges of one source at once run one at a time; the retire filter refuses an in-game or merged-elsewhere source', async () => {
+        if (!client) return;
+        const { planMerge, applyMerge } = require('../admin/accountMerge');
+        const admin = require('../socket/adminHandlers');
+        const gameManager = require('../game/GameManager');
+        for (const name of ['passwordResets', 'adminAudit']) await db.collection(name).drop().catch(() => {});
+        mockHolder.passwordResets = db.collection('passwordResets');
+        mockHolder.adminAudit = db.collection('adminAudit');
+        const users = mockHolder.users;
+        const adb = { users, gameRecords: mockHolder.gameRecords, reports: mockHolder.reports, passwordResets: mockHolder.passwordResets };
+        try {
+            // The retire filter itself ($exists / $or on the real server)
+            const toBea = await planMerge(adb, { target: 'Bea', sources: ['Dot'] });
+            await users.updateOne({ username: 'Dot' }, { $set: { activeGameId: 'g-live' } });
+            const partial = await applyMerge(adb, toBea);
+            expect(partial).toMatchObject({ retired: [], notRetired: ['Dot'] });
+            expect((await users.findOne({ username: 'Dot' })).mergedInto).toBeUndefined();
+            await users.updateOne({ username: 'Dot' }, { $unset: { activeGameId: '' } });
+            const toEve = await planMerge(adb, { target: 'Eve', sources: ['alan'] });
+            const toAlan = await planMerge(adb, { target: 'Alan', sources: ['alan'] });
+            expect((await applyMerge(adb, toEve)).retired).toEqual(['alan']);
+            expect((await applyMerge(adb, toAlan)).notRetired).toEqual(['alan']); // merged elsewhere: stays Eve's
+            expect((await users.findOne({ username: 'alan' })).mergedInto).toBe('Eve');
+
+            // Two admins merging the same source into two accounts at once,
+            // through the panel: one runs, the other re-plans after it and is refused
+            await users.updateOne({ username: 'Dot' }, { $set: { isAdmin: true } });
+            const dot = sock();
+            await auth.signIn(dot, io, { username: 'Dot', password: 'pw' });
+            expect(last('signInResponse')).toMatchObject({ success: true });
+            let rid = 0;
+            const ask = async (action, args) => {
+                const requestId = `rm-req-${++rid}`;
+                await admin.adminRequest(dot, io, { requestId, action, args });
+                return log.filter(l => l.event === 'adminResponse' && l.data.requestId === requestId).pop().data;
+            };
+            const cyBefore = (await users.findOne({ username: 'Cy' })).stats;
+            const beaBefore = (await users.findOne({ username: 'Bea' })).stats || {};
+            const eveBefore = (await users.findOne({ username: 'Eve' })).stats;
+            const pBea = await ask('planMerge', { target: 'Bea', sources: ['Cy'] });
+            const pEve = await ask('planMerge', { target: 'Eve', sources: ['Cy'] });
+            expect(pBea.ok && pEve.ok).toBe(true);
+            const [a, b] = await Promise.all([
+                ask('applyMerge', { target: 'Bea', sources: ['Cy'], planHash: pBea.planHash, confirm: 'Bea' }),
+                ask('applyMerge', { target: 'Eve', sources: ['Cy'], planHash: pEve.planHash, confirm: 'Eve' })
+            ]);
+            // whichever reached the merge queue first runs; the other re-plans after it
+            const [win, lose] = a.ok ? [a, b] : [b, a];
+            const winner = win.result.target;
+            const loser = winner === 'Bea' ? 'Eve' : 'Bea';
+            expect(win).toMatchObject({ ok: true, result: { retired: ['Cy'], statsMerged: ['Cy'] } });
+            expect(lose).toMatchObject({ ok: false, error: 'refused' });
+            expect(lose.message).toMatch(new RegExp(`already merged into "${winner}"`));
+            const before = { Bea: beaBefore, Eve: eveBefore };
+            expect((await users.findOne({ username: winner })).stats.gamesPlayed).toBe((before[winner].gamesPlayed || 0) + cyBefore.gamesPlayed);
+            expect((await users.findOne({ username: loser })).stats || {}).toEqual(before[loser]);
+            expect((await users.findOne({ username: loser })).mergedFrom || []).not.toContainEqual(expect.objectContaining({ username: 'Cy' }));
+            expect((await users.findOne({ username: 'Cy' })).mergedInto).toBe(winner);
+            // every game record of Cy was re-pointed, none left behind
+            expect(await mockHolder.gameRecords.countDocuments({ $or: [{ team1Players: 'Cy' }, { team2Players: 'Cy' }] })).toBe(0);
+            expect(await mockHolder.adminAudit.countDocuments({ action: 'applyMerge' })).toBe(2);
+        } finally {
+            gameManager.currentUsers = [];
+            mockHolder.passwordResets = null;
+            mockHolder.adminAudit = null;
+        }
     });
 });

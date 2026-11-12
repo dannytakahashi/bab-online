@@ -1,0 +1,161 @@
+/**
+ * The reset page (client/reset.html, src/reset/resetPage.js): one card on
+ * the night card room, made for a phone first (the link arrives by text).
+ * Like the phone gate (gate.css): viewport-fit=cover with safe-area
+ * padding, the viewport's height (100dvh), centred when it fits and
+ * scrolling when it does not; 16 px inputs (no iOS zoom), 44 px targets,
+ * Dynamic Type through -apple-system-body. Tokens only (no hex:
+ * screenStyles.test.js). The tokens are dark only.
+ *
+ * The page links only this sheet: the tokens and the kit come in through
+ * @import, which the build inlines (one CSS file, no chunk shared with the
+ * app page, so the reset entry imports nothing: vite.config.js).
+ */
+
+@import './tokens.css';
+@import './kit.css';
+
+html {
+    color-scheme: dark;
+}
+
+.reset-body {
+    margin: 0;
+    background-color: var(--surface-0);
+}
+
+.reset {
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    min-height: 100dvh;
+    padding:
+        max(var(--space-6), env(safe-area-inset-top))
+        max(var(--space-4), env(safe-area-inset-right))
+        max(var(--space-6), env(safe-area-inset-bottom))
+        max(var(--space-4), env(safe-area-inset-left));
+    background:
+        radial-gradient(ellipse 80% 55% at 50% 38%, rgb(var(--felt-light-rgb) / 0.9) 0%, var(--felt-base) 40%, var(--felt-deep) 68%, var(--surface-0) 100%);
+    background-color: var(--surface-0);
+    color: var(--text-primary);
+    font-size: var(--type-md);
+    font: -apple-system-body;
+    font-family: var(--font-ui);
+    line-height: 1.4;
+}
+
+.reset__card {
+    margin: auto;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-3);
+    width: min(400px, 100%);
+    padding: var(--space-6) var(--space-5);
+    text-align: center;
+}
+
+.reset__icon {
+    align-self: center;
+    display: block;
+    width: 72px;
+    height: 72px;
+    border-radius: var(--radius-lg);
+    box-shadow: var(--elev-2);
+}
+
+.reset__title {
+    margin: var(--space-2) 0 0;
+    font-size: 1.5em;
+    font-weight: var(--weight-bold);
+    line-height: 1.2;
+}
+
+.reset__title:focus {
+    outline: none;
+}
+
+.reset__lede {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 0.9375em;
+}
+
+.reset__form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    margin-top: var(--space-2);
+    text-align: left;
+}
+
+.reset__field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+}
+
+.reset__label {
+    color: var(--text-secondary);
+    font-size: 0.875em;
+    font-weight: var(--weight-medium);
+}
+
+.reset__field .kit-input {
+    width: 100%;
+    /* 16 px or more: iOS does not zoom into the field */
+    font-size: max(16px, 1em);
+}
+
+.reset .kit-btn {
+    width: 100%;
+    min-height: var(--hit-target);
+    font-size: 1.0625em;
+}
+
+.reset__home {
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+}
+
+.reset__status {
+    margin: 0;
+    min-height: 1.4em;
+    color: var(--text-secondary);
+    font-size: 0.9375em;
+    text-align: center;
+}
+
+.reset__status:empty {
+    min-height: 0;
+}
+
+.reset__status:focus {
+    outline: none;
+}
+
+.reset__status.is-error {
+    color: var(--danger-text);
+}
+
+.reset__status.is-success {
+    color: var(--success);
+    font-size: 1.0625em;
+    font-weight: var(--weight-semibold);
+}
+
+.reset :is(a, button, input):focus-visible {
+    outline: 2px solid var(--text-primary);
+    outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .reset .kit-btn:active {
+        transform: none;
+    }
+}

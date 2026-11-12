@@ -80,6 +80,39 @@ const mainRoomState = {
     inProgressGames: arr(ref('inProgressGame')),
     tournaments: arr(ref('tournamentSummary')),
 };
+
+// ---------- admin panel (adminResponse) ----------
+const isoOrNull = () => orNull(str());
+const adminPlayerRow = obj({
+    username: str(), createdAt: isoOrNull(), lastSeenAt: isoOrNull(), online: bool(),
+    gamesPlayed: int({ minimum: 0 }), isAdmin: bool(), mergedInto: orNull(str()),
+});
+const adminStats = obj({ gamesPlayed: num(), wins: num(), losses: num(), draws: num(), totalPoints: num() });
+const teams = obj({ team1: arr(str()), team2: arr(str()) });
+const mergePlanView = obj({
+    target: str(), sources: arr(str()), errors: arr(str()), warnings: arr(str()),
+    accounts: arr(obj({ role: enm('target', 'source', 'result'), username: str(), createdAt: isoOrNull(), stats: adminStats, note: orNull(str()) })),
+    statChanges: arr(obj({ key: str(), before: num(), after: num() })),
+    profilePicFrom: orNull(str()),
+    targetBlockedUsers: anyOf(obj({ before: arr(str()), after: arr(str()) }), nul()),
+    gameRecords: arr(obj({ gameId: str(), completedAt: isoOrNull(), before: teams, after: teams })),
+    reports: arr(obj({ id: str(), reporter: str(), reported: str(), newReporter: orNull(str()), newReported: orNull(str()) })),
+    otherUsersBlocks: arr(obj({ username: str(), before: arr(str()), after: arr(str()) })),
+    chainedTombstones: arr(obj({ username: str(), before: str() })),
+    retire: arr(str()),
+    changeCount: int({ minimum: 0 }),
+});
+const adminReportRow = obj({
+    id: str(), reporter: str(), reported: str(), reason: str(), context: str(), createdAt: isoOrNull(),
+    status: enm('open', 'resolved', 'dismissed'), resolvedBy: orNull(str()), resolvedAt: isoOrNull(), note: orNull(str()),
+});
+const adminAuditRow = obj({
+    id: str(), at: str(), actor: orNull(str()), action: str(), target: orNull(str()),
+    result: enm('ok', 'failed', 'forbidden'), detail: orNull(str()),
+});
+/** One ok variant per action: {requestId, action: <const>, ok: true, ...fields}. */
+const adminOk = (action, props) => variant(action, obj({ requestId: str(), action: konst(action), ok: konst(true), ...props }));
+
 const scoreboard = arr(ref('scoreboardRow'));
 const seatNotice = obj({ position: ref('position'), username: str() });
 
@@ -94,11 +127,13 @@ const s2c = {
         payload: anyOf(
             variant('success', obj({
                 success: konst(true), username: str(), sessionToken: str(), blockedUsers: arr(str()),
-                activeGameId: str(), activeTournamentId: str(),
-            }, { optional: ['activeGameId', 'activeTournamentId'] })),
+                activeGameId: str(), activeTournamentId: str(), isAdmin: konst(true),
+            }, { optional: ['activeGameId', 'activeTournamentId', 'isAdmin'] })),
             fail(),
         ),
         status: 'active', to: 'self',
+        added: ['isAdmin'],
+        notes: 'isAdmin (additive, 2026-11-11; present only when true): the web menu shows its Admin entry. Display only: the server re-checks the database on every adminRequest. iOS 1.1.0 reads the reply as a dictionary and ignores the key.',
         clientReads: reads(W.auth, I.auth),
         emittedFrom: ['server/socket/authHandlers.js:signIn', 'server/socket/upgradeGate.js:sendUpdateMessage'],
     },
@@ -115,11 +150,13 @@ const s2c = {
         payload: anyOf(
             variant('success', obj({
                 success: konst(true), username: str(), blockedUsers: arr(str()),
-                activeGameId: str(), activeTournamentId: str(),
-            }, { optional: ['activeGameId', 'activeTournamentId'] })),
+                activeGameId: str(), activeTournamentId: str(), isAdmin: konst(true),
+            }, { optional: ['activeGameId', 'activeTournamentId', 'isAdmin'] })),
             fail(),
         ),
         status: 'active', to: 'self',
+        added: ['isAdmin'],
+        notes: 'isAdmin: as on signInResponse (display only, present only when true; iOS 1.1.0 ignores it).',
         clientReads: reads(W.main('restoreSessionResponse'), I.auth),
         emittedFrom: ['server/socket/authHandlers.js:restoreSession'],
     },
@@ -789,6 +826,39 @@ const s2c = {
         notes: 'Never emitted (signInResponse.activeTournamentId replaced it).',
     },
 
+
+    // ==================== Admin panel (web only) ====================
+    adminResponse: {
+        payload: anyOf(
+            variant('failure', obj({
+                requestId: str(), action: str(), ok: konst(false),
+                error: enm('forbidden', 'invalid', 'not_found', 'refused', 'last_admin', 'stale_plan', 'server'),
+                message: str(),
+            })),
+            adminOk('searchPlayers', { players: arr(adminPlayerRow) }),
+            adminOk('createResetLink', { username: str(), token: str({ pattern: '^[A-Za-z0-9_-]{43}$' }), expiresAt: str() }),
+            adminOk('signOutEverywhere', { username: str(), revokedSessions: int({ minimum: 0 }), disconnected: int({ minimum: 0 }) }),
+            adminOk('findDuplicates', { groups: arr(arr(obj({ username: str(), gamesPlayed: num(), createdAt: isoOrNull() }))) }),
+            adminOk('planMerge', { plan: mergePlanView, planHash: str({ pattern: '^[0-9a-f]{64}$' }) }),
+            adminOk('applyMerge', {
+                result: obj({
+                    target: str(), statsMerged: arr(str()), retired: arr(str()), gameRecords: int({ minimum: 0 }),
+                    reports: int({ minimum: 0 }), otherUsersBlocks: int({ minimum: 0 }), chainedTombstones: int({ minimum: 0 }),
+                    profilePic: bool(), signedOut: int({ minimum: 0 }),
+                }),
+            }),
+            adminOk('listReports', { reports: arr(adminReportRow) }),
+            adminOk('resolveReport', { report: adminReportRow }),
+            adminOk('listAdmins', { admins: arr(obj({ username: str(), adminSince: isoOrNull() })) }),
+            adminOk('setAdmin', { username: str(), isAdmin: bool(), changed: bool() }),
+            adminOk('listAudit', { entries: arr(adminAuditRow), hasMore: bool() }),
+        ),
+        status: 'active', to: 'self',
+        clientReads: reads('client/src/admin/adminApi.js:createAdminApi', []),
+        emittedFrom: ['server/socket/adminHandlers.js:adminRequest'],
+        notes: 'The reply to adminRequest, to the requesting socket only (requestId and action echoed). failure: forbidden = not an admin right now (the one uniform refusal for every action and target: no account information), invalid = bad args or a wrong typed confirmation, not_found / refused / last_admin / stale_plan (the merge changed since its preview: preview again) / server; message is for the admin. createResetLink.token is the one-time link secret (/reset#<token>): shown to the admin once, never logged or audited. planMerge.plan is formatPlan\'s content as data (no picture bytes); planHash fingerprints the whole plan and applyMerge applies only when a fresh plan has the same hash. The iOS app has no handler (layout: excluded from Swift).',
+    },
+
     // ==================== Voice (relays) ====================
     voiceOffer: {
         payload: obj({ fromSocketId: str(), offer: obj({}, { open: true }), username: str() }, { optional: ['username'] }),
@@ -863,9 +933,9 @@ const s2c = {
             variant('message', obj({ message: str() })),
         ),
         status: 'active', to: 'self',
-        clientReads: reads(W.main('setupSocketErrorHandler'), ['iOSClient/BABOnline/Networking/SocketService.swift:connect#reads:message']),
+        clientReads: reads([W.main('setupSocketErrorHandler'), 'client/src/admin/adminApi.js:createAdminApi#reads:type,handler'], ['iOSClient/BABOnline/Networking/SocketService.swift:connect#reads:message']),
         emittedFrom: ['server/socket/errorHandler.js:asyncHandler', 'server/socket/errorHandler.js:syncHandler', 'server/socket/errorHandler.js:handleError', 'server/socket/validators.js:withValidation', 'server/socket/*.js:<many handlers> (socket.emit(\'error\', {message}))', 'server/socket/chatHandlers.js:sendError'],
-        notes: "App-level event (not the transport's error). iOS receives it through Socket.IO-Client-Swift's clientEvent .error (the reserved name) and, since 0fd6ef1, shows message as a toast. variant validation is dead today (validators.withValidation has no caller). Rename to serverError is V1_REMOVALS #1.",
+        notes: "App-level event (not the transport's error). iOS receives it through Socket.IO-Client-Swift's clientEvent .error (the reserved name) and, since 0fd6ef1, shows message as a toast. variant validation is dead today (validators.withValidation has no caller). Rename to serverError is V1_REMOVALS #1. The admin panel's api (adminApi.js) reads {type:'rateLimit', handler:'adminRequest'} to fail a dropped admin request fast as rate_limited.",
     },
 };
 

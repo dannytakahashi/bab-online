@@ -15,13 +15,15 @@ describe('setPassword', () => {
 
         const result = await setPassword(db, 'Alan', 'maple-otter-42', { rounds: 4 });
 
-        expect(result).toEqual({ username: 'Alan', revokedSessions: 3 });
+        expect(result).toEqual({ username: 'Alan', revokedSessions: 3, revokedLinks: 0 });
         const alan = await db.users.findOne({ username: 'Alan' });
         expect(await bcrypt.compare('maple-otter-42', alan.password)).toBe(true);
         expect(await bcrypt.compare('forgotten', alan.password)).toBe(false);
         expect(alan).not.toHaveProperty('sessionToken');
         expect(alan).not.toHaveProperty('sessionTokens');
         expect(alan.passwordResetByAdminAt).toBeInstanceOf(Date);
+        // the revoke bumps sessionEpoch: a sign-in / restore in flight cannot write the sessions back
+        expect(alan.sessionEpoch).toBe(1);
     });
 
     test('refuses unknown and merged accounts', async () => {

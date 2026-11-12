@@ -3783,6 +3783,98 @@
         }
       ],
       "notes": "Answered by voiceIceServers to this socket only (requestId echoed). Web asks before its first peer connection of a voice session and again before the credentials expire. TURN credentials (Cloudflare Realtime, minted server-side, cached per user) only for a signed-in socket that is a voice peer now (in a lobby, or an entrant / seat owner of a game); everyone else, and every failure (env unset, Cloudflare timeout or error), gets the public STUN servers. iOS 1.1.0 does not send it (it hard-codes STUN); the next iOS release will (V1_REMOVALS \"iOS TURN\")."
+    },
+    "adminRequest": {
+      "payload": {
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "action": {
+            "enum": [
+              "searchPlayers",
+              "createResetLink",
+              "signOutEverywhere",
+              "findDuplicates",
+              "planMerge",
+              "applyMerge",
+              "listReports",
+              "resolveReport",
+              "listAdmins",
+              "setAdmin",
+              "listAudit"
+            ]
+          },
+          "args": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "requestId",
+          "action"
+        ],
+        "additionalProperties": true
+      },
+      "status": "active",
+      "joi": "adminRequest",
+      "rateLimit": "adminRequest",
+      "sentBy": {
+        "web": true,
+        "ios": false
+      },
+      "examples": [
+        {
+          "requestId": "adm-1",
+          "action": "searchPlayers",
+          "args": {
+            "query": "alan"
+          }
+        },
+        {
+          "requestId": "adm-2",
+          "action": "listAdmins"
+        },
+        {
+          "requestId": "adm-3",
+          "action": "applyMerge",
+          "args": {
+            "target": "Alan",
+            "sources": [
+              "alan2"
+            ],
+            "planHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "confirm": "Alan"
+          }
+        }
+      ],
+      "invalid": [
+        {
+          "requestId": "",
+          "action": "listAdmins"
+        },
+        {
+          "requestId": "a",
+          "action": "dropDatabase"
+        },
+        {
+          "action": "listAdmins"
+        },
+        {
+          "requestId": "a",
+          "action": "listAdmins",
+          "args": "x"
+        },
+        {
+          "requestId": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "action": "listAdmins"
+        }
+      ],
+      "notes": "The admin panel (server/socket/adminHandlers.js). Answered by adminResponse to this socket only (requestId and action echoed). Authorized on EVERY request against the database (signed in, the account's current socket, its session still live, not a merged tombstone, isAdmin true); anyone else gets {ok:false, error:'forbidden'} for every action and target, before args are read, so a non-admin learns nothing. args are validated per action after that (adminHandlers ACTION_SCHEMAS; invalid -> {ok:false, error:'invalid'}). Each request writes one adminAudit entry (listAudit excepted). Wrapper limit 60/min (error {type:'rateLimit'})."
     }
   },
   "s2c": {
@@ -3813,6 +3905,9 @@
               },
               "activeTournamentId": {
                 "type": "string"
+              },
+              "isAdmin": {
+                "const": true
               }
             },
             "required": [
@@ -3844,6 +3939,10 @@
       },
       "status": "active",
       "to": "self",
+      "added": [
+        "isAdmin"
+      ],
+      "notes": "isAdmin (additive, 2026-11-11; present only when true): the web menu shows its Admin entry. Display only: the server re-checks the database on every adminRequest. iOS 1.1.0 reads the reply as a dictionary and ignores the key.",
       "clientReads": {
         "web": [
           "client/src/handlers/authHandlers.js:registerAuthHandlers"
@@ -3943,6 +4042,9 @@
               },
               "activeTournamentId": {
                 "type": "string"
+              },
+              "isAdmin": {
+                "const": true
               }
             },
             "required": [
@@ -3973,6 +4075,10 @@
       },
       "status": "active",
       "to": "self",
+      "added": [
+        "isAdmin"
+      ],
+      "notes": "isAdmin: as on signInResponse (display only, present only when true; iOS 1.1.0 ignores it).",
       "clientReads": {
         "web": [
           "client/src/main.js:restoreSessionResponse"
@@ -8359,6 +8465,1016 @@
       "emittedFrom": [],
       "notes": "Never emitted (signInResponse.activeTournamentId replaced it)."
     },
+    "adminResponse": {
+      "payload": {
+        "anyOf": [
+          {
+            "variant": "failure",
+            "type": "object",
+            "properties": {
+              "requestId": {
+                "type": "string"
+              },
+              "action": {
+                "type": "string"
+              },
+              "ok": {
+                "const": false
+              },
+              "error": {
+                "enum": [
+                  "forbidden",
+                  "invalid",
+                  "not_found",
+                  "refused",
+                  "last_admin",
+                  "stale_plan",
+                  "server"
+                ]
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "requestId",
+              "action",
+              "ok",
+              "error",
+              "message"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "variant": "searchPlayers",
+            "type": "object",
+            "properties": {
+              "requestId": {
+                "type": "string"
+              },
+              "action": {
+                "const": "searchPlayers"
+              },
+              "ok": {
+                "const": true
+              },
+              "players": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "username": {
+                      "type": "string"
+                    },
+                    "createdAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "lastSeenAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "online": {
+                      "type": "boolean"
+                    },
+                    "gamesPlayed": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "isAdmin": {
+                      "type": "boolean"
+                    },
+                    "mergedInto": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "username",
+                    "createdAt",
+                    "lastSeenAt",
+                    "online",
+                    "gamesPlayed",
+                    "isAdmin",
+                    "mergedInto"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "requestId",
+              "action",
+              "ok",
+              "players"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "variant": "createResetLink",
+            "type": "object",
+            "properties": {
+              "requestId": {
+                "type": "string"
+              },
+              "action": {
+                "const": "createResetLink"
+              },
+              "ok": {
+                "const": true
+              },
+              "username": {
+                "type": "string"
+              },
+              "token": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{43}$"
+              },
+              "expiresAt": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "requestId",
+              "action",
+              "ok",
+              "username",
+              "token",
+              "expiresAt"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "variant": "signOutEverywhere",
+            "type": "object",
+            "properties": {
+              "requestId": {
+                "type": "string"
+              },
+              "action": {
+                "const": "signOutEverywhere"
+              },
+              "ok": {
+                "const": true
+              },
+              "username": {
+                "type": "string"
+              },
+              "revokedSessions": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "disconnected": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "requestId",
+              "action",
+              "ok",
+              "username",
+              "revokedSessions",
+              "disconnected"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "variant": "findDuplicates",
+            "type": "object",
+            "properties": {
+              "requestId": {
+                "type": "string"
+              },
+              "action": {
+                "const": "findDuplicates"
+              },
+              "ok": {
+                "const": true
+              },
+              "groups": {
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "username": {
+                        "type": "string"
+                      },
+                      "gamesPlayed": {
+                        "type": "number"
+                      },
+                      "createdAt": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "username",
+                      "gamesPlayed",
+                      "createdAt"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              }
+            },
+            "required": [
+              "requestId",
+              "action",
+              "ok",
+              "groups"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "variant": "planMerge",
+            "type": "object",
+            "properties": {
+              "requestId": {
+                "type": "string"
+              },
+              "action": {
+                "const": "planMerge"
+              },
+              "ok": {
+                "const": true
+              },
+              "plan": {
+                "type": "object",
+                "properties": {
+                  "target": {
+                    "type": "string"
+                  },
+                  "sources": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "errors": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "warnings": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "accounts": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "role": {
+                          "enum": [
+                            "target",
+                            "source",
+                            "result"
+                          ]
+                        },
+                        "username": {
+                          "type": "string"
+                        },
+                        "createdAt": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "stats": {
+                          "type": "object",
+                          "properties": {
+                            "gamesPlayed": {
+                              "type": "number"
+                            },
+                            "wins": {
+                              "type": "number"
+                            },
+                            "losses": {
+                              "type": "number"
+                            },
+                            "draws": {
+                              "type": "number"
+                            },
+                            "totalPoints": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "gamesPlayed",
+                            "wins",
+                            "losses",
+                            "draws",
+                            "totalPoints"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "note": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "role",
+                        "username",
+                        "createdAt",
+                        "stats",
+                        "note"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "statChanges": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "key": {
+                          "type": "string"
+                        },
+                        "before": {
+                          "type": "number"
+                        },
+                        "after": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "key",
+                        "before",
+                        "after"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "profilePicFrom": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "targetBlockedUsers": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "before": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "after": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "required": [
+                          "before",
+                          "after"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "gameRecords": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "gameId": {
+                          "type": "string"
+                        },
+                        "completedAt": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "before": {
+                          "type": "object",
+                          "properties": {
+                            "team1": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "team2": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            }
+                          },
+                          "required": [
+                            "team1",
+                            "team2"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "after": {
+                          "type": "object",
+                          "properties": {
+                            "team1": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "team2": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            }
+                          },
+                          "required": [
+                            "team1",
+                            "team2"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "gameId",
+                        "completedAt",
+                        "before",
+                        "after"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "reports": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "reporter": {
+                          "type": "string"
+                        },
+                        "reported": {
+                          "type": "string"
+                        },
+                        "newReporter": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "newReported": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "reporter",
+                        "reported",
+                        "newReporter",
+                        "newReported"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "otherUsersBlocks": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "username": {
+                          "type": "string"
+                        },
+                        "before": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "after": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "required": [
+                        "username",
+                        "before",
+                        "after"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "chainedTombstones": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "username": {
+                          "type": "string"
+                        },
+                        "before": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "username",
+                        "before"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "retire": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "changeCount": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "target",
+                  "sources",
+                  "errors",
+                  "warnings",
+                  "accounts",
+                  "statChanges",
+                  "profilePicFrom",
+                  "targetBlockedUsers",
+                  "gameRecords",
+                  "reports",
+                  "otherUsersBlocks",
+                  "chainedTombstones",
+                  "retire",
+                  "changeCount"
+                ],
+                "additionalProperties": false
+              },
+              "planHash": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            },
+            "required": [
+              "requestId",
+              "action",
+              "ok",
+              "plan",
+              "planHash"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "variant": "applyMerge",
+            "type": "object",
+            "properties": {
+              "requestId": {
+                "type": "string"
+              },
+              "action": {
+                "const": "applyMerge"
+              },
+              "ok": {
+                "const": true
+              },
+              "result": {
+                "type": "object",
+                "properties": {
+                  "target": {
+                    "type": "string"
+                  },
+                  "statsMerged": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "retired": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "gameRecords": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "reports": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "otherUsersBlocks": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "chainedTombstones": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "profilePic": {
+                    "type": "boolean"
+                  },
+                  "signedOut": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "target",
+                  "statsMerged",
+                  "retired",
+                  "gameRecords",
+                  "reports",
+                  "otherUsersBlocks",
+                  "chainedTombstones",
+                  "profilePic",
+                  "signedOut"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "requestId",
+              "action",
+              "ok",
+              "result"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "variant": "listReports",
+            "type": "object",
+            "properties": {
+              "requestId": {
+                "type": "string"
+              },
+              "action": {
+                "const": "listReports"
+              },
+              "ok": {
+                "const": true
+              },
+              "reports": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "reporter": {
+                      "type": "string"
+                    },
+                    "reported": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "type": "string"
+                    },
+                    "context": {
+                      "type": "string"
+                    },
+                    "createdAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "status": {
+                      "enum": [
+                        "open",
+                        "resolved",
+                        "dismissed"
+                      ]
+                    },
+                    "resolvedBy": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "resolvedAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "note": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "reporter",
+                    "reported",
+                    "reason",
+                    "context",
+                    "createdAt",
+                    "status",
+                    "resolvedBy",
+                    "resolvedAt",
+                    "note"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "requestId",
+              "action",
+              "ok",
+              "reports"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "variant": "resolveReport",
+            "type": "object",
+            "properties": {
+              "requestId": {
+                "type": "string"
+              },
+              "action": {
+                "const": "resolveReport"
+              },
+              "ok": {
+                "const": true
+              },
+              "report": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "reporter": {
+                    "type": "string"
+                  },
+                  "reported": {
+                    "type": "string"
+                  },
+                  "reason": {
+                    "type": "string"
+                  },
+                  "context": {
+                    "type": "string"
+                  },
+                  "createdAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "status": {
+                    "enum": [
+                      "open",
+                      "resolved",
+                      "dismissed"
+                    ]
+                  },
+                  "resolvedBy": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "resolvedAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "note": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "reporter",
+                  "reported",
+                  "reason",
+                  "context",
+                  "createdAt",
+                  "status",
+                  "resolvedBy",
+                  "resolvedAt",
+                  "note"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "requestId",
+              "action",
+              "ok",
+              "report"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "variant": "listAdmins",
+            "type": "object",
+            "properties": {
+              "requestId": {
+                "type": "string"
+              },
+              "action": {
+                "const": "listAdmins"
+              },
+              "ok": {
+                "const": true
+              },
+              "admins": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "username": {
+                      "type": "string"
+                    },
+                    "adminSince": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "username",
+                    "adminSince"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "requestId",
+              "action",
+              "ok",
+              "admins"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "variant": "setAdmin",
+            "type": "object",
+            "properties": {
+              "requestId": {
+                "type": "string"
+              },
+              "action": {
+                "const": "setAdmin"
+              },
+              "ok": {
+                "const": true
+              },
+              "username": {
+                "type": "string"
+              },
+              "isAdmin": {
+                "type": "boolean"
+              },
+              "changed": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "requestId",
+              "action",
+              "ok",
+              "username",
+              "isAdmin",
+              "changed"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "variant": "listAudit",
+            "type": "object",
+            "properties": {
+              "requestId": {
+                "type": "string"
+              },
+              "action": {
+                "const": "listAudit"
+              },
+              "ok": {
+                "const": true
+              },
+              "entries": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "at": {
+                      "type": "string"
+                    },
+                    "actor": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "action": {
+                      "type": "string"
+                    },
+                    "target": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "result": {
+                      "enum": [
+                        "ok",
+                        "failed",
+                        "forbidden"
+                      ]
+                    },
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "at",
+                    "actor",
+                    "action",
+                    "target",
+                    "result",
+                    "detail"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "hasMore": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "requestId",
+              "action",
+              "ok",
+              "entries",
+              "hasMore"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "status": "active",
+      "to": "self",
+      "clientReads": {
+        "web": [
+          "client/src/admin/adminApi.js:createAdminApi"
+        ],
+        "ios": []
+      },
+      "emittedFrom": [
+        "server/socket/adminHandlers.js:adminRequest"
+      ],
+      "notes": "The reply to adminRequest, to the requesting socket only (requestId and action echoed). failure: forbidden = not an admin right now (the one uniform refusal for every action and target: no account information), invalid = bad args or a wrong typed confirmation, not_found / refused / last_admin / stale_plan (the merge changed since its preview: preview again) / server; message is for the admin. createResetLink.token is the one-time link secret (/reset#<token>): shown to the admin once, never logged or audited. planMerge.plan is formatPlan's content as data (no picture bytes); planHash fingerprints the whole plan and applyMerge applies only when a fresh plan has the same hash. The iOS app has no handler (layout: excluded from Swift)."
+    },
     "voiceOffer": {
       "payload": {
         "type": "object",
@@ -8739,7 +9855,8 @@
       "to": "self",
       "clientReads": {
         "web": [
-          "client/src/main.js:setupSocketErrorHandler"
+          "client/src/main.js:setupSocketErrorHandler",
+          "client/src/admin/adminApi.js:createAdminApi#reads:type,handler"
         ],
         "ios": [
           "iOSClient/BABOnline/Networking/SocketService.swift:connect#reads:message"
@@ -8753,7 +9870,7 @@
         "server/socket/*.js:<many handlers> (socket.emit('error', {message}))",
         "server/socket/chatHandlers.js:sendError"
       ],
-      "notes": "App-level event (not the transport's error). iOS receives it through Socket.IO-Client-Swift's clientEvent .error (the reserved name) and, since 0fd6ef1, shows message as a toast. variant validation is dead today (validators.withValidation has no caller). Rename to serverError is V1_REMOVALS #1."
+      "notes": "App-level event (not the transport's error). iOS receives it through Socket.IO-Client-Swift's clientEvent .error (the reserved name) and, since 0fd6ef1, shows message as a toast. variant validation is dead today (validators.withValidation has no caller). Rename to serverError is V1_REMOVALS #1. The admin panel's api (adminApi.js) reads {type:'rateLimit', handler:'adminRequest'} to fail a dropped admin request fast as rate_limited."
     }
   },
   "builtins": {

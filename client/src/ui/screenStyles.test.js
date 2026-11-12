@@ -18,8 +18,11 @@ const SCREEN_FILES = [
   'src/ui/screens/common.js', 'src/ui/components/PlayerQueue.js', 'src/ui/components/ResignationDialog.js',
   'src/ui/kit/modal.js', 'src/ui/kit/elements.js', 'src/ui/UIManager.js', 'src/main.js',
   'src/boot/gateScreen.js', 'src/boot/boot.js', 'src/entry.js',
+  'src/reset/resetPage.js', 'src/reset/resetEntry.js',
+  'src/ui/screens/AdminPanel.js', 'src/admin/adminApi.js',
 ];
-const PAGE_CSS = ['styles/screens.css', 'styles.css', 'styles/kit.css', 'styles/components.css', 'styles/gate.css', 'index.html'];
+const PAGE_CSS = ['styles/screens.css', 'styles.css', 'styles/kit.css', 'styles/components.css', 'styles/gate.css', 'index.html',
+  'styles/reset.css', 'reset.html'];
 
 const HEX = /#[0-9a-fA-F]{3,8}\b/g;
 const INLINE = /style\.cssText|\.style\.[a-zA-Z]+ *=|style="/;
@@ -51,6 +54,18 @@ describe('the screens on tokens and kit classes', () => {
       expect(readClientFile(file).match(HEX) || []).toEqual([]);
     });
   }
+
+  it('the reset page and the admin panel round corners with the radius tokens, not pixel literals', () => {
+    const adminCss = (() => {
+      const css = readClientFile('styles/screens.css');
+      const start = css.indexOf('.admin-');
+      return css.slice(start);
+    })();
+    for (const css of [readClientFile('styles/reset.css'), adminCss]) {
+      const literal = css.split('\n').filter((l) => /border-radius:\s*\d+px/.test(l));
+      expect(literal).toEqual([]);
+    }
+  });
 
   it('no Arial body and no bright green gradient: the page is the tokens\' dark surfaces and font stack', () => {
     const css = readClientFile('styles.css');

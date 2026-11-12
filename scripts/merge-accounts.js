@@ -89,6 +89,11 @@ async function main() {
         console.log('\nDone.');
         console.log(`  stats merged from: ${result.statsMerged.join(', ') || '(none)'}`);
         console.log(`  retired: ${result.retired.join(', ') || '(none)'}`);
+        if (result.notRetired.length) {
+            console.log(`  NOT retired (in a game or tournament, or merged elsewhere, since the plan): ${result.notRetired.join(', ')}`);
+            console.log('  This merge is only partly applied. Run it again once they are free.');
+            process.exitCode = 1;
+        }
         console.log(`  game records: ${result.gameRecords}, reports: ${result.reports}, other block lists: ${result.otherUsersBlocks}`);
         console.log('\nIf any of these players were online, they keep their current connection until they leave; after that only the kept account can sign in.');
     } finally {

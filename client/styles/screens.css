@@ -961,6 +961,348 @@
     font-style: italic;
 }
 
+/* ---------- Admin panel (ui/screens/AdminPanel.js) ---------- */
+
+/* the wide page modal, a fixed height so switching tabs does not jump */
+.kit-modal.admin-modal {
+    width: 1040px;
+    height: min(760px, calc(100vh - 2 * var(--space-4)));
+}
+
+.admin-modal .kit-modal__body {
+    min-height: 0;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+.admin-tabs {
+    display: flex;
+    gap: var(--space-1);
+    border-bottom: 1px solid var(--line-strong);
+    flex-shrink: 0;
+}
+
+.admin-tab {
+    min-height: var(--hit-target);
+    padding: 0 var(--space-4);
+    border: 0;
+    border-bottom: 3px solid transparent;
+    border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    font-weight: var(--weight-semibold);
+    cursor: pointer;
+    transition: color var(--dur-fast) var(--ease-standard), background-color var(--dur-fast) var(--ease-standard);
+}
+
+.admin-tab:hover {
+    color: var(--text-primary);
+    background: rgb(var(--text-primary-rgb) / 0.05);
+}
+
+.admin-tab[aria-selected="true"] {
+    border-bottom-color: var(--primary-base);
+    color: var(--text-primary);
+}
+
+.admin-section {
+    min-height: 0;
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--space-1) var(--space-1) var(--space-4);
+    color: var(--text-primary);
+}
+
+.admin-section[hidden] {
+    display: none;
+}
+
+/* the status line and the alert line share one row: only one has text */
+.admin-status-box {
+    flex-shrink: 0;
+    min-height: 1.4em;
+}
+
+.admin-status {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: var(--type-sm);
+}
+
+.admin-status--error {
+    color: var(--danger-text);
+}
+
+.admin-status[data-kind="success"] {
+    color: var(--success);
+}
+
+.admin-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--space-3);
+    margin: 0 0 var(--space-3);
+}
+
+.admin-row .admin-field {
+    flex: 1 1 260px;
+}
+
+.admin-row .admin-field:only-child {
+    flex: 0 1 auto;
+}
+
+.admin-merge-form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+    gap: var(--space-3);
+    align-items: end;
+    margin-bottom: var(--space-3);
+}
+
+.admin-merge-form .admin-row {
+    grid-column: 1 / -1;
+    margin: 0;
+}
+
+.admin-select {
+    min-width: 140px;
+}
+
+.admin-heading {
+    margin: var(--space-4) 0 var(--space-2);
+    color: var(--text-primary);
+    font-size: var(--type-md);
+    font-weight: var(--weight-bold);
+}
+
+.admin-note {
+    margin: var(--space-2) 0;
+    color: var(--text-secondary);
+    font-size: var(--type-sm);
+}
+
+.admin-count {
+    margin: var(--space-3) 0;
+    font-weight: var(--weight-semibold);
+}
+
+.admin-list {
+    margin: 0 0 var(--space-2);
+    padding-left: var(--space-5);
+    color: var(--text-primary);
+    font-size: var(--type-sm);
+    overflow-wrap: anywhere;
+}
+
+.admin-list li + li {
+    margin-top: var(--space-1);
+}
+
+.admin-errors {
+    color: var(--danger-text);
+}
+
+.admin-warnings {
+    color: var(--warning);
+}
+
+.admin-dup {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+}
+
+.admin-details summary {
+    min-height: var(--hit-target);
+    display: flex;
+    align-items: center;
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
+.admin-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-variant-numeric: tabular-nums;
+}
+
+.admin-table th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding: var(--space-2);
+    background: var(--surface-1);
+    border-bottom: 2px solid var(--line-strong);
+    color: var(--text-secondary);
+    font-size: var(--type-xs);
+    font-weight: var(--weight-bold);
+    letter-spacing: 0.04em;
+    text-align: left;
+    text-transform: uppercase;
+}
+
+.admin-table td {
+    padding: var(--space-2);
+    border-bottom: 1px solid var(--line-subtle);
+    color: var(--text-primary);
+    font-size: var(--type-sm);
+    vertical-align: middle;
+    /* break a long word only when nothing else fits (never a short name) */
+    overflow-wrap: break-word;
+}
+
+.admin-table td.is-num {
+    text-align: right;
+}
+
+.admin-plan__result td {
+    font-weight: var(--weight-bold);
+    background: var(--surface-2);
+}
+
+.admin-audit--forbidden td,
+.admin-audit--failed td {
+    color: var(--text-secondary);
+}
+
+.admin-audit--forbidden td:nth-child(5) {
+    color: var(--danger-text);
+}
+
+.admin-name {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    font-weight: var(--weight-semibold);
+}
+
+.admin-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+}
+
+.admin-chip {
+    font-size: var(--type-xs);
+}
+
+.admin-link {
+    margin: 0 0 var(--space-4);
+    padding: var(--space-4);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-md);
+    background: var(--surface-2);
+}
+
+.admin-link[hidden] {
+    display: none;
+}
+
+.admin-link .admin-row {
+    margin: var(--space-2) 0 0;
+    flex-wrap: nowrap;
+}
+
+.admin-link__input {
+    flex: 1;
+    min-width: 0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: var(--type-sm);
+}
+
+.admin-reports {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+.admin-report {
+    padding: var(--space-4);
+    color: var(--text-primary);
+}
+
+.admin-report__head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-3);
+}
+
+.admin-report__who {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.admin-report__reason {
+    margin: var(--space-2) 0;
+    font-weight: var(--weight-semibold);
+    overflow-wrap: anywhere;
+}
+
+.admin-report__context {
+    margin: 0 0 var(--space-2);
+    color: var(--text-secondary);
+    font-size: var(--type-sm);
+    overflow-wrap: anywhere;
+}
+
+.admin-report .admin-row {
+    margin: var(--space-2) 0 0;
+}
+
+.admin-confirm-form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--space-3);
+    margin-top: var(--space-4);
+    padding: var(--space-4);
+    border: 1px solid rgb(var(--danger-solid-rgb) / 0.6);
+    border-radius: var(--radius-md);
+}
+
+.admin-confirm-form .admin-note {
+    flex-basis: 100%;
+    margin: 0;
+}
+
+.admin-confirm-form .admin-field {
+    flex: 1 1 260px;
+}
+
+.kit-modal.admin-confirm {
+    width: 460px;
+    color: var(--text-primary);
+}
+
+.admin-confirm__text {
+    margin: 0;
+    color: var(--text-secondary);
+}
+
+.admin-sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
+
+.admin-modal :is(select, summary, [role="tab"], [role="tabpanel"]):focus-visible {
+    outline: 2px solid var(--text-primary);
+    outline-offset: 2px;
+}
+
 /* ---------- Player search ---------- */
 
 .search-row {

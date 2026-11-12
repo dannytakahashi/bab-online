@@ -45,6 +45,7 @@ import { showProfilePage, updateProfilePicDisplay, updateCustomProfilePicDisplay
 import { showLeaderboardPage } from './ui/screens/LeaderboardPage.js';
 import { showRecordsPage } from './ui/screens/RecordsPage.js';
 import { updatePlayerSearchResults } from './ui/screens/PlayerSearchPage.js';
+import { setIsAdmin } from './admin/adminApi.js';
 import { removeTournamentLobby, addTournamentChatMessage, updateTournamentPlayers, updateTournamentScoreboardUI, updateTournamentRoundIndicator, updateTournamentActiveGames, setTournamentPhase } from './ui/screens/TournamentLobby.js';
 import { showTournamentResultsOverlay } from './ui/components/TournamentScoreboard.js';
 import { showResignationDialog, dismissResignationDialog } from './ui/components/ResignationDialog.js';
@@ -308,6 +309,7 @@ socket.io.on('reconnect_failed', () => {
   sessionStorage.removeItem('username');
   sessionStorage.removeItem('sessionToken');
   session.clearIdentity();
+  setIsAdmin(false);
   displaySignInScreen(EXIT.RECONNECT_FAILED);
   showError('Connection lost. Please sign in again.');
 });
@@ -817,6 +819,8 @@ function initializeApp() {
       console.log('Sign in success, going to main room');
       // Signed in on this socket: no restoreSession needed for it
       session.noteSignedIn(data.username);
+      // The main room's Admin entry (display only; the server checks)
+      setIsAdmin(data.isAdmin === true);
       setBlockedUsers(data.blockedUsers);
 
       // Check if user has an active game to rejoin
@@ -841,6 +845,7 @@ function initializeApp() {
         // Auto-login: go straight to main room
         console.log(`Registration & auto-login successful: ${data.username}`);
         session.noteSignedIn(data.username);
+        setIsAdmin(false);
         // Fresh account, fresh block list (don't inherit a prior session's)
         setBlockedUsers([]);
         session.requestMainRoom();
@@ -857,6 +862,7 @@ function initializeApp() {
       // this socket next, so nothing it showed will be finished (createUI
       // never comes to lift a transition overlay): exitTable takes it all down
       session.clearIdentity();
+      setIsAdmin(false);
       setBlockedUsers([]);
       displaySignInScreen(EXIT.FORCE_LOGOUT);
     },
@@ -1765,6 +1771,7 @@ socket.on('restoreSessionResponse', (data) => {
   if (data.success) {
     console.log('Session restored successfully');
     setBlockedUsers(data.blockedUsers);
+    setIsAdmin(data.isAdmin === true);
     // Then rejoin, re-spectate, or re-enter the current screen
     const action = session.onSessionRestored(data);
     console.log(`Session restored: ${action}`);
@@ -1775,6 +1782,7 @@ socket.on('restoreSessionResponse', (data) => {
     sessionStorage.removeItem('username');
     sessionStorage.removeItem('sessionToken');
     session.clearIdentity();
+    setIsAdmin(false);
     displaySignInScreen(EXIT.SIGN_OUT);
   }
 });

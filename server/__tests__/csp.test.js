@@ -22,8 +22,8 @@ function parse(policy) {
     return out;
 }
 
-function metaPolicy() {
-    const html = fs.readFileSync(path.join(ROOT, 'client', 'index.html'), 'utf8');
+function metaPolicy(page = 'index.html') {
+    const html = fs.readFileSync(path.join(ROOT, 'client', page), 'utf8');
     const m = html.match(/<meta http-equiv="Content-Security-Policy" content="([^"]*)">/);
     expect(m).toBeTruthy();
     return parse(m[1]);
@@ -50,6 +50,12 @@ test('the header and the meta agree on every directive but the hosts', () => {
     for (const d of ['script-src', 'img-src', 'font-src', 'style-src', 'media-src']) {
         expect([d, header[d]]).toEqual([d, meta[d]]);
     }
+});
+
+test('the reset page (client/reset.html) carries the same meta policy as the app page', () => {
+    expect(metaPolicy('reset.html')).toEqual(metaPolicy('index.html'));
+    const html = fs.readFileSync(path.join(ROOT, 'client', 'reset.html'), 'utf8');
+    expect(html).toMatch(/<meta name="referrer" content="no-referrer">/);
 });
 
 test('connect-src keeps the production hosts', () => {

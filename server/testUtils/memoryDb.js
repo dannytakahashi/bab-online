@@ -59,6 +59,9 @@ function flatten(values) {
     return out;
 }
 
+/** Range comparisons: ObjectIds by their hex (time-ordered), the rest as is. */
+const ord = (v) => (v instanceof ObjectId ? v.toHexString() : v);
+
 function matchCondition(values, cond) {
     const flat = flatten(values);
     if (!isPlainObject(cond) || !Object.keys(cond).some(k => k.startsWith('$'))) {
@@ -71,10 +74,10 @@ function matchCondition(values, cond) {
             case '$in': return arg.some(a => flat.some(v => equals(v, a)));
             case '$nin': return !arg.some(a => flat.some(v => equals(v, a)));
             case '$exists': return (values.length > 0) === Boolean(arg);
-            case '$gt': return flat.some(v => v > arg);
-            case '$gte': return flat.some(v => v >= arg);
-            case '$lt': return flat.some(v => v < arg);
-            case '$lte': return flat.some(v => v <= arg);
+            case '$gt': return flat.some(v => ord(v) > ord(arg));
+            case '$gte': return flat.some(v => ord(v) >= ord(arg));
+            case '$lt': return flat.some(v => ord(v) < ord(arg));
+            case '$lte': return flat.some(v => ord(v) <= ord(arg));
             case '$regex': {
                 const re = new RegExp(arg, cond.$options || '');
                 return flat.some(v => typeof v === 'string' && re.test(v));
@@ -256,6 +259,30 @@ function applyArrayFilterSet(doc, update, arrayFilters) {
     }
 }
 
+/** Comparator for a Mongo sort spec ({field: 1|-1, ...}): numbers, strings, Dates, ObjectIds. */
+function compareBy(spec) {
+    const keys = Object.entries(spec);
+    const val = (doc, path) => {
+        const v = resolve(doc, path)[0];
+        if (v instanceof Date) return v.getTime();
+        if (v instanceof ObjectId) return v.toHexString();
+        return v;
+    };
+    return (a, b) => {
+        for (const [path, dir] of keys) {
+            const x = val(a, path);
+            const y = val(b, path);
+            if (x === y) continue;
+            if (x === undefined || x === null) return -dir;
+            if (y === undefined || y === null) return dir;
+            return (x < y ? -1 : 1) * dir;
+        }
+        return 0;
+    };
+}
+
+let sortEnabled = false;
+
 class MemoryCollection {
     constructor(docs = []) {
         this.docs = [];
@@ -283,7 +310,12 @@ class MemoryCollection {
         let projection = options.projection;
         const cursor = {
             limit(n) { results = results.slice(0, n); return cursor; },
-            sort() { return cursor; },
+            // Sorting is opt-in ({sort: true} on the collection's options):
+            // tests written before it relied on insertion order
+            sort(spec) {
+                if (spec && sortEnabled) results = [...results].sort(compareBy(spec));
+                return cursor;
+            },
             project(p) { projection = p; return cursor; },
             async toArray() { return results.map(d => applyProjection(clone(d), projection)); }
         };
@@ -301,6 +333,20 @@ class MemoryCollection {
         if (options.arrayFilters) applyArrayFilterSet(doc, update, options.arrayFilters);
         else applyUpdate(doc, update);
         return { matchedCount: 1, modifiedCount: before === JSON.stringify(doc) ? 0 : 1 };
+    }
+
+    /**
+     * findOneAndUpdate as driver 6 returns it: the document (before the
+     * update unless returnDocument: 'after'), or null when nothing matched.
+     * Atomic here by construction (no await between match and write).
+     */
+    async findOneAndUpdate(filter, update, options = {}) {
+        const doc = this.docs.find(d => matches(d, filter));
+        if (!doc) return null;
+        const before = clone(doc);
+        applyUpdate(doc, update);
+        const out = options.returnDocument === 'after' ? clone(doc) : before;
+        return applyProjection(out, options.projection);
     }
 
     async updateMany(filter, update, options = {}) {
@@ -334,12 +380,20 @@ class MemoryCollection {
     }
 }
 
-function createMemoryDb({ users = [], gameRecords = [], reports = [] } = {}) {
+function createMemoryDb({ users = [], gameRecords = [], reports = [], passwordResets = [], adminAudit = [] } = {}) {
     return {
         users: new MemoryCollection(users),
         gameRecords: new MemoryCollection(gameRecords),
-        reports: new MemoryCollection(reports)
+        reports: new MemoryCollection(reports),
+        // the admin panel's (server/admin/)
+        passwordResets: new MemoryCollection(passwordResets),
+        adminAudit: new MemoryCollection(adminAudit)
     };
 }
 
-module.exports = { MemoryCollection, createMemoryDb, matches, applyProjection };
+/** Make cursor.sort() really sort (tests of code whose order matters). */
+function enableSort(on = true) {
+    sortEnabled = on;
+}
+
+module.exports = { MemoryCollection, createMemoryDb, matches, applyProjection, enableSort };

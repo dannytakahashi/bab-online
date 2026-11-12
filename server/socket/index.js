@@ -15,6 +15,7 @@ const tournamentHandlers = require('./tournamentHandlers');
 const voiceHandlers = require('./voiceHandlers');
 const safetyHandlers = require('./safetyHandlers');
 const snapshotHandlers = require('./snapshotHandlers');
+const adminHandlers = require('./adminHandlers');
 const clientInfo = require('./clientInfo');
 const upgradeGate = require('./upgradeGate');
 const { asyncHandler, syncHandler, safeHandler, rateLimiter } = require('./errorHandler');
@@ -202,6 +203,12 @@ function setupSocketHandlers(io) {
         );
         socket.on('unblockUser', (data) =>
             asyncHandler('unblockUser', safetyHandlers.unblockUser)(socket, io, data)
+        );
+
+        // Admin panel (web only): authorized per request against the
+        // database (adminHandlers.authorizeAdmin)
+        socket.on('adminRequest', (data) =>
+            asyncHandler('adminRequest', adminHandlers.adminRequest)(socket, io, data)
         );
 
         // Voice chat signaling relay

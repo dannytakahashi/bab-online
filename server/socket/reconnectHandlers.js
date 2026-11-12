@@ -12,6 +12,7 @@ const { hasCap } = require('./clientInfo');
 const { getUsersCollection } = require('../database');
 const { verifySession } = require('../utils/sessionTokens');
 const { rememberBlockList } = require('./voiceHandlers');
+const { claimSocket, releaseClaim } = require('./authHandlers');
 
 /**
  * A rejoin binds this socket to `username` and hands it that seat's hand, so
@@ -21,9 +22,14 @@ const { rememberBlockList } = require('./voiceHandlers');
  * restoreSession round trip).
  */
 async function isAuthorizedForUser(socket, username, sessionToken) {
+    // A name a panel merge is retiring right now cannot come back in
+    // (adminHandlers applyMerge signs its sockets out first)
+    if (gameManager.isMergeLocked?.(username)) return false;
     const authed = gameManager.getUserBySocketId(socket.id);
     if (authed && authed.username === username) return true;
     if (!sessionToken) return false;
+    let previousClaim;
+    let claimed = false;
     try {
         // Cold start (connectDB still running): wait like signIn/restoreSession
         // do, instead of refusing a web reload's rejoin
@@ -34,21 +40,40 @@ async function isAuthorizedForUser(socket, username, sessionToken) {
         }
         const user = await usersCollection.findOne(
             { username },
-            { projection: { sessionTokens: 1, sessionToken: 1, blockedUsers: 1 } }
+            { projection: { sessionTokens: 1, sessionToken: 1, sessionEpoch: 1, blockedUsers: 1 } }
         );
         // Per-device tokens (server/utils/sessionTokens.js); also accepts and
         // migrates a legacy plaintext sessionToken
         const session = verifySession(user, sessionToken);
         if (!session) return false;
+        // Claimed before the write (authHandlers.claimSocket): a revoke
+        // landing while it is in flight signs this socket out (signOutUser
+        // finds it by the claim), and rejoinGame then sees it disconnected
+        // before seating it. Everything from the write's reply to the seat's
+        // registerUser is synchronous, so no revoke can slip in between.
+        previousClaim = claimSocket(socket, username);
+        claimed = true;
+        // Only while no revoke landed since the read (session.filter): a
+        // rejoin racing sign out everywhere / a password reset must not
+        // write the revoked sessions back, and is refused instead
+        const written = await usersCollection.updateOne({ username, ...session.filter }, session.update);
+        if (written && written.matchedCount === 0) {
+            releaseClaim(socket, username, previousClaim);
+            return false;
+        }
+        if (gameManager.isMergeLocked?.(username)) {
+            releaseClaim(socket, username, previousClaim);
+            return false;
+        }
         // This socket is now that user without a signIn / restoreSession
         // (a web reload rejoins first): load the block list the same way,
         // or voice signaling would have none to check
         rememberBlockList(socket, user.blockedUsers || []);
         // Lets a later restore from another device tell this one apart
         if (socket.data) socket.data.sessionHash = session.hash;
-        await usersCollection.updateOne({ username }, session.update);
         return true;
     } catch (err) {
+        if (claimed) releaseClaim(socket, username, previousClaim);
         socketLogger.error('Rejoin auth lookup failed', { username, error: err.message });
         return false;
     }
