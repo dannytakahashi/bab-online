@@ -247,16 +247,12 @@
         },
         "pic": {
           "$ref": "#/$defs/pic"
-        },
-        "socketId": {
-          "type": "string"
         }
       },
       "required": [
         "position",
         "username",
-        "pic",
-        "socketId"
+        "pic"
       ],
       "additionalProperties": false
     },
@@ -5236,9 +5232,6 @@
             "minimum": 1,
             "maximum": 4
           },
-          "socketId": {
-            "type": "string"
-          },
           "seq": {
             "$ref": "#/$defs/seq"
           }
@@ -5247,7 +5240,6 @@
           "username",
           "card",
           "drawOrder",
-          "socketId",
           "seq"
         ],
         "additionalProperties": false
@@ -5261,6 +5253,7 @@
           "why": "iOS DrawResult reads cardIndex (defaults to 0 today)"
         }
       ],
+      "notes": "No socketId since 2026-11-12 (V1_REMOVALS #14): read by neither web nor iOS 1.2.0 (WirePayloads.PlayerDrew has no such field).",
       "clientReads": {
         "web": [
           "client/src/handlers/gameHandlers.js:registerGameHandlers"
@@ -5360,14 +5353,10 @@
               "properties": {
                 "username": {
                   "type": "string"
-                },
-                "socketId": {
-                  "type": "string"
                 }
               },
               "required": [
-                "username",
-                "socketId"
+                "username"
               ],
               "additionalProperties": false
             },
@@ -5383,6 +5372,14 @@
           "avatarUrls": {
             "$ref": "#/$defs/avatarUrlsByPosition"
           },
+          "isBot": {
+            "type": "array",
+            "items": {
+              "type": "boolean"
+            },
+            "maxItems": 4,
+            "description": "Per seat, in positions order: a native bot (its seat socket id starts with bot:)"
+          },
           "seq": {
             "$ref": "#/$defs/seq"
           }
@@ -5392,6 +5389,7 @@
           "sockets",
           "usernames",
           "pics",
+          "isBot",
           "seq"
         ],
         "additionalProperties": false
@@ -5401,9 +5399,10 @@
       "seq": true,
       "added": [
         "avatarUrls",
+        "isBot",
         "seq"
       ],
-      "notes": "pics: the legacy value for every recipient (one room broadcast): number, null, or for a custom picture the small derived inline WebP data URL (docs/avatars.md). avatarUrls (additive, only when a rendition exists): {position: /avatar URL}, preferred by capable clients; the shipped iOS app and old web ignore it.",
+      "notes": "pics: the legacy value for every recipient (one room broadcast): number, null, or for a custom picture the small derived inline WebP data URL (docs/avatars.md). avatarUrls (additive, only when a rendition exists): {position: /avatar URL}, preferred by capable clients; the shipped iOS app and old web ignore it. V1_REMOVALS #14 (2026-11-12): usernames[] has no socketId (read by neither client); sockets stays, because iOS 1.2.0 tells a bot from a human by its bot: prefix and finds its own seat by it (TableReducer.positionUpdate). isBot (additive) is the same fact without a socket id, so a later iOS build can stop reading sockets; web and iOS 1.2.0 ignore it.",
       "reserved": [
         {
           "key": "yourPosition",

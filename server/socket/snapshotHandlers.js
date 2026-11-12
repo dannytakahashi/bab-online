@@ -49,7 +49,7 @@ function snapshotFor(game, sid, opts = {}) {
     });
 }
 
-/** players[] of a snapshot carrier: {position, username, pic, socketId} per seat. */
+/** players[] of a snapshot carrier: {position, username, pic} per seat (no socket ids: V1_REMOVALS #14). */
 function carrierPlayers(game) {
     const players = [];
     for (let pos = 1; pos <= 4; pos++) {
@@ -58,8 +58,7 @@ function carrierPlayers(game) {
             players.push({
                 position: pos,
                 username: player.username,
-                pic: player.pic,
-                socketId: player.socketId
+                pic: player.pic
             });
         }
     }
@@ -71,11 +70,12 @@ function carrierPlayers(game) {
  * state) for `socket`: the v2 snapshot plus only the v1 keys a client still
  * reads (V1_REMOVALS #9, 2026-11-12). Until then each carried the whole
  * legacy getClientState (22 keys) or spectator state (16 + 4 aliases).
- *   - players[] {position, username, pic, socketId}: iOS 1.2.0 reads pic
+ *   - players[] {position, username, pic}: iOS 1.2.0 reads pic
  *     (R5: the snapshot withholds custom pictures, customPics:false, and
  *     has no URL while a rendition is pending / failed or with
- *     AVATAR_PIPELINE=off) and socketId (voice glow fallback);
- *     WirePayloads.RejoinEnvelope.hints. Web lets it win for names and
+ *     AVATAR_PIPELINE=off); WirePayloads.RejoinEnvelope.hints. Its
+ *     socketId (a voice glow fallback after the username match) went with
+ *     V1_REMOVALS #14. Web lets it win for names and
  *     pictures (tableSync.applyTableSnapshot).
  *   - avatarUrls (capable sockets, when there is a URL): iOS 1.2.0 hints.
  *   - gameId; isLazy (rejoinSuccess); trump (spectator full state): what a

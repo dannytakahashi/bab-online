@@ -269,19 +269,21 @@ describe('seat transcripts (wire characterization)', () => {
         for (let i = 0; i < masked.length; i++) if (masked[i].includes(':gameStart')) masked[i] = starts[k++];
         expect(pos4).toBeTruthy();
         expect(masked).toEqual([
-            'room:playerDrew{card,drawOrder,socketId,username}',
+            'room:playerDrew{card,drawOrder,username}',
             'room:gameLogEntry{message,type}',
             'self(h1):leftGame{}',
             'self(h2):youDrew{card,drawOrder}',
-            'room:playerDrew{card,drawOrder,socketId,username}',
+            'room:playerDrew{card,drawOrder,username}',
             'self(h3):youDrew{card,drawOrder}',
-            'room:playerDrew{card,drawOrder,socketId,username}',
-            'room:playerDrew{card,drawOrder,socketId,username}',
+            'room:playerDrew{card,drawOrder,username}',
+            'room:playerDrew{card,drawOrder,username}',
             'room:gameLogEntry{message,type}',
             // CHANGED (V1_REMOVALS #7): no playerAssigned at all (h2 and h3
             // got one each here; the seat comes from positionUpdate)
             'room:gameLogEntry{message,type}',
-            'room:positionUpdate{pics,positions,sockets,usernames}',
+            // CHANGED (V1_REMOVALS #14): playerDrew without socketId (above);
+            // +isBot (additive), usernames[] without socketId
+            'room:positionUpdate{isBot,pics,positions,sockets,usernames}',
             'room:playerDisconnected{position,username}@p',
             // CHANGED (pacing resume holds, additive): +resumeInMs (TEAMS_MS)
             'room:teamsAnnounced{resumeInMs,team1,team2}',

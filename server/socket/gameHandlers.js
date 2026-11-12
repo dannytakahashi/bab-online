@@ -291,13 +291,9 @@ async function draw(socket, io, data) {
     // Tell the drawing player their card
     socket.emit('youDrew', { card, drawOrder });
 
-    // Broadcast to all players that someone drew (so they can see it)
-    game.broadcast(io, 'playerDrew', {
-        username,
-        card,
-        drawOrder,
-        socketId: socket.id
-    });
+    // Broadcast to all players that someone drew (so they can see it); no
+    // socket id (V1_REMOVALS #14: neither client read playerDrew.socketId)
+    game.broadcast(io, 'playerDrew', { username, card, drawOrder });
 
     // Check if all players have drawn
     if (game.drawIndex === 4) {
@@ -315,7 +311,7 @@ async function draw(socket, io, data) {
 function autoDraw(io, game, socketId, username) {
     const d = game.recordDraw(socketId, null, username);
     if (d) {
-        game.broadcast(io, 'playerDrew', { username, card: d.card, drawOrder: d.drawOrder, socketId });
+        game.broadcast(io, 'playerDrew', { username, card: d.card, drawOrder: d.drawOrder });
     }
     return d;
 }
@@ -450,20 +446,23 @@ async function handleDrawComplete(io, game) {
     if (seatLifecycle.maybeAbort(io, game)) return;
 
     // Build all arrays in position order (1, 2, 3, 4) for consistency
+    // sockets stays (iOS 1.2.0 tells a bot by its 'bot:' seat socket id and
+    // finds its own seat by it); isBot (additive, V1_REMOVALS #14) carries
+    // the same fact without a socket id, for a later iOS build to read
+    // instead. usernames[] lost its socketId (#14: read by neither client).
     const orderedPositions = [];
     const orderedSockets = [];
     const orderedUsernames = [];
     const orderedPics = [];
+    const orderedIsBot = [];
     for (let pos = 1; pos <= 4; pos++) {
         const player = game.getPlayerByPosition(pos);
         if (player) {
             orderedPositions.push(pos);
             orderedSockets.push(player.socketId);
-            orderedUsernames.push({
-                username: player.username,
-                socketId: player.socketId
-            });
+            orderedUsernames.push({ username: player.username });
             orderedPics.push(player.pic);
+            orderedIsBot.push(game.isBot(player.socketId));
         }
     }
 
@@ -484,7 +483,8 @@ async function handleDrawComplete(io, game) {
         positions: orderedPositions,
         sockets: orderedSockets,
         usernames: orderedUsernames,
-        pics: wirePics
+        pics: wirePics,
+        isBot: orderedIsBot
     };
     if (avatarUrls) positionUpdate.avatarUrls = avatarUrls;
     game.broadcast(io, 'positionUpdate', positionUpdate);

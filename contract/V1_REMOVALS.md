@@ -525,6 +525,8 @@ Kept, with the reader (checked at eeeeb23):
   `state/tableSync.js:52` lets it win for names / pictures and
   `utils/avatar.js:159-162` folds `avatarUrls` into it. Dropping
   `players[].socketId` is #14's call (1.2.0 still reads it as a fallback).
+  (Dropped with #14, 2026-11-12: the carriers' `players[]` is {position,
+  username, pic}; the glow matches by username first.)
 - `avatarUrls`: iOS 1.2.0 hints (`TableReducer+Snapshot.swift:194`).
 - `tournamentId` (rejoinSuccess): web `main.js:1465`, iOS 1.2.0
   `TableReducer+Snapshot.swift:42`.
@@ -619,6 +621,37 @@ Duplicates `messages`; iOS reads `recentMessages` first with `messages` as the
 fallback (LobbySocketHandler.swift:33). Drop once the old app is gone.
 
 ### 14. Socket ids on the wire
+
+**Done 2026-11-12 (PR #TBD), partly: `positionUpdate.sockets` stays.**
+Gone: `playerDrew.socketId` (all three draw paths), `positionUpdate.usernames[].socketId`
+and the legacy states' `players[].socketId` (rejoinSuccess, restorePlayerState,
+the spectator full state, all snapshot carriers since #9: `snapshotHandlers.js`
+`carrierPlayers`; `$defs.playerInfoV1`). Added: `positionUpdate.isBot[]`
+(per seat, in `positions` order, `true` for a `bot:` seat socket: exactly what
+iOS 1.2.0 derives from `sockets` today), so a later iOS build can read it and
+`sockets` can go after that build is the oldest one left. Kept, because a
+client still needs them: `positionUpdate.sockets` (iOS 1.2.0
+`TableReducer+Events.swift` positionUpdate: `isBot = sid.hasPrefix("bot:")`
+sets the seat's bot / controller, and `sid == me.playerId` finds my seat with
+the username as the fallback), lobby `players[].socketId` (removeBot: web
+GameLobby.js `botSocketId`, iOS Lobby.swift member id), the voice signaling
+ids, and the tournament players' `socketId` / `creatorSocketId` (not part of
+this entry). Re-checked readers (BASE eeeeb23): web reads none of the removed
+keys except as fallbacks that the username covers (GameState.applyPositionUpdate
+matches my seat by username first; `_seatsToPlayerData` copies
+`players[].socketId` into `playerData.socket`, which only `speakingSlotFor`'s
+socket-id fallback reads after the owner / username lookup). iOS 1.2.0: the
+`PositionUpdate.Name.socketId` and `PlayerDrew` fields are never read
+(`PlayerDrew` has no socketId; positionUpdate reads `usernames[i].username`
+only); `RejoinEnvelope.Player.socketId` feeds `LegacySeatHints.sockets` →
+`socketBySeat`, read only by `TableRenderModel.seat(forVoicePeer:username:)`
+after the username match, and every voice peer 1.2.0 creates has a username
+(voicePeerList entries without one are skipped, VoiceSocketHandler.swift;
+voiceOffer's comes from the server, voiceHandlers.js), so the fallback is
+not needed (VoicePeerSeatTests.testVoicePeersMapToSeatsByUsername runs with
+`socketBySeat` empty). Tests: `v1SocketIds.test.js`; wireGolden's
+`v1Projection` puts the ids back from `positionUpdate.sockets` (the golden
+still pins them byte for byte).
 
 `positionUpdate.sockets` / `usernames[].socketId`, `playerDrew.socketId`,
 lobby `players[].socketId` where replaceable (removeBot needs the bot's id
@@ -969,7 +1002,8 @@ step, in this order; nothing is removed by the gate PR itself.
   `players[]`, which 1.2.0 still reads, and gameId / isLazy / trump for
   pre-#233 web tabs; #9.)
 - **#14 socket ids on the wire**: 1.1.0 reads `positionUpdate.sockets` and
-  `players[].socketId` for voice.
+  `players[].socketId` for voice. (Done 2026-11-12 except
+  `positionUpdate.sockets`, which iOS 1.2.0 still reads; `isBot[]` added.)
 - **#19 inline avatar images**: 1.1.0 never sends `clientHello` (no
   `avatarUrl` cap), so it renders only the inline pictures. Needs an iOS
   build that sends the cap, then the 2-week clientHello check for iOS.
@@ -1013,7 +1047,8 @@ above; after it, what 1.2.0 itself still reads is the remaining blocker:
   with `players[]` kept: the fallback is still the only picture a fresh
   restore has for a custom seat whose snapshot carries no `avatarUrl`
   (rendition pending / failed, `AVATAR_PIPELINE=off`), and 1.2.0 still
-  reads `socketId` as the glow fallback (#14).
+  reads `socketId` as the glow fallback (#14; gone with #14, a fallback
+  only).
 - **#14 socket ids on the wire**: the speaking glows map a voice peer to its
   seat by the peer's username (voicePeerList / voiceOffer carry it;
   `TableRenderModel.seat(forVoicePeer:username:)`), the seat socket id only
@@ -1022,7 +1057,9 @@ above; after it, what 1.2.0 itself still reads is the remaining blocker:
   the fallback), and the voice signaling itself targets socket ids
   (`voiceOffer.targetSocketId`, `fromSocketId`), which #14 does not remove.
   Before dropping `positionUpdate.sockets`, add a seat kind to positionUpdate
-  (e.g. `isBot[]`) and have a later iOS build read it.
+  (e.g. `isBot[]`) and have a later iOS build read it. (2026-11-12: the rest
+  of #14 is done and `isBot[]` is on the wire; a build after 1.2.0 still has
+  to read it, and find my seat by username, before `sockets` can go.)
 - **#10 `cardPlayed.trump`**, **#12 `chatMessage.type`**, **#13
   `recentMessages`**: already safe for 1.1.0; 1.2.0 reads `trumpBroken ??
   trump`, routes chat on `isSpectator` (`type` only as the older server's
