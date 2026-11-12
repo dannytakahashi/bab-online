@@ -395,7 +395,7 @@ describe('real mongod', () => {
         await setAdminFlag(adb, 'Bea', true);
         await expect(setAdminFlag(adb, 'Bea', false)).rejects.toMatchObject({ code: 'last_admin' });
         expect((await listAdmins(adb)).map(a => a.username)).toEqual(['Bea']);
-    });
+    }, 20000); // real mongod, concurrent bcrypt + index builds: once 5.3 s under load
 
     test('(h) a revoke between a restore\'s read and its write wins on the real driver: no session comes back', async () => {
         if (!client) return;

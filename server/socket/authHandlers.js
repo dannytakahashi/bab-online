@@ -9,7 +9,7 @@ const { describeClientAddress } = require('../utils/clientIp');
 const { getUsersCollection, getGameRecordsCollection } = require('../database');
 const gameManager = require('../game/GameManager');
 const { authLogger } = require('../utils/logger');
-const { issueSession, verifySession, hasLiveSession } = require('../utils/sessionTokens');
+const { issueSession, verifySession } = require('../utils/sessionTokens');
 const { checkNewUsername, findNameClash, takenMessage, MESSAGES: USERNAME_MESSAGES } = require('../utils/usernameRules');
 const { rememberBlockList } = require('./voiceHandlers');
 
@@ -99,14 +99,14 @@ const MERGE_LOCKED_MESSAGE = 'This account is being updated. Please try again in
  * meanwhile and a name a panel merge is retiring right now.
  * @returns {Promise<string|null>} null when still good, else why not
  */
-async function sessionGoneSince(usersCollection, socket, username, hash) {
+async function sessionGoneSince(usersCollection, socket, username, hash, filter = {}) {
     if (socket.connected === false) return 'disconnected';
     if (gameManager.isMergeLocked?.(username)) return 'merge';
     let user;
     try {
         user = await usersCollection.findOne(
             { username },
-            { projection: { mergedInto: 1, 'sessionTokens.hash': 1, 'sessionTokens.lastUsedAt': 1, 'sessionTokens.createdAt': 1, sessionToken: 1 } }
+            { projection: { mergedInto: 1, sessionEpoch: 1, 'sessionTokens.hash': 1 } }
         );
     } catch (error) {
         authLogger.error('Session re-check failed', { username, error: error.message });
@@ -114,8 +114,26 @@ async function sessionGoneSince(usersCollection, socket, username, hash) {
     }
     if (socket.connected === false) return 'disconnected';
     if (gameManager.isMergeLocked?.(username)) return 'merge';
-    if (!user || user.mergedInto || !hasLiveSession(user, hash)) return 'revoked';
+    if (!user || user.mergedInto) return 'revoked';
+    // A revoke (sign out everywhere, a password reset, set-password: every
+    // one goes through REVOKE_ALL_SESSIONS) always bumps sessionEpoch, so
+    // "revoked since our write" is "the epoch moved off the value our write
+    // was filtered on" (session.filter). A missing hash with the epoch
+    // unchanged is another device's concurrent session write replacing the
+    // array (issueSession / verifySession rewrite it whole), not a revoke:
+    // this sign-in stays (its token may need a fresh sign-in later, as before).
+    if (!epochUnchanged(user, filter.sessionEpoch)) return 'revoked';
+    if (!(user.sessionTokens || []).some(t => t && t.hash === hash)) {
+        authLogger.warn('Session hash replaced by a concurrent session write (not a revoke)', { username });
+    }
     return null;
+}
+
+/** Does the user's sessionEpoch still match a session.filter value ({$exists:false} or a number)? */
+function epochUnchanged(user, expected) {
+    const now = user.sessionEpoch;
+    if (expected && typeof expected === 'object' && expected.$exists === false) return now === undefined || now === null;
+    return now === expected;
 }
 
 /**
@@ -274,7 +292,7 @@ async function signIn(socket, io, data) {
         // meanwhile (sessionGoneSince)
         const previousEntry = entryOf(username);
         gameManager.registerUser(socket.id, username);
-        const gone = await sessionGoneSince(usersCollection, socket, username, session.hash);
+        const gone = await sessionGoneSince(usersCollection, socket, username, session.hash, session.filter);
         if (gone) {
             unregister(io, socket, username, previousEntry, claim.previous);
             claim = null;
@@ -550,7 +568,7 @@ async function restoreSession(socket, io, data) {
         // meanwhile (sessionGoneSince)
         const previousEntry = entryOf(username);
         gameManager.registerUser(socket.id, username);
-        const gone = await sessionGoneSince(usersCollection, socket, username, session.hash);
+        const gone = await sessionGoneSince(usersCollection, socket, username, session.hash, session.filter);
         if (gone) {
             unregister(io, socket, username, previousEntry, claim.previous);
             claim = null;
