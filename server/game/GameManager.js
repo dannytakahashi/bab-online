@@ -31,6 +31,9 @@ class GameManager {
         // Lobbies (pre-game waiting rooms)
         this.lobbies = new Map();      // lobbyId → { players: [], readyPlayers: Set, messages: [] }
         this.playerLobbies = new Map(); // socketId → lobbyId
+        // Lobby seats whose socket dropped, held for LOBBY_SEAT_GRACE_MS
+        // (suspendLobbySeat): old socketId → { lobbyId, username, timer }
+        this.lobbyGrace = new Map();
 
         // Active games
         this.games = new Map();        // gameId → GameState
@@ -59,6 +62,9 @@ class GameManager {
 
     // Constants
     static MAX_MAIN_ROOM_MESSAGES = 50;
+    // A lobby seat outlives its socket by this long (a reload, a short
+    // network drop): the player's next socket re-entering takes it back
+    static LOBBY_SEAT_GRACE_MS = 30000;
 
     /**
      * Register a logged-in user. One entry per username AND one per socket:
@@ -501,6 +507,7 @@ class GameManager {
         if (!seat) return { success: false, error: 'Seat not found' };
 
         const replacedSocketId = seat.socketId;
+        this._clearLobbyGrace(replacedSocketId);
         lobby.readyPlayers.delete(replacedSocketId);
         if (this.playerLobbies.get(replacedSocketId) === lobbyId) {
             this.playerLobbies.delete(replacedSocketId);
@@ -528,6 +535,73 @@ class GameManager {
         // happen) is mapped first so it leaves the same way
         this.playerLobbies.set(oldSocketId, stale.lobby.id);
         return { oldSocketId, leaveResult: this.leaveLobby(oldSocketId) };
+    }
+
+    /**
+     * The socket holding a human lobby seat dropped (a reload, a network
+     * drop) or was replaced by a newer socket of the same player: the seat
+     * stays for LOBBY_SEAT_GRACE_MS (`reconnectingIn` lists it: the lobby's
+     * playerReadyUpdate / lobbyCreated carry the names, additive). Its ready flag resets (the others keep theirs, as
+     * on a takeover) and the socket loses its mapping, so it can no longer
+     * act on the seat. A re-entry from the player's next socket
+     * (findStaleLobbySeat -> takeOverLobbySeat) takes it back in place;
+     * otherwise it is removed exactly as a leave (expireLobbySeat) and
+     * `onExpire(result)` lets the socket layer tell the others.
+     * @returns {{lobby, player}|null} null when the socket holds no human seat
+     */
+    suspendLobbySeat(socketId, onExpire = null) {
+        const lobbyId = this.playerLobbies.get(socketId);
+        const lobby = lobbyId ? this.lobbies.get(lobbyId) : null;
+        const player = lobby?.players.find(p => !p.isBot && p.socketId === socketId);
+        if (!player) return null;
+        player.ready = false;
+        lobby.readyPlayers.delete(socketId);
+        this.playerLobbies.delete(socketId);
+        this._clearLobbyGrace(socketId);
+        const timer = setTimeout(() => {
+            const result = this.expireLobbySeat(lobbyId, socketId);
+            this.lobbyGrace.delete(socketId);
+            if (result && onExpire) onExpire(result);
+        }, GameManager.LOBBY_SEAT_GRACE_MS);
+        timer.unref?.();
+        this.lobbyGrace.set(socketId, { lobbyId, username: player.username, timer });
+        return { lobby, player };
+    }
+
+    /**
+     * The grace of a suspended seat ran out: the seat leaves as with
+     * leaveLobby (ready flags reset, a lobby with no human left is deleted).
+     * @returns {{lobbyId, oldSocketId, username, leaveResult}|null}
+     */
+    expireLobbySeat(lobbyId, socketId) {
+        const lobby = this.lobbies.get(lobbyId);
+        const player = this.lobbyGrace.get(socketId)?.lobbyId === lobbyId
+            ? lobby?.players.find(p => p.socketId === socketId) : null;
+        if (!player) return null;
+        this.playerLobbies.set(socketId, lobbyId);
+        return { lobbyId, oldSocketId: socketId, username: player.username, leaveResult: this.leaveLobby(socketId) };
+    }
+
+    /** Usernames whose seat in `lobbyId` is held for its grace, in seat order. */
+    reconnectingIn(lobbyId) {
+        const lobby = this.lobbies.get(lobbyId);
+        if (!lobby || this.lobbyGrace.size === 0) return [];
+        return lobby.players
+            .filter(p => this.lobbyGrace.get(p.socketId)?.lobbyId === lobbyId)
+            .map(p => p.username);
+    }
+
+    /** `{reconnecting: [...]}` for a lobby event while a seat is held, else {} (the wire as before). */
+    reconnectingField(lobbyId) {
+        const names = this.reconnectingIn(lobbyId);
+        return names.length ? { reconnecting: names } : {};
+    }
+
+    _clearLobbyGrace(socketId) {
+        const held = this.lobbyGrace.get(socketId);
+        if (!held) return;
+        clearTimeout(held.timer);
+        this.lobbyGrace.delete(socketId);
     }
 
     // ==================== LOBBY METHODS ====================
@@ -661,6 +735,7 @@ class GameManager {
         lobby.players = lobby.players.filter(p => p.socketId !== socketId);
         lobby.readyPlayers.delete(socketId);
         this.playerLobbies.delete(socketId);
+        this._clearLobbyGrace(socketId);
 
         // If lobby is now empty, or only bots remain, delete it
         const onlyBotsRemain = lobby.players.length > 0 &&
@@ -975,13 +1050,15 @@ class GameManager {
      * (queueHandlers.handleDisconnect) routes an in-game socket to its
      * entrant / seat-owner transition.
      */
-    handleDisconnect(socketId) {
+    handleDisconnect(socketId, { lobbyGrace = false, onLobbyGraceExpire = null } = {}) {
         // Remove from main room (if in main room)
         const wasInMainRoom = this.mainRoomSocketIds.has(socketId);
         this.leaveMainRoom(socketId);
 
-        // Remove from lobby (if in lobby, not in game)
-        const lobbyResult = this.leaveLobby(socketId);
+        // A lobby seat: held for its grace (a transport disconnect), else
+        // left at once (a sign-out, an account switch)
+        const lobbySuspended = lobbyGrace ? this.suspendLobbySeat(socketId, onLobbyGraceExpire) : null;
+        const lobbyResult = lobbySuspended ? { success: false } : this.leaveLobby(socketId);
         const wasInLobby = lobbyResult.success;
 
         // A pure spectator watches at most one game
@@ -1008,6 +1085,7 @@ class GameManager {
                 wasInGame: true,
                 wasInTournament,
                 tournamentResult,
+                lobbySuspended,
                 game: this.games.get(gameId) || null,
                 gameId,
                 spectatorGame,
@@ -1031,6 +1109,7 @@ class GameManager {
             wasInLobby, wasInMainRoom, wasInGame: false,
             wasInTournament, tournamentResult,
             lobby: lobbyResult.lobby,
+            lobbySuspended,
             spectatorGame
         };
     }

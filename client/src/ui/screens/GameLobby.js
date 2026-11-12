@@ -18,6 +18,11 @@ export const LOBBY_VOICE_SLOT_ID = 'lobbyVoiceSlot';
 let lobbyUserColors = {};
 let currentLobbyId = null;
 let isPlayerReady = false;
+// Players whose seat the server holds while they reconnect (a reload or a
+// short drop: GameManager.LOBBY_SEAT_GRACE_MS). playerReadyUpdate and
+// lobbyCreated carry the list while one is held (absent: none);
+// lobbyPlayerJoined / lobbyPlayerLeft drop the player who came back or left
+let reconnecting = new Set();
 
 const REMOVE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" fill="none"/></svg>';
 
@@ -57,8 +62,16 @@ function renderReadyButton(readyBtn, playerCount) {
  * @param {HTMLElement|null} container - Container element (or null to find by ID)
  * @param {Array} players - Array of player objects with username and ready status
  * @param {string} currentUsername - The current player's username
+ * @param {Object} [held] - the seats held for a reconnect
+ * @param {string[]} [held.reconnecting] - the event's list (replaces the one kept)
+ * @param {string} [held.returned] - a player back in their held seat
  */
-export function updateLobbyPlayersList(container, players, currentUsername) {
+export function updateLobbyPlayersList(container, players, currentUsername, { reconnecting: list, returned } = {}) {
+  if (Array.isArray(list)) reconnecting = new Set(list);
+  if (returned) reconnecting.delete(returned);
+  const present = new Set(players.map((p) => p.username));
+  for (const name of [...reconnecting]) if (!present.has(name)) reconnecting.delete(name);
+
   if (!container) {
     container = document.getElementById('lobbyPlayersList');
   }
@@ -78,9 +91,10 @@ export function updateLobbyPlayersList(container, players, currentUsername) {
     row.appendChild(el('span', { className: `seat-row__name${player.isBot ? ' is-bot' : ''}`, text: player.username, attrs: { title: player.username } }));
 
     const side = el('span', { className: 'seat-row__side' });
+    const away = !player.ready && !player.isBot && reconnecting.has(player.username);
     side.appendChild(el('span', {
-      className: `seat-row__status${player.ready ? ' is-ready' : ''}`,
-      text: player.ready ? '✓ Ready' : 'Waiting...',
+      className: `seat-row__status${player.ready ? ' is-ready' : ''}${away ? ' is-reconnecting' : ''}`,
+      text: player.ready ? '✓ Ready' : away ? 'Reconnecting…' : 'Waiting...',
     }));
 
     // Add remove button for bot players, or invisible spacer for alignment
@@ -160,7 +174,7 @@ export function showGameLobby(lobbyData, socket, username) {
 
   // Players list
   const playersDiv = el('div', { className: 'screen-section seat-list', attrs: { id: 'lobbyPlayersList' } });
-  updateLobbyPlayersList(playersDiv, lobbyData.players, username);
+  updateLobbyPlayersList(playersDiv, lobbyData.players, username, { reconnecting: lobbyData.reconnecting || [] });
   // Delegated click handler for bot remove buttons
   playersDiv.addEventListener('click', (e) => {
     const removeBtn = e.target.closest('[data-bot-socket-id]');

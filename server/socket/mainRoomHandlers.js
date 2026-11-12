@@ -170,12 +170,13 @@ function joinLobby(socket, io, data) {
     // Leave main room Socket.IO room
     socket.leave('mainRoom');
 
-    // Notify the joining player
+    // Notify the joining player (with the seats held for a reconnect)
     socket.emit('lobbyCreated', {
         lobbyId: lobby.id,
         players: lobby.players,
         messages: lobby.messages,
-        name: lobby.name
+        name: lobby.name,
+        ...gameManager.reconnectingField(lobby.id)
     });
 
     // Notify existing players in the lobby

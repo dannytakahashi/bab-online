@@ -913,6 +913,7 @@ function initializeApp() {
       session.transition(SCREEN.LOBBY, {
         lobbyId: data.lobbyId,
         players: data.players,
+        reconnecting: data.reconnecting,
         messages: (data.messages || []).filter(m => !isUserBlocked(m.username))
       });
       session.noteLobby(data.lobbyId);
@@ -934,7 +935,8 @@ function initializeApp() {
       session.noteLobby(data.lobbyId);
     },
     onPlayerReadyUpdate: (data) => {
-      updateLobbyPlayersList(null, data.players, gameState.username);
+      // Every playerReadyUpdate names the held seats while there are any
+      updateLobbyPlayersList(null, data.players, gameState.username, { reconnecting: data.reconnecting || [] });
     },
     onLobbyMessage: (data) => {
       if (isUserBlocked(data.username)) return;
@@ -944,7 +946,7 @@ function initializeApp() {
       updateLobbyPlayersList(null, data.players, gameState.username);
     },
     onLobbyPlayerJoined: (data) => {
-      updateLobbyPlayersList(null, data.players, gameState.username);
+      updateLobbyPlayersList(null, data.players, gameState.username, { returned: data.newPlayer?.username });
     },
     onLeftLobby: () => {
       console.log('Left lobby, returning to main room');

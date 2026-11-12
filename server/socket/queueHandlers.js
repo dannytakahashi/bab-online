@@ -6,7 +6,7 @@ const gameManager = require('../game/GameManager');
 const { socketLogger } = require('../utils/logger');
 const { emitLobbiesUpdated } = require('./gameLifecycle');
 const { disconnectOwner } = require('./seatLifecycle');
-const { releaseStaleLobbySeat } = require('./lobbyHandlers');
+const { releaseStaleLobbySeat, lobbySeatSuspended, lobbySeatExpired } = require('./lobbyHandlers');
 
 async function joinQueue(socket, io) {
     const result = gameManager.joinQueue(socket.id);
@@ -93,18 +93,27 @@ function leaveQueue(socket, io) {
  * seatLifecycle.disconnectOwner (grace for a human seat, 'away' for a lazy /
  * resigned seat's watcher). Anything else mapped (a stale socket) is just
  * unmapped.
+ *
+ * A lobby seat is held for GameManager.LOBBY_SEAT_GRACE_MS (`lobbyGrace`,
+ * on for a transport disconnect): a reload or a short drop re-enters the
+ * same lobby and seat. sessionIdentity.releaseIdentity passes false (the
+ * player switched accounts: the seat goes at once).
  */
-async function handleDisconnect(socket, io) {
+async function handleDisconnect(socket, io, { lobbyGrace = true } = {}) {
     // Resolve the name before the socket's entry can go away
     const user = gameManager.getUserBySocketId(socket.id);
     const onlineBefore = gameManager.getOnlineUsernames().length;
-    const result = gameManager.handleDisconnect(socket.id);
+    const result = gameManager.handleDisconnect(socket.id, {
+        lobbyGrace,
+        onLobbyGraceExpire: (expired) => lobbySeatExpired(io, expired)
+    });
+    if (result.lobbySuspended) lobbySeatSuspended(io, result.lobbySuspended.lobby, socket.id);
 
     // Leave main room Socket.IO room
     socket.leave('mainRoom');
 
     // Notify main room of player leaving and update lobby list
-    if (result.wasInMainRoom || result.wasInLobby || result.wasInTournament) {
+    if (result.wasInMainRoom || result.wasInLobby || result.wasInTournament || result.lobbySuspended) {
         emitLobbiesUpdated(io);
     }
 

@@ -95,10 +95,12 @@ export const ROUTE_TIMEOUT_MS = 5000;
 // TOURNAMENT_SPECTATE: that tournament's id when this tab only watches it
 // (spectateTournament): a reload re-spectates, and the lobby shows no
 // player controls (the server's returnToTournament reply carries no
-// isSpectator flag)
+// isSpectator flag).
+// LOBBY: the game lobby this tab shows, so a reload re-enters it (the
+// server holds the seat for 30 s: GameManager.LOBBY_SEAT_GRACE_MS)
 const STORAGE = {
   GAME: 'gameId', SPECTATE: 'spectatingGameId', USER: 'username', TOKEN: 'sessionToken',
-  TOURNAMENT: 'tournamentId', TOURNAMENT_SPECTATE: 'tournamentSpectate',
+  TOURNAMENT: 'tournamentId', TOURNAMENT_SPECTATE: 'tournamentSpectate', LOBBY: 'lobbyId',
 };
 
 function isTestRun() {
@@ -216,6 +218,7 @@ export class ClientSession {
   get persistedGameId() { return this._storage.getItem(STORAGE.GAME); }
   get persistedSpectateId() { return this._storage.getItem(STORAGE.SPECTATE); }
   get persistedTournamentId() { return this._storage.getItem(STORAGE.TOURNAMENT); }
+  get persistedLobbyId() { return this._storage.getItem(STORAGE.LOBBY); }
   get username() { return this._gameState?.username || this._storage.getItem(STORAGE.USER) || null; }
   get tournamentId() { return this._gameState?.tournamentId || null; }
   get routeInFlight() { return this._routeInFlight?.kind || null; }
@@ -247,7 +250,10 @@ export class ClientSession {
     if (!reenter) this._runHook(from, 'exit', ctx);
     this._screen = to;
     if (to !== SCREEN.TABLE && to !== SCREEN.GAME_END) this._role = null;
-    if (to !== SCREEN.LOBBY) this.lobbyId = null;
+    if (to !== SCREEN.LOBBY) {
+      this.lobbyId = null;
+      this._storage.removeItem(STORAGE.LOBBY);
+    }
     if (to === SCREEN.TOURNAMENT_LOBBY && data?.tournamentId) this._noteTournamentLobby(data);
     else if (to === SCREEN.MAIN_ROOM || to === SCREEN.SIGN_IN) this._forgetTournamentLobby();
     this.history.push(reenter ? `${to}*` : to);
@@ -567,18 +573,30 @@ export class ClientSession {
         // The score modal stays; its Return button routes
         return 'stay';
       case SCREEN.LOBBY:
-        if (this.lobbyId) {
-          this._pendingLobbyRejoin = this.lobbyId;
-          this._emit(CLIENT_EVENTS.JOIN_LOBBY, { lobbyId: this.lobbyId });
-          return 'lobby';
+        if (this.lobbyId) return this._reenterLobby(this.lobbyId);
+        break;
+      case SCREEN.BOOT: {
+        // A reload in a game lobby: the server holds the seat for a while
+        const lobbyId = this.persistedLobbyId;
+        if (lobbyId) {
+          // A screen to stand on until lobbyCreated (or the error) answers
+          this.transition(SCREEN.MAIN_ROOM);
+          return this._reenterLobby(lobbyId);
         }
         break;
+      }
       default:
         break;
     }
     if (this._screen !== SCREEN.MAIN_ROOM && this.can(SCREEN.MAIN_ROOM)) this.transition(SCREEN.MAIN_ROOM);
     this.requestMainRoom();
     return 'mainRoom';
+  }
+
+  _reenterLobby(lobbyId) {
+    this._pendingLobbyRejoin = lobbyId;
+    this._emit(CLIENT_EVENTS.JOIN_LOBBY, { lobbyId });
+    return 'lobby';
   }
 
   /** Exactly one rejoinGame per socket. @returns {boolean} whether it went out */
@@ -634,6 +652,8 @@ export class ClientSession {
 
   noteLobby(lobbyId) {
     this.lobbyId = lobbyId || null;
+    if (this.lobbyId && this._screen === SCREEN.LOBBY) this._storage.setItem(STORAGE.LOBBY, this.lobbyId);
+    else this._storage.removeItem(STORAGE.LOBBY);
     this._pendingLobbyRejoin = null;
     this._routeInFlight = null;
   }
@@ -665,6 +685,7 @@ export class ClientSession {
   clearIdentity() {
     this._gameState?.resetSession?.();
     this._forgetTournamentLobby();
+    this._storage.removeItem(STORAGE.LOBBY);
     this._restoredSocketId = null;
     this._restoreSentFor = null;
     this._rejoinSentFor = null;

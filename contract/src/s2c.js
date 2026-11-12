@@ -230,17 +230,18 @@ const s2c = {
         status: 'active', to: ['mainRoom', 'self'],
         reserved: [{ key: 'lobbyName', why: 'iOS reads lobbyName ?? name' }, { key: 'inProgress', why: 'reserved lobby key (iOS Lobby.from)' }],
         clientReads: reads(W.lobby, I.lobby),
-        emittedFrom: ['server/socket/gameLifecycle.js:emitLobbiesUpdated', 'server/socket/mainRoomHandlers.js:createLobby', 'server/socket/mainRoomHandlers.js:joinLobby', 'server/socket/mainRoomHandlers.js:getLobbies', 'server/socket/lobbyHandlers.js:leaveLobby', 'server/socket/lobbyHandlers.js:addBot', 'server/socket/lobbyHandlers.js:removeBot', 'server/socket/tournamentHandlers.js:createTournament', 'server/socket/tournamentHandlers.js:joinTournament', 'server/socket/tournamentHandlers.js:leaveTournament', 'server/socket/tournamentHandlers.js:scheduleTournamentCleanup'],
+        emittedFrom: ['server/socket/gameLifecycle.js:emitLobbiesUpdated', 'server/socket/mainRoomHandlers.js:createLobby', 'server/socket/mainRoomHandlers.js:joinLobby', 'server/socket/mainRoomHandlers.js:getLobbies', 'server/socket/lobbyHandlers.js:leaveLobby', 'server/socket/lobbyHandlers.js:addBot', 'server/socket/lobbyHandlers.js:removeBot', 'server/socket/lobbyHandlers.js:lobbySeatExpired', 'server/socket/tournamentHandlers.js:createTournament', 'server/socket/tournamentHandlers.js:joinTournament', 'server/socket/tournamentHandlers.js:leaveTournament', 'server/socket/tournamentHandlers.js:scheduleTournamentCleanup'],
         notes: 'getLobbies answers the requesting socket with the same shape.',
     },
 
     // ==================== Lobby ====================
     lobbyCreated: {
         payload: anyOf(
-            variant('withName', obj({ lobbyId: str(), players: arr(ref('lobbyMember'), { maxItems: 4 }), messages: arr(ref('lobbyChatLine')), name: str() })),
+            variant('withName', obj({ lobbyId: str(), players: arr(ref('lobbyMember'), { maxItems: 4 }), messages: arr(ref('lobbyChatLine')), name: str(), reconnecting: arr(str(), { minItems: 1, maxItems: 4 }) }, { optional: ['reconnecting'] })),
             variant('withoutName', obj({ lobbyId: str(), players: arr(ref('lobbyMember'), { maxItems: 4 }), messages: arr(ref('lobbyChatLine')) })),
         ),
         status: 'active', to: 'self',
+        added: ['reconnecting'],
         reserved: [{ key: 'lobbyName', why: 'iOS reads lobbyName ?? name' }],
         clientReads: reads(W.lobby, I.lobby),
         emittedFrom: ['server/socket/mainRoomHandlers.js:createLobby', 'server/socket/mainRoomHandlers.js:joinLobby', 'server/socket/queueHandlers.js:joinQueue'],
@@ -277,13 +278,15 @@ const s2c = {
     },
     playerReadyUpdate: {
         payload: anyOf(
-            variant('readySocketId', obj({ lobbyId: str(), players: arr(ref('lobbyMember'), { maxItems: 4 }), readySocketId: str() })),
-            variant('unreadySocketId', obj({ lobbyId: str(), players: arr(ref('lobbyMember'), { maxItems: 4 }), unreadySocketId: str() })),
-            variant('neither', obj({ lobbyId: str(), players: arr(ref('lobbyMember'), { maxItems: 4 }) })),
+            variant('readySocketId', obj({ lobbyId: str(), players: arr(ref('lobbyMember'), { maxItems: 4 }), readySocketId: str(), reconnecting: arr(str(), { minItems: 1, maxItems: 4 }) }, { optional: ['reconnecting'] })),
+            variant('unreadySocketId', obj({ lobbyId: str(), players: arr(ref('lobbyMember'), { maxItems: 4 }), unreadySocketId: str(), reconnecting: arr(str(), { minItems: 1, maxItems: 4 }) }, { optional: ['reconnecting'] })),
+            variant('neither', obj({ lobbyId: str(), players: arr(ref('lobbyMember'), { maxItems: 4 }), reconnecting: arr(str(), { minItems: 1, maxItems: 4 }) }, { optional: ['reconnecting'] })),
         ),
         status: 'active', to: 'socket',
+        added: ['reconnecting'],
+        notes: 'reconnecting (additive, 2026-11-11; present only while a seat is held): the usernames whose lobby seat waits for its player to come back (GameManager.suspendLobbySeat, LOBBY_SEAT_GRACE_MS 30 s after a disconnect or a newer tab taking over). Every playerReadyUpdate carries it while one is held, lobbyCreated from joinLobby too; web shows "Reconnecting…" on those seats. iOS 1.1.0 reads the reply as a dictionary and ignores it.',
         clientReads: reads(W.lobby, I.lobby),
-        emittedFrom: ['server/socket/lobbyHandlers.js:playerReady', 'server/socket/lobbyHandlers.js:playerUnready', 'server/socket/lobbyHandlers.js:addBot', 'server/socket/lobbyHandlers.js:removeBot'],
+        emittedFrom: ['server/socket/lobbyHandlers.js:playerReady', 'server/socket/lobbyHandlers.js:playerUnready', 'server/socket/lobbyHandlers.js:addBot', 'server/socket/lobbyHandlers.js:removeBot', 'server/socket/lobbyHandlers.js:lobbySeatSuspended'],
     },
     allPlayersReady: {
         payload: obj({ gameId: str() }),
@@ -917,7 +920,7 @@ const s2c = {
         payload: anyOf(variant('room', obj({ socketId: str() })), variant('private', obj({ socketId: str() }))),
         status: 'active', to: ['room', 'socket'], seq: false,
         clientReads: reads(W.voice, I.voice),
-        emittedFrom: ['server/socket/seatLifecycle.js:disconnectOwner', 'server/socket/lobbyHandlers.js:leaveLobby', 'server/socket/lobbyHandlers.js:releaseStaleLobbySeat', 'server/socket/queueHandlers.js:handleDisconnect'],
+        emittedFrom: ['server/socket/seatLifecycle.js:disconnectOwner', 'server/socket/lobbyHandlers.js:leaveLobby', 'server/socket/lobbyHandlers.js:releaseStaleLobbySeat', 'server/socket/queueHandlers.js:handleDisconnect', 'server/socket/lobbyHandlers.js:lobbySeatSuspended'],
         notes: 'room: a game seat owner dropped (game.broadcast); private: lobby peers (io.to(socketId)).',
     },
     voiceIceServers: {
