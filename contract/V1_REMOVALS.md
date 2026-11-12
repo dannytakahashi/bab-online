@@ -286,6 +286,43 @@ stay (harmless when the key is gone). iOS 1.2.0 decodes it optionally
 (`TableReducer+Events` gameStart, `p.playerInfo ?? []`); whether its table
 keeps names and pictures without it is not checked here, and 1.1.0 needs it.
 
+**Blocked by iOS 1.2.0 (checked 2026-11-12, against eeeeb23's `iOSClient/`,
+in code and live).** Names survive without it (positionUpdate, the
+playerLazyMode / playerResigned / playerActiveMode names and every snapshot
+set them), but one picture does not. 1.2.0 draws a seat's custom picture by
+its URL first (`TableRenderModel.Opponent.pictureKey` = `avatarUrl ??
+pic`). `playerLazyMode` and `playerResigned` (TableReducer+Events.swift,
+the `.playerLazyMode` / `.playerResigned` cases) replace `seat.pic` with the
+bot's picture but never clear `seat.avatarUrl`, so a bot that takes over a
+human with a custom picture keeps showing the human's picture. Today the
+next deal heals it: the gameStart `playerInfo` loop (`for info in
+p.playerInfo ?? []`, TableReducer+Events.swift:291-303) sets the seat's
+`avatarUrl` from `avatarUrls` (absent for the bot) or clears it for a stock
+picture. It is also the ONLY place 1.2.0 reads gameStart's `avatarUrls`.
+Without `playerInfo` the human's picture stays on the bot for the rest of
+the game (until a snapshot: a rejoin, a restore, a gap resync). Seen live
+on a local production server with `playerInfo` removed: a node seat with a
+custom picture typed /lazy in hand 1; the 1.2.0 simulator showed
+"🤖 <bot>" with that player's picture in hand 1 and still in hand 2 (on
+eeeeb23's server, hand 2 shows the bot's own picture), while a web
+spectator showed the bot's picture both times. A scratch reducer test on
+eeeeb23's iOS source (positionUpdate with a custom picture + avatarUrl,
+playerLazyMode or playerResigned, then the next gameStart with and without
+`playerInfo`) gives the same: the bot's picture with it, the owner's
+`/avatar/...` URL without it. Web is not affected (`GameState.applySeatDisplay` replaces the
+pics entry, which holds the folded URL). So keep `playerInfo` (and its
+`avatarUrls`) until an iOS build clears `avatarUrl` on a takeover (or reads
+an `avatarUrl` on playerLazyMode / playerResigned) and that build is the
+oldest one not gated.
+Still blocked by iOS 1.2.0 build 5 (re-checked 2026-11-13, `iOSClient/` at
+main 92d0c75, the submitted build; build 4 was pulled from review): its
+`.playerResigned` (TableReducer+Events.swift:99-108) and `.playerLazyMode`
+(:114-121) cases still replace `seat.pic` and leave `seat.avatarUrl`, the
+draw for deal's picture (DrawPhaseView.swift:251) and the table seat
+(TableRenderModel.swift:22) are both `avatarUrl ?? pic`, and the gameStart
+`playerInfo` loop (TableReducer+Events.swift:298-310) is still the only
+place that clears it and the only read of gameStart `avatarUrls`.
+
 ### 6. `gameStart.players` (seat socket ids)
 
 Leaks socket ids, but it is READ: web `main.js` gameStart handler stores it
@@ -824,7 +861,9 @@ step, in this order; nothing is removed by the gate PR itself.
 - **#5 `gameStart.playerInfo`**: 1.1.0 reads it every deal
   (TableReducer.gameStart: names and pictures). (Web: not needed since
   2026-11-12: GameState.applyDeal / avatar.js foldAvatarPayload read it
-  only when present; #5 audit.)
+  only when present; #5 audit.) (1.2.0 still needs it: a bot that took
+  over a custom-picture seat keeps that picture until the next deal's
+  `playerInfo` clears its `avatarUrl`; #5, checked 2026-11-12.)
 - **#6 `gameStart.players`**: web voice speaking indicator reads it.
   (Not since 2026-11-12: by owner / username, #6. Done 2026-11-12, #6.)
 - **#7 `playerAssigned`**: 1.1.0 ignores it, web `main.js` reads it. (Not
@@ -896,3 +935,9 @@ above; after it, what 1.2.0 itself still reads is the remaining blocker:
   the schema entries and constants are gone and the iOS source no longer
   registers the three; 1.2.0's listeners never fire. #3.)
 - **#17 `serverShutdown`**: not handled by 1.2.0.
+- **#5 `gameStart.playerInfo`: still blocked by 1.2.0.** Its takeover
+  handlers (playerLazyMode / playerResigned) swap the picture but keep the
+  owner's custom-picture `avatarUrl`, which wins over `pic`; only the next
+  gameStart's `playerInfo` loop puts the bot's picture back (it is also
+  1.2.0's only reader of gameStart `avatarUrls`). Keep it until an iOS
+  build clears `avatarUrl` on a takeover (#5).
