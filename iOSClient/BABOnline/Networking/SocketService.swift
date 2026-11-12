@@ -164,6 +164,12 @@ final class SocketService: ObservableObject {
             DispatchQueue.main.async { self?.handleServerError(dict, channel: .serverError) }
         }
 
+        // A server that closes the connection (a deploy) leaves Socket.IO-Client-Swift reconnecting
+        // without a .disconnect event (isConnected stays true): the restart toast learns it here
+        socket?.on(clientEvent: .reconnectAttempt) { _, _ in
+            DispatchQueue.main.async { RestartNotices.shared.disconnected() }
+        }
+
         // ~1 s before every deploy closes the sockets (roadmap #17): the toast, and what will be lost
         socket?.on(SocketEvents.Server.serverShutdown) { [weak self] data, _ in
             let dict = data.first as? [String: Any]
