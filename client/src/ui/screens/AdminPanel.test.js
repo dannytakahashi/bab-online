@@ -189,7 +189,8 @@ describe('the panel', () => {
     expect(rowOf('Bea').querySelector('[role="menu"] [role="separator"]')).toBeTruthy();
     // no button in a row is the filled red one: the destructive actions are not the most prominent control
     expect(document.querySelectorAll('#adminPlayerTable .kit-btn--danger')).toHaveLength(0);
-    expect($('#adminStatus').textContent).toBe('3 accounts listed.');
+    expect($('#adminStatus').textContent).toBe(''); // opening is quiet: the count line says it
+    expect($('#adminPlayersCount').textContent).toBe('3 accounts.');
     // the tombstone's one shortcut: show the kept account
     byText('Show Bea', tomb).click();
     expect($('#adminPlayerFilter').value).toBe('Bea');
@@ -745,7 +746,7 @@ describe('names, live regions and headers for assistive tech', () => {
     expect(alert.hasAttribute('aria-live')).toBe(false);
     expect($('#adminMergePlan').hasAttribute('aria-live')).toBe(false);
     await flush();
-    expect(status.textContent).toBe('3 accounts listed.');
+    expect(status.textContent).toBe('');
     api.request.mockImplementationOnce(async (action) => ({ requestId: 'x', action, ok: false, error: 'refused', message: 'Not now.' }));
     byText('Reset link', rowOf('Bea')).click();
     await flush();

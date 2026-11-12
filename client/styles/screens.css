@@ -1382,6 +1382,24 @@
     white-space: nowrap;
 }
 
+/* the Players table: fixed columns, so sorting and filtering never make
+   the columns jump */
+.admin-table.admin-players {
+    table-layout: fixed;
+}
+
+.admin-players th:nth-child(1) { width: 21%; }
+.admin-players th:nth-child(2) { width: 10%; }
+.admin-players th:nth-child(3) { width: 17%; }
+.admin-players th:nth-child(4) { width: 7%; }
+.admin-players th:nth-child(5) { width: 8%; }
+.admin-players th:nth-child(6) { width: 14%; }
+.admin-players th:nth-child(7) { width: 23%; }
+
+.admin-players td {
+    overflow-wrap: anywhere;
+}
+
 /* the Players table: sortable headers like the leaderboard's (.lb-sort) */
 .admin-sort {
     box-sizing: border-box;
@@ -1486,7 +1504,17 @@
     background: var(--line-subtle);
 }
 
-/* the typed-confirmation and rename dialogs (adminPlayers.js) */
+/* the typed-confirmation and rename dialogs (adminPlayers.js): a list
+   of what happens reads left-aligned */
+.kit-modal.admin-dialog {
+    width: 540px;
+    text-align: left;
+}
+
+.admin-dialog .kit-modal__title {
+    text-align: left;
+}
+
 .admin-dialog__form {
     display: flex;
     flex-direction: column;

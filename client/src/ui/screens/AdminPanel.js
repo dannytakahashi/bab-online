@@ -277,7 +277,9 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
     renderRoster();
     if (!quiet) say(`${list.length} account${list.length === 1 ? '' : 's'} listed.`);
   }
-  loaders.players = () => loadPlayers();
+  // Opening the tab is quiet (the count line under the filter, which
+  // describes it, already says how many); Refresh announces the result
+  loaders.players = () => loadPlayers({ quiet: true });
   reloadBtn.addEventListener('click', () => loadPlayers());
 
   /** Show `name` in the table (a tombstone's kept account). */
