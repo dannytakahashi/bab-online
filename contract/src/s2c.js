@@ -227,24 +227,23 @@ const s2c = {
     },
     lobbiesUpdated: {
         payload: obj(lobbyLists),
-        status: 'active', to: ['mainRoom', 'self'],
+        status: 'active', to: 'mainRoom',
         reserved: [{ key: 'lobbyName', why: 'iOS reads lobbyName ?? name' }, { key: 'inProgress', why: 'reserved lobby key (iOS Lobby.from)' }],
         clientReads: reads(W.lobby, I.lobby),
-        emittedFrom: ['server/socket/gameLifecycle.js:emitLobbiesUpdated', 'server/socket/mainRoomHandlers.js:createLobby', 'server/socket/mainRoomHandlers.js:joinLobby', 'server/socket/mainRoomHandlers.js:getLobbies', 'server/socket/lobbyHandlers.js:leaveLobby', 'server/socket/lobbyHandlers.js:addBot', 'server/socket/lobbyHandlers.js:removeBot', 'server/socket/tournamentHandlers.js:createTournament', 'server/socket/tournamentHandlers.js:joinTournament', 'server/socket/tournamentHandlers.js:leaveTournament', 'server/socket/tournamentHandlers.js:scheduleTournamentCleanup'],
-        notes: 'getLobbies answers the requesting socket with the same shape.',
+        emittedFrom: ['server/socket/gameLifecycle.js:emitLobbiesUpdated', 'server/socket/mainRoomHandlers.js:createLobby', 'server/socket/mainRoomHandlers.js:joinLobby', 'server/socket/lobbyHandlers.js:leaveLobby', 'server/socket/lobbyHandlers.js:addBot', 'server/socket/lobbyHandlers.js:removeBot', 'server/socket/tournamentHandlers.js:createTournament', 'server/socket/tournamentHandlers.js:joinTournament', 'server/socket/tournamentHandlers.js:leaveTournament', 'server/socket/tournamentHandlers.js:scheduleTournamentCleanup'],
+        notes: 'Only to the main room since getLobbies (its one reply to a single socket) went with the matchmaking queue (V1_REMOVALS #2, 2026-11-11).',
     },
 
     // ==================== Lobby ====================
     lobbyCreated: {
         payload: anyOf(
             variant('withName', obj({ lobbyId: str(), players: arr(ref('lobbyMember'), { maxItems: 4 }), messages: arr(ref('lobbyChatLine')), name: str() })),
-            variant('withoutName', obj({ lobbyId: str(), players: arr(ref('lobbyMember'), { maxItems: 4 }), messages: arr(ref('lobbyChatLine')) })),
         ),
         status: 'active', to: 'self',
         reserved: [{ key: 'lobbyName', why: 'iOS reads lobbyName ?? name' }],
         clientReads: reads(W.lobby, I.lobby),
-        emittedFrom: ['server/socket/mainRoomHandlers.js:createLobby', 'server/socket/mainRoomHandlers.js:joinLobby', 'server/socket/queueHandlers.js:joinQueue'],
-        notes: 'withoutName only from the unsent joinQueue path.',
+        emittedFrom: ['server/socket/mainRoomHandlers.js:createLobby', 'server/socket/mainRoomHandlers.js:joinLobby'],
+        notes: 'The withoutName variant went with the matchmaking queue (V1_REMOVALS #2, 2026-11-11): every lobby a player can open or join is named.',
     },
     lobbyJoined: {
         payload: obj({ lobbyId: str() }, { open: true }),
@@ -261,7 +260,7 @@ const s2c = {
         }),
         status: 'active', to: 'socket',
         clientReads: reads(W.lobby, I.lobby),
-        emittedFrom: ['server/socket/mainRoomHandlers.js:joinLobby', 'server/socket/queueHandlers.js:joinQueue'],
+        emittedFrom: ['server/socket/mainRoomHandlers.js:joinLobby'],
     },
     lobbyPlayerLeft: {
         payload: obj({ lobbyId: str(), players: arr(ref('lobbyMember'), { maxItems: 4 }), leftUsername: str(), needsMorePlayers: bool() }),
@@ -297,13 +296,6 @@ const s2c = {
         clientReads: reads(W.lobby, I.lobby),
         emittedFrom: ['server/socket/lobbyHandlers.js:lobbyChat'],
         notes: 'Sent to every lobby member, bots included (bot: ids never reach a wire).',
-    },
-    queueUpdate: {
-        payload: obj({ queuedUsers: arr(obj({}, { open: true })) }),
-        status: 'deprecated', to: 'all',
-        clientReads: reads([], []),
-        emittedFrom: ['server/socket/queueHandlers.js:leaveQueue'],
-        notes: 'Only from the unsent leaveQueue; no listener in either client. V1_REMOVALS #2.',
     },
 
     // ==================== Draw ====================
@@ -902,13 +894,13 @@ const s2c = {
         payload: obj({ peers: arr(ref('voicePeer')) }),
         status: 'active', to: 'self',
         clientReads: reads(W.voice, I.voice),
-        emittedFrom: ['server/socket/mainRoomHandlers.js:joinLobby', 'server/socket/queueHandlers.js:joinQueue', 'server/socket/seatLifecycle.js:reconnectOwner'],
+        emittedFrom: ['server/socket/mainRoomHandlers.js:joinLobby', 'server/socket/seatLifecycle.js:reconnectOwner'],
     },
     voicePeerJoined: {
         payload: ref('voicePeer'),
         status: 'active', to: 'socket',
         clientReads: reads(W.voice, I.voice),
-        emittedFrom: ['server/socket/mainRoomHandlers.js:joinLobby', 'server/socket/queueHandlers.js:joinQueue', 'server/socket/seatLifecycle.js:reconnectOwner'],
+        emittedFrom: ['server/socket/mainRoomHandlers.js:joinLobby', 'server/socket/seatLifecycle.js:reconnectOwner'],
     },
     voicePeerLeft: {
         payload: anyOf(variant('room', obj({ socketId: str() })), variant('private', obj({ socketId: str() }))),

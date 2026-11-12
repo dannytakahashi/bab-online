@@ -73,10 +73,6 @@ const schemas = {
         name: Joi.string().max(50).allow('', null).optional()
     }),
 
-    // Queue (no data needed, but validate anyway)
-    joinQueue: Joi.object({}).unknown(true),
-    leaveQueue: Joi.object({}).unknown(true),
-
     // Reconnection
     rejoinGame: Joi.object({
         gameId: Joi.string().uuid().required(),

@@ -39,7 +39,6 @@ const validators = require('../validators');
 const gameManager = require('../../game/GameManager');
 const gameHandlers = require('../gameHandlers');
 const chatHandlers = require('../chatHandlers');
-const queueHandlers = require('../queueHandlers');
 const reconnectHandlers = require('../reconnectHandlers');
 const mainRoomHandlers = require('../mainRoomHandlers');
 const lobbyHandlers = require('../lobbyHandlers');
@@ -478,7 +477,6 @@ describe('(e) non-game handlers', () => {
         mainRoomHandlers.joinMainRoom(d, w.io);
         mainRoomHandlers.mainRoomChat(d, w.io, { message: 'hello room' });
         ambient.maybePostChat(w.io);
-        mainRoomHandlers.getLobbies(d, w.io);
         mainRoomHandlers.createLobby(d, w.io, {});
         const lobbyId = gameManager.getPlayerLobby(d.id).id;
         mainRoomHandlers.joinLobby(e, w.io, { lobbyId });
@@ -499,15 +497,6 @@ describe('(e) non-game handlers', () => {
         lobbyHandlers.leaveLobby(e, w.io);
         lobbyHandlers.leaveLobby(d, w.io);
         lobbyHandlers.leaveLobby(d, w.io); // not in a lobby: error
-
-        // Queue (handled, no client sends it)
-        const q = w.user('e-q', 'e_quinn');
-        const q2 = w.user('e-q2', 'e_quill');
-        await queueHandlers.joinQueue(q, w.io);
-        await queueHandlers.joinQueue(q2, w.io);
-        gameManager.queue.push(q.id);
-        gameManager.queuedUsers.push({ socketId: q.id, username: 'e_quinn' });
-        queueHandlers.leaveQueue(q, w.io);
 
         // Wrapper errors: rate limit and validation
         const r = w.socket('e-r');

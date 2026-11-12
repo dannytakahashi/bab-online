@@ -357,7 +357,7 @@ describe('R8/R9 the newest socket owns the seat (#181 nit)', () => {
         expect(selfEvents(t, s1).filter((e) => e === 'leftGame')).toHaveLength(1);
         expect(gameManager.spectatorGames.has(s1.id)).toBe(false);
         gameManager.registerUser(s1.id, 'user2'); // s2 took the user entry
-        expect(gameManager.joinQueue(s1.id).success).toBe(true);
+        expect(gameManager.createNamedLobby(s1.id).success).toBe(true);
         gameManager.leaveLobby(s1.id);
 
         chat(t, 2, '/active', s2);
@@ -480,8 +480,6 @@ describe('R16-R19 watchers', () => {
         await Promise.all(pending);
         expect(events(t.log, 'gameEnd')).toHaveLength(1);
         expect(gameManager.playerGames.has(w.id)).toBe(false);
-        expect(gameManager.joinQueue(w.id).success).toBe(true);
-        gameManager.leaveLobby(w.id);
         expect(gameManager.createNamedLobby(w.id).success).toBe(true);
         gameManager.leaveLobby(w.id);
     });

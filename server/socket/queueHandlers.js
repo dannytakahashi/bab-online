@@ -1,89 +1,12 @@
 /**
- * Queue management socket event handlers
+ * Socket disconnect handling. (The file kept its name from the matchmaking
+ * queue, whose joinQueue / leaveQueue handlers are gone: V1_REMOVALS #2.)
  */
 
 const gameManager = require('../game/GameManager');
 const { socketLogger } = require('../utils/logger');
 const { emitLobbiesUpdated } = require('./gameLifecycle');
 const { disconnectOwner } = require('./seatLifecycle');
-const { releaseStaleLobbySeat } = require('./lobbyHandlers');
-
-async function joinQueue(socket, io) {
-    const result = gameManager.joinQueue(socket.id);
-
-    if (!result.success) {
-        socket.emit('error', { message: result.error });
-        return;
-    }
-
-    const lobby = result.lobby;
-    socketLogger.info('Player joined lobby', {
-        socketId: socket.id,
-        lobbyId: lobby.id,
-        playerCount: lobby.players.length,
-        isNewLobby: result.lobbyCreated
-    });
-
-    // Re-entry from a new socket: the user's seat moved here in place
-    if (result.replacedSocketId) {
-        releaseStaleLobbySeat(io, { oldSocketId: result.replacedSocketId, newSocketId: socket.id, lobby });
-        emitLobbiesUpdated(io);
-    }
-
-    if (result.lobbyCreated) {
-        // New lobby created - send lobbyCreated to the joining player
-        socket.emit('lobbyCreated', {
-            lobbyId: lobby.id,
-            players: lobby.players,
-            messages: lobby.messages
-        });
-    } else if (result.joinedExisting) {
-        // Joined existing lobby - send lobbyCreated to the new player
-        socket.emit('lobbyCreated', {
-            lobbyId: lobby.id,
-            players: lobby.players,
-            messages: lobby.messages
-        });
-
-        // Notify existing players that someone joined
-        const joiningUsername = lobby.players.find(p => p.socketId === socket.id)?.username;
-        const existingHumans = [];
-        lobby.players.forEach(player => {
-            if (player.socketId !== socket.id) {
-                io.to(player.socketId).emit('lobbyPlayerJoined', {
-                    lobbyId: lobby.id,
-                    players: lobby.players,
-                    newPlayer: {
-                        socketId: socket.id,
-                        username: joiningUsername
-                    }
-                });
-
-                // Send voicePeerJoined to existing human players
-                if (!gameManager.isBot(player.socketId)) {
-                    existingHumans.push({ socketId: player.socketId, username: player.username });
-                    io.to(player.socketId).emit('voicePeerJoined', {
-                        socketId: socket.id,
-                        username: joiningUsername
-                    });
-                }
-            }
-        });
-
-        // Send voicePeerList to the joining player
-        if (existingHumans.length > 0) {
-            socket.emit('voicePeerList', { peers: existingHumans });
-        }
-    }
-}
-
-function leaveQueue(socket, io) {
-    const result = gameManager.leaveQueue(socket.id);
-
-    if (result.success) {
-        io.emit('queueUpdate', { queuedUsers: result.queuedUsers });
-    }
-}
 
 /**
  * A socket disconnected: drop it from the main room / lobby / tournament /
@@ -196,7 +119,5 @@ function routeGameDisconnect(socket, io, result) {
 }
 
 module.exports = {
-    joinQueue,
-    leaveQueue,
     handleDisconnect
 };

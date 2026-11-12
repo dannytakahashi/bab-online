@@ -179,7 +179,7 @@ function queued(ctx, fn) {
  * differs from the preview) → refuse a source that is playing right now
  * (from memory: a game in its draw has no activeGameId yet) → lock the
  * sources' names and sign out their live sockets, in the same synchronous
- * step, so no game, queue, lobby, tournament, sign-in or restore can start
+ * step, so no game, lobby, tournament, sign-in or restore can start
  * for them until the merge is done → apply → unlock. A source whose retire
  * the database still refuses (accountMerge: in a game or merged elsewhere
  * meanwhile, e.g. by the CLI) is reported as a partial merge.
@@ -214,7 +214,7 @@ async function applyMergeNow({ db, io, actor }, { target, sources, planHash: pre
             throw new AdminError('refused', `Source "${name}" is in ${live.kind === 'game' ? 'a game' : 'a tournament'} right now. Wait until it finishes and merge again.`);
         }
     }
-    // Lock the names (no new sign-in, restore, rejoin, queue, lobby or
+    // Lock the names (no new sign-in, restore, rejoin, lobby or
     // tournament: GameManager.mergeLocks) and sign out every live socket
     // of a source now, before the first write
     gameManager.lockForMerge(plan.sources);
@@ -283,7 +283,7 @@ async function applyMergeNow({ db, io, actor }, { target, sources, planHash: pre
  * and for a player in a game, a tournament or a draw (from memory first,
  * then the database's pointers in the guarded write). Order: refuse →
  * lock the name and sign out its live sockets in one synchronous step
- * (GameManager.mergeLocks: no sign-in, restore, rejoin, queue, lobby or
+ * (GameManager.mergeLocks: no sign-in, restore, rejoin, lobby or
  * tournament can start) → one guarded write that revokes every session
  * and refuses if the account became an admin, entered a game or was
  * merged meanwhile → erase → unlock → forget in memory.

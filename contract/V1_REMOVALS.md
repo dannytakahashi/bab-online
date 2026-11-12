@@ -85,6 +85,15 @@ One PR per entry:
 
 ### 2. The matchmaking queue
 
+**Done 2026-11-11 (PR #TBD).** Gone: c2s `joinQueue` / `leaveQueue` /
+`getLobbies` (handlers, registrations, Joi and rate-limit entries), s2c
+`queueUpdate`, `GameManager.queue` / `queuedUsers` / `joinQueue` /
+`leaveQueue` / `addPlayerToLobby` / `fillLobbyFromQueue` /
+`getQueueStatus`, the merge lock's joinQueue refusal and the `lobbyCreated`
+`withoutName` variant (`lobbiesUpdated` now goes only to the main room).
+`queueHandlers.js` keeps only `handleDisconnect`. Re-checked first: no
+sender or listener in 1.1.0 (f05d264) or web on main.
+
 - `queueUpdate` (only from `queueHandlers.leaveQueue`); c2s `joinQueue`,
   `leaveQueue`, `getLobbies` (status `unsent`: no client sends them);
   `GameManager.queue` / `queuedUsers` / `getQueueStatus`; their rate-limit and
@@ -391,7 +400,7 @@ step, in this order; nothing is removed by the gate PR itself.
    Pure leak fixes, smallest PR. **Done 2026-11-11 (PR #TBD).**
 2. **#2 the matchmaking queue** (`queueUpdate`, c2s `joinQueue` /
    `leaveQueue` / `getLobbies`, `GameManager.queue`): no sender or listener
-   in 1.1.0 or web.
+   in 1.1.0 or web. **Done 2026-11-11 (PR #TBD).**
 3. **#4 s2c `joinMainRoom`**: no listener in 1.1.0 or web.
 4. **#12 `chatMessage.type`**: web reads `isSpectator`, 1.1.0 reads
    `isSpectator` first (`type` was only for 1.0.0). Drop `type`, keep

@@ -1143,44 +1143,6 @@
         }
       ]
     },
-    "joinQueue": {
-      "payload": {
-        "type": "object",
-        "properties": {},
-        "additionalProperties": true
-      },
-      "optionalPayload": true,
-      "status": "unsent",
-      "joi": null,
-      "rateLimit": null,
-      "sentBy": {
-        "web": false,
-        "ios": false
-      },
-      "examples": [
-        {}
-      ],
-      "notes": "Registered with safeHandler (no Joi, no rate limit). V1_REMOVALS #2."
-    },
-    "leaveQueue": {
-      "payload": {
-        "type": "object",
-        "properties": {},
-        "additionalProperties": true
-      },
-      "optionalPayload": true,
-      "status": "unsent",
-      "joi": null,
-      "rateLimit": null,
-      "sentBy": {
-        "web": false,
-        "ios": false
-      },
-      "examples": [
-        {}
-      ],
-      "notes": "Emits the deprecated queueUpdate. V1_REMOVALS #2."
-    },
     "joinMainRoom": {
       "payload": {
         "type": "object",
@@ -1279,24 +1241,6 @@
         }
       ],
       "notes": "No Joi schema yet (hardening: V1_REMOVALS #18)."
-    },
-    "getLobbies": {
-      "payload": {
-        "type": "object",
-        "properties": {},
-        "additionalProperties": true
-      },
-      "optionalPayload": true,
-      "status": "unsent",
-      "joi": null,
-      "rateLimit": null,
-      "sentBy": {
-        "web": false,
-        "ios": false
-      },
-      "examples": [
-        {}
-      ]
     },
     "joinAsSpectator": {
       "payload": {
@@ -2967,34 +2911,6 @@
               "name"
             ],
             "additionalProperties": false
-          },
-          {
-            "variant": "withoutName",
-            "type": "object",
-            "properties": {
-              "lobbyId": {
-                "type": "string"
-              },
-              "players": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/$defs/lobbyMember"
-                },
-                "maxItems": 4
-              },
-              "messages": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/$defs/lobbyChatLine"
-                }
-              }
-            },
-            "required": [
-              "lobbyId",
-              "players",
-              "messages"
-            ],
-            "additionalProperties": false
           }
         ]
       },
@@ -3326,35 +3242,6 @@
         "server/socket/lobbyHandlers.js:lobbyChat"
       ],
       "notes": "Sent to every lobby member, bots included (bot: ids never reach a wire)."
-    },
-    "queueUpdate": {
-      "payload": {
-        "type": "object",
-        "properties": {
-          "queuedUsers": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {},
-              "additionalProperties": true
-            }
-          }
-        },
-        "required": [
-          "queuedUsers"
-        ],
-        "additionalProperties": false
-      },
-      "status": "deprecated",
-      "to": "all",
-      "clientReads": {
-        "web": [],
-        "ios": []
-      },
-      "emittedFrom": [
-        "server/socket/queueHandlers.js:leaveQueue"
-      ],
-      "notes": "Only from the unsent leaveQueue; no listener in either client. V1_REMOVALS #2."
     },
     "startDraw": {
       "payload": {

@@ -219,15 +219,6 @@ function joinLobby(socket, io, data) {
 }
 
 /**
- * Handle player requesting current lobby list
- */
-function getLobbies(socket, io) {
-    const lobbies = gameManager.getAllLobbies();
-    const inProgressGames = gameManager.getInProgressGames();
-    socket.emit('lobbiesUpdated', { lobbies, inProgressGames, tournaments: gameManager.getAllTournaments() });
-}
-
-/**
  * Handle player joining a game as a spectator
  */
 function joinAsSpectator(socket, io, data) {
@@ -298,6 +289,5 @@ module.exports = {
     mainRoomChat,
     createLobby,
     joinLobby,
-    getLobbies,
     joinAsSpectator
 };

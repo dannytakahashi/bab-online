@@ -57,16 +57,14 @@ const c2s = {
     },
     deleteAccount: { payload: open({ password: password() }), status: 'active', joi: 'deleteAccount', rateLimit: 'deleteAccount', sentBy: both, examples: [{ password: 'pw' }], invalid: [{ password: '' }, {}] },
 
-    // Queue (no client sends these)
-    joinQueue: { ...noPayload, status: 'unsent', joi: null, rateLimit: null, sentBy: nobody, examples: [{}], notes: 'Registered with safeHandler (no Joi, no rate limit). V1_REMOVALS #2.' },
-    leaveQueue: { ...noPayload, status: 'unsent', joi: null, rateLimit: null, sentBy: nobody, examples: [{}], notes: 'Emits the deprecated queueUpdate. V1_REMOVALS #2.' },
+    // (joinQueue / leaveQueue / getLobbies, the matchmaking queue no client
+    // sent, were removed: V1_REMOVALS #2, 2026-11-11)
 
     // Main room
     joinMainRoom: { ...noPayload, status: 'active', joi: null, rateLimit: null, sentBy: both, examples: [{}] },
     mainRoomChat: { payload: open({ message: message() }), status: 'active', joi: 'chatMessage', rateLimit: 'chatMessage', sentBy: both, examples: [{ message: 'hi all' }], invalid: [{ message: '' }, { message: 'x'.repeat(501) }] },
     createLobby: { payload: open({ name: { type: ['string', 'null'], maxLength: 50 } }, { optional: ['name'] }), optionalPayload: true, status: 'active', joi: 'createLobby', rateLimit: 'createLobby', sentBy: both, examples: [{ name: 'Family night' }, {}], invalid: [{ name: 'x'.repeat(51) }, { name: 7 }] },
     joinLobby: { payload: open({ lobbyId: str() }), status: 'active', joi: null, rateLimit: null, sentBy: both, examples: [{ lobbyId: '6f1c2b8e-7f0a-4c55-9d3e-2a1b0c9d8e7f' }], notes: 'No Joi schema yet (hardening: V1_REMOVALS #18).' },
-    getLobbies: { ...noPayload, status: 'unsent', joi: null, rateLimit: null, sentBy: nobody, examples: [{}] },
     joinAsSpectator: { payload: open({ gameId: uuid() }), status: 'active', joi: 'joinAsSpectator', rateLimit: null, sentBy: both, examples: [{ gameId: '6f1c2b8e-7f0a-4c55-9d3e-2a1b0c9d8e7f' }], invalid: [{ gameId: 'x' }, {}] },
 
     // Lobby

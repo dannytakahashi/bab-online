@@ -251,24 +251,6 @@ describe('re-entering a pre-game lobby from a new socket', () => {
         await Promise.all(starting);
     });
 
-    test('joinQueue from the new socket takes the seat back, even in a full lobby', async () => {
-        const w = world();
-        const names = [`ann${seq}`, `bob${seq}`, `cat${seq}`, `dan${seq}`];
-        const { socks, lobbyId, lobby } = await lobbyOf(w, names);
-
-        const bob2 = await w.connect(names[1]);
-        const from = w.log.length;
-        await queueHandlers.joinQueue(bob2, w.io);
-
-        expect(seats(lobby)).toEqual(names);
-        expect(lobby.players[1].socketId).toBe(bob2.id);
-        expect(gameManager.playerLobbies.get(bob2.id)).toBe(lobbyId);
-        expect(gameManager.playerLobbies.has(socks[1].id)).toBe(false);
-        expect(w.to(bob2.id, from).map((l) => l.event)).toContain('lobbyCreated');
-        expect(w.to(socks[1].id, from).map((l) => l.event)).toEqual(['leftLobby']);
-        expect(gameManager.lobbies.size).toBe(1);
-    });
-
     test('creating or joining another lobby gives up the seat held from the old socket', async () => {
         const w = world();
         const names = [`ann${seq}`, `bob${seq}`, `cat${seq}`];

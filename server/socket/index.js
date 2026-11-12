@@ -56,14 +56,6 @@ function setupSocketHandlers(io) {
             asyncHandler('deleteAccount', authHandlers.deleteAccount)(socket, io, data)
         );
 
-        // Queue events - no data to validate
-        socket.on('joinQueue', () =>
-            safeHandler(queueHandlers.joinQueue)(socket, io, {})
-        );
-        socket.on('leaveQueue', () =>
-            safeHandler(queueHandlers.leaveQueue)(socket, io, {})
-        );
-
         // Main room events
         socket.on('joinMainRoom', () =>
             safeHandler(mainRoomHandlers.joinMainRoom)(socket, io, {})
@@ -76,9 +68,6 @@ function setupSocketHandlers(io) {
         );
         socket.on('joinLobby', (data) =>
             safeHandler(mainRoomHandlers.joinLobby)(socket, io, data)
-        );
-        socket.on('getLobbies', () =>
-            safeHandler(mainRoomHandlers.getLobbies)(socket, io, {})
         );
         socket.on('joinAsSpectator', (data) =>
             asyncHandler('joinAsSpectator', mainRoomHandlers.joinAsSpectator)(socket, io, data)
@@ -235,7 +224,7 @@ function setupSocketHandlers(io) {
                 // Clear rate limit data for this socket
                 rateLimiter.clearSocket(socket.id);
 
-                // Handle game/queue disconnect (async: a rejection must not
+                // Handle game/lobby disconnect (async: a rejection must not
                 // become an unhandledRejection)
                 queueHandlers.handleDisconnect(socket, io).catch(error =>
                     socketLogger.error('Error in disconnect handler', {
