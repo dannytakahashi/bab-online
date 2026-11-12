@@ -291,8 +291,15 @@ Leaks a bot's real personality name before the game starts (the lobby shows
 
 ### 17. `serverShutdown`
 
-No listener in either client today (constants added in item 8). Handle it in
-the new builds (show "server restarting") or drop it.
+**Kept (owner 2026-11-11): web and iOS 1.2 show it.** Not removed. Web
+(2026-11-11): the connection banner shows "BAB Online is restarting for an
+update. You'll reconnect in a moment." until the socket is back, and the
+first restore path that finds the game / watched game / lobby / tournament
+gone shows one message saying it ended because of the restart
+(`client/src/state/restartNotice.js`, sessionStorage, ~2 min; nothing for
+the main room). No server change: gracefulShutdown's io.close() is a
+transport close, so both clients reconnect by themselves
+(`server/__tests__/serverShutdown.test.js`). iOS 1.1.0 ignores it.
 
 ### 18. Hardening that could reject inputs
 
@@ -539,9 +546,8 @@ step, in this order; nothing is removed by the gate PR itself.
    for `removeBot`, `joinLobby`, `searchPlayers`, `getPlayerProfile` and the
    voice relays (plus the shared-room relay check) can land. **Done
    2026-11-11 (PR #TBD).**
-9. **#17 `serverShutdown`**: no listener anywhere; either drop it or add the
-   "server restarting" handling in a later client build. Owner call (left
-   as it is 2026-11-11).
+9. **#17 `serverShutdown`**: kept (owner 2026-11-11): web and iOS 1.2 show
+   it (web: restart banner, then what ended). Nothing to remove.
 10. **#1 phase A only** (`serverError` dual emit with `{code, message,
     handler}`): additive, safe now. **Done 2026-11-11 (PR #TBD).**
 
