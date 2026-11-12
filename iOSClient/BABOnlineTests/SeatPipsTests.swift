@@ -260,7 +260,19 @@ final class SeatPipsTests: XCTestCase {
         // the same table seen from seat 2 (team 2)
         snap.viewer.position = 2
         h.store.apply(.snapshot(snap, .rejoin, hints: nil))
-        XCTAssertEqual(scene.trickManager.trickHistory.myTeam, 2)
+        let hist = scene.trickManager.trickHistory
+        XCTAssertEqual(hist.myTeam, 2)
+        // team 1's 2 tricks are now the opponents' row, still blue (team 1), as on the score bar
+        XCTAssertEqual(hist.counts.opp, 2)
+        let opp = hist.children.filter { Int($0.role?.replacingOccurrences(of: "history.opp.", with: "") ?? "") != nil }
+            .compactMap { ($0 as? SKSpriteNode)?.color }
+        XCTAssertEqual(opp.count, 2)
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0, er: CGFloat = 0, eg: CGFloat = 0, eb: CGFloat = 0
+        Theme.SK.teamA.getRed(&er, green: &eg, blue: &eb, alpha: &a)
+        for c in opp {
+            c.getRed(&r, green: &g, blue: &b, alpha: &a)
+            XCTAssertEqual([r, g, b].map { Int(($0 * 255).rounded()) }, [er, eg, eb].map { Int(($0 * 255).rounded()) })
+        }
     }
 
     // MARK: - unknown counts (a snapshot whose tricksByPosition does not add up)
