@@ -5,14 +5,17 @@
  * (item 25); this one mirrors its semantics where they fit:
  *
  *   - one uniform size scale s for every sprite and DOM size (cards,
- *     avatars, plates, trick slots, the bid sheet), never above 1 (today's
- *     1920 x 1080 table);
+ *     avatars, plates, trick slots, the bid sheet): s = 1 (S_BASE) is the
+ *     1920 x 1080 design, and a window with room grows it up to
+ *     S_GROW_MAX = 1.5 (owner, 2026-11-12: "grow to fit");
  *   - s is SOLVED, not guessed: the search tries s = 1, 0.99 ... and takes
  *     the first layout with no rect intersections and nothing off the
  *     canvas, checked by the same findIntersections / findOutside the tests
- *     use (a roomy hand box first, then a compact one, at each s);
+ *     use (a roomy hand box first, then a compact one, at each s); a table
+ *     clean at s = 1 then tries 1.5, 1.49 ... keeping the room it had at 1
+ *     (growChoice);
  *   - positions are today's fractions of the canvas where they fit (the
- *     1920x1080 table looks as it did) and are pushed apart where they do
+ *     1920x1080 table at s = 1 looks as it did) and are pushed apart where they do
  *     not;
  *   - the felt keeps today's proportions of the canvas where the side seats
  *     can move out for it (FELT_WISHES, tried at the solved s: the scale
@@ -143,7 +146,18 @@ const BUBBLE_WIDTHS = [1, 0.85, 0.7, 0.6];
 const BADGE_TAIL_HALF = 8;
 const BADGE_TAIL_ROOM = 12 + BADGE_TAIL_HALF;
 
-const S_MAX = 1;
+/**
+ * The design scale: s = 1 is today's 1920 x 1080 table (a hand card 93 CSS
+ * px tall). The solve looks for the largest clean s up to it first, exactly
+ * as before; only a window whose table is clean at S_BASE then GROWS, up to
+ * S_GROW_MAX (owner, 2026-11-12: "the default may be a little small", grow
+ * to fit, no setting), keeping the room the S_BASE table had (growChoice:
+ * the roomy hand box, the full-height hand box, the felt wish, my history's
+ * inset). Every window whose table is smaller than S_BASE (a laptop, a
+ * phone) gets exactly today's layout.
+ */
+export const S_BASE = 1;
+export const S_GROW_MAX = 1.5;
 const S_MIN = 0.15;
 const S_STEP = 0.01;
 const MARGIN = 10;
@@ -179,6 +193,13 @@ function around(cx, cy, w, h) {
 }
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+/** The smallest rect holding every one of `rs`. */
+function union(rs) {
+  const x = Math.min(...rs.map((r) => r.x));
+  const y = Math.min(...rs.map((r) => r.y));
+  return rect(x, y, Math.max(...rs.map((r) => r.x + r.w)) - x, Math.max(...rs.map((r) => r.y + r.h)) - y);
+}
 
 /** True when two rects share area (touching edges do not count). */
 export function intersects(a, b) {
@@ -414,7 +435,11 @@ function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1, felt = 0, hi
     voice = { rect: rect(q(selfX - voiceRowW / 2), q(hsiY + hsiH + voiceGap), voiceRowW, voiceBtn), button: voiceBtn, gap: voiceGap };
     seats.self.hsi = hsi;
     seats.self.voice = voice;
-    seats.self.block = rect(q(selfX - selfW / 2), q(selfTop), selfW, selfH);
+    // (the box round its rows as snapped: at a fractional size, e.g. s =
+    // 1.02, each row's own snap may carry it up to half a device px past
+    // the box the sizes add up to)
+    seats.self.block = union([rect(q(selfX - selfW / 2), q(selfTop), selfW, selfH),
+      seats.self.avatar.rect, seats.self.plate, hsi.rect, voice.rect]);
     // the trick may sit beside my box: only the hand bounds it from below
     bottom = handTop - G;
   } else {
@@ -898,21 +923,71 @@ export function findOutside(L, rects = null) {
  * @param {number} [opts.dpr=1] - device pixel ratio: positions snap to device pixels
  * @param {boolean} [opts.isSpectator=false] - a pure spectator (no hand: the bottom seat)
  * @param {number} [opts.logW=0] - the log column beside the canvas (0: none)
+ * @param {boolean} [opts.grow=true] - false: today's solve only, never above S_BASE (tests compare against it)
  */
-export function computeTableLayout({ w, h, dpr = 1, isSpectator = false, logW = 0 } = {}) {
+export function computeTableLayout({ w, h, dpr = 1, isSpectator = false, logW = 0, grow = true } = {}) {
   const cw = Math.max(1, Number(w) || 1);
   const ch = Math.max(1, Number(h) || 1);
   const d = dpr > 0 ? dpr : 1;
   const opts = { isSpectator: !!isSpectator, logW: logW || 0, dpr: d };
+  // today's solve, from S_BASE down (every choice allowed)
+  const downTo = Math.round((S_BASE - S_MIN) / S_STEP);
+  const base = solve(cw, ch, opts, Array.from({ length: downTo + 1 }, (_, i) => r1(S_BASE - i * S_STEP)), ANY_CHOICE);
+  if (!base) {
+    const L = place(cw, ch, S_MIN, { ...opts, compact: true, k: HISTORY_SCALES[HISTORY_SCALES.length - 1] });
+    L.degraded = true;
+    return L;
+  }
+  if (!grow || base.L.s < S_BASE) return base.L;
+  // a table clean at S_BASE grows, keeping what it chose there (growChoice)
+  const upFrom = Math.round((S_GROW_MAX - S_BASE) / S_STEP);
+  const grown = solve(cw, ch, opts, Array.from({ length: upFrom }, (_, i) => r1(S_GROW_MAX - i * S_STEP)), growChoice(base.choice));
+  return grown ? grown.L : base.L;
+}
+
+/** Every choice, best first (today's solve). */
+const ANY_CHOICE = {
+  roomy: [true, false],
+  k: () => true,
+  compact: [false, true],
+  minFelt: 0,
+  histInset: [true, false],
+};
+
+/**
+ * What a table grown past S_BASE may choose: never less room than it had at
+ * S_BASE. The roomy hand box if it had one, the full-height hand box if it
+ * had it, a felt wish at least as big, my history's inset if it had it. The
+ * history step is free, as in today's solve (s comes first, then the step):
+ * the history beside my hand is what bounds the hand box, and holding the
+ * step made a wider window's table smaller (1520 -> 1560 px wide: s 1.1 ->
+ * 1.01); free, a bigger window never gets a smaller table (the test sweep).
+ */
+function growChoice(c) {
+  return {
+    roomy: [c.roomyHand],
+    k: () => true,
+    compact: c.compact ? [false, true] : [false],
+    minFelt: c.felt,
+    histInset: c.histInset ? [true] : [true, false],
+  };
+}
+
+/**
+ * The first clean layout over `scales` (largest first) and the choices in
+ * `allow`, best first: s comes first, then the history step, the hand box,
+ * then the felt as close to today's as the seats allow and my history's
+ * inset. Returns { L, choice } or null.
+ */
+function solve(cw, ch, opts, scales, allow) {
+  const clean = (L) => findIntersections(L).length === 0 && findOutside(L).length === 0;
   // first pass: a hand box that shows a 13-card hand at 2/3 of its spacing;
   // second pass: any hand box that fits
-  const clean = (L) => findIntersections(L).length === 0 && findOutside(L).length === 0;
-  for (const roomyHand of [true, false]) {
-    for (let i = 0; ; i++) {
-      const s = r1(S_MAX - i * S_STEP);
-      if (s < S_MIN - 1e-9) break;
+  for (const roomyHand of allow.roomy) {
+    for (const s of scales) {
       for (const k of HISTORY_SCALES) {
-        for (const compact of [false, true]) {
+        if (!allow.k(s, k)) continue;
+        for (const compact of allow.compact) {
           const L = place(cw, ch, s, { ...opts, compact, k });
           if (roomyHand && !handRoomy(L)) continue;
           if (!clean(L)) continue;
@@ -920,25 +995,25 @@ export function computeTableLayout({ w, h, dpr = 1, isSpectator = false, logW = 
           // move out for it), at the same scale: s comes first; at each felt,
           // my team's history at today's inset from the bottom where it fits
           for (const felt of FELT_WISHES) {
-            for (const histInset of [true, false]) {
-              if (felt === 0 && !histInset) return L;
+            if (felt < allow.minFelt) break;
+            for (const histInset of allow.histInset) {
+              const choice = { roomyHand, k, compact, felt, histInset };
+              if (felt === 0 && !histInset) return { L, choice };
               const F = place(cw, ch, s, { ...opts, compact, k, felt, histInset });
-              if ((!roomyHand || handRoomy(F)) && clean(F)) return F;
+              if ((!roomyHand || handRoomy(F)) && clean(F)) return { L: F, choice };
             }
           }
         }
       }
     }
   }
-  const L = place(cw, ch, S_MIN, { ...opts, compact: true, k: HISTORY_SCALES[HISTORY_SCALES.length - 1] });
-  L.degraded = true;
-  return L;
+  return null;
 }
 
 /** The layout of a whole viewport: the log column (logWidthFor) comes off the right. */
-export function layoutForViewport({ vw, vh, dpr = 1, isSpectator = false, withLog = true } = {}) {
+export function layoutForViewport({ vw, vh, dpr = 1, isSpectator = false, withLog = true, grow = true } = {}) {
   const logW = withLog ? logWidthFor(vw) : 0;
-  return computeTableLayout({ w: vw - logW, h: vh, dpr, isSpectator, logW });
+  return computeTableLayout({ w: vw - logW, h: vh, dpr, isSpectator, logW, grow });
 }
 
 /** Hand card centres for n cards (left to right), spaced to fit the hand box. */

@@ -8,16 +8,21 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { createHash } from 'node:crypto';
+import { CARD_CONFIG } from '../config.js';
 import {
   computeTableLayout, layoutForViewport, layoutRects, drawRects, findIntersections, findOutside,
   logWidthFor, LOG_BREAKPOINTS, LOG_WIDTH_MAX, handPositions, fanPositions, historySlot, deckPosition,
   intersects, contains, BASE_SCALE, BID_SHEET, FELT, BUBBLE, BUBBLE_KEEPS, SPECTATOR_BADGE, badgeBubbleKeeps,
+  S_BASE, S_GROW_MAX,
 } from './computeTableLayout.js';
 
 const NAMED = [[1920, 1080], [1440, 790], [1280, 620], [1024, 668], [844, 390], [390, 844]];
 const ROLES = [['player', false], ['spectator', true]];
 const SEATS = ['self', 'partner', 'opp1', 'opp2'];
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+/** A seat's bubble anchor and frog are this near its avatar: 80 px at s <= 1, scaled with a grown table. */
+const near = (L) => 80 * Math.max(1, L.s);
 
 function checkClean(L, label) {
   expect(L.degraded, `${label}: degraded`).toBe(false);
@@ -68,7 +73,7 @@ function bubbleProblems(L, { ownBacks = true } = {}) {
   // a pure spectator's bottom seat has its backs above its avatar: its
   // bubble goes beside them, not over them (it used to hide the whole fan)
   if (ownBacks && L.isSpectator && intersects(L.seats.self.bubble.rect, L.seats.self.cards.rect)) out.push('bottom bubble covers its own backs');
-  if (Math.hypot(L.seats.self.bubble.dx, L.seats.self.bubble.dy) > 80) out.push('self bubble beyond 80 px');
+  if (Math.hypot(L.seats.self.bubble.dx, L.seats.self.bubble.dy) > near(L)) out.push('self bubble beyond 80 px * s');
   return out;
 }
 
@@ -210,8 +215,8 @@ describe('computeTableLayout at the named viewports', () => {
         for (const seat of SEATS) {
           const s = L.seats[seat];
           // the bubble's anchor and the frog are the avatar's (ui-4, webclient-7)
-          expect(dist(s.bubble, s.avatar), `${label} ${seat} bubble`).toBeLessThanOrEqual(80);
-          expect(dist(s.dealer, s.avatar), `${label} ${seat} frog`).toBeLessThanOrEqual(80);
+          expect(dist(s.bubble, s.avatar), `${label} ${seat} bubble`).toBeLessThanOrEqual(near(L));
+          expect(dist(s.dealer, s.avatar), `${label} ${seat} frog`).toBeLessThanOrEqual(near(L));
           expect(s.bubble.x).toBe(s.avatar.x + s.bubble.dx);
           expect(s.dealer.x).toBe(s.avatar.x + s.dealer.dx);
           expect(contains(L.canvas, { x: s.bubble.x, y: s.bubble.y, w: 0, h: 0 })).toBe(true);
@@ -262,8 +267,8 @@ describe('computeTableLayout at the named viewports', () => {
     });
   }
 
-  it('1920x1080 keeps today\'s table (the canvas is 1600 wide: the log takes 320)', () => {
-    const L = layoutForViewport({ vw: 1920, vh: 1080 });
+  it('1920x1080 at S_BASE is today\'s table (the canvas is 1600 wide: the log takes 320)', () => {
+    const L = layoutForViewport({ vw: 1920, vh: 1080, grow: false });
     expect(L.s).toBe(1);
     expect(L.w).toBe(1600);
     // today: opponents at centre -/+ 550 * 1600/1920, their backs at 425 * that,
@@ -298,9 +303,9 @@ describe('computeTableLayout at the named viewports', () => {
 });
 
 describe('the trick histories keep today\'s insets', () => {
-  it('1920x1080: my team\'s block as far from the bottom as the opponents\' from the top (row 2 centred 95 px up)', () => {
+  it('1920x1080 at S_BASE: my team\'s block as far from the bottom as the opponents\' from the top (row 2 centred 95 px up)', () => {
     for (const isSpectator of [false, true]) {
-      const L = layoutForViewport({ vw: 1920, vh: 1080, isSpectator });
+      const L = layoutForViewport({ vw: 1920, vh: 1080, isSpectator, grow: false });
       expect(L.history.opp.slots[0].y).toBeCloseTo(95, 0);
       expect(L.history.team.slots[0].y).toBeCloseTo(1080 - 95 - 86, 0);
       expect(L.history.team.slots[7].y).toBeCloseTo(1080 - 95, 0);
@@ -324,8 +329,8 @@ describe('the trick histories keep today\'s insets', () => {
 });
 
 describe('the draw phase keeps today\'s rows', () => {
-  it('1920x1080: the drawn cards 200 px above the deck row, their names above them, the title at 8.4% down', () => {
-    const L = layoutForViewport({ vw: 1920, vh: 1080, withLog: false });
+  it('1920x1080 at S_BASE: the drawn cards 200 px above the deck row, their names above them, the title at 8.4% down', () => {
+    const L = layoutForViewport({ vw: 1920, vh: 1080, withLog: false, grow: false });
     expect(L.s).toBe(1);
     expect(L.draw.deck.y).toBe(540);
     for (const p of L.draw.slots) expect(p.y).toBe(340);
@@ -369,7 +374,7 @@ describe('computeTableLayout over a grid of sizes (800-2560 x 500-1440)', () => 
           if (!L.spectators.bubble) noBadgeBubble.push(`${vw}x${vh} ${isSpectator ? 'spectator' : 'player'}`);
           for (const seat of SEATS) {
             const s = L.seats[seat];
-            if (dist(s.bubble, s.avatar) > 80 || dist(s.dealer, s.avatar) > 80) bad.push({ vw, vh, seat, far: true });
+            if (dist(s.bubble, s.avatar) > near(L) || dist(s.dealer, s.avatar) > near(L)) bad.push({ vw, vh, seat, far: true });
           }
         }
       }
@@ -411,11 +416,11 @@ describe('computeTableLayout over a grid of sizes (800-2560 x 500-1440)', () => 
     expect(short).toBeLessThan(10);
   });
 
-  it('every size scales uniformly: one s for every card, avatar and slot, never above 1', () => {
-    for (const [vw, vh] of [...NAMED, [2560, 1440], [800, 500], [1700, 1300]]) {
+  it('every size scales uniformly: one s for every card, avatar and slot, never above S_GROW_MAX', () => {
+    for (const [vw, vh] of [...NAMED, [2560, 1440], [800, 500], [1700, 1300], [3440, 1440], [3840, 2160]]) {
       const L = layoutForViewport({ vw, vh });
       expect(L.s).toBeGreaterThan(0);
-      expect(L.s).toBeLessThanOrEqual(1);
+      expect(L.s).toBeLessThanOrEqual(S_GROW_MAX);
       for (const k of ['hand', 'trick', 'back', 'trump', 'deck', 'drawn']) expect(L.card[k].design).toBeCloseTo(BASE_SCALE[k] * L.s, 6);
       expect(L.card.history.design).toBeCloseTo(BASE_SCALE.history * L.s * L.historyScale, 6);
       // one atlas frame for every card: a sprite's scale times the frame is its on-screen size
@@ -466,9 +471,9 @@ describe('computeTableLayout contract', () => {
     for (const slot of Object.values(L.trick.slots)) expect((slot.x * 2) % 1).toBe(0);
   });
 
-  it('1440x790: the felt is today\'s 350 px and holds the full-size bid sheet; the partner\'s bubble clears the trump', () => {
+  it('1440x790 at S_BASE: the felt is today\'s 350 px and holds the full-size bid sheet; the partner\'s bubble clears the trump', () => {
     for (const isSpectator of [false, true]) {
-      const L = layoutForViewport({ vw: 1440, vh: 790, isSpectator });
+      const L = layoutForViewport({ vw: 1440, vh: 790, isSpectator, grow: false });
       expect(L.s).toBe(1);
       // 0.3125 of the 1120 px canvas, as today; the side seats at today's spots
       expect(L.trick.zone.w).toBeCloseTo(350, 0);
@@ -531,7 +536,7 @@ describe('computeTableLayout contract', () => {
   });
 
   it('the badge\'s bubble narrows on a small canvas (the BUBBLE_WIDTHS steps) rather than overlap', () => {
-    const big = layoutForViewport({ vw: 1920, vh: 1080 });
+    const big = layoutForViewport({ vw: 1920, vh: 1080, grow: false });
     expect(big.spectators.bubble.w).toBeCloseTo(big.bubbles.w, 6);
     const widths = new Set();
     for (const [vw, vh] of [[1024, 668], [1280, 620], [844, 390], [960, 540], [800, 600]]) {
@@ -586,5 +591,157 @@ describe('computeTableLayout contract', () => {
       expect(logWidthFor(max)).toBe(w);
     }
     expect(logWidthFor(1401)).toBe(LOG_WIDTH_MAX);
+  });
+});
+
+/**
+ * Grow to fit (owner, 2026-11-12: "on the web client ... the default may be
+ * a little small - I have to zoom in"; no setting): a window whose table is
+ * clean at S_BASE grows up to S_GROW_MAX, the same largest-first search,
+ * keeping the room it had at S_BASE; every smaller window is unchanged.
+ */
+describe('a big window grows the table (S_BASE -> S_GROW_MAX)', () => {
+  const roomy = (L) => !L.hand || L.hand.rect.w + 0.01 >= L.hand.card.w + 12 * (CARD_CONFIG.HAND_SPACING * 2 / 3) * L.s + 2 * L.hand.padX;
+  const gapBelow = (L) => L.h - (L.history.team.rect.y + L.history.team.rect.h);
+  const allProblems = (L) => [...findIntersections(L).map((h) => h.join(' x ')), ...findOutside(L), ...feltProblems(L),
+    ...bubbleProblems(L), ...badgeProblems(L), ...badgeBubbleProblems(L), ...(L.degraded ? ['degraded'] : [])];
+
+  it('2560x1440, 3440x1440 and 3840x2160 reach S_GROW_MAX: a hand card 139.5 px tall, its atlas frame 1:1 at DPR 1, 2 and 3', () => {
+    expect([S_BASE, S_GROW_MAX]).toEqual([1, 1.5]);
+    for (const [vw, vh] of [[2560, 1440], [3440, 1440], [3840, 2160]]) {
+      for (const [role, isSpectator] of ROLES) {
+        for (const dpr of [1, 2, 3]) {
+          const label = `${vw}x${vh} ${role} dpr${dpr}`;
+          const L = layoutForViewport({ vw, vh, isSpectator, dpr });
+          expect(L.s, label).toBe(S_GROW_MAX);
+          expect(allProblems(L), label).toEqual([]);
+          expect(Math.abs(L.card.hand.h - 62 * 1.5 * S_GROW_MAX), label).toBeLessThanOrEqual(1 / dpr + 1e-9);
+          // crisp: the frame is drawn for this size x DPR, under the atlas cap (CARD_CONFIG.TEX_MAX_W)
+          expect(L.card.hand.scale, label).toBeCloseTo(1 / dpr, 9);
+          expect(L.cardTexture.w, label).toBeLessThan(CARD_CONFIG.TEX_MAX_W);
+          // everything else with it: the avatars, the bid sheet, the voice buttons, the bubbles
+          expect(L.seats.opp1.avatar.img, label).toBeCloseTo(80 * S_GROW_MAX, 6);
+          expect(L.bidSheet.scale, label).toBe(S_GROW_MAX);
+          expect(L.voice.button, label).toBeCloseTo(36 * S_GROW_MAX, 6);
+          expect(L.bubbles.font, label).toBeCloseTo(14 * S_GROW_MAX, 6);
+        }
+      }
+    }
+  });
+
+  it('1920x1080 and 1440x900 grow too; 1280x720 and the phones do not', () => {
+    const at = (vw, vh, isSpectator = false) => layoutForViewport({ vw, vh, isSpectator }).s;
+    expect(at(1920, 1080)).toBeGreaterThanOrEqual(1.3);
+    expect(at(1920, 1080, true)).toBeGreaterThanOrEqual(1.3);
+    expect(at(1440, 900)).toBeGreaterThan(S_BASE);
+    expect(at(1440, 900, true)).toBeGreaterThan(S_BASE);
+    expect(at(1280, 720)).toBeLessThan(S_BASE);
+    expect(at(390, 844)).toBeLessThan(S_BASE);
+  });
+
+  it('a grown table keeps the room it had at S_BASE (roomy hand, full hand box, felt wish, my history\'s inset) and is clean, up to 3840x2160', () => {
+    const bad = [];
+    let grew = 0;
+    for (let vw = 1400; vw <= 3840; vw += 120) {
+      for (let vh = 800; vh <= 2160; vh += 120) {
+        for (const [role, isSpectator] of ROLES) {
+          const label = `${vw}x${vh} ${role}`;
+          const B = layoutForViewport({ vw, vh, isSpectator, grow: false });
+          const G = layoutForViewport({ vw, vh, isSpectator });
+          if (B.s < S_BASE || B.degraded) {
+            if (JSON.stringify(G) !== JSON.stringify(B)) bad.push(`${label}: below S_BASE but changed`);
+            continue;
+          }
+          if (G.s > S_BASE) grew++;
+          if (G.s < B.s || G.s > S_GROW_MAX) bad.push(`${label}: s ${G.s}`);
+          const p = allProblems(G);
+          if (p.length) bad.push(`${label}: ${p.join(', ')}`);
+          if (roomy(B) && !roomy(G)) bad.push(`${label}: lost the roomy hand box`);
+          if (!B.compact && G.compact) bad.push(`${label}: compact hand box`);
+          if (G.felt.wish < B.felt.wish) bad.push(`${label}: felt wish ${B.felt.wish} -> ${G.felt.wish}`);
+          if (Math.abs(gapBelow(B) - Math.max(B.margin, 53 * B.s)) < 0.51 && Math.abs(gapBelow(G) - Math.max(G.margin, 53 * G.s)) >= 0.51) bad.push(`${label}: lost my history's inset`);
+        }
+      }
+    }
+    expect(bad).toEqual([]);
+    expect(grew).toBeGreaterThan(300);
+  });
+
+  it('a bigger window never gets a smaller table (wider at a fixed height, taller at a fixed width)', () => {
+    const drops = [];
+    for (const [, isSpectator] of ROLES) {
+      for (const vh of [620, 790, 900, 1000, 1080, 1200, 1440, 2160]) {
+        let prev = 0;
+        for (let vw = 1000; vw <= 3840; vw += 40) {
+          const { s } = layoutForViewport({ vw, vh, isSpectator });
+          if (s < prev) drops.push(`${vw}x${vh}: ${prev} -> ${s}`);
+          prev = s;
+        }
+      }
+      for (const vw of [1280, 1440, 1600, 1920, 2560, 3440]) {
+        let prev = 0;
+        for (let vh = 600; vh <= 2160; vh += 40) {
+          const { s } = layoutForViewport({ vw, vh, isSpectator });
+          if (s < prev) drops.push(`${vw}x${vh}: ${prev} -> ${s}`);
+          prev = s;
+        }
+      }
+    }
+    expect(drops).toEqual([]);
+  });
+
+  it('every window whose table is below S_BASE (phones, tablets, laptops) gets exactly the layout of 6aab8f5', () => {
+    // fingerprints of the layout before growth (6aab8f5), without my box's
+    // block (a descriptor nothing draws: see the next test); s < 1 at each
+    const BEFORE = {
+      '390x844 player dpr1': '1efda54e47209d51', '390x844 player dpr2': '7e62c4654c783c30',
+      '390x844 spectator dpr1': '50c04f51bb47fa0b', '390x844 spectator dpr2': '7d0dba7708934b36',
+      '844x390 player dpr1': 'd509fd678d307167', '844x390 player dpr2': 'c6c418bdffefa9f5',
+      '844x390 spectator dpr1': 'f46e98dcfc9b0935', '844x390 spectator dpr2': '53f5804bdd306fd7',
+      '360x640 player dpr1': '1a68f354e95fa914', '360x640 player dpr2': 'edc24c9d6295aa47',
+      '360x640 spectator dpr1': 'b579a9d6b76d6935', '360x640 spectator dpr2': 'd7852d738b413d74',
+      '430x932 player dpr1': '1b9792f352e401e4', '430x932 player dpr2': '5b42843c00d16ee3',
+      '430x932 spectator dpr1': '17b255b11c3aaeb7', '430x932 spectator dpr2': 'c294ec5b8ebf108b',
+      '768x1024 player dpr1': '9657283ca6048074', '768x1024 player dpr2': '8c88d756e0e7461a',
+      '768x1024 spectator dpr1': '6d581efaa99a0e4a', '768x1024 spectator dpr2': 'a784094d71f7f430',
+      '1024x768 player dpr1': 'ff484b9b1daf3fd2', '1024x768 player dpr2': '4ee76d34758b3602',
+      '1024x768 spectator dpr1': '7c9da0b7df1603f0', '1024x768 spectator dpr2': '48fad3024866791f',
+      '1024x668 player dpr1': '88802491503798bb', '1024x668 player dpr2': '01c355c4f685c92c',
+      '1024x668 spectator dpr1': 'f5400a6f31060744', '1024x668 spectator dpr2': 'e5d86492a427a2d5',
+      '1280x720 player dpr1': '67e809e8904664f3', '1280x720 player dpr2': 'd1b8816f3b848a94',
+      '1280x720 spectator dpr1': 'e03461103fda5d1f', '1280x720 spectator dpr2': 'b5e5284bb3ad3077',
+      '1280x620 player dpr1': '8d0001ec97463bc9', '1280x620 player dpr2': '0334eead985a909d',
+      '1280x620 spectator dpr1': '1f60be3508122e1d', '1280x620 spectator dpr2': 'eb0bbffcb4c1567c',
+      '1366x768 player dpr1': '2efd990e60f0afe4', '1366x768 player dpr2': '6e76023965d1936d',
+      '1366x768 spectator dpr1': 'f2b81e6fe1461c38',
+      '800x600 player dpr1': 'd2bf12927bf20e96', '800x600 player dpr2': 'f49516f34b14493e',
+      '800x600 spectator dpr1': '8e6e3ee53e52551e', '800x600 spectator dpr2': 'b9f8298fbaeaf502',
+    };
+    const now = {};
+    for (const key of Object.keys(BEFORE)) {
+      const [size, role, d] = key.split(' ');
+      const [vw, vh] = size.split('x').map(Number);
+      const L = layoutForViewport({ vw, vh, isSpectator: role === 'spectator', dpr: Number(d.slice(3)) });
+      expect(L.s, key).toBeLessThan(S_BASE);
+      const { block, ...self } = L.seats.self;
+      now[key] = createHash('sha256').update(JSON.stringify({ ...L, seats: { ...L.seats, self } })).digest('hex').slice(0, 16);
+    }
+    expect(now).toEqual(BEFORE);
+  });
+
+  it('my box (seats.self.block) holds its rows at every size, its snapped rows included (at a fractional s such as 1.02 the voice row fell past it)', () => {
+    const bad = [];
+    const sizes = [[1120, 790], [1440, 900], [1680, 1050], [1920, 1080], [2560, 1440], [390, 844], [844, 390], [1024, 668]];
+    for (let vw = 1000; vw <= 2600; vw += 40) sizes.push([vw, 900], [vw, 1080]);
+    for (const [vw, vh] of sizes) {
+      for (const dpr of [1, 2]) {
+        const L = computeTableLayout({ w: vw, h: vh, dpr });
+        const me = L.seats.self;
+        for (const [id, r] of [['avatar', me.avatar.rect], ['plate', me.plate], ['hsi', me.hsi.rect], ['voice', L.voice.rect]]) {
+          if (!contains(me.block, r)) bad.push(`${vw}x${vh} dpr${dpr} s=${L.s}: ${id}`);
+        }
+      }
+    }
+    expect(bad).toEqual([]);
   });
 });

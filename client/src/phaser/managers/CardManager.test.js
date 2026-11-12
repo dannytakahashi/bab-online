@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { CardManager } from './CardManager.js';
 import { CARD_CONFIG } from '../config.js';
+import { layoutOf } from '../layout/computeTableLayout.js';
 
 // Mock global Phaser (loaded via script tag in production, not available in test)
 globalThis.Phaser = {
@@ -115,12 +116,16 @@ describe('CardManager', () => {
     });
 
     it('spreads cards with correct spacing', () => {
-      // At 1920 width, scaleFactorX = 1, so spacing = HAND_SPACING (50)
+      // the layout's hand spacing: HAND_SPACING (42) times its scale (a
+      // 1920 x 1080 canvas grows past s = 1: computeTableLayout S_GROW_MAX)
       const positions = manager.calculateHandPositions(3, 1920);
-      const spacing = CARD_CONFIG.HAND_SPACING;
+      const spacing = CARD_CONFIG.HAND_SPACING * layoutOf(mockScene).s;
+      expect(layoutOf(mockScene).hand.spacing).toBeCloseTo(spacing, 9);
 
-      expect(positions[1].x - positions[0].x).toBe(spacing);
-      expect(positions[2].x - positions[1].x).toBe(spacing);
+      // (each centre on a whole device px: handPositions)
+      expect(Math.abs(positions[1].x - positions[0].x - spacing)).toBeLessThanOrEqual(1);
+      expect(Math.abs(positions[2].x - positions[1].x - spacing)).toBeLessThanOrEqual(1);
+      expect(Math.abs(positions[2].x - positions[0].x - 2 * spacing)).toBeLessThanOrEqual(1);
     });
   });
 
@@ -265,7 +270,8 @@ describe('CardManager hover', () => {
     expect(scene.tweens.killTweensOf).toHaveBeenCalledWith(sprite);
     expect(scene.tweens.killTweensOf.mock.invocationCallOrder[0])
       .toBeLessThan(scene.tweens.add.mock.invocationCallOrder[0]);
-    expect(scene.tweens.add.mock.calls[0][0].y).toBe(sprite.getData('baseY') - 20);
+    // (the layout's lift: 20 px times its scale)
+    expect(scene.tweens.add.mock.calls[0][0].y).toBe(sprite.getData('baseY') - layoutOf(scene).hand.lift);
   });
 
   it('an illegal card shows no hand cursor and does not lift', () => {

@@ -181,8 +181,8 @@ describe('the atlas: one page, hand card x DPR', () => {
     expect(s.w / s.h).toBeCloseTo(300 / 435, 2);
   });
 
-  it('texture memory (one RGBA page): 1920x1080 at DPR 1 and 2', () => {
-    const at = (dpr) => layoutForViewport({ vw: 1920, vh: 1080, dpr }).cardTexture;
+  it('texture memory (one RGBA page): 1920x1080 at S_BASE at DPR 1 and 2', () => {
+    const at = (dpr) => layoutForViewport({ vw: 1920, vh: 1080, dpr, grow: false }).cardTexture;
     const one = atlasBytes(at(1));
     const two = atlasBytes(at(2));
     // 64 x 92 frames: 530 x 660 px = 1.40 MB; 128 x 186: 1042 x 1318 px = 5.49 MB (the old 64 px atlas page: 13.9 MB)
@@ -191,6 +191,17 @@ describe('the atlas: one page, hand card x DPR', () => {
     expect(atlasLayout(at(2))).toMatchObject({ width: 1042, height: 1318 });
     expect(two).toBe(1042 * 1318 * 4);
     expect(two).toBeLessThan(8 * 1024 * 1024);
+  });
+
+  it('texture memory at the largest table (S_GROW_MAX: 2560x1440 and up): 192 x 278 frames at DPR 2, 11.6 MB', () => {
+    const at = (dpr) => layoutForViewport({ vw: 2560, vh: 1440, dpr }).cardTexture;
+    expect(at(1)).toMatchObject({ w: 96, h: 140 });
+    expect(atlasLayout(at(2))).toMatchObject({ width: 1554, height: 1962 });
+    expect(atlasBytes(at(2))).toBe(1554 * 1962 * 4);
+    expect(atlasBytes(at(2))).toBeLessThan(12 * 1024 * 1024);
+    // DPR 3 (a rare desktop): 288 x 418, still under the 300 px cap, so still 1:1
+    expect(at(3)).toMatchObject({ w: 288, h: 418 });
+    expect(atlasLayout(at(3))).toMatchObject({ width: 2322, height: 2942 });
   });
 
   it('ensureCardAtlas builds one texture, re-draws only on a size change, and resizes its frames in place', () => {
