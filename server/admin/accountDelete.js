@@ -26,7 +26,14 @@
  *     mergeQueue.js) nothing is deleted and eraseAccount throws;
  *   - the tombstones that point at it (`mergedInto: <name>`: accounts
  *     merged into it and the redirects its renames left), so nothing tied
- *     to the person remains and those names are free again.
+ *     to the person remains and those names are free again;
+ *   - an admin rename that stopped partway (`renamePending.from` on the
+ *     account: games, reports, block lists and tombstones may still name
+ *     the OLD name, and deleting the account deletes the old name's
+ *     redirect, freeing it): every step above runs for the old name too,
+ *     so nothing of the person stays under a name anyone can take. Only
+ *     while the old name is free or still this account's redirect (a
+ *     different account that holds it now keeps its own data).
  * Not changed: adminAudit (a log of what happened, by the names of the
  * time). Data first, the user document last: a failure partway leaves the
  * account in place, and deleting again finishes the job (every step is
@@ -60,46 +67,57 @@ const DELETED_NAME = '[deleted]';
  * @param {{users, gameRecords?, reports?, passwordResets?}} db
  * @param {{_id: *, username: string}} user - the account, already checked by the caller
  * @param {{now?: Date}} [options]
- * @returns {Promise<{resetLinks: number, gameRecords: number, blockLists: number, blockers: string[], reports: number, tombstones: number}>}
+ * @returns {Promise<{resetLinks: number, gameRecords: number, blockLists: number, blockers: string[], reports: number, tombstones: number, oldName: string|null}>}
  */
 async function eraseAccount(db, user, { now = new Date(), pullBlocks = true } = {}) {
     const { username } = user;
-    const out = { resetLinks: 0, gameRecords: 0, blockLists: 0, blockers: [], reports: 0, tombstones: 0 };
+    const out = { resetLinks: 0, gameRecords: 0, blockLists: 0, blockers: [], reports: 0, tombstones: 0, oldName: null };
+    out.oldName = await unfinishedOldName(db, user);
+    const names = out.oldName ? [username, out.oldName] : [username];
 
-    out.resetLinks = await revokeOpenResetLinks(db, user, { now });
+    for (const name of names) {
+        out.resetLinks += await revokeOpenResetLinks(db, { username: name }, { now });
+    }
 
     if (db.gameRecords) {
-        for (const team of ['team1Players', 'team2Players']) {
-            const res = await db.gameRecords.updateMany(
-                { [team]: username },
-                { $set: { [`${team}.$[p]`]: DELETED_NAME } },
-                { arrayFilters: [{ p: username }] }
-            );
-            out.gameRecords += res?.modifiedCount || 0;
+        for (const name of names) {
+            for (const team of ['team1Players', 'team2Players']) {
+                const res = await db.gameRecords.updateMany(
+                    { [team]: name },
+                    { $set: { [`${team}.$[p]`]: DELETED_NAME } },
+                    { arrayFilters: [{ p: name }] }
+                );
+                out.gameRecords += res?.modifiedCount || 0;
+            }
         }
     }
 
     // Who blocked this name (their live sockets are told afterwards)
-    const blockers = pullBlocks ? await db.users.find(
-        { blockedUsers: username, _id: { $ne: user._id } },
-        { projection: { username: 1 } }
-    ).toArray() : [];
-    if (blockers.length) {
+    const blockers = new Set();
+    for (const name of pullBlocks ? names : []) {
+        const found = await db.users.find(
+            { blockedUsers: name, _id: { $ne: user._id } },
+            { projection: { username: 1 } }
+        ).toArray();
+        if (!found.length) continue;
         const res = await db.users.updateMany(
-            { blockedUsers: username, _id: { $ne: user._id } },
-            { $pull: { blockedUsers: username } }
+            { blockedUsers: name, _id: { $ne: user._id } },
+            { $pull: { blockedUsers: name } }
         );
-        out.blockLists = res?.modifiedCount || 0;
-        out.blockers = blockers.map(b => b.username);
+        out.blockLists += res?.modifiedCount || 0;
+        for (const b of found) blockers.add(b.username);
     }
+    out.blockers = [...blockers];
 
     if (db.reports) {
-        for (const [field, mark] of [['reporter', 'reporterDeletedAt'], ['reported', 'reportedDeletedAt']]) {
-            const res = await db.reports.updateMany(
-                { [field]: username, [mark]: { $exists: false } },
-                { $set: { [mark]: now } }
-            );
-            out.reports += res?.modifiedCount || 0;
+        for (const name of names) {
+            for (const [field, mark] of [['reporter', 'reporterDeletedAt'], ['reported', 'reportedDeletedAt']]) {
+                const res = await db.reports.updateMany(
+                    { [field]: name, [mark]: { $exists: false } },
+                    { $set: { [mark]: now } }
+                );
+                out.reports += res?.modifiedCount || 0;
+            }
         }
     }
 
@@ -109,8 +127,28 @@ async function eraseAccount(db, user, { now = new Date(), pullBlocks = true } = 
         // document under another name (deleting again finds it by its name)
         throw new Error(`eraseAccount: "${username}" changed before its document was deleted`);
     }
-    out.tombstones = (await db.users.deleteMany({ mergedInto: username }))?.deletedCount || 0;
+    // Its tombstones, the old name's redirect among them; for an unfinished
+    // rename also the ones still pointing at the old name
+    for (const name of names) {
+        out.tombstones += (await db.users.deleteMany({ mergedInto: name }))?.deletedCount || 0;
+    }
     return out;
+}
+
+/**
+ * The old name of this account's admin rename that stopped partway
+ * (`renamePending.from`, server/admin/accountRename.js), while that name
+ * is still the person's: free, or the redirect pointing at this account.
+ * Otherwise null (no unfinished rename, or another account holds the name).
+ */
+async function unfinishedOldName(db, user) {
+    const self = await db.users.findOne({ _id: user._id, username: user.username }, { projection: { renamePending: 1 } });
+    const from = self?.renamePending?.from;
+    if (typeof from !== 'string' || !from || from === user.username) return null;
+    const holder = await db.users.findOne({ username: from }, { projection: { mergedInto: 1 } });
+    if (!holder || holder.mergedInto === user.username) return from;
+    logger.warn('Unfinished rename: the old name belongs to another account now, its data is kept', { username: user.username, oldName: from });
+    return null;
 }
 
 /**
@@ -156,10 +194,13 @@ function forgetAccount(io, db, username, erased = {}) {
     const profile = require('../socket/profileHandlers');
     profile.invalidateLeaderboard?.();
     profile.invalidateRecords?.();
-    require('../avatar/avatarStore').forgetUser?.(username);
-    // Keep an in-flight game from re-inserting this username into a new
-    // game record after the anonymization
-    gameManager.deletedUsernames?.add(username);
+    // The old name of an unfinished rename too (eraseAccount erased it)
+    for (const name of erased.oldName ? [username, erased.oldName] : [username]) {
+        require('../avatar/avatarStore').forgetUser?.(name);
+        // Keep an in-flight game from re-inserting this username into a new
+        // game record after the anonymization
+        gameManager.deletedUsernames?.add(name);
+    }
     return refreshBlockLists(io, db, erased.blockers || [], { emit: false });
 }
 

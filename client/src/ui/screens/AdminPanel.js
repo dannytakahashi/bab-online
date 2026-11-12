@@ -482,7 +482,7 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
       lines: [
         `${p.username} is signed out everywhere (refused while they are in a game or tournament) and any open reset link is cancelled. They sign in again with the new name and the same password.`,
         'Their games, stats, reports and block lists move to the new name.',
-        `${p.username} stays as an old name that redirects: anyone who types it at sign-in or sign-up is told the new name, with no password needed. Delete that old name later to stop that and free it.`,
+        `${p.username} stays as a reserved old name. Signing in with it and the account's password tells them the new name; nobody else is told it (not a wrong password, a sign-up or a profile). Delete that old name later to free it.`,
       ],
       submit: async ({ newName, confirm }) => {
         const r = await call('renameAccount', { username: p.username, newName, confirm }, { quiet: true });

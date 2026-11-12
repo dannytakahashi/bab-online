@@ -34,11 +34,37 @@ function mergedAccountMessage(username, mergedInto) {
 /**
  * The message for a tombstone: a merged account names the account it went
  * into; the redirect an admin rename leaves (server/admin/accountRename.js:
- * `renamedAt` on the tombstone) names the new name.
+ * `renamedAt` on the tombstone) names the new name. A rename's new name is
+ * told ONLY to its owner (hidesNewName below): a player who asked to be
+ * renamed may be getting away from someone who knows the old name.
  */
 function tombstoneMessage(username, doc) {
     if (doc.renamedAt) return `This account is now called ${doc.mergedInto}. Sign in as ${doc.mergedInto}.`;
     return mergedAccountMessage(username, doc.mergedInto);
+}
+
+/**
+ * A tombstone whose target name is private: the redirect an admin rename
+ * left (`renamedAt`), or a merged account re-pointed by a later rename
+ * (`targetRenamedAt`, accountRename.renameEverywhere). Its target is told
+ * only for that account's password; sign-up, restore and profiles never
+ * name it.
+ */
+const hidesNewName = (doc) => Boolean(doc && doc.mergedInto && (doc.renamedAt || doc.targetRenamedAt));
+
+/**
+ * Sign-in with such an old name: does `password` belong to the account it
+ * now points at? Only then is the name told (anyone else gets the
+ * wrong-password reply, counted like one). A missing or retired target, or
+ * a document without a hash, is false.
+ */
+async function ownsRenamedAccount(usersCollection, redirect, password) {
+    const target = await usersCollection.findOne(
+        { username: redirect.mergedInto, mergedInto: { $exists: false } },
+        { projection: { password: 1 } }
+    );
+    return typeof target?.password === 'string' && typeof password === 'string'
+        && await passwordHash.compare(password, target.password);
 }
 
 /**
@@ -250,6 +276,17 @@ async function signIn(socket, io, data) {
         }
 
         if (user.mergedInto) {
+            // A rename's old name: the new name only for the password of the
+            // account it points at; otherwise a wrong password, counted
+            if (hidesNewName(user) && !(await ownsRenamedAccount(usersCollection, user, password))) {
+                socket.emit('signInResponse', {
+                    success: false,
+                    message: 'Invalid username or password!'
+                });
+                authLogger.warn('Sign-in failed: renamed name, password not the account\'s', { username });
+                failed = true;
+                return;
+            }
             socket.emit('signInResponse', {
                 success: false,
                 message: tombstoneMessage(username, user)
@@ -380,8 +417,8 @@ async function signIn(socket, io, data) {
         });
     } finally {
         if (claim) releaseClaim(socket, username, claim.previous);
-        // Counted: unknown user, wrong password. Not counted: a merged
-        // account, a database error, a busy hash pool. Success clears the pair.
+        // Counted: unknown user, wrong password (also on a rename's old
+        // name). Not counted: a merged account, a database error, a busy hash pool. Success clears the pair.
         if (succeeded) signInThrottle.recordSuccess(who, reservation);
         else if (failed) signInThrottle.confirm(who);
         else signInThrottle.release(who, reservation);
@@ -439,7 +476,8 @@ async function signUp(socket, io, data) {
         if (existingUser) {
             socket.emit('signUpResponse', {
                 success: false,
-                message: existingUser.exact && existingUser.mergedInto
+                // A rename's old name is just taken (sign-up proves nothing)
+                message: existingUser.exact && existingUser.mergedInto && !hidesNewName(existingUser)
                     ? tombstoneMessage(username, existingUser)
                     : takenMessage(username, existingUser)
             });
@@ -576,9 +614,12 @@ async function restoreSession(socket, io, data) {
         }
 
         if (user.mergedInto) {
+            // A rename's old name holds no sessions and a saved one proves
+            // nothing (the rename revoked them): the routine reply, and the
+            // player signs in with the old name and password to be told
             socket.emit('restoreSessionResponse', {
                 success: false,
-                message: tombstoneMessage(username, user)
+                message: hidesNewName(user) ? 'Invalid session token' : tombstoneMessage(username, user)
             });
             return;
         }

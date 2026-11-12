@@ -694,17 +694,19 @@ describe('actions', () => {
                 expect(gotEvent(s, 'forceLogout')).toBe(true);
                 expect(w.io.sockets.sockets.has(s.id)).toBe(false);
             }
-            // the saved sign-in (username + token) stops working: the restore names the new name
+            // the saved sign-in (username + token) stops working: the routine
+            // reply, never the new name (REN-REDIRECT-DISCLOSE)
             const again = w.socket(`adm-${++n}`);
             await auth.restoreSession(again, w.io, { username: 'Cy', sessionToken: cy.sessionToken });
             expect(w.log.filter(l => l.to === `self:${again.id}` && l.event === 'restoreSessionResponse').pop().data)
-                .toEqual({ success: false, message: 'This account is now called Cyrus. Sign in as Cyrus.' });
+                .toEqual({ success: false, message: 'Invalid session token' });
             const again2 = w.socket(`adm-${++n}`);
             await auth.restoreSession(again2, w.io, { username: 'Cyrus', sessionToken: cy.sessionToken });
             expect(w.log.filter(l => l.to === `self:${again2.id}` && l.event === 'restoreSessionResponse').pop().data).toMatchObject({ success: false });
+            // the old name with the account's password is told the new one
             expect(await signInReply('Cy')).toEqual({ success: false, message: 'This account is now called Cyrus. Sign in as Cyrus.' });
             expect(await signInReply('Cyrus')).toMatchObject({ success: true, username: 'Cyrus' });
-            // sign-up of the old name is told the same (the redirect keeps the name)
+            // sign-up of the old name is refused (the redirect keeps the name)
             const up = w.socket(`adm-${++n}`);
             await auth.signUp(up, w.io, { username: 'CyOld', password: 'pw' });
             expect(w.log.filter(l => l.to === `self:${up.id}` && l.event === 'signUpResponse').pop().data.success).toBe(false);
@@ -760,6 +762,47 @@ describe('actions', () => {
             expect(await users().findOne({ username: 'Old' })).toMatchObject({ mergedInto: 'BEA' });
             expect(await signInReply('Bea')).toEqual({ success: false, message: 'This account is now called BEA. Sign in as BEA.' });
             expect(await signInReply('BEA')).toMatchObject({ success: true });
+        });
+
+        test('the new name is told only for the account\'s password: a wrong password, a sign-up, a restore and a profile of the old name never name it, nor of a merged name the rename re-pointed (REN-REDIRECT-DISCLOSE)', async () => {
+            await users().updateOne({ username: 'Old' }, { $set: { stats: { gamesPlayed: 9 } } }); // a tombstone keeps nothing; harmless
+            expect(await request(owner, 'renameAccount', { username: 'Bea', newName: 'Quiet', confirm: 'Quiet' })).toMatchObject({ ok: true, chainedTombstones: 1 });
+            const replies = [];
+            const ask = async (fn, event, args) => {
+                const s = w.socket(`adm-${++n}`);
+                await fn(s, w.io, args);
+                const data = w.log.filter(l => l.to === `self:${s.id}` && l.event === event).pop().data;
+                replies.push(data);
+                return data;
+            };
+            // the owner of the account, who knows its password, is told
+            expect(await signInReply('Bea')).toEqual({ success: false, message: 'This account is now called Quiet. Sign in as Quiet.' });
+            expect(await signInReply('Old')).toEqual({ success: false, message: '"Old" was combined into your account "Quiet". Please sign in as Quiet.' });
+            // anyone else is not
+            expect(await ask(auth.signIn, 'signInResponse', { username: 'Bea', password: 'not-it' })).toEqual({ success: false, message: 'Invalid username or password!' });
+            expect(await ask(auth.signIn, 'signInResponse', { username: 'Old', password: 'not-it' })).toEqual({ success: false, message: 'Invalid username or password!' });
+            expect(await ask(auth.signUp, 'signUpResponse', { username: 'Bea', password: 'pw' })).toEqual({ success: false, message: 'That name is taken.' });
+            expect(await ask(auth.signUp, 'signUpResponse', { username: 'Old', password: 'pw' })).toEqual({ success: false, message: 'That name is taken.' });
+            expect(await ask(auth.signUp, 'signUpResponse', { username: 'bea', password: 'pw' })).toMatchObject({ success: false, message: expect.stringMatching(/"Bea" already exists/) });
+            expect(await ask(auth.restoreSession, 'restoreSessionResponse', { username: 'Bea', sessionToken: 'x'.repeat(64) })).toEqual({ success: false, message: 'Invalid session token' });
+            const profile = require('../profileHandlers');
+            expect(await ask(profile.getPlayerProfile, 'playerProfileResponse', { username: 'Bea' })).toEqual({ success: false, message: 'Player not found' });
+            expect(await ask(profile.getPlayerProfile, 'playerProfileResponse', { username: 'Old' })).toEqual({ success: false, message: 'Player not found' });
+            expect(JSON.stringify(replies)).not.toContain('Quiet');
+            // a wrong password on the old name counts as a failed sign-in
+            const signInThrottle = require('../signInThrottle');
+            const spy = jest.spyOn(signInThrottle, 'confirm');
+            try {
+                await ask(auth.signIn, 'signInResponse', { username: 'Bea', password: 'not-it' });
+                expect(spy).toHaveBeenCalledTimes(1);
+            } finally {
+                spy.mockRestore();
+            }
+            // a merged name a rename did NOT touch still names its account
+            await users().insertOne({ username: 'Dee', password: PW, stats: { gamesPlayed: 1 } });
+            await users().insertOne({ username: 'DeeOld', mergedInto: 'Dee', mergedAt: new Date() });
+            expect(await ask(profile.getPlayerProfile, 'playerProfileResponse', { username: 'DeeOld' })).toMatchObject({ success: true, profile: { username: 'Dee' } });
+            expect(await ask(auth.signIn, 'signInResponse', { username: 'DeeOld', password: 'not-it' })).toEqual({ success: false, message: '"DeeOld" was combined into your account "Dee". Please sign in as Dee.' });
         });
 
         test('refused for a player in a game still in its draw (memory) or one the database shows in a game; nothing written, not signed out, not locked', async () => {
@@ -853,6 +896,44 @@ describe('actions', () => {
             expect(await request(owner, 'renameAccount', { username: 'Cy', newName: 'Cyrus', confirm: 'Cyrus' })).toMatchObject({ ok: true, resumed: true, gameRecords: 0, reports: 0 });
             // a different new name for an old name is refused
             expect(await request(owner, 'renameAccount', { username: 'Cy', newName: 'Cyril', confirm: 'Cyril' })).toMatchObject({ ok: false, error: 'refused', message: expect.stringMatching(/now called "Cyrus"\. Rename "Cyrus" instead/) });
+        });
+
+        test('the player\'s own Delete account during an unfinished rename erases the OLD name too: its games, reports and tombstones, then its redirect (SELFDEL-PENDING)', async () => {
+            const original = mockDb.current.gameRecords.updateMany;
+            mockDb.current.gameRecords.updateMany = async () => { throw new Error('disk on fire'); };
+            try {
+                expect(await request(owner, 'renameAccount', { username: 'Cy', newName: 'Cyrus', confirm: 'Cyrus' })).toMatchObject({ ok: false, error: 'server' });
+            } finally {
+                mockDb.current.gameRecords.updateMany = original;
+            }
+            expect(await users().findOne({ username: 'Cyrus' })).toMatchObject({ renamePending: { from: 'Cy' } });
+            expect(mockDb.current.gameRecords.all()[0].team1Players).toEqual(['Cy', 'Bea']);
+            const cyrus = await signedIn('Cyrus');
+            gameManager.registerUser(cyrus.id, 'Cyrus');
+            jest.useFakeTimers();
+            try {
+                await auth.deleteAccount(cyrus, w.io, { password: 'pw' });
+            } finally {
+                jest.useRealTimers();
+            }
+            expect(w.log.filter(l => l.to === `self:${cyrus.id}` && l.event === 'deleteAccountResponse').pop().data).toEqual({ success: true });
+            expect(await users().findOne({ username: 'Cyrus' })).toBeNull();
+            expect(await users().findOne({ username: 'Cy' })).toBeNull();
+            expect(await users().findOne({ username: 'CyOld' })).toBeNull();
+            try {
+                // what stays under the freed old name is what a deletion of
+                // the name keeps anyway: reports (marked deleted, below), who
+                // resolved / set an admin (history), and other players'
+                // blocks (a player's own delete keeps them, BLK-EVADE). No
+                // game record, no account, no tombstone
+                expect(scan('Cy')).toEqual(['reports:reported', 'reports:reporter', 'reports:resolvedBy', 'users:adminSetBy', 'users:blockedUsers[0]']);
+                expect(JSON.stringify(mockDb.current.gameRecords.all())).not.toMatch(/"Cy"|"Cyrus"/);
+                expect(mockDb.current.reports.all().every(r => r.reporterDeletedAt || r.reportedDeletedAt)).toBe(true);
+                expect(gameManager.deletedUsernames.has('Cy')).toBe(true);
+            } finally {
+                gameManager.deletedUsernames.delete('Cy');
+                gameManager.deletedUsernames.delete('Cyrus');
+            }
         });
 
         test('a rename and a merge of the same name at once run one after the other: exactly one happens, the data stays whole', async () => {

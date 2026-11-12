@@ -388,7 +388,7 @@ describe('the panel', () => {
     expect(dialog.textContent).toMatch(/signed out everywhere/);
     expect(dialog.textContent).toMatch(/same password/);
     expect(dialog.textContent).toMatch(/any open reset link is cancelled/);
-    expect(dialog.textContent).toMatch(/Bea stays as an old name that redirects: anyone who types it at sign-in or sign-up is told the new name, with no password needed/);
+    expect(dialog.textContent).toMatch(/Bea stays as a reserved old name\. Signing in with it and the account's password tells them the new name; nobody else is told it/);
     expect($('label[for="adminRenameNew"]').textContent).toBe('New name');
     expect($('#adminRenameNew').getAttribute('aria-describedby')).toBe('adminRenameRules');
     expect($('#adminRenameRules').textContent).toMatch(/3 to 20 letters/);

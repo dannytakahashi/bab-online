@@ -21,10 +21,14 @@
  *   the old name              a redirect tombstone { username: old,
  *                             mergedInto: new, mergedAt, renamedAt, renamedBy }:
  *                             every tombstone path works on it (sign-up says
- *                             taken, profile / avatar follow it, leaderboard
- *                             and search skip it, a later rename or merge
- *                             re-points it) and sign-in / restore say "This
- *                             account is now called X. Sign in as X."; the
+ *                             taken, leaderboard and search skip it, a later
+ *                             rename or merge re-points it); the new name is
+ *                             told ONLY at sign-in with the account's
+ *                             password ("This account is now called X. Sign
+ *                             in as X."): a wrong password, a sign-up, a
+ *                             restore and getPlayerProfile never name it (a
+ *                             player renamed on request may be getting away
+ *                             from someone; authHandlers.hidesNewName); the
  *                             admin can delete it later to free the name
  *   gameRecords               team1Players / team2Players
  *   reports                   reporter, reported, resolvedBy (not a report
@@ -33,7 +37,9 @@
  *                             the name, not this account)
  *   users.blockedUsers        other players' lists (de-duplicated)
  *   users.mergedInto          tombstones that pointed at the old name (merged
- *                             accounts, earlier renames) point at the new one
+ *                             accounts, earlier renames) point at the new one,
+ *                             marked `targetRenamedAt` (the new name stays
+ *                             private on them too)
  *   users.adminSetBy          who made someone an admin
  * Not renamed: adminAudit (a log of what happened, by the names of the
  * time; the rename's own entry links old -> new) and passwordResets'
@@ -139,7 +145,7 @@ async function leaveRedirect(db, from, to, { now, by }) {
  * Step 3: every shared document that names the old name. Safe to repeat.
  * @returns {Promise<{gameRecords: number, reports: number, otherUsersBlocks: number, blockers: string[], chainedTombstones: number, adminSetBy: number}>}
  */
-async function renameEverywhere(db, from, to, { selfId }) {
+async function renameEverywhere(db, from, to, { selfId, now = new Date() }) {
     const out = { gameRecords: 0, reports: 0, otherUsersBlocks: 0, blockers: [], chainedTombstones: 0, adminSetBy: 0 };
     if (db.gameRecords) {
         for (const team of ['team1Players', 'team2Players']) {
@@ -169,7 +175,9 @@ async function renameEverywhere(db, from, to, { selfId }) {
     }
     // the account's own list cannot name itself
     await db.users.updateOne({ _id: selfId, blockedUsers: to }, { $pull: { blockedUsers: to } });
-    const chained = await db.users.updateMany({ mergedInto: from }, { $set: { mergedInto: to } });
+    // targetRenamedAt: a merged name now pointing at the NEW name keeps it
+    // private like the redirect (authHandlers.hidesNewName)
+    const chained = await db.users.updateMany({ mergedInto: from }, { $set: { mergedInto: to, targetRenamedAt: now } });
     out.chainedTombstones = chained?.modifiedCount || 0;
     const setBy = await db.users.updateMany({ adminSetBy: from }, { $set: { adminSetBy: to } });
     out.adminSetBy = setBy?.modifiedCount || 0;
