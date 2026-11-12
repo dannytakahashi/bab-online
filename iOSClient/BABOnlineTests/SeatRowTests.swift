@@ -352,6 +352,35 @@ final class SeatRowTests: XCTestCase {
         XCTAssertNil(noValues.store.myHSI)
     }
 
+    /// The recorded real-server games: on every one of my bid turns (when the panel shows)
+    /// there is an HSI for my seat, the server's value from that deal's gameStart.
+    func testEveryRecordedBidTurnHasMyHSI() throws {
+        var turns = 0
+        for game in try RecordedGame.all() {
+            for viewer in game.viewers where viewer.position != nil && viewer.role != "spectator" {
+                let h = ReplayHarness(viewer: viewer)
+                var dealt: Double?
+                var wasMyBid = false
+                for e in game.logs[viewer.label] ?? [] {
+                    try h.apply(e)
+                    if e.dir == "s2c", e.event == "gameStart", let d = e.data as? [String: Any], let pos = h.store.position,
+                       let values = d["hsiValues"] as? [String: Any] {
+                        dealt = (values[String(pos)] as? NSNumber)?.doubleValue
+                    }
+                    let myBid: Bool
+                    if case .choosing(.bid) = h.store.myTurn { myBid = !h.store.isReadOnly } else { myBid = false }
+                    if myBid && !wasMyBid {
+                        turns += 1
+                        let hsi = try XCTUnwrap(h.store.myHSI, "\(game.name)/\(viewer.label) #\(e.i): no HSI on my bid turn")
+                        if let dealt { XCTAssertEqual(hsi, dealt, accuracy: 0.0001, "\(game.name)/\(viewer.label) #\(e.i)") }
+                    }
+                    wasMyBid = myBid
+                }
+            }
+        }
+        XCTAssertGreaterThan(turns, 20)
+    }
+
     /// HSI goes in the bottom row's gap only with its margin each side; else the header.
     func testPanelHSIPlacementRule() {
         let m = BidOverlayView.hsiMargin
