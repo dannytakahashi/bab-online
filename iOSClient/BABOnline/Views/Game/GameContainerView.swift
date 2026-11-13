@@ -92,6 +92,8 @@ private struct GameScreen: View {
     private var showsTable: Bool { gameState.table.phase.showsTable }
     private var inGame: Bool { gameState.phase == .draw || showsTable }
     private var showsPill: Bool { gameState.isSpectator || gameState.isLazy }
+    /// The spectator pill's own Exit: only off the table (no corner / bar Leave) and with no game-end modal.
+    private var pillShowsExit: Bool { !inGame && gameState.gameEndData == nil }
 
     /// Leave / Log as toolbar items in the vertical bar instead of the corner buttons.
     private var showsBarControls: Bool { usesVerticalBar && inGame }
@@ -625,12 +627,16 @@ private struct GameScreen: View {
                     Text("Spectating")
                         .font(.caption.bold())
                         .foregroundColor(Theme.teamA)
-                    Button(action: { ChatEmitter.sendMessage("/leave") }) {
-                        Text("Exit")
-                            .font(.caption.bold())
-                            .padding(.horizontal, Theme.Space.s3)
-                            .padding(.vertical, Theme.Space.s1)
-                            .secondaryButtonStyle()
+                    // one Exit: the corner / vertical-bar Leave reads "Exit" during play and
+                    // the game-end modal has its own Return; the pill keeps one only when neither shows
+                    if pillShowsExit {
+                        Button(action: { ChatEmitter.sendMessage("/leave") }) {
+                            Text("Exit")
+                                .font(.caption.bold())
+                                .padding(.horizontal, Theme.Space.s3)
+                                .padding(.vertical, Theme.Space.s1)
+                                .secondaryButtonStyle()
+                        }
                     }
                 }
                 .padding(.horizontal, Theme.Space.s4)

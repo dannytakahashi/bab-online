@@ -113,4 +113,35 @@ final class TableAccessibilityTests: XCTestCase {
         XCTAssertEqual(app.otherElements["pips.1"].label, "ivy: 0 of 2 tricks")
         app.terminate()
     }
+
+    /// Every button that exits the game: the corner / vertical-bar Leave ("leave") and any Exit / Leave.
+    private func exitButtons(_ app: XCUIApplication) -> [String] {
+        let q = app.buttons.matching(NSPredicate(format: "identifier == 'leave' OR label CONTAINS[c] 'exit' OR label CONTAINS[c] 'leave'"))
+        return q.allElementsBoundByIndex.map { "\($0.identifier) | \($0.label)" }
+    }
+
+    /// Spectating mid-hand: one Exit (the corner / bar one, where a player's Leave is);
+    /// the bottom pill only says "Spectating" (it had a second Exit).
+    func testSpectatorHasExactlyOneExit() {
+        let app = Fixture.launch("spectator-mid-hand")
+        XCTAssertTrue(app.buttons["leave"].waitForExistence(timeout: 20))
+        _ = Fixture.settledState(app)
+        let exits = exitButtons(app)
+        XCTAssertEqual(exits.count, 1, "exit controls: \(exits)")
+        XCTAssertEqual(app.buttons["leave"].label, "Exit game")
+        XCTAssertTrue(app.staticTexts["Spectating"].exists, "the spectating indicator")
+        app.terminate()
+    }
+
+    /// The lazy pill is unchanged: the seat's own Leave (confirmed) and the /active hint.
+    func testLazyWatcherKeepsLeaveAndTheActiveHint() {
+        let app = Fixture.launch("lazy-at-seat")
+        XCTAssertTrue(app.buttons["leave"].waitForExistence(timeout: 20))
+        _ = Fixture.settledState(app)
+        let exits = exitButtons(app)
+        XCTAssertEqual(exits.count, 1, "exit controls: \(exits)")
+        XCTAssertEqual(app.buttons["leave"].label, "Leave game")
+        XCTAssertTrue(app.staticTexts["Spectating \u{2014} type /active to take back control"].exists, "the lazy pill")
+        app.terminate()
+    }
 }
