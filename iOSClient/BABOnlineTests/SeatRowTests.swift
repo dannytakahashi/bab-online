@@ -331,13 +331,14 @@ final class SeatRowTests: XCTestCase {
              CGRect(x: 81, y: -254, width: 60, height: 44), CGPoint(x: 66, y: -140), nil),
             // the iPad 13's table zooms 1.4 (2026-11-12, TableZoomTests): its values are scene units
             // (the pane / 1.4); at zoom 1 they were badge (448, -617), bubble (433, -547), banner y 522.5
-            // portrait and badge (620, -445), bubble (605, -375), banner y 350.5 landscape
+            // portrait and badge (620, -445), bubble (605, -375), banner y 350.5 landscape. The banner is
+            // 420 POINTS wide: 300 scene units at 1.4 (it was pinned at 420 units, wider than drawn)
             (CGSize(width: 1032, height: 1376), ch(i(24, 0, 20, 0), 75.5, c2),
              CGRect(x: 300.5714285714286, y: -439, width: 60, height: 44),
-             CGPoint(x: 285.5714285714286, y: -369), CGRect(x: -210, y: 354.35714285714283, width: 420, height: 60)),
+             CGPoint(x: 285.5714285714286, y: -369), CGRect(x: -150, y: 354.35714285714283, width: 300, height: 60)),
             (CGSize(width: 1376, height: 1032), ch(i(24, 0, 20, 0), 75.5, c2),
              CGRect(x: 423.42857142857144, y: -316.14285714285717, width: 60, height: 44),
-             CGPoint(x: 408.42857142857144, y: -246.14285714285717), CGRect(x: -210, y: 159.5, width: 420, height: 60)),
+             CGPoint(x: 408.42857142857144, y: -246.14285714285717), CGRect(x: -150, y: 159.5, width: 300, height: 60)),
             (CGSize(width: 669, height: 951), ch(i(24, 0, 20, 0), 70, c1), CGRect(x: 266.5, y: -404.5, width: 60, height: 44),
              CGPoint(x: 251.5, y: -334.5), CGRect(x: -210, y: 315.5, width: 420, height: 60)),
         ]
