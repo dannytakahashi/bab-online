@@ -262,6 +262,9 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
   // it as you type. Per row: Reset link, and the rest in a More menu
   // (destructive items last).
   const players = panels.players;
+  // only the table scrolls (screens.css .admin-section--table): the filter
+  // and count stay in view and the header sticks at the scroller's own top
+  players.classList.add('admin-section--table');
   const filterField = field({ id: 'adminPlayerFilter', label: 'Filter by name', type: 'search', placeholder: 'Part of a name', describedBy: 'adminPlayersCount' });
   const reloadBtn = createButton({ label: 'Refresh', variant: 'secondary' });
   const toolbar = el('div', { className: 'admin-row', attrs: { role: 'search' }, children: [filterField.wrap, reloadBtn] });
