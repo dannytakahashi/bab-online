@@ -182,7 +182,7 @@ struct FixtureAvatarLoader: AvatarLoading {
 }
 
 /// What the fixture UI tests read through accessibility probes:
-/// "ui.pose", "table.layoutCheck", "table.state".
+/// "ui.pose", "table.layoutCheck", "table.state", "table.zoom".
 @MainActor
 final class TableDebugProbe: ObservableObject {
     static let shared = TableDebugProbe()
@@ -192,6 +192,8 @@ final class TableDebugProbe: ObservableObject {
     @Published var chrome = TableChrome()
     @Published var layoutCheck = "-"
     @Published var tableState = "-"
+    /// The table's zoom (TableLayout.zoom, "1.00" ... "1.40"): the UI tests scale their point limits by it.
+    @Published var tableZoom = "-"
     /// The window's size classes ("compact/regular" = h/v), recorded with the pose.
     @Published var sizeClasses = "-"
     /// The system's vertical bar edge ("trailing" / "leading"), "-" where none is used.
@@ -231,10 +233,12 @@ final class TableDebugProbe: ObservableObject {
         let state = "lifted=\(lifted) hand=\(scene.handNode.sprites.count) trick=\(scene.trickArea.cardCount) didMove=\(scene.didMoveCount)"
         if check != layoutCheck { layoutCheck = check }
         if state != tableState { tableState = state }
+        let zoom = String(format: "%.2f", L.zoom)
+        if zoom != tableZoom { tableZoom = zoom }
     }
 }
 
-/// The three probes, 1x1 and nearly transparent, readable by XCUITest.
+/// The four probes, 1x1 and nearly transparent, readable by XCUITest.
 struct FixtureProbes: View {
     @ObservedObject var probe = TableDebugProbe.shared
 
@@ -243,6 +247,7 @@ struct FixtureProbes: View {
             dot("ui.pose", probe.pose)
             dot("table.layoutCheck", probe.layoutCheck)
             dot("table.state", probe.tableState)
+            dot("table.zoom", probe.tableZoom)
             Spacer()
         }
         .frame(maxWidth: .infinity, alignment: .leading)

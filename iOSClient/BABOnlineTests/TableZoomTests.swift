@@ -226,6 +226,25 @@ final class TableZoomTests: XCTestCase {
         XCTAssertEqual(s.children.filter { $0 is SKCameraNode }.count, 1, "one camera, reused")
     }
 
+    /// The fixture's "table.zoom" probe reports the layout's zoom, which the UI tests scale
+    /// their point limits by (SeatRowUITests): 1.40 on an iPad 13, 1.00 on a phone.
+    func testTheZoomProbeReportsTheLayoutsZoom() throws {
+        let h = ReplayHarness()
+        let (size, chrome) = Self.ipad(1032, 1376)
+        let s = scene(h, size: size, chrome: chrome)
+        h.store.apply(.snapshot(try T.snapshot("trick-mid-lead3"), .rejoin, hints: nil))
+        let probe = TableDebugProbe()
+        XCTAssertEqual(probe.tableZoom, "-")
+        probe.update(scene: s)
+        XCTAssertEqual(s.layout.zoom, 1.4)
+        XCTAssertEqual(probe.tableZoom, "1.40")
+        XCTAssertEqual(probe.layoutCheck, "ok")
+        s.chrome = TableLayoutTests.chrome(TableLayoutTests.insets(62, 0, 34, 0))
+        s.size = CGSize(width: 402, height: 874)
+        probe.update(scene: s)
+        XCTAssertEqual(probe.tableZoom, "1.00")
+    }
+
     /// A phone's scene never adds the camera node (its node tree is the one it was).
     func testAPhoneSceneHasNoCamera() throws {
         let h = ReplayHarness()

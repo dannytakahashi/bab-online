@@ -2,7 +2,7 @@ import XCTest
 
 /// Launching the app in fixture mode (`-uiFixture`, DEBUG builds) and
 /// reading its accessibility probes ("ui.pose", "table.layoutCheck",
-/// "table.state"). No socket, no voice, no network.
+/// "table.state", "table.zoom"). No socket, no voice, no network.
 enum Fixture {
     static let tableFixtures = ["trick-mid-lead3", "bidding-mid", "between-tricks", "spectator-mid-hand", "lazy-at-seat",
                                 "presence-mixed", "tournament-game", "draw-in-progress"]
@@ -29,6 +29,12 @@ enum Fixture {
         let e = app.descendants(matching: .any)[id]
         guard e.waitForExistence(timeout: 5) else { return "<no \(id)>" }
         return (e.value as? String) ?? "<nil>"
+    }
+
+    /// The table's zoom ("table.zoom", TableLayout.zoom): one scene unit is this many points.
+    /// nil while the probe is missing or unparsable.
+    static func tableZoom(_ app: XCUIApplication) -> CGFloat? {
+        Double(probe(app, "table.zoom")).map { CGFloat($0) }
     }
 
     /// "466x678 0/0/34/84 topBar 70 fold - occlusions 0" -> (466, 678)
