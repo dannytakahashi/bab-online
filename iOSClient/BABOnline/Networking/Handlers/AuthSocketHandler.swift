@@ -80,6 +80,7 @@ final class AuthSocketHandler {
                     LobbyEmitter.joinMainRoom()
                     RestartNotices.shared.lost()
                 }
+                self.socket.noteSessionEstablished()
                 print("[Auth] Signed in as: \(username)")
             } else {
                 let message = data["message"] as? String ?? "Sign in failed"
@@ -105,6 +106,7 @@ final class AuthSocketHandler {
                 self.gameState.apply(.local(.identity(username: username, playerId: self.socket.socketId)))
 
                 self.appState.screen = .mainRoom
+                self.socket.noteSessionEstablished()
                 print("[Auth] Registered as: \(username)")
             } else {
                 let message = data["message"] as? String ?? "Registration failed"
@@ -125,7 +127,8 @@ final class AuthSocketHandler {
         }
     }
 
-    private func handleRestoreSessionResponse(_ data: [String: Any]) {
+    /// Internal for ForegroundReconnectTests.
+    func handleRestoreSessionResponse(_ data: [String: Any]) {
         let success = data["success"] as? Bool ?? false
 
         DispatchQueue.main.async {
@@ -155,6 +158,8 @@ final class AuthSocketHandler {
                     // no game or tournament to go back to: after a serverShutdown, it ended
                     RestartNotices.shared.lost()
                 }
+                // after the follow-up emit: a tap from now on reaches the server behind it
+                self.socket.noteSessionEstablished()
             } else {
                 let message = data["message"] as? String ?? "Session expired"
                 print("[Auth] Session restore failed: \(message)")

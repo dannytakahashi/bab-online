@@ -54,6 +54,9 @@ enum UIFixture {
     static func seed(fixture name: String, _ store: GameState, _ appState: AppState, mainRoom: MainRoomState, lobby: LobbyState,
                      tournament: TournamentState, auth: AuthState) {
         OpponentHandNode.avatarLoader = FixtureAvatarLoader()
+        // no socket in fixture mode: signed in, unless `-uiSessionPending YES` (the moment
+        // between a reconnect and the restore's answer: main-room actions wait)
+        SocketService.shared.isSessionReady = !UserDefaults.standard.bool(forKey: "uiSessionPending")
         if screenFixtures.contains(name) {
             seedScreen(name, appState, mainRoom: mainRoom, lobby: lobby, tournament: tournament, auth: auth)
             print("[UIFixture] seeded screen \(name)")

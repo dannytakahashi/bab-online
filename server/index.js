@@ -72,12 +72,8 @@ mountStatic(app, config);
 app.use('/', routes);
 
 // Socket.IO
-const io = new Server(server, {
-    cors: {
-        origin: config.allowedOrigins,
-        methods: ['GET', 'POST']
-    }
-});
+// cors + connectTimeout (server/socket/serverOptions.js)
+const io = new Server(server, require('./socket/serverOptions').socketServerOptions(config));
 
 ioServer = io;
 
