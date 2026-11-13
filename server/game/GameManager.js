@@ -872,9 +872,19 @@ class GameManager {
         lobby.readyPlayers.delete(botSocketId);
         lobby.botPersonalities?.delete(botSocketId);
 
-        // Reset all ready states when someone leaves
-        lobby.readyPlayers.clear();
-        lobby.players.forEach(p => p.ready = false);
+        // The lobby is no longer full: the remaining bots wait again (they
+        // are readied when it fills up with every human ready). The humans
+        // keep their ready flags: iOS (1.1.0 / 1.2.0) keeps its own
+        // isReady and never reads it back from the list, so resetting them
+        // here left an iOS player showing "Unready" while the server had
+        // them unready, and Ready, remove a bot, add a bot sat at a full
+        // lobby until they unreadied and readied again (2026-11-13)
+        for (const p of lobby.players) {
+            if (p.isBot) {
+                p.ready = false;
+                lobby.readyPlayers.delete(p.socketId);
+            }
+        }
 
         return { success: true, lobby };
     }

@@ -287,6 +287,53 @@ describe('Ready, then Add Bot until the lobby is full: the game starts', () => {
         expect(gameManager.getPlayerGame(cat.id)).toBeTruthy();
     });
 
+    test('Ready, add bots, remove one, add one: the humans stay ready and the game starts', async () => {
+        const w = world();
+        const { socks, lobbyId, lobby } = await lobbyOf(w, 2);
+        const [ann, bob] = socks;
+        lobbyHandlers.playerReady(ann, w.io);
+        await lobbyHandlers.addBot(ann, w.io);
+        const botId = lobby.players.find((p) => p.isBot).socketId;
+        // bob is not ready yet: full, no start; the ready path readied the bots on bob's Ready below
+        await lobbyHandlers.addBot(ann, w.io);
+        await runStart();
+        expect(gameManager.lobbies.has(lobbyId)).toBe(true);
+
+        // A bot leaves: the humans keep their ready flags, the bots wait again
+        lobbyHandlers.removeBot(bob, w.io, { botSocketId: botId });
+        expect(lobby.players).toHaveLength(3);
+        expect(lobby.players.find((p) => p.socketId === ann.id).ready).toBe(true);
+        expect(lobby.readyPlayers.has(ann.id)).toBe(true);
+        expect(lobby.players.filter((p) => p.isBot).every((p) => !p.ready && !lobby.readyPlayers.has(p.socketId))).toBe(true);
+        lobbyHandlers.playerReady(bob, w.io); // 3 players: nothing starts
+        await runStart();
+        expect(gameManager.lobbies.has(lobbyId)).toBe(true);
+        expect(events(w.log, 'allPlayersReady')).toHaveLength(0);
+
+        const pending = lobbyHandlers.addBot(bob, w.io);
+        await runStart();
+        await pending;
+        expect(gameManager.getPlayerGame(ann.id)).toBeTruthy();
+        expect(gameManager.getPlayerGame(bob.id)).toBe(gameManager.getPlayerGame(ann.id));
+    });
+
+    test('a removed bot unreadies the remaining bots: a human who was not ready still holds the start', async () => {
+        const w = world();
+        const { socks, lobbyId, lobby } = await lobbyOf(w, 2);
+        const [ann, bob] = socks;
+        await lobbyHandlers.addBot(ann, w.io);
+        await lobbyHandlers.addBot(ann, w.io);
+        lobbyHandlers.playerReady(ann, w.io); // full: the ready path readies both bots
+        expect(lobby.players.filter((p) => p.isBot).every((p) => p.ready)).toBe(true);
+        lobbyHandlers.removeBot(ann, w.io, { botSocketId: lobby.players.find((p) => p.isBot).socketId });
+        expect(lobby.players.filter((p) => p.isBot).every((p) => !p.ready)).toBe(true);
+        await lobbyHandlers.addBot(ann, w.io);
+        await runStart();
+        expect(gameManager.lobbies.has(lobbyId)).toBe(true);
+        expect(lobby.readyPlayers.has(bob.id)).toBe(false);
+        expect(events(w.log, 'allPlayersReady')).toHaveLength(0);
+    });
+
     test('a full lobby refuses another bot and starts nothing', async () => {
         const w = world();
         const { socks, lobbyId } = await lobbyOf(w, 1);
