@@ -604,8 +604,8 @@ failures arrive as `error` and/or `serverError`.
   password or token. Release builds never install it (and read no
   UserDefaults for it).
 - **VoiceOver** (pre-submission audit): chat Send buttons read "Send" (not
-  "Arrow Up Circle"), the table's Leave reads "Leave game" ("Exit game" for a
-  spectator), the log drawer's close "Close game log", the voice buttons
+  "Arrow Up Circle"), the table's exit button shows "Exit" and reads "Exit game" for a
+  seat and a spectator alike (since 2026-11-12; 1.2.0 says "Leave"), the log drawer's close "Close game log", the voice buttons
   "Mute microphone" / "Unmute microphone" / "Mute <name>"; ready indicators
   "Ready" / "Not ready", medals "1st" to "3rd"; decorative symbols are hidden
   (`AccessibilityLabelSourceTests` fails on an icon-only Button without an

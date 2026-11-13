@@ -18,6 +18,16 @@
  * signs in at a quiet hour should still find a live game to watch and chat
  * messages to interact with (long-press report/block needs a target).
  *
+ * Who sees the chatter (owner, 2026-11-12: "only show the bot chats when
+ * the test1 user logs in"): only the AMBIENT_CHAT_USERS accounts (default
+ * test1, the App Review account; `*` everyone, `none` nobody;
+ * server/utils/ambientChatUsers.js). The lines live in their own ring
+ * (gameManager.ambientMainRoomMessages), go live only to those accounts'
+ * main-room sockets and are merged into their mainRoomJoined replay
+ * (GameManager.mainRoomMessagesFor); everyone else's main room is humans
+ * only, with the full 50-line history. The bot game itself stays listed and
+ * spectatable for everyone, and its bots' in-game chat is unchanged.
+ *
  * Enabled by default in production; disable with AMBIENT_BOTS=false.
  * Enable in development with AMBIENT_BOTS=true.
  */
@@ -29,12 +39,12 @@ const { logger } = require('../utils/logger');
 const { abortGame, beginDraw } = require('../socket/gameLifecycle');
 
 const pacing = require('../game/pacing');
+const { ambientChatAudience, seesAmbientChat } = require('../utils/ambientChatUsers');
 
 // Poll cadence and the pause between games: pacing.js AMBIENT_CHECK_MS /
 // AMBIENT_RESTART_MS
 const MAX_GAME_AGE_MS = 90 * 60 * 1000;     // recycle a wedged game
 const CHAT_IDLE_MS = 30 * 60 * 1000;        // post bot chatter when room is quiet this long
-const MAX_MESSAGES = 50;                    // mirrors GameManager.MAX_MAIN_ROOM_MESSAGES
 
 // Bot personas keep the 🤖 prefix everywhere — ambient chatter is visibly
 // bot-authored, consistent with how bots appear in games.
@@ -89,11 +99,11 @@ function shouldEnable(env = process.env) {
  * same-second messages.
  */
 function seedMainRoomChat() {
-    if (gameManager.mainRoomMessages.length > 0) return false;
+    if (gameManager.mainRoomMessages.length > 0 || gameManager.ambientMainRoomMessages.length > 0) return false;
 
     const now = Date.now();
     SEED_MESSAGES.forEach((m, i) => {
-        gameManager.mainRoomMessages.push({
+        gameManager.addAmbientMainRoomMessage({
             username: m.username,
             message: m.message,
             timestamp: now - (SEED_MESSAGES.length - i) * 7 * 60 * 1000
@@ -103,23 +113,51 @@ function seedMainRoomChat() {
 }
 
 /**
+ * Store a bot line and send it live to the main-room sockets of the
+ * AMBIENT_CHAT_USERS accounts only (`*`: the whole room, as before).
+ * Returns the socket ids it went to (every member for `*`).
+ */
+function postAmbientChat(io, chatMessage) {
+    gameManager.addAmbientMainRoomMessage(chatMessage);
+    const audience = ambientChatAudience();
+    if (audience.all) {
+        io.to('mainRoom').emit('mainRoomMessage', chatMessage);
+        return [...gameManager.mainRoomSocketIds];
+    }
+    const sent = [];
+    if (audience.names.size === 0) return sent;
+    for (const socketId of gameManager.mainRoomSocketIds) {
+        const user = gameManager.getUserBySocketId(socketId);
+        if (!user || !seesAmbientChat(user.username)) continue;
+        io.to(socketId).emit('mainRoomMessage', chatMessage);
+        sent.push(socketId);
+    }
+    return sent;
+}
+
+/** Newest main-room line of either ring (humans or bots), or undefined. */
+function lastMainRoomLine() {
+    const human = gameManager.mainRoomMessages[gameManager.mainRoomMessages.length - 1];
+    const bot = gameManager.ambientMainRoomMessages[gameManager.ambientMainRoomMessages.length - 1];
+    if (!human) return bot;
+    if (!bot) return human;
+    return bot.timestamp > human.timestamp ? bot : human;
+}
+
+/**
  * Post a rotating bot message when the room has been quiet for a while,
  * so the chat always has recent content.
  */
 function maybePostChat(io) {
-    const messages = gameManager.mainRoomMessages;
-    const last = messages[messages.length - 1];
+    // Quiet = no line from anyone (human or bot) for CHAT_IDLE_MS, as when
+    // both shared one history
+    const last = lastMainRoomLine();
     if (last && Date.now() - last.timestamp < CHAT_IDLE_MS) return false;
 
     const m = ROTATING_MESSAGES[rotationIndex % ROTATING_MESSAGES.length];
     rotationIndex++;
 
-    const chatMessage = { username: m.username, message: m.message, timestamp: Date.now() };
-    messages.push(chatMessage);
-    if (messages.length > MAX_MESSAGES) {
-        messages.shift();
-    }
-    io.to('mainRoom').emit('mainRoomMessage', chatMessage);
+    postAmbientChat(io, { username: m.username, message: m.message, timestamp: Date.now() });
     return true;
 }
 
@@ -132,12 +170,7 @@ function announceGameVisible(io) {
     const m = GAME_START_MESSAGES[startIndex % GAME_START_MESSAGES.length];
     startIndex++;
 
-    const chatMessage = { username: m.username, message: m.message, timestamp: Date.now() };
-    gameManager.mainRoomMessages.push(chatMessage);
-    if (gameManager.mainRoomMessages.length > MAX_MESSAGES) {
-        gameManager.mainRoomMessages.shift();
-    }
-    io.to('mainRoom').emit('mainRoomMessage', chatMessage);
+    postAmbientChat(io, { username: m.username, message: m.message, timestamp: Date.now() });
 }
 
 /**
@@ -305,6 +338,7 @@ module.exports = {
     shouldEnable,
     // exported for tests
     seedMainRoomChat,
+    postAmbientChat,
     maybePostChat,
     announceGameVisible,
     startBotGame,
