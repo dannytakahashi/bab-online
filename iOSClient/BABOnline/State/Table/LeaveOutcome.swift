@@ -89,14 +89,15 @@ enum LeaveCheck: Equatable {
     var isPending: Bool { if case .pending = self { return true } else { return false } }
 }
 
-/// When the Leave confirmation shows (GameContainerView runs the steps). A presented SwiftUI
-/// alert keeps the message it opened with (a live run: the snapshot landed, the open alert
-/// still hedged), so the alert waits for Leave's snapshot check before it opens (`.wait`,
-/// then `.present` once settled or after `timeout`). An open alert whose words change closes
-/// and reopens with the new ones. When the change is a check in flight (another owner went
-/// lazy, so may have left), the open alert holds for the reply (at most `timeout`) and closes
-/// only if the settled words differ: one reopen, straight to the settled words, and none at
-/// all when the other owner is still there.
+/// When the Leave confirmation shows (GameContainerView runs the steps with
+/// LeaveAlertPresenter). An open alert keeps the message it opened with (a live run with the
+/// SwiftUI alert: the snapshot landed, the open alert still hedged), so the alert waits for
+/// Leave's snapshot check before it opens (`.wait`, then `.present` once settled or after
+/// `timeout`). An open alert whose words change closes and reopens with the new ones; the
+/// reopen runs from the close's real dismissal (`dismissed`, called from UIKit's completion).
+/// When the change is a check in flight (another owner went lazy, so may have left), the open
+/// alert holds for the reply (at most `timeout`) and closes only if the settled words differ:
+/// one reopen, straight to the settled words, and none at all when the other owner is still there.
 struct LeaveAlertFlow: Equatable {
     enum Step: Equatable {
         case none

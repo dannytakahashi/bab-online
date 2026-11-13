@@ -12,6 +12,8 @@ import SpriteKit
 /// scoreboard and two active tables), `tournament-between` (round 2 complete),
 /// `sign-in`) seed static rows instead.
 /// `-uiFold book|tabletop` simulates a fold region (FoldReader) for screenshots.
+/// `-uiLeaveDrive settle|hold` drives the Leave alert's reopen (`leaveAlertPresented`), and
+/// the chat messages the app sends show in the "fixture.sent" probe (`recordSent`).
 enum UIFixture {
     static let name: String? = UserDefaults.standard.string(forKey: "uiFixture")
     static var isActive: Bool { name != nil }
@@ -72,6 +74,7 @@ enum UIFixture {
                 snapDict = raw?["snapshot"] as? [String: Any] ?? [:]
             }
             let snap = try TableSnapshot.decode(snapDict, strict: true)
+            seededSnapshot = snapDict
             let me = snap.seats.first { $0.position == snap.viewer.position }?.username
             store.apply(.local(.identity(username: me ?? "viewer", playerId: "ui-fixture")))
             auth.username = me ?? "viewer"
@@ -87,6 +90,56 @@ enum UIFixture {
             print("[UIFixture] seeded \(name): phase \(store.phase)")
         } catch {
             print("[UIFixture] \(name): \(error)")
+        }
+    }
+
+    // MARK: - Leave alert reopen (LeaveAlertUITests)
+
+    /// `-uiLeaveDrive settle|hold`: 2.5 s after the Leave alert first opens, the other human
+    /// owner's /leave reaches the table the way the server sends it (`playerLazyMode` only), so the
+    /// open alert checks again and LeaveAlertFlow closes and reopens it as in a live game.
+    /// `settle` answers the check with a snapshot that has that seat gone (the settled reopen:
+    /// "leaving ends the game"); `hold` never answers (the hold times out: the hedged reopen).
+    static let leaveDrive: String? = isActive ? UserDefaults.standard.string(forKey: "uiLeaveDrive") : nil
+    private static var leaveDriven = false
+    /// The seeded snapshot, from which the `settle` reply is made.
+    private static var seededSnapshot: [String: Any]?
+
+    /// GameContainerView: the Leave alert opened.
+    @MainActor
+    static func leaveAlertPresented(_ store: GameState) {
+        guard let drive = leaveDrive, !leaveDriven, var snap = seededSnapshot,
+              var seats = snap["seats"] as? [[String: Any]],
+              let mine = (snap["viewer"] as? [String: Any])?["position"] as? Int,
+              let i = seats.firstIndex(where: { $0["controller"] as? String == "human" && $0["position"] as? Int != mine }),
+              let pos = seats[i]["position"] as? Int, let owner = seats[i]["ownerUsername"] as? String else { return }
+        leaveDriven = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {  // after the test read the first words
+            _ = store.apply(serverEvent: "playerLazyMode", payload: [[
+                "position": pos, "botUsername": "Fixture Bot", "botPic": 4, "originalUsername": owner,
+                "seq": (store.state.sync.lastSeq ?? 0) + 1,
+            ] as [String: Any]])
+            guard drive == "settle", case .pending(let id) = store.players.leaveCheck else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                seats[i]["controller"] = "lazyBot"
+                seats[i]["presence"] = "gone"
+                seats[i]["isBot"] = true
+                seats[i]["lazy"] = true
+                seats[i]["username"] = "Fixture Bot"
+                snap["seats"] = seats
+                snap["seq"] = (store.state.sync.lastSeq ?? 0) + 1
+                _ = store.apply(serverEvent: "stateSnapshot", payload: [["snapshot": snap, "requestId": id] as [String: Any]])
+            }
+        }
+    }
+
+    /// The chat messages the app sent ("fixture.sent"; fixture mode has no socket), so a UI
+    /// test can tell that Leave Game sent /leave.
+    static func recordSent(_ event: String, _ data: [String: Any]) {
+        guard isActive, event == SocketEvents.Client.chatMessage, let message = data["message"] as? String else { return }
+        DispatchQueue.main.async {
+            let probe = TableDebugProbe.shared
+            probe.sent = probe.sent == "-" ? message : probe.sent + "|" + message
         }
     }
 
@@ -196,6 +249,8 @@ final class TableDebugProbe: ObservableObject {
     @Published var sizeClasses = "-"
     /// The system's vertical bar edge ("trailing" / "leading"), "-" where none is used.
     @Published var verticalBar = "-"
+    /// The chat messages sent, "|"-joined ("-": none; UIFixture.recordSent).
+    @Published var sent = "-"
 
     var pose: String {
         let i = insets
@@ -243,6 +298,7 @@ struct FixtureProbes: View {
             dot("ui.pose", probe.pose)
             dot("table.layoutCheck", probe.layoutCheck)
             dot("table.state", probe.tableState)
+            dot("fixture.sent", probe.sent)
             Spacer()
         }
         .frame(maxWidth: .infinity, alignment: .leading)

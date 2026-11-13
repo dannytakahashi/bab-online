@@ -269,6 +269,9 @@ final class SocketService: ObservableObject {
 
     /// Emit event with a single dictionary payload
     func emit(_ event: String, _ data: [String: Any]) {
+        #if DEBUG
+        UIFixture.recordSent(event, data)
+        #endif
         socket?.emit(event, data)
     }
 

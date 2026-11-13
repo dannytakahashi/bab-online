@@ -77,4 +77,128 @@ final class LeaveAlertUITests: XCTestCase {
         XCTAssertEqual(leaveMessage(app, "others"), "A bot will finish your hand for you.")
         app.terminate()
     }
+
+    // MARK: The reopened alert (verifier, 2026-11-13: its Leave Game sent no /leave)
+
+    static let botFinishes = "A bot will finish your hand for you."
+    static let endsGame = "You're the only player here, so leaving ends the game."
+    static let hedged = "A bot will finish your hand for you, unless everyone else has left too: then leaving ends the game."
+
+    /// The tournament-game table as a casual game with bob, a connected human, at seat 4 (I am 2).
+    private func withBob() throws -> String {
+        try soloSnapshot { snap in
+            snap["tournament"] = NSNull()
+            var seats = snap["seats"] as? [[String: Any]] ?? []
+            for i in seats.indices where seats[i]["position"] as? Int == 4 {
+                seats[i]["controller"] = "human"
+                seats[i]["presence"] = "connected"
+                seats[i]["ownerUsername"] = "bob"
+                seats[i]["username"] = "bob"
+                seats[i]["isBot"] = false
+            }
+            snap["seats"] = seats
+        }
+    }
+
+    private func message(_ alert: XCUIElement) -> String {
+        alert.staticTexts.allElementsBoundByIndex.map(\.label).filter { $0 != "Leave game?" }.joined(separator: "\n")
+    }
+
+    private func shot(_ app: XCUIApplication, _ name: String) {
+        let a = XCTAttachment(screenshot: app.screenshot())
+        a.name = name
+        a.lifetime = .keepAlways
+        add(a)
+    }
+
+    /// The chat messages the app sent ("|"-joined, "-" none), once that stops changing.
+    private func sent(_ app: XCUIApplication, expecting: String, timeout: TimeInterval = 4) -> String {
+        let deadline = Date().addingTimeInterval(timeout)
+        var now = Fixture.probe(app, "fixture.sent")
+        while now != expecting, Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.25)
+            now = Fixture.probe(app, "fixture.sent")
+        }
+        return now
+    }
+
+    /// Taps Leave with bob at the table; `-uiLeaveDrive drive` then sends bob's /leave as the
+    /// server does (UIFixture.leaveAlertPresented), so LeaveAlertFlow closes the open alert
+    /// and opens it again (GameContainerView). Returns the reopened alert, showing `reopened`.
+    private func reopenedAlert(_ drive: String, _ reopened: String) throws -> (XCUIApplication, XCUIElement) {
+        let app = Fixture.launch("env", extra: ["-uiLeaveDrive", drive], env: ["UI_FIXTURE_SNAPSHOT": try withBob()])
+        let leave = app.buttons["leave"]
+        XCTAssertTrue(leave.waitForExistence(timeout: 20), "no Leave button")
+        _ = Fixture.settledState(app)
+        leave.tap()
+        let alert = app.alerts["Leave game?"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 5), "no Leave alert")
+        XCTAssertEqual(message(alert), Self.botFinishes, "bob is here: the first alert")
+        // an open alert keeps its first words, so new words mean it was closed and opened again
+        let deadline = Date().addingTimeInterval(8)
+        var seen = message(alert)
+        while seen != reopened, Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.1)
+            seen = alert.exists ? message(alert) : "-"
+        }
+        XCTAssertEqual(seen, reopened, "\(drive): the alert never reopened with the new words")
+        shot(app, "reopened-\(drive)")
+        Thread.sleep(forTimeInterval: 1)  // a person reads it first
+        XCTAssertEqual(Fixture.probe(app, "fixture.sent"), "-", "nothing sent before a button")
+        return (app, alert)
+    }
+
+    /// The settled reopen (bob's /leave, then the snapshot reply): Leave Game sends /leave.
+    func testReopenedAlertLeaveGameSendsLeave() throws {
+        let (app, alert) = try reopenedAlert("settle", Self.endsGame)
+        alert.buttons["Leave Game"].tap()
+        XCTAssertTrue(alert.waitForNonExistence(timeout: 3), "Leave Game left the alert up")
+        XCTAssertEqual(sent(app, expecting: "/leave"), "/leave", "the reopened alert's Leave Game sent no /leave")
+        app.terminate()
+    }
+
+    /// The hold-timeout reopen (bob's /leave, no reply within 1.5 s): Leave Game sends /leave.
+    func testHedgedReopenedAlertLeaveGameSendsLeave() throws {
+        let (app, alert) = try reopenedAlert("hold", Self.hedged)
+        alert.buttons["Leave Game"].tap()
+        XCTAssertTrue(alert.waitForNonExistence(timeout: 3), "Leave Game left the alert up")
+        XCTAssertEqual(sent(app, expecting: "/leave"), "/leave", "the reopened alert's Leave Game sent no /leave")
+        app.terminate()
+    }
+
+    /// Cancel on the reopened alert sends nothing and keeps me at the table; Leave again opens
+    /// a fresh alert (settled words) whose Leave Game sends /leave once.
+    func testReopenedAlertCancelSendsNothing() throws {
+        let (app, alert) = try reopenedAlert("settle", Self.endsGame)
+        alert.buttons["Cancel"].tap()
+        XCTAssertTrue(alert.waitForNonExistence(timeout: 3), "Cancel left the alert up")
+        Thread.sleep(forTimeInterval: 1.5)
+        XCTAssertFalse(alert.exists, "the cancelled alert came back")
+        XCTAssertEqual(Fixture.probe(app, "fixture.sent"), "-", "Cancel sent something")
+        let leave = app.buttons["leave"]
+        XCTAssertTrue(leave.exists, "Cancel left the table")
+        leave.tap()
+        XCTAssertTrue(alert.waitForExistence(timeout: 5), "no fresh alert")
+        XCTAssertEqual(message(alert), Self.endsGame)
+        alert.buttons["Leave Game"].tap()
+        XCTAssertTrue(alert.waitForNonExistence(timeout: 3))
+        XCTAssertEqual(sent(app, expecting: "/leave"), "/leave")
+        app.terminate()
+    }
+
+    /// A first-open alert (nothing changes while it is up): Leave Game sends /leave.
+    func testFirstAlertLeaveGameSendsLeave() throws {
+        let app = Fixture.launch("env", env: ["UI_FIXTURE_SNAPSHOT": try withBob()])
+        let leave = app.buttons["leave"]
+        XCTAssertTrue(leave.waitForExistence(timeout: 20), "no Leave button")
+        _ = Fixture.settledState(app)
+        leave.tap()
+        let alert = app.alerts["Leave game?"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 5), "no Leave alert")
+        XCTAssertEqual(message(alert), Self.botFinishes)
+        alert.buttons["Leave Game"].tap()
+        XCTAssertTrue(alert.waitForNonExistence(timeout: 3))
+        XCTAssertEqual(sent(app, expecting: "/leave"), "/leave")
+        app.terminate()
+    }
 }

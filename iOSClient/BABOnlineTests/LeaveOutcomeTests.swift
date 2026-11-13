@@ -306,7 +306,7 @@ final class LeaveOutcomeTests: XCTestCase {
         XCTAssertEqual(h.emitter.snapshotRequests, [])
     }
 
-    // MARK: when the alert opens (LeaveAlertFlow; an open SwiftUI alert keeps its first message)
+    // MARK: when the alert opens (LeaveAlertFlow; an open alert keeps its first message)
 
     func testAnUnsureLeaveWaitsForTheSnapshotThenOpensSettled() {
         var f = LeaveAlertFlow()
