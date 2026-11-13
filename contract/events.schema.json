@@ -4569,7 +4569,10 @@
         "$ref": "#/$defs/mainRoomChatLine"
       },
       "status": "active",
-      "to": "mainRoom",
+      "to": [
+        "mainRoom",
+        "socket"
+      ],
       "clientReads": {
         "web": [
           "client/src/handlers/lobbyHandlers.js:registerLobbyHandlers"
@@ -4580,9 +4583,9 @@
       },
       "emittedFrom": [
         "server/socket/mainRoomHandlers.js:mainRoomChat",
-        "server/demo/ambientBots.js:maybePostChat",
-        "server/demo/ambientBots.js:announceGameVisible"
-      ]
+        "server/demo/ambientBots.js:postAmbientChat"
+      ],
+      "notes": "mainRoom: a human line (and an ambient bot line when AMBIENT_CHAT_USERS=*); socket: an ambient bot line to each main-room socket of an AMBIENT_CHAT_USERS account (default test1; server/utils/ambientChatUsers.js)."
     },
     "mainRoomPlayerJoined": {
       "payload": {
