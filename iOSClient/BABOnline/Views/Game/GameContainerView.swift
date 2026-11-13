@@ -167,8 +167,8 @@ private struct GameScreen: View {
         }
         .animation(.easeInOut(duration: 0.3), value: showsBidOverlay)
         .animation(.easeInOut(duration: 0.3), value: gameState.phase)
-        .alert("Leave game?", isPresented: $showLeaveConfirm) {
-            Button("Leave Game", role: .destructive) {
+        .alert("Exit game?", isPresented: $showLeaveConfirm) {
+            Button("Exit Game", role: .destructive) {
                 ChatEmitter.sendMessage("/leave")
             }
             Button("Cancel", role: .cancel) {}
@@ -406,8 +406,9 @@ private struct GameScreen: View {
                 Button(action: handleLeaveTapped) {
                     HStack(spacing: Theme.Space.s1) {
                         Image(systemName: "rectangle.portrait.and.arrow.right")
-                            .accessibilityHidden(true)  // the button reads "Leave game"
-                        Text(isPureSpectator ? "Exit" : "Leave")
+                            .accessibilityHidden(true)  // the button reads "Exit game"
+                            .scaleEffect(x: -1, y: 1)    // mirrored: the arrow points left, out of the game
+                        Text("Exit")
                     }
                     .font(.caption.bold())
                     .foregroundColor(Theme.textSecondary)
@@ -470,10 +471,11 @@ private struct GameScreen: View {
     private var leaveBarButton: some View {
         Button(action: handleLeaveTapped) {
             Label {
-                Text(isPureSpectator ? "Exit" : "Leave")
+                Text("Exit")
             } icon: {
                 Image(systemName: "rectangle.portrait.and.arrow.right")
                     .accessibilityHidden(true)
+                    .scaleEffect(x: -1, y: 1)    // mirrored, as the corner Exit
             }
         }
         .disabled(gameState.phase == .draw)  // as the corner button under the draw overlay
@@ -481,8 +483,8 @@ private struct GameScreen: View {
         .accessibilityLabel(leaveLabel)
     }
 
-    /// "Leave game" at a seat, "Exit game" for a pure spectator (VoiceOver; the button shows Leave / Exit).
-    private var leaveLabel: String { isPureSpectator ? "Exit game" : "Leave game" }
+    /// "Exit game" at a seat and for a pure spectator alike (owner, 2026-11-12: one word for both; the button shows Exit).
+    private var leaveLabel: String { "Exit game" }
 
     /// The unread count is the standard toolbar badge. The vertical bar (seen with
     /// the iOS 27.2 SDK) draws a badge only when it builds the item, not when the
