@@ -1168,11 +1168,14 @@ above; after it, what 1.2.0 itself still reads is the remaining blocker:
   restoreSession) and renders `avatarUrl` / `avatarUrls` (positionUpdate,
   gameStart, playerActiveMode, rejoin / restore / spectator carriers,
   snapshot seats, the spectator list) through `AvatarTextureCache`
-  (`/avatar/...` paths, URLSession's cache), with the inline picture as the
-  fallback when a URL fails. Step "the clientHello log shows no socket
-  without the cap for 2+ weeks" can start counting once 1.1.0 is gated.
-  1.2.0 does not show profile, leaderboard or search pictures, so #19 B
-  never mattered to iOS.
+  (`/avatar/...` paths, URLSession's cache). 1.2.0 does not show profile,
+  leaderboard or search pictures, so #19 B never mattered to iOS. (Done
+  2026-11-12: A-D and F, the 2-week clientHello wait waived by the owner.
+  No payload carries an inline picture any more, so build 5 has no inline
+  fallback: a custom seat's `pic` slot is null (`PicWire` `.none`), its
+  `fallbackPicture` is nil (TableRenderModel.swift:24), and a failed URL
+  leaves the name's initial (OpponentHandNode.swift:241-243, :90-100; lines
+  at 92d0c75). E stays: build 5 still loads `/assets/profile<N>.png`; #19.)
 - **#9 legacy client-state keys**: `players[].pic` is now only a fallback
   (the carrier's `avatarUrls` and the snapshot's `avatarUrl` come first) and
   `players[].socketId` is no longer needed for the speaking glows (below).
