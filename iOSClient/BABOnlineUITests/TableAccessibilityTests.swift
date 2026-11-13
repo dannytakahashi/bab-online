@@ -133,14 +133,14 @@ final class TableAccessibilityTests: XCTestCase {
         app.terminate()
     }
 
-    /// The lazy pill is unchanged: the seat's own Leave (confirmed) and the /active hint.
+    /// The lazy pill is unchanged: the seat's own Exit (confirmed) and the /active hint.
     func testLazyWatcherKeepsLeaveAndTheActiveHint() {
         let app = Fixture.launch("lazy-at-seat")
         XCTAssertTrue(app.buttons["leave"].waitForExistence(timeout: 20))
         _ = Fixture.settledState(app)
         let exits = exitButtons(app)
         XCTAssertEqual(exits.count, 1, "exit controls: \(exits)")
-        XCTAssertEqual(app.buttons["leave"].label, "Leave game")
+        XCTAssertEqual(app.buttons["leave"].label, "Exit game")  // one word since #235
         XCTAssertTrue(app.staticTexts["Spectating \u{2014} type /active to take back control"].exists, "the lazy pill")
         app.terminate()
     }
