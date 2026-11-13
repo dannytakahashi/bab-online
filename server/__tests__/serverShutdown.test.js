@@ -76,8 +76,8 @@ describe('gracefulShutdown over a real Socket.IO server', () => {
         setupGracefulShutdown(first.server, first.io);
 
         const seen = [];
-        // A current iOS User-Agent (URLSession's form, 1.2.0 build 4) and a browser: same treatment
-        const ua = ['BAB%20Online/4 CFNetwork/1568.100.1 Darwin/24.0.0', 'Mozilla/5.0 (Macintosh) test'];
+        // A current iOS User-Agent (URLSession's form, 1.2.0 build 5) and a browser: same treatment
+        const ua = ['BAB%20Online/5 CFNetwork/1568.100.1 Darwin/24.0.0', 'Mozilla/5.0 (Macintosh) test'];
         for (const userAgent of ua) {
             const c = ioClient(`http://127.0.0.1:${first.port}`, {
                 transports: ['websocket'], reconnectionDelay: 100, reconnectionDelayMax: 200,

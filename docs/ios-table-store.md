@@ -452,17 +452,17 @@ card survives fold and unfold, the trick collects across a fold.
   sprite per seat. Opponent seats are built once per layout and reload only when
   the picture changes (item 23).
 
-## iOS 1.2.0 (build 4): the release after 1.1.0 (roadmap 29 track)
+## iOS 1.2.0 (build 5): the release after 1.1.0 (roadmap 29 track)
 
-Version: `MARKETING_VERSION` 1.2.0, `CURRENT_PROJECT_VERSION` 4 (Info.plist
-reads them; `ReleaseMetadataTests` pins build >= 4). Build 3 was uploaded but
-never submitted; build 4 adds the owner's two changes from the screenshots
-(2026-11-12: my pips in my seat's row, HSI in the bid panel; below). The
+Version: `MARKETING_VERSION` 1.2.0, `CURRENT_PROJECT_VERSION` 5 (Info.plist
+reads them; `ReleaseMetadataTests` pins build >= 5, `minimumBuild`). Build 3
+was uploaded but never submitted; build 4 adds the owner's two changes from
+the screenshots (2026-11-12: my pips in my seat's row, HSI in the bid panel;
+below) and was pulled from review; build 5, the release, keeps them. The
 upgrade gate gates builds < 3 (1.0.0 and 1.1.0, once 1.2.0 is live), so
 builds 3, 4 and 5 are current (`upgradeGate.test.js` "1.2.0 (build 5) is
-current"; MIN_IOS_BUILD 3; build 5 is the release, build 4 was pulled from
-review). It works against today's server and against the server
-after the V1 removals: `cardPlayed` is read as `trumpBroken ?? trump`, chat
+current"; MIN_IOS_BUILD 3). It works against today's server and against
+the server after the V1 removals: `cardPlayed` is read as `trumpBroken ?? trump`, chat
 routes on `isSpectator` (`type` only for an older server), and the server's
 failures arrive as `error` and/or `serverError`.
 
