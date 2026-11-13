@@ -16,6 +16,8 @@
  *                          ChatBubble.showSpectatorChatBubble), at the
  *                          layout's spectators.bubble spot; hidden where the
  *                          layout has none
+ *   .hud-draw / .hud-teams the draw for deal's words and players, then the
+ *                          teams panel (ui/drawHud.js; --draw-* / --teams-*)
  *
  * applyHudLayout(layout) is the only writer of positions: a relayout
  * moves everything at once. Seats outlive a render (it redraws only the
@@ -200,6 +202,41 @@ function applyRootVars(hud, L) {
   set('--voice-w', vr.w);
   set('--voice-btn', L.voice.button);
   set('--voice-gap', L.voice.gap);
+  // the draw for deal (ui/drawHud.js): its column's rows, the four slots' x
+  const d = L.draw;
+  if (d) {
+    set('--draw-title-y', d.title.y);
+    set('--draw-title-w', d.title.rect.w);
+    set('--draw-title-font', d.title.font);
+    set('--draw-rules-y', d.rules.y);
+    set('--draw-rules-w', d.rules.rect.w);
+    set('--draw-rules-font', d.rules.font);
+    set('--draw-av', d.avatar.size);
+    set('--draw-av-y', d.avatar.y);
+    set('--draw-name-y', d.name.y);
+    set('--draw-name-w', d.name.w);
+    set('--draw-name-font', d.name.font);
+    set('--draw-card-y', d.slots[0].y);
+    set('--draw-card-w', d.slotCard.w);
+    set('--draw-card-h', d.slotCard.h);
+    set('--draw-card-r', (d.slotCard.w * 24) / 300);
+    d.slots.forEach((p, i) => set(`--draw-x${i}`, p.x));
+    set('--draw-prompt-y', d.prompt.y);
+    set('--draw-prompt-w', d.prompt.rect.w);
+    set('--draw-prompt-font', d.prompt.font);
+  }
+  const t = L.teams;
+  if (t) {
+    set('--teams-x', t.x);
+    set('--teams-y', t.y);
+    set('--teams-max-w', t.maxW);
+    set('--teams-pad', t.pad);
+    set('--teams-gap', t.gap);
+    set('--teams-av', t.avatar);
+    set('--teams-label-font', t.fonts.label);
+    set('--teams-name-font', t.fonts.names);
+    set('--teams-vs-font', t.fonts.vs);
+  }
   // the spectator badge (who is watching)
   const sp = L.spectators;
   if (sp) {

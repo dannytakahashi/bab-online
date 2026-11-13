@@ -73,7 +73,7 @@ describe('card faces (the iOS CardTextureGenerator, on a 300 x 435 canvas)', () 
     }
   });
 
-  it('the back: a white card edge, then iOS dark green, a lighter border, an inner frame and the centre diamond', () => {
+  it('the back: a white card edge, then iOS dark green, a lighter border, an inner frame and the app icon\'s four suits', () => {
     const ctx = draw(BACK_FRAME);
     // The white edge is painted first (the whole card), so an overlapped fan
     // of backs reads as separate cards on the green felt; the green panel is inset.
@@ -84,7 +84,19 @@ describe('card faces (the iOS CardTextureGenerator, on a 300 x 435 canvas)', () 
     expect(ctx.calls.indexOf(fills(ctx, C.back)[0])).toBeGreaterThan(ctx.calls.indexOf(firstFill));
     expect(ctx.calls.find((c) => c.op === 'stroke' && c.strokeStyle === C.backBorder)?.lineWidth).toBe(4);
     expect(ctx.calls.some((c) => c.op === 'stroke' && c.strokeStyle === C.backInner)).toBe(true);
-    expect(fills(ctx, C.backDiamond)).toHaveLength(1);
+    // iOS PR 239's back: no diamond; spade and club in text.primary at the
+    // top left and bottom right, heart and diamond in danger.text at the
+    // top right and bottom left, 2 x 2 around the centre, as vector paths
+    expect(fills(ctx, C.backDiamond)).toHaveLength(0);
+    const light = fills(ctx, COLOR.text.primary);
+    const red = fills(ctx, COLOR.danger.text);
+    expect(light).toHaveLength(2);
+    expect(red).toHaveLength(2);
+    // each suit's 100-unit box is scaled (m.a) and moved (m.e, m.f): its centre
+    const centre = (c) => ({ x: Math.round(c.m.a * 50 + c.m.e), y: Math.round(c.m.d * 50 + c.m.f) });
+    const { w, h } = CARD_DESIGN;
+    expect(light.map(centre)).toEqual([{ x: w / 2 - 34, y: Math.round(h / 2 - 34) }, { x: w / 2 + 34, y: Math.round(h / 2 + 34) }]);
+    expect(red.map(centre)).toEqual([{ x: w / 2 + 34, y: Math.round(h / 2 - 34) }, { x: w / 2 - 34, y: Math.round(h / 2 + 34) }]);
     expect(texts(ctx)).toEqual([]);
   });
 

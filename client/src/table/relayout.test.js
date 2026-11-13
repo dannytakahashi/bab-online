@@ -173,7 +173,7 @@ describe('the draw (ui-19)', () => {
 });
 
 describe('the drawn names (a username may be 50 characters)', () => {
-  it('each name fits its slot\'s name rect, so two long names never overlap; also after a resize', () => {
+  it('each slot names its player in the HUD (the whole name kept, cut to the layout\'s name width), its card drawn in the slot; also after a resize', () => {
     const teams = log.findIndex((e) => e.event === 'teamsAnnounced');
     const draws = log.map((e, i) => [e, i]).filter(([e, i]) => e.event === 'playerDrew' && i >= at && i < teams);
     expect(draws).toHaveLength(4);
@@ -183,22 +183,29 @@ describe('the drawn names (a username may be 50 characters)', () => {
     replayTo(draws[3][1] + 1);
     replay.advance(1500); // the flips land
     const dm = page.scene.drawManager;
+    const hud = document.getElementById('table-hud');
+    const v = (k) => parseFloat(hud.style.getPropertyValue(k));
     const check = (L, label) => {
-      const names = dm.drawnCardDisplays.filter((o) => o?.active && o.getData?.('isName'));
-      expect(names).toHaveLength(4);
-      const boxes = names.map((t) => {
-        const order = t.getData('drawOrder');
-        const r = L.draw.name.rects[order - 1];
-        expect(t.displayWidth, `${label}: name ${order} (${t.getData('fullName')}) is ${t.displayWidth} wide in a ${r.w} rect`).toBeLessThanOrEqual(r.w + 0.01);
-        expect([t.x, t.y]).toEqual([L.draw.slots[order - 1].x, L.draw.slots[order - 1].y + L.draw.name.dy]);
-        const b = t.getBounds();
-        return { x: b.x, y: b.y, w: b.width, h: b.height };
-      });
-      for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
-        expect(layoutMod.intersects(boxes[i], boxes[j]), `${label}: names ${i} and ${j} overlap`).toBe(false);
+      const slots = [...hud.querySelectorAll('.hud-draw__slot')];
+      expect(slots.map((s) => s.dataset.state), label).toEqual(['drawn', 'drawn', 'drawn', 'drawn']);
+      // the whole name as text (CSS ends a long one in an ellipsis at the layout's width)
+      expect(slots.map((s) => s.querySelector('.hud-draw__name').textContent)).toEqual(long);
+      expect(slots.map((s) => s.querySelector('.hud-draw__name').title)).toEqual(long);
+      expect(v('--draw-name-w'), label).toBeCloseTo(L.draw.name.w, 1);
+      for (let i = 0; i < 4; i++) expect(v(`--draw-x${i}`), `${label} slot ${i}`).toBeCloseTo(L.draw.slots[i].x, 1);
+      expect(v('--draw-name-y'), label).toBeCloseTo(L.draw.name.y, 1);
+      // the name boxes the CSS caps them to never meet
+      for (let i = 0; i < 3; i++) {
+        expect(layoutMod.intersects(L.draw.name.rects[i], L.draw.name.rects[i + 1]), `${label}: names ${i} and ${i + 1}`).toBe(false);
       }
-      // the whole name is kept for a relayout (and a short one is drawn as it is)
-      expect(names.map((t) => t.getData('fullName')).sort()).toEqual([...long].sort());
+      // each drawn card, face up, is DRAWN in its slot at the hand card's size
+      const cards = dm.drawnCards();
+      expect(cards).toHaveLength(4);
+      for (const c of cards) {
+        const r = L.draw.slotRects[c.getData('drawOrder') - 1];
+        expect(c.frame.name).toBe(c.getData('faceKey'));
+        expectRect(c.getBounds(), r, `${label} card ${c.getData('drawOrder')}`);
+      }
     };
     check(L, `${L.w}x${L.h}`);
     for (const [w, h] of [[1120, 790], [1920, 1080], [1024 - 200, 668]]) {
@@ -208,18 +215,24 @@ describe('the drawn names (a username may be 50 characters)', () => {
   });
 });
 
-describe('the teams overlay', () => {
-  it('a resize while it is up keeps the dim over the whole canvas (its drawn box, not only its centre)', () => {
+describe('the teams panel', () => {
+  it('a resize while it is up keeps the scrim over the whole table and the panel centred; the drawn cards stay in their slots', () => {
     const teams = log.findIndex((e) => e.event === 'teamsAnnounced');
     expect(teams).toBeGreaterThan(at);
     replayTo(teams + 1);
     replay.advance(100);
+    const hud = document.getElementById('table-hud');
+    const layer = hud.querySelector(':scope > .hud-teams');
+    expect(layer).toBeTruthy();
+    // the scrim fills the HUD, which is the canvas (CSS: inset 0 inside #table-hud, 100% x 100%)
+    expect(layer.querySelector(':scope > .hud-teams__scrim')).toBeTruthy();
     const dm = page.scene.drawManager;
-    const overlay = dm._teamElements?.[0];
-    expect(overlay?.active).toBe(true);
     for (const [w, h] of [[390 - 130, 844], [1440, 790], [1024, 668]]) {
       L = resize(w, h);
-      expectRect(overlay.getBounds(), { x: 0, y: 0, w: L.w, h: L.h }, `teams overlay at ${w}x${h}`);
+      expect(parseFloat(hud.style.getPropertyValue('--teams-x')), `${w}x${h}`).toBeCloseTo(L.w / 2, 0);
+      expect(parseFloat(hud.style.getPropertyValue('--teams-y')), `${w}x${h}`).toBeCloseTo(L.h / 2, 0);
+      expect(parseFloat(hud.style.getPropertyValue('--teams-max-w')), `${w}x${h}`).toBeCloseTo(L.w - 2 * L.margin, 1);
+      for (const c of dm.drawnCards()) expectRect(c.getBounds(), L.draw.slotRects[c.getData('drawOrder') - 1], `card at ${w}x${h}`);
     }
   });
 });

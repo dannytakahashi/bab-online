@@ -323,31 +323,66 @@ describe('the trick histories keep today\'s insets', () => {
   });
 });
 
-describe('the draw phase keeps today\'s rows', () => {
-  it('1920x1080: the drawn cards 200 px above the deck row, their names above them, the title at 8.4% down', () => {
-    const L = layoutForViewport({ vw: 1920, vh: 1080, withLog: false });
+/**
+ * The draw for deal is iOS DrawPhaseView's column (PR 239): title, rule,
+ * four slots (avatar, name, a Theme s3 gap, the card), the deck and its
+ * prompt, centred on the canvas, its type and spacing the tokens at s.
+ */
+describe('the draw for deal (iOS DrawPhaseView\'s column)', () => {
+  const bottom = (r) => r.y + r.h;
+  const column = (d) => [['title', d.title.rect], ['rules', d.rules.rect], ['avatar', d.avatar.rects[0]],
+    ['name', d.name.rects[0]], ['card', d.slotRects[0]], ['deck', d.deck.rect], ['prompt', d.prompt.rect]];
+
+  it('1440x900 (s = 1): the tokens (title xxl, rule md, a 40 px avatar), the hand card, centred, the gaps at their tokens', () => {
+    const L = layoutForViewport({ vw: 1440, vh: 900, withLog: false });
+    const d = L.draw;
     expect(L.s).toBe(1);
-    expect(L.draw.deck.y).toBe(540);
-    for (const p of L.draw.slots) expect(p.y).toBe(340);
-    expect(L.draw.title.y).toBeCloseTo(0.084 * 1080, 0);
-    expect(L.draw.name.dy).toBeLessThan(0);
+    expect([d.title.font, d.rules.font, d.name.font, d.prompt.font, d.avatar.size]).toEqual([32, 16, 16, 20, 40]);
+    // a drawn card is the hand card (its frame 1:1, like the hand)
+    expect([d.slotCard.w, d.slotCard.h, d.slotCard.scale]).toEqual([L.card.hand.w, L.card.hand.h, L.card.hand.scale]);
+    // the slots one pitch apart about the centre, the cards on one row
+    expect(d.slots.map((p) => p.x)).toEqual([720 - 1.5 * d.pitch, 720 - 0.5 * d.pitch, 720 + 0.5 * d.pitch, 720 + 1.5 * d.pitch]);
+    expect(new Set(d.slots.map((p) => p.y)).size).toBe(1);
+    // the gaps: s2 title-rule, s8 rule-avatars, s2 avatar-name, s3 name-card, s10 cards-deck, s4 deck-prompt
+    // (a card row's centre snaps down to a device pixel: a gap above it grows by less than one)
+    const gaps = column(d).slice(1).map(([, r], i) => r.y - bottom(column(d)[i][1]));
+    [8, 32, 8, 12, 40, 16].forEach((token, i) => {
+      expect(gaps[i], `gap ${i}`).toBeGreaterThanOrEqual(token - 0.01);
+      expect(gaps[i], `gap ${i}`).toBeLessThan(token + 1);
+    });
+    // the cards' centres on device pixels (the hand card samples 1:1)
+    expect(Number.isInteger(d.slots[0].y) && Number.isInteger(d.deck.y)).toBe(true);
+    // centred: as much room above the title as below the prompt (the snap's 2 px aside)
+    expect(Math.abs(d.title.rect.y - (L.h - bottom(d.prompt.rect)))).toBeLessThan(3.01);
   });
 
-  it('at every size the drawn row is as high as today\'s (200 * s) where the names clear the title, never on the deck', () => {
+  it('at every size: one column top to bottom, each name s3 (or 4 px) above its card, every card on one row, nothing overlapping or outside', () => {
     for (let vw = 800; vw <= 2560; vw += 80) {
       for (let vh = 500; vh <= 1440; vh += 80) {
         const L = layoutForViewport({ vw, vh, withLog: false });
         const d = L.draw;
-        const lift = d.deck.y - d.slots[0].y;
-        const titleBottom = d.title.rect.y + d.title.rect.h;
-        const nameTop = d.name.rects[0].y;
-        // either today's lift, or as high as the title leaves room for
-        if (Math.abs(lift - 200 * L.s) > 0.5) expect(nameTop - titleBottom, `${vw}x${vh}`).toBeLessThan(L.gap + 1);
-        expect(lift, `${vw}x${vh}`).toBeLessThanOrEqual(200 * L.s + 0.5);
-        expect(lift, `${vw}x${vh}`).toBeGreaterThanOrEqual(d.deck.card.h / 2 + d.slotCard.h / 2);
-        expect(findIntersections(L, drawRects(L)), `${vw}x${vh}`).toEqual([]);
+        const label = `${vw}x${vh}`;
+        const col = column(d);
+        for (let i = 1; i < col.length; i++) {
+          expect(col[i][1].y, `${label}: ${col[i][0]} below ${col[i - 1][0]}`).toBeGreaterThanOrEqual(bottom(col[i - 1][1]) - 0.01);
+        }
+        for (let i = 0; i < 4; i++) {
+          expect(d.slotRects[i].y - bottom(d.name.rects[i]), `${label}: name ${i} to its card`).toBeGreaterThanOrEqual(Math.max(4, 12 * L.s) - 0.01);
+          expect(d.slotRects[i].y, `${label}: card ${i} level`).toBe(d.slotRects[0].y);
+          expect(d.name.rects[i].w, `${label}: a name at least its card wide`).toBeGreaterThanOrEqual(d.slotCard.w - 0.01);
+        }
+        expect(findIntersections(L, drawRects(L)), label).toEqual([]);
+        expect(findOutside(L, drawRects(L)), label).toEqual([]);
       }
     }
+  });
+
+  it('the rule wraps (and its box grows) only where one line does not fit', () => {
+    const wide = layoutForViewport({ vw: 1440, vh: 900, withLog: false }).draw.rules;
+    const phone = layoutForViewport({ vw: 390, vh: 844, withLog: false });
+    expect(wide.lines).toBe(1);
+    expect(phone.draw.rules.rect.w).toBeLessThanOrEqual(phone.w - 2 * phone.margin + 0.01);
+    expect(phone.draw.rules.rect.h).toBeCloseTo(phone.draw.rules.lines * phone.draw.rules.font * 1.35, 6);
   });
 });
 

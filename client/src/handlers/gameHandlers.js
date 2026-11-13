@@ -115,20 +115,21 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
     console.log('🎴 Start draw:', data);
     state.setPhase(PHASE.DRAW);
     state.stage = 'DRAWING';
-    state.setHasDrawn(false);
+    state.beginDraw();
     onStartDraw?.(data);
   });
 
   // Player drew a card (current player)
   socketManager.onGame(SERVER_EVENTS.YOU_DREW, (data) => {
     console.log('🃏 You drew:', data);
-    state.setHasDrawn(true);
+    state.applyYouDrew(data);
     onYouDrew?.(data);
   });
 
   // Another player drew a card
   socketManager.onGame(SERVER_EVENTS.PLAYER_DREW, (data) => {
     console.log('🃏 Player drew:', data);
+    state.applyPlayerDrew(data);
     onPlayerDrew?.(data);
   });
 

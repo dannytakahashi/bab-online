@@ -119,6 +119,10 @@ export class GameState {
     // Draw phase state
     this.hasDrawn = false;
     this.clickedCardPosition = null; // Store position of clicked card for draw animation
+    // The draw for deal so far (snapshot v2 `draw` shaped: {drawn: [{drawOrder,
+    // username, card}], viewerDrawOrder}), from startDraw / playerDrew /
+    // youDrew or a snapshot; null outside the draw. render() draws it.
+    this.draw = null;
 
     // Bid state
     this.tempBids = []; // Bid history for bore button state
@@ -486,6 +490,29 @@ export class GameState {
   setHasDrawn(value) {
     this.hasDrawn = value;
     this._emit('hasDrawnChanged', value);
+  }
+
+  /** The draw opens (startDraw): nobody has drawn. */
+  beginDraw() {
+    this.draw = { drawn: [], viewerDrawOrder: null };
+    this.setHasDrawn(false);
+  }
+
+  /** A draw (playerDrew), once per draw order. */
+  applyPlayerDrew(data) {
+    const order = Number(data?.drawOrder);
+    if (!data?.username || !(order >= 1 && order <= 4)) return;
+    if (!this.draw) this.draw = { drawn: [], viewerDrawOrder: null };
+    if (this.draw.drawn.some((d) => d.drawOrder === order)) return;
+    this.draw.drawn.push({ drawOrder: order, username: data.username, card: data.card ? { suit: data.card.suit, rank: data.card.rank } : null });
+    this.draw.drawn.sort((a, b) => a.drawOrder - b.drawOrder);
+  }
+
+  /** My own draw (youDrew; the auto-draw sends it too). */
+  applyYouDrew(data) {
+    if (!this.draw) this.draw = { drawn: [], viewerDrawOrder: null };
+    if (data?.drawOrder) this.draw.viewerDrawOrder = data.drawOrder;
+    this.setHasDrawn(true);
   }
 
   /**
@@ -990,6 +1017,19 @@ export class GameState {
     this.isBidding = ['DEALING', 'BIDDING', 'REDEAL'].includes(snap.stage);
     if (deal) this.phase = this.isBidding ? PHASE.BIDDING : PHASE.PLAYING;
     else if (['CREATED', 'DRAWING', 'DRAW_RESOLVING'].includes(snap.stage)) this.phase = PHASE.DRAW;
+    // the draw so far (a rejoin or a spectator mid-draw sees the cards drawn)
+    if (['DRAWING', 'DRAW_RESOLVING'].includes(snap.stage) && snap.draw && Array.isArray(snap.draw.drawn)) {
+      this.draw = {
+        drawn: snap.draw.drawn
+          .filter((d) => d && d.drawOrder >= 1 && d.drawOrder <= 4 && d.username)
+          .map((d) => ({ drawOrder: d.drawOrder, username: d.username, card: d.card ? { suit: d.card.suit, rank: d.card.rank } : null }))
+          .sort((a, b) => a.drawOrder - b.drawOrder),
+        viewerDrawOrder: snap.draw.viewerDrawOrder ?? null,
+      };
+      if (!this.isSpectator) this.hasDrawn = this.draw.viewerDrawOrder !== null;
+    } else {
+      this.draw = null;
+    }
 
     this.bids = {};
     const byPos = snap.bids?.byPosition || [];
@@ -1180,6 +1220,9 @@ export class GameState {
       score: { team: this.teamScore, opp: this.oppScore },
       hsi: position ? this.hsiValues[position] : undefined,
       playerData: this.playerData,
+      draw: this.draw && ['DRAWING', 'DRAW_RESOLVING'].includes(this.stage)
+        ? { drawn: this.draw.drawn.map((d) => ({ ...d, card: d.card ? { ...d.card } : null })), viewerDrawOrder: this.draw.viewerDrawOrder, hasDrawn: !!this.hasDrawn }
+        : null,
       watching: { spectators: this.watching.spectators.map((w) => ({ ...w })), count: this.watching.count },
     };
   }
