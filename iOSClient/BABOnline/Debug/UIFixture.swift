@@ -178,19 +178,22 @@ enum UIFixture {
     /// `game-lobby-bots`' lobby (no server in fixture mode).
     private static weak var fixtureLobby: LobbyState?
 
-    /// The server's answer to removeBot / addBot in `game-lobby-bots`, as GameManager makes it:
-    /// removeBotFromLobby takes the bot out and clears every ready flag; addBotToLobby adds
-    /// "🤖 Bot <n>" (n = the bots already there + 1), not ready, and leaves the flags alone.
+    /// The server's answer to removeBot / addBot in `game-lobby-bots`, as GameManager makes it
+    /// (server PR #248): removeBotFromLobby takes the bot out and unreadies only the remaining
+    /// bots (the humans keep their flags); addBotToLobby adds "🤖 Bot <n>" with the lowest free
+    /// n, not ready, and leaves the flags alone.
     private static func emulateLobby(_ event: String, _ data: [String: Any]) {
         guard let lobby = fixtureLobby else { return }
         var players = lobby.players
         if event == SocketEvents.Client.removeBot {
             guard let id = data["botSocketId"] as? String, let i = players.firstIndex(where: { $0.id == id && $0.isBot }) else { return }
             players.remove(at: i)
-            for j in players.indices { players[j].isReady = false }
+            for j in players.indices where players[j].isBot { players[j].isReady = false }
         } else {
             guard players.count < 4 else { return }
-            let n = players.filter(\.isBot).count + 1
+            let taken = Set(players.filter(\.isBot).map(\.username))
+            var n = 1
+            while taken.contains(n > 1 ? "🤖 Bot \(n)" : "🤖 Bot") { n += 1 }
             botSerial += 1
             players.append(LobbyPlayer(id: "bot:fixture-\(botSerial)", username: n > 1 ? "🤖 Bot \(n)" : "🤖 Bot",
                                        pic: nil, isReady: false, isBot: true))

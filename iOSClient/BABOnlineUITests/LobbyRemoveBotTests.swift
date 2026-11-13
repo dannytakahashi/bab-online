@@ -4,7 +4,8 @@ import XCTest
 /// is not ready shows a remove control in its row, as on the web (GameLobby.js): any lobby
 /// member may tap it, it sends removeBot with the bot's socket id, and the server's answer
 /// (emulated in the `game-lobby-bots` fixture: UIFixture.emulateLobby) drops the row and
-/// clears every ready flag, so my Ready button reads Ready again. Human rows never show
+/// keeps the humans' ready flags (server PR #248), so my button still reads Unready; a bot
+/// added afterwards takes the lowest free name. Human rows never show
 /// one. Each control is a 44 pt target inside the window and, on the Duo, clear of the
 /// vertical bar.
 final class LobbyRemoveBotTests: XCTestCase {
@@ -74,20 +75,21 @@ final class LobbyRemoveBotTests: XCTestCase {
         XCTAssertFalse(app.buttons["Add Bot"].exists, "a full lobby has no Add Bot")
         shot("before", pose)
 
-        // remove one: the server's list drops it and clears the ready flags
+        // remove one: the server's list drops it; the humans stay ready
         app.buttons["Remove Bot 2"].tap()
         XCTAssertTrue(wait { Fixture.probe(app, "fixture.sent") == "removeBot:bot:fixture-2" },
                       "sent: \(Fixture.probe(app, "fixture.sent"))")
         XCTAssertTrue(wait { self.removeButtons(app).count == 1 }, "the removed bot's row is still there")
         XCTAssertEqual(removeButtons(app).first?.label, "Remove Bot")
         XCTAssertFalse(app.staticTexts["🤖 Bot 2"].exists, "the removed bot is still listed")
-        XCTAssertTrue(wait { app.buttons["Ready"].exists }, "removing a bot clears my ready flag (the Ready button follows it)")
+        XCTAssertTrue(app.buttons["Unready"].exists, "removing a bot keeps my ready flag (the button follows the server's list)")
         XCTAssertTrue(app.buttons["Add Bot"].waitForExistence(timeout: 3), "a seat is free: Add Bot is back")
         shot("removed", pose)
 
         // add one again: a new bot that is not ready, removable
         app.buttons["Add Bot"].tap()
         XCTAssertTrue(wait { self.removeButtons(app).count == 2 }, "the added bot has no remove control")
+        XCTAssertEqual(Set(removeButtons(app).map(\.label)), ["Remove Bot", "Remove Bot 2"], "the new bot takes the free name Bot 2, never a second Bot")
         XCTAssertEqual(Fixture.probe(app, "fixture.sent"), "removeBot:bot:fixture-2|addBot")
         XCTAssertFalse(app.buttons["Add Bot"].exists, "full again")
         shot("added", pose)
