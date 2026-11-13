@@ -1110,6 +1110,46 @@
     display: none;
 }
 
+/* A tab whose content is one long table (Players): only the table scrolls.
+   The toolbar and count stay in view, and the scroller has no top padding,
+   so the header sticks at a plain top: 0 in every engine (owner, Safari
+   2026-11-13: rows still peeked above the header with the section as the
+   scroller). */
+.admin-section.admin-section--table:not([hidden]) {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding-bottom: 0;
+}
+
+.admin-section--table > * {
+    flex-shrink: 0;
+}
+
+.admin-section--table > .admin-results {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 0 0 var(--space-4);
+}
+
+.admin-section--table > .admin-results .admin-table th {
+    top: 0;
+}
+
+/* a cover just above the stuck header: the scroller clips it away, so it
+   never hides the count line, but it hides any gap an engine leaves above
+   a stuck table header */
+.admin-section--table > .admin-results .admin-table th::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 100%;
+    height: var(--space-3);
+    background: inherit;
+}
+
 /* the status line and the alert line share one row: only one has text */
 .admin-status-box {
     flex-shrink: 0;
