@@ -322,6 +322,10 @@ skipped" activity instead).
 Fixture mode (Debug only): `-uiFixture <name>` seeds the app from a v2
 snapshot (or `UI_FIXTURE_SNAPSHOT`), or shows a static screen (`main-room`,
 `game-lobby`, `tournament-lobby`, `sign-in`); `game-end` adds a gameEnd.
+`game-lobby-bots` is the game lobby with two bots that are not ready (my seat
+ready): there removeBot and addBot change the list the way the server answers
+them (`UIFixture.emulateLobby`: a removal clears every ready flag) and show in
+the `fixture.sent` probe as `removeBot:<id>` / `addBot` (`LobbyRemoveBotTests`).
 No socket on any path (`SocketService.connectionsDisabled`: launch,
 foreground, Settings), no voice and no microphone prompt
 (`VoiceChatManager.voiceDisabled`, every start path, also in Xcode
@@ -717,6 +721,25 @@ bore, rejoin with B + 2B, a spectator, every viewer in the store, a reload mid
 bore hand, unknown counts), `Release12FollowupTests.swift` (`MyPipsLayoutTests`
 at every listed size and Duo pose, `RestartNoticeTests`,
 `SocketLogRedactionTests`, `AccessibilityLabelSourceTests`).
+
+## Visible changes to review on the next build (remove a bot)
+
+Owner report 2026-11-13, "no ability to remove bots from lobby once added": in
+the game lobby a bot that is not ready has an × button (a 44 pt target, left
+of its ready circle; VoiceOver "Remove Bot 2"), as on the web: any player in
+the lobby may tap it, it sends removeBot with the bot's socket id
+(`LobbyEmitter.removeBot`), and the server's playerReadyUpdate drops the row.
+Bots turn ready only when a human readies a full lobby, and every bot stays
+ready through the start, so the button is gone before a game can start
+(`LobbyPlayer.canBeRemoved`). The server clears every ready flag on a removal
+(`removeBotFromLobby`), so the Ready button now follows my flag in the
+server's list (`LobbyPlayer.readyFlag`, as the web's `isPlayerReady`): it reads
+Ready again instead of a stale Unready. Bot names stay "Bot", "Bot 2". Tests:
+`LobbyBotRemovalTests` (unit), `LobbyRemoveBotTests` (UI, `game-lobby-bots`);
+live against a local server, opt-in: `LiveLobbyBotTests` (`TEST_RUNNER_BAB_LIVE_SERVER`,
+`_USER`, `_PASS`: registers that account, adds two bots, removes one, adds
+again, readies, waits for the table).
+Server unchanged; ships with the next iOS build.
 
 ## Visible changes to review on the next build (table zoom)
 
