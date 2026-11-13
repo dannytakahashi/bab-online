@@ -2,6 +2,7 @@ import SwiftUI
 
 struct LobbyListView: View {
     @EnvironmentObject var mainRoomState: MainRoomState
+    @ObservedObject private var socketService = SocketService.shared
 
     var body: some View {
         ScrollView {
@@ -55,6 +56,8 @@ struct LobbyListView: View {
                     }
                 }
             }
+            // Join / Spectate wait for the session (SocketService.isSessionReady); the list still scrolls
+            .disabled(!socketService.isSessionReady)
         }
     }
 }
