@@ -446,10 +446,12 @@ async function handleDrawComplete(io, game) {
     if (seatLifecycle.maybeAbort(io, game)) return;
 
     // Build all arrays in position order (1, 2, 3, 4) for consistency
-    // sockets stays (iOS 1.2.0 tells a bot by its 'bot:' seat socket id and
-    // finds its own seat by it); isBot (additive, V1_REMOVALS #14) carries
-    // the same fact without a socket id, for a later iOS build to read
-    // instead. usernames[] lost its socketId (#14: read by neither client).
+    // isBot (additive, V1_REMOVALS #14): the bot: prefix of the seat socket
+    // id as a flag; iOS 1.2.0 build 5 reads it first. sockets stays for now:
+    // build 5 reads it only as fallbacks (the prefix when isBot is absent, my
+    // seat before the username, the voice glow after the username), but the
+    // TestFlight builds 3-4 tell a bot only by the prefix. usernames[] lost
+    // its socketId (#14: read by neither client).
     const orderedPositions = [];
     const orderedSockets = [];
     const orderedUsernames = [];

@@ -5402,7 +5402,7 @@
         "isBot",
         "seq"
       ],
-      "notes": "pics: the legacy value for every recipient (one room broadcast): number, null, or for a custom picture the small derived inline WebP data URL (docs/avatars.md). avatarUrls (additive, only when a rendition exists): {position: /avatar URL}, preferred by capable clients; the shipped iOS app and old web ignore it. V1_REMOVALS #14 (2026-11-12): usernames[] has no socketId (read by neither client); sockets stays, because iOS 1.2.0 tells a bot from a human by its bot: prefix and finds its own seat by it (TableReducer.positionUpdate). isBot (additive) is the same fact without a socket id, so a later iOS build can stop reading sockets; web and iOS 1.2.0 ignore it.",
+      "notes": "pics: the legacy value for every recipient (one room broadcast): number, null, or for a custom picture the small derived inline WebP data URL (docs/avatars.md). avatarUrls (additive, only when a rendition exists): {position: /avatar URL}, preferred by capable clients; the shipped iOS app and old web ignore it. V1_REMOVALS #14 (2026-11-12): usernames[] has no socketId (read by neither client); isBot (additive) is the bot: prefix of each seat socket id as a flag; iOS 1.2.0 build 5 reads it first (TableReducer.positionUpdate) and web ignores it. sockets stays for now: build 5 reads it only as fallbacks (the prefix when isBot is absent or short, my seat before the username, the voice glow after the username), web only after yourPosition / the username, and the never-shipped TestFlight builds 3-4 tell a bot only by the prefix (V1_REMOVALS #14).",
       "reserved": [
         {
           "key": "yourPosition",

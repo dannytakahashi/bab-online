@@ -8,7 +8,9 @@
  *   the spectator full state);
  * - added: positionUpdate.isBot[] (per seat, in positions order), the same
  *   fact iOS 1.2.0 takes from the seat socket's 'bot:' prefix today;
- * - kept: positionUpdate.sockets (iOS 1.2.0 still reads it), the lobby
+ * - kept: positionUpdate.sockets (iOS 1.2.0 build 5 reads isBot[] first and
+ *   the sockets only as fallbacks; TestFlight builds 3-4 read only the bot:
+ *   prefix), the lobby
  *   players' socketId (removeBot) and the voice signaling ids.
  *
  * Real handlers on stub io/sockets (gameDriver, contract guard on), the
@@ -34,6 +36,7 @@ const queueHandlers = require('../queueHandlers');
 const reconnectHandlers = require('../reconnectHandlers');
 const mainRoomHandlers = require('../mainRoomHandlers');
 const lobbyHandlers = require('../lobbyHandlers');
+const chatHandlers = require('../chatHandlers');
 const { botController } = require('../../game/bot');
 const { Phase } = require('../../game/GamePhase');
 const { makeIo, makeSocket, events } = require('../../testUtils/gameDriver');
@@ -104,7 +107,7 @@ describe('#14 socket ids on the wire', () => {
         const [pu] = events(t.log, 'positionUpdate');
         const d = pu.data;
         expect(d.positions).toEqual([1, 2, 3, 4]);
-        expect(d.sockets).toHaveLength(4); // still read by iOS 1.2.0
+        expect(d.sockets).toHaveLength(4); // kept (V1_REMOVALS #14)
         for (const u of d.usernames) expect(Object.keys(u)).toEqual(['username']);
         expect(d.isBot).toEqual(d.sockets.map((s) => s.startsWith('bot:')));
         expect(d.isBot.filter(Boolean)).toHaveLength(2);
@@ -171,5 +174,83 @@ describe('#14 socket ids on the wire', () => {
         for (const d of [contract.schema.$defs.playerInfoV1, baseline.$defs.playerInfoV1]) {
             expect(d.properties).not.toHaveProperty('socketId');
         }
+    });
+});
+
+/**
+ * iOS 1.2.0 build 5 (iOSClient/ at main 92d0c75) reads positionUpdate.isBot
+ * first and falls back to the seat socket's 'bot:' prefix per seat
+ * (TableReducer+Events.swift:252:
+ *   isBot = (i < isBot.count ? isBot[i] : nil) ?? sid.hasPrefix("bot:")).
+ * With isBot on the wire it must reach the same seat kind the prefix gave
+ * for every seat positionUpdate can carry: a connected human, a human
+ * seated in reconnect grace (dropped during the draw), a draw-phase leaver's
+ * seat (resignBot, shown as the bot persona: what a lazy human's seat looks
+ * like) and native bots (lobby, tournament and the ambient all-bot game).
+ */
+describe('#14 isBot[] agrees with the bot: prefix for every seat kind (iOS 1.2.0 build 5)', () => {
+    /** build 5's rule, per seat */
+    const build5IsBot = (pu, i) => ((Array.isArray(pu.isBot) && i < pu.isBot.length) ? pu.isBot[i] : null)
+        ?? (typeof pu.sockets?.[i] === 'string' && pu.sockets[i].startsWith('bot:'));
+    const prefixIsBot = (pu, i) => typeof pu.sockets?.[i] === 'string' && pu.sockets[i].startsWith('bot:');
+
+    async function drop(io, socket) {
+        io.sockets.sockets.delete(socket.id);
+        for (const members of io.rooms.values()) members.delete(socket.id);
+        await queueHandlers.handleDisconnect(socket, io);
+    }
+
+    test('human, human in grace, draw-phase leaver (bot persona) and native bot', async () => {
+        seq++;
+        const log = [];
+        const io = makeIo(log);
+        const ids = [1, 2, 3].map((n) => `kind${seq}-h${n}`);
+        const names = ids.map((_, i) => `kindu${seq}_${i}`);
+        ids.forEach((id, i) => {
+            gameManager.registerUser(id, names[i]);
+            mockDb.current.users._insert({ username: names[i] });
+        });
+        const bot = botController.createBot('🤖 K0', 'mary');
+        const game = gameManager.createGame([...ids, bot.socketId]);
+        botController.registerBot(game.gameId, bot);
+        const sockets = ids.map((id) => makeSocket(id, log, io));
+        sockets.forEach((s) => s.join(game.roomName));
+        gameLifecycle.beginDraw(io, game);
+        await drop(io, sockets[1]); // seated in grace
+        chatHandlers.chatMessage(sockets[2], io, { message: '/leave' }); // seated as a resignBot
+        const drew = gameHandlers.draw(sockets[0], io, { num: 0 });
+        for (let i = 0; i < 120 && game.stage !== Phase.BIDDING; i++) await jest.advanceTimersByTimeAsync(500);
+        await drew;
+        expect(game.stage).toBe(Phase.BIDDING);
+
+        const [pu] = events(log, 'positionUpdate').map((l) => l.data);
+        const kindOf = (pos) => game.seat(pos).controller;
+        const at = (name) => pu.positions.indexOf(game.seatByUsername(name));
+        expect(game.seat(game.seatByUsername(names[1]))).toMatchObject({ controller: 'human', presence: 'grace' });
+        expect(game.seat(game.seatByUsername(names[2]))).toMatchObject({ controller: 'resignBot', presence: 'gone' });
+        // the leaver's seat shows the bot persona, as a lazy human's seat does
+        expect(pu.usernames[at(names[2])].username).toMatch(/^🤖 /);
+        expect(pu.isBot[at(names[0])]).toBe(false);
+        expect(pu.isBot[at(names[1])]).toBe(false);
+        expect(pu.isBot[at(names[2])]).toBe(true);
+        expect(pu.isBot[pu.usernames.findIndex((u) => u.username === bot.username)]).toBe(true);
+        pu.positions.forEach((pos, i) => {
+            expect(build5IsBot(pu, i)).toBe(prefixIsBot(pu, i));
+            expect(pu.isBot[i]).toBe(kindOf(pos) !== 'human');
+        });
+    });
+
+    test('an all-bot table (the ambient game\'s shape): every seat a bot', async () => {
+        seq++;
+        const log = [];
+        const io = makeIo(log);
+        const bots = ['🤖 A0', '🤖 A1', '🤖 A2', '🤖 A3'].map((n, i) => botController.createBot(n, ['mary', 'sharon', 'mike', 'dan'][i]));
+        const game = gameManager.createGame(bots.map((b) => b.socketId));
+        bots.forEach((b) => botController.registerBot(game.gameId, b));
+        gameLifecycle.beginDraw(io, game);
+        for (let i = 0; i < 120 && game.stage !== Phase.BIDDING; i++) await jest.advanceTimersByTimeAsync(500);
+        const [pu] = events(log, 'positionUpdate').map((l) => l.data);
+        expect(pu.isBot).toEqual([true, true, true, true]);
+        pu.positions.forEach((_, i) => expect(build5IsBot(pu, i)).toBe(prefixIsBot(pu, i)));
     });
 });

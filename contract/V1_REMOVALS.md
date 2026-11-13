@@ -628,12 +628,9 @@ and the legacy states' `players[].socketId` (rejoinSuccess, restorePlayerState,
 the spectator full state, all snapshot carriers since #9: `snapshotHandlers.js`
 `carrierPlayers`; `$defs.playerInfoV1`). Added: `positionUpdate.isBot[]`
 (per seat, in `positions` order, `true` for a `bot:` seat socket: exactly what
-iOS 1.2.0 derives from `sockets` today), so a later iOS build can read it and
-`sockets` can go after that build is the oldest one left. Kept, because a
-client still needs them: `positionUpdate.sockets` (iOS 1.2.0
-`TableReducer+Events.swift` positionUpdate: `isBot = sid.hasPrefix("bot:")`
-sets the seat's bot / controller, and `sid == me.playerId` finds my seat with
-the username as the fallback), lobby `players[].socketId` (removeBot: web
+the `bot:` prefix of `sockets` says), which iOS 1.2.0 build 5 reads first
+(below). Kept: `positionUpdate.sockets` (below: build 5 reads it only as
+fallbacks, so it could go, but not in this PR), lobby `players[].socketId` (removeBot: web
 GameLobby.js `botSocketId`, iOS Lobby.swift member id), the voice signaling
 ids, and the tournament players' `socketId` / `creatorSocketId` (not part of
 this entry). Re-checked readers (BASE eeeeb23): web reads none of the removed
@@ -652,6 +649,56 @@ not needed (VoicePeerSeatTests.testVoicePeersMapToSeatsByUsername runs with
 `socketBySeat` empty). Tests: `v1SocketIds.test.js`; wireGolden's
 `v1Projection` puts the ids back from `positionUpdate.sockets` (the golden
 still pins them byte for byte).
+
+**`positionUpdate.sockets` and iOS 1.2.0 build 5 (re-checked 2026-11-13,
+`iOSClient/` at main 92d0c75, the submitted build; build 4, which read only
+the `bot:` prefix, was pulled from review).** Build 5 decodes
+`PositionUpdate.isBot: [Bool]?` (WirePayloads.swift:24) and reads `sockets`
+in one place, `TableReducer.positionUpdate` (TableReducer+Events.swift:243),
+as `sid = sockets[i]` (:247) for three things:
+- bot or human (:252): `isBot[i]` when present, the `bot:` prefix of `sid`
+  only when `isBot` is absent or shorter than `positions` (Build5Tests
+  PositionUpdateIsBotTests). This server always sends `isBot` with one entry
+  per seat, computed from the same seat socket id (`game.isBot(socketId)`,
+  gameHandlers.js handleDrawComplete), so with `isBot` present build 5
+  reaches the same seat kind as the prefix for every seat positionUpdate can
+  carry: a connected human, a human seated in reconnect grace (dropped
+  during the draw), a draw-phase leaver's resignBot (named and pictured as
+  its bot persona, as a lazy human's seat is; positionUpdate is sent once,
+  at seating, so a /lazy seat never appears in it as one), lobby /
+  tournament bots and the ambient all-bot game (v1SocketIds.test.js "isBot[]
+  agrees with the bot: prefix for every seat kind").
+- my own seat (:265-270): `sid == me.playerId` first, then my username
+  (`name == me.username` while the viewer has no seat yet; a new game always
+  starts from a fresh table with no seat, `enterGameContext`,
+  TableReducer.swift:124-132), then `yourPosition` (never sent). The seat
+  gameStart's `position` sets it again at every deal (:285-288) and every
+  snapshot carries the viewer (TableReducer+Snapshot.swift:47). Build 5's
+  own `Build5Tests.swift` `testIsBotWithoutSockets` seats its bots and finds
+  my seat from a positionUpdate with no `sockets` at all.
+- the speaking glow (:263, `socketBySeat`): read only by
+  `TableRenderModel.seat(forVoicePeer:username:)` (TableRenderModel.swift:168)
+  after the username match (:165); every voice peer build 5 creates has a
+  username (VoiceSocketHandler.swift:31-32, :43; voiceOffer's from the
+  server, :74).
+Nothing else in build 5 reads it (`grep sockets iOSClient/BABOnline`:
+WirePayloads.swift:21 and these lines). Web on main reads it only as the
+last fallback for my seat (GameState.js:1077-1080, after `yourPosition` and
+the username) and for the glow (`playerData.socket`, GameState.js:400 ->
+`voice/speakingSlot.js:40-41`, after the owner / username lookup).
+
+What dropping `sockets` would need (not done here): (1) the schema entry,
+the hand-edited baseline and wireGolden's `v1Projection` (it rebuilds the
+fcdd885 ids from `sockets`: wireGolden.test.js:122-130, :217-218; it would
+need the ids from another source, e.g. `game.positions`, as `v1Projection`
+lines, never a regenerated golden); (2) the iOS event fixtures re-recorded
+and build 5's replay of them re-run with `socketBySeat` empty; (3) for build
+5 nothing else, since every read above falls back to isBot / the username /
+gameStart / the snapshot; but TestFlight builds 3 and 4 (never shipped,
+still not gated: MIN_IOS_BUILD 3) read only the `bot:` prefix, so without
+`sockets` they would show every bot as a human seat: drop it only once the
+owner accepts that for TestFlight or MIN_IOS_BUILD is 5; (4) a pre-#233 web
+tab keeps `sockets` only in `playerData.socket` for its glow (report only).
 
 `positionUpdate.sockets` / `usernames[].socketId`, `playerDrew.socketId`,
 lobby `players[].socketId` where replaceable (removeBot needs the bot's id
@@ -1003,7 +1050,8 @@ step, in this order; nothing is removed by the gate PR itself.
   pre-#233 web tabs; #9.)
 - **#14 socket ids on the wire**: 1.1.0 reads `positionUpdate.sockets` and
   `players[].socketId` for voice. (Done 2026-11-12 except
-  `positionUpdate.sockets`, which iOS 1.2.0 still reads; `isBot[]` added.)
+  `positionUpdate.sockets`, kept for now; `isBot[]` added, and iOS 1.2.0
+  build 5 reads it first: #14.)
 - **#19 inline avatar images**: 1.1.0 never sends `clientHello` (no
   `avatarUrl` cap), so it renders only the inline pictures. Needs an iOS
   build that sends the cap, then the 2-week clientHello check for iOS.
@@ -1052,14 +1100,16 @@ above; after it, what 1.2.0 itself still reads is the remaining blocker:
 - **#14 socket ids on the wire**: the speaking glows map a voice peer to its
   seat by the peer's username (voicePeerList / voiceOffer carry it;
   `TableRenderModel.seat(forVoicePeer:username:)`), the seat socket id only
-  as a fallback. Still read by 1.2.0: `positionUpdate.sockets` tells a native
-  bot (`bot:` prefix) from a human and finds my own seat (a username match is
-  the fallback), and the voice signaling itself targets socket ids
+  as a fallback. The voice signaling itself targets socket ids
   (`voiceOffer.targetSocketId`, `fromSocketId`), which #14 does not remove.
-  Before dropping `positionUpdate.sockets`, add a seat kind to positionUpdate
-  (e.g. `isBot[]`) and have a later iOS build read it. (2026-11-12: the rest
-  of #14 is done and `isBot[]` is on the wire; a build after 1.2.0 still has
-  to read it, and find my seat by username, before `sockets` can go.)
+  `positionUpdate.sockets`: build 5 (the submitted 1.2.0) reads
+  `positionUpdate.isBot[]` first and the `bot:` prefix only when it is
+  absent or short (TableReducer+Events.swift:252), finds my own seat by
+  socket id, then by username (:265-270), and uses the ids for the glow only
+  after the username (TableRenderModel.swift:165-168), so it no longer needs
+  `sockets`; the rest of #14 is done and `isBot[]` is on the wire. `sockets`
+  stays for now: TestFlight builds 3 and 4 read only the prefix (#14, "What
+  dropping `sockets` would need").
 - **#10 `cardPlayed.trump`**, **#12 `chatMessage.type`**, **#13
   `recentMessages`**: already safe for 1.1.0; 1.2.0 reads `trumpBroken ??
   trump`, routes chat on `isSpectator` (`type` only as the older server's
