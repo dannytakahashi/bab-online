@@ -1,12 +1,12 @@
 import XCTest
 
-/// The draw for deal (DrawPhaseView) in its four fixture states (UIFixture.drawStates
+/// The draw for deal (DrawPhaseView) in its fixture states (UIFixture.drawStates
 /// plus the contract's draw-in-progress): before anyone draws, 2 of 4 drawn, all
-/// drawn, the teams. Screenshots are kept attachments named
+/// drawn, the teams, all drawn with two long names, and 2 of 4 seen by a spectator. Screenshots are kept attachments named
 /// `draw-<device>-<state>[-landscape]` (export with iOSClient/scripts/ios-screenshots.sh);
 /// the layout itself is checked through the view's "draw.layoutCheck" probe.
 final class DrawPhaseUITests: XCTestCase {
-    static let states = ["draw-start", "draw-in-progress", "draw-all", "draw-teams"]
+    static let states = ["draw-start", "draw-in-progress", "draw-all", "draw-teams", "draw-long", "draw-spectator"]
     /// The largest Dynamic Type size (the view caps what it uses itself).
     static let ax5 = ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
 
@@ -91,6 +91,11 @@ final class DrawPhaseUITests: XCTestCase {
         let waiting = app.descendants(matching: .any)["draw.slot.3"]
         XCTAssertTrue(waiting.waitForExistence(timeout: 5))
         XCTAssertEqual(waiting.label, "Waiting for a player to draw")
+        app.terminate()
+        app = open("draw-spectator")
+        XCTAssertTrue(app.descendants(matching: .any)["draw.slot.0"].waitForExistence(timeout: 5), "a spectator sees the draws")
+        XCTAssertFalse(app.buttons["Draw a card"].exists, "a spectator has no deck to draw from")
+        XCTAssertEqual(app.descendants(matching: .any)["draw.slot.0"].label, "fay", "nobody's slot is the spectator's")
         app.terminate()
     }
 }

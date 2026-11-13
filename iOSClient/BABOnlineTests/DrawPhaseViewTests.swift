@@ -13,12 +13,23 @@ final class DrawPhaseViewTests: XCTestCase {
 
     enum Stage: String, CaseIterable { case start, mid, all, teams }
 
-    /// A store in the draw from the draw-in-progress fixture, the viewer fay (she drew first).
-    private func store(_ stage: Stage) throws -> GameState {
+    /// The third and fourth drawers' names: the stock ones, or two that shrink in a phone's slot.
+    static let stockNames = ("eve", "Bartholomew_Longname")
+    static let longNames = ("JoAnn Jameson", "Christopher Johnson1")
+
+    /// A store in the draw from the draw-in-progress fixture, the viewer fay (she drew
+    /// first), or (`spectator`) a spectator, who has no draw of their own.
+    private func store(_ stage: Stage, names: (String, String) = stockNames, spectator: Bool = false) throws -> GameState {
         let s = GameState()
-        s.apply(.local(.identity(username: "fay", playerId: "sid-fay")))
+        s.apply(.local(.identity(username: spectator ? "sam" : "fay", playerId: spectator ? "sid-sam" : "sid-fay")))
         let snap = try T.snapshot("draw-in-progress") { raw in
             var draw = raw["draw"] as! [String: Any]
+            if spectator {
+                draw["viewerDrawOrder"] = NSNull()  // as snapshotV2 sends a spectator
+                var viewer = raw["viewer"] as! [String: Any]
+                viewer["role"] = "spectator"
+                raw["viewer"] = viewer
+            }
             switch stage {
             case .start:
                 draw["drawn"] = [Any]()
@@ -27,8 +38,8 @@ final class DrawPhaseViewTests: XCTestCase {
                 break
             case .all, .teams:
                 draw["drawn"] = (draw["drawn"] as! [[String: Any]]) + [
-                    ["drawOrder": 3, "username": "eve", "isBot": false, "card": T.card("diamonds", "7"), "position": NSNull()],
-                    ["drawOrder": 4, "username": "Bartholomew_Longname", "isBot": false, "card": T.card("joker", "HI"), "position": NSNull()],
+                    ["drawOrder": 3, "username": names.0, "isBot": false, "card": T.card("diamonds", "7"), "position": NSNull()],
+                    ["drawOrder": 4, "username": names.1, "isBot": false, "card": T.card("joker", "HI"), "position": NSNull()],
                 ]
             }
             raw["draw"] = draw
@@ -83,6 +94,53 @@ final class DrawPhaseViewTests: XCTestCase {
                 }
             }
         }
+    }
+
+    /// The four cards share one top edge whatever their names do: a long name shrinks
+    /// (minimumScaleFactor) and its line with it, which must not lift its card (review
+    /// 2026-11-12: "JoAnn Jameson" / "Christopher Johnson1" cards sat 3.5-4 pt higher).
+    func testCardsShareOneTopEdge() throws {
+        var sawShrunkName = false
+        for size in Self.sizes {
+            for type in [DynamicTypeSize.large, .xxxLarge, .accessibility5] {
+                for names in [Self.stockNames, Self.longNames] {
+                    host(try store(.all, names: names), size, type: type)
+                    let f = DrawLayoutProbe.lastFrames
+                    let what = "\(tag(size, .all, type)) \(names.1)"
+                    let top = try XCTUnwrap(f["card.0"], what).minY
+                    for i in 1..<4 {
+                        let card = try XCTUnwrap(f["card.\(i)"], "card.\(i) \(what)")
+                        XCTAssertEqual(card.minY, top, accuracy: 0.5, "card.\(i) \(what)")
+                    }
+                    let short = try XCTUnwrap(f["name.0"]).height, long = try XCTUnwrap(f["name.3"]).height
+                    if long < short - 1 { sawShrunkName = true }
+                    XCTAssertEqual(DrawLayoutProbe.lastCheck, "ok", what)
+                }
+            }
+        }
+        XCTAssertTrue(sawShrunkName, "some size shrinks a long name (else this test proves nothing)")
+    }
+
+    /// A spectator never draws (snapshotV2 sends them no viewerDrawOrder and the server
+    /// ignores their `draw`): they see the draws arrive, never the deck or its button.
+    func testSpectatorSeesTheDrawsNotTheDeck() throws {
+        for stage in [Stage.start, .mid, .all] {
+            let s = try store(stage, spectator: true)
+            XCTAssertTrue(s.isSpectator)
+            XCTAssertFalse(s.hasDrawn)
+            host(s, CGSize(width: 390, height: 844))
+            let f = DrawLayoutProbe.lastFrames
+            XCTAssertNil(f["deck"], "\(stage): no deck for a spectator")
+            XCTAssertNil(f["prompt"], "\(stage): no Tap to Draw")
+            for i in 0..<4 { XCTAssertNotNil(f["card.\(i)"], "\(stage): slot \(i) shows") }
+            XCTAssertEqual(DrawLayoutProbe.lastCheck, "ok", "\(stage)")
+        }
+        // a draw that arrives while they watch shows in its slot
+        let s = try store(.mid, spectator: true)
+        host(s, CGSize(width: 390, height: 844))
+        XCTAssertEqual(s.drawResults.count, 2)
+        s.apply(T.ev("playerDrew", ["username": "eve", "card": T.card("diamonds", "7"), "drawOrder": 3, "seq": 4]))
+        XCTAssertEqual(s.drawResults.count, 3)
     }
 
     /// Nothing leaves the overlay's safe area or overlaps anything else, up to the
@@ -140,6 +198,39 @@ final class DrawPhaseViewTests: XCTestCase {
         XCTAssertEqual(image.size.width * image.scale, CardTextureGenerator.pixelSize().width)
         XCTAssertEqual(image.size, TableLayout.maxCardPoints, "the image is the hand card's size in points")
         XCTAssertTrue(image === CardTextureGenerator.image(for: Card(suit: .spades, rank: .ace)), "cached")
+    }
+
+    /// The draw's images are the textures' source bitmaps rendered once, not copied back
+    /// out of SpriteKit: `SKTexture.cgImage()` costs 100x a render, on the main thread
+    /// in the frame a card arrives (review 2026-11-12). With the textures already cached
+    /// (as after prewarm), a new card's image costs about one render, and its pixels are
+    /// the texture's.
+    func testImagesAreRenderedNotReadBack() throws {
+        let cards = Array(CardTextureGenerator.allCards.prefix(10))
+        var render: [Double] = [], image: [Double] = []
+        func time(_ work: () -> Void) -> Double {
+            let t = CFAbsoluteTimeGetCurrent(); work(); return CFAbsoluteTimeGetCurrent() - t
+        }
+        for card in cards + cards {  // twice: the first pass warms the code paths
+            _ = CardTextureGenerator.texture(for: card)
+            CardTextureGenerator.removeImagesForTesting()
+            render.append(time { _ = CardTextureGenerator.renderFaceForTesting(card) })
+            image.append(time { _ = CardTextureGenerator.image(for: card) })
+        }
+        func median(_ xs: [Double]) -> Double { xs.suffix(cards.count).sorted()[cards.count / 2] }
+        print("[DrawArt] image(for:) median \(median(image) * 1000) ms, a render \(median(render) * 1000) ms")
+        XCTAssertLessThan(median(image), 3 * median(render) + 0.002, "a new card's image is one render, not a SpriteKit readback")
+
+        // the same pixels the table's texture shows
+        let card = Card(suit: .hearts, rank: .king)
+        let mine = try XCTUnwrap(CardTextureGenerator.image(for: card).cgImage)
+        let table = CardTextureGenerator.texture(for: card).cgImage()
+        XCTAssertEqual(mine.width, table.width)
+        XCTAssertEqual(mine.height, table.height)
+        let n = (mine.width, mine.height)
+        let a = pixels(mine, size: n), b = pixels(table, size: n)
+        let off = stride(from: 0, to: a.count, by: 4).filter { p in (0..<4).contains { abs(Int(a[p + $0]) - Int(b[p + $0])) > 2 } }.count
+        XCTAssertEqual(off, 0, "the image's pixels are the texture's")
     }
 
     /// The flips and the teams keep the timings SHIPPED_IOS_FLOORS was measured against.

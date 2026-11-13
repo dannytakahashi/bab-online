@@ -22,9 +22,10 @@ struct DrawPhaseView: View {
     @State private var probeFrames: [String: CGRect] = [:]
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// The results row instead of the deck: after my tap, or when I had already
-    /// drawn before this view appeared (a rejoin or a relaunch mid-draw).
-    private var showsResults: Bool { tapped || gameState.hasDrawn }
+    /// The results row instead of the deck: after my tap, when I had already drawn
+    /// before this view appeared (a rejoin or a relaunch mid-draw), or for a spectator
+    /// (who never draws: the server ignores a spectator's `draw`, so the deck is not theirs).
+    private var showsResults: Bool { tapped || gameState.hasDrawn || gameState.isSpectator }
 
     var body: some View {
         GeometryReader { geo in
@@ -182,15 +183,26 @@ struct DrawPhaseView: View {
         return VStack(spacing: 0) {
             DrawAvatar(name: result?.username, pictureKey: result.flatMap { pictureKey(for: $0.username) }, isLocal: isLocal)
                 .drawProbe("avatar.\(index)")
-            Text(result?.username ?? "Waiting")
+            // The name row is one unscaled line tall in every slot (a hidden "Ag" at the
+            // name's font sets it, the name sits over it): a long name that shrinks to
+            // nameMinScale also gets a shorter line, which would lift its card above the others.
+            Text(verbatim: "Ag")
                 .themeFont(Theme.TypeScale.sm, weight: Theme.Weight.semibold, relativeTo: .subheadline)
-                .foregroundStyle(result == nil ? Theme.textDim : isLocal ? Theme.primary : Theme.textPrimary)
                 .lineLimit(1)
-                .truncationMode(.tail)
-                .minimumScaleFactor(DrawMetrics.nameMinScale)
-                .dynamicTypeSize(...DrawMetrics.nameTypeCap)  // a fixed-width slot, like a seat's name
-                .background(alignment: .topLeading) { idealNameProbe(result?.username, index) }
-                .drawProbe("name.\(index)")
+                .dynamicTypeSize(...DrawMetrics.nameTypeCap)
+                .hidden()
+                .frame(maxWidth: .infinity)
+                .overlay {
+                    Text(result?.username ?? "Waiting")
+                        .themeFont(Theme.TypeScale.sm, weight: Theme.Weight.semibold, relativeTo: .subheadline)
+                        .foregroundStyle(result == nil ? Theme.textDim : isLocal ? Theme.primary : Theme.textPrimary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .minimumScaleFactor(DrawMetrics.nameMinScale)
+                        .dynamicTypeSize(...DrawMetrics.nameTypeCap)  // a fixed-width slot, like a seat's name
+                        .background(alignment: .topLeading) { idealNameProbe(result?.username, index) }
+                        .drawProbe("name.\(index)")
+                }
                 .padding(.horizontal, Theme.Space.s1)
                 .padding(.top, Theme.Space.s2)
             Group {
@@ -304,7 +316,7 @@ struct DrawPhaseView: View {
     // MARK: - Actions
 
     private func handleTap() {
-        guard !gameState.hasDrawn else { return }
+        guard !gameState.hasDrawn, !gameState.isSpectator else { return }
         tapped = true
         GameEmitter.draw(cardIndex: Int.random(in: 0..<54))
     }
@@ -421,8 +433,9 @@ private struct DrawAvatar: View {
 /// What the draw's layout tests read (DEBUG builds): the frames of the title,
 /// rules line, deck, prompt, every slot's avatar / name / card and the teams
 /// panel in the overlay's space, and `check`: "ok", or what is wrong (a name
-/// closer than Theme.Space.s3 to its card, a short name cut off, anything outside
-/// the overlay's safe area, two parts overlapping). Release builds record nothing.
+/// closer than Theme.Space.s3 to its card, a short name cut off, the cards not on
+/// one line, anything outside the overlay's safe area, two parts overlapping).
+/// Release builds record nothing.
 enum DrawLayoutProbe {
     static let space = "draw"
 
@@ -446,6 +459,13 @@ enum DrawLayoutProbe {
             // a short name shown in full (at worst shrunk to nameMinScale), not cut off
             if let ideal = frames["nameIdeal.\(i)"], ideal.width * DrawMetrics.nameMinScale > name.width + 0.5 {
                 bad.append("name.\(i) cut off (\(Int(name.width)) of \(Int(ideal.width)) pt)")
+            }
+        }
+        // the row's cards share one top edge, whatever their names do
+        let cards = (0..<4).compactMap { i in frames["card.\(i)"].map { (i, $0) } }
+        if let first = cards.first {
+            for (i, card) in cards.dropFirst() where abs(card.minY - first.1.minY) > 0.5 {
+                bad.append("card.\(i) top \(card.minY) not level with card.\(first.0) \(first.1.minY)")
             }
         }
         let blocks = ["title", "rules", "deck", "prompt"] + (0..<4).flatMap { ["avatar.\($0)", "name.\($0)", "card.\($0)"] }

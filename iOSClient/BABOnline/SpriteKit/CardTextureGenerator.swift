@@ -48,8 +48,9 @@ enum CardTextureGenerator {
         return CGSize(width: (pts.width * scale).rounded(.up), height: (pts.height * scale).rounded(.up))
     }
 
-    /// Every face the game deals: 52 + HI / LO jokers. (The card back is not prewarmed:
-    /// no table sprite uses it; only the draw for deal shows it, through `cardBackImage()`.)
+    /// Every face the game deals: 52 + HI / LO jokers. (No table sprite uses the card
+    /// back's texture; only the draw for deal shows the back, through `cardBackImage()`,
+    /// which `prewarm()` renders as that image.)
     static let allCards: [Card] = {
         let ranks: [Rank] = [.two, .three, .four, .five, .six, .seven, .eight, .nine, .ten, .jack, .queen, .king, .ace]
         let suits: [Suit] = [.spades, .hearts, .diamonds, .clubs]
@@ -119,21 +120,28 @@ enum CardTextureGenerator {
         return store(tex, for: key)
     }
 
-    /// The face as a UIImage for SwiftUI (DrawPhaseView): the cached texture's own
-    /// bitmap at the screen scale, so the draw shows the table's card art pixel for
-    /// pixel (`pixelSize()`: sharp up to `TableLayout.maxCardPoints`), never a second drawing.
+    /// The face as a UIImage for SwiftUI (DrawPhaseView): the bitmap the textures are
+    /// made from (renderFace at the screen scale), so the draw shows the table's card art
+    /// pixel for pixel (`pixelSize()`: sharp up to `TableLayout.maxCardPoints`).
+    /// Rendered here (about a millisecond), not read back from the SKTexture:
+    /// `SKTexture.cgImage()` copies the bitmap back out of SpriteKit, 100x the render's
+    /// cost, on the main thread in the frame a card arrives.
     static func image(for card: Card) -> UIImage {
-        uiImage(card.id) { texture(for: card) }
+        uiImage(card.id) { renderFace(card, scale: displayScale) }
     }
 
-    /// The card back as a UIImage (the draw's deck and its face-down slots).
+    /// The card back as a UIImage (the draw's deck and its face-down slots); `prewarm()`
+    /// renders it, so the draw's first frame finds it cached.
     static func cardBackImage() -> UIImage {
-        uiImage(backKey) { cardBackTexture() }
+        uiImage(backKey) { renderCardBack(scale: displayScale) }
     }
 
-    private static func uiImage(_ key: String, _ texture: () -> SKTexture) -> UIImage {
+    /// `render` gives a scale-1 bitmap of `pixelSize()`; the cached UIImage wraps the
+    /// same pixels at the screen scale (`pixelSize() / displayScale` points).
+    private static func uiImage(_ key: String, _ render: () -> UIImage) -> UIImage {
         if let hit = images.object(forKey: key as NSString) { return hit }
-        let image = UIImage(cgImage: texture().cgImage(), scale: displayScale, orientation: .up)
+        let bitmap = render()
+        let image = bitmap.cgImage.map { UIImage(cgImage: $0, scale: displayScale, orientation: .up) } ?? bitmap
         images.setObject(image, forKey: key as NSString)
         return image
     }
@@ -155,6 +163,7 @@ enum CardTextureGenerator {
             return
         }
         DispatchQueue.global(qos: .utility).async {
+            _ = cardBackImage()  // the draw for deal's deck (NSCache is thread safe)
             for card in allCards where cached(card.id) == nil {
                 _ = store(makeTexture(renderFace(card, scale: scale)), for: card.id)
                 #if DEBUG
@@ -179,6 +188,12 @@ enum CardTextureGenerator {
 
     /// Tests only: the cached texture for a key (a card id), without rendering.
     static func cachedTexture(_ id: String) -> SKTexture? { cached(id) }
+
+    /// Tests only: forget the SwiftUI images (`image(for:)`, `cardBackImage()`), keep the textures.
+    static func removeImagesForTesting() { images.removeAllObjects() }
+
+    /// Tests only: a face rendered now, as the textures' source bitmap (nothing cached).
+    static func renderFaceForTesting(_ card: Card) -> UIImage { renderFace(card, scale: displayScale) }
     #endif
 
     private static func renderFace(_ card: Card, scale: CGFloat) -> UIImage {

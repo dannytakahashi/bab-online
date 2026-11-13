@@ -72,7 +72,8 @@ enum UIFixture {
                 snapDict = raw?["snapshot"] as? [String: Any] ?? [:]
             }
             // an entrant has no seat yet: the viewer is the entrant whose draw the snapshot names
-            let drawer = (snapDict["draw"] as? [String: Any]).flatMap { d in
+            // (a spectator is none of them)
+            let drawer = name == "draw-spectator" ? nil : (snapDict["draw"] as? [String: Any]).flatMap { d in
                 (d["drawn"] as? [[String: Any]])?.first { $0["drawOrder"] as? Int == d["viewerDrawOrder"] as? Int }?["username"] as? String
             }
             if drawStates.contains(name) { editDraw(name, &snapDict) }
@@ -107,20 +108,33 @@ enum UIFixture {
     /// `draw-in-progress` (2 of 4 drawn, the viewer fay among them): `draw-start`
     /// nobody has drawn, `draw-all` all four, `draw-teams` all four and then
     /// teamsAnnounced 3 s after launch (the overlay shows it 0.8 s after that and, in
-    /// this fixture only, keeps it up: `holdsTeams`).
-    static let drawStates: Set<String> = ["draw-start", "draw-all", "draw-teams"]
+    /// this fixture only, keeps it up: `holdsTeams`), `draw-long` all four with two
+    /// names long enough to shrink (the cards must stay on one line), `draw-spectator`
+    /// 2 of 4 drawn seen by a spectator (no deck: they never draw).
+    static let drawStates: Set<String> = ["draw-start", "draw-all", "draw-teams", "draw-long", "draw-spectator"]
     static var holdsTeams: Bool { name == "draw-teams" }
 
     private static func editDraw(_ name: String, _ snap: inout [String: Any]) {
         guard var draw = snap["draw"] as? [String: Any] else { return }
+        if name == "draw-spectator" {
+            // as the server sends it to a spectator: no draw of theirs (snapshotV2 viewerDrawOrder)
+            draw["viewerDrawOrder"] = NSNull()
+            snap["draw"] = draw
+            var viewer = snap["viewer"] as? [String: Any] ?? [:]
+            viewer["role"] = "spectator"
+            snap["viewer"] = viewer
+            return
+        }
         let start = name == "draw-start"
+        // 20 characters is the sign-up maximum; older accounts keep longer display names
+        let (third, fourth) = name == "draw-long" ? ("JoAnn Jameson", "Christopher Johnson1") : ("eve", "gus")
         if start {
             draw["drawn"] = [Any]()
             draw["viewerDrawOrder"] = NSNull()
         } else {
             let more: [[String: Any]] = [
-                ["drawOrder": 3, "username": "eve", "isBot": false, "card": ["suit": "diamonds", "rank": "7"], "position": NSNull()],
-                ["drawOrder": 4, "username": "gus", "isBot": false, "card": ["suit": "joker", "rank": "HI"], "position": NSNull()],
+                ["drawOrder": 3, "username": third, "isBot": false, "card": ["suit": "diamonds", "rank": "7"], "position": NSNull()],
+                ["drawOrder": 4, "username": fourth, "isBot": false, "card": ["suit": "joker", "rank": "HI"], "position": NSNull()],
             ]
             draw["drawn"] = (draw["drawn"] as? [[String: Any]] ?? []) + more
         }
@@ -129,6 +143,7 @@ enum UIFixture {
         snap["entrants"] = (snap["entrants"] as? [[String: Any]] ?? []).map { e in
             var e = e
             e["hasDrawn"] = !start
+            if let u = e["username"] as? String { e["username"] = u == "eve" ? third : u == "gus" ? fourth : u }
             return e
         }
     }
