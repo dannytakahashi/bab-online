@@ -61,9 +61,9 @@ final class TableAccessibilityTests: XCTestCase {
         let bids = app.otherElements.matching(NSPredicate(format: "label BEGINSWITH 'Bid '"))
         let inBids = bids.allElementsBoundByIndex.reduce(0) { $0 + $1.images.matching(identifier: "target").count }
         XCTAssertEqual(app.images.matching(identifier: "target").count, inBids, "\(tag): a bid icon outside its Bid element")
-        // the Leave / Exit icon sits inside the one "Leave game" / "Exit game" button
+        // the Exit icon sits inside the one "Exit game" button (seat and spectator alike)
         let leave = app.buttons["leave"]
-        XCTAssertTrue(["Leave game", "Exit game"].contains(leave.label), "\(tag): \(leave.label)")
+        XCTAssertEqual(leave.label, "Exit game", "\(tag)")
         XCTAssertEqual(app.images.matching(identifier: "rectangle.portrait.and.arrow.right").count,
                        leave.images.matching(identifier: "rectangle.portrait.and.arrow.right").count, "\(tag): the Leave icon outside its button")
     }
@@ -80,7 +80,7 @@ final class TableAccessibilityTests: XCTestCase {
         // the bid totals read "Bid ..."
         XCTAssertEqual(app.otherElements.matching(NSPredicate(format: "label BEGINSWITH 'Bid '")).count, 2)
         XCTAssertTrue(app.otherElements["Bid 2/4"].exists)
-        XCTAssertEqual(app.buttons["leave"].label, "Leave game")
+        XCTAssertEqual(app.buttons["leave"].label, "Exit game")
         // the scene's cards and seats read as what they are
         let labels = Set(elements(app).map(\.label))
         for spoken in ["Queen of Clubs", "High Joker", "6 of Clubs", "4 of Clubs", "kim", "jon", "hal"] {
