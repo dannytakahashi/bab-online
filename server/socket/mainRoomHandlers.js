@@ -10,7 +10,7 @@ const { Controller, Presence } = require('../game/SeatState');
 const seatLifecycle = require('./seatLifecycle');
 const { spectatorJoinState, snapshotFor } = require('./snapshotHandlers');
 const { hasCap } = require('./clientInfo');
-const { releaseStaleLobbySeat } = require('./lobbyHandlers');
+const { releaseStaleLobbySeat, leaveLobby } = require('./lobbyHandlers');
 
 /**
  * Handle player joining the main room
@@ -19,6 +19,16 @@ function joinMainRoom(socket, io) {
     // Back in the main room: a pure spectator stops watching its game
     // (never affects a seat owner's socket)
     gameManager.leaveSpectating(io, socket.id);
+
+    // Still in a lobby: leave it as the Leave button does (leftLobby + mainRoomJoined
+    // to this socket, lobbyPlayerLeft to the others). GameManager.joinMainRoom alone
+    // dropped the seat silently: an iOS tap on New Game right after a reconnect,
+    // before the restore's joinMainRoom, left the app on a lobby screen whose Leave
+    // the server then refused (owner, 2026-11-12, buttons dead after a long background)
+    if (gameManager.playerLobbies.has(socket.id) && gameManager.getUserBySocketId(socket.id)) {
+        leaveLobby(socket, io);
+        return;
+    }
 
     const result = gameManager.joinMainRoom(socket.id);
 
