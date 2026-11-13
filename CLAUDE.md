@@ -80,6 +80,7 @@ bab-online/
 │
 └── docs/
     ├── claude/                # Per-area Claude docs that never auto-load (see "Where to read")
+    ├── BACKLOG.md             # Known, deferred issues and small ideas (check before fixing a "new" nit)
     └── RULES.md               # Complete game rules
 ```
 
