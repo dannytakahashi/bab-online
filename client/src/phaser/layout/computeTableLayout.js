@@ -956,8 +956,10 @@ const ANY_CHOICE = {
 
 /**
  * What a table grown past S_BASE may choose: never less room than it had at
- * S_BASE. The roomy hand box if it had one, the full-height hand box if it
- * had it, a felt wish at least as big, my history's inset if it had it. The
+ * S_BASE. The roomy hand box if it had one, the full-height hand box always
+ * (a table compact at S_BASE stays at S_BASE: grown with the compact box, a
+ * 1920x790 window got s 1.13 while 1920x800, not compact at S_BASE, got
+ * 1.0), a felt wish at least as big, my history's inset if it had it. The
  * history step is free, as in today's solve (s comes first, then the step):
  * the history beside my hand is what bounds the hand box, and holding the
  * step made a wider window's table smaller (1520 -> 1560 px wide: s 1.1 ->
@@ -967,7 +969,7 @@ function growChoice(c) {
   return {
     roomy: [c.roomyHand],
     k: () => true,
-    compact: c.compact ? [false, true] : [false],
+    compact: [false],
     minFelt: c.felt,
     histInset: c.histInset ? [true] : [true, false],
   };

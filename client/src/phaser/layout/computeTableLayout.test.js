@@ -667,27 +667,42 @@ describe('a big window grows the table (S_BASE -> S_GROW_MAX)', () => {
     expect(grew).toBeGreaterThan(300);
   });
 
-  it('a bigger window never gets a smaller table (wider at a fixed height, taller at a fixed width)', () => {
+  it('a bigger window never gets a smaller table (10 px steps, wider at a fixed height, taller at a fixed width)', () => {
+    // 10 px steps: a coarser sweep missed 1920x790 -> 1920x800 (s 1.13 -> 1.0)
+    // when a table compact at S_BASE could grow with the compact hand box.
+    // A wider window whose canvas gets narrower (the log column steps up at a
+    // LOG_BREAKPOINTS width) may get a smaller table, as on 6aab8f5.
+    const canvasW = (vw) => vw - logWidthFor(vw);
     const drops = [];
     for (const [, isSpectator] of ROLES) {
-      for (const vh of [620, 790, 900, 1000, 1080, 1200, 1440, 2160]) {
+      for (const vh of [620, 790, 800, 900, 1000, 1080, 1200, 1440, 2160]) {
         let prev = 0;
-        for (let vw = 1000; vw <= 3840; vw += 40) {
+        for (let vw = 1000; vw <= 3840; vw += 10) {
           const { s } = layoutForViewport({ vw, vh, isSpectator });
-          if (s < prev) drops.push(`${vw}x${vh}: ${prev} -> ${s}`);
+          if (s < prev && canvasW(vw) >= canvasW(vw - 10)) drops.push(`${vw - 10} -> ${vw} x ${vh}: ${prev} -> ${s}`);
           prev = s;
         }
       }
       for (const vw of [1280, 1440, 1600, 1920, 2560, 3440]) {
         let prev = 0;
-        for (let vh = 600; vh <= 2160; vh += 40) {
+        for (let vh = 600; vh <= 2160; vh += 10) {
           const { s } = layoutForViewport({ vw, vh, isSpectator });
-          if (s < prev) drops.push(`${vw}x${vh}: ${prev} -> ${s}`);
+          if (s < prev) drops.push(`${vw} x ${vh - 10} -> ${vh}: ${prev} -> ${s}`);
           prev = s;
         }
       }
     }
     expect(drops).toEqual([]);
+  }, 300_000);
+
+  it('a table compact at S_BASE does not grow (1920x790 is not bigger than 1920x800)', () => {
+    for (const dpr of [1, 2]) {
+      expect(layoutForViewport({ vw: 1920, vh: 790, dpr, grow: false }).compact, `dpr ${dpr}`).toBe(true);
+      const short = layoutForViewport({ vw: 1920, vh: 790, dpr });
+      const tall = layoutForViewport({ vw: 1920, vh: 800, dpr });
+      expect(short.s, `dpr ${dpr}`).toBeLessThanOrEqual(tall.s);
+      expect(short.s, `dpr ${dpr}`).toBeLessThanOrEqual(S_BASE);
+    }
   });
 
   it('every window whose table is below S_BASE (phones, tablets, laptops) gets exactly the layout of 6aab8f5', () => {
