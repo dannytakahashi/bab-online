@@ -10,7 +10,7 @@
  *   - a large centre pip (the glyph of a 100-unit font);
  *   - jokers in purple: HI / LO (bold 34), a star and "JOKER" (heavy 36),
  *     with a 4-unit purple border;
- *   - the dark-green back with its inner rounded rectangle and centre diamond.
+ *   - the dark-green back with its inner rounded rectangle and the four suits.
  *
  * Suits (and the joker's star) are VECTOR PATHS, never text: a suit
  * character can come out as a color emoji on some platforms and font
@@ -242,7 +242,8 @@ export function drawJokerFace(ctx, card) {
 /**
  * Draw the back (design units): a white card edge like the faces (so an
  * overlapped fan of backs reads as separate cards on the green felt), then
- * iOS's dark-green panel with its lighter border, inner frame and diamond.
+ * iOS's dark-green panel with its lighter border, inner frame and the app
+ * icon's four suits (iOS CardTextureGenerator.cardBackTexture).
  */
 export function drawBack(ctx) {
   const { w, h, radius } = CARD_DESIGN;
@@ -259,21 +260,19 @@ export function drawBack(ctx) {
   ctx.lineWidth = 2;
   ctx.strokeStyle = C.backInner;
   ctx.stroke();
-  const cx = w / 2;
-  const cy = h / 2;
-  const d = 40;
-  ctx.beginPath();
-  ctx.moveTo(cx, cy - d);
-  ctx.lineTo(cx + d * 0.7, cy);
-  ctx.lineTo(cx, cy + d);
-  ctx.lineTo(cx - d * 0.7, cy);
-  ctx.closePath();
-  ctx.fillStyle = C.backDiamond;
-  ctx.fill();
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = C.backDiamondStroke;
-  ctx.stroke();
+  // the app icon's four suits, 2 x 2 around the centre (iOS PR 239's back):
+  // spade and club in text.primary, heart and diamond in danger.text, as the
+  // dark surfaces draw suits; each the glyph of iOS's 58-unit font (its
+  // shape 74% of the font, as PIP), 34 units from the centre each way
+  for (const [suit, dx, dy] of BACK_SUITS) {
+    const color = suit === 'hearts' || suit === 'diamonds' ? COLOR.danger.text : COLOR.text.primary;
+    drawSuit(ctx, suit, w / 2 + dx * BACK_SUIT.step, h / 2 + dy * BACK_SUIT.step, BACK_SUIT.size, color);
+  }
 }
+
+/** The back's suits: which, and where (times BACK_SUIT.step from the centre). */
+export const BACK_SUITS = Object.freeze([['spades', -1, -1], ['hearts', 1, -1], ['diamonds', -1, 1], ['clubs', 1, 1]]);
+export const BACK_SUIT = Object.freeze({ size: 43, step: 34 });
 
 /** Draw any face: a card object, or BACK_FRAME. */
 export function drawCard(ctx, card) {

@@ -1107,8 +1107,11 @@ function initializeApp() {
     onSpectatorJoined: (data) => {
       // The full game state (not just a notice that someone else joined):
       // the v1 keys or the snapshot (V1_REMOVALS #8 / #9: a snapshot-only
-      // carrier), both only once the trump is dealt, as before
-      const full = !!(data.trump || data.snapshot?.trump) && !!(data.players || data.snapshot?.seats);
+      // carrier), both only once the trump is dealt, as before; or a v2
+      // snapshot of the draw for deal (the draw so far: render draws it, as
+      // iOS shows a spectator the draws)
+      const drawing = ['DRAWING', 'DRAW_RESOLVING'].includes(data.snapshot?.stage) && !!data.snapshot?.draw;
+      const full = drawing || (!!(data.trump || data.snapshot?.trump) && !!(data.players || data.snapshot?.seats));
       if (full) {
         const spectatedGameId = data.gameId || data.snapshot?.gameId || session.takePendingSpectate();
         session.routeArrived();
@@ -1242,7 +1245,8 @@ function initializeApp() {
       if (session.screen === SCREEN.GAME_END) {
         session.exitTable(EXIT.NEW_TABLE, { route: false });
         gameState.setPhase(PHASE.DRAW);
-        gameState.setHasDrawn(false);
+        gameState.stage = 'DRAWING';
+        gameState.beginDraw();
       }
       if (!session.isAtTable) session.enterTable(ROLE.PLAYER, null);
       // Remove waiting screen and tournament lobby

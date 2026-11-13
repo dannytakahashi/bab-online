@@ -1412,7 +1412,8 @@ export class GameScene extends Phaser.Scene {
     if (this.layoutManager) {
       this.layoutManager.update();
       this.layoutManager.cleanupDomBackgrounds();
-      this.layoutManager.createDomBackgrounds({ skipHandArea: spectator });
+      // (the draw for deal is on the bare felt, as when it opens: no play zone or hand box yet)
+      if (m.live || !m.draw) this.layoutManager.createDomBackgrounds({ skipHandArea: spectator });
     }
     if (spectator) this.clearPlayerInfo();
     if (m.playerData) this.opponentManager?.displayAvatars(m.playerData);
@@ -1429,6 +1430,8 @@ export class GameScene extends Phaser.Scene {
 
     if (!m.live) {
       this.opponentManager?.clearDealerButton();
+      // the draw for deal so far (a rejoin, or a spectator who comes in mid-draw)
+      if (m.draw) this.drawManager?.renderDraw(m);
       this.renderScoreHeader();
       return m;
     }

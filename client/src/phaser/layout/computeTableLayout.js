@@ -37,6 +37,7 @@
 
 import { CARD_CONFIG } from '../config.js';
 import { cardTextureSize } from '../cards/CardAtlas.js';
+import { TYPE, SPACE } from '../../ui/tokens.js';
 
 /**
  * A card at design scale 1 (CSS px; item 18a: the hi-res faces have the iOS
@@ -219,6 +220,156 @@ function handCardSize(design, tex, dpr) {
   if (tex.h < CARD_UNIT.h * design * dpr - 1 - 1e-6) return cardSize(design, tex);
   const scale = 1 / dpr;
   return { design, scale, w: tex.w * scale, h: tex.h * scale, box: CARD_UNIT.h * design * BOX_PER_H };
+}
+
+/**
+ * A drawn card in its slot (the draw's own frame, `tex`: the card's height
+ * in even device pixels, capped like the atlas's): 1:1 like the hand card.
+ */
+function slotCardSize(design, dpr) {
+  const tex = cardTextureSize(CARD_UNIT.h * design, dpr);
+  return { ...handCardSize(design, tex, dpr), tex };
+}
+
+/**
+ * The draw for deal's words (DrawManager puts them in the HUD; the layout
+ * sizes their boxes from them). The same words as the iOS DrawPhaseView,
+ * with "Click" for "Tap".
+ */
+export const DRAW_TEXT = Object.freeze({
+  title: 'Draw for Deal',
+  rules: 'The two highest cards are partners; the highest deals.',
+  prompt: 'Click a card to draw',
+});
+
+/**
+ * Text widths are estimated in em per character (the UI font's bold title,
+ * its regular and semibold lines; a little over the system font's own, so
+ * a box is never narrower than its text).
+ */
+const EM = { title: 0.62, rules: 0.52, prompt: 0.56 };
+
+/**
+ * The draw for deal (item 17's draw-phase part; iOS DrawPhaseView's
+ * structure): one centred column of
+ *
+ *   title ("Draw for Deal", type xxl) and the rule under it (md),
+ *   four slots in draw order, each a seat-style avatar, the name and, a
+ *   Theme s3 gap below the name, the drawn card (a dashed placeholder until
+ *   it comes), all four cards on one row,
+ *   the deck (54 backs, the web's pick-a-card row) and the prompt under it.
+ *
+ * Type and spacing are the tokens at s (with floors that keep a phone-size
+ * canvas legible); only the gaps around the slot row give way when the
+ * canvas is short (to the table's gap G, never below), so the draw never
+ * decides s: the table does. A drawn card is at least the hand card; where
+ * the canvas has height to spare the slot row grows into it (the cards by
+ * up to DRAW_GROW.max, their avatars and names by half as much), so the
+ * results fill the screen as on iOS instead of a small row in a lot of
+ * felt. The slot card is drawn from its own frame (`tex`, DrawManager's
+ * cards/drawSlotFaces.js texture) at 1 / DPR, so it stays 1:1 at any size,
+ * its centre on a device pixel.
+ */
+export const DRAW_GROW = Object.freeze({ max: 2, share: 0.6 });
+
+function placeDraw({ cw, ch, s, M, G, q, dpr, deckCard, drawn: handCard }) {
+  const cx = cw / 2;
+  const avail = Math.max(1, cw - 2 * M);
+  const baseFont = {
+    title: Math.max(18, TYPE.xxl * s),
+    rules: Math.max(12, TYPE.md * s),
+    name: Math.max(12, TYPE.md * s),
+    prompt: Math.max(13, TYPE.lg * s),
+  };
+  const baseAvatar = Math.max(20, SPACE.s10 * s);
+  // the slot row's growth g: a share of the height left over at the ideal
+  // gaps (the base column, below), at most DRAW_GROW.max and at most what
+  // four slots (card plus the gap G) fit across
+  const baseRuleLines = Math.min(3, Math.max(1, Math.ceil((EM.rules * baseFont.rules * DRAW_TEXT.rules.length) / avail - 1e-9)));
+  const baseFixed = baseFont.title * 1.2 + Math.max(4, SPACE.s2 * s) + baseRuleLines * baseFont.rules * 1.35 +
+    baseAvatar + Math.max(4, SPACE.s2 * s) + baseFont.name * 1.3 + Math.max(4, SPACE.s3 * s) +
+    handCard.h + deckCard.h + Math.max(4, SPACE.s4 * s) + baseFont.prompt * 1.3;
+  const room = ch - 2 * M - baseFixed - Math.max(G, SPACE.s8 * s) - Math.max(G, SPACE.s10 * s) - 2;
+  const gMax = Math.max(1, Math.min(DRAW_GROW.max, (avail / 4 - G) / handCard.w));
+  const g = clamp(1 + (DRAW_GROW.share * Math.max(0, room)) / (handCard.h + baseAvatar / 2), 1, gMax);
+  const half = 1 + (g - 1) / 2;
+  const drawn = slotCardSize(handCard.design * g, dpr);
+  const font = { ...baseFont, name: baseFont.name * half };
+  const avatar = baseAvatar * half;
+  // the deck: 54 backs, each 17 * s past the one before (less where narrow)
+  const ov = Math.max(0.5, Math.min(17 * s, (avail - deckCard.w) / 53));
+  const deckW = 53 * ov + deckCard.w;
+  // the slots: one pitch apart, the card plus room for a name (the names
+  // keep a gap between them)
+  const pitch = Math.max(drawn.w + G, Math.min(drawn.w + 72 * s, avail / 4));
+  const nameW = Math.max(drawn.w, pitch - Math.max(G, SPACE.s3 * s));
+  // the boxes (the rule wraps where it must, at most 3 lines)
+  const ruleEst = EM.rules * font.rules * DRAW_TEXT.rules.length;
+  const ruleLines = Math.min(3, Math.max(1, Math.ceil(ruleEst / avail - 1e-9)));
+  const box = {
+    title: { w: Math.min(avail, EM.title * font.title * DRAW_TEXT.title.length), h: font.title * 1.2 },
+    rules: { w: Math.min(avail, ruleEst), h: ruleLines * font.rules * 1.35 },
+    name: { w: nameW, h: font.name * 1.3 },
+    prompt: { w: Math.min(avail, EM.prompt * font.prompt * DRAW_TEXT.prompt.length), h: font.prompt * 1.3 },
+  };
+  const gap = {
+    titleRules: Math.max(4, SPACE.s2 * s),
+    avatarName: Math.max(4, SPACE.s2 * s),
+    nameCard: Math.max(4, SPACE.s3 * s),
+    deckPrompt: Math.max(4, SPACE.s4 * s),
+  };
+  const fixed = box.title.h + gap.titleRules + box.rules.h + avatar + gap.avatarName + box.name.h +
+    gap.nameCard + drawn.h + deckCard.h + gap.deckPrompt + box.prompt.h;
+  // the two gaps around the slot row: their tokens (s8, s10) where the
+  // canvas is tall enough, down to G each where it is not
+  const ideal = { headerRow: Math.max(G, SPACE.s8 * s), rowDeck: Math.max(G, SPACE.s10 * s) };
+  // (2 px: the two card rows snap down to device pixels)
+  const spare = ch - 2 * M - fixed - 2 * G - 2;
+  const give = ideal.headerRow + ideal.rowDeck - 2 * G;
+  const k = give > 0 ? clamp(spare / give, 0, 1) : 1;
+  const headerRow = G + k * (ideal.headerRow - G);
+  const rowDeck = G + k * (ideal.rowDeck - G);
+  const total = fixed + headerRow + rowDeck + 2;
+  let y = M + Math.max(0, (ch - 2 * M - total) / 2);
+  const take = (h) => { const c = y + h / 2; y += h; return c; };
+  // a card row: its centre on a device pixel at or below the cursor (the
+  // gaps above it never shrink), the rows under it moved down as much
+  const takeCard = (h) => {
+    const c = Math.ceil((y + h / 2) * dpr - 1e-6) / dpr;
+    y = c + h / 2;
+    return c;
+  };
+  const titleY = take(box.title.h);
+  y += gap.titleRules;
+  const rulesY = take(box.rules.h);
+  y += headerRow;
+  const avatarY = take(avatar);
+  y += gap.avatarName;
+  const nameY = take(box.name.h);
+  y += gap.nameCard;
+  const slotY = takeCard(drawn.h);
+  y += rowDeck;
+  const deckY = takeCard(deckCard.h);
+  y += gap.deckPrompt;
+  const promptY = take(box.prompt.h);
+
+  const slots = [0, 1, 2, 3].map((i) => ({ x: q(cx + (i - 1.5) * pitch), y: slotY }));
+  const deckX0 = cx - deckW / 2 + deckCard.w / 2;
+  // (the words and avatars are DOM: no device-pixel snap in y)
+  const line = (cy, b, f, extra = {}) => ({ x: q(cx), y: cy, font: f, rect: around(q(cx), cy, b.w, b.h), ...extra });
+  return {
+    deck: { x0: q(deckX0), y: deckY, overlap: ov, card: deckCard, rect: around(q(cx), deckY, deckW, deckCard.h), enterX: q(Math.min(cw - deckCard.w, cx + 0.26 * cw)) },
+    slots,
+    slotCard: drawn,
+    grow: g,
+    slotRects: slots.map((p) => around(p.x, p.y, drawn.w, drawn.h)),
+    pitch,
+    avatar: { size: avatar, y: avatarY, rects: slots.map((p) => around(p.x, avatarY, avatar, avatar)) },
+    name: { dy: nameY - slotY, y: nameY, w: nameW, font: font.name, gap: gap.nameCard, rects: slots.map((p) => around(p.x, nameY, nameW, box.name.h)) },
+    title: line(titleY, box.title, font.title),
+    rules: line(rulesY, box.rules, font.rules, { lines: ruleLines }),
+    prompt: line(promptY, box.prompt, font.prompt),
+  };
 }
 
 /**
@@ -720,36 +871,19 @@ function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1, felt = 0, hi
   const bubbles = { ...bubbleBox };
 
   // ---------- draw phase (no hand, no seats yet) ----------
-  const deckCard = card.deck;
-  const ov = Math.max(0.5, Math.min(17 * s, (cw - 2 * M - deckCard.w) / 53));
-  const deckW = 53 * ov + deckCard.w;
-  const deckY = ch / 2;
-  const deckX0 = cx - deckW / 2 + deckCard.w / 2;
-  const drawn = card.drawn;
-  const nameMaxW = 160 * s;
-  const drawSp = Math.min(200 * s, (cw - 2 * M - Math.max(drawn.w, nameMaxW)) / 3);
-  const nameW = Math.max(drawn.w, Math.min(nameMaxW, drawSp - G));
-  const nameFont = Math.max(10, 24 * s);
-  const titleFont = Math.max(14, 48 * s);
-  // the drawn row: today's 200 design px above the deck row, as high as the
-  // names clear the title at its own spot; never nearer the deck than a gap
-  const drawNear = deckCard.h / 2 + G + 40 * s + drawn.h / 2;
-  const highestSlotY = 0.084 * ch + titleFont * 0.6 + G + nameFont * 1.2 + G + drawn.h / 2;
-  const drawSlotY = deckY - Math.max(drawNear, Math.min(200 * s, deckY - highestSlotY));
-  const nameY = drawSlotY - drawn.h / 2 - G - nameFont * 0.6;
-  const titleY = Math.min(0.084 * ch, nameY - nameFont * 0.6 - G - titleFont * 0.6);
-  const drawSlots = [0, 1, 2, 3].map((i) => ({ x: q(cx + (i - 1.5) * drawSp), y: q(drawSlotY) }));
-  const draw = {
-    deck: { x0: q(deckX0), y: q(deckY), overlap: ov, card: deckCard, rect: around(q(cx), q(deckY), deckW, deckCard.h), enterX: q(Math.min(cw - deckCard.w, cx + 0.26 * cw)) },
-    slots: drawSlots,
-    slotCard: drawn,
-    slotRects: drawSlots.map((p) => around(p.x, p.y, drawn.w, drawn.h)),
-    name: { dy: -(drawn.h / 2 + G + nameFont * 0.6), font: nameFont, rects: drawSlots.map((p) => around(p.x, p.y - (drawn.h / 2 + G + nameFont * 0.6), nameW, nameFont * 1.2)) },
-    title: { x: q(cx), y: q(titleY), font: titleFont, rect: around(q(cx), q(titleY), Math.min(cw - 2 * M, 420 * s), titleFont * 1.2) },
-  };
+  const draw = placeDraw({ cw, ch, s, M, G, q, dpr, deckCard: card.deck, drawn: card.drawn });
 
-  // teams overlay (DrawManager): centred on the canvas
-  const teams = { x: q(cx), y: q(ch / 2), dy: 50 * s, fonts: { label: Math.max(12, 32 * s), names: Math.max(11, 28 * s), vs: Math.max(10, 24 * s) } };
+  // teams panel (DrawManager, the HUD's .hud-teams): centred on the canvas,
+  // at most the canvas less its margins wide (a long name wraps inside it)
+  const teams = {
+    x: q(cx),
+    y: q(ch / 2),
+    maxW: Math.max(1, cw - 2 * M),
+    pad: Math.max(SPACE.s3, SPACE.s6 * s),
+    gap: Math.max(SPACE.s2, SPACE.s4 * s),
+    avatar: Math.max(24, SPACE.s10 * s),
+    fonts: { label: Math.max(TYPE.md, TYPE.xl * s), names: Math.max(TYPE.sm, 18 * s), vs: Math.max(TYPE.sm, TYPE.md * s) },
+  };
 
   // ---------- effects (transient: not part of the overlap checks) ----------
   const effects = {
@@ -853,12 +987,15 @@ export function layoutRects(L) {
   return out;
 }
 
-/** The draw phase's rects (the deck, the four drawn cards, their names, the title). */
+/** The draw phase's rects (title, rule, the four avatars, names and cards, the deck, the prompt). */
 export function drawRects(L) {
   const d = L.draw;
   return [
     { id: 'draw.title', group: 'title', rect: d.title.rect, allow: [] },
+    { id: 'draw.rules', group: 'rules', rect: d.rules.rect, allow: [] },
     { id: 'draw.deck', group: 'deck', rect: d.deck.rect, allow: [] },
+    { id: 'draw.prompt', group: 'prompt', rect: d.prompt.rect, allow: [] },
+    ...d.avatar.rects.map((r, i) => ({ id: `draw.avatar${i}`, group: `avatar${i}`, rect: r, allow: [] })),
     ...d.slotRects.map((r, i) => ({ id: `draw.slot${i}`, group: `slot${i}`, rect: r, allow: [] })),
     ...d.name.rects.map((r, i) => ({ id: `draw.name${i}`, group: `name${i}`, rect: r, allow: [] })),
   ];
