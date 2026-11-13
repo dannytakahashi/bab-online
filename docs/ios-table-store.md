@@ -321,7 +321,13 @@ skipped" activity instead).
 
 Fixture mode (Debug only): `-uiFixture <name>` seeds the app from a v2
 snapshot (or `UI_FIXTURE_SNAPSHOT`), or shows a static screen (`main-room`,
-`game-lobby`, `tournament-lobby`, `sign-in`); `game-end` adds a gameEnd.
+`game-lobby`, `tournament-lobby`, `sign-in`); `game-end` adds a gameEnd
+(also `game-end-spectator`, `game-end-tournament`; `-uiNoEndStats YES`
+leaves out the per-player stats). GameEndView shows the web score modal's
+stats (gameEnd `playerStats`: Player, Bids, Tricks, Faults, Avg HSI; one
+VoiceOver element per player; stacked at accessibility text sizes or where
+the five columns do not fit; none when the payload has no `playerStats`):
+`GameEndStatsTests`, `GameEndStatsUITests`.
 No socket on any path (`SocketService.connectionsDisabled`: launch,
 foreground, Settings), no voice and no microphone prompt
 (`VoiceChatManager.voiceDisabled`, every start path, also in Xcode
