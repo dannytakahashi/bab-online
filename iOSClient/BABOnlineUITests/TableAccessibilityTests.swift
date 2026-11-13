@@ -30,7 +30,7 @@ final class TableAccessibilityTests: XCTestCase {
     }
 
     /// The fixture's own probes: their label is their identifier.
-    static let probes: Set<String> = ["ui.pose", "table.layoutCheck", "table.state", "table.zoom"]
+    static let probes: Set<String> = ["ui.pose", "table.layoutCheck", "table.state", "table.zoom", "fixture.sent"]
     /// The scene's layer names (one word, so the dotted rule below misses them).
     static let layerNames: Set<String> = ["background", "opponents", "bids", "transient", "trick", "hand", "history", "pips"]
 

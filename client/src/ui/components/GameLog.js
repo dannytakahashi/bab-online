@@ -175,11 +175,14 @@ export function createGameLog({ onChatSubmit } = {}) {
   sendBtn.classList.add('chat-send');  // Legacy class
   sendBtn.textContent = 'Send';
 
-  // Slash command autocomplete
+  // Slash command autocomplete. /leave: a bot keeps the seat while another
+  // player is at the table (or may come back); when no one is, the server
+  // ends the game (seatLifecycle.maybeAbort: "All players left"). The web
+  // does not track the other seats' presence, so the text names both.
   const ALL_SLASH_COMMANDS = [
     { command: '/lazy', description: 'Have a bot play for you' },
     { command: '/active', description: 'Take back control from bot' },
-    { command: '/leave', description: 'Leave the game (bot finishes for you)' },
+    { command: '/leave', description: "Leave the game (a bot takes over; ends it if you're the only player)" },
   ];
   const SPECTATOR_SLASH_COMMANDS = [
     { command: '/leave', description: 'Exit spectating' },

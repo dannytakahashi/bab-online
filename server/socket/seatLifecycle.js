@@ -462,8 +462,9 @@ function onAfk(io, game, pos, turn) {
 
 /**
  * /lazy: a bot plays the owner's (human, connected) seat.
- * @param {{reason?: 'afk'}} [opts] 'afk': the turn watchdog fired (same
- *   transition and events, its own log line)
+ * @param {{reason?: 'afk'|'leave'}} [opts] 'afk': the turn watchdog fired;
+ *   'leave': the first half of /leave at a human seat (same transition and
+ *   events, each with its own log line: a leaver cannot /active back)
  */
 function goLazy(io, game, pos, { reason = null } = {}) {
     const seat = game.seat(pos);
@@ -478,9 +479,11 @@ function goLazy(io, game, pos, { reason = null } = {}) {
         botPic: bot.pic,
         originalUsername: seat.ownerUsername
     });
-    logEntry(io, game, reason === 'afk'
-        ? `${seat.ownerUsername} was idle and ${bot.username} is playing for them. Type /active to return.`
-        : `${seat.ownerUsername} entered lazy mode. ${bot.username} is playing.`);
+    const line = {
+        afk: `${seat.ownerUsername} was idle and ${bot.username} is playing for them. Type /active to return.`,
+        leave: `${seat.ownerUsername} left the game. ${bot.username} is playing for them.`
+    }[reason] || `${seat.ownerUsername} entered lazy mode. ${bot.username} is playing.`;
+    logEntry(io, game, line);
     socketLogger.info('Player entered lazy mode', { gameId: game.gameId, position: pos, botUsername: bot.username, reason: reason || 'command' });
     // Not while a trick or hand resolves: the next updateTurn re-triggers it
     triggerIfOnTurn(io, game, pos);
@@ -553,7 +556,7 @@ function resignSeat(io, game, pos) {
 /** /leave from the owner socket: the bot keeps the seat, the owner is gone for good. */
 function leaveSeat(io, game, pos, socket) {
     const seat = game.seat(pos);
-    if (seat.controller === Controller.HUMAN && !goLazy(io, game, pos)) return false;
+    if (seat.controller === Controller.HUMAN && !goLazy(io, game, pos, { reason: 'leave' })) return false;
     if (!game.seatLeave(pos)) return false;
     game.leaveRoom(io, socket.id);
     unmap(game, socket.id);

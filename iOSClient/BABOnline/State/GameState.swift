@@ -172,6 +172,12 @@ final class GameState: ObservableObject {
     /// before the deal's values arrive.
     var myHSI: Double? { isSpectator ? nil : position.flatMap { hsiValues[$0] } }
 
+    /// What Leave does from my seat now: a bot finishes, or the game (or tournament table) ends.
+    var leaveOutcome: LeaveOutcome {
+        LeaveOutcome.of(seats: players.seats, myPosition: position, inTournament: tournamentId != nil,
+                        verified: players.leaveCheck == .verified)
+    }
+
     var disconnectedPlayers: [Int: String] { players.disconnected }
     /// The "Replace with Bot" offer, only while its seat is still resignable (the reducer
     /// clears it on playerReconnected / playerActiveMode / playerResigned / a moved offer /

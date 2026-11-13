@@ -44,7 +44,10 @@ private struct GameScreen: View {
 
     @State private var showGameLog = false
     @State private var showVoicePanel = false
-    @State private var showLeaveConfirm = false
+    /// The Leave confirmation (a UIKit alert: LeaveAlertPresenter says why).
+    @State private var leaveAlert = LeaveAlertPresenter()
+    /// When the Leave alert opens and reopens (LeaveAlertFlow).
+    @State private var leaveFlow = LeaveAlertFlow()
     @ObservedObject private var voiceManager = VoiceChatManager.shared
 
     /// Everything but the size TableLayout needs, measured below. Each input
@@ -167,13 +170,11 @@ private struct GameScreen: View {
         }
         .animation(.easeInOut(duration: 0.3), value: showsBidOverlay)
         .animation(.easeInOut(duration: 0.3), value: gameState.phase)
-        .alert("Exit game?", isPresented: $showLeaveConfirm) {
-            Button("Exit Game", role: .destructive) {
-                ChatEmitter.sendMessage("/leave")
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("A bot will finish your hand for you.")
+        .onChange(of: gameState.leaveOutcome) { _, outcome in
+            runLeave(leaveFlow.changed(outcome: outcome, check: gameState.players.leaveCheck))
+        }
+        .onChange(of: gameState.players.leaveCheck) { _, check in
+            runLeave(leaveFlow.changed(outcome: gameState.leaveOutcome, check: check))
         }
         .onAppear {
             scene.configure(gameState: gameState, actions: actions)
@@ -181,6 +182,10 @@ private struct GameScreen: View {
             if !gameState.isSpectator { VoiceChatManager.shared.ensureStarted() }
         }
         .onDisappear {
+            // a SwiftUI alert went with the view; this UIKit one is dropped, and Leave starts over
+            leaveAlert.discard()
+            leaveFlow = LeaveAlertFlow()
+            if gameState.players.leaveCheck != .idle { gameState.apply(.local(.leaveClosed)) }
             scene.cleanupAll()
             VoiceChatManager.shared.shutdown()
         }
@@ -687,8 +692,43 @@ private struct GameScreen: View {
             // Spectators just exit — nothing to confirm
             ChatEmitter.sendMessage("/leave")
         } else {
-            showLeaveConfirm = true
+            gameState.apply(.local(.leaveAsked))
+            runLeave(leaveFlow.tapped(check: gameState.players.leaveCheck))
         }
+    }
+
+    /// Carries out a LeaveAlertFlow step.
+    private func runLeave(_ step: LeaveAlertFlow.Step) {
+        switch step {
+        case .none:
+            break
+        case .present:
+            guard !leaveAlert.isUp else { return }
+            let outcome = gameState.leaveOutcome
+            leaveFlow.presented(outcome)
+            // the server's outcome: a bot keeps my seat, or (no other owner) the game ends;
+            // hedged until Leave's snapshot settles owners who may have left unannounced
+            let shown = leaveAlert.present(message: outcome.alertMessage) { answer in
+                if answer == .leave { ChatEmitter.sendMessage("/leave") }
+                leaveAlertGone()
+            }
+            guard shown else { leaveAlertGone(); return }
+            #if DEBUG
+            UIFixture.leaveAlertPresented(gameState)
+            #endif
+        case .wait(let n):
+            DispatchQueue.main.asyncAfter(deadline: .now() + LeaveAlertFlow.timeout) { runLeave(leaveFlow.timedOut(wait: n)) }
+        case .close:
+            // reopens from UIKit's dismissal completion, never over the closing alert
+            leaveAlert.close { leaveAlertGone() }
+        }
+    }
+
+    /// The Leave alert is gone (a button, or the flow's close finished): reopen, or end Leave.
+    private func leaveAlertGone() {
+        let (next, ends) = leaveFlow.dismissed(check: gameState.players.leaveCheck)
+        if ends { gameState.apply(.local(.leaveClosed)) }
+        runLeave(next)
     }
 }
 
