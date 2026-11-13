@@ -55,6 +55,7 @@ const I = {
     voice: 'iOSClient/BABOnline/Networking/Handlers/VoiceSocketHandler.swift:register',
     safety: 'iOSClient/BABOnline/Networking/Handlers/SafetySocketHandler.swift:register',
     board: 'iOSClient/BABOnline/Networking/Handlers/LeaderboardSocketHandler.swift:register',
+    records: 'iOSClient/BABOnline/Networking/Handlers/RecordsSocketHandler.swift:register',
     state: (fn) => `iOSClient/BABOnline/State/GameState.swift:${fn}`,
 };
 const reads = (web, ios) => ({ web: [].concat(web || []), ios: [].concat(ios || []) });
@@ -718,7 +719,7 @@ const s2c = {
         payload: okFail({ leaderboard: arr(ref('leaderboardRow')), avatarUrls: ref('avatarUrlsByUsername') }, { optional: ['avatarUrls'] }),
         status: 'active', to: 'self',
         added: ['avatarUrls'],
-        notes: 'Rows by recipient (docs/avatars.md): a capable socket gets customProfilePic null + avatarUrls {username: url}; a legacy one the small inline rendition. The App Store iOS build reads neither.',
+        notes: 'Rows by recipient (docs/avatars.md): a capable socket gets customProfilePic null + avatarUrls {username: url}; a legacy one the small inline rendition. The App Store iOS build reads neither; the next iOS build (after 1.2.0 build 6) shows avatarUrls[username], else the stock profilePic, in Stats.',
         clientReads: reads(W.board, I.board),
         emittedFrom: ['server/socket/profileHandlers.js:getLeaderboard'],
     },
@@ -728,7 +729,8 @@ const s2c = {
             totalGames: int({ minimum: 0 }),
         }),
         status: 'active', to: 'self',
-        clientReads: reads(W.records, []),
+        notes: 'iOS reads it from the next iOS build (after 1.2.0 build 6: the Records tab of Stats); every field optional there (a missing period or record shows "No games yet").',
+        clientReads: reads(W.records, I.records),
         emittedFrom: ['server/socket/profileHandlers.js:getRecords'],
     },
 

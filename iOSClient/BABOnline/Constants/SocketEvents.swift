@@ -46,8 +46,9 @@ enum SocketEvents {
         static let addBot = "addBot"
         static let removeBot = "removeBot"
 
-        // Leaderboard
+        // Leaderboard and records
         static let getLeaderboard = "getLeaderboard"
+        static let getRecords = "getRecords"
 
         // Tournament
         static let createTournament = "createTournament"
@@ -165,8 +166,9 @@ enum SocketEvents {
         static let tournamentCancelled = "tournamentCancelled"
         static let activeTournamentFound = "activeTournamentFound"
 
-        // Leaderboard
+        // Leaderboard and records
         static let leaderboardResponse = "leaderboardResponse"
+        static let recordsResponse = "recordsResponse"
 
         // Voice
         static let voiceOffer = "voiceOffer"

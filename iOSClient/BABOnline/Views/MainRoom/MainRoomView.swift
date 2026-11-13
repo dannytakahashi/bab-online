@@ -66,7 +66,8 @@ private struct MainRoomScreen: View {
             }
         }
         .sheet(isPresented: $showLeaderboard) {
-            LeaderboardView()
+            StatsView()
+                .statsSheetSizing()
         }
         .sheet(isPresented: $showOnlineUsers) {
             OnlineUsersSheet(users: mainRoomState.onlineUsers)
@@ -190,6 +191,19 @@ private struct HeaderLabelStyle: LabelStyle {
         }
     }
 
+}
+
+private extension View {
+    /// The Stats sheet as a page sheet on the iPad (iOS 18+): wide enough for the
+    /// leaderboard's eight-column table; a phone's sheet is unchanged.
+    @ViewBuilder
+    func statsSheetSizing() -> some View {
+        if #available(iOS 18.0, *) {
+            presentationSizing(.page)
+        } else {
+            self
+        }
+    }
 }
 
 // MARK: - Online Users Sheet
