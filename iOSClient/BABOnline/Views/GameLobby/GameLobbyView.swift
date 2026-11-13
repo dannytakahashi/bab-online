@@ -17,6 +17,8 @@ private struct GameLobbyScreen: View {
     @EnvironmentObject var lobbyState: LobbyState
 
     @State private var isReady = false
+    /// Bots whose removeBot went out and whose row the server's list still shows.
+    @State private var removing: Set<String> = []
     @State private var showVoicePanel = false
     /// Measured heights of the fixed parts: the lobby scrolls when they plus a 120 pt chat do not fit.
     @State private var topHeight: CGFloat = 0
@@ -100,8 +102,11 @@ private struct GameLobbyScreen: View {
                 VStack(spacing: Theme.Space.s3) {
                     ForEach(0..<4, id: \.self) { index in
                         if index < lobbyState.players.count {
-                            LobbyPlayerRow(player: lobbyState.players[index],
-                                           isCurrentUser: lobbyState.players[index].username == authState.username)
+                            let player = lobbyState.players[index]
+                            LobbyPlayerRow(player: player,
+                                           isCurrentUser: player.username == authState.username,
+                                           onRemove: { removeBot(player) },
+                                           isRemoving: removing.contains(player.id))
                         } else {
                             emptySlot(index: index)
                         }
@@ -178,6 +183,12 @@ private struct GameLobbyScreen: View {
         }
         .onAppear {
             startVoice()
+            syncReady()
+        }
+        .onChange(of: lobbyState.players) { _, _ in
+            // every list the server sends answers the removals sent before it
+            removing = []
+            syncReady()
         }
         .sheet(isPresented: $showVoicePanel) {
             VoicePanelSheet()
@@ -205,6 +216,26 @@ private struct GameLobbyScreen: View {
     private func addRandomBot() {
         let personalities = ["mary", "sharon", "danny", "mike", "zach"]
         LobbyEmitter.addBot(personality: personalities.randomElement()!)
+    }
+
+    /// Any lobby member may remove a bot that is not ready (the web's rule, LobbyPlayer.canBeRemoved);
+    /// the server answers every member with playerReadyUpdate, every ready flag cleared.
+    private func removeBot(_ player: LobbyPlayer) {
+        guard player.canBeRemoved, !removing.contains(player.id) else { return }
+        removing.insert(player.id)
+        LobbyEmitter.removeBot(botSocketId: player.id)
+        HapticManager.lightImpact()
+        // a refusal (serverError) changes no list: let the control work again
+        let id = player.id
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { removing.remove(id) }
+    }
+
+    /// The Ready button follows my ready flag in the server's list, as the web's does: a bot
+    /// removed or a player leaving clears every flag, so a ready player is not ready any more.
+    private func syncReady() {
+        if let ready = LobbyPlayer.readyFlag(of: authState.username, in: lobbyState.players) {
+            isReady = ready
+        }
     }
 
     private func emptySlot(index: Int) -> some View {
