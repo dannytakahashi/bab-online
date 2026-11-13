@@ -445,9 +445,9 @@ position, trump, hand, hsiValues, score1/score2, playerInfo and avatarUrls.
   only the spectator viewer's own notice (seq renumbered).
   Re-checked 2026-11-13 for iOS 1.2.0 build 5 (`iOSClient/` at main
   92d0c75, the submitted build) and web on main: the routing is unchanged
-  (ServerEvent.swift:113-120; the joiner's full state lands in
-  TableReducer+Events.swift:179, the notice in :172; count from
-  TableReducer+Snapshot.swift:73; web main.js:1101 via
+  (lines at 92d0c75: ServerEvent.swift:113-120; the joiner's full state
+  lands in TableReducer+Events.swift:181, the notice in :174-176; count
+  from TableReducer+Snapshot.swift:73; web main.js:1107 via
   handlers/lobbyHandlers.js:110). Build 5's single Exit while spectating
   (#238) only sends `/leave` (GameContainerView.swift:689, and the corner /
   bar Leave), which this split does not touch; build 5's draw for deal
