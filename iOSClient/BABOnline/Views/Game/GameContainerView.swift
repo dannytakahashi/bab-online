@@ -263,6 +263,11 @@ private struct GameScreen: View {
     /// keyboard: the log drawer's chat field keeps keyboard avoidance.
     private var tablePane: some View {
         ZStack {
+            // every pass hands the scene its chrome (applied on the next main-queue turn): the
+            // onChange below misses changes that land in one burst (presence-mixed's table kept
+            // the score bar's first, wrapped 109.5 pt and a 109 pt banner while SwiftUI drew a
+            // 71 pt bar and a 123.5 pt banner, so the banner found no spot and covered the partner)
+            let _ = scene.takeChrome(chrome)
             tableLayer
                 .ignoresSafeArea(.keyboard)
 
@@ -271,29 +276,35 @@ private struct GameScreen: View {
                 GameLogView(isShowing: $showGameLog)
                     .transition(.motion(.move(edge: .trailing), reduceMotion: reduceMotion))
             }
-
-            // Disconnect banner: below the partner's seat where the table has room
-            // (TableLayout.disconnectBanner), else below the corner buttons
-            if !gameState.disconnectedPlayers.isEmpty {
-                VStack {
-                    DisconnectBannerView()
-                        .frame(maxWidth: TableLayout.disconnectBannerMaxWidth)
-                        .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { bannerHeight = $0 }
-                        .padding(.top, bannerTop)
-                    Spacer()
-                }
-            }
         }
     }
 
     @State private var bannerHeight: CGFloat = 0
 
+    /// Disconnect banner: below the partner's seat where the table has room
+    /// (TableLayout.disconnectBanner), else below the corner buttons. Placed from the pane's
+    /// layout for this pass (the pane's size and chrome, the banner's own height included: a
+    /// banner taller than the zoom's reserve steps a zoomed table down), so it never waits for
+    /// the scene to take the new chrome.
+    @ViewBuilder
+    private func disconnectBanner(_ L: TableLayout, safeTop: CGFloat) -> some View {
+        if !gameState.disconnectedPlayers.isEmpty {
+            VStack {
+                DisconnectBannerView()
+                    .frame(maxWidth: TableLayout.disconnectBannerMaxWidth)
+                    .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { bannerHeight = $0 }
+                    .padding(.top, bannerTop(L, safeTop: safeTop))
+                Spacer()
+            }
+        }
+    }
+
     /// The banner's top inset in the safe area: the layout's spot off the avatars, else under the corner buttons.
-    private var bannerTop: CGFloat {
+    private func bannerTop(_ L: TableLayout, safeTop: CGFloat) -> CGFloat {
         guard showsTable else { return 0 }
-        let L = scene.layout
-        if let r = L.disconnectBanner(height: bannerHeight, spectating: !gameState.table.viewer.holdsSeat) {
-            return max(0, L.window(r).minY - paneSafeArea.top)
+        // the banner's measured points in scene units (a zoomed table's are larger than points)
+        if let r = L.disconnectBanner(height: bannerHeight / L.zoom, spectating: !gameState.table.viewer.holdsSeat) {
+            return max(0, L.window(r).minY - safeTop)
         }
         return chrome.topBar + 8 + chrome.cornerButton.height + 8
     }
@@ -333,6 +344,8 @@ private struct GameScreen: View {
                 if inGame && !usesVerticalBar { cornerButtons(layout) }
 
                 pills
+
+                disconnectBanner(layout, safeTop: ins.top)
             }
             .onChange(of: TableInsets(top: ins.top, left: ins.leading, bottom: ins.bottom, right: ins.trailing), initial: true) { _, new in
                 paneSafeArea = new
@@ -362,8 +375,8 @@ private struct GameScreen: View {
                         // bottom at layout.bidBand.minY, centered on the band (replaces padding 200)
                         VStack(spacing: 0) {
                             Spacer(minLength: 0)
-                            BidOverlayView()
-                                .frame(maxWidth: layout.bidBand.width)
+                            BidOverlayView(zoom: layout.zoom)
+                                .frame(maxWidth: layout.window(layout.bidBand).width)
                             Color.clear.frame(height: max(0, layout.bidPanelBottomInset))
                         }
                         .frame(width: full.width, height: full.height)
@@ -393,7 +406,9 @@ private struct GameScreen: View {
                     cornerButton: inGame && !usesVerticalBar ? cornerSize : .zero,
                     bottomBar: showsPill && pillHeight > 0 ? pillHeight + 12 : 0,
                     fold: paneFoldRect,
-                    occlusions: paneOcclusions)
+                    occlusions: paneOcclusions,
+                    // a zoomed table steps down while a banner taller than its reserve shows (TableLayout.zoom)
+                    banner: showsTable && !gameState.disconnectedPlayers.isEmpty ? bannerHeight : 0)
     }
 
     // MARK: - Corner buttons
@@ -423,7 +438,7 @@ private struct GameScreen: View {
                 .dynamicTypeSize(...DynamicTypeSize.xxLarge)
                 .accessibilityShowsLargeContentViewer()  // text stops growing at xxLarge
                 .onGeometryChange(for: CGSize.self, of: { $0.size }) { leaveSize = $0 }
-                .padding(.leading, 12 + layout.occludedLeft)  // clear of a full-height system strip
+                .padding(.leading, 12 + layout.paneOccludedLeft)  // clear of a full-height system strip
 
                 Spacer()
 
@@ -455,7 +470,7 @@ private struct GameScreen: View {
                 .dynamicTypeSize(...DynamicTypeSize.xxLarge)
                 .accessibilityShowsLargeContentViewer()
                 .onGeometryChange(for: CGSize.self, of: { $0.size }) { logSize = $0 }
-                .padding(.trailing, 12 + layout.occludedRight)
+                .padding(.trailing, 12 + layout.paneOccludedRight)
                 }
             }
             .padding(.top, showsTable ? chrome.topBar + 8 : 80)
@@ -552,11 +567,12 @@ private struct GameScreen: View {
             if hsi != nil || voice {
                 let rect = layout.window(row.hsi.union(row.voice))
                 let compact = row.mode == .compact
+                // the slots are scene units: a zoomed table's are `zoom` points each
                 HStack(alignment: compact ? .bottom : .center,
-                       spacing: compact ? TableLayout.seatRowColumnSpacing : TableLayout.seatRowSpacing) {
+                       spacing: (compact ? TableLayout.seatRowColumnSpacing : TableLayout.seatRowSpacing) * layout.zoom) {
                     // the button keeps its slot whatever HSI reads, or with none
-                    SeatRowHSISlot(value: hsi)
-                    if voice { VoiceMuteButton(onLongPress: { showVoicePanel = true }) }
+                    SeatRowHSISlot(value: hsi, zoom: layout.zoom)
+                    if voice { VoiceMuteButton(onLongPress: { showVoicePanel = true }, size: TableLayout.voiceButtonSize * layout.zoom) }
                 }
                 .frame(width: rect.width, height: rect.height, alignment: compact ? .bottomLeading : .leading)
                 .offset(x: rect.minX, y: rect.minY)
@@ -570,7 +586,7 @@ private struct GameScreen: View {
             }
             if voice {
                 let rect = layout.window(row.voice)
-                VoiceMuteButton(onLongPress: { showVoicePanel = true })
+                VoiceMuteButton(onLongPress: { showVoicePanel = true }, size: TableLayout.voiceButtonSize * layout.zoom)
                     .frame(width: rect.width, height: rect.height)
                     .offset(x: rect.minX, y: rect.minY)
             }
@@ -681,12 +697,14 @@ private struct GameScreen: View {
 /// value the slot stays empty.
 struct SeatRowHSISlot: View {
     let value: Double?
+    /// The table's zoom: the slot is hsiSize.width scene units (the badge's type stays Dynamic Type).
+    var zoom: CGFloat = 1
 
     var body: some View {
         if let value {
-            HSIBadge(value: value).frame(width: TableLayout.hsiSize.width, alignment: .leading)
+            HSIBadge(value: value).frame(width: TableLayout.hsiSize.width * zoom, alignment: .leading)
         } else {
-            Color.clear.frame(width: TableLayout.hsiSize.width, height: 1).accessibilityHidden(true)
+            Color.clear.frame(width: TableLayout.hsiSize.width * zoom, height: 1).accessibilityHidden(true)
         }
     }
 }

@@ -4,6 +4,9 @@ import SwiftUI
 struct VoiceMuteButton: View {
     @ObservedObject var voiceManager = VoiceChatManager.shared
     let onLongPress: () -> Void
+    /// The circle's diameter: the 44 pt target, times the table's zoom in my seat's row
+    /// (TableLayout.voiceButtonSize scene units; the glyph stays Dynamic Type).
+    var size: CGFloat = Theme.hitTarget
 
     var body: some View {
         Button(action: {
@@ -14,7 +17,7 @@ struct VoiceMuteButton: View {
                 .font(.body.weight(.semibold))
                 .dynamicTypeSize(...DynamicTypeSize.xxLarge)  // the glyph stays inside the 44 pt circle
                 .foregroundColor(Theme.textPrimary)
-                .frame(width: Theme.hitTarget, height: Theme.hitTarget)
+                .frame(width: size, height: size)
                 .background(voiceManager.isSelfMuted ? Theme.danger : Theme.Palette.Surface.s2.opacity(0.9).color)
                 .clipShape(Circle())
                 .overlay(

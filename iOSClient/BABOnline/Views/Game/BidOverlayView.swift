@@ -10,6 +10,9 @@ import SwiftUI
 struct BidOverlayView: View {
     @EnvironmentObject var gameState: GameState
     @EnvironmentObject var actions: ActionCoordinator
+    /// The table's zoom (TableLayout.zoom; 1 on a phone): the cells and the bottom row grow
+    /// with the table's bid band; the type stays Dynamic Type.
+    var zoom: CGFloat = 1
 
     @State private var selectedBid: String?
     /// The bottom row's gap between the bore button and Submit, and HSI's width (measured).
@@ -42,6 +45,10 @@ struct BidOverlayView: View {
     /// HSI goes in the bottom row's gap when it fits there with `hsiMargin` each side, else in the header.
     static func hsiFitsRow(gap: CGFloat, hsi: CGFloat) -> Bool { hsi + 2 * hsiMargin <= gap + 0.5 }
 
+    private var cellSize: CGFloat { Self.cell * zoom }
+    private var faceSize: CGFloat { Self.face * zoom }
+    private var rowSize: CGFloat { Self.rowHeight * zoom }
+
     private var hsiInHeader: Bool { gameState.myHSI != nil && !Self.hsiFitsRow(gap: gapWidth, hsi: hsiWidth) }
 
     var body: some View {
@@ -52,7 +59,7 @@ struct BidOverlayView: View {
                     .padding(.horizontal, Theme.Space.s2)
             }
             // Fixed-width bid grid: at most 7 cells a row (7 x 44 + padding fits the 340 x 140 bid band)
-            let columns = Array(repeating: GridItem(.fixed(Self.cell), spacing: 0), count: min(maxBid + 1, 7))
+            let columns = Array(repeating: GridItem(.fixed(cellSize), spacing: 0), count: min(maxBid + 1, 7))
 
             LazyVGrid(columns: columns, spacing: 0) {
                 ForEach(0...maxBid, id: \.self) { bid in
@@ -60,11 +67,11 @@ struct BidOverlayView: View {
                     Button(action: { selectedBid = bidStr }) {
                         Text("\(bid)")
                             .font(.callout.bold())
-                            .frame(width: Self.face, height: Self.face)
+                            .frame(width: faceSize, height: faceSize)
                             .background(selectedBid == bidStr ? Theme.primary : Theme.surfaceLight)
                             .foregroundColor(selectedBid == bidStr ? Theme.buttonForeground : Theme.textPrimary)
                             .cornerRadius(Theme.Radius.sm)
-                            .frame(width: Self.cell, height: Self.cell)
+                            .frame(width: cellSize, height: cellSize)
                             .contentShape(Rectangle())
                     }
                     .accessibilityShowsLargeContentViewer()
@@ -79,9 +86,9 @@ struct BidOverlayView: View {
                         Button(action: { selectedBid = level }) {
                             Text(level)
                                 .font(.caption.bold())
-                                .frame(minWidth: Self.cell - 4)
+                                .frame(minWidth: cellSize - 4)
                                 .padding(.horizontal, Theme.Space.s2)
-                                .frame(height: Self.rowHeight)
+                                .frame(height: rowSize)
                                 .background(selectedBid == level ? Theme.danger : Theme.surfaceLight)
                                 .foregroundColor(selectedBid == level ? Theme.dangerForeground : Theme.textPrimary)
                                 .cornerRadius(Theme.Radius.sm)
@@ -93,7 +100,7 @@ struct BidOverlayView: View {
 
                 // the gap (a Spacer's 8 pt minimum); HSI is an overlay of it, so the buttons never move
                 Color.clear
-                    .frame(minWidth: 8, maxWidth: .infinity, maxHeight: Self.rowHeight)
+                    .frame(minWidth: 8, maxWidth: .infinity, maxHeight: rowSize)
                     .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { gapWidth = $0 }
                     .overlay {
                         if let hsi = gameState.myHSI {
@@ -115,7 +122,7 @@ struct BidOverlayView: View {
                     }
                     .font(.callout.bold())
                     .padding(.horizontal, Theme.Space.s6)
-                    .frame(height: Self.rowHeight)
+                    .frame(height: rowSize)
                     .background(selectedBid != nil && !isSubmitted ? Theme.buttonBackground : Theme.buttonDisabled)
                     .foregroundColor(selectedBid != nil && !isSubmitted ? Theme.buttonForeground : Theme.buttonDisabledForeground)
                     .cornerRadius(Theme.Radius.md)
