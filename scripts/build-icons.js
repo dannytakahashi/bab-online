@@ -10,6 +10,8 @@
  *   client/assets/icons/icon-192.png   <link rel=icon type=image/png> for
  *                                      high-DPI tabs and Android
  *   client/assets/icons/apple-touch-icon.png  180 px (iOS home screen)
+ *   client/assets/app-icon.webp        288 px, the phone gate's 96 px icon
+ *                                      at 3x
  *
  *   node scripts/build-icons.js         write them
  *   node scripts/build-icons.js --check fail when a committed file differs
@@ -59,6 +61,10 @@ async function render() {
         'client/favicon.ico': ico(entries),
         'client/assets/icons/icon-192.png': await png(192),
         'client/assets/icons/apple-touch-icon.png': await png(180),
+        'client/assets/app-icon.webp': await sharp(SOURCE)
+            .resize(288, 288, { kernel: 'lanczos3' })
+            .webp({ quality: 90, effort: 6 })
+            .toBuffer(),
     };
 }
 
