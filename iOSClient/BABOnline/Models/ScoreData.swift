@@ -29,6 +29,10 @@ struct GameEndData: Equatable {
     let team1Players: [String]
     let team2Players: [String]
     let handHistory: [[String: Any]]
+    /// gameEnd `playerStats`, one row per seat 1...4 that the payload has (the web's
+    /// ScoreModal grid). Empty when an older server or a test payload sends none:
+    /// GameEndView then shows no stats.
+    var playerStats: [PlayerEndStats] = []
 
     static func from(_ dict: [String: Any]) -> GameEndData? {
         // Server sends { score: { team1: N, team2: N }, playerStats: { "1": { username, ... }, ... } }
@@ -71,7 +75,68 @@ struct GameEndData: Equatable {
 
         let history = dict["handHistory"] as? [[String: Any]] ?? []
         return GameEndData(winningTeam: winner, team1Score: t1Score, team2Score: t2Score,
-                           team1Players: t1Players, team2Players: t2Players, handHistory: history)
+                           team1Players: t1Players, team2Players: t2Players, handHistory: history,
+                           playerStats: PlayerEndStats.rows(dict["playerStats"]))
+    }
+}
+
+/// One seat's game totals from gameEnd `playerStats` (contract/src/s2c.js gameEnd:
+/// `{username, totalBids, totalTricks, setsCaused, totalHSI, avgHSI}` by position).
+/// Every field is optional: a missing or mistyped one shows as a dash, never drops the row.
+struct PlayerEndStats: Equatable, Identifiable {
+    let position: Int
+    let username: String
+    let totalBids: Int?
+    let totalTricks: Int?
+    /// "Faults" on the web: the sets this seat caused.
+    let setsCaused: Int?
+    let avgHSI: Double?
+
+    var id: Int { position }
+    var team: Int { Positions.getTeamNumber(position) }
+
+    /// The web's grid: seats 1...4 in order, a seat the payload lacks skipped (ScoreModal.js).
+    static func rows(_ raw: Any?) -> [PlayerEndStats] {
+        guard let byPosition = raw as? [String: Any] else { return [] }
+        return (1...4).compactMap { pos in
+            guard let info = byPosition[String(pos)] as? [String: Any] else { return nil }
+            return PlayerEndStats(position: pos, username: info["username"] as? String ?? "",
+                                  totalBids: int(info["totalBids"]), totalTricks: int(info["totalTricks"]),
+                                  setsCaused: int(info["setsCaused"]), avgHSI: number(info["avgHSI"]))
+        }
+    }
+
+    private static func number(_ v: Any?) -> Double? {
+        guard let n = v as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID() else { return nil }
+        let d = n.doubleValue
+        return d.isFinite ? d : nil
+    }
+
+    private static func int(_ v: Any?) -> Int? {
+        guard let d = number(v), d == d.rounded(), abs(d) < 1e9 else { return nil }
+        return Int(d)
+    }
+
+    /// avgHSI as the web prints it: the server rounds it to a whole number; anything
+    /// else to one decimal. nil -> "–".
+    static func format(_ v: Double?) -> String {
+        guard let v else { return "–" }
+        return v == v.rounded() ? String(Int(v)) : String(format: "%.1f", v)
+    }
+
+    static func format(_ v: Int?) -> String { v.map(String.init) ?? "–" }
+
+    /// VoiceOver reads one sentence per row (the header row is hidden from it).
+    var accessibilityLabel: String {
+        "\(username.isEmpty ? "Seat \(position)" : username), team \(team): "
+            + "\(Self.counted(totalBids, "bid", "bids")), \(Self.counted(totalTricks, "trick", "tricks")), "
+            + "\(Self.counted(setsCaused, "fault", "faults")), average HSI \(Self.format(avgHSI))"
+    }
+
+    /// "1 fault", "3 faults", "– faults" (VoiceOver reads the number with its noun).
+    private static func counted(_ value: Int?, _ one: String, _ many: String) -> String {
+        let text = format(value)
+        return "\(text) \(text == "1" ? one : many)"
     }
 }
 
@@ -80,5 +145,6 @@ extension GameEndData {
     static func == (a: GameEndData, b: GameEndData) -> Bool {
         a.winningTeam == b.winningTeam && a.team1Score == b.team1Score && a.team2Score == b.team2Score
             && a.team1Players == b.team1Players && a.team2Players == b.team2Players
+            && a.playerStats == b.playerStats
     }
 }

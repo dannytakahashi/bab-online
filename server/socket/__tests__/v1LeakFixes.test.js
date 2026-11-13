@@ -80,6 +80,17 @@ describe('#16 lobby bots keep their personality server-side', () => {
         expect(keysDeep(gameManager.getAllLobbies()).has('personality')).toBe(false);
     });
 
+    test('a bot added after a removal takes the lowest free name (never two "Bot 2")', () => {
+        const { lobby } = lobbyWithBots(2);
+        const [first, second] = lobby.players.slice(1);
+        expect([first.username, second.username]).toEqual(['🤖 Bot', '🤖 Bot 2']);
+        expect(gameManager.removeBotFromLobby(lobby.id, first.socketId).success).toBe(true);
+        expect(gameManager.addBotToLobby(lobby.id).success).toBe(true);
+        expect(lobby.players.slice(1).map((p) => p.username)).toEqual(['🤖 Bot 2', '🤖 Bot']);
+        expect(gameManager.addBotToLobby(lobby.id).success).toBe(true);
+        expect(lobby.players.slice(1).map((p) => p.username)).toEqual(['🤖 Bot 2', '🤖 Bot', '🤖 Bot 3']);
+    });
+
     test('three bots get three different personalities, and the game reveals exactly those', async () => {
         const { io, sock, lobby } = lobbyWithBots(3);
         const picked = lobby.players.slice(1).map((p) => gameManager.lobbyBotPersonality(lobby, p.socketId));

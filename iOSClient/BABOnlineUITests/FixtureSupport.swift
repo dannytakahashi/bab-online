@@ -7,12 +7,13 @@ enum Fixture {
     static let tableFixtures = ["trick-mid-lead3", "bidding-mid", "between-tricks", "spectator-mid-hand", "lazy-at-seat",
                                 "presence-mixed", "tournament-game", "draw-in-progress"]
     static let screenFixtures = ["main-room": "screen.mainRoom", "game-lobby": "screen.gameLobby",
+                                 "game-lobby-bots": "screen.gameLobby",
                                  "tournament-lobby": "screen.tournamentLobby", "tournament-round": "screen.tournamentLobby",
                                  "tournament-between": "screen.tournamentLobby", "sign-in": "screen.signIn"]
 
     /// The element that says the fixture's screen is up.
     static func readyElement(_ app: XCUIApplication, _ fixture: String) -> XCUIElement {
-        if fixture == "game-end" { return app.descendants(matching: .any)["gameEnd"] }
+        if fixture.hasPrefix("game-end") { return app.descendants(matching: .any)["gameEnd"] }
         if let id = screenFixtures[fixture] { return app.descendants(matching: .any)[id] }
         return app.buttons["leave"]
     }

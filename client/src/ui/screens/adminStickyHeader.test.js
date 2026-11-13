@@ -36,3 +36,29 @@ describe('admin tables: the sticky header covers the scroll area to its top edge
     expect(Number(th['z-index'])).toBeGreaterThanOrEqual(1);
   });
 });
+
+describe('the Players tab: only the table scrolls (Safari, 2026-11-13)', () => {
+  it('the section does not scroll; .admin-results does, with no top padding', () => {
+    const sec = rule('.admin-section.admin-section--table:not([hidden])');
+    expect(sec.display).toBe('flex');
+    expect(sec['flex-direction']).toBe('column');
+    expect(sec.overflow).toBe('hidden');
+    const results = rule('.admin-section--table > .admin-results');
+    expect(results['overflow-y']).toBe('auto');
+    expect(results['min-height']).toBe('0');
+    expect(results.padding.split(/\s+/)[0]).toBe('0');
+  });
+
+  it('its header sticks at top: 0, with a cover above it that the scroller clips', () => {
+    expect(rule('.admin-section--table > .admin-results .admin-table th').top).toBe('0');
+    const cover = rule('.admin-section--table > .admin-results .admin-table th::before');
+    expect(cover.position).toBe('absolute');
+    expect(cover.bottom).toBe('100%');
+    expect(cover.background).toBe('inherit');
+  });
+
+  it('the Players panel carries the class', async () => {
+    const src = readClientFile('src/ui/screens/AdminPanel.js');
+    expect(src).toMatch(/players\.classList\.add\('admin-section--table'\)/);
+  });
+});

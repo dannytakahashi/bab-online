@@ -10,7 +10,9 @@ import SpriteKit
 /// socket, no voice, avatars show initials). Screen fixtures (`main-room`,
 /// `game-lobby`, `tournament-lobby`, `tournament-round` (round 3 in play: the
 /// scoreboard and two active tables), `tournament-between` (round 2 complete),
-/// `sign-in`) seed static rows instead.
+/// `sign-in`) seed static rows instead. `game-lobby-bots` is the game lobby with two bots
+/// that are not ready (my seat ready): there removeBot and addBot change the list the way
+/// the server answers them (`emulateLobby`) and show in "fixture.sent" as `removeBot:<id>` / `addBot`.
 /// `-uiFold book|tabletop` simulates a fold region (FoldReader) for screenshots.
 /// `-uiLeaveDrive settle|hold` drives the Leave alert's reopen (`leaveAlertPresented`), and
 /// the chat messages the app sends show in the "fixture.sent" probe (`recordSent`).
@@ -41,7 +43,7 @@ enum UIFixture {
     /// never starts voice; screenshots and the seat-row UI tests).
     static let showsVoiceButton: Bool = isActive && UserDefaults.standard.bool(forKey: "uiVoice")
 
-    static let screenFixtures: Set<String> = ["main-room", "game-lobby", "tournament-lobby", "tournament-round",
+    static let screenFixtures: Set<String> = ["main-room", "game-lobby", "game-lobby-bots", "tournament-lobby", "tournament-round",
                                               "tournament-between", "sign-in"]
 
     @MainActor
@@ -65,7 +67,7 @@ enum UIFixture {
             return
         }
         do {
-            let file = name == "game-end" ? "hand-resolving" : drawStates.contains(name) ? "draw-in-progress" : name
+            let file = gameEndStates[name] ?? (drawStates.contains(name) ? "draw-in-progress" : name)
             var snapDict: [String: Any]
             if let env = ProcessInfo.processInfo.environment["UI_FIXTURE_SNAPSHOT"] {
                 snapDict = try JSONSerialization.jsonObject(with: Data(env.utf8)) as? [String: Any] ?? [:]
@@ -96,11 +98,26 @@ enum UIFixture {
                     ] as [String: Any]])
                 }
             }
-            if name == "game-end" {
+            if gameEndStates[name] != nil {
+                // gameEnd playerStats as the server sends them (gameHandlers.js: avgHSI rounded);
+                // `-uiNoEndStats YES`: none, as an older server or a missing field
+                let totals: [Int: (bids: Int, tricks: Int, faults: Int, hsi: Double)] = [
+                    1: (23, 24, 1, 120), 2: (19, 17, 3, 104), 3: (21, 25, 0, 131), 4: (18, 18, 2, 97),
+                ]
                 var stats: [String: Any] = [:]
-                for seat in snap.seats { stats[String(seat.position)] = ["username": seat.username ?? "P\(seat.position)"] }
+                for seat in snap.seats {
+                    let t = totals[seat.position] ?? (0, 0, 0, 0)
+                    stats[String(seat.position)] = [
+                        "username": seat.username ?? "P\(seat.position)", "totalBids": t.bids, "totalTricks": t.tricks,
+                        "setsCaused": t.faults, "totalHSI": t.hsi * 13, "avgHSI": t.hsi,
+                    ] as [String: Any]
+                }
+                if UserDefaults.standard.bool(forKey: "uiNoEndStats") {
+                    stats = stats.mapValues { ["username": ($0 as? [String: Any])?["username"] ?? ""] }
+                }
                 store.apply(serverEvent: "gameEnd", payload: [[
-                    "score": ["team1": 312, "team2": 287], "playerStats": stats, "tournamentId": NSNull(), "seq": snap.seq + 1,
+                    "score": ["team1": 312, "team2": 287], "playerStats": stats,
+                    "tournamentId": snap.tournament?.tournamentId ?? NSNull(), "seq": snap.seq + 1,
                 ] as [String: Any]])
             }
             appState.screen = .game
@@ -153,12 +170,53 @@ enum UIFixture {
     /// The chat messages the app sent ("fixture.sent"; fixture mode has no socket), so a UI
     /// test can tell that Leave Game sent /leave.
     static func recordSent(_ event: String, _ data: [String: Any]) {
-        guard isActive, event == SocketEvents.Client.chatMessage, let message = data["message"] as? String else { return }
+        guard isActive else { return }
+        let message: String
+        switch event {
+        case SocketEvents.Client.chatMessage:
+            guard let m = data["message"] as? String else { return }
+            message = m
+        case SocketEvents.Client.removeBot where name == "game-lobby-bots":
+            message = "removeBot:\(data["botSocketId"] as? String ?? "-")"
+        case SocketEvents.Client.addBot where name == "game-lobby-bots":
+            message = "addBot"
+        default:
+            return
+        }
         DispatchQueue.main.async {
             let probe = TableDebugProbe.shared
             probe.sent = probe.sent == "-" ? message : probe.sent + "|" + message
+            emulateLobby(event, data)
         }
     }
+
+    /// `game-lobby-bots`' lobby (no server in fixture mode).
+    private static weak var fixtureLobby: LobbyState?
+
+    /// The server's answer to removeBot / addBot in `game-lobby-bots`, as GameManager makes it
+    /// (server PR #248): removeBotFromLobby takes the bot out and unreadies only the remaining
+    /// bots (the humans keep their flags); addBotToLobby adds "🤖 Bot <n>" with the lowest free
+    /// n, not ready, and leaves the flags alone.
+    private static func emulateLobby(_ event: String, _ data: [String: Any]) {
+        guard let lobby = fixtureLobby else { return }
+        var players = lobby.players
+        if event == SocketEvents.Client.removeBot {
+            guard let id = data["botSocketId"] as? String, let i = players.firstIndex(where: { $0.id == id && $0.isBot }) else { return }
+            players.remove(at: i)
+            for j in players.indices where players[j].isBot { players[j].isReady = false }
+        } else {
+            guard players.count < 4 else { return }
+            let taken = Set(players.filter(\.isBot).map(\.username))
+            var n = 1
+            while taken.contains(n > 1 ? "🤖 Bot \(n)" : "🤖 Bot") { n += 1 }
+            botSerial += 1
+            players.append(LobbyPlayer(id: "bot:fixture-\(botSerial)", username: n > 1 ? "🤖 Bot \(n)" : "🤖 Bot",
+                                       pic: nil, isReady: false, isBot: true))
+        }
+        // the server's playerReadyUpdate lands a moment later
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { lobby.players = players }
+    }
+    private static var botSerial = 2
 
     /// Draw-for-deal states (DrawPhaseView screenshots and UI tests), built from
     /// `draw-in-progress` (2 of 4 drawn, the viewer fay among them): `draw-start`
@@ -167,6 +225,12 @@ enum UIFixture {
     /// this fixture only, keeps it up: `holdsTeams`), `draw-long` all four with two
     /// names long enough to shrink (the cards must stay on one line), `draw-spectator`
     /// 2 of 4 drawn seen by a spectator (no deck: they never draw).
+    /// Game-end states (GameEndView: final score + each player's stats) and the snapshot each
+    /// ends: `game-end` a seat's casual game, `game-end-spectator` a spectator's,
+    /// `game-end-tournament` a tournament game (Return to Tournament).
+    static let gameEndStates = ["game-end": "hand-resolving", "game-end-spectator": "spectator-mid-hand",
+                                "game-end-tournament": "tournament-game"]
+
     static let drawStates: Set<String> = ["draw-start", "draw-all", "draw-teams", "draw-long", "draw-spectator"]
     static var holdsTeams: Bool { name == "draw-teams" }
 
@@ -246,6 +310,16 @@ enum UIFixture {
             lobby.lobbyName = "Friday night"
             lobby.players = [player("ivy", ready: true), player("kim", ready: true), player("hal"), player("Mary", ready: true, bot: true)]
             lobby.messages = chat
+            appState.screen = .gameLobby
+        case "game-lobby-bots":
+            // I readied, then added the bots: they are not ready, so each shows its remove control
+            lobby.lobbyId = "l1"
+            lobby.lobbyName = "Friday night"
+            lobby.players = [player("ivy", ready: true), player("kim", ready: true),
+                             LobbyPlayer(id: "bot:fixture-1", username: "🤖 Bot", pic: nil, isReady: false, isBot: true),
+                             LobbyPlayer(id: "bot:fixture-2", username: "🤖 Bot 2", pic: nil, isReady: false, isBot: true)]
+            lobby.messages = chat
+            fixtureLobby = lobby
             appState.screen = .gameLobby
         case "tournament-lobby":
             tournament.tournamentId = "t1"

@@ -72,9 +72,12 @@ final class FixtureScreenshotTests: XCTestCase {
     func testPresenceMixed() { run("presence-mixed") }
     func testTournamentGame() { run("tournament-game") }
     func testGameEnd() { run("game-end") }
+    func testGameEndSpectator() { run("game-end-spectator") }
+    func testGameEndTournament() { run("game-end-tournament") }
     func testDrawInProgress() { run("draw-in-progress") }
     func testMainRoom() { run("main-room") }
     func testGameLobby() { run("game-lobby") }
+    func testGameLobbyBots() { run("game-lobby-bots") }
     func testTournamentLobby() { run("tournament-lobby") }
     func testTournamentRound() { run("tournament-round") }
     func testTournamentBetween() { run("tournament-between") }
