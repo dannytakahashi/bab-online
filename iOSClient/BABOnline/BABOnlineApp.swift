@@ -11,7 +11,8 @@ struct BABOnlineApp: App {
     @StateObject private var gameState: GameState
     @StateObject private var actions: ActionCoordinator
     @StateObject private var tournamentState: TournamentState
-    @StateObject private var leaderboardState = LeaderboardState()
+    @StateObject private var leaderboardState: LeaderboardState
+    @StateObject private var recordsState: RecordsState
     @StateObject private var safetyState = SafetyState()
     @Environment(\.scenePhase) private var scenePhase
     /// True once the scene has actually reached `.background`. Control Center, the
@@ -24,9 +25,13 @@ struct BABOnlineApp: App {
     init() {
         let store = GameState()
         let app = AppState(), auth = AuthState(), mainRoom = MainRoomState(), lobby = LobbyState(), tournament = TournamentState()
+        let leaderboard = LeaderboardState(), records = RecordsState()
         #if DEBUG
         UIFixture.seed(store, app, mainRoom: mainRoom, lobby: lobby, tournament: tournament, auth: auth)
+        UIFixture.seedStats(leaderboard: leaderboard, records: records)
         #endif
+        _leaderboardState = StateObject(wrappedValue: leaderboard)
+        _recordsState = StateObject(wrappedValue: records)
         _appState = StateObject(wrappedValue: app)
         _authState = StateObject(wrappedValue: auth)
         _mainRoomState = StateObject(wrappedValue: mainRoom)
@@ -47,6 +52,7 @@ struct BABOnlineApp: App {
                 .environmentObject(actions)
                 .environmentObject(tournamentState)
                 .environmentObject(leaderboardState)
+                .environmentObject(recordsState)
                 .environmentObject(safetyState)
                 .environmentObject(socketService)
                 .onAppear {
@@ -86,6 +92,7 @@ struct BABOnlineApp: App {
             appState: appState,
             tournamentState: tournamentState,
             leaderboardState: leaderboardState,
+            recordsState: recordsState,
             safetyState: safetyState
         )
         router.registerAll()

@@ -17,6 +17,13 @@ remove an item in the PR that fixes it.
 
 ## iOS: other
 
+- **Web pages iOS still lacks** (after the Stats sheet's Records tab): player search
+  (web Players: search as you type, rows open a profile); other players' profiles
+  (avatar, the 12-stat grid, Report / Block; web opens them from search, seat avatars
+  and opponent plates); my own profile (the same stats, choose a stock avatar or
+  upload a picture, sign out and delete are already in Account settings). iOS also
+  never shows a custom picture sent inline to a cap-less socket (it sends the cap).
+
 - **Duo inner App Store screenshots** were last shot with build 4: the table shots
   show the old Leave icon and two exits when spectating. Re-shoot them with
   Device Hub's Open posture for the next release.

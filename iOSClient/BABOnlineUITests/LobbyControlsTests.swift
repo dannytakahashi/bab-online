@@ -70,7 +70,7 @@ final class LobbyControlsTests: XCTestCase {
         assertContentClear(app, column: column, barLabels: labels)
 
         buttons(app, "label == %@", "Stats").first?.tap()
-        XCTAssertTrue(app.navigationBars["Leaderboard"].waitForExistence(timeout: 5), "Stats opens the leaderboard")
+        XCTAssertTrue(app.navigationBars["Stats"].waitForExistence(timeout: 5), "Stats opens the Stats sheet")
         app.terminate()
     }
 
