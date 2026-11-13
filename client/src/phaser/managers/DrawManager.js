@@ -7,8 +7,9 @@
  *   - the canvas has the cards: the deck (54 backs in a row; each card is
  *     its own button, the one under the pointer is the one picked, and it
  *     peeks up under the pointer) and the drawn cards, which fly from the
- *     deck and turn face up into their slot (hand-card size, 1:1 like the
- *     hand);
+ *     deck and turn face up into their slot (at least the hand card's size,
+ *     larger where the canvas has the height; each face from its own frame,
+ *     cards/drawSlotFaces.js, so 1:1 at any size);
  *   - the HUD has the words and the players (ui/drawHud.js): the title and
  *     the rule, each slot's avatar and name over a dashed placeholder, the
  *     prompt under the deck, then the teams panel over a scrim.
@@ -32,7 +33,8 @@ import { BACK_FRAME } from '../cards/cardFaces.js';
 import { MOTION } from '../../ui/tokens.js';
 import { motionMs, EASE_EMPHASIZED } from '../../ui/motion.js';
 import { applyHudLayout } from '../../ui/tableHud.js';
-import { showDrawHud, fillDrawSlot, endMyDraw, showTeamsHud, clearDrawHud, drawHud } from '../../ui/drawHud.js';
+import { showDrawHud, fillDrawSlot, landDrawSlot, fitDrawNames, endMyDraw, showTeamsHud, clearDrawHud, drawHud } from '../../ui/drawHud.js';
+import { DRAW_SLOTS_KEY, ensureDrawSlotFace } from '../cards/drawSlotFaces.js';
 
 /** A deck card under the pointer peeks up by this share of its height. */
 export const DECK_PEEK = 0.12;
@@ -111,14 +113,20 @@ export class DrawManager {
       const mine = !this._spectator && (d.drawOrder === draw.viewerDrawOrder || (!!this.state.username && d.username === this.state.username));
       if (d.card) {
         const face = getCardImageKey(d.card);
-        const card = this.scene.add.image(slot.x, slot.y, CARD_TEXTURE_KEY, face)
+        const card = this.scene.add.image(slot.x, slot.y, DRAW_SLOTS_KEY, this._slotFace(L, d.drawOrder - 1, face))
           .setScale(L.draw.slotCard.scale).setDepth(300);
         card.setData?.('drawOrder', d.drawOrder);
         card.setData?.('faceKey', face);
         this.drawnCardDisplays.push(card);
       }
-      fillDrawSlot(d.drawOrder - 1, { username: d.username, mine, card: d.card });
+      fillDrawSlot(d.drawOrder - 1, { username: d.username, mine, card: d.card, announce: false });
+      if (d.card) landDrawSlot(d.drawOrder - 1);
     }
+  }
+
+  /** Slot i's face at the layout's slot size (its own frame: cards/drawSlotFaces.js); the frame name. */
+  _slotFace(L, i, faceKey) {
+    return ensureDrawSlotFace(this.scene.textures, L.draw.slotCard.tex, i, faceKey);
   }
 
   /**
@@ -260,11 +268,13 @@ export class DrawManager {
       if (!slot) continue;
       stop(item);
       const face = item.getData('faceKey');
-      if (face) item.setTexture(CARD_TEXTURE_KEY, face);
+      if (face) item.setTexture(DRAW_SLOTS_KEY, this._slotFace(L, item.getData('drawOrder') - 1, face));
       item.setPosition(slot.x, slot.y);
       item.setScale(draw.slotCard.scale);
       item.setAlpha?.(1);
+      landDrawSlot(item.getData('drawOrder') - 1);
     }
+    fitDrawNames();
   }
 
   /**
@@ -338,28 +348,34 @@ export class DrawManager {
     // The slot shows who drew (its placeholder goes as the card comes)
     fillDrawSlot(order - 1, { username: data.username, mine, card: data.card });
 
-    // Fly and turn over: half way the back narrows to its edge, the face
-    // widens from it into the slot
+    // Fly and turn over: half way the back narrows to its edge (growing to
+    // the slot card's height), the face widens from it into the slot, and
+    // the slot's dashed placeholder fades out as it comes (never an empty
+    // slot while the card is on its way)
     const start = { x: drawnCard.x, y: drawnCard.y };
     const flip = motionMs('base');
-    const scale = draw.slotCard.scale;
+    const backScaleY = drawnCard.height ? draw.slotCard.h / drawnCard.height : draw.slotCard.scale;
     sceneTween(this.scene, {
       targets: drawnCard,
       x: (start.x + slot.x) / 2,
       y: (start.y + slot.y) / 2,
       scaleX: 0,
-      scaleY: scale,
+      scaleY: backScaleY,
       duration: flip,
       ease: EASE_EMPHASIZED,
       onComplete: () => {
         if (!drawnCard || !drawnCard.scene) return;
-        drawnCard.setTexture(CARD_TEXTURE_KEY, textureKey);
+        const now = this.layout();
+        drawnCard.setTexture(DRAW_SLOTS_KEY, this._slotFace(now, order - 1, textureKey));
+        drawnCard.setScale(0, now.draw.slotCard.scale);
+        landDrawSlot(order - 1, { ms: flip });
+        const to = now.draw.slots[order - 1] || slot;
         sceneTween(this.scene, {
           targets: drawnCard,
-          x: slot.x,
-          y: slot.y,
-          scaleX: scale,
-          scaleY: scale,
+          x: to.x,
+          y: to.y,
+          scaleX: now.draw.slotCard.scale,
+          scaleY: now.draw.slotCard.scale,
           duration: flip,
           ease: EASE_EMPHASIZED,
         });

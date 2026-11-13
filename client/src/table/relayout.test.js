@@ -15,6 +15,7 @@
  *     draws the same table as the relayout left (a fresh render).
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { DRAW_SLOTS_KEY, slotFrame, drawSlotFaces } from '../phaser/cards/drawSlotFaces.js';
 
 vi.mock('../vendor.js', () => ({}));
 vi.mock('../socket/createSocket.js', () => ({ createSocket: () => globalThis.__fakeSocket }));
@@ -198,14 +199,21 @@ describe('the drawn names (a username may be 50 characters)', () => {
       for (let i = 0; i < 3; i++) {
         expect(layoutMod.intersects(L.draw.name.rects[i], L.draw.name.rects[i + 1]), `${label}: names ${i} and ${i + 1}`).toBe(false);
       }
-      // each drawn card, face up, is DRAWN in its slot at the hand card's size
+      // each drawn card, face up, is DRAWN in its slot at the slot card's
+      // size, from its own frame redrawn at that size (1:1 after a resize)
       const cards = dm.drawnCards();
       expect(cards).toHaveLength(4);
+      const faces = drawSlotFaces(page.scene.textures);
+      expect(faces.spec, label).toEqual(L.draw.slotCard.tex);
       for (const c of cards) {
-        const r = L.draw.slotRects[c.getData('drawOrder') - 1];
-        expect(c.frame.name).toBe(c.getData('faceKey'));
+        const i = c.getData('drawOrder') - 1;
+        const r = L.draw.slotRects[i];
+        expect([c.texture.key, c.frame.name]).toEqual([DRAW_SLOTS_KEY, slotFrame(i)]);
+        expect(faces.faces[i]).toBe(c.getData('faceKey'));
         expectRect(c.getBounds(), r, `${label} card ${c.getData('drawOrder')}`);
       }
+      // the placeholders are gone under the landed cards
+      expect(slots.every((s) => s.classList.contains('has-card')), label).toBe(true);
     };
     check(L, `${L.w}x${L.h}`);
     for (const [w, h] of [[1120, 790], [1920, 1080], [1024 - 200, 668]]) {

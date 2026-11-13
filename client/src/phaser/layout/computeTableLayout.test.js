@@ -11,8 +11,9 @@ import { resolve } from 'node:path';
 import {
   computeTableLayout, layoutForViewport, layoutRects, drawRects, findIntersections, findOutside,
   logWidthFor, LOG_BREAKPOINTS, LOG_WIDTH_MAX, handPositions, fanPositions, historySlot, deckPosition,
-  intersects, contains, BASE_SCALE, BID_SHEET, FELT, BUBBLE, BUBBLE_KEEPS, SPECTATOR_BADGE, badgeBubbleKeeps,
+  intersects, contains, BASE_SCALE, BID_SHEET, FELT, BUBBLE, BUBBLE_KEEPS, SPECTATOR_BADGE, badgeBubbleKeeps, DRAW_GROW, CARD_UNIT,
 } from './computeTableLayout.js';
+import { cardTextureSize } from '../cards/CardAtlas.js';
 
 const NAMED = [[1920, 1080], [1440, 790], [1280, 620], [1024, 668], [844, 390], [390, 844]];
 const ROLES = [['player', false], ['spectator', true]];
@@ -333,13 +334,18 @@ describe('the draw for deal (iOS DrawPhaseView\'s column)', () => {
   const column = (d) => [['title', d.title.rect], ['rules', d.rules.rect], ['avatar', d.avatar.rects[0]],
     ['name', d.name.rects[0]], ['card', d.slotRects[0]], ['deck', d.deck.rect], ['prompt', d.prompt.rect]];
 
-  it('1440x900 (s = 1): the tokens (title xxl, rule md, a 40 px avatar), the hand card, centred, the gaps at their tokens', () => {
+  it('1440x900 (s = 1): the tokens (title xxl, rule md), the slot row grown into the spare height, centred, the gaps at their tokens', () => {
     const L = layoutForViewport({ vw: 1440, vh: 900, withLog: false });
     const d = L.draw;
     expect(L.s).toBe(1);
-    expect([d.title.font, d.rules.font, d.name.font, d.prompt.font, d.avatar.size]).toEqual([32, 16, 16, 20, 40]);
-    // a drawn card is the hand card (its frame 1:1, like the hand)
-    expect([d.slotCard.w, d.slotCard.h, d.slotCard.scale]).toEqual([L.card.hand.w, L.card.hand.h, L.card.hand.scale]);
+    // the slot row grows (DRAW_GROW.max): the cards twice the hand card, the
+    // avatars (s10 = 40) and names (md = 16) by half as much
+    expect(d.grow).toBe(DRAW_GROW.max);
+    expect([d.title.font, d.rules.font, d.name.font, d.prompt.font, d.avatar.size]).toEqual([32, 16, 24, 20, 60]);
+    // a drawn card: its own frame (the card in even device pixels) at 1 / DPR, 1:1
+    expect(d.slotCard.tex).toEqual(cardTextureSize(CARD_UNIT.h * BASE_SCALE.drawn * 2, 1));
+    expect([d.slotCard.w, d.slotCard.h, d.slotCard.scale]).toEqual([d.slotCard.tex.w, d.slotCard.tex.h, 1]);
+    expect(Math.abs(d.slotCard.h - 2 * L.card.hand.h)).toBeLessThanOrEqual(2);
     // the slots one pitch apart about the centre, the cards on one row
     expect(d.slots.map((p) => p.x)).toEqual([720 - 1.5 * d.pitch, 720 - 0.5 * d.pitch, 720 + 0.5 * d.pitch, 720 + 1.5 * d.pitch]);
     expect(new Set(d.slots.map((p) => p.y)).size).toBe(1);
@@ -374,6 +380,30 @@ describe('the draw for deal (iOS DrawPhaseView\'s column)', () => {
         expect(findIntersections(L, drawRects(L)), label).toEqual([]);
         expect(findOutside(L, drawRects(L)), label).toEqual([]);
       }
+    }
+  });
+
+  it('the slot row grows only into spare height: never past DRAW_GROW.max, never squeezing a gap, its frame 1:1 at any DPR', () => {
+    for (const [vw, vh, dpr] of [[1440, 900, 1], [1440, 900, 2], [1024, 668, 2], [800, 560, 1], [2560, 1440, 2], [1280, 500, 2]]) {
+      const L = layoutForViewport({ vw, vh, dpr, withLog: true });
+      const d = L.draw;
+      const label = `${vw}x${vh}@${dpr}`;
+      expect(d.grow, label).toBeGreaterThanOrEqual(1);
+      expect(d.grow, label).toBeLessThanOrEqual(DRAW_GROW.max);
+      // the frame is the slot card in even device pixels, drawn at 1 / DPR
+      expect(d.slotCard.tex, label).toEqual(cardTextureSize(CARD_UNIT.h * BASE_SCALE.drawn * L.s * d.grow, dpr));
+      expect(d.slotCard.scale, label).toBeCloseTo(1 / dpr, 9);
+      expect(d.slotCard.tex.h % 2, label).toBe(0);
+      expect(d.slotCard.h, label).toBeGreaterThanOrEqual(L.card.hand.h);
+      // four slots side by side, the table's gap G between the cards
+      expect(d.pitch, label).toBeGreaterThanOrEqual(d.slotCard.w + Math.max(4, 8 * L.s) - 0.01);
+      // grown: the gaps around the slot row at their tokens (s8, s10)
+      if (d.grow > 1) {
+        expect(d.avatar.rects[0].y - (d.rules.rect.y + d.rules.rect.h), label).toBeGreaterThanOrEqual(Math.max(Math.max(4, 8 * L.s), 32 * L.s) - 0.01);
+        expect(d.deck.rect.y - (d.slotRects[0].y + d.slotRects[0].h), label).toBeGreaterThanOrEqual(Math.max(Math.max(4, 8 * L.s), 40 * L.s) - 0.01);
+      }
+      expect(findIntersections(L, drawRects(L)), label).toEqual([]);
+      expect(findOutside(L, drawRects(L)), label).toEqual([]);
     }
   });
 

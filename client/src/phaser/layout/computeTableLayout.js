@@ -223,6 +223,15 @@ function handCardSize(design, tex, dpr) {
 }
 
 /**
+ * A drawn card in its slot (the draw's own frame, `tex`: the card's height
+ * in even device pixels, capped like the atlas's): 1:1 like the hand card.
+ */
+function slotCardSize(design, dpr) {
+  const tex = cardTextureSize(CARD_UNIT.h * design, dpr);
+  return { ...handCardSize(design, tex, dpr), tex };
+}
+
+/**
  * The draw for deal's words (DrawManager puts them in the HUD; the layout
  * sizes their boxes from them). The same words as the iOS DrawPhaseView,
  * with "Click" for "Tap".
@@ -253,19 +262,40 @@ const EM = { title: 0.62, rules: 0.52, prompt: 0.56 };
  * Type and spacing are the tokens at s (with floors that keep a phone-size
  * canvas legible); only the gaps around the slot row give way when the
  * canvas is short (to the table's gap G, never below), so the draw never
- * decides s: the table does. A drawn card is the hand card (its frame at
- * 1 / DPR: 1:1 like the hand), its centre on a device pixel.
+ * decides s: the table does. A drawn card is at least the hand card; where
+ * the canvas has height to spare the slot row grows into it (the cards by
+ * up to DRAW_GROW.max, their avatars and names by half as much), so the
+ * results fill the screen as on iOS instead of a small row in a lot of
+ * felt. The slot card is drawn from its own frame (`tex`, DrawManager's
+ * cards/drawSlotFaces.js texture) at 1 / DPR, so it stays 1:1 at any size,
+ * its centre on a device pixel.
  */
-function placeDraw({ cw, ch, s, M, G, q, dpr, deckCard, drawn }) {
+export const DRAW_GROW = Object.freeze({ max: 2, share: 0.6 });
+
+function placeDraw({ cw, ch, s, M, G, q, dpr, deckCard, drawn: handCard }) {
   const cx = cw / 2;
   const avail = Math.max(1, cw - 2 * M);
-  const font = {
+  const baseFont = {
     title: Math.max(18, TYPE.xxl * s),
     rules: Math.max(12, TYPE.md * s),
     name: Math.max(12, TYPE.md * s),
     prompt: Math.max(13, TYPE.lg * s),
   };
-  const avatar = Math.max(20, SPACE.s10 * s);
+  const baseAvatar = Math.max(20, SPACE.s10 * s);
+  // the slot row's growth g: a share of the height left over at the ideal
+  // gaps (the base column, below), at most DRAW_GROW.max and at most what
+  // four slots (card plus the gap G) fit across
+  const baseRuleLines = Math.min(3, Math.max(1, Math.ceil((EM.rules * baseFont.rules * DRAW_TEXT.rules.length) / avail - 1e-9)));
+  const baseFixed = baseFont.title * 1.2 + Math.max(4, SPACE.s2 * s) + baseRuleLines * baseFont.rules * 1.35 +
+    baseAvatar + Math.max(4, SPACE.s2 * s) + baseFont.name * 1.3 + Math.max(4, SPACE.s3 * s) +
+    handCard.h + deckCard.h + Math.max(4, SPACE.s4 * s) + baseFont.prompt * 1.3;
+  const room = ch - 2 * M - baseFixed - Math.max(G, SPACE.s8 * s) - Math.max(G, SPACE.s10 * s) - 2;
+  const gMax = Math.max(1, Math.min(DRAW_GROW.max, (avail / 4 - G) / handCard.w));
+  const g = clamp(1 + (DRAW_GROW.share * Math.max(0, room)) / (handCard.h + baseAvatar / 2), 1, gMax);
+  const half = 1 + (g - 1) / 2;
+  const drawn = slotCardSize(handCard.design * g, dpr);
+  const font = { ...baseFont, name: baseFont.name * half };
+  const avatar = baseAvatar * half;
   // the deck: 54 backs, each 17 * s past the one before (less where narrow)
   const ov = Math.max(0.5, Math.min(17 * s, (avail - deckCard.w) / 53));
   const deckW = 53 * ov + deckCard.w;
@@ -331,6 +361,7 @@ function placeDraw({ cw, ch, s, M, G, q, dpr, deckCard, drawn }) {
     deck: { x0: q(deckX0), y: deckY, overlap: ov, card: deckCard, rect: around(q(cx), deckY, deckW, deckCard.h), enterX: q(Math.min(cw - deckCard.w, cx + 0.26 * cw)) },
     slots,
     slotCard: drawn,
+    grow: g,
     slotRects: slots.map((p) => around(p.x, p.y, drawn.w, drawn.h)),
     pitch,
     avatar: { size: avatar, y: avatarY, rects: slots.map((p) => around(p.x, avatarY, avatar, avatar)) },

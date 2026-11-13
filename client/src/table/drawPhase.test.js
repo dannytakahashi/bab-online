@@ -17,6 +17,7 @@
  *   - reduced motion: the card is in its slot at once.
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { DRAW_SLOTS_KEY, slotFrame, drawSlotFaces } from '../phaser/cards/drawSlotFaces.js';
 
 vi.mock('../vendor.js', () => ({}));
 vi.mock('../socket/createSocket.js', () => ({ createSocket: () => globalThis.__fakeSocket }));
@@ -27,6 +28,7 @@ let page;
 let replay;
 let layoutMod;
 let motion;
+let hudMod;
 
 const hud = () => document.getElementById('table-hud');
 const draw = () => hud().querySelector(':scope > .hud-draw');
@@ -42,6 +44,14 @@ function expectRect(b, r, label) {
   near(b.height, r.h, `${label} h`);
 }
 const card = (suit, rank) => ({ suit, rank });
+const status = () => draw().querySelector('.hud-draw__status');
+// a drawn card shows its face from the draw's own frame for its slot
+function expectFace(c, faceKey) {
+  const i = c.getData('drawOrder') - 1;
+  expect([c.texture.key, c.frame.name]).toEqual([DRAW_SLOTS_KEY, slotFrame(i)]);
+  expect(c.getData('faceKey')).toBe(faceKey);
+  expect(drawSlotFaces(page.scene.textures).faces[i]).toBe(faceKey);
+}
 const drew = (username, order, c) => page.socket.fire('playerDrew', { username, card: c, drawOrder: order, socketId: `s-${order}` });
 const startDraw = () => {
   page.socket.fire('startDraw', { start: true });
@@ -52,6 +62,7 @@ beforeAll(async () => {
   replay = await import('../testing/replay.js');
   layoutMod = await import('../phaser/layout/computeTableLayout.js');
   motion = await import('../ui/motion.js');
+  hudMod = await import('../ui/drawHud.js');
   page = await replay.realTablePage({ username: ME, socketId: 'ios-h1' });
   page.socket.fire('allPlayersReady', {});
 });
@@ -106,9 +117,16 @@ describe('the draw for deal (iOS DrawPhaseView\'s structure)', () => {
     drew('🤖 Mary', 1, card('hearts', 'K'));
     expect(dm().drawnCards()).toHaveLength(1);
     expect(dm().drawnCards()[0]).not.toBe(mine);
+    // the slot names Mary at once, its placeholder stays while the card is on its way
+    expect(slots()[0].dataset.state).toBe('drawn');
+    expect(slots()[0].classList.contains('has-card')).toBe(false);
+    expect(status().textContent).toBe('🤖 Mary drew the King of Hearts');
+    replay.advance(1000);
+    expect(slots()[0].classList.contains('has-card')).toBe(true);
     page.socket.fire('youDrew', { card: card('spades', 'Q'), drawOrder: 2 });
     drew(ME, 2, card('spades', 'Q'));
     expect(dm().drawnCards()[1]).toBe(mine);
+    expect(status().textContent).toBe('You drew the Queen of Spades');
     drew('🤖 Mike', 3, card('clubs', '7'));
     drew('🤖 Sharon', 4, card('joker', 'HI'));
     replay.advance(1000); // the flips land
@@ -119,9 +137,14 @@ describe('the draw for deal (iOS DrawPhaseView\'s structure)', () => {
     // the avatar's initial (a bot's robot is one character)
     expect(slots().map((s) => s.querySelector('.hud-draw__avatar').textContent)).toEqual(['🤖', 'I', '🤖', '🤖']);
     for (const c of dm().drawnCards()) {
-      expect(c.frame.name).toBe(c.getData('faceKey'));
+      expectFace(c, c.getData('faceKey'));
       expectRect(c.getBounds(), L().draw.slotRects[c.getData('drawOrder') - 1], `drawn ${c.getData('drawOrder')}`);
     }
+    expect(dm().drawnCards().map((c) => c.getData('faceKey'))).toEqual(['k_hearts', 'q_spades', '7_clubs', 'hi_joker']);
+    expect(slots().every((s) => s.classList.contains('has-card'))).toBe(true);
+    // the slot list is not a live region (the status line says each draw once)
+    expect(draw().querySelector('.hud-draw__slots').hasAttribute('aria-live')).toBe(false);
+    expect([status().getAttribute('role'), status().getAttribute('aria-live')]).toEqual(['status', 'polite']);
     expect(dm().deckCards()).toHaveLength(50);
   });
 
@@ -132,7 +155,11 @@ describe('the draw for deal (iOS DrawPhaseView\'s structure)', () => {
     expect(slots().map((s) => s.classList.contains('is-mine'))).toEqual([false, true, false, false]);
     expect(draw().classList.contains('has-drawn')).toBe(true);
     const drawn = dm().drawnCards();
-    expect(drawn.map((c) => c.frame.name).sort()).toEqual(['k_hearts', 'q_spades', '7_clubs', 'hi_joker'].sort());
+    expect(drawn.map((c) => c.getData('faceKey')).sort()).toEqual(['k_hearts', 'q_spades', '7_clubs', 'hi_joker'].sort());
+    for (const c of drawn) expectFace(c, c.getData('faceKey'));
+    // landed: no placeholders; a rejoin does not re-announce the draws
+    expect(slots().every((s) => s.classList.contains('has-card'))).toBe(true);
+    expect(status().textContent).toBe('');
     for (const c of drawn) expectRect(c.getBounds(), L().draw.slotRects[c.getData('drawOrder') - 1], `rendered ${c.getData('drawOrder')}`);
     // the deck: the 50 left, none a button (I drew)
     expect(dm().deckCards()).toHaveLength(50);
@@ -150,6 +177,9 @@ describe('the draw for deal (iOS DrawPhaseView\'s structure)', () => {
     replay.advance(100);
     const teams = hud().querySelector(':scope > .hud-teams');
     expect(teams.classList.contains('is-shown')).toBe(true);
+    // a screen reader hears the teams (a status line filled after it is in the page)
+    expect(teams.querySelector('.hud-teams__status').textContent).toBe(`Teams: Team 1, ${ME} and 🤖 Sharon; Team 2, 🤖 Mary and 🤖 Mike`);
+    expect(teams.querySelector('.hud-teams__panel').hasAttribute('aria-live')).toBe(false);
     expect(teams.querySelector('.hud-teams__scrim')).toBeTruthy();
     const cols = [...teams.querySelectorAll('.hud-teams__team')];
     expect(cols.map((c) => c.querySelector('.hud-teams__label').textContent)).toEqual(['Team 1', 'Team 2']);
@@ -183,10 +213,14 @@ describe('the draw for deal (iOS DrawPhaseView\'s structure)', () => {
     startDraw();
     replay.advance(1000);
     page.socket.clearEmits();
-    draw().querySelector('button.hud-draw__key').click();
+    const key = draw().querySelector('button.hud-draw__key');
+    key.focus();
+    key.click();
     expect(page.socket.emitted('draw')).toHaveLength(1);
     expect(dm().clickedCardSprite.getData('deckIndex')).toBe(27);
     expect(draw().querySelector('button.hud-draw__key')).toBeNull();
+    // the focus goes to the status line, not the page's body
+    expect(document.activeElement).toBe(status());
     page.scene.pointerDownAt(layoutMod.deckPosition(L(), 5).x, layoutMod.deckPosition(L(), 5).y);
     expect(page.socket.emitted('draw')).toHaveLength(1);
   });
@@ -197,8 +231,40 @@ describe('the draw for deal (iOS DrawPhaseView\'s structure)', () => {
     drew('🤖 Mary', 1, card('hearts', '2'));
     replay.advance(25);
     const [c] = dm().drawnCards();
-    expect(c.frame.name).toBe('2_hearts');
+    expectFace(c, '2_hearts');
+    expect(slots()[0].classList.contains('has-card')).toBe(true);
     expectRect(c.getBounds(), L().draw.slotRects[0], 'reduced');
     motion.setReducedMotionOverride(null);
+  });
+
+  it('a long name shrinks (to 0.6) before the ellipsis; a short one stays at size', () => {
+    startDraw();
+    drew('🤖 Mary', 1, card('hearts', '3'));
+    const name = slots()[0].querySelector('.hud-draw__name');
+    // the text's width at --name-fit (plus `slack` px: text does not scale exactly with its size)
+    const box = (scroll, client, slack = 0) => {
+      const fit = () => parseFloat(name.style.getPropertyValue('--name-fit')) || 1;
+      Object.defineProperty(name, 'scrollWidth', { configurable: true, get: () => Math.round(scroll * fit() + (fit() < 1 ? slack : 0)) });
+      Object.defineProperty(name, 'clientWidth', { configurable: true, get: () => client });
+    };
+    box(150, 100);
+    hudMod.fitDrawNames();
+    expect(name.style.getPropertyValue('--name-fit')).toBe('0.66');
+    // a name that still spills at the first guess steps down until it fits (live: 152 in 138 px)
+    box(152, 138, 3);
+    hudMod.fitDrawNames();
+    expect(name.style.getPropertyValue('--name-fit')).toBe('0.88');
+    expect(name.scrollWidth).toBeLessThanOrEqual(name.clientWidth);
+    box(400, 100); // shrinks to the floor, then the ellipsis cuts it
+    hudMod.fitDrawNames();
+    expect(name.style.getPropertyValue('--name-fit')).toBe(String(hudMod.NAME_MIN_SCALE));
+    box(80, 100);
+    hudMod.fitDrawNames();
+    expect(name.style.getPropertyValue('--name-fit')).toBe('');
+    // a relayout refits (its boxes changed)
+    box(120, 100);
+    page.scene.relayout?.();
+    dm().relayout();
+    expect(name.style.getPropertyValue('--name-fit')).toBe('0.83');
   });
 });
