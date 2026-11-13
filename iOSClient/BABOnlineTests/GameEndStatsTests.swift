@@ -87,6 +87,9 @@ final class GameEndStatsTests: XCTestCase {
         XCTAssertEqual(r.accessibilityLabel, "kim, team 2: 19 bids, 17 tricks, 3 faults, average HSI 104")
         let unnamed = PlayerEndStats(position: 3, username: "", totalBids: 1, totalTricks: 2, setsCaused: 0, avgHSI: 5)
         XCTAssertTrue(unnamed.accessibilityLabel.hasPrefix("Seat 3, team 1:"))
+        // a count of 1 reads with the singular noun
+        let ones = PlayerEndStats(position: 1, username: "ivy", totalBids: 1, totalTricks: 1, setsCaused: 1, avgHSI: 98)
+        XCTAssertEqual(ones.accessibilityLabel, "ivy, team 1: 1 bid, 1 trick, 1 fault, average HSI 98")
     }
 
     /// Equality (the replay tests compare the store's end with the wire's) includes the stats.

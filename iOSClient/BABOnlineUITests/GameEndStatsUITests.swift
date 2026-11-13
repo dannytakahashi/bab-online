@@ -16,7 +16,7 @@ final class GameEndStatsUITests: XCTestCase {
 
     /// The fixture's seats (hand-resolving: ivy, kim, hal, jon) and their UIFixture totals.
     static let expected = [
-        1: "ivy, team 1: 23 bids, 24 tricks, 1 faults, average HSI 120",
+        1: "ivy, team 1: 23 bids, 24 tricks, 1 fault, average HSI 120",
         2: "kim, team 2: 19 bids, 17 tricks, 3 faults, average HSI 104",
         3: "hal, team 1: 21 bids, 25 tricks, 0 faults, average HSI 131",
         4: "jon, team 2: 18 bids, 18 tricks, 2 faults, average HSI 97",

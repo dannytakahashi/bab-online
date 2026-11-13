@@ -129,8 +129,14 @@ struct PlayerEndStats: Equatable, Identifiable {
     /// VoiceOver reads one sentence per row (the header row is hidden from it).
     var accessibilityLabel: String {
         "\(username.isEmpty ? "Seat \(position)" : username), team \(team): "
-            + "\(Self.format(totalBids)) bids, \(Self.format(totalTricks)) tricks, "
-            + "\(Self.format(setsCaused)) faults, average HSI \(Self.format(avgHSI))"
+            + "\(Self.counted(totalBids, "bid", "bids")), \(Self.counted(totalTricks, "trick", "tricks")), "
+            + "\(Self.counted(setsCaused, "fault", "faults")), average HSI \(Self.format(avgHSI))"
+    }
+
+    /// "1 fault", "3 faults", "– faults" (VoiceOver reads the number with its noun).
+    private static func counted(_ value: Int?, _ one: String, _ many: String) -> String {
+        let text = format(value)
+        return "\(text) \(text == "1" ? one : many)"
     }
 }
 
