@@ -60,8 +60,8 @@ enum UIFixture {
             return
         }
         do {
-            let file = name == "game-end" ? "hand-resolving" : name
-            let snapDict: [String: Any]
+            let file = name == "game-end" ? "hand-resolving" : drawStates.contains(name) ? "draw-in-progress" : name
+            var snapDict: [String: Any]
             if let env = ProcessInfo.processInfo.environment["UI_FIXTURE_SNAPSHOT"] {
                 snapDict = try JSONSerialization.jsonObject(with: Data(env.utf8)) as? [String: Any] ?? [:]
             } else {
@@ -71,11 +71,24 @@ enum UIFixture {
                 let raw = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any]
                 snapDict = raw?["snapshot"] as? [String: Any] ?? [:]
             }
+            // an entrant has no seat yet: the viewer is the entrant whose draw the snapshot names
+            let drawer = (snapDict["draw"] as? [String: Any]).flatMap { d in
+                (d["drawn"] as? [[String: Any]])?.first { $0["drawOrder"] as? Int == d["viewerDrawOrder"] as? Int }?["username"] as? String
+            }
+            if drawStates.contains(name) { editDraw(name, &snapDict) }
             let snap = try TableSnapshot.decode(snapDict, strict: true)
-            let me = snap.seats.first { $0.position == snap.viewer.position }?.username
+            let me = snap.seats.first { $0.position == snap.viewer.position }?.username ?? drawer
             store.apply(.local(.identity(username: me ?? "viewer", playerId: "ui-fixture")))
             auth.username = me ?? "viewer"
             store.apply(.snapshot(snap, .rejoin, hints: nil))
+            if name == "draw-teams" {
+                // live, as the server sends it: DrawPhaseView shows the teams 0.8 s after the event
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                    _ = store.apply(serverEvent: "teamsAnnounced", payload: [[
+                        "team1": ["fay", "gus"], "team2": ["🤖 Mike", "eve"], "resumeInMs": 3000, "seq": snap.seq + 1,
+                    ] as [String: Any]])
+                }
+            }
             if name == "game-end" {
                 var stats: [String: Any] = [:]
                 for seat in snap.seats { stats[String(seat.position)] = ["username": seat.username ?? "P\(seat.position)"] }
@@ -87,6 +100,36 @@ enum UIFixture {
             print("[UIFixture] seeded \(name): phase \(store.phase)")
         } catch {
             print("[UIFixture] \(name): \(error)")
+        }
+    }
+
+    /// Draw-for-deal states (DrawPhaseView screenshots and UI tests), built from
+    /// `draw-in-progress` (2 of 4 drawn, the viewer fay among them): `draw-start`
+    /// nobody has drawn, `draw-all` all four, `draw-teams` all four and then
+    /// teamsAnnounced 3 s after launch (the overlay shows it 0.8 s after that and, in
+    /// this fixture only, keeps it up: `holdsTeams`).
+    static let drawStates: Set<String> = ["draw-start", "draw-all", "draw-teams"]
+    static var holdsTeams: Bool { name == "draw-teams" }
+
+    private static func editDraw(_ name: String, _ snap: inout [String: Any]) {
+        guard var draw = snap["draw"] as? [String: Any] else { return }
+        let start = name == "draw-start"
+        if start {
+            draw["drawn"] = [Any]()
+            draw["viewerDrawOrder"] = NSNull()
+        } else {
+            let more: [[String: Any]] = [
+                ["drawOrder": 3, "username": "eve", "isBot": false, "card": ["suit": "diamonds", "rank": "7"], "position": NSNull()],
+                ["drawOrder": 4, "username": "gus", "isBot": false, "card": ["suit": "joker", "rank": "HI"], "position": NSNull()],
+            ]
+            draw["drawn"] = (draw["drawn"] as? [[String: Any]] ?? []) + more
+        }
+        draw["deckRemaining"] = start ? 54 : 50
+        snap["draw"] = draw
+        snap["entrants"] = (snap["entrants"] as? [[String: Any]] ?? []).map { e in
+            var e = e
+            e["hasDrawn"] = !start
+            return e
         }
     }
 
