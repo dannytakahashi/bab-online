@@ -30,7 +30,7 @@ final class TableAccessibilityTests: XCTestCase {
     }
 
     /// The fixture's own probes: their label is their identifier.
-    static let probes: Set<String> = ["ui.pose", "table.layoutCheck", "table.state"]
+    static let probes: Set<String> = ["ui.pose", "table.layoutCheck", "table.state", "table.zoom", "fixture.sent"]
     /// The scene's layer names (one word, so the dotted rule below misses them).
     static let layerNames: Set<String> = ["background", "opponents", "bids", "transient", "trick", "hand", "history", "pips"]
 
@@ -61,9 +61,9 @@ final class TableAccessibilityTests: XCTestCase {
         let bids = app.otherElements.matching(NSPredicate(format: "label BEGINSWITH 'Bid '"))
         let inBids = bids.allElementsBoundByIndex.reduce(0) { $0 + $1.images.matching(identifier: "target").count }
         XCTAssertEqual(app.images.matching(identifier: "target").count, inBids, "\(tag): a bid icon outside its Bid element")
-        // the Leave / Exit icon sits inside the one "Leave game" / "Exit game" button
+        // the Exit icon sits inside the one "Exit game" button (seat and spectator alike)
         let leave = app.buttons["leave"]
-        XCTAssertTrue(["Leave game", "Exit game"].contains(leave.label), "\(tag): \(leave.label)")
+        XCTAssertEqual(leave.label, "Exit game", "\(tag)")
         XCTAssertEqual(app.images.matching(identifier: "rectangle.portrait.and.arrow.right").count,
                        leave.images.matching(identifier: "rectangle.portrait.and.arrow.right").count, "\(tag): the Leave icon outside its button")
     }
@@ -80,7 +80,7 @@ final class TableAccessibilityTests: XCTestCase {
         // the bid totals read "Bid ..."
         XCTAssertEqual(app.otherElements.matching(NSPredicate(format: "label BEGINSWITH 'Bid '")).count, 2)
         XCTAssertTrue(app.otherElements["Bid 2/4"].exists)
-        XCTAssertEqual(app.buttons["leave"].label, "Leave game")
+        XCTAssertEqual(app.buttons["leave"].label, "Exit game")
         // the scene's cards and seats read as what they are
         let labels = Set(elements(app).map(\.label))
         for spoken in ["Queen of Clubs", "High Joker", "6 of Clubs", "4 of Clubs", "kim", "jon", "hal"] {
@@ -111,6 +111,37 @@ final class TableAccessibilityTests: XCTestCase {
         check(app, "spectator-mid-hand")
         XCTAssertEqual(app.buttons["leave"].label, "Exit game")
         XCTAssertEqual(app.otherElements["pips.1"].label, "ivy: 0 of 2 tricks")
+        app.terminate()
+    }
+
+    /// Every button that exits the game: the corner / vertical-bar Leave ("leave") and any Exit / Leave.
+    private func exitButtons(_ app: XCUIApplication) -> [String] {
+        let q = app.buttons.matching(NSPredicate(format: "identifier == 'leave' OR label CONTAINS[c] 'exit' OR label CONTAINS[c] 'leave'"))
+        return q.allElementsBoundByIndex.map { "\($0.identifier) | \($0.label)" }
+    }
+
+    /// Spectating mid-hand: one Exit (the corner / bar one, where a player's Leave is);
+    /// the bottom pill only says "Spectating" (it had a second Exit).
+    func testSpectatorHasExactlyOneExit() {
+        let app = Fixture.launch("spectator-mid-hand")
+        XCTAssertTrue(app.buttons["leave"].waitForExistence(timeout: 20))
+        _ = Fixture.settledState(app)
+        let exits = exitButtons(app)
+        XCTAssertEqual(exits.count, 1, "exit controls: \(exits)")
+        XCTAssertEqual(app.buttons["leave"].label, "Exit game")
+        XCTAssertTrue(app.staticTexts["Spectating"].exists, "the spectating indicator")
+        app.terminate()
+    }
+
+    /// The lazy pill is unchanged: the seat's own Exit (confirmed) and the /active hint.
+    func testLazyWatcherKeepsLeaveAndTheActiveHint() {
+        let app = Fixture.launch("lazy-at-seat")
+        XCTAssertTrue(app.buttons["leave"].waitForExistence(timeout: 20))
+        _ = Fixture.settledState(app)
+        let exits = exitButtons(app)
+        XCTAssertEqual(exits.count, 1, "exit controls: \(exits)")
+        XCTAssertEqual(app.buttons["leave"].label, "Exit game")  // one word since #235
+        XCTAssertTrue(app.staticTexts["Spectating \u{2014} type /active to take back control"].exists, "the lazy pill")
         app.terminate()
     }
 }

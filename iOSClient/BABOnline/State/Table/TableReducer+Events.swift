@@ -108,6 +108,8 @@ extension TableReducer {
                 seat.pic = p.botPic?.pic ?? seat.pic
             }
             s.players.resignationOffer = nil
+            // a resigned owner may later leave unannounced: while my Leave is up, check again
+            if s.players.leaveCheck != .idle { checkLeave(&s, &fx) }
         case .playerLazyMode(let p):
             guard let pos = Position.valid(p.position) else { break }
             mutateSeat(&s, pos) { seat in
@@ -122,6 +124,11 @@ extension TableReducer {
                 s.table.viewer.role = .lazyWatcher
                 s.table.viewer.ownerView = "seat"
                 s.pending = nil
+            } else if s.players.leaveCheck != .idle {
+                // another owner's /lazy or /leave while my Leave is up (whatever it opened
+                // with, settled included): check again (a /leave shows here only as this
+                // event; its `gone` only in a snapshot)
+                checkLeave(&s, &fx)
             }
         case .playerActiveMode(let p):
             guard let pos = Position.valid(p.position) else { break }
@@ -240,7 +247,9 @@ extension TableReducer {
             let sid = i < (p.sockets?.count ?? 0) ? p.sockets![i] : nil
             let name = i < (p.usernames?.count ?? 0) ? p.usernames![i].username : nil
             let pic = i < (p.pics?.count ?? 0) ? p.pics![i].pic : Pic.none
-            let isBot = sid?.hasPrefix("bot:") ?? false
+            // positionUpdate.isBot (V1_REMOVALS #14) wins; the bot: socket prefix is the fallback, so a
+            // later server can drop sockets without this build losing its bots
+            let isBot = (i < (p.isBot?.count ?? 0) ? p.isBot![i] : nil) ?? (sid?.hasPrefix("bot:") ?? false)
             var seat = s.players.seats[pos] ?? SeatState(position: pos)
             seat.username = name ?? seat.username
             seat.pic = pic

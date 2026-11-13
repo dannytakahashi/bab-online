@@ -181,9 +181,17 @@ final class LobbyControlsTests: XCTestCase {
 
         field.tap()
         field.typeText("gl all")
-        sleep(1)
         let kb = app.keyboards.firstMatch
         let typed = app.textFields["tournamentChatField"]
+        // On an iPad 13 sim the lobby moves the field above the keyboard 2-5 s after typing
+        // (measured the same on 6aab8f5), so wait for it to settle instead of a fixed 1 s.
+        let settle = Date().addingTimeInterval(8)
+        sleep(1)
+        while Date() < settle {
+            let up = kb.exists && !kb.frame.isEmpty && kb.frame.minY < window.maxY - 1
+            if typed.isHittable && (!up || typed.frame.maxY <= kb.frame.minY + 1) { break }
+            Thread.sleep(forTimeInterval: 0.25)
+        }
         let t = typed.frame
         XCTAssertTrue(typed.isHittable, "\(pose): with the keyboard up the chat field \(t) is not hittable")
         XCTAssertTrue(window.contains(t), "\(pose): with the keyboard up the chat field \(t) leaves the window")

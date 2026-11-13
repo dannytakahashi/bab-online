@@ -12,6 +12,8 @@ import SpriteKit
 /// scoreboard and two active tables), `tournament-between` (round 2 complete),
 /// `sign-in`) seed static rows instead.
 /// `-uiFold book|tabletop` simulates a fold region (FoldReader) for screenshots.
+/// `-uiLeaveDrive settle|hold` drives the Leave alert's reopen (`leaveAlertPresented`), and
+/// the chat messages the app sends show in the "fixture.sent" probe (`recordSent`).
 enum UIFixture {
     static let name: String? = UserDefaults.standard.string(forKey: "uiFixture")
     static var isActive: Bool { name != nil }
@@ -54,14 +56,17 @@ enum UIFixture {
     static func seed(fixture name: String, _ store: GameState, _ appState: AppState, mainRoom: MainRoomState, lobby: LobbyState,
                      tournament: TournamentState, auth: AuthState) {
         OpponentHandNode.avatarLoader = FixtureAvatarLoader()
+        // no socket in fixture mode: signed in, unless `-uiSessionPending YES` (the moment
+        // between a reconnect and the restore's answer: main-room actions wait)
+        SocketService.shared.isSessionReady = !UserDefaults.standard.bool(forKey: "uiSessionPending")
         if screenFixtures.contains(name) {
             seedScreen(name, appState, mainRoom: mainRoom, lobby: lobby, tournament: tournament, auth: auth)
             print("[UIFixture] seeded screen \(name)")
             return
         }
         do {
-            let file = name == "game-end" ? "hand-resolving" : name
-            let snapDict: [String: Any]
+            let file = name == "game-end" ? "hand-resolving" : drawStates.contains(name) ? "draw-in-progress" : name
+            var snapDict: [String: Any]
             if let env = ProcessInfo.processInfo.environment["UI_FIXTURE_SNAPSHOT"] {
                 snapDict = try JSONSerialization.jsonObject(with: Data(env.utf8)) as? [String: Any] ?? [:]
             } else {
@@ -71,11 +76,26 @@ enum UIFixture {
                 let raw = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any]
                 snapDict = raw?["snapshot"] as? [String: Any] ?? [:]
             }
+            // an entrant has no seat yet: the viewer is the entrant whose draw the snapshot names
+            // (a spectator is none of them)
+            let drawer = name == "draw-spectator" ? nil : (snapDict["draw"] as? [String: Any]).flatMap { d in
+                (d["drawn"] as? [[String: Any]])?.first { $0["drawOrder"] as? Int == d["viewerDrawOrder"] as? Int }?["username"] as? String
+            }
+            if drawStates.contains(name) { editDraw(name, &snapDict) }
             let snap = try TableSnapshot.decode(snapDict, strict: true)
-            let me = snap.seats.first { $0.position == snap.viewer.position }?.username
+            seededSnapshot = snapDict
+            let me = snap.seats.first { $0.position == snap.viewer.position }?.username ?? drawer
             store.apply(.local(.identity(username: me ?? "viewer", playerId: "ui-fixture")))
             auth.username = me ?? "viewer"
             store.apply(.snapshot(snap, .rejoin, hints: nil))
+            if name == "draw-teams" {
+                // live, as the server sends it: DrawPhaseView shows the teams 0.8 s after the event
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                    _ = store.apply(serverEvent: "teamsAnnounced", payload: [[
+                        "team1": ["fay", "gus"], "team2": ["🤖 Mike", "eve"], "resumeInMs": 3000, "seq": snap.seq + 1,
+                    ] as [String: Any]])
+                }
+            }
             if name == "game-end" {
                 var stats: [String: Any] = [:]
                 for seat in snap.seats { stats[String(seat.position)] = ["username": seat.username ?? "P\(seat.position)"] }
@@ -87,6 +107,100 @@ enum UIFixture {
             print("[UIFixture] seeded \(name): phase \(store.phase)")
         } catch {
             print("[UIFixture] \(name): \(error)")
+        }
+    }
+
+    // MARK: - Leave alert reopen (LeaveAlertUITests)
+
+    /// `-uiLeaveDrive settle|hold`: 2.5 s after the Leave alert first opens, the other human
+    /// owner's /leave reaches the table the way the server sends it (`playerLazyMode` only), so the
+    /// open alert checks again and LeaveAlertFlow closes and reopens it as in a live game.
+    /// `settle` answers the check with a snapshot that has that seat gone (the settled reopen:
+    /// "leaving ends the game"); `hold` never answers (the hold times out: the hedged reopen).
+    static let leaveDrive: String? = isActive ? UserDefaults.standard.string(forKey: "uiLeaveDrive") : nil
+    private static var leaveDriven = false
+    /// The seeded snapshot, from which the `settle` reply is made.
+    private static var seededSnapshot: [String: Any]?
+
+    /// GameContainerView: the Leave alert opened.
+    @MainActor
+    static func leaveAlertPresented(_ store: GameState) {
+        guard let drive = leaveDrive, !leaveDriven, var snap = seededSnapshot,
+              var seats = snap["seats"] as? [[String: Any]],
+              let mine = (snap["viewer"] as? [String: Any])?["position"] as? Int,
+              let i = seats.firstIndex(where: { $0["controller"] as? String == "human" && $0["position"] as? Int != mine }),
+              let pos = seats[i]["position"] as? Int, let owner = seats[i]["ownerUsername"] as? String else { return }
+        leaveDriven = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {  // after the test read the first words
+            _ = store.apply(serverEvent: "playerLazyMode", payload: [[
+                "position": pos, "botUsername": "Fixture Bot", "botPic": 4, "originalUsername": owner,
+                "seq": (store.state.sync.lastSeq ?? 0) + 1,
+            ] as [String: Any]])
+            guard drive == "settle", case .pending(let id) = store.players.leaveCheck else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                seats[i]["controller"] = "lazyBot"
+                seats[i]["presence"] = "gone"
+                seats[i]["isBot"] = true
+                seats[i]["lazy"] = true
+                seats[i]["username"] = "Fixture Bot"
+                snap["seats"] = seats
+                snap["seq"] = (store.state.sync.lastSeq ?? 0) + 1
+                _ = store.apply(serverEvent: "stateSnapshot", payload: [["snapshot": snap, "requestId": id] as [String: Any]])
+            }
+        }
+    }
+
+    /// The chat messages the app sent ("fixture.sent"; fixture mode has no socket), so a UI
+    /// test can tell that Leave Game sent /leave.
+    static func recordSent(_ event: String, _ data: [String: Any]) {
+        guard isActive, event == SocketEvents.Client.chatMessage, let message = data["message"] as? String else { return }
+        DispatchQueue.main.async {
+            let probe = TableDebugProbe.shared
+            probe.sent = probe.sent == "-" ? message : probe.sent + "|" + message
+        }
+    }
+
+    /// Draw-for-deal states (DrawPhaseView screenshots and UI tests), built from
+    /// `draw-in-progress` (2 of 4 drawn, the viewer fay among them): `draw-start`
+    /// nobody has drawn, `draw-all` all four, `draw-teams` all four and then
+    /// teamsAnnounced 3 s after launch (the overlay shows it 0.8 s after that and, in
+    /// this fixture only, keeps it up: `holdsTeams`), `draw-long` all four with two
+    /// names long enough to shrink (the cards must stay on one line), `draw-spectator`
+    /// 2 of 4 drawn seen by a spectator (no deck: they never draw).
+    static let drawStates: Set<String> = ["draw-start", "draw-all", "draw-teams", "draw-long", "draw-spectator"]
+    static var holdsTeams: Bool { name == "draw-teams" }
+
+    private static func editDraw(_ name: String, _ snap: inout [String: Any]) {
+        guard var draw = snap["draw"] as? [String: Any] else { return }
+        if name == "draw-spectator" {
+            // as the server sends it to a spectator: no draw of theirs (snapshotV2 viewerDrawOrder)
+            draw["viewerDrawOrder"] = NSNull()
+            snap["draw"] = draw
+            var viewer = snap["viewer"] as? [String: Any] ?? [:]
+            viewer["role"] = "spectator"
+            snap["viewer"] = viewer
+            return
+        }
+        let start = name == "draw-start"
+        // 20 characters is the sign-up maximum; older accounts keep longer display names
+        let (third, fourth) = name == "draw-long" ? ("JoAnn Jameson", "Christopher Johnson1") : ("eve", "gus")
+        if start {
+            draw["drawn"] = [Any]()
+            draw["viewerDrawOrder"] = NSNull()
+        } else {
+            let more: [[String: Any]] = [
+                ["drawOrder": 3, "username": third, "isBot": false, "card": ["suit": "diamonds", "rank": "7"], "position": NSNull()],
+                ["drawOrder": 4, "username": fourth, "isBot": false, "card": ["suit": "joker", "rank": "HI"], "position": NSNull()],
+            ]
+            draw["drawn"] = (draw["drawn"] as? [[String: Any]] ?? []) + more
+        }
+        draw["deckRemaining"] = start ? 54 : 50
+        snap["draw"] = draw
+        snap["entrants"] = (snap["entrants"] as? [[String: Any]] ?? []).map { e in
+            var e = e
+            e["hasDrawn"] = !start
+            if let u = e["username"] as? String { e["username"] = u == "eve" ? third : u == "gus" ? fourth : u }
+            return e
         }
     }
 
@@ -182,7 +296,7 @@ struct FixtureAvatarLoader: AvatarLoading {
 }
 
 /// What the fixture UI tests read through accessibility probes:
-/// "ui.pose", "table.layoutCheck", "table.state".
+/// "ui.pose", "table.layoutCheck", "table.state", "table.zoom".
 @MainActor
 final class TableDebugProbe: ObservableObject {
     static let shared = TableDebugProbe()
@@ -192,10 +306,14 @@ final class TableDebugProbe: ObservableObject {
     @Published var chrome = TableChrome()
     @Published var layoutCheck = "-"
     @Published var tableState = "-"
+    /// The table's zoom (TableLayout.zoom, "1.00" ... "1.40"): the UI tests scale their point limits by it.
+    @Published var tableZoom = "-"
     /// The window's size classes ("compact/regular" = h/v), recorded with the pose.
     @Published var sizeClasses = "-"
     /// The system's vertical bar edge ("trailing" / "leading"), "-" where none is used.
     @Published var verticalBar = "-"
+    /// The chat messages sent, "|"-joined ("-": none; UIFixture.recordSent).
+    @Published var sent = "-"
 
     var pose: String {
         let i = insets
@@ -231,10 +349,12 @@ final class TableDebugProbe: ObservableObject {
         let state = "lifted=\(lifted) hand=\(scene.handNode.sprites.count) trick=\(scene.trickArea.cardCount) didMove=\(scene.didMoveCount)"
         if check != layoutCheck { layoutCheck = check }
         if state != tableState { tableState = state }
+        let zoom = String(format: "%.2f", L.zoom)
+        if zoom != tableZoom { tableZoom = zoom }
     }
 }
 
-/// The three probes, 1x1 and nearly transparent, readable by XCUITest.
+/// The fixture probes, 1x1 and nearly transparent, readable by XCUITest.
 struct FixtureProbes: View {
     @ObservedObject var probe = TableDebugProbe.shared
 
@@ -243,6 +363,8 @@ struct FixtureProbes: View {
             dot("ui.pose", probe.pose)
             dot("table.layoutCheck", probe.layoutCheck)
             dot("table.state", probe.tableState)
+            dot("fixture.sent", probe.sent)
+            dot("table.zoom", probe.tableZoom)
             Spacer()
         }
         .frame(maxWidth: .infinity, alignment: .leading)

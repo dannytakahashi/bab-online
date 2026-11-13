@@ -11,6 +11,14 @@ import UIKit
 enum CardTextureGenerator {
     private static let lock = NSLock()
     private static var cache: [String: SKTexture] = [:]
+    /// The same bitmaps as UIImages, only for the cards SwiftUI asked for (the draw for
+    /// deal: four faces and the back), a few at a time (NSCache is thread safe).
+    private static let images: NSCache<NSString, UIImage> = {
+        let c = NSCache<NSString, UIImage>()
+        c.countLimit = 8
+        return c
+    }()
+    private static let backKey = "__card_back__"
     private static var prewarmStarted = false
     #if DEBUG
     /// Renders done inside `texture(for:)` / `cardBackTexture()` (a cache miss on the
@@ -31,17 +39,25 @@ enum CardTextureGenerator {
     /// (`prewarm()` and every scene build touch it there); a static let is initialized once.
     static let displayScale: CGFloat = UIGraphicsImageRendererFormat.preferred().scale
 
+    /// The largest zoom this device's table reaches: TableLayout.maxZoom, except on a phone
+    /// (an iPhone, the Duo open or closed), whose panes never reach TableLayout.zoomMinSide, so
+    /// its textures stay what they were (1:1 at zoom 1). Read on the main thread first, as
+    /// `displayScale`.
+    static let textureZoom: CGFloat = UIDevice.current.userInterfaceIdiom == .phone ? 1 : TableLayout.maxZoom
+
     /// Bitmap size of every card texture: the largest on-screen card
-    /// (`TableLayout.maxCardPoints`: a hand card at s = 1, 100 x 145 pt; trick cards
-    /// are at most 0.8 of it) times the screen scale, so hand cards sample 1:1
-    /// (300 x 435 px on 3x, 200 x 290 px on 2x).
-    static func pixelSize(scale: CGFloat = displayScale) -> CGSize {
-        let pts = TableLayout.maxCardPoints
+    /// (`TableLayout.maxScreenCardPoints`: a hand card at s = 1 and the device's largest
+    /// zoom, 100 x 145 pt on a phone, 140 x 203 pt on an iPad; trick cards are at most 0.8
+    /// of it) times the screen scale, so hand cards sample 1:1 at that zoom
+    /// (300 x 435 px on a 3x phone, 280 x 406 px on a 2x iPad).
+    static func pixelSize(scale: CGFloat = displayScale, zoom: CGFloat = textureZoom) -> CGSize {
+        let pts = TableLayout.maxScreenCardPoints(zoom: zoom)
         return CGSize(width: (pts.width * scale).rounded(.up), height: (pts.height * scale).rounded(.up))
     }
 
-    /// Every face the game deals: 52 + HI / LO jokers. (The card back is not prewarmed:
-    /// no table sprite uses it; the draw shows SwiftUI card shapes.)
+    /// Every face the game deals: 52 + HI / LO jokers. (No table sprite uses the card
+    /// back's texture; only the draw for deal shows the back, through `cardBackImage()`,
+    /// which `prewarm()` renders as that image.)
     static let allCards: [Card] = {
         let ranks: [Rank] = [.two, .three, .four, .five, .six, .seven, .eight, .nine, .ten, .jack, .queen, .king, .ace]
         let suits: [Suit] = [.spades, .hearts, .diamonds, .clubs]
@@ -49,7 +65,7 @@ enum CardTextureGenerator {
             + [Card(suit: .joker, rank: .hi), Card(suit: .joker, rank: .lo)]
     }()
 
-    /// Render the 300x435 canvas into a bitmap of `pixelSize(scale:)`: scale 1 (one
+    /// Render the 300x435 canvas into a bitmap of `pixelSize(scale:zoom:)`: scale 1 (one
     /// image point = one pixel), 8-bit sRGB (the default `.automatic` range may pick a
     /// 16-bit float extended-range bitmap on a wide-color screen, twice the bytes for
     /// colors that are all sRGB), with alpha (rounded corners).
@@ -58,7 +74,7 @@ enum CardTextureGenerator {
         format.scale = 1
         format.opaque = false
         format.preferredRange = .standard
-        let pixelSize = pixelSize(scale: scale)
+        let pixelSize = pixelSize(scale: scale, zoom: textureZoom)
         let renderer = UIGraphicsImageRenderer(size: pixelSize, format: format)
         return renderer.image { ctx in
             ctx.cgContext.scaleBy(x: pixelSize.width / cardPixelWidth, y: pixelSize.height / cardPixelHeight)
@@ -102,13 +118,40 @@ enum CardTextureGenerator {
 
     /// Returns a cached or freshly rendered card-back texture.
     static func cardBackTexture() -> SKTexture {
-        let key = "__card_back__"
+        let key = backKey
         if let hit = cached(key) { return hit }
         let tex = makeTexture(renderCardBack(scale: displayScale))
         #if DEBUG
         lock.lock(); onDemandRenders += 1; lock.unlock()
         #endif
         return store(tex, for: key)
+    }
+
+    /// The face as a UIImage for SwiftUI (DrawPhaseView): the bitmap the textures are
+    /// made from (renderFace at the screen scale), so the draw shows the table's card art
+    /// pixel for pixel (`pixelSize()`: sharp up to `TableLayout.maxScreenCardPoints(zoom: textureZoom)`;
+    /// the draw's cards are at most `TableLayout.maxCardPoints`, so on an iPad they sample down).
+    /// Rendered here (about a millisecond), not read back from the SKTexture:
+    /// `SKTexture.cgImage()` copies the bitmap back out of SpriteKit, 100x the render's
+    /// cost, on the main thread in the frame a card arrives.
+    static func image(for card: Card) -> UIImage {
+        uiImage(card.id) { renderFace(card, scale: displayScale) }
+    }
+
+    /// The card back as a UIImage (the draw's deck and its face-down slots); `prewarm()`
+    /// renders it, so the draw's first frame finds it cached.
+    static func cardBackImage() -> UIImage {
+        uiImage(backKey) { renderCardBack(scale: displayScale) }
+    }
+
+    /// `render` gives a scale-1 bitmap of `pixelSize()`; the cached UIImage wraps the
+    /// same pixels at the screen scale (`pixelSize() / displayScale` points).
+    private static func uiImage(_ key: String, _ render: () -> UIImage) -> UIImage {
+        if let hit = images.object(forKey: key as NSString) { return hit }
+        let bitmap = render()
+        let image = bitmap.cgImage.map { UIImage(cgImage: $0, scale: displayScale, orientation: .up) } ?? bitmap
+        images.setObject(image, forKey: key as NSString)
+        return image
     }
 
     /// Render every face the game deals on a background queue (once per process), so
@@ -119,6 +162,7 @@ enum CardTextureGenerator {
     @MainActor
     static func prewarm(completion: (@Sendable () -> Void)? = nil) {
         let scale = displayScale  // read on main
+        _ = textureZoom
         lock.lock()
         let started = prewarmStarted
         prewarmStarted = true
@@ -128,6 +172,7 @@ enum CardTextureGenerator {
             return
         }
         DispatchQueue.global(qos: .utility).async {
+            _ = cardBackImage()  // the draw for deal's deck (NSCache is thread safe)
             for card in allCards where cached(card.id) == nil {
                 _ = store(makeTexture(renderFace(card, scale: scale)), for: card.id)
                 #if DEBUG
@@ -143,6 +188,7 @@ enum CardTextureGenerator {
     static func resetForTesting() {
         lock.lock(); defer { lock.unlock() }
         cache = [:]
+        images.removeAllObjects()
         prewarmStarted = false
         onDemandRenders = 0
         prewarmRenders = 0
@@ -151,6 +197,12 @@ enum CardTextureGenerator {
 
     /// Tests only: the cached texture for a key (a card id), without rendering.
     static func cachedTexture(_ id: String) -> SKTexture? { cached(id) }
+
+    /// Tests only: forget the SwiftUI images (`image(for:)`, `cardBackImage()`), keep the textures.
+    static func removeImagesForTesting() { images.removeAllObjects() }
+
+    /// Tests only: a face rendered now, as the textures' source bitmap (nothing cached).
+    static func renderFaceForTesting(_ card: Card) -> UIImage { renderFace(card, scale: displayScale) }
     #endif
 
     private static func renderFace(_ card: Card, scale: CGFloat) -> UIImage {
@@ -302,44 +354,58 @@ enum CardTextureGenerator {
 
     // MARK: - Card Back
 
+    /// White margin around the back's green panel (canvas units), as the web's
+    /// cardFaces.js BACK_EDGE: a stack of backs reads as separate cards.
+    private static let backEdge: CGFloat = 14
+
+    /// The back: a white card edge like the faces, the dark-green panel with its
+    /// lighter border and inner frame, and the app icon's four suits in the middle
+    /// (spade and club in text.primary, heart and diamond in danger.text, as
+    /// Theme.suitOnDark draws them on the dark surfaces).
     private static func renderCardBack(scale: CGFloat) -> UIImage {
         renderCard(scale: scale) { _ in
             let rect = CGRect(x: 0, y: 0, width: cardPixelWidth, height: cardPixelHeight)
 
-            // Dark green background
-            let path = UIBezierPath(roundedRect: rect, cornerRadius: cornerRadius)
+            // White card edge
+            let edgePath = UIBezierPath(roundedRect: rect.insetBy(dx: 1.5, dy: 1.5), cornerRadius: cornerRadius - 1.5)
+            Theme.Palette.Card.face.uiColor.setFill()
+            edgePath.fill()
+            Theme.Palette.Card.border.uiColor.setStroke()
+            edgePath.lineWidth = 3
+            edgePath.stroke()
+
+            // Dark green panel, lighter green border
+            let panel = rect.insetBy(dx: backEdge, dy: backEdge)
+            let path = UIBezierPath(roundedRect: panel, cornerRadius: cornerRadius - 8)
             Theme.Palette.Card.back.uiColor.setFill()
             path.fill()
-
-            // Lighter green border
             Theme.Palette.Card.backBorder.uiColor.setStroke()
             path.lineWidth = 4
             path.stroke()
 
-            // Inner rectangle pattern
-            let inset: CGFloat = 24
-            let innerRect = rect.insetBy(dx: inset, dy: inset)
-            let innerPath = UIBezierPath(roundedRect: innerRect, cornerRadius: cornerRadius - 8)
+            // Inner frame
+            let innerPath = UIBezierPath(roundedRect: panel.insetBy(dx: 18, dy: 18), cornerRadius: cornerRadius - 14)
             Theme.Palette.Card.backInner.uiColor.setStroke()
             innerPath.lineWidth = 2
             innerPath.stroke()
 
-            // Diamond pattern in center
-            let centerX = cardPixelWidth / 2
-            let centerY = cardPixelHeight / 2
-            let diamondSize: CGFloat = 40
-
-            let diamond = UIBezierPath()
-            diamond.move(to: CGPoint(x: centerX, y: centerY - diamondSize))
-            diamond.addLine(to: CGPoint(x: centerX + diamondSize * 0.7, y: centerY))
-            diamond.addLine(to: CGPoint(x: centerX, y: centerY + diamondSize))
-            diamond.addLine(to: CGPoint(x: centerX - diamondSize * 0.7, y: centerY))
-            diamond.close()
-            Theme.Palette.Card.backDiamond.uiColor.setFill()
-            diamond.fill()
-            Theme.Palette.Card.backDiamondStroke.uiColor.setStroke()
-            diamond.lineWidth = 2
-            diamond.stroke()
+            // The four suits, 2 x 2 around the centre (the app icon's arrangement)
+            let font = UIFont.systemFont(ofSize: 58, weight: .regular)
+            let light = Theme.Palette.Text.primary.uiColor, red = Theme.Palette.Danger.text.uiColor
+            let suits: [(String, UIColor, CGFloat, CGFloat)] = [
+                ("\u{2660}", light, -1, -1), ("\u{2665}", red, 1, -1),
+                ("\u{2666}", red, -1, 1), ("\u{2663}", light, 1, 1),
+            ]
+            let step: CGFloat = 34  // half the distance between the glyph centres
+            for (glyph, color, dx, dy) in suits {
+                let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
+                let size = (glyph as NSString).size(withAttributes: attrs)
+                (glyph as NSString).draw(
+                    at: CGPoint(x: cardPixelWidth / 2 + dx * step - size.width / 2,
+                                y: cardPixelHeight / 2 + dy * step - size.height / 2),
+                    withAttributes: attrs
+                )
+            }
         }
     }
 

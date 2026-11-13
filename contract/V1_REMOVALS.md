@@ -21,8 +21,8 @@ payload, so no removal below can break it any more.
 
 Second step (owner decision: once 1.2.0 is approved and live):
 `MIN_IOS_BUILD` 3 gates 1.1.0 (f05d264, build 2, `BAB%20Online/2 ...`) the
-same way; 1.2.0 (build 4; build 3 was never submitted) and later are never
-gated. The gate's payloads were re-checked against what 1.1.0 reads
+same way; 1.2.0 (build 5; build 3 was never submitted, build 4 was pulled from
+review) and later are never gated. The gate's payloads were re-checked against what 1.1.0 reads
 (SignInView / RegisterView show `signInResponse` / `signUpResponse`
 messages in red under the fields; LobbySocketHandler reads
 `recentMessages ?? messages`; leftGame / leftLobby / tournamentLeft land in
@@ -727,8 +727,8 @@ spectator snapshots (#5, #6, #7, #8; web done 2026-11-12).
 
 ## What iOS 1.2.0 unblocks (once 1.1.0 is gated)
 
-iOS 1.2.0 (build 4; build 3 was uploaded, never submitted) does that iOS
-work. Owner decision: once 1.2.0 is approved and live, `MIN_IOS_BUILD` in
+iOS 1.2.0 (build 5; build 3 was uploaded, never submitted; build 4 was
+pulled from review and never ships) does that iOS work. Owner decision: once 1.2.0 is approved and live, `MIN_IOS_BUILD` in
 `server/socket/upgradeGate.js` goes to 3, which gates 1.1.0 the way 1.0.0
 is gated (its own PR, the gate's v1 payloads re-checked against what 1.1.0
 reads: Step 0). Until that PR merges, 1.1.0 keeps every blocker listed

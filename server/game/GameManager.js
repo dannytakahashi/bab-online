@@ -11,6 +11,7 @@ const { botController, BotPlayer, personalities } = require('./bot');
 const { PERSONALITY_LIST } = personalities;
 const { Phase } = require('./GamePhase');
 const spectatorRoster = require('./spectatorRoster');
+const { seesAmbientChat } = require('../utils/ambientChatUsers');
 
 const MERGE_LOCKED = 'This account is being updated. Please try again in a minute.';
 
@@ -18,6 +19,11 @@ class GameManager {
     constructor() {
         // Main room (global chat + lobby browser)
         this.mainRoomMessages = [];       // Global chat history (capped at MAX_MAIN_ROOM_MESSAGES)
+        // The ambient bots' main-room lines (server/demo/ambientBots.js), in
+        // their own ring with the same cap, so bot chatter never pushes a
+        // human line out of mainRoomMessages; only AMBIENT_CHAT_USERS see
+        // them (server/utils/ambientChatUsers.js, mainRoomMessagesFor)
+        this.ambientMainRoomMessages = [];
         this.mainRoomSocketIds = new Set(); // Players currently in main room
         // Called with the socket id after every joinMainRoom (all three join
         // points: joinMainRoom, leaveLobby, a tournament's sendToMainRoom).
@@ -171,7 +177,7 @@ class GameManager {
 
         return {
             success: true,
-            messages: this.mainRoomMessages,
+            messages: this.mainRoomMessagesFor(user.username),
             lobbies: this.getAllLobbies(),
             onlineCount: this.mainRoomSocketIds.size,
             username: user.username
@@ -230,6 +236,45 @@ class GameManager {
         }
 
         return { success: true, chatMessage };
+    }
+
+    /**
+     * Store an ambient bot's main-room line in its own ring (capped like the
+     * human history). The caller sends it live to those who see it.
+     */
+    addAmbientMainRoomMessage(chatMessage) {
+        this.ambientMainRoomMessages.push(chatMessage);
+        if (this.ambientMainRoomMessages.length > GameManager.MAX_MAIN_ROOM_MESSAGES) {
+            this.ambientMainRoomMessages.shift();
+        }
+        return chatMessage;
+    }
+
+    /**
+     * The main-room chat replay for `username`: the human history, plus the
+     * ambient bots' lines for an AMBIENT_CHAT_USERS account (merged by time,
+     * the newest MAX_MAIN_ROOM_MESSAGES, as one shared ring kept before).
+     * Everyone else gets exactly the human history, all of it.
+     */
+    mainRoomMessagesFor(username) {
+        if (this.ambientMainRoomMessages.length === 0 || !seesAmbientChat(username)) {
+            return this.mainRoomMessages;
+        }
+        const humans = this.mainRoomMessages;
+        const bots = this.ambientMainRoomMessages;
+        const merged = [];
+        let h = 0;
+        let b = 0;
+        while (h < humans.length || b < bots.length) {
+            // Ties: the bot line first (it was stored first in practice:
+            // seeded lines are back-dated)
+            if (h >= humans.length || (b < bots.length && bots[b].timestamp <= humans[h].timestamp)) {
+                merged.push(bots[b++]);
+            } else {
+                merged.push(humans[h++]);
+            }
+        }
+        return merged.slice(-GameManager.MAX_MAIN_ROOM_MESSAGES);
     }
 
     /**

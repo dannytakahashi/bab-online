@@ -32,10 +32,11 @@ const { hashToken, verifySession, SESSION_TTL_MS } = require('../../utils/sessio
 // Captured 2026-11-11 (socket.handshake.headers['user-agent'], polling handshake)
 const UA_100 = 'BAB%20Online/1 CFNetwork/3896.200.61 Darwin/27.2.0';
 const UA_110 = 'BAB%20Online/2 CFNetwork/3896.200.61 Darwin/27.2.0';
-// 1.2.0: build 3 was uploaded but never submitted, build 4 is the release;
-// the same URLSession form
+// 1.2.0: build 3 was uploaded but never submitted, build 4 was pulled from
+// review, build 5 is the release; the same URLSession form
 const UA_120 = 'BAB%20Online/3 CFNetwork/3896.200.61 Darwin/27.2.0';
 const UA_124 = 'BAB%20Online/4 CFNetwork/3896.200.61 Darwin/27.2.0';
+const UA_125 = 'BAB%20Online/5 CFNetwork/3896.200.61 Darwin/27.2.0';
 // Every gated build: [label, User-Agent, build]
 const OLD_BUILDS = [['1.0.0', UA_100, 1], ['1.1.0', UA_110, 2]];
 // The built-in browser of the live check (Chromium) and common browsers
@@ -75,6 +76,7 @@ describe('parseIosUserAgent', () => {
         expect(gate.isOutdatedIosApp(UA_110)).toBe(true);
         expect(gate.isOutdatedIosApp(UA_120)).toBe(false);
         expect(gate.isOutdatedIosApp(UA_124)).toBe(false);
+        expect(gate.isOutdatedIosApp(UA_125)).toBe(false);
         expect(gate.isOutdatedIosApp('BAB%20Online/17 CFNetwork/1500 Darwin/25.0.0')).toBe(false);
         // the same app on another iOS / CFNetwork, or the unencoded name
         for (const b of [1, 2]) {
@@ -422,7 +424,7 @@ describe.each(OLD_BUILDS)('a %s socket', (_version, UA_OLD, BUILD) => {
 });
 
 describe('never gated', () => {
-    test.each([['1.2.0 build 3', UA_120], ['1.2.0 build 4', UA_124], ['a later build', 'BAB%20Online/40 CFNetwork/3896.200.61 Darwin/27.2.0'],
+    test.each([['1.2.0 build 3', UA_120], ['1.2.0 build 4', UA_124], ['1.2.0 build 5', UA_125], ['a later build', 'BAB%20Online/40 CFNetwork/3896.200.61 Darwin/27.2.0'],
         ...BROWSERS.map((b) => [b.slice(0, 50), b]), ['no User-Agent', undefined], ...GARBAGE.filter((g) => typeof g === 'string').map((g) => [g.slice(0, 50), g])])(
         '%s: the real handlers', async (_l, ua) => {
             const w = wired(ua);
@@ -451,7 +453,7 @@ describe('never gated', () => {
         expect(web.socket.data.appBuild).toBeUndefined();
     });
 
-    test.each([[3, UA_120], [4, UA_124]])('1.2.0 (build %i) is current: parsed, recorded, never gated', (build, ua) => {
+    test.each([[3, UA_120], [4, UA_124], [5, UA_125]])('1.2.0 (build %i) is current: parsed, recorded, never gated', (build, ua) => {
         expect(gate.parseIosUserAgent(ua)).toEqual({ client: 'ios', build });
         const w = wired(ua);
         expect(w.socket.data.appBuild).toBe(build);
@@ -515,7 +517,7 @@ describe('over a real Socket.IO connection', () => {
         c.close();
     });
 
-    test.each([['1.2.0 build 4', UA_124], ['1.2.0 build 3', UA_120], ['a browser', BROWSERS[0]], ['no User-Agent override', null], ['garbage', 'BAB%20Online/1.0 x']])(
+    test.each([['1.2.0 build 5', UA_125], ['1.2.0 build 4', UA_124], ['1.2.0 build 3', UA_120], ['a browser', BROWSERS[0]], ['no User-Agent override', null], ['garbage', 'BAB%20Online/1.0 x']])(
         '%s: never gated, after the upgrade and after a reconnect', async (_l, ua) => {
             const c = connect(ua);
             let gated = false;

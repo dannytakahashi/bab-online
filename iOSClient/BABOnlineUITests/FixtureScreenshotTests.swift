@@ -99,7 +99,8 @@ final class FixtureScreenshotTests: XCTestCase {
         let snap = try JSONSerialization.data(withJSONObject: try XCTUnwrap(raw["snapshot"]))
         let app = Fixture.launch("env", env: ["UI_FIXTURE_SNAPSHOT": String(decoding: snap, as: UTF8.self)])
         XCTAssertTrue(app.buttons["leave"].waitForExistence(timeout: 20))
-        XCTAssertTrue(app.buttons["Exit"].firstMatch.exists, "the spectator pill")
+        XCTAssertTrue(app.staticTexts["Spectating"].exists, "the spectator pill")
+        XCTAssertFalse(app.buttons["Exit"].exists, "the pill's Exit is the corner / bar one")
         XCTAssertEqual(Fixture.probe(app, "table.layoutCheck"), "ok")
         app.terminate()
     }

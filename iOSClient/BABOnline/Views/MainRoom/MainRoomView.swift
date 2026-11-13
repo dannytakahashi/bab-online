@@ -14,6 +14,9 @@ private struct MainRoomScreen: View {
 
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var mainRoomState: MainRoomState
+    /// New Game / Tournament wait for the session: after a reconnect, a tap before the
+    /// restore's answer made a lobby that the restore's joinMainRoom then left at once.
+    @ObservedObject private var socketService = SocketService.shared
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.horizontalSizeClass) private var hSizeClass
     @State private var showLeaderboard = false
@@ -101,8 +104,10 @@ private struct MainRoomScreen: View {
         HStack(spacing: iconsOnly ? 4 : 8) {
             headerButton("New Game", icon: "suit.spade.fill", color: Theme.primary,
                          iconsOnly: iconsOnly) { LobbyEmitter.createLobby() }
+                .disabled(!socketService.isSessionReady)
             headerButton("Tournament", icon: "trophy.fill", color: Theme.warning,
                          iconsOnly: iconsOnly) { TournamentEmitter.createTournament() }
+                .disabled(!socketService.isSessionReady)
             headerButton("Stats", icon: "chart.bar.fill", color: Theme.textSecondary,
                          iconsOnly: iconsOnly) { showLeaderboard = true }
 
@@ -135,7 +140,9 @@ private struct MainRoomScreen: View {
     private var barControls: some ToolbarContent {
         ToolbarItemGroup(placement: .topBarLeading) {
             barButton("New Game", icon: "suit.spade.fill", color: Theme.primary) { LobbyEmitter.createLobby() }
+                .disabled(!socketService.isSessionReady)
             barButton("Tournament", icon: "trophy.fill", color: Theme.warning) { TournamentEmitter.createTournament() }
+                .disabled(!socketService.isSessionReady)
             barButton("Stats", icon: "chart.bar.fill", color: Theme.textSecondary) { showLeaderboard = true }
         }
         ToolbarItemGroup(placement: .topBarTrailing) {

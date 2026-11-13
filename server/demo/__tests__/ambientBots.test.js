@@ -41,7 +41,9 @@ describe('seedMainRoomChat', () => {
     test('seeds an empty room with back-dated messages', () => {
         expect(ambient.seedMainRoomChat()).toBe(true);
 
-        const messages = gameManager.mainRoomMessages;
+        // Bot lines go to their own ring; the human history stays empty
+        expect(gameManager.mainRoomMessages).toHaveLength(0);
+        const messages = gameManager.ambientMainRoomMessages;
         expect(messages.length).toBeGreaterThanOrEqual(3);
         for (const m of messages) {
             expect(typeof m.username).toBe('string');
@@ -58,6 +60,7 @@ describe('seedMainRoomChat', () => {
         gameManager.mainRoomMessages.push({ username: 'real', message: 'hi', timestamp: Date.now() });
         expect(ambient.seedMainRoomChat()).toBe(false);
         expect(gameManager.mainRoomMessages).toHaveLength(1);
+        expect(gameManager.ambientMainRoomMessages).toHaveLength(0);
     });
 });
 
@@ -67,7 +70,8 @@ describe('maybePostChat', () => {
             username: 'real', message: 'old', timestamp: Date.now() - 60 * 60 * 1000
         });
         expect(ambient.maybePostChat(fakeIo)).toBe(true);
-        expect(gameManager.mainRoomMessages).toHaveLength(2);
+        expect(gameManager.mainRoomMessages).toHaveLength(1);
+        expect(gameManager.ambientMainRoomMessages).toHaveLength(1);
     });
 
     test('stays silent while the room is active', () => {
@@ -124,7 +128,7 @@ describe('startBotGame', () => {
 
         // Still drawing — no announcement yet
         ambient.tick(fakeIo);
-        expect(gameManager.mainRoomMessages).toHaveLength(1);
+        expect(gameManager.ambientMainRoomMessages).toHaveLength(0);
 
         await jest.advanceTimersByTimeAsync(30 * 1000);
         expect(game.phase).not.toBe('drawing');
@@ -132,8 +136,9 @@ describe('startBotGame', () => {
         // Visible — announce once, then stay quiet
         ambient.tick(fakeIo);
         ambient.tick(fakeIo);
-        expect(gameManager.mainRoomMessages).toHaveLength(2);
-        expect(gameManager.mainRoomMessages[1].message).toMatch(/game/i);
+        expect(gameManager.ambientMainRoomMessages).toHaveLength(1);
+        expect(gameManager.ambientMainRoomMessages[0].message).toMatch(/game/i);
+        expect(gameManager.mainRoomMessages).toHaveLength(1);
 
         const { botController } = require('../../game/bot');
         botController.cleanupGame(game.gameId);
@@ -201,7 +206,7 @@ describe('on-demand lifecycle (pacing.js AMBIENT_CHECK_MS / AMBIENT_RESTART_MS /
 
     test('an empty server runs no game; the chat is still seeded', async () => {
         ambient.startAmbientActivity(io);
-        expect(gameManager.mainRoomMessages.length).toBeGreaterThan(0);
+        expect(gameManager.ambientMainRoomMessages.length).toBeGreaterThan(0);
         await jest.advanceTimersByTimeAsync(60 * 60 * 1000);
         expect(demoGames()).toHaveLength(0);
         expect(gameManager.games.size).toBe(0);

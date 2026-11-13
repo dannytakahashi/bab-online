@@ -29,7 +29,7 @@ Status 2026-11-11: iOS 1.1.0 (build 2) is the App Store build and the old
 `V1_REMOVALS.md` may proceed one PR at a time in the order of its plan.
 Until a removal PR changes them, the rules below still hold. "The current iOS
 app" below now means 1.1.0 (iOS source f05d264), which still reads most v1
-keys (see the plan). Once 1.2.0 (build 4) is live, `MIN_IOS_BUILD` 3 gates
+keys (see the plan). Once 1.2.0 (build 5) is live, `MIN_IOS_BUILD` 3 gates
 1.1.0 too (V1_REMOVALS "Step 0"), and "the current iOS app" means 1.2.0
 (V1_REMOVALS "What iOS 1.2.0 unblocks").
 

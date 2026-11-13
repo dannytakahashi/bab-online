@@ -19,6 +19,9 @@ enum WirePayload {
         struct Name: Decodable, Equatable { var username: String?; var socketId: String? }
         var positions: [Int]?
         var sockets: [String]?
+        /// positions order, true for a bot seat (additive, contract/V1_REMOVALS #14). Read first;
+        /// the bot: prefix of `sockets` is the fallback for a server that does not send it yet.
+        var isBot: [Bool]?
         var usernames: [Name]?
         var pics: [PicWire]?
         var avatarUrls: [String: String]?

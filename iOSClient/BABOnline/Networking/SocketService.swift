@@ -41,6 +41,10 @@ final class SocketService: ObservableObject {
     static let shared = SocketService()
 
     @Published var isConnected = false
+    /// Signed in on the current server-side socket (sign-in, sign-up or the restore answered):
+    /// false from every new `.connect` until then. Main-room actions wait for it
+    /// (`noteSessionEstablished`).
+    @Published var isSessionReady = false
 
     /// The table part of the server's 'error' (also driven by the replay tests):
     /// a refused play/bid/resync makes the table resync instead of waiting (21.10).
@@ -55,7 +59,6 @@ final class SocketService: ObservableObject {
     @Published var connectionError: String?
     @Published var serverError: ServerErrorNotice?
 
-    private var isForceReconnecting = false
     private var backgroundTaskId: UIBackgroundTaskIdentifier = .invalid
     private(set) var isBackgroundTaskActive = false
 
@@ -67,7 +70,9 @@ final class SocketService: ObservableObject {
     weak var authState: AuthState?
 
     /// The server URL — simulator uses localhost, physical device uses production (ServerConfig)
-    private var serverURL: String { ServerConfig.baseURL }
+    private var serverURL: String { serverURLOverride ?? ServerConfig.baseURL }
+    /// Tests only: where `connect` goes instead (ForegroundReconnectTests: a refused local port).
+    var serverURLOverride: String?
     /// `serverError` (V1_REMOVALS #1 phase A/B; its constant joins SocketEvents.swift with the contract entry).
     static let serverErrorEvent = "serverError"
     private var errorDeduper = ServerErrorDeduper()
@@ -97,8 +102,11 @@ final class SocketService: ObservableObject {
             }
             return
         }
+        openConnection()
+    }
 
-        let url = URL(string: serverURL)!
+    /// A new manager and default socket for `url` (not connected yet).
+    static func makeConnection(url: URL) -> (SocketManager, SocketIOClient) {
         var config: SocketIOClientConfiguration = [
             .compress,
             .reconnects(true),
@@ -114,13 +122,27 @@ final class SocketService: ObservableObject {
             config.insert(.logger(RedactingSocketLogger()))
         }
         #endif
-        manager = SocketManager(socketURL: url, config: config)
+        let manager = SocketManager(socketURL: url, config: config)
+        return (manager, manager.defaultSocket)
+    }
 
-        socket = manager?.defaultSocket
+    /// Builds the manager and socket, registers every handler on the socket (this service's,
+    /// then the router's, which reach it through `on`), and connects it.
+    private func openConnection() {
+        let (manager, socket) = Self.makeConnection(url: URL(string: serverURL)!)
+        self.manager = manager
+        self.socket = socket
+        registerHandlers()
+        eventRouter?.registerAll()
+        socket.connect()
+    }
 
+    private func registerHandlers() {
         socket?.on(clientEvent: .connect) { [weak self] _, _ in
             DispatchQueue.main.async {
                 self?.isConnected = true
+                // a new server-side socket: nobody is signed in on it until the restore answers
+                self?.isSessionReady = false
                 self?.connectionError = nil
                 RestartNotices.shared.reconnected()
                 print("[Socket] Connected: \(self?.socket?.sid ?? "?")")
@@ -139,9 +161,18 @@ final class SocketService: ObservableObject {
         socket?.on(clientEvent: .disconnect) { [weak self] _, _ in
             DispatchQueue.main.async {
                 self?.isConnected = false
+                self?.isSessionReady = false
                 RestartNotices.shared.disconnected()
                 print("[Socket] Disconnected")
             }
+        }
+
+        // The library reconnecting a socket it had connected (a dead engine found after a
+        // long background, a deploy, forceReconnect) sends no .disconnect, only this status:
+        // until the next .connect the socket cannot emit, so it is not connected.
+        socket?.on(clientEvent: .statusChange) { [weak self] data, _ in
+            guard let status = data.first as? SocketIOStatus else { return }
+            DispatchQueue.main.async { self?.noteStatus(status) }
         }
 
         // Fires for the server's app-level 'error' event (an object with `message`:
@@ -165,7 +196,7 @@ final class SocketService: ObservableObject {
         }
 
         // A server that closes the connection (a deploy) leaves Socket.IO-Client-Swift reconnecting
-        // without a .disconnect event (isConnected stays true): the restart toast learns it here
+        // without a .disconnect event (statusChange clears isConnected): the restart toast learns it here
         socket?.on(clientEvent: .reconnectAttempt) { _, _ in
             DispatchQueue.main.async { RestartNotices.shared.disconnected() }
         }
@@ -175,8 +206,6 @@ final class SocketService: ObservableObject {
             let dict = data.first as? [String: Any]
             DispatchQueue.main.async { self?.handleServerShutdown(dict) }
         }
-
-        socket?.connect()
     }
 
     /// A server-side failure from either channel: one toast and one table resync per failure.
@@ -202,39 +231,84 @@ final class SocketService: ObservableObject {
         RestartNotices.shared.serverShutdown(place: place, now: now)
     }
 
-    /// Force a full disconnect/reconnect cycle.
-    /// iOS can silently kill the WebSocket when backgrounded without firing a disconnect event,
-    /// leaving `isConnected` stale. This tears down and re-establishes the connection so
-    /// Socket.IO fires `.connect` and the `restoreSession` flow runs.
+    /// Force a reconnect cycle (foreground after the keep-alive expired, or within it while
+    /// not connected; sign-out). iOS can silently kill the WebSocket when backgrounded without
+    /// firing a disconnect event, leaving the socket looking connected. The new connection
+    /// makes Socket.IO fire `.connect`, and the `restoreSession` flow runs.
+    ///
+    /// Always a NEW manager and socket, never the old one reconnected
+    /// (Socket.IO-Client-Swift 16.1.1):
+    /// - Once the library is reconnecting, `_tryReconnect` schedules its next attempt after
+    ///   every connect (1.5^n s with jitter, at most `reconnectWaitMax`, 5 s) whether or not
+    ///   that handshake has answered, and nothing can fire or cancel the tick. Between two
+    ///   attempts (manager `.notConnected`, socket `.connecting`) nothing is in flight, and
+    ///   waiting for the tick left the buttons dead for up to 5 s after a deploy or a network
+    ///   drop.
+    /// - Each tick's `connect()` starts a new handshake on the same engine beside one still in
+    ///   flight (a slow link: a polling handshake over ~1.5 s), without cancelling it, and the
+    ///   late answer to the old one can be taken for the new one, losing the namespace connect
+    ///   (no `.connect`, no restore) until the server drops the engine (connectTimeout, 10 s).
+    ///   Read from the library source; a 2.5 s server-side handshake delay did not stall.
+    ///   `SocketManager.reconnect()` runs through the same ticks, and so did the namespace
+    ///   leave + join before 2026-11-12.
+    /// A new manager starts exactly one handshake at once (attempt 0: no tick is scheduled
+    /// until that handshake fails). The old manager is retired so that nothing of it can act
+    /// later (`retire`).
     func forceReconnect() {
         if Self.connectionsDisabled { return }
-        guard !isForceReconnecting else {
-            print("[Socket] forceReconnect already in progress, skipping")
-            return
-        }
-        guard socket != nil else {
+        guard let manager, let socket else {
             print("[Socket] No socket to force-reconnect, calling connect()")
             connect()
             return
         }
+        print("[Socket] Force reconnect: new connection (was manager \(manager.status), socket \(socket.status))")
+        Self.retire(manager: manager, socket: socket)
+        self.manager = nil
+        self.socket = nil
+        isConnected = false
+        isSessionReady = false
+        DispatchQueue.main.async { RestartNotices.shared.disconnected() }  // as the old .disconnect would have
+        openConnection()
+    }
 
-        isForceReconnecting = true
-        print("[Socket] Force reconnecting — tearing down and reconnecting")
-        socket?.disconnect()
+    /// Makes a replaced manager and socket inert: no handler of ours runs on the old socket
+    /// again, the manager never reconnects (its pending backoff tick returns at once:
+    /// `_tryReconnect` needs `reconnects` and a status other than `.disconnected`), and a late
+    /// answer to its handshake joins no namespace (the socket is no longer its). The engine
+    /// closes; the server drops a namespace-less engine after connectTimeout.
+    static func retire(manager: SocketManager, socket: SocketIOClient) {
+        socket.removeAllHandlers()
+        manager.reconnects = false
+        manager.disconnect()
+        manager.removeSocket(socket)
+    }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            guard let self = self else { return }
-            self.socket?.connect()
-            self.isForceReconnecting = false
+    /// The socket's status changed (statusChange): any status but connected means it cannot
+    /// emit, so `isConnected` is false until the next `.connect` sets it (the connected
+    /// status itself is left to `.connect`, which also starts the restore).
+    func noteStatus(_ status: SocketIOStatus) {
+        if status != .connected {
+            isConnected = false
+            isSessionReady = false
         }
     }
 
+    /// The server answered sign-in, sign-up or the restore with success and the follow-up
+    /// (joinMainRoom, rejoinGame or joinTournament) has been emitted: a main-room action
+    /// sent now reaches the server after it, so the restore's joinMainRoom can no longer
+    /// undo it (a New Game tap between `.connect` and the restore's answer made a lobby
+    /// that the joinMainRoom then left at once).
+    func noteSessionEstablished() {
+        isSessionReady = true
+    }
+
     func disconnect() {
-        socket?.disconnect()
+        if let manager, let socket { Self.retire(manager: manager, socket: socket) }
         socket = nil
         manager = nil
         DispatchQueue.main.async {
             self.isConnected = false
+            self.isSessionReady = false
         }
     }
 
@@ -269,6 +343,9 @@ final class SocketService: ObservableObject {
 
     /// Emit event with a single dictionary payload
     func emit(_ event: String, _ data: [String: Any]) {
+        #if DEBUG
+        UIFixture.recordSent(event, data)
+        #endif
         socket?.emit(event, data)
     }
 
