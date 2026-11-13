@@ -10,8 +10,9 @@ struct LeaderboardView: View {
     @EnvironmentObject var state: LeaderboardState
     @EnvironmentObject var authState: AuthState
     @Environment(\.dynamicTypeSize) private var typeSize
-    @State private var sort = LeaderboardSort()
-    @State private var expanded: Set<String> = []
+    /// The sort and the expanded rows live on the state, so a tab switch (which rebuilds this
+    /// view) keeps them for the session, like the tab itself.
+    private var sort: LeaderboardSort { state.sort }
 
     @ScaledMetric(relativeTo: .subheadline) private var statWidth: CGFloat = 66
     @ScaledMetric(relativeTo: .subheadline) private var rankWidth: CGFloat = 32
@@ -35,7 +36,7 @@ struct LeaderboardView: View {
             content(table: geo.size.width >= tableMinWidth && typeSize <= .xxxLarge, column: columnWidth(geo.size.width))
         }
         .onAppear { state.request() }
-        .sensoryFeedback(.selection, trigger: sort)
+        .sensoryFeedback(.selection, trigger: state.sort)
     }
 
     @ViewBuilder
@@ -73,7 +74,7 @@ struct LeaderboardView: View {
     private func rows(table: Bool, column: CGFloat) -> some View {
         let sorted = sort.sorted(state.entries)
         return ScrollView {
-            LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
+            LazyVStack(spacing: 0, pinnedViews: pinsHeader(table: table) ? [.sectionHeaders] : []) {
                 Section {
                     if let failure = state.load.failure, !state.load.isLoading {
                         StatsRefreshBanner(failure: failure) { state.request() }
@@ -111,6 +112,12 @@ struct LeaderboardView: View {
         .accessibilityIdentifier("leaderboard.list")
     }
 
+    /// The table's headers and the sort bar stay on top while the rows scroll, except at
+    /// accessibility sizes, where the bar is a tenth of a phone screen: it scrolls away there.
+    private func pinsHeader(table: Bool) -> Bool {
+        table || !typeSize.isAccessibilitySize
+    }
+
     private func isMe(_ e: LeaderboardEntry) -> Bool {
         !e.isPopulation && !authState.username.isEmpty && e.username == authState.username
     }
@@ -119,10 +126,11 @@ struct LeaderboardView: View {
 
     private func tableHeader(column width: CGFloat) -> some View {
         HStack(spacing: 0) {
+            // the web's header row: every label in caps ("# PLAYER GAMES WIN % ...")
             Text("#")
                 .frame(width: rankWidth)
                 .accessibilityHidden(true)
-            Text("Player")
+            Text("Player".uppercased())
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityHidden(true)
             ForEach(LeaderboardColumn.allCases) { column in
@@ -132,7 +140,8 @@ struct LeaderboardView: View {
         }
         .font(.caption.weight(.bold))
         .foregroundStyle(Theme.textSecondary)
-        .padding(.horizontal, Theme.Space.s4 + Theme.Space.s2)
+        // inside its s4 inset (below) the row's own s2, so each label sits over its column
+        .padding(.horizontal, Theme.Space.s2)
         .frame(minHeight: 44)
         .background(Theme.surface)
         .overlay(alignment: .bottom) { Rectangle().fill(Theme.inputBorder).frame(height: 2) }
@@ -142,7 +151,7 @@ struct LeaderboardView: View {
     private func headerButton(_ column: LeaderboardColumn) -> some View {
         let active = sort.column == column
         return Button {
-            sort.select(column)
+            state.sort.select(column)
         } label: {
             HStack(spacing: 2) {
                 Text(column.title.uppercased())
@@ -202,7 +211,7 @@ struct LeaderboardView: View {
             Menu {
                 ForEach(LeaderboardColumn.allCases) { column in
                     Button {
-                        sort.select(column)
+                        state.sort.select(column)
                     } label: {
                         if sort.column == column {
                             Label(column.title, systemImage: sort.ascending ? "arrow.up" : "arrow.down")
@@ -230,7 +239,7 @@ struct LeaderboardView: View {
             Spacer(minLength: 0)
 
             Button {
-                sort.ascending.toggle()
+                state.sort.ascending.toggle()
             } label: {
                 Image(systemName: sort.ascending ? "arrow.up" : "arrow.down")
                     .font(.subheadline.weight(.semibold))
@@ -244,17 +253,18 @@ struct LeaderboardView: View {
             .accessibilityIdentifier("leaderboard.sortOrder")
         }
         .padding(.horizontal, Theme.Space.s4)
+        .padding(.bottom, Theme.Space.s2)
     }
 
     private func listRow(_ e: LeaderboardEntry, rank: Int?) -> some View {
-        let open = expanded.contains(e.id)
+        let open = state.expanded.contains(e.id)
         let column = sort.column
         // a second stat under the name: games, or the win rate when sorted by games
         let second: LeaderboardColumn = column == .gamesPlayed ? .winRate : .gamesPlayed
         return VStack(alignment: .leading, spacing: 0) {
             Button {
                 withAnimation(.easeInOut(duration: Theme.Motion.base)) {
-                    if open { expanded.remove(e.id) } else { expanded.insert(e.id) }
+                    if open { state.expanded.remove(e.id) } else { state.expanded.insert(e.id) }
                 }
             } label: {
                 Group {

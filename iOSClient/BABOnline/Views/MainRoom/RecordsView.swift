@@ -4,9 +4,13 @@ import SwiftUI
 /// This Year and This Month, each with highest / lowest score, biggest win and most / least
 /// bags; same labels, tones and lines; "No games yet" for an empty period or record). The
 /// periods are cards on surface.s1 in an adaptive grid: three across where they fit (the
-/// iPad), else stacked.
+/// iPad). Where only one fits (phones, the closed Duo) a segmented All Time / This Year /
+/// This Month control shows one card at a time, so This Month is one tap away rather than
+/// two cards down; at accessibility sizes (where three segments cannot be read) the cards
+/// stack.
 struct RecordsView: View {
     @EnvironmentObject var state: RecordsState
+    @Environment(\.dynamicTypeSize) private var typeSize
     @ScaledMetric(relativeTo: .body) private var cardMinWidth: CGFloat = 230
 
     var body: some View {
@@ -35,8 +39,10 @@ struct RecordsView: View {
                     }
                     if let records = state.load.value {
                         if let total = records.totalGames { totalLine(total) }
-                        // not lazy: three cards, all in the accessibility tree
-                        let periods = GameRecords.Period.allCases
+                        // not lazy: every card shown is in the accessibility tree
+                        let picks = columns == 1 && !typeSize.isAccessibilitySize
+                        let periods = picks ? [state.period] : GameRecords.Period.allCases
+                        if picks { periodPicker }
                         VStack(spacing: Theme.Space.s4) {
                             ForEach(Array(stride(from: 0, to: periods.count, by: columns)), id: \.self) { start in
                                 HStack(alignment: .top, spacing: Theme.Space.s4) {
@@ -59,6 +65,16 @@ struct RecordsView: View {
             .refreshable { await state.refresh() }
             .accessibilityIdentifier("records.list")
         }
+    }
+
+    /// One period at a time (one card across, standard type sizes); kept for the session.
+    private var periodPicker: some View {
+        Picker("Period", selection: $state.period) {
+            ForEach(GameRecords.Period.allCases) { Text($0.title).tag($0) }
+        }
+        .pickerStyle(.segmented)
+        .accessibilityIdentifier("records.periods")
+        .sensoryFeedback(.selection, trigger: state.period)
     }
 
     /// One, two or three cards across: as many as fit at their minimum width.

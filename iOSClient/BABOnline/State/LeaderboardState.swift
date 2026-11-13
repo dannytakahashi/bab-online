@@ -115,6 +115,10 @@ class StatsLoader<Value: Equatable>: ObservableObject {
 final class LeaderboardState: StatsLoader<[LeaderboardEntry]> {
     /// The Stats tab last shown (kept for the session; never written to disk).
     @Published var tab: StatsTab = .leaderboard
+    /// The leaderboard's sort and its expanded list rows (kept for the session, like the tab:
+    /// the sheet rebuilds the Leaderboard view on every tab switch).
+    @Published var sort = LeaderboardSort()
+    @Published var expanded: Set<String> = []
 
     init() {
         super.init(send: { LeaderboardEmitter.getLeaderboard() })
@@ -133,6 +137,8 @@ final class LeaderboardState: StatsLoader<[LeaderboardEntry]> {
 /// The Stats sheet's Records tab (`getRecords` -> `recordsResponse`).
 final class RecordsState: StatsLoader<GameRecords> {
     var calendar = Calendar.current
+    /// The period shown where one card fits across (phones; kept for the session, never on disk).
+    @Published var period: GameRecords.Period = .allTime
 
     init() {
         super.init(send: { LeaderboardEmitter.getRecords() })

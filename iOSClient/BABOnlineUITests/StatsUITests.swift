@@ -57,6 +57,16 @@ final class StatsUITests: XCTestCase {
         sleep(1)
     }
 
+    /// Shows `title`'s card: a segment tap where one card fits across (phones), else nothing
+    /// (every card is on screen).
+    private func showPeriod(_ app: XCUIApplication, _ title: String) {
+        let picker = app.segmentedControls["records.periods"]
+        if picker.exists {
+            picker.buttons[title].tap()
+            XCTAssertTrue(picker.buttons[title].isSelected, title)
+        }
+    }
+
     private func keepScreenshot(_ app: XCUIApplication, _ name: String) {
         let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         shot.name = name
@@ -92,6 +102,13 @@ final class StatsUITests: XCTestCase {
 
         if isTable(app) {
             XCTAssertTrue(element(app, "leaderboard.sort.gamesPlayed").isSelected, "the sorted header is selected")
+            // each header sits over its column: the rows' cells end 24 pt in from the list's
+            // edge (the card's 16 pt inset, the row's own 8 pt), and so must the last header;
+            // the first starts where the eight equal columns start
+            let list = element(app, "leaderboard.list").frame
+            let first = element(app, "leaderboard.sort.gamesPlayed").frame, last = element(app, "leaderboard.sort.avgHSI").frame
+            XCTAssertEqual(last.maxX, list.maxX - 24, accuracy: 1, "HSI header over its column (\(last) in \(list))")
+            XCTAssertEqual(first.minX, last.maxX - first.width * 8, accuracy: 1, "Games header over its column")
             XCTAssertTrue(element(app, "leaderboard.row.kim").value.map { "\($0)" }?.contains("Tricks per bid 1.05") == true)
         } else {
             // a list row expands to every column
@@ -113,8 +130,16 @@ final class StatsUITests: XCTestCase {
         let total = element(app, "records.total")
         XCTAssertTrue(total.waitForExistence(timeout: 5))
         XCTAssertEqual(total.label, "1,234 games played")
-        for period in ["allTime", "thisYear", "thisMonth"] {
-            XCTAssertTrue(element(app, "records.period.\(period)").exists, period)
+        let picker = app.segmentedControls["records.periods"]
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            XCTAssertFalse(picker.exists, "the iPad shows the three cards side by side")
+            for period in ["allTime", "thisYear", "thisMonth"] {
+                XCTAssertTrue(element(app, "records.period.\(period)").exists, period)
+            }
+        } else {
+            XCTAssertTrue(picker.exists, "phones show one period at a time")
+            XCTAssertTrue(picker.buttons["All Time"].isSelected, "All Time first, as the web")
+            XCTAssertFalse(element(app, "records.period.thisMonth").exists, "one card at a time")
         }
         let allTime = element(app, "records.period.allTime")
         XCTAssertTrue(allTime.staticTexts["All Time"].exists)
@@ -123,18 +148,22 @@ final class StatsUITests: XCTestCase {
         XCTAssertEqual(allTime.descendants(matching: .any)["records.Biggest Win"].label,
                        "Biggest Win, 705 pt margin, 610 - -95, winners kim & ora, losers pat & hal")
         XCTAssertEqual(allTime.descendants(matching: .any)["records.Least Bags"].label, "Least Bags, 0 bags, jon & hal")
+        keepScreenshot(app, "stats-records")
+        showPeriod(app, "This Year")
         let thisYear = element(app, "records.period.thisYear")
         XCTAssertEqual(thisYear.descendants(matching: .any)["records.Most Bags"].label, "Most Bags, no games yet",
                        "legacy games have no bag records")
+        showPeriod(app, "This Month")
         let thisMonth = element(app, "records.period.thisMonth")
         XCTAssertTrue(thisMonth.staticTexts["This Month"].exists)
         XCTAssertTrue(thisMonth.staticTexts["No games yet"].exists, "a period without games")
-        keepScreenshot(app, "stats-records")
-        // the tab is kept for the session
+        if picker.exists { keepScreenshot(app, "stats-records-this-month") }
+        // the tab (and the period) is kept for the session
         app.buttons["stats.close"].tap()
         XCTAssertTrue(app.navigationBars["Stats"].waitForNonExistence(timeout: 5))
         app.buttons.matching(NSPredicate(format: "label == %@", "Stats")).firstMatch.tap()
         XCTAssertTrue(element(app, "records.total").waitForExistence(timeout: 5), "reopens on Records")
+        if picker.exists { XCTAssertTrue(picker.buttons["This Month"].isSelected, "and on the period last shown") }
         app.terminate()
     }
 
@@ -146,7 +175,40 @@ final class StatsUITests: XCTestCase {
         app.segmentedControls["stats.tabs"].buttons["Records"].tap()
         XCTAssertTrue(element(app, "records.total").waitForExistence(timeout: 5))
         XCTAssertEqual(element(app, "records.total").label, "0 games played")
-        XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "label == %@", "No games yet")).count, 3)
+        if app.segmentedControls["records.periods"].exists {
+            for title in ["All Time", "This Year", "This Month"] {
+                showPeriod(app, title)
+                XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "label == %@", "No games yet")).count, 1, title)
+            }
+        } else {
+            XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "label == %@", "No games yet")).count, 3)
+        }
+        app.terminate()
+    }
+
+    /// The sheet rebuilds a tab on every switch: the sort (and an expanded list row) stay.
+    func testSortSurvivesATabSwitch() {
+        let app = openStats()
+        XCTAssertTrue(element(app, "leaderboard.row.kim").waitForExistence(timeout: 5))
+        sort(app, "setRate", title: "Set %")
+        XCTAssertEqual(rowOrder(app).first, "pat", "set rate ascending")
+        let table = isTable(app)
+        if !table {
+            element(app, "leaderboard.row.kim").tap()
+            XCTAssertTrue(element(app, "leaderboard.details.kim").waitForExistence(timeout: 3))
+        }
+        let tabs = app.segmentedControls["stats.tabs"]
+        tabs.buttons["Records"].tap()
+        XCTAssertTrue(element(app, "records.total").waitForExistence(timeout: 5))
+        tabs.buttons["Leaderboard"].tap()
+        XCTAssertTrue(element(app, "leaderboard.row.kim").waitForExistence(timeout: 5))
+        XCTAssertEqual(rowOrder(app).first, "pat", "still sorted by set rate, ascending")
+        if table {
+            XCTAssertTrue(element(app, "leaderboard.sort.setRate").isSelected)
+        } else {
+            XCTAssertEqual(element(app, "leaderboard.sortMenu").value as? String, "Set rate")
+            XCTAssertTrue(element(app, "leaderboard.details.kim").exists, "the expanded row stays open")
+        }
         app.terminate()
     }
 
@@ -198,6 +260,12 @@ final class StatsUITests: XCTestCase {
         XCTAssertFalse(isTable(app), "no table at accessibility sizes")
         XCTAssertTrue(element(app, "leaderboard.sortMenu").isHittable)
         keepScreenshot(app, "stats-large-type")
+        // the sort bar is not pinned at these sizes: it scrolls away with the rows
+        let bar = element(app, "leaderboard.sortMenu").frame.minY
+        element(app, "leaderboard.list").swipeUp()
+        sleep(1)
+        let menu = element(app, "leaderboard.sortMenu")
+        XCTAssertTrue(!menu.exists || menu.frame.minY < bar - 100, "the sort bar scrolled with the rows")
         app.terminate()
     }
 

@@ -177,6 +177,27 @@ final class StatsTests: XCTestCase {
         XCTAssertEqual(s.load.failure?.isRateLimited, false)
     }
 
+    /// The sheet rebuilds a tab's view on every switch, so the choices a viewer makes in it
+    /// live on the states (for the session) and survive new data.
+    func testViewChoicesLiveOnTheStates() {
+        let s = LeaderboardState(send: {})
+        XCTAssertEqual(s.sort, LeaderboardSort(), "Win % descending until changed")
+        XCTAssertTrue(s.expanded.isEmpty)
+        s.sort.select(.setRate)
+        s.expanded.insert("kim")
+        s.request()
+        s.apply(response: ["success": true, "leaderboard": [["username": "kim"]]])
+        XCTAssertEqual(s.sort, LeaderboardSort(column: .setRate, ascending: true), "a reply keeps the sort")
+        XCTAssertEqual(s.expanded, ["kim"])
+
+        let r = RecordsState(send: {})
+        XCTAssertEqual(r.period, .allTime, "the web's first box until changed")
+        r.period = .thisMonth
+        r.request()
+        r.apply(response: ["success": true])
+        XCTAssertEqual(r.period, .thisMonth)
+    }
+
     func testFirstFailureAndRateLimit() {
         let s = LeaderboardState(send: {})
         s.request()
