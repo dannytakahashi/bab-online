@@ -605,6 +605,44 @@ describe('a big window grows the table (S_BASE -> S_GROW_MAX)', () => {
   const gapBelow = (L) => L.h - (L.history.team.rect.y + L.history.team.rect.h);
   const allProblems = (L) => [...findIntersections(L).map((h) => h.join(' x ')), ...findOutside(L), ...feltProblems(L),
     ...bubbleProblems(L), ...badgeProblems(L), ...badgeBubbleProblems(L), ...(L.degraded ? ['degraded'] : [])];
+  /**
+   * Every size a viewer sees on the table, by element (CSS px, a font, the
+   * bid sheet's scale): the cards (hand, trick, backs, history, trump, deck,
+   * drawn), the history's slots, the bid sheet, the avatars and frog, the
+   * names (plates, the draw's), the HSI, the voice buttons, the status pill,
+   * the badge, every bubble (each seat's widest, the badge's: 0 with no
+   * spot), the room each card of a 13-card hand shows and the draw phase.
+   * (The felt is the room between the seats, not an element: a grown hand
+   * and seats take some of it; the bid sheet inside it is held here.)
+   */
+  const elementSizes = (L) => {
+    const o = {};
+    for (const k of ['hand', 'trick', 'back', 'history', 'trump', 'deck', 'drawn']) {
+      o[`card.${k}.w`] = L.card[k].w;
+      o[`card.${k}.h`] = L.card[k].h;
+    }
+    const H = L.history.team;
+    Object.assign(o, { 'history.slotW': H.slotW, 'history.spacing': H.spacing, 'history.row': H.rowSpacing, bidSheet: L.bidSheet.scale });
+    const p = L.seats.partner;
+    Object.assign(o, { avatar: p.avatar.size, 'avatar.img': p.avatar.img, dealer: p.dealer.size, 'plate.w': L.plate.w, 'plate.h': L.plate.h, 'plate.font': L.plate.font });
+    Object.assign(o, { 'bubble.font': L.bubbles.font, 'bubble.h': L.bubbles.h, 'bubble.spectators.w': L.spectators.bubble ? L.spectators.bubble.w : 0 });
+    for (const k of SEATS) o[`bubble.${k}.w`] = L.seats[k].bubble.w;
+    if (L.seats.self.hsi) Object.assign(o, { 'hsi.w': L.seats.self.hsi.rect.w, 'hsi.font': L.seats.self.hsi.font });
+    Object.assign(o, { voice: L.voice.button, 'status.font': L.status.font, 'status.w': L.status.rect.w, 'status.h': L.status.rect.h });
+    Object.assign(o, { 'badge.w': L.spectators.w, 'badge.h': L.spectators.h, 'trump.box': L.trump.box, 'trump.label': L.trump.label.font });
+    if (L.hand) {
+      o['hand.show13'] = Math.min(L.hand.spacing, (L.hand.rect.w - 2 * L.hand.padX - L.hand.card.w) / 12);
+      o['hand.box.h'] = L.hand.rect.h;
+    }
+    Object.assign(o, { 'draw.overlap': L.draw.deck.overlap, 'draw.nameW': L.draw.name.rects[0].w, 'draw.nameFont': L.draw.name.font, 'draw.title': L.draw.title.font, 'teams.label': L.teams.fonts.label });
+    return o;
+  };
+  /** The elements of G smaller than in B ("name before -> after"). */
+  const shrunk = (G, B) => {
+    const g = elementSizes(G);
+    const b = elementSizes(B);
+    return Object.keys(b).filter((k) => g[k] < b[k] - 1e-9).map((k) => `${k} ${+b[k].toFixed(3)} -> ${+g[k].toFixed(3)}`);
+  };
 
   it('2560x1440, 3440x1440 and 3840x2160 reach S_GROW_MAX: a hand card 139.5 px tall, its atlas frame 1:1 at DPR 1, 2 and 3', () => {
     expect([S_BASE, S_GROW_MAX]).toEqual([1, 1.5]);
@@ -629,43 +667,97 @@ describe('a big window grows the table (S_BASE -> S_GROW_MAX)', () => {
     }
   });
 
-  it('1920x1080 and 1440x900 grow too; 1280x720 and the phones do not', () => {
-    const at = (vw, vh, isSpectator = false) => layoutForViewport({ vw, vh, isSpectator }).s;
-    expect(at(1920, 1080)).toBeGreaterThanOrEqual(1.3);
-    expect(at(1920, 1080, true)).toBeGreaterThanOrEqual(1.3);
-    expect(at(1440, 900)).toBeGreaterThan(S_BASE);
-    expect(at(1440, 900, true)).toBeGreaterThan(S_BASE);
+  it('1920x1080 and 1920x1200 grow (a player and a spectator), a spectator at 1440x900 too; 1280x720 and the phones do not', () => {
+    const at = (vw, vh, isSpectator = false, dpr = 1) => layoutForViewport({ vw, vh, isSpectator, dpr }).s;
+    for (const dpr of [1, 2]) {
+      expect(at(1920, 1080, false, dpr)).toBeGreaterThanOrEqual(1.3);
+      expect(at(1920, 1080, true, dpr)).toBeGreaterThanOrEqual(1.4);
+      expect(at(1920, 1200, false, dpr)).toBeGreaterThanOrEqual(1.45);
+      expect(at(1440, 900, true, dpr)).toBeGreaterThan(1.1);
+      // a player's S_BASE table here has its history at the 0.7 step: a
+      // bigger table would need a smaller one (see the sizes sweep)
+      expect(at(1440, 900, false, dpr)).toBe(S_BASE);
+    }
     expect(at(1280, 720)).toBeLessThan(S_BASE);
     expect(at(390, 844)).toBeLessThan(S_BASE);
   });
 
-  it('a grown table keeps the room it had at S_BASE (roomy hand, full hand box, felt wish, my history\'s inset) and is clean, up to 3840x2160', () => {
-    const bad = [];
-    let grew = 0;
-    for (let vw = 1400; vw <= 3840; vw += 120) {
-      for (let vh = 800; vh <= 2160; vh += 120) {
-        for (const [role, isSpectator] of ROLES) {
-          const label = `${vw}x${vh} ${role}`;
-          const B = layoutForViewport({ vw, vh, isSpectator, grow: false });
-          const G = layoutForViewport({ vw, vh, isSpectator });
-          if (B.s < S_BASE || B.degraded) {
-            if (JSON.stringify(G) !== JSON.stringify(B)) bad.push(`${label}: below S_BASE but changed`);
-            continue;
-          }
-          if (G.s > S_BASE) grew++;
-          if (G.s < B.s || G.s > S_GROW_MAX) bad.push(`${label}: s ${G.s}`);
-          const p = allProblems(G);
-          if (p.length) bad.push(`${label}: ${p.join(', ')}`);
-          if (roomy(B) && !roomy(G)) bad.push(`${label}: lost the roomy hand box`);
-          if (!B.compact && G.compact) bad.push(`${label}: compact hand box`);
-          if (G.felt.wish < B.felt.wish) bad.push(`${label}: felt wish ${B.felt.wish} -> ${G.felt.wish}`);
-          if (Math.abs(gapBelow(B) - Math.max(B.margin, 53 * B.s)) < 0.51 && Math.abs(gapBelow(G) - Math.max(G.margin, 53 * G.s)) >= 0.51) bad.push(`${label}: lost my history's inset`);
+  it('nothing on a grown table is smaller than at S_BASE: the verifier\'s laptop windows (W2: history 1.0 -> 0.81, bid sheet 0.959 -> 0.867 on 92ea44f)', () => {
+    for (const [vw, vh] of [[1512, 860], [1680, 920], [1680, 940], [1728, 980], [1920, 960], [1920, 1080], [1520, 880]]) {
+      for (const [role, isSpectator] of ROLES) {
+        for (const dpr of [1, 2]) {
+          const label = `${vw}x${vh} ${role} dpr${dpr}`;
+          const B = layoutForViewport({ vw, vh, isSpectator, dpr, grow: false });
+          const G = layoutForViewport({ vw, vh, isSpectator, dpr });
+          expect(B.s, label).toBe(S_BASE);
+          expect(shrunk(G, B), label).toEqual([]);
+          expect(G.card.history.design, label).toBeGreaterThanOrEqual(B.card.history.design - 1e-9);
+          expect(G.bidSheet.scale, label).toBeGreaterThanOrEqual(B.bidSheet.scale);
         }
       }
     }
-    expect(bad).toEqual([]);
-    expect(grew).toBeGreaterThan(300);
   });
+
+  /**
+   * The dense sweep (verifier, W2): every window 1000-3840 x 600-2160 in 20
+   * px steps, both roles, DPR 1 and 2. A window whose table is below S_BASE
+   * (or degraded) gets exactly the S_BASE solve; one clean at S_BASE grows to
+   * a clean table with every element at least its S_BASE size
+   * (elementSizes), the room it had (roomy hand, full hand box, felt wish,
+   * my history's inset), 1:1 hand-card texels and s <= S_GROW_MAX; and a
+   * window 20 px wider or taller never gets a smaller s (but where the log
+   * column steps up and the canvas gets narrower, as on 6aab8f5).
+   */
+  for (const [role, isSpectator] of ROLES) {
+    for (const dpr of [1, 2]) {
+      it(`the 20 px sweep, 1000-3840 x 600-2160, ${role} at DPR ${dpr}: never smaller than S_BASE, clean, the room kept, monotonic`, () => {
+        const STEP = 20;
+        const bad = [];
+        const sizes = [];
+        const drops = [];
+        const S = new Map();
+        let grew = 0;
+        for (let vw = 1000; vw <= 3840; vw += STEP) {
+          for (let vh = 600; vh <= 2160; vh += STEP) {
+            const label = `${vw}x${vh}`;
+            const B = layoutForViewport({ vw, vh, isSpectator, dpr, grow: false });
+            const G = layoutForViewport({ vw, vh, isSpectator, dpr });
+            S.set(label, G.s);
+            if (B.s < S_BASE || B.degraded) {
+              if (JSON.stringify(G) !== JSON.stringify(B)) bad.push(`${label}: below S_BASE but changed`);
+              continue;
+            }
+            if (G.s > S_BASE) grew++;
+            if (G.s < S_BASE || G.s > S_GROW_MAX) bad.push(`${label}: s ${G.s}`);
+            const sh = shrunk(G, B);
+            if (sh.length) sizes.push(`${label} s ${G.s}: ${sh.join(', ')}`);
+            if (G.s === S_BASE) continue;
+            const p = allProblems(G);
+            if (p.length) bad.push(`${label}: ${p.join(', ')}`);
+            if (Math.abs(G.card.hand.scale - 1 / dpr) > 1e-9 || G.cardTexture.w > CARD_CONFIG.TEX_MAX_W) bad.push(`${label}: hand texels`);
+            if (roomy(B) && !roomy(G)) bad.push(`${label}: lost the roomy hand box`);
+            if (G.compact) bad.push(`${label}: compact hand box`);
+            if (G.felt.wish < B.felt.wish) bad.push(`${label}: felt wish ${B.felt.wish} -> ${G.felt.wish}`);
+            if (Math.abs(gapBelow(B) - Math.max(B.margin, 53 * B.s)) < 0.51 && Math.abs(gapBelow(G) - Math.max(G.margin, 53 * G.s)) >= 0.51) bad.push(`${label}: lost my history's inset`);
+          }
+        }
+        const canvasW = (vw) => vw - logWidthFor(vw);
+        for (let vw = 1000; vw <= 3840; vw += STEP) {
+          for (let vh = 600; vh <= 2160; vh += STEP) {
+            const s = S.get(`${vw}x${vh}`);
+            const wider = S.get(`${vw + STEP}x${vh}`);
+            const taller = S.get(`${vw}x${vh + STEP}`);
+            if (wider !== undefined && wider < s && canvasW(vw + STEP) >= canvasW(vw)) drops.push(`${vw} -> ${vw + STEP} x ${vh}: ${s} -> ${wider}`);
+            if (taller !== undefined && taller < s) drops.push(`${vw} x ${vh} -> ${vh + STEP}: ${s} -> ${taller}`);
+          }
+        }
+        expect(sizes.slice(0, 20), `${sizes.length} grown tables with something smaller than at S_BASE`).toEqual([]);
+        expect(bad.slice(0, 20), `${bad.length} problems`).toEqual([]);
+        expect(drops.slice(0, 20), `${drops.length} drops`).toEqual([]);
+        expect(grew).toBeGreaterThan(5000);
+      }, 600_000);
+    }
+  }
 
   it('a bigger window never gets a smaller table (10 px steps, wider at a fixed height, taller at a fixed width)', () => {
     // 10 px steps: a coarser sweep missed 1920x790 -> 1920x800 (s 1.13 -> 1.0)

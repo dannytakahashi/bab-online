@@ -13,7 +13,9 @@
  *     canvas, checked by the same findIntersections / findOutside the tests
  *     use (a roomy hand box first, then a compact one, at each s); a table
  *     clean at s = 1 then tries 1.5, 1.49 ... keeping the room it had at 1
- *     (growChoice);
+ *     (growChoice) and never showing anything smaller than at 1 (keepsSizes:
+ *     a window where growing would shrink its history, bid sheet or a
+ *     bubble grows less, or not at all);
  *   - positions are today's fractions of the canvas where they fit (the
  *     1920x1080 table at s = 1 looks as it did) and are pushed apart where they do
  *     not;
@@ -131,6 +133,8 @@ const bubbleDirsFor = (key, isSpectator) => BUBBLE_DIRS[isSpectator && key === '
  * phone's 260 px canvas) rather than cover the trick or shrink the table.
  */
 const BUBBLE_WIDTHS = [1, 0.85, 0.7, 0.6];
+/** A bubble's full width at scale s (its text box and padding; BUBBLE_WIDTHS narrow it). */
+const bubbleFullW = (s) => Math.max(120, 200 * s) + 2 * Math.max(6, 12 * s);
 /**
  * The spectator badge's chat bubble (a spectator's message, "Zach: hello";
  * ChatBubble.showSpectatorChatBubble, .hud-spectator-bubble): the seats'
@@ -246,7 +250,7 @@ function handCardSize(design, tex, dpr) {
  * Place everything at size scale s. Returns the layout; whether it is clean
  * is for findIntersections / findOutside to say.
  */
-function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1, felt = 0, histInset = false }) {
+function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1, felt = 0, histInset = false, minBubbleW = 0 }) {
   const q = (v) => Math.round(v * dpr) / dpr;
   const M = MARGIN;
   const G = Math.max(4, 8 * s);
@@ -321,9 +325,15 @@ function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1, felt = 0, hi
     padY: bubblePadY,
     lines: BUBBLE.lines,
     tail: BUBBLE.tail,
-    w: Math.max(120, 200 * s) + 2 * bubblePadX,
+    w: bubbleFullW(s),
     h: BUBBLE.lines * bubbleLH + 2 * bubblePadY,
   };
+  // the widths a bubble tries, widest first: the BUBBLE_WIDTHS steps; a
+  // grown table (minBubbleW, the full width at S_BASE) only those at least
+  // that wide, and that width itself last (between two steps)
+  const bubbleWs = minBubbleW > 0
+    ? [...new Set([...BUBBLE_WIDTHS.map((f) => bubbleBox.w * f).filter((w) => w > minBubbleW + 1e-9), minBubbleW])]
+    : BUBBLE_WIDTHS.map((f) => bubbleBox.w * f);
   // the anchor is the box's edge nearest the avatar; the tail reaches past it toward the avatar
   // (a side bubble is centred on the avatar, or just below the seat's own
   // backs when they sit above it: the spectator's bottom seat)
@@ -605,13 +615,13 @@ function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1, felt = 0, hi
       const own = isSpectator && key === 'self' ? [seat.cards.rect] : [];
       let pick = null;
       for (const avoid of own.length ? [own, []] : [[]]) {
-        for (const f of BUBBLE_WIDTHS) {
+        for (const bw of bubbleWs) {
           for (const dir of dirs) {
             const clearOwn = avoid.length > 0;
-            const r = bubbleRect(seat, dir, bubbleBox.w * f, clearOwn);
+            const r = bubbleRect(seat, dir, bw, clearOwn);
             if (!onCanvas(r)) continue;
             if (keep.some((o) => intersects(o, r)) || avoid.some((o) => intersects(o, r)) || chosen.some((o) => intersects(o, r))) continue;
-            pick = { dir, w: bubbleBox.w * f, rect: r, clearOwn };
+            pick = { dir, w: bw, rect: r, clearOwn };
             break;
           }
           if (pick) break;
@@ -686,8 +696,8 @@ function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1, felt = 0, hi
   const pickBadgeBubble = (b, picks) => {
     const keep = [...keepBase, ...Object.values(picks).map((p) => p.rect), status.rect, bidSheet.rect, voice.rect, b];
     if (!isSpectator) keep.push(...seatRects(seats.self));
-    for (const f of BUBBLE_WIDTHS) {
-      for (const spot of badgeBubbleSpots(b, bubbleBox.w * f)) {
+    for (const bw of bubbleWs) {
+      for (const spot of badgeBubbleSpots(b, bw)) {
         if (onCanvas(spot.rect) && !keep.some((o) => intersects(o, spot.rect))) return spot;
       }
     }
@@ -891,18 +901,25 @@ export function drawRects(L) {
 
 /** Pairs of rects from different groups that overlap (and may not). */
 export function findIntersections(L, rects = null) {
-  const list = rects || [...layoutRects(L), ...drawRects(L)];
+  return overlaps(rects || [...layoutRects(L), ...drawRects(L)], false);
+}
+
+/** The overlapping pairs of `list` (findIntersections), or only the first (`first`: the solve's clean check). */
+function overlaps(list, first) {
   const hits = [];
   for (let i = 0; i < list.length; i++) {
     for (let j = i + 1; j < list.length; j++) {
       const a = list[i];
       const b = list[j];
+      // (the geometry first: most pairs are apart)
+      if (!intersects(a.rect, b.rect)) continue;
       if (a.group === b.group) continue;
       if (a.allow.includes(b.group) || b.allow.includes(a.group)) continue;
       if ((a.only && !a.only.includes(b.group)) || (b.only && !b.only.includes(a.group))) continue;
       // two draw-phase rects never meet table rects (they are never up together)
       if (a.id.startsWith('draw.') !== b.id.startsWith('draw.')) continue;
-      if (intersects(a.rect, b.rect)) hits.push([a.id, b.id]);
+      hits.push([a.id, b.id]);
+      if (first) return hits;
     }
   }
   return hits;
@@ -940,15 +957,89 @@ export function computeTableLayout({ w, h, dpr = 1, isSpectator = false, logW = 
   }
   if (!grow || base.L.s < S_BASE) return base.L;
   // a table clean at S_BASE grows, keeping what it chose there (growChoice)
+  // and every size it had (keepsSizes)
   const upFrom = Math.round((S_GROW_MAX - S_BASE) / S_STEP);
-  const grown = solve(cw, ch, opts, Array.from({ length: upFrom }, (_, i) => r1(S_GROW_MAX - i * S_STEP)), growChoice(base.choice));
+  const floor = keptSizes(base.L);
+  const grown = solve(cw, ch, { ...opts, minBubbleW: bubbleFullW(S_BASE) }, Array.from({ length: upFrom }, (_, i) => r1(S_GROW_MAX - i * S_STEP)),
+    { ...growChoice(base.choice), ks: (s) => historySteps(s, d, floor), pre: (L) => keepsFixedSizes(L, floor), keep: (L) => keepsSizes(L, floor) });
   return grown ? grown.L : base.L;
+}
+
+/**
+ * What a grown table may not show smaller than its S_BASE table did (owner,
+ * 2026-11-12: a bigger table, so nothing on it gets smaller): every card,
+ * the history's slots, the bid sheet, the avatars and frog, the names, the
+ * HSI, the bubbles (each seat's widest, and the spectator badge's: 0 where
+ * it had no spot) and the room each card of a 13-card hand shows. s >= 1
+ * covers most of them; the history step, the bid sheet (bounded by the
+ * felt, which the grown hand and seats take room from) and the bubble width
+ * steps are what can shrink.
+ */
+const KEPT = {
+  ...Object.fromEntries(Object.keys(BASE_SCALE).flatMap((k) => [[`card.${k}.w`, (L) => L.card[k].w], [`card.${k}.h`, (L) => L.card[k].h]])),
+  'history.slot': (L) => L.history.team.slotW,
+  bidSheet: (L) => L.bidSheet.scale,
+  avatar: (L) => L.seats.partner.avatar.size,
+  dealer: (L) => L.seats.partner.dealer.size,
+  'plate.w': (L) => L.plate.w,
+  'plate.font': (L) => L.plate.font,
+  'hsi.font': (L) => (L.seats.self.hsi ? L.seats.self.hsi.font : 0),
+  'bubble.font': (L) => L.bubbles.font,
+  'bubble.h': (L) => L.bubbles.h,
+  ...Object.fromEntries(['self', 'partner', 'opp1', 'opp2'].map((k) => [`bubble.${k}`, (L) => L.seats[k].bubble.w])),
+  'bubble.spectators': (L) => (L.spectators.bubble ? L.spectators.bubble.w : 0),
+  'hand.show': (L) => (L.hand ? Math.min(L.hand.spacing, (L.hand.rect.w - 2 * L.hand.padX - L.hand.card.w) / (MAX_CARDS - 1)) : 0),
+  // the draw: the deck's spread and the names over the drawn cards
+  'draw.overlap': (L) => L.draw.deck.overlap,
+  'draw.name': (L) => L.draw.name.rects[0].w,
+};
+/**
+ * A grown table's history steps at s: the HISTORY_SCALES steps that keep
+ * its cards at least their design size and their S_BASE size (keepsSizes),
+ * then the smallest step that does (between two steps: at s 1.3 the 0.7
+ * step is a 0.91 card, the 0.85 step a 1.1 one, and 0.77 keeps it 1.0; its
+ * width too, which the atlas frame's even-pixel aspect moves by up to a
+ * pixel from one s to the next).
+ */
+function historySteps(s, dpr, floor) {
+  const tex = cardTextureSize(CARD_UNIT.h * BASE_SCALE.hand * s, dpr);
+  const h1 = CARD_UNIT.h * BASE_SCALE.history * s; // the card's height at k = 1
+  const kMin = Math.max(1 / s, floor['card.history.h'] / h1, floor['card.history.w'] / (h1 * tex.w / tex.h));
+  return [...new Set([...HISTORY_SCALES.filter((k) => k > kMin), kMin])];
+}
+/** The KEPT sizes the felt and its wish cannot change (the solve checks them before the overlaps). */
+const KEPT_FIXED = Object.keys(KEPT).filter((k) => k !== 'bidSheet' && !/^bubble\.(self|partner|opp1|opp2|spectators)$/.test(k));
+function keptSizes(L) {
+  return Object.fromEntries(Object.entries(KEPT).map(([k, f]) => [k, f(L)]));
+}
+function keepsFixedSizes(L, floor) {
+  return KEPT_FIXED.every((k) => KEPT[k](L) >= floor[k] - 1e-9) && L.card.history.design >= BASE_SCALE.history - 1e-9;
+}
+
+/**
+ * A grown table keeps every KEPT size of its S_BASE table, and the four
+ * that can shrink are also held at their design size, the 1920 x 1080
+ * table's (the history at its full step, the full bid sheet, every bubble
+ * and the badge's at full width), which no S_BASE table exceeds. The design
+ * floor is what keeps growth monotonic: a window's own S_BASE table can step
+ * up (e.g. its history 0.85 -> 1 at 1340 -> 1360 px wide, a spectator at
+ * 1500 tall), and held only to that, the narrower window grew to s 1.3 with
+ * a 0.91 history while the wider one, held to 1.0, could not grow at all;
+ * held to the same floor everywhere, a bigger window, with more room,
+ * never fails a floor a smaller one met (the test sweeps, every 20 px).
+ */
+function keepsSizes(L, floor) {
+  for (const [k, f] of Object.entries(KEPT)) if (f(L) < floor[k] - 1e-9) return false;
+  const eps = 1e-9;
+  if (L.card.history.design < BASE_SCALE.history - eps || L.bidSheet.scale < 1 - eps) return false;
+  const full = bubbleFullW(S_BASE);
+  for (const k of ['self', 'partner', 'opp1', 'opp2']) if (L.seats[k].bubble.w < full - eps) return false;
+  return !!L.spectators.bubble && L.spectators.bubble.w >= full - eps;
 }
 
 /** Every choice, best first (today's solve). */
 const ANY_CHOICE = {
   roomy: [true, false],
-  k: () => true,
   compact: [false, true],
   minFelt: 0,
   histInset: [true, false],
@@ -960,15 +1051,14 @@ const ANY_CHOICE = {
  * (a table compact at S_BASE stays at S_BASE: grown with the compact box, a
  * 1920x790 window got s 1.13 while 1920x800, not compact at S_BASE, got
  * 1.0), a felt wish at least as big, my history's inset if it had it. The
- * history step is free, as in today's solve (s comes first, then the step):
- * the history beside my hand is what bounds the hand box, and holding the
- * step made a wider window's table smaller (1520 -> 1560 px wide: s 1.1 ->
- * 1.01); free, a bigger window never gets a smaller table (the test sweep).
+ * history step is free, as in today's solve (s comes first, then the step),
+ * down to the history's design size (s * k >= 1; keepsSizes): holding the
+ * step itself made a wider window's table smaller (1520 -> 1560 px wide: s
+ * 1.1 -> 1.01).
  */
 function growChoice(c) {
   return {
     roomy: [c.roomyHand],
-    k: () => true,
     compact: [false],
     minFelt: c.felt,
     histInset: c.histInset ? [true] : [true, false],
@@ -982,15 +1072,19 @@ function growChoice(c) {
  * inset. Returns { L, choice } or null.
  */
 function solve(cw, ch, opts, scales, allow) {
-  const clean = (L) => findIntersections(L).length === 0 && findOutside(L).length === 0;
+  const keep = allow.keep || (() => true);
+  const clean = (L) => {
+    const list = [...layoutRects(L), ...drawRects(L)];
+    return overlaps(list, true).length === 0 && findOutside(L, list).length === 0;
+  };
   // first pass: a hand box that shows a 13-card hand at 2/3 of its spacing;
   // second pass: any hand box that fits
   for (const roomyHand of allow.roomy) {
     for (const s of scales) {
-      for (const k of HISTORY_SCALES) {
-        if (!allow.k(s, k)) continue;
+      for (const k of allow.ks ? allow.ks(s) : HISTORY_SCALES) {
         for (const compact of allow.compact) {
           const L = place(cw, ch, s, { ...opts, compact, k });
+          if (allow.pre && !allow.pre(L)) continue;
           if (roomyHand && !handRoomy(L)) continue;
           if (!clean(L)) continue;
           // the felt as close to today's as the seats allow (the side seats
@@ -1000,9 +1094,12 @@ function solve(cw, ch, opts, scales, allow) {
             if (felt < allow.minFelt) break;
             for (const histInset of allow.histInset) {
               const choice = { roomyHand, k, compact, felt, histInset };
-              if (felt === 0 && !histInset) return { L, choice };
+              if (felt === 0 && !histInset) {
+                if (keep(L)) return { L, choice };
+                continue;
+              }
               const F = place(cw, ch, s, { ...opts, compact, k, felt, histInset });
-              if ((!roomyHand || handRoomy(F)) && clean(F)) return { L: F, choice };
+              if ((!roomyHand || handRoomy(F)) && clean(F) && keep(F)) return { L: F, choice };
             }
           }
         }
