@@ -28,6 +28,25 @@ class GameSKScene: SKScene, TableRenderer {
             relayout(animated: sameButFold == oldValue)
         }
     }
+    /// The chrome of SwiftUI's latest pass, waiting for `takeChrome`'s main-queue turn.
+    private var pendingChrome: TableChrome?
+
+    /// SwiftUI's chrome from a view pass (GameContainerView): applied on the next main-queue
+    /// turn, never during the pass, and only the latest of a burst (an unchanged one is a no-op).
+    func takeChrome(_ c: TableChrome) {
+        let scheduled = pendingChrome != nil
+        pendingChrome = c
+        guard !scheduled else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let c = self.pendingChrome else { return }
+            self.pendingChrome = nil
+            self.chrome = c
+            #if DEBUG
+            if UIFixture.isActive { TableDebugProbe.shared.chrome = c }
+            #endif
+        }
+    }
+
     #if DEBUG
     /// Relayouts that moved something (fixture probes).
     private(set) var relayoutCount = 0
@@ -42,6 +61,10 @@ class GameSKScene: SKScene, TableRenderer {
     let opponentsLayer = SKNode()
     let bidsLayer = SKNode()
     let transientLayer = SKNode()
+    /// The zoomed table's camera (TableLayout.zoom > 1: an iPad): at the origin, scaled
+    /// 1 / zoom, so the scene's units (the layout's) fill the pane. A zoom-1 layout (every
+    /// phone) uses no camera, so the scene renders exactly as before.
+    let zoomCamera = SKCameraNode()
     /// My own seat's trick pips (I have no avatar): in my seat's row at `layout.myPips`
     /// (`layout.myPipsCenter`), in the opponents layer.
     let myPipsNode = SeatPipsNode(style: .box)
@@ -100,7 +123,8 @@ class GameSKScene: SKScene, TableRenderer {
         #endif
         backgroundNode.role = "background"  // roles, not names: SpriteKit reads a named node by its name
         backgroundNode.zPosition = -100
-        backgroundNode.size = size
+        backgroundNode.size = layout.size
+        applyZoom()
         backgroundNode.hideFromAccessibility()
         addChild(backgroundNode)
         opponentsLayer.role = "opponents"
@@ -172,9 +196,12 @@ class GameSKScene: SKScene, TableRenderer {
     func relayout(animated: Bool) {
         guard isSetUp else { return }
         let new = TableLayout(size: size, chrome: chrome)
-        if new == layout && backgroundNode.size == size { return }
+        // the felt's size is stored as Float: a zoomed layout's scene size (pane / zoom) is not exact there
+        let felt = backgroundNode.size
+        if new == layout && abs(felt.width - new.size.width) < 0.01 && abs(felt.height - new.size.height) < 0.01 { return }
         layout = new
-        backgroundNode.size = size
+        backgroundNode.size = new.size
+        applyZoom()
         let a: Animator = animated ? animator : InstantAnimator()
         let v = lastModel?.viewPosition ?? 1
         opponentManager.apply(layout: new, animator: a, animated: animated)
@@ -189,6 +216,23 @@ class GameSKScene: SKScene, TableRenderer {
         logLayout()
         #endif
         renderLatest()
+    }
+
+    /// The camera for the layout's zoom: none at zoom 1 (added once, the first time a
+    /// layout zooms; it stays a child while unused, and SpriteKit ignores it then).
+    private func applyZoom() {
+        guard layout.zoom != 1 else {
+            camera = nil
+            return
+        }
+        if zoomCamera.parent == nil {
+            zoomCamera.role = "camera"
+            zoomCamera.hideFromAccessibility()
+            addChild(zoomCamera)
+        }
+        zoomCamera.position = .zero
+        zoomCamera.setScale(1 / layout.zoom)
+        camera = zoomCamera
     }
 
     /// Re-render the latest model (collect completion, resize).
@@ -353,7 +397,8 @@ class GameSKScene: SKScene, TableRenderer {
         let i = chrome.safeArea, L = layout
         print("[Layout] \(Int(size.width))x\(Int(size.height)) insets \(i.top)/\(i.left)/\(i.bottom)/\(i.right) topBar \(chrome.topBar) "
               + "corner \(chrome.cornerButton) bottomBar \(chrome.bottomBar) fold \(chrome.fold.map { "\($0)" } ?? "-") "
-              + "occlusions \(chrome.occlusions.count) -> s \(L.handScale) k \(L.trickScale) \(L.mode) degraded \(L.isDegraded) usedBottomBar \(L.usedBottomBar)")
+              + "occlusions \(chrome.occlusions.count) banner \(chrome.banner) -> zoom \(L.zoom) s \(L.handScale) k \(L.trickScale) \(L.mode) "
+              + "degraded \(L.isDegraded) usedBottomBar \(L.usedBottomBar)")
     }
 
     /// Fixture mode: refresh the UI tests' "table.layoutCheck" / "table.state" probes.

@@ -1,5 +1,11 @@
 import XCTest
 
+/// TableLayout's zoom bounds (`maxZoom`, `zoomMinSide`), restated: the UI test target cannot see the app's types.
+enum TableZoomLimits {
+    static let max: CGFloat = 1.4
+    static let minSide: CGFloat = 700
+}
+
 /// iOS 1.2.0 (4), owner 2026-11-12, on a live table in fixture mode: my pips,
 /// HSI and the voice button are one group just above my hand, on the right
 /// (TableLayout+SeatRow.swift), and while I bid HSI shows inside the bid panel,
@@ -26,15 +32,28 @@ final class SeatRowUITests: XCTestCase {
         XCTAssertGreaterThan(p.minX, window.midX, "\(p) \(window)")
         XCTAssertTrue(p.maxX <= h.minX + 0.5 || p.maxY <= h.minY + 0.5, "pips \(p) before HSI \(h)")
         XCTAssertGreaterThanOrEqual(m.minX, max(p.maxX, h.maxX) - 0.5, "button \(m) after pips \(p) and HSI \(h)")
+        // The limits are in scene units: on an iPad the whole table, this row with it, is drawn
+        // `zoom` times larger (TableLayout.zoom, up to 1.4). A phone never zooms.
+        guard let zoom = Fixture.tableZoom(app) else {
+            return XCTFail("no table.zoom probe: \(Fixture.probe(app, "table.zoom"))")
+        }
+        XCTAssertTrue((1...TableZoomLimits.max).contains(zoom), "zoom \(zoom)")
+        if min(window.width, window.height) < TableZoomLimits.minSide {
+            XCTAssertEqual(zoom, 1, "a phone-sized window \(window) never zooms")
+        }
+        if min(window.width, window.height) >= 1000 {
+            XCTAssertEqual(zoom, TableZoomLimits.max, "a full-screen iPad 13 \(window) grows the table all the way")
+        }
         let group = p.union(h).union(m)
-        XCTAssertLessThanOrEqual(group.width, 186.5, "\(group)")
-        XCTAssertLessThanOrEqual(group.height, 68.5, "\(group)")
-        // just above my hand: 8 pt above the lifted cards (lift 20 pt), never far up
+        XCTAssertLessThanOrEqual(group.width, 186.5 * zoom, "\(group) zoom \(zoom)")
+        XCTAssertLessThanOrEqual(group.height, 68.5 * zoom, "\(group) zoom \(zoom)")
+        // just above my hand: 8 above the lifted cards (lift 20), never far up, both in scene units
         // cards in my hand (the 4 and 6 of Clubs are on the table)
         let cards = ["Queen of Clubs", "High Joker", "10 of Clubs"].map { app.descendants(matching: .any)[$0].frame }
         let handTop = cards.map(\.minY).min() ?? 0
-        XCTAssertGreaterThanOrEqual(handTop - group.maxY, 8 + 20 - 1, "row \(group) hand top \(handTop)")
-        XCTAssertLessThanOrEqual(handTop - group.maxY, 8 + 20 + 1, "row \(group) hand top \(handTop)")
+        let gap = (8 + 20) * zoom
+        XCTAssertGreaterThanOrEqual(handTop - group.maxY, gap - 1, "row \(group) hand top \(handTop) zoom \(zoom)")
+        XCTAssertLessThanOrEqual(handTop - group.maxY, gap + 1, "row \(group) hand top \(handTop) zoom \(zoom)")
         XCTAssertEqual(Fixture.probe(app, "table.layoutCheck"), "ok")
         app.terminate()
     }

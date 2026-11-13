@@ -66,9 +66,12 @@ enum AvatarTextureCache {
         }
     }
 
-    /// `image` filled into a `diameter`-point circle (centered, aspect fill) at the screen scale.
+    /// `image` filled into a `diameter`-point circle (centered, aspect fill) at the screen scale
+    /// times the device's largest table zoom (CardTextureGenerator.textureZoom: 1 on a phone),
+    /// so a zoomed seat's avatar is not upscaled.
     static func circular(_ image: UIImage) -> SKTexture {
         let format = UIGraphicsImageRendererFormat.preferred()
+        format.scale *= CardTextureGenerator.textureZoom
         format.opaque = false
         format.preferredRange = .standard
         let side = CGSize(width: diameter, height: diameter)

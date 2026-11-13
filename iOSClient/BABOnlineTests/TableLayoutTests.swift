@@ -44,6 +44,14 @@ final class TableLayoutTests: XCTestCase {
         (CGSize(width: 466, height: 678), insets(0, 0, 34, 84)),   // measured: the closed Duo ("ui.pose"; status cluster on the right)
         (CGSize(width: 820, height: 1180), insets(32, 0, 20, 0)),  // measured: iPad Air 11-inch (M4) portrait
         (CGSize(width: 1180, height: 820), insets(32, 0, 20, 0)),  // measured: iPad Air 11-inch (M4) landscape
+        // the zoomed tables (2026-11-12, TableZoomTests): iPad 13, iPad 11 and the mini, both ways
+        (CGSize(width: 1032, height: 1376), insets(32, 0, 20, 0)),
+        (CGSize(width: 1376, height: 1032), insets(32, 0, 20, 0)),
+        (CGSize(width: 834, height: 1210), insets(32, 0, 20, 0)),
+        (CGSize(width: 1210, height: 834), insets(32, 0, 20, 0)),
+        (CGSize(width: 744, height: 1133), insets(32, 0, 20, 0)),
+        (CGSize(width: 1133, height: 744), insets(32, 0, 20, 0)),
+        (CGSize(width: 900, height: 1032), insets(32, 0, 20, 0)),   // an iPad 13 split, the wide side
     ]
 
     // MARK: golden (frozen; see the type comment)
@@ -405,10 +413,16 @@ final class TableLayoutTests: XCTestCase {
         var c = Self.chrome(ins, topBar: 75.5, corner: CGSize(width: 80, height: 50.5))
         c.occlusions = [CGRect(x: -590, y: -410, width: 32, height: 820)]
         let strip = TableLayout(size: size, chrome: c)
-        XCTAssertEqual(strip.occludedLeft, 32, accuracy: 0.001)
+        // the iPad's table is zoomed (scene units = points / zoom); the strip keeps its zoom
+        XCTAssertGreaterThan(plain.zoom, 1)
+        XCTAssertEqual(strip.zoom, plain.zoom)
+        let z = strip.zoom
+        XCTAssertEqual(strip.paneOccludedLeft, 32, accuracy: 0.001)
+        XCTAssertEqual(strip.occludedLeft, 32 / z, accuracy: 0.001)
         XCTAssertEqual(strip.occludedRight, 0)
-        XCTAssertEqual(strip.safeRect.minX, plain.safeRect.minX + 32, accuracy: 0.001)
-        XCTAssertEqual(strip.cornerRects[0].minX, plain.cornerRects[0].minX + 32, accuracy: 0.001)
+        XCTAssertEqual(strip.window(strip.safeRect).minX, 32, accuracy: 0.001, "the safe rect starts at the strip, in points")
+        XCTAssertEqual(strip.safeRect.minX, plain.safeRect.minX + 32 / z, accuracy: 0.001)
+        XCTAssertEqual(strip.cornerRects[0].minX, plain.cornerRects[0].minX + 32 / z, accuracy: 0.001)
         XCTAssertEqual(strip.cornerRects[0].height, plain.cornerRects[0].height, accuracy: 0.001, "the strip does not grow the corner")
         XCTAssertFalse(strip.isDegraded)
         XCTAssertTrue(Self.problems(strip).isEmpty, "\(Self.problems(strip))")
@@ -488,9 +502,9 @@ final class TableLayoutTests: XCTestCase {
             for layer in [s.opponentsLayer, s.bidsLayer, s.trickArea, s.transientLayer, s.backgroundNode] as [SKNode] {
                 XCTAssertEqual(layer.position, .zero, "\(size) \(layer.name ?? "?")")
             }
-            XCTAssertEqual(s.handNode.position, s.layout.handBaseline)
+            XCTAssertNear(s.handNode.position, s.layout.handBaseline)
             XCTAssertEqual(s.handNode.xScale, s.layout.handScale)
-            XCTAssertEqual(s.trickManager.trickHistory.position, s.layout.historyOrigin)
+            XCTAssertNear(s.trickManager.trickHistory.position, s.layout.historyOrigin)
         }
     }
 

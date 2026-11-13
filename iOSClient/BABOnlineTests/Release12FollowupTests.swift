@@ -105,7 +105,8 @@ final class MyPipsLayoutTests: XCTestCase {
     func testDisconnectBannerKeepOut() {
         // the iPad: room below the partner, clear of every seat and card
         let ipad = TableLayout(size: CGSize(width: 820, height: 1180), chrome: TableLayoutTests.chrome(TableLayoutTests.insets(24, 0, 20, 0)))
-        let r = ipad.disconnectBanner(height: 80, spectating: false)
+        // an 80 pt banner, in scene units (the iPad's table is zoomed)
+        let r = ipad.disconnectBanner(height: 80 / ipad.zoom, spectating: false)
         XCTAssertNotNil(r)
         if let r {
             for rel in [Rel.top, .left, .right] { XCTAssertFalse(TableLayout.overlaps(r, ipad.seatFootprint(rel)), "\(rel)") }

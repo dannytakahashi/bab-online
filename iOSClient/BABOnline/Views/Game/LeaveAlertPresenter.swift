@@ -14,7 +14,7 @@ import UIKit
 final class LeaveAlertPresenter {
     enum Answer: Equatable { case leave, cancel }
 
-    static let title = "Leave game?"
+    static let title = "Exit game?"
 
     /// The open alert (nil: none, or closing).
     private weak var alert: UIAlertController?
@@ -27,7 +27,7 @@ final class LeaveAlertPresenter {
     func present(message: String, answered: @escaping (Answer) -> Void) -> Bool {
         guard alert == nil, let host = Self.topController() else { return false }
         let a = UIAlertController(title: Self.title, message: message, preferredStyle: .alert)
-        a.addAction(UIAlertAction(title: "Leave Game", style: .destructive) { [weak self, weak a] _ in
+        a.addAction(UIAlertAction(title: "Exit Game", style: .destructive) { [weak self, weak a] _ in
             self?.answer(a, .leave, answered)
         })
         a.addAction(UIAlertAction(title: "Cancel", style: .cancel) { [weak self, weak a] _ in

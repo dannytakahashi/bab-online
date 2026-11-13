@@ -4,6 +4,9 @@ import XCTest
 /// server ends a game no other owner can return to. The confirmation now says what happens
 /// (LeaveOutcome; unit tests in LeaveOutcomeTests).
 final class LeaveAlertUITests: XCTestCase {
+    /// The alert's title (#235: "Exit" for a seat and a spectator alike).
+    static let title = "Exit game?"
+
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
@@ -15,13 +18,13 @@ final class LeaveAlertUITests: XCTestCase {
         XCTAssertTrue(leave.waitForExistence(timeout: 20), "\(tag): no Leave button")
         _ = Fixture.settledState(app)
         leave.tap()
-        let alert = app.alerts["Leave game?"]
+        let alert = app.alerts[LeaveAlertUITests.title]
         XCTAssertTrue(alert.waitForExistence(timeout: 5), "\(tag): no Leave alert")
         let shot = XCTAttachment(screenshot: app.screenshot())
         shot.name = "leave-alert-\(tag)"
         shot.lifetime = .keepAlways
         add(shot)
-        let texts = alert.staticTexts.allElementsBoundByIndex.map(\.label).filter { $0 != "Leave game?" }
+        let texts = alert.staticTexts.allElementsBoundByIndex.map(\.label).filter { $0 != LeaveAlertUITests.title }
         alert.buttons["Cancel"].tap()
         XCTAssertFalse(alert.waitForExistence(timeout: 1), "\(tag): Cancel left the alert up")
         XCTAssertTrue(leave.exists, "\(tag): Cancel left the table")
@@ -101,7 +104,7 @@ final class LeaveAlertUITests: XCTestCase {
     }
 
     private func message(_ alert: XCUIElement) -> String {
-        alert.staticTexts.allElementsBoundByIndex.map(\.label).filter { $0 != "Leave game?" }.joined(separator: "\n")
+        alert.staticTexts.allElementsBoundByIndex.map(\.label).filter { $0 != LeaveAlertUITests.title }.joined(separator: "\n")
     }
 
     private func shot(_ app: XCUIApplication, _ name: String) {
@@ -131,7 +134,7 @@ final class LeaveAlertUITests: XCTestCase {
         XCTAssertTrue(leave.waitForExistence(timeout: 20), "no Leave button")
         _ = Fixture.settledState(app)
         leave.tap()
-        let alert = app.alerts["Leave game?"]
+        let alert = app.alerts[LeaveAlertUITests.title]
         XCTAssertTrue(alert.waitForExistence(timeout: 5), "no Leave alert")
         XCTAssertEqual(message(alert), Self.botFinishes, "bob is here: the first alert")
         // an open alert keeps its first words, so new words mean it was closed and opened again
@@ -151,7 +154,7 @@ final class LeaveAlertUITests: XCTestCase {
     /// The settled reopen (bob's /leave, then the snapshot reply): Leave Game sends /leave.
     func testReopenedAlertLeaveGameSendsLeave() throws {
         let (app, alert) = try reopenedAlert("settle", Self.endsGame)
-        alert.buttons["Leave Game"].tap()
+        alert.buttons["Exit Game"].tap()
         XCTAssertTrue(alert.waitForNonExistence(timeout: 3), "Leave Game left the alert up")
         XCTAssertEqual(sent(app, expecting: "/leave"), "/leave", "the reopened alert's Leave Game sent no /leave")
         app.terminate()
@@ -160,7 +163,7 @@ final class LeaveAlertUITests: XCTestCase {
     /// The hold-timeout reopen (bob's /leave, no reply within 1.5 s): Leave Game sends /leave.
     func testHedgedReopenedAlertLeaveGameSendsLeave() throws {
         let (app, alert) = try reopenedAlert("hold", Self.hedged)
-        alert.buttons["Leave Game"].tap()
+        alert.buttons["Exit Game"].tap()
         XCTAssertTrue(alert.waitForNonExistence(timeout: 3), "Leave Game left the alert up")
         XCTAssertEqual(sent(app, expecting: "/leave"), "/leave", "the reopened alert's Leave Game sent no /leave")
         app.terminate()
@@ -180,7 +183,7 @@ final class LeaveAlertUITests: XCTestCase {
         leave.tap()
         XCTAssertTrue(alert.waitForExistence(timeout: 5), "no fresh alert")
         XCTAssertEqual(message(alert), Self.endsGame)
-        alert.buttons["Leave Game"].tap()
+        alert.buttons["Exit Game"].tap()
         XCTAssertTrue(alert.waitForNonExistence(timeout: 3))
         XCTAssertEqual(sent(app, expecting: "/leave"), "/leave")
         app.terminate()
@@ -193,10 +196,10 @@ final class LeaveAlertUITests: XCTestCase {
         XCTAssertTrue(leave.waitForExistence(timeout: 20), "no Leave button")
         _ = Fixture.settledState(app)
         leave.tap()
-        let alert = app.alerts["Leave game?"]
+        let alert = app.alerts[LeaveAlertUITests.title]
         XCTAssertTrue(alert.waitForExistence(timeout: 5), "no Leave alert")
         XCTAssertEqual(message(alert), Self.botFinishes)
-        alert.buttons["Leave Game"].tap()
+        alert.buttons["Exit Game"].tap()
         XCTAssertTrue(alert.waitForNonExistence(timeout: 3))
         XCTAssertEqual(sent(app, expecting: "/leave"), "/leave")
         app.terminate()
