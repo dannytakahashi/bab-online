@@ -329,15 +329,22 @@ final class SeatRowTests: XCTestCase {
              CGPoint(x: 137, y: -323), CGRect(x: -210, y: 204.5, width: 420, height: 60)),
             (CGSize(width: 466, height: 678), ch(i(0, 0, 34, 84), 75.333, CGSize(width: 79.667, height: 50.333)),
              CGRect(x: 81, y: -254, width: 60, height: 44), CGPoint(x: 66, y: -140), nil),
-            (CGSize(width: 1032, height: 1376), ch(i(24, 0, 20, 0), 75.5, c2), CGRect(x: 448, y: -617, width: 60, height: 44),
-             CGPoint(x: 433, y: -547), CGRect(x: -210, y: 522.5, width: 420, height: 60)),
-            (CGSize(width: 1376, height: 1032), ch(i(24, 0, 20, 0), 75.5, c2), CGRect(x: 620, y: -445, width: 60, height: 44),
-             CGPoint(x: 605, y: -375), CGRect(x: -210, y: 350.5, width: 420, height: 60)),
+            // the iPad 13's table zooms 1.4 (2026-11-12, TableZoomTests): its values are scene units
+            // (the pane / 1.4); at zoom 1 they were badge (448, -617), bubble (433, -547), banner y 522.5
+            // portrait and badge (620, -445), bubble (605, -375), banner y 350.5 landscape. The banner is
+            // 420 POINTS wide: 300 scene units at 1.4 (it was pinned at 420 units, wider than drawn)
+            (CGSize(width: 1032, height: 1376), ch(i(24, 0, 20, 0), 75.5, c2),
+             CGRect(x: 300.5714285714286, y: -439, width: 60, height: 44),
+             CGPoint(x: 285.5714285714286, y: -369), CGRect(x: -150, y: 354.35714285714283, width: 300, height: 60)),
+            (CGSize(width: 1376, height: 1032), ch(i(24, 0, 20, 0), 75.5, c2),
+             CGRect(x: 423.42857142857144, y: -316.14285714285717, width: 60, height: 44),
+             CGPoint(x: 408.42857142857144, y: -246.14285714285717), CGRect(x: -150, y: 159.5, width: 300, height: 60)),
             (CGSize(width: 669, height: 951), ch(i(24, 0, 20, 0), 70, c1), CGRect(x: 266.5, y: -404.5, width: 60, height: 44),
              CGPoint(x: 251.5, y: -334.5), CGRect(x: -210, y: 315.5, width: 420, height: 60)),
         ]
         for (size, chrome, badge, bubble, banner) in pinned {
             let L = TableLayout(size: size, chrome: chrome)
+            XCTAssertEqual(L.zoom, size.width >= 1000 ? 1.4 : 1, "\(size): only the iPad zooms")
             let b = L.spectatorBadge(spectating: true)
             XCTAssertEqual(b, badge, "\(size)")
             let p = L.spectatorBubbleCenter(badge: b, bubbleSize: CGSize(width: 150, height: 40), spectating: true)

@@ -39,12 +39,19 @@ enum CardTextureGenerator {
     /// (`prewarm()` and every scene build touch it there); a static let is initialized once.
     static let displayScale: CGFloat = UIGraphicsImageRendererFormat.preferred().scale
 
+    /// The largest zoom this device's table reaches: TableLayout.maxZoom, except on a phone
+    /// (an iPhone, the Duo open or closed), whose panes never reach TableLayout.zoomMinSide, so
+    /// its textures stay what they were (1:1 at zoom 1). Read on the main thread first, as
+    /// `displayScale`.
+    static let textureZoom: CGFloat = UIDevice.current.userInterfaceIdiom == .phone ? 1 : TableLayout.maxZoom
+
     /// Bitmap size of every card texture: the largest on-screen card
-    /// (`TableLayout.maxCardPoints`: a hand card at s = 1, 100 x 145 pt; trick cards
-    /// are at most 0.8 of it) times the screen scale, so hand cards sample 1:1
-    /// (300 x 435 px on 3x, 200 x 290 px on 2x).
-    static func pixelSize(scale: CGFloat = displayScale) -> CGSize {
-        let pts = TableLayout.maxCardPoints
+    /// (`TableLayout.maxScreenCardPoints`: a hand card at s = 1 and the device's largest
+    /// zoom, 100 x 145 pt on a phone, 140 x 203 pt on an iPad; trick cards are at most 0.8
+    /// of it) times the screen scale, so hand cards sample 1:1 at that zoom
+    /// (300 x 435 px on a 3x phone, 280 x 406 px on a 2x iPad).
+    static func pixelSize(scale: CGFloat = displayScale, zoom: CGFloat = textureZoom) -> CGSize {
+        let pts = TableLayout.maxScreenCardPoints(zoom: zoom)
         return CGSize(width: (pts.width * scale).rounded(.up), height: (pts.height * scale).rounded(.up))
     }
 
@@ -58,7 +65,7 @@ enum CardTextureGenerator {
             + [Card(suit: .joker, rank: .hi), Card(suit: .joker, rank: .lo)]
     }()
 
-    /// Render the 300x435 canvas into a bitmap of `pixelSize(scale:)`: scale 1 (one
+    /// Render the 300x435 canvas into a bitmap of `pixelSize(scale:zoom:)`: scale 1 (one
     /// image point = one pixel), 8-bit sRGB (the default `.automatic` range may pick a
     /// 16-bit float extended-range bitmap on a wide-color screen, twice the bytes for
     /// colors that are all sRGB), with alpha (rounded corners).
@@ -67,7 +74,7 @@ enum CardTextureGenerator {
         format.scale = 1
         format.opaque = false
         format.preferredRange = .standard
-        let pixelSize = pixelSize(scale: scale)
+        let pixelSize = pixelSize(scale: scale, zoom: textureZoom)
         let renderer = UIGraphicsImageRenderer(size: pixelSize, format: format)
         return renderer.image { ctx in
             ctx.cgContext.scaleBy(x: pixelSize.width / cardPixelWidth, y: pixelSize.height / cardPixelHeight)
@@ -122,7 +129,8 @@ enum CardTextureGenerator {
 
     /// The face as a UIImage for SwiftUI (DrawPhaseView): the bitmap the textures are
     /// made from (renderFace at the screen scale), so the draw shows the table's card art
-    /// pixel for pixel (`pixelSize()`: sharp up to `TableLayout.maxCardPoints`).
+    /// pixel for pixel (`pixelSize()`: sharp up to `TableLayout.maxScreenCardPoints(zoom: textureZoom)`;
+    /// the draw's cards are at most `TableLayout.maxCardPoints`, so on an iPad they sample down).
     /// Rendered here (about a millisecond), not read back from the SKTexture:
     /// `SKTexture.cgImage()` copies the bitmap back out of SpriteKit, 100x the render's
     /// cost, on the main thread in the frame a card arrives.
@@ -154,6 +162,7 @@ enum CardTextureGenerator {
     @MainActor
     static func prewarm(completion: (@Sendable () -> Void)? = nil) {
         let scale = displayScale  // read on main
+        _ = textureZoom
         lock.lock()
         let started = prewarmStarted
         prewarmStarted = true

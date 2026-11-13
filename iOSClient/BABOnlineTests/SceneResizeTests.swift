@@ -101,7 +101,7 @@ final class SceneResizeTests: XCTestCase {
         XCTAssertEqual(L, TableLayout(size: portrait, chrome: chrome))
         for s in scene.trickArea.cardSprites {
             let pos = Int(s.name!.split(separator: ".")[1])!
-            XCTAssertEqual(s.position, L.trickSlot(Positions.getRelative(target: pos, from: 1)), s.name!)
+            XCTAssertNear(s.position, L.trickSlot(Positions.getRelative(target: pos, from: 1)), s.name!)
             XCTAssertNil(s.action(forKey: "move"), s.name!)
             XCTAssertNil(s.action(forKey: "scale"), s.name!)
             XCTAssertEqual(s.frame.width, L.trickCardSize.width, accuracy: 0.01)
@@ -125,7 +125,7 @@ final class SceneResizeTests: XCTestCase {
         bidScene.size = portrait
         let view = hb.store.state.table.viewer.viewPosition
         for (pos, node) in bidScene.bidManager.bubbles {
-            XCTAssertEqual(node.position, bidScene.layout.bubbleAnchor(Positions.getRelative(target: pos, from: view)), "bid.\(pos)")
+            XCTAssertNear(node.position, bidScene.layout.bubbleAnchor(Positions.getRelative(target: pos, from: view)), "bid.\(pos)")
             XCTAssertNil(node.action(forKey: "move"))
         }
         XCTAssertNotNil(bidScene.bidManager.bubbles[2]?.action(forKey: "pop"), "the pop keeps going")
@@ -135,7 +135,7 @@ final class SceneResizeTests: XCTestCase {
     private func assertSeatsInside(_ scene: GameSKScene, file: StaticString = #filePath, line: UInt = #line) {
         let safe = scene.layout.safeRect.insetBy(dx: -0.5, dy: -0.5)
         for (pos, node) in scene.opponentManager.nodes {
-            XCTAssertEqual(node.position, scene.layout.seatAnchor(node.relativePosition), "seat \(pos)", file: file, line: line)
+            XCTAssertNear(node.position, scene.layout.seatAnchor(node.relativePosition), "seat \(pos)", file: file, line: line)
             let f = node.calculateAccumulatedFrame()
             XCTAssertTrue(safe.contains(f), "seat \(pos) \(f) outside \(safe)", file: file, line: line)
         }
@@ -160,11 +160,11 @@ final class SceneResizeTests: XCTestCase {
         let L = scene.layout
         let rel = Positions.getRelative(target: other, from: me)
         let entry = try XCTUnwrap(scene.chatManager.bubbles[other])
-        XCTAssertEqual(chat.position, L.chatPosition(rel, bubbleSize: entry.size))
+        XCTAssertNear(chat.position, L.chatPosition(rel, bubbleSize: entry.size))
         XCTAssertTrue(L.safeRect.contains(TableLayout.rect(chat.position, entry.size)))
         XCTAssertLessThanOrEqual(TableLayout.rect(chat.position, entry.size).maxY, L.topLimit + 0.01)
         for e in scene.effectsManager.live {
-            XCTAssertEqual(e.node.position, SKEffectsManager.point(e.anchor, in: L))
+            XCTAssertNear(e.node.position, SKEffectsManager.point(e.anchor, in: L))
             let size: CGSize
             switch e.anchor {
             case .rainbow: size = TableLayout.rainbowSize

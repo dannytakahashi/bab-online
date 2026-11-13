@@ -191,7 +191,10 @@ struct DrawPhaseView: View {
                 .lineLimit(1)
                 .dynamicTypeSize(...DrawMetrics.nameTypeCap)
                 .hidden()
-                .frame(maxWidth: .infinity)
+                // at most the card plus s3 (s3 / 2 past each side): an iPad slot's 24 pt gap would
+                // otherwise let a long name run 8 pt past its card; on a phone the slot's s1
+                // padding is the tighter limit (card + 4), so phones are unchanged
+                .frame(maxWidth: m.card.width + Theme.Space.s3)
                 .overlay {
                     Text(result?.username ?? "Waiting")
                         .themeFont(Theme.TypeScale.sm, weight: Theme.Weight.semibold, relativeTo: .subheadline)

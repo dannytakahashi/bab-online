@@ -177,7 +177,7 @@ final class SceneLayoutTests: XCTestCase {
                 check(scene, "\(size) \(c.topBar) pill \(pill) spectator", expectTrick: 2)
                 // the bottom seat's name clears the pill
                 if let bottom = scene.opponentManager.nodes.values.first(where: { $0.relativePosition == .bottom }), pill > 0 {
-                    XCTAssertGreaterThanOrEqual(sceneFrame(bottom, scene).minY, scene.layout.safeRect.minY + pill, "\(size) \(c.topBar)")
+                    XCTAssertGreaterThanOrEqual(sceneFrame(bottom, scene).minY, scene.layout.safeRect.minY + scene.layout.chrome.bottomBar, "\(size) \(c.topBar)")
                 }
             }
         }
@@ -195,7 +195,7 @@ final class SceneLayoutTests: XCTestCase {
             check(scene, "\(size) \(c.topBar) lazy pill", expectTrick: scene.trickArea.cardSprites.count)
             let L = scene.layout
             if L.usedBottomBar > 0 {
-                XCTAssertGreaterThanOrEqual(sceneFrame(scene.handNode, scene).minY, L.safeRect.minY + 45 - 0.5, "\(size) hand above the pill")
+                XCTAssertGreaterThanOrEqual(sceneFrame(scene.handNode, scene).minY, L.safeRect.minY + L.chrome.bottomBar - 0.5, "\(size) hand above the pill")
             }
         }
     }
