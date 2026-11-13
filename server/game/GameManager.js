@@ -895,6 +895,26 @@ class GameManager {
         }
     }
 
+    /**
+     * A lobby that just filled up with bots while its humans were already
+     * ready (Ready, then Add Bot until 4: owner report 2026-11-13, the bots
+     * sat unready until a human unreadied and readied again). When the lobby
+     * has 4 players and every human in it is ready, its bots are readied as
+     * a human's playerReady would. A seat held for its reconnect grace is
+     * never ready (suspendLobbySeat resets it), so a held seat blocks this,
+     * as it blocks the start on the ready path.
+     * @returns {boolean} true when every seat is now ready
+     */
+    readyBotsIfHumansReady(lobbyId) {
+        const lobby = this.lobbies.get(lobbyId);
+        if (!lobby || lobby.players.length !== 4) return false;
+        const humans = lobby.players.filter(p => !p.isBot);
+        if (!humans.every(p => p.ready && lobby.readyPlayers.has(p.socketId))) return false;
+        if (this.reconnectingIn(lobbyId).length > 0) return false;
+        this.setBotsReady(lobbyId);
+        return lobby.readyPlayers.size === 4;
+    }
+
     // ==================== END BOT METHODS ====================
 
     // ==================== END LOBBY METHODS ====================
