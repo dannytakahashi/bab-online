@@ -59,7 +59,7 @@
  * not accepted (expired, evicted by MAX_SESSIONS, a merged account) gets the
  * signed-out message from then on. A database error changes nothing.
  *
- * Kill switch: UPGRADE_GATE=off (also false / 0 / disabled), read at each
+ * Kill switch: UPGRADE_GATE=off (also false / 0 / disabled / no), read at each
  * connection. Telemetry: one info line per gated connection (build, the
  * username it sent if any; never a token or password), plus the parsed build
  * of every iOS socket (adoption).

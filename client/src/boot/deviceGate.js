@@ -14,7 +14,7 @@
  * 600. Anything missing or throwing fails OPEN (no gate): the gate must
  * never lock a player out.
  *
- * Escape hatches (CLAUDE.md "Phone gate"):
+ * Escape hatches (docs/claude/web-client.md "Phone gate"):
  * - "Continue in browser anyway" on the gate, remembered on the device
  *   (localStorage CONTINUE_KEY; if storage throws, for this page only);
  * - `?web=1` does the same from a link (support, testing);
