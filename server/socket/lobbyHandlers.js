@@ -48,63 +48,72 @@ async function playerReady(socket, io) {
         readyCount: lobby.readyPlayers.size
     });
 
-    // Check if all players are ready (including auto-readied bots)
-    const allReady = lobby.readyPlayers.size === 4;
+    // Starts the game once all 4 are ready (including auto-readied bots)
+    await startLobbyIfAllReady(io, lobby);
+}
 
-    // If all players are ready, start the game
-    if (allReady) {
-        socketLogger.info('All players ready, starting game', { lobbyId: lobby.id });
+/**
+ * The shared tail of every path that can leave a lobby with all 4 seats
+ * ready (a human's playerReady; addBot filling a lobby whose humans are
+ * all ready already): after LOBBY_START_MS the lobby becomes a game
+ * (startGameFromLobby re-validates: a seat that unreadied, left or was
+ * removed meanwhile stops it), the humans join the game room and get
+ * allPlayersReady, and after the countdown the draw begins. Does nothing
+ * unless every seat is ready now.
+ */
+async function startLobbyIfAllReady(io, lobby) {
+    if (lobby.readyPlayers.size !== 4) return;
 
-        // Small delay before transitioning to draw phase. A raw delay: no
-        // game exists yet, and startGameFromLobby re-validates the lobby
-        const lobbyMs = pacing().LOBBY_START_MS;
-        pacing.trace('lobby', lobbyMs);
-        await delay(lobbyMs);
+    socketLogger.info('All players ready, starting game', { lobbyId: lobby.id });
 
-        const startResult = gameManager.startGameFromLobby(lobby.id);
+    // Small delay before transitioning to draw phase. A raw delay: no
+    // game exists yet, and startGameFromLobby re-validates the lobby
+    const lobbyMs = pacing().LOBBY_START_MS;
+    pacing.trace('lobby', lobbyMs);
+    await delay(lobbyMs);
 
-        if (startResult.success) {
-            const game = startResult.game;
+    const startResult = gameManager.startGameFromLobby(lobby.id);
+    if (!startResult.success) return;
 
-            // Register bots with bot controller (reveal real personality names)
-            for (const player of lobby.players) {
-                if (player.isBot) {
-                    const personality = gameManager.lobbyBotPersonality(lobby, player.socketId);
-                    const realName = `🤖 ${getDisplayName(personality)}`;
-                    const bot = botController.createBot(realName, personality);
-                    bot.socketId = player.socketId; // Use existing socket ID
-                    botController.registerBot(game.gameId, bot);
-                }
-            }
+    const game = startResult.game;
 
-            // Join all human players to game room
-            startResult.players.forEach(socketId => {
-                if (!gameManager.isBot(socketId)) {
-                    const playerSocket = io.sockets.sockets.get(socketId);
-                    if (playerSocket) {
-                        playerSocket.join(game.roomName);
-                    }
-                }
-            });
-
-            // Emit allPlayersReady to human players
-            startResult.players.forEach(socketId => {
-                if (!gameManager.isBot(socketId)) {
-                    io.to(socketId).emit('allPlayersReady', {
-                        gameId: game.gameId
-                    });
-                }
-            });
-
-            // After another delay, start the draw phase (false: the game
-            // was aborted meanwhile)
-            if (!(await game.hold('countdown', pacing(game).PREDRAW_COUNTDOWN_MS))) return;
-
-            // Deck, startDraw, bot draws, and auto-draws for anyone who
-            // left or disconnected during the countdown
-            beginDraw(io, game);
+    // Register bots with bot controller (reveal real personality names)
+    for (const player of lobby.players) {
+        if (player.isBot) {
+            const personality = gameManager.lobbyBotPersonality(lobby, player.socketId);
+            const realName = `🤖 ${getDisplayName(personality)}`;
+            const bot = botController.createBot(realName, personality);
+            bot.socketId = player.socketId; // Use existing socket ID
+            botController.registerBot(game.gameId, bot);
         }
     }
+
+    // Join all human players to game room
+    startResult.players.forEach(socketId => {
+        if (!gameManager.isBot(socketId)) {
+            const playerSocket = io.sockets.sockets.get(socketId);
+            if (playerSocket) {
+                playerSocket.join(game.roomName);
+            }
+        }
+    });
+
+    // Emit allPlayersReady to human players
+    startResult.players.forEach(socketId => {
+        if (!gameManager.isBot(socketId)) {
+            io.to(socketId).emit('allPlayersReady', {
+                gameId: game.gameId
+            });
+        }
+    });
+
+    // After another delay, start the draw phase (false: the game
+    // was aborted meanwhile)
+    if (!(await game.hold('countdown', pacing(game).PREDRAW_COUNTDOWN_MS))) return;
+
+    // Deck, startDraw, bot draws, and auto-draws for anyone who
+    // left or disconnected during the countdown
+    beginDraw(io, game);
 }
 
 /**
@@ -354,9 +363,14 @@ function lobbySeatExpired(io, expired, { tellOld = true } = {}) {
 }
 
 /**
- * Handle adding a bot to the lobby
+ * Handle adding a bot to the lobby. When the bot fills a lobby whose humans
+ * are all ready already (Ready first, then Add Bot), the bots are readied
+ * before the player list goes out, so that playerReadyUpdate shows all 4
+ * ready, and the game starts through the ready path's tail, exactly as if
+ * the last human had readied now (owner report 2026-11-13: the lobby sat
+ * full until a human unreadied and readied again).
  */
-function addBot(socket, io) {
+async function addBot(socket, io) {
     const lobby = gameManager.getPlayerLobby(socket.id);
 
     if (!lobby) {
@@ -382,6 +396,9 @@ function addBot(socket, io) {
         playerCount: lobby.players.length
     });
 
+    // A full lobby whose humans are all ready: ready its bots now
+    const allReady = gameManager.readyBotsIfHumansReady(lobby.id);
+
     // Broadcast updated player list to all human lobby members
     lobby.players.forEach(player => {
         if (!gameManager.isBot(player.socketId)) {
@@ -399,6 +416,8 @@ function addBot(socket, io) {
         inProgressGames: gameManager.getInProgressGames(),
         tournaments: gameManager.getAllTournaments()
     });
+
+    if (allReady) await startLobbyIfAllReady(io, lobby);
 }
 
 /**
