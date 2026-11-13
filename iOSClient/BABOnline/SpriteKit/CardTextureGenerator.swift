@@ -129,7 +129,8 @@ enum CardTextureGenerator {
 
     /// The face as a UIImage for SwiftUI (DrawPhaseView): the bitmap the textures are
     /// made from (renderFace at the screen scale), so the draw shows the table's card art
-    /// pixel for pixel (`pixelSize()`: sharp up to `TableLayout.maxCardPoints`).
+    /// pixel for pixel (`pixelSize()`: sharp up to `TableLayout.maxScreenCardPoints(zoom: textureZoom)`;
+    /// the draw's cards are at most `TableLayout.maxCardPoints`, so on an iPad they sample down).
     /// Rendered here (about a millisecond), not read back from the SKTexture:
     /// `SKTexture.cgImage()` copies the bitmap back out of SpriteKit, 100x the render's
     /// cost, on the main thread in the frame a card arrives.

@@ -196,7 +196,12 @@ final class DrawPhaseViewTests: XCTestCase {
         }
         let image = CardTextureGenerator.image(for: Card(suit: .spades, rank: .ace))
         XCTAssertEqual(image.size.width * image.scale, CardTextureGenerator.pixelSize().width)
-        XCTAssertEqual(image.size, TableLayout.maxCardPoints, "the image is the hand card's size in points")
+        // the bitmap covers the device's largest on-screen card (a phone's hand card, 100 x 145 pt;
+        // an iPad's at the table's largest zoom, 140 x 203 pt), so a draw card at most the hand
+        // card's size only ever samples down
+        XCTAssertEqual(image.size, TableLayout.maxScreenCardPoints(zoom: CardTextureGenerator.textureZoom), "the image is the largest on-screen card's size in points")
+        XCTAssertLessThanOrEqual(TableLayout.maxCardPoints.width, image.size.width)
+        XCTAssertLessThanOrEqual(TableLayout.maxCardPoints.height, image.size.height)
         XCTAssertTrue(image === CardTextureGenerator.image(for: Card(suit: .spades, rank: .ace)), "cached")
     }
 
