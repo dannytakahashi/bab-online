@@ -218,9 +218,10 @@ const s2c = {
     },
     mainRoomMessage: {
         payload: ref('mainRoomChatLine'),
-        status: 'active', to: 'mainRoom',
+        status: 'active', to: ['mainRoom', 'socket'],
         clientReads: reads(W.lobby, I.lobby),
-        emittedFrom: ['server/socket/mainRoomHandlers.js:mainRoomChat', 'server/demo/ambientBots.js:maybePostChat', 'server/demo/ambientBots.js:announceGameVisible'],
+        emittedFrom: ['server/socket/mainRoomHandlers.js:mainRoomChat', 'server/demo/ambientBots.js:postAmbientChat'],
+        notes: 'mainRoom: a human line (and an ambient bot line when AMBIENT_CHAT_USERS=*); socket: an ambient bot line to each main-room socket of an AMBIENT_CHAT_USERS account (default test1; server/utils/ambientChatUsers.js).',
     },
     mainRoomPlayerJoined: {
         payload: obj({ username: str(), onlineCount: int({ minimum: 0 }), onlineUsers: arr(str()) }),

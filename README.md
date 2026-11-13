@@ -262,7 +262,7 @@ no card art to build.
 
 The server runs on `http://localhost:3000` by default.
 
-**Ambient bot activity**: in production the server keeps one bot-vs-bot game running (spectatable from the main room) and seeds the global chat with bot-persona messages, so new players never land in an empty room. Control with `AMBIENT_BOTS=true|false` (default: on in production, off in development).
+**Ambient bot activity**: in production the server keeps one bot-vs-bot game running (spectatable from the main room) and seeds the global chat with bot-persona messages, so new players never land in an empty room. Control with `AMBIENT_BOTS=true|false` (default: on in production, off in development). The bot chat lines are shown only to the accounts in `AMBIENT_CHAT_USERS` (comma list, ignoring case; default `test1`, the App Review demo account; `*` everyone, `none` nobody); everyone else sees a humans-only main-room chat. The bot game itself stays visible to everyone.
 
 ## How to Play
 
