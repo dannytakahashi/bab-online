@@ -13,7 +13,8 @@ import CoreGraphics
 extension TableLayout {
     static let disconnectBannerMaxWidth: CGFloat = 420
 
-    /// The banner's rect (scene coordinates) for its measured `height`, or nil.
+    /// The banner's rect (scene coordinates) for its `height` in scene units (GameContainerView
+    /// divides the measured points by `zoom`), or nil.
     func disconnectBanner(height h: CGFloat, spectating: Bool) -> CGRect? {
         guard h > 0 else { return nil }
         let w = min(Self.disconnectBannerMaxWidth, safeRect.width - 2 * Self.margin)

@@ -64,6 +64,7 @@ class OpponentHandNode: SKNode {
         nameLabel = SKLabelNode(text: username)
         nameLabel.fontName = Theme.SK.fontName(.bold)
         nameLabel.fontSize = Theme.TypeScale.sm
+        nameLabel.drawForTableZoom()
         nameLabel.fontColor = Theme.SK.label
         fullName = username
 
@@ -90,6 +91,7 @@ class OpponentHandNode: SKNode {
         let initial = SKLabelNode(text: String(username.prefix(1)).uppercased())
         initial.fontName = Theme.SK.fontName(.bold)
         initial.fontSize = avatarRadius * 0.9
+        initial.drawForTableZoom()
         initial.fontColor = Theme.SK.label
         initial.verticalAlignmentMode = .center
         initial.horizontalAlignmentMode = .center
@@ -156,6 +158,7 @@ class OpponentHandNode: SKNode {
             let initial = SKLabelNode(text: String(name.prefix(1)).uppercased())
             initial.fontName = Theme.SK.fontName(.bold)
             initial.fontSize = avatarRadius * 0.9
+            initial.drawForTableZoom()
             initial.fontColor = Theme.SK.label
             initial.verticalAlignmentMode = .center
             initial.horizontalAlignmentMode = .center

@@ -129,7 +129,8 @@ class SKChatBubbleManager {
         probe.fontSize = label.fontSize
         probe.numberOfLines = 0
         probe.preferredMaxLayoutWidth = 0  // no wrapping: exactly two lines
-        return probe.frame.height
+        // in `label`'s units: a label drawn for the table's zoom is scaled back (drawForTableZoom)
+        return probe.frame.height * label.yScale
     }
 
     /// One bubble node: the text (at most `limit` characters, two lines) on a rounded background.
@@ -141,6 +142,7 @@ class SKChatBubbleManager {
         label.numberOfLines = 2
         label.lineBreakMode = .byWordWrapping
         label.preferredMaxLayoutWidth = maxWidth - 16
+        label.drawForTableZoom()
         label.verticalAlignmentMode = .center
         label.horizontalAlignmentMode = .center
         Self.fitTwoLines(label)

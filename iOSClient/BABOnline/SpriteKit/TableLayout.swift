@@ -21,6 +21,15 @@ struct TableChrome: Equatable {
     var fold: CGRect? = nil
     /// System occlusions in scene coordinates (empty unless measured on a device).
     var occlusions: [CGRect] = []
+
+    /// Every length times `k` (the pane's chrome in a zoomed table's scene units: k = 1 / zoom).
+    func scaled(by k: CGFloat) -> TableChrome {
+        func r(_ r: CGRect) -> CGRect { CGRect(x: r.minX * k, y: r.minY * k, width: r.width * k, height: r.height * k) }
+        let i = safeArea
+        return TableChrome(safeArea: TableInsets(top: i.top * k, left: i.left * k, bottom: i.bottom * k, right: i.right * k),
+                           topBar: topBar * k, cornerButton: CGSize(width: cornerButton.width * k, height: cornerButton.height * k),
+                           bottomBar: bottomBar * k, fold: fold.map(r), occlusions: occlusions.map(r))
+    }
 }
 
 /// The table's layout: a pure function of the scene size and the chrome
@@ -34,6 +43,20 @@ struct TableChrome: Equatable {
 /// s (1.0 ... 0.80) and the trick scale k (1.0 ... 0.70; 0.60 in a tabletop
 /// split) for the first pair that fits; the bottom pill is honoured first and
 /// dropped only when nothing fits with it.
+///
+/// Zoom (owner, 2026-11-12: "on the web client and iPad the default may be a
+/// little small", "grow to fit"): on a pane whose short side is at least
+/// `zoomMinSide` (an iPad, a large Stage Manager window; never a phone or the
+/// Duo) the whole table grows by `zoom` (1.4 ... 1.05, the largest first) when
+/// the same solve, run on the pane shrunk by it (size and chrome / zoom), still
+/// gives today's table there: a full-size hand (s = 1), the same trick scale,
+/// seat mode, seat-row form, bottom pill and fold handling. Nothing else gives
+/// way, so a narrow window (Slide Over, a split, a small Stage Manager window)
+/// keeps zoom 1, which is the layout of before, value for value.
+/// Every output is in SCENE units (the shrunk pane, origin at the center): the
+/// scene draws it through a camera at 1 / zoom (GameSKScene), so cards, seats,
+/// names, bubbles, pips, history and every 8 pt gap grow together; `window(_:)`
+/// maps scene rects to the pane's points for SwiftUI.
 struct TableLayout: Equatable {
     enum SeatMode: Equatable { case row, raised }
 
@@ -44,8 +67,20 @@ struct TableLayout: Equatable {
     /// The largest hand scale the search tries (s = 1.0, 0.95 ... 0.80). Trick sprites
     /// are trickBase * k <= 0.8, so no card is ever drawn larger than `maxCardPoints`.
     static let maxHandScale: CGFloat = 1.0
-    /// The largest on-screen card, in points: what CardTextureGenerator renders for.
+    /// The largest card in scene units (a hand card at s = 1).
     static var maxCardPoints: CGSize { CGSize(width: cardSize.width * maxHandScale, height: cardSize.height * maxHandScale) }
+    /// The largest table zoom (a hand card 140 x 203 pt on screen).
+    static let maxZoom: CGFloat = 1.4
+    /// The zoom search's step (1.4, 1.35 ... 1.05).
+    static let zoomStep: CGFloat = 0.05
+    /// The pane's short side from which the table may grow: every iPad full screen (the mini's
+    /// 744), never a phone (440 at most) or the Duo (466 closed, 669 open).
+    static let zoomMinSide: CGFloat = 700
+    /// The largest on-screen card at `zoom`, in points: what CardTextureGenerator renders for
+    /// (zoom 1 on a phone, which never zooms; `maxZoom` elsewhere).
+    static func maxScreenCardPoints(zoom: CGFloat) -> CGSize {
+        CGSize(width: maxCardPoints.width * zoom, height: maxCardPoints.height * zoom)
+    }
     static let lift: CGFloat = 20
     static let trickBase: CGFloat = 0.8
     static let bidBandSize = CGSize(width: 340, height: 140)
@@ -63,8 +98,14 @@ struct TableLayout: Equatable {
     static let accessoryStack = CGSize(width: 84, height: 76)     // ... or (narrow); the row is TableLayout+SeatRow
 
     // MARK: outputs
+    /// The scene's size in scene units: the pane / zoom.
     let size: CGSize
+    /// The chrome in scene units (the measured chrome / zoom).
     let chrome: TableChrome
+    /// The table's zoom (1 ... `maxZoom`): one scene unit is `zoom` points of the pane.
+    let zoom: CGFloat
+    /// The pane, in points (the scene view's size).
+    let paneSize: CGSize
     /// Hand scale s in {1.0, 0.95 ... 0.80}, never above 1.
     let handScale: CGFloat
     /// Trick scale k in {1.0 ... 0.70} (down to 0.60 in a tabletop split): a trick card is 80k x 116k.
@@ -104,14 +145,64 @@ struct TableLayout: Equatable {
     private let yP: CGFloat, yS: CGFloat, lx: CGFloat, rx: CGFloat, yLo: CGFloat
 
     var trickSpriteScale: CGFloat { Self.trickBase * trickScale }
-    var bidPanelBottomInset: CGFloat { bidBand.minY + size.height / 2 }
+    /// The bid panel's bottom inset in the pane (points).
+    var bidPanelBottomInset: CGFloat { (bidBand.minY + size.height / 2) * zoom }
     var chatMaxWidth: CGFloat { min(260, safeRect.width - 16) }
+    /// `occludedLeft` / `occludedRight` in the pane's points (the corner buttons' padding).
+    var paneOccludedLeft: CGFloat { occludedLeft * zoom }
+    var paneOccludedRight: CGFloat { occludedRight * zoom }
 
     // MARK: init
 
+    /// The layout of a pane of `size` points with the measured `chrome` (points): zoom 1
+    /// (the solve as before), or the largest zoom that keeps its shape (see the type's doc).
     init(size: CGSize, chrome: TableChrome = .init()) {
+        self = Self.zoomed(size: size, chrome: chrome)
+    }
+
+    /// The zoom search: zoom 1, then from `maxZoom` down, the first that keeps zoom 1's shape.
+    private static func zoomed(size: CGSize, chrome: TableChrome) -> TableLayout {
+        let base = unzoomed(size: size, chrome: chrome)
+        guard mayZoom(size), base.handScale == maxHandScale, !base.isDegraded else { return base }
+        var zi = Int(((maxZoom - 1) / zoomStep).rounded())
+        while zi > 0 {
+            let z = 1 + zoomStep * CGFloat(zi)
+            let c = TableLayout(solving: CGSize(width: size.width / z, height: size.height / z), chrome: chrome.scaled(by: 1 / z),
+                                zoom: z, pane: size)
+            if c.keepsShape(of: base) { return c }
+            zi -= 1
+        }
+        return base
+    }
+
+    /// The zoom-1 solve of the pane (what `init` compares a zoomed solve with; tests).
+    static func unzoomed(size: CGSize, chrome: TableChrome = .init()) -> TableLayout {
+        TableLayout(solving: size, chrome: chrome, zoom: 1, pane: size)
+    }
+
+    /// Only a pane at least `zoomMinSide` on its short side grows (a phone never does).
+    static func mayZoom(_ pane: CGSize) -> Bool { min(pane.width, pane.height) >= zoomMinSide }
+
+    /// The disconnect banner height (points) a zoomed table must still find room for when
+    /// zoom 1 has it (DisconnectBannerView with one player: about 60 pt at the default type size).
+    static let zoomBannerProbe: CGFloat = 60
+
+    /// A zoomed solve that is still today's table: nothing shrank, folded away or changed form,
+    /// and the disconnect banner keeps a clear spot where zoom 1 has one (an iPad's, off the seats).
+    private func keepsShape(of base: TableLayout) -> Bool {
+        guard !isDegraded, handScale == Self.maxHandScale, trickScale == base.trickScale, mode == base.mode,
+              (usedBottomBar > 0) == (base.usedBottomBar > 0), foldIgnored == base.foldIgnored,
+              seatRow.fits, seatRow.mode == base.seatRow.mode else { return false }
+        let h = Self.zoomBannerProbe
+        return base.disconnectBanner(height: h, spectating: false) == nil || disconnectBanner(height: h / zoom, spectating: false) != nil
+    }
+
+    /// The solve at one zoom: `size` and `chrome` in scene units.
+    private init(solving size: CGSize, chrome: TableChrome, zoom: CGFloat, pane: CGSize) {
         self.size = size
         self.chrome = chrome
+        self.zoom = zoom
+        self.paneSize = pane
         let bars: [CGFloat] = chrome.bottomBar > 0 ? [chrome.bottomBar, 0] : [chrome.bottomBar]
         var found: Solution?
         search: for bar in bars {
@@ -316,9 +407,9 @@ struct TableLayout: Equatable {
 
     // MARK: SwiftUI
 
-    /// A scene rect in the full pane's top-left coordinates (SwiftUI).
+    /// A scene rect in the full pane's top-left coordinates, in points (SwiftUI).
     func window(_ r: CGRect) -> CGRect {
-        CGRect(x: r.minX + size.width / 2, y: size.height / 2 - r.maxY, width: r.width, height: r.height)
+        CGRect(x: (r.minX + size.width / 2) * zoom, y: (size.height / 2 - r.maxY) * zoom, width: r.width * zoom, height: r.height * zoom)
     }
 
     // MARK: - geometry helpers

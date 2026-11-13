@@ -93,6 +93,23 @@ tabletop split) the first pair that fits wins. The hand sits 12 pt (or bar
 + 6) above the safe bottom, its overlap is min(35s, (safe width - 16 - 100s)
 / (n - 1)), so 13 cards fit at 375 pt; a window too narrow for an 18s step
 (320 pt Slide Over) takes a smaller s first.
+Zoom (owner, 2026-11-12, "grow to fit"; `TableLayout.zoom`): a pane at least
+700 pt on its short side (`zoomMinSide`: every iPad full screen, a large split
+or Stage Manager window; never a phone or the Duo) tries zoom 1.4, 1.35 ...
+1.05: the same solve on the pane and chrome divided by the zoom, kept when it
+is still zoom 1's table there (s = 1, the same k, seat mode, seat-row form,
+bottom pill and fold handling, and the disconnect banner's clear spot for a
+60 pt banner where zoom 1 has one). The outputs are scene units; GameSKScene
+draws through an `SKCameraNode` scaled 1 / zoom (none at zoom 1), so cards,
+seats, names, bubbles, pips, history and the 8 pt gaps grow together, and
+`window(_:)` maps scene rects to pane points for SwiftUI (the bid panel's
+cells, HSI's slot and the voice button grow with it; their type stays Dynamic
+Type). Measured: iPad 13 1.4 both ways, iPad 11 / Air 11 1.4 portrait and 1.15
+landscape (the banner rule; 1.3 / 1.25 without it), mini 1.4 portrait and 1
+landscape, a half split 1. Every pane under 700 pt lays out value for value as
+before (`TableZoomTests`' LayoutDigest, pinned from main 6aab8f5). Scene text
+is drawn for the device's largest zoom and scaled back (`drawForTableZoom`),
+so the camera never upscales a label.
 The bid band (340 x 140, centered) is reserved above the lifted hand even
 while the panel is hidden. The trick cluster (cards 80k x 116k, offsets
 from the card size) is centered between the floor (lifted hand + 6, or the
@@ -398,6 +415,10 @@ card survives fold and unfold, the trick collects across a fold.
   are rendered off the main thread when a game lobby, tournament lobby or the game
   screen shows (`prewarm()`, once per process); the lock-guarded cache keeps the
   first texture stored for a card, and a face not yet prewarmed renders on demand.
+  Since the table zoom (2026-11-12) a device that is not a phone renders for its
+  largest zoom (`CardTextureGenerator.textureZoom` 1.4: 280 x 406 px on a 2x iPad,
+  54 faces = 24.55 MB); a phone's stay 1:1 at zoom 1 (300 x 435 on 3x, unchanged).
+  Avatar circles render at the same factor.
   The card back is not prewarmed (no table sprite uses it; the draw is SwiftUI).
 - Effects: the rainbow, bore and OT sprites keep their art's aspect inside their
   box (128 x 118, 80 x 80, 120 x 120). No larger art exists (client/assets has the
@@ -676,6 +697,15 @@ bore, rejoin with B + 2B, a spectator, every viewer in the store, a reload mid
 bore hand, unknown counts), `Release12FollowupTests.swift` (`MyPipsLayoutTests`
 at every listed size and Duo pose, `RestartNoticeTests`,
 `SocketLogRedactionTests`, `AccessibilityLabelSourceTests`).
+
+## Visible changes to review on the next build (table zoom)
+
+On an iPad the whole table is larger when the window has room: up to 1.4x
+(cards, seats, names, bid bubbles, pips, the trick history, the bid panel's
+buttons, HSI / voice spacing). iPad 13 grows 1.4x both ways, an 11-inch iPad
+1.4x in portrait and 1.15x in landscape, the mini 1.4x in portrait only.
+Phones, the Duo and narrow iPad windows (Slide Over, a half split) look
+exactly as before.
 
 ## Visible changes to review on the next build (1.2.0)
 

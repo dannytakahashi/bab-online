@@ -37,6 +37,7 @@ final class AssetEfficiencyTests: XCTestCase {
                 let L = TableLayout(size: size, chrome: chrome)
                 XCTAssertLessThanOrEqual(L.handScale, TableLayout.maxHandScale, "\(size)")
                 XCTAssertLessThanOrEqual(L.trickSpriteScale, TableLayout.maxHandScale, "\(size)")
+                XCTAssertLessThanOrEqual(L.handScale * L.zoom, TableLayout.maxHandScale * TableLayout.maxZoom + 0.0001, "\(size)")
                 minTrick = min(minTrick, L.trickSpriteScale)
             }
         }
@@ -50,14 +51,20 @@ final class AssetEfficiencyTests: XCTestCase {
     }
 
     /// Measured, not estimated: every face's bitmap is the largest on-screen card in
-    /// pixels (300 x 435 on 3x, 200 x 290 on 2x), 8-bit RGBA; the total is printed.
+    /// pixels (a phone: 300 x 435 on 3x, unchanged; an iPad, whose table zooms up to 1.4:
+    /// 280 x 406 on 2x), 8-bit RGBA; the total is printed.
     func testCardTexturePixelSizeAndTotalBytes() {
         CardTextureGenerator.resetForTesting()
         defer { CardTextureGenerator.resetForTesting() }
-        XCTAssertEqual(CardTextureGenerator.pixelSize(scale: 3), CGSize(width: 300, height: 435))
-        XCTAssertEqual(CardTextureGenerator.pixelSize(scale: 2), CGSize(width: 200, height: 290))
-        let scale = CardTextureGenerator.displayScale
-        let want = CGSize(width: (100 * scale).rounded(.up), height: (145 * scale).rounded(.up))
+        XCTAssertEqual(CardTextureGenerator.pixelSize(scale: 3, zoom: 1), CGSize(width: 300, height: 435))
+        XCTAssertEqual(CardTextureGenerator.pixelSize(scale: 2, zoom: 1), CGSize(width: 200, height: 290))
+        XCTAssertEqual(CardTextureGenerator.pixelSize(scale: 2, zoom: TableLayout.maxZoom), CGSize(width: 280, height: 406))
+        XCTAssertEqual(TableLayout.maxScreenCardPoints(zoom: TableLayout.maxZoom).width, 140, accuracy: 0.001)
+        // a phone's panes never zoom, so its textures stay at zoom 1; everything else renders for maxZoom
+        let phone = UIDevice.current.userInterfaceIdiom == .phone
+        XCTAssertEqual(CardTextureGenerator.textureZoom, phone ? 1 : TableLayout.maxZoom)
+        let scale = CardTextureGenerator.displayScale, z = CardTextureGenerator.textureZoom
+        let want = CGSize(width: (100 * z * scale).rounded(.up), height: (145 * z * scale).rounded(.up))
         XCTAssertEqual(CardTextureGenerator.pixelSize(), want)
         XCTAssertEqual(CardTextureGenerator.allCards.count, 54)
         XCTAssertEqual(Set(CardTextureGenerator.allCards.map(\.id)).count, 54)
@@ -239,7 +246,8 @@ final class AssetEfficiencyTests: XCTestCase {
         // the texture is the pre-cut circle at the screen scale
         let tex = c.avatarTexture!
         XCTAssertEqual(tex.size(), CGSize(width: 40, height: 40))
-        XCTAssertEqual(tex.cgImage().width, Int(40 * UIGraphicsImageRendererFormat.preferred().scale))
+        XCTAssertEqual(tex.cgImage().width, Int((40 * UIGraphicsImageRendererFormat.preferred().scale * CardTextureGenerator.textureZoom).rounded()),
+                       "the screen scale times the device's largest table zoom")
     }
 
     func testStaleAvatarLoadsAreDroppedAndNeverStack() {

@@ -16,6 +16,7 @@ class BidBubbleNode: SKNode {
         label = SKLabelNode(text: bid)
         label.fontName = Theme.SK.fontName(.bold)
         label.fontSize = 18
+        label.drawForTableZoom()
         label.fontColor = Theme.SK.label
         label.verticalAlignmentMode = .center
 

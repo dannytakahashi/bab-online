@@ -42,6 +42,10 @@ class GameSKScene: SKScene, TableRenderer {
     let opponentsLayer = SKNode()
     let bidsLayer = SKNode()
     let transientLayer = SKNode()
+    /// The zoomed table's camera (TableLayout.zoom > 1: an iPad): at the origin, scaled
+    /// 1 / zoom, so the scene's units (the layout's) fill the pane. A zoom-1 layout (every
+    /// phone) uses no camera, so the scene renders exactly as before.
+    let zoomCamera = SKCameraNode()
     /// My own seat's trick pips (I have no avatar): in my seat's row at `layout.myPips`
     /// (`layout.myPipsCenter`), in the opponents layer.
     let myPipsNode = SeatPipsNode(style: .box)
@@ -100,7 +104,8 @@ class GameSKScene: SKScene, TableRenderer {
         #endif
         backgroundNode.role = "background"  // roles, not names: SpriteKit reads a named node by its name
         backgroundNode.zPosition = -100
-        backgroundNode.size = size
+        backgroundNode.size = layout.size
+        applyZoom()
         backgroundNode.hideFromAccessibility()
         addChild(backgroundNode)
         opponentsLayer.role = "opponents"
@@ -172,9 +177,12 @@ class GameSKScene: SKScene, TableRenderer {
     func relayout(animated: Bool) {
         guard isSetUp else { return }
         let new = TableLayout(size: size, chrome: chrome)
-        if new == layout && backgroundNode.size == size { return }
+        // the felt's size is stored as Float: a zoomed layout's scene size (pane / zoom) is not exact there
+        let felt = backgroundNode.size
+        if new == layout && abs(felt.width - new.size.width) < 0.01 && abs(felt.height - new.size.height) < 0.01 { return }
         layout = new
-        backgroundNode.size = size
+        backgroundNode.size = new.size
+        applyZoom()
         let a: Animator = animated ? animator : InstantAnimator()
         let v = lastModel?.viewPosition ?? 1
         opponentManager.apply(layout: new, animator: a, animated: animated)
@@ -189,6 +197,23 @@ class GameSKScene: SKScene, TableRenderer {
         logLayout()
         #endif
         renderLatest()
+    }
+
+    /// The camera for the layout's zoom: none at zoom 1 (added once, the first time a
+    /// layout zooms; it stays a child while unused, and SpriteKit ignores it then).
+    private func applyZoom() {
+        guard layout.zoom != 1 else {
+            camera = nil
+            return
+        }
+        if zoomCamera.parent == nil {
+            zoomCamera.role = "camera"
+            zoomCamera.hideFromAccessibility()
+            addChild(zoomCamera)
+        }
+        zoomCamera.position = .zero
+        zoomCamera.setScale(1 / layout.zoom)
+        camera = zoomCamera
     }
 
     /// Re-render the latest model (collect completion, resize).
