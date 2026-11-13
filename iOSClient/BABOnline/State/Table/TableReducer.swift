@@ -23,6 +23,11 @@ enum LocalAction: Equatable {
     case chatRead
     case snapshotUnavailable(requestId: String?)
     case resyncNeeded                        // an undecodable event: ask for a snapshot (debounced)
+    /// Leave's confirmation opened: when the outcome hinges on owners who may have left
+    /// unannounced (LeaveOutcome `.unsure`), ask for a snapshot to settle it.
+    case leaveAsked
+    /// Leave's confirmation closed (Leave or Cancel): the check ends.
+    case leaveClosed
 }
 
 enum TableEffect: Equatable {
@@ -155,6 +160,10 @@ enum TableReducer {
             s.log.unread = 0
         case .resyncNeeded:
             requestResync(&s, &fx)
+        case .leaveAsked:
+            checkLeave(&s, &fx)
+        case .leaveClosed:
+            s.players.leaveCheck = .idle
         case .snapshotUnavailable(let requestId):
             // No snapshot is coming for this request. Flush a pending gap buffer
             // whichever request it was: a gap request suppressed behind this one
@@ -164,6 +173,18 @@ enum TableReducer {
                 s.pending = nil
             }
         }
+    }
+
+    /// Leave's check: `.unsure` asks for a fresh snapshot ("leave-N"); any snapshot that lands
+    /// while it is pending verifies the seats (applySnapshot). A definite outcome needs none.
+    static func checkLeave(_ s: inout TableState, _ fx: inout [TableEffect]) {
+        s.players.leaveCheck = .idle
+        guard case .unsure = LeaveOutcome.of(seats: s.players.seats, myPosition: s.table.viewer.position,
+                                              inTournament: s.table.tournamentId != nil) else { return }
+        let id = "leave-\(s.sync.nextRequestNo)"
+        s.sync.nextRequestNo += 1
+        s.players.leaveCheck = .pending(requestId: id)
+        fx.append(.requestSnapshot(requestId: id, log: false))
     }
 
     static func currentKey(_ s: TableState) -> TrickKey {

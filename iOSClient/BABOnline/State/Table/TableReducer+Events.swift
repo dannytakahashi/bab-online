@@ -122,6 +122,10 @@ extension TableReducer {
                 s.table.viewer.role = .lazyWatcher
                 s.table.viewer.ownerView = "seat"
                 s.pending = nil
+            } else if s.players.leaveCheck != .idle {
+                // another owner's /lazy or /leave while my Leave is up: check again (a /leave
+                // shows here only as this event; its `gone` only in a snapshot)
+                checkLeave(&s, &fx)
             }
         case .playerActiveMode(let p):
             guard let pos = Position.valid(p.position) else { break }

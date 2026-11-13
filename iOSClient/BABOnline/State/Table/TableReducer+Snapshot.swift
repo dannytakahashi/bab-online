@@ -21,6 +21,8 @@ extension TableReducer {
         // keep the resync bookkeeping, then replay what arrived above S
         next.sync = SyncState(lastSeq: snap.seq, buffered: [], resyncId: nil, nextRequestNo: s.sync.nextRequestNo)
         _ = resyncId  // any snapshot covers the gap (R3: always apply), whichever request it answers
+        // Leave's check: any snapshot while it is on settles the seats (LeaveOutcome `verified`)
+        if s.players.leaveCheck != .idle { next.players.leaveCheck = .verified }
         s = next
         s.table.myTurn = s.myTurn
         fx.append(.animate(.sceneReset))

@@ -24,6 +24,7 @@ const tournamentHandlers = require('../tournamentHandlers');
 const profileHandlers = require('../profileHandlers');
 const lobbyHandlers = require('../lobbyHandlers');
 const gameLifecycle = require('../gameLifecycle');
+const snapshotHandlers = require('../snapshotHandlers');
 const { botController, personalities } = require('../../game/bot');
 const { Phase } = require('../../game/GamePhase');
 const { makeIo, makeSocket, events, legalCards, resignedSeat } = require('../../testUtils/gameDriver');
@@ -600,6 +601,45 @@ describe('/leave outcome and its log line', () => {
         const mark = t.log.length;
         chat(t, 2, '/lazy');
         expect(logLines(t, mark)).toEqual([`user2 entered lazy mode. ${t.game.getPlayerByPosition(2).username} is playing.`]);
+    });
+
+    // What iOS's Leave check (LeaveOutcome `.unsure`, a `leave-N` requestSnapshot) relies on:
+    // the room never hears that a seat went gone; only a snapshot shows it
+    test('the room hears a /leave only as playerLazyMode, an already-lazy owner\'s not at all; a snapshot shows gone', () => {
+        const t = table({ bots: { 3: 'mary', 4: 'sharon' } });
+        const roomEvents = (from) => t.log.slice(from).filter((e) => e.to === t.game.roomName && e.event !== 'gameLogEntry').map((e) => e.event);
+        const seat1In = () => snapshotHandlers.snapshotFor(t.game, t.sids[2]).seats.find((x) => x.position === 1);
+        let mark = t.log.length;
+        chat(t, 1, '/leave');
+        expect(roomEvents(mark)).toEqual(['playerLazyMode']);
+        expect(seat1In()).toMatchObject({ controller: 'lazyBot', presence: 'gone' });
+        expect(aborts(t)).toHaveLength(0);
+
+        const u = table({ bots: { 3: 'mary', 4: 'sharon' } });
+        chat(u, 1, '/lazy');
+        mark = u.log.length;
+        chat(u, 1, '/leave');
+        expect(u.log.slice(mark).filter((e) => e.to === u.game.roomName && e.event !== 'gameLogEntry')).toEqual([]);
+        expect(snapshotHandlers.snapshotFor(u.game, u.sids[2]).seats.find((x) => x.position === 1))
+            .toMatchObject({ controller: 'lazyBot', presence: 'gone' });
+    });
+
+    // review L2: README's /leave row said "You can rejoin later" and never that the game can end
+    test('a /leave is final (the rejoin is refused) and ends a game no one else can return to, as README says', async () => {
+        const t = table({ bots: { 3: 'mary', 4: 'sharon' } });
+        chat(t, 1, '/leave');
+        const s = await rejoin(t, 'user1');
+        expect(events(t.log, 'rejoinFailed').filter((e) => e.to === `self:${s.id}`)).toHaveLength(1);
+        chat(t, 2, '/leave');
+        expect(aborts(t).map((l) => l.data.reason)).toEqual(['All players left']);
+
+        const readme = require('fs').readFileSync(require('path').join(__dirname, '../../../README.md'), 'utf8');
+        const row = readme.split('\n').find((l) => l.startsWith('| `/leave` |'));
+        expect(row).toBeDefined();
+        expect(row).not.toMatch(/rejoin later/i);
+        expect(row).toMatch(/no rejoin/);
+        expect(row).toMatch(/game ends/);
+        expect(row).toMatch(/tournament/);
     });
 });
 

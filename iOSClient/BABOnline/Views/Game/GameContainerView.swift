@@ -45,6 +45,8 @@ private struct GameScreen: View {
     @State private var showGameLog = false
     @State private var showVoicePanel = false
     @State private var showLeaveConfirm = false
+    /// When the Leave alert opens and reopens (LeaveAlertFlow).
+    @State private var leaveFlow = LeaveAlertFlow()
     @ObservedObject private var voiceManager = VoiceChatManager.shared
 
     /// Everything but the size TableLayout needs, measured below. Each input
@@ -171,8 +173,22 @@ private struct GameScreen: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            // the server's outcome: a bot keeps my seat, or (no other owner) the game ends
+            // the server's outcome: a bot keeps my seat, or (no other owner) the game ends;
+            // hedged until Leave's snapshot settles owners who may have left unannounced
             Text(gameState.leaveOutcome.alertMessage)
+        }
+        .onChange(of: showLeaveConfirm) { _, shown in
+            guard !shown else { return }
+            let (next, ends) = leaveFlow.dismissed(check: gameState.players.leaveCheck)
+            if ends { gameState.apply(.local(.leaveClosed)) }
+            // after the dismissal finishes, or the new alert is dropped
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { runLeave(next) }
+        }
+        .onChange(of: gameState.leaveOutcome) { _, outcome in
+            runLeave(leaveFlow.changed(outcome: outcome, check: gameState.players.leaveCheck))
+        }
+        .onChange(of: gameState.players.leaveCheck) { _, check in
+            runLeave(leaveFlow.changed(outcome: gameState.leaveOutcome, check: check))
         }
         .onAppear {
             scene.configure(gameState: gameState, actions: actions)
@@ -664,7 +680,24 @@ private struct GameScreen: View {
             // Spectators just exit — nothing to confirm
             ChatEmitter.sendMessage("/leave")
         } else {
+            gameState.apply(.local(.leaveAsked))
+            runLeave(leaveFlow.tapped(check: gameState.players.leaveCheck))
+        }
+    }
+
+    /// Carries out a LeaveAlertFlow step.
+    private func runLeave(_ step: LeaveAlertFlow.Step) {
+        switch step {
+        case .none:
+            break
+        case .present:
+            guard !showLeaveConfirm else { return }
+            leaveFlow.presented(gameState.leaveOutcome)
             showLeaveConfirm = true
+        case .wait(let n):
+            DispatchQueue.main.asyncAfter(deadline: .now() + LeaveAlertFlow.timeout) { runLeave(leaveFlow.timedOut(wait: n)) }
+        case .close:
+            showLeaveConfirm = false
         }
     }
 }

@@ -174,7 +174,8 @@ final class GameState: ObservableObject {
 
     /// What Leave does from my seat now: a bot finishes, or the game (or tournament table) ends.
     var leaveOutcome: LeaveOutcome {
-        LeaveOutcome.of(seats: players.seats, myPosition: position, inTournament: tournamentId != nil)
+        LeaveOutcome.of(seats: players.seats, myPosition: position, inTournament: tournamentId != nil,
+                        verified: players.leaveCheck == .verified)
     }
 
     var disconnectedPlayers: [Int: String] { players.disconnected }

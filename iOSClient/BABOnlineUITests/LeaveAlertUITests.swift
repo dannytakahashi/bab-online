@@ -52,6 +52,26 @@ final class LeaveAlertUITests: XCTestCase {
         app.terminate()
     }
 
+    func testOnlyALazyOwnerBesideMeIsHedged() throws {
+        // review L1: a lazy owner may have /leave'd with no event; until a snapshot settles it
+        // (none comes in a fixture) the alert names both outcomes, never the plain bot line
+        let env = try soloSnapshot { snap in
+            snap["tournament"] = NSNull()
+            var seats = snap["seats"] as? [[String: Any]] ?? []
+            for i in seats.indices where seats[i]["position"] as? Int == 1 {
+                seats[i]["controller"] = "lazyBot"
+                seats[i]["presence"] = "connected"
+                seats[i]["ownerUsername"] = "bob"
+                seats[i]["isBot"] = true
+            }
+            snap["seats"] = seats
+        }
+        let app = Fixture.launch("env", env: ["UI_FIXTURE_SNAPSHOT": env])
+        XCTAssertEqual(leaveMessage(app, "lazy-owner"),
+                       "A bot will finish your hand for you, unless everyone else has left too: then leaving ends the game.")
+        app.terminate()
+    }
+
     func testWithOtherPlayersABotFinishes() {
         let app = Fixture.launch("presence-mixed")  // grace, resignable and lazy owners at the other seats
         XCTAssertEqual(leaveMessage(app, "others"), "A bot will finish your hand for you.")

@@ -16,10 +16,10 @@ final class LeaveOutcomeTests: XCTestCase {
     }
 
     /// Me at seat 4 (a human at the seat), seats 1-3 as given.
-    private func outcome(_ others: [SeatState], me: SeatState? = nil, tournament: Bool = false) -> LeaveOutcome {
+    private func outcome(_ others: [SeatState], me: SeatState? = nil, tournament: Bool = false, verified: Bool = false) -> LeaveOutcome {
         var seats: [Int: SeatState] = [4: me ?? seat(4, .human, .connected)]
         for s in others { seats[s.position] = s }
-        return LeaveOutcome.of(seats: seats, myPosition: 4, inTournament: tournament)
+        return LeaveOutcome.of(seats: seats, myPosition: 4, inTournament: tournament, verified: verified)
     }
 
     func testThreeNativeBotsEndTheGame() {
@@ -39,17 +39,35 @@ final class LeaveOutcomeTests: XCTestCase {
     }
 
     func testAnotherOwnerHereOrReturnableKeepsTheGame() {
-        // every presence the server counts (CONNECTED + isReturnable), under every owned controller
-        let kept: [(SeatController, SeatPresence)] = [
-            (.human, .connected), (.human, .grace), (.human, .resignable),
+        // a human owner here or returnable (grace, resignable): every way they could leave is announced
+        let kept: [(SeatController, SeatPresence)] = [(.human, .connected), (.human, .grace), (.human, .resignable)]
+        for (controller, presence) in kept {
+            for verified in [false, true] {
+                let o = outcome([seat(1, .bot, .none), seat(2, controller, presence), seat(3, .bot, .none)], verified: verified)
+                XCTAssertEqual(o, .botFinishes, "\(controller)/\(presence) verified \(verified)")
+                let t = outcome([seat(1, .bot, .none), seat(2, controller, presence), seat(3, .bot, .none)], tournament: true, verified: verified)
+                XCTAssertEqual(t, .botFinishes, "tournament \(controller)/\(presence) verified \(verified)")
+            }
+        }
+        // a human beside a lazy owner: the human keeps it whatever the lazy owner did
+        XCTAssertEqual(outcome([seat(1, .lazyBot, .connected), seat(2, .human, .connected), seat(3, .bot, .none)]), .botFinishes)
+    }
+
+    func testOwnersABotPlaysForAreUnsureUntilVerified() {
+        // review L1: a lazy or resigned owner can leave for good with no event (only a snapshot
+        // shows `gone`), so on their own they keep the game only once a snapshot says so
+        let unsure: [(SeatController, SeatPresence)] = [
             (.lazyBot, .connected), (.lazyBot, .away), (.resignBot, .connected), (.resignBot, .away),
         ]
-        for (controller, presence) in kept {
-            let o = outcome([seat(1, .bot, .none), seat(2, controller, presence), seat(3, .bot, .none)])
-            XCTAssertEqual(o, .botFinishes, "\(controller)/\(presence)")
-            let t = outcome([seat(1, .bot, .none), seat(2, controller, presence), seat(3, .bot, .none)], tournament: true)
-            XCTAssertEqual(t, .botFinishes, "tournament \(controller)/\(presence)")
+        for (controller, presence) in unsure {
+            let others = [seat(1, .bot, .none), seat(2, controller, presence), seat(3, .bot, .none)]
+            XCTAssertEqual(outcome(others), .unsure(inTournament: false), "\(controller)/\(presence)")
+            XCTAssertEqual(outcome(others, tournament: true), .unsure(inTournament: true), "tournament \(controller)/\(presence)")
+            XCTAssertEqual(outcome(others, verified: true), .botFinishes, "verified \(controller)/\(presence)")
+            XCTAssertEqual(outcome(others, tournament: true, verified: true), .botFinishes, "verified tournament \(controller)/\(presence)")
         }
+        // verified or not, no owner at all still ends it
+        XCTAssertEqual(outcome([seat(1, .bot, .none), seat(2, .lazyBot, .gone), seat(3, .bot, .none)], verified: true), .endsGame)
     }
 
     func testOwnersWhoLeftForGoodDoNotCount() {
@@ -69,6 +87,10 @@ final class LeaveOutcomeTests: XCTestCase {
         XCTAssertEqual(LeaveOutcome.endsGame.alertMessage, "You're the only player here, so leaving ends the game.")
         XCTAssertEqual(LeaveOutcome.endsTournamentTable.alertMessage,
                        "You're the only player at this table, so leaving ends its game with no score for this round. You stay in the tournament.")
+        XCTAssertEqual(LeaveOutcome.unsure(inTournament: false).alertMessage,
+                       "A bot will finish your hand for you, unless everyone else has left too: then leaving ends the game.")
+        XCTAssertEqual(LeaveOutcome.unsure(inTournament: true).alertMessage,
+                       "A bot will finish your hand for you, unless everyone else at this table has left too: then leaving ends its game with no score for this round. You stay in the tournament.")
         for o in [LeaveOutcome.endsGame, .endsTournamentTable] {
             XCTAssertFalse(o.alertMessage.localizedCaseInsensitiveContains("bot"), "\(o)")
             XCTAssertFalse(o.commandHelp.localizedCaseInsensitiveContains("bot"), "\(o)")
@@ -80,6 +102,8 @@ final class LeaveOutcomeTests: XCTestCase {
         XCTAssertEqual(leaveLine(GameLogPanel.commands(pureSpectator: false, leave: .botFinishes)), "Leave the game (bot finishes for you)")
         XCTAssertEqual(leaveLine(GameLogPanel.commands(pureSpectator: false, leave: .endsGame)), "Leave and end the game (you're the only player)")
         XCTAssertEqual(leaveLine(GameLogPanel.commands(pureSpectator: false, leave: .endsTournamentTable)), "Leave and end this table's game (no score)")
+        XCTAssertEqual(leaveLine(GameLogPanel.commands(pureSpectator: false, leave: .unsure(inTournament: false))),
+                       "Leave the game (a bot takes over; ends it if you're the only player)")
         XCTAssertEqual(GameLogPanel.commands(pureSpectator: false, leave: .endsGame).map(\.command), ["/lazy", "/active", "/leave"])
         // a pure spectator's /leave only stops watching (it said "bot finishes for you")
         XCTAssertEqual(GameLogPanel.commands(pureSpectator: true, leave: .botFinishes),
@@ -159,6 +183,183 @@ final class LeaveOutcomeTests: XCTestCase {
         XCTAssertEqual(s.leaveOutcome, .botFinishes)
         event("playerResigned", ["position": 2, "oldUsername": "bob", "botUsername": "🤖 Zach", "botPic": 3])
         XCTAssertEqual(s.players.seats[2]?.controller, .resignBot)
-        XCTAssertEqual(s.leaveOutcome, .botFinishes, "a resigned owner may still come back (away)")
+        // a resigned owner may still come back (away), or may have left unannounced
+        XCTAssertEqual(s.leaveOutcome, .unsure(inTournament: false))
+    }
+
+    // MARK: Leave's snapshot check (review L1)
+
+    /// bidding-mid with seats 1 and 3 native bots: me (4) and bob (2), two humans.
+    private func twoHumans() throws -> ReplayHarness {
+        let h = ReplayHarness()
+        h.store.apply(.snapshot(try T.snapshot("bidding-mid") { raw in
+            var seats = raw["seats"] as! [[String: Any]]
+            for i in seats.indices where [1, 3].contains(seats[i]["position"] as? Int) {
+                Self.make(&seats[i], controller: "bot", presence: "none")
+            }
+            raw["seats"] = seats
+        }, .rejoin, hints: nil))
+        XCTAssertEqual(h.store.leaveOutcome, .botFinishes)
+        return h
+    }
+
+    /// The server's reply to "leave-N": bidding-mid as `twoHumans`, seat 2 as given.
+    private func reply(_ h: ReplayHarness, seat2 controller: String, _ presence: String, requestId: String) throws {
+        var raw = try FixtureLoader.v2Snapshot("bidding-mid")
+        var seats = try XCTUnwrap(raw["seats"] as? [[String: Any]])
+        for i in seats.indices {
+            switch seats[i]["position"] as? Int {
+            case 1, 3: Self.make(&seats[i], controller: "bot", presence: "none")
+            case 2: Self.make(&seats[i], controller: controller, presence: presence)
+            default: break
+            }
+        }
+        raw["seats"] = seats
+        raw["seq"] = 20
+        h.handler.handle(event: "stateSnapshot", payload: [["snapshot": raw, "requestId": requestId]])
+    }
+
+    private func lazyMode(_ h: ReplayHarness, seq: Int) {
+        h.handler.handle(event: "playerLazyMode", payload: [["position": 2, "botUsername": "🤖 Mike", "botPic": 4, "originalUsername": "max", "seq": seq]])
+    }
+
+    func testTheOtherHumansLeaveIsSettledByTheSnapshot() throws {
+        // the review's scenario: bob's /leave reaches me only as playerLazyMode (lazyBot,
+        // connected); the server has his seat gone, so my Leave ends the game
+        let h = try twoHumans()
+        lazyMode(h, seq: 15)
+        XCTAssertEqual(h.store.players.seats[2]?.presence, .connected, "no event says gone")
+        XCTAssertEqual(h.store.leaveOutcome, .unsure(inTournament: false), "never the plain bot message")
+        h.store.apply(.local(.leaveAsked))
+        XCTAssertEqual(h.emitter.snapshotRequests, ["leave-1"])
+        XCTAssertEqual(h.store.players.leaveCheck, .pending(requestId: "leave-1"))
+        XCTAssertEqual(h.store.leaveOutcome, .unsure(inTournament: false), "hedged until the reply")
+        try reply(h, seat2: "lazyBot", "gone", requestId: "leave-1")
+        XCTAssertEqual(h.store.players.seats[2]?.presence, .gone)
+        XCTAssertEqual(h.store.leaveOutcome, .endsGame)
+        XCTAssertEqual(h.store.leaveOutcome.alertMessage, "You're the only player here, so leaving ends the game.")
+    }
+
+    func testALazyOwnerStillWatchingIsVerified() throws {
+        let h = try twoHumans()
+        lazyMode(h, seq: 15)
+        h.store.apply(.local(.leaveAsked))
+        try reply(h, seat2: "lazyBot", "connected", requestId: "leave-1")
+        XCTAssertEqual(h.store.players.leaveCheck, .verified)
+        XCTAssertEqual(h.store.leaveOutcome, .botFinishes, "the snapshot says bob is still here")
+        // the alert closes: the check ends and the next Leave asks again
+        h.store.apply(.local(.leaveClosed))
+        XCTAssertEqual(h.store.players.leaveCheck, .idle)
+        XCTAssertEqual(h.store.leaveOutcome, .unsure(inTournament: false))
+        h.store.apply(.local(.leaveAsked))
+        XCTAssertEqual(h.emitter.snapshotRequests, ["leave-1", "leave-2"])
+    }
+
+    func testAnAlreadyLazyOwnersSilentLeave() throws {
+        // bob lazy in my snapshot, then /leave: the server broadcasts nothing at all
+        let h = ReplayHarness()
+        h.store.apply(.snapshot(try T.snapshot("bidding-mid") { raw in
+            var seats = raw["seats"] as! [[String: Any]]
+            for i in seats.indices {
+                switch seats[i]["position"] as? Int {
+                case 1, 3: Self.make(&seats[i], controller: "bot", presence: "none")
+                case 2: Self.make(&seats[i], controller: "lazyBot", presence: "connected")
+                default: break
+                }
+            }
+            raw["seats"] = seats
+        }, .rejoin, hints: nil))
+        XCTAssertEqual(h.store.leaveOutcome, .unsure(inTournament: false))
+        h.store.apply(.local(.leaveAsked))
+        XCTAssertEqual(h.emitter.snapshotRequests, ["leave-1"])
+        try reply(h, seat2: "lazyBot", "gone", requestId: "leave-1")
+        XCTAssertEqual(h.store.leaveOutcome, .endsGame)
+    }
+
+    func testAnotherOwnersLazyModeWhileLeaveIsUpChecksAgain() throws {
+        // bob /leave's while my verified alert is up: it shows only as playerLazyMode
+        let h = try twoHumans()
+        lazyMode(h, seq: 15)
+        h.store.apply(.local(.leaveAsked))
+        try reply(h, seat2: "lazyBot", "connected", requestId: "leave-1")
+        XCTAssertEqual(h.store.leaveOutcome, .botFinishes)
+        lazyMode(h, seq: 21)
+        XCTAssertEqual(h.store.players.leaveCheck, .pending(requestId: "leave-2"))
+        XCTAssertEqual(h.store.leaveOutcome, .unsure(inTournament: false), "no longer verified")
+        XCTAssertEqual(h.emitter.snapshotRequests, ["leave-1", "leave-2"])
+    }
+
+    func testADefiniteOutcomeAsksForNothing() throws {
+        // a human here (bob), or nobody at all: nothing to settle, no snapshot (no scene reset)
+        let h = try twoHumans()
+        h.store.apply(.local(.leaveAsked))
+        XCTAssertEqual(h.store.players.leaveCheck, .idle)
+        let solo = ReplayHarness()
+        solo.store.apply(.snapshot(try T.snapshot("tournament-game"), .rejoin, hints: nil))
+        solo.store.apply(.local(.leaveAsked))
+        XCTAssertEqual(solo.store.leaveOutcome, .endsTournamentTable)
+        XCTAssertEqual(h.emitter.snapshotRequests + solo.emitter.snapshotRequests, [])
+        // and with no Leave up, another owner's lazy mode asks for nothing either
+        lazyMode(h, seq: 15)
+        XCTAssertEqual(h.emitter.snapshotRequests, [])
+    }
+
+    // MARK: when the alert opens (LeaveAlertFlow; an open SwiftUI alert keeps its first message)
+
+    func testAnUnsureLeaveWaitsForTheSnapshotThenOpensSettled() {
+        var f = LeaveAlertFlow()
+        XCTAssertEqual(f.tapped(check: .pending(requestId: "leave-1")), .wait(1), "not opened hedged at once")
+        XCTAssertEqual(f.changed(outcome: .unsure(inTournament: false), check: .pending(requestId: "leave-1")), .none)
+        XCTAssertEqual(f.changed(outcome: .endsGame, check: .verified), .present)
+        f.presented(.endsGame)
+        XCTAssertEqual(f.timedOut(wait: 1), .none, "the timeout after it opened does nothing")
+        XCTAssertEqual(f.changed(outcome: .endsGame, check: .verified), .none)
+        let (next, ends) = f.dismissed(check: .verified)
+        XCTAssertEqual(next, .none)
+        XCTAssertTrue(ends, "Cancel / Leave ends the check")
+    }
+
+    func testNoReplyOpensItHedgedAfterTheTimeout() {
+        var f = LeaveAlertFlow()
+        XCTAssertEqual(f.tapped(check: .pending(requestId: "leave-1")), .wait(1))
+        XCTAssertEqual(f.timedOut(wait: 1), .present)
+        f.presented(.unsure(inTournament: false))
+        // the late reply changes the words: the open alert closes and reopens with them
+        XCTAssertEqual(f.changed(outcome: .endsGame, check: .verified), .close)
+        XCTAssertEqual(f.changed(outcome: .endsGame, check: .verified), .none, "one close")
+        let (next, ends) = f.dismissed(check: .verified)
+        XCTAssertEqual(next, .present)
+        XCTAssertFalse(ends, "a reopen keeps the check")
+    }
+
+    func testADefiniteOutcomeOpensAtOnce() {
+        var f = LeaveAlertFlow()
+        XCTAssertEqual(f.tapped(check: .idle), .present)
+        f.presented(.botFinishes)
+        XCTAssertEqual(f.tapped(check: .idle), .none, "already open")
+    }
+
+    func testAnotherOwnerLeavingWhileItIsOpenReopensItSettled() {
+        var f = LeaveAlertFlow()
+        _ = f.tapped(check: .idle)
+        f.presented(.botFinishes)
+        // their playerLazyMode: the reducer checks again (pending, unsure)
+        XCTAssertEqual(f.changed(outcome: .unsure(inTournament: false), check: .pending(requestId: "leave-2")), .close)
+        let (next, ends) = f.dismissed(check: .pending(requestId: "leave-2"))
+        XCTAssertEqual(next, .wait(1))
+        XCTAssertFalse(ends)
+        XCTAssertEqual(f.changed(outcome: .endsGame, check: .verified), .present)
+    }
+
+    func testAStaleTimeoutOrAResetOpensNothing() {
+        var f = LeaveAlertFlow()
+        XCTAssertEqual(f.tapped(check: .pending(requestId: "leave-1")), .wait(1))
+        XCTAssertEqual(f.changed(outcome: .botFinishes, check: .verified), .present)
+        f.presented(.botFinishes)
+        _ = f.dismissed(check: .verified)
+        XCTAssertEqual(f.tapped(check: .pending(requestId: "leave-2")), .wait(2))
+        XCTAssertEqual(f.timedOut(wait: 1), .none, "the first wait's timer")
+        XCTAssertEqual(f.changed(outcome: .botFinishes, check: .idle), .none, "game over while waiting")
+        XCTAssertEqual(f.timedOut(wait: 2), .none)
     }
 }
