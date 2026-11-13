@@ -287,7 +287,7 @@ Type these in the game log chat input (autocomplete appears when you type `/`):
 |---------|--------|
 | `/lazy` | A bot takes over for you temporarily. You stay in the game as a spectator. |
 | `/active` | Take back control from the bot. |
-| `/leave` | Bot takes over and you exit to the main lobby. You can rejoin later. |
+| `/leave` | A bot takes your seat for good (no rejoin) and you go back to the main room (or, at a tournament table, the tournament). If no other player is at the table or can come back, the game ends instead (a tournament table's game then scores nothing that round). |
 
 ### Spectating
 

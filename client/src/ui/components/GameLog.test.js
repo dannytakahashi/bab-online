@@ -203,6 +203,42 @@ describe('createGameLog', () => {
   });
 });
 
+describe('slash command help for /leave', () => {
+  let gameLog;
+  const helpFor = (text) => {
+    gameLog.chatInput.value = text;
+    gameLog.chatInput.dispatchEvent(new Event('input'));
+    return [...gameLog.container.querySelectorAll('.slash-item')].map((item) => ({
+      cmd: item.querySelector('.slash-item__cmd').textContent,
+      desc: item.querySelector('.slash-item__desc').textContent,
+    }));
+  };
+
+  afterEach(() => {
+    gameLog?.destroy();
+    gameLog = null;
+    resetGameState();
+  });
+
+  it('at a seat names both outcomes: a bot takes over, or the game ends when no one else is here', () => {
+    resetGameState();
+    gameLog = createGameLog();
+    const [leave] = helpFor('/le');
+    expect(leave.cmd).toBe('/leave');
+    // The server ends the game when the leaver was the only player (maybeAbort)
+    expect(leave.desc).toMatch(/bot takes over/);
+    expect(leave.desc).toMatch(/ends it if you're the only player/);
+    expect(leave.desc).not.toMatch(/bot finishes for you\)$/);
+  });
+
+  it('for a pure spectator it only exits spectating', () => {
+    resetGameState();
+    getGameState().isSpectator = true;
+    gameLog = createGameLog();
+    expect(helpFor('/')).toEqual([{ cmd: '/leave', desc: 'Exit spectating' }]);
+  });
+});
+
 describe('showGameLog', () => {
   afterEach(() => {
     document.getElementById('gameFeed')?.remove();

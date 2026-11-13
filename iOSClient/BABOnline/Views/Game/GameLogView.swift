@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Slash command definition
-private struct SlashCommand {
+struct SlashCommand: Equatable {
     let command: String
     let description: String
 }
@@ -40,18 +40,21 @@ struct GameLogPanel: View {
     @State private var showAutocomplete = false
     @State private var reportTarget: String?
 
-    private static let allCommands: [SlashCommand] = [
-        SlashCommand(command: "/lazy", description: "Bot plays for you"),
-        SlashCommand(command: "/active", description: "Take back control"),
-        SlashCommand(command: "/leave", description: "Leave the game (bot finishes for you)"),
-    ]
-
     private var availableCommands: [SlashCommand] {
-        // Pure spectators (not lazy) only see /leave
-        if gameState.isSpectator && !gameState.isLazy {
-            return Self.allCommands.filter { $0.command == "/leave" }
+        Self.commands(pureSpectator: gameState.isSpectator && !gameState.isLazy, leave: gameState.leaveOutcome)
+    }
+
+    /// The command list: a pure spectator (not lazy) only has /leave, which exits spectating;
+    /// at a seat /leave says what it will do (LeaveOutcome).
+    static func commands(pureSpectator: Bool, leave: LeaveOutcome) -> [SlashCommand] {
+        if pureSpectator {
+            return [SlashCommand(command: "/leave", description: "Exit spectating")]
         }
-        return Self.allCommands
+        return [
+            SlashCommand(command: "/lazy", description: "Bot plays for you"),
+            SlashCommand(command: "/active", description: "Take back control"),
+            SlashCommand(command: "/leave", description: leave.commandHelp),
+        ]
     }
 
     private var filteredCommands: [SlashCommand] {
