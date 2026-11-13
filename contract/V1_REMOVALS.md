@@ -788,13 +788,25 @@ number as before:
   narrowed): web folds `avatarUrls` / `avatarUrl` into the pic fields on
   ingress (`client/src/utils/avatar.js` `foldAvatarPayload`: positionUpdate,
   gameStart, rejoinSuccess / restorePlayerState / spectatorJoined,
-  playerActiveMode) and renders null as its neutral picture. iOS 1.2.0
-  decodes a null slot (`PicWire` → `.none`) and renders `avatarUrl` first
+  playerActiveMode). **Web needed one change for A** (in this PR): web at
+  BASE drew a null seat slot as stock avatar #1 (`avatarSrc(pic)`'s default
+  fallback `assets/profile1.png`, a real animal, at OpponentManager.js
+  :314 / :359 / :460 and GameScene.js :1529), and `updatePlayerInfoBox`
+  ignored null (my own box kept the bot's picture after /active). The seat
+  paths now use `seatAvatarSrc` (null → `assets/default_avatar.png`,
+  utils/avatar.js) and my own box applies it for null too
+  (`client/src/table/nullSeatPic.test.js`). A web tab opened before this
+  deploy and never reloaded still draws such a seat as stock #1 until it
+  reloads (cosmetic; index.html is no-cache, so any reload picks the fix
+  up). iOS 1.2.0 decodes a null slot (`PicWire` → `.none`) and draws the
+  name's initial (OpponentHandNode.swift), and renders `avatarUrl` first
   (TableReducer+Events positionUpdate / gameStart / playerActiveMode,
   TableReducer+Snapshot `seatState` with the carrier's hints). What both lose:
   the inline copy as the fallback when a URL fails (web retries the URL once,
-  then its neutral picture), and a picture whose rendition is not ready or
-  is hostile / undecodable shows as neutral instead of inline.
+  then `default_avatar.png`), and a picture with no URL (rendition not ready
+  or the derive queue full, a hostile / undecodable stored value or a
+  transient derive error, `AVATAR_PIPELINE=off`, no sharp) shows as web's
+  `default_avatar.png` / iOS's initial instead of inline.
 - **B** (profile / leaderboard / search rows: `customProfilePic` always null;
   `$defs.profile`, `$defs.playerSearchRow` narrowed): web reads them through
   `profileAvatarSrc` after folding `avatarUrls` / `avatarUrl`; iOS 1.2.0 has
@@ -814,7 +826,8 @@ number as before:
   `mapPlayers` / `mapProfileRows` shape), the store keeps no inline copy,
   `AVATAR_LEGACY_INLINE` and `server/avatar/placeholder.js` are gone
   (scripts/build-avatars.js no longer writes it). `AVATAR_PIPELINE=off` now
-  means no custom pictures at all, not the pre-pipeline wire.
+  means no custom pictures at all, not the pre-pipeline wire: every custom
+  seat is web's `default_avatar.png` and iOS 1.2.0's initial.
 - **E not done**: iOS 1.2.0 loads `/assets/profile<N>.png` directly
   (`HTTPAvatarLoader.load`, iOSClient/BABOnline/SpriteKit/Nodes/
   OpponentHandNode.swift), and web falls back to `assets/profile<N>.png`

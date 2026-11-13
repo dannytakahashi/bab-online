@@ -15,7 +15,7 @@
  * layout.
  */
 
-import { avatarSrc, applyAvatarImg, isAvatarPic } from '../../utils/avatar.js';
+import { seatAvatarSrc, applyAvatarImg } from '../../utils/avatar.js';
 import { getGameState } from '../../state/GameState.js';
 import { getCardImageKey, sortHand } from '../../utils/cards.js';
 import { team, rotate } from '../../utils/positions.js';
@@ -1554,7 +1554,7 @@ export class GameScene extends Phaser.Scene {
     const avatarImg = document.createElement('img');
     avatarImg.className = 'player-avatar-img hud-avatar-img';
     // Stock number, inline data URL or /avatar URL (utils/avatar.js)
-    applyAvatarImg(avatarImg, avatarSrc(pic));
+    applyAvatarImg(avatarImg, seatAvatarSrc(pic));
     avatarImg.alt = username;
     // in its seat ring: the team's color, the bid chip and the trick pips (ui/seatPlates.js)
     avatarContainer.appendChild(buildAvatarRing(avatarImg, myPosition));
@@ -1596,7 +1596,9 @@ export class GameScene extends Phaser.Scene {
     info.nameLabel.title = username;
     info.avatarImg.alt = username;
     info.avatarContainer.dataset.username = username;
-    if (isAvatarPic(pic)) applyAvatarImg(info.avatarImg, avatarSrc(pic));
+    // null (a custom picture with no URL) is the neutral picture, never the
+    // previous one (the bot's after /active)
+    applyAvatarImg(info.avatarImg, seatAvatarSrc(pic));
   }
 
   /**

@@ -8,7 +8,9 @@
  *   - a data:image URL      -> as is (legacy inline pictures; the server
  *     still sends them to sockets that did not say clientHello)
  *   - an /avatar/... URL    -> as is (same origin, cached by the browser)
- *   - anything else         -> the caller's fallback
+ *   - anything else         -> the caller's fallback (seats: seatAvatarSrc,
+ *     the neutral CUSTOM_FALLBACK, since a null seat slot is a custom
+ *     picture with no URL)
  *
  * This bundle says clientHello caps ['avatarUrl'] (main.js), so the server
  * may send null custom-picture slots plus avatarUrls / avatarUrl.
@@ -66,6 +68,16 @@ export function avatarSrc(pic, fallback = 'assets/profile1.png') {
   if (isStock(pic)) return `assets/avatars/v1/profile${pic}.webp`;
   if (isCustomPic(pic)) return pic;
   return fallback;
+}
+
+/**
+ * The <img> src for a SEAT picture (the table's avatars, my own box). A
+ * null slot is a custom picture the server has no URL for (V1_REMOVALS
+ * #19 A: hostile or undecodable, rendition pending, AVATAR_PIPELINE=off):
+ * it shows the neutral CUSTOM_FALLBACK, never stock #1 (somebody's animal).
+ */
+export function seatAvatarSrc(pic) {
+  return avatarSrc(pic, CUSTOM_FALLBACK);
 }
 
 /** src for a profile-like row {customProfilePic, profilePic}. */

@@ -7,7 +7,7 @@ import fs from 'node:fs';
 // node:path: phaser (devDependency) installs the npm 'path' polyfill, which a bare 'path' resolves to here
 import path from 'node:path';
 import {
-  avatarSrc, profileAvatarSrc, applyAvatarImg, foldAvatarPayload, foldUrls, isAvatarPic,
+  avatarSrc, seatAvatarSrc, profileAvatarSrc, applyAvatarImg, foldAvatarPayload, foldUrls, isAvatarPic,
   installAvatarSupport, clientHello, inlineFor, CUSTOM_FALLBACK, AVATAR_RETRY_MS,
 } from './avatar.js';
 import { parseSnapshotV2, mergeSnapshot } from '../state/snapshotV2.js';
@@ -42,6 +42,26 @@ describe('avatarSrc', () => {
     expect(profileAvatarSrc({ customProfilePic: null, profilePic: null }, 'assets/default_avatar.png')).toBe('assets/default_avatar.png');
     expect(isAvatarPic(5)).toBe(true);
     expect(isAvatarPic('5')).toBe(false);
+  });
+});
+
+describe('seatAvatarSrc (a seat slot; V1_REMOVALS #19 A)', () => {
+  test('null / undefined / junk is the neutral picture, never stock #1', () => {
+    for (const v of [null, undefined, 0, 83, '7', '', {}]) expect(seatAvatarSrc(v)).toBe(CUSTOM_FALLBACK);
+    expect(seatAvatarSrc(null)).not.toBe(avatarSrc(1));
+  });
+  test('stock numbers and custom pictures are as avatarSrc', () => {
+    expect(seatAvatarSrc(7)).toBe('assets/avatars/v1/profile7.webp');
+    expect(seatAvatarSrc(URL1)).toBe(URL1);
+    expect(seatAvatarSrc(DATA)).toBe(DATA);
+  });
+  test('every table seat render path uses it (no bare avatarSrc(pic) at a seat)', () => {
+    const root = path.resolve(__dirname, '..');
+    for (const f of ['phaser/managers/OpponentManager.js', 'phaser/scenes/GameScene.js']) {
+      const src = fs.readFileSync(path.join(root, f), 'utf8');
+      expect(src).not.toMatch(/\bavatarSrc\(/); // seatAvatarSrc does not match (capital A)
+      expect(src).toContain('seatAvatarSrc(pic)');
+    }
   });
 });
 
