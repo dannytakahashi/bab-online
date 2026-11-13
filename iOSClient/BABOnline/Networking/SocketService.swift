@@ -55,7 +55,6 @@ final class SocketService: ObservableObject {
     @Published var connectionError: String?
     @Published var serverError: ServerErrorNotice?
 
-    private var isForceReconnecting = false
     private var backgroundTaskId: UIBackgroundTaskIdentifier = .invalid
     private(set) var isBackgroundTaskActive = false
 
@@ -144,6 +143,14 @@ final class SocketService: ObservableObject {
             }
         }
 
+        // The library reconnecting a socket it had connected (a dead engine found after a
+        // long background, a deploy, forceReconnect) sends no .disconnect, only this status:
+        // until the next .connect the socket cannot emit, so it is not connected.
+        socket?.on(clientEvent: .statusChange) { [weak self] data, _ in
+            guard let status = data.first as? SocketIOStatus else { return }
+            DispatchQueue.main.async { self?.noteStatus(status) }
+        }
+
         // Fires for the server's app-level 'error' event (an object with `message`:
         // lobby full, not ready, rate limit, ...) and for client transport errors (a String).
         socket?.on(clientEvent: .error) { [weak self] data, _ in
@@ -165,7 +172,7 @@ final class SocketService: ObservableObject {
         }
 
         // A server that closes the connection (a deploy) leaves Socket.IO-Client-Swift reconnecting
-        // without a .disconnect event (isConnected stays true): the restart toast learns it here
+        // without a .disconnect event (statusChange clears isConnected): the restart toast learns it here
         socket?.on(clientEvent: .reconnectAttempt) { _, _ in
             DispatchQueue.main.async { RestartNotices.shared.disconnected() }
         }
@@ -202,31 +209,86 @@ final class SocketService: ObservableObject {
         RestartNotices.shared.serverShutdown(place: place, now: now)
     }
 
-    /// Force a full disconnect/reconnect cycle.
+    /// Force a reconnect cycle (foreground after the keep-alive expired, sign-out).
     /// iOS can silently kill the WebSocket when backgrounded without firing a disconnect event,
-    /// leaving `isConnected` stale. This tears down and re-establishes the connection so
-    /// Socket.IO fires `.connect` and the `restoreSession` flow runs.
+    /// leaving the socket looking connected. A new connection makes Socket.IO fire `.connect`,
+    /// and the `restoreSession` flow runs.
     func forceReconnect() {
         if Self.connectionsDisabled { return }
-        guard !isForceReconnecting else {
-            print("[Socket] forceReconnect already in progress, skipping")
-            return
-        }
-        guard socket != nil else {
+        guard let manager, let socket else {
             print("[Socket] No socket to force-reconnect, calling connect()")
             connect()
             return
         }
+        let step = Self.forceReconnect(LiveConnection(manager: manager, socket: socket))
+        print("[Socket] Force reconnect: \(step)")
+    }
 
-        isForceReconnecting = true
-        print("[Socket] Force reconnecting — tearing down and reconnecting")
-        socket?.disconnect()
+    /// What forceReconnect does. Exactly one handshake may be in flight: the library
+    /// (Socket.IO-Client-Swift 16) starts a new one on every manager connect without
+    /// cancelling the last, and a late answer to the old one is taken for the new one.
+    /// After a long background the library usually finds the dead engine at the same
+    /// moment as the foreground and is already reconnecting; the old namespace
+    /// leave + join 0.1 s later started a second handshake beside it, and the socket's
+    /// namespace connect was lost: no `.connect`, so no restore, until the server
+    /// dropped the namespace-less engine (connectTimeout, 45 s by default).
+    enum ForceReconnectStep: Equatable, CustomStringConvertible {
+        /// A handshake is already in flight (the library reconnecting, or a connect): leave it.
+        case none
+        /// The socket looks connected: the library closes its engine and reconnects every
+        /// socket itself (`SocketManager.reconnect`, one handshake).
+        case reconnectManager
+        /// Nothing is connecting and the socket is not connected: connect it.
+        case connectSocket
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            guard let self = self else { return }
-            self.socket?.connect()
-            self.isForceReconnecting = false
+        var description: String {
+            switch self {
+            case .none: return "already reconnecting"
+            case .reconnectManager: return "manager reconnect"
+            case .connectSocket: return "socket connect"
+            }
         }
+    }
+
+    static func forceReconnectStep(manager: SocketIOStatus, socket: SocketIOStatus) -> ForceReconnectStep {
+        if manager == .connecting || socket == .connecting { return .none }
+        if socket == .connected { return .reconnectManager }
+        return .connectSocket
+    }
+
+    /// The manager and socket forceReconnect drives (a seam for the unit tests).
+    protocol ReconnectableConnection {
+        var managerStatus: SocketIOStatus { get }
+        var socketStatus: SocketIOStatus { get }
+        func reconnectManager()
+        func connectSocket()
+    }
+
+    private struct LiveConnection: ReconnectableConnection {
+        let manager: SocketManager
+        let socket: SocketIOClient
+        var managerStatus: SocketIOStatus { manager.status }
+        var socketStatus: SocketIOStatus { socket.status }
+        func reconnectManager() { manager.reconnect() }
+        func connectSocket() { socket.connect() }
+    }
+
+    @discardableResult
+    static func forceReconnect(_ c: ReconnectableConnection) -> ForceReconnectStep {
+        let step = forceReconnectStep(manager: c.managerStatus, socket: c.socketStatus)
+        switch step {
+        case .none: break
+        case .reconnectManager: c.reconnectManager()
+        case .connectSocket: c.connectSocket()
+        }
+        return step
+    }
+
+    /// The socket's status changed (statusChange): any status but connected means it cannot
+    /// emit, so `isConnected` is false until the next `.connect` sets it (the connected
+    /// status itself is left to `.connect`, which also starts the restore).
+    func noteStatus(_ status: SocketIOStatus) {
+        if status != .connected { isConnected = false }
     }
 
     func disconnect() {
