@@ -50,7 +50,7 @@ final class GameEndStatsUITests: XCTestCase {
             guard e.exists else { continue }
             if let names {
                 XCTAssertTrue(e.label.hasPrefix("\(names[pos]!), team \(pos % 2 == 1 ? 1 : 2): "), "\(tag) seat \(pos): \(e.label)")
-                XCTAssertTrue(e.label.contains(" bids, ") && e.label.contains(" faults, average HSI "), "\(tag): \(e.label)")
+                XCTAssertTrue(e.label.range(of: #"\d+ bids?, \d+ tricks?, \d+ faults?, average HSI "#, options: .regularExpression) != nil, "\(tag): \(e.label)")
             } else {
                 XCTAssertEqual(e.label, Self.expected[pos], "\(tag) seat \(pos)")
             }
