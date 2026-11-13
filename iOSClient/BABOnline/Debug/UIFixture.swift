@@ -67,7 +67,7 @@ enum UIFixture {
             return
         }
         do {
-            let file = name == "game-end" ? "hand-resolving" : drawStates.contains(name) ? "draw-in-progress" : name
+            let file = gameEndStates[name] ?? (drawStates.contains(name) ? "draw-in-progress" : name)
             var snapDict: [String: Any]
             if let env = ProcessInfo.processInfo.environment["UI_FIXTURE_SNAPSHOT"] {
                 snapDict = try JSONSerialization.jsonObject(with: Data(env.utf8)) as? [String: Any] ?? [:]
@@ -98,11 +98,26 @@ enum UIFixture {
                     ] as [String: Any]])
                 }
             }
-            if name == "game-end" {
+            if gameEndStates[name] != nil {
+                // gameEnd playerStats as the server sends them (gameHandlers.js: avgHSI rounded);
+                // `-uiNoEndStats YES`: none, as an older server or a missing field
+                let totals: [Int: (bids: Int, tricks: Int, faults: Int, hsi: Double)] = [
+                    1: (23, 24, 1, 120), 2: (19, 17, 3, 104), 3: (21, 25, 0, 131), 4: (18, 18, 2, 97),
+                ]
                 var stats: [String: Any] = [:]
-                for seat in snap.seats { stats[String(seat.position)] = ["username": seat.username ?? "P\(seat.position)"] }
+                for seat in snap.seats {
+                    let t = totals[seat.position] ?? (0, 0, 0, 0)
+                    stats[String(seat.position)] = [
+                        "username": seat.username ?? "P\(seat.position)", "totalBids": t.bids, "totalTricks": t.tricks,
+                        "setsCaused": t.faults, "totalHSI": t.hsi * 13, "avgHSI": t.hsi,
+                    ] as [String: Any]
+                }
+                if UserDefaults.standard.bool(forKey: "uiNoEndStats") {
+                    stats = stats.mapValues { ["username": ($0 as? [String: Any])?["username"] ?? ""] }
+                }
                 store.apply(serverEvent: "gameEnd", payload: [[
-                    "score": ["team1": 312, "team2": 287], "playerStats": stats, "tournamentId": NSNull(), "seq": snap.seq + 1,
+                    "score": ["team1": 312, "team2": 287], "playerStats": stats,
+                    "tournamentId": snap.tournament?.tournamentId ?? NSNull(), "seq": snap.seq + 1,
                 ] as [String: Any]])
             }
             appState.screen = .game
@@ -210,6 +225,12 @@ enum UIFixture {
     /// this fixture only, keeps it up: `holdsTeams`), `draw-long` all four with two
     /// names long enough to shrink (the cards must stay on one line), `draw-spectator`
     /// 2 of 4 drawn seen by a spectator (no deck: they never draw).
+    /// Game-end states (GameEndView: final score + each player's stats) and the snapshot each
+    /// ends: `game-end` a seat's casual game, `game-end-spectator` a spectator's,
+    /// `game-end-tournament` a tournament game (Return to Tournament).
+    static let gameEndStates = ["game-end": "hand-resolving", "game-end-spectator": "spectator-mid-hand",
+                                "game-end-tournament": "tournament-game"]
+
     static let drawStates: Set<String> = ["draw-start", "draw-all", "draw-teams", "draw-long", "draw-spectator"]
     static var holdsTeams: Bool { name == "draw-teams" }
 

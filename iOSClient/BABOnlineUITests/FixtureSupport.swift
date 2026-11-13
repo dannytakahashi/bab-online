@@ -13,7 +13,7 @@ enum Fixture {
 
     /// The element that says the fixture's screen is up.
     static func readyElement(_ app: XCUIApplication, _ fixture: String) -> XCUIElement {
-        if fixture == "game-end" { return app.descendants(matching: .any)["gameEnd"] }
+        if fixture.hasPrefix("game-end") { return app.descendants(matching: .any)["gameEnd"] }
         if let id = screenFixtures[fixture] { return app.descendants(matching: .any)[id] }
         return app.buttons["leave"]
     }
