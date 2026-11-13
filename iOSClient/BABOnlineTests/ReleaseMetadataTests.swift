@@ -5,8 +5,9 @@ import XCTest
 /// literal in Info.plist), export compliance is answered in the plist, and the
 /// privacy manifest is bundled at the app root.
 final class ReleaseMetadataTests: XCTestCase {
-    /// The lowest build this release may carry (1.2.0 (3) was uploaded, never submitted).
-    static let minimumBuild = 4
+    /// The lowest build this release may carry (1.2.0 (3) was uploaded, never submitted;
+    /// 1.2.0 (4) was submitted and is replaced by build 5 before review ends).
+    static let minimumBuild = 5
 
     private func info(_ key: String) -> Any? { Bundle.main.object(forInfoDictionaryKey: key) }
 
@@ -20,12 +21,12 @@ final class ReleaseMetadataTests: XCTestCase {
 
     /// server/socket/upgradeGate.js answers builds below MIN_IOS_BUILD (2) with an
     /// update message only; every build from 1.1.0 (2) on is current (1.2.0 (3),
-    /// pinned server-side by upgradeGate.test.js, and 1.2.0 (4)). The build number only grows:
-    /// build 3 went to App Store Connect, so 1.2.0 is submitted as build 4.
+    /// pinned server-side by upgradeGate.test.js, 1.2.0 (4) and (5)). The build number only grows:
+    /// builds 3 and 4 went to App Store Connect, so 1.2.0 is now submitted as build 5.
     func testBuildIsNeverGatedByTheServer() throws {
         let build = try XCTUnwrap(Int(try XCTUnwrap(info("CFBundleVersion") as? String)))
-        XCTAssertGreaterThanOrEqual(build, Self.minimumBuild, "1.2.0 (3) was uploaded; 1.2.0 ships as build 4 and builds never go back")
-        XCTAssertEqual(info("CFBundleShortVersionString") as? String, "1.2.0", "build 4 is still 1.2.0")
+        XCTAssertGreaterThanOrEqual(build, Self.minimumBuild, "1.2.0 (4) was uploaded; 1.2.0 ships as build 5 and builds never go back")
+        XCTAssertEqual(info("CFBundleShortVersionString") as? String, "1.2.0", "build 5 is still 1.2.0")
     }
 
     /// README "Releasing (App Store)", which the owner follows to archive and upload, names

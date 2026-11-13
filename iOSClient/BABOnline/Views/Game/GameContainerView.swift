@@ -14,6 +14,35 @@ struct GameContainerView: View {
     }
 }
 
+/// The Exit icon, mirrored so its arrow points left (out of the game).
+enum ExitIcon {
+    static let symbolName = "rectangle.portrait.and.arrow.right"
+
+    /// For the vertical bar's Exit (iOS 27.1). The bar draws a toolbar item's
+    /// symbol itself, ignoring SwiftUI transforms and a symbol image's mirrored
+    /// orientation, so the mirrored symbol is drawn into a template bitmap at the
+    /// bar's own symbol size, measured against its unmirrored Exit on the iPhone Duo
+    /// (iOS 27.2): body text style, large scale, medium weight (bold with Bold
+    /// Text), growing with Dynamic Type up to xxLarge.
+    static func barImage(dynamicTypeSize: DynamicTypeSize = .large, legibilityWeight: LegibilityWeight? = nil) -> UIImage {
+        let bold = legibilityWeight == .bold
+        let traits = UITraitCollection { t in
+            t.preferredContentSizeCategory = UIContentSizeCategory(min(dynamicTypeSize, .xxLarge))
+            t.legibilityWeight = bold ? .bold : .regular
+        }
+        let configuration = UIImage.SymbolConfiguration(textStyle: .body, scale: .large)
+            .applying(UIImage.SymbolConfiguration(weight: bold ? .bold : .medium))
+            .withTraitCollection(traits)
+        guard let symbol = UIImage(systemName: symbolName, withConfiguration: configuration) else { return UIImage() }
+        let mirrored = UIGraphicsImageRenderer(size: symbol.size).image { context in
+            context.cgContext.translateBy(x: symbol.size.width, y: 0)
+            context.cgContext.scaleBy(x: -1, y: 1)
+            symbol.draw(at: .zero)
+        }
+        return mirrored.withRenderingMode(.alwaysTemplate)
+    }
+}
+
 /// Hosts the SpriteKit game scene with SwiftUI overlay panels.
 ///
 /// Item 25: the table pane measures its chrome (safe-area insets, ScoreBar
@@ -66,6 +95,9 @@ private struct GameScreen: View {
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverOn
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.verticalSizeClass) private var vSizeClass
+    // the vertical bar's Exit image follows the bar's symbol size and weight (ExitIcon)
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.legibilityWeight) private var legibilityWeight
     /// Bumped by every hinge change so the fold is read again at the same size.
     @State private var hingeTick = 0
     @State private var dock = Dock.none
@@ -493,9 +525,10 @@ private struct GameScreen: View {
             Label {
                 Text("Exit")
             } icon: {
-                Image(systemName: "rectangle.portrait.and.arrow.right")
+                // The vertical bar draws the image itself and drops SwiftUI transforms
+                // (a scale-effect mirror still pointed right): the mirror is in the image.
+                Image(uiImage: ExitIcon.barImage(dynamicTypeSize: dynamicTypeSize, legibilityWeight: legibilityWeight))
                     .accessibilityHidden(true)
-                    .scaleEffect(x: -1, y: 1)    // mirrored, as the corner Exit
             }
         }
         .disabled(gameState.phase == .draw)  // as the corner button under the draw overlay

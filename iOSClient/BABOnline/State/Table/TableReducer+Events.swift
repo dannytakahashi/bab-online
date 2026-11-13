@@ -247,7 +247,9 @@ extension TableReducer {
             let sid = i < (p.sockets?.count ?? 0) ? p.sockets![i] : nil
             let name = i < (p.usernames?.count ?? 0) ? p.usernames![i].username : nil
             let pic = i < (p.pics?.count ?? 0) ? p.pics![i].pic : Pic.none
-            let isBot = sid?.hasPrefix("bot:") ?? false
+            // positionUpdate.isBot (V1_REMOVALS #14) wins; the bot: socket prefix is the fallback, so a
+            // later server can drop sockets without this build losing its bots
+            let isBot = (i < (p.isBot?.count ?? 0) ? p.isBot![i] : nil) ?? (sid?.hasPrefix("bot:") ?? false)
             var seat = s.players.seats[pos] ?? SeatState(position: pos)
             seat.username = name ?? seat.username
             seat.pic = pic
