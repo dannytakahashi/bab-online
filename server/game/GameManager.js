@@ -820,10 +820,13 @@ class GameManager {
         const available = PERSONALITY_LIST.filter(p => !usedPersonalities.includes(p));
         const personality = available[Math.floor(Math.random() * available.length)];
 
-        // Generic lobby name (hidden until game starts)
-        const existingBots = lobby.players.filter(p => p.isBot);
-        const botNumber = existingBots.length + 1;
-        const lobbyName = botNumber > 1 ? `🤖 Bot ${botNumber}` : '🤖 Bot';
+        // Generic lobby name (hidden until game starts): the lowest free
+        // number, so removing "Bot" and adding again never gives two "Bot 2"
+        const botLobbyName = (n) => (n > 1 ? `🤖 Bot ${n}` : '🤖 Bot');
+        const takenNames = new Set(lobby.players.filter(p => p.isBot).map(p => p.username));
+        let botNumber = 1;
+        while (takenNames.has(botLobbyName(botNumber))) botNumber++;
+        const lobbyName = botLobbyName(botNumber);
 
         // Create bot with generic lobby name
         const bot = botController.createBot(lobbyName, personality);
