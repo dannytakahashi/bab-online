@@ -293,6 +293,8 @@ final class LeaveOutcomeTests: XCTestCase {
         // a human here (bob), or nobody at all: nothing to settle, no snapshot (no scene reset)
         let h = try twoHumans()
         h.store.apply(.local(.leaveAsked))
+        XCTAssertEqual(h.store.players.leaveCheck, .settled, "up, nothing to ask")
+        h.store.apply(.local(.leaveClosed))
         XCTAssertEqual(h.store.players.leaveCheck, .idle)
         let solo = ReplayHarness()
         solo.store.apply(.snapshot(try T.snapshot("tournament-game"), .rejoin, hints: nil))
@@ -339,16 +341,87 @@ final class LeaveOutcomeTests: XCTestCase {
         XCTAssertEqual(f.tapped(check: .idle), .none, "already open")
     }
 
-    func testAnotherOwnerLeavingWhileItIsOpenReopensItSettled() {
+    /// What GameContainerView's onChange handlers do: the flow fed from the store.
+    private func changed(_ f: inout LeaveAlertFlow, _ h: ReplayHarness) -> LeaveAlertFlow.Step {
+        f.changed(outcome: h.store.leaveOutcome, check: h.store.players.leaveCheck)
+    }
+
+    func testAnotherOwnerLeavingWhileItIsOpenReopensItSettled() throws {
+        // review M1: Leave opened definite (bob human, a bot finishes), then bob /leave's: the
+        // room sees only his playerLazyMode. The reducer must check again although the open
+        // Leave needed no check, and the alert must end on "ends the game", never the hedge.
+        let h = try twoHumans()
         var f = LeaveAlertFlow()
-        _ = f.tapped(check: .idle)
-        f.presented(.botFinishes)
-        // their playerLazyMode: the reducer checks again (pending, unsure)
-        XCTAssertEqual(f.changed(outcome: .unsure(inTournament: false), check: .pending(requestId: "leave-2")), .close)
-        let (next, ends) = f.dismissed(check: .pending(requestId: "leave-2"))
-        XCTAssertEqual(next, .wait(1))
+        h.store.apply(.local(.leaveAsked))
+        XCTAssertEqual(h.emitter.snapshotRequests, [], "a definite outcome asks nothing")
+        XCTAssertEqual(f.tapped(check: h.store.players.leaveCheck), .present)
+        f.presented(h.store.leaveOutcome)
+        XCTAssertEqual(f.shown, .botFinishes)
+        lazyMode(h, seq: 15)
+        XCTAssertEqual(h.emitter.snapshotRequests, ["leave-1"], "bob's lazy mode while Leave is up asks again")
+        XCTAssertEqual(h.store.players.leaveCheck, .pending(requestId: "leave-1"))
+        XCTAssertEqual(changed(&f, h), .wait(1), "the open alert holds for the reply, no hedged reopen")
+        XCTAssertEqual(f.shown, .botFinishes)
+        try reply(h, seat2: "lazyBot", "gone", requestId: "leave-1")
+        XCTAssertEqual(h.store.leaveOutcome, .endsGame)
+        XCTAssertEqual(changed(&f, h), .close)
+        XCTAssertEqual(changed(&f, h), .none, "the second onChange: one close")
+        let (next, ends) = f.dismissed(check: h.store.players.leaveCheck)
+        XCTAssertEqual(next, .present, "reopens straight with the settled words")
         XCTAssertFalse(ends)
-        XCTAssertEqual(f.changed(outcome: .endsGame, check: .verified), .present)
+        f.presented(h.store.leaveOutcome)
+        XCTAssertEqual(f.shown, .endsGame)
+        XCTAssertEqual(f.shown?.alertMessage, "You're the only player here, so leaving ends the game.")
+        XCTAssertEqual(f.timedOut(wait: 1), .none, "the hold's timer after the reply does nothing")
+    }
+
+    func testAnotherOwnerOnlyGoingLazyLeavesTheOpenAlertAlone() throws {
+        // bob /lazy's (still watching) while my definite alert is up: the check says he is
+        // still here, the words are the same, so the alert never closes
+        let h = try twoHumans()
+        var f = LeaveAlertFlow()
+        h.store.apply(.local(.leaveAsked))
+        XCTAssertEqual(f.tapped(check: h.store.players.leaveCheck), .present)
+        f.presented(h.store.leaveOutcome)
+        lazyMode(h, seq: 15)
+        XCTAssertEqual(changed(&f, h), .wait(1))
+        try reply(h, seat2: "lazyBot", "connected", requestId: "leave-1")
+        XCTAssertEqual(h.store.leaveOutcome, .botFinishes)
+        XCTAssertEqual(changed(&f, h), .none, "no flicker")
+        XCTAssertEqual(f.timedOut(wait: 1), .none)
+        XCTAssertEqual(f.shown, .botFinishes)
+        XCTAssertTrue(f.dismissed(check: h.store.players.leaveCheck).ends)
+    }
+
+    func testAResignationWhileItIsOpenChecksAgain() throws {
+        // bob drops and is resigned while my Leave is up (opened definite): a resigned owner
+        // may leave unannounced, so the reducer asks, and the reply settles it
+        let h = try twoHumans()
+        h.store.apply(.local(.leaveAsked))
+        h.handler.handle(event: "playerDisconnected", payload: [["position": 2, "username": "bob", "seq": 15]])
+        h.handler.handle(event: "resignationAvailable", payload: [["position": 2, "username": "bob", "seq": 16]])
+        XCTAssertEqual(h.emitter.snapshotRequests, [])
+        h.handler.handle(event: "playerResigned", payload: [["position": 2, "oldUsername": "bob", "botUsername": "🤖 Zach", "botPic": 3, "seq": 17]])
+        XCTAssertEqual(h.store.players.seats[2]?.controller, .resignBot)
+        XCTAssertEqual(h.emitter.snapshotRequests, ["leave-1"])
+        try reply(h, seat2: "resignBot", "away", requestId: "leave-1")
+        XCTAssertEqual(h.store.leaveOutcome, .botFinishes, "verified: bob may still come back")
+    }
+
+    func testAHoldWithNoReplyReopensHedgedOnce() {
+        var f = LeaveAlertFlow()
+        XCTAssertEqual(f.tapped(check: .settled), .present)
+        f.presented(.botFinishes)
+        XCTAssertEqual(f.changed(outcome: .unsure(inTournament: false), check: .pending(requestId: "leave-1")), .wait(1))
+        XCTAssertEqual(f.changed(outcome: .unsure(inTournament: false), check: .pending(requestId: "leave-1")), .none, "one hold")
+        XCTAssertEqual(f.timedOut(wait: 1), .close, "no reply: stop showing the stale words")
+        let (next, ends) = f.dismissed(check: .pending(requestId: "leave-1"))
+        XCTAssertEqual(next, .present, "hedged at once, no second wait")
+        XCTAssertFalse(ends)
+        f.presented(.unsure(inTournament: false))
+        // the late reply still settles it, with one more reopen
+        XCTAssertEqual(f.changed(outcome: .endsGame, check: .verified), .close)
+        XCTAssertEqual(f.dismissed(check: .verified).next, .present)
     }
 
     func testAStaleTimeoutOrAResetOpensNothing() {

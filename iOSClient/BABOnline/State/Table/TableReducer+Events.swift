@@ -108,6 +108,8 @@ extension TableReducer {
                 seat.pic = p.botPic?.pic ?? seat.pic
             }
             s.players.resignationOffer = nil
+            // a resigned owner may later leave unannounced: while my Leave is up, check again
+            if s.players.leaveCheck != .idle { checkLeave(&s, &fx) }
         case .playerLazyMode(let p):
             guard let pos = Position.valid(p.position) else { break }
             mutateSeat(&s, pos) { seat in
@@ -123,8 +125,9 @@ extension TableReducer {
                 s.table.viewer.ownerView = "seat"
                 s.pending = nil
             } else if s.players.leaveCheck != .idle {
-                // another owner's /lazy or /leave while my Leave is up: check again (a /leave
-                // shows here only as this event; its `gone` only in a snapshot)
+                // another owner's /lazy or /leave while my Leave is up (whatever it opened
+                // with, settled included): check again (a /leave shows here only as this
+                // event; its `gone` only in a snapshot)
                 checkLeave(&s, &fx)
             }
         case .playerActiveMode(let p):

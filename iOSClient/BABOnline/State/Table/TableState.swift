@@ -35,7 +35,7 @@ struct PlayersSlice: Equatable {
     var spectatorCount = 0
     /// Who is watching (spectatorsUpdated, every snapshot's `watching`); a new game starts empty.
     var watching = WatchingList()
-    /// Leave's snapshot check while its confirmation is up (LeaveOutcome `.unsure` -> verified).
+    /// Leave's snapshot check while its confirmation is up (`.idle` when it is not; LeaveCheck).
     var leaveCheck: LeaveCheck = .idle
 
     /// Seats whose human owner is away (21.6: derived from presence, so a restore rebuilds it).

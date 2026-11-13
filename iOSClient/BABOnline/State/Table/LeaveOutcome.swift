@@ -73,43 +73,60 @@ enum LeaveOutcome: Equatable {
     }
 }
 
-/// The check behind an `.unsure` Leave: asked for a snapshot (`pending`), got one (`verified`).
+/// Leave's check while its confirmation is up (`LocalAction.leaveAsked` .. `leaveClosed`).
+/// `.idle` means no Leave is up (closed, or the table was reset); every other case means it
+/// is up, so another owner's lazy mode or resignation checks it again (TableReducer.checkLeave)
+/// whatever the outcome was when it opened.
 enum LeaveCheck: Equatable {
     case idle
+    /// Up with a definite outcome: nothing to ask the server.
+    case settled
+    /// Up and `.unsure`: asked for a snapshot.
     case pending(requestId: String)
+    /// Up, and a snapshot landed since (LeaveOutcome `verified`).
     case verified
+
+    var isPending: Bool { if case .pending = self { return true } else { return false } }
 }
 
 /// When the Leave confirmation shows (GameContainerView runs the steps). A presented SwiftUI
 /// alert keeps the message it opened with (a live run: the snapshot landed, the open alert
 /// still hedged), so the alert waits for Leave's snapshot check before it opens (`.wait`,
-/// then `.present` once verified or after `timeout`), and an open alert whose outcome changes
-/// (another owner left while it was up) closes and reopens with the new words.
+/// then `.present` once settled or after `timeout`). An open alert whose words change closes
+/// and reopens with the new ones. When the change is a check in flight (another owner went
+/// lazy, so may have left), the open alert holds for the reply (at most `timeout`) and closes
+/// only if the settled words differ: one reopen, straight to the settled words, and none at
+/// all when the other owner is still there.
 struct LeaveAlertFlow: Equatable {
     enum Step: Equatable {
         case none
         /// Open the alert now (call `presented`).
         case present
-        /// Hold it until the check settles or `timeout` passes (then call `timedOut(wait:)` with this wait's number).
+        /// Wait for the check, or until `timeout` passes (then call `timedOut(wait:)` with this wait's number).
         case wait(Int)
         /// Dismiss the open alert; `dismissed` says what follows.
         case close
     }
 
-    /// The longest Leave waits for its snapshot before the alert opens hedged.
+    /// The longest Leave waits for its snapshot before the alert opens (or reopens) hedged.
     static let timeout: Double = 1.5
 
     /// The outcome the open alert shows (nil: none open).
     private(set) var shown: LeaveOutcome?
+    /// Leave tapped, the alert not open yet: waiting for the check.
     private(set) var waiting = false
+    /// The alert is open and a check is in flight: it holds until the check settles.
+    private(set) var holding = false
     private(set) var reopening = false
-    /// Numbers each wait, so a stale timeout opens nothing.
+    /// The reopen follows a hold that timed out: open at once (hedged), no second wait.
+    private(set) var reopenNow = false
+    /// Numbers each wait, so a stale timeout does nothing.
     private(set) var waits = 0
 
     /// Leave tapped, after `LocalAction.leaveAsked` (`check` its result).
     mutating func tapped(check: LeaveCheck) -> Step {
         guard shown == nil else { return .none }
-        if case .pending = check { return startWait() }
+        if check.isPending { return startWait() }
         return .present
     }
 
@@ -124,34 +141,56 @@ struct LeaveAlertFlow: Equatable {
         if waiting {
             switch check {
             case .pending: return .none
-            case .verified: return .present
+            case .verified, .settled: return .present
             case .idle:  // the table was reset (game over, a new game): Leave is moot
                 waiting = false
                 return .none
             }
         }
-        if let shown, shown != outcome, !reopening {
+        guard let shown, !reopening else { return .none }
+        if check.isPending {
+            // a check in flight: hold the open alert for its reply instead of flashing the hedge
+            guard shown != outcome, !holding else { return .none }
+            holding = true
+            waits += 1
+            return .wait(waits)
+        }
+        holding = false
+        guard shown != outcome else { return .none }
+        reopening = true
+        return .close
+    }
+
+    mutating func timedOut(wait: Int) -> Step {
+        guard wait == waits else { return .none }
+        if waiting { return .present }
+        if holding, shown != nil, !reopening {
+            // no reply in time: reopen at once with the hedged words
+            holding = false
             reopening = true
+            reopenNow = true
             return .close
         }
         return .none
     }
 
-    mutating func timedOut(wait: Int) -> Step { waiting && wait == waits ? .present : .none }
-
     /// The alert opened showing `outcome`.
     mutating func presented(_ outcome: LeaveOutcome) {
         shown = outcome
         waiting = false
+        holding = false
     }
 
-    /// The alert went away. A reopen waits for a pending check, else opens again; otherwise
-    /// Leave is over (`ends`: send `LocalAction.leaveClosed`).
+    /// The alert went away. A reopen waits for a pending check (unless that wait already timed
+    /// out), else opens again; otherwise Leave is over (`ends`: send `LocalAction.leaveClosed`).
     mutating func dismissed(check: LeaveCheck) -> (next: Step, ends: Bool) {
         shown = nil
+        holding = false
         guard reopening else { return (.none, true) }
         reopening = false
-        if case .pending = check { return (startWait(), false) }
+        let now = reopenNow
+        reopenNow = false
+        if check.isPending, !now { return (startWait(), false) }
         return (.present, false)
     }
 }

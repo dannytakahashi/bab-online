@@ -176,9 +176,11 @@ enum TableReducer {
     }
 
     /// Leave's check: `.unsure` asks for a fresh snapshot ("leave-N"); any snapshot that lands
-    /// while it is pending verifies the seats (applySnapshot). A definite outcome needs none.
+    /// while Leave is up verifies the seats (applySnapshot). A definite outcome needs none, but
+    /// is `.settled` (not `.idle`), so a later lazy mode or resignation while the alert is up
+    /// still checks again (review M1).
     static func checkLeave(_ s: inout TableState, _ fx: inout [TableEffect]) {
-        s.players.leaveCheck = .idle
+        s.players.leaveCheck = .settled
         guard case .unsure = LeaveOutcome.of(seats: s.players.seats, myPosition: s.table.viewer.position,
                                               inTournament: s.table.tournamentId != nil) else { return }
         let id = "leave-\(s.sync.nextRequestNo)"
