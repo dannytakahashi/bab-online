@@ -22,6 +22,7 @@ const gameManager = require('../game/GameManager');
 const { botController, personalities } = require('../game/bot');
 const { Phase } = require('../game/GamePhase');
 const SeatState = require('../game/SeatState');
+const pacing = require('../game/pacing');
 const { socketLogger } = require('../utils/logger');
 const { snapshotFor } = require('./snapshotHandlers');
 const avatarWire = require('../avatar/avatarWire');
@@ -417,11 +418,25 @@ const afkKey = (pos) => `afk:${pos}`;
 function afkEligible(game, pos) {
     const seat = game.seat(pos);
     return !!seat && seat.controller === Controller.HUMAN && seat.presence === Presence.CONNECTED &&
-        game.acceptsTurnInput() && game.currentTurn === pos;
+        game.acceptsTurnInput() && game.currentTurn === pos && !afkExempt(game);
 }
 
 /**
- * Arm the turn watchdog for `pos` (owner, 2026-11-11: 90 s, every game):
+ * A solo casual game (owner, 2026-11-13: "in a solo game (player plus 3
+ * bots) the player shouldn't get booted to spectating after 90s"): the
+ * watchdog only keeps other humans from waiting, and nobody waits there.
+ * Solo = one human owner (pacing.humanOwnerCount: a lazy, resigned or
+ * disconnected owner counts, a /leave'd one does not), read at every arm and
+ * at firing, so a game that still has a second human keeps it. A tournament
+ * table keeps it even with one human: the round waits for every table.
+ */
+function afkExempt(game) {
+    return pacing.humanOwnerCount(game) <= 1 && !gameManager.tournamentGames.has(game.gameId);
+}
+
+/**
+ * Arm the turn watchdog for `pos` (owner, 2026-11-11: 90 s, every game with
+ * another human waiting; a solo casual game never arms it: afkExempt):
  * a connected human who neither bids nor plays within afkTimeoutMs() goes
  * lazy exactly as with /lazy. Called where a human turn opens
  * (triggerBotIfNeeded's human branch), when a seat comes back to a human on
