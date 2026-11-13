@@ -28,6 +28,25 @@ class GameSKScene: SKScene, TableRenderer {
             relayout(animated: sameButFold == oldValue)
         }
     }
+    /// The chrome of SwiftUI's latest pass, waiting for `takeChrome`'s main-queue turn.
+    private var pendingChrome: TableChrome?
+
+    /// SwiftUI's chrome from a view pass (GameContainerView): applied on the next main-queue
+    /// turn, never during the pass, and only the latest of a burst (an unchanged one is a no-op).
+    func takeChrome(_ c: TableChrome) {
+        let scheduled = pendingChrome != nil
+        pendingChrome = c
+        guard !scheduled else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let c = self.pendingChrome else { return }
+            self.pendingChrome = nil
+            self.chrome = c
+            #if DEBUG
+            if UIFixture.isActive { TableDebugProbe.shared.chrome = c }
+            #endif
+        }
+    }
+
     #if DEBUG
     /// Relayouts that moved something (fixture probes).
     private(set) var relayoutCount = 0
@@ -378,7 +397,8 @@ class GameSKScene: SKScene, TableRenderer {
         let i = chrome.safeArea, L = layout
         print("[Layout] \(Int(size.width))x\(Int(size.height)) insets \(i.top)/\(i.left)/\(i.bottom)/\(i.right) topBar \(chrome.topBar) "
               + "corner \(chrome.cornerButton) bottomBar \(chrome.bottomBar) fold \(chrome.fold.map { "\($0)" } ?? "-") "
-              + "occlusions \(chrome.occlusions.count) -> s \(L.handScale) k \(L.trickScale) \(L.mode) degraded \(L.isDegraded) usedBottomBar \(L.usedBottomBar)")
+              + "occlusions \(chrome.occlusions.count) banner \(chrome.banner) -> zoom \(L.zoom) s \(L.handScale) k \(L.trickScale) \(L.mode) "
+              + "degraded \(L.isDegraded) usedBottomBar \(L.usedBottomBar)")
     }
 
     /// Fixture mode: refresh the UI tests' "table.layoutCheck" / "table.state" probes.

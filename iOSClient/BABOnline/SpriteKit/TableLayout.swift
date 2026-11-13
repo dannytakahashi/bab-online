@@ -1,4 +1,5 @@
 import CoreGraphics
+import Foundation
 
 /// Safe-area insets of the table pane, in points.
 struct TableInsets: Equatable {
@@ -21,6 +22,10 @@ struct TableChrome: Equatable {
     var fold: CGRect? = nil
     /// System occlusions in scene coordinates (empty unless measured on a device).
     var occlusions: [CGRect] = []
+    /// The disconnect banner's measured height while it shows (0 when hidden). Only the zoom
+    /// reads it (a banner taller than `TableLayout.zoomBannerReserve` steps the zoom down while
+    /// it shows); the solve never does.
+    var banner: CGFloat = 0
 
     /// Every length times `k` (the pane's chrome in a zoomed table's scene units: k = 1 / zoom).
     func scaled(by k: CGFloat) -> TableChrome {
@@ -28,7 +33,7 @@ struct TableChrome: Equatable {
         let i = safeArea
         return TableChrome(safeArea: TableInsets(top: i.top * k, left: i.left * k, bottom: i.bottom * k, right: i.right * k),
                            topBar: topBar * k, cornerButton: CGSize(width: cornerButton.width * k, height: cornerButton.height * k),
-                           bottomBar: bottomBar * k, fold: fold.map(r), occlusions: occlusions.map(r))
+                           bottomBar: bottomBar * k, fold: fold.map(r), occlusions: occlusions.map(r), banner: banner * k)
     }
 }
 
@@ -50,9 +55,15 @@ struct TableChrome: Equatable {
 /// Duo) the whole table grows by `zoom` (1.4 ... 1.05, the largest first) when
 /// the same solve, run on the pane shrunk by it (size and chrome / zoom), still
 /// gives today's table there: a full-size hand (s = 1), the same trick scale,
-/// seat mode, seat-row form, bottom pill and fold handling. Nothing else gives
+/// seat mode, seat-row form, bottom pill and fold handling, and the disconnect
+/// banner keeps a clear spot wherever zoom 1 has one (`zoomBannerReserve` always,
+/// a taller banner while it shows: `TableChrome.banner`). Nothing else gives
 /// way, so a narrow window (Slide Over, a split, a small Stage Manager window)
 /// keeps zoom 1, which is the layout of before, value for value.
+/// The zoom is chosen for the pane with the chrome that changes during a game at
+/// its tallest (`zoomChrome`: the score bar, 71 / 81 / 90 pt, and the corner
+/// buttons), so it stays put through a game; only a role change (the bottom pill
+/// of a spectator or a lazy player) or a banner taller than the reserve moves it.
 /// Every output is in SCENE units (the shrunk pane, origin at the center): the
 /// scene draws it through a camera at 1 / zoom (GameSKScene), so cards, seats,
 /// names, bubbles, pips, history and every 8 pt gap grow together; `window(_:)`
@@ -157,22 +168,84 @@ struct TableLayout: Equatable {
     /// The layout of a pane of `size` points with the measured `chrome` (points): zoom 1
     /// (the solve as before), or the largest zoom that keeps its shape (see the type's doc).
     init(size: CGSize, chrome: TableChrome = .init()) {
+        // memoized: SwiftUI lays the table out on every pass, and the zoom's banner checks walk the felt
+        let key = LayoutKey(size: size, chrome: chrome)
+        if let L = Self.layoutCache.value(key) {
+            self = L
+            return
+        }
         self = Self.zoomed(size: size, chrome: chrome)
+        Self.layoutCache.store(key, self)
     }
 
-    /// The zoom search: zoom 1, then from `maxZoom` down, the first that keeps zoom 1's shape.
+    /// The zoom search. The zoom is chosen for the pane's `zoomChrome` (the parts of the chrome
+    /// that change during a game at their tallest), so the score bar growing or shrinking (71,
+    /// 81, 90 pt) never resizes the table mid-game; the measured chrome is then solved at it.
     private static func zoomed(size: CGSize, chrome: TableChrome) -> TableLayout {
         let base = unzoomed(size: size, chrome: chrome)
         guard mayZoom(size), base.handScale == maxHandScale, !base.isDegraded else { return base }
-        var zi = Int(((maxZoom - 1) / zoomStep).rounded())
-        while zi > 0 {
-            let z = 1 + zoomStep * CGFloat(zi)
-            let c = TableLayout(solving: CGSize(width: size.width / z, height: size.height / z), chrome: chrome.scaled(by: 1 / z),
-                                zoom: z, pane: size)
-            if c.keepsShape(of: base) { return c }
-            zi -= 1
+        var z = zoom(for: size, chrome: zoomChrome(chrome))
+        guard z > 1 else { return base }
+        // the measured chrome is at most the worst case, so its solve keeps the shape and the
+        // banner's room too; should it not (the sweeps find it only with a banner up), the zoom
+        // steps down rather than draw a changed table
+        let need = bannerNeed(chrome)
+        let room = (seated: base.bannerRoom(spectating: false, upTo: need), spectating: base.bannerRoom(spectating: true, upTo: need))
+        while z > 1 {
+            let c = solved(size: size, chrome: chrome, zoom: z)
+            if c.keepsShape(of: base), c.fitsBanner(room.seated, spectating: false), c.fitsBanner(room.spectating, spectating: true) {
+                return c
+            }
+            z = stepDown(z)
         }
         return base
+    }
+
+    /// The chrome a pane's zoom is chosen for: the measured one with the score bar and the corner
+    /// buttons at least `zoomTopBar` / `zoomCornerButton` (hidden ones included: the draw has no
+    /// score bar). The bottom pill counts only while it shows (a spectator's, a lazy player's):
+    /// it comes with a change of role, not with the game's score.
+    static func zoomChrome(_ chrome: TableChrome) -> TableChrome {
+        var c = chrome
+        c.topBar = max(chrome.topBar, zoomTopBar)
+        c.cornerButton = CGSize(width: max(chrome.cornerButton.width, zoomCornerButton.width),
+                                height: max(chrome.cornerButton.height, zoomCornerButton.height))
+        if chrome.bottomBar > 0 { c.bottomBar = max(chrome.bottomBar, zoomBottomBar) }
+        return c
+    }
+
+    /// The largest zoom (1 ... `maxZoom`, in `zoomStep`s) whose solve of the pane with `chrome`
+    /// keeps zoom 1's shape (`keepsShape`) and the disconnect banner's room: wherever zoom 1 has
+    /// a clear spot for a banner of `bannerNeed(chrome)` points, the zoomed table has one too.
+    static func zoom(for size: CGSize, chrome: TableChrome) -> CGFloat {
+        guard mayZoom(size) else { return 1 }
+        let base = unzoomed(size: size, chrome: chrome)
+        guard base.handScale == maxHandScale, !base.isDegraded else { return 1 }
+        let need = bannerNeed(chrome)
+        let room = (seated: base.bannerRoom(spectating: false, upTo: need), spectating: base.bannerRoom(spectating: true, upTo: need))
+        var z = maxZoom
+        while z > 1 {
+            let c = solved(size: size, chrome: chrome, zoom: z)
+            if c.keepsShape(of: base), c.fitsBanner(room.seated, spectating: false), c.fitsBanner(room.spectating, spectating: true) {
+                return z
+            }
+            z = stepDown(z)
+        }
+        return 1
+    }
+
+    /// The banner height (points) a zoomed table keeps room for: `zoomBannerReserve` always,
+    /// the banner itself while a taller one shows.
+    static func bannerNeed(_ chrome: TableChrome) -> CGFloat { max(zoomBannerReserve, chrome.banner) }
+
+    private static func stepDown(_ z: CGFloat) -> CGFloat {
+        let i = Int(((z - 1) / zoomStep).rounded()) - 1
+        return i > 0 ? 1 + zoomStep * CGFloat(i) : 1
+    }
+
+    /// The pane's solve at zoom `z` (scene units: the pane and chrome / z).
+    static func solved(size: CGSize, chrome: TableChrome, zoom z: CGFloat) -> TableLayout {
+        TableLayout(solving: CGSize(width: size.width / z, height: size.height / z), chrome: chrome.scaled(by: 1 / z), zoom: z, pane: size)
     }
 
     /// The zoom-1 solve of the pane (what `init` compares a zoomed solve with; tests).
@@ -183,18 +256,48 @@ struct TableLayout: Equatable {
     /// Only a pane at least `zoomMinSide` on its short side grows (a phone never does).
     static func mayZoom(_ pane: CGSize) -> Bool { min(pane.width, pane.height) >= zoomMinSide }
 
-    /// The disconnect banner height (points) a zoomed table must still find room for when
-    /// zoom 1 has it (DisconnectBannerView with one player: about 60 pt at the default type size).
-    static let zoomBannerProbe: CGFloat = 60
+    /// The score bar's height a zoom is chosen for (points): at least the tallest it measures on
+    /// a pane that may zoom (71 most of a game, 81 with the bids line, 90 at its xLarge type cap;
+    /// TableZoomTests.testTheScoreBarFitsTheZoomsTopBar), with room for a multiplier line. The
+    /// 109 pt the fixtures reported on cc2bb72 was the bar's first, wrapped measurement left in
+    /// the scene (GameSKScene.takeChrome).
+    static let zoomTopBar: CGFloat = 110
+    /// The Leave / Log buttons a zoom is chosen for (points; 80 x 50.5 measured on an iPad).
+    static let zoomCornerButton = CGSize(width: 80, height: 51)
+    /// The bottom pill (+ 12) a zoom is chosen for while one shows (points).
+    static let zoomBottomBar: CGFloat = 56
 
-    /// A zoomed solve that is still today's table: nothing shrank, folded away or changed form,
-    /// and the disconnect banner keeps a clear spot where zoom 1 has one (an iPad's, off the seats).
-    private func keepsShape(of base: TableLayout) -> Bool {
-        guard !isDegraded, handScale == Self.maxHandScale, trickScale == base.trickScale, mode == base.mode,
-              (usedBottomBar > 0) == (base.usedBottomBar > 0), foldIgnored == base.foldIgnored,
-              seatRow.fits, seatRow.mode == base.seatRow.mode else { return false }
-        let h = Self.zoomBannerProbe
-        return base.disconnectBanner(height: h, spectating: false) == nil || disconnectBanner(height: h / zoom, spectating: false) != nil
+    /// The disconnect banner height (points) every zoomed table keeps a clear spot for where
+    /// zoom 1 has one, banner or not, so the zoom stays put through a game. DisconnectBannerView
+    /// at the default type size: 31 pt a disconnected player's row, 47 pt the timeout row with
+    /// "Replace with Bot", 8 pt apart. One player's row fits with room to spare; a taller banner
+    /// (two players, or the timeout row 60 s after a drop) steps the zoom down while it shows
+    /// (`TableChrome.banner`), so it too sits clear wherever zoom 1 has room for it.
+    static let zoomBannerReserve: CGFloat = 60
+
+    /// The tallest banner (points, 2 pt steps, up to `limit`) this layout finds a clear spot for
+    /// (`disconnectBanner`).
+    func bannerRoom(spectating: Bool, upTo limit: CGFloat) -> CGFloat {
+        if fitsBanner(limit, spectating: spectating) { return limit }
+        var lo: CGFloat = 0, hi = limit  // lo fits (0: trivially), hi does not
+        while hi - lo > 2 {
+            let mid = ((lo + hi) / 4).rounded(.down) * 2
+            if mid <= lo { break }
+            if fitsBanner(mid, spectating: spectating) { lo = mid } else { hi = mid }
+        }
+        return lo
+    }
+
+    /// A banner `points` tall has a clear spot (always true for 0).
+    func fitsBanner(_ points: CGFloat, spectating: Bool) -> Bool {
+        points <= 0 || disconnectBanner(height: points / zoom, spectating: spectating) != nil
+    }
+
+    /// A zoomed solve that is still today's table: nothing shrank, folded away or changed form.
+    func keepsShape(of base: TableLayout) -> Bool {
+        !isDegraded && handScale == Self.maxHandScale && trickScale == base.trickScale && mode == base.mode
+            && (usedBottomBar > 0) == (base.usedBottomBar > 0) && foldIgnored == base.foldIgnored
+            && seatRow.fits && seatRow.mode == base.seatRow.mode
     }
 
     /// The solve at one zoom: `size` and `chrome` in scene units.
@@ -668,4 +771,42 @@ struct TableLayout: Equatable {
                                     y: c(sol.historyOrigin.y, safe.minY + 30 + historyIcon.height / 2, top - historyIcon.height / 2))
         sol.handBaseline.y = c(sol.handBaseline.y, safe.minY, safe.maxY)
     }
+}
+
+/// `TableLayout.init`'s memo key: the pane and its measured chrome.
+struct LayoutKey: Hashable {
+    let w: CGFloat, h: CGFloat
+    let insets: [CGFloat], topBar: CGFloat, corner: [CGFloat], bottomBar: CGFloat, banner: CGFloat
+    let fold: [CGFloat]?, occlusions: [[CGFloat]]
+
+    init(size: CGSize, chrome c: TableChrome) {
+        func r(_ r: CGRect) -> [CGFloat] { [r.minX, r.minY, r.width, r.height] }
+        w = size.width; h = size.height
+        insets = [c.safeArea.top, c.safeArea.left, c.safeArea.bottom, c.safeArea.right]
+        topBar = c.topBar; corner = [c.cornerButton.width, c.cornerButton.height]; bottomBar = c.bottomBar; banner = c.banner
+        fold = c.fold.map(r); occlusions = c.occlusions.map(r)
+    }
+}
+
+/// A small thread-safe memo of laid-out tables (emptied when full: a pane has a few chromes
+/// in a game, a resize drag makes many).
+final class LayoutCache: @unchecked Sendable {
+    private var values: [LayoutKey: TableLayout] = [:]
+    private let lock = NSLock()
+    private let limit = 128
+
+    func value(_ k: LayoutKey) -> TableLayout? {
+        lock.lock(); defer { lock.unlock() }
+        return values[k]
+    }
+
+    func store(_ k: LayoutKey, _ v: TableLayout) {
+        lock.lock(); defer { lock.unlock() }
+        if values.count >= limit { values.removeAll(keepingCapacity: true) }
+        values[k] = v
+    }
+}
+
+extension TableLayout {
+    static let layoutCache = LayoutCache()
 }

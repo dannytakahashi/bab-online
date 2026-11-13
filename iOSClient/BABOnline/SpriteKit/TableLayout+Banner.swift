@@ -17,7 +17,8 @@ extension TableLayout {
     /// divides the measured points by `zoom`), or nil.
     func disconnectBanner(height h: CGFloat, spectating: Bool) -> CGRect? {
         guard h > 0 else { return nil }
-        let w = min(Self.disconnectBannerMaxWidth, safeRect.width - 2 * Self.margin)
+        // the banner is at most 420 POINTS wide (GameContainerView's frame): 420 / zoom scene units
+        let w = min(Self.disconnectBannerMaxWidth / zoom, safeRect.width - 2 * Self.margin)
         guard w > 0 else { return nil }
         let x = safeRect.midX - w / 2
         var keeps: [CGRect] = [Positions.RelativePosition.top, .left, .right, .bottom].map(trickRect)

@@ -55,10 +55,12 @@ final class TableZoomTests: XCTestCase {
     // MARK: big panes grow
 
     /// (name, pane, expected zoom): the iPads full screen, both ways, with the measured chrome.
+    /// The zoom is chosen for the tallest score bar (`zoomTopBar`), so the 11-inch landscapes
+    /// grow a little less than for a 75.5 pt bar alone (1.15), and keep it through a game.
     static let ipads: [(String, CGFloat, CGFloat, CGFloat)] = [
         ("iPad 13 portrait", 1032, 1376, 1.4), ("iPad 13 landscape", 1376, 1032, 1.4),
-        ("iPad 11 portrait", 834, 1210, 1.4), ("iPad 11 landscape", 1210, 834, 1.15),
-        ("iPad Air 11 portrait", 820, 1180, 1.4), ("iPad Air 11 landscape", 1180, 820, 1.15),
+        ("iPad 11 portrait", 834, 1210, 1.4), ("iPad 11 landscape", 1210, 834, 1.1),
+        ("iPad Air 11 portrait", 820, 1180, 1.4), ("iPad Air 11 landscape", 1180, 820, 1.05),
         ("iPad mini portrait", 744, 1133, 1.4), ("iPad mini landscape", 1133, 744, 1),
         ("iPad 13 split 2/3", 900, 1032, 1.4), ("iPad 13 split 1/2", 678, 1032, 1), ("iPad 13 split 1/3", 466, 1032, 1),
         ("Slide Over", 320, 1032, 1),
@@ -76,11 +78,116 @@ final class TableZoomTests: XCTestCase {
         }
     }
 
+    /// The chromes a pane goes through in a game (points): the draw (no score bar, no corner
+    /// buttons before they are measured), the score bar at 71 / 81 / 109 pt and between, the
+    /// corner buttons as measured (and a little smaller: a narrower type).
+    static func gameChromes(bottomBar: CGFloat) -> [TableChrome] {
+        var out: [TableChrome] = []
+        for topBar in [CGFloat(0), 60, 71, 75.5, 81, 90, 95, 109, 110] {
+            for corner in [CGSize.zero, CGSize(width: 80, height: 50.5), CGSize(width: 76, height: 48)] {
+                out.append(TableLayoutTests.chrome(TableLayoutTests.insets(32, 0, 20, 0), topBar: topBar, corner: corner, bottomBar: bottomBar))
+            }
+        }
+        return out
+    }
+
+    /// The table never changes size mid-game (verifier F2: on cc2bb72 an iPad 11 landscape went
+    /// 1.20 -> 1.15 -> 1.10 as the score bar measured 71, 81, 109 pt): for each pane and role
+    /// (no bottom pill; a spectator's or lazy player's pill) every chrome of a game gives the
+    /// same zoom. Uses only API that existed on cc2bb72, so it runs (and fails) there too.
+    func testTheZoomStaysPutThroughAGame() {
+        var panes: [(String, CGSize)] = Self.ipads.map { ($0.0, CGSize(width: $0.1, height: $0.2)) }
+        for w in stride(from: CGFloat(700), through: 1400, by: 100) {
+            for h in stride(from: CGFloat(700), through: 1400, by: 100) { panes.append(("\(Int(w))x\(Int(h))", CGSize(width: w, height: h))) }
+        }
+        var zoomedPanes = 0
+        for (name, size) in panes {
+            for pill in [CGFloat(0), 45, 56] {
+                var zooms = Set<CGFloat>()
+                for chrome in Self.gameChromes(bottomBar: pill) {
+                    let L = TableLayout(size: size, chrome: chrome)
+                    zooms.insert(L.zoom)
+                    if L.zoom > 1 {
+                        XCTAssertTrue(TableLayoutTests.problems(L).isEmpty, "\(name) \(chrome): \(TableLayoutTests.problems(L))")
+                    }
+                }
+                XCTAssertEqual(zooms.count, 1, "\(name) pill \(pill): the zoom changed with the chrome: \(zooms.sorted())")
+                if zooms.contains(where: { $0 > 1 }) { zoomedPanes += 1 }
+            }
+        }
+        XCTAssertGreaterThan(zoomedPanes, 40)
+    }
+
+    /// The disconnect banner (verifier F1): wherever zoom 1 has a clear spot for the banner on
+    /// screen (one player's row 31 pt; one row + the timeout row 86; presence-mixed's two rows +
+    /// the timeout row 123.5; three rows + the timeout row 162), the zoomed table has one too,
+    /// for every banner, on every pane and chrome of a game, seated and spectating. A banner
+    /// within the reserve never moves the zoom; a taller one steps it down while it shows.
+    func testTheDisconnectBannerKeepsItsSpotWhenZoomed() {
+        var panes: [CGSize] = Self.ipads.map { CGSize(width: $0.1, height: $0.2) }
+        for w in stride(from: CGFloat(700), through: 1400, by: 175) {
+            for h in stride(from: CGFloat(700), through: 1400, by: 175) { panes.append(CGSize(width: w, height: h)) }
+        }
+        var steppedDown = 0, checked = 0
+        for size in panes {
+            for pill in [CGFloat(0), 45] {
+                for var chrome in Self.gameChromes(bottomBar: pill) where chrome.cornerButton.width != 76 {
+                    let none = TableLayout(size: size, chrome: chrome)
+                    let base = TableLayout.unzoomed(size: size, chrome: chrome)
+                    for banner in [CGFloat(31), 60, 86, 123.5, 162] {
+                        chrome.banner = banner
+                        let L = TableLayout(size: size, chrome: chrome)
+                        let tag = "\(size) topBar \(chrome.topBar) pill \(pill) banner \(banner) zoom \(L.zoom)"
+                        XCTAssertLessThanOrEqual(L.zoom, none.zoom, tag)
+                        if banner <= TableLayout.zoomBannerReserve { XCTAssertEqual(L.zoom, none.zoom, "\(tag): a short banner moved the zoom") }
+                        if L.zoom < none.zoom { steppedDown += 1 }
+                        for spectating in [false, true] where base.disconnectBanner(height: banner, spectating: spectating) != nil {
+                            XCTAssertNotNil(L.disconnectBanner(height: banner / L.zoom, spectating: spectating),
+                                            "\(tag) spectating \(spectating): zoom 1 has a spot for the banner, the zoomed table none")
+                            checked += 1
+                        }
+                    }
+                }
+            }
+        }
+        XCTAssertGreaterThan(checked, 1000)
+        XCTAssertGreaterThan(steppedDown, 50, "the tall banners step some zooms down")
+    }
+
+    /// The verifier's case: presence-mixed (two players disconnected, one timed out: the banner
+    /// measures 123.5 pt) under a 109 pt score bar. At zoom 1.4 the banner found no spot on an
+    /// iPad 11 portrait, a mini portrait or an iPad 13 landscape and fell back over the partner;
+    /// now the table steps down while it shows and the banner sits clear, as on base.
+    func testPresenceMixedBannerSitsClear() throws {
+        let h = ReplayHarness()
+        h.store.apply(.snapshot(try T.snapshot("presence-mixed"), .rejoin, hints: nil))
+        let banner = fit(DisconnectBannerView().environmentObject(h.store).frame(maxWidth: TableLayout.disconnectBannerMaxWidth),
+                         width: 834).height
+        XCTAssertGreaterThan(banner, TableLayout.zoomBannerReserve, "two rows and the timeout row")
+        XCTAssertLessThan(banner, 162)
+        for (name, w, hh) in [("iPad 11 portrait", CGFloat(834), CGFloat(1210)), ("iPad mini portrait", 744, 1133),
+                              ("iPad 13 landscape", 1376, 1032), ("iPad 13 portrait", 1032, 1376)] {
+            let size = CGSize(width: w, height: hh)
+            var chrome = TableLayoutTests.chrome(TableLayoutTests.insets(32, 0, 20, 0), topBar: 109, corner: CGSize(width: 80, height: 50.5))
+            let before = TableLayout(size: size, chrome: chrome)
+            XCTAssertNotNil(TableLayout.unzoomed(size: size, chrome: chrome).disconnectBanner(height: banner, spectating: false), name)
+            chrome.banner = banner
+            let L = TableLayout(size: size, chrome: chrome)
+            let spot = try XCTUnwrap(L.disconnectBanner(height: banner / L.zoom, spectating: false), name)
+            // clear of the partner's seat and bubble, in points under the corner buttons' row
+            XCTAssertFalse(spot.intersects(L.seatFootprint(.top)), name)
+            XCTAssertFalse(spot.intersects(L.bubbleRect(.top)), name)
+            print("[Zoom] \(name) presence-mixed: zoom \(before.zoom) -> \(L.zoom) with the \(banner) pt banner")
+        }
+    }
+
     /// A zoomed layout is zoom 1's table, larger: a full-size hand, the same trick scale,
     /// seat mode, seat-row form, bottom pill and fold handling, nothing degraded, and the
-    /// disconnect banner's clear spot (where zoom 1 has one) kept.
+    /// disconnect banner's reserve kept (where zoom 1 has room for it). The zoom is the largest
+    /// such for the pane's worst-case chrome (`zoomChrome`).
     func testAZoomedTableKeepsItsShape() {
         var zoomed = 0
+        let need = TableLayout.zoomBannerReserve
         for w in stride(from: CGFloat(700), through: 1400, by: 25) {
             for h in stride(from: CGFloat(700), through: 1400, by: 25) {
                 for bottomBar in [CGFloat(0), 45] {
@@ -89,6 +196,8 @@ final class TableZoomTests: XCTestCase {
                     let tag = "\(size) pill \(bottomBar)"
                     XCTAssertGreaterThanOrEqual(L.zoom, 1, tag)
                     XCTAssertLessThanOrEqual(L.zoom, TableLayout.maxZoom + 0.0001, tag)
+                    let worst = TableLayout.zoomChrome(chrome)
+                    XCTAssertEqual(L.zoom, TableLayout.zoom(for: size, chrome: worst), tag)
                     guard L.zoom > 1 else {
                         XCTAssertEqual(L, base, tag)
                         continue
@@ -101,18 +210,18 @@ final class TableZoomTests: XCTestCase {
                     XCTAssertEqual(L.seatRow.mode, base.seatRow.mode, tag)
                     XCTAssertTrue(L.seatRow.fits, tag)
                     XCTAssertEqual(L.usedBottomBar > 0, base.usedBottomBar > 0, tag)
-                    if base.disconnectBanner(height: TableLayout.zoomBannerProbe, spectating: false) != nil {
-                        XCTAssertNotNil(L.disconnectBanner(height: TableLayout.zoomBannerProbe / L.zoom, spectating: false), tag)
+                    for sp in [false, true] where base.disconnectBanner(height: need, spectating: sp) != nil {
+                        XCTAssertNotNil(L.disconnectBanner(height: need / L.zoom, spectating: sp), tag)
                     }
-                    // the largest such zoom: one step more no longer keeps the shape
+                    // the largest such zoom: one step more no longer keeps the shape (for the worst-case chrome)
                     if L.zoom < TableLayout.maxZoom - 0.0001 {
                         let z = L.zoom + TableLayout.zoomStep
-                        let next = TableLayout.unzoomed(size: CGSize(width: w / z, height: h / z), chrome: chrome.scaled(by: 1 / z))
-                        let sameShape = !next.isDegraded && next.handScale == 1 && next.trickScale == base.trickScale && next.mode == base.mode
-                            && next.seatRow.fits && next.seatRow.mode == base.seatRow.mode && (next.usedBottomBar > 0) == (base.usedBottomBar > 0)
-                            && (base.disconnectBanner(height: TableLayout.zoomBannerProbe, spectating: false) == nil
-                                || next.disconnectBanner(height: TableLayout.zoomBannerProbe / z, spectating: false) != nil)
-                        XCTAssertFalse(sameShape, "\(tag): \(z) fits too")
+                        let wBase = TableLayout.unzoomed(size: size, chrome: worst)
+                        let next = TableLayout.solved(size: size, chrome: worst, zoom: z)
+                        let banner = [false, true].allSatisfy { sp in
+                            next.fitsBanner(wBase.bannerRoom(spectating: sp, upTo: need), spectating: sp)
+                        }
+                        XCTAssertFalse(next.keepsShape(of: wBase) && banner, "\(tag): \(z) fits too")
                     }
                 }
             }
@@ -315,5 +424,61 @@ final class TableZoomTests: XCTestCase {
         // the voice button's slot starts where HSI's slot plus the spacing end, in points
         let hsi = L.window(L.seatRow.hsi), voice = L.window(L.seatRow.voice)
         XCTAssertEqual(voice.minX - hsi.minX, (TableLayout.hsiSize.width + TableLayout.seatRowSpacing) * z, accuracy: 0.001)
+    }
+
+    // MARK: the chrome a zoom is chosen for
+
+    /// `zoomTopBar` covers the score bar on every pane that may zoom, in every fixture's state,
+    /// at every type size (the bar caps its type at xLarge), so the measured bar never exceeds
+    /// the worst case the zoom was chosen for (which would move the zoom mid-game).
+    func testTheScoreBarFitsTheZoomsTopBar() throws {
+        var tallest: CGFloat = 0
+        for fx in ["presence-mixed", "trick-mid-lead3", "bidding-mid", "spectator-mid-hand", "tournament-game", "lazy-at-seat", "between-tricks"] {
+            let h = ReplayHarness()
+            h.store.apply(.snapshot(try T.snapshot(fx), .rejoin, hints: nil))
+            for width in [CGFloat(700), 744, 834, 1032, 1376] {
+                for type in [DynamicTypeSize.large, .xLarge, .xxxLarge, .accessibility5] {
+                    let bar = fit(ScoreBarView().environmentObject(h.store).environment(\.dynamicTypeSize, type), width: width).height
+                    XCTAssertLessThanOrEqual(bar, TableLayout.zoomTopBar, "\(fx) \(width) \(type)")
+                    tallest = max(tallest, bar)
+                }
+            }
+        }
+        print("[Zoom] the tallest score bar: \(tallest) pt (zoomTopBar \(TableLayout.zoomTopBar))")
+    }
+
+    /// The scene takes SwiftUI's chrome from every view pass, the latest of a burst, on the next
+    /// main-queue turn (GameSKScene.takeChrome): presence-mixed's table kept the bar's first,
+    /// wrapped 109.5 pt and the banner's first 109 pt because the onChange that should have
+    /// carried 71 / 123.5 pt fired twice in a frame and SwiftUI dropped it.
+    func testTheSceneTakesTheLatestChromeOfABurst() throws {
+        let h = ReplayHarness()
+        let size = CGSize(width: 834, height: 1210)
+        var first = TableLayoutTests.chrome(TableLayoutTests.insets(32, 0, 20, 0), topBar: 109.5, corner: CGSize(width: 80, height: 50.5))
+        first.banner = 109
+        let s = scene(h, size: size, chrome: first)
+        h.store.apply(.snapshot(try T.snapshot("presence-mixed"), .rejoin, hints: nil))
+        XCTAssertEqual(s.layout.chrome.topBar, 109.5 / s.layout.zoom, accuracy: 0.001)
+        var last = first
+        last.topBar = 71
+        last.banner = 123.5
+        var mid = first
+        mid.topBar = 90
+        s.takeChrome(mid)
+        s.takeChrome(last)
+        XCTAssertEqual(s.chrome, first, "never during the view pass")
+        let turn = expectation(description: "the main queue's next turn")
+        DispatchQueue.main.async { turn.fulfill() }
+        wait(for: [turn], timeout: 2)
+        XCTAssertEqual(s.chrome, last)
+        XCTAssertEqual(s.layout, TableLayout(size: size, chrome: last))
+        XCTAssertNotNil(s.layout.disconnectBanner(height: 123.5 / s.layout.zoom, spectating: false), "the banner has its spot")
+        // an unchanged chrome is a no-op
+        let before = s.relayoutCount
+        s.takeChrome(last)
+        let again = expectation(description: "again")
+        DispatchQueue.main.async { again.fulfill() }
+        wait(for: [again], timeout: 2)
+        XCTAssertEqual(s.relayoutCount, before)
     }
 }

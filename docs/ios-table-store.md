@@ -98,15 +98,35 @@ Zoom (owner, 2026-11-12, "grow to fit"; `TableLayout.zoom`): a pane at least
 or Stage Manager window; never a phone or the Duo) tries zoom 1.4, 1.35 ...
 1.05: the same solve on the pane and chrome divided by the zoom, kept when it
 is still zoom 1's table there (s = 1, the same k, seat mode, seat-row form,
-bottom pill and fold handling, and the disconnect banner's clear spot for a
-60 pt banner where zoom 1 has one). The outputs are scene units; GameSKScene
+bottom pill and fold handling, and the disconnect banner's clear spot where
+zoom 1 has one: `zoomBannerReserve` 60 pt always, and while a taller banner
+shows (`TableChrome.banner`, measured: two players + the timeout row 123.5 pt)
+that banner, so the zoom steps down while it is up; banner rects are 420 pt,
+i.e. 420 / zoom scene units, wide). The zoom is chosen for the pane with the
+chrome that changes during a game at its tallest (`zoomChrome`: score bar
+>= `zoomTopBar` 110, it measures 71 / 81 / 90 pt; corner buttons >= 80 x 51;
+a bottom pill, while one shows, >= 56), then the measured chrome is solved at
+it, so the table keeps its size through a game (verifier F2: cc2bb72 went
+1.20 -> 1.15 -> 1.10 on an iPad 11 landscape as the bar changed); only a role
+change (a spectator's or lazy player's pill) or a banner taller than the
+reserve moves it. `TableLayout.init` is memoized (`LayoutCache`, 128 entries).
+The scene takes SwiftUI's chrome from every view pass (`GameSKScene.takeChrome`:
+the latest of a burst, on the next main-queue turn) as well as from
+`onChange(of: chrome)`, which SwiftUI drops when it fires twice in a frame (the
+presence-mixed fixture kept the score bar's first, wrapped 109.5 pt and a 109 pt
+banner in the scene: the "109 pt" bar of the cc2bb72 probes). The disconnect
+banner is placed from the pane's layout of the same pass (it sits in the table
+layer's GeometryReader, under the log drawer).
+The outputs are scene units; GameSKScene
 draws through an `SKCameraNode` scaled 1 / zoom (none at zoom 1), so cards,
 seats, names, bubbles, pips, history and the 8 pt gaps grow together, and
 `window(_:)` maps scene rects to pane points for SwiftUI (the bid panel's
 cells, HSI's slot and the voice button grow with it; their type stays Dynamic
-Type). Measured: iPad 13 1.4 both ways, iPad 11 / Air 11 1.4 portrait and 1.15
-landscape (the banner rule; 1.3 / 1.25 without it), mini 1.4 portrait and 1
-landscape, a half split 1. Every pane under 700 pt lays out value for value as
+Type). Measured: iPad 13 1.4 both ways, iPad 11 / Air 11 1.4 portrait and
+1.1 / 1.05 landscape (the worst-case score bar and the banner reserve), mini
+1.4 portrait and 1 landscape, a half split 1; with presence-mixed's 123.5 pt
+banner up, iPad 11 portrait 1.25, mini portrait 1.15, iPad 13 landscape 1
+(zoom 1 is the only scale with room for it there), iPad 13 portrait 1.4. Every pane under 700 pt lays out value for value as
 before (`TableZoomTests`' LayoutDigest, pinned from main 6aab8f5). Scene text
 is drawn for the device's largest zoom and scaled back (`drawForTableZoom`),
 so the camera never upscales a label.
@@ -703,9 +723,12 @@ at every listed size and Duo pose, `RestartNoticeTests`,
 On an iPad the whole table is larger when the window has room: up to 1.4x
 (cards, seats, names, bid bubbles, pips, the trick history, the bid panel's
 buttons, HSI / voice spacing). iPad 13 grows 1.4x both ways, an 11-inch iPad
-1.4x in portrait and 1.15x in landscape, the mini 1.4x in portrait only.
-Phones, the Duo and narrow iPad windows (Slide Over, a half split) look
-exactly as before.
+1.4x in portrait and 1.1x in landscape (1.05x on the Air), the mini 1.4x in
+portrait only. The size stays the same through a game; it steps down only
+while a tall disconnect banner is up (two players away, or one with the
+"Replace with Bot" row) so the banner never covers the partner, and for a
+spectator or a lazy player (their bottom pill). Phones, the Duo and narrow
+iPad windows (Slide Over, a half split) look exactly as before.
 
 ## Visible changes to review on the next build (1.2.0)
 
