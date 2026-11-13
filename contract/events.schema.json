@@ -5089,7 +5089,7 @@
         ]
       },
       "emittedFrom": [
-        "server/socket/lobbyHandlers.js:playerReady",
+        "server/socket/lobbyHandlers.js:startLobbyIfAllReady",
         "server/socket/tournamentHandlers.js:startTournamentRound"
       ]
     },

@@ -303,7 +303,7 @@ const s2c = {
         payload: obj({ gameId: str() }),
         status: 'active', to: 'socket',
         clientReads: reads(W.lobby, I.lobby),
-        emittedFrom: ['server/socket/lobbyHandlers.js:playerReady', 'server/socket/tournamentHandlers.js:startTournamentRound'],
+        emittedFrom: ['server/socket/lobbyHandlers.js:startLobbyIfAllReady', 'server/socket/tournamentHandlers.js:startTournamentRound'],
     },
     lobbyMessage: {
         payload: obj({ lobbyId: str(), username: str(), message: str(), timestamp: int() }),
