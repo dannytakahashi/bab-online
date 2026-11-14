@@ -166,7 +166,8 @@ final class DrawPhaseViewTests: XCTestCase {
     }
 
     /// The cards on screen are CardTextureGenerator's bitmaps (the table's art), drawn no
-    /// larger than they were rendered for, and the deck is its card back.
+    /// larger than they were rendered for, and the deck is the red lattice back, rendered at
+    /// the draw card's own size.
     func testCardsAreTheTablesArt() throws {
         let cards = [Card(suit: .clubs, rank: .jack), Card(suit: .hearts, rank: .king), Card(suit: .diamonds, rank: .seven), Card(suit: .joker, rank: .hi)]
         for size in [CGSize(width: 390, height: 844), CGSize(width: 1032, height: 1376)] {
@@ -182,7 +183,11 @@ final class DrawPhaseViewTests: XCTestCase {
             // the top card of the deck: the art's size at the deck frame's top right (it is offset 2 pt per card)
             let m = DrawMetrics(width: DrawLayoutProbe.lastContainer.width)
             let top = CGRect(x: deck.maxX - m.card.width, y: deck.minY, width: m.card.width, height: m.card.height)
-            assertShows(CardTextureGenerator.cardBackImage(), in: top, of: snapshot(deckWindow), window: deckWindow, "back at \(Int(size.width))")
+            // the back is rendered at the draw card's own size (1:1) and is the red lattice
+            let back = CardTextureGenerator.cardBackImage(width: m.card.width)
+            XCTAssertEqual(CGFloat(back.cgImage!.width), (m.card.width * deckWindow.screen.scale).rounded(.up), "back at \(Int(size.width)): 1:1")
+            assertShows(back, in: top, of: snapshot(deckWindow), window: deckWindow, "back at \(Int(size.width))", block: 4)
+            assertLattice(in: top, of: snapshot(deckWindow), window: deckWindow, "deck at \(Int(size.width))")
         }
     }
 
@@ -274,7 +279,10 @@ final class DrawPhaseViewTests: XCTestCase {
 
     /// The screen at `rect` (overlay space) shows `art`: at most 2 % of the pixels inside
     /// the card's rounded corners differ by more than 64 in a channel (resampling only).
-    private func assertShows(_ art: UIImage, in rect: CGRect, of shot: CGImage, window: UIWindow, _ what: String,
+    /// `block` > 1 compares block-averaged pixels: the lattice back's 1-3 px lines move with
+    /// the view's sub-pixel position (the deck can sit half a point off the pixel grid), its
+    /// tones do not.
+    private func assertShows(_ art: UIImage, in rect: CGRect, of shot: CGImage, window: UIWindow, _ what: String, block: Int = 1,
                              file: StaticString = #filePath, line: UInt = #line) {
         let scale = window.screen.scale
         let origin = DrawLayoutProbe.lastContainer.origin
@@ -286,7 +294,7 @@ final class DrawPhaseViewTests: XCTestCase {
         let k = CGFloat(full.width) / rect.width
         let artInner = CGRect(x: rect.width * 0.08 * k, y: rect.width * 0.08 * k, width: inset.width * k, height: inset.height * k).integral
         let ref = full.cropping(to: artInner)!
-        let n = (crop.width, crop.height)
+        let n = (crop.width / block, crop.height / block)
         let a = pixels(crop, size: n), b = pixels(ref, size: n)
         var off = 0
         for p in stride(from: 0, to: a.count, by: 4) where (0..<3).contains(where: { abs(Int(a[p + $0]) - Int(b[p + $0])) > 64 }) {
@@ -295,5 +303,29 @@ final class DrawPhaseViewTests: XCTestCase {
         let share = Double(off) / Double(n.0 * n.1)
         print("[DrawArt] \(what): \(String(format: "%.2f", share * 100))% of \(n.0)x\(n.1) px differ")
         XCTAssertLessThan(share, 0.02, "\(what): \(Int(share * 1000) / 10)% of the pixels are not the generator's art", file: file, line: line)
+    }
+
+    /// The screen at `rect` shows the red lattice back (owner 2026-11-13): mostly card.backRed
+    /// with paper lines through it, none of the old green back.
+    private func assertLattice(in rect: CGRect, of shot: CGImage, window: UIWindow, _ what: String,
+                               file: StaticString = #filePath, line: UInt = #line) {
+        let scale = window.screen.scale
+        let origin = DrawLayoutProbe.lastContainer.origin
+        let inner = rect.offsetBy(dx: origin.x, dy: origin.y).insetBy(dx: rect.width * 0.15, dy: rect.width * 0.15)
+        let px = CGRect(x: inner.minX * scale, y: inner.minY * scale, width: inner.width * scale, height: inner.height * scale).integral
+        guard let crop = shot.cropping(to: px) else { return XCTFail("\(what): no pixels at \(px)", file: file, line: line) }
+        let n = (crop.width, crop.height)
+        let a = pixels(crop, size: n)
+        func near(_ c: ThemeColor, _ tol: Int) -> Int {
+            let q = (Int(c.red * 255), Int(c.green * 255), Int(c.blue * 255))
+            return stride(from: 0, to: a.count, by: 4).filter { p in
+                abs(Int(a[p]) - q.0) <= tol && abs(Int(a[p + 1]) - q.1) <= tol && abs(Int(a[p + 2]) - q.2) <= tol
+            }.count
+        }
+        let total = Double(n.0 * n.1)
+        let red = Double(near(Theme.CardBack.ink, 30)) / total, paper = Double(near(Theme.CardBack.paper, 30)) / total
+        XCTAssertGreaterThan(red, 0.3, "\(what): red ink \(red)", file: file, line: line)
+        XCTAssertGreaterThan(paper, 0.05, "\(what): paper lattice \(paper)", file: file, line: line)
+        XCTAssertEqual(near(Theme.Palette.Card.back, 12), 0, "\(what): the old green back", file: file, line: line)
     }
 }
