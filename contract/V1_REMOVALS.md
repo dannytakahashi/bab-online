@@ -1151,7 +1151,13 @@ spectator snapshots (#5, #6, #7, #8; web done 2026-11-12).
 Build 6, the App Store build since 2026-11-13, is build 5 plus a new app icon
 (#244 at 775a2e0 changed only the icon assets, the build number and tests; no app source since 92d0c75), so every "build 5" re-check
 below and in the entries above holds for the live app. main's later iOS
-work (#249, #250, #252, #255) is the next build's source, not the live one.
+work is 1.2.1: build 7 (TestFlight; #249, #250, #252, #255 on top of build
+6's source) and build 8 (next; + #261 icon, card art and the Stats scope
+picker). What it adds reads nothing removed above: the lobby rows'
+`socketId` (removeBot, kept by #14), `leaderboardResponse` /
+`recordsResponse` with their `scope` echo, failures included (#263),
+`avatarUrls[username]` before `customProfilePic` (null since #19 B: the
+stock picture), and the game-end stats.
 
 iOS 1.2.0 (build 6, live in the App Store since 2026-11-13: build 5 + the new
 app icon, so it reads what build 5 reads; build 3 was uploaded, never
