@@ -26,7 +26,8 @@ export function registerRecordsHandlers(socketManager, callbacks = {}) {
       onRecordsReceived?.(data.records, data.totalGames, data.scope);
     } else {
       console.warn('Records fetch failed:', data.message);
-      onRecordsError?.(data.message || 'Failed to fetch records');
+      // scope: echoed on a failure too, when the request named one
+      onRecordsError?.(data.message || 'Failed to fetch records', data.scope);
     }
   });
 }

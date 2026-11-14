@@ -26,7 +26,8 @@ export function registerLeaderboardHandlers(socketManager, callbacks = {}) {
       onLeaderboardReceived?.(data.leaderboard, data.scope);
     } else {
       console.warn('Leaderboard fetch failed:', data.message);
-      onLeaderboardError?.(data.message || 'Failed to fetch leaderboard');
+      // scope: echoed on a failure too, when the request named one
+      onLeaderboardError?.(data.message || 'Failed to fetch leaderboard', data.scope);
     }
   });
 }

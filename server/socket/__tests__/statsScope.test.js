@@ -336,9 +336,11 @@ describe('caches per scope', () => {
         expect(find).not.toHaveBeenCalled();
         expect(res.scope).toBe('bots');
         expect(names(res)).toEqual(['Ann', 'Cat', 'Population']);
-        // a scope never filled: the plain failure (no scope echo)
+        // a scope never filled: the plain failure, echoing the scope that asked
         profile.invalidateLeaderboard();
-        expect(await leaderboard({ scope: 'all' }, s)).toEqual({ success: false, message: 'Too many requests. Please wait a moment.' });
+        expect(await leaderboard({ scope: 'all' }, s)).toEqual({ success: false, message: 'Too many requests. Please wait a moment.', scope: 'all' });
+        // a payload-less request's failure stays exactly today's
+        expect(await leaderboard(undefined, s)).toEqual({ success: false, message: 'Too many requests. Please wait a moment.' });
         expect(log.filter(l => l.event === 'error')).toEqual([]);
     });
 
@@ -348,6 +350,9 @@ describe('caches per scope', () => {
         await records({ scope: 'bots' }, sock());
         const res = await records({ scope: 'bots' }, s);
         expect(res).toMatchObject({ success: true, scope: 'bots', totalGames: 2 });
+        // never filled: the failure echoes its scope
+        profile.invalidateRecords();
+        expect(await records({ scope: 'all' }, s)).toEqual({ success: false, message: 'Too many requests. Please wait a moment.', scope: 'all' });
     });
 });
 

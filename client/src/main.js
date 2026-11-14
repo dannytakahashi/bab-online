@@ -1698,7 +1698,8 @@ function initializeApp() {
       if (updateLeaderboardPage(leaderboard, scope)) return;
       showLeaderboardPage(leaderboard, socket, scope ?? getStatsScope());
     },
-    onLeaderboardError: (message) => {
+    onLeaderboardError: (message, scope) => {
+      if (isStaleScopeReply(scope)) return;
       leaderboardRequestFailed();
       showError(message || 'Failed to load leaderboard');
     },
@@ -1708,7 +1709,8 @@ function initializeApp() {
       if (updateRecordsPage(records, totalGames, scope)) return;
       showRecordsPage(records, totalGames, socket, scope ?? getStatsScope());
     },
-    onRecordsError: (message) => {
+    onRecordsError: (message, scope) => {
+      if (isStaleScopeReply(scope)) return;
       recordsRequestFailed();
       showError(message || 'Failed to load records');
     },

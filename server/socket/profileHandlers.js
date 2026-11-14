@@ -648,7 +648,8 @@ async function getLeaderboard(socket, io, data) {
     // (possibly stale) cached rows, never 'error'
     if (!rateLimiter.check(socket.id, 'getLeaderboard')) {
         await replyThrottled(socket, 'leaderboardResponse', cache,
-            (value) => leaderboardPayload(socket, value, scope, echo));
+            (value) => leaderboardPayload(socket, value, scope, echo),
+            (fail) => withScope(fail, scope, echo));
         return;
     }
 
@@ -660,10 +661,10 @@ async function getLeaderboard(socket, io, data) {
         authLogger.debug('Leaderboard fetched', { scope, playerCount: value.legacy.length });
     } catch (error) {
         authLogger.error('Error fetching leaderboard', { scope, error: error.message });
-        socket.emit('leaderboardResponse', {
+        socket.emit('leaderboardResponse', withScope({
             success: false,
             message: 'Database error'
-        });
+        }, scope, echo));
     }
 }
 
@@ -921,7 +922,7 @@ async function getRecords(socket, io, data) {
     const { scope, echo } = normalizeScope(data);
 
     if (!gameRecordsCollection) {
-        socket.emit('recordsResponse', { success: false, message: 'Database not available' });
+        socket.emit('recordsResponse', withScope({ success: false, message: 'Database not available' }, scope, echo));
         return;
     }
 
@@ -940,7 +941,8 @@ async function getRecords(socket, io, data) {
     // Soft limit (one budget for every scope): over it, this scope's
     // (possibly stale) cached records, never 'error'
     if (!rateLimiter.check(socket.id, 'getRecords')) {
-        await replyThrottled(socket, 'recordsResponse', cache, toPayload);
+        await replyThrottled(socket, 'recordsResponse', cache, toPayload,
+            (fail) => withScope(fail, scope, echo));
         return;
     }
 
@@ -950,7 +952,7 @@ async function getRecords(socket, io, data) {
         authLogger.debug('Records fetched', { scope });
     } catch (error) {
         authLogger.error('Error fetching records', { scope, error: error.message });
-        socket.emit('recordsResponse', { success: false, message: 'Database error' });
+        socket.emit('recordsResponse', withScope({ success: false, message: 'Database error' }, scope, echo));
     }
 }
 
@@ -958,8 +960,10 @@ async function getRecords(socket, io, data) {
  * Reply to a request over its soft rate limit (getLeaderboard/getRecords):
  * the last cached value even if expired, else the fill already running,
  * else the ordinary failure reply both clients show (never 'error').
+ * `toFailure` adds the scope echo to a failure, so a client with several
+ * scopes in flight knows which one failed (iOS 1.2.1 build 8).
  */
-async function replyThrottled(socket, event, cache, toPayload) {
+async function replyThrottled(socket, event, cache, toPayload, toFailure = (f) => f) {
     const cached = cache.peek();
     if (cached !== undefined) {
         socket.emit(event, toPayload(cached));
@@ -970,11 +974,11 @@ async function replyThrottled(socket, event, cache, toPayload) {
         try {
             socket.emit(event, toPayload(await pending));
         } catch (error) {
-            socket.emit(event, { success: false, message: 'Database error' });
+            socket.emit(event, toFailure({ success: false, message: 'Database error' }));
         }
         return;
     }
-    socket.emit(event, { success: false, message: 'Too many requests. Please wait a moment.' });
+    socket.emit(event, toFailure({ success: false, message: 'Too many requests. Please wait a moment.' }));
 }
 
 /** A stats/picture/account change: the next leaderboard fetch reads fresh (every scope). */
