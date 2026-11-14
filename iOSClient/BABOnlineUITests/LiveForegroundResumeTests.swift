@@ -102,6 +102,8 @@ final class LiveForegroundResumeTests: XCTestCase {
         signInName.tap(); signInName.typeText(user)
         app.secureTextFields["Password"].tap(); app.secureTextFields["Password"].typeText(pass)
         button(app, "Sign In").tap()
+        // still seated from an earlier run: the sign-in rejoins that game; leave it
+        if wait(10, { newGame.exists || app.buttons["leave"].exists }), app.buttons["leave"].exists { leaveGame(app) }
         if newGame.waitForExistence(timeout: 10) {
             XCTAssertTrue(wait(15) { newGame.isEnabled }, "New Game stays disabled (session)")
             return
@@ -228,14 +230,30 @@ final class LiveForegroundResumeTests: XCTestCase {
 
     // MARK: - 3. mid-game: the table after the foreground
 
-    /// The hand as the table's cards read ("Queen of Clubs", "HI Joker"...), in tree order.
+    /// The hand as the table's cards read ("Queen of Clubs", "High Joker"...), in tree order,
+    /// from one snapshot of the tree (walking live elements fails while cards animate).
     private func handLabels(_ app: XCUIApplication) -> [String] {
-        app.descendants(matching: .any).allElementsBoundByIndex.compactMap { e -> String? in
-            let l = e.label
-            let card = l.range(of: #"^(Ace|King|Queen|Jack|[0-9]+|Two|Three|Four|Five|Six|Seven|Eight|Nine|Ten) of (Spades|Hearts|Diamonds|Clubs)$"#,
+        guard let root = try? app.snapshot() else { return [] }
+        var labels: [String] = []
+        func walk(_ s: XCUIElementSnapshot) {
+            let l = s.label
+            let card = l.range(of: #"^(Ace|King|Queen|Jack|[0-9]+) of (Spades|Hearts|Diamonds|Clubs)$"#,
                                options: .regularExpression) != nil || l.hasSuffix("Joker")
-            return card ? l : nil  // bidding: no trick on the table, so every card is my hand
+            if card { labels.append(l) }  // bidding: no trick on the table, so every card is my hand
+            s.children.forEach(walk)
         }
+        walk(root)
+        return labels
+    }
+
+    /// Leave the table (Exit Game), so the account is in no game for the next test.
+    private func leaveGame(_ app: XCUIApplication) {
+        let leave = app.buttons["leave"]
+        guard leave.waitForExistence(timeout: 5) else { return }
+        leave.tap()
+        let exit = app.alerts.buttons["Exit Game"]
+        if exit.waitForExistence(timeout: 5) { exit.tap() }
+        _ = app.buttons["New Game"].waitForExistence(timeout: 15)
     }
 
     func testMidGameTableIsResyncedAfterForeground() throws {
@@ -278,6 +296,7 @@ final class LiveForegroundResumeTests: XCTestCase {
         note("bid sent")
         XCTAssertTrue(wait(10) { !bidOverlay.exists }, "the bid did not go through")
         shot("3-bid")
+        leaveGame(app)
         app.terminate()
     }
 }
