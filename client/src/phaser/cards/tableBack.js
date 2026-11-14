@@ -6,6 +6,11 @@
  * whether drawn by an event, a render (rejoin, spectator join, reload) or
  * a relayout. GameState.handNo moves at the next hand's gameStart (a
  * zero-bid redeal keeps it), so the colour switches with the next deal.
+ * That gameStart lands before the finished hand is off the table (its
+ * tricks whisk into the trump, and the deal waits for that), so a sprite
+ * that outlives its hand keeps the back it was drawn with (setData
+ * 'backFrame': the trump, played trick cards) and the new trump shows the
+ * finished hand's back until the deal lands (GameScene.dealTrumpBack).
  */
 import { getGameState } from '../../state/GameState.js';
 import { backFrameForHand } from './cardFaces.js';
