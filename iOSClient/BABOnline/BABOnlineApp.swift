@@ -121,11 +121,12 @@ struct BABOnlineApp: App {
                     socketService.forceReconnect()
                 }
             } else {
-                // Background task expired or was never started — do a full reconnect.
-                // iOS can silently kill the WebSocket without firing a disconnect event,
-                // so `isConnected` is unreliable after a long background period.
-                print("[App] Foregrounded after keep-alive expired — force reconnecting socket")
-                socketService.forceReconnect()
+                // Background task expired or was never started. iOS can silently kill the
+                // WebSocket without firing a disconnect event, so `isConnected` alone proves
+                // nothing here: the connection is kept only if it is connected, session-ready
+                // and answers a round trip at once; otherwise a new one (forceReconnect).
+                print("[App] Foregrounded after keep-alive expired — checking the connection")
+                socketService.resumeAfterKeepAlive()
             }
         case .background:
             didEnterBackground = true

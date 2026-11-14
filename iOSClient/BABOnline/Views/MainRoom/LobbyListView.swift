@@ -63,8 +63,8 @@ struct LobbyListView: View {
                     }
                 }
             }
-            // Join / Spectate wait for the session (SocketService.isSessionReady); the list still scrolls
-            .disabled(!socketService.isSessionReady)
+            // Join / Spectate wait for the session and a foreground probe (SocketService.canSendMainRoomActions); the list still scrolls
+            .disabled(!socketService.canSendMainRoomActions)
         }
     }
 }

@@ -61,6 +61,9 @@ enum UIFixture {
         // no socket in fixture mode: signed in, unless `-uiSessionPending YES` (the moment
         // between a reconnect and the restore's answer: main-room actions wait)
         SocketService.shared.isSessionReady = !UserDefaults.standard.bool(forKey: "uiSessionPending")
+        // `-uiForegroundProbe YES`: signed in, a foreground probe in flight (main-room actions
+        // wait for its answer, with no Reconnecting toast)
+        if UserDefaults.standard.bool(forKey: "uiForegroundProbe") { SocketService.shared.holdForegroundProbeForFixture() }
         if screenFixtures.contains(name) {
             seedScreen(name, appState, mainRoom: mainRoom, lobby: lobby, tournament: tournament, auth: auth)
             print("[UIFixture] seeded screen \(name)")
