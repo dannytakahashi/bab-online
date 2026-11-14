@@ -5,7 +5,7 @@
  * the device pixel ratio, and the atlas is one page, re-drawn only when its
  * size changes.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { recordingContext } from '../../testing/recordingContext.js';
 import { FakeTextures } from '../../testing/fakePhaser.js';
 import {
@@ -16,6 +16,7 @@ import {
 } from './CardAtlas.js';
 import { layoutForViewport, handPositions } from '../layout/computeTableLayout.js';
 import { COLOR, FONT_UI } from '../../ui/tokens.js';
+import { CARD_FONT, loadCardFont, resetCardFontForTests } from './cardFont.js';
 
 const C = COLOR.card;
 // suit symbols, the star, playing-card emoji, variation selectors (FE0E/FE0F)
@@ -50,12 +51,15 @@ describe('card faces (the iOS CardTextureGenerator, on a 300 x 435 canvas)', () 
       expect(fills(ctx, color), `${card.rank} ${card.suit} suits`).toHaveLength(2);
       // the rank, top left only (no rotated copy at the bottom right;
       // the jumbo index's geometry: cardFaces.test.js)
+      // (the 10: a sans I, widened 1.02, and the slab 0)
       const ranks = ctx.calls.filter((c) => c.op === 'fillText');
-      expect(ranks.map((c) => c.args[0])).toEqual([card.rank]);
-      expect(ranks[0].fillStyle).toBe(color);
-      expect(ranks[0].m.a).toBe(1);
-      expect(ranks[0].at.x).toBeLessThan(CARD_DESIGN.w / 2);
-      expect(ranks[0].at.y).toBeLessThan(CARD_DESIGN.h / 2);
+      expect(ranks.map((c) => c.args[0])).toEqual(card.rank === '10' ? ['I', '0'] : [card.rank]);
+      for (const r of ranks) {
+        expect(r.fillStyle).toBe(color);
+        expect(r.m.a).toBe(r.args[0] === 'I' ? 1.02 : 1);
+        expect(r.at.x).toBeLessThan(CARD_DESIGN.w / 2);
+        expect(r.at.y).toBeLessThan(CARD_DESIGN.h / 2);
+      }
       // the pip is centred across the card
       const pip = ctx.calls.filter((c) => c.op === 'fill' && c.fillStyle === color).pop();
       expect(pip.m.a * 50 + pip.m.e).toBeCloseTo(CARD_DESIGN.w / 2, 6);
@@ -173,13 +177,16 @@ describe('card faces (the iOS CardTextureGenerator, on a 300 x 435 canvas)', () 
     }
   });
 
-  it('text is the UI font in bold (the rank and the joker word; sizes: cardFaces.test.js)', () => {
+  it('text is the card font (Arvo Bold as "BAB Card Index", the UI font as its fallback) in bold; the 10\'s I is the UI font (sizes: cardFaces.test.js)', () => {
     const fonts = (ctx) => ctx.calls.filter((c) => c.op === 'fillText').map((c) => c.font);
-    for (const card of [{ suit: 'spades', rank: 'K' }, { suit: 'joker', rank: 'HI' }]) {
+    const esc = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    for (const card of [{ suit: 'spades', rank: 'K' }, { suit: 'joker', rank: 'HI' }, { suit: 'hearts', rank: '10' }]) {
       const f = fonts(draw(card));
-      expect(f).toHaveLength(1);
-      expect(f[0]).toMatch(new RegExp(`^700 [0-9.]+px ${FONT_UI.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`));
+      expect(f).toHaveLength(card.rank === '10' ? 2 : 1);
+      expect(f[f.length - 1]).toMatch(new RegExp(`^700 [0-9.]+px ${esc(CARD_FONT)}$`));
+      if (card.rank === '10') expect(f[0]).toMatch(new RegExp(`^700 [0-9.]+px ${esc(FONT_UI)}$`));
     }
+    expect(CARD_FONT).toBe(`"BAB Card Index", ${FONT_UI}`);
     expect(FONT_UI.startsWith('-apple-system')).toBe(true);
   });
 });
@@ -301,5 +308,85 @@ describe('the atlas: one page, hand card x DPR', () => {
     expect([frame.width, frame.height]).toEqual([128, 186]);
     expect([canvas.width, canvas.height]).toEqual([atlasLayout({ w: 128, h: 186 }).width, atlasLayout({ w: 128, h: 186 }).height]);
     expect(cardAtlasInfo(textures)).toMatchObject({ frame: { w: 128, h: 186 }, bytes: b.bytes });
+  });
+
+  describe('the card font arriving after the first draw', () => {
+    beforeEach(() => resetCardFontForTests());
+    afterEach(() => resetCardFontForTests());
+    /** A FontFace whose load the test resolves (or rejects) by hand. */
+    function lateFont() {
+      const added = [];
+      let settle;
+      const fetched = new Promise((res, rej) => { settle = (ok) => (ok ? res() : rej(new Error('offline'))); });
+      class FakeFontFace {
+        constructor(family, src, desc) {
+          Object.assign(this, { family, src, desc });
+        }
+        load() {
+          return fetched.then(() => this);
+        }
+      }
+      return { FontFaceImpl: FakeFontFace, fonts: { add: (f) => added.push(f) }, added, settle: (ok) => settle(ok) };
+    }
+    const flush = () => new Promise((r) => setTimeout(r, 0));
+
+    it('an atlas drawn in the fallback is drawn ONCE more, at the same size, when the font loads (no blank cards in between)', async () => {
+      const font = lateFont();
+      const load = loadCardFont(font);
+      const textures = new FakeTextures();
+      const spec = { w: 64, h: 93 };
+      expect(ensureCardAtlas(textures, spec).changed).toBe(true);
+      // drawn at once, in the fallback: every frame is there
+      expect(cardAtlasInfo(textures)).toMatchObject({ drawn: true, fontReady: false, draws: 1 });
+      const tex = textures.get(CARD_TEXTURE_KEY);
+      const frame = tex.frames.a_spades;
+      const uploads = textures.uploads;
+      const draws = textures.drawCalls;
+      // renders before the font: nothing more
+      expect(ensureCardAtlas(textures, spec).changed).toBe(false);
+      expect(textures.uploads).toBe(uploads);
+
+      font.settle(true);
+      expect(await load).toBe(true);
+      await flush();
+      // the face was added to the page's fonts as "BAB Card Index" (woff2, bold)
+      expect(font.added).toHaveLength(1);
+      expect(font.added[0].family).toBe('BAB Card Index');
+      expect(font.added[0].src).toMatch(/BABCardIndex\.woff2"\) format\("woff2"\)$/);
+      expect(font.added[0].desc).toMatchObject({ weight: '700' });
+      // redrawn in the card font: the same texture, canvas and frames, one more upload
+      expect(cardAtlasInfo(textures)).toMatchObject({ frame: spec, fontReady: true, draws: 2 });
+      expect(textures.get(CARD_TEXTURE_KEY)).toBe(tex);
+      expect(tex.frames.a_spades).toBe(frame);
+      expect([frame.width, frame.height]).toEqual([64, 93]);
+      expect(textures.uploads).toBe(uploads + 1);
+      expect(textures.drawCalls).toBeGreaterThan(draws + 54 * 3);
+      // and then never again at that size
+      expect(ensureCardAtlas(textures, spec).changed).toBe(false);
+      expect(cardAtlasInfo(textures).draws).toBe(2);
+    });
+
+    it('a font that never loads leaves the fallback atlas as it is (one draw, no error)', async () => {
+      const font = lateFont();
+      const load = loadCardFont(font);
+      const textures = new FakeTextures();
+      ensureCardAtlas(textures, { w: 64, h: 93 });
+      font.settle(false);
+      expect(await load).toBe(false);
+      await flush();
+      expect(cardAtlasInfo(textures)).toMatchObject({ fontReady: false, draws: 1 });
+      expect(font.added).toEqual([]);
+    });
+
+    it('an atlas first drawn after the font loaded is drawn once, in it', async () => {
+      const font = lateFont();
+      const load = loadCardFont(font);
+      font.settle(true);
+      await load;
+      const textures = new FakeTextures();
+      ensureCardAtlas(textures, { w: 64, h: 93 });
+      await flush();
+      expect(cardAtlasInfo(textures)).toMatchObject({ fontReady: true, draws: 1 });
+    });
   });
 });

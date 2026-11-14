@@ -14,7 +14,9 @@
  *   at build time (client/vite.config.js phaserNoEval)
  * - style-src keeps 'unsafe-inline': the UI sets style attributes and the
  *   /privacy, /support and /terms pages have an inline <style>
- * - no Google Fonts: the client uses the system font stack (18b)
+ * - font-src 'self': no Google Fonts (the UI uses the system font stack,
+ *   18b); the one web font is the cards' bundled index face, a hashed
+ *   /dist/assets woff2 (client/src/phaser/cards/cardFont.js)
  * - connect-src: the production hosts, unchanged ('self' covers ws(s)
  *   to the serving host, a local server included)
  */

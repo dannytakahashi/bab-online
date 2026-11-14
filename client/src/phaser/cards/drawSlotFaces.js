@@ -9,10 +9,12 @@
  * own size (the layout's `draw.slotCard.tex`, the card's height in even
  * device pixels) samples 1:1 like the hand. Four cells of one card each, so
  * it costs next to nothing; a face is drawn when its card turns up, and
- * every face again only when the slot size changes (a relayout).
+ * every face again only when the slot size changes (a relayout) or the
+ * ranks' font (cardFont.js) arrives after a face was drawn without it.
  */
 import { ALL_CARDS, FACE_FRAMES, CARD_DESIGN, drawCard } from './cardFaces.js';
 import { ATLAS_PAD } from './CardAtlas.js';
+import { isCardFontReady, onCardFontReady } from './cardFont.js';
 
 export const DRAW_SLOTS_KEY = 'drawSlots';
 export const DRAW_SLOT_COUNT = 4;
@@ -95,7 +97,20 @@ export function ensureDrawSlotFace(textures, spec, i, faceKey) {
   if (resized) for (let k = 0; k < DRAW_SLOT_COUNT; k++) paint(st, k);
   else if (changed) paint(st, i);
   if (resized || changed) tex.refresh?.();
+  if ((resized || changed) && !isCardFontReady()) repaintWhenFontLoads(textures, st);
   return slotFrame(i);
+}
+
+/** Once the card font is ready, paint every slot again in it. */
+function repaintWhenFontLoads(textures, st) {
+  if (st.waitingForFont) return;
+  st.waitingForFont = true;
+  onCardFontReady(() => {
+    st.waitingForFont = false;
+    if (slots.get(textures) !== st || !textures.exists?.(DRAW_SLOTS_KEY)) return;
+    for (let k = 0; k < DRAW_SLOT_COUNT; k++) paint(st, k);
+    st.tex.refresh?.();
+  });
 }
 
 /** What each slot's frame shows now (tests, live checks): face keys or null. */

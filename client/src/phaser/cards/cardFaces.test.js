@@ -1,24 +1,27 @@
 /**
  * The web card faces (owner decisions, 2026-11): ONE jumbo corner index at
- * the top left (bold ~100 rank, the "10" at its full width, never
- * condensed; a 54-unit suit under it), no rotated index at the bottom
- * right, a 200-unit centre pip filling the card under the index; and the
- * "faithful" jokers (the old sprite redrawn: slate outline, light-blue
- * border and panel, the dollar glyph) with HI (red) / LO (black) as their
- * corner index. And, at every desktop table size, the whole index inside
- * the strip of each card the fanned hand leaves showing
- * (computeTableLayout's handPositions).
+ * the top left, no rotated index at the bottom right, a centre pip in the
+ * space under the index; the "faithful" jokers (the old sprite redrawn:
+ * slate outline, light-blue border and panel, the dollar glyph) with HI
+ * (red) / LO (black) as their corner index. Since 2026-11-13 ("Feedback is
+ * arvo"): the ranks and HI / LO in the bundled card font (Arvo Bold, as
+ * "BAB Card Index"; the system UI font as its fallback), the "10" a sans
+ * capital I and the slab 0, a 160-unit pip with a clear gap under the
+ * corner suit. And, at every desktop table size, the whole index inside
+ * the strip of each card the fanned hand leaves showing (computeTableLayout's
+ * handPositions), in Arvo and in the fallback.
  *
- * Faces are drawn on the recording context (jsdom has no canvas). Its
- * measureText gives no ink metrics (0.6 em advance per character), so most
- * tests hand it the measured ink metrics of the system font's bold (SF Pro,
- * Chrome on macOS, 100 px), scaled to the font size in use.
+ * Faces are drawn on the recording context (jsdom has no canvas), measuring
+ * with the fonts' real ink metrics (testing/cardFontContext.js): Arvo's from
+ * the subset's glyphs, SF's measured in Chrome.
  */
 import { describe, it, expect } from 'vitest';
 import { recordingContext } from '../../testing/recordingContext.js';
+import { cardFontContext, inkOfText, fontPx, CARD_FONT_METRICS } from '../../testing/cardFontContext.js';
 import {
-  ALL_CARDS, CARD_DESIGN, INDEX, PIP, SUIT_WIDTH, JOKER_INK, JOKER_WORD, drawCard, rankSize, jokerWordSize,
+  ALL_CARDS, CARD_DESIGN, INDEX, TEN, PIP, SUIT_WIDTH, JOKER_INK, JOKER_WORD, drawCard, rankSize, jokerWordSize, rankRun,
 } from './cardFaces.js';
+import { CARD_FONT, CARD_FONT_FAMILY } from './cardFont.js';
 import { layoutForViewport, handPositions } from '../layout/computeTableLayout.js';
 import { COLOR, FONT_UI } from '../../ui/tokens.js';
 
@@ -26,37 +29,20 @@ const C = COLOR.card;
 const STANDARD = ALL_CARDS.filter((c) => c.suit !== 'joker');
 const JOKERS = ALL_CARDS.filter((c) => c.suit === 'joker');
 const colorOf = (suit) => (suit === 'hearts' || suit === 'diamonds' ? C.red : C.black);
-const fontPx = (font) => parseFloat(/(\d+(?:\.\d+)?)px/.exec(font)[1]);
+const UPEM = CARD_FONT_METRICS.unitsPerEm;
+const G = CARD_FONT_METRICS.glyphs;
+/** Arvo's flat cap ("K") per px of font size, and the size for a 70-unit cap. */
+const ARVO_CAP = G.K.yMax / UPEM;
+const ARVO_SIZE = 70 / ARVO_CAP;
+/** SF bold's flat cap per px (the fallback). */
+const SF_CAP = 0.7046;
 
-/**
- * SF Pro bold at 100 px, measured in the browser (canvas measureText):
- * [advance, actualBoundingBoxLeft, actualBoundingBoxRight, ascent, descent].
- */
-const SF_BOLD_100 = {
-  A: [69.24, -1.34, 67.87, 70.46, 0], K: [65.33, -5.86, 64.99, 70.46, 0], Q: [75.24, -3.64, 71.61, 71.68, 6.62],
-  J: [55.81, -1.51, 49.39, 70.46, 1.22], 10: [113.57, -4.32, 109.5, 71.68, 1.22], 9: [65.23, -4.66, 61.23, 71.68, 1.22],
-  8: [64.89, -4.05, 60.84, 71.68, 1.22], 7: [57.23, -3.1, 53.52, 70.46, 0], 6: [65.23, -3.98, 60.55, 71.68, 1.22],
-  5: [62.5, -5.62, 59.28, 70.46, 1.22], 4: [64.75, -3.52, 61.87, 70.46, 0], 3: [62.99, -3.74, 58.59, 71.68, 1.22],
-  2: [60.3, -4.15, 56.2, 71.68, 0], HI: [99.41, -5.86, 93.55, 70.46, 0], LO: [126.61, -5.86, 122.97, 71.68, 1.22],
-};
-/** A recording context whose measureText returns the SF ink metrics at its font size. */
-function sfContext() {
-  const ctx = recordingContext();
-  ctx.measureText = (t) => {
-    const k = fontPx(ctx.font) / 100;
-    const [w, l, r, a, d] = SF_BOLD_100[t].map((v) => v * k);
-    return { width: w, actualBoundingBoxLeft: l, actualBoundingBoxRight: r, actualBoundingBoxAscent: a, actualBoundingBoxDescent: d };
-  };
-  return ctx;
-}
-/** Ink box of a fillText record (design units), from the SF metrics. */
-function inkOf(rec) {
-  const k = fontPx(rec.font) / 100;
-  const [, l, r, a, d] = SF_BOLD_100[rec.args[0]].map((v) => v * k);
-  const x = rec.at.x;
-  const y = rec.at.y;
-  return { x0: x - l, x1: x + r, y0: y - a, y1: y + d, baseline: y };
-}
+/** Both fonts the faces can be drawn in: the loaded card font, and the fallback before it loads. */
+const FONTS = [
+  { name: 'Arvo (loaded)', opts: { cardFont: true }, cap: ARVO_SIZE },
+  { name: 'system fallback', opts: { cardFont: false }, cap: 70 / SF_CAP },
+].map((f) => ({ ...f, size: rankSize(cardFontContext(f.opts)) }));
+
 /** A suit fill's box (its SUIT_WIDTH, the 100-unit box's full height), from its transform. */
 function suitBox(rec, suit) {
   const size = rec.m.a * 100;
@@ -65,189 +51,244 @@ function suitBox(rec, suit) {
   const hw = (SUIT_WIDTH[suit] * size) / 2;
   return { size, cx, cy, x0: cx - hw, x1: cx + hw, y0: cy - size / 2, y1: cy + size / 2 };
 }
-function drawn(card, ctx = sfContext()) {
+function drawn(card, opts = { cardFont: true }, ctx = cardFontContext(opts)) {
   drawCard(ctx, card);
   const texts = ctx.calls.filter((c) => c.op === 'fillText');
   const suits = card.suit === 'joker' ? [] : ctx.calls.filter((c) => c.op === 'fill' && c.fillStyle === colorOf(card.suit));
-  return { ctx, texts, suits };
+  const inks = texts.map((t) => inkOfText(t, opts));
+  // the word's ink: all its pieces (the "10" is two)
+  const ink = inks.length ? {
+    x0: Math.min(...inks.map((i) => i.x0)), x1: Math.max(...inks.map((i) => i.x1)),
+    y0: Math.min(...inks.map((i) => i.y0)), y1: Math.max(...inks.map((i) => i.y1)), baseline: inks[0].baseline,
+  } : null;
+  return { ctx, texts, suits, inks, ink };
 }
 /** Any text, or suit / word-colored fill, drawn turned 180 degrees (a bottom-right index copy). */
 const turned = (ctx) => ctx.calls.filter((c) => (c.op === 'fillText' || (c.op === 'fill' && [C.red, C.black].includes(c.fillStyle)))
   && c.m.a < 0 && c.m.d < 0);
+const cardFontAt = (size) => `700 ${size}px ${CARD_FONT}`;
 
-describe('the jumbo corner index (design units, 300 x 435)', () => {
-  it('the designed numbers', () => {
-    expect(INDEX).toEqual({ left: 12, col: 50, top: 18, rank: 100, weight: 700, maxInkW: 106, gap: 8, suit: 54 });
-    expect(PIP).toEqual({ size: 200, cx: 150, cy: 293 });
+describe('the card font: Arvo Bold as "BAB Card Index", the system font as its fallback', () => {
+  it('the font stack names the bundled face first, then the UI font', () => {
+    expect(CARD_FONT_FAMILY).toBe('BAB Card Index');
+    expect(CARD_FONT).toBe(`"BAB Card Index", ${FONT_UI}`);
+    expect(CARD_FONT_METRICS.family).toBe(CARD_FONT_FAMILY);
   });
 
-  it('every standard face: ONE rank (bold 100 with the system font), its ink 18 down and centred on x = 50 (never nearer the edge than 12), unscaled', () => {
-    for (const card of STANDARD) {
-      const label = `${card.rank} ${card.suit}`;
-      const { texts } = drawn(card);
-      expect(texts.map((t) => t.args[0]), label).toEqual([card.rank]);
-      const [t] = texts;
-      expect(t.font, label).toBe(`700 100px ${FONT_UI}`);
-      expect(t.fillStyle, label).toBe(colorOf(card.suit));
-      // drawn at its natural width: no condensing, no rotation
-      expect([t.m.a, t.m.b, t.m.c, t.m.d], label).toEqual([1, 0, 0, 1]);
-      const ink = inkOf(t);
-      expect(ink.y0, label).toBeLessThanOrEqual(18 + 1e-9);
-      expect(ink.y0, label).toBeGreaterThan(16.5); // a round glyph's overshoot only
-      expect(ink.x0, label).toBeGreaterThanOrEqual(12 - 1e-9);
-      if (card.rank !== '10') expect((ink.x0 + ink.x1) / 2, label).toBeCloseTo(50, 6);
-      // one baseline for every rank: the flat cap's (K: 70.46) under the top
-      expect(ink.baseline, label).toBeCloseTo(18 + 70.46, 6);
-    }
-  });
-
-  it('the "10" is FULL WIDTH: its whole 105-unit ink, from 12 to 117.2, inside the column (12 + 106)', () => {
-    for (const suit of ['hearts', 'spades', 'diamonds', 'clubs']) {
-      const [t] = drawn({ suit, rank: '10' }).texts;
-      const ink = inkOf(t);
-      expect(t.m.a).toBe(1);
-      expect(ink.x1 - ink.x0).toBeCloseTo(105.18, 2);
-      expect(ink.x0).toBeCloseTo(12, 6);
-      expect(ink.x1).toBeLessThanOrEqual(INDEX.left + INDEX.maxInkW);
-    }
-  });
-
-  it('a font whose "10" is wider than the column shrinks EVERY rank alike (never condenses the 10)', () => {
-    // the recording context's own measure: 0.6 em a character, "10" = 120 at 100
-    const plain = recordingContext();
-    expect(rankSize(plain)).toBeCloseTo((100 * 106) / 120, 9);
-    const sizes = new Set();
-    for (const card of STANDARD) {
-      const { texts } = drawn(card, recordingContext());
-      expect(texts).toHaveLength(1);
-      expect(texts[0].m.a).toBe(1);
-      sizes.add(fontPx(texts[0].font));
-    }
-    expect([...sizes]).toHaveLength(1);
-    expect([...sizes][0]).toBeCloseTo(88.33, 2);
-    // and with SF, whose "10" fits, every rank stays at 100
-    expect(rankSize(sfContext())).toBe(100);
-  });
-
-  it('the suit: 54 units, its box 8 under the baseline, centred under the rank\'s ink', () => {
-    for (const card of STANDARD) {
-      const label = `${card.rank} ${card.suit}`;
-      const { texts, suits } = drawn(card);
-      expect(suits, label).toHaveLength(2); // the index's suit and the pip: nothing else
-      const ink = inkOf(texts[0]);
-      const s = suitBox(suits[0], card.suit);
-      expect(s.size, label).toBeCloseTo(54, 6);
-      expect(s.y0, label).toBeCloseTo(ink.baseline + 8, 6);
-      expect(s.cx, label).toBeCloseTo((ink.x0 + ink.x1) / 2, 6);
-    }
-  });
-
-  it('no bottom-right index: one rank, one index suit and the pip, nothing turned 180 degrees', () => {
+  it('every rank and joker word is drawn in the card font stack, except the 10\'s "1": the UI font\'s capital I', () => {
     for (const card of ALL_CARDS) {
-      const { ctx, texts, suits } = drawn(card);
+      const { texts } = drawn(card);
       const label = `${card.rank} ${card.suit}`;
-      expect(turned(ctx), label).toEqual([]);
-      expect(texts, label).toHaveLength(1);
-      if (card.suit !== 'joker') expect(suits, label).toHaveLength(2);
-      // nothing in the old bottom-right index's place but the pip
-      for (const t of texts) expect(t.at.x < CARD_DESIGN.w / 2 && t.at.y < CARD_DESIGN.h / 2, label).toBe(true);
-    }
-  });
-
-  it('the centre pip: 200 units, centred across the card and in the space under the index, clear of it, on the card', () => {
-    const { w, h } = CARD_DESIGN;
-    for (const card of STANDARD) {
-      const label = `${card.rank} ${card.suit}`;
-      const { texts, suits } = drawn(card);
-      const pip = suitBox(suits[1], card.suit);
-      const idx = suitBox(suits[0], card.suit);
-      const ink = inkOf(texts[0]);
-      expect(pip.size, label).toBeCloseTo(200, 6);
-      expect(pip.cx, label).toBeCloseTo(w / 2, 6);
-      expect(pip.cy, label).toBeCloseTo(293, 6);
-      // clear of the index (rank ink and suit) by 30+ units
-      expect(pip.y0 - Math.max(idx.y1, ink.y1), label).toBeGreaterThan(30);
-      // the gap above it and the margin below it match (balanced in the free space)
-      expect(Math.abs((pip.y0 - idx.y1) - (h - pip.y1)), label).toBeLessThan(2);
-      expect(pip.x0, label).toBeGreaterThan(40);
-      expect(pip.x1, label).toBeLessThan(w - 40);
-      // 2.7x iOS's 74-unit pip
-      expect(pip.size / 74).toBeGreaterThan(2.7);
+      for (const t of texts) {
+        if (t.args[0] === 'I' && card.rank === '10') expect(t.font, label).toMatch(new RegExp(`^700 [0-9.]+px ${FONT_UI.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`));
+        else expect(t.font, label).toMatch(/^700 [0-9.]+px "BAB Card Index", -apple-system/);
+      }
     }
   });
 });
 
-describe('the jokers (the faithful sprite, HI / LO as the corner index)', () => {
-  it('HI in card red, LO in card black: the one word, top left, the ranks\' bold, its ink 12 units inside the slate outline', () => {
-    for (const [rank, color] of [['HI', C.red], ['LO', C.black]]) {
-      const { ctx, texts } = drawn({ suit: 'joker', rank });
-      expect(texts.map((t) => t.args[0])).toEqual([rank]); // no top-right label, no JOKER
-      const [t] = texts;
-      expect(t.fillStyle).toBe(color);
-      expect([t.m.a, t.m.b, t.m.c, t.m.d]).toEqual([1, 0, 0, 1]);
-      expect(t.font.startsWith('700 ')).toBe(true);
-      const ink = inkOf(t);
-      // the outline shows 6 units (a 12-unit stroke clipped to the card):
-      // the word keeps the ranks' 12-unit margin inside it, not 6 units
-      expect(JOKER_WORD).toEqual({ left: 20, top: 24, maxInkW: 98 });
-      expect(ink.y0).toBeGreaterThan(22.5);
-      expect(ink.y0).toBeLessThanOrEqual(24 + 1e-9);
-      expect(ink.x0).toBeGreaterThanOrEqual(6 + 12 - 1e-9);
-      expect(ink.x0).toBeCloseTo(20, 6);
-      expect(ink.x1).toBeLessThanOrEqual(INDEX.left + INDEX.maxInkW + 1e-9);
-      // nothing in the old top-right label's place (x > 150, above the panel)
-      expect(texts.filter((x) => x.at.x > 150)).toEqual([]);
-      // no rotated copy at the bottom right
-      expect(turned(ctx)).toEqual([]);
-      // the word sits on a white patch that the inner border passes behind
-      const patch = ctx.calls.filter((c) => c.op === 'fillRect' && c.fillStyle === C.face);
-      expect(patch).toHaveLength(1);
-      expect(ctx.calls.indexOf(patch[0])).toBeLessThan(ctx.calls.indexOf(t));
+describe('the jumbo corner index (design units, 300 x 435)', () => {
+  it('the designed numbers', () => {
+    expect(INDEX).toEqual({ left: 12, col: 50, top: 18, cap: 70, weight: 700, maxInkW: 106, gap: 5, suit: 54 });
+    expect(TEN).toEqual({ iScaleX: 1.02, gap: 6 });
+    expect(PIP).toEqual({ size: 160, cx: 150, cy: 300 });
+  });
+
+  it('every standard face: ONE rank, a 70-unit cap (Arvo 94.6 px; the fallback 99.3), its ink 18 down, centred on x = 50, unscaled', () => {
+    for (const f of FONTS) {
+      // the size for a 70-unit cap: the 10 fits, so nothing shrinks
+      expect(f.size, f.name).toBeCloseTo(f.cap, 6);
+      for (const card of STANDARD.filter((c) => c.rank !== '10')) {
+        const label = `${f.name}: ${card.rank} ${card.suit}`;
+        const { texts, ink } = drawn(card, f.opts);
+        expect(texts.map((t) => t.args[0]), label).toEqual([card.rank]);
+        const [t] = texts;
+        expect(t.font, label).toBe(cardFontAt(f.size));
+        expect(t.fillStyle, label).toBe(colorOf(card.suit));
+        expect([t.m.a, t.m.b, t.m.c, t.m.d], label).toEqual([1, 0, 0, 1]);
+        expect(ink.y0, label).toBeLessThanOrEqual(18 + 1e-9);
+        expect(ink.y0, label).toBeGreaterThan(16); // a round glyph's overshoot only
+        expect((ink.x0 + ink.x1) / 2, label).toBeCloseTo(50, 6);
+        // one baseline for every rank: the flat cap's, 70 under the top
+        expect(ink.baseline, label).toBeCloseTo(18 + 70, 6);
+      }
+    }
+    expect(ARVO_SIZE).toBeCloseTo(94.6, 1);
+  });
+
+  it('the "10" is a sans capital I (the UI font, its cap the slab figure height, widened 1.02) and the slab 0, a 6-unit ink gap', () => {
+    for (const f of FONTS) {
+      for (const suit of ['hearts', 'spades', 'diamonds', 'clubs']) {
+        const label = `${f.name}: 10 ${suit}`;
+        const { texts, inks, ink } = drawn({ suit, rank: '10' }, f.opts);
+        expect(texts.map((t) => t.args[0]), label).toEqual(['I', '0']);
+        const [one, zero] = texts;
+        expect(one.font.endsWith(`px ${FONT_UI}`), label).toBe(true);
+        expect(zero.font, label).toBe(cardFontAt(f.size));
+        for (const t of texts) expect(t.fillStyle, label).toBe(colorOf(suit));
+        // the I widened to the slab 0's stroke, never condensed or rotated
+        expect([one.m.a, one.m.b, one.m.c, one.m.d], label).toEqual([1.02, 0, 0, 1]);
+        expect(zero.m.a, label).toBe(1);
+        // the I's cap is the slab's flat figure height (its "7": 70), on the ranks' baseline
+        expect(inks[0].y1 - inks[0].y0, label).toBeCloseTo(70, 6);
+        expect(inks[0].baseline, label).toBeCloseTo(88, 6);
+        expect(inks[1].baseline, label).toBeCloseTo(88, 6);
+        // the small ink gap, I then 0
+        expect(inks[1].x0 - inks[0].x1, label).toBeCloseTo(6, 6);
+        // centred like every rank, never nearer the edge than 12 (the fallback's wider 0)
+        expect(ink.x0, label).toBeCloseTo(Math.max(12, 50 - (ink.x1 - ink.x0) / 2), 6);
+        expect(ink.x1, label).toBeLessThanOrEqual(INDEX.left + INDEX.maxInkW);
+      }
+    }
+    // in Arvo: 75.5 units of ink from x = 12.2 (the study's "10")
+    const { ink } = drawn({ suit: 'clubs', rank: '10' });
+    expect(ink.x1 - ink.x0).toBeCloseTo(75.5, 1);
+    expect(ink.x0).toBeCloseTo(12.2, 1);
+    // and no "1" glyph anywhere (the slab 1 reads as an I with a flag)
+    for (const card of ALL_CARDS) expect(drawn(card).texts.some((t) => t.args[0].includes('1'))).toBe(false);
+  });
+
+  it('a font whose "10" is wider than the column shrinks EVERY rank alike (never condenses the 10)', () => {
+    // the recording context's own measure: 0.6 em a character, no ink metrics
+    const plain = recordingContext();
+    const size = rankSize(plain);
+    const run = rankRun(plain, '10', 70 / 0.705);
+    expect(run.right - run.left).toBeGreaterThan(INDEX.maxInkW);
+    expect(size).toBeCloseTo(((70 / 0.705) * INDEX.maxInkW) / (run.right - run.left), 9);
+    const sizes = new Set();
+    for (const card of STANDARD) {
+      const { texts } = drawn(card, undefined, recordingContext());
+      sizes.add(fontPx(texts[texts.length - 1].font));
+      expect(texts[texts.length - 1].m.a).toBe(1);
+    }
+    expect([...sizes]).toEqual([size]);
+  });
+
+  it('the suit: 54 units, its box 5 under the deepest rank descender (Arvo\'s Q tail: 23.2 under the baseline), centred under the rank', () => {
+    const qTail = (-G.Q.yMin / UPEM) * ARVO_SIZE;
+    expect(qTail + 5).toBeCloseTo(23.2, 1);
+    for (const f of FONTS) {
+      const drop = f.opts.cardFont ? qTail + 5 : 0.0662 * f.size + 5;
+      for (const card of STANDARD) {
+        const label = `${f.name}: ${card.rank} ${card.suit}`;
+        const { suits, ink } = drawn(card, f.opts);
+        expect(suits, label).toHaveLength(2); // the index's suit and the pip: nothing else
+        const s = suitBox(suits[0], card.suit);
+        expect(s.size, label).toBeCloseTo(54, 6);
+        expect(s.y0, label).toBeCloseTo(ink.baseline + drop, 6);
+        expect(s.y0, label).toBeGreaterThan(ink.y1 + 4); // clear of every descender (the Q)
+        expect(s.cx, label).toBeCloseTo((ink.x0 + ink.x1) / 2, 6);
+      }
     }
   });
 
-  it('both words one size: the ranks\' 100, shrunk alike so the wider "LO" ends with the index column at 118 (SF: ~83.7)', () => {
-    const size = jokerWordSize(sfContext());
-    // SF's bold "LO" has 117.1 units of ink at 100; from x = 20 it may have 98
-    expect(size).toBeCloseTo((100 * 98) / (122.97 - 5.86), 6);
-    const hi = drawn({ suit: 'joker', rank: 'HI' }).texts[0];
-    const lo = drawn({ suit: 'joker', rank: 'LO' }).texts[0];
-    expect(fontPx(hi.font)).toBeCloseTo(size, 9);
-    expect(fontPx(lo.font)).toBeCloseTo(size, 9);
-    expect(inkOf(lo).x1 - inkOf(lo).x0).toBeCloseTo(98, 6);
-    expect(inkOf(lo).x1).toBeCloseTo(INDEX.left + INDEX.maxInkW, 6);
+  it('no bottom-right index: one rank (the 10: its I and 0), one index suit and the pip, nothing turned 180 degrees', () => {
+    for (const card of ALL_CARDS) {
+      const { ctx, texts, suits } = drawn(card);
+      const label = `${card.rank} ${card.suit}`;
+      expect(turned(ctx), label).toEqual([]);
+      expect(texts, label).toHaveLength(card.rank === '10' ? 2 : 1);
+      if (card.suit !== 'joker') expect(suits, label).toHaveLength(2);
+      for (const t of texts) expect(t.at.x < CARD_DESIGN.w / 2 && t.at.y < CARD_DESIGN.h / 2, label).toBe(true);
+    }
+  });
+
+  it('the centre pip: 160 units, its own element: 48+ units clear under the corner suit, balanced in the space below, on the card', () => {
+    const { w, h } = CARD_DESIGN;
+    for (const f of FONTS) {
+      for (const card of STANDARD) {
+        const label = `${f.name}: ${card.rank} ${card.suit}`;
+        const { suits, ink } = drawn(card, f.opts);
+        const pip = suitBox(suits[1], card.suit);
+        const idx = suitBox(suits[0], card.suit);
+        expect(pip.size, label).toBeCloseTo(160, 6);
+        expect(pip.cx, label).toBeCloseTo(w / 2, 6);
+        expect(pip.cy, label).toBeCloseTo(300, 6);
+        // a clear gap under the corner suit (the 200 pip left 28: it read as stacked on it)
+        expect(pip.y0 - Math.max(idx.y1, ink.y1), label).toBeGreaterThanOrEqual(48);
+        // smaller than the 200-unit pip, still twice iOS's 74
+        expect(pip.size, label).toBeLessThan(200);
+        expect(pip.size / 74, label).toBeGreaterThan(2);
+        expect(pip.x0, label).toBeGreaterThan(70);
+        expect(pip.x1, label).toBeLessThan(w - 70);
+        expect(h - pip.y1, label).toBeGreaterThanOrEqual(48);
+      }
+    }
+    // in Arvo the gap above it and the margin below it match (balanced)
+    const { suits } = drawn({ suit: 'hearts', rank: 'Q' });
+    const pip = suitBox(suits[1], 'hearts');
+    const idx = suitBox(suits[0], 'hearts');
+    expect(Math.abs((pip.y0 - idx.y1) - (h - pip.y1))).toBeLessThan(1);
+  });
+});
+
+describe('the jokers (the faithful sprite, HI / LO as the corner index)', () => {
+  it('HI in card red, LO in card black: the one word, top left, the card font, its ink 12 units inside the slate outline', () => {
+    for (const f of FONTS) {
+      for (const [rank, color] of [['HI', C.red], ['LO', C.black]]) {
+        const label = `${f.name}: ${rank}`;
+        const { ctx, texts, ink } = drawn({ suit: 'joker', rank }, f.opts);
+        expect(texts.map((t) => t.args[0]), label).toEqual([rank]); // no top-right label, no JOKER
+        const [t] = texts;
+        expect(t.fillStyle, label).toBe(color);
+        expect([t.m.a, t.m.b, t.m.c, t.m.d], label).toEqual([1, 0, 0, 1]);
+        expect(t.font, label).toBe(cardFontAt(jokerWordSize(cardFontContext(f.opts))));
+        expect(JOKER_WORD).toEqual({ left: 20, top: 24, maxInkW: 98 });
+        expect(ink.y0, label).toBeGreaterThan(22.5);
+        expect(ink.y0, label).toBeLessThanOrEqual(24 + 1e-9);
+        expect(ink.x0, label).toBeGreaterThanOrEqual(6 + 12 - 1e-9);
+        expect(ink.x1, label).toBeLessThanOrEqual(INDEX.left + INDEX.maxInkW + 1e-9);
+        expect(texts.filter((x) => x.at.x > 150), label).toEqual([]);
+        expect(turned(ctx), label).toEqual([]);
+        const patch = ctx.calls.filter((c) => c.op === 'fillRect' && c.fillStyle === C.face);
+        expect(patch, label).toHaveLength(1);
+        expect(ctx.calls.indexOf(patch[0]), label).toBeLessThan(ctx.calls.indexOf(t));
+      }
+    }
+  });
+
+  it('both words one size: shrunk alike so the wider "LO" ends with the index column at 118 (Arvo: a 53.7-unit cap; SF ~83.7 px)', () => {
+    const loArvo = (G.L.advance + G.O.xMax - G.L.xMin) / UPEM;
+    const size = jokerWordSize(cardFontContext());
+    expect(size).toBeCloseTo(98 / loArvo, 6);
+    expect(size * ARVO_CAP).toBeCloseTo(53.7, 1);
+    expect(jokerWordSize(cardFontContext({ cardFont: false }))).toBeCloseTo((100 * 98) / (122.97 - 5.86), 6);
+    const hi = drawn({ suit: 'joker', rank: 'HI' });
+    const lo = drawn({ suit: 'joker', rank: 'LO' });
+    expect(fontPx(hi.texts[0].font)).toBeCloseTo(size, 9);
+    expect(fontPx(lo.texts[0].font)).toBeCloseTo(size, 9);
+    expect(lo.ink.x1 - lo.ink.x0).toBeCloseTo(98, 6);
+    expect(lo.ink.x1).toBeCloseTo(INDEX.left + INDEX.maxInkW, 6);
   });
 
   it('faithful: the slate outline, the light-blue border and panel, white flourishes and the black dollar, no purple, no star', () => {
     for (const card of JOKERS) {
-      const { ctx } = drawn(card);
+      const { ctx, ink } = drawn(card);
       const strokes = (color) => ctx.calls.filter((c) => c.op === 'stroke' && c.strokeStyle === color);
       expect(strokes(JOKER_INK.outline).map((c) => c.lineWidth)).toEqual([12]);
       expect(strokes(JOKER_INK.frame).map((c) => c.lineWidth)).toEqual([6.5]);
       expect(ctx.calls.filter((c) => c.op === 'fill' && c.fillStyle === JOKER_INK.frame)).toHaveLength(1);
-      // 4 flourishes: an L and a ring each
       expect(strokes(JOKER_INK.flourish)).toHaveLength(8);
-      // the dollar: the S, the bars with their loop, the serifs
       expect(strokes(JOKER_INK.glyph)).toHaveLength(3);
       expect(ctx.calls.some((c) => c.fillStyle === C.joker || c.strokeStyle === C.joker)).toBe(false);
-      // the panel on the design canvas: sprite x 21..43, y 16..48 -> 71..229 x 101.5..333.5, clear of the word
+      // the panel: sprite x 21..43, y 16..48 -> 71..229 x 101.5..333.5, clear of the word
       const panel = ctx.calls.find((c) => c.op === 'fill' && c.fillStyle === JOKER_INK.frame);
       expect(panel.m.a * 21 + panel.m.e).toBeCloseTo((10 * 300) / 42, 6);
       expect(panel.m.d * 16 + panel.m.f).toBeCloseTo((14 * 435) / 60, 6);
-      const word = inkOf(drawn(card).texts[0]);
-      expect(word.y1 + 6).toBeLessThan(panel.m.d * 16 + panel.m.f);
+      expect(ink.y1 + 6).toBeLessThan(panel.m.d * 16 + panel.m.f);
     }
   });
 });
 
 describe('the index in the fanned hand (computeTableLayout)', () => {
-  // the index column's right edge over every face: rank ink, suit, joker word
-  const inkRight = Math.max(...ALL_CARDS.map((card) => {
-    const { texts, suits } = drawn(card);
-    const xs = [inkOf(texts[0]).x1];
+  /** The index column's right edge over every face (rank ink, suit, joker word) in one font. */
+  const inkRightIn = (opts) => Math.max(...ALL_CARDS.map((card) => {
+    const { suits, ink } = drawn(card, opts);
+    const xs = [ink.x1];
     if (suits[0]) xs.push(suitBox(suits[0], card.suit).x1);
     return Math.max(...xs);
   }));
+  const RIGHT = Object.fromEntries(FONTS.map((f) => [f.name, inkRightIn(f.opts)]));
   /** The narrowest strip a hand of 2-13 cards shows, in CSS px and design units. */
   function tightest(L) {
     let px = Infinity;
@@ -258,10 +299,9 @@ describe('the index in the fanned hand (computeTableLayout)', () => {
     return { px, units: (px / L.card.hand.w) * CARD_DESIGN.w };
   }
 
-  it('the column ends at most 118 units in (12 + 106): the full-width "10" at 117.2, the joker\'s "LO" at 118', () => {
-    expect(inkRight).toBeCloseTo(INDEX.left + INDEX.maxInkW, 6);
-    const ten = inkOf(drawn({ suit: 'clubs', rank: '10' }).texts[0]);
-    expect(ten.x1).toBeCloseTo(12 + 105.18, 2);
+  it('the column ends at most 118 units in (12 + 106), in Arvo and in the fallback: the joker\'s "LO" at 118, the 10 well inside', () => {
+    for (const f of FONTS) expect(RIGHT[f.name], f.name).toBeCloseTo(INDEX.left + INDEX.maxInkW, 6);
+    expect(drawn({ suit: 'clubs', rank: '10' }).ink.x1).toBeLessThan(90);
   });
 
   it('desktop sweep (800-2560 x 500-1440, DPR 1 and 2): the whole index, "10" included, shows a device pixel clear of the next card', () => {
@@ -273,10 +313,10 @@ describe('the index in the fanned hand (computeTableLayout)', () => {
         for (const dpr of [1, 2]) {
           const L = layoutForViewport({ vw, vh, dpr });
           const t = tightest(L);
-          const needPx = (inkRight / CARD_DESIGN.w) * L.card.hand.w + 1 / dpr;
-          if (needPx > t.px + 1e-9) covered.push(`${vw}x${vh}@${dpr}: strip ${t.px} px, index needs ${needPx.toFixed(2)}`);
-          // the hand box's MIN_HAND_SPACING floor (16 x s, ~72-75 units: it
-          // would cover the "10") is never what a hand gets
+          for (const f of FONTS) {
+            const needPx = (RIGHT[f.name] / CARD_DESIGN.w) * L.card.hand.w + 1 / dpr;
+            if (needPx > t.px + 1e-9) covered.push(`${f.name} ${vw}x${vh}@${dpr}: strip ${t.px} px, index needs ${needPx.toFixed(2)}`);
+          }
           if (t.px <= 16 * L.s + 1 / dpr) minSpacing.push(`${vw}x${vh}@${dpr}`);
           if (!worst || t.units < worst.units) worst = { at: `${vw}x${vh}@${dpr}`, ...t };
         }
@@ -284,19 +324,18 @@ describe('the index in the fanned hand (computeTableLayout)', () => {
     }
     expect(covered).toEqual([]);
     expect(minSpacing).toEqual([]);
-    // the tightest: 840x500 at DPR 1, a 16 px strip of a 38 px card (126 units)
     expect(worst.at).toBe('840x500@1');
     expect(worst.units).toBeCloseTo(126.3, 1);
   });
 
-  it('the study\'s sizes: 1280x800 (25.5 px of a 59 px card at DPR 2) and 1440x900 leave room past the "10"', () => {
+  it('the study\'s sizes: 1280x800 (25.5 px of a 59 px card at DPR 2) and 1440x900 leave room past the index', () => {
     for (const [vw, vh, dpr, px] of [[1280, 800, 2, 25.5], [1280, 800, 1, 25], [1440, 900, 2, 30], [1440, 900, 1, 30]]) {
       const L = layoutForViewport({ vw, vh, dpr });
       const t = tightest(L);
       expect(t.px).toBe(px);
-      expect(t.units - inkRight, `${vw}x${vh}@${dpr}`).toBeGreaterThan(8);
+      expect(t.units - RIGHT['Arvo (loaded)'], `${vw}x${vh}@${dpr}`).toBeGreaterThan(8);
       // the rank's cap height in the hand, CSS px (iOS's 40 rank: ~5.5)
-      expect((70.46 / CARD_DESIGN.h) * L.card.hand.h).toBeGreaterThan(13.5);
+      expect((70 / CARD_DESIGN.h) * L.card.hand.h).toBeGreaterThan(13.5);
     }
   });
 });

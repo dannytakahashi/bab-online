@@ -1,0 +1,126 @@
+{
+ "family": "BAB Card Index",
+ "glyphs": {
+  "0": {
+   "advance": 1296,
+   "xMax": 1264,
+   "xMin": 82,
+   "yMax": 1534,
+   "yMin": -14
+  },
+  "2": {
+   "advance": 1178,
+   "xMax": 1118,
+   "xMin": 119,
+   "yMax": 1540,
+   "yMin": 0
+  },
+  "3": {
+   "advance": 1087,
+   "xMax": 1061,
+   "xMin": 16,
+   "yMax": 1550,
+   "yMin": -18
+  },
+  "4": {
+   "advance": 1231,
+   "xMax": 1196,
+   "xMin": 10,
+   "yMax": 1516,
+   "yMin": 0
+  },
+  "5": {
+   "advance": 1206,
+   "xMax": 1165,
+   "xMin": 111,
+   "yMax": 1516,
+   "yMin": -31
+  },
+  "6": {
+   "advance": 1163,
+   "xMax": 1112,
+   "xMin": 66,
+   "yMax": 1518,
+   "yMin": -12
+  },
+  "7": {
+   "advance": 1190,
+   "xMax": 1149,
+   "xMin": 41,
+   "yMax": 1516,
+   "yMin": 0
+  },
+  "8": {
+   "advance": 1180,
+   "xMax": 1165,
+   "xMin": 113,
+   "yMax": 1544,
+   "yMin": -27
+  },
+  "9": {
+   "advance": 1151,
+   "xMax": 1153,
+   "xMin": 106,
+   "yMax": 1528,
+   "yMin": -2
+  },
+  "A": {
+   "advance": 1491,
+   "xMax": 1468,
+   "xMin": 27,
+   "yMax": 1516,
+   "yMin": 0
+  },
+  "H": {
+   "advance": 1890,
+   "xMax": 1778,
+   "xMin": 113,
+   "yMax": 1516,
+   "yMin": 0
+  },
+  "I": {
+   "advance": 810,
+   "xMax": 762,
+   "xMin": 113,
+   "yMax": 1516,
+   "yMin": 0
+  },
+  "J": {
+   "advance": 686,
+   "xMax": 655,
+   "xMin": 10,
+   "yMax": 1516,
+   "yMin": -238
+  },
+  "K": {
+   "advance": 1655,
+   "xMax": 1604,
+   "xMin": 113,
+   "yMax": 1516,
+   "yMin": 0
+  },
+  "L": {
+   "advance": 1346,
+   "xMax": 1325,
+   "xMin": 113,
+   "yMax": 1516,
+   "yMin": 0
+  },
+  "O": {
+   "advance": 1620,
+   "xMax": 1534,
+   "xMin": 66,
+   "yMax": 1544,
+   "yMin": -27
+  },
+  "Q": {
+   "advance": 1634,
+   "xMax": 1573,
+   "xMin": 66,
+   "yMax": 1544,
+   "yMin": -395
+  }
+ },
+ "kern": {},
+ "unitsPerEm": 2048
+}
