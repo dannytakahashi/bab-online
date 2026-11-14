@@ -24,3 +24,14 @@ test('the limits are 90 plays and 30 bids per minute', () => {
     expect(rateLimiter.limits.playCard).toEqual({ max: 90, windowMs: 60000 });
     expect(rateLimiter.limits.playerBid).toEqual({ max: 30, windowMs: 60000 });
 });
+
+test('tournament create and cancel allow 10 a minute (owner 2026-11-13)', () => {
+    expect(rateLimiter.limits.createTournament).toEqual({ max: 10, windowMs: 60000 });
+    expect(rateLimiter.limits.cancelTournament).toEqual({ max: 10, windowMs: 60000 });
+    const sid = 'rl-tourney';
+    for (let i = 0; i < 5; i++) {
+        expect(rateLimiter.check(sid, 'createTournament')).toBe(true);
+        expect(rateLimiter.check(sid, 'cancelTournament')).toBe(true);
+        jest.advanceTimersByTime(2000);
+    }
+});

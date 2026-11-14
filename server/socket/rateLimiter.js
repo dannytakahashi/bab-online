@@ -55,8 +55,10 @@ class RateLimiter {
             createLobby: { max: 5, windowMs: 60000 },
 
             // Tournaments - create/join/leave cycles trigger room-wide
-            // broadcasts, so keep them throttled
-            createTournament: { max: 3, windowMs: 60000 },
+            // broadcasts, so keep them throttled. Create and cancel allow 10
+            // a minute (owner 2026-11-13: two quick create/cancel rounds hit
+            // the old 3 a minute)
+            createTournament: { max: 10, windowMs: 60000 },
             joinTournament: { max: 10, windowMs: 60000 },
             leaveTournament: { max: 10, windowMs: 60000 },
             tournamentReady: { max: 10, windowMs: 10000 },
@@ -66,7 +68,7 @@ class RateLimiter {
             returnToTournament: { max: 10, windowMs: 30000 },
             spectateTournament: { max: 10, windowMs: 60000 },
             spectateTournamentGame: { max: 10, windowMs: 60000 },
-            cancelTournament: { max: 3, windowMs: 60000 },
+            cancelTournament: { max: 10, windowMs: 60000 },
 
             // Account management
             deleteAccount: { max: 3, windowMs: 300000 },  // 3 per 5 minutes
