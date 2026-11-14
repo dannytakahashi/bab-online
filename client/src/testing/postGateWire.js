@@ -12,7 +12,8 @@
  *               pictures positionUpdate, the seat events and the
  *               snapshots gave; GameState.applyDeal still reads it when
  *               present)
- *   #6          gameStart without `players` (seat socket ids)
+ *   #6          gameStart without `players` (seat socket ids; executed
+ *               2026-11-12: the recordings carry none, a no-op)
  *   #7          no `playerAssigned` (executed 2026-11-12: the recordings
  *               carry none any more, so this one is a no-op)
  *   #9          rejoinSuccess / restorePlayerState / the spectator full

@@ -648,9 +648,9 @@ async function dealHand(game, io, { dealer, handSize, firstHand = false }) {
         if (seat.presence !== Presence.CONNECTED) continue;
         const playerPosition = seat.position;
         const info = infoFor(seat.ownerSocketId);
+        // No players (the seat socket ids, in deal order): V1_REMOVALS #6
         game.sendToPlayer(io, seat.ownerSocketId, 'gameStart', {
             gameId: game.gameId,
-            players: socketIds,
             hand: game.getHand(seat.seatSocketId),
             trump: game.trump,
             score1: game.score.team1,

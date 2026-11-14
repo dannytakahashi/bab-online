@@ -37,7 +37,6 @@ enum WirePayload {
         var gameId: String?
         /// Custom pictures by position (clientHello avatarUrl cap: the playerInfo slot is null then).
         var avatarUrls: [String: String]?
-        var players: [String]?
         var hand: [Card]?
         var trump: Card?
         var score1: Int?
