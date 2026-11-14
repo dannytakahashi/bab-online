@@ -19,10 +19,12 @@ is answered only with an update message by `server/socket/upgradeGate.js`
 gated socket never signs in, never joins a room and never receives a game
 payload, so no removal below can break it any more.
 
-Second step (owner decision: once 1.2.0 is approved and live):
+Second step (owner decision: once 1.2.0 is approved and live; 1.2.0 build 6
+went live 2026-11-13, and the gate PR is #234):
 `MIN_IOS_BUILD` 3 gates 1.1.0 (f05d264, build 2, `BAB%20Online/2 ...`) the
-same way; 1.2.0 (build 5; build 3 was never submitted, build 4 was pulled from
-review) and later are never gated. The gate's payloads were re-checked against what 1.1.0 reads
+same way; 1.2.0 (build 6 in the App Store = build 5 + the new app icon, so it
+reads what build 5 reads, `iOSClient/` at 92d0c75; build 3 was never
+submitted, build 4 was pulled from review) and later are never gated. The gate's payloads were re-checked against what 1.1.0 reads
 (SignInView / RegisterView show `signInResponse` / `signUpResponse`
 messages in red under the fields; LobbySocketHandler reads
 `recentMessages ?? messages`; leftGame / leftLobby / tournamentLeft land in
@@ -511,7 +513,7 @@ merged 2026-11-11 10:46 PST, so the one-day window ended 2026-11-12 10:46
 PST. (1.1.0 never sent it; the blocker was the cached web bundle.) #18 gave
 it a Joi schema meanwhile; removed with the handler (done, above).
 
-## iOS TURN (next App Store release, roadmap 29 track; not a removal)
+## iOS TURN (iOS 1.2.0, live 2026-11-13; roadmap 29 track; not a removal)
 
 **Done in iOS 1.2.0 (build 3, branch ios/release-1.2):** `Voice/IceServerStore.swift`
 (`IcePolicy`, `IceServerStore`, `VoiceRecovery`) + `VoiceChatManager`: the
@@ -554,7 +556,7 @@ a strict NAT still cannot connect, to web or iOS. The next iOS build needs:
 The App Privacy answers do not change: TURN relays the encrypted SRTP
 stream and nothing is stored.
 
-## iOS spectator badge (next App Store release, roadmap 29 track; not a removal)
+## iOS spectator badge (iOS 1.2.0, live 2026-11-13; roadmap 29 track; not a removal)
 
 **Done in iOS 1.2.0:** `ServerEvent.spectators` (decoded with seq nil, so it
 goes around the gate; another game's list is dropped), `PlayersSlice.watching`
@@ -727,8 +729,10 @@ spectator snapshots (#5, #6, #7, #8; web done 2026-11-12).
 
 ## What iOS 1.2.0 unblocks (once 1.1.0 is gated)
 
-iOS 1.2.0 (build 5; build 3 was uploaded, never submitted; build 4 was
-pulled from review and never ships) does that iOS work. Owner decision: once 1.2.0 is approved and live, `MIN_IOS_BUILD` in
+iOS 1.2.0 (build 6, live in the App Store since 2026-11-13: build 5 + the new
+app icon, so it reads what build 5 reads; build 3 was uploaded, never
+submitted; build 4 was pulled from review and never ships) does that iOS
+work. Owner decision: once 1.2.0 is approved and live, `MIN_IOS_BUILD` in
 `server/socket/upgradeGate.js` goes to 3, which gates 1.1.0 the way 1.0.0
 is gated (its own PR, the gate's v1 payloads re-checked against what 1.1.0
 reads: Step 0). Until that PR merges, 1.1.0 keeps every blocker listed

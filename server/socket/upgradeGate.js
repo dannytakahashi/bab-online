@@ -12,8 +12,10 @@
  * simulator builds of cc9059f and f05d264 (2026-11-11):
  *   1.0.0  "BAB%20Online/1 CFNetwork/3896.200.61 Darwin/27.2.0"
  *   1.1.0  "BAB%20Online/2 CFNetwork/3896.200.61 Darwin/27.2.0"
- *   1.2.0  "BAB%20Online/5 ..." (build 3 was uploaded, never submitted;
- *          build 4 was pulled from review)
+ *   1.2.0  "BAB%20Online/6 ..." (the App Store build since 2026-11-13: build 5
+ *          + the new app icon; build 3 was uploaded, never submitted; build 4
+ *          was pulled from review)
+ *   1.2.1  "BAB%20Online/7 ..." on TestFlight; 8 is the next build
  * The websocket upgrade request (Starscream) carries no User-Agent, but
  * socket.handshake keeps the polling handshake's headers for the socket's
  * life. A socket is gated only when that header parses as the iOS app with a
@@ -97,8 +99,9 @@ const { gateEnabled } = require('../utils/upgradeGateSwitch');
 
 /**
  * First iOS build number that is never gated: 1.0.0 (1) and 1.1.0 (2) are,
- * 1.2.0 (5; 3 was never submitted, 4 was pulled from review) and later
- * are not.
+ * 1.2.0 (6 in the App Store, live 2026-11-13; 3 was never submitted, 4 was
+ * pulled from review, 5 was replaced by 6), 1.2.1 (7 on TestFlight, 8 next)
+ * and later are not.
  */
 const MIN_IOS_BUILD = 3;
 
