@@ -36,7 +36,25 @@ struct LeaderboardView: View {
             content(table: geo.size.width >= tableMinWidth && typeSize <= .xxxLarge, column: columnWidth(geo.size.width))
         }
         .onAppear { state.request() }
+        .onChange(of: state.scope) { state.request() }
         .sensoryFeedback(.selection, trigger: state.sort)
+    }
+
+    /// No rows: no player has a finished game in the scope (bot games count from the server
+    /// update that records them).
+    private var emptyMessage: StatsMessageView {
+        switch state.scope {
+        case .human:
+            return StatsMessageView(symbol: "chart.bar", title: "No Players Yet",
+                                    message: "No players have completed games yet.", identifier: "stats.empty")
+        case .bots:
+            return StatsMessageView(symbol: "chart.bar", title: "No Bot Games Yet",
+                                    message: StatsScope.botsFromNowNote, identifier: "stats.empty")
+        case .all:
+            return StatsMessageView(symbol: "chart.bar", title: "No Players Yet",
+                                    message: "No players have completed games yet. " + StatsScope.botsFromNowNote,
+                                    identifier: "stats.empty")
+        }
     }
 
     @ViewBuilder
@@ -50,10 +68,7 @@ struct LeaderboardView: View {
             }
         case .content:
             if state.entries.isEmpty {
-                refreshable {
-                    StatsMessageView(symbol: "chart.bar", title: "No Players Yet",
-                                     message: "No players have completed games yet.", identifier: "stats.empty")
-                }
+                refreshable { emptyMessage }
             } else {
                 rows(table: table, column: column)
             }
