@@ -58,6 +58,7 @@ import { SCREENS, initializeUIManager } from './ui/UIManager.js';
 import { createPhaserGame, getPhaserGame } from './phaser/PhaserGame.js';
 import { installLoopControl } from './phaser/loopControl.js';
 import { applyBackingStore, onDprChange } from './phaser/backingStore.js';
+import { loadCardFont } from './phaser/cards/cardFont.js';
 
 // Handlers
 import { registerAllHandlers } from './handlers/index.js';
@@ -1995,6 +1996,10 @@ let appStarted = false;
 export function startApp() {
   if (appStarted) return;
   appStarted = true;
+
+  // The card index font (cards/cardFont.js): fetched now so it is ready
+  // long before a table; the card atlas redraws if it lands later
+  loadCardFont();
 
   // Initialize the app
   initializeApp();

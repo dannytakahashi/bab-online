@@ -3,12 +3,15 @@
  * face drawn at the slot card's own size (1:1 however large the slot row
  * grows), redrawn only when its face or the size changes.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { FakeTextures } from '../../testing/fakePhaser.js';
 import { ATLAS_PAD } from './CardAtlas.js';
 import { DRAW_SLOTS_KEY, ensureDrawSlotFace, drawSlotFaces, slotFrame } from './drawSlotFaces.js';
+import { loadCardFont, resetCardFontForTests } from './cardFont.js';
 
 describe('drawSlotFaces', () => {
+  beforeEach(() => resetCardFontForTests());
+
   it('a face per slot in its own cell; uploads only on a change; a resize redraws every face at the new size', () => {
     const textures = new FakeTextures();
     const spec = { w: 128, h: 186 };
@@ -37,5 +40,29 @@ describe('drawSlotFaces', () => {
     expect(tex.frames[slotFrame(3)]).toMatchObject({ width: big.w, height: big.h, cutX: ATLAS_PAD + 3 * (big.w + ATLAS_PAD) });
     expect(textures.drawCalls).toBeGreaterThan(before);
     expect(drawSlotFaces(textures)).toEqual({ spec: big, faces: ['k_hearts', null, 'hi_joker', null] });
+  });
+
+  it('faces drawn before the card font loads are painted again, once, when it does', async () => {
+    let settle;
+    const fetched = new Promise((res) => { settle = res; });
+    class FakeFontFace { load() { return fetched.then(() => this); } }
+    const load = loadCardFont({ FontFaceImpl: FakeFontFace, fonts: { add() {} } });
+    const textures = new FakeTextures();
+    const spec = { w: 128, h: 186 };
+    ensureDrawSlotFace(textures, spec, 0, '10_hearts');
+    ensureDrawSlotFace(textures, spec, 1, 'lo_joker');
+    const uploads = textures.uploads;
+    const draws = textures.drawCalls;
+    settle();
+    expect(await load).toBe(true);
+    // every slot painted again (the two faces), one upload
+    expect(textures.uploads).toBe(uploads + 1);
+    expect(textures.drawCalls).toBeGreaterThan(draws);
+    expect(drawSlotFaces(textures).faces).toEqual(['10_hearts', 'lo_joker', null, null]);
+    // later faces: drawn once, in the font
+    const before = textures.uploads;
+    ensureDrawSlotFace(textures, spec, 2, 'k_spades');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(textures.uploads).toBe(before + 1);
   });
 });

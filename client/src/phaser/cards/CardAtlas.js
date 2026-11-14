@@ -15,9 +15,15 @@
  *
  * Texture memory is width x height x 4 bytes for the one page
  * (atlasBytes): see atlasLayout for the grid.
+ *
+ * The ranks' font (cardFont.js) loads asynchronously: an atlas drawn before
+ * it is ready uses the system fallback and is drawn again, at the same
+ * size, when the font arrives (one redraw; the frames keep their sizes, so
+ * the sprites need nothing but the texture's re-upload).
  */
 import { CARD_CONFIG } from '../config.js';
 import { ALL_CARDS, FACE_FRAMES, BACK_FRAMES, SHADOW_FRAME, CARD_DESIGN, CARD_ASPECT, drawCard, drawShadow } from './cardFaces.js';
+import { isCardFontReady, loadCardFont, onCardFontReady } from './cardFont.js';
 
 export const CARD_TEXTURE_KEY = 'cards';
 /**
@@ -119,7 +125,9 @@ export function ensureCardAtlas(textures, spec, { createCanvas = null } = {}) {
   // (a test harness's texture manager brings its own canvas: jsdom has none)
   const makeCanvas = createCanvas || (textures._createAtlasCanvas ? () => textures._createAtlasCanvas() : () => document.createElement('canvas'));
   let atlas = atlases.get(textures);
-  const same = atlas && atlas.spec.w === spec.w && atlas.spec.h === spec.h && textures.exists?.(CARD_TEXTURE_KEY);
+  const fontReady = isCardFontReady();
+  const same = atlas && atlas.spec.w === spec.w && atlas.spec.h === spec.h && atlas.fontReady === fontReady
+    && textures.exists?.(CARD_TEXTURE_KEY);
   if (same) return { changed: false, spec: atlas.spec, bytes: atlas.bytes };
 
   const page = atlasLayout(spec);
@@ -151,9 +159,26 @@ export function ensureCardAtlas(textures, spec, { createCanvas = null } = {}) {
   tex.setFilter?.(globalThis.Phaser?.Textures?.FilterMode?.LINEAR ?? 0);
   tex.refresh?.();
 
-  atlas = { canvas, spec: { w: spec.w, h: spec.h }, bytes: page.width * page.height * 4, drawn: !!ctx };
+  atlas = { canvas, spec: { w: spec.w, h: spec.h }, bytes: page.width * page.height * 4, drawn: !!ctx, fontReady, draws: (atlas?.draws || 0) + 1 };
   atlases.set(textures, atlas);
+  if (!fontReady) redrawWhenFontLoads(textures);
   return { changed: true, spec: atlas.spec, bytes: atlas.bytes };
+}
+
+/** Texture managers waiting for the card font to redraw their atlas. */
+const waitingForFont = new WeakSet();
+
+/** Once the card font is ready, draw this manager's atlas again (same size) in it. */
+function redrawWhenFontLoads(textures) {
+  if (waitingForFont.has(textures)) return;
+  waitingForFont.add(textures);
+  onCardFontReady(() => {
+    waitingForFont.delete(textures);
+    const atlas = atlases.get(textures);
+    if (!atlas || !textures.exists?.(CARD_TEXTURE_KEY)) return;
+    ensureCardAtlas(textures, atlas.spec);
+  });
+  loadCardFont();
 }
 
 /** The atlas a texture manager holds now (live checks, tests). */
@@ -161,7 +186,7 @@ export function cardAtlasInfo(textures) {
   const a = atlases.get(textures);
   if (!a) return null;
   const page = atlasLayout(a.spec);
-  return { frame: { ...a.spec }, page: { w: page.width, h: page.height }, bytes: a.bytes, drawn: a.drawn };
+  return { frame: { ...a.spec }, page: { w: page.width, h: page.height }, bytes: a.bytes, drawn: a.drawn, fontReady: a.fontReady, draws: a.draws };
 }
 
 /**
