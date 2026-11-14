@@ -799,7 +799,11 @@ function recordTeam(game, n, scope) {
 
 /**
  * The records page: highest/lowest team score, biggest win and most/least
- * bags for all time, this year and this month, plus the total game count.
+ * bags for all time, this year and this month, plus the total game count
+ * (`totalGames`, all time, as every shipped client reads it) and the game
+ * count of each period (`periodGames`, additive 2026-11-14: the games each
+ * period's records were drawn from, so a client can show the count of the
+ * period on screen).
  * Three separate finds on purpose: thisYear/thisMonth come back newest-first
  * through the completedAt_-1 index and allTime in natural order, and ties
  * keep the first game seen, so merging them into one pass would change which
@@ -831,10 +835,12 @@ async function fillRecords(now, scope = 'human') {
     ]);
 
     const records = {};
+    const periodGames = {};
 
     for (let p = 0; p < periods.length; p++) {
         const period = periods[p];
         const games = results[p];
+        periodGames[period] = games.length;
 
         if (games.length === 0) {
             records[period] = null;
@@ -902,7 +908,7 @@ async function fillRecords(now, scope = 'human') {
         records[period] = { highestScore, lowestScore, biggestWin, mostBags, leastBags };
     }
 
-    return { records, totalGames };
+    return { records, totalGames, periodGames };
 }
 
 /**
@@ -930,7 +936,7 @@ async function getRecords(socket, io, data) {
     }
 
     const cache = recordsCache[scope];
-    const toPayload = ({ records, totalGames }) => withScope({ success: true, records, totalGames }, scope, echo);
+    const toPayload = ({ records, totalGames, periodGames }) => withScope({ success: true, records, totalGames, periodGames }, scope, echo);
 
     // Soft limit (one budget for every scope): over it, this scope's
     // (possibly stale) cached records, never serverError

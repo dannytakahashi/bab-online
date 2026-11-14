@@ -318,6 +318,12 @@ final class StatsScopeTests: XCTestCase {
         XCTAssertEqual(LeaderboardEntry.rows(fromResponse: UIFixture.allLeaderboardFixture)?.first { $0.username == "kim" }?.gamesPlayed, 44)
         XCTAssertEqual(GameRecords.from(response: UIFixture.botsRecordsFixture)?.periods.count, 3)
         XCTAssertEqual(GameRecords.from(response: UIFixture.allRecordsFixture)?.totalGames, 1240)
+        // the fixtures' periods hold different counts (owner 2026-11-14), All Time = totalGames
+        let human = GameRecords.from(response: UIFixture.recordsFixture)
+        XCTAssertEqual(GameRecords.Period.allCases.map { human?.games(in: $0) }, [1234, 317, 0])
+        let all = GameRecords.from(response: UIFixture.allRecordsFixture)
+        XCTAssertEqual(GameRecords.Period.allCases.map { all?.games(in: $0) }, [1240, 323, 6])
+        XCTAssertEqual(GameRecords.from(response: UIFixture.botsRecordsFixture)?.games(in: .thisMonth), 6)
     }
     #endif
 }

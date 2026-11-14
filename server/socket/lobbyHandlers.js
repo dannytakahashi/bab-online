@@ -6,7 +6,7 @@
 const gameManager = require('../game/GameManager');
 const { socketLogger } = require('../utils/logger');
 const { emitError } = require('./serverError');
-const { beginDraw } = require('./gameLifecycle');
+const { beginDraw, emitLobbiesUpdated } = require('./gameLifecycle');
 const { delay } = require('../utils/timing');
 const pacing = require('../game/pacing');
 const { botController, personalities } = require('../game/bot');
@@ -210,16 +210,12 @@ function leaveLobby(socket, io) {
         lobbies: mainRoomResult.lobbies,
         onlineCount: onlineUsers.length,
         onlineUsers,
-        inProgressGames: gameManager.getInProgressGames(),
+        inProgressGames: gameManager.getInProgressGames(mainRoomResult.username),
         tournaments: gameManager.getAllTournaments()
     });
 
     // Notify main room of updated lobby list
-    io.to('mainRoom').emit('lobbiesUpdated', {
-        lobbies: gameManager.getAllLobbies(),
-        inProgressGames: gameManager.getInProgressGames(),
-        tournaments: gameManager.getAllTournaments()
-    });
+    emitLobbiesUpdated(io);
 
     // If lobby was deleted (no players left), nothing more to do
     if (result.lobbyDeleted) {
@@ -336,11 +332,7 @@ function lobbySeatResumed(io, lobby, socketId, username) {
         io.to(player.socketId).emit('playerReadyUpdate', { lobbyId: lobby.id, players: lobby.players, ...gameManager.reconnectingField(lobby.id) });
         io.to(player.socketId).emit('voicePeerJoined', { socketId, username });
     });
-    io.to('mainRoom').emit('lobbiesUpdated', {
-        lobbies: gameManager.getAllLobbies(),
-        inProgressGames: gameManager.getInProgressGames(),
-        tournaments: gameManager.getAllTournaments()
-    });
+    emitLobbiesUpdated(io);
     socketLogger.info('Held lobby seat resumed by its own socket', { lobbyId: lobby.id, socketId });
 }
 
@@ -352,11 +344,7 @@ function lobbySeatResumed(io, lobby, socketId, username) {
 function lobbySeatExpired(io, expired, { tellOld = true } = {}) {
     if (!expired) return;
     releaseStaleLobbySeat(io, { oldSocketId: expired.oldSocketId, newSocketId: null, leaveResult: expired.leaveResult, username: expired.username, tellOld });
-    io.to('mainRoom').emit('lobbiesUpdated', {
-        lobbies: gameManager.getAllLobbies(),
-        inProgressGames: gameManager.getInProgressGames(),
-        tournaments: gameManager.getAllTournaments()
-    });
+    emitLobbiesUpdated(io);
     socketLogger.info('Held lobby seat expired', {
         lobbyId: expired.lobbyId, lobbyDeleted: Boolean(expired.leaveResult?.lobbyDeleted)
     });
@@ -411,11 +399,7 @@ async function addBot(socket, io) {
     });
 
     // Also update main room lobby list
-    io.to('mainRoom').emit('lobbiesUpdated', {
-        lobbies: gameManager.getAllLobbies(),
-        inProgressGames: gameManager.getInProgressGames(),
-        tournaments: gameManager.getAllTournaments()
-    });
+    emitLobbiesUpdated(io);
 
     if (allReady) await startLobbyIfAllReady(io, lobby);
 }
@@ -458,11 +442,7 @@ function removeBot(socket, io, data) {
     });
 
     // Also update main room lobby list
-    io.to('mainRoom').emit('lobbiesUpdated', {
-        lobbies: gameManager.getAllLobbies(),
-        inProgressGames: gameManager.getInProgressGames(),
-        tournaments: gameManager.getAllTournaments()
-    });
+    emitLobbiesUpdated(io);
 }
 
 module.exports = {

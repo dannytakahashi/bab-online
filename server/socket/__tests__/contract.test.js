@@ -470,6 +470,12 @@ describe('(e) non-game handlers', () => {
         expect(records.records.thisMonth).not.toBeNull();
         expect(contract.validateS2C('recordsResponse', { ...records, records: { ...records.records, allTime: { ...records.records.allTime, highestScore: { players: [] } } } }).ok).toBe(false);
         expect(contract.validateS2C('recordsResponse', { ...records, records: { thisMonth: null } }).ok).toBe(false);
+        // periodGames (additive 2026-11-14): three non-negative ints, allTime = totalGames
+        expect(records.periodGames).toEqual({ allTime: 3, thisYear: expect.any(Number), thisMonth: expect.any(Number) });
+        expect(records.periodGames.thisMonth).toBeGreaterThan(0);
+        for (const bad of [{ allTime: 3, thisYear: 1 }, { ...records.periodGames, thisMonth: -1 }, { ...records.periodGames, thisYear: '2' }, { ...records.periodGames, today: 1 }, null]) {
+            expect(contract.validateS2C('recordsResponse', { ...records, periodGames: bad }).ok).toBe(false);
+        }
         // payload-less replies carry no scope (today's shape)
         expect(board.scope).toBeUndefined();
         expect(records.scope).toBeUndefined();

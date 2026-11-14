@@ -112,8 +112,10 @@ describe('startBotGame', () => {
         const game = ambient.startBotGame(fakeIo);
         await jest.advanceTimersByTimeAsync(30 * 1000);
 
-        const inProgress = gameManager.getInProgressGames();
-        expect(inProgress.some(g => g.gameId === game.gameId)).toBe(true);
+        // For the AMBIENT_CHAT_USERS audience only (default test1;
+        // ambientGameVisibility.test.js covers the rest)
+        expect(gameManager.getInProgressGames('test1').some(g => g.gameId === game.gameId)).toBe(true);
+        expect(gameManager.getInProgressGames('someoneElse').some(g => g.gameId === game.gameId)).toBe(false);
 
         const { botController } = require('../../game/bot');
         botController.cleanupGame(game.gameId);
@@ -145,7 +147,11 @@ describe('startBotGame', () => {
     });
 });
 
+// Run with AMBIENT_CHAT_USERS=* (everyone sees the game and is demand, the
+// behavior before 2026-11-14), so any signed-in player drives the lifecycle;
+// the audience rules are in ambientGameVisibility.test.js
 describe('on-demand lifecycle (pacing.js AMBIENT_CHECK_MS / AMBIENT_RESTART_MS / AMBIENT_IDLE_MS / AMBIENT_PREGAME)', () => {
+    const savedAudience = process.env.AMBIENT_CHAT_USERS;
     let pacing;
     let io;
     let log;
@@ -164,6 +170,7 @@ describe('on-demand lifecycle (pacing.js AMBIENT_CHECK_MS / AMBIENT_RESTART_MS /
     }
 
     beforeEach(() => {
+        process.env.AMBIENT_CHAT_USERS = '*';
         jest.useFakeTimers();
         pacing = require('../../game/pacing');
         log = [];
@@ -177,6 +184,8 @@ describe('on-demand lifecycle (pacing.js AMBIENT_CHECK_MS / AMBIENT_RESTART_MS /
         for (const id of Array.from(gameManager.games.keys())) gameManager.abortGame(id);
         jest.clearAllTimers();
         jest.restoreAllMocks();
+        if (savedAudience === undefined) delete process.env.AMBIENT_CHAT_USERS;
+        else process.env.AMBIENT_CHAT_USERS = savedAudience;
     });
 
     test('the poll and the gap between games are 5 s each; the idle grace is 10 min', () => {
