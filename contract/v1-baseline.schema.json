@@ -3442,13 +3442,6 @@
               "gameId": {
                 "type": "string"
               },
-              "players": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                },
-                "maxItems": 4
-              },
               "hand": {
                 "type": "array",
                 "items": {
@@ -3489,7 +3482,6 @@
             },
             "required": [
               "gameId",
-              "players",
               "hand",
               "trump",
               "score1",

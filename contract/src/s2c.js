@@ -379,7 +379,6 @@ const s2c = {
         payload: anyOf(
             variant('seat', obj({
                 gameId: str(),
-                players: arr(str(), { maxItems: 4 }),
                 hand: arr(ref('card'), { maxItems: 13 }),
                 trump: ref('card'),
                 score1: int(),
@@ -405,9 +404,9 @@ const s2c = {
         ),
         status: 'active', to: 'socket', seq: false,
         added: ['avatarUrls'],
-        clientReads: reads([W.game, W.main('onGameStart#reads:players'), W.main('startVoice#reads:players')], I.game('handleGameStart')),
+        clientReads: reads([W.game, 'client/src/state/GameState.js:applyDeal'], I.game('handleGameStart')),
         emittedFrom: ['server/socket/gameHandlers.js:dealHand'],
-        notes: 'One per connected seat owner (seat) and per spectator (spectator), each deal. players: seat socket ids, read by web as playerData.socket to map a voice peer to a seat (the speaking indicator; V1_REMOVALS #6). playerInfo rebuilds web avatars every hand (V1_REMOVALS #5).',
+        notes: 'One per connected seat owner (seat) and per spectator (spectator), each deal. The seat variant\'s players (seat socket ids in deal order) went with V1_REMOVALS #6 (2026-11-12): web maps a voice peer to a seat by username (voice/speakingSlot.js) and keeps the ids positionUpdate gave (GameState.applyDeal); iOS 1.2.0 decodes it optionally and never reads it. playerInfo rebuilds web avatars every hand (V1_REMOVALS #5).',
     },
     bidReceived: {
         payload: obj({ bid: ref('bidString'), position: ref('position'), bidArray: ref('bidArray') }),

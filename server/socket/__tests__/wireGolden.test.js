@@ -125,6 +125,7 @@ function v1Projection(event, data) {
  * naming its entry), so the golden keeps pinning everything else.
  */
 const RESTORE_BEFORE = new WeakMap(); // wire record -> records the old server sent right before it
+const RESTORED_DATA = new WeakMap(); // wire record -> its payload as the old server sent it
 function v1Restore(rec, game) {
     // #7 playerAssigned {playerId, position}: handleDrawComplete sent one to
     // each connected human, in draw order, while seating; the next emit was
@@ -139,6 +140,12 @@ function v1Restore(rec, game) {
             before.push({ to: sid, members: [], event: 'playerAssigned', data: { playerId: sid, position } });
         }
         if (before.length) RESTORE_BEFORE.set(rec, before);
+    }
+    // #6 gameStart.players: the seat variant carried the seat socket ids in
+    // deal order (game.getSocketIds()) right after gameId
+    if (rec.event === 'gameStart' && rec.data && 'position' in rec.data && !('players' in rec.data)) {
+        const { gameId, ...rest } = rec.data;
+        RESTORED_DATA.set(rec, { gameId, players: game.getSocketIds(), ...rest });
     }
 }
 
@@ -194,7 +201,7 @@ async function play({ seed, opts }) {
     let emits = 0;
     let bytes = 0;
     for (const x of r.wire.flatMap((rec) => [...(RESTORE_BEFORE.get(rec) || []), rec])) {
-        const data = v1Projection(x.event, x.data);
+        const data = v1Projection(x.event, RESTORED_DATA.get(x) ?? x.data);
         if (data === DROP) continue;
         const json = JSON.stringify(data);
         emits++;

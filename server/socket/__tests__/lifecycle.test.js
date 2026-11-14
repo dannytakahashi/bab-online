@@ -727,6 +727,20 @@ describe('12. departures during the lobby countdown (CREATED)', () => {
         }
     });
 
+    test('V1_REMOVALS #6: no gameStart carries the seat socket ids (players); positionUpdate still does', async () => {
+        const { io, log, ids, sockets, game } = await countdown(2);
+        await jest.advanceTimersByTimeAsync(pacing().PREDRAW_COUNTDOWN_MS / 2 + 100); // beginDraw
+        const pending = [0, 1].map((i) => gameHandlers.draw(sockets[i], io, { num: 0 }));
+        await advanceUntil(() => game.stage === Phase.BIDDING, 50);
+        await Promise.all(pending);
+
+        const deals = events(log, 'gameStart');
+        expect(deals.length).toBeGreaterThanOrEqual(2);
+        for (const d of deals) expect(Object.keys(d.data)).not.toContain('players');
+        expect(deals.map((d) => d.data.position).sort()).toEqual(ids.map((id) => game.getPositionBySocketId(id)).sort());
+        expect(events(log, 'positionUpdate')[0].data.sockets).toEqual(expect.arrayContaining(ids));
+    });
+
     test('a disconnect auto-draws when the draw opens and the seat waits for a reconnect', async () => {
         const { io, log, ids, sockets, game } = await countdown(4);
         await queueHandlers.handleDisconnect(sockets[0], io);
