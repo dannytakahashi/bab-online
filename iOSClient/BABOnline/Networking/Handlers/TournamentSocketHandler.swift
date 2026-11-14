@@ -185,15 +185,5 @@ final class TournamentSocketHandler {
                 print("[Tournament] Tournament cancelled by host")
             }
         }
-
-        socket.on(SocketEvents.Server.activeTournamentFound) { data, _ in
-            guard let dict = data.first as? [String: Any] else { return }
-            DispatchQueue.main.async {
-                if let tournamentId = dict["tournamentId"] as? String {
-                    TournamentEmitter.joinTournament(tournamentId: tournamentId)
-                    print("[Tournament] Active tournament found, rejoining: \(tournamentId)")
-                }
-            }
-        }
     }
 }

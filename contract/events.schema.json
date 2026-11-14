@@ -4828,30 +4828,6 @@
       ],
       "notes": "The withoutName variant went with the matchmaking queue (V1_REMOVALS #2, 2026-11-11): every lobby a player can open or join is named."
     },
-    "lobbyJoined": {
-      "payload": {
-        "type": "object",
-        "properties": {
-          "lobbyId": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "lobbyId"
-        ],
-        "additionalProperties": true
-      },
-      "status": "clientOnly",
-      "to": "self",
-      "clientReads": {
-        "web": [],
-        "ios": [
-          "iOSClient/BABOnline/Networking/Handlers/LobbySocketHandler.swift:register"
-        ]
-      },
-      "emittedFrom": [],
-      "notes": "Never emitted: joining a lobby answers lobbyCreated. Web registers no listener (2026-11-12, V1_REMOVALS #3); iOS 1.1.0 and 1.2.0 still do."
-    },
     "lobbyPlayerJoined": {
       "payload": {
         "type": "object",
@@ -7186,23 +7162,6 @@
         "server/socket/upgradeGate.js:replyLeave"
       ]
     },
-    "roomFull": {
-      "payload": {
-        "type": "object",
-        "properties": {},
-        "additionalProperties": true
-      },
-      "status": "clientOnly",
-      "to": "self",
-      "clientReads": {
-        "web": [],
-        "ios": [
-          "iOSClient/BABOnline/Networking/Handlers/GameSocketHandler.swift:registerSpecialEvents"
-        ]
-      },
-      "emittedFrom": [],
-      "notes": "Never emitted. Web registers no listener (2026-11-12, V1_REMOVALS #3); iOS 1.1.0 and 1.2.0 still do."
-    },
     "resignationAvailable": {
       "payload": {
         "anyOf": [
@@ -8651,30 +8610,6 @@
       "emittedFrom": [
         "server/socket/tournamentHandlers.js:cancelTournament"
       ]
-    },
-    "activeTournamentFound": {
-      "payload": {
-        "type": "object",
-        "properties": {
-          "tournamentId": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "tournamentId"
-        ],
-        "additionalProperties": true
-      },
-      "status": "clientOnly",
-      "to": "self",
-      "clientReads": {
-        "web": [],
-        "ios": [
-          "iOSClient/BABOnline/Networking/Handlers/TournamentSocketHandler.swift:register"
-        ]
-      },
-      "emittedFrom": [],
-      "notes": "Never emitted (signInResponse.activeTournamentId replaced it). Web registers no listener (2026-11-12, V1_REMOVALS #3); iOS 1.1.0 and 1.2.0 still do."
     },
     "adminResponse": {
       "payload": {

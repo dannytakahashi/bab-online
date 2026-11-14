@@ -268,13 +268,6 @@ const s2c = {
         emittedFrom: ['server/socket/mainRoomHandlers.js:createLobby', 'server/socket/mainRoomHandlers.js:joinLobby'],
         notes: 'The withoutName variant went with the matchmaking queue (V1_REMOVALS #2, 2026-11-11): every lobby a player can open or join is named.',
     },
-    lobbyJoined: {
-        payload: obj({ lobbyId: str() }, { open: true }),
-        status: 'clientOnly', to: 'self',
-        clientReads: reads([], I.lobby),
-        emittedFrom: [],
-        notes: 'Never emitted: joining a lobby answers lobbyCreated. Web registers no listener (2026-11-12, V1_REMOVALS #3); iOS 1.1.0 and 1.2.0 still do.',
-    },
     lobbyPlayerJoined: {
         payload: obj({
             lobbyId: str(),
@@ -617,13 +610,6 @@ const s2c = {
         clientReads: reads(W.game, I.game('registerSpectatorAndLazy')),
         emittedFrom: ['server/socket/seatLifecycle.js:leaveSeat', 'server/socket/chatHandlers.js:spectatorCommand', 'server/socket/chatHandlers.js:handleDrawPhaseLeave', 'server/socket/upgradeGate.js:replyLeave'],
     },
-    roomFull: {
-        payload: obj({}, { open: true }),
-        status: 'clientOnly', to: 'self',
-        clientReads: reads([], I.game('registerSpecialEvents')),
-        emittedFrom: [],
-        notes: 'Never emitted. Web registers no listener (2026-11-12, V1_REMOVALS #3); iOS 1.1.0 and 1.2.0 still do.',
-    },
 
     // ==================== Presence ====================
     resignationAvailable: {
@@ -833,13 +819,6 @@ const s2c = {
         status: 'active', to: 'tournament',
         clientReads: reads(W.tour, I.tour),
         emittedFrom: ['server/socket/tournamentHandlers.js:cancelTournament'],
-    },
-    activeTournamentFound: {
-        payload: obj({ tournamentId: str() }, { open: true }),
-        status: 'clientOnly', to: 'self',
-        clientReads: reads([], I.tour),
-        emittedFrom: [],
-        notes: 'Never emitted (signInResponse.activeTournamentId replaced it). Web registers no listener (2026-11-12, V1_REMOVALS #3); iOS 1.1.0 and 1.2.0 still do.',
     },
 
 

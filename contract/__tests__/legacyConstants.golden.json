@@ -1,5 +1,5 @@
 {
-  "$comment": "Every web [KEY, value] and Swift [name, value] constant at cc865b4. legacyConstants.test.js: each must still exist unchanged. Executed contract/V1_REMOVALS.md entries take theirs out on purpose: #20 VOICE_RELAY_AUDIO (web, both objects; Swift never had it); #1 phase B ERROR (web SERVER_EVENTS; Swift never had it: the name is reserved there).",
+  "$comment": "Every web [KEY, value] and Swift [name, value] constant at cc865b4. legacyConstants.test.js: each must still exist unchanged. Executed contract/V1_REMOVALS.md entries take theirs out on purpose: #20 VOICE_RELAY_AUDIO (web, both objects; Swift never had it); #1 phase B ERROR (web SERVER_EVENTS; Swift never had it: the name is reserved there); #3 LOBBY_JOINED, ROOM_FULL, ACTIVE_TOURNAMENT_FOUND (web SERVER_EVENTS; Swift Server lobbyJoined, roomFull, activeTournamentFound).",
   "web": {
     "CLIENT_EVENTS": [
       [
@@ -221,10 +221,6 @@
         "lobbyCreated"
       ],
       [
-        "LOBBY_JOINED",
-        "lobbyJoined"
-      ],
-      [
         "LOBBY_MESSAGE",
         "lobbyMessage"
       ],
@@ -339,10 +335,6 @@
       [
         "ABORT_GAME",
         "abortGame"
-      ],
-      [
-        "ROOM_FULL",
-        "roomFull"
       ],
       [
         "RESIGNATION_AVAILABLE",
@@ -467,10 +459,6 @@
       [
         "TOURNAMENT_CANCELLED",
         "tournamentCancelled"
-      ],
-      [
-        "ACTIVE_TOURNAMENT_FOUND",
-        "activeTournamentFound"
       ],
       [
         "VOICE_OFFER",
@@ -715,10 +703,6 @@
         "lobbyCreated"
       ],
       [
-        "lobbyJoined",
-        "lobbyJoined"
-      ],
-      [
         "lobbyMessage",
         "lobbyMessage"
       ],
@@ -843,10 +827,6 @@
         "abortGame"
       ],
       [
-        "roomFull",
-        "roomFull"
-      ],
-      [
         "resignationAvailable",
         "resignationAvailable"
       ],
@@ -925,10 +905,6 @@
       [
         "tournamentCancelled",
         "tournamentCancelled"
-      ],
-      [
-        "activeTournamentFound",
-        "activeTournamentFound"
       ],
       [
         "leaderboardResponse",

@@ -98,7 +98,6 @@ enum SocketEvents {
 
         // Lobby
         static let lobbyCreated = "lobbyCreated"
-        static let lobbyJoined = "lobbyJoined"
         static let lobbyMessage = "lobbyMessage"
         static let lobbyPlayerJoined = "lobbyPlayerJoined"
         static let lobbyPlayerLeft = "lobbyPlayerLeft"
@@ -138,7 +137,6 @@ enum SocketEvents {
         static let playerReconnected = "playerReconnected"
         static let playerAssigned = "playerAssigned"
         static let abortGame = "abortGame"
-        static let roomFull = "roomFull"
 
         // Resignation & Lazy Mode
         static let resignationAvailable = "resignationAvailable"
@@ -164,7 +162,6 @@ enum SocketEvents {
         static let tournamentComplete = "tournamentComplete"
         static let tournamentLeft = "tournamentLeft"
         static let tournamentCancelled = "tournamentCancelled"
-        static let activeTournamentFound = "activeTournamentFound"
 
         // Leaderboard and records
         static let leaderboardResponse = "leaderboardResponse"

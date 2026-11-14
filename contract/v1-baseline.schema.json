@@ -2888,32 +2888,6 @@
       ],
       "notes": "withoutName only from the unsent joinQueue path."
     },
-    "lobbyJoined": {
-      "payload": {
-        "type": "object",
-        "properties": {
-          "lobbyId": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "lobbyId"
-        ],
-        "additionalProperties": true
-      },
-      "status": "clientOnly",
-      "to": "self",
-      "clientReads": {
-        "web": [
-          "client/src/handlers/lobbyHandlers.js:registerLobbyHandlers"
-        ],
-        "ios": [
-          "iOSClient/BABOnline/Networking/Handlers/LobbySocketHandler.swift:register"
-        ]
-      },
-      "emittedFrom": [],
-      "notes": "Never emitted: joining a lobby answers lobbyCreated."
-    },
     "lobbyPlayerJoined": {
       "payload": {
         "type": "object",
@@ -4875,24 +4849,6 @@
         "server/socket/chatHandlers.js:handleDrawPhaseLeave"
       ]
     },
-    "roomFull": {
-      "payload": {
-        "type": "object",
-        "properties": {},
-        "additionalProperties": true
-      },
-      "status": "clientOnly",
-      "to": "self",
-      "clientReads": {
-        "web": [
-          "client/src/handlers/gameHandlers.js:registerGameHandlers"
-        ],
-        "ios": [
-          "iOSClient/BABOnline/Networking/Handlers/GameSocketHandler.swift:registerSpecialEvents"
-        ]
-      },
-      "emittedFrom": []
-    },
     "resignationAvailable": {
       "payload": {
         "anyOf": [
@@ -6106,32 +6062,6 @@
       "emittedFrom": [
         "server/socket/tournamentHandlers.js:cancelTournament"
       ]
-    },
-    "activeTournamentFound": {
-      "payload": {
-        "type": "object",
-        "properties": {
-          "tournamentId": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "tournamentId"
-        ],
-        "additionalProperties": true
-      },
-      "status": "clientOnly",
-      "to": "self",
-      "clientReads": {
-        "web": [
-          "client/src/handlers/tournamentHandlers.js:registerTournamentHandlers"
-        ],
-        "ios": [
-          "iOSClient/BABOnline/Networking/Handlers/TournamentSocketHandler.swift:register"
-        ]
-      },
-      "emittedFrom": [],
-      "notes": "Never emitted (signInResponse.activeTournamentId replaced it)."
     },
     "voiceOffer": {
       "payload": {
