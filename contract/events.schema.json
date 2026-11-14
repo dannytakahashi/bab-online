@@ -5602,7 +5602,7 @@
       "emittedFrom": [
         "server/socket/gameHandlers.js:dealHand"
       ],
-      "notes": "One per connected seat owner (seat) and per spectator (spectator), each deal. The seat variant's players (seat socket ids in deal order) went with V1_REMOVALS #6 (2026-11-12): web maps a voice peer to a seat by username (voice/speakingSlot.js) and keeps the ids positionUpdate gave (GameState.applyDeal); iOS 1.2.0 decodes it optionally and never reads it. playerInfo rebuilds web avatars every hand (V1_REMOVALS #5)."
+      "notes": "One per connected seat owner (seat) and per spectator (spectator), each deal. The seat variant's players (seat socket ids in deal order) went with V1_REMOVALS #6 (2026-11-12): web maps a voice peer to a seat by username (voice/speakingSlot.js) and keeps the ids positionUpdate gave (GameState.applyDeal); iOS 1.2.0 decodes it optionally and never reads it. playerInfo: web reads it only when present; iOS 1.2.0 needs it (its loop is what clears, each deal, the owner custom-picture avatarUrl a lazy / resign bot keeps, and its only read of gameStart avatarUrls), so it stays (V1_REMOVALS #5)."
     },
     "bidReceived": {
       "payload": {
