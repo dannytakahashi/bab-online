@@ -2,7 +2,7 @@
   "oneHuman": {
     "emits": 996,
     "bytes": 67159,
-    "wireSha256": "1ea7167f2221580f1d0c495ad5916600d62a38a315b66aba47a214b84630a4d5",
+    "wireSha256": "cff733ccf1f84b240f5f919fff3681fe5a8d955665a3e78902bb982c67cd95ef",
     "seatPics": [
       5,
       35,
@@ -117,8 +117,8 @@
   },
   "collidingPics": {
     "emits": 1020,
-    "bytes": 78905,
-    "wireSha256": "f39e6f5caf45796381cdd3cbf1ef2003acedc62451499989781864060d7061d7",
+    "bytes": 78877,
+    "wireSha256": "d97414b59a8a0525cf451d7b48297a4e48e49271957f771b797bad1887e8145c",
     "seatPics": [
       5,
       1,
@@ -227,8 +227,8 @@
       }
     ],
     "finalScore": {
-      "team1": 392,
-      "team2": 279
+      "team1": 395,
+      "team2": 197
     }
   }
 }
