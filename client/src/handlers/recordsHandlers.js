@@ -9,7 +9,7 @@
  *
  * @param {SocketManager} socketManager - Socket manager instance
  * @param {Object} callbacks - UI callbacks
- * @param {Function} callbacks.onRecordsReceived - Called with (records, totalGames, scope) when records data is received
+ * @param {Function} callbacks.onRecordsReceived - Called with (records, totalGames, scope, periodGames) when records data is received
  * @param {Function} callbacks.onRecordsError - Called on records fetch error
  */
 export function registerRecordsHandlers(socketManager, callbacks = {}) {
@@ -23,7 +23,8 @@ export function registerRecordsHandlers(socketManager, callbacks = {}) {
     if (data.success) {
       console.log('Records received');
       // scope: the stats scope echoed when the request named one (undefined = human)
-      onRecordsReceived?.(data.records, data.totalGames, data.scope);
+      // periodGames: {allTime, thisYear, thisMonth} game counts (additive 2026-11-14)
+      onRecordsReceived?.(data.records, data.totalGames, data.scope, data.periodGames);
     } else {
       console.warn('Records fetch failed:', data.message);
       // scope: echoed on a failure too, when the request named one

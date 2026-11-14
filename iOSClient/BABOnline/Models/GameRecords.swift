@@ -2,7 +2,8 @@ import Foundation
 
 /// `recordsResponse` (profileHandlers fillRecords; $defs.recordsPeriod): highest / lowest
 /// team score, biggest win and most / least bags for All Time, This Year and This Month
-/// (server-local year and month), plus the total game count. Decoded field by field and
+/// (server-local year and month), plus the total game count and each period's game count
+/// (`periodGames`, additive 2026-11-14; 1.2.1 build 9). Decoded field by field and
 /// optionally: a period that is null, missing or not an object has no games yet, and so
 /// does a record that is null or lacks its core fields (the web's "No games yet").
 struct GameRecords: Equatable {
@@ -42,14 +43,25 @@ struct GameRecords: Equatable {
         var leastBags: TeamRecord?
     }
 
-    /// The total number of recorded games; nil when the reply has none (the web then shows no line).
+    /// The total (all-time) number of recorded games; nil when the reply has none.
     var totalGames: Int?
     /// A period with no recorded game is absent.
     var periods: [Period: PeriodRecords] = [:]
+    /// Each period's game count (`periodGames`); a count missing or not a non-negative number
+    /// is absent.
+    var periodGames: [Period: Int] = [:]
 
-    /// No recorded game: a total of 0, or no total and no period with a game.
+    /// How many games `period` holds: its `periodGames` count, else (a server from before
+    /// periodGames) `totalGames` for All Time only; nil when not known (the count is not shown).
+    /// The owner (2026-11-14): the one total read the same whichever period was selected.
+    func games(in period: Period) -> Int? {
+        if let n = periodGames[period] { return n }
+        return period == .allTime ? totalGames : nil
+    }
+
+    /// No recorded game: an all-time count of 0, or no count and no period with a game.
     var isEmpty: Bool {
-        if let totalGames { return totalGames == 0 }
+        if let n = games(in: .allTime) { return n == 0 }
         return periods.isEmpty
     }
 
@@ -60,6 +72,11 @@ struct GameRecords: Equatable {
         guard dict["success"] as? Bool == true else { return nil }
         var out = GameRecords()
         if let total = StatsWire.int(dict["totalGames"]), total >= 0 { out.totalGames = total }
+        if let counts = dict["periodGames"] as? [String: Any] {
+            for p in Period.allCases {
+                if let n = StatsWire.int(counts[p.rawValue]), n >= 0 { out.periodGames[p] = n }
+            }
+        }
         let records = dict["records"] as? [String: Any] ?? [:]
         for p in Period.allCases {
             if let period = records[p.rawValue] as? [String: Any] { out.periods[p] = periodRecords(period) }

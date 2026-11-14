@@ -153,7 +153,7 @@ The nested `CLAUDE.md` files (`server/`, `server/admin/`, `server/demo/`, `contr
 | Lobby seats | `server/CLAUDE.md`, Lobby seats | one lobby seat per username, takeover, 30 s reload grace, `reconnecting` |
 | Tournament lifecycle | `server/CLAUDE.md`, Tournament lifecycle | `tournament.epoch`, round start shape, cancel order, scores recorded once |
 | Spectator badge and chat | `docs/claude/spectators.md` | `spectatorList()`, unsequenced `spectatorsUpdated`, web badge + spectator bubble, iOS 1.2.0 |
-| Ambient bot activity | `server/demo/CLAUDE.md` | on-demand demo game, idle rules, `AMBIENT_CHAT_USERS` (test1) |
+| Ambient bot activity | `server/demo/CLAUDE.md` | on-demand demo game, idle rules, `AMBIENT_CHAT_USERS` (test1): who sees the bot chat AND the demo game (lists, spectate, demand) |
 | Sessions and socket identity | `docs/claude/server-accounts.md`, Sessions and socket identity | per-device tokens, one live socket, supersede / parked tabs, `releaseIdentity` |
 | Username rules, password hashing, sign-in throttle | `docs/claude/server-accounts.md` | sign-up name rules and budgets, bcrypt worker pool, failed-sign-in limits + client IP |
 | Database, caches, limits | `docs/claude/server-infra.md` | startup DB + indexes, active-game writes, projected reads, stats scopes (human `stats` / bot-game `botStats`, `withBots` records, `{scope}` reads), profile caches per scope, soft limits |

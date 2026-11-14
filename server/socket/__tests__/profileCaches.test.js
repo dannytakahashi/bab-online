@@ -221,6 +221,9 @@ describe('records cache', () => {
         expect(find).toHaveBeenCalled();
         expect(nov.records.thisMonth).toBeNull();
         expect(nov.records.allTime).toEqual(oct.records.allTime);
+        // the period counts roll over with the records
+        expect(oct.periodGames).toEqual({ allTime: 1, thisYear: 1, thisMonth: 1 });
+        expect(nov.periodGames).toEqual({ allTime: 1, thisYear: 1, thisMonth: 0 });
     });
 
     test('the 11th request in 10 s gets the cached records, never error', async () => {
@@ -228,7 +231,7 @@ describe('records cache', () => {
         for (let i = 0; i < 10; i++) await records(s);
         const find = jest.spyOn(mockDb.current.gameRecords, 'find');
         const res = await records(s);
-        expect(res).toMatchObject({ success: true, totalGames: 1 });
+        expect(res).toMatchObject({ success: true, totalGames: 1, periodGames: { allTime: 1 } });
         expect(find).not.toHaveBeenCalled();
         expect(log.filter(l => l.event === 'serverError')).toEqual([]);
     });

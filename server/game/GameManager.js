@@ -11,7 +11,7 @@ const { botController, BotPlayer, personalities } = require('./bot');
 const { PERSONALITY_LIST } = personalities;
 const { Phase } = require('./GamePhase');
 const spectatorRoster = require('./spectatorRoster');
-const { seesAmbientChat } = require('../utils/ambientChatUsers');
+const { seesAmbientChat, seesAmbientGame } = require('../utils/ambientChatUsers');
 
 const MERGE_LOCKED = 'This account is being updated. Please try again in a minute.';
 
@@ -1194,14 +1194,36 @@ class GameManager {
     }
 
     /**
-     * Get list of in-progress games for spectating
+     * `getGameById` for a request from `username` naming a game by id
+     * (joinAsSpectator, spectateTournamentGame, rejoinGame): the ambient demo
+     * game is null, exactly like an unknown or ended game, for anyone outside
+     * the AMBIENT_CHAT_USERS audience (no hint that it exists).
+     * @returns {GameState|null}
+     */
+    getGameVisibleTo(gameId, username) {
+        const game = this.getGameById(gameId);
+        if (game && game.isDemo && !seesAmbientGame(username)) return null;
+        return game;
+    }
+
+    /**
+     * Get list of in-progress games for spectating, as `viewer` (a username)
+     * sees it: the ambient demo game (game.isDemo, server/demo/ambientBots.js)
+     * is listed only for the AMBIENT_CHAT_USERS audience (owner, 2026-11-14;
+     * server/utils/ambientChatUsers.js seesAmbientGame; with `*` for anyone,
+     * a missing viewer included). `includeDemo` overrides the audience check
+     * (gameLifecycle.emitLobbiesUpdated builds both lists with it).
+     * @param {string} [viewer]
+     * @param {{includeDemo?: boolean}} [opts]
      * @returns {Array} - Array of { gameId, players, currentHand, score, spectatorCount }
      */
-    getInProgressGames() {
+    getInProgressGames(viewer, { includeDemo } = {}) {
+        const showDemo = includeDemo ?? seesAmbientGame(viewer);
         const games = [];
         for (const [gameId, game] of this.games) {
             if (game.phase === 'waiting' || game.phase === 'drawing') continue;
             if (this.tournamentGames.has(gameId)) continue;
+            if (game.isDemo && !showDemo) continue;
 
             const players = [];
             for (let pos = 1; pos <= 4; pos++) {

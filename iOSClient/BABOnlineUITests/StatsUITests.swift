@@ -67,6 +67,34 @@ final class StatsUITests: XCTestCase {
         }
     }
 
+    /// The Records tab has its data on screen: a period card (every layout shows one).
+    @discardableResult
+    private func waitForRecords(_ app: XCUIApplication, timeout: TimeInterval = 5) -> Bool {
+        app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'records.period.'"))
+            .firstMatch.waitForExistence(timeout: timeout)
+    }
+
+    /// The game count shown for `period` (allTime / thisYear / thisMonth): one card at a time
+    /// shows the selected period's under the control ("records.total"; `title` is selected
+    /// first), side by side or stacked cards each show their own ("records.count.<period>").
+    /// nil when no count is shown for it.
+    private func countLabel(_ app: XCUIApplication, _ period: String, title: String) -> String? {
+        if app.segmentedControls["records.periods"].exists {
+            showPeriod(app, title)
+            let line = element(app, "records.total")
+            return line.waitForExistence(timeout: 2) ? line.label : nil
+        }
+        let line = element(app, "records.count.\(period)")
+        return line.exists ? line.label : nil
+    }
+
+    /// Waits until the All Time count reads `label` (a reply landing after a scope switch).
+    private func waitForAllTimeCount(_ app: XCUIApplication, _ label: String, timeout: TimeInterval = 5) -> Bool {
+        app.descendants(matching: .any)
+            .matching(NSPredicate(format: "(identifier == 'records.total' OR identifier == 'records.count.allTime') AND label == %@", label))
+            .firstMatch.waitForExistence(timeout: timeout)
+    }
+
     private func keepScreenshot(_ app: XCUIApplication, _ name: String) {
         let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         shot.name = name
@@ -127,9 +155,8 @@ final class StatsUITests: XCTestCase {
     func testRecordsTab() {
         let app = openStats()
         app.segmentedControls["stats.tabs"].buttons["Records"].tap()
-        let total = element(app, "records.total")
-        XCTAssertTrue(total.waitForExistence(timeout: 5))
-        XCTAssertEqual(total.label, "1,234 games played")
+        XCTAssertTrue(waitForRecords(app))
+        XCTAssertTrue(waitForAllTimeCount(app, "1,234 games played"), "All Time's count")
         let picker = app.segmentedControls["records.periods"]
         if UIDevice.current.userInterfaceIdiom == .pad {
             XCTAssertFalse(picker.exists, "the iPad shows the three cards side by side")
@@ -149,6 +176,11 @@ final class StatsUITests: XCTestCase {
                        "Biggest Win, 705 pt margin, 610 - -95, winners kim & ora, losers pat & hal")
         XCTAssertEqual(allTime.descendants(matching: .any)["records.Least Bags"].label, "Least Bags, 0 bags, jon & hal")
         keepScreenshot(app, "stats-records")
+        // owner 2026-11-14: each period says its own count (the one total never changed)
+        XCTAssertEqual(countLabel(app, "thisYear", title: "This Year"), "317 games played")
+        if picker.exists { keepScreenshot(app, "stats-records-this-year") }
+        XCTAssertEqual(countLabel(app, "thisMonth", title: "This Month"), "0 games played")
+        XCTAssertEqual(countLabel(app, "allTime", title: "All Time"), "1,234 games played")
         showPeriod(app, "This Year")
         let thisYear = element(app, "records.period.thisYear")
         XCTAssertEqual(thisYear.descendants(matching: .any)["records.Most Bags"].label, "Most Bags, no games yet",
@@ -162,8 +194,11 @@ final class StatsUITests: XCTestCase {
         app.buttons["stats.close"].tap()
         XCTAssertTrue(app.navigationBars["Stats"].waitForNonExistence(timeout: 5))
         app.buttons.matching(NSPredicate(format: "label == %@", "Stats")).firstMatch.tap()
-        XCTAssertTrue(element(app, "records.total").waitForExistence(timeout: 5), "reopens on Records")
-        if picker.exists { XCTAssertTrue(picker.buttons["This Month"].isSelected, "and on the period last shown") }
+        XCTAssertTrue(waitForRecords(app), "reopens on Records")
+        if picker.exists {
+            XCTAssertTrue(picker.buttons["This Month"].isSelected, "and on the period last shown")
+            XCTAssertEqual(element(app, "records.total").label, "0 games played", "with that period's count")
+        }
         app.terminate()
     }
 
@@ -185,16 +220,17 @@ final class StatsUITests: XCTestCase {
         XCTAssertFalse(element(app, "leaderboard.row.ivy").exists, "no human-game row under Bots")
         keepScreenshot(app, "stats-scope-bots")
         app.segmentedControls["stats.tabs"].buttons["Records"].tap()
-        let total = element(app, "records.total")
-        XCTAssertTrue(total.waitForExistence(timeout: 5))
+        XCTAssertTrue(waitForRecords(app))
         XCTAssertTrue(scope.buttons["Bot games"].isSelected, "one choice for both tabs")
-        XCTAssertEqual(total.label, "6 games played")
+        XCTAssertTrue(waitForAllTimeCount(app, "6 games played"))
         XCTAssertFalse(element(app, "records.botsNote").exists, "the note is for an empty page")
         keepScreenshot(app, "stats-scope-bots-records")
 
         scope.buttons["All games"].tap()
-        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'records.total' AND label == '1,240 games played'"))
-            .firstMatch.waitForExistence(timeout: 5), "All asks again")
+        XCTAssertTrue(waitForAllTimeCount(app, "1,240 games played"), "All asks again")
+        XCTAssertEqual(countLabel(app, "thisYear", title: "This Year"), "323 games played")
+        XCTAssertEqual(countLabel(app, "thisMonth", title: "This Month"), "6 games played")
+        showPeriod(app, "All Time")
         app.terminate()
 
         app = Fixture.launch("main-room", extra: ["-uiStatsKeepScope", "YES"])
@@ -227,6 +263,20 @@ final class StatsUITests: XCTestCase {
         app.terminate()
     }
 
+    /// A server from before periodGames: All Time keeps the all-time total; This Year and This
+    /// Month show no count rather than the all-time one.
+    func testRecordsWithoutPeriodGames() {
+        let app = openStats(["-uiStats", "noPeriodGames"])
+        app.segmentedControls["stats.tabs"].buttons["Records"].tap()
+        XCTAssertTrue(waitForRecords(app))
+        XCTAssertTrue(waitForAllTimeCount(app, "1,234 games played"))
+        XCTAssertNil(countLabel(app, "thisYear", title: "This Year"), "no count known for This Year")
+        XCTAssertTrue(element(app, "records.period.thisYear").exists, "the records still show")
+        XCTAssertNil(countLabel(app, "thisMonth", title: "This Month"))
+        XCTAssertEqual(countLabel(app, "allTime", title: "All Time"), "1,234 games played")
+        app.terminate()
+    }
+
     /// Bots with no games yet: bot games count from the server update on.
     func testScopeEmptyStates() {
         let app = openStats(["-uiStats", "empty"])
@@ -238,7 +288,7 @@ final class StatsUITests: XCTestCase {
         keepScreenshot(app, "stats-scope-bots-empty")
         app.segmentedControls["stats.tabs"].buttons["Records"].tap()
         XCTAssertTrue(element(app, "records.botsNote").waitForExistence(timeout: 5))
-        XCTAssertEqual(element(app, "records.total").label, "0 games played")
+        XCTAssertTrue(waitForAllTimeCount(app, "0 games played"))
         scope.buttons["Human games"].tap()
         XCTAssertTrue(element(app, "records.botsNote").waitForNonExistence(timeout: 5), "no note under Humans")
         app.terminate()
@@ -250,12 +300,13 @@ final class StatsUITests: XCTestCase {
         XCTAssertTrue(empty.waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["No players have completed games yet."].exists)
         app.segmentedControls["stats.tabs"].buttons["Records"].tap()
-        XCTAssertTrue(element(app, "records.total").waitForExistence(timeout: 5))
-        XCTAssertEqual(element(app, "records.total").label, "0 games played")
+        XCTAssertTrue(waitForRecords(app))
+        XCTAssertTrue(waitForAllTimeCount(app, "0 games played"))
         if app.segmentedControls["records.periods"].exists {
             for title in ["All Time", "This Year", "This Month"] {
                 showPeriod(app, title)
                 XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "label == %@", "No games yet")).count, 1, title)
+                XCTAssertEqual(element(app, "records.total").label, "0 games played", title)
             }
         } else {
             XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "label == %@", "No games yet")).count, 3)
@@ -276,7 +327,7 @@ final class StatsUITests: XCTestCase {
         }
         let tabs = app.segmentedControls["stats.tabs"]
         tabs.buttons["Records"].tap()
-        XCTAssertTrue(element(app, "records.total").waitForExistence(timeout: 5))
+        XCTAssertTrue(waitForRecords(app))
         tabs.buttons["Leaderboard"].tap()
         XCTAssertTrue(element(app, "leaderboard.row.kim").waitForExistence(timeout: 5))
         XCTAssertEqual(rowOrder(app).first, "pat", "still sorted by set rate, ascending")
