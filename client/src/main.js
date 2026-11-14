@@ -44,9 +44,13 @@ import { showSignInScreen } from './ui/screens/SignIn.js';
 import { showRegisterScreen } from './ui/screens/Register.js';
 import { showMainRoom, addMainRoomChatMessage, updateLobbyList, removeMainRoom, updateMainRoomOnlineCount } from './ui/screens/MainRoom.js';
 import { showGameLobby, updateLobbyPlayersList, addLobbyChatMessage, removeGameLobby } from './ui/screens/GameLobby.js';
-import { showProfilePage, updateProfilePicDisplay, updateCustomProfilePicDisplay, showPlayerProfilePage, showDeleteAccountError } from './ui/screens/ProfilePage.js';
-import { showLeaderboardPage } from './ui/screens/LeaderboardPage.js';
-import { showRecordsPage } from './ui/screens/RecordsPage.js';
+import {
+  showProfilePage, updateProfilePicDisplay, updateCustomProfilePicDisplay, showPlayerProfilePage, showDeleteAccountError,
+  updateProfileStats, updatePlayerProfileStats, profileStatsRequestFailed,
+} from './ui/screens/ProfilePage.js';
+import { showLeaderboardPage, updateLeaderboardPage, leaderboardRequestFailed } from './ui/screens/LeaderboardPage.js';
+import { showRecordsPage, updateRecordsPage, recordsRequestFailed } from './ui/screens/RecordsPage.js';
+import { isStaleScopeReply, getStatsScope } from './state/statsScope.js';
 import { updatePlayerSearchResults } from './ui/screens/PlayerSearchPage.js';
 import { setIsAdmin } from './admin/adminApi.js';
 import { removeTournamentLobby, addTournamentChatMessage, updateTournamentPlayers, updateTournamentScoreboardUI, updateTournamentRoundIndicator, updateTournamentActiveGames, setTournamentPhase } from './ui/screens/TournamentLobby.js';
@@ -1650,11 +1654,17 @@ function initializeApp() {
       }
     },
 
-    // Profile callbacks
-    onProfileReceived: (profile) => {
-      showProfilePage(profile, socket);
+    // Profile callbacks. Stats replies carry the scope they were asked
+    // for (state/statsScope.js): one for an older choice (a fast switch) is
+    // dropped; one for an open page updates it in place (focus stays on
+    // the scope control)
+    onProfileReceived: (profile, scope) => {
+      if (isStaleScopeReply(scope)) return;
+      if (updateProfileStats(profile, scope)) return;
+      showProfilePage(profile, socket, scope ?? getStatsScope());
     },
     onProfileError: (message) => {
+      profileStatsRequestFailed();
       showError(message || 'Failed to load profile');
     },
     onProfilePicUpdated: (newPic) => {
@@ -1674,21 +1684,32 @@ function initializeApp() {
     onSearchPlayersResult: (players) => {
       updatePlayerSearchResults(players);
     },
-    onPlayerProfileReceived: (profile) => {
-      showPlayerProfilePage(profile, socket, { isBlocked: isUserBlocked(profile.username) });
+    onPlayerProfileReceived: (profile, scope) => {
+      if (isStaleScopeReply(scope)) return;
+      if (updatePlayerProfileStats(profile, scope)) return;
+      showPlayerProfilePage(profile, socket, { isBlocked: isUserBlocked(profile.username), scope: scope ?? getStatsScope() });
+    },
+    onPlayerProfileError: () => {
+      profileStatsRequestFailed();
     },
     // Leaderboard callbacks
-    onLeaderboardReceived: (leaderboard) => {
-      showLeaderboardPage(leaderboard, socket);
+    onLeaderboardReceived: (leaderboard, scope) => {
+      if (isStaleScopeReply(scope)) return;
+      if (updateLeaderboardPage(leaderboard, scope)) return;
+      showLeaderboardPage(leaderboard, socket, scope ?? getStatsScope());
     },
     onLeaderboardError: (message) => {
+      leaderboardRequestFailed();
       showError(message || 'Failed to load leaderboard');
     },
     // Records callbacks
-    onRecordsReceived: (records, totalGames) => {
-      showRecordsPage(records, totalGames);
+    onRecordsReceived: (records, totalGames, scope) => {
+      if (isStaleScopeReply(scope)) return;
+      if (updateRecordsPage(records, totalGames, scope)) return;
+      showRecordsPage(records, totalGames, socket, scope ?? getStatsScope());
     },
     onRecordsError: (message) => {
+      recordsRequestFailed();
       showError(message || 'Failed to load records');
     },
 

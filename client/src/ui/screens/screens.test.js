@@ -146,7 +146,7 @@ describe('user text is text (ui-13)', () => {
     expect(row.tagName).toBe('BUTTON');
     expect(row.textContent).toBe(`${EVIL}4 games | 25% win rate`);
     row.click();
-    expect(socket.emitted('getPlayerProfile')).toEqual([{ username: EVIL }]);
+    expect(socket.emitted('getPlayerProfile')).toEqual([{ username: EVIL, scope: 'human' }]);
     expect(document.getElementById('playerSearchPageOverlay')).toBeNull();
     expect(document.activeElement).toBe(opener);
   });

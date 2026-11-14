@@ -4,12 +4,25 @@
  * A kit Modal showing game records (highest score, lowest score, biggest
  * win, most / least bags) across three time periods: All Time, This Year,
  * This Month. Classes from styles/screens.css (item 18b): success / danger /
- * warning by meaning; player names as text.
+ * warning by meaning; player names as text. The stats scope control on top
+ * (Human games | Bot games | All games, state/statsScope.js) re-asks the
+ * server and swaps the body below it in place when the reply comes
+ * (main.js updateRecordsPage). In the bot / all scopes a record's players
+ * include bot personas ('🤖 Mary'), plain strings like the rest.
  */
 
 import { el, openModal } from '../kit/index.js';
+import { createStatsScopeControl } from '../components/StatsScopeControl.js';
+import {
+  getStatsScope, setStatsScope, isStatsScope, createScopeRequester, BOT_STATS_EMPTY_NOTE,
+} from '../../state/statsScope.js';
 
 let recordsModal = null;
+/** The open page's scope, its control and the region swapped on a reply. */
+let currentScope = 'human';
+let scopeControl = null;
+let scopeRegion = null;
+let requester = null;
 
 /**
  * Create a single record entry element.
@@ -70,17 +83,13 @@ function createPeriodBox(title, periodData) {
   return box;
 }
 
-/**
- * Show the records page.
- *
- * @param {Object} records - Records data with allTime, thisYear, thisMonth
- * @param {number} [totalGames]
- */
-export function showRecordsPage(records, totalGames) {
-  // Remove any existing records page
-  removeRecordsPage();
-
+/** The total line, the bot-games note when there are none yet, and the three boxes. */
+function renderRecordsBody(records, totalGames, scope) {
   const body = [];
+
+  if (scope === 'bots' && !totalGames) {
+    body.push(el('p', { className: 'scope-note', text: BOT_STATS_EMPTY_NOTE }));
+  }
 
   // Total games played
   if (totalGames != null) {
@@ -91,14 +100,47 @@ export function showRecordsPage(records, totalGames) {
   }
 
   // Three boxes row
+  const periods = records || {};
   body.push(el('div', {
     className: 'records-grid',
     children: [
-      createPeriodBox('All Time', records.allTime),
-      createPeriodBox('This Year', records.thisYear),
-      createPeriodBox('This Month', records.thisMonth),
+      createPeriodBox('All Time', periods.allTime),
+      createPeriodBox('This Year', periods.thisYear),
+      createPeriodBox('This Month', periods.thisMonth),
     ],
   }));
+  return body;
+}
+
+/**
+ * Show the records page.
+ *
+ * @param {Object} records - Records data with allTime, thisYear, thisMonth
+ * @param {number} [totalGames]
+ * @param {Object} [socket] - re-asks for another scope
+ * @param {string} [scope] - the scope these records are for (default: the device's choice)
+ */
+export function showRecordsPage(records, totalGames, socket = null, scope = getStatsScope()) {
+  // Remove any existing records page
+  removeRecordsPage();
+
+  currentScope = isStatsScope(scope) ? scope : 'human';
+  const region = el('div', { className: 'scope-region', attrs: { id: 'recordsRegion' } });
+  region.replaceChildren(...renderRecordsBody(records, totalGames, currentScope));
+  scopeRegion = region;
+  const send = createScopeRequester((next) => socket?.emit('getRecords', { scope: next }));
+  requester = send;
+  scopeControl = createStatsScopeControl({
+    value: currentScope,
+    label: 'Which games the records count',
+    onChange: (next) => {
+      setStatsScope(next);
+      currentScope = next;
+      region.setAttribute('aria-busy', 'true');
+      send.request(next);
+    },
+  });
+  scopeControl.element.setAttribute('aria-controls', 'recordsRegion');
 
   recordsModal = openModal({
     title: 'Records',
@@ -107,11 +149,46 @@ export function showRecordsPage(records, totalGames) {
     id: 'recordsPageOverlay',
     dialogId: 'recordsPageModal',
     className: 'page-modal page-modal--wide',
-    body,
+    body: [scopeControl.element, region],
     onClose: () => {
       recordsModal = null;
+      forgetScopeUi();
     },
   });
+}
+
+function forgetScopeUi() {
+  requester?.cancel();
+  requester = null;
+  scopeControl = null;
+  scopeRegion = null;
+}
+
+/**
+ * New records for the open page (a scope switch's reply), swapped in below
+ * the control; the modal and focus stay.
+ *
+ * @returns {boolean} false when no records page is open
+ */
+export function updateRecordsPage(records, totalGames, scope) {
+  if (!recordsModal || !scopeRegion) return false;
+  if (isStatsScope(scope)) {
+    currentScope = scope;
+    scopeControl?.setValue(scope);
+  }
+  scopeRegion.replaceChildren(...renderRecordsBody(records, totalGames, currentScope));
+  scopeRegion.removeAttribute('aria-busy');
+  return true;
+}
+
+/** A failed request: the open page stops waiting (the error is a toast). */
+export function recordsRequestFailed() {
+  scopeRegion?.removeAttribute('aria-busy');
+}
+
+/** Whether the records page is open. */
+export function isRecordsPageVisible() {
+  return document.getElementById('recordsPageOverlay') !== null;
 }
 
 /**
@@ -121,4 +198,5 @@ export function removeRecordsPage() {
   recordsModal?.close('api');
   recordsModal = null;
   document.getElementById('recordsPageOverlay')?.remove();
+  forgetScopeUi();
 }

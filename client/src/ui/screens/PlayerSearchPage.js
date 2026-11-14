@@ -8,6 +8,7 @@
 
 import { profileAvatarSrc, applyAvatarImg } from '../../utils/avatar.js';
 import { el, createButton, openModal } from '../kit/index.js';
+import { scopePayload } from '../../state/statsScope.js';
 
 let debounceTimer = null;
 let currentSocket = null;
@@ -145,7 +146,7 @@ export function updatePlayerSearchResults(players) {
       const socket = currentSocket;
       removePlayerSearchPage();
       if (socket) {
-        socket.emit('getPlayerProfile', { username: player.username });
+        socket.emit('getPlayerProfile', scopePayload({ username: player.username }));
       }
     });
     container.appendChild(row);
