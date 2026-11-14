@@ -158,9 +158,11 @@ skips exact repeats of a validated (event, target kind, payload).
   FIFO). `client/src/state/snapshotV2.js` has `classifySeq`.
 - **R3.** A snapshot with seq S reflects every event ≤ S. It may already
   reflect ABSOLUTE presence events sent right after it (playerReconnected,
-  the spectatorJoined notice, playerActiveMode, gameLogEntry, and, during
-  DRAW_RESOLVING, positionUpdate and the playerDisconnected of a draw-time
-  grace seat): treat those as idempotent setters. Some state changes carry
+  playerActiveMode, gameLogEntry, and, during DRAW_RESOLVING, positionUpdate
+  and the playerDisconnected of a draw-time grace seat): treat those as
+  idempotent setters. (A joining spectator never gets its own
+  spectatorJoined notice: the notice goes to the rest of the room first and
+  the joiner's snapshot counts it, V1_REMOVALS #8.) Some state changes carry
   no broadcast and so no seq bump (seating at DRAW_RESOLVING is reflected
   ~1s before positionUpdate; a watch-view owner's or a spectator's /leave
   changes `presence` / `spectatorCount` silently), so **equal seq does not
