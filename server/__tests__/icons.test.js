@@ -50,3 +50,34 @@ test('the page links all three', () => {
     expect(html).toContain('<link rel="icon" type="image/png" href="/assets/icons/icon-192.png" sizes="192x192">');
     expect(html).toContain('<link rel="apple-touch-icon" href="/assets/icons/apple-touch-icon.png">');
 });
+
+test("the phone gate's app icon is the 288 px WebP (96 px at 3x)", async () => {
+    const buf = fs.readFileSync(path.join(CLIENT, 'assets/app-icon.webp'));
+    expect(buf.length).toBeLessThan(16 * 1024);
+    const meta = await sharp(buf).metadata();
+    expect([meta.format, meta.width, meta.height]).toEqual(['webp', 288, 288]);
+});
+
+describe('the iOS app icon (AppIcon.appiconset, iOSClient/generate_icon.swift)', () => {
+    const SET = path.join(__dirname, '..', '..', 'iOSClient/BABOnline/Resources/Assets.xcassets/AppIcon.appiconset');
+    const images = JSON.parse(fs.readFileSync(path.join(SET, 'Contents.json'), 'utf8')).images;
+    const byAppearance = (value) => images.find((im) => (value
+        ? (im.appearances || []).some((a) => a.appearance === 'luminosity' && a.value === value)
+        : !im.appearances));
+
+    test('has the any, dark and tinted appearances, each a universal iOS 1024 image', () => {
+        expect(images).toHaveLength(3);
+        for (const value of [null, 'dark', 'tinted']) {
+            const im = byAppearance(value);
+            expect([value, im && im.idiom, im && im.platform, im && im.size]).toEqual([value, 'universal', 'ios', '1024x1024']);
+        }
+    });
+
+    test('every file exists at 1024 px; the App Store icon (any) has no alpha channel', async () => {
+        for (const value of [null, 'dark', 'tinted']) {
+            const meta = await sharp(fs.readFileSync(path.join(SET, byAppearance(value).filename))).metadata();
+            expect([value, meta.format, meta.width, meta.height]).toEqual([value, 'png', 1024, 1024]);
+            if (value === null) expect(meta.hasAlpha).toBe(false);
+        }
+    });
+});

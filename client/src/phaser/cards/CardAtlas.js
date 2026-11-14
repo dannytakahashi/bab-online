@@ -1,5 +1,5 @@
 /**
- * The card atlas (item 18a, webclient-12 / ui-15): every face, the back and
+ * The card atlas (item 18a, webclient-12 / ui-15): every face, both backs and
  * the raised card's shadow drawn by cardFaces.js into ONE canvas texture
  * ('cards'), so the whole table binds one card texture.
  *
@@ -15,19 +15,29 @@
  *
  * Texture memory is width x height x 4 bytes for the one page
  * (atlasBytes): see atlasLayout for the grid.
+ *
+ * The ranks' font (cardFont.js) loads asynchronously: an atlas drawn before
+ * it is ready uses the system fallback and is drawn again, at the same
+ * size, when the font arrives (one redraw; the frames keep their sizes, so
+ * the sprites need nothing but the texture's re-upload).
  */
 import { CARD_CONFIG } from '../config.js';
-import { ALL_CARDS, FACE_FRAMES, BACK_FRAME, SHADOW_FRAME, CARD_DESIGN, CARD_ASPECT, drawCard, drawShadow } from './cardFaces.js';
+import { ALL_CARDS, FACE_FRAMES, BACK_FRAMES, SHADOW_FRAME, CARD_DESIGN, CARD_ASPECT, drawCard, drawShadow } from './cardFaces.js';
+import { isCardFontReady, loadCardFont, onCardFontReady } from './cardFont.js';
 
 export const CARD_TEXTURE_KEY = 'cards';
-/** Grid columns and the transparent gutter between cells (no bleed under linear filtering). */
-export const ATLAS_COLS = 8;
+/**
+ * Grid columns and the transparent gutter between cells (no bleed under
+ * linear filtering). 10 x 6 = 60 cells for the 57 frames (8 columns would
+ * need 8 rows: 64 cells); at the 300 px cap the page is 3022 x 2624.
+ */
+export const ATLAS_COLS = 10;
 export const ATLAS_PAD = 2;
 /** The shadow's blur margin inside its cell, as a share of the cell width. */
 export const SHADOW_MARGIN = 0.12;
 
-/** Every frame of the atlas in order: 54 faces, the back, the shadow. */
-export const ATLAS_FRAMES = Object.freeze([...FACE_FRAMES, BACK_FRAME, SHADOW_FRAME]);
+/** Every frame of the atlas in order: 54 faces, the red and the blue back, the shadow. */
+export const ATLAS_FRAMES = Object.freeze([...FACE_FRAMES, BACK_FRAMES.red, BACK_FRAMES.blue, SHADOW_FRAME]);
 
 /**
  * The frame bitmap for a card `cardH` CSS px tall at `dpr`: its height in
@@ -51,7 +61,7 @@ export function cardTextureSize(cardH, dpr = 1) {
 
 /**
  * The atlas page for frames of w x h: an ATLAS_COLS-wide grid of cells with
- * an ATLAS_PAD gutter (56 cells for the 56 frames).
+ * an ATLAS_PAD gutter.
  * @returns {{width: number, height: number, frames: Object<string, {x, y, w, h}>}}
  */
 export function atlasLayout({ w, h }) {
@@ -71,8 +81,8 @@ export function atlasBytes(spec) {
   return width * height * 4;
 }
 
-/** The card (or BACK_FRAME) a frame shows. */
-const cardOfFrame = new Map([...ALL_CARDS.map((c, i) => [FACE_FRAMES[i], c]), [BACK_FRAME, BACK_FRAME]]);
+/** The card (or the back frame's own name: drawCard draws its ink) a frame shows. */
+const cardOfFrame = new Map([...ALL_CARDS.map((c, i) => [FACE_FRAMES[i], c]), ...Object.values(BACK_FRAMES).map((b) => [b, b])]);
 
 /**
  * Draw every frame of the page onto a 2D context (the canvas already has
@@ -115,7 +125,9 @@ export function ensureCardAtlas(textures, spec, { createCanvas = null } = {}) {
   // (a test harness's texture manager brings its own canvas: jsdom has none)
   const makeCanvas = createCanvas || (textures._createAtlasCanvas ? () => textures._createAtlasCanvas() : () => document.createElement('canvas'));
   let atlas = atlases.get(textures);
-  const same = atlas && atlas.spec.w === spec.w && atlas.spec.h === spec.h && textures.exists?.(CARD_TEXTURE_KEY);
+  const fontReady = isCardFontReady();
+  const same = atlas && atlas.spec.w === spec.w && atlas.spec.h === spec.h && atlas.fontReady === fontReady
+    && textures.exists?.(CARD_TEXTURE_KEY);
   if (same) return { changed: false, spec: atlas.spec, bytes: atlas.bytes };
 
   const page = atlasLayout(spec);
@@ -147,9 +159,26 @@ export function ensureCardAtlas(textures, spec, { createCanvas = null } = {}) {
   tex.setFilter?.(globalThis.Phaser?.Textures?.FilterMode?.LINEAR ?? 0);
   tex.refresh?.();
 
-  atlas = { canvas, spec: { w: spec.w, h: spec.h }, bytes: page.width * page.height * 4, drawn: !!ctx };
+  atlas = { canvas, spec: { w: spec.w, h: spec.h }, bytes: page.width * page.height * 4, drawn: !!ctx, fontReady, draws: (atlas?.draws || 0) + 1 };
   atlases.set(textures, atlas);
+  if (!fontReady) redrawWhenFontLoads(textures);
   return { changed: true, spec: atlas.spec, bytes: atlas.bytes };
+}
+
+/** Texture managers waiting for the card font to redraw their atlas. */
+const waitingForFont = new WeakSet();
+
+/** Once the card font is ready, draw this manager's atlas again (same size) in it. */
+function redrawWhenFontLoads(textures) {
+  if (waitingForFont.has(textures)) return;
+  waitingForFont.add(textures);
+  onCardFontReady(() => {
+    waitingForFont.delete(textures);
+    const atlas = atlases.get(textures);
+    if (!atlas || !textures.exists?.(CARD_TEXTURE_KEY)) return;
+    ensureCardAtlas(textures, atlas.spec);
+  });
+  loadCardFont();
 }
 
 /** The atlas a texture manager holds now (live checks, tests). */
@@ -157,7 +186,7 @@ export function cardAtlasInfo(textures) {
   const a = atlases.get(textures);
   if (!a) return null;
   const page = atlasLayout(a.spec);
-  return { frame: { ...a.spec }, page: { w: page.width, h: page.height }, bytes: a.bytes, drawn: a.drawn };
+  return { frame: { ...a.spec }, page: { w: page.width, h: page.height }, bytes: a.bytes, drawn: a.drawn, fontReady: a.fontReady, draws: a.draws };
 }
 
 /**

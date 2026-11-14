@@ -1,7 +1,8 @@
 /**
  * The turn watchdog (owner, 2026-11-11: "turn timeout seems fine"): a
  * connected human who sits on their bid or play for AFK_TIMEOUT_MS (90 s,
- * every game, tournaments too) goes lazy exactly as with /lazy, announced
+ * every game with another human, tournaments too; never a solo casual
+ * game, owner 2026-11-13) goes lazy exactly as with /lazy, announced
  * in the game log. Never during grace/disconnect, never for bot or lazy
  * seats; cleared by the seat's action, a turn change, /lazy, /active,
  * disconnect and abort. AFK_TIMEOUT_MS=0 disables it.
@@ -185,6 +186,35 @@ describe('the watchdog fires', () => {
         await jest.advanceTimersByTimeAsync(AFK);
         expect(table.seat(pos).controller).toBe('lazyBot');
         expect(afkLine(ctx.log, ctx.usernames[0])).toHaveLength(1);
+    });
+});
+
+describe('a solo casual game (owner, 2026-11-13: no 90 s boot when only bots wait)', () => {
+    /** Seat 1 human, seats 2-4 native bots (the 1 human + 3 bots lobby game). */
+    function setupSolo({ humans = 1 } = {}) {
+        const ctx = setup();
+        for (let pos = humans + 1; pos <= 4; pos++) {
+            ctx.game.forceSeat(pos, { controller: 'bot', bot: { socketId: `bot:Solo${pos}:${seq}`, username: `🤖 Solo${pos}`, pic: pos, personality: 'mary' } });
+        }
+        gameHandlers.triggerBotIfNeeded(ctx.io, ctx.game, 'bid');
+        return ctx;
+    }
+
+    test('one human with three bots: never armed, and the seat stays human past 90 s', async () => {
+        const { log, game, names } = setupSolo();
+        expect(game.currentTurn).toBe(1);
+        expect(game.hasTimer('afk:1')).toBe(false);
+        await jest.advanceTimersByTimeAsync(AFK * 3);
+        expect(game.seat(1).controller).toBe('human');
+        expect(afkLine(log, names[0])).toHaveLength(0);
+    });
+
+    test('two humans with two bots: still armed, and it fires at 90 s', async () => {
+        const { log, game, names } = setupSolo({ humans: 2 });
+        expect(game.hasTimer('afk:1')).toBe(true);
+        await jest.advanceTimersByTimeAsync(AFK);
+        expect(game.seat(1).controller).toBe('lazyBot');
+        expect(afkLine(log, names[0])).toHaveLength(1);
     });
 });
 

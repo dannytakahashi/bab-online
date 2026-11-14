@@ -373,9 +373,10 @@
         ]
       },
       {
-        "section": "Leaderboard",
+        "section": "Leaderboard and records",
         "events": [
-          "getLeaderboard"
+          "getLeaderboard",
+          "getRecords"
         ]
       },
       {
@@ -532,9 +533,10 @@
         ]
       },
       {
-        "section": "Leaderboard",
+        "section": "Leaderboard and records",
         "events": [
-          "leaderboardResponse"
+          "leaderboardResponse",
+          "recordsResponse"
         ]
       },
       {
@@ -569,18 +571,16 @@
   "exclude": {
     "web": {},
     "swift": {
-      "getProfile": "iOS has no profile / records / search / upload screens yet (item 22)",
-      "updateProfilePic": "iOS has no profile / records / search / upload screens yet (item 22)",
-      "uploadProfilePic": "iOS has no profile / records / search / upload screens yet (item 22)",
-      "getRecords": "iOS has no profile / records / search / upload screens yet (item 22)",
-      "searchPlayers": "iOS has no profile / records / search / upload screens yet (item 22)",
-      "getPlayerProfile": "iOS has no profile / records / search / upload screens yet (item 22)",
-      "profileResponse": "iOS has no profile / records / search / upload screens yet (item 22)",
-      "profilePicUpdateResponse": "iOS has no profile / records / search / upload screens yet (item 22)",
-      "profilePicUploadResponse": "iOS has no profile / records / search / upload screens yet (item 22)",
-      "searchPlayersResponse": "iOS has no profile / records / search / upload screens yet (item 22)",
-      "playerProfileResponse": "iOS has no profile / records / search / upload screens yet (item 22)",
-      "recordsResponse": "iOS has no profile / records / search / upload screens yet (item 22)",
+      "getProfile": "iOS has no profile / search / upload screens yet (item 22; Records is a Stats tab from the next iOS build)",
+      "updateProfilePic": "iOS has no profile / search / upload screens yet (item 22; Records is a Stats tab from the next iOS build)",
+      "uploadProfilePic": "iOS has no profile / search / upload screens yet (item 22; Records is a Stats tab from the next iOS build)",
+      "searchPlayers": "iOS has no profile / search / upload screens yet (item 22; Records is a Stats tab from the next iOS build)",
+      "getPlayerProfile": "iOS has no profile / search / upload screens yet (item 22; Records is a Stats tab from the next iOS build)",
+      "profileResponse": "iOS has no profile / search / upload screens yet (item 22; Records is a Stats tab from the next iOS build)",
+      "profilePicUpdateResponse": "iOS has no profile / search / upload screens yet (item 22; Records is a Stats tab from the next iOS build)",
+      "profilePicUploadResponse": "iOS has no profile / search / upload screens yet (item 22; Records is a Stats tab from the next iOS build)",
+      "searchPlayersResponse": "iOS has no profile / search / upload screens yet (item 22; Records is a Stats tab from the next iOS build)",
+      "playerProfileResponse": "iOS has no profile / search / upload screens yet (item 22; Records is a Stats tab from the next iOS build)",
       "error": "app-level 'error' collides with Socket.IO-Client-Swift's own client 'error' event; the rename to serverError is V1_REMOVALS #1",
       "adminRequest": "the admin panel is web only; the iOS app never sends or reads it",
       "adminResponse": "the admin panel is web only; the iOS app never sends or reads it",

@@ -3102,7 +3102,7 @@
       "rateLimit": null,
       "sentBy": {
         "web": true,
-        "ios": false
+        "ios": true
       },
       "examples": [
         {}
@@ -5089,7 +5089,7 @@
         ]
       },
       "emittedFrom": [
-        "server/socket/lobbyHandlers.js:playerReady",
+        "server/socket/lobbyHandlers.js:startLobbyIfAllReady",
         "server/socket/tournamentHandlers.js:startTournamentRound"
       ]
     },
@@ -7950,7 +7950,7 @@
       "added": [
         "avatarUrls"
       ],
-      "notes": "Rows by recipient (docs/avatars.md): a capable socket gets customProfilePic null + avatarUrls {username: url}; a legacy one the small inline rendition. The App Store iOS build reads neither.",
+      "notes": "Rows by recipient (docs/avatars.md): a capable socket gets customProfilePic null + avatarUrls {username: url}; a legacy one the small inline rendition. The App Store iOS build reads neither; the next iOS build (after 1.2.0 build 6) shows avatarUrls[username], else the stock profilePic, in Stats.",
       "clientReads": {
         "web": [
           "client/src/handlers/leaderboardHandlers.js:registerLeaderboardHandlers"
@@ -8026,11 +8026,14 @@
       },
       "status": "active",
       "to": "self",
+      "notes": "iOS reads it from the next iOS build (after 1.2.0 build 6: the Records tab of Stats); every field optional there (a missing period or record shows \"No games yet\").",
       "clientReads": {
         "web": [
           "client/src/handlers/recordsHandlers.js:registerRecordsHandlers"
         ],
-        "ios": []
+        "ios": [
+          "iOSClient/BABOnline/Networking/Handlers/RecordsSocketHandler.swift:register"
+        ]
       },
       "emittedFrom": [
         "server/socket/profileHandlers.js:getRecords"

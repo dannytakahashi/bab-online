@@ -91,6 +91,9 @@ enum Theme {
             static let backInner = ThemeColor(0x266633)
             static let backDiamond = ThemeColor(0x408c4d)
             static let backDiamondStroke = ThemeColor(0x4da659)
+            static let backRed = ThemeColor(0xb22222)
+            static let backBlue = ThemeColor(0x1f4e9b)
+            static let backPaper = ThemeColor(0xfffdf8)
             static let dimTint = ThemeColor(0x999999)
             static let shadow = ThemeColor(0x000000, alpha: 0.451)
         }
@@ -222,6 +225,9 @@ enum Theme {
         "card.backInner": ThemeColor(0x266633),
         "card.backDiamond": ThemeColor(0x408c4d),
         "card.backDiamondStroke": ThemeColor(0x4da659),
+        "card.backRed": ThemeColor(0xb22222),
+        "card.backBlue": ThemeColor(0x1f4e9b),
+        "card.backPaper": ThemeColor(0xfffdf8),
         "card.dimTint": ThemeColor(0x999999),
         "card.shadow": ThemeColor(0x000000, alpha: 0.451),
         "medal.silver": ThemeColor(0xc0c7c4),

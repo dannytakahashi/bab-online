@@ -820,10 +820,13 @@ class GameManager {
         const available = PERSONALITY_LIST.filter(p => !usedPersonalities.includes(p));
         const personality = available[Math.floor(Math.random() * available.length)];
 
-        // Generic lobby name (hidden until game starts)
-        const existingBots = lobby.players.filter(p => p.isBot);
-        const botNumber = existingBots.length + 1;
-        const lobbyName = botNumber > 1 ? `🤖 Bot ${botNumber}` : '🤖 Bot';
+        // Generic lobby name (hidden until game starts): the lowest free
+        // number, so removing "Bot" and adding again never gives two "Bot 2"
+        const botLobbyName = (n) => (n > 1 ? `🤖 Bot ${n}` : '🤖 Bot');
+        const takenNames = new Set(lobby.players.filter(p => p.isBot).map(p => p.username));
+        let botNumber = 1;
+        while (takenNames.has(botLobbyName(botNumber))) botNumber++;
+        const lobbyName = botLobbyName(botNumber);
 
         // Create bot with generic lobby name
         const bot = botController.createBot(lobbyName, personality);
@@ -872,9 +875,19 @@ class GameManager {
         lobby.readyPlayers.delete(botSocketId);
         lobby.botPersonalities?.delete(botSocketId);
 
-        // Reset all ready states when someone leaves
-        lobby.readyPlayers.clear();
-        lobby.players.forEach(p => p.ready = false);
+        // The lobby is no longer full: the remaining bots wait again (they
+        // are readied when it fills up with every human ready). The humans
+        // keep their ready flags: iOS (1.1.0 / 1.2.0) keeps its own
+        // isReady and never reads it back from the list, so resetting them
+        // here left an iOS player showing "Unready" while the server had
+        // them unready, and Ready, remove a bot, add a bot sat at a full
+        // lobby until they unreadied and readied again (2026-11-13)
+        for (const p of lobby.players) {
+            if (p.isBot) {
+                p.ready = false;
+                lobby.readyPlayers.delete(p.socketId);
+            }
+        }
 
         return { success: true, lobby };
     }
@@ -893,6 +906,26 @@ class GameManager {
                 lobby.readyPlayers.add(player.socketId);
             }
         }
+    }
+
+    /**
+     * A lobby that just filled up with bots while its humans were already
+     * ready (Ready, then Add Bot until 4: owner report 2026-11-13, the bots
+     * sat unready until a human unreadied and readied again). When the lobby
+     * has 4 players and every human in it is ready, its bots are readied as
+     * a human's playerReady would. A seat held for its reconnect grace is
+     * never ready (suspendLobbySeat resets it), so a held seat blocks this,
+     * as it blocks the start on the ready path.
+     * @returns {boolean} true when every seat is now ready
+     */
+    readyBotsIfHumansReady(lobbyId) {
+        const lobby = this.lobbies.get(lobbyId);
+        if (!lobby || lobby.players.length !== 4) return false;
+        const humans = lobby.players.filter(p => !p.isBot);
+        if (!humans.every(p => p.ready && lobby.readyPlayers.has(p.socketId))) return false;
+        if (this.reconnectingIn(lobbyId).length > 0) return false;
+        this.setBotsReady(lobbyId);
+        return lobby.readyPlayers.size === 4;
     }
 
     // ==================== END BOT METHODS ====================

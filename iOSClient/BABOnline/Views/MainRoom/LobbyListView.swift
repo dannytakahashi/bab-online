@@ -9,10 +9,17 @@ struct LobbyListView: View {
             LazyVStack(spacing: 1) {
                 if mainRoomState.lobbies.isEmpty && mainRoomState.inProgressGames.isEmpty && mainRoomState.tournaments.isEmpty {
                     VStack(spacing: Theme.Space.s3) {
-                        Image(systemName: "gamecontroller")
-                            .font(.largeTitle)
-                            .foregroundColor(Theme.textDim)
-                            .accessibilityHidden(true)
+                        // the four suits, as on the app icon (owner: something card
+                        // related, not a game controller)
+                        HStack(spacing: Theme.Space.s2) {
+                            ForEach([(Suit.spades, "spade"), (.hearts, "heart"), (.diamonds, "diamond"), (.clubs, "club")], id: \.1) { suit, symbol in
+                                Image(systemName: "suit.\(symbol).fill")
+                                    .foregroundColor(Theme.suitOnDark(suit))
+                            }
+                        }
+                        .font(.title)
+                        .opacity(0.8)
+                        .accessibilityHidden(true)
                         Text("No games available")
                             .foregroundColor(Theme.textDim)
                         Text("Create one to get started!")

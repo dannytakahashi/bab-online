@@ -1,8 +1,24 @@
 /**
- * DrawManager - Handles the draw phase UI and animations.
+ * DrawManager - the draw for deal (startDraw -> playerDrew x4 -> teamsAnnounced).
  *
- * Manages the deck display, card selection, and draw animations
- * during the position determination phase of the game.
+ * The iOS DrawPhaseView's structure and design language (PR 239), on the
+ * web's own pieces:
+ *
+ *   - the canvas has the cards: the deck (54 backs in a row; each card is
+ *     its own button, the one under the pointer is the one picked, and it
+ *     peeks up under the pointer) and the drawn cards, which fly from the
+ *     deck and turn face up into their slot (at least the hand card's size,
+ *     larger where the canvas has the height; each face from its own frame,
+ *     cards/drawSlotFaces.js, so 1:1 at any size);
+ *   - the HUD has the words and the players (ui/drawHud.js): the title and
+ *     the rule, each slot's avatar and name over a dashed placeholder, the
+ *     prompt under the deck, then the teams panel over a scrim.
+ *
+ * Every place is the table layout's (computeTableLayout draw / teams), so a
+ * relayout moves it all; every tween goes through the TableDirector
+ * (sceneTween / sceneDelay). The teams fade to black is sized to the
+ * server's hold (teamsAnnounced.resumeInMs, pacing.js), never to motion
+ * settings; the cosmetic durations follow reduced motion (motionMs).
  */
 
 import { getGameState } from '../../state/GameState.js';
@@ -13,69 +29,31 @@ import { sceneDelay, sceneTween } from '../TableDirector.js';
 import { createTransitionOverlay, setOverlayState } from '../../ui/transitionOverlay.js';
 import { layoutOf, deckPosition } from '../layout/computeTableLayout.js';
 import { CARD_TEXTURE_KEY } from '../cards/CardAtlas.js';
-import { BACK_FRAME } from '../cards/cardFaces.js';
-import { uiTextStyle } from '../text.js';
-import { COLOR, hex, alpha, MOTION } from '../../ui/tokens.js';
+import { tableBackFrame } from '../cards/tableBack.js';
+import { MOTION } from '../../ui/tokens.js';
 import { motionMs, EASE_EMPHASIZED } from '../../ui/motion.js';
+import { applyHudLayout } from '../../ui/tableHud.js';
+import { showDrawHud, fillDrawSlot, landDrawSlot, fitDrawNames, endMyDraw, showTeamsHud, clearDrawHud, drawHud } from '../../ui/drawHud.js';
+import { DRAW_SLOTS_KEY, ensureDrawSlotFace } from '../cards/drawSlotFaces.js';
 
-/** Canvas titles: the UI font, white with a dark outline (legible over the felt). */
-const titleStyle = (scene, font, extra = {}) => uiTextStyle(scene, {
-  fontSize: `${font}px`,
-  weight: 'bold',
-  color: COLOR.text.primary,
-  stroke: COLOR.surface.s0,
-  ...extra,
-});
-import { resizeShape } from '../shapes.js';
-
-/** A drawn name shrinks to this much of its font before it is cut short. */
-export const NAME_MIN_SCALE = 0.6;
-
-/**
- * Fit a drawn player's name label into its layout rect (draw.name.rects:
- * the box the overlap check models, one slot pitch wide). A username may
- * be up to 50 characters: the label shrinks to fit, down to
- * NAME_MIN_SCALE, then ends in an ellipsis (the log keeps the whole name).
- * Text.width is Phaser's measured width (stroke included), so this runs
- * after every font change.
- */
-export function fitNameLabel(label, name, maxW) {
-  if (!label || !(maxW > 0)) return label;
-  const full = String(name ?? '');
-  label.setText?.(full);
-  label.setScale?.(1);
-  const w = label.width;
-  if (!(w > maxW)) return label;
-  if (w * NAME_MIN_SCALE <= maxW) {
-    label.setScale?.(maxW / w);
-    return label;
-  }
-  label.setScale?.(NAME_MIN_SCALE);
-  const chars = Array.from(full);
-  for (let n = chars.length - 1; n >= 1; n--) {
-    label.setText?.(`${chars.slice(0, n).join('').trimEnd()}\u2026`);
-    if (label.width * NAME_MIN_SCALE <= maxW) break;
-  }
-  return label;
-}
+/** A deck card under the pointer peeks up by this share of its height. */
+export const DECK_PEEK = 0.12;
 
 export class DrawManager {
   constructor(scene) {
     this.scene = scene;
     this.state = getGameState();
 
-    // Track all created elements for cleanup
+    // Deck cards by deck index (null once drawn) and the drawn cards
     this.allCards = [];
     this.drawnCardDisplays = [];
-    this.titleText = null;
 
-    // Track clicked card for local player draw
+    // My clicked card (it is the one that flies to my slot)
     this.clickedCardSprite = null;
     this.clickedCardIndex = null;
 
-    // Teams overlay pieces (relayout keeps them centred)
-    this._teamElements = null;
     this._teamsShown = false;
+    this._spectator = false;
 
     // Pending fade-to-black timer (cancelled in cleanup so a stale one can't
     // add an overlay after the game UI has been built)
@@ -95,97 +73,177 @@ export class DrawManager {
   }
 
   /**
-   * Show the draw UI with the deck of 54 cards.
-   * Called when 'startDraw' event is received.
+   * Show the draw: the HUD's title, rule, waiting slots and prompt, and the
+   * deck of 54 backs flying in. Called on startDraw.
    */
   showDrawUI() {
     this.cleanup();
     this.state.setHasDrawn(false);
+    this._spectator = !!this.state.isSpectator;
 
     const L = this.layout();
-    const { deck, title } = L.draw;
+    applyHudLayout(L);
+    showDrawHud({ spectator: this._spectator, onDraw: () => this.drawByKey() });
+    const flyIn = this.isVisible();
+    for (let i = 0; i < 54; i++) this._addDeckCard(L, i, { flyIn, pickable: !this._spectator });
+  }
 
-    console.log('🃏 DrawManager: Showing draw UI...');
-
-    // Add title
-    this.titleText = this.scene.add.text(title.x, title.y, 'Draw for Deal!', titleStyle(this.scene, title.font, {
-      strokeThickness: 4,
-    })).setOrigin(0.5).setDepth(200);
-    this.allCards.push(this.titleText);
-
-    // The deck: each card is its own button over its visible bounds (the
-    // atlas frame IS the card: no padding), so the one under the pointer is
-    // the one picked (Phaser's input checks the top object first; a later
-    // card lies over the one before it). ui-19: one hit zone used to map a
-    // click two or three cards to the left.
-    for (let i = 0; i < 54; i++) {
-      const spot = deckPosition(L, i);
-      const cardSprite = this.scene.add.image(deck.enterX, spot.y, CARD_TEXTURE_KEY, BACK_FRAME)
-        .setScale(deck.card.scale).setDepth(100);
-      cardSprite.setData?.('deckIndex', i);
-
-      if (this.isVisible()) {
-        cardSprite.setData?.('moveTween', sceneTween(this.scene, {
-          targets: cardSprite,
-          x: spot.x,
-          y: spot.y,
-          duration: motionMs(MOTION.slow * 2),
-          ease: EASE_EMPHASIZED,
-          delay: 0,
-        }));
-      } else {
-        cardSprite.x = spot.x;
-        cardSprite.y = spot.y;
+  /**
+   * The draw as the model has it (render(): a rejoin, or a spectator who
+   * comes in mid-draw): the HUD, the cards still in the deck (a button for a
+   * seat that has not drawn), and the cards drawn so far face up in their
+   * slots. The draws still to come fly from the deck as usual.
+   * @param {Object} m - GameState.renderModel(): its `draw` and `viewer`
+   */
+  renderDraw(m) {
+    const draw = m?.draw;
+    if (!draw) return;
+    this.cleanup();
+    this._spectator = (m.viewer?.role || 'seat') !== 'seat';
+    const L = this.layout();
+    const done = this._spectator || !!draw.hasDrawn || draw.viewerDrawOrder !== null;
+    applyHudLayout(L);
+    showDrawHud({ spectator: this._spectator, onDraw: () => this.drawByKey() });
+    if (done && !this._spectator) endMyDraw();
+    const left = Math.max(0, 54 - draw.drawn.length);
+    for (let i = 0; i < left; i++) this._addDeckCard(L, i, { flyIn: false, pickable: !done });
+    for (const d of draw.drawn) {
+      const slot = L.draw.slots[d.drawOrder - 1];
+      if (!slot) continue;
+      const mine = !this._spectator && (d.drawOrder === draw.viewerDrawOrder || (!!this.state.username && d.username === this.state.username));
+      if (d.card) {
+        const face = getCardImageKey(d.card);
+        const card = this.scene.add.image(slot.x, slot.y, DRAW_SLOTS_KEY, this._slotFace(L, d.drawOrder - 1, face))
+          .setScale(L.draw.slotCard.scale).setDepth(300);
+        card.setData?.('drawOrder', d.drawOrder);
+        card.setData?.('faceKey', face);
+        this.drawnCardDisplays.push(card);
       }
+      fillDrawSlot(d.drawOrder - 1, { username: d.username, mine, card: d.card, announce: false });
+      if (d.card) landDrawSlot(d.drawOrder - 1);
+    }
+  }
+
+  /** Slot i's face at the layout's slot size (its own frame: cards/drawSlotFaces.js); the frame name. */
+  _slotFace(L, i, faceKey) {
+    return ensureDrawSlotFace(this.scene.textures, L.draw.slotCard.tex, i, faceKey);
+  }
+
+  /**
+   * Deck card i: its own button over its visible bounds (the atlas frame IS
+   * the card: no padding), so the one under the pointer is the one picked
+   * (Phaser's input checks the top object first; a later card lies over the
+   * one before it; ui-19: one hit zone used to map a click two or three
+   * cards to the left). A spectator's deck is not theirs to pick from.
+   */
+  _addDeckCard(L, i, { flyIn, pickable }) {
+    const { deck } = L.draw;
+    const spot = deckPosition(L, i);
+    const cardSprite = this.scene.add.image(flyIn ? deck.enterX : spot.x, spot.y, CARD_TEXTURE_KEY, tableBackFrame())
+      .setScale(deck.card.scale).setDepth(100);
+    cardSprite.setData?.('deckIndex', i);
+    if (flyIn) {
+      cardSprite.setData?.('moveTween', sceneTween(this.scene, {
+        targets: cardSprite,
+        x: spot.x,
+        y: spot.y,
+        duration: motionMs(MOTION.slow * 2),
+        ease: EASE_EMPHASIZED,
+        delay: 0,
+        onComplete: () => { if (cardSprite.scene) cardSprite.setData?.('moveTween', null); },
+      }));
+    }
+    if (pickable) {
       cardSprite.setInteractive(
         new Phaser.Geom.Rectangle(0, 0, cardSprite.width, cardSprite.height),
         Phaser.Geom.Rectangle.Contains
       );
+      if (cardSprite.input) cardSprite.input.cursor = 'pointer';
       cardSprite.on('pointerdown', () => this._onDeckCardDown(cardSprite));
-      this.allCards.push(cardSprite);
+      cardSprite.on('pointerover', () => this._peek(cardSprite, true));
+      cardSprite.on('pointerout', () => this._peek(cardSprite, false));
     }
+    this.allCards[i] = cardSprite;
+    return cardSprite;
+  }
 
-    console.log('✅ DrawManager: Draw UI displayed');
+  /**
+   * A deck card under the pointer peeks up (its hit area grows down by as
+   * much, so the pointer stays on it); it settles back when the pointer
+   * leaves, a draw is made or the deck moves.
+   */
+  _peek(card, up) {
+    if (!card?.active || card.getData?.('deckIndex') === undefined) return;
+    if (up && (this.state.hasDrawn || this._teamsShown || card.getData?.('moveTween'))) return;
+    const L = this.layout();
+    const home = deckPosition(L, card.getData('deckIndex'));
+    const lift = up ? L.draw.deck.card.h * DECK_PEEK : 0;
+    const area = card.input?.hitArea;
+    if (area) area.height = card.height + (card.scaleY ? lift / card.scaleY : 0);
+    this.scene.tweens?.killTweensOf?.(card);
+    sceneTween(this.scene, { targets: card, y: home.y - lift, duration: motionMs('fast'), ease: EASE_EMPHASIZED });
+  }
+
+  /** The keyboard / screen reader button: draw the deck's middle card (any card: the server picks the value). */
+  drawByKey() {
+    const cards = this.deckCards();
+    if (!cards.length) return;
+    this._onDeckCardDown(cards[Math.floor(cards.length / 2)].card);
   }
 
   /** My click on a deck card: that card is mine to flip (the server picks the value). */
   _onDeckCardDown(cardSprite) {
-    if (this.state.hasDrawn) return;
+    if (this.state.hasDrawn || this._spectator) return;
     const index = this.allCards.indexOf(cardSprite);
-    if (index < 1) return;
+    if (index < 0) return;
     this.state.setHasDrawn(true);
 
     // Store clicked card sprite and index for the draw animation
     this.clickedCardSprite = cardSprite;
     this.clickedCardIndex = index;
 
-    console.log(`📦 DrawManager: Clicked card ${index}`);
-
     // Emit draw event to server
     getSocketManager().emit('draw', { num: Math.floor(Math.random() * 54) });
 
-    // No more picks
-    for (const c of this.allCards) {
-      if (c && c !== this.titleText) c.disableInteractive?.();
+    this._closeDeck();
+  }
+
+  /** No more picks: the deck stops being buttons, the prompt goes, a peeking card settles. */
+  _closeDeck() {
+    const L = this.layout();
+    for (const { card } of this.deckCards()) {
+      card.disableInteractive?.();
+      if (card === this.clickedCardSprite) continue;
+      const home = deckPosition(L, card.getData('deckIndex'));
+      if (card.y !== home.y && !card.getData?.('moveTween')) {
+        this.scene.tweens?.killTweensOf?.(card);
+        sceneTween(this.scene, { targets: card, y: home.y, duration: motionMs('fast'), ease: EASE_EMPHASIZED });
+      }
     }
+    endMyDraw();
   }
 
   /** Deck cards still in the deck (not drawn), with their deck index. */
   deckCards() {
     return this.allCards
       .map((card, index) => ({ card, index }))
-      .filter(({ card, index }) => index > 0 && card && card.active !== false && card.getData?.('deckIndex') !== undefined);
+      .filter(({ card }) => card && card.active !== false && card.getData?.('deckIndex') !== undefined);
+  }
+
+  /** The drawn cards on the canvas (in draw order 1-4 by their 'drawOrder'). */
+  drawnCards() {
+    return this.drawnCardDisplays.filter((o) => o?.active !== false && o?.getData?.('drawOrder'));
   }
 
   /**
-   * Follow a relayout: the deck, the drawn cards and their names, the
-   * title, and the teams overlay go to their places in the new layout
-   * (ui-19: the draw used to ignore a resize). Tweens still heading for
-   * the old places are cut short at their end state.
+   * Follow a relayout: the deck, the drawn cards and the HUD go to their
+   * places in the new layout (ui-19: the draw used to ignore a resize).
+   * Tweens still heading for the old places are cut short at their end
+   * state. (applyHudLayout already moved the HUD's words and players.)
    */
   relayout() {
     const L = this.layout();
-    const { draw, teams } = L;
+    const { draw } = L;
     const stop = (obj) => {
       const t = obj.getData?.('moveTween');
       if (t) {
@@ -194,10 +252,6 @@ export class DrawManager {
       }
       this.scene.tweens?.killTweensOf?.(obj);
     };
-    if (this.titleText?.active !== false && this.titleText) {
-      this.titleText.setPosition?.(draw.title.x, draw.title.y);
-      this.titleText.setFontSize?.(draw.title.font);
-    }
     if (!this._teamsShown) {
       // the deck in its row (the teams whisk sends it off the top: leave it)
       for (const { card } of this.deckCards()) {
@@ -205,340 +259,175 @@ export class DrawManager {
         const p = deckPosition(L, card.getData('deckIndex'));
         card.setPosition(p.x, p.y);
         card.setScale(draw.deck.card.scale);
-      }
-      // the drawn cards face up in their slots, names above
-      for (const item of this.drawnCardDisplays) {
-        const order = item?.getData?.('drawOrder');
-        if (!order) continue;
-        const slot = draw.slots[order - 1];
-        if (!slot) continue;
-        stop(item);
-        if (item.getData('isName')) {
-          item.setPosition(slot.x, slot.y + draw.name.dy);
-          item.setFontSize?.(draw.name.font);
-          fitNameLabel(item, item.getData('fullName'), draw.name.rects[order - 1]?.w);
-        } else {
-          const face = item.getData('faceKey');
-          if (face) item.setTexture(CARD_TEXTURE_KEY, face);
-          item.setPosition(slot.x, slot.y);
-          item.setScale(draw.slotCard.scale);
-        }
+        if (card.input?.hitArea) card.input.hitArea.height = card.height;
       }
     }
-    if (this._teamElements) {
-      const [overlay, team1Label, team1Players, vsText, team2Label, team2Players] = this._teamElements;
-      overlay.setPosition?.(teams.x, teams.y);
-      resizeShape(overlay, L.w, L.h);
-      const rows = [[team1Label, -2, teams.fonts.label], [team1Players, -1, teams.fonts.names], [vsText, 0, teams.fonts.vs],
-        [team2Label, 1, teams.fonts.label], [team2Players, 2, teams.fonts.names]];
-      for (const [el, row, font] of rows) {
-        el.setPosition?.(teams.x, teams.y + row * teams.dy);
-        el.setFontSize?.(font);
-      }
+    // the drawn cards face up in their slots
+    for (const item of this.drawnCards()) {
+      const slot = draw.slots[item.getData('drawOrder') - 1];
+      if (!slot) continue;
+      stop(item);
+      const face = item.getData('faceKey');
+      if (face) item.setTexture(DRAW_SLOTS_KEY, this._slotFace(L, item.getData('drawOrder') - 1, face));
+      item.setPosition(slot.x, slot.y);
+      item.setScale(draw.slotCard.scale);
+      item.setAlpha?.(1);
+      landDrawSlot(item.getData('drawOrder') - 1);
     }
+    fitDrawNames();
   }
 
   /**
-   * Handle the local player's draw result.
-   * Called when 'youDrew' event is received.
-   * @param {Object} data - { card }
+   * My own draw's card (youDrew): the deck is no longer mine to pick from
+   * (the server's 30 s auto-draw sends it without a click too). The card
+   * itself flies with playerDrew.
    */
-  handleYouDrew(data) {
-    console.log(`🎴 DrawManager: You drew: ${data.card.rank} of ${data.card.suit}`);
-    // The playerDrew event will handle the display
+  handleYouDrew() {
+    if (!this._spectator) this._closeDeck();
   }
 
   /**
-   * Animate a drawn card for any player.
-   * Called when 'playerDrew' event is received.
+   * A draw (any player's, in draw order): a card leaves the deck (mine: the
+   * one I clicked), turns face up on its way to the slot, and the slot shows
+   * the player. Called on playerDrew.
    * @param {Object} data - { username, card, drawOrder, position }
    */
   handlePlayerDrew(data) {
-    console.log(`🎴 DrawManager: ${data.username} drew: ${data.card.rank} of ${data.card.suit} (order: ${data.drawOrder})`);
-
-    const { draw } = this.layout();
-
-    // This draw's slot (1-4, in draw order)
-    const slot = draw.slots[Math.max(0, Math.min(3, (data.drawOrder || 1) - 1))];
-    const slotX = slot.x;
-    const slotY = slot.y;
+    const L = this.layout();
+    const { draw } = L;
+    // a draw seen without the draw up (no startDraw or render of it here):
+    // its words and slots, as a spectator's (no deck to pick from)
+    if (!drawHud()) {
+      applyHudLayout(L);
+      showDrawHud({ spectator: true });
+    }
+    const order = Math.max(1, Math.min(4, data.drawOrder || 1));
+    const slot = draw.slots[order - 1];
     const textureKey = getCardImageKey(data.card);
+    const mine = !this._spectator && !!this.state.username && data.username === this.state.username;
 
-    // Determine if this is the local player's draw
-    const isLocalPlayer = this.clickedCardSprite !== null;
-
-    let drawnCard;
+    let drawnCard = null;
     let cardIndexToRemove;
-
-    if (isLocalPlayer) {
-      // Use the actual clicked card sprite
+    if (mine && this.clickedCardSprite?.active !== false && this.clickedCardSprite) {
       drawnCard = this.clickedCardSprite;
       cardIndexToRemove = this.clickedCardIndex;
-      drawnCard.setDepth(300);
-
-      // Clear the stored references
       this.clickedCardSprite = null;
       this.clickedCardIndex = null;
     } else {
-      // For remote players, pick a random card from the remaining deck
-      // Cards start at index 1 (index 0 is title text)
-      const availableIndices = this.deckCards().map(({ index }) => index);
-
-      if (availableIndices.length > 0) {
-        // Pick a random card from the deck
-        const randomIdx = Math.floor(Math.random() * availableIndices.length);
-        cardIndexToRemove = availableIndices[randomIdx];
-        drawnCard = this.allCards[cardIndexToRemove];
-        drawnCard.setDepth(300);
+      // another player's (or my auto-draw): any card still in the deck,
+      // never the one I clicked (mine flies with my own draw)
+      const available = this.deckCards().filter(({ card }) => card !== this.clickedCardSprite);
+      if (available.length > 0) {
+        const pick = available[Math.floor(Math.random() * available.length)];
+        cardIndexToRemove = pick.index;
+        drawnCard = pick.card;
       } else {
-        // Fallback: create a new card if somehow no cards left
         const p = deckPosition(this.layout(), 0);
-        drawnCard = this.scene.add.image(p.x, p.y, CARD_TEXTURE_KEY, BACK_FRAME)
-          .setScale(draw.deck.card.scale)
-          .setDepth(300);
+        drawnCard = this.scene.add.image(p.x, p.y, CARD_TEXTURE_KEY, tableBackFrame()).setScale(draw.deck.card.scale);
       }
     }
+    if (mine) this._closeDeck();
+    if (cardIndexToRemove !== undefined) this.allCards[cardIndexToRemove] = null;
+    drawnCard.setDepth(300);
 
-    // Remove the card from allCards array (don't reposition others)
-    if (cardIndexToRemove !== undefined) {
-      this.allCards[cardIndexToRemove] = null;
-    }
     // A drawn card leaves the deck: no longer a button, its slot and face kept for a relayout
     drawnCard.disableInteractive?.();
     drawnCard.removeAllListeners?.('pointerdown');
+    drawnCard.removeAllListeners?.('pointerover');
+    drawnCard.removeAllListeners?.('pointerout');
     drawnCard.setData?.('deckIndex', undefined);
-    drawnCard.setData?.('drawOrder', data.drawOrder || 1);
+    drawnCard.setData?.('drawOrder', order);
     drawnCard.setData?.('faceKey', textureKey);
-
-    // Create username label
-    const nameLabel = this.scene.add.text(
-      slotX,
-      slotY + draw.name.dy,
-      data.username,
-      titleStyle(this.scene, draw.name.font, { strokeThickness: 3 })
-    ).setOrigin(0.5).setDepth(300);
-    nameLabel.setData?.('drawOrder', data.drawOrder || 1);
-    nameLabel.setData?.('isName', true);
-    nameLabel.setData?.('fullName', data.username);
-    // (the label fits the slot's name rect: a long name would cover the next one)
-    const order = Math.max(1, Math.min(4, data.drawOrder || 1));
-    fitNameLabel(nameLabel, data.username, draw.name.rects[order - 1]?.w);
-
-    // Stop the deal-in tween if it is still running (it would pull the card back)
+    this.scene.tweens?.killTweensOf?.(drawnCard);
     const inTween = drawnCard.getData?.('moveTween');
     if (inTween) {
       inTween.stop?.();
       drawnCard.setData('moveTween', null);
     }
 
-    // Flip animation (slowed down)
-    const startPos = { x: drawnCard.x, y: drawnCard.y };
-    const midX = (startPos.x + slotX) / 2;
-    const midY = (startPos.y + slotY) / 2;
-    const flipDuration = motionMs('base');
-    const drawnScale = draw.slotCard.scale;
+    // The slot shows who drew (its placeholder goes as the card comes)
+    fillDrawSlot(order - 1, { username: data.username, mine, card: data.card });
 
-    // Phase 1: Move toward midpoint and scale X to 0 (flip start)
+    // Fly and turn over: half way the back narrows to its edge (growing to
+    // the slot card's height), the face widens from it into the slot, and
+    // the slot's dashed placeholder fades out as it comes (never an empty
+    // slot while the card is on its way)
+    const start = { x: drawnCard.x, y: drawnCard.y };
+    const flip = motionMs('base');
+    const backScaleY = drawnCard.height ? draw.slotCard.h / drawnCard.height : draw.slotCard.scale;
     sceneTween(this.scene, {
       targets: drawnCard,
-      x: midX,
-      y: midY,
+      x: (start.x + slot.x) / 2,
+      y: (start.y + slot.y) / 2,
       scaleX: 0,
-      scaleY: drawnScale * 0.73,
-      duration: flipDuration,
+      scaleY: backScaleY,
+      duration: flip,
       ease: EASE_EMPHASIZED,
       onComplete: () => {
-        // Guard against destroyed sprite (cleanup called during animation)
         if (!drawnCard || !drawnCard.scene) return;
-
-        // Change texture to revealed card
-        drawnCard.setTexture(CARD_TEXTURE_KEY, textureKey);
-
-        // Phase 2: Scale X back and complete movement
+        const now = this.layout();
+        drawnCard.setTexture(DRAW_SLOTS_KEY, this._slotFace(now, order - 1, textureKey));
+        drawnCard.setScale(0, now.draw.slotCard.scale);
+        landDrawSlot(order - 1, { ms: flip });
+        const to = now.draw.slots[order - 1] || slot;
         sceneTween(this.scene, {
           targets: drawnCard,
-          x: slotX,
-          y: slotY,
-          scaleX: drawnScale,
-          scaleY: drawnScale,
-          duration: flipDuration,
+          x: to.x,
+          y: to.y,
+          scaleX: now.draw.slotCard.scale,
+          scaleY: now.draw.slotCard.scale,
+          duration: flip,
           ease: EASE_EMPHASIZED,
         });
       },
     });
 
-    this.drawnCardDisplays.push(drawnCard, nameLabel);
+    this.drawnCardDisplays.push(drawnCard);
   }
 
   /**
-   * Handle teams announced overlay.
-   * Called when 'teamsAnnounced' event is received.
-   * @param {Object} data - { team1: [username1, username2], team2: [username1, username2] }
+   * The teams (teamsAnnounced): the deck leaves, the drawn cards stay face
+   * up under the teams panel, then the fade to black ends when the server's
+   * hold does.
+   * @param {Object} data - { team1: [username1, username2], team2: [...], resumeInMs }
    */
   handleTeamsAnnounced(data) {
-    console.log('🏆 DrawManager: Teams announced:', data);
-
     const L = this.layout();
     this._teamsShown = true;
-    const deckScale = L.draw.deck.card.scale;
 
-    // Target position: off-screen top right
-    const targetX = L.w + 150;
-    const targetY = -150;
-    const animationDuration = motionMs(MOTION.slow * 2);
-    const flipDuration = motionMs('base');
-    const flipDelay = flipDuration * 2; // Wait for drawn cards to flip before whisking
-
-    // Animate all deck cards off-screen (skip title text at index 0 and null entries)
-    // Delay until drawn cards have flipped face down
-    this.allCards.forEach((card, index) => {
-      if (index === 0 || !card || card.getData?.('deckIndex') === undefined) return; // Skip title, null, and non-deck elements
-
+    // The deck's part is over: it settles into its row and fades out under
+    // the scrim (iOS shows only the results by now)
+    for (const { card } of this.deckCards()) {
+      card.disableInteractive?.();
+      this.scene.tweens?.killTweensOf?.(card);
+      card.setData?.('moveTween', null);
       sceneTween(this.scene, {
         targets: card,
-        x: targetX,
-        y: targetY,
-        scaleX: deckScale / 2,
-        scaleY: deckScale / 2,
-        duration: animationDuration,
-        ease: EASE_EMPHASIZED,
-        delay: flipDelay + index * 5, // Wait for flip, then stagger
-      });
-    });
-
-    // Animate drawn cards: flip face down while moving back to deck row, then whisk away
-    // Name labels fade out
-    const deckY = L.draw.deck.y;
-    this.drawnCardDisplays.forEach((item) => {
-      if (!item || !item.scene) return;
-
-      // A drawn card vs its name label
-      if (item.getData?.('drawOrder') && !item.getData('isName')) {
-        // Phase 1: Move toward deck row and scale X to 0 (flip start)
-        sceneTween(this.scene, {
-          targets: item,
-          y: deckY,
-          scaleX: 0,
-          scaleY: deckScale,
-          duration: flipDuration,
-          ease: EASE_EMPHASIZED,
-          onComplete: () => {
-            if (!item || !item.scene) return;
-
-            // Change texture to card back
-            item.setTexture(CARD_TEXTURE_KEY, BACK_FRAME);
-
-            // Phase 2: Complete flip (scale X back)
-            sceneTween(this.scene, {
-              targets: item,
-              scaleX: deckScale,
-              duration: flipDuration,
-              ease: EASE_EMPHASIZED,
-              onComplete: () => {
-                if (!item || !item.scene) return;
-
-                // Phase 3: Whisk off-screen with the rest
-                sceneTween(this.scene, {
-                  targets: item,
-                  x: targetX,
-                  y: targetY,
-                  scaleX: deckScale / 2,
-                  scaleY: deckScale / 2,
-                  duration: animationDuration,
-                  ease: EASE_EMPHASIZED,
-                });
-              },
-            });
-          },
-        });
-      } else if (item.getData?.('isName')) {
-        // This is a text label - fade it out
-        sceneTween(this.scene, {
-          targets: item,
-          alpha: 0,
-          duration: flipDuration * 2,
-          ease: EASE_EMPHASIZED,
-        });
-      }
-    });
-
-    // Hide the title text
-    if (this.titleText) {
-      sceneTween(this.scene, {
-        targets: this.titleText,
+        y: deckPosition(L, card.getData('deckIndex')).y,
         alpha: 0,
-        duration: animationDuration / 2,
+        duration: motionMs('slow'),
         ease: EASE_EMPHASIZED,
       });
     }
 
-    // Show team announcement immediately while cards animate away
     this._showTeamAnnouncement(data);
   }
 
+  /** The seat's picture for a username once the players are seated (positionUpdate comes before the teams). */
+  picFor(username) {
+    const pd = this.state.playerData;
+    if (!pd?.username) return null;
+    const i = pd.username.findIndex((u) => (u?.username ?? u) === username);
+    return i >= 0 ? (pd.pics?.[i] ?? null) : null;
+  }
+
   /**
-   * Display the team announcement overlay.
-   * @param {Object} data - { team1: [username1, username2], team2: [username1, username2] }
+   * The teams panel, then the fade to black.
+   * @param {Object} data - { team1: [username1, username2], team2: [username1, username2], resumeInMs }
    */
   _showTeamAnnouncement(data) {
-    const L = this.layout();
-    const { teams } = L;
-    const cx = teams.x;
-    const cy = teams.y;
-    const dy = teams.dy;
-
-    // Create semi-transparent overlay (the scrim token)
-    const overlay = this.scene.add.rectangle(
-      cx,
-      cy,
-      L.w,
-      L.h,
-      hex(COLOR.surface.s0),
-      0.78
-    ).setDepth(400);
-
-    // Team 1 display (centered vertically on screen)
-    const team1Label = this.scene.add.text(
-      cx,
-      cy - 2 * dy,
-      'Team 1',
-      uiTextStyle(this.scene, { fontSize: `${teams.fonts.label}px`, weight: 'bold', color: COLOR.team.a })
-    ).setOrigin(0.5).setDepth(401);
-
-    const team1Players = this.scene.add.text(
-      cx,
-      cy - dy,
-      `${data.team1[0]} & ${data.team1[1]}`,
-      uiTextStyle(this.scene, { fontSize: `${teams.fonts.names}px`, weight: 'medium', color: COLOR.text.primary })
-    ).setOrigin(0.5).setDepth(401);
-
-    // VS text
-    const vsText = this.scene.add.text(
-      cx,
-      cy,
-      'vs',
-      uiTextStyle(this.scene, { fontSize: `${teams.fonts.vs}px`, fontStyle: 'italic', color: COLOR.text.secondary })
-    ).setOrigin(0.5).setDepth(401);
-
-    // Team 2 display
-    const team2Label = this.scene.add.text(
-      cx,
-      cy + dy,
-      'Team 2',
-      uiTextStyle(this.scene, { fontSize: `${teams.fonts.label}px`, weight: 'bold', color: COLOR.team.b })
-    ).setOrigin(0.5).setDepth(401);
-
-    const team2Players = this.scene.add.text(
-      cx,
-      cy + 2 * dy,
-      `${data.team2[0]} & ${data.team2[1]}`,
-      uiTextStyle(this.scene, { fontSize: `${teams.fonts.names}px`, weight: 'medium', color: COLOR.text.primary })
-    ).setOrigin(0.5).setDepth(401);
-
-    // Store for cleanup
-    const teamElements = [overlay, team1Label, team1Players, vsText, team2Label, team2Players];
-    this.drawnCardDisplays.push(...teamElements);
-    this._teamElements = teamElements;
+    endMyDraw();
+    showTeamsHud(data, { me: this._spectator ? null : this.state.username, picFor: (u) => this.picFor(u) });
 
     // After showing teams for a moment, fade to black, ending exactly when
     // the server's hold does (teamsAnnounced.resumeInMs; createUI then
@@ -560,79 +449,23 @@ export class DrawManager {
   }
 
   /**
-   * Fade out the team overlay and then clean up.
-   * @param {Function} onComplete - Callback when fade and cleanup are done
-   */
-  fadeOutAndCleanup(onComplete) {
-    console.log('🔥 DrawManager: Fading out and cleaning up...');
-
-    const fadeDuration = 1200;
-    let fadeComplete = false;
-
-    // Fade out all remaining elements
-    const allElements = [...this.drawnCardDisplays, ...this.allCards];
-    const visibleElements = allElements.filter(item => item && item.scene && item.alpha > 0);
-
-    if (visibleElements.length === 0) {
-      // Nothing to fade, just cleanup
-      this.cleanup();
-      onComplete?.();
-      return;
-    }
-
-    // Fade all visible elements
-    visibleElements.forEach((item, index) => {
-      sceneTween(this.scene, {
-        targets: item,
-        alpha: 0,
-        duration: fadeDuration,
-        ease: EASE_EMPHASIZED,
-        onComplete: () => {
-          // Only call cleanup once, after the last fade
-          if (!fadeComplete && index === visibleElements.length - 1) {
-            fadeComplete = true;
-            this.cleanup();
-            onComplete?.();
-          }
-        },
-      });
-    });
-  }
-
-  /**
-   * Clean up and remove the draw UI.
-   * Called when transitioning to the game phase.
+   * Clean up and remove the draw UI (the canvas cards and the HUD layers).
+   * Called when transitioning to the game phase, and by every render.
    */
   cleanup() {
-    console.log('🔥 DrawManager: Cleaning up draw phase...');
-
     if (this._fadeTimer) {
       this._fadeTimer.remove(false);
       this._fadeTimer = null;
     }
 
-    // Destroy all deck cards and title
-    this.allCards.forEach(card => {
-      if (card && card.destroy) {
-        card.destroy();
-      }
-    });
+    for (const card of this.allCards) card?.destroy?.();
     this.allCards = [];
-
-    // Destroy drawn card displays
-    this.drawnCardDisplays.forEach(item => {
-      if (item && item.destroy) {
-        item.destroy();
-      }
-    });
+    for (const item of this.drawnCardDisplays) item?.destroy?.();
     this.drawnCardDisplays = [];
+    clearDrawHud();
 
-    this.titleText = null;
     this.clickedCardSprite = null;
     this.clickedCardIndex = null;
-    this._teamElements = null;
     this._teamsShown = false;
-
-    console.log('✅ DrawManager: Cleanup complete');
   }
 }

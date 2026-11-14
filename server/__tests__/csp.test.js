@@ -37,12 +37,33 @@ test('scripts: only the page\'s own bundle, no inline, no eval, no CDN', () => {
     }
 });
 
-test('no Google Fonts anywhere (the client uses the system font)', () => {
+test('no Google Fonts anywhere (the UI uses the system font; the cards\' face is a bundled file)', () => {
     for (const policy of [header, metaPolicy()]) {
         expect(policy['font-src']).toEqual(["'self'"]);
         expect(policy['style-src']).toEqual(["'self'", "'unsafe-inline'"]);
     }
     expect(CONTENT_SECURITY_POLICY).not.toMatch(/fonts\.(googleapis|gstatic)\.com|cdn\.(jsdelivr\.net|socket\.io)/);
+});
+
+test('the cards\' index font is a same-origin file font-src \'self\' allows: a hashed /dist/assets woff2, never a data: URL', () => {
+    const src = fs.readFileSync(path.join(ROOT, 'client', 'src', 'phaser', 'cards', 'cardFont.js'), 'utf8');
+    expect(src).toMatch(/import fontUrl from '\.\.\/\.\.\/\.\.\/assets\/fonts\/BABCardIndex\.woff2\?url';/);
+    const font = fs.statSync(path.join(ROOT, 'client', 'assets', 'fonts', 'BABCardIndex.woff2'));
+    expect(font.size).toBeLessThan(8 * 1024);
+    // the OFL travels with the subset (a Modified Version of Arvo, renamed)
+    expect(fs.readFileSync(path.join(ROOT, 'client', 'assets', 'fonts', 'OFL.txt'), 'utf8')).toMatch(/SIL Open Font License, Version 1\.1/);
+    // under Vite's 4 KB default a woff2 would be inlined as data:, which font-src 'self' refuses
+    const config = fs.readFileSync(path.join(ROOT, 'client', 'vite.config.js'), 'utf8');
+    expect(config).toMatch(/assetsInlineLimit: \(file\) => \(\/\\\.woff2\?\$\/\.test\(file\) \? false : undefined\)/);
+    // a built client (npm run build): the app chunk points at the emitted file
+    const assets = path.join(ROOT, 'client', 'dist', 'assets');
+    if (!fs.existsSync(assets)) return;
+    const files = fs.readdirSync(assets);
+    const woff = files.filter((f) => /^BABCardIndex-[\w-]+\.woff2$/.test(f));
+    expect(woff).toHaveLength(1);
+    const js = files.filter((f) => f.endsWith('.js')).map((f) => fs.readFileSync(path.join(assets, f), 'utf8')).join('\n');
+    expect(js).toContain(`/dist/assets/${woff[0]}`);
+    expect(js).not.toMatch(/data:font\/woff2/);
 });
 
 test('the header and the meta agree on every directive but the hosts', () => {

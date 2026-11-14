@@ -58,6 +58,7 @@ import { SCREENS, initializeUIManager } from './ui/UIManager.js';
 import { createPhaserGame, getPhaserGame } from './phaser/PhaserGame.js';
 import { installLoopControl } from './phaser/loopControl.js';
 import { applyBackingStore, onDprChange } from './phaser/backingStore.js';
+import { loadCardFont } from './phaser/cards/cardFont.js';
 
 // Handlers
 import { registerAllHandlers } from './handlers/index.js';
@@ -1107,8 +1108,11 @@ function initializeApp() {
     onSpectatorJoined: (data) => {
       // The full game state (not just a notice that someone else joined):
       // the v1 keys or the snapshot (V1_REMOVALS #8 / #9: a snapshot-only
-      // carrier), both only once the trump is dealt, as before
-      const full = !!(data.trump || data.snapshot?.trump) && !!(data.players || data.snapshot?.seats);
+      // carrier), both only once the trump is dealt, as before; or a v2
+      // snapshot of the draw for deal (the draw so far: render draws it, as
+      // iOS shows a spectator the draws)
+      const drawing = ['DRAWING', 'DRAW_RESOLVING'].includes(data.snapshot?.stage) && !!data.snapshot?.draw;
+      const full = drawing || (!!(data.trump || data.snapshot?.trump) && !!(data.players || data.snapshot?.seats));
       if (full) {
         const spectatedGameId = data.gameId || data.snapshot?.gameId || session.takePendingSpectate();
         session.routeArrived();
@@ -1200,6 +1204,10 @@ function initializeApp() {
         // Deal the cards once the first hand's fade or the previous hand's
         // trick whisk is over (director.afterTransition)
         const showCards = () => {
+          // The trump takes this hand's back (it kept the finished hand's
+          // through the whisk)
+          scene.dealTrumpBack?.();
+
           // Display player hand via CardManager
           if (scene.handleDisplayHand && data.hand) {
             scene.handleDisplayHand(data.hand, false);
@@ -1242,7 +1250,8 @@ function initializeApp() {
       if (session.screen === SCREEN.GAME_END) {
         session.exitTable(EXIT.NEW_TABLE, { route: false });
         gameState.setPhase(PHASE.DRAW);
-        gameState.setHasDrawn(false);
+        gameState.stage = 'DRAWING';
+        gameState.beginDraw();
       }
       if (!session.isAtTable) session.enterTable(ROLE.PLAYER, null);
       // Remove waiting screen and tournament lobby
@@ -1987,6 +1996,10 @@ let appStarted = false;
 export function startApp() {
   if (appStarted) return;
   appStarted = true;
+
+  // The card index font (cards/cardFont.js): fetched now so it is ready
+  // long before a table; the card atlas redraws if it lands later
+  loadCardFont();
 
   // Initialize the app
   initializeApp();

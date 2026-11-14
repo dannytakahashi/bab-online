@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { TrickManager, pileBorder } from './TrickManager.js';
 import { bidTotalsFor } from '../../rules/bids.js';
+import { getGameState } from '../../state/GameState.js';
 
 function createMockScene() {
   return {
@@ -57,8 +58,8 @@ describe('TrickManager stale animations', () => {
     expect(flipTimer.remove).toHaveBeenCalledWith(false);
     expect(card.setData).toHaveBeenCalledWith('flipTimer', null);
     // Opponents' tricks stay face down, snapped to the stack without a tween
-    expect(card.texture).toBe('back');
-    expect(card.setTexture).toHaveBeenCalledWith('cards', 'back');
+    expect(card.texture).toBe('back-red'); // no hand yet (GameState.handNo 0): red
+    expect(card.setTexture).toHaveBeenCalledWith('cards', 'back-red');
     expect(scene.tweens.add).not.toHaveBeenCalled();
     expect(card.setRotation).toHaveBeenCalledWith(0);
   });
@@ -247,6 +248,27 @@ describe('TrickManager addPlayedCard animate flag', () => {
     const moving = createMockCard({ x: pos.x, y: pos.y + 40 });
     tm.addPlayedCard({ suit: 'spades', rank: 'K' }, 3, moving, true);
     expect(scene.tweens.add).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('TrickManager collect back (the hand the trick was played in)', () => {
+  afterEach(() => {
+    getGameState().handNo = 0;
+    setVisibility('visible');
+  });
+
+  it('an opponents\' trick turns face down in its own hand\'s back, even once the next gameStart moved handNo on', () => {
+    setVisibility('hidden');
+    const scene = createMockScene();
+    const tm = new TrickManager(scene);
+    tm.setPlayerPosition(1);
+    tm.updatePlayPositions();
+    getGameState().handNo = 1; // hand 1: red
+    const card = createMockCard({ faceKey: 'ace_of_spades' });
+    tm.addPlayedCard({ suit: 'spades', rank: 'A' }, 2, card, false);
+    getGameState().handNo = 2; // the next hand's gameStart landed before the collect
+    tm.completeTrick(2, false);
+    expect(card.texture).toBe('back-red');
   });
 });
 

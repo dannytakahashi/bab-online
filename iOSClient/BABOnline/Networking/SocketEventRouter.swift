@@ -10,6 +10,7 @@ final class SocketEventRouter {
     private let chatHandler: ChatSocketHandler
     private let tournamentHandler: TournamentSocketHandler
     private let leaderboardHandler: LeaderboardSocketHandler
+    private let recordsHandler: RecordsSocketHandler
     private let voiceHandler: VoiceSocketHandler
     private let safetyHandler: SafetySocketHandler
 
@@ -22,6 +23,7 @@ final class SocketEventRouter {
         appState: AppState,
         tournamentState: TournamentState,
         leaderboardState: LeaderboardState,
+        recordsState: RecordsState,
         safetyState: SafetyState
     ) {
         self.socket = socket
@@ -31,6 +33,7 @@ final class SocketEventRouter {
         self.chatHandler = ChatSocketHandler(socket: socket, gameState: gameState, safetyState: safetyState)
         self.tournamentHandler = TournamentSocketHandler(socket: socket, tournamentState: tournamentState, gameState: gameState, appState: appState, safetyState: safetyState)
         self.leaderboardHandler = LeaderboardSocketHandler(socket: socket, leaderboardState: leaderboardState)
+        self.recordsHandler = RecordsSocketHandler(socket: socket, recordsState: recordsState)
         self.voiceHandler = VoiceSocketHandler(socket: socket, gameState: gameState)
         self.safetyHandler = SafetySocketHandler(socket: socket, safetyState: safetyState)
     }
@@ -42,6 +45,7 @@ final class SocketEventRouter {
         chatHandler.register()
         tournamentHandler.register()
         leaderboardHandler.register()
+        recordsHandler.register()
         voiceHandler.register()
         safetyHandler.register()
     }
