@@ -22,6 +22,8 @@ jest.mock('../../game/GameManager', () => ({
     releaseHeldLobbySeat: jest.fn(() => null),
     getOnlineUsernames: jest.fn(() => []),
     getGameById: jest.fn(() => null),
+    // rejoinGame's lookup (the ambient demo game filter is not exercised here)
+    getGameVisibleTo: jest.fn(function (id) { return this.getGameById(id); }),
     getTournamentById: jest.fn(() => null),
     clearActiveGame: jest.fn(),
     clearActiveTournament: jest.fn(),

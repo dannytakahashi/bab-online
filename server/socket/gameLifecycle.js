@@ -15,14 +15,49 @@ const Deck = require('../game/Deck');
 const { botController } = require('../game/bot');
 const { Phase } = require('../game/GamePhase');
 const { socketLogger } = require('../utils/logger');
+const { ambientAudience, seesAmbientGame } = require('../utils/ambientChatUsers');
 
-/** Refresh the main room's lobby / in-progress / tournament lists. */
+/**
+ * Refresh the main room's lobby / in-progress / tournament lists. Every
+ * lobbiesUpdated goes through here.
+ *
+ * The ambient demo game is listed only for the AMBIENT_CHAT_USERS audience
+ * (owner, 2026-11-14; server/utils/ambientChatUsers.js, default test1). While
+ * every main-room member gets the same list (no demo game listed, audience
+ * `*`, or no audience socket in the room) it is the one io.to('mainRoom')
+ * broadcast; otherwise each main-room socket gets its own copy (io.to(socketId),
+ * like ambientBots.postAmbientChat): the full list for an audience account,
+ * the list without the demo game for everyone else. Same wire shape either way.
+ * @returns {string[]|null} the socket ids that got the full list when it was
+ *   sent per socket (null: one broadcast)
+ */
 function emitLobbiesUpdated(io) {
-    io.to('mainRoom').emit('lobbiesUpdated', {
-        lobbies: gameManager.getAllLobbies(),
-        inProgressGames: gameManager.getInProgressGames(),
-        tournaments: gameManager.getAllTournaments()
-    });
+    const lobbies = gameManager.getAllLobbies();
+    const tournaments = gameManager.getAllTournaments();
+    const full = gameManager.getInProgressGames(null, { includeDemo: true });
+    const withoutDemo = full.length === 0 ? full : gameManager.getInProgressGames(null, { includeDemo: false });
+    const payload = (inProgressGames) => ({ lobbies, inProgressGames, tournaments });
+
+    const audience = ambientAudience();
+    if (audience.all || withoutDemo.length === full.length) {
+        io.to('mainRoom').emit('lobbiesUpdated', payload(full));
+        return null;
+    }
+    const seeing = [];
+    const others = [];
+    for (const socketId of gameManager.mainRoomSocketIds) {
+        const user = gameManager.getUserBySocketId(socketId);
+        (user && seesAmbientGame(user.username) ? seeing : others).push(socketId);
+    }
+    if (seeing.length === 0) {
+        io.to('mainRoom').emit('lobbiesUpdated', payload(withoutDemo));
+        return null;
+    }
+    const fullPayload = payload(full);
+    const filteredPayload = payload(withoutDemo);
+    for (const socketId of seeing) io.to(socketId).emit('lobbiesUpdated', fullPayload);
+    for (const socketId of others) io.to(socketId).emit('lobbiesUpdated', filteredPayload);
+    return seeing;
 }
 
 /**

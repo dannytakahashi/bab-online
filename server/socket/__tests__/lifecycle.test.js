@@ -494,7 +494,8 @@ describe('7. ambient recycle mid-trick', () => {
 
         seq++;
         const spec = makeSocket(`spec${seq}`, log, io);
-        gameManager.registerUser(spec.id, `watcher_${seq}`);
+        // test1: the ambient game's default audience (AMBIENT_CHAT_USERS)
+        gameManager.registerUser(spec.id, 'test1');
         mainRoomHandlers.joinAsSpectator(spec, io, { gameId: game.gameId });
         expect(io.rooms.get(game.roomName).has(spec.id)).toBe(true);
 

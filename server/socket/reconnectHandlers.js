@@ -107,8 +107,9 @@ async function rejoinGame(socket, io, data) {
         return;
     }
 
-    // Find the game
-    const game = gameManager.getGameById(gameId);
+    // Find the game (the ambient demo game is "no longer exists" outside its
+    // audience, AMBIENT_CHAT_USERS: no hint that it exists)
+    const game = gameManager.getGameVisibleTo(gameId, username);
     if (!game) {
         socketLogger.debug('Rejoin failed: game not found', { gameId });
         // Clear the stale activeGameId from the database, scoped to this
