@@ -385,15 +385,21 @@ describe('projected sign-in reads', () => {
         expect(res).toEqual({ success: false, message: 'Invalid username or password!' });
     });
 
-    test('profile and player profile still carry the picture and stats', async () => {
+    test('profile and player profile still read the picture and carry the stats', async () => {
         const socket = connect();
+        const spy = jest.spyOn(mockDb.current.users, 'findOne');
         gameManager.getUserBySocketId.mockReturnValue({ username: 'Cara' });
         await profile.getProfile(socket, io);
+        // V1_REMOVALS #19 B: customProfilePic is always null on the wire (the picture
+        // is the reply's avatarUrl; none here: the avatar pipeline is off under Jest)
         expect(lastEmit(socket, 'profileResponse').profile).toEqual({
-            username: 'Cara', profilePic: 9, customProfilePic: bigPic, stats: { gamesPlayed: 2, wins: 1 }
+            username: 'Cara', profilePic: 9, customProfilePic: null, stats: { gamesPlayed: 2, wins: 1 }
         });
+        // ...but the projected read still loads the stored picture, for its URL
+        expect((await spy.mock.results[spy.mock.results.length - 1].value).customProfilePic).toBe(bigPic);
         await profile.getPlayerProfile(socket, io, { username: 'Cara' });
-        expect(lastEmit(socket, 'playerProfileResponse').profile.customProfilePic).toBe(bigPic);
+        expect(lastEmit(socket, 'playerProfileResponse').profile.customProfilePic).toBeNull();
+        expect((await spy.mock.results[spy.mock.results.length - 1].value).customProfilePic).toBe(bigPic);
     });
 });
 

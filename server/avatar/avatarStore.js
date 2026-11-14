@@ -21,8 +21,8 @@
  * only (status 'error'), then derived again; 'hostile' and 'undecodable'
  * are verdicts on the bytes and stay cached.
  *
- * Memory: renditions live in an LRU bounded by BYTES (webp + inline data
- * URL, default 32 MB, AVATAR_CACHE_MB); raw stored strings are never kept
+ * Memory: renditions live in an LRU bounded by BYTES (the webp only, since
+ * V1_REMOVALS #19 D: no inline copy; default 32 MB, AVATAR_CACHE_MB); raw stored strings are never kept
  * (a queued derive references the stored string, which its caller holds
  * anyway, until it runs; at most 64 are queued).
  * `owners` records which usernames were seen holding a version and when:
@@ -54,7 +54,6 @@ const PNG_CACHE_BYTES = 4 * 1024 * 1024;
 
 const defaults = () => ({
     enabled: config.avatar.pipeline === 'on',
-    legacyInline: config.avatar.legacyInline,
     cacheBytes: config.avatar.cacheBytes,
     maxConcurrent: 2,
     maxQueue: 64,
@@ -157,9 +156,8 @@ async function deriveEntry(raw) {
     const entry = { status: r.status, owners: new Map(), bytes: NEGATIVE_ENTRY_BYTES };
     if (r.status === 'ok') {
         entry.webp = r.webp;
-        entry.inline = image.toInline(r.webp);
         entry.width = r.width;
-        entry.bytes = r.webp.length + entry.inline.length;
+        entry.bytes = r.webp.length;
     } else {
         entry.reason = r.reason || null;
     }
@@ -179,7 +177,7 @@ function start(v, raw) {
         // null: the derive threw (schedule turns that into null): transient
         const e = entry || errorEntry();
         if (e.status === 'error') stats.errors++;
-        if (e.status === 'hostile') logger.warn('Stored avatar is not a safe image (placeholder shown)', { v, reason: e.reason });
+        if (e.status === 'hostile') logger.warn('Stored avatar is not a safe image (no URL: clients show their neutral picture)', { v, reason: e.reason });
         // A reset (tests) while deriving: drop the result
         if (inflight === startedWith) {
             inflight.delete(v);
@@ -259,7 +257,7 @@ function peek(v) {
 function seed(username, inline, webp) {
     if (!available()) return null;
     const v = versionOf(inline);
-    const e = { status: 'ok', webp, inline, owners: new Map(), bytes: webp.length + inline.length };
+    const e = { status: 'ok', webp, owners: new Map(), bytes: webp.length };
     store(v, e);
     markOwner(v, username);
     return v;
@@ -378,7 +376,6 @@ module.exports = {
     isMissing,
     configure,
     _reset,
-    legacyInlineMode: () => opts.legacyInline,
     now: () => opts.now(),
     stats: () => ({ ...stats, entries: byV.size, bytes, inflight: inflight.size, running, queued: queue.length, missing: missing.size, pngEntries: pngByV.size, pngBytes }),
 };

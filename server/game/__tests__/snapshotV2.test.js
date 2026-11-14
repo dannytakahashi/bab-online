@@ -366,7 +366,7 @@ describe('purity and options', () => {
         expect(snap).toEqual(frozen);
     });
 
-    test('customPics:false withholds data-URL pictures; log:false empties the log', () => {
+    test('no seat carries an inline picture (V1_REMOVALS #19 C); customPics is ignored; log:false empties the log', () => {
         const { game, ids } = seated();
         const s = game.seat(2);
         s.ownerPic = 'data:image/png;base64,AAAA';
@@ -374,14 +374,19 @@ describe('purity and options', () => {
         game.addLogEntry('hello', 2, 'chat');
         const full = game.getSnapshotV2(ids[0]);
         expect(full.partial).toEqual([]);
-        expect(full.seats[1]).toMatchObject({ pic: null, hasCustomPic: true, customPic: 'data:image/png;base64,AAAA' });
+        expect(full.seats[1]).toMatchObject({ pic: null, hasCustomPic: true, customPic: null });
         expect(full.log).toEqual([{ message: 'hello', type: 'chat', position: 2, at: expect.any(Number) }]);
+        // the old opt-in is ignored: still no inline picture, and partial never lists 'customPics'
+        expect(game.getSnapshotV2(ids[0], { customPics: true })).toEqual(full);
         const lite = game.getSnapshotV2(ids[0], { customPics: false, log: false });
-        expect(lite.partial).toEqual(['customPics', 'log']);
+        expect(lite.partial).toEqual(['log']);
         expect(lite.seats[1]).toMatchObject({ pic: null, hasCustomPic: true, customPic: null });
         expect(lite.log).toEqual([]);
         expect(lite.seats[0]).toMatchObject({ pic: 1, hasCustomPic: false, customPic: null });
-        [full, lite].forEach(expectValid);
+        // with a URL resolver the custom seat gets its avatarUrl and nothing inline
+        const withUrl = game.getSnapshotV2(ids[0], { avatarResolve: () => ({ url: '/avatar/x?v=0123456789abcdef' }) });
+        expect(withUrl.seats[1]).toMatchObject({ customPic: null, avatarUrl: '/avatar/x?v=0123456789abcdef' });
+        [full, lite, withUrl].forEach(expectValid);
     });
 
     test('tournament info comes in through opts; seq is the game eventSeq', () => {

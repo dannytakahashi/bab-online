@@ -1,55 +1,43 @@
 /**
- * Emit-time mapping of seat pictures for the wire (roadmap item 10;
- * docs/avatars.md, invariants I1-I6).
+ * Emit-time mapping of seat and profile pictures for the wire (roadmap item
+ * 10; docs/avatars.md).
  *
- * A seat picture is a number (stock art 1-82, sent as is), null, or a
- * custom data:image string. For a custom one, resolve() gives
- *   legacy: what a socket without the avatarUrl capability gets in the pic
- *           slot: the small derived inline WebP (or, with
- *           AVATAR_LEGACY_INLINE=raw, the stored string; or the generic
- *           placeholder for a hostile stored value). Never a URL.
- *   url:    /avatar/<username>?v=<version>, once the rendition exists.
- * Until the rendition is ready (or with the pipeline off) a custom picture
- * is exactly today's value and there is no URL, for every recipient; the
- * avatar keys are then omitted, so such payloads are byte-identical to
- * fcdd885.
- *
- * Per-socket payloads pick a shape by recipient: capable (clientHello caps
- * 'avatarUrl') -> slot null + avatarUrls; legacy -> slot = legacy, no
- * avatar keys (today's keys exactly). Room broadcasts are never split:
- * slot = legacy for everyone plus the additive avatarUrls (legacy clients
- * ignore the key, capable clients prefer it).
+ * Since contract/V1_REMOVALS.md #19 (2026-11-12) no payload carries a
+ * picture inline: a picture slot on the wire is a stock number (1-82) or
+ * null, and a custom picture travels only as its URL
+ * (/avatar/<username>?v=<version>, in avatarUrls / avatarUrl), the same for
+ * every recipient (the clientHello avatarUrl cap is no longer checked: web
+ * on main and iOS 1.2.0 send it, and the builds that did not are gated).
+ * Until the rendition exists (first sight after a restart, a full derive
+ * queue), for a stored value that is not a safe image (hostile), or with
+ * the pipeline off, a custom picture has no URL and its slot is null: the
+ * clients show their neutral picture.
  */
 
 'use strict';
 
 const avatarStore = require('./avatarStore');
-const { PLACEHOLDER_INLINE } = require('./placeholder');
 
 const isCustom = (p) => typeof p === 'string' && p.startsWith('data:image');
 const avatarPath = (username, v) => `/avatar/${encodeURIComponent(username)}?v=${v}`;
 
-/** What custom picture `pic` of `username` becomes on the wire. */
+/** The URL custom picture `pic` of `username` has on the wire now, or null. */
 function resolve(pic, username, v) {
-    if (!avatarStore.available() || !isCustom(pic) || !username) return { legacy: pic, url: null };
+    if (!avatarStore.available() || !isCustom(pic) || !username) return { url: null };
     const ver = v || avatarStore.versionOf(pic);
     const e = avatarStore.peek(ver);
     if (!e || e.status === 'pending') {
         avatarStore.warm(username, pic);
-        return { legacy: pic, url: null };
+        return { url: null };
     }
-    if (e.status === 'hostile') return { legacy: PLACEHOLDER_INLINE, url: null };
-    // undecodable, or a transient 'error' (retried after 60 s): today's shape
-    if (e.status !== 'ok') return { legacy: pic, url: null };
+    // hostile, undecodable, or a transient 'error' (retried after 60 s): no URL
+    if (e.status !== 'ok') return { url: null };
     avatarStore.markOwner(ver, username);
-    return {
-        legacy: avatarStore.legacyInlineMode() === 'raw' ? pic : e.inline,
-        url: avatarPath(username, ver),
-    };
+    return { url: avatarPath(username, ver) };
 }
 
-/** The pic slot a recipient gets: capable + URL -> null (it reads avatarUrl(s)). */
-const slot = (r, capable) => (capable && r.url ? null : r.legacy);
+/** A picture slot on the wire: a stock number as is, anything else null. */
+const slot = (pic) => (Number.isInteger(pic) ? pic : null);
 
 /** resolve() for a seat of `game` (the version hashed at seating when known). */
 function seatResolve(game, pic, username) {
@@ -57,31 +45,31 @@ function seatResolve(game, pic, username) {
 }
 
 /**
- * players[] ({position, username, pic, ...}) for one recipient kind.
- * @param {'capable'|'legacy'|'broadcast'} kind
- * @returns {{players: Object[], avatarUrls: (Object|undefined)}} avatarUrls
- *   {[position]: url}; undefined when empty, and always for 'legacy'
+ * players[] ({position, username, pic, ...}): every pic a slot, plus
+ * avatarUrls {[position]: url} (undefined when empty).
+ * @returns {{players: Object[], avatarUrls: (Object|undefined)}}
  */
-function mapPlayers(game, players, kind) {
+function mapPlayers(game, players) {
     let avatarUrls;
     const out = players.map((p) => {
-        if (!isCustom(p.pic)) return p;
-        const r = seatResolve(game, p.pic, p.username);
-        if (r.url && kind !== 'legacy') (avatarUrls = avatarUrls || {})[p.position] = r.url;
-        const pic = slot(r, kind === 'capable');
+        if (isCustom(p.pic)) {
+            const r = seatResolve(game, p.pic, p.username);
+            if (r.url) (avatarUrls = avatarUrls || {})[p.position] = r.url;
+        }
+        const pic = slot(p.pic);
         return pic === p.pic ? p : { ...p, pic };
     });
     return { players: out, avatarUrls };
 }
 
 /**
- * A snapshot carrier's v1 part (players[] inside; snapshotHandlers.carrierFor) for one
- * recipient: players mapped, avatarUrls added for a capable one when there
- * is a URL. A shallow copy; the input is never mutated.
+ * A snapshot carrier's v1 part (players[] inside; snapshotHandlers.carrierFor):
+ * players mapped, avatarUrls added when there is a URL. A shallow copy;
+ * the input is never mutated.
  */
-function wireClientState(game, state, capable) {
+function wireClientState(game, state) {
     if (!state || !Array.isArray(state.players)) return state;
-    const { players, avatarUrls } = mapPlayers(game, state.players, capable ? 'capable' : 'legacy');
+    const { players, avatarUrls } = mapPlayers(game, state.players);
     if (players === state.players && !avatarUrls) return state;
     const out = { ...state, players };
     if (avatarUrls) out.avatarUrls = avatarUrls;
@@ -91,47 +79,38 @@ function wireClientState(game, state, capable) {
 /**
  * resolve() for a stored users.customProfilePic read for a profile reply
  * (leaderboard, search, profiles): the rendition is awaited (derived now
- * if needed). A full derive queue falls back to today's value, no URL.
+ * if needed). A full derive queue answers without a URL.
  */
 async function resolveStored(raw, username) {
-    if (!avatarStore.available() || !isCustom(raw) || !username) return { legacy: raw, url: null };
+    if (!avatarStore.available() || !isCustom(raw) || !username) return { url: null };
     try {
         await avatarStore.ensure(username, raw);
     } catch (e) {
         if (e.code !== 'AVATAR_BUSY') throw e;
-        return { legacy: raw, url: null };
+        return { url: null };
     }
     return resolve(raw, username);
 }
 
 /**
- * Profile rows ({username, customProfilePic, ...}) in both shapes:
- * legacy (customProfilePic = the inline rendition / placeholder / today's
- * value) and capable (customProfilePic null where there is a URL), plus
- * avatarUrls {username: url} (undefined when empty). At most 2 rows derive
- * at once, so a fill never overflows the derive queue by itself. Rows
- * without a custom picture are shared, never copied.
+ * Profile rows ({username, customProfilePic, ...}): customProfilePic null
+ * on every row, plus avatarUrls {username: url} (undefined when empty). At
+ * most 2 rows derive at once, so a fill never overflows the derive queue by
+ * itself. Rows without a custom picture are shared, never copied.
+ * @returns {Promise<{rows: Object[], avatarUrls: (Object|undefined)}>}
  */
 async function mapProfileRows(rows) {
-    const legacy = rows.slice();
-    const capable = rows.slice();
+    const out = rows.map((row) => (row.customProfilePic == null ? row : { ...row, customProfilePic: null }));
     let avatarUrls;
-    const todo = rows.map((row, i) => [row, i]).filter(([row]) => isCustom(row.customProfilePic));
+    const todo = rows.filter((row) => isCustom(row.customProfilePic));
     const worker = async () => {
-        for (let next = todo.shift(); next; next = todo.shift()) {
-            const [row, i] = next;
+        for (let row = todo.shift(); row; row = todo.shift()) {
             const r = await resolveStored(row.customProfilePic, row.username);
-            if (r.legacy !== row.customProfilePic) legacy[i] = { ...row, customProfilePic: r.legacy };
-            if (r.url) {
-                capable[i] = { ...row, customProfilePic: null };
-                (avatarUrls = avatarUrls || {})[row.username] = r.url;
-            } else {
-                capable[i] = legacy[i];
-            }
+            if (r.url) (avatarUrls = avatarUrls || {})[row.username] = r.url;
         }
     };
     await Promise.all([worker(), worker()]);
-    return { legacy, capable, avatarUrls };
+    return { rows: out, avatarUrls };
 }
 
 module.exports = { isCustom, avatarPath, resolve, resolveStored, slot, seatResolve, mapPlayers, wireClientState, mapProfileRows };

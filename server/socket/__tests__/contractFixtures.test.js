@@ -206,15 +206,16 @@ describe('snapshot v2 fixtures from real games', () => {
         expect(lead3.trick).toMatchObject({ number: 1, leadPosition: 3 });
         expect(lead3.trick.cards.map((c) => c.position)).toEqual([3, 4]);
         expect(lead3.partial).toEqual([]);
-        // Custom pictures are opt-in on requestSnapshot (a gap resync must not
-        // re-ship every data URL)
+        // No snapshot carries a custom picture inline (V1_REMOVALS #19 C): with
+        // or without the old customPics opt-in the seat says hasCustomPic and
+        // customPic is null (its URL is avatarUrl when the pipeline is on)
         const plainFrom = w.log.length;
         snapshotHandlers.requestSnapshot(owner(w, game, 1), w.io, {});
         const plain = w.log.slice(plainFrom).find((l) => l.event === 'stateSnapshot').data.snapshot;
-        expect(plain.partial).toEqual(['customPics']);
+        expect(plain.partial).toEqual([]);
         const custom = plain.seats.find((x) => x.hasCustomPic);
         expect(custom.customPic).toBeNull();
-        expect(lead3.seats.find((x) => x.position === custom.position).customPic).toMatch(/^data:image/);
+        expect(lead3.seats.find((x) => x.position === custom.position).customPic).toBeNull();
 
         const spec = w.user('fx-hand-spec', 'lou');
         const sfrom = w.log.length;
@@ -227,7 +228,7 @@ describe('snapshot v2 fixtures from real games', () => {
         const rfrom = w.log.length;
         await gameHandlers.playCard(notOnTurn, w.io, { card: game.getHand(notOnTurn.id)[0] });
         const rej = keep(w, 'action-rejected', 'actionRejected.snapshot after a play out of turn: partial (no log, no custom pictures).', notOnTurn.id, rfrom, 'actionRejected');
-        expect(rej.partial).toEqual(expect.arrayContaining(['log', 'customPics']));
+        expect(rej.partial).toEqual(['log']); // never 'customPics' since V1_REMOVALS #19 C
 
         play(w, game, pending);
         play(w, game, pending);

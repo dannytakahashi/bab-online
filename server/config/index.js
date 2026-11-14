@@ -21,11 +21,14 @@ const config = {
         ? process.env.ALLOWED_ORIGINS.split(',')
         : ['*'],  // TODO: Restrict in production
 
-    // Avatar pipeline (server/avatar, docs/avatars.md). Kill switches, no
+    // Avatar pipeline (server/avatar, docs/avatars.md). Kill switch, no
     // deploy needed:
-    //   AVATAR_LEGACY_INLINE=raw  legacy sockets get today's stored bytes
-    //   AVATAR_PIPELINE=off       every payload exactly as before (and
-    //                             /avatar answers 404)
+    //   AVATAR_PIPELINE=off       no custom picture has a URL (/avatar
+    //                             answers 404); since V1_REMOVALS #19 no
+    //                             payload carries one inline either, so
+    //                             custom pictures show as the clients'
+    //                             neutral picture (AVATAR_LEGACY_INLINE went
+    //                             with #19 D)
     // Off by default under tests (NODE_ENV=test or any Jest worker) so
     // every suite and fixture stays byte-identical; tests opt in with
     // avatarStore.configure({ enabled: true }).
@@ -33,7 +36,6 @@ const config = {
         pipeline: process.env.AVATAR_PIPELINE === 'on' || process.env.AVATAR_PIPELINE === 'off'
             ? process.env.AVATAR_PIPELINE
             : (process.env.NODE_ENV === 'test' || process.env.JEST_WORKER_ID !== undefined ? 'off' : 'on'),
-        legacyInline: process.env.AVATAR_LEGACY_INLINE === 'raw' ? 'raw' : 'derived',
         cacheBytes: (Number(process.env.AVATAR_CACHE_MB) > 0 ? Number(process.env.AVATAR_CACHE_MB) : 32) * 1024 * 1024
     },
 

@@ -259,39 +259,51 @@ describe('real mongod', () => {
         const gameManager = require('../game/GameManager');
         const me = sock();
         gameManager.registerUser(me.id, 'Alan');
+        // V1_REMOVALS #19 B: customProfilePic is always null on the wire (a custom
+        // picture is the reply's avatarUrl(s); the avatar pipeline is off under Jest)
         await profile.getProfile(me, io);
-        expect(last('profileResponse').profile).toMatchObject({ username: 'Alan', customProfilePic: PIC, stats: { gamesPlayed: 10, wins: 6 } });
+        expect(last('profileResponse').profile).toMatchObject({ username: 'Alan', customProfilePic: null, stats: { gamesPlayed: 10, wins: 6 } });
         await profile.getPlayerProfile(me, io, { username: 'OldAlan' });
-        expect(last('playerProfileResponse').profile).toMatchObject({ username: 'Alan', customProfilePic: PIC, stats: { gamesPlayed: 10 } });
+        expect(last('playerProfileResponse').profile).toMatchObject({ username: 'Alan', customProfilePic: null, stats: { gamesPlayed: 10 } });
 
         await profile.getLeaderboard(me, io);
         const rows = last('leaderboardResponse').leaderboard;
-        expect(rows.find(r => r.username === 'Alan')).toMatchObject({ customProfilePic: PIC, gamesPlayed: 10, winRate: 60 });
-        expect(rows.find(r => r.username === 'Cy').customProfilePic).toBe(PIC);
+        expect(rows.find(r => r.username === 'Alan')).toMatchObject({ customProfilePic: null, gamesPlayed: 10, winRate: 60 });
+        expect(rows.find(r => r.username === 'Cy').customProfilePic).toBeNull();
         expect(rows.map(r => r.username)).not.toContain('OldAlan');
 
         await profile.searchPlayers(me, io, { query: 'alan' });
         const found = last('searchPlayersResponse').players;
         expect(found.map(p => p.username).sort()).toEqual(['Alan', 'alan']);
-        expect(found.find(p => p.username === 'Alan')).toEqual({ username: 'Alan', profilePic: 3, customProfilePic: PIC, gamesPlayed: 10, wins: 6 });
+        expect(found.find(p => p.username === 'Alan')).toEqual({ username: 'Alan', profilePic: 3, customProfilePic: null, gamesPlayed: 10, wins: 6 });
     });
 
     test('(e) leaderboard and search payloads deep-equal the 3db87b1 handlers on the same data', async () => {
         if (!client) return;
+        // the 3db87b1 reply with the executed V1_REMOVALS entries applied: #19 B
+        // (every row's customProfilePic null; no avatarUrls with the pipeline off)
+        const v1 = (d) => {
+            const rows = d.leaderboard ? 'leaderboard' : 'players';
+            return Array.isArray(d[rows]) ? { ...d, [rows]: d[rows].map((r) => ('customProfilePic' in r ? { ...r, customProfilePic: null } : r)) } : d;
+        };
         const ref = makeReference(database);
         const a = sock();
         const b = sock();
         await ref.getLeaderboard(a, io);
         await profile.getLeaderboard(b, io);
-        const before = log.filter(l => l.to === `self:${a.id}`).pop().data;
+        const before = v1(log.filter(l => l.to === `self:${a.id}`).pop().data);
         const after = log.filter(l => l.to === `self:${b.id}`).pop().data;
         expect(after).toEqual(before);
         expect(JSON.stringify(after).length).toBe(JSON.stringify(before).length);
+        expect(after.leaderboard.some((r) => r.username === 'Cy')).toBe(true);
 
         for (const query of ['al', 'ALAN', 'y', 'nobody']) {
             await ref.searchPlayers(a, io, { query });
+            // the 3db87b1 reply predates #19 B (an inline customProfilePic): only
+            // the reference's emit is dropped from the contract guard, ours is checked
+            require('../testUtils/contractCheck').takeViolations();
             await profile.searchPlayers(b, io, { query });
-            const x = log.filter(l => l.to === `self:${a.id}`).pop().data;
+            const x = v1(log.filter(l => l.to === `self:${a.id}`).pop().data);
             const y = log.filter(l => l.to === `self:${b.id}`).pop().data;
             expect({ query, y }).toEqual({ query, y: x });
         }
@@ -760,10 +772,12 @@ describe('real mongod', () => {
         await profile.getRecords(b, io, { scope: 'all' });
         expect(reply(b).totalGames).toBe(7);
 
-        // leaderboard: human = the reference; bots = Cy only
+        // leaderboard: human = the reference (with V1_REMOVALS #19 B applied:
+        // every row's customProfilePic null, as in (e)); bots = Cy only
+        const v1 = (d) => ({ ...d, leaderboard: d.leaderboard.map((r) => ('customProfilePic' in r ? { ...r, customProfilePic: null } : r)) });
         await ref.getLeaderboard(a, io);
         await profile.getLeaderboard(b, io);
-        expect(reply(b)).toEqual(reply(a));
+        expect(reply(b)).toEqual(v1(reply(a)));
         await profile.getLeaderboard(b, io, { scope: 'bots' });
         expect(reply(b).leaderboard.map(r => r.username)).toEqual(['Cy', 'Population']);
         await profile.getLeaderboard(b, io, { scope: 'all' });

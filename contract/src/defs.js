@@ -126,9 +126,11 @@ const defs = {
     // During bidding {position: bid}; from the end of bidding {team1, team2}
     legacyBids: anyOf(variant('teams', obj({ team1: int(), team2: int() })), variant('byPosition', byPosition(ref('bidString')))),
     hsiValues: byPosition(num()),
-    // numeric avatar id, or a data:image URL (custom picture); null for a
-    // seat whose picture was never resolved
-    pic: { type: ['integer', 'string', 'null'] },
+    // numeric avatar id (stock art), or null: a custom picture travels only
+    // as its URL (avatarUrls / avatarUrl), a seat whose picture was never
+    // resolved is null too. No data:image value since V1_REMOVALS #19 A
+    // (2026-11-12; baseline narrowed from integer | string | null)
+    pic: { type: ['integer', 'null'] },
     teamPair: obj({ team1: int(), team2: int() }),
     gameLogEntry: obj({
         message: str(),
@@ -200,7 +202,8 @@ const defs = {
     profile: obj({
         username: str(),
         profilePic: int(),
-        customProfilePic: orNull(str()),
+        // always null since V1_REMOVALS #19 B: the custom picture is the reply's avatarUrl
+        customProfilePic: nul(),
         stats: obj({}, { open: true }),
     }),
     leaderboardRow: obj({ username: str(), gamesPlayed: num(), winRate: num() }, { open: true }),
@@ -216,7 +219,8 @@ const defs = {
         mostBags: orNull(obj({ bags: num(), players: arr(str()) }, { open: true })),
         leastBags: orNull(obj({ bags: num(), players: arr(str()) }, { open: true })),
     }, { open: true })),
-    playerSearchRow: obj({ username: str(), profilePic: int(), customProfilePic: orNull(str()), gamesPlayed: int(), wins: int() }),
+    // customProfilePic always null since V1_REMOVALS #19 B (the reply's avatarUrls has the URL)
+    playerSearchRow: obj({ username: str(), profilePic: int(), customProfilePic: nul(), gamesPlayed: int(), wins: int() }),
     voicePeer: obj({ socketId: str(), username: { type: ['string', 'null'] } }),
     // One RTCIceServer (voiceIceServers): stun: / turn: / turns: URLs;
     // username + credential only on a TURN entry
@@ -245,6 +249,8 @@ const defs = {
         seq: int({ minimum: 0 }),
         serverTime: int(),
         stage: enm(...STAGES),
+        // never 'customPics' since V1_REMOVALS #19 C; the value stays in the
+        // enum, which the generated Swift PartialKey mirrors
         partial: arr(enm('customPics', 'log'), { maxItems: 2 }),
         viewer: ref('viewerV2'),
         hand: orNull(arr(ref('card'), { maxItems: 13 })),
@@ -308,6 +314,9 @@ const defs = {
         username: orNull(str()),
         pic: orNull(int()),
         hasCustomPic: bool(),
+        // always null since V1_REMOVALS #19 C (a custom picture is avatarUrl);
+        // the type stays string | null: the generated Swift Seat (and iOS
+        // 1.2.0) decode it as String?, and the generator has no null type
         customPic: orNull(str()),
         ownerUsername: orNull(str()),
         controller: enm('human', 'lazyBot', 'resignBot', 'bot'),

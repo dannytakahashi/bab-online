@@ -105,14 +105,25 @@ describe('leaderboard cache', () => {
     });
 
     test('a new picture shows on the next fetch', async () => {
-        await leaderboard();
-        const me = sock();
-        gameManager.registerUser(me.id, 'Ben');
-        const pic = 'data:image/png;base64,QUJD';
-        await profile.uploadProfilePic(me, io, { imageData: pic });
-        expect(row(await leaderboard(), 'Ben').customProfilePic).toBe(pic);
-        await profile.updateProfilePic(me, io, { profilePic: 77 });
-        expect(row(await leaderboard(), 'Ben').profilePic).toBe(77);
+        // V1_REMOVALS #19 B: rows carry customProfilePic null; a custom picture is
+        // the reply's avatarUrls, so this runs with the avatar pipeline on
+        const store = require('../../avatar/avatarStore');
+        store._reset();
+        store.configure({ enabled: true });
+        try {
+            expect((await leaderboard()).avatarUrls).toBeUndefined();
+            const me = sock();
+            gameManager.registerUser(me.id, 'Ben');
+            const fx = require('../../testUtils/avatarFixtures');
+            await profile.uploadProfilePic(me, io, { imageData: fx.dataUrl(await fx.avatarPng(64, 2)) });
+            const res = await leaderboard();
+            expect(row(res, 'Ben').customProfilePic).toBeNull();
+            expect(res.avatarUrls).toEqual({ Ben: expect.stringMatching(/^\/avatar\/Ben\?v=[0-9a-f]{16}$/) });
+            await profile.updateProfilePic(me, io, { profilePic: 77 });
+            expect(row(await leaderboard(), 'Ben').profilePic).toBe(77);
+        } finally {
+            store._reset();
+        }
     });
 
     test('deleting an account removes its row and anonymizes the records', async () => {

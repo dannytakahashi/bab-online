@@ -32,14 +32,13 @@ const isTeamShaped = (b) => !!b && typeof b.team1 === 'number' && typeof b.team2
  * @param {Object} [opts]
  * @param {Object|null} [opts.tournament] - {tournamentId, name, roundNumber, totalRounds}
  * @param {number} [opts.now]
- * @param {boolean} [opts.customPics=true] - include data:image seat pictures
  * @param {boolean} [opts.log=true] - include the game log
- * @param {Function} [opts.avatarResolve] - (pic, username) -> {legacy, url}
- *   for a custom seat picture (avatarWire.seatResolve; null: raw, no URL)
+ * @param {Function} [opts.avatarResolve] - (pic, username) -> {url} for a
+ *   custom seat picture (avatarWire.seatResolve; null: no URL)
  * @param {Function} [opts.botName] - socketId -> display name of a bot
  *   entrant (entrant records carry no bot names)
  */
-function buildSnapshotV2(game, viewerSid, { tournament = null, now = Date.now(), customPics = true, log = true, botName = null, avatarResolve = null } = {}) {
+function buildSnapshotV2(game, viewerSid, { tournament = null, now = Date.now(), log = true, botName = null, avatarResolve = null } = {}) {
     const stage = game.stage;
     const preDeal = PRE_DEAL.has(stage);
     const partial = [];
@@ -103,22 +102,21 @@ function buildSnapshotV2(game, viewerSid, { tournament = null, now = Date.now(),
     // ---- seats: [] until all four exist (never presenceSummary: it has socket ids) ----
     let seats = [];
     if (game.seatList().length === 4) {
-        let withheld = false;
         seats = POSITIONS.map((p) => {
             const s = game.seat(p);
             const d = seatDisplay(s);
             const custom = typeof d.pic === 'string' && d.pic.startsWith('data:image');
-            if (custom && !customPics) withheld = true;
             // avatars (docs/avatars.md; opts.avatarResolve = avatarWire.seatResolve
-            // from snapshotFor): customPic is the legacy inline value,
-            // avatarUrl (additive, only with a rendition) the HTTP URL
+            // from snapshotFor): a custom picture is only avatarUrl (additive,
+            // with a rendition); customPic is always null and partial never
+            // lists 'customPics' (V1_REMOVALS #19 C)
             const r = custom && avatarResolve ? avatarResolve(d.pic, d.username) : null;
             const seat = {
                 position: p,
                 username: d.username ?? null,
                 pic: typeof d.pic === 'number' ? d.pic : null,
                 hasCustomPic: custom,
-                customPic: custom && customPics ? (r ? r.legacy : d.pic) : null,
+                customPic: null,
                 ownerUsername: s.ownerUsername ?? null,
                 controller: s.controller,
                 presence: s.presence,
@@ -132,7 +130,6 @@ function buildSnapshotV2(game, viewerSid, { tournament = null, now = Date.now(),
             if (r && r.url) seat.avatarUrl = r.url;
             return seat;
         });
-        if (withheld) partial.push('customPics');
     }
 
     // ---- entrants (before seating) and the draw (until the deal resets it) ----

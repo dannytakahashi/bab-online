@@ -138,7 +138,7 @@ const schemas = {
     // Snapshot v2 (all optional; no payload at all is fine too)
     requestSnapshot: Joi.object({
         requestId: Joi.alternatives().try(Joi.string().max(64), Joi.number().integer()).optional(),
-        customPics: Joi.boolean().optional(),
+        customPics: Joi.boolean().optional(), // accepted and ignored since V1_REMOVALS #19 C (web and iOS 1.2.0 send false)
         log: Joi.boolean().optional()
     }),
 
