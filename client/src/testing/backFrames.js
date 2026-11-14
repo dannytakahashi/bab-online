@@ -3,7 +3,7 @@
  * red and blue by hand: cards/cardFaces.js backFrameForHand), for the
  * table/backColour*.test.js files.
  */
-import { replayLog } from './replay.js';
+import { replayLog, advance } from './replay.js';
 
 /** The colour hand `handNo` must show (independent of the code under test). */
 export const wantBack = (handNo) => (handNo >= 1 && handNo % 2 === 0 ? 'back-blue' : 'back-red');
@@ -45,5 +45,40 @@ export function replayNotingBacks(page, log, { from = 0 } = {}) {
       if (b.all.length) seen.push({ handNo: page.gameState.handNo, stage: page.gameState.stage, ...b });
     },
   });
+  return seen;
+}
+
+/**
+ * Replay a viewer's log sampling the table every `slice` ms from each
+ * handComplete until the next deal is on the table (settled again): the
+ * finished hand's tricks whisking into its trump, which flips face down.
+ * The next hand's gameStart usually arrives in the same tick as the
+ * handComplete (GameState.handNo moves on at once), so this is where a back
+ * drawn from GameState's hand would take the next hand's colour early.
+ * @returns {Array<{finished, handNo, all, trump, stacks, whisking}>}
+ */
+export function replayNotingWhiskBacks(page, log, { slice = 25 } = {}) {
+  const seen = [];
+  let finished = null; // the hand being whisked away, from its handComplete
+  const sample = () => {
+    if (finished == null) return;
+    if (settled(page.scene)) { finished = null; return; }
+    const b = backs(page.scene);
+    const whisking = page.scene.trickManager?.spriteCounts().whisking || 0;
+    seen.push({ finished, handNo: page.gameState.handNo, whisking, ...b });
+  };
+  let lastT = log[0]?.t ?? 0;
+  for (let i = 0; i < log.length; i++) {
+    const e = log[i];
+    for (let left = e.t - lastT; left > 0; left -= slice) {
+      advance(Math.min(slice, left));
+      sample();
+    }
+    lastT = e.t;
+    if (e.dir !== 's2c') continue;
+    if (e.event === 'handComplete') finished = page.gameState.handNo;
+    page.socket.fire(e.event, JSON.parse(JSON.stringify(e.data)));
+    sample();
+  }
   return seen;
 }

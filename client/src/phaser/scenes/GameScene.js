@@ -43,6 +43,7 @@ import { resizeShape } from '../shapes.js';
 import { cssSize, zoomCamera } from '../backingStore.js';
 import { ensureCardAtlas, refreshCardSprites, CARD_TEXTURE_KEY } from '../cards/CardAtlas.js';
 import { tableBackFrame } from '../cards/tableBack.js';
+import { isBackFrame } from '../cards/cardFaces.js';
 import { uiTextStyle, refreshTextResolution } from '../text.js';
 import { COLOR, hex, alpha } from '../../ui/tokens.js';
 import { motionMs, EASE_EMPHASIZED } from '../../ui/motion.js';
@@ -283,6 +284,17 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
+   * The deal landed (after the previous hand's whisk): a face-down trump
+   * still showing the finished hand's back takes this hand's.
+   */
+  dealTrumpBack() {
+    const sprite = this.tableCardSprite;
+    const back = sprite?.getData?.('backFrame');
+    if (!sprite?.scene || !back || sprite.getData('flipping')) return;
+    if (isBackFrame(sprite.frame?.name) && sprite.frame.name !== back) sprite.setTexture(CARD_TEXTURE_KEY, back);
+  }
+
+  /**
    * Display trump card on table.
    * @param {Object} trumpCard
    * @param {Object} [options]
@@ -296,6 +308,13 @@ export class GameScene extends Phaser.Scene {
     const trumpY = trump.y;
     const trumpScale = trump.card.scale;
 
+    // The next hand's gameStart lands during the finished hand's whisk
+    // (its tricks flying into this spot) and its deal waits for it: until
+    // then the face-down trump keeps the finished hand's back, and takes
+    // this hand's when the deal lands (dealTrumpBack)
+    const handBack = tableBackFrame();
+    const finishedBack = !faceUp && this.director?.whisking ? this.tableCardSprite?.getData?.('backFrame') : null;
+
     // Clear existing
     this.clearTrumpDisplay();
 
@@ -303,9 +322,12 @@ export class GameScene extends Phaser.Scene {
     const cardKey = getCardImageKey(trumpCard);
     this.tableCardSprite = faceUp
       ? this.add.image(trumpX, trumpY, CARD_TEXTURE_KEY, cardKey)
-      : this.add.image(trumpX, trumpY, CARD_TEXTURE_KEY, tableBackFrame());
+      : this.add.image(trumpX, trumpY, CARD_TEXTURE_KEY, finishedBack || handBack);
     this.tableCardSprite.setScale(trumpScale);
     this.tableCardSprite.setDepth(100);
+    // This hand's back (the end-of-hand flip shows it even once the next
+    // hand's gameStart has moved GameState.handNo on)
+    this.tableCardSprite.setData('backFrame', handBack);
 
     // Background - box around card with padding (the layout's box): a
     // surface tile with a gold hairline (gold marks the trump)
@@ -1089,7 +1111,9 @@ export class GameScene extends Phaser.Scene {
         ease: EASE_EMPHASIZED,
         onComplete: () => {
           if (trumpSprite && trumpSprite.scene) {
-            trumpSprite.setTexture(CARD_TEXTURE_KEY, tableBackFrame());
+            // the finished hand's back, not the next one's: its gameStart
+            // (GameState.handNo + 1) often lands during the whisk
+            trumpSprite.setTexture(CARD_TEXTURE_KEY, trumpSprite.getData('backFrame') ?? tableBackFrame());
             sceneTween(this, {
               targets: trumpSprite,
               scaleX: trumpSprite.scaleY || this.cardScale('trump'),

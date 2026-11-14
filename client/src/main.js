@@ -1204,6 +1204,10 @@ function initializeApp() {
         // Deal the cards once the first hand's fade or the previous hand's
         // trick whisk is over (director.afterTransition)
         const showCards = () => {
+          // The trump takes this hand's back (it kept the finished hand's
+          // through the whisk)
+          scene.dealTrumpBack?.();
+
           // Display player hand via CardManager
           if (scene.handleDisplayHand && data.hand) {
             scene.handleDisplayHand(data.hand, false);
