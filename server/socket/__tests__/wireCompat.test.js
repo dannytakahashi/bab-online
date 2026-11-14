@@ -138,6 +138,21 @@ const json = (v) => JSON.parse(JSON.stringify(v));
 const omit = (obj, keys) => Object.fromEntries(Object.entries(obj).filter(([k]) => !keys.includes(k)));
 const dropped = (event) => [...(contract.schema.s2c[event].added || []), 'seq'];
 
+/**
+ * Executed removals, applied to the cc865b4 value (as wireGolden's
+ * v1Projection): V1_REMOVALS #9, the snapshot carriers keep only these v1
+ * keys (snapshotHandlers.carrierFor); every kept value must still equal
+ * cc865b4's.
+ */
+const V1_KEPT = {
+    rejoinSuccess: ['gameId', 'players', 'isLazy', 'tournamentId'],
+    restorePlayerState: ['gameId', 'players'],
+    spectatorJoined: ['gameId', 'players', 'trump'],
+};
+const v1Projection = (event, legacy) => (V1_KEPT[event]
+    ? Object.fromEntries(Object.entries(legacy).filter(([k]) => V1_KEPT[event].includes(k)))
+    : legacy);
+
 function watchLegacy() {
     const seen = {};
     const mismatches = [];
@@ -145,7 +160,7 @@ function watchLegacy() {
     const compare = (kind, event, wire, legacy) => {
         note(kind);
         const got = omit(wire, dropped(event));
-        const want = json(legacy);
+        const want = json(v1Projection(event, legacy));
         if (JSON.stringify(Object.keys(got).sort()) !== JSON.stringify(Object.keys(want).sort()) ||
             !require('../../../contract/lib/validate').deepEqual(got, want)) {
             mismatches.push({ kind, event, got, want });

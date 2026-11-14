@@ -6,7 +6,9 @@
  * spectator full state) and as the reply to the new requestSnapshot event
  * (stateSnapshot). Old clients ignore both. The viewer is always the
  * receiving socket. Snapshots attached to v1 payloads skip custom pictures
- * (customPics:false): those payloads already carry them in players[].pic.
+ * (customPics:false): those payloads carry them in players[].pic. Since
+ * V1_REMOVALS #9 those payloads carry only the snapshot plus the few v1
+ * keys a client still reads (carrierFor).
  */
 
 'use strict';
@@ -47,29 +49,13 @@ function snapshotFor(game, sid, opts = {}) {
     });
 }
 
-/**
- * The spectator full state (spectatorJoined to the joining socket): the 16
- * cc865b4 keys in their order, then four additive keys iOS
- * GameState.restoreFromSpectator reads:
- *   - trumpBroken, teamTricks, oppTricks: read by the App Store build (since
- *     Feb 2026) but never sent, so its spectators saw trump never broken and
- *     0-0 (or a previous game's) trick counts. Sending them CHANGES what the
- *     shipped app shows - knowingly, as a fix (spectators view from seat 1:
- *     team 1 is "team"; later trickComplete increments use position % 2).
- *   - leadPosition (the same raw value getClientState sends): read only by
- *     iOS source builds after 10d1538 (2026-11-07); the App Store build
- *     ignores it and infers the lead from the first non-null card.
- * Web's spectator path reads none of them. Built after addSpectator
- * (spectatorCount includes the joiner). `capable`: the joiner announced
- * the avatarUrl capability (players[].pic null for a custom picture with a
- * URL, plus avatarUrls); otherwise the legacy pic values (docs/avatars.md).
- */
-function spectatorJoinState(game, { capable = false } = {}) {
-    const playerInfo = [];
+/** players[] of a snapshot carrier: {position, username, pic, socketId} per seat. */
+function carrierPlayers(game) {
+    const players = [];
     for (let pos = 1; pos <= 4; pos++) {
         const player = game.getPlayerByPosition(pos);
         if (player) {
-            playerInfo.push({
+            players.push({
                 position: pos,
                 username: player.username,
                 pic: player.pic,
@@ -77,31 +63,42 @@ function spectatorJoinState(game, { capable = false } = {}) {
             });
         }
     }
-    const mapped = avatarWire.wireClientState(game, { players: playerInfo }, capable);
-    const state = {
-        gameId: game.gameId,
-        players: mapped.players,
-        trump: game.trump,
-        currentHand: game.currentHand,
-        dealer: game.dealer,
-        phase: game.phase,
-        bidding: game.bidding,
-        currentTurn: game.currentTurn,
-        bids: game.bids,
-        playerBids: game.playerBids,
-        tricks: game.tricks,
-        score: game.score,
-        playedCards: game.playedCards,
-        isTrumpBroken: game.isTrumpBroken,
-        gameLog: game.getGameLog(),
-        spectatorCount: game.getSpectators().length,
-        leadPosition: game.leadPosition,
-        trumpBroken: game.isTrumpBroken,
-        teamTricks: game.tricks.team1,
-        oppTricks: game.tricks.team2
+    return players;
+}
+
+/**
+ * A snapshot carrier (rejoinSuccess, restorePlayerState, the spectator full
+ * state) for `socket`: the v2 snapshot plus only the v1 keys a client still
+ * reads (V1_REMOVALS #9, 2026-11-12). Until then each carried the whole
+ * legacy getClientState (22 keys) or spectator state (16 + 4 aliases).
+ *   - players[] {position, username, pic, socketId}: iOS 1.2.0 reads pic
+ *     (R5: the snapshot withholds custom pictures, customPics:false, and
+ *     has no URL while a rendition is pending / failed or with
+ *     AVATAR_PIPELINE=off) and socketId (voice glow fallback);
+ *     WirePayloads.RejoinEnvelope.hints. Web lets it win for names and
+ *     pictures (tableSync.applyTableSnapshot).
+ *   - avatarUrls (capable sockets, when there is a URL): iOS 1.2.0 hints.
+ *   - gameId; isLazy (rejoinSuccess); trump (spectator full state): what a
+ *     web page from before #233 (2026-11-12) routes on (onRejoinSuccess
+ *     data.gameId / data.isLazy, onSpectatorJoined data.players &&
+ *     data.trump), so a tab left open across the deploy still rejoins and
+ *     spectates. Current web and iOS 1.2.0 take them from the snapshot.
+ *   - tournamentId (rejoinSuccess): web and iOS 1.2.0 (passed in `extra`).
+ * `extra` keys go between those and the snapshot, which is last.
+ */
+function carrierFor(game, socket, extra = {}) {
+    const base = avatarWire.wireClientState(game, { gameId: game.gameId, players: carrierPlayers(game) }, hasCap(socket, 'avatarUrl'));
+    return {
+        ...base,
+        ...extra,
+        snapshot: snapshotFor(game, socket.id, { customPics: false })
     };
-    if (mapped.avatarUrls) state.avatarUrls = mapped.avatarUrls;
-    return state;
+}
+
+/** getClientState's isLazy for seat socket `sid` (the rejoinSuccess value). */
+function wireIsLazy(game, sid) {
+    const position = game.seatBySocket(sid);
+    return position ? game.wireLazy(position) : false;
 }
 
 /**
@@ -122,10 +119,7 @@ function sendSpectatorJoin(game, socket, username) {
         username,
         spectatorCount: game.getSpectators().length
     });
-    socket.emit('spectatorJoined', {
-        ...spectatorJoinState(game, { capable: hasCap(socket, 'avatarUrl') }),
-        snapshot: snapshotFor(game, socket.id, { customPics: false })
-    });
+    socket.emit('spectatorJoined', carrierFor(game, socket, { trump: game.trump }));
 }
 
 /** The game a socket belongs to: mapped (seat owner, entrant) or spectating. */
@@ -161,7 +155,8 @@ module.exports = {
     tournamentInfo,
     botNameFor,
     snapshotFor,
-    spectatorJoinState,
+    carrierFor,
+    wireIsLazy,
     sendSpectatorJoin,
     requestSnapshot
 };

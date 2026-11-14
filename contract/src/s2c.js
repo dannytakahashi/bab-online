@@ -23,7 +23,6 @@
 
 const {
     str, int, num, bool, nul, konst, enm, arr, ref, anyOf, orNull, obj, variant, byPosition,
-    LEGACY_CLIENT_STATE_PROPS, SPECTATOR_STATE_V1_PROPS,
 } = require('./defs');
 
 // ---------- client read sites ----------
@@ -129,9 +128,21 @@ const statsScope = enm('human', 'bots', 'all');
 const SCOPE_ECHO_NOTE = 'scope (additive 2026-11-13): the stats scope the request asked for (human | bots | all; an unknown value is human), echoed ONLY when the request carried a scope key, so a payload-less request (iOS, every shipped build) gets exactly the earlier reply. leaderboardResponse and recordsResponse failures echo it too (iOS 1.2.1 build 8 keeps a request in flight per scope and files a failure under the scope that asked); profile failures do not. The web client drops a reply whose scope is not its current choice (a stale reply after a fast switch).';
 const seatNotice = obj({ position: ref('position'), username: str() });
 
-const LEGACY_STATE_READS = reads(
-    [W.game, W.main('processRejoinOrRestore'), 'client/src/state/GameState.js:restoreFromRejoin'],
-    [I.game('registerReconnection'), I.state('restoreFromRejoin')],
+// The snapshot carriers (rejoinSuccess, restorePlayerState, the spectator
+// full state) since V1_REMOVALS #9 (2026-11-12): {snapshot} plus only the v1
+// keys a client still reads (server/socket/snapshotHandlers.js carrierFor).
+// players[] (position, username, pic, socketId): iOS 1.2.0 reads pic (R5:
+// the carrier snapshot withholds custom pictures) and socketId (voice glow
+// fallback), web lets it win for names / pictures. gameId (and isLazy on
+// rejoinSuccess, trump on the spectator state): what a web page from before
+// #233 routes on. avatarUrls: iOS 1.2.0's hints. tournamentId: rejoinSuccess.
+const CARRIER_PROPS = {
+    gameId: str(),
+    players: arr(ref('playerInfoV1'), { maxItems: 4 }),
+};
+const CARRIER_READS = reads(
+    [W.game, 'client/src/state/tableSync.js:applyTableSnapshot'],
+    ['iOSClient/BABOnline/Networking/Wire/WirePayloads.swift:RejoinEnvelope', 'iOSClient/BABOnline/State/Table/TableReducer+Snapshot.swift:seatState'],
 );
 
 const s2c = {
@@ -538,26 +549,26 @@ const s2c = {
     // ==================== Reconnection ====================
     rejoinSuccess: {
         payload: anyOf(
-            variant('withTournament', obj({ ...LEGACY_CLIENT_STATE_PROPS, tournamentId: orNull(str()), snapshot: ref('snapshotV2'), avatarUrls: ref('avatarUrlsByPosition') }, { optional: ['avatarUrls'] })),
-            variant('watchViaSpectate', obj({ ...LEGACY_CLIENT_STATE_PROPS, snapshot: ref('snapshotV2'), avatarUrls: ref('avatarUrlsByPosition') }, { optional: ['avatarUrls'] })),
+            variant('withTournament', obj({ ...CARRIER_PROPS, avatarUrls: ref('avatarUrlsByPosition'), isLazy: bool(), tournamentId: orNull(str()), snapshot: ref('snapshotV2') }, { optional: ['avatarUrls'] })),
+            variant('watchViaSpectate', obj({ ...CARRIER_PROPS, avatarUrls: ref('avatarUrlsByPosition'), isLazy: bool(), snapshot: ref('snapshotV2') }, { optional: ['avatarUrls'] })),
         ),
         status: 'active', to: 'self',
         added: ['snapshot', 'avatarUrls'],
         reserved: ['teamTricks', 'oppTricks', 'teamScore', 'oppScore', 'isBidding', 'leadCard', 'playedCardIndex', 'trumpBroken']
             .map((key) => ({ key, why: 'iOS restoreFromRejoin reads it ahead of the legacy key and would take it as the viewer-relative value' })),
-        clientReads: { ...LEGACY_STATE_READS, web: [...LEGACY_STATE_READS.web, W.main('onRejoinSuccess')] },
+        clientReads: { ...CARRIER_READS, web: [...CARRIER_READS.web, W.main('onRejoinSuccess')] },
         emittedFrom: ['server/socket/seatLifecycle.js:reconnectOwner', 'server/socket/seatLifecycle.js:watchSeat', 'server/socket/reconnectHandlers.js:rejoinGame'],
-        notes: 'getClientState + tournamentId (string|null) on a rejoin; watchSeat via joinAsSpectator sends the bare state (web reads tournamentId !== undefined). Before playerReconnected and the presence replays.',
+        notes: 'A snapshot carrier (V1_REMOVALS #9, 2026-11-12: the 22 getClientState keys went; the table is the snapshot): gameId, players, avatarUrls (capable sockets with a URL), isLazy, tournamentId (string|null) on a rejoin; watchSeat via joinAsSpectator sends no tournamentId (web reads tournamentId !== undefined). Before playerReconnected and the presence replays.',
     },
     restorePlayerState: {
-        payload: obj({ ...LEGACY_CLIENT_STATE_PROPS, snapshot: ref('snapshotV2'), avatarUrls: ref('avatarUrlsByPosition') }, { optional: ['avatarUrls'] }),
+        payload: obj({ ...CARRIER_PROPS, avatarUrls: ref('avatarUrlsByPosition'), snapshot: ref('snapshotV2') }, { optional: ['avatarUrls'] }),
         status: 'active', to: 'self',
         added: ['snapshot', 'avatarUrls'],
         reserved: ['tournamentId', 'teamTricks', 'oppTricks', 'teamScore', 'oppScore', 'isBidding', 'leadCard', 'playedCardIndex', 'trumpBroken']
             .map((key) => ({ key, why: key === 'tournamentId' ? 'web routes a payload with tournamentId as a rejoin' : 'iOS restoreFromRejoin reads it ahead of the legacy key' })),
-        clientReads: LEGACY_STATE_READS,
+        clientReads: { ...CARRIER_READS, web: [...CARRIER_READS.web, W.main('onRestorePlayerState')] },
         emittedFrom: ['server/socket/gameHandlers.js:playCard', 'server/socket/seatLifecycle.js:goActive'],
-        notes: 'After actionRejected on a "Card not in hand" play (#183), and on /active from the watch view.',
+        notes: 'A snapshot carrier (V1_REMOVALS #9, 2026-11-12): gameId, players, avatarUrls (capable sockets with a URL), snapshot. After actionRejected on a "Card not in hand" play (#183), and on /active from the watch view.',
     },
     stateSnapshot: {
         payload: anyOf(
@@ -633,26 +644,22 @@ const s2c = {
     spectatorJoined: {
         payload: anyOf(
             variant('fullState', obj({
-                ...SPECTATOR_STATE_V1_PROPS,
-                leadPosition: ref('position'),
-                trumpBroken: bool(),
-                teamTricks: int({ minimum: 0 }),
-                oppTricks: int({ minimum: 0 }),
-                snapshot: ref('snapshotV2'),
+                ...CARRIER_PROPS,
                 avatarUrls: ref('avatarUrlsByPosition'),
+                trump: orNull(ref('card')),
+                snapshot: ref('snapshotV2'),
             }, { optional: ['avatarUrls'] })),
             variant('notice', obj({ username: str(), spectatorCount: int({ minimum: 0 }) })),
         ),
         status: 'active', to: ['room', 'self'], seq: false,
-        added: ['snapshot', 'leadPosition', 'trumpBroken', 'teamTricks', 'oppTricks', 'avatarUrls'],
-        activates: ['leadPosition', 'trumpBroken', 'teamTricks', 'oppTricks'],
+        added: ['snapshot', 'avatarUrls'],
         reserved: [
             { key: 'players', why: 'notice only: both clients route a payload with players + trump as the full state' },
             { key: 'trump', why: 'notice only: both clients route a payload with players + trump as the full state' },
         ],
-        clientReads: reads([W.lobby, W.main('onSpectatorJoined')], [I.game('registerSpectatorAndLazy'), I.state('restoreFromSpectator#reads:leadPosition,trumpBroken,teamTricks,oppTricks')]),
+        clientReads: reads([W.lobby, W.main('onSpectatorJoined'), ...CARRIER_READS.web], ['iOSClient/BABOnline/Networking/Wire/ServerEvent.swift:decode', ...CARRIER_READS.ios]),
         emittedFrom: ['server/socket/snapshotHandlers.js:sendSpectatorJoin'],
-        notes: 'Split (V1_REMOVALS #8, 2026-11-12; sendSpectatorJoin, from joinAsSpectator and spectateTournamentGame): the notice goes to the room EXCEPT the joiner (socket.to(room), sequenced) and is sent first; then fullState to the joining socket only (socket.emit), whose snapshot is built after the notice, so snapshot.seq counts it and the joiner\'s next room event is snapshot.seq + 1. The joiner no longer gets its own notice (ctr-17). An owner watching their own lazy / resigned seat via joinAsSpectator (watchSeat \'spectate\') gets rejoinSuccess and sends no notice. Web and iOS 1.2.0 route a payload with a snapshot (or players + trump) as the full state, anything else as the notice, so neither changed. trumpBroken / teamTricks / oppTricks switch on reads the App Store iOS build already has in restoreFromSpectator (since Feb 2026): its spectator view CHANGES visibly, knowingly, as a fix (real trump-broken state and trick counts instead of false and 0-0). leadPosition is read only by iOS source builds after 10d1538 (the App Store build infers the lead from the first card). ctr-1, ctr-8, ios-8d; web reads none of them.',
+        notes: 'Split (V1_REMOVALS #8, 2026-11-12; sendSpectatorJoin, from joinAsSpectator and spectateTournamentGame): the notice goes to the room EXCEPT the joiner (socket.to(room), sequenced) and is sent first; then fullState to the joining socket only (socket.emit), whose snapshot is built after the notice, so snapshot.seq counts it and the joiner\'s next room event is snapshot.seq + 1. The joiner no longer gets its own notice (ctr-17). An owner watching their own lazy / resigned seat via joinAsSpectator (watchSeat \'spectate\') gets rejoinSuccess and sends no notice. Web and iOS 1.2.0 route a payload with a snapshot (or players + trump) as the full state, anything else as the notice, so neither changed. fullState is a snapshot carrier (V1_REMOVALS #9, 2026-11-12): gameId, players, avatarUrls (capable sockets with a URL), trump, snapshot; the cc865b4 legacy keys and the leadPosition / trumpBroken / teamTricks / oppTricks aliases (read only by the gated iOS builds) went.',
     },
 
     spectatorsUpdated: {

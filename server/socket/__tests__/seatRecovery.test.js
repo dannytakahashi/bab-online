@@ -251,8 +251,8 @@ describe('/active over a resigned seat', () => {
         expect(botController.getBot(game.gameId, botSocketId)).toBeFalsy();
         expect(gameManager.playerGames.has(botSocketId)).toBe(false);
         const restored = events(log, 'restorePlayerState').find((l) => l.to === `self:${fresh.id}`);
-        expect(restored.data.position).toBe(1);
-        expect(restored.data.hand).toEqual([C('2', 'hearts')]);
+        expect(restored.data.snapshot.viewer).toMatchObject({ role: 'seat', position: 1 });
+        expect(restored.data.snapshot.hand).toEqual([C('2', 'hearts')]);
 
         // The resign bot's pending bid must not fire for the human
         await jest.advanceTimersByTimeAsync(10000);
