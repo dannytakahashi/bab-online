@@ -23,7 +23,7 @@ The equilibrium: evaluate pessimistically, round down, and **stop there**. Don't
 
 ### Bid the expected value, not a rounded estimate (November 2026)
 
-The cleaner way to say all of the above: estimate a *distribution* of team tricks and bid whatever maximizes the expected team score. Since November 2026 Mary does exactly that on hands of 3+ cards (`calculateOptimalBid`, tables in `server/game/bot/bidModel.js`):
+The cleaner way to say all of the above: estimate a *distribution* of team tricks and bid whatever maximizes the expected team score. Since November 2026 Mary does exactly that on hands of 2+ cards with no bore on the table (3+ at first, 2-card hands since a follow-up; 1-card hands keep simple rules; `calculateOptimalBid`, tables in `server/game/bot/bidModel.js`):
 
 - **Own tricks** = the sum of fitted per-card values (what each card actually wins in bot play, by hand-size group), shifted down by numeric opponent bids already made.
 - **Partner** = partner's bid plus partner's typical overtricks when they bid first; when they bid after us, an average over what a second-of-team partner usually adds. The team bid is what scores, so a known partner bid moves the break-even: raising from team bid B to B+1 needs the extra trick about (20B+10)/(20B+19) of the time — 77% at B=1, 89% at B=3.
