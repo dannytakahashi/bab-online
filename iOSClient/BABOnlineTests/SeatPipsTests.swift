@@ -220,6 +220,20 @@ final class SeatPipsTests: XCTestCase {
 
     // MARK: - pile colors (absolute teams, as the score bar and the pips)
 
+    func testMyTeamsRowIsTheLowerOneNearerMyHand() throws {
+        // owner 2026-11-14: my team's trick row sits below the opponents' (SpriteKit y is up)
+        let node = TrickHistoryNode()
+        node.setCounts(team: 2, opp: 3, totals: (team: 3, opp: 4), myTeam: 1)
+        func y(_ role: String) -> CGFloat? { node.children.first { $0.role == role }?.position.y }
+        let team = try XCTUnwrap(y("history.team.0")), opp = try XCTUnwrap(y("history.opp.0"))
+        XCTAssertLessThan(team, opp)
+        XCTAssertEqual(team, TrickHistoryNode.teamRowY)
+        XCTAssertEqual(opp, TrickHistoryNode.oppRowY)
+        // a team-2 viewer: still my row below
+        node.setCounts(team: 1, opp: 1, myTeam: 2)
+        XCTAssertLessThan(try XCTUnwrap(y("history.team.0")), try XCTUnwrap(y("history.opp.0")))
+    }
+
     func testPilesUseTheTeamsAbsoluteColors() {
         // RGBA, rounded: SKSpriteNode keeps its own copy of the color, which == does not match
         func rgba(_ c: UIColor?) -> [Int]? {

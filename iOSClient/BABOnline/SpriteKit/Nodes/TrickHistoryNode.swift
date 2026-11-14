@@ -3,7 +3,8 @@ import SpriteKit
 /// Stacked won tricks for each team, set from the trick counts (idempotent):
 /// `history.team.<i>` (my team's) and `history.opp.<i>` (theirs), `spacing` apart (from the
 /// layout), each in its team's absolute color (team 1 blue, team 2 coral), as the score bar
-/// and the pips: a viewer on team 2 has a coral top row.
+/// and the pips: a viewer on team 2 has a coral bottom row. My team's row is the lower
+/// one, nearer my hand (owner 2026-11-14); the opponents' row sits above it.
 ///
 /// Once the bidding is over each row also shows its team's bid total (the web's
 /// TrickManager piles; a bore counts as the whole hand, BidTotals): the bid's slots not
@@ -23,6 +24,10 @@ class TrickHistoryNode: SKNode {
     private(set) var myTeam = 1
 
     static let borderPad: CGFloat = 2
+    /// The two rows inside the history rect (y up): the opponents' on top, my team's 30 pt
+    /// lower, nearer my hand.
+    static let oppRowY: CGFloat = 0
+    static let teamRowY: CGFloat = -30
 
     override init() {
         super.init()
@@ -40,11 +45,11 @@ class TrickHistoryNode: SKNode {
         if let spacing { stackSpacing = spacing }
         if case .some(let t) = totals { self.totals = t }
         if let myTeam { self.myTeam = myTeam == 2 ? 2 : 1 }
-        sync(prefix: "history.team.", count: team, y: 0, color: Theme.SK.team(self.myTeam))
-        sync(prefix: "history.opp.", count: opp, y: -30, color: Theme.SK.team(3 - self.myTeam))
+        sync(prefix: "history.team.", count: team, y: Self.teamRowY, color: Theme.SK.team(self.myTeam))
+        sync(prefix: "history.opp.", count: opp, y: Self.oppRowY, color: Theme.SK.team(3 - self.myTeam))
         counts = (team, opp)
-        syncPile(row: "team", count: team, total: self.totals?.team, y: 0)
-        syncPile(row: "opp", count: opp, total: self.totals?.opp, y: -30)
+        syncPile(row: "team", count: team, total: self.totals?.team, y: Self.teamRowY)
+        syncPile(row: "opp", count: opp, total: self.totals?.opp, y: Self.oppRowY)
         children.forEach { $0.hideFromAccessibility() }
     }
 
