@@ -290,6 +290,14 @@ const PLAY_TUNING = {
     ruffLow3rdMinUnseen: 3,   // ...judged by the unseen cards of the led suit
     ruffForPartner: true,     // 3rd seat: a low ruff over partner's shaky winner
     ruffForPartnerMaxRank: RANK_VALUES.J, // ...shaky = this rank or lower, a higher card out
+    // --- Leads ---
+    leadBossTrump: true,      // a boss trump below the HI joker goes first
+    effBossTrump: true,       // ...including one neither opponent can beat (trump caps)
+    leadLowTrump: true,       // long trump, no boss among them: the lowest trump
+    leadLowTrumpMin: 3,
+    cashBossOffsuit: true,    // cash an established off-suit winner nobody can ruff
+    leadVoidInference: true,  // a void only counts while its owner still has trump
+    oppLedPenalty: 12,        // suit score: avoid suits the opponents chose to lead
     // --- What the card view reads from the play so far ---
     useTrumpOut: true,        // certain: failed to follow trump, HI-lead caps, counts
     useSoftTrumpOut: true     // likely: declined to ruff / over-ruff an opponent's winner
@@ -340,6 +348,7 @@ function buildCardView(hand, memory, trump) {
     const softCap = { 1: Infinity, 2: Infinity, 3: Infinity, 4: Infinity };
 
     // Replay the recorded tricks in play order
+    const ledBy = { spades: new Set(), hearts: new Set(), diamonds: new Set(), clubs: new Set() };
     let i = 0;
     while (i < played.length) {
         let j = i;
@@ -350,6 +359,7 @@ function buildCardView(hand, memory, trump) {
         if (!lead) continue; // partially observed trick
         const leadSuit = lead.suit === 'joker' ? trumpKey : lead.suit;
         const hiLead = lead.rank === 'HI' && lead.suit === 'joker';
+        if (lead.suit !== 'joker') ledBy[lead.suit].add(lead.position);
         let winner = lead;
         for (const e of trick) {
             if (e === lead) continue;
@@ -394,6 +404,7 @@ function buildCardView(hand, memory, trump) {
 
     return {
         trumpKey,
+        ledBy,
         unseenInSuit,
         unseenTrump: unseenTrumpRanks.length,
         isVoid: (p, suit) => voids[p].has(suit) || (suit !== trumpKey && unseenInSuit[suit] === 0),
@@ -1465,6 +1476,12 @@ function selectLead(hand, trump, trumpBroken, gameState, memory, handSize, contr
     const partnerVoids = getPartnerVoidSuits(memory, gameState.position, trump);
     const effort = contract ? contract.effort : 'normal';
     const opponents = getOpponentPositions(gameState.position);
+    const T = PLAY_TUNING;
+    const view = memory ? buildCardView(hand, memory, trump) : null;
+    const partnerPos = getPartnerPosition(gameState.position);
+    // An opponent's known void only matters while they still have trump to ruff with
+    const oppCanRuff = (o, suit) => opponentVoids.has(`${o}:${suit}`) &&
+        !(view && T.leadVoidInference && view.trumpOut(o));
 
     const legalTrump = legalCards.filter(c => c.suit === 'joker' || (!noTrump && c.suit === trump.suit));
     const legalOffsuit = legalCards.filter(c => c.suit !== 'joker' && (noTrump || c.suit !== trump.suit));
@@ -1473,7 +1490,7 @@ function selectLead(hand, trump, trumpBroken, gameState, memory, handSize, contr
     const ruffersExist = !noTrump || countLiveJokersOutside(hand, memory, trump) > 0;
     const safeBossOffsuit = legalOffsuit.filter(c =>
         countHigherUnseen(c, hand, memory, trump) === 0 &&
-        (!ruffersExist || !opponents.some(o => opponentVoids.has(`${o}:${c.suit}`))));
+        (!ruffersExist || !opponents.some(o => oppCanRuff(o, c.suit))));
 
     // --- Maximum effort (live bore / must-win-every-trick): lead raw strength ---
     if (effort === 'max') {
@@ -1490,6 +1507,20 @@ function selectLead(hand, trump, trumpBroken, gameState, memory, handSize, contr
         return legalCards.sort((a, b) => RANK_VALUES[b.rank] - RANK_VALUES[a.rank])[0];
     }
 
+    // Opponents can still hold trump (otherwise drawing it only strips partner)
+    const oppsHoldTrump = !view || !opponents.every(o => view.trumpOut(o));
+
+    // --- A boss trump below the HI joker (the LO joker, or the top trump
+    // left) is a sure trick that also pulls two opposing trump: lead it
+    // first and keep the HI joker's forcing lead for later ---
+    if (T.leadBossTrump && view && oppsHoldTrump) {
+        const bossTrump = legalTrump
+            .filter(c => c.rank !== 'HI' && (countHigherUnseen(c, hand, memory, trump) === 0 ||
+                (T.effBossTrump && !opponents.some(o => view.canBeatTrump(o, c)))))
+            .sort((a, b) => RANK_VALUES[b.rank] - RANK_VALUES[a.rank])[0];
+        if (bossTrump) return bossTrump;
+    }
+
     // --- Only ±1 overtricks left: cash sure winners while we have the lead ---
     if (effort === 'cheap' && safeBossOffsuit.length > 0) {
         return safeBossOffsuit[0];
@@ -1498,6 +1529,17 @@ function selectLead(hand, trump, trumpBroken, gameState, memory, handSize, contr
     // 1. Lead HI joker when we have it (draws out opponent trump)
     const highJoker = legalCards.find(c => c.rank === 'HI');
     if (highJoker) return highJoker;
+
+    // --- Long trump with no boss among them: lead the lowest to draw the
+    // opponents' trump (ours outlast theirs) ---
+    if (T.leadLowTrump && view && oppsHoldTrump && legalOffsuit.length > 0 &&
+        legalTrump.length >= T.leadLowTrumpMin &&
+        !legalTrump.some(c => countHigherUnseen(c, hand, memory, trump) === 0)) {
+        return legalTrump.sort((a, b) => RANK_VALUES[a.rank] - RANK_VALUES[b.rank])[0];
+    }
+
+    // --- Cash an established off-suit winner nobody can ruff ---
+    if (T.cashBossOffsuit && safeBossOffsuit.length > 0) return safeBossOffsuit[0];
 
     // 2. Group by suit
     const bySuit = { spades: [], hearts: [], diamonds: [], clubs: [] };
@@ -1520,12 +1562,14 @@ function selectLead(hand, trump, trumpBroken, gameState, memory, handSize, contr
 
         let score = 0;
 
-        // Prefer suits partner is void in (they can trump in)
-        if (partnerVoids.has(suit)) score += 10;
+        // Prefer suits partner is void in (they can trump in), while
+        // partner still has trump to do it with
+        if (partnerVoids.has(suit) &&
+            !(view && T.leadVoidInference && view.trumpOut(partnerPos))) score += 10;
 
-        // Avoid suits opponents are void in
-        if (opponentVoids.has(`${opponents[0]}:${suit}`)) score -= 5;
-        if (opponentVoids.has(`${opponents[1]}:${suit}`)) score -= 5;
+        // Avoid suits opponents are void in (and can still ruff)
+        if (oppCanRuff(opponents[0], suit)) score -= 5;
+        if (oppCanRuff(opponents[1], suit)) score -= 5;
 
         // Prefer suits where we have Ace (guaranteed trick)
         const hasAce = cards.some(c => c.rank === 'A');
@@ -1533,6 +1577,11 @@ function selectLead(hand, trump, trumpBroken, gameState, memory, handSize, contr
 
         // Prefer shorter suits (opponents less likely void, voids us faster)
         score += (5 - cards.length);
+
+        // A suit an opponent chose to lead is one they are short or strong in
+        if (view && T.oppLedPenalty && opponents.some(o => view.ledBy[suit].has(o))) {
+            score -= T.oppLedPenalty;
+        }
 
         // Penalize suits with unprotected King on large hands
         const hasKing = cards.some(c => c.rank === 'K');
