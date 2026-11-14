@@ -31,8 +31,8 @@ function setupSocketHandlers(io) {
         // (Railway edge: X-Real-IP behind a proxy peer; see utils/clientIp)
         if (socket.data) socket.data.clientIp = getClientIp(socket);
 
-        // The old App Store iOS build (1.0.0 build 1, positively identified
-        // by its handshake User-Agent) gets only the update message and no
+        // The old App Store iOS builds (1.0.0 build 1 and 1.1.0 build 2,
+        // positively identified by the handshake User-Agent) get only the update message and no
         // handler at all: nothing below is registered for it (upgradeGate.js;
         // kill switch UPGRADE_GATE=off). Also records socket.data.appBuild
         if (upgradeGate.gate(socket)) return;

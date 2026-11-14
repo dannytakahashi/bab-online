@@ -206,8 +206,8 @@ function startBotGame(io) {
 
 /**
  * Is anyone who could see the ambient game around: a signed-in player in
- * the main room (every member is a registered socket; gated 1.0.0 sockets
- * never join) or a spectator of the current ambient game?
+ * the main room (every member is a registered socket; gated 1.0.0 / 1.1.0
+ * sockets never join) or a spectator of the current ambient game?
  */
 function someoneWatching() {
     if (gameManager.mainRoomSocketIds.size > 0) return true;

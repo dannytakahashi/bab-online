@@ -55,7 +55,7 @@ bab-online/
 │   │   ├── tournamentHandlers.js # Tournament lifecycle
 │   │   ├── authHandlers.js    # Sign-in/up, account deletion, signOutUser (forceLogout flow)
 │   │   ├── adminHandlers.js   # Admin panel API (adminRequest/adminResponse), DB-checked per request
-│   │   ├── upgradeGate.js     # Update screen for the old iOS 1.0.0 app (User-Agent build < 2; UPGRADE_GATE=off)
+│   │   ├── upgradeGate.js     # Update screen for the old iOS 1.0.0 / 1.1.0 apps (User-Agent build < 3; UPGRADE_GATE=off)
 │   │   ├── safetyHandlers.js  # Report / block / unblock users
 │   │   └── validators.js      # Joi validation schemas
 │   ├── admin/                 # Account admin logic: scripts/ CLIs + the web admin panel (role, reset links, audit, merge view)
