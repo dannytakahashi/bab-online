@@ -466,16 +466,20 @@ card survives fold and unfold, the trick collects across a fold.
   sprite per seat. Opponent seats are built once per layout and reload only when
   the picture changes (item 23).
 
-## iOS 1.2.0 (build 5): the release after 1.1.0 (roadmap 29 track)
+## iOS 1.2.0 (build 6, live 2026-11-13): the release after 1.1.0 (roadmap 29 track)
 
-Version: `MARKETING_VERSION` 1.2.0, `CURRENT_PROJECT_VERSION` 5 (Info.plist
-reads them; `ReleaseMetadataTests` pins build >= 5, `minimumBuild`). Build 3
+Version: `MARKETING_VERSION` 1.2.0, `CURRENT_PROJECT_VERSION` 5 at the
+release source (92d0c75); the App Store build is 6 (build 5 + the new app
+icon, approved and live 2026-11-13); 1.2.1 follows (build 7 on TestFlight,
+build 8 next; Info.plist
+reads them; `ReleaseMetadataTests` pins build >= `minimumBuild`). Build 3
 was uploaded but never submitted; build 4 adds the owner's two changes from
 the screenshots (2026-11-12: my pips in my seat's row, HSI in the bid panel;
-below) and was pulled from review; build 5, the release, keeps them. The
-upgrade gate gates builds < 3 (1.0.0 and 1.1.0, once 1.2.0 is live), so
-builds 3, 4 and 5 are current (`upgradeGate.test.js` "1.2.0 (build 5) is
-current"; MIN_IOS_BUILD 3). It works against today's server and against
+below) and was pulled from review; build 5 keeps them, and 6, the release,
+adds only the icon. The upgrade gate gates builds < 3 (1.0.0 and 1.1.0;
+MIN_IOS_BUILD 3, the gate PR #234, now that 1.2.0 is live), so 1.2.0 builds
+3 to 6 and 1.2.1 builds 7 and 8 are current (`upgradeGate.test.js` "1.2.x
+(build %i) is current"). It works against today's server and against
 the server after the V1 removals: `cardPlayed` is read as `trumpBroken ?? trump`, chat
 routes on `isSpectator` (`type` only for an older server), and the server's
 failures arrive as `error` and/or `serverError`.
@@ -765,7 +769,7 @@ while a tall disconnect banner is up (two players away, or one with the
 spectator or a lazy player (their bottom pill). Phones, the Duo and narrow
 iPad windows (Slide Over, a half split) look exactly as before.
 
-## Visible changes to review on the next build (1.2.0)
+## Visible changes in 1.2.0 (live 2026-11-13)
 
 Build 4: my own trick pips moved next to my hand, as one group with HSI and
 the voice button just above the hand on the right (pips, HSI, voice; on a

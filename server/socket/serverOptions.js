@@ -14,8 +14,8 @@
  * namespace connect of the engine it kept was lost, so it never got
  * `.connect`, never restored its session and dropped every tap, until this
  * timeout closed that engine and the library reconnected cleanly. 10 s
- * bounds that for the builds already shipped. The next iOS build replaces
- * the connection on the foreground instead (SocketService.forceReconnect),
+ * bounds that for the builds shipped before it. iOS 1.2.0 (build 5 on; the
+ * App Store build since 2026-11-13) replaces the connection on the foreground instead (SocketService.forceReconnect),
  * but the library's own reconnects can still overlap two handshakes on a
  * slow link (one over ~1.5 s), which this timeout also bounds.
  */
