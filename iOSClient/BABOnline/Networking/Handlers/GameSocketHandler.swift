@@ -15,7 +15,7 @@ final class GameSocketHandler {
         SocketEvents.Server.doneBidding, SocketEvents.Server.updateTurn, SocketEvents.Server.cardPlayed,
         SocketEvents.Server.actionRejected, SocketEvents.Server.trickComplete, SocketEvents.Server.handComplete,
         SocketEvents.Server.destroyHands, SocketEvents.Server.gameEnd, SocketEvents.Server.rainbow,
-        SocketEvents.Server.abortGame, SocketEvents.Server.roomFull, SocketEvents.Server.playerDisconnected,
+        SocketEvents.Server.abortGame, SocketEvents.Server.playerDisconnected,
         SocketEvents.Server.playerReconnected, SocketEvents.Server.resignationAvailable, SocketEvents.Server.playerResigned,
         SocketEvents.Server.gameLogEntry, SocketEvents.Server.rejoinSuccess, SocketEvents.Server.rejoinFailed,
         SocketEvents.Server.spectatorJoined, SocketEvents.Server.playerLazyMode, SocketEvents.Server.playerActiveMode,

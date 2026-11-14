@@ -116,27 +116,6 @@ final class LobbySocketHandler {
             }
         }
 
-        socket.on(SocketEvents.Server.lobbyJoined) { [weak self] data, _ in
-            guard let self, let dict = data.first as? [String: Any] else { return }
-            DispatchQueue.main.async {
-                let lobbyId = dict["lobbyId"] as? String ?? ""
-                self.lobbyState.lobbyId = lobbyId
-                self.lobbyState.lobbyName = dict["lobbyName"] as? String ?? dict["name"] as? String ?? ""
-                self.gameState.apply(.local(.enterLobby(lobbyId: lobbyId)))
-
-                if let players = dict["players"] as? [[String: Any]] {
-                    self.lobbyState.players = players.compactMap { LobbyPlayer.from($0) }
-                }
-                if let messages = dict["messages"] as? [[String: Any]] {
-                    self.lobbyState.messages = messages
-                        .compactMap { ChatMessage.from($0) }
-                        .filter { !self.safetyState.isBlocked($0.username) }
-                }
-                self.appState.screen = .gameLobby
-                print("[Lobby] Joined lobby: \(lobbyId)")
-            }
-        }
-
         socket.on(SocketEvents.Server.lobbyPlayerJoined) { [weak self] data, _ in
             guard let self, let dict = data.first as? [String: Any] else { return }
             DispatchQueue.main.async {

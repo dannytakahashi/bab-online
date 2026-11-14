@@ -104,8 +104,14 @@ describe('server event -> handler map', () => {
     const root = existsSync(resolve(process.cwd(), 'contract')) ? process.cwd() : resolve(process.cwd(), '..');
     const schema = JSON.parse(readFileSync(resolve(root, 'contract/events.schema.json'), 'utf8'));
     const neverSent = Object.entries(schema.s2c).filter(([, e]) => e.status === 'clientOnly').map(([name]) => name);
-    expect(neverSent).toEqual(expect.arrayContaining(['lobbyJoined', 'roomFull', 'activeTournamentFound', 'activeGameFound']));
     const heard = (e) => managed.has(e) || (listeners.get(e) || []).length > 0;
+    // lobbyJoined / roomFull / activeTournamentFound are gone from the schema (V1_REMOVALS #3, done)
+    expect(neverSent).toEqual(['activeGameFound']);
+    for (const e of ['lobbyJoined', 'roomFull', 'activeTournamentFound']) {
+      expect(schema.s2c[e], e).toBeUndefined();
+      expect(Object.values(SERVER_EVENTS), e).not.toContain(e);
+      expect(heard(e), e).toBe(false);
+    }
     // activeGameFound stays: a possible server hook to nudge an old app back into its game
     expect(neverSent.filter((e) => e !== 'activeGameFound' && heard(e))).toEqual([]);
     expect(heard('activeGameFound')).toBe(true);

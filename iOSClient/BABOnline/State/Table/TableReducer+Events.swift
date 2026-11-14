@@ -174,7 +174,7 @@ extension TableReducer {
         case .spectatorNotice(let p):
             if let n = p.spectatorCount { s.players.spectatorCount = n }
             addLog(&s, "\(p.username ?? "Someone") joined as spectator")
-        case .seqOnly, .roomFull, .rejoinFailed:
+        case .seqOnly, .rejoinFailed:
             break
 
         // MARK: snapshot carriers (decoded by the handler into .snapshot; a carrier without one asks)
