@@ -1626,10 +1626,6 @@ function selectFollow(hand, playedCards, leadCard, leadPosition, trump, trumpBro
 
         if (candidates.length > 0) {
             if (opponentsRemain) {
-                if (playStyle === 'flashy' && !effortIsMax) {
-                    const desc = [...candidates].sort((a, b) => RANK_VALUES[b.rank] - RANK_VALUES[a.rank]);
-                    return bestWithoutHiJoker(desc, winningCard, trump);
-                }
                 // 2nd seat: ruff with the LOWEST trump. Only the last player
                 // can over-ruff, and that takes them being void too; a high
                 // ruff spends a trump trick to insure against it. Measured
@@ -1646,6 +1642,12 @@ function selectFollow(hand, playedCards, leadCard, leadPosition, trump, trumpBro
                     if (!lastOppVoid && countUnseenInSuit(leadSuit, hand, memory, trump) >= 3) {
                         return candidates.sort((a, b) => RANK_VALUES[a.rank] - RANK_VALUES[b.rank])[0];
                     }
+                }
+                // Where the ruff does need to be high, Danny reaches for the
+                // very top one (Mary takes the cheapest boss)
+                if (playStyle === 'flashy' && !effortIsMax) {
+                    const desc = [...candidates].sort((a, b) => RANK_VALUES[b.rank] - RANK_VALUES[a.rank]);
+                    return bestWithoutHiJoker(desc, winningCard, trump);
                 }
                 return pickWinner(candidates, hand, memory, trump, winningCard, true);
             }

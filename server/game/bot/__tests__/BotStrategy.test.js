@@ -1025,11 +1025,32 @@ describe('selectFollow', () => {
             expect(result).toEqual(card('clubs', '2'));
         });
 
-        test('flashy (Danny) keeps ruffing high at 2nd seat', () => {
+        test('flashy (Danny) ruffs low at 2nd seat like everyone else', () => {
             const hand = [card('hearts', 'K'), card('hearts', '5'), card('clubs', '2')];
             const playedCards = [card('spades', '9'), undefined, undefined, undefined];
             const result = selectFollow(hand, playedCards, card('spades', '9'), 1, heartsTrump, false, 2, freshMemory(), 3, null, 'flashy');
-            expect(result).toEqual(card('hearts', 'K'));
+            expect(result).toEqual(card('hearts', '5'));
+        });
+
+        test('where the ruff must be high, flashy plays the top trump and balanced the cheapest boss', () => {
+            // Jokers and the trump Ace are gone, so K and Q are both boss.
+            // Position 4 is a known spade void, so the 3rd-seat ruff stays high.
+            const hand = [card('hearts', 'K'), card('hearts', 'Q'), card('hearts', '5'), card('clubs', '2')];
+            const memory = freshMemory();
+            memory.playedCards = [
+                { suit: 'joker', rank: 'HI', position: 2, trickIndex: 0, isLead: true },
+                { suit: 'hearts', rank: '2', position: 3, trickIndex: 0, isLead: false },
+                { suit: 'joker', rank: 'LO', position: 4, trickIndex: 0, isLead: false },
+                { suit: 'hearts', rank: 'A', position: 1, trickIndex: 0, isLead: false },
+                { suit: 'spades', rank: 'A', position: 1, trickIndex: 1, isLead: true },
+                { suit: 'spades', rank: '2', position: 2, trickIndex: 1, isLead: false },
+                { suit: 'spades', rank: '3', position: 3, trickIndex: 1, isLead: false },
+                { suit: 'clubs', rank: '7', position: 4, trickIndex: 1, isLead: false }
+            ];
+            const playedCards = [card('spades', '4'), card('spades', '9'), undefined, undefined];
+            const play = (style) => selectFollow(hand, playedCards, card('spades', '4'), 1, heartsTrump, true, 3, memory, 6, null, style);
+            expect(play('flashy')).toEqual(card('hearts', 'K'));
+            expect(play('balanced')).toEqual(card('hearts', 'Q'));
         });
     });
 });
