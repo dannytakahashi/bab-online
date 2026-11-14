@@ -64,7 +64,7 @@ async function main() {
     }
     const stat = (a) => (a.length ? { min: Math.min(...a), median: a.slice().sort((x, y) => x - y)[a.length >> 1], max: Math.max(...a), total: a.reduce((x, y) => x + y, 0) } : null);
     console.log(JSON.stringify({ counts, hostileReasons: reasons, declaredFormats: formats, storedChars: stat(sizes), derivedInlineChars: stat(inline), slowestDeriveMs: maxMs }, null, 2));
-    console.log('Hostile pictures will show the generic placeholder to the App Store app and old web tabs; undecodable ones keep today\'s bytes.');
+    console.log('Hostile and undecodable pictures get no /avatar URL: every client shows its neutral picture for them (no inline copy since V1_REMOVALS #19).');
 }
 
 main().catch((e) => {

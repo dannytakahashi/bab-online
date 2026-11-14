@@ -9,9 +9,7 @@
     "seq": 26,
     "serverTime": 1767268809000,
     "stage": "PLAYING",
-    "partial": [
-      "customPics"
-    ],
+    "partial": [],
     "viewer": {
       "role": "spectator",
       "position": null,

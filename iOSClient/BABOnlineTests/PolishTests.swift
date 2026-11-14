@@ -414,6 +414,7 @@ final class PolishAccessibilityTests: XCTestCase {
                 ctx.fill(CGRect(x: 0, y: 0, width: 64, height: 64))
             })
         }
+        func load(path: String, completion: @escaping (UIImage?) -> Void) { load(1, completion: completion) }
     }
 
     /// The trick-mid-lead3 table with everything the scene can draw: avatar pictures, turn and
@@ -431,7 +432,14 @@ final class PolishAccessibilityTests: XCTestCase {
         scene.animator = InstantAnimator()
         scene.configure(gameState: h.store, actions: h.actions)
         scene.didMove(to: SKView(frame: CGRect(origin: .zero, size: size)))
-        h.store.apply(.snapshot(try T.snapshot("trick-mid-lead3"), .rejoin, hints: nil))
+        // the custom seat as the server sends it since V1_REMOVALS #19 C: no inline
+        // picture (customPic null) but its avatarUrl (the fixtures are recorded with
+        // the avatar pipeline off, so they carry none)
+        h.store.apply(.snapshot(try T.snapshot("trick-mid-lead3") { raw in
+            var seats = raw["seats"] as! [[String: Any]]
+            for i in seats.indices where seats[i]["hasCustomPic"] as? Bool == true { seats[i]["avatarUrl"] = "/avatar/kim?v=0123456789abcdef" }
+            raw["seats"] = seats
+        }, .rejoin, hints: nil))
         for seat in scene.opponentManager.nodes.values {
             seat.showTurnGlow()
             seat.showSpeakingGlow()

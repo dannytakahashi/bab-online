@@ -9,9 +9,7 @@
     "seq": 7,
     "serverTime": 1767268804500,
     "stage": "TEAMS_ANNOUNCED",
-    "partial": [
-      "customPics"
-    ],
+    "partial": [],
     "viewer": {
       "role": "seat",
       "position": 2,

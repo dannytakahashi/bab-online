@@ -29,7 +29,6 @@ const { snapshotFor, carrierFor } = require('./snapshotHandlers');
 const pacing = require('../game/pacing');
 const avatarStore = require('../avatar/avatarStore');
 const avatarWire = require('../avatar/avatarWire');
-const { socketHasCap } = require('./clientInfo');
 
 const logContinuationError = (what, game) => (err) =>
     gameLogger.error(`${what} failed`, { gameId: game.gameId, error: err.message, stack: err.stack });
@@ -45,7 +44,7 @@ function rejectAction(socket, game, action, reason, extra = {}) {
     socket.emit('actionRejected', {
         action,
         reason,
-        snapshot: snapshotFor(game, socket.id, { customPics: false, log: false })
+        snapshot: snapshotFor(game, socket.id, { log: false })
     });
 }
 
@@ -470,16 +469,15 @@ async function handleDrawComplete(io, game) {
 
     if (!(await game.hold('drawReveal', pacing(game).DRAW_REVEAL_MS))) return;
 
-    // ONE room broadcast for every recipient (never split: seq): pics carry
-    // the legacy value (the small derived inline image for a custom pic),
-    // avatarUrls (additive, only when a rendition exists) the HTTP URL a
-    // capable client prefers. Mapped now, after the reveal hold the
-    // renditions derive in.
+    // ONE room broadcast for every recipient (never split: seq): pics are
+    // stock numbers or null (V1_REMOVALS #19: no inline picture), a custom
+    // picture's URL is in avatarUrls once its rendition exists. Mapped now,
+    // after the reveal hold the renditions derive in.
     let avatarUrls;
     const wirePics = orderedPics.map((pic, i) => {
         const r = avatarWire.seatResolve(game, pic, orderedUsernames[i].username);
         if (r.url) (avatarUrls = avatarUrls || {})[orderedPositions[i]] = r.url;
-        return r.legacy;
+        return avatarWire.slot(pic);
     });
     const positionUpdate = {
         positions: orderedPositions,
@@ -634,14 +632,12 @@ async function dealHand(game, io, { dealer, handSize, firstHand = false }) {
     // gameStart of this deal carries the same value
     const handSeq = game.nextSeq();
 
-    // playerInfo per recipient kind (built at most once per deal): legacy
-    // sockets get today's keys with the small inline image, capable ones a
-    // null custom slot plus avatarUrls (docs/avatars.md)
-    const infos = {};
-    const infoFor = (socketId) => {
-        const kind = socketHasCap(io, socketId, 'avatarUrl') ? 'capable' : 'legacy';
-        if (!infos[kind]) infos[kind] = avatarWire.mapPlayers(game, playerInfo, kind);
-        return infos[kind];
+    // playerInfo for every recipient (built once per deal): a custom
+    // picture's slot is null, its URL in avatarUrls (V1_REMOVALS #19)
+    let info = null;
+    const infoFor = () => {
+        if (!info) info = avatarWire.mapPlayers(game, playerInfo);
+        return info;
     };
 
     // Send each seat's hand to its connected owner (a lazy owner too, in
@@ -649,7 +645,7 @@ async function dealHand(game, io, { dealer, handSize, firstHand = false }) {
     for (const seat of game.seatList()) {
         if (seat.presence !== Presence.CONNECTED) continue;
         const playerPosition = seat.position;
-        const info = infoFor(seat.ownerSocketId);
+        const info = infoFor();
         // No players (the seat socket ids, in deal order): V1_REMOVALS #6
         game.sendToPlayer(io, seat.ownerSocketId, 'gameStart', {
             gameId: game.gameId,
@@ -663,13 +659,13 @@ async function dealHand(game, io, { dealer, handSize, firstHand = false }) {
             hsiValues,  // HSI for all players to display under avatars
             playerInfo: info.players,  // Current player info for avatar updates
             seq: handSeq,  // additive: the deal's broadcast sequence number
-            ...(info.avatarUrls && { avatarUrls: info.avatarUrls })  // additive (capable sockets)
+            ...(info.avatarUrls && { avatarUrls: info.avatarUrls })  // additive: custom pictures' URLs
         });
     }
 
     // Send spectator-safe gameStart (no hand data) so spectators see updated trump/score/hand
     for (const spec of game.getSpectators()) {
-        const info = infoFor(spec.socketId);
+        const info = infoFor();
         game.sendToPlayer(io, spec.socketId, 'gameStart', {
             gameId: game.gameId,
             trump: game.trump,

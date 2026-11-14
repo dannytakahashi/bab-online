@@ -175,10 +175,11 @@ skips exact repeats of a validated (event, target kind, payload).
   what `snapshot.partial` says was left out, which the client keeps:
   - `'log'` (actionRejected; `requestSnapshot {log:false}`): keep the log
     it has (same gameId).
-  - `'customPics'` (every v1 carrier; requestSnapshot without
-    `customPics:true`): for a seat with `hasCustomPic` and `customPic: null`,
-    keep the picture it holds for that username, or take it from
-    `players[].pic` of the same v1 payload.
+  - `'customPics'` (servers before V1_REMOVALS #19 C only; since then no
+    snapshot carries a picture inline and `partial` never lists it): for a
+    seat with `hasCustomPic` and `customPic: null`, keep the picture it holds
+    for that username, or take it from `players[].pic` of the same v1
+    payload.
   `mergeSnapshot(prev, next, {pics})` in `client/src/state/snapshotV2.js`
   does exactly this. A spurious gap costs one request, so debounce
   `requestSnapshot` (the server rate-limits it to 10 per 10s) and do not ask
@@ -242,22 +243,22 @@ gets the legacy shape of every payload. Caps (`$defs.clientCap`):
 
 Avatar field rules (docs/avatars.md has the invariants I1-I6):
 
-1. Additive only: `avatarUrls`, `avatarUrl`, `seatV2.avatarUrl`
-   (`$defs.avatarUrl`, `avatarUrlsByPosition`, `avatarUrlsByUsername`), all
-   optional, at payload level. A pic slot never carries a URL: it stays
-   number | data URL | null (`$defs.pic` is unchanged).
+1. `avatarUrls`, `avatarUrl`, `seatV2.avatarUrl` (`$defs.avatarUrl`,
+   `avatarUrlsByPosition`, `avatarUrlsByUsername`), optional, at payload
+   level, are the ONLY way a custom picture travels. A pic slot never
+   carries a URL nor, since V1_REMOVALS #19 (2026-11-12), a data URL:
+   `$defs.pic` is integer | null (baseline narrowed), `customProfilePic` in
+   profile / leaderboard / search rows is null, `seatV2.customPic` is null.
 2. Omitted when there is no URL (no custom picture, rendition not ready,
-   pipeline off): such payloads are byte-identical to before.
-3. Legacy recipients: the slot carries a data URL the App Store app decodes
-   (`data:image/<fmt>;base64,<strict padded base64>`, in practice the small
-   WebP rendition), today's stored string, or the placeholder. Per-socket
-   legacy payloads carry exactly today's keys.
-4. Room broadcasts (positionUpdate, playerActiveMode) are never split per
-   capability: one emit, one seq, legacy slot + the additive URL field.
-5. A capable client must still render every legacy shape (a payload handled
-   before its hello was, or a rendition not ready yet): number, data URL,
-   null, URL. Web folds URLs into the existing pic fields as each message
-   arrives (`foldAvatarPayload`, socket.onAny).
+   a hostile or undecodable stored picture, pipeline off): the slot is then
+   null and clients show their neutral picture.
+3. Every recipient gets the same shape (#19 F): the clientHello avatarUrl
+   cap is still logged but no longer picks a payload shape (web on main and
+   iOS 1.2.0 send it; the builds that did not are gated).
+4. Room broadcasts (positionUpdate, playerActiveMode) are one emit, one seq.
+5. Web folds URLs into the existing pic fields as each message arrives
+   (`foldAvatarPayload`, socket.onAny) and still renders every older shape
+   (number, data URL, null, URL).
 
 ## Snapshot v2
 
@@ -266,14 +267,13 @@ for ONE viewer, the receiving socket. Every key is always present, the key
 order is fixed, no socket ids appear.
 
 Delivery (all additive): `snapshot` on rejoinSuccess, restorePlayerState,
-actionRejected (no log, no custom pictures) and the spectator full state;
+actionRejected (no log) and the spectator full state;
 `requestSnapshot {requestId?, customPics?, log?}` → `stateSnapshot`, one of
 `{snapshot, requestId?}` or `{snapshot: null, reason: 'not_in_game',
-requestId?}`. Snapshots attached to v1 payloads use `customPics: false`
-(`partial` lists `'customPics'`): the same payload already carries the
-pictures in `players[].pic`. requestSnapshot includes the log unless
-`log: false`, and custom (data-URL, up to ~500KB each) pictures only with
-`customPics: true` (ask once, not on every gap).
+requestId?}`. requestSnapshot includes the log unless `log: false`. No
+snapshot carries a custom picture inline (V1_REMOVALS #19 C): `customPic`
+is always null, the seat's `avatarUrl` is the picture, `customPics` in the
+request is accepted and ignored, and `partial` never lists `'customPics'`.
 
 The terminal moment is never a snapshot: once the socket's game is ENDED
 or ABORTED, requestSnapshot answers `not_in_game` (the same as a socket

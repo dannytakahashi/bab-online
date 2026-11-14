@@ -11,7 +11,6 @@ const rateLimiter = require('./rateLimiter');
 const avatarStore = require('../avatar/avatarStore');
 const avatarWire = require('../avatar/avatarWire');
 const image = require('../avatar/image');
-const { hasCap } = require('./clientInfo');
 const { SCOPES, emptyStats, pickStats, sumBuckets, normalizeScope } = require('../utils/statsScope');
 
 // Leaderboard and records pages: 60 s caches, one per stats scope
@@ -583,9 +582,8 @@ async function fillLeaderboard(scope = 'human') {
     // Sort by win rate descending by default
     leaderboard.sort((a, b) => b.winRate - a.winRate);
 
-    // Both reply shapes, cached together (docs/avatars.md): legacy rows
-    // carry the small inline rendition, capable rows null + avatarUrls.
-    // With the pipeline off both are exactly today's rows.
+    // Rows with customProfilePic null plus avatarUrls {username: url}
+    // (V1_REMOVALS #19 B: no inline picture), cached together
     return avatarWire.mapProfileRows(leaderboard);
 }
 
@@ -597,12 +595,9 @@ function withScope(out, scope, echo) {
 
 /** The leaderboard reply for `socket` from a cached fill. */
 function leaderboardPayload(socket, value, scope = 'human', echo = false) {
-    if (hasCap(socket, 'avatarUrl')) {
-        const out = { success: true, leaderboard: value.capable };
-        if (value.avatarUrls) out.avatarUrls = value.avatarUrls;
-        return withScope(out, scope, echo);
-    }
-    return withScope({ success: true, leaderboard: value.legacy }, scope, echo);
+    const out = { success: true, leaderboard: value.rows };
+    if (value.avatarUrls) out.avatarUrls = value.avatarUrls;
+    return withScope(out, scope, echo);
 }
 
 /** The stats a profile reply shows for `scope`. 'human' is the stored bucket as is. */
@@ -613,24 +608,24 @@ function profileStats(dbUser, scope) {
 }
 
 /**
- * A profile reply (profileResponse / playerProfileResponse) for `socket`:
- * today's shape, the custom picture as the recipient can render it, plus
- * avatarUrl (additive) for a capable one, and `scope` when asked for one.
+ * A profile reply (profileResponse / playerProfileResponse): today's keys,
+ * customProfilePic always null (V1_REMOVALS #19 B), plus avatarUrl
+ * (additive) for a custom picture whose rendition exists, and `scope` when
+ * asked for one.
  */
 async function profileReply(socket, dbUser, scope = 'human', echo = false) {
     const raw = dbUser.customProfilePic || null;
-    const r = raw ? await avatarWire.resolveStored(raw, dbUser.username) : { legacy: null, url: null };
-    const capable = hasCap(socket, 'avatarUrl') && !!r.url;
+    const r = raw ? await avatarWire.resolveStored(raw, dbUser.username) : { url: null };
     const out = {
         success: true,
         profile: {
             username: dbUser.username,
             profilePic: dbUser.profilePic || 1,
-            customProfilePic: capable ? null : r.legacy,
+            customProfilePic: null,
             stats: profileStats(dbUser, scope)
         }
     };
-    if (capable) out.avatarUrl = r.url;
+    if (r.url) out.avatarUrl = r.url;
     return withScope(out, scope, echo);
 }
 
@@ -658,7 +653,7 @@ async function getLeaderboard(socket, io, data) {
 
         socket.emit('leaderboardResponse', leaderboardPayload(socket, value, scope, echo));
 
-        authLogger.debug('Leaderboard fetched', { scope, playerCount: value.legacy.length });
+        authLogger.debug('Leaderboard fetched', { scope, playerCount: value.rows.length });
     } catch (error) {
         authLogger.error('Error fetching leaderboard', { scope, error: error.message });
         socket.emit('leaderboardResponse', withScope({
@@ -710,10 +705,9 @@ async function searchPlayers(socket, io, data) {
             wins: u.stats?.wins || 0
         }));
         const mapped = await avatarWire.mapProfileRows(rows);
-        const capable = hasCap(socket, 'avatarUrl');
-        const players = capable ? mapped.capable : mapped.legacy;
+        const players = mapped.rows;
         const reply = { success: true, players };
-        if (capable && mapped.avatarUrls) reply.avatarUrls = mapped.avatarUrls;
+        if (mapped.avatarUrls) reply.avatarUrls = mapped.avatarUrls;
 
         socket.emit('searchPlayersResponse', reply);
         authLogger.debug('Player search', { query: query.trim(), resultCount: players.length });

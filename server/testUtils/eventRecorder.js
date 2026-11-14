@@ -6,7 +6,7 @@
  * in its wire (JSON) form, to that viewer's log. c2s actions are appended
  * with recordC2S just before the handler runs. Checkpoints pair a viewer's
  * log position with the server's snapshot v2 for that socket at that
- * moment (snapshotFor with customPics:false, log:false: emits nothing and
+ * moment (snapshotFor with log:false: emits nothing and
  * draws no randomness), so a client that applies log[0, afterIndex) must
  * hold the checkpoint's table.
  *
@@ -87,7 +87,7 @@ function createEventRecorder(w, { t0 = Date.now(), getGame } = {}) {
         const out = new Map();
         for (const v of viewers.values()) {
             if (!v.open || !v.started) continue;
-            out.set(v.label, { afterIndex: v.log.length, snapshot: JSON.parse(JSON.stringify(snapshotFor(game, v.sid, { customPics: false, log: false }))) });
+            out.set(v.label, { afterIndex: v.log.length, snapshot: JSON.parse(JSON.stringify(snapshotFor(game, v.sid, { log: false }))) });
         }
         return out;
     }
@@ -117,7 +117,7 @@ function createEventRecorder(w, { t0 = Date.now(), getGame } = {}) {
                 if (!v.open || !v.started) continue;
                 const last = checkpoints.filter((c) => c.viewer === v.label).pop();
                 if (last && last.afterIndex === v.log.length) continue;
-                const snapshot = JSON.parse(JSON.stringify(snapshotFor(game, v.sid, { customPics: false, log: false })));
+                const snapshot = JSON.parse(JSON.stringify(snapshotFor(game, v.sid, { log: false })));
                 checkpoints.push({ viewer: v.label, afterIndex: v.log.length, snapshot });
                 n++;
             }

@@ -11,8 +11,6 @@ const http = require('http');
 const express = require('express');
 const sharp = require('sharp');
 const { mountStatic } = require('../staticAssets');
-const { PLACEHOLDER_INLINE } = require('../avatar/placeholder');
-const fx = require('../testUtils/avatarFixtures');
 
 const ASSETS = path.join(__dirname, '..', '..', 'client', 'assets');
 
@@ -35,7 +33,8 @@ test('profile1..82.png are 192x192 PNG with alpha; avatars/v1 holds 256x256 WebP
     expect([frog.format, frog.width]).toEqual(['png', 120]);
     const frogWebp = await sharp(path.join(ASSETS, 'avatars', 'v1', 'frog.webp')).metadata();
     expect([frogWebp.format, frogWebp.width]).toEqual(['webp', 120]);
-    expect(await fx.iosLegacyDecodes(PLACEHOLDER_INLINE)).toBe(true);
+    // the inline placeholder for hostile stored pictures went with V1_REMOVALS #19 D
+    expect(fs.existsSync(path.join(__dirname, '..', 'avatar', 'placeholder.js'))).toBe(false);
 });
 
 test('client/assets totals at most 2.6 MB (was 20.1 MB)', () => {

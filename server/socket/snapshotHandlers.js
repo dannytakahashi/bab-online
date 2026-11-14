@@ -5,17 +5,16 @@
  * already handle (rejoinSuccess, restorePlayerState, actionRejected, the
  * spectator full state) and as the reply to the new requestSnapshot event
  * (stateSnapshot). Old clients ignore both. The viewer is always the
- * receiving socket. Snapshots attached to v1 payloads skip custom pictures
- * (customPics:false): those payloads carry them in players[].pic. Since
- * V1_REMOVALS #9 those payloads carry only the snapshot plus the few v1
- * keys a client still reads (carrierFor).
+ * receiving socket. No snapshot carries a picture inline (V1_REMOVALS #19 C):
+ * seat customPic is always null, a custom picture travels as avatarUrl.
+ * Since V1_REMOVALS #9 the v1 payloads carry only the snapshot plus the few
+ * v1 keys a client still reads (carrierFor).
  */
 
 'use strict';
 
 const gameManager = require('../game/GameManager');
 const avatarWire = require('../avatar/avatarWire');
-const { hasCap } = require('./clientInfo');
 
 /** Tournament context of a game for the snapshot, or null. */
 function tournamentInfo(gameId) {
@@ -71,13 +70,13 @@ function carrierPlayers(game) {
  * reads (V1_REMOVALS #9, 2026-11-12). Until then each carried the whole
  * legacy getClientState (22 keys) or spectator state (16 + 4 aliases).
  *   - players[] {position, username, pic}: iOS 1.2.0 reads pic
- *     (R5: the snapshot withholds custom pictures, customPics:false, and
- *     has no URL while a rendition is pending / failed or with
- *     AVATAR_PIPELINE=off); WirePayloads.RejoinEnvelope.hints. Its
- *     socketId (a voice glow fallback after the username match) went with
- *     V1_REMOVALS #14. Web lets it win for names and
- *     pictures (tableSync.applyTableSnapshot).
- *   - avatarUrls (capable sockets, when there is a URL): iOS 1.2.0 hints.
+ *     (WirePayloads.RejoinEnvelope.hints); since V1_REMOVALS #19 A it is a
+ *     stock number or null, a custom picture only its URL in avatarUrls.
+ *     Its socketId (a voice glow fallback after the username match) went
+ *     with V1_REMOVALS #14. Web lets it win for names and pictures
+ *     (tableSync.applyTableSnapshot).
+ *   - avatarUrls (when there is a URL; every socket since #19 F): iOS 1.2.0
+ *     hints.
  *   - gameId; isLazy (rejoinSuccess); trump (spectator full state): what a
  *     web page from before #233 (2026-11-12) routes on (onRejoinSuccess
  *     data.gameId / data.isLazy, onSpectatorJoined data.players &&
@@ -87,11 +86,11 @@ function carrierPlayers(game) {
  * `extra` keys go between those and the snapshot, which is last.
  */
 function carrierFor(game, socket, extra = {}) {
-    const base = avatarWire.wireClientState(game, { gameId: game.gameId, players: carrierPlayers(game) }, hasCap(socket, 'avatarUrl'));
+    const base = avatarWire.wireClientState(game, { gameId: game.gameId, players: carrierPlayers(game) });
     return {
         ...base,
         ...extra,
-        snapshot: snapshotFor(game, socket.id, { customPics: false })
+        snapshot: snapshotFor(game, socket.id)
     };
 }
 
@@ -134,16 +133,16 @@ function gameOf(socketId) {
 /**
  * requestSnapshot {requestId?, customPics?, log?} -> stateSnapshot
  * {snapshot, requestId?, reason?}. A v2 client sends it on a seq gap
- * (README R2) or whenever it wants to redraw from the truth. Custom
- * (data-URL, up to ~500KB each) seat pictures are OPT-IN (customPics:
- * true): a gap resync should not re-ship every picture.
+ * (README R2) or whenever it wants to redraw from the truth. customPics is
+ * still accepted and ignored (V1_REMOVALS #19 C: no inline seat picture;
+ * web on main and iOS 1.2.0 send customPics: false).
  */
 function requestSnapshot(socket, io, data) {
     const req = data && typeof data === 'object' ? data : {};
     const game = gameOf(socket.id);
     const reply = {
         snapshot: game && !game.isTerminal()
-            ? snapshotFor(game, socket.id, { customPics: req.customPics === true, log: req.log !== false })
+            ? snapshotFor(game, socket.id, { log: req.log !== false })
             : null,
     };
     if (req.requestId !== undefined) reply.requestId = req.requestId;

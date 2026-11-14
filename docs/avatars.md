@@ -19,6 +19,23 @@ deal, in positionUpdate, rejoins, the leaderboard...). Now:
 The stored `users.customProfilePic` values are never rewritten. New uploads
 are stored as the canonical WebP data URL.
 
+**Since contract/V1_REMOVALS.md #19 (2026-11-12) no payload carries a
+picture inline, for any recipient.** A picture slot is a stock number or
+null; a custom picture travels only as its URL, once its rendition exists
+(A: seat payloads; B: profile / leaderboard / search rows have
+`customProfilePic: null`; C: snapshot seats have `customPic: null`, the
+`customPics` request option is ignored and `partial` never lists it; D: the
+legacy inline rendition, `AVATAR_LEGACY_INLINE` and the placeholder image
+are gone; F: the clientHello avatarUrl cap no longer picks a shape: web on
+main and iOS 1.2.0 send it, and the builds that did not are gated). E (delete
+`client/assets/profileN.png` / `frog.png`) is NOT done: iOS 1.2.0 loads
+`/assets/profile<N>.png` (`HTTPAvatarLoader`, OpponentHandNode.swift) and
+web falls back to both. The invariants and the "Who gets what" table below
+describe the shapes before #19 and are kept as the record; what holds now:
+every row of that table gets the "Capable socket" column. The one exception
+is the uploader's own `profilePicUploadResponse`, which still echoes the
+stored WebP data URL (plus `avatarUrl`).
+
 ## Invariants
 
 - **I1 Legacy sockets never see a URL in a pic slot.** A socket without the
@@ -70,12 +87,14 @@ normally done (5-15 ms) inside the draw-reveal hold.
 
 ## Kill switches (no deploy)
 
-- `AVATAR_LEGACY_INLINE=raw`: legacy sockets get today's stored bytes again;
-  capable clients keep URLs.
-- `AVATAR_PIPELINE=off`: everything exactly as before this change; `/avatar`
-  answers 404 (clients that said hello still render inline pictures, I6).
+- `AVATAR_LEGACY_INLINE=raw` is gone (V1_REMOVALS #19 D).
+- `AVATAR_PIPELINE=off`: no custom picture has a URL and `/avatar` answers
+  404. Since #19 that also means no custom picture at all (no inline copy to
+  fall back on): every client shows its neutral picture for them. It is no
+  longer a rollback to the pre-pipeline wire.
 - If `require('sharp')` fails on a host, the pipeline is off by itself
-  (logged once: "avatar pipeline disabled: sharp unavailable").
+  (logged once: "avatar pipeline disabled: sharp unavailable"), with the
+  same effect as `AVATAR_PIPELINE=off` above.
 - `AVATAR_CACHE_MB` (default 32): the rendition cache budget.
 
 ## HTTP endpoint
