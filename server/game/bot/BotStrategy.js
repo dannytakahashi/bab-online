@@ -1478,6 +1478,9 @@ function selectFollow(hand, playedCards, leadCard, leadPosition, trump, trumpBro
 
     const effortIsMax = effort === 'max';
 
+    // 2 = right after the lead, 3 = leader's partner, 4 = last to play
+    const seatInTrick = playedCards.filter(c => c != null).length + 1;
+
     if (canFollow) {
         // We can follow suit
         if (partnerIsWinning && partnerHasPlayed) {
@@ -1570,6 +1573,13 @@ function selectFollow(hand, playedCards, leadCard, leadPosition, trump, trumpBro
                 if (playStyle === 'flashy' && !effortIsMax) {
                     const desc = [...candidates].sort((a, b) => RANK_VALUES[b.rank] - RANK_VALUES[a.rank]);
                     return bestWithoutHiJoker(desc, winningCard, trump);
+                }
+                // 2nd seat: ruff with the LOWEST trump. Only the last player
+                // can over-ruff, and that takes them being void too; a high
+                // ruff spends a trump trick to insure against it. Measured
+                // (sim/README.md "Play leaks"): +13 points per game.
+                if (memory && seatInTrick === 2) {
+                    return candidates.sort((a, b) => RANK_VALUES[a.rank] - RANK_VALUES[b.rank])[0];
                 }
                 return pickWinner(candidates, hand, memory, trump, winningCard, true);
             }

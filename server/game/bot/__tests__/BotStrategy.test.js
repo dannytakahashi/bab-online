@@ -897,6 +897,36 @@ describe('selectFollow', () => {
             expect(result.suit).toBe('hearts');
         });
     });
+
+    // Rules from the play-leak study (sim/README.md "Play leaks"). They read
+    // card memory, which every live bot has.
+    describe('ruff height', () => {
+        const freshMemory = () => ({
+            playedCards: [], trumpPlayed: [], trickIndex: 0, totalCardsPlayed: 0,
+            acesPlayed: { spades: false, hearts: false, diamonds: false, clubs: false }
+        });
+
+        test('2nd seat ruffs with the lowest trump, not the highest', () => {
+            const hand = [card('hearts', 'K'), card('hearts', '5'), card('clubs', '2')];
+            const playedCards = [card('spades', '9'), undefined, undefined, undefined];
+            const result = selectFollow(hand, playedCards, card('spades', '9'), 1, heartsTrump, false, 2, freshMemory(), 3);
+            expect(result).toEqual(card('hearts', '5'));
+        });
+
+        test('2nd seat still ruffs when its only trump is the HI joker', () => {
+            const hand = [HI, card('clubs', '4'), card('clubs', '2')];
+            const playedCards = [card('spades', '9'), undefined, undefined, undefined];
+            const result = selectFollow(hand, playedCards, card('spades', '9'), 1, heartsTrump, false, 2, freshMemory(), 3);
+            expect(result).toEqual(HI);
+        });
+
+        test('flashy (Danny) keeps ruffing high at 2nd seat', () => {
+            const hand = [card('hearts', 'K'), card('hearts', '5'), card('clubs', '2')];
+            const playedCards = [card('spades', '9'), undefined, undefined, undefined];
+            const result = selectFollow(hand, playedCards, card('spades', '9'), 1, heartsTrump, false, 2, freshMemory(), 3, null, 'flashy');
+            expect(result).toEqual(card('hearts', 'K'));
+        });
+    });
 });
 
 // --- Card memory tests ---
