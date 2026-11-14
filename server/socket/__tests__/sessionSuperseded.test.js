@@ -9,7 +9,7 @@
  * before. Restoring again on the parked socket takes the session back.
  *
  * Stub io/sockets on the in-memory DB fake, plus one real Socket.IO server
- * for the packet gate (and a current iOS User-Agent, 1.2.0 build 5: no error,
+ * for the packet gate (and a current iOS User-Agent, 1.2.0 build 6: no error,
  * no loop; 1.1.0's build 2 is upgrade-gated since MIN_IOS_BUILD 3).
  */
 
@@ -405,8 +405,8 @@ describe('over a real Socket.IO server (web tabs and the iOS User-Agent)', () =>
     const { Server } = require('socket.io');
     const ioClient = require('socket.io-client');
     const { setupSocketHandlers } = require('../index');
-    // 1.2.0 build 5 (an older build would meet the upgrade gate instead)
-    const UA_IOS = 'BAB%20Online/5 CFNetwork/3896.200.61 Darwin/27.2.0';
+    // 1.2.0 build 6, the App Store build (an older build would meet the upgrade gate instead)
+    const UA_IOS = 'BAB%20Online/6 CFNetwork/3896.200.61 Darwin/27.2.0';
     let httpServer;
     let io;
     let url;
