@@ -38,6 +38,8 @@ const SEARCH = {
     /** Bid-fit weighting: tolerance (tricks) between a sampled hand's
      *  estimated tricks and what its owner bid. 0 disables the weighting. */
     bidSigma: 0.6,
+    /** Read a last seat that lost a trick as holding nothing that could win it. */
+    lastSeatInference: true,
     /** Tricks a bidder typically expects beyond its bid. */
     bidOffset: 0.4,
     /** Diagnostics: set to an array to collect [cards held, cards on table,
@@ -416,7 +418,7 @@ function teamScore(bid, mult, tricks) {
  * @returns {Object|null} null when the memory does not cover the whole hand
  *   (a bot that took the seat mid-hand), so the caller must not search
  */
-function readPosition(hand, playedCards, leadPosition, trump, position, memory, handSize) {
+function readPosition(hand, playedCards, leadPosition, trump, position, memory, handSize, lastSeatInference = true) {
     const noTrump = trump.suit === 'joker';
     const trumpSuitId = noTrump ? 4 : SUIT_ID[trump.suit];
 
@@ -439,8 +441,9 @@ function readPosition(hand, playedCards, leadPosition, trump, position, memory, 
     for (const t of table) seen.add(cardCode(t.card));
 
     // What each other player cannot hold: voidIn[pos][suit], and a rank cap
-    // per suit (cap[pos][suit]: nothing above this rank) after a forced play
-    // under a HI-joker lead.
+    // per suit (cap[pos][suit]: nothing above this rank). Caps come from a
+    // forced play under a HI-joker lead and from the last seat losing a trick:
+    // a player who closes a trick the other side wins had no card to win it.
     const voidIn = [null, [], [], [], []];
     const cap = [null, [99, 99, 99, 99, 99], [99, 99, 99, 99, 99], [99, 99, 99, 99, 99], [99, 99, 99, 99, 99]];
     const playedBy = [null, [], [], [], []];
@@ -455,6 +458,23 @@ function readPosition(hand, playedCards, leadPosition, trump, position, memory, 
                 cap[e.position][s] = min(cap[e.position][s], RANK_VALUES[e.rank]);
             }
         }
+        if (!lastSeatInference || entries.length !== 4) return;
+        const lastPos = ((leadEntry.position + 2) % 4) + 1;
+        const last = entries.find(e => e.position === lastPos);
+        if (!last) return;
+        let top = leadEntry;
+        for (let i = 1; i <= 2; i++) {
+            const e = entries.find(x => x.position === ((leadEntry.position - 1 + i) % 4) + 1);
+            if (!e) return;
+            if (beats(e, top, leadEntry, trumpSuitId)) top = e;
+        }
+        if (((top.position ^ lastPos) & 1) === 0) return; // partner was winning
+        if (beats(last, top, leadEntry, trumpSuitId)) return; // took the trick
+        const topSuit = suitOf(top, trumpSuitId);
+        const s = suitOf(last, trumpSuitId);
+        // Followed suit below the winner, or threw off instead of trumping
+        if (s === ls && topSuit === ls) cap[lastPos][ls] = min(cap[lastPos][ls], RANK_VALUES[top.rank]);
+        else if (s !== ls) cap[lastPos][trumpSuitId] = min(cap[lastPos][trumpSuitId], topSuit === trumpSuitId ? RANK_VALUES[top.rank] : 0);
     };
 
     let pastCards = 0;
@@ -569,7 +589,7 @@ function searchCard(q) {
     const leadPosition = isLeading ? position : q.leadPosition;
     if (!leadPosition) return null;
 
-    const pos = readPosition(hand, playedCards, isLeading ? null : leadPosition, trump, position, memory, handSize);
+    const pos = readPosition(hand, playedCards, isLeading ? null : leadPosition, trump, position, memory, handSize, opt.lastSeatInference);
     if (!pos) return null;
 
     // Contract: score the hand for both teams from our final trick count

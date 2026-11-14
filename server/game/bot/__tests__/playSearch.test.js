@@ -335,6 +335,47 @@ describe('searchCard', () => {
         expect(pickByBidFit(deals, 60, pos, { ...q, playContext: { playerBids: ['0', 'B', '2B', '3B'] } }, SEARCH, rng)).toEqual(deals.slice(0, 60));
     });
 
+    test('last seat: a player who closed a trick the other side won holds nothing that would have won it', () => {
+        // Hearts trump. Trick 0: seat 1 led the K of spades and it held; seat 4,
+        // last to play, followed with the 5, so it has no spade above the K.
+        // Trick 1: seat 1 led the Q of clubs, seat 2 followed, seat 3 threw a
+        // diamond, and seat 4 threw a diamond instead of trumping: no trump.
+        const trump = card('hearts', '2');
+        const memory = {
+            trickIndex: 2,
+            playedCards: [
+                { suit: 'spades', rank: 'K', position: 1, trickIndex: 0, isLead: true },
+                { suit: 'spades', rank: '3', position: 2, trickIndex: 0, isLead: false },
+                { suit: 'spades', rank: '4', position: 3, trickIndex: 0, isLead: false },
+                { suit: 'spades', rank: '5', position: 4, trickIndex: 0, isLead: false },
+                { suit: 'clubs', rank: 'Q', position: 1, trickIndex: 1, isLead: true },
+                { suit: 'clubs', rank: '6', position: 2, trickIndex: 1, isLead: false },
+                { suit: 'diamonds', rank: '3', position: 3, trickIndex: 1, isLead: false },
+                { suit: 'diamonds', rank: '4', position: 4, trickIndex: 1, isLead: false }
+            ]
+        };
+        const hand = [card('spades', '9'), card('diamonds', 'K'), card('clubs', '9')];
+        const none = [undefined, undefined, undefined, undefined];
+        const rng = mulberry32(2);
+        const sample = (pos) => {
+            const out = [];
+            while (out.length < 200) {
+                const d = sampleDeal(pos, rng);
+                if (d) out.push(d);
+            }
+            return out;
+        };
+        const on = sample(readPosition(hand, none, null, trump, 1, memory, 5));
+        expect(on.every(d => d[4].every(c => !isTrump(c, trump) && !(c.suit === 'spades' && c.rank === 'A')))).toBe(true);
+        // Seat 2 was not last: it may still hold the ace of spades or a trump
+        expect(on.some(d => d[2].some(c => isTrump(c, trump)))).toBe(true);
+        // Seat 3 threw off on its partner's winning trick: no inference beyond the club void
+        expect(on.some(d => d[3].some(c => isTrump(c, trump)))).toBe(true);
+        expect(on.every(d => d[3].every(c => c.suit !== 'clubs'))).toBe(true);
+        const off = sample(readPosition(hand, none, null, trump, 1, memory, 5, false));
+        expect(off.some(d => d[4].some(c => isTrump(c, trump)))).toBe(true);
+    });
+
     test('teamScore follows the rules', () => {
         expect(teamScore(3, 1, 3)).toBe(30);
         expect(teamScore(3, 1, 5)).toBe(32);
