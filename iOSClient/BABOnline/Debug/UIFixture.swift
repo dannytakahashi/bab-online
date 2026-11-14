@@ -43,7 +43,7 @@ enum UIFixture {
     /// never starts voice; screenshots and the seat-row UI tests).
     static let showsVoiceButton: Bool = isActive && UserDefaults.standard.bool(forKey: "uiVoice")
 
-    static let screenFixtures: Set<String> = ["main-room", "game-lobby", "game-lobby-bots", "tournament-lobby", "tournament-round",
+    static let screenFixtures: Set<String> = ["main-room", "main-room-empty", "game-lobby", "game-lobby-bots", "tournament-lobby", "tournament-round",
                                               "tournament-between", "sign-in"]
 
     @MainActor
@@ -304,6 +304,12 @@ enum UIFixture {
             mainRoom.onlineUsers = ["ivy", "kim", "hal", "jon", "ora", "max", "pat"]
             mainRoom.tournaments = [TournamentSummary(id: "t1", name: "Sunday Cup", playerCount: 6, phase: "lobby", currentRound: 0,
                                                       totalRounds: 4, creatorUsername: "kim")]
+            appState.screen = .mainRoom
+        case "main-room-empty":
+            // no lobbies, games or tournaments: the empty state (four suits)
+            mainRoom.messages = chat
+            mainRoom.onlineCount = 1
+            mainRoom.onlineUsers = ["ivy"]
             appState.screen = .mainRoom
         case "game-lobby":
             lobby.lobbyId = "l1"
