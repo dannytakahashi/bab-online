@@ -278,6 +278,132 @@ function countHigherUnseen(card, hand, memory, trump) {
 }
 
 /**
+ * Card-play tuning switches. Each one was kept because it wins a paired
+ * A/B against the previous bots (see sim/README.md, "Play inference").
+ * Exported so the sim harness can switch a rule off to re-measure it.
+ */
+const PLAY_TUNING = {
+    // --- Ruffs (void in the led suit, an opponent winning) ---
+    ruffLow2nd: true,         // 2nd seat: the lowest winning trump, not the highest
+    holdLoneHiRuff: true,     // 2nd seat: throw a loser rather than ruff with a lone HI joker
+    ruffLow3rd: true,         // 3rd seat: low unless the opponent behind may over-ruff
+    ruffLow3rdMinUnseen: 3,   // ...judged by the unseen cards of the led suit
+    ruffForPartner: true,     // 3rd seat: a low ruff over partner's shaky winner
+    ruffForPartnerMaxRank: RANK_VALUES.J, // ...shaky = this rank or lower, a higher card out
+    // --- What the card view reads from the play so far ---
+    useTrumpOut: true,        // certain: failed to follow trump, HI-lead caps, counts
+    useSoftTrumpOut: true     // likely: declined to ruff / over-ruff an opponent's winner
+};
+
+/**
+ * Everything the public record says about the unseen cards: what is still
+ * out, who is void where, who is out of trump, and an upper bound on each
+ * player's highest remaining trump. Built from the bot's own hand and its
+ * card memory only (no hidden information).
+ *
+ * Trump facts come from three public events:
+ *  - a player who did not follow a trump lead has none (certain);
+ *  - an opponent of a HI-joker lead must play their highest trump, so every
+ *    trump they still hold is below the one they played (certain);
+ *  - a player void in the led suit who discarded while an opponent's
+ *    non-trump card was winning had no trump to ruff with, and one who
+ *    discarded under an opponent's winning trump had nothing above it
+ *    ("soft": true of the bots and of nearly every human play).
+ */
+function buildCardView(hand, memory, trump) {
+    const noTrump = isNoTrump(trump);
+    const trumpKey = noTrump ? 'joker' : trump.suit;
+    const isTrumpCard = (c) => c.suit === 'joker' || (!noTrump && c.suit === trump.suit);
+
+    const gone = new Set();
+    gone.add(`${trump.suit}:${trump.rank}`);
+    for (const c of hand) gone.add(`${c.suit}:${c.rank}`);
+    const played = (memory && memory.playedCards) || [];
+    for (const e of played) gone.add(`${e.suit}:${e.rank}`);
+
+    const unseenInSuit = { spades: 0, hearts: 0, diamonds: 0, clubs: 0 };
+    const unseenTrumpRanks = [];
+    for (const suit of Object.keys(unseenInSuit)) {
+        for (const r of SUIT_RANKS) {
+            if (gone.has(`${suit}:${r}`)) continue;
+            unseenInSuit[suit]++;
+            if (!noTrump && suit === trump.suit) unseenTrumpRanks.push(RANK_VALUES[r]);
+        }
+    }
+    if (!gone.has('joker:LO')) unseenTrumpRanks.push(RANK_VALUES.LO);
+    if (!gone.has('joker:HI')) unseenTrumpRanks.push(RANK_VALUES.HI);
+
+    const voids = { 1: new Set(), 2: new Set(), 3: new Set(), 4: new Set() };
+    const hardOut = { 1: false, 2: false, 3: false, 4: false };
+    const softOut = { 1: false, 2: false, 3: false, 4: false };
+    const hardCap = { 1: Infinity, 2: Infinity, 3: Infinity, 4: Infinity };
+    const softCap = { 1: Infinity, 2: Infinity, 3: Infinity, 4: Infinity };
+
+    // Replay the recorded tricks in play order
+    let i = 0;
+    while (i < played.length) {
+        let j = i;
+        while (j < played.length && played[j].trickIndex === played[i].trickIndex) j++;
+        const trick = played.slice(i, j);
+        i = j;
+        const lead = findLeadEntry(trick);
+        if (!lead) continue; // partially observed trick
+        const leadSuit = lead.suit === 'joker' ? trumpKey : lead.suit;
+        const hiLead = lead.rank === 'HI' && lead.suit === 'joker';
+        let winner = lead;
+        for (const e of trick) {
+            if (e === lead) continue;
+            const p = e.position;
+            const eSuit = e.suit === 'joker' ? trumpKey : e.suit;
+            const eTrump = isTrumpCard(e);
+            if (eSuit !== leadSuit) {
+                voids[p].add(leadSuit);
+                if (leadSuit === trumpKey) {
+                    hardOut[p] = true;
+                } else if (!eTrump && (winner.position % 2) !== (p % 2)) {
+                    // Declined to ruff an opponent's winner
+                    if (isTrumpCard(winner)) softCap[p] = Math.min(softCap[p], RANK_VALUES[winner.rank]);
+                    else softOut[p] = true;
+                }
+            }
+            if (hiLead && eTrump && (p % 2) !== (lead.position % 2)) {
+                hardCap[p] = Math.min(hardCap[p], RANK_VALUES[e.rank]);
+            }
+            if (canBeatCard(e, winner, lead, trump)) winner = e;
+        }
+    }
+
+    const T = PLAY_TUNING;
+    /** Upper bound (exclusive) on the rank value of p's remaining trump */
+    const trumpCap = (p) => {
+        if (!T.useTrumpOut) return Infinity;
+        if (hardOut[p] || (T.useSoftTrumpOut && softOut[p])) return -Infinity;
+        return T.useSoftTrumpOut ? Math.min(hardCap[p], softCap[p]) : hardCap[p];
+    };
+    /** Could p hold a trump that beats this trump card? */
+    const canBeatTrump = (p, card) => {
+        const cap = trumpCap(p);
+        const v = RANK_VALUES[card.rank];
+        return unseenTrumpRanks.some(r => r > v && r < cap);
+    };
+    /** True when p is known to hold no trump */
+    const trumpOut = (p) => {
+        const cap = trumpCap(p);
+        return !unseenTrumpRanks.some(r => r < cap);
+    };
+
+    return {
+        trumpKey,
+        unseenInSuit,
+        unseenTrump: unseenTrumpRanks.length,
+        isVoid: (p, suit) => voids[p].has(suit) || (suit !== trumpKey && unseenInSuit[suit] === 0),
+        trumpOut,
+        trumpCap,
+        canBeatTrump
+    };
+}
+
+/**
  * Count jokers still in other players' hands (not flipped, not ours, not yet
  * played). In no-trump hands the one live joker is still trump and can ruff.
  */
@@ -1477,6 +1603,9 @@ function selectFollow(hand, playedCards, leadCard, leadPosition, trump, trumpBro
     const opponentsRemain = hasOpponentsAfterMe(playedCards, position);
 
     const effortIsMax = effort === 'max';
+    const T = PLAY_TUNING;
+    const view = memory ? buildCardView(hand, memory, trump) : null;
+    const oppsBehind = getOpponentPositions(position).filter(p => playedCards[p - 1] == null);
 
     if (canFollow) {
         // We can follow suit
@@ -1551,6 +1680,17 @@ function selectFollow(hand, playedCards, leadCard, leadPosition, trump, trumpBro
                 return pickWinner(candidates, hand, memory, trump, winningCard, true);
             }
         }
+        // Partner's non-trump winner is shaky (J or lower, a higher card
+        // of the suit is still out) and the opponent behind is not known
+        // to be ruffing: a low ruff secures the trick
+        if (T.ruffForPartner && view && opponentsRemain && trumpCards.length > 0 && nonTrumpCards.length > 0) {
+            const partnerOnTrump = winningCard.suit === trump.suit || winningCard.suit === 'joker';
+            if (!partnerOnTrump && RANK_VALUES[winningCard.rank] <= T.ruffForPartnerMaxRank &&
+                countHigherUnseen(winningCard, hand, memory, trump) > 0 &&
+                !oppsBehind.some(o => view.isVoid(o, leadSuit))) {
+                return trumpCards.sort((a, b) => RANK_VALUES[a.rank] - RANK_VALUES[b.rank])[0];
+            }
+        }
         // Partner winning - don't trump, just discard
         if (nonTrumpCards.length > 0) {
             return selectDiscard(nonTrumpCards, trump, trumpCards.length > 0, memory, hand);
@@ -1570,6 +1710,33 @@ function selectFollow(hand, playedCards, leadCard, leadPosition, trump, trumpBro
                 if (playStyle === 'flashy' && !effortIsMax) {
                     const desc = [...candidates].sort((a, b) => RANK_VALUES[b.rank] - RANK_VALUES[a.rank]);
                     return bestWithoutHiJoker(desc, winningCard, trump);
+                }
+                if (view) {
+                    const asc = [...candidates].sort((a, b) => RANK_VALUES[a.rank] - RANK_VALUES[b.rank]);
+                    const seat = playedCards.filter(c => c != null).length + 1;
+                    if ((seat === 2 ? T.ruffLow2nd : T.ruffLow3rd)) {
+                        // The cheapest trump no opponent behind can beat
+                        const safe = asc.find(c => !oppsBehind.some(o => view.canBeatTrump(o, c)));
+                        // 2nd seat with only the HI joker to ruff with:
+                        // partner still plays, so keep its forcing lead and
+                        // throw a loser instead (never when every trick is
+                        // needed)
+                        if (seat === 2 && T.holdLoneHiRuff && asc[0].rank === 'HI' && !effortIsMax) {
+                            const losers = nonTrumpCards.filter(c => countHigherUnseen(c, hand, memory, trump) > 0);
+                            if (losers.length > 0) {
+                                return losers.sort((a, b) => RANK_VALUES[a.rank] - RANK_VALUES[b.rank])[0];
+                            }
+                        }
+                        if (safe === asc[0]) return safe;
+                        // Partner still plays behind us and the 4th seat
+                        // usually follows suit: a high ruff is mostly waste
+                        if (seat === 2) return asc[0];
+                        if (!winningIsTrump) {
+                            const o = oppsBehind[0];
+                            if (!view.isVoid(o, leadSuit) && view.unseenInSuit[leadSuit] >= T.ruffLow3rdMinUnseen) return asc[0];
+                        }
+                        // Over-ruff threat: fall through to the secure pick
+                    }
                 }
                 return pickWinner(candidates, hand, memory, trump, winningCard, true);
             }
@@ -1701,5 +1868,7 @@ module.exports = {
     BORE_TUNING,
     NEXT_BORE,
     getContractState,
-    pickWinner
+    pickWinner,
+    buildCardView,
+    PLAY_TUNING
 };
