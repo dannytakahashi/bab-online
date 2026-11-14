@@ -546,6 +546,39 @@ describe('full tournaments through the real handlers', () => {
         expect(errorLogs).toEqual([]);
     }, 180000);
 
+    test('stats: a table with a filler bot is a bot game (botStats + withBots record), a 4-human table stays a human game; round scores unchanged', async () => {
+        const ctx = await setupTournament(5);
+        const { allTables } = await playTournament(ctx);
+        // recordGameStats runs in the background after each gameEnd
+        await jest.advanceTimersByTimeAsync(1000);
+        const records = mockDb.current.gameRecords.docs;
+        expect(records).toHaveLength(8);
+        const user = (u) => mockDb.current.users.docs.find((d) => d.username === u);
+        const expected = Object.fromEntries(ctx.usernames.map((u) => [u, { human: 0, bots: 0 }]));
+        for (const g of allTables) {
+            const hasFiller = g.seatList().some((seat) => seat.controller === 'bot');
+            const rec = records.find((r) => r.gameId === g.gameId);
+            const owners = g.seatList().filter((seat) => seat.ownerUsername).map((seat) => seat.ownerUsername);
+            if (hasFiller) {
+                expect(rec).toMatchObject({ withBots: true });
+                expect([...rec.team1Players, ...rec.team2Players].sort()).toEqual([...owners].sort());
+                expect([...rec.team1Bots, ...rec.team2Bots].every((n) => n.startsWith('🤖 '))).toBe(true);
+            } else {
+                expect(rec.withBots).toBeUndefined();
+                expect(rec.team1Bots).toBeUndefined();
+            }
+            for (const o of owners) expected[o][hasFiller ? 'bots' : 'human']++;
+        }
+        expect(allTables.some((g) => g.seatList().some((seat) => seat.controller === 'bot'))).toBe(true);
+        for (const u of ctx.usernames) {
+            expect({ u, human: user(u).stats?.gamesPlayed || 0, bots: user(u).botStats?.gamesPlayed || 0 }).toEqual({ u, ...expected[u] });
+            expect(expected[u].human + expected[u].bots).toBe(4);
+            // round scoring is unchanged: every member scored every round
+            expect(ctx.t.scoreboard[u].roundScores).toHaveLength(4);
+        }
+        expect(errorLogs).toEqual([]);
+    }, 180000);
+
     test('a human disconnects mid-round, is resigned, rejoins and plays on', async () => {
         const ctx = await setupTournament(5);
         let victim = null;

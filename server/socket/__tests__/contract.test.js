@@ -472,6 +472,38 @@ describe('(e) non-game handlers', () => {
         expect(records.records.thisMonth).not.toBeNull();
         expect(contract.validateS2C('recordsResponse', { ...records, records: { ...records.records, allTime: { ...records.records.allTime, highestScore: { players: [] } } } }).ok).toBe(false);
         expect(contract.validateS2C('recordsResponse', { ...records, records: { thisMonth: null } }).ok).toBe(false);
+        // payload-less replies carry no scope (today's shape)
+        expect(board.scope).toBeUndefined();
+        expect(records.scope).toBeUndefined();
+
+        // Stats scopes (server/utils/statsScope.js): a bot game and a bot-game
+        // bucket, read in every scope; the echoed `scope` is validated by the guard
+        mockDb.current.users._insert({
+            username: 'e_solo', profilePic: 6, customProfilePic: null,
+            botStats: { gamesPlayed: 2, wins: 1, losses: 1, draws: 0, totalPoints: 300, totalTricksBid: 12, totalTricksTaken: 13, totalHands: 26,
+                totalSets: 1, totalSetPoints: -20, totalFaults: 0, totalHSI: 90 },
+        });
+        mockDb.current.gameRecords._insert({
+            gameId: 'g-bots', withBots: true, team1Score: 410, team2Score: 120, team1Players: ['e_solo'], team2Players: [],
+            team1Bots: ['🤖 Mary'], team2Bots: ['🤖 Zach', '🤖 Mike'], team1Bags: 2, team2Bags: 0, completedAt: new Date(),
+        });
+        profileHandlers.invalidateLeaderboard();
+        profileHandlers.invalidateRecords();
+        for (const scope of ['bots', 'all', 'human', 'nonsense']) {
+            const s = w.socket(`e-scope-${scope}`);
+            await profileHandlers.getLeaderboard(s, w.io, { scope });
+            await profileHandlers.getRecords(s, w.io, { scope });
+            await profileHandlers.getPlayerProfile(s, w.io, { username: 'e_solo', scope });
+            const expected = scope === 'nonsense' ? 'human' : scope;
+            for (const ev of ['leaderboardResponse', 'recordsResponse', 'playerProfileResponse']) {
+                expect({ ev, scope: events(w.log, ev).pop().data.scope }).toEqual({ ev, scope: expected });
+            }
+        }
+        await profileHandlers.getProfile(c, w.io, { scope: 'bots' });
+        expect(events(w.log, 'profileResponse').pop().data).toMatchObject({ success: true, scope: 'bots' });
+        const botRecords = events(w.log, 'recordsResponse').filter((e) => e.data.scope === 'bots').pop().data;
+        expect(botRecords.records.allTime.highestScore).toEqual({ score: 410, players: ['e_solo', '🤖 Mary'] });
+        expect(contract.validateS2C('leaderboardResponse', { ...board, scope: 'robots' }).ok).toBe(false);
 
         // Safety
         await safetyHandlers.reportUser(c, w.io, { username: 'e_bob', reason: 'spam', context: '' });

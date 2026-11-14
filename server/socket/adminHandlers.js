@@ -604,7 +604,7 @@ const RUN = {
 
     async findDuplicates({ db }) {
         const groups = (await findDuplicateCandidates(db)).map(g => g.map(u => ({
-            username: u.username, gamesPlayed: u.gamesPlayed, createdAt: u.createdAt ? iso(u.createdAt) : null
+            username: u.username, gamesPlayed: u.gamesPlayed, botGamesPlayed: u.botGamesPlayed || 0, createdAt: u.createdAt ? iso(u.createdAt) : null
         })));
         return { reply: { groups }, target: null, detail: `${groups.length} group(s)` };
     },

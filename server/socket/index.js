@@ -128,9 +128,11 @@ function setupSocketHandlers(io) {
             syncHandler('requestSnapshot', snapshotHandlers.requestSnapshot)(socket, io, data)
         );
 
-        // Profile events
-        socket.on('getProfile', () =>
-            safeHandler(profileHandlers.getProfile)(socket, io, {})
+        // Profile events. getProfile / getLeaderboard / getRecords take an
+        // optional {scope} (server/utils/statsScope.js); the handlers
+        // normalize anything else to 'human'
+        socket.on('getProfile', (data) =>
+            safeHandler(profileHandlers.getProfile)(socket, io, data)
         );
         socket.on('updateProfilePic', (data) =>
             asyncHandler('updateProfilePic', profileHandlers.updateProfilePic)(socket, io, data)
@@ -138,11 +140,11 @@ function setupSocketHandlers(io) {
         socket.on('uploadProfilePic', (data) =>
             asyncHandler('uploadProfilePic', profileHandlers.uploadProfilePic)(socket, io, data)
         );
-        socket.on('getLeaderboard', () =>
-            safeHandler(profileHandlers.getLeaderboard)(socket, io, {})
+        socket.on('getLeaderboard', (data) =>
+            safeHandler(profileHandlers.getLeaderboard)(socket, io, data)
         );
-        socket.on('getRecords', () =>
-            safeHandler(profileHandlers.getRecords)(socket, io, {})
+        socket.on('getRecords', (data) =>
+            safeHandler(profileHandlers.getRecords)(socket, io, data)
         );
         socket.on('searchPlayers', (data) =>
             asyncHandler('searchPlayers', profileHandlers.searchPlayers)(socket, io, data)

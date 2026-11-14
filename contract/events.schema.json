@@ -2990,8 +2990,15 @@
         "ios": false
       },
       "examples": [
-        {}
-      ]
+        {},
+        {
+          "scope": "bots"
+        },
+        {
+          "scope": "all"
+        }
+      ],
+      "notes": "Optional {scope: human | bots | all} (additive 2026-11-13): human = games with no bot or resign-bot seat at the end (users.stats, today's reply), bots = games with one (users.botStats, gameRecords withBots), all = both summed field by field. Missing, non-object or unknown = human, never refused. The reply echoes `scope` only when the request carried the key. iOS sends no payload (human)."
     },
     "updateProfilePic": {
       "payload": {
@@ -3086,9 +3093,15 @@
         "ios": true
       },
       "examples": [
-        {}
+        {},
+        {
+          "scope": "bots"
+        },
+        {
+          "scope": "all"
+        }
       ],
-      "notes": "Throttled in-handler (rateLimiter key getLeaderboard); over the limit replies leaderboardResponse with the cached (possibly stale) result, else the fill in flight, else the existing {success:false, message} reply; never error. Served from a 60 s cache invalidated on stats/picture/account changes."
+      "notes": "Throttled in-handler (rateLimiter key getLeaderboard, one budget for every scope); over the limit replies leaderboardResponse with that scope's cached (possibly stale) result, else its fill in flight, else the existing {success:false, message} reply; never error. Served from a 60 s cache per scope, every scope invalidated on stats/picture/account changes. Optional {scope: human | bots | all} (additive 2026-11-13): human = games with no bot or resign-bot seat at the end (users.stats, today's reply), bots = games with one (users.botStats, gameRecords withBots), all = both summed field by field. Missing, non-object or unknown = human, never refused. The reply echoes `scope` only when the request carried the key. iOS sends no payload (human)."
     },
     "getRecords": {
       "payload": {
@@ -3105,9 +3118,15 @@
         "ios": true
       },
       "examples": [
-        {}
+        {},
+        {
+          "scope": "bots"
+        },
+        {
+          "scope": "all"
+        }
       ],
-      "notes": "Throttled in-handler (rateLimiter key getRecords); over the limit replies recordsResponse with the cached (possibly stale) result, else the fill in flight, else the existing {success:false, message} reply; never error. Served from a 60 s cache (per month) invalidated when a game is recorded or an account deleted."
+      "notes": "Throttled in-handler (rateLimiter key getRecords, one budget for every scope); over the limit replies recordsResponse with that scope's cached (possibly stale) result, else its fill in flight, else the existing {success:false, message} reply; never error. Served from a 60 s cache per scope (per month), every scope invalidated when a game is recorded or an account deleted. Optional {scope: human | bots | all} (additive 2026-11-13): human = games with no bot or resign-bot seat at the end (users.stats, today's reply), bots = games with one (users.botStats, gameRecords withBots), all = both summed field by field. Missing, non-object or unknown = human, never refused. The reply echoes `scope` only when the request carried the key. iOS sends no payload (human)."
     },
     "searchPlayers": {
       "payload": {
@@ -3157,6 +3176,13 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 100
+          },
+          "scope": {
+            "enum": [
+              "human",
+              "bots",
+              "all"
+            ]
           }
         },
         "required": [
@@ -3177,6 +3203,10 @@
         },
         {
           "username": "🤖 Mary"
+        },
+        {
+          "username": "alan",
+          "scope": "all"
         }
       ],
       "invalid": [
@@ -3188,7 +3218,7 @@
           "username": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
         }
       ],
-      "notes": "Joi since V1_REMOVALS #18 (2026-11-11). Web asks from search rows, seat avatars and opponent plates (dataset.username, a bot name included)."
+      "notes": "Joi since V1_REMOVALS #18 (2026-11-11). Web asks from search rows, seat avatars and opponent plates (dataset.username, a bot name included). Optional {scope: human | bots | all} (additive 2026-11-13): human = games with no bot or resign-bot seat at the end (users.stats, today's reply), bots = games with one (users.botStats, gameRecords withBots), all = both summed field by field. Missing, non-object or unknown = human, never refused. The reply echoes `scope` only when the request carried the key. iOS sends no payload (human). Joi takes scope as any string up to 16 characters (lenient: the handler normalizes)."
     },
     "createTournament": {
       "payload": {
@@ -7631,6 +7661,13 @@
               },
               "avatarUrl": {
                 "$ref": "#/$defs/avatarUrl"
+              },
+              "scope": {
+                "enum": [
+                  "human",
+                  "bots",
+                  "all"
+                ]
               }
             },
             "required": [
@@ -7661,8 +7698,10 @@
       "status": "active",
       "to": "self",
       "added": [
-        "avatarUrl"
+        "avatarUrl",
+        "scope"
       ],
+      "notes": "scope (additive 2026-11-13): the stats scope the request asked for (human | bots | all; an unknown value is human), echoed ONLY when the request carried a scope key, so a payload-less request (iOS, every shipped build) gets exactly the earlier reply; never on a failure. The web client drops a reply whose scope is not its current choice (a stale reply after a fast switch).",
       "clientReads": {
         "web": [
           "client/src/handlers/profileHandlers.js:registerProfileHandlers"
@@ -7858,6 +7897,13 @@
               },
               "avatarUrl": {
                 "$ref": "#/$defs/avatarUrl"
+              },
+              "scope": {
+                "enum": [
+                  "human",
+                  "bots",
+                  "all"
+                ]
               }
             },
             "required": [
@@ -7888,8 +7934,10 @@
       "status": "active",
       "to": "self",
       "added": [
-        "avatarUrl"
+        "avatarUrl",
+        "scope"
       ],
+      "notes": "scope (additive 2026-11-13): the stats scope the request asked for (human | bots | all; an unknown value is human), echoed ONLY when the request carried a scope key, so a payload-less request (iOS, every shipped build) gets exactly the earlier reply; never on a failure. The web client drops a reply whose scope is not its current choice (a stale reply after a fast switch).",
       "clientReads": {
         "web": [
           "client/src/handlers/profileHandlers.js:registerProfileHandlers"
@@ -7918,6 +7966,13 @@
               },
               "avatarUrls": {
                 "$ref": "#/$defs/avatarUrlsByUsername"
+              },
+              "scope": {
+                "enum": [
+                  "human",
+                  "bots",
+                  "all"
+                ]
               }
             },
             "required": [
@@ -7948,9 +8003,10 @@
       "status": "active",
       "to": "self",
       "added": [
-        "avatarUrls"
+        "avatarUrls",
+        "scope"
       ],
-      "notes": "Rows by recipient (docs/avatars.md): a capable socket gets customProfilePic null + avatarUrls {username: url}; a legacy one the small inline rendition. The App Store iOS build reads neither; the next iOS build (after 1.2.0 build 6) shows avatarUrls[username], else the stock profilePic, in Stats.",
+      "notes": "Rows by recipient (docs/avatars.md): a capable socket gets customProfilePic null + avatarUrls {username: url}; a legacy one the small inline rendition. The App Store iOS build reads neither; the next iOS build (after 1.2.0 build 6) shows avatarUrls[username], else the stock profilePic, in Stats. scope (additive 2026-11-13): the stats scope the request asked for (human | bots | all; an unknown value is human), echoed ONLY when the request carried a scope key, so a payload-less request (iOS, every shipped build) gets exactly the earlier reply; never on a failure. The web client drops a reply whose scope is not its current choice (a stale reply after a fast switch).",
       "clientReads": {
         "web": [
           "client/src/handlers/leaderboardHandlers.js:registerLeaderboardHandlers"
@@ -7996,6 +8052,13 @@
               "totalGames": {
                 "type": "integer",
                 "minimum": 0
+              },
+              "scope": {
+                "enum": [
+                  "human",
+                  "bots",
+                  "all"
+                ]
               }
             },
             "required": [
@@ -8026,7 +8089,10 @@
       },
       "status": "active",
       "to": "self",
-      "notes": "iOS reads it from the next iOS build (after 1.2.0 build 6: the Records tab of Stats); every field optional there (a missing period or record shows \"No games yet\").",
+      "added": [
+        "scope"
+      ],
+      "notes": "iOS reads it from the next iOS build (after 1.2.0 build 6: the Records tab of Stats); every field optional there (a missing period or record shows \"No games yet\"). In the bots / all scopes a record's `players` lists the humans, then the bot personas ('🤖 Mary'); a team of two bots never holds a team record. scope (additive 2026-11-13): the stats scope the request asked for (human | bots | all; an unknown value is human), echoed ONLY when the request carried a scope key, so a payload-less request (iOS, every shipped build) gets exactly the earlier reply; never on a failure. The web client drops a reply whose scope is not its current choice (a stale reply after a fast switch).",
       "clientReads": {
         "web": [
           "client/src/handlers/recordsHandlers.js:registerRecordsHandlers"
@@ -8676,6 +8742,10 @@
                       "type": "integer",
                       "minimum": 0
                     },
+                    "botGamesPlayed": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
                     "isAdmin": {
                       "type": "boolean"
                     },
@@ -8701,6 +8771,7 @@
                     "lastSeenAt",
                     "online",
                     "gamesPlayed",
+                    "botGamesPlayed",
                     "isAdmin",
                     "mergedInto",
                     "renamed",
@@ -8813,6 +8884,9 @@
                       "gamesPlayed": {
                         "type": "number"
                       },
+                      "botGamesPlayed": {
+                        "type": "number"
+                      },
                       "createdAt": {
                         "type": [
                           "string",
@@ -8823,6 +8897,7 @@
                     "required": [
                       "username",
                       "gamesPlayed",
+                      "botGamesPlayed",
                       "createdAt"
                     ],
                     "additionalProperties": false
@@ -8924,6 +8999,34 @@
                           ],
                           "additionalProperties": false
                         },
+                        "botStats": {
+                          "type": "object",
+                          "properties": {
+                            "gamesPlayed": {
+                              "type": "number"
+                            },
+                            "wins": {
+                              "type": "number"
+                            },
+                            "losses": {
+                              "type": "number"
+                            },
+                            "draws": {
+                              "type": "number"
+                            },
+                            "totalPoints": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "gamesPlayed",
+                            "wins",
+                            "losses",
+                            "draws",
+                            "totalPoints"
+                          ],
+                          "additionalProperties": false
+                        },
                         "note": {
                           "type": [
                             "string",
@@ -8936,12 +9039,36 @@
                         "username",
                         "createdAt",
                         "stats",
+                        "botStats",
                         "note"
                       ],
                       "additionalProperties": false
                     }
                   },
                   "statChanges": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "key": {
+                          "type": "string"
+                        },
+                        "before": {
+                          "type": "number"
+                        },
+                        "after": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "key",
+                        "before",
+                        "after"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "botStatChanges": {
                     "type": "array",
                     "items": {
                       "type": "object",
@@ -9170,6 +9297,7 @@
                   "warnings",
                   "accounts",
                   "statChanges",
+                  "botStatChanges",
                   "profilePicFrom",
                   "targetBlockedUsers",
                   "gameRecords",
@@ -9658,6 +9786,10 @@
                       "type": "integer",
                       "minimum": 0
                     },
+                    "botGamesPlayed": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
                     "isAdmin": {
                       "type": "boolean"
                     },
@@ -9683,6 +9815,7 @@
                     "lastSeenAt",
                     "online",
                     "gamesPlayed",
+                    "botGamesPlayed",
                     "isAdmin",
                     "mergedInto",
                     "renamed",
