@@ -473,6 +473,20 @@ final class SocketService: ObservableObject {
             self?.endBackgroundKeepAlive()
         }
         print("[Socket] Background keep-alive started")
+        #if DEBUG
+        // Live checks only (`-keepAliveLimit <s>`, LiveForegroundResumeTests): end the keep-alive
+        // after s seconds as its expiration would; a simulator's background task can outlive
+        // a device's ~30 s (150 s seen under XCUITest), so the path after it is never reached.
+        let limit = UserDefaults.standard.double(forKey: "keepAliveLimit")
+        if limit > 0 {
+            let id = backgroundTaskId
+            DispatchQueue.main.asyncAfter(deadline: .now() + limit) { [weak self] in
+                guard let self, self.backgroundTaskId == id else { return }
+                print("[Socket] Background keep-alive expired (-keepAliveLimit \(limit))")
+                self.endBackgroundKeepAlive()
+            }
+        }
+        #endif
     }
 
     /// End the background task (called on return to foreground or expiration).
