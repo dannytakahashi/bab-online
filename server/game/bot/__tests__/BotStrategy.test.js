@@ -920,6 +920,45 @@ describe('selectFollow', () => {
             expect(result).toEqual(HI);
         });
 
+        test('3rd seat ruffs a plain winner low while the suit is still out', () => {
+            const hand = [card('hearts', 'K'), card('hearts', '5'), card('clubs', '2')];
+            // Partner (1) led spades, opponent 2 is winning, opponent 4 still to play
+            const playedCards = [card('spades', '4'), card('spades', '9'), undefined, undefined];
+            const result = selectFollow(hand, playedCards, card('spades', '4'), 1, heartsTrump, false, 3, freshMemory(), 3);
+            expect(result).toEqual(card('hearts', '5'));
+        });
+
+        test('3rd seat ruffs high when the last player is a known void in the suit', () => {
+            const hand = [card('hearts', 'K'), card('hearts', '5'), card('clubs', '2')];
+            const memory = freshMemory();
+            // Earlier trick: spades led, position 4 threw a club
+            memory.playedCards = [
+                { suit: 'spades', rank: 'A', position: 1, trickIndex: 0, isLead: true },
+                { suit: 'spades', rank: '2', position: 2, trickIndex: 0, isLead: false },
+                { suit: 'spades', rank: '3', position: 3, trickIndex: 0, isLead: false },
+                { suit: 'clubs', rank: '7', position: 4, trickIndex: 0, isLead: false }
+            ];
+            const playedCards = [card('spades', '4'), card('spades', '9'), undefined, undefined];
+            const result = selectFollow(hand, playedCards, card('spades', '4'), 1, heartsTrump, false, 3, memory, 3);
+            expect(result).toEqual(card('hearts', 'K'));
+        });
+
+        test('3rd seat ruffs high when fewer than 3 cards of the suit are unseen', () => {
+            const hand = [card('hearts', 'K'), card('hearts', '5'), card('clubs', '2')];
+            const memory = freshMemory();
+            // Spades already played: A K Q J 10 8 7 6 5 (4 and 9 are on the table) -> 2, 3 unseen
+            const gone = ['A', 'K', 'Q', 'J', '10', '8', '7', '6', '5'];
+            memory.playedCards = gone.map((rank, i) => ({
+                suit: 'spades', rank, position: (i % 4) + 1, trickIndex: Math.floor(i / 4), isLead: i % 4 === 0
+            }));
+            memory.playedCards.push(
+                { suit: 'spades', rank: '4', position: 1, trickIndex: 3, isLead: true },
+                { suit: 'spades', rank: '9', position: 2, trickIndex: 3, isLead: false });
+            const playedCards = [card('spades', '4'), card('spades', '9'), undefined, undefined];
+            const result = selectFollow(hand, playedCards, card('spades', '4'), 1, heartsTrump, false, 3, memory, 6);
+            expect(result).toEqual(card('hearts', 'K'));
+        });
+
         test('flashy (Danny) keeps ruffing high at 2nd seat', () => {
             const hand = [card('hearts', 'K'), card('hearts', '5'), card('clubs', '2')];
             const playedCards = [card('spades', '9'), undefined, undefined, undefined];

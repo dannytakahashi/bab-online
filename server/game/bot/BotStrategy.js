@@ -278,6 +278,24 @@ function countHigherUnseen(card, hand, memory, trump) {
 }
 
 /**
+ * Count cards of a plain suit still in other players' hands (not played, not
+ * ours, not the flipped card).
+ */
+function countUnseenInSuit(suit, hand, memory, trump) {
+    const gone = new Set();
+    gone.add(`${trump.suit}:${trump.rank}`);
+    for (const c of hand) gone.add(`${c.suit}:${c.rank}`);
+    if (memory && memory.playedCards) {
+        for (const e of memory.playedCards) gone.add(`${e.suit}:${e.rank}`);
+    }
+    let count = 0;
+    for (const r of SUIT_RANKS) {
+        if (!gone.has(`${suit}:${r}`)) count++;
+    }
+    return count;
+}
+
+/**
  * Count jokers still in other players' hands (not flipped, not ours, not yet
  * played). In no-trump hands the one live joker is still trump and can ruff.
  */
@@ -1581,6 +1599,16 @@ function selectFollow(hand, playedCards, leadCard, leadPosition, trump, trumpBro
                 if (memory && seatInTrick === 2) {
                     return candidates.sort((a, b) => RANK_VALUES[a.rank] - RANK_VALUES[b.rank])[0];
                 }
+                // 3rd seat ruffing a plain winner: low as well, while the last
+                // player probably still holds the suit (not a known void, and
+                // 3+ of its cards unseen). Otherwise keep the high ruff.
+                if (memory && seatInTrick === 3 && !winningIsTrump) {
+                    const lastOpp = getOpponentPositions(position).find(p => playedCards[p - 1] == null);
+                    const lastOppVoid = getOpponentVoidSuits(memory, position, trump).has(`${lastOpp}:${leadSuit}`);
+                    if (!lastOppVoid && countUnseenInSuit(leadSuit, hand, memory, trump) >= 3) {
+                        return candidates.sort((a, b) => RANK_VALUES[a.rank] - RANK_VALUES[b.rank])[0];
+                    }
+                }
                 return pickWinner(candidates, hand, memory, trump, winningCard, true);
             }
             return candidates.sort((a, b) => RANK_VALUES[a.rank] - RANK_VALUES[b.rank])[0];
@@ -1699,6 +1727,7 @@ module.exports = {
     isWinVulnerable,
     bestWithoutHiJoker,
     countHigherUnseen,
+    countUnseenInSuit,
     countLockedWinners,
     analyzeLeadSweep,
     decideBore,
