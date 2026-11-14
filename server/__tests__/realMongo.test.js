@@ -34,6 +34,11 @@ const database = require('../database');
 const { dbLogger } = require('../utils/logger');
 const auth = require('../socket/authHandlers');
 const profile = require('../socket/profileHandlers');
+
+// These fixtures predate the leaderboard minimum (LEADERBOARD_MIN_GAMES):
+// rank from 1 game, the board as it was; leaderboardMinGames.test.js covers 5.
+beforeEach(() => profile._setLeaderboardMinGamesForTests(1));
+afterEach(() => profile._setLeaderboardMinGamesForTests());
 const { makeIo, makeSocket } = require('../testUtils/gameDriver');
 const { makeReference } = require('../testUtils/legacyProfileReference');
 

@@ -493,6 +493,14 @@ const LEADERBOARD_FIELDS = { username: 1, profilePic: 1, customProfilePic: 1 };
 const NOT_MERGED = { mergedInto: { $exists: false } };
 
 /**
+ * Games a player needs in a scope before they get a ranked leaderboard row
+ * there (one lucky win shouldn't top the board). Players below it still
+ * count toward that scope's Population row; records and profiles ignore it.
+ */
+const LEADERBOARD_MIN_GAMES = 5;
+let leaderboardMinGames = LEADERBOARD_MIN_GAMES;
+
+/**
  * Per scope: which users have a row (at least one game in that scope; never
  * a merged-away tombstone), what is read, and the bucket the row math uses.
  * 'human' is today's query and projection exactly.
@@ -516,8 +524,9 @@ const LEADERBOARD_QUERIES = {
 };
 
 /**
- * The leaderboard rows (one per player with a game in `scope`, plus the
- * Population average row over those players), sorted by win rate. Cached
+ * The leaderboard rows (one per player with at least LEADERBOARD_MIN_GAMES
+ * games in `scope`, plus the Population average row over every player with
+ * a game there), sorted by win rate. Cached
  * for 60 s per scope; invalidated when stats change (recordGameStats,
  * account deletion, a profile picture change, an admin merge or rename).
  */
@@ -560,11 +569,14 @@ async function fillLeaderboard(scope = 'human') {
         };
     });
 
-    // Compute population averages
-    if (leaderboard.length > 0) {
-        const n = leaderboard.length;
-        const sum = (key) => leaderboard.reduce((acc, p) => acc + p[key], 0);
-        leaderboard.push({
+    // Population averages over everyone with a game in this scope; only
+    // players with LEADERBOARD_MIN_GAMES or more get a row of their own
+    const everyone = leaderboard;
+    const rows = everyone.filter(p => p.gamesPlayed >= leaderboardMinGames);
+    if (everyone.length > 0) {
+        const n = everyone.length;
+        const sum = (key) => everyone.reduce((acc, p) => acc + p[key], 0);
+        rows.push({
             username: 'Population',
             isPopulation: true,
             gamesPlayed: Math.round(sum('gamesPlayed') / n),
@@ -580,11 +592,11 @@ async function fillLeaderboard(scope = 'human') {
     }
 
     // Sort by win rate descending by default
-    leaderboard.sort((a, b) => b.winRate - a.winRate);
+    rows.sort((a, b) => b.winRate - a.winRate);
 
     // Rows with customProfilePic null plus avatarUrls {username: url}
     // (V1_REMOVALS #19 B: no inline picture), cached together
-    return avatarWire.mapProfileRows(leaderboard);
+    return avatarWire.mapProfileRows(rows);
 }
 
 /** `out` plus the requested scope when the request named one (statsScope.js). */
@@ -992,6 +1004,15 @@ function invalidateRecords() {
 }
 
 /** Test helper: empty every cache. */
+/**
+ * Tests only: rank players from `n` games (1 = every player with a game,
+ * the board before the minimum); no argument restores LEADERBOARD_MIN_GAMES.
+ */
+function _setLeaderboardMinGamesForTests(n = LEADERBOARD_MIN_GAMES) {
+    leaderboardMinGames = n;
+    invalidateLeaderboard();
+}
+
 function _resetCachesForTests() {
     invalidateLeaderboard();
     invalidateRecords();
@@ -1002,6 +1023,8 @@ module.exports = {
     invalidateLeaderboard,
     invalidateRecords,
     _resetCachesForTests,
+    LEADERBOARD_MIN_GAMES,
+    _setLeaderboardMinGamesForTests,
     _peekLeaderboardCache: (scope = 'human') => leaderboardCache[scope]?.peek(),
     _peekRecordsCache: (scope = 'human') => recordsCache[scope]?.peek(),
     getProfile,

@@ -17,6 +17,11 @@ jest.mock('../../database', () => ({
 
 const gameManager = require('../../game/GameManager');
 const profile = require('../profileHandlers');
+
+// These fixtures predate the leaderboard minimum (LEADERBOARD_MIN_GAMES):
+// rank from 1 game, the board as it was; leaderboardMinGames.test.js covers 5.
+beforeEach(() => profile._setLeaderboardMinGamesForTests(1));
+afterEach(() => profile._setLeaderboardMinGamesForTests());
 const auth = require('../authHandlers');
 const { asyncHandler } = require('../errorHandler');
 const { createCache } = require('../../utils/ttlCache');
