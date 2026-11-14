@@ -1,25 +1,46 @@
 import SwiftUI
 
 /// The main room's Stats sheet: the web's Leaderboard and Records pages as two tabs of one
-/// sheet (a segmented control under the title). Each tab asks the server when it appears,
-/// keeps its last good data on screen while a refresh runs or after one fails, and refreshes
-/// on a pull. The close button is the system's (a symbol, so it also sits in the Duo's
-/// vertical bar when the system puts the sheet's toolbar there).
+/// sheet (a segmented control under the title), over a second segmented control for the games
+/// counted (Humans / Bots / All, `StatsScope`: one choice for both tabs, saved on disk). Each
+/// tab asks the server when it appears and when the scope changes, keeps its last good data on
+/// screen while a refresh runs or after one fails, and refreshes on a pull. The close button is
+/// the system's (a symbol, so it also sits in the Duo's vertical bar when the system puts the
+/// sheet's toolbar there).
 struct StatsView: View {
     @EnvironmentObject var leaderboardState: LeaderboardState
+    @EnvironmentObject var recordsState: RecordsState
     @Environment(\.dismiss) private var dismiss
+
+    /// The scope both tabs show (each state keeps its own copy for its requests).
+    private var scope: Binding<StatsScope> {
+        Binding(get: { leaderboardState.scope }, set: { s in
+            leaderboardState.select(s)
+            recordsState.select(s)
+        })
+    }
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                Picker("Stats", selection: $leaderboardState.tab) {
-                    ForEach(StatsTab.allCases) { Text($0.title).tag($0) }
+                VStack(spacing: Theme.Space.s2) {
+                    Picker("Stats", selection: $leaderboardState.tab) {
+                        ForEach(StatsTab.allCases) { Text($0.title).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .accessibilityIdentifier("stats.tabs")
+
+                    Picker("Games", selection: scope) {
+                        ForEach(StatsScope.allCases) { s in
+                            Text(s.title).accessibilityLabel(s.spokenTitle).tag(s)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .accessibilityIdentifier("stats.scope")
                 }
-                .pickerStyle(.segmented)
                 .padding(.horizontal)
                 .padding(.vertical, Theme.Space.s2)
                 .frame(maxWidth: 480)
-                .accessibilityIdentifier("stats.tabs")
 
                 Divider().background(Theme.divider)
 
@@ -39,7 +60,13 @@ struct StatsView: View {
             }
         }
         .sensoryFeedback(.selection, trigger: leaderboardState.tab)
+        .sensoryFeedback(.selection, trigger: leaderboardState.scope)
     }
+}
+
+extension StatsScope {
+    /// Under an empty Bots or All page: the server counts games with bots from its update on.
+    static let botsFromNowNote = "Games with bots count from this update on."
 }
 
 /// The system close button (an xmark) where the SDK has it, else "Done".

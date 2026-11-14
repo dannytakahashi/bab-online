@@ -18,6 +18,7 @@ struct RecordsView: View {
             content(height: geo.size.height, columns: columns(for: geo.size.width))
         }
         .onAppear { state.request() }
+        .onChange(of: state.scope) { state.request() }
     }
 
     @ViewBuilder
@@ -39,6 +40,7 @@ struct RecordsView: View {
                     }
                     if let records = state.load.value {
                         if let total = records.totalGames { totalLine(total) }
+                        if state.scope != .human, records.isEmpty { botsNote }
                         // not lazy: every card shown is in the accessibility tree
                         let picks = columns == 1 && !typeSize.isAccessibilitySize
                         let periods = picks ? [state.period] : GameRecords.Period.allCases
@@ -75,6 +77,16 @@ struct RecordsView: View {
         .pickerStyle(.segmented)
         .accessibilityIdentifier("records.periods")
         .sensoryFeedback(.selection, trigger: state.period)
+    }
+
+    /// Bots or All with no game yet: the server counts games with bots from its update on.
+    private var botsNote: some View {
+        Text(StatsScope.botsFromNowNote)
+            .font(.footnote)
+            .foregroundStyle(Theme.textSecondary)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
+            .accessibilityIdentifier("records.botsNote")
     }
 
     /// One, two or three cards across: as many as fit at their minimum width.
