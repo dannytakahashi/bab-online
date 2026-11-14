@@ -8,22 +8,35 @@ import XCTest
 ///   New Game enabled throughout, and a New Game tapped at once opens a lobby.
 /// - `testServerRestartedWhileBackgroundedRecovers`: the server restarted while the app was
 ///   suspended: the app reconnects and restores, as before.
-/// - `testMidGameTableIsResyncedAfterForeground`: a solo game with three bots, backgrounded
-///   while it is dealt and bid: the table after the foreground is the server's, and a bid
-///   goes through.
+/// - `testUnansweredProbeRebuildsAndRecovers`: the server frozen across the foreground: the
+///   probe times out, a new connection, the session back once the server answers.
+/// - `testMidGameTableIsResyncedAfterForeground`: a solo game with three bots, drawn by a
+///   tap on the deck and backgrounded once my hand is dealt (BIDDING, which lasts until I
+///   bid) while the bots bid: the probe's answer (`probe-snapshot.json`) is a BIDDING table,
+///   the hand on the table after the foreground is the one it sent, and a bid goes through.
 ///
 /// A simulator's background task outlived 150 s under XCUITest and the app was never
 /// suspended, so the app runs with `-keepAliveLimit 5` (DEBUG: the keep-alive ends after 5 s,
-/// as its expiration would) and a host-side harness suspends it: in
-/// `TEST_RUNNER_BAB_LIVE_CTL=<host dir>` the test creates `suspend-app` / `resume-app` (SIGSTOP /
-/// SIGCONT of the app process, what iOS suspension does) and `restart-request` (restart the
-/// server), and waits for `<name>.done`.
+/// as its expiration would) and the host-side harness `scripts/ios-live-resume-harness.sh`
+/// suspends it: in `TEST_RUNNER_BAB_LIVE_CTL=<host dir>` the test creates `suspend-app` /
+/// `resume-app` (SIGSTOP / SIGCONT of the app process, what iOS suspension does),
+/// `restart-request` (restart the server), `freeze-server` / `thaw-server`, and waits for
+/// `<name>.done`; the harness's preload writes `probe-snapshot.json` there.
 ///
-/// Run with a Debug build and `TEST_RUNNER_BAB_LIVE_SERVER=http://localhost:<port>`,
-/// `TEST_RUNNER_BAB_LIVE_USER=<new name>`, `TEST_RUNNER_BAB_LIVE_PASS=<random>` (the account is
-/// registered on first use; keep the password out of logs and the repo) and the CTL dir.
+/// Run (a new simulator, your own mongod on a temp dbpath and a port other than 27017, a
+/// new or empty <dir>, a Debug build):
+///
+///     scripts/ios-live-resume-harness.sh --port 3941 --udid <UDID> --db bab_live_resume \
+///         --mongo mongodb://127.0.0.1:<mongod port> --ctl <dir> &
+///     TEST_RUNNER_BAB_LIVE_SERVER=http://localhost:3941 TEST_RUNNER_BAB_LIVE_USER=<new name> \
+///     TEST_RUNNER_BAB_LIVE_PASS=<random, e.g. from openssl rand> TEST_RUNNER_BAB_LIVE_CTL=<dir> \
+///     xcodebuild test -project iOSClient/BABOnline.xcodeproj -scheme BABOnline -testPlan BABOnlineUI \
+///         -destination id=<UDID> -only-testing:BABOnlineUITests/LiveForegroundResumeTests CODE_SIGNING_ALLOWED=NO
+///     touch <dir>/stop
+///
+/// The account is registered on first use; keep the password out of logs and the repo.
 /// The server-side proof (no new handshake, the probe's requestSnapshot and its answer) is in
-/// the server's own log.
+/// the harness's server log (`[keeplog]` lines, `<dir>/server.log` by default).
 final class LiveForegroundResumeTests: XCTestCase {
     /// Suspended for less than the server's ping timeout (20 s after an unanswered ping), so
     /// an untouched server still holds the connection.
@@ -232,18 +245,29 @@ final class LiveForegroundResumeTests: XCTestCase {
 
     /// The hand as the table's cards read ("Queen of Clubs", "High Joker"...), in tree order,
     /// from one snapshot of the tree (walking live elements fails while cards animate).
+    /// Card sprites only: the score bar's trump is a text that reads the same for a joker
+    /// ("Trump: Low Joker"), so static texts are left out.
     private func handLabels(_ app: XCUIApplication) -> [String] {
         guard let root = try? app.snapshot() else { return [] }
         var labels: [String] = []
         func walk(_ s: XCUIElementSnapshot) {
             let l = s.label
             let card = l.range(of: #"^(Ace|King|Queen|Jack|[0-9]+) of (Spades|Hearts|Diamonds|Clubs)$"#,
-                               options: .regularExpression) != nil || l.hasSuffix("Joker")
-            if card { labels.append(l) }  // bidding: no trick on the table, so every card is my hand
+                               options: .regularExpression) != nil || l == "High Joker" || l == "Low Joker"
+            // bidding: no trick on the table, so every card sprite is my hand
+            if card && s.elementType != .staticText { labels.append(l) }
             s.children.forEach(walk)
         }
         walk(root)
         return labels
+    }
+
+    /// A snapshot card ({suit, rank}) as the table reads it (Card.displayName).
+    static func cardLabel(_ card: [String: Any]) -> String? {
+        guard let suit = card["suit"] as? String, let rank = card["rank"] as? String else { return nil }
+        if suit == "joker" { return rank == "HI" ? "High Joker" : "Low Joker" }
+        let names = ["A": "Ace", "K": "King", "Q": "Queen", "J": "Jack"]
+        return "\(names[rank] ?? rank) of \(suit.capitalized)"
     }
 
     /// Leave the table (Exit Game), so the account is in no game for the next test.
@@ -269,24 +293,51 @@ final class LiveForegroundResumeTests: XCTestCase {
         }
         app.buttons["Ready"].tap()
         XCTAssertTrue(wait(30) { app.buttons["leave"].exists }, "the game did not start")
-        // draw for deal: draw at once if offered (else the server's watchdog draws)
-        let slot = app.descendants(matching: .any)["draw.slot.0"]
-        if slot.waitForExistence(timeout: 10) { slot.tap() }
-        note("drew; hand so far \(handLabels(app).count)")
+        // draw for deal: tap the deck (the "Draw a card" button; the draw.slot.N results row
+        // replaces it only after my draw), so the deal does not wait for the 30 s draw watchdog
+        let deck = app.buttons["Draw a card"]
+        XCTAssertTrue(deck.waitForExistence(timeout: 15), "no deck to draw from")
+        XCTAssertTrue(wait(10) { deck.isHittable }, "the deck is not tappable")
+        deck.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["draw.slot.0"].waitForExistence(timeout: 10), "my draw did not go through")
+        note("drew")
+        // in BIDDING with my hand dealt before going away: the first hand is 12 cards, and
+        // a solo game stays in BIDDING until I bid (no AFK watchdog in a solo casual game), so
+        // the deal can never land on either side of the foreground
+        var dealt: [String] = []
+        let wasDealt = wait(45) { dealt = self.handLabels(app); return dealt.count == 12 }
+        XCTAssertTrue(wasDealt, "my 12-card hand was never dealt: \(dealt.count) cards read: \(dealt.joined(separator: ", "))")
+        note("dealt: hand \(handLabels(app).count)")
         shot("3-before")
-
-        // away while the deal and the bots' bids happen (queued for the suspended app)
-        backgroundPastKeepAlive(app)
-
+        let probeFile = (env["BAB_LIVE_CTL"]! as NSString).appendingPathComponent("probe-snapshot.json")
         let bidOverlay = app.descendants(matching: .any)["bidOverlay"]
-        let toast = toastShows(app, within: 3)
+
+        // away while the bots' bids happen (queued for the suspended app); the probe's answer
+        // must be a BIDDING table (else one more background / foreground: a fresh probe)
+        var probe: [String: Any] = [:]
+        var toast = false
+        for attempt in 1...3 {
+            try? FileManager.default.removeItem(atPath: probeFile)
+            backgroundPastKeepAlive(app)
+            toast = toastShows(app, within: 3) || toast
+            XCTAssertTrue(wait(10) { FileManager.default.fileExists(atPath: probeFile) }, "no probe answer written by the harness")
+            probe = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: probeFile))) as? [String: Any])
+            note("probe \(attempt) \(probe["requestId"] ?? "?") stage \(probe["stage"] ?? "?")")
+            if probe["stage"] as? String == "BIDDING" { break }
+        }
+        XCTAssertEqual(probe["stage"] as? String, "BIDDING", "the probe's answer is a BIDDING table")
+        let serverHand = (probe["hand"] as? [[String: Any]] ?? []).compactMap(Self.cardLabel)
+        note("probe hand \(serverHand.count): \(serverHand.joined(separator: ", "))")
+        XCTAssertEqual(serverHand.count, 12)
+
         XCTAssertTrue(bidOverlay.waitForExistence(timeout: 30), "my bid turn never came after the foreground")
-        sleep(1)
-        let after = handLabels(app)
+        // the hand shown is the one the server sent in the probe's answer (the harness's copy)
+        var after: [String] = []
+        let same = wait(5) { after = self.handLabels(app); return after.sorted() == serverHand.sorted() }
         note("after foreground: bidOverlay=\(bidOverlay.exists) hand \(after.count): \(after.joined(separator: ", "))")
         shot("3-after")
         XCTAssertFalse(toast, "no Reconnecting toast at the table")
-        XCTAssertFalse(after.isEmpty)
+        XCTAssertTrue(same, "the table shows the probe snapshot's hand: \(after.sorted()) vs \(serverHand.sorted())")
 
         // responsive: bid 0, the panel goes
         let zero = bidOverlay.buttons.matching(NSPredicate(format: "label == %@", "0")).firstMatch
