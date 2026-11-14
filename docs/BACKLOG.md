@@ -30,6 +30,24 @@ remove an item in the PR that fixes it.
 - **The Leave alert can show stale words for up to ~1.5 s** after the other human
   leaves while it is open (`LeaveAlertFlow`, `leaveCheck`).
 
+## Server
+
+- **An entrant whose socket is rebuilt during a game's DRAWING stage is not
+  rejoined:** `restoreSession` (and sign-in) read the user's `activeGameId`, which
+  `setActiveGame` writes only at seating (`gameHandlers.js`, after the draw;
+  `tournamentHandlers.js` the same), so the restore answers with no
+  `activeGameId` and the app goes to the main room while the game is dealt
+  without them (their seat then waits on the disconnect / bot timers). Seen in
+  review of the iOS foreground keep (2026-11-14); any rebuild in the draw does it
+  (a foreground probe that times out, a deploy, a network change). Fix: when the
+  database has no `activeGameId`, fall back to the in-memory
+  `gameManager.findLiveActivity(username)` (which already counts draw-phase
+  entrants, as the admin merge check uses it) and answer with that game so the
+  client rejoins it (`rejoinGame` must then accept an entrant in the draw and send
+  the draw snapshot); or write `activeGameId` when the game is created, at the
+  start of DRAWING, instead of at seating. A jest case: restore an entrant's
+  session mid-draw and expect `activeGameId` and a draw-stage rejoin.
+
 ## Web
 
 - **Admin Players table, Safari:** a sliver of rows can still show above the sticky
