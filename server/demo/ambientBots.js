@@ -7,7 +7,7 @@
  * messages from the bot personas so the room is never empty.
  *
  * On demand (owner, 2026-11-11): a game starts as soon as a signed-in player
- * enters the main room (GameManager.onMainRoomJoin; it is listed ~0.1 s
+ * of the audience below enters the main room (GameManager.onMainRoomJoin; it is listed ~0.1 s
  * later, AMBIENT_PREGAME) and keeps being replaced while someone is in the
  * main room or watching it. Once nobody has been for AMBIENT_IDLE_MS (10
  * min) the running game plays to its end and no new one starts; idleness
@@ -25,8 +25,15 @@
  * (gameManager.ambientMainRoomMessages), go live only to those accounts'
  * main-room sockets and are merged into their mainRoomJoined replay
  * (GameManager.mainRoomMessagesFor); everyone else's main room is humans
- * only, with the full 50-line history. The bot game itself stays listed and
- * spectatable for everyone, and its bots' in-game chat is unchanged.
+ * only, with the full 50-line history.
+ *
+ * The bot game follows the same audience (owner, 2026-11-14: "making the bot
+ * demo game only appear for test1 (like we did for the bot chats)"): it is
+ * listed only for those accounts (GameManager.getInProgressGames(viewer),
+ * gameLifecycle.emitLobbiesUpdated per socket), spectating or rejoining it
+ * from any other account gets the unknown-game reply
+ * (GameManager.getGameVisibleTo), and only those accounts in the main room
+ * (or its spectators) are demand, so with no test1 signed in no game runs.
  *
  * Enabled by default in production; disable with AMBIENT_BOTS=false.
  * Enable in development with AMBIENT_BOTS=true.
@@ -39,7 +46,7 @@ const { logger } = require('../utils/logger');
 const { abortGame, beginDraw } = require('../socket/gameLifecycle');
 
 const pacing = require('../game/pacing');
-const { ambientChatAudience, seesAmbientChat } = require('../utils/ambientChatUsers');
+const { ambientChatAudience, seesAmbientChat, seesAmbientGame } = require('../utils/ambientChatUsers');
 
 // Poll cadence and the pause between games: pacing.js AMBIENT_CHECK_MS /
 // AMBIENT_RESTART_MS
@@ -204,13 +211,22 @@ function startBotGame(io) {
     return game;
 }
 
+/** Is `socketId` signed in as an account that sees the ambient game? */
+function seesGame(socketId) {
+    const user = gameManager.getUserBySocketId(socketId);
+    return !!user && seesAmbientGame(user.username);
+}
+
 /**
- * Is anyone who could see the ambient game around: a signed-in player in
- * the main room (every member is a registered socket; gated 1.0.0 / 1.1.0
- * sockets never join) or a spectator of the current ambient game?
+ * Is anyone who could see the ambient game around: a signed-in player of the
+ * AMBIENT_CHAT_USERS audience in the main room (every member is a registered
+ * socket; gated 1.0.0 / 1.1.0 sockets never join; with `*` any member) or a
+ * spectator of the current ambient game (only that audience can join it)?
  */
 function someoneWatching() {
-    if (gameManager.mainRoomSocketIds.size > 0) return true;
+    for (const socketId of gameManager.mainRoomSocketIds) {
+        if (seesGame(socketId)) return true;
+    }
     const game = currentGameId ? gameManager.getGameById(currentGameId) : null;
     return !!(game && game.spectators && game.spectators.size > 0);
 }
@@ -221,11 +237,14 @@ function inDemand(now = Date.now()) {
 }
 
 /**
- * A signed-in player entered the main room: refresh the demand window and,
- * when no game is running or about to restart, start one now (on the next
- * turn of the event loop, outside GameManager.joinMainRoom).
+ * A signed-in player entered the main room: when it is an account that sees
+ * the ambient game (AMBIENT_CHAT_USERS), refresh the demand window and, when
+ * no game is running or about to restart, start one now (on the next turn of
+ * the event loop, outside GameManager.joinMainRoom). Anyone else is no demand.
+ * @param {string} socketId - the joining socket (GameManager.onMainRoomJoin)
  */
-function noteMainRoomJoin() {
+function noteMainRoomJoin(socketId) {
+    if (!seesGame(socketId)) return;
     lastDemandAt = Date.now();
     if (!intervalHandle || !ioRef || currentGameId || wakeHandle) return;
     if (Date.now() < nextGameAt) return; // a restart is pending; the poll starts it
@@ -298,9 +317,9 @@ function startAmbientActivity(io) {
 
     ioRef = io;
     seedMainRoomChat();
-    unsubscribeJoin = gameManager.onMainRoomJoin(() => {
+    unsubscribeJoin = gameManager.onMainRoomJoin((socketId) => {
         try {
-            noteMainRoomJoin();
+            noteMainRoomJoin(socketId);
         } catch (error) {
             logger.error('Ambient main-room hook failed', { error: error.message });
         }
@@ -344,5 +363,6 @@ module.exports = {
     startBotGame,
     tick,
     noteMainRoomJoin,
+    someoneWatching,
     inDemand
 };
