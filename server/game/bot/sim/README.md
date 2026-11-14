@@ -231,3 +231,74 @@ hand); danny+zach 51.1% ±0.5, +3.1 ±0.6 (4000, seed 842); sharon+mike
 47.1%, zach+mary 47.6% (±1.1). Zero incidents and exceptions throughout.
 
 Refit recipe unchanged (2-card rows are now included automatically).
+
+## Play inference (November 2026)
+
+A counterfactual study of the EV-bidding bots (every alternative card forced
+once at every decision, the hand replayed by the bots; double-dummy values
+on small hands) put the play leaks in ruffs and mid-hand leads: void bots
+ruffed with their highest trump from 2nd and 3rd seat, never led trump
+except the HI joker, and treated a void as a ruff threat (or a partner
+ruff) after its owner had run out of trump. Bores, discards, over-trumps,
+partner overtakes, 4th-seat play and opening leads showed no recoverable
+gain.
+
+`buildCardView` (BotStrategy.js) replays the card memory into: unseen
+cards per suit, voids, who is out of trump, and a cap on each player's
+highest remaining trump (certain: a failed trump follow, the card an
+opponent had to play under a HI-joker lead; soft: a void player who
+discarded instead of ruffing or over-ruffing an opponent's winner).
+`PLAY_TUNING` holds one switch per rule:
+
+- ruffs: 2nd seat the lowest winning trump (and a loser instead of a lone
+  HI joker); 3rd seat low unless the opponent behind may over-ruff; a low
+  ruff on partner's shaky (J or lower) winner;
+- leads: a boss trump below the HI joker first (including one neither
+  opponent can beat given the caps); the lowest of 3+ trump with no boss
+  among them; neither once both opponents are out of trump; cash a safe
+  boss off-suit card at normal effort; a void counts only while its owner
+  has trump; avoid suits an opponent led.
+
+Paired runs (each deal set played twice with the seats swapped, 95% CIs
+over deal sets, harness outside the repo), tuned on seeds 101-109 and
+reported on held-out seeds:
+
+| Matchup (8000 deal sets each) | Seed | Win rate | Margin per game |
+|---|---|---|---|
+| ruffs + card view vs `origin/main` d93b08a (mary) | 301 | 56.1% ±0.4 | +19.4 ±0.7 |
+| + lead rules vs ruffs only (mary) | 302 | 52.5% ±0.4 | +8.7 ±0.8 |
+| + refit `bidModel` vs before the refit (mary) | 303 | 50.1% ±0.4 | +2.2 ±0.6 |
+| all vs `origin/main` (mary) | 304 | 56.7% ±0.5 | +25.5 ±1.0 |
+| all vs `origin/main` (danny+zach, each side) | 305 | 56.0% ±0.5 | +21.8 ±1.0 |
+| all vs `origin/main` (sharon+mike, each side) | 306 | 55.9% ±0.5 | +21.3 ±1.1 |
+| sharon / danny / mike / zach pair vs its own `origin/main` pair | 307-310 | 54.9% / 54.2% / 58.3% / 57.1% (±0.6) | +15.3 / +16.3 / +34.2 / +25.4 |
+| sharon / danny / mike + mary vs mary + mary (all new) | 311 | 47.2% / 48.8% / 47.4% (±0.4) | −4.2 / −3.9 / −9.8 |
+
+Mary vs `origin/main` (seed 304): tricks per team-hand 3.55 vs 3.33, team
+set rate 6.9% vs 10.3%. Danny gains least: his flashy ruffs still spend
+the highest trump by design, so with Mary he reads 48.8% (50.2% before).
+0 illegal plays, 0 exceptions and 0 winnable 4th-seat tricks shed in every
+run.
+
+Each switch off against all on (Mary self-play, 8000 deal sets, seed 105,
+points per game): soft trump-out +0.81 ±0.18, void-needs-trump lead rules
++2.13 ±0.28, opponent-led penalty +1.10 ±0.54, capped boss trump +0.56
+±0.26, shaky = J rather than Q +0.36 ±0.15, lone-HI hold +0.39 ±0.14,
+cash boss off-suit +0.54 ±0.64 (kept: +2.0 ±0.5 on its own in the study).
+Tried and dropped (within noise or negative): ducking a winner the
+opponent behind will ruff, leading low rather than an honor into a ruff,
+holding the HI joker lead once opponents are out of trump, treating
+partner's winner as safe from a void opponent with no trump, a bonus for
+suits partner led, weighting suits by unseen cards, counting a suit with
+no unseen cards as a void, picking the cheapest uncapped trump at 2nd seat
+against a void opponent, low-trump leads from 2 or 4+ trump only or by
+trump ratio.
+
+`bidModel.js` was refit on the new play (three rounds, seeds 901-912).
+Play never sheds a winnable 4th-seat trick (0 in every run). A play
+decision takes about 10 µs (p99 under 0.1 ms).
+
+Repo harness after the change: legacy benchmark (`--exp legacy --games 8000
+--seed 14`) 82.6% / 82.0% (79.5% / 78.2% before); personalities (`--exp
+personalities --games 8000 --seed 51`) sharon+mary 47.7%, danny+mary 49.0%,
+mike+mary 47.2%, zach+mary 46.8% (±1.1).
