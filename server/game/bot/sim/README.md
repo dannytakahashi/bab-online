@@ -231,3 +231,64 @@ hand); danny+zach 51.1% ±0.5, +3.1 ±0.6 (4000, seed 842); sharon+mike
 47.1%, zach+mary 47.6% (±1.1). Zero incidents and exceptions throughout.
 
 Refit recipe unchanged (2-card rows are now included automatically).
+
+## Play leaks (November 2026)
+
+Bidding was settled above; this round is card play. A study of Mary
+self-play (8000 games) forced every alternative legal card at every play
+decision and replayed the hand, then ranked decision types by points
+recoverable. Five rules came out of it, one commit each. Paired duplicate
+deals (each deal set played twice with the seats swapped), mary pair, 8000
+deal sets, seed 424242; "step" is against the previous commit, "branch" is
+against `origin/main` d93b08a:
+
+| Rule | Step | Branch vs main |
+|---|---|---|
+| 2nd seat, void: ruff with the lowest trump | 53.72% ±0.34, +11.87 ±0.58 | 53.72% ±0.34, +11.87 ±0.58 |
+| 3rd seat, void, opponent's plain card winning: ruff low unless the last player is a known void in the suit or fewer than 3 of its cards are unseen | 51.23% ±0.22, +3.47 ±0.34 | 54.93% ±0.38, +15.36 ±0.66 |
+| 3rd seat, void, partner winning with a plain non-boss card Queen or lower: ruff low to secure it | 51.10% ±0.24, +3.31 ±0.38 | 55.96% ±0.41, +18.88 ±0.72 |
+| Lead the highest boss trump below the HI joker while other hands hold trump | 51.24% ±0.26, +3.12 ±0.48 | 56.70% ±0.44, +21.42 ±0.81 |
+| Lead the lowest trump from 4+ trump with no boss among them | 50.14% ±0.22, +0.70 ±0.40 | 56.70% ±0.45, +21.91 ±0.82 |
+
+Held-out seeds for the finished branch: mary 56.63% ±0.44, +22.85 ±0.83
+(8000, seed 606060); danny+zach 57.34% ±0.66, +24.61 ±1.24 (4000, seed
+606061); sharon+mike 56.86% ±0.67, +22.38 ±1.28 (4000, seed 606062). Against
+main the branch pair takes 3.537 tricks per hand to 3.346 and is set on 7.1%
+of team-hands to 9.7%. Legacy benchmark (`--exp legacy --games 8000 --seed
+14`): 79.5% / 78.2% → 83.4% / 82.0%. Zero illegal plays and zero exceptions
+in every run, and in 4th seat no lost trick could have been won with another
+legal card.
+
+Personalities, each pair against its own main version (4000 deal sets, seed
+515151): sharon 56.55% ±0.60, danny 58.45% ±0.69, mike 57.55% ±0.72, zach
+56.94% ±0.64. Danny's flashy ruff used to return before the ruff-height
+rules; left that way he gained only 53.2% and fell to 44.4% against a Mary
+pair (49.2% on main), so his flashy ruff now applies only where the ruff
+still has to be high (48.7% ±0.6 against Mary). `--exp personalities --games
+8000 --seed 51`: sharon+mary 47.3%, danny+mary 49.3%, mike+mary 47.2%,
+zach+mary 48.3% (±1.1).
+
+Tried and not kept:
+
+- **Low trump lead from 3+ trump** (the study's threshold): beat the previous
+  commit head to head (+1.06 ±0.59) but scored about half a point less
+  against main than the previous commit did. 4+ gains on both.
+- **Cash a safe boss off-suit card before leading low** at normal effort:
+  -0.07 ±0.53 and +0.11 ±0.53 against the previous commit (seeds 424242,
+  9003).
+- **2nd seat discards instead of ruffing with a lone HI joker**: +0.4 in the
+  study, inside its noise, and it declines a winnable trick.
+- **Keeping the high 2nd-seat ruff at max effort**: -0.2 ±0.2.
+- **Jack / King / Ace cut-off** for securing partner's winner instead of
+  Queen: -0.03 to -0.07.
+- **Refitting `bidModel.js`** on the new play (three rounds, seeds 901-924):
+  49.59% ±0.35 and 49.43% ±0.35 against the unrefit tables (seeds 424242,
+  9004), and 55.44% against main where the unrefit branch has 56.70%. In
+  self-play total tricks are unchanged, so a refit has little to capture;
+  the old tables stay. Mary self-play calibration (2000 games, seed 605), main →
+  branch: tricks minus bid +0.45 → +0.45, exact 46.3% → 45.7%, team set
+  8.1% → 9.0% (defence takes more of the tricks declarer was counting on).
+
+Decision time for card play is unchanged in kind (table lookups over the
+played-card memory, no search): p50 3 µs, p99 80 µs, measured on a heavily
+loaded machine.

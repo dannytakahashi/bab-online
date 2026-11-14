@@ -148,8 +148,10 @@ Strong play in this game is mostly bookkeeping. Track what's been played (plus t
 Boss status drives almost every follow decision:
 
 - **Opponent winning, players still to act**: play the **cheapest boss winner** if you have one — it wins as surely as your highest card while spending less. With no boss available, fight with your highest non-joker winner. (Pure "lowest card that beats the current winner" — classical whist economy — measured worse here: at +1 per overtrick and -10×bid per set, securing tricks beats saving face cards.)
+- **Ruffing (void in the led suit, opponent winning)**: the "fight high" rule above is for following suit. A ruff can only be beaten by an over-ruff, which takes a later opponent who is void too. Right behind the lead, ruff with your **lowest** trump; third to play, ruff low as well unless the last player is a known void in the suit or the suit is nearly played out (fewer than 3 cards unseen). Ruffing high "to be safe" was the largest single leak in the bots' play: about 13 points a game (November 2026).
 - **Opponent winning, you act last**: the lowest winner *always* holds — never spend more. (Corollary: "protecting" a King when you're last to act is meaningless; nothing plays after you.)
 - **Partner winning**: count before you duck. If players still act and your partner's card can still be beaten — higher cards outstanding, or a known-void opponent who can ruff — overtake with your cheapest boss. If their card is boss, play your lowest and bank the trick. The original bot overtook its partner's winning trump Queen "just in case" even when every higher trump was accounted for; counting ends that.
+- **Partner winning with a small card, you are void**: if their plain-suit card is a Queen or lower and not boss, and an opponent still plays who is not known to be void, ruff with your lowest trump. A discard there hands the trick to anyone holding a higher card of the suit.
 - **A win is vulnerable** when higher cards remain in unknown hands, or (for non-trump winners) when a remaining opponent is known void in the suit. In no-trump, that ruff risk persists exactly until the live joker is accounted for.
 
 ## Card Play: Leading
@@ -170,7 +172,7 @@ Score each suit and lead from the best one:
 
 ### Leading Trump
 
-Generally avoid leading trump (other than HI joker) — it drains your partner's trump along with the opponents'. Save trump for ruffing. Exception: in sweep mode (bores, must-win-out), lead boss trump from the top to strip the field; a borer who leads *low* trump to "feel things out" is busting their own bore — lead strength or don't bore.
+Generally avoid leading trump (other than HI joker) — it drains your partner's trump along with the opponents'. Save trump for ruffing. Two measured exceptions (November 2026): a **boss trump below the HI joker** (the LO joker behind your own HI, or the top outstanding trump once the jokers are gone) should be led while other hands still hold trump, ahead of HI itself: it wins, pulls a round, and HI keeps its forcing power for later. And with **four or more trump and no boss among them**, lead your lowest trump rather than open a plain suit for the opponents to ruff. Also: in sweep mode (bores, must-win-out), lead boss trump from the top to strip the field; a borer who leads *low* trump to "feel things out" is busting their own bore — lead strength or don't bore.
 
 ## Discarding
 
