@@ -9,7 +9,8 @@
  * before. Restoring again on the parked socket takes the session back.
  *
  * Stub io/sockets on the in-memory DB fake, plus one real Socket.IO server
- * for the packet gate (and a 1.1.0 iOS User-Agent: no error, no loop).
+ * for the packet gate (and a current iOS User-Agent, 1.2.0 build 5: no error,
+ * no loop; 1.1.0's build 2 is upgrade-gated since MIN_IOS_BUILD 3).
  */
 
 const http = require('http');
@@ -400,11 +401,12 @@ describe('the packet gate (supersededGate)', () => {
     });
 });
 
-describe('over a real Socket.IO server (web tabs and the 1.1.0 iOS User-Agent)', () => {
+describe('over a real Socket.IO server (web tabs and the iOS User-Agent)', () => {
     const { Server } = require('socket.io');
     const ioClient = require('socket.io-client');
     const { setupSocketHandlers } = require('../index');
-    const UA_110 = 'BAB%20Online/2 CFNetwork/3896.200.61 Darwin/27.2.0';
+    // 1.2.0 build 5 (an older build would meet the upgrade gate instead)
+    const UA_IOS = 'BAB%20Online/5 CFNetwork/3896.200.61 Darwin/27.2.0';
     let httpServer;
     let io;
     let url;
@@ -452,7 +454,7 @@ describe('over a real Socket.IO server (web tabs and the 1.1.0 iOS User-Agent)',
         expect((await reply).success).toBe(true);
     }
 
-    test.each([['a web tab', null], ['the 1.1.0 iOS app', UA_110]])('%s superseded by a web tab: one notice, refusals instead of errors, no loop', async (_l, ua) => {
+    test.each([['a web tab', null], ['the iOS app', UA_IOS]])('%s superseded by a web tab: one notice, refusals instead of errors, no loop', async (_l, ua) => {
         const name = `real${++seq}`;
         const token = addUser(name);
         const first = connect(ua);
@@ -465,7 +467,7 @@ describe('over a real Socket.IO server (web tabs and the 1.1.0 iOS User-Agent)',
         await restored(second, name, token);
         expect(await notice).toEqual({ reason: 'newerConnection' });
 
-        // what a dead tab (or 1.1.0, which has no handler) keeps sending
+        // what a dead tab (or an iOS build, which has no handler) keeps sending
         for (let i = 0; i < 5; i++) {
             first.emit('joinMainRoom');
             first.emit('requestSnapshot', { requestId: `ping-${i}` });

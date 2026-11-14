@@ -1,33 +1,41 @@
 /**
- * Update screen for the old App Store iOS build (1.0.0 build 1, source
- * cc9059f). Owner decision 2026-11-11: 1.1.0 (build 2) is live, and all a
- * 1.0.0 player should see is "please update the app", while the app keeps
- * its saved session so the update finds the player signed in.
+ * Update screen for the old App Store iOS builds: 1.0.0 (build 1, source
+ * cc9059f; gated since 2026-11-11) and 1.1.0 (build 2, source f05d264;
+ * gated once 1.2.0 is live: owner decision, MIN_IOS_BUILD 3). All a player
+ * on an old build should see is "please update the app", while the app
+ * keeps its saved session so the update finds the player signed in.
  *
- * Detection: positive identification only, fail open. Both iOS builds open
+ * Detection: positive identification only, fail open. Every iOS build opens
  * with HTTP long-polling through URLSession (Socket.IO-Client-Swift
  * `.forceWebsockets(false)`), whose default User-Agent is
  * `<CFBundleName>/<CFBundleVersion> CFNetwork/<v> Darwin/<v>`. Captured from
  * simulator builds of cc9059f and f05d264 (2026-11-11):
  *   1.0.0  "BAB%20Online/1 CFNetwork/3896.200.61 Darwin/27.2.0"
  *   1.1.0  "BAB%20Online/2 CFNetwork/3896.200.61 Darwin/27.2.0"
+ *   1.2.0  "BAB%20Online/5 ..." (build 3 was uploaded, never submitted;
+ *          build 4 was pulled from review)
  * The websocket upgrade request (Starscream) carries no User-Agent, but
  * socket.handshake keeps the polling handshake's headers for the socket's
  * life. A socket is gated only when that header parses as the iOS app with a
  * build number below MIN_IOS_BUILD; a browser, a missing or unparseable
- * header, and build 2 or later are never gated. `clientHello` cannot be the
- * signal: 1.1.0 never sends it.
+ * header, and build 3 or later are never gated. `clientHello` cannot be the
+ * signal: 1.0.0 and 1.1.0 never send it.
  *
- * What the 1.0.0 app does with what it gets (cc9059f AuthSocketHandler.swift):
+ * What both old builds do with what they get (AuthSocketHandler.swift at
+ * cc9059f and f05d264; the handlers below read the same keys in both):
  *   restoreSessionResponse {success:false}  CLEARS its saved token. Never sent.
  *   signInResponse {success:false, message} sets authState.error, which
  *       SignInView (and RegisterView) shows in red; credentials untouched.
  *       A plain socket.on, so an unrequested one is shown too.
  *   signUpResponse {success:false, message} the same on RegisterView.
- *   mainRoomJoined                            replaces the main room's chat,
+ *   mainRoomJoined                            replaces the main room's chat
+ *       (1.0.0 reads recentMessages, 1.1.0 recentMessages ?? messages),
  *       lobbies, games and tournaments (no navigation).
- *   leftGame / leftLobby / tournamentLeft     navigate to the main room.
- *   app-level `error`                         never shown by this build.
+ *   leftGame / leftLobby / tournamentLeft     navigate to the main room
+ *       (1.1.0 also sends joinMainRoom after leftGame / tournamentLeft, and
+ *       MainRoomView.onAppear sends it; a leftGame inside a tournament game
+ *       sends returnToTournament, which gets tournamentLeft).
+ *   app-level `error`                         never sent (1.1.0 would toast it).
  * So a gated socket gets the update message on every screen it can be on:
  *   - sign-in / register (every cold start: SplashView 1.5 s, then SignInView;
  *     both SignInView.onAppear and RegisterView.onAppear clear
@@ -43,19 +51,33 @@
  *     gets leftGame, a lobby's Leave gets leftLobby, a tournament's leave /
  *     return gets tournamentLeft, so every way out lands in that main room.
  *     (No game-log copy: gameLogEntry is a room broadcast that carries seq.)
+ *   - the draw (warm reconnect while "Draw for Deal" is up): 1.1.0's Leave
+ *     cannot be reached during the draw (found in the 2026-11-12 live check;
+ *     f05d264 GameContainerView). On a phone the corner Leave stays ENABLED
+ *     but DrawPhaseView's full-screen `Color.black.opacity(0.7)` overlay sits
+ *     above tablePane in gameContent's ZStack and takes every tap; on the
+ *     Duo's vertical bar `leaveBarButton` is `.disabled(gameState.phase ==
+ *     .draw)`. So do not audit this by searching for `.disabled`: what makes
+ *     Leave unreachable on most devices is the overlay. Tap to Draw (`draw`)
+ *     is the only way out and gets leftGame too (both builds send `draw`
+ *     only from DrawPhaseView). A player who had
+ *     already drawn before the deploy has no button left: force-quitting
+ *     lands on sign-in with the message.
  * Nothing else is registered for a gated socket (setupSocketHandlers returns
  * before its handlers), so every other event is ignored: it never signs in,
  * is never registered as online, never joins a room, never touches a game,
  * lobby or tournament. Every emit is rate limited per socket.
  *
  * "You'll stay signed in": sessions expire SESSION_TTL_MS after lastUsedAt
- * (utils/sessionTokens.js), and before the gate every 1.0.0 launch refreshed
- * it through restoreSession. So the first restoreSession of a gated socket
- * does the one database touch the gate makes: it reads the user's sessions
- * and, for a token verifySession accepts, moves that one entry's lastUsedAt
- * to now (an atomic arrayFilters $set; nothing else on the user changes: no
- * socketId, no registerUser, no restoreSessionResponse). A player who keeps
- * opening 1.0.0 therefore keeps the session 1.1.0 restores. A token that is
+ * (utils/sessionTokens.js), and before the gate every launch of an old build
+ * refreshed it through restoreSession. So the first restoreSession of a gated
+ * socket does the one database touch the gate makes: it reads the user's
+ * sessions and, for a token verifySession accepts, moves that one entry's
+ * lastUsedAt to now (an atomic arrayFilters $set; nothing else on the user
+ * changes: no socketId, no registerUser, no restoreSessionResponse). A player
+ * who keeps opening an old build therefore keeps the session the update
+ * restores (every build keeps it in the Keychain service com.bab-online.auth
+ * under the same accounts). A token that is
  * not accepted (expired, evicted by MAX_SESSIONS, a merged account) gets the
  * signed-out message from then on. A database error changes nothing.
  *
@@ -73,8 +95,12 @@ const { verifySession } = require('../utils/sessionTokens');
 // The kill switch, shared with server/game/pacing.js (the solo overlay)
 const { gateEnabled } = require('../utils/upgradeGateSwitch');
 
-/** First iOS build number that is never gated (1.1.0 is build 2). */
-const MIN_IOS_BUILD = 2;
+/**
+ * First iOS build number that is never gated: 1.0.0 (1) and 1.1.0 (2) are,
+ * 1.2.0 (5; 3 was never submitted, 4 was pulled from review) and later
+ * are not.
+ */
+const MIN_IOS_BUILD = 3;
 
 // Short: SignInView shows it as a caption that truncates once the keyboard
 // is up (measured: about 2 lines at 375 pt wide), and as one main-room chat line
@@ -223,6 +249,9 @@ function attach(socket, app) {
     socket.on('chatMessage', (data) => {
         if (typeof data?.message === 'string' && data.message.trim().toLowerCase() === '/leave') replyLeave('leftGame');
     });
+    // Tap to Draw: the only control a stale draw screen leaves (1.1.0's Leave
+    // is covered by the draw overlay on phones, disabled on the Duo's bar)
+    socket.on('draw', () => replyLeave('leftGame'));
     socket.on('leaveLobby', () => replyLeave('leftLobby'));
     socket.on('leaveTournament', () => replyLeave('tournamentLeft'));
     socket.on('returnToTournament', () => replyLeave('tournamentLeft'));
