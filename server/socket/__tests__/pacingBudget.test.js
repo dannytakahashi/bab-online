@@ -29,15 +29,19 @@ const AMBIENT_SEEDS = [21, 22];
 // Recorded at commit 1 of the pacing change with df59149's values (the
 // legacy profile): 594.6 s mean over SEEDS. Re-measured at 593.4 s after the
 // expected-value bidding change (2026-11-14): no delay changed, but the bots'
-// bids (redeals, contract-driven play) move the game's event count a little
-const BASELINE_MS = 593400;
+// bids (redeals, contract-driven play) move the game's event count a little;
+// 592.7 s after the EV follow-ups (2-card EV bidding: fewer all-zero redeals)
+const BASELINE_MS = 592700;
 
-// Standard profile, mean seconds per component over SEEDS (pinned +-5%)
+// Standard profile, mean seconds per component over SEEDS (pinned +-5%).
+// botBid:firstBid / botPlay:afterBidding repinned after the 2026-11-14 EV
+// follow-ups (11.5 / 8.4 before): fewer redeals, so fewer first bids and
+// fewer post-bidding leads; no delay changed
 const STANDARD_S = {
     'botBid:bid': 23.0,
-    'botBid:firstBid': 11.5,
+    'botBid:firstBid': 10.8,
     botDraw: 2.0,
-    'botPlay:afterBidding': 8.4,
+    'botPlay:afterBidding': 7.8,
     'botPlay:afterTrick': 47.2,
     'botPlay:follow': 95.1,
     'botPlay:forced': 11.7,
@@ -79,8 +83,8 @@ const SOLO_PROFILE = { ...pacing.PROFILES.standard, ...pacing.SOLO };
 const SOLO_TOTAL_S = 288.0;
 const SOLO_S = {
     ...STANDARD_S,
-    'botBid:firstBid': 8.4,
-    'botPlay:afterBidding': 5.4,
+    'botBid:firstBid': 7.9,
+    'botPlay:afterBidding': 5.0,
     'botPlay:afterTrick': 35.4,
     handEnd: 6.0,
     trickView: 91.0,

@@ -15,7 +15,7 @@ const {
     determineWinner
 } = require('../rules');
 const { getBidStyle, getPlayStyle } = require('./personalities');
-const { OWN_TRICKS, PARTNER_OVER, TEAM_SD, SECOND_BID_PMF } = require('./bidModel');
+const { OWN_TRICKS, PARTNER_OVER, TEAM_SD, TEAM_SD_NO_TRUMP, SECOND_BID_PMF } = require('./bidModel');
 
 // --- Hand progression for determining game phase ---
 const HAND_PROGRESSION = [12, 10, 8, 6, 4, 2, 1, 3, 5, 7, 9, 11, 13];
@@ -803,7 +803,7 @@ function decideBore(hand, trump, handSize, evaluation, existingBids, position, t
 // lands on exactly B: the optimum still usually wins more than it bids, but by
 // a margin set by the hand's actual uncertainty, not by a fixed rounding rule.
 
-const EV_MIN_HAND_SIZE = 3;
+const EV_MIN_HAND_SIZE = 2;
 
 /**
  * Bid-selection knobs (sim-tuned; see sim/README.md). Tolerances are in
@@ -818,6 +818,7 @@ const EV_TUNING = {
 };
 
 function bidModelGroup(handSize) {
+    if (handSize <= 2) return 'XS';
     if (handSize <= 4) return 'S';
     if (handSize <= 7) return 'M';
     if (handSize <= 10) return 'L';
@@ -907,10 +908,11 @@ function contractScore(teamBid, tricks) {
  * @param {number|null} partnerBid - partner's numeric bid, or null if partner bids after us
  * @param {number} partnerOver - expected (partner tricks - partner bid)
  * @param {boolean} zeroRedeals - an all-zero table redeals, so our 0 is worth 0
+ * @param {boolean} noTrump - a joker was flipped: team tricks spread wider
  */
-function bidExpectedValues(ownMean, handSize, partnerBid, partnerOver, zeroRedeals = false) {
+function bidExpectedValues(ownMean, handSize, partnerBid, partnerOver, zeroRedeals = false, noTrump = false) {
     const weBidFirst = partnerBid === null;
-    const sd = TEAM_SD[handSize][weBidFirst ? 'first' : 'second'];
+    const sd = noTrump ? TEAM_SD_NO_TRUMP[handSize] : TEAM_SD[handSize][weBidFirst ? 'first' : 'second'];
     // Bidding second we know the partner's bid; bidding first we average over
     // what a second-of-team partner typically adds
     const scenarios = weBidFirst
@@ -1015,7 +1017,20 @@ function calculateOptimalBid(hand, trump, position, existingBids, handSize, memo
     });
     if (boreBid) return boreBid;
 
-    // --- EXPECTED-VALUE BIDDING (3+ cards, no bore on the table) ---
+    // Certain winners (top jokers / trump in an unbroken run from the HI
+    // joker) are never underbid. The fitted per-card values average the LO
+    // joker / trump A over hands that lack the cards above them, so EV bid one
+    // under a lock on ~0.03% of 3+ card hands (both jokers on 3 cards, first
+    // to bid: 1). Bidding first, the floor is our own bid (partner then bids
+    // on top of an honest number). Partner already bid: the floor is the TEAM
+    // bid, because partner's winners can fall on the same trick as ours
+    // (raising our own bid there lost points on 2-card hands, where the old
+    // rules trim us under a partner's bid on purpose). Applied before the
+    // team cap; hands with a bore out keep their rules.
+    const lockedFloor = highestBore ? 0
+        : Math.max(0, countLockedWinners(hand, trump) - (partnerBidValue || 0));
+
+    // --- EXPECTED-VALUE BIDDING (2+ cards, no bore on the table) ---
     if (handSize >= EV_MIN_HAND_SIZE && !highestBore) {
         const ownMean = estimateOwnTricks(hand, trump, handSize, opponentTotalBid, opponentBidCount);
         let partnerOver = PARTNER_OVER[handSize][partnerBidValue === null ? 'second' : 'first'];
@@ -1028,17 +1043,18 @@ function calculateOptimalBid(hand, trump, position, existingBids, handSize, memo
         }
         // Last to bid over three zeros: our 0 redeals the hand
         const zeroRedeals = partnerBidValue === 0 && opponentBidCount === 2 && opponentTotalBid === 0;
-        const evs = bidExpectedValues(ownMean, handSize, partnerBidValue, partnerOver, zeroRedeals);
+        const evs = bidExpectedValues(ownMean, handSize, partnerBidValue, partnerOver, zeroRedeals, noTrump);
 
         // Late game: behind, take the highest near-best bid (variance is
         // worth points); ahead, the lowest
         let bid = pickBidFromEV(evs, riskAdjustment, EV_TUNING.riskTolerance);
         bid = applyBidModifier(bid, personality, evaluation, handSize, partnerHistory, evs);
+        bid = Math.max(bid, lockedFloor);
         if (partnerBidValue !== null) bid = Math.min(bid, Math.max(0, handSize - partnerBidValue));
         return String(Math.max(0, Math.min(bid, handSize)));
     }
 
-    // --- NORMAL BIDDING (1-2 card hands, and any hand with a bore out) ---
+    // --- RULE-BASED BIDDING (1-card hands, and any hand with a bore out) ---
 
     // Conservative rounding: floor instead of round. The set penalty
     // (-10/trick) dwarfs the overtrick payoff (+1/trick); sim-tested against
@@ -1138,6 +1154,7 @@ function calculateOptimalBid(hand, trump, position, existingBids, handSize, memo
 
     // Apply personality-specific bid modifier
     bid = applyBidModifier(bid, personality, evaluation, handSize, partnerHistory);
+    bid = Math.max(bid, lockedFloor);
 
     // Personality adjustments must still respect the combined-bid cap — a
     // team bid above hand size is unmakeable — and the opponent-bore cap
@@ -1159,7 +1176,7 @@ function calculateOptimalBid(hand, trump, position, existingBids, handSize, memo
  * @param {Object} evaluation - Hand evaluation from evaluateHand()
  * @param {number} handSize - Cards per player
  * @param {Array} partnerHistory - Zach's partner tracking [{ bid, tricks }]
- * @param {Array|null} evs - Expected score per bid (EV bidding, 3+ cards). When
+ * @param {Array|null} evs - Expected score per bid (EV bidding, 2+ cards). When
  *   given, Sharon and Danny lean along the EV curve instead of the
  *   trick-fraction rules below, and Zach's adjustment is already in the curve.
  * @returns {number} - Modified bid
