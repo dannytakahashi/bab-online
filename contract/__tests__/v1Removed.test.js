@@ -88,9 +88,10 @@ describe('#6 gameStart.players (seat socket ids)', () => {
         expect(gameStart).not.toMatch(/\bplayers\b/);
     });
 
-    test('the seat ids a client may still need stay on positionUpdate (sockets, usernames[].socketId; #14)', () => {
+    test('the seat ids a client may still need stay on positionUpdate (sockets; usernames[].socketId went with #14, isBot[] came)', () => {
         const pu = schema.s2c.positionUpdate.payload;
         expect(pu.properties.sockets).toBeDefined();
-        expect(pu.properties.usernames.items.properties.socketId).toBeDefined();
+        expect(pu.properties.usernames.items.properties.socketId).toBeUndefined();
+        expect(pu.properties.isBot).toBeDefined();
     });
 });

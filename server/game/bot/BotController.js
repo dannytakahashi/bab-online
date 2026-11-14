@@ -227,12 +227,7 @@ class BotController {
         });
 
         // Broadcast to all players
-        game.broadcast(io, 'playerDrew', {
-            username: bot.username,
-            card,
-            drawOrder,
-            socketId: bot.socketId
-        });
+        game.broadcast(io, 'playerDrew', { username: bot.username, card, drawOrder });
 
         // Check if all players have drawn - trigger draw completion
         if (game.drawIndex === 4) {

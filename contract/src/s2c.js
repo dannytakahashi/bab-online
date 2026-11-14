@@ -131,9 +131,9 @@ const seatNotice = obj({ position: ref('position'), username: str() });
 // The snapshot carriers (rejoinSuccess, restorePlayerState, the spectator
 // full state) since V1_REMOVALS #9 (2026-11-12): {snapshot} plus only the v1
 // keys a client still reads (server/socket/snapshotHandlers.js carrierFor).
-// players[] (position, username, pic, socketId): iOS 1.2.0 reads pic (R5:
-// the carrier snapshot withholds custom pictures) and socketId (voice glow
-// fallback), web lets it win for names / pictures. gameId (and isLazy on
+// players[] (position, username, pic): iOS 1.2.0 reads pic (R5: the
+// carrier snapshot withholds custom pictures), web lets it win for names /
+// pictures; its socketId (an iOS voice glow fallback) went with #14. gameId (and isLazy on
 // rejoinSuccess, trump on the spectator state): what a web page from before
 // #233 routes on. avatarUrls: iOS 1.2.0's hints. tournamentId: rejoinSuccess.
 const CARRIER_PROPS = {
@@ -344,9 +344,10 @@ const s2c = {
         notes: 'The watchdog variant goes through game.sendToPlayer (io.to(socketId)).',
     },
     playerDrew: {
-        payload: obj({ username: str(), card: ref('card'), drawOrder: int({ minimum: 1, maximum: 4 }), socketId: str() }),
+        payload: obj({ username: str(), card: ref('card'), drawOrder: int({ minimum: 1, maximum: 4 }) }),
         status: 'active', to: 'room', seq: false,
         reserved: [{ key: 'cardIndex', why: 'iOS DrawResult reads cardIndex (defaults to 0 today)' }],
+        notes: 'No socketId since 2026-11-12 (V1_REMOVALS #14): read by neither web nor iOS 1.2.0 (WirePayloads.PlayerDrew has no such field).',
         clientReads: reads(W.game, I.game('registerSetupPhase')),
         emittedFrom: ['server/socket/gameHandlers.js:draw', 'server/socket/gameHandlers.js:autoDraw', 'server/game/bot/BotController.js:processBotDraw'],
     },
@@ -368,13 +369,14 @@ const s2c = {
         payload: obj({
             positions: arr(ref('position'), { maxItems: 4 }),
             sockets: arr(str(), { maxItems: 4 }),
-            usernames: arr(obj({ username: str(), socketId: str() }), { maxItems: 4 }),
+            usernames: arr(obj({ username: str() }), { maxItems: 4 }),
             pics: arr(ref('pic'), { maxItems: 4 }),
             avatarUrls: ref('avatarUrlsByPosition'),
+            isBot: arr(bool(), { maxItems: 4, description: 'Per seat, in positions order: a native bot (its seat socket id starts with bot:)' }),
         }, { optional: ['avatarUrls'] }),
         status: 'active', to: 'room', seq: false,
-        added: ['avatarUrls'],
-        notes: 'pics: the legacy value for every recipient (one room broadcast): number, null, or for a custom picture the small derived inline WebP data URL (docs/avatars.md). avatarUrls (additive, only when a rendition exists): {position: /avatar URL}, preferred by capable clients; the shipped iOS app and old web ignore it.',
+        added: ['avatarUrls', 'isBot'],
+        notes: 'pics: the legacy value for every recipient (one room broadcast): number, null, or for a custom picture the small derived inline WebP data URL (docs/avatars.md). avatarUrls (additive, only when a rendition exists): {position: /avatar URL}, preferred by capable clients; the shipped iOS app and old web ignore it. V1_REMOVALS #14 (2026-11-12): usernames[] has no socketId (read by neither client); isBot (additive) is the bot: prefix of each seat socket id as a flag; iOS 1.2.0 build 5 reads it first (TableReducer.positionUpdate) and web ignores it. sockets stays for now: build 5 reads it only as fallbacks (the prefix when isBot is absent or short, my seat before the username, the voice glow after the username), web only after yourPosition / the username, and the never-shipped TestFlight builds 3-4 tell a bot only by the prefix (V1_REMOVALS #14).',
         reserved: [{ key: 'yourPosition', why: 'iOS reads yourPosition as the viewer seat' }],
         clientReads: reads(W.game, I.game('registerSetupPhase')),
         emittedFrom: ['server/socket/gameHandlers.js:handleDrawComplete'],

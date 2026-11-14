@@ -247,16 +247,12 @@
         },
         "pic": {
           "$ref": "#/$defs/pic"
-        },
-        "socketId": {
-          "type": "string"
         }
       },
       "required": [
         "position",
         "username",
-        "pic",
-        "socketId"
+        "pic"
       ],
       "additionalProperties": false
     },
@@ -3257,16 +3253,12 @@
             "type": "integer",
             "minimum": 1,
             "maximum": 4
-          },
-          "socketId": {
-            "type": "string"
           }
         },
         "required": [
           "username",
           "card",
-          "drawOrder",
-          "socketId"
+          "drawOrder"
         ],
         "additionalProperties": false
       },
@@ -3360,14 +3352,10 @@
               "properties": {
                 "username": {
                   "type": "string"
-                },
-                "socketId": {
-                  "type": "string"
                 }
               },
               "required": [
-                "username",
-                "socketId"
+                "username"
               ],
               "additionalProperties": false
             },

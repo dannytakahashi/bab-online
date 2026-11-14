@@ -769,7 +769,7 @@ describe('R13/R14 draw watchdog (srv-2)', () => {
         const mine = d.log.filter((l) => l.to === `self:${d.ids[0]}` || l.to === d.ids[0]).filter((l) => l.event === 'youDrew');
         expect(mine).toHaveLength(1);
         expect(mine[0].data).toEqual({ card: expect.any(Object), drawOrder: 4 });
-        expect(events(d.log, 'playerDrew').filter((l) => l.data.socketId === d.ids[0])).toHaveLength(1);
+        expect(events(d.log, 'playerDrew').filter((l) => l.data.username === gameManager.getUserBySocketId(d.ids[0]).username)).toHaveLength(1);
         await jest.advanceTimersByTimeAsync(7000);
         await Promise.all(pending);
         expect(d.game.stage).toBe(Phase.BIDDING);

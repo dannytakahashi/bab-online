@@ -20,7 +20,10 @@
  *               state carry only {snapshot} (and rejoinSuccess's
  *               tournamentId, kept while web reads it)
  *   #14         no socket ids in positionUpdate (`sockets`,
- *               `usernames[].socketId`) or playerDrew (`socketId`)
+ *               `usernames[].socketId`) or playerDrew (`socketId`); the
+ *               server keeps `sockets` for now (done 2026-11-12; iOS 1.2.0
+ *               build 5 reads isBot[] first, V1_REMOVALS #14),
+ *               dropped here too to show the web needs none of them
  *
  * Not applied, because the web still needs it: the lobby players' socketId
  * (removeBot), and the voice signaling's own socket ids (voiceOffer

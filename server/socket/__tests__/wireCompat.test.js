@@ -132,6 +132,17 @@ function legacyRejoinSuccess(game, sid, wire) {
     return state;
 }
 
+/**
+ * A cc865b4 value with the executed contract/V1_REMOVALS.md entries applied
+ * (one line each, naming its entry); every other byte must still match.
+ * rejoinSuccess / restorePlayerState compare against today's getClientState,
+ * which already has them.
+ */
+function afterV1Removals(state) {
+    // #14: the legacy players[] carry no socketId
+    return { ...state, players: state.players.map(({ socketId, ...rest }) => rest) };
+}
+
 // ---------- the hook ----------
 
 const json = (v) => JSON.parse(JSON.stringify(v));
@@ -172,7 +183,7 @@ function watchLegacy() {
         switch (entry.event) {
             case 'spectatorJoined': {
                 if (!self || !wire.players) return; // the room notice is unchanged apart from seq (C12)
-                compare('spectatorFullState', 'spectatorJoined', wire, legacySpectatorState(gameManager.getGameById(wire.gameId)));
+                compare('spectatorFullState', 'spectatorJoined', wire, afterV1Removals(legacySpectatorState(gameManager.getGameById(wire.gameId))));
                 return;
             }
             case 'doneBidding':

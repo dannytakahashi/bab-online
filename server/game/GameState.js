@@ -976,7 +976,7 @@ class GameState {
     getClientState(socketId) {
         const position = this.seatBySocket(socketId);
 
-        // Build player info array
+        // Build player info array (no socket ids: V1_REMOVALS #14)
         const playerInfo = [];
         for (let pos = 1; pos <= 4; pos++) {
             const player = this.getPlayerByPosition(pos);
@@ -984,8 +984,7 @@ class GameState {
                 playerInfo.push({
                     position: pos,
                     username: player.username,
-                    pic: player.pic,
-                    socketId: player.socketId
+                    pic: player.pic
                 });
             }
         }
