@@ -137,8 +137,10 @@ describe('default / invalid payloads give today\'s exact reply', () => {
     test('records: no payload equals {} and an unknown payload; only human games, today\'s projection', async () => {
         const find = jest.spyOn(mockDb.current.gameRecords, 'find');
         const base = await records(undefined);
-        expect(Object.keys(base)).toEqual(['success', 'records', 'totalGames']);
+        // today's keys in today's order, then periodGames (additive 2026-11-14)
+        expect(Object.keys(base)).toEqual(['success', 'records', 'totalGames', 'periodGames']);
         expect(base.totalGames).toBe(1);
+        expect(base.periodGames).toEqual({ allTime: 1, thisYear: 1, thisMonth: 1 });
         expect(base.records.allTime.highestScore).toEqual({ score: 310, players: ['Ann', 'Dan'] });
         expect(find).toHaveBeenCalledTimes(3);
         for (const [filter, opts] of find.mock.calls) {
@@ -209,6 +211,42 @@ describe('bots and all scopes', () => {
         const human = await records({ scope: 'human' });
         expect(human.totalGames).toBe(1);
         expect(human.records.allTime.highestScore.score).toBe(310);
+    });
+
+    test('periodGames: each period\'s game count per scope, the records\' filter and boundaries; allTime = totalGames', async () => {
+        // 2026-11-14 noon: this month from Nov 1 00:00, this year from Jan 1 00:00 (server local)
+        jest.useFakeTimers({ now: new Date(2026, 10, 14, 12, 0, 0), doNotFake: ['setImmediate', 'nextTick'] });
+        const at = (...a) => new Date(...a);
+        const g = (gameId, completedAt, withBots) => ({ gameId, ...(withBots ? { withBots: true, team1Bots: ['🤖 Mary'], team2Bots: [] } : {}), team1Score: 200, team2Score: 100, team1Players: ['Ann', 'Ben'], team2Players: withBots ? ['Cat'] : ['Cat', 'Dan'], team1Bags: 1, team2Bags: 2, completedAt });
+        mockDb.current.gameRecords.docs.length = 0;
+        mockDb.current.gameRecords.docs.push(
+            // human: 2 last year, 3 earlier this year (one on Jan 1 00:00 exactly), 2 this month (one on Nov 1 00:00 exactly)
+            g('h-ly1', at(2025, 5, 1)), g('h-ly2', at(2025, 11, 31, 23, 59, 59)),
+            g('h-y1', at(2026, 0, 1, 0, 0, 0)), g('h-y2', at(2026, 4, 3)), g('h-y3', at(2026, 9, 31, 23, 59, 59)),
+            g('h-m1', at(2026, 10, 1, 0, 0, 0)), g('h-m2', at(2026, 10, 13)),
+            // bots: 1 last year, 1 this year, 1 this month
+            g('b-ly', at(2025, 2, 1), true), g('b-y', at(2026, 1, 1), true), g('b-m', at(2026, 10, 2), true),
+            // legacy: no completedAt counts in all time only
+            g('h-legacy', undefined)
+        );
+        const human = await records({});
+        expect(human.periodGames).toEqual({ allTime: 8, thisYear: 5, thisMonth: 2 });
+        expect(human.totalGames).toBe(8);
+        const bots = await records({ scope: 'bots' });
+        expect(bots.periodGames).toEqual({ allTime: 3, thisYear: 2, thisMonth: 1 });
+        expect(bots.totalGames).toBe(3);
+        const all = await records({ scope: 'all' });
+        expect(all.periodGames).toEqual({ allTime: 11, thisYear: 7, thisMonth: 3 });
+        expect(all.totalGames).toBe(11);
+        // the counts come from the same cached fill (no extra query) and a period without games is 0
+        const find = jest.spyOn(mockDb.current.gameRecords, 'find');
+        const count = jest.spyOn(mockDb.current.gameRecords, 'countDocuments');
+        expect((await records({ scope: 'bots' })).periodGames).toEqual(bots.periodGames);
+        expect(find).not.toHaveBeenCalled();
+        expect(count).not.toHaveBeenCalled();
+        mockDb.current.gameRecords.docs.length = 0;
+        profile.invalidateRecords();
+        expect(await records({ scope: 'all' })).toMatchObject({ totalGames: 0, periodGames: { allTime: 0, thisYear: 0, thisMonth: 0 }, records: { allTime: null, thisYear: null, thisMonth: null } });
     });
 
     test('profile and player profile: bots = botStats (12 keys), all = the sum; Joi keeps scope for getPlayerProfile', async () => {

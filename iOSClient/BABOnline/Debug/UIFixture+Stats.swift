@@ -6,7 +6,9 @@ import Foundation
 /// (LeaderboardState / RecordsState `apply`). `-uiStats` picks the answers:
 /// `ok` (the default), `empty` (no players, no games), `error` (Database error),
 /// `rateLimited` (the soft limit's reply), `silent` (never answers: the 10 s timeout),
-/// `refreshFail` (the first answer of each tab ok, every later one an error).
+/// `refreshFail` (the first answer of each tab ok, every later one an error),
+/// `noPeriodGames` (the `ok` answers as a server from before periodGames sends them: the
+/// all-time totalGames only).
 /// Human games are answered as today's server does (no `scope` echo); Bots and All as the
 /// scoped server does (`scope` echoed; bot games' records carry `withBots`). The saved scope
 /// starts at Humans in fixture mode unless `-uiStatsKeepScope YES` (the persistence test).
@@ -51,7 +53,11 @@ extension UIFixture {
         case "refreshFail" where attempt > 1: return ["success": false, "message": "Database error"]
         case "empty":
             reply = leaderboard ? ["success": true, "leaderboard": [Any]()]
-                : ["success": true, "records": ["allTime": NSNull(), "thisYear": NSNull(), "thisMonth": NSNull()], "totalGames": 0]
+                : ["success": true, "records": ["allTime": NSNull(), "thisYear": NSNull(), "thisMonth": NSNull()], "totalGames": 0,
+                   "periodGames": ["allTime": 0, "thisYear": 0, "thisMonth": 0]]
+        case "noPeriodGames" where !leaderboard:
+            reply = scope == .human ? recordsFixture : scope == .bots ? botsRecordsFixture : allRecordsFixture
+            reply.removeValue(forKey: "periodGames")
         default:
             switch scope {
             case .human: reply = leaderboard ? leaderboardFixture : recordsFixture
@@ -96,12 +102,18 @@ extension UIFixture {
             "mostBags": ["bags": 9, "players": ["kim", "🤖 Bo"], "withBots": true],
             "leastBags": ["bags": 1, "players": ["ora", "🤖 Mary"], "withBots": true],
         ]
-        return ["success": true, "totalGames": 6, "records": ["allTime": month, "thisYear": month, "thisMonth": month]]
+        return ["success": true, "totalGames": 6, "periodGames": ["allTime": 6, "thisYear": 6, "thisMonth": 6],
+                "records": ["allTime": month, "thisYear": month, "thisMonth": month]]
     }()
 
+    /// Human and bot games: the human records with the six bot games added (all this month).
     static let allRecordsFixture: [String: Any] = {
         var reply = recordsFixture
         reply["totalGames"] = 1240
+        reply["periodGames"] = ["allTime": 1240, "thisYear": 323, "thisMonth": 6]
+        var records = reply["records"] as? [String: Any] ?? [:]
+        records["thisMonth"] = (botsRecordsFixture["records"] as? [String: Any])?["thisMonth"]
+        reply["records"] = records
         return reply
     }()
 
@@ -137,10 +149,12 @@ extension UIFixture {
         ]
     }()
 
-    /// All three periods: This Year from legacy games (no bag records), This Month empty.
+    /// All three periods: This Year from legacy games (no bag records), This Month empty; each
+    /// period's count (periodGames) differs, as the owner expects when switching periods.
     static let recordsFixture: [String: Any] = [
         "success": true,
         "totalGames": 1234,
+        "periodGames": ["allTime": 1234, "thisYear": 317, "thisMonth": 0],
         "records": [
             "allTime": [
                 "highestScore": ["score": 610, "players": ["kim", "ora"]],

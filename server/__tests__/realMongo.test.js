@@ -315,11 +315,18 @@ describe('real mongod', () => {
         const a = sock();
         const b = sock();
         await ref.getRecords(a, io);
+        // the 3db87b1 reply predates periodGames: only the reference's emit is
+        // dropped from the contract guard, ours is checked
+        require('../testUtils/contractCheck').takeViolations();
         await profile.getRecords(b, io);
         const before = log.filter(l => l.to === `self:${a.id}`).pop().data;
         const after = log.filter(l => l.to === `self:${b.id}`).pop().data;
-        expect(after).toEqual(before);
+        // the 3db87b1 reply plus periodGames (additive 2026-11-14)
+        const { periodGames, ...rest } = after;
+        expect(rest).toEqual(before);
         expect(after.totalGames).toBe(5);
+        // g0 / g1 last year; g2-g4 seconds ago
+        expect(periodGames).toEqual({ allTime: 5, thisYear: 3, thisMonth: 3 });
         // allTime walks natural order (oldest tied game wins), thisMonth the
         // completedAt_-1 index (newest tied game wins)
         expect(after.records.allTime.highestScore).toEqual({ score: 700, players: ['Alan', 'Bea'] });
@@ -743,10 +750,12 @@ describe('real mongod', () => {
         const reply = (s) => log.filter(l => l.to === `self:${s.id}`).pop().data;
         // 'all' on human-only data is the reference exactly (plus the echo)
         await ref.getRecords(a, io);
+        require('../testUtils/contractCheck').takeViolations(); // the reference predates periodGames
         await profile.getRecords(b, io, { scope: 'all' });
-        const { scope, ...allRest } = reply(b);
+        const { scope, periodGames: allPeriods, ...allRest } = reply(b);
         expect(scope).toBe('all');
         expect(allRest).toEqual(reply(a));
+        expect(allPeriods).toEqual({ allTime: 5, thisYear: 3, thisMonth: 3 });
 
         // the human thisMonth / thisYear queries keep the completedAt_-1 index
         const startOfMonth = new Date(new Date(now).getFullYear(), new Date(now).getMonth(), 1);
@@ -763,14 +772,18 @@ describe('real mongod', () => {
         profile.invalidateRecords();
         profile.invalidateLeaderboard();
         await profile.getRecords(b, io);
-        expect(reply(b)).toEqual(humanBefore);
+        const { periodGames: humanPeriods, ...humanRest } = reply(b);
+        expect(humanRest).toEqual(humanBefore);
+        expect(humanPeriods).toEqual({ allTime: 5, thisYear: 3, thisMonth: 3 });
         await profile.getRecords(b, io, { scope: 'bots' });
         const bots = reply(b);
         expect(bots.totalGames).toBe(2);
+        expect(bots.periodGames).toEqual({ allTime: 2, thisYear: 2, thisMonth: 2 });
         expect(bots.records.thisMonth.highestScore).toEqual({ score: 990, players: ['Cy', '🤖 Mary'] });
         expect(bots.records.thisMonth.lowestScore).toEqual({ score: 100, players: ['Alan', 'Bea'] });
         await profile.getRecords(b, io, { scope: 'all' });
         expect(reply(b).totalGames).toBe(7);
+        expect(reply(b).periodGames).toEqual({ allTime: 7, thisYear: 5, thisMonth: 5 });
 
         // leaderboard: human = the reference (with V1_REMOVALS #19 B applied:
         // every row's customProfilePic null, as in (e)); bots = Cy only
