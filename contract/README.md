@@ -251,7 +251,8 @@ Avatar field rules (docs/avatars.md has the invariants I1-I6):
    profile / leaderboard / search rows is null, `seatV2.customPic` is null.
 2. Omitted when there is no URL (no custom picture, rendition not ready,
    a hostile or undecodable stored picture, pipeline off): the slot is then
-   null and clients show their neutral picture.
+   null and clients show their neutral picture (web `default_avatar.png`
+   via `seatAvatarSrc`, iOS 1.2.0 the name's initial; never a stock animal).
 3. Every recipient gets the same shape (#19 F): the clientHello avatarUrl
    cap is still logged but no longer picks a payload shape (web on main and
    iOS 1.2.0 send it; the builds that did not are gated).

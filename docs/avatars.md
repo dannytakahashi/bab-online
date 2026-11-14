@@ -90,7 +90,8 @@ normally done (5-15 ms) inside the draw-reveal hold.
 - `AVATAR_LEGACY_INLINE=raw` is gone (V1_REMOVALS #19 D).
 - `AVATAR_PIPELINE=off`: no custom picture has a URL and `/avatar` answers
   404. Since #19 that also means no custom picture at all (no inline copy to
-  fall back on): every client shows its neutral picture for them. It is no
+  fall back on): web shows `assets/default_avatar.png` for those seats
+  (`seatAvatarSrc`) and iOS 1.2.0 the name's initial. It is no
   longer a rollback to the pre-pipeline wire.
 - If `require('sharp')` fails on a host, the pipeline is off by itself
   (logged once: "avatar pipeline disabled: sharp unavailable"), with the
