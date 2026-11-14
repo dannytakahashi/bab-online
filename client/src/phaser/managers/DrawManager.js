@@ -29,7 +29,7 @@ import { sceneDelay, sceneTween } from '../TableDirector.js';
 import { createTransitionOverlay, setOverlayState } from '../../ui/transitionOverlay.js';
 import { layoutOf, deckPosition } from '../layout/computeTableLayout.js';
 import { CARD_TEXTURE_KEY } from '../cards/CardAtlas.js';
-import { BACK_FRAME } from '../cards/cardFaces.js';
+import { tableBackFrame } from '../cards/tableBack.js';
 import { MOTION } from '../../ui/tokens.js';
 import { motionMs, EASE_EMPHASIZED } from '../../ui/motion.js';
 import { applyHudLayout } from '../../ui/tableHud.js';
@@ -139,7 +139,7 @@ export class DrawManager {
   _addDeckCard(L, i, { flyIn, pickable }) {
     const { deck } = L.draw;
     const spot = deckPosition(L, i);
-    const cardSprite = this.scene.add.image(flyIn ? deck.enterX : spot.x, spot.y, CARD_TEXTURE_KEY, BACK_FRAME)
+    const cardSprite = this.scene.add.image(flyIn ? deck.enterX : spot.x, spot.y, CARD_TEXTURE_KEY, tableBackFrame())
       .setScale(deck.card.scale).setDepth(100);
     cardSprite.setData?.('deckIndex', i);
     if (flyIn) {
@@ -323,7 +323,7 @@ export class DrawManager {
         drawnCard = pick.card;
       } else {
         const p = deckPosition(this.layout(), 0);
-        drawnCard = this.scene.add.image(p.x, p.y, CARD_TEXTURE_KEY, BACK_FRAME).setScale(draw.deck.card.scale);
+        drawnCard = this.scene.add.image(p.x, p.y, CARD_TEXTURE_KEY, tableBackFrame()).setScale(draw.deck.card.scale);
       }
     }
     if (mine) this._closeDeck();

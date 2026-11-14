@@ -76,6 +76,12 @@
     --card-back-diamond-rgb: 64 140 77;
     --card-back-diamond-stroke: #4da659;
     --card-back-diamond-stroke-rgb: 77 166 89;
+    --card-back-red: #b22222;
+    --card-back-red-rgb: 178 34 34;
+    --card-back-blue: #1f4e9b;
+    --card-back-blue-rgb: 31 78 155;
+    --card-back-paper: #fffdf8;
+    --card-back-paper-rgb: 255 253 248;
     --card-dim-tint: #999999;
     --card-dim-tint-rgb: 153 153 153;
     --card-shadow: rgb(0 0 0 / 0.451);

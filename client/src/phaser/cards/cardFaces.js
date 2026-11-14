@@ -10,7 +10,7 @@
  *   - a large centre pip (the glyph of a 100-unit font);
  *   - jokers in purple: HI / LO (bold 34), a star and "JOKER" (heavy 36),
  *     with a 4-unit purple border;
- *   - the dark-green back with its inner rounded rectangle and the four suits.
+ *   - the back: a red or blue lattice (drawBack; web only, iOS keeps its own).
  *
  * Suits (and the joker's star) are VECTOR PATHS, never text: a suit
  * character can come out as a color emoji on some platforms and font
@@ -30,11 +30,12 @@ export const CARD_DESIGN = Object.freeze({ w: 300, h: 435, radius: 24 });
 /** Height / width of a card. */
 export const CARD_ASPECT = CARD_DESIGN.h / CARD_DESIGN.w;
 
-/** The atlas frame of the card back, and of the raised card's soft shadow. */
-export const BACK_FRAME = 'back';
-
-/** White margin around the back's green panel (design units; ~3 px at DPR 1). */
-export const BACK_EDGE = 14;
+/**
+ * The atlas frames of the card back, one per ink (red on odd hands and the
+ * draw for deal, blue on even hands: backFrameForHand), and of the raised
+ * card's soft shadow.
+ */
+export const BACK_FRAMES = Object.freeze({ red: 'back-red', blue: 'back-blue' });
 export const SHADOW_FRAME = 'shadow';
 
 const C = COLOR.card;
@@ -240,43 +241,206 @@ export function drawJokerFace(ctx, card) {
 }
 
 /**
- * Draw the back (design units): a white card edge like the faces (so an
- * overlapped fan of backs reads as separate cards on the green felt), then
- * iOS's dark-green panel with its lighter border, inner frame and the app
- * icon's four suits (iOS CardTextureGenerator.cardBackTexture).
+ * The card back (owner, 2026-11-13): a classic single-ink LATTICE, the
+ * same after a half turn: a cream card with the faces' grey edge, a white
+ * margin, an ink panel with a beaded band and a thin inner rule, a
+ * double-line diamond trellis with dots and lozenges at its crossings, and
+ * a harlequin lozenge medallion. Two inks, red and blue (tokens
+ * card.backRed / card.backBlue), alternate by hand (backFrameForHand).
+ *
+ * Small sizes hint themselves: the drawing reads the device pixels per
+ * design unit from the context's transform (the atlas's cell transform) and
+ * doubles the lattice pitch (same tone) until a cell is >= 5.5 device px,
+ * drops the sub-pixel ink splits and dots, keeps every structural rule at
+ * >= ~1 device px and the medallion's moat wide, and at the smallest sizes
+ * draws the medallion as one bold white diamond.
  */
-export function drawBack(ctx) {
-  const { w, h, radius } = CARD_DESIGN;
-  cardBase(ctx, C.face, C.border, 3);
-  const edge = BACK_EDGE;
-  roundRectPath(ctx, edge, edge, w - 2 * edge, h - 2 * edge, radius - 8);
-  ctx.fillStyle = C.back;
-  ctx.fill();
-  ctx.lineWidth = 4;
-  ctx.strokeStyle = C.backBorder;
-  ctx.stroke();
-  const inset = edge + 18;
-  roundRectPath(ctx, inset, inset, w - 2 * inset, h - 2 * inset, radius - 14);
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = C.backInner;
-  ctx.stroke();
-  // the app icon's four suits, 2 x 2 around the centre (iOS PR 239's back):
-  // spade and club in text.primary, heart and diamond in danger.text, as the
-  // dark surfaces draw suits; each the glyph of iOS's 58-unit font (its
-  // shape 74% of the font, as PIP), 34 units from the centre each way
-  for (const [suit, dx, dy] of BACK_SUITS) {
-    const color = suit === 'hearts' || suit === 'diamonds' ? COLOR.danger.text : COLOR.text.primary;
-    drawSuit(ctx, suit, w / 2 + dx * BACK_SUIT.step, h / 2 + dy * BACK_SUIT.step, BACK_SUIT.size, color);
-  }
+const BACK_MARGIN = 16; // white margin around the ink panel
+const BACK_BAND = 15; // the border band inside the panel
+const BACK_FIELD = BACK_MARGIN + BACK_BAND + 3.5; // the lattice field's inset
+const BACK_BEAD_PITCH = 9;
+
+/** The rounded rect `d` units inside the card, corner radius r. */
+const backInset = (ctx, d, r) => roundRectPath(ctx, d, d, CARD_DESIGN.w - 2 * d, CARD_DESIGN.h - 2 * d, r);
+const backDot = (ctx, x, y, r) => { ctx.moveTo(x + r, y); ctx.arc(x, y, r, 0, Math.PI * 2); };
+const backLozenge = (ctx, x, y, a, b) => { ctx.moveTo(x, y - b); ctx.lineTo(x + a, y); ctx.lineTo(x, y + b); ctx.lineTo(x - a, y); ctx.closePath(); };
+const clamp01 = (v) => Math.max(0, Math.min(1, v));
+/** How much of a repeat of `period` units survives at k device px per unit (0 = average it away). */
+const backDetail = (period, k) => clamp01((period * k - 3) / 4);
+
+/** The band's bead centres on the rect `d` units in, about `pitch` apart, `cornerGap` clear of the corners. */
+function backBandPoints(d, pitch, cornerGap) {
+  const { w: W, h: H } = CARD_DESIGN;
+  const pts = [];
+  const side = (x0, y0, x1, y1) => {
+    const full = Math.hypot(x1 - x0, y1 - y0);
+    const len = full - 2 * cornerGap;
+    const n = Math.max(1, Math.round(len / pitch));
+    for (let i = 0; i <= n; i++) {
+      const t = (cornerGap + (i * len) / n) / full;
+      pts.push([x0 + (x1 - x0) * t, y0 + (y1 - y0) * t]);
+    }
+  };
+  side(d, d, W - d, d); side(d, H - d, W - d, H - d);
+  side(d, d, d, H - d); side(W - d, d, W - d, H - d);
+  return pts;
 }
 
-/** The back's suits: which, and where (times BACK_SUIT.step from the centre). */
-export const BACK_SUITS = Object.freeze([['spades', -1, -1], ['hearts', 1, -1], ['diamonds', -1, 1], ['clubs', 1, 1]]);
-export const BACK_SUIT = Object.freeze({ size: 43, step: 34 });
+/** The card, its margin, the ink panel, its beaded band and inner rule. */
+function backPanel(ctx, ink, k) {
+  const { w: W, h: H, radius: R } = CARD_DESIGN;
+  const paper = C.backPaper;
+  const minW = (u) => Math.max(u, 0.9 / k); // a structural rule never thinner than ~1 device px
+  cardBase(ctx, paper, C.border, 3);
+  const M = BACK_MARGIN;
+  backInset(ctx, M, R - M + 1);
+  ctx.fillStyle = ink;
+  ctx.fill();
+  ctx.strokeStyle = paper;
+  ctx.fillStyle = paper;
+  const a = backDetail(BACK_BEAD_PITCH, k);
+  ctx.globalAlpha = Math.max(a, 0.35);
+  ctx.lineWidth = 1.4;
+  backInset(ctx, M + 3, R - M - 2);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+  ctx.lineWidth = minW(1.6);
+  backInset(ctx, M + BACK_BAND, 4);
+  ctx.stroke();
+  const c = M + 3 + (BACK_BAND - 3) / 2;
+  ctx.globalAlpha = 0.45 + 0.55 * a;
+  ctx.beginPath();
+  for (const [x, y] of backBandPoints(c, BACK_BEAD_PITCH, 6)) backDot(ctx, x, y, 1.9);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+  ctx.beginPath();
+  for (const [x, y] of [[c, c], [W - c, c], [c, H - c], [W - c, H - c]]) backLozenge(ctx, x, y, 4, 4);
+  ctx.fill();
+}
 
-/** Draw any face: a card object, or BACK_FRAME. */
+/** Smallest power-of-two multiple of `pitch` (up to `cap`) whose repeat is at least `minPx` device px. */
+function backHint(pitch, k, minPx, cap) {
+  let f = 1;
+  while (pitch * f * k < minPx && f < cap) f *= 2;
+  return f;
+}
+
+/** The trellis (clipped to the field) and the medallion. */
+function backLattice(ctx, ink, k) {
+  const { w: W, h: H } = CARD_DESIGN;
+  const F = BACK_FIELD;
+  const paper = C.backPaper;
+  const cx = W / 2;
+  const cy = H / 2;
+  // cells sized so the field's edges run through rows of crossings: 10
+  // half-cells across each half of the field, 12 down each half
+  const DX = (W - 2 * F) / 10;
+  const DY = (H - 2 * F) / 12;
+  const f = backHint(DX, k, 5.5, 4);
+  const dx = DX * f;
+  const dy = DY * f;
+  const ext = Math.ceil(16 / f);
+  const fine = 1.2 * f * k >= 0.5; // the double line's ink split and the dots still resolve
+  const minW = (u) => Math.max(u, 0.9 / k);
+  ctx.save();
+  backInset(ctx, F, 3);
+  ctx.clip();
+  const lines = () => {
+    ctx.beginPath();
+    for (let n = -ext; n < ext; n++) {
+      const c = n + 0.5;
+      ctx.moveTo(cx + dx * (c + ext), cy - dy * ext); ctx.lineTo(cx + dx * (c - ext), cy + dy * ext);
+      ctx.moveTo(cx + dx * (c - ext), cy - dy * ext); ctx.lineTo(cx + dx * (c + ext), cy + dy * ext);
+    }
+  };
+  ctx.strokeStyle = paper;
+  if (fine) {
+    lines(); ctx.lineWidth = 3.8 * f; ctx.stroke();
+    lines(); ctx.lineWidth = 1.2 * f; ctx.strokeStyle = ink; ctx.stroke();
+    ctx.beginPath();
+    for (let i = -ext; i <= ext; i++) {
+      for (let j = -2 * ext; j <= 2 * ext; j++) {
+        const odd = Math.abs(j % 2) === 1;
+        const y = cy + (dy * j) / 2;
+        const xd = cx + dx * (i + (odd ? 0.5 : 0));
+        const xn = cx + dx * (i + (odd ? 0 : 0.5));
+        if (Math.abs(y - cy) > H / 2 - F - 4) continue; // none cut in half by the field's edge
+        if (Math.abs(xd - cx) < W / 2 - F - 4) backDot(ctx, xd, y, 1.5 * f);
+        if (Math.abs(xn - cx) < W / 2 - F - 4) backLozenge(ctx, xn, y, 2.6 * f, 3.4 * f);
+      }
+    }
+    ctx.fillStyle = paper;
+    ctx.fill();
+  } else {
+    // one line carrying the double line's white (same tone), no dots
+    lines(); ctx.lineWidth = 2.4 * f; ctx.stroke();
+  }
+  ctx.restore();
+  // the medallion: a lozenge 3 cells across in a dark moat, a white rule,
+  // an inner rule, four white lozenges (one bold diamond when too small)
+  const mx = 1.5 * DX;
+  const my = 1.5 * DY;
+  const moat = Math.max(3, 1.4 / k);
+  ctx.beginPath();
+  backLozenge(ctx, cx, cy, mx + moat, my + (moat * DY) / DX);
+  ctx.fillStyle = ink;
+  ctx.fill();
+  ctx.strokeStyle = paper;
+  ctx.fillStyle = paper;
+  ctx.beginPath();
+  backLozenge(ctx, cx, cy, mx, my);
+  ctx.lineWidth = minW(2.2);
+  ctx.stroke();
+  if (1.1 * k >= 0.4) {
+    ctx.beginPath();
+    backLozenge(ctx, cx, cy, mx - 4.8, my - (4.8 * DY) / DX);
+    ctx.lineWidth = 1.1;
+    ctx.stroke();
+  }
+  ctx.beginPath();
+  if (0.32 * DX * k >= 1.6) {
+    for (const [ox, oy] of [[0, -1], [1, 0], [0, 1], [-1, 0]]) backLozenge(ctx, cx + (ox * DX) / 2, cy + (oy * DY) / 2, 0.32 * DX, 0.32 * DY);
+  } else {
+    backLozenge(ctx, cx, cy, 0.62 * DX, 0.62 * DY);
+  }
+  ctx.fill();
+}
+
+/** Device px per design unit under the context's current transform (1 when it cannot say). */
+function devicePerUnit(ctx) {
+  const t = typeof ctx.getTransform === 'function' ? ctx.getTransform() : null;
+  const k = t ? Math.hypot(t.a, t.b) : NaN;
+  return Number.isFinite(k) && k > 0 ? k : 1;
+}
+
+/** Draw the lattice back in one ink (design units). */
+export function drawBack(ctx, ink = C.backRed) {
+  const k = devicePerUnit(ctx);
+  ctx.save();
+  backPanel(ctx, ink, k);
+  backLattice(ctx, ink, k);
+  ctx.restore();
+}
+
+const BACK_INK = { [BACK_FRAMES.red]: C.backRed, [BACK_FRAMES.blue]: C.backBlue };
+
+/** A frame name that is one of the backs. */
+export const isBackFrame = (name) => typeof name === 'string' && Object.prototype.hasOwnProperty.call(BACK_INK, name);
+
+/**
+ * The back for a hand (owner, 2026-11-13: alternate red and blue between
+ * hands): hand 1 red, hand 2 blue, hand 3 red, ... (GameState.handNo, 1-13;
+ * a zero-bid redeal keeps its hand, so its colour). No hand yet (0: the
+ * draw for deal) or an unknown number is red.
+ */
+export function backFrameForHand(handNo) {
+  const n = Number(handNo);
+  return Number.isInteger(n) && n >= 1 && n % 2 === 0 ? BACK_FRAMES.blue : BACK_FRAMES.red;
+}
+
+/** Draw any face: a card object, or a back frame (BACK_FRAMES). */
 export function drawCard(ctx, card) {
-  if (card === BACK_FRAME) return drawBack(ctx);
+  if (isBackFrame(card)) return drawBack(ctx, BACK_INK[card]);
   if (card.suit === 'joker') return drawJokerFace(ctx, card);
   return drawStandardFace(ctx, card);
 }

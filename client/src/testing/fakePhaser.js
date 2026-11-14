@@ -99,10 +99,12 @@ function emitterMixin(obj) {
 
 let objectIds = 0;
 
-/** A sprite showing the card atlas's back (item 18a: one 'cards' texture, frame 'back'). */
-export const isCardBack = (o) => o?.texture?.key === 'cards' && o.frame?.name === 'back';
+/** A card atlas frame that is a back ('back-red' / 'back-blue': cards/cardFaces.js BACK_FRAMES). */
+export const isBackFrameName = (name) => typeof name === 'string' && /^back-(red|blue)$/.test(name);
+/** A sprite showing one of the card atlas's backs (item 18a: one 'cards' texture). */
+export const isCardBack = (o) => o?.texture?.key === 'cards' && isBackFrameName(o.frame?.name);
 /** A sprite showing a card face of the atlas. */
-export const isCardFace = (o) => o?.texture?.key === 'cards' && !!o.frame?.name && o.frame.name !== 'back' && o.frame.name !== 'shadow';
+export const isCardFace = (o) => o?.texture?.key === 'cards' && !!o.frame?.name && !isBackFrameName(o.frame.name) && o.frame.name !== 'shadow';
 
 /**
  * Phaser's default origins and sizes by kind: an image is its texture
@@ -475,7 +477,7 @@ export class FakeSceneBase {
   census() {
     const out = {};
     for (const o of this.liveObjects()) {
-      const tex = o.texture?.key === 'cards' ? (o.frame?.name === 'back' ? 'cardBack' : 'card') : (o.texture?.key || '-');
+      const tex = o.texture?.key === 'cards' ? (isBackFrameName(o.frame?.name) ? 'cardBack' : 'card') : (o.texture?.key || '-');
       const k = `${o.kind}:${tex}`;
       out[k] = (out[k] || 0) + 1;
     }
