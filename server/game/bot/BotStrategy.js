@@ -15,6 +15,7 @@ const {
     determineWinner
 } = require('../rules');
 const { getBidStyle, getPlayStyle } = require('./personalities');
+const { OWN_TRICKS, PARTNER_OVER, TEAM_SD, SECOND_BID_PMF } = require('./bidModel');
 
 // --- Hand progression for determining game phase ---
 const HAND_PROGRESSION = [12, 10, 8, 6, 4, 2, 1, 3, 5, 7, 9, 11, 13];
@@ -792,6 +793,161 @@ function decideBore(hand, trump, handSize, evaluation, existingBids, position, t
     return null;
 }
 
+// --- Expected-value bidding (hands of EV_MIN_HAND_SIZE+ cards) ---
+//
+// Instead of flooring a point estimate, the bot estimates a DISTRIBUTION of
+// team tricks (fitted tables in bidModel.js) and bids whatever maximizes the
+// expected team score. Under this scoring a made bid pays 10/trick plus 1 per
+// overtrick while a set costs 10/trick of the whole team bid, so raising the
+// team bid from B to B+1 gains +9 when it makes and loses 20B+10 when the team
+// lands on exactly B: the optimum still usually wins more than it bids, but by
+// a margin set by the hand's actual uncertainty, not by a fixed rounding rule.
+
+const EV_MIN_HAND_SIZE = 3;
+
+/**
+ * Bid-selection knobs (sim-tuned; see sim/README.md). Tolerances are in
+ * expected points: a "lean" picks the highest (or lowest) bid whose EV is
+ * within the tolerance of the best one.
+ */
+const EV_TUNING = {
+    // Late game (progress >= 0.7) and behind / ahead by more than 30
+    riskTolerance: 2,
+    // Personality leans: Danny takes the highest near-best bid, Sharon the lowest
+    personalityTolerance: 1.5
+};
+
+function bidModelGroup(handSize) {
+    if (handSize <= 4) return 'S';
+    if (handSize <= 7) return 'M';
+    if (handSize <= 10) return 'L';
+    return 'XL';
+}
+
+/**
+ * Expected tricks this hand wins on its own (fitted per-card values; see
+ * bidModel.js for the features).
+ * @param {number} oppBidSum - Sum of numeric opponent bids already made
+ * @param {number} oppBidCount - Number of opponents who have already bid
+ */
+function estimateOwnTricks(hand, trump, handSize, oppBidSum = 0, oppBidCount = 0) {
+    const G = bidModelGroup(handSize);
+    if (isNoTrump(trump)) {
+        const w = OWN_TRICKS.noTrump[G];
+        let y = w.base + w.oppBidSum * oppBidSum + w.oppBidCount * oppBidCount;
+        for (const c of hand) {
+            if (c.rank === 'HI' || c.rank === 'LO' || c.rank === 'A' || c.rank === 'K' || c.rank === 'Q') {
+                y += w[c.rank];
+            }
+        }
+        return y;
+    }
+
+    const w = OWN_TRICKS.trump[G];
+    let y = w.base + w.oppBidSum * oppBidSum + w.oppBidCount * oppBidCount;
+    const sideRanks = { spades: [], hearts: [], diamonds: [], clubs: [] };
+    let trumpCount = 0;
+    for (const c of hand) {
+        const isTrump = c.suit === 'joker' || c.suit === trump.suit;
+        if (isTrump) trumpCount++;
+        if (c.rank === 'HI') y += w.HI;
+        else if (c.rank === 'LO') y += w.LO;
+        else if (isTrump) {
+            if (c.rank === 'A') y += w.tA;
+            else if (c.rank === 'K') y += w.tK;
+            else if (c.rank === 'Q') y += w.tQ;
+            else y += RANK_VALUES[c.rank] >= RANK_VALUES['7'] ? w.tMid : w.tLow;
+        } else {
+            sideRanks[c.suit].push(c.rank);
+        }
+    }
+    for (const [suit, ranks] of Object.entries(sideRanks)) {
+        if (suit === trump.suit) continue;
+        if (ranks.length === 0) y += w.voids;
+        if (ranks.length === 1) y += w.single;
+        if (ranks.includes('A')) y += w.sA;
+        if (ranks.includes('K')) y += ranks.includes('A') ? w.sKwA : w.sK;
+        if (ranks.includes('Q')) y += w.sQ;
+    }
+    y += w.tLen4p * Math.max(0, trumpCount - 3);
+    return y;
+}
+
+/** Standard normal CDF (Abramowitz-Stegun 7.1.26, |error| < 1.5e-7). */
+function normalCdf(z) {
+    const x = Math.abs(z) / Math.SQRT2;
+    const t = 1 / (1 + 0.3275911 * x);
+    const erf = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
+    return z >= 0 ? (1 + erf) / 2 : (1 - erf) / 2;
+}
+
+/**
+ * Probability of each team trick count 0..handSize: a normal around `mean`
+ * discretized to whole tricks, with the tails folded into 0 and handSize.
+ */
+function teamTrickDistribution(mean, sd, handSize) {
+    const pmf = [];
+    let prev = 0;
+    for (let k = 0; k <= handSize; k++) {
+        const cdf = k === handSize ? 1 : normalCdf((k + 0.5 - mean) / sd);
+        pmf.push(cdf - prev);
+        prev = cdf;
+    }
+    return pmf;
+}
+
+/** Team score for a numeric contract (multiplier 1; team bid 0 scores 1/trick). */
+function contractScore(teamBid, tricks) {
+    return tricks >= teamBid ? teamBid * 10 + (tricks - teamBid) : -teamBid * 10;
+}
+
+/**
+ * Expected team score of each own bid 0..handSize.
+ * @param {number} ownMean - estimateOwnTricks()
+ * @param {number|null} partnerBid - partner's numeric bid, or null if partner bids after us
+ * @param {number} partnerOver - expected (partner tricks - partner bid)
+ * @param {boolean} zeroRedeals - an all-zero table redeals, so our 0 is worth 0
+ */
+function bidExpectedValues(ownMean, handSize, partnerBid, partnerOver, zeroRedeals = false) {
+    const weBidFirst = partnerBid === null;
+    const sd = TEAM_SD[handSize][weBidFirst ? 'first' : 'second'];
+    // Bidding second we know the partner's bid; bidding first we average over
+    // what a second-of-team partner typically adds
+    const scenarios = weBidFirst
+        ? SECOND_BID_PMF[handSize].map((w, pb) => [pb, w]).filter(([, w]) => w > 0)
+        : [[partnerBid, 1]];
+    const evs = new Array(handSize + 1).fill(0);
+    for (const [pb, weight] of scenarios) {
+        const pmf = teamTrickDistribution(ownMean + pb + partnerOver, sd, handSize);
+        for (let b = 0; b <= handSize; b++) {
+            // The table caps a team bid at the hand size
+            const teamBid = Math.min(b + pb, handSize);
+            let ev = 0;
+            for (let t = 0; t <= handSize; t++) ev += pmf[t] * contractScore(teamBid, t);
+            evs[b] += weight * ev;
+        }
+    }
+    if (zeroRedeals) evs[0] = 0;
+    return evs;
+}
+
+/**
+ * Pick a bid from an EV curve. lean 0: the best bid (lowest on ties);
+ * lean > 0 / < 0: the highest / lowest bid within `tolerance` points of best.
+ */
+function pickBidFromEV(evs, lean = 0, tolerance = 0) {
+    let best = 0;
+    for (let b = 1; b < evs.length; b++) if (evs[b] > evs[best]) best = b;
+    if (lean === 0) return best;
+    const floor = evs[best] - tolerance;
+    if (lean > 0) {
+        for (let b = evs.length - 1; b > best; b--) if (evs[b] >= floor) return b;
+    } else {
+        for (let b = 0; b < best; b++) if (evs[b] >= floor) return b;
+    }
+    return best;
+}
+
 
 function calculateOptimalBid(hand, trump, position, existingBids, handSize, memory, gameContext, personality = 'mary', partnerHistory = []) {
     const evaluation = evaluateHand(hand, trump, handSize);
@@ -859,7 +1015,30 @@ function calculateOptimalBid(hand, trump, position, existingBids, handSize, memo
     });
     if (boreBid) return boreBid;
 
-    // --- NORMAL BIDDING ---
+    // --- EXPECTED-VALUE BIDDING (3+ cards, no bore on the table) ---
+    if (handSize >= EV_MIN_HAND_SIZE && !highestBore) {
+        const ownMean = estimateOwnTricks(hand, trump, handSize, opponentTotalBid, opponentBidCount);
+        let partnerOver = PARTNER_OVER[handSize][partnerBidValue === null ? 'second' : 'first'];
+        // Zach reads his partner from what they actually did instead of the
+        // population average (shrunk toward it while the history is short)
+        if (getBidStyle(personality) === 'adaptive' && partnerHistory.length >= 3) {
+            const observed = partnerHistory.reduce((s, h) => s + (h.tricks - h.bid), 0) / partnerHistory.length;
+            const k = partnerHistory.length;
+            partnerOver = (observed * k + partnerOver * 3) / (k + 3);
+        }
+        // Last to bid over three zeros: our 0 redeals the hand
+        const zeroRedeals = partnerBidValue === 0 && opponentBidCount === 2 && opponentTotalBid === 0;
+        const evs = bidExpectedValues(ownMean, handSize, partnerBidValue, partnerOver, zeroRedeals);
+
+        // Late game: behind, take the highest near-best bid (variance is
+        // worth points); ahead, the lowest
+        let bid = pickBidFromEV(evs, riskAdjustment, EV_TUNING.riskTolerance);
+        bid = applyBidModifier(bid, personality, evaluation, handSize, partnerHistory, evs);
+        if (partnerBidValue !== null) bid = Math.min(bid, Math.max(0, handSize - partnerBidValue));
+        return String(Math.max(0, Math.min(bid, handSize)));
+    }
+
+    // --- NORMAL BIDDING (1-2 card hands, and any hand with a bore out) ---
 
     // Conservative rounding: floor instead of round. The set penalty
     // (-10/trick) dwarfs the overtrick payoff (+1/trick); sim-tested against
@@ -980,10 +1159,29 @@ function calculateOptimalBid(hand, trump, position, existingBids, handSize, memo
  * @param {Object} evaluation - Hand evaluation from evaluateHand()
  * @param {number} handSize - Cards per player
  * @param {Array} partnerHistory - Zach's partner tracking [{ bid, tricks }]
+ * @param {Array|null} evs - Expected score per bid (EV bidding, 3+ cards). When
+ *   given, Sharon and Danny lean along the EV curve instead of the
+ *   trick-fraction rules below, and Zach's adjustment is already in the curve.
  * @returns {number} - Modified bid
  */
-function applyBidModifier(baseBid, personality, evaluation, handSize, partnerHistory) {
+function applyBidModifier(baseBid, personality, evaluation, handSize, partnerHistory, evs = null) {
     let bid = baseBid;
+
+    if (evs) {
+        switch (getBidStyle(personality)) {
+            case 'conservative':
+                // Sharon takes the lowest bid within a few points of the best
+                return Math.min(bid, pickBidFromEV(evs, -1, EV_TUNING.personalityTolerance));
+            case 'calculated-aggressive':
+                // Danny takes the highest bid within a few points of the best
+                return Math.max(bid, pickBidFromEV(evs, 1, EV_TUNING.personalityTolerance));
+            case 'overconfident':
+                if (Math.random() < 0.10) bid = Math.min(baseBid + 1, handSize);
+                return bid;
+            default:
+                return bid;
+        }
+    }
 
     switch (getBidStyle(personality)) {
         case 'conservative':
@@ -1477,6 +1675,12 @@ module.exports = {
     countLockedWinners,
     analyzeLeadSweep,
     decideBore,
+    estimateOwnTricks,
+    teamTrickDistribution,
+    contractScore,
+    bidExpectedValues,
+    pickBidFromEV,
+    EV_TUNING,
     BORE_TUNING,
     NEXT_BORE,
     getContractState,

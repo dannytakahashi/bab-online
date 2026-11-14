@@ -1383,3 +1383,131 @@ describe('selectDiscard', () => {
         expect(result.rank).toBe('K');
     });
 });
+
+// --- Expected-value bidding (3+ card hands) ---
+describe('expected-value bidding', () => {
+    const {
+        estimateOwnTricks, teamTrickDistribution, contractScore,
+        bidExpectedValues, pickBidFromEV
+    } = require('../BotStrategy');
+    const { features } = require('../sim/fitBidModel');
+    const { OWN_TRICKS } = require('../bidModel');
+    const NONE = [undefined, undefined, undefined, undefined];
+
+    // Seeded shuffled deals (the test must not depend on Math.random)
+    function deals(seed) {
+        let s = seed;
+        const rnd = () => { s = (s * 1103515245 + 12345) % 2147483648; return s / 2147483648; };
+        const deck = [];
+        for (const suit of ['spades', 'hearts', 'diamonds', 'clubs']) {
+            for (const r of ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']) deck.push(card(suit, r));
+        }
+        deck.push(HI, LO);
+        return (n) => {
+            const d = deck.slice();
+            for (let i = d.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [d[i], d[j]] = [d[j], d[i]]; }
+            return { hand: d.slice(0, n), trump: d[n] };
+        };
+    }
+
+    test('contractScore follows the rules: 10/trick + 1/overtrick, set = -10/trick, 0 bid = 1/trick', () => {
+        expect(contractScore(3, 3)).toBe(30);
+        expect(contractScore(3, 5)).toBe(32);
+        expect(contractScore(3, 2)).toBe(-30);
+        expect(contractScore(0, 2)).toBe(2);
+    });
+
+    test('teamTrickDistribution is a probability distribution over 0..handSize', () => {
+        for (const [mean, sd, n] of [[2.3, 1.1, 8], [-1, 0.8, 3], [14, 1.3, 13], [6.5, 1.2, 13]]) {
+            const pmf = teamTrickDistribution(mean, sd, n);
+            expect(pmf).toHaveLength(n + 1);
+            expect(pmf.every(p => p >= 0)).toBe(true);
+            expect(pmf.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 9);
+        }
+        const pmf = teamTrickDistribution(6.5, 1.2, 13);
+        expect(pmf.reduce((s, p, k) => s + p * k, 0)).toBeCloseTo(6.5, 1);
+    });
+
+    test('estimateOwnTricks is the fitted table applied to fitBidModel features (fitter and bidder agree)', () => {
+        const deal = deals(7);
+        for (let i = 0; i < 300; i++) {
+            const n = 3 + (i % 11);
+            const { hand, trump } = deal(n);
+            const G = n <= 4 ? 'S' : n <= 7 ? 'M' : n <= 10 ? 'L' : 'XL';
+            const F = features(hand, trump);
+            F.oppBidSum = i % 4;
+            F.oppBidCount = i % 3;
+            const w = trump.suit === 'joker' ? OWN_TRICKS.noTrump[G] : OWN_TRICKS.trump[G];
+            const expected = Object.keys(F).reduce((y, k) => y + w[k] * F[k], w.base);
+            expect(estimateOwnTricks(hand, trump, n, F.oppBidSum, F.oppBidCount)).toBeCloseTo(expected, 9);
+        }
+    });
+
+    test('a known partner bid is part of the team contract: raising pays only when the extra trick is very likely', () => {
+        // Team mean 3.0 on top of partner's 2: team bid 3 risks -50 for +9
+        const best = pickBidFromEV(bidExpectedValues(1.0, 8, 2, 0, false));
+        expect(best).toBeLessThanOrEqual(1);
+        // A much stronger hand raises the bid
+        expect(pickBidFromEV(bidExpectedValues(4.5, 8, 2, 0, false))).toBeGreaterThan(best);
+        // Partner bid 6 of 8: never more than the 2 left
+        expect(pickBidFromEV(bidExpectedValues(9, 8, 6, 0, false))).toBeLessThanOrEqual(2);
+    });
+
+    test('zeroRedeals: a last-seat 0 over three zeros is worth 0, not the overtricks', () => {
+        expect(bidExpectedValues(0.2, 3, 0, 0.2, true)[0]).toBe(0);
+    });
+
+    test('pickBidFromEV leans within the tolerance only', () => {
+        const evs = [5, 10, 9, 2];
+        expect(pickBidFromEV(evs)).toBe(1);
+        expect(pickBidFromEV(evs, 1, 1.5)).toBe(2);
+        expect(pickBidFromEV(evs, 1, 0.5)).toBe(1);
+        expect(pickBidFromEV(evs, -1, 5)).toBe(0);
+        expect(pickBidFromEV(evs, -1, 4)).toBe(1);
+    });
+
+    test('bids rise with trick-taking power and keep the team contract within the hand', () => {
+        const weak = [card('spades', '2'), card('clubs', '3'), card('diamonds', '4'), card('spades', '6'),
+            card('clubs', '8'), card('diamonds', '9'), card('spades', '10'), card('clubs', 'J')];
+        const strong = [HI, LO, card('hearts', 'A'), card('hearts', 'K'), card('hearts', '9'),
+            card('hearts', '4'), card('spades', 'A'), card('clubs', 'A')];
+        expect(+calculateOptimalBid(weak, heartsTrump, 2, NONE, 8, null, null)).toBe(0);
+        expect(+calculateOptimalBid(strong, heartsTrump, 2, NONE, 8, null, null)).toBeGreaterThanOrEqual(5);
+        const partnerBid5 = [undefined, undefined, undefined, '5'];
+        expect(+calculateOptimalBid(strong, heartsTrump, 2, partnerBid5, 8, null, null)).toBeLessThanOrEqual(3);
+    });
+
+    test('long low trump is valued (the old evaluation underbid it)', () => {
+        const hand = ['2', '3', '5', '8', '9', '10'].map(r => card('hearts', r))
+            .concat([card('spades', '4'), card('clubs', '6'), card('diamonds', '7'), card('spades', '9')]);
+        expect(+calculateOptimalBid(hand, heartsTrump, 2, NONE, 10, null, null)).toBeGreaterThanOrEqual(3);
+    });
+
+    test('personalities lean around Mary: Sharon <= Mary <= Danny', () => {
+        const deal = deals(11);
+        let differs = 0;
+        for (let i = 0; i < 300; i++) {
+            const n = 3 + (i % 11);
+            const { hand, trump } = deal(n);
+            const args = [hand, trump, 2, NONE, n, null, null];
+            const mary = +calculateOptimalBid(...args, 'mary');
+            const sharon = +calculateOptimalBid(...args, 'sharon');
+            const danny = +calculateOptimalBid(...args, 'danny');
+            expect(sharon).toBeLessThanOrEqual(mary);
+            expect(danny).toBeGreaterThanOrEqual(mary);
+            if (sharon !== mary || danny !== mary) differs++;
+        }
+        expect(differs).toBeGreaterThan(0);
+    });
+
+    test('Zach bids up behind a partner who keeps winning far more than they bid, and down behind an overbidder', () => {
+        const hand = [card('hearts', 'K'), card('hearts', '9'), card('hearts', '4'), card('spades', 'A'),
+            card('clubs', 'K'), card('diamonds', '7'), card('spades', '6'), card('clubs', '3')];
+        const sandbagger = Array.from({ length: 8 }, () => ({ bid: 1, tricks: 4 }));
+        const overbidder = Array.from({ length: 8 }, () => ({ bid: 3, tricks: 1 }));
+        const bids = [undefined, undefined, undefined, '2'];
+        const mary = +calculateOptimalBid(hand, heartsTrump, 2, bids, 8, null, null, 'mary');
+        expect(+calculateOptimalBid(hand, heartsTrump, 2, bids, 8, null, null, 'zach', sandbagger)).toBeGreaterThan(mary);
+        expect(+calculateOptimalBid(hand, heartsTrump, 2, bids, 8, null, null, 'zach', overbidder)).toBeLessThanOrEqual(mary);
+    });
+});

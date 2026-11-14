@@ -28,6 +28,7 @@
  *   node server/game/bot/sim/simulate.js --exp personalities     # each personality+Mary vs Mary+Mary
  *   node server/game/bot/sim/simulate.js --team mary,danny --vs legacy:mary,legacy:mary
  *   node server/game/bot/sim/simulate.js --baseline /tmp/BotStrategy.before.js --team mary,mary --vs base:mary,base:mary
+ *   node server/game/bot/sim/simulate.js --exp baseline --games 4000 --records /tmp/bids.jsonl   # fitBidModel.js input
  *
  * Personality specs: mary | sharon | danny | mike | zach, with optional
  * `legacy:` prefix to use the frozen June-2026 strategy snapshot
@@ -134,6 +135,7 @@ const isBore = (b) => ['B', '2B', '3B', '4B'].includes(b);
 const numericBid = (b) => (isBore(b) ? null : (parseInt(String(b), 10) || 0));
 
 // ---------- Global stat accumulators ----------
+let recordsFd = null;   // --records: one JSONL line per bot-hand (fitBidModel.js input)
 const incidents = [];   // illegal card selections
 const exceptions = [];  // thrown errors
 let redealCount = 0;
@@ -227,6 +229,7 @@ function playGame(specs, expName, gameIdx) {
             }
             break;
         }
+        const dealtHands = recordsFd !== null ? { 1: hands[1].slice(), 2: hands[2].slice(), 3: hands[3].slice(), 4: hands[4].slice() } : null;
         byHandSize[handSize].keptHands++;
         byHandSize[handSize].sumTeamBids += teamBid[1] + teamBid[2];
         if (playerBids.some(isBore)) byHandSize[handSize].boreHands++;
@@ -367,6 +370,18 @@ function playGame(specs, expName, gameIdx) {
             }
         }
 
+        // ----- Bid-model records (--records) -----
+        if (recordsFd !== null) {
+            for (let p = 1; p <= 4; p++) {
+                const partnerPos = rules.getPartnerPosition(p);
+                require('fs').writeSync(recordsFd, JSON.stringify({
+                    spec: bots[p].statKey, hs: handSize, pos: p, fb: firstBidder,
+                    bids: playerBids, trump, hand: dealtHands[p],
+                    tricks: tricksByPos[p], ptricks: tricksByPos[partnerPos], tt: tricks[teamOf(p)]
+                }) + '\n');
+            }
+        }
+
         // ----- Zach partner history (mirrors updatePartnerHistory: bores skipped) -----
         for (let p = 1; p <= 4; p++) {
             const bot = bots[p];
@@ -427,6 +442,7 @@ function parseArgs(argv) {
         else if (a === '--team') args.team = argv[++i].split(',');
         else if (a === '--vs') args.vs = argv[++i].split(',');
         else if (a === '--baseline') args.baseline = argv[++i];
+        else if (a === '--records') args.records = argv[++i];
         else if (a === '--record-ios') {
             // iOS event-log fixtures: runs the scripted real-handler games of
             // iosEventLogs.test.js (the sim has no wire); nothing is simulated
@@ -448,6 +464,7 @@ function main() {
         process.exit(r.status ?? 1);
     }
     if (args.baseline) baselineStrategy = require(require('path').resolve(args.baseline));
+    if (args.records) recordsFd = require('fs').openSync(args.records, 'w');
     const N = args.games;
     const t0 = Date.now();
     const results = [];
@@ -516,6 +533,7 @@ function main() {
             accuracyHistogram: s.accuracy
         };
     }
+    if (recordsFd !== null) require('fs').closeSync(recordsFd);
     console.log(JSON.stringify(out, null, 1));
 }
 

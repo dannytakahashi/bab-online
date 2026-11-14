@@ -6,12 +6,14 @@
  * `bidStyle` (applyBidModifier) and `playStyle` (selectFollow), so adding a
  * personality here is what wires it into the strategy.
  *
- * bidStyle:
- *  - neutral:               no adjustment (Mary's calibrated bid)
- *  - conservative:          trims big bids by one — banks safety, forfeits upside
- *  - calculated-aggressive: rounds up bids that just miss the next trick
+ * bidStyle (on 3+ card hands Mary bids the expected-value optimum; the
+ * others lean along the same EV curve, see BotStrategy.applyBidModifier):
+ *  - neutral:               no adjustment (Mary's EV-optimal bid)
+ *  - conservative:          the lowest bid within a few points of the best
+ *  - calculated-aggressive: the highest bid within a few points of the best
  *  - overconfident:         occasionally bids one more than the hand supports
- *  - adaptive:              compensates for the partner's observed bid error
+ *  - adaptive:              reads the partner's observed overtricks instead of
+ *                           the population average
  *
  * playStyle:
  *  - balanced: Mary's card play
