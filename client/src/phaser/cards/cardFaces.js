@@ -235,18 +235,19 @@ export function rankSize(ctx) {
 
 /**
  * Draw the word `str` as the corner index: bold `size`, ink top at
- * INDEX.top, ink centred on INDEX.col and kept INDEX.left from the edge,
- * at its natural width. Returns its ink box and baseline.
+ * `at.top`, ink centred on INDEX.col and kept `at.left` from the edge
+ * (INDEX's, or the joker word's JOKER_WORD), at its natural width.
+ * Returns its ink box and baseline.
  */
-function indexWord(ctx, str, size, color) {
+function indexWord(ctx, str, size, color, at = INDEX) {
   ctx.save();
   ctx.font = font(INDEX.weight, size);
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
   const ink = inkMetrics(ctx, str, size);
   // one baseline for every rank: a flat cap's ascent ("K"), not each glyph's overshoot
-  const baseline = INDEX.top + inkMetrics(ctx, 'K', size).ascent;
-  const x0 = Math.max(INDEX.left, INDEX.col - ink.width / 2);
+  const baseline = at.top + inkMetrics(ctx, 'K', size).ascent;
+  const x0 = Math.max(at.left, INDEX.col - ink.width / 2);
   ctx.fillStyle = color;
   ctx.fillText(str, x0 - ink.left, baseline);
   ctx.restore();
@@ -271,8 +272,9 @@ export function drawStandardFace(ctx, card) {
 // vectors (the owner's "faithful" variant A): a slate outline, a light-blue
 // inner border, a light-blue centre panel with white corner flourishes and
 // the black double-bar dollar glyph. The word HI (card red) or LO (card
-// black) is the corner index, sized and placed like the ranks' (and drawn
-// once: no top-right label, no rotated bottom-right copy).
+// black) is the corner index in the ranks' bold (drawn once: no top-right
+// label, no rotated bottom-right copy), inset a little further than the
+// ranks (JOKER_WORD) to clear the joker's wider slate outline.
 
 /** The sprites' colours (the words use the deck's card red / black). */
 export const JOKER_INK = Object.freeze({
@@ -283,17 +285,29 @@ export const JOKER_INK = Object.freeze({
 });
 /** The sprite's card (x 11..52, y 2..61: 42 x 60 px) onto the design canvas. */
 const SPRITE = Object.freeze({ x: 11, y: 2, sx: CARD_DESIGN.w / 42, sy: CARD_DESIGN.h / 60 });
+/**
+ * Where the joker word's ink starts: the outline shows 6 units (half its
+ * 12-unit stroke, clipped to the card), so at the ranks' left 12 the word
+ * touched it (~1 px at DPR 1); 20 / 24 leaves the ranks' own 12-unit
+ * margin inside the outline. Its right edge stays at the index column's
+ * (INDEX.left + INDEX.maxInkW, 118), so `maxInkW` is that less `left`.
+ */
+export const JOKER_WORD = Object.freeze({
+  left: 20,
+  top: 24,
+  maxInkW: INDEX.left + INDEX.maxInkW - 20,
+});
 /** White kept round the joker's word, cutting the inner border behind it. */
 const JOKER_WORD_PAD = 6;
 
 /**
  * The joker word's size: the rank size, unless the wider word ("LO") would
- * then pass the index column's maxInkW; then both words shrink alike.
+ * then pass JOKER_WORD.maxInkW; then both words shrink alike.
  */
 export function jokerWordSize(ctx) {
   const size = rankSize(ctx);
   const wd = Math.max(inkWidthAt(ctx, 'HI', size), inkWidthAt(ctx, 'LO', size));
-  return wd > INDEX.maxInkW ? (size * INDEX.maxInkW) / wd : size;
+  return wd > JOKER_WORD.maxInkW ? (size * JOKER_WORD.maxInkW) / wd : size;
 }
 
 /** One open stroked path. */
@@ -396,14 +410,14 @@ export function drawJokerFace(ctx, card) {
   ctx.save();
   ctx.font = font(INDEX.weight, size);
   const ink = inkMetrics(ctx, word, size);
-  const capTop = INDEX.top;
-  const capBottom = INDEX.top + inkMetrics(ctx, 'K', size).ascent;
+  const capTop = JOKER_WORD.top;
+  const capBottom = JOKER_WORD.top + inkMetrics(ctx, 'K', size).ascent;
   ctx.restore();
-  const x0 = Math.max(INDEX.left, INDEX.col - ink.width / 2);
+  const x0 = Math.max(JOKER_WORD.left, INDEX.col - ink.width / 2);
   const pad = JOKER_WORD_PAD;
   ctx.fillStyle = C.face;
   ctx.fillRect(x0 - pad, capTop - pad, ink.width + 2 * pad, capBottom + ink.descent - capTop + 2 * pad);
-  indexWord(ctx, word, size, hi ? C.red : C.black);
+  indexWord(ctx, word, size, hi ? C.red : C.black, JOKER_WORD);
   ctx.restore();
 }
 

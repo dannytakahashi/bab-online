@@ -17,7 +17,7 @@
 import { describe, it, expect } from 'vitest';
 import { recordingContext } from '../../testing/recordingContext.js';
 import {
-  ALL_CARDS, CARD_DESIGN, INDEX, PIP, SUIT_WIDTH, JOKER_INK, drawCard, rankSize, jokerWordSize,
+  ALL_CARDS, CARD_DESIGN, INDEX, PIP, SUIT_WIDTH, JOKER_INK, JOKER_WORD, drawCard, rankSize, jokerWordSize,
 } from './cardFaces.js';
 import { layoutForViewport, handPositions } from '../layout/computeTableLayout.js';
 import { COLOR, FONT_UI } from '../../ui/tokens.js';
@@ -178,7 +178,7 @@ describe('the jumbo corner index (design units, 300 x 435)', () => {
 });
 
 describe('the jokers (the faithful sprite, HI / LO as the corner index)', () => {
-  it('HI in card red, LO in card black: the one word, top left, the ranks\' bold, its ink at the index\'s top and left', () => {
+  it('HI in card red, LO in card black: the one word, top left, the ranks\' bold, its ink 12 units inside the slate outline', () => {
     for (const [rank, color] of [['HI', C.red], ['LO', C.black]]) {
       const { ctx, texts } = drawn({ suit: 'joker', rank });
       expect(texts.map((t) => t.args[0])).toEqual([rank]); // no top-right label, no JOKER
@@ -187,9 +187,13 @@ describe('the jokers (the faithful sprite, HI / LO as the corner index)', () => 
       expect([t.m.a, t.m.b, t.m.c, t.m.d]).toEqual([1, 0, 0, 1]);
       expect(t.font.startsWith('700 ')).toBe(true);
       const ink = inkOf(t);
-      expect(ink.y0).toBeGreaterThan(16.5);
-      expect(ink.y0).toBeLessThanOrEqual(18 + 1e-9);
-      expect(ink.x0).toBeGreaterThanOrEqual(12 - 1e-9);
+      // the outline shows 6 units (a 12-unit stroke clipped to the card):
+      // the word keeps the ranks' 12-unit margin inside it, not 6 units
+      expect(JOKER_WORD).toEqual({ left: 20, top: 24, maxInkW: 98 });
+      expect(ink.y0).toBeGreaterThan(22.5);
+      expect(ink.y0).toBeLessThanOrEqual(24 + 1e-9);
+      expect(ink.x0).toBeGreaterThanOrEqual(6 + 12 - 1e-9);
+      expect(ink.x0).toBeCloseTo(20, 6);
       expect(ink.x1).toBeLessThanOrEqual(INDEX.left + INDEX.maxInkW + 1e-9);
       // nothing in the old top-right label's place (x > 150, above the panel)
       expect(texts.filter((x) => x.at.x > 150)).toEqual([]);
@@ -202,15 +206,16 @@ describe('the jokers (the faithful sprite, HI / LO as the corner index)', () => 
     }
   });
 
-  it('both words one size: the ranks\' 100, shrunk alike so the wider "LO" keeps inside the index column (SF: ~90.5)', () => {
+  it('both words one size: the ranks\' 100, shrunk alike so the wider "LO" ends with the index column at 118 (SF: ~83.7)', () => {
     const size = jokerWordSize(sfContext());
-    // SF's bold "LO" has 117.1 units of ink at 100
-    expect(size).toBeCloseTo((100 * 106) / (122.97 - 5.86), 6);
+    // SF's bold "LO" has 117.1 units of ink at 100; from x = 20 it may have 98
+    expect(size).toBeCloseTo((100 * 98) / (122.97 - 5.86), 6);
     const hi = drawn({ suit: 'joker', rank: 'HI' }).texts[0];
     const lo = drawn({ suit: 'joker', rank: 'LO' }).texts[0];
     expect(fontPx(hi.font)).toBeCloseTo(size, 9);
     expect(fontPx(lo.font)).toBeCloseTo(size, 9);
-    expect(inkOf(lo).x1 - inkOf(lo).x0).toBeCloseTo(106, 6);
+    expect(inkOf(lo).x1 - inkOf(lo).x0).toBeCloseTo(98, 6);
+    expect(inkOf(lo).x1).toBeCloseTo(INDEX.left + INDEX.maxInkW, 6);
   });
 
   it('faithful: the slate outline, the light-blue border and panel, white flourishes and the black dollar, no purple, no star', () => {
