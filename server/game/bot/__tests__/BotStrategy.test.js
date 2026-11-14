@@ -1457,6 +1457,37 @@ describe('expected-value bidding', () => {
         expect(bidExpectedValues(0.2, 3, 0, 0.2, true)[0]).toBe(0);
     });
 
+    test('certain winners are never bid below (countLockedWinners floor)', () => {
+        const spadesTrump = card('spades', '2');
+        // Both jokers on 3 cards, first to bid: EV alone bid 1
+        expect(calculateOptimalBid([HI, card('diamonds', '2'), LO], spadesTrump, 1,
+            NONE, 3, null, null)).toBe('2');
+        expect(calculateOptimalBid([HI, card('diamonds', '2'), LO], spadesTrump, 1,
+            [undefined, '1', undefined, '1'], 3, null, { teamScore: 300, oppScore: 100, currentHandSize: 3 })).toBe('2');
+        // Property: with no bore out, our bid (bidding first) or the team
+        // bid (partner bid first) is never below the lock, short of the cap
+        const { countLockedWinners: locked } = require('../BotStrategy');
+        const deal = deals(11);
+        let checked = 0;
+        for (let i = 0; i < 4000; i++) {
+            const n = 2 + (i % 12);
+            const { hand, trump } = deal(n);
+            const L = locked(hand, trump);
+            if (L === 0) continue;
+            const pb = i % 3 === 0 ? undefined : String(i % Math.min(n, 4));
+            const existing = [undefined, '0', pb, undefined];
+            for (const p of ['mary', 'sharon', 'danny', 'mike']) {
+                const bid = calculateOptimalBid(hand, trump, 1, existing, n, null, null, p);
+                if (['B', '2B', '3B', '4B'].includes(bid)) continue;
+                const cap = pb === undefined ? n : n - Number(pb);
+                const floor = pb === undefined ? L : Math.max(0, L - Number(pb));
+                expect(Number(bid)).toBeGreaterThanOrEqual(Math.min(floor, cap));
+                checked++;
+            }
+        }
+        expect(checked).toBeGreaterThan(100);
+    });
+
     test('no-trump hands use their own, wider spread and so keep a bigger margin', () => {
         const { TEAM_SD, TEAM_SD_NO_TRUMP } = require('../bidModel');
         for (let n = 3; n <= 13; n++) {

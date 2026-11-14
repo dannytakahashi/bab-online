@@ -193,3 +193,19 @@ Against the previous tables (8000 deal sets, seed 811): no-trump team sets
 14.7% → 10.4%, +0.37 ±0.35 points per no-trump hand, game win rate 50.3%
 ±0.3, margin +0.7 ±0.5; danny+zach (4000, seed 812) 50.2% ±0.5.
 
+
+**Locked-winner floor.** `countLockedWinners` (top jokers, then trump in an
+unbroken run from the HI joker) are certain tricks, but the fitted values
+average the LO joker and trump A over hands without the cards above them, so
+EV sometimes bid one under a lock. Mary self-play (4000 games, seed 731):
+57 of 175,332 3+ card bot-hands bid below their lock (33 bidding first,
+e.g. both jokers on 3 cards bid 1; 6 with the team bid below it), and 53 of
+10,892 2-card hands (all partner-first trims; team bid never below). Every
+one of those hands took at least its locked tricks. The floor is our own
+bid when we bid first and the team bid when partner already bid (a
+player-level floor there raised 2-card sets 4.84% → 5.03%, margin −0.01
+±0.02, because partners' winners can share a trick). Paired runs against
+the previous commit: mary 49.99% ±0.02, margin +0.01 ±0.02 (8000 deal sets,
+seed 823); sharon+mike +0.04 ±0.06 (4000, seed 824); danny+zach +0.00 ±0.05
+(4000, seed 825). Neutral, as a 0.02%-of-hands change must be; kept so that
+a bot never visibly bids under cards that cannot lose.

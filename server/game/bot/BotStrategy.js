@@ -1016,6 +1016,19 @@ function calculateOptimalBid(hand, trump, position, existingBids, handSize, memo
     });
     if (boreBid) return boreBid;
 
+    // Certain winners (top jokers / trump in an unbroken run from the HI
+    // joker) are never underbid. The fitted per-card values average the LO
+    // joker / trump A over hands that lack the cards above them, so EV bid one
+    // under a lock on ~0.03% of 3+ card hands (both jokers on 3 cards, first
+    // to bid: 1). Bidding first, the floor is our own bid (partner then bids
+    // on top of an honest number). Partner already bid: the floor is the TEAM
+    // bid, because partner's winners can fall on the same trick as ours
+    // (raising our own bid there lost points on 2-card hands, where the old
+    // rules trim us under a partner's bid on purpose). Applied before the
+    // team cap; hands with a bore out keep their rules.
+    const lockedFloor = highestBore ? 0
+        : Math.max(0, countLockedWinners(hand, trump) - (partnerBidValue || 0));
+
     // --- EXPECTED-VALUE BIDDING (3+ cards, no bore on the table) ---
     if (handSize >= EV_MIN_HAND_SIZE && !highestBore) {
         const ownMean = estimateOwnTricks(hand, trump, handSize, opponentTotalBid, opponentBidCount);
@@ -1035,6 +1048,7 @@ function calculateOptimalBid(hand, trump, position, existingBids, handSize, memo
         // worth points); ahead, the lowest
         let bid = pickBidFromEV(evs, riskAdjustment, EV_TUNING.riskTolerance);
         bid = applyBidModifier(bid, personality, evaluation, handSize, partnerHistory, evs);
+        bid = Math.max(bid, lockedFloor);
         if (partnerBidValue !== null) bid = Math.min(bid, Math.max(0, handSize - partnerBidValue));
         return String(Math.max(0, Math.min(bid, handSize)));
     }
@@ -1139,6 +1153,7 @@ function calculateOptimalBid(hand, trump, position, existingBids, handSize, memo
 
     // Apply personality-specific bid modifier
     bid = applyBidModifier(bid, personality, evaluation, handSize, partnerHistory);
+    bid = Math.max(bid, lockedFloor);
 
     // Personality adjustments must still respect the combined-bid cap — a
     // team bid above hand size is unmakeable — and the opponent-bore cap
