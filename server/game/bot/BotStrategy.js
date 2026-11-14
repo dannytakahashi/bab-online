@@ -1572,6 +1572,19 @@ function selectFollow(hand, playedCards, leadCard, leadPosition, trump, trumpBro
                 return pickWinner(candidates, hand, memory, trump, winningCard, true);
             }
         }
+        // Partner is winning with a modest plain card (Queen or lower, not
+        // boss) and an opponent is still to play: ruff low to lock the trick
+        // in, unless that opponent is a known void and could over-ruff
+        if (memory && opponentsRemain && trumpCards.length > 0 && nonTrumpCards.length > 0) {
+            const winningIsTrump = winningCard.suit === trump.suit || winningCard.suit === 'joker';
+            if (!winningIsTrump && RANK_VALUES[winningCard.rank] <= RANK_VALUES['Q'] &&
+                countHigherUnseen(winningCard, hand, memory, trump) > 0) {
+                const lastOpp = getOpponentPositions(position).find(p => playedCards[p - 1] == null);
+                if (!getOpponentVoidSuits(memory, position, trump).has(`${lastOpp}:${leadSuit}`)) {
+                    return trumpCards.sort((a, b) => RANK_VALUES[a.rank] - RANK_VALUES[b.rank])[0];
+                }
+            }
+        }
         // Partner winning - don't trump, just discard
         if (nonTrumpCards.length > 0) {
             return selectDiscard(nonTrumpCards, trump, trumpCards.length > 0, memory, hand);

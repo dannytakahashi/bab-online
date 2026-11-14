@@ -959,6 +959,21 @@ describe('selectFollow', () => {
             expect(result).toEqual(card('hearts', 'K'));
         });
 
+        test('3rd seat ruffs low to secure partner\'s modest plain winner', () => {
+            const hand = [card('hearts', 'K'), card('hearts', '5'), card('clubs', '2')];
+            // Partner (1) led the spade 9 and is winning; opponent 4 still to play
+            const playedCards = [card('spades', '9'), card('spades', '4'), undefined, undefined];
+            const result = selectFollow(hand, playedCards, card('spades', '9'), 1, heartsTrump, false, 3, freshMemory(), 3);
+            expect(result).toEqual(card('hearts', '5'));
+        });
+
+        test('3rd seat leaves partner\'s Ace alone and discards', () => {
+            const hand = [card('hearts', 'K'), card('hearts', '5'), card('clubs', '2')];
+            const playedCards = [card('spades', 'A'), card('spades', '4'), undefined, undefined];
+            const result = selectFollow(hand, playedCards, card('spades', 'A'), 1, heartsTrump, false, 3, freshMemory(), 3);
+            expect(result).toEqual(card('clubs', '2'));
+        });
+
         test('flashy (Danny) keeps ruffing high at 2nd seat', () => {
             const hand = [card('hearts', 'K'), card('hearts', '5'), card('clubs', '2')];
             const playedCards = [card('spades', '9'), undefined, undefined, undefined];
