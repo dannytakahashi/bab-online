@@ -52,10 +52,12 @@ describe('card faces (the iOS CardTextureGenerator, on a 300 x 435 canvas)', () 
       const ranks = ctx.calls.filter((c) => c.op === 'fillText');
       expect(ranks.map((c) => c.args[0])).toEqual([card.rank, card.rank]);
       expect(ranks.every((c) => c.fillStyle === color)).toBe(true);
+      // (the jumbo index's geometry: cardFaces.test.js)
       const [tl, br] = ranks;
-      expect(tl.at.x).toBeCloseTo(20, 6);
-      expect(br.m.a).toBeCloseTo(-1, 6); // rotated by pi
-      expect(br.at.x).toBeCloseTo(CARD_DESIGN.w - 20, 6);
+      expect(tl.m.a).toBeGreaterThan(0);
+      expect(br.m.a).toBeLessThan(0); // rotated by pi
+      expect(br.at.x).toBeCloseTo(CARD_DESIGN.w - tl.at.x, 6);
+      expect(br.at.y).toBeCloseTo(CARD_DESIGN.h - tl.at.y, 6);
       // the pip is centred
       const pip = ctx.calls.filter((c) => c.op === 'fill' && c.fillStyle === color).pop();
       expect(pip.m.a * 50 + pip.m.e).toBeCloseTo(CARD_DESIGN.w / 2, 6);
@@ -114,9 +116,9 @@ describe('card faces (the iOS CardTextureGenerator, on a 300 x 435 canvas)', () 
     }
   });
 
-  it('text is the UI font at the iOS weights (bold 40 rank, bold 34 HI/LO, heavy 36 JOKER)', () => {
+  it('text is the UI font (bold 100 jumbo rank; the jokers at the iOS weights: bold 34 HI/LO, heavy 36 JOKER)', () => {
     const fonts = (ctx) => ctx.calls.filter((c) => c.op === 'fillText').map((c) => c.font);
-    expect(fonts(draw({ suit: 'spades', rank: 'K' }))).toEqual([`700 40px ${FONT_UI}`, `700 40px ${FONT_UI}`]);
+    expect(fonts(draw({ suit: 'spades', rank: 'K' }))).toEqual([`700 100px ${FONT_UI}`, `700 100px ${FONT_UI}`]);
     expect(fonts(draw({ suit: 'joker', rank: 'HI' }))).toEqual([`700 34px ${FONT_UI}`, `700 34px ${FONT_UI}`, `800 36px ${FONT_UI}`]);
     expect(FONT_UI.startsWith('-apple-system')).toBe(true);
   });

@@ -5,9 +5,10 @@
  *
  *   - a white face, corner radius 24, a grey 3-unit border (stroked on the
  *     edge and clipped to the card, as UIBezierPath.stroke into the bitmap);
- *   - the rank (system font, bold 40) at the top left, the suit centred
- *     under it, the pair rotated 180 degrees at the bottom right;
- *   - a large centre pip (the glyph of a 100-unit font);
+ *   - a JUMBO corner index (web only, see INDEX: bold 100 rank, 54-unit
+ *     suit under it, in a column centred 50 units in; iOS draws bold 40),
+ *     the pair rotated 180 degrees at the bottom right;
+ *   - a centre pip 84 units tall (iOS: the glyph of a 100-unit font);
  *   - jokers in purple: HI / LO (bold 34), a star and "JOKER" (heavy 36),
  *     with a 4-unit purple border;
  *   - the dark-green back with its inner rounded rectangle and the four suits.
@@ -180,22 +181,62 @@ export function rankLabel(rank) {
   return String(rank).toUpperCase();
 }
 
-// Index layout (iOS: rank drawn at (20, 16), the suit under it at the
-// rank's line height less 2). Canvas draws text from its baseline: the
-// system font's ascender is ~0.95 em, so the bold 40 rank's baseline is
-// 16 + 38; the 32-unit suit glyph's ink (~0.72 em, 23 units) sits on the
-// next line, centred 80 units down.
-const INDEX = { x: 20, rankBaseline: 54, suitCenterY: 80, suitSize: 24 };
-const PIP = { size: 74 };
+/**
+ * The JUMBO corner index (web only; 2026-11 readability study): in a fanned
+ * hand only a strip of each card's left edge shows (25.5 px of a 59 px card
+ * at 1280 x 800), and iOS's 40-unit rank was ~5.5 px tall there. The index is
+ * now a column centred at `col`: the rank's INK starts `top` units down, in
+ * bold `rank` units (cap ~0.70 em, ~70 units), condensed horizontally to at
+ * most `maxW` units of ink (only "10" needs it); the `suit`-unit suit sits
+ * `gap` units under the rank's ink. The column spans col +- maxW / 2 (13-87),
+ * inside the tightest hand strip the layout makes (computeTableLayout's
+ * handPositions; cardFaces.test.js sweeps it). The bottom-right index is the
+ * same drawing rotated 180 degrees about the card's centre. The jokers keep
+ * their own corner (drawJokerFace).
+ */
+export const INDEX = Object.freeze({ col: 50, top: 18, rank: 100, weight: WEIGHT.bold, maxW: 74, gap: 8, suit: 54 });
+/** The centre pip's size (design units). */
+export const PIP = Object.freeze({ size: 84 });
+/** Cap height / em of the UI font where the canvas gives no ink metrics. */
+const CAP_EM = 0.7;
+
+const finite = (v) => typeof v === 'number' && Number.isFinite(v);
+
+/**
+ * The ink box of `str` in the current font, relative to the text origin
+ * (left aligned, alphabetic baseline): the browser's actualBoundingBox
+ * metrics, else (a context without them) the advance width and the cap
+ * height.
+ */
+export function inkMetrics(ctx, str, size) {
+  const m = ctx.measureText(str);
+  const hasInk = finite(m.actualBoundingBoxLeft) && finite(m.actualBoundingBoxRight)
+    && finite(m.actualBoundingBoxAscent) && m.actualBoundingBoxRight + m.actualBoundingBoxLeft > 0;
+  if (!hasInk) return { left: 0, width: m.width || 0.6 * size * str.length, ascent: CAP_EM * size, descent: 0 };
+  return {
+    left: -m.actualBoundingBoxLeft,
+    width: m.actualBoundingBoxRight + m.actualBoundingBoxLeft,
+    ascent: m.actualBoundingBoxAscent,
+    descent: finite(m.actualBoundingBoxDescent) ? Math.max(0, m.actualBoundingBoxDescent) : 0,
+  };
+}
 
 function drawIndex(ctx, rankStr, suit, color) {
+  const I = INDEX;
+  ctx.save();
   ctx.fillStyle = color;
-  ctx.font = font(WEIGHT.bold, 40);
+  ctx.font = font(I.weight, I.rank);
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
-  ctx.fillText(rankStr, INDEX.x, INDEX.rankBaseline);
-  const rankW = ctx.measureText(rankStr).width || 24;
-  drawSuit(ctx, suit, INDEX.x + rankW / 2, INDEX.suitCenterY, INDEX.suitSize, color);
+  const ink = inkMetrics(ctx, rankStr, I.rank);
+  const k = ink.width > I.maxW ? I.maxW / ink.width : 1;
+  const baseline = I.top + ink.ascent;
+  // the ink centred on the column, condensed (x only) to maxW
+  ctx.translate(I.col, baseline);
+  ctx.scale(k, 1);
+  ctx.fillText(rankStr, -ink.left - ink.width / 2, 0);
+  ctx.restore();
+  drawSuit(ctx, suit, I.col, baseline + ink.descent + I.gap + I.suit / 2, I.suit, color);
 }
 
 /** Draw a standard face (design units). */
