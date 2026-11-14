@@ -21,7 +21,7 @@
  * s2c; web: a full-screen "open in another tab" notice with Use here) and
  * parked: every event it sends except signIn / signUp / restoreSession /
  * clientHello is refused with sessionSuperseded again (at most one a
- * second; never `error`, which iOS 1.1.0 would toast and resync), it leaves
+ * second; never serverError, which a client would toast and resync), it leaves
  * the main room and spectating, and its lobby seat is held for its grace
  * (GameManager.suspendLobbySeat) so the newest socket can take it. A game
  * seat moves with the newest socket's rejoin, as before. It keeps its

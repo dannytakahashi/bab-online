@@ -15,7 +15,7 @@ Never auto-loaded: open it for `server/database.js`, DB reads/writes, profile ca
 
 ## Soft limits
 
-- Soft limits (`rateLimiter.limits`, per socket): `getLeaderboard`/`getRecords` 10/10 s are checked inside their handlers and over the limit reply with the cached (even stale) page OF THE REQUESTED SCOPE, its fill in flight, else the ordinary `{success:false, message}` — never `error` (one budget for every scope: fast switching counts against it; the web control coalesces quick switches, 200 ms); `searchPlayers`/`getPlayerProfile` 30/10 s through `asyncHandler` (`error {type:'rateLimit'}`, a web toast; Joi since V1_REMOVALS #18, as for `joinLobby` (a uuid) and `removeBot` (a `bot:` id; `removeBotFromLobby` also refuses a human member); both web-only). `contract/src/c2s.js` mirrors the wrapper metadata (contract.test checks it)
+- Soft limits (`rateLimiter.limits`, per socket): `getLeaderboard`/`getRecords` 10/10 s are checked inside their handlers and over the limit reply with the cached (even stale) page OF THE REQUESTED SCOPE, its fill in flight, else the ordinary `{success:false, message}` — never `serverError` (one budget for every scope: fast switching counts against it; the web control coalesces quick switches, 200 ms); `searchPlayers`/`getPlayerProfile` 30/10 s through `asyncHandler` (`serverError {code:'rateLimit'}`, a web toast; Joi since V1_REMOVALS #18, as for `joinLobby` (a uuid) and `removeBot` (a `bot:` id; `removeBotFromLobby` also refuses a human member); both web-only). `contract/src/c2s.js` mirrors the wrapper metadata (contract.test checks it)
 
 ## Express pages
 

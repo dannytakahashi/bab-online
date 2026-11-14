@@ -126,7 +126,7 @@ describe('allowed peers relay exactly as before', () => {
 
 describe('refused (dropped silently: no relay, no error)', () => {
     afterEach(() => {
-        expect(log.filter((l) => l.event === 'error')).toHaveLength(0);
+        expect(log.filter((l) => l.event === 'serverError')).toHaveLength(0);
     });
 
     test.each(['mainRoom', 'game:anything', 'tournament:x'])('a room name as target (%s)', (room) => {
@@ -212,7 +212,7 @@ describe('rate limits (per socket, dropped silently)', () => {
             const { max, windowMs } = rateLimiter.limits[event];
             for (let i = 0; i < max + 5; i++) send(a, b.id);
             expect(relayed(event)).toHaveLength(max);
-            expect(log.filter((l) => l.event === 'error')).toHaveLength(0);
+            expect(log.filter((l) => l.event === 'serverError')).toHaveLength(0);
             jest.advanceTimersByTime(windowMs + 1);
             send(a, b.id);
             expect(relayed(event)).toHaveLength(max + 1);
@@ -296,7 +296,7 @@ describe('block lists on every path that signs a socket in (fail closed)', () =>
 
 describe('V1_REMOVALS #18: every relay payload passes its Joi schema, else it is dropped silently', () => {
     afterEach(() => {
-        expect(log.filter((l) => l.event === 'error')).toHaveLength(0);
+        expect(log.filter((l) => l.event === 'serverError')).toHaveLength(0);
     });
 
     test('the shapes the clients send today are forwarded', () => {

@@ -40,12 +40,12 @@ describe('the server restarts while watching a tournament table', () => {
     socket.fire('restoreSessionResponse', { success: true, username: 'me', blockedUsers: [] });
     expect(socket.emitted('joinAsSpectator')).toEqual([{ gameId: 'g2' }]);
 
-    socket.fire('error', { message: 'Game not found' });
+    socket.fire('serverError', { code: 'rejected', message: 'Game not found', handler: null });
     expect(socket.emitted('spectateTournament')).toEqual([{ tournamentId: 't1' }]);
     socket.clearEmits();
 
     // the new server has no tournament: an error and nothing else
-    socket.fire('error', { message: 'Tournament not found' });
+    socket.fire('serverError', { code: 'rejected', message: 'Tournament not found', handler: null });
     expect(page.session.screen).toBe('mainRoom');
     expect(socket.emitted('joinMainRoom')).toHaveLength(1);
     socket.fire('mainRoomJoined', mainRoomPayload());

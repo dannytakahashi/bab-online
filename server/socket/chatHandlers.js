@@ -16,7 +16,7 @@ const gameManager = require('../game/GameManager');
 const { socketLogger } = require('../utils/logger');
 const { Controller, Presence } = require('../game/SeatState');
 const seatLifecycle = require('./seatLifecycle');
-const { errorOf, serverErrorOf } = require('./serverError');
+const { serverErrorOf } = require('./serverError');
 
 /** @returns {{game, role, pos}|null} */
 function resolveSender(socketId) {
@@ -34,11 +34,8 @@ function resolveSender(socketId) {
 }
 
 function sendError(io, game, socket, message) {
-    // error and its serverError twin, the same handler on both
-    // (server/socket/serverError.js)
-    const payload = errorOf({ message }, 'chatMessage');
-    game.sendToPlayer(io, socket.id, 'error', payload);
-    game.sendToPlayer(io, socket.id, 'serverError', serverErrorOf(payload));
+    // serverError {code: rejected, message, handler} (server/socket/serverError.js)
+    game.sendToPlayer(io, socket.id, 'serverError', serverErrorOf({ message }, 'chatMessage'));
 }
 
 /** Slash commands from a seat owner. */

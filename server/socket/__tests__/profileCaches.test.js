@@ -152,7 +152,7 @@ describe('leaderboard cache', () => {
         expect(res).toEqual({ success: true, leaderboard: refilled });
         expect(res.leaderboard).toEqual(cached);
         expect(find).not.toHaveBeenCalled();
-        expect(log.filter(l => l.event === 'error')).toEqual([]);
+        expect(log.filter(l => l.event === 'serverError')).toEqual([]);
     });
 
     test('over the limit with nothing cached: the fill in flight, else the plain failure reply', async () => {
@@ -219,7 +219,7 @@ describe('records cache', () => {
         const res = await records(s);
         expect(res).toMatchObject({ success: true, totalGames: 1 });
         expect(find).not.toHaveBeenCalled();
-        expect(log.filter(l => l.event === 'error')).toEqual([]);
+        expect(log.filter(l => l.event === 'serverError')).toEqual([]);
     });
 
     test('the records finds read only the projected fields', async () => {
@@ -256,7 +256,7 @@ describe('player search', () => {
         for (let i = 0; i < 30; i++) await handler(s, io, { query: 'a' });
         expect(log.filter(l => l.to === `self:${s.id}` && l.event === 'searchPlayersResponse')).toHaveLength(30);
         await handler(s, io, { query: 'a' });
-        expect(lastTo(s, 'error')).toEqual({ type: 'rateLimit', message: 'Too many requests, please slow down', handler: 'searchPlayers' });
+        expect(lastTo(s, 'serverError')).toEqual({ code: 'rateLimit', message: 'Too many requests, please slow down', handler: 'searchPlayers' });
     });
 
     test('getPlayerProfile is limited to 30 per 10 s the same way', async () => {
@@ -264,7 +264,7 @@ describe('player search', () => {
         const handler = asyncHandler('getPlayerProfile', profile.getPlayerProfile);
         for (let i = 0; i < 30; i++) await handler(s, io, { username: 'Ann' });
         await handler(s, io, { username: 'Ann' });
-        expect(lastTo(s, 'error')).toMatchObject({ type: 'rateLimit', handler: 'getPlayerProfile' });
+        expect(lastTo(s, 'serverError')).toMatchObject({ code: 'rateLimit', handler: 'getPlayerProfile' });
     });
 });
 

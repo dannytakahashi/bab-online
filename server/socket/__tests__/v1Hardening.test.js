@@ -64,7 +64,7 @@ function user(tag) {
     return s;
 }
 const to = (s, event) => log.filter((l) => l.to === `self:${s.id}` && l.event === event).map((l) => l.data);
-const validationErrors = (s) => to(s, 'error').filter((d) => d.type === 'validation');
+const validationErrors = (s) => to(s, 'serverError').filter((d) => d.code === 'validation');
 
 describe('joinLobby', () => {
     test('a lobby id (uuid) as both clients send it joins; anything else is a validation error', () => {
@@ -103,7 +103,7 @@ describe('removeBot', () => {
 
         removeBot(a, io, { botSocketId: botId });
         expect(lobby.players.map((p) => p.socketId)).toEqual([a.id, b.id]);
-        expect(to(a, 'error').filter((d) => d.type !== 'validation')).toEqual([]);
+        expect(to(a, 'serverError').filter((d) => d.code !== 'validation')).toEqual([]);
     });
 });
 

@@ -116,9 +116,9 @@ describe('server event -> handler map', () => {
     expect((listeners.get('playerAssigned') || []).length).toBe(0);
   });
 
-  it('app-level errors are heard on both channels, error and serverError (V1_REMOVALS #1)', () => {
-    expect((listeners.get('error') || []).length).toBeGreaterThan(0);
-    expect((listeners.get('serverError') || []).length).toBeGreaterThan(0);
+  it('app-level errors are heard on serverError only: the v1 error is gone (V1_REMOVALS #1 phase B)', () => {
+    expect((listeners.get('error') || []).length).toBe(0);
+    expect((listeners.get('serverError') || []).length).toBe(1);
   });
 
   it('setGameScene adds no handler functions to the scene (GameScene owns them all)', () => {

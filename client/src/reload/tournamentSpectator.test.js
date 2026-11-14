@@ -48,7 +48,7 @@ describe('reload while watching a tournament lobby', () => {
   it('a watched tournament that is gone lands in the main room (one joinMainRoom)', () => {
     const { socket } = page;
     socket.clearEmits();
-    socket.fire('error', { message: 'Tournament not found' });
+    socket.fire('serverError', { code: 'rejected', message: 'Tournament not found', handler: null });
     // a failed spectateTournament gets no main room from the server
     expect(socket.emitted('joinMainRoom')).toHaveLength(1);
     expect(page.session.screen).toBe('mainRoom');

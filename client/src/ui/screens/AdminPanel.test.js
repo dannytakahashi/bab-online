@@ -952,15 +952,15 @@ describe('createAdminApi', () => {
       const accepted = a.request('listAdmins', {});
       const dropped = a.request('listAudit', {});
       const dropErr = dropped.catch((e) => e);
-      listeners.error({ type: 'rateLimit', handler: 'joinMainRoom' }); // another event's limit: ignored
-      listeners.error({ type: 'rateLimit', handler: 'adminRequest', message: 'Too many requests, please slow down' });
+      listeners.serverError({ code: 'rateLimit', handler: 'joinMainRoom' }); // another event's limit: ignored
+      listeners.serverError({ code: 'rateLimit', handler: 'adminRequest', message: 'Too many requests, please slow down' });
       const [, first] = socket.emit.mock.calls[0];
       listeners.adminResponse({ requestId: first.requestId, action: 'listAdmins', ok: true, admins: [] });
       await expect(accepted).resolves.toMatchObject({ ok: true });
       vi.advanceTimersByTime(3000);
       expect((await dropErr).message).toBe('rate_limited');
       a.dispose();
-      expect(socket.off).toHaveBeenCalledWith('error', expect.any(Function));
+      expect(socket.off).toHaveBeenCalledWith('serverError', expect.any(Function));
     } finally {
       vi.useRealTimers();
     }

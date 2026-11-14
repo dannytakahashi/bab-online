@@ -10,9 +10,8 @@ const { socketLogger } = require('../utils/logger');
 const { emitError } = require('./serverError');
 
 /**
- * The c2s event an error of this wrapper answers (error.handler and
- * serverError.handler, the same on every path: rate limit, validation,
- * exception): options.event, else the schema name, else the handler's
+ * The c2s event an error of this wrapper answers (serverError.handler,
+ * the same on every path: rate limit, validation, exception): options.event, else the schema name, else the handler's
  * function name (safeHandler, no schema), else 'unknown'.
  */
 function eventOf(schemaName, handler, options) {

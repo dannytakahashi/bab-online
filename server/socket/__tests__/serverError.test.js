@@ -1,13 +1,15 @@
 /**
- * contract/V1_REMOVALS.md #1 phase A (2026-11-11): every app-level `error`
- * is followed, on the same socket, by `serverError {code, message,
- * handler}`, and both copies carry the same handler (the c2s event), so a
- * client reading both channels (iOS 1.2's ServerErrorDeduper) drops the
- * second one. A refusal's `error` gains `handler` (variant rejected,
- * additive); the wrappers' error payloads are otherwise unchanged. Real
- * handlers and wrappers on stub io/sockets (contract guard on).
+ * contract/V1_REMOVALS.md #1: every app-level server error reaches the
+ * socket as `serverError {code, message, handler}` ONLY. Phase A
+ * (2026-11-11) sent it as the twin of the v1 `error`; phase B (2026-11-12,
+ * once iOS 1.1.0 was gated) dropped `error`, validators.withValidation and
+ * the error event's variants (validation, handler, message, rejected).
+ * handler is the c2s event on every path. Real handlers and wrappers on
+ * stub io/sockets (contract guard on).
  */
 
+const fs = require('fs');
+const path = require('path');
 const { createMemoryDb } = require('../../testUtils/memoryDb');
 
 const mockDb = { current: null };
@@ -25,9 +27,12 @@ const tournamentHandlers = require('../tournamentHandlers');
 const chatHandlers = require('../chatHandlers');
 const gameHandlers = require('../gameHandlers');
 const { asyncHandler, syncHandler, rateLimiter } = require('../errorHandler');
-const { errorOf, serverErrorOf, CODES } = require('../serverError');
+const serverError = require('../serverError');
+const { serverErrorOf, CODES } = serverError;
 const { makeIo, makeSocket } = require('../../testUtils/gameDriver');
 const { gameLogger, socketLogger, authLogger } = require('../../utils/logger');
+
+const ROOT = path.join(__dirname, '..', '..', '..');
 
 let seq = 0;
 let log;
@@ -60,23 +65,21 @@ function user(tag) {
     rateLimiter.clearSocket(s.id);
     return s;
 }
-/** [event, data] pairs this socket got, error and serverError only. */
+/** [event, data] pairs this socket got, error and serverError only (error must never appear). */
 const errorsTo = (s) => log.filter((l) => (l.to === `self:${s.id}` || l.to === s.id) && (l.event === 'error' || l.event === 'serverError'))
     .map((l) => [l.event, l.data]);
 
-test('a handler refusal: error {message, handler}, then serverError {code: rejected, handler}', () => {
+test('a handler refusal: serverError {code: rejected, message, handler} and no error', () => {
     const s = user('a');
     lobbyHandlers.addBot(s, io); // not in a lobby
     mainRoomHandlers.mainRoomChat(s, io, { message: 'x' }); // not in the main room
     expect(errorsTo(s)).toEqual([
-        ['error', { message: 'Not in a lobby', handler: 'addBot' }],
         ['serverError', { code: 'rejected', message: 'Not in a lobby', handler: 'addBot' }],
-        ['error', { message: 'Not in main room', handler: 'mainRoomChat' }],
         ['serverError', { code: 'rejected', message: 'Not in main room', handler: 'mainRoomChat' }],
     ]);
 });
 
-test('the wrappers: validation, rate limit and an unexpected exception keep their type as the code', async () => {
+test('the wrappers: validation, rate limit and an unexpected exception are one serverError each, coded by their kind', async () => {
     const s = user('b');
     await asyncHandler('playerBid', gameHandlers.playerBid)(s, io, { bid: 'X' });
     const boom = syncHandler('joinLobby', () => { throw new Error('boom'); });
@@ -84,28 +87,22 @@ test('the wrappers: validation, rate limit and an unexpected exception keep thei
     const createLobby = asyncHandler('createLobby', async () => {});
     for (let i = 0; i < 6; i++) await createLobby(s, io, {}); // limit 5 per minute
     const got = errorsTo(s);
-    expect(got).toHaveLength(6);
-    for (let i = 0; i < got.length; i += 2) {
-        const [[e1, err], [e2, twin]] = [got[i], got[i + 1]];
-        expect([e1, e2]).toEqual(['error', 'serverError']);
-        expect(twin).toEqual({ code: err.type, message: err.message, handler: err.handler });
-    }
-    expect(got.filter(([e]) => e === 'serverError').map(([, d]) => [d.code, d.handler])).toEqual([
-        ['validation', 'playerBid'], ['server', 'joinLobby'], ['rateLimit', 'createLobby'],
+    expect(got.map(([e, d]) => [e, d.code, d.handler])).toEqual([
+        ['serverError', 'validation', 'playerBid'], ['serverError', 'server', 'joinLobby'], ['serverError', 'rateLimit', 'createLobby'],
     ]);
-    // no internal detail leaks into either
+    expect(got[1][1].message).toBe('An error occurred processing your request');
+    expect(got[2][1].message).toBe('Too many requests, please slow down');
+    // no internal detail leaks
     expect(JSON.stringify(got)).not.toContain('boom');
 });
 
 test('a tournament refusal names its handler', async () => {
     const s = user('c');
     await tournamentHandlers.beginTournament(s, io);
-    expect(errorsTo(s).map(([e, d]) => [e, d.handler || null, d.code || null])).toEqual([
-        ['error', 'beginTournament', null], ['serverError', 'beginTournament', 'rejected'],
-    ]);
+    expect(errorsTo(s).map(([e, d]) => [e, d.handler, d.code])).toEqual([['serverError', 'beginTournament', 'rejected']]);
 });
 
-test('a chat command error at the table also gets its twin (handler chatMessage)', () => {
+test('a chat command error at the table: serverError only (handler chatMessage)', () => {
     const ids = [1, 2, 3, 4].map((n) => `se${seq}-g${n}`);
     ids.forEach((id, i) => gameManager.registerUser(id, `se_g${i}${seq}`));
     const socks = ids.map((id) => makeSocket(id, log, io));
@@ -115,63 +112,18 @@ test('a chat command error at the table also gets its twin (handler chatMessage)
     game.forcePhase('BIDDING');
     chatHandlers.chatMessage(socks[0], io, { message: '/active' }); // not in lazy mode
     expect(errorsTo(socks[0])).toEqual([
-        ['error', { message: 'Not in lazy mode.', handler: 'chatMessage' }],
         ['serverError', { code: 'rejected', message: 'Not in lazy mode.', handler: 'chatMessage' }],
     ]);
 });
 
-test('serverErrorOf: the code enum, message and handler fallbacks', () => {
+test('serverErrorOf: the code enum, message and handler fallbacks; the v1 helpers are gone', () => {
     expect(CODES).toEqual(['rateLimit', 'validation', 'server', 'rejected']);
     expect(serverErrorOf({ type: 'rateLimit', message: 'm', handler: 'h' })).toEqual({ code: 'rateLimit', message: 'm', handler: 'h' });
     expect(serverErrorOf({ type: 'weird', message: 'm' })).toEqual({ code: 'rejected', message: 'm', handler: null });
     expect(serverErrorOf({ message: 'm' }, 'joinLobby')).toEqual({ code: 'rejected', message: 'm', handler: 'joinLobby' });
     expect(serverErrorOf(undefined)).toEqual({ code: 'rejected', message: 'Something went wrong', handler: null });
-    // errorOf: the caller's handler goes on the error copy too, never over the payload's own
-    expect(errorOf({ message: 'm' }, 'addBot')).toEqual({ message: 'm', handler: 'addBot' });
-    expect(errorOf({ type: 'rateLimit', message: 'm', handler: 'h' }, 'x')).toEqual({ type: 'rateLimit', message: 'm', handler: 'h' });
-    expect(errorOf({ message: 'm' })).toEqual({ message: 'm' });
-});
-
-/**
- * iOS 1.2's ServerErrorDeduper.accept (ios/release-1.2,
- * Networking/SocketService.swift): the other channel's copy is dropped
- * when the handlers are equal and (with no handler) the messages are.
- */
-function deduper() {
-    let last = null;
-    return (channel, d) => {
-        const handler = typeof d.handler === 'string' ? d.handler : null;
-        if (last && last.channel !== channel && last.handler === handler && (handler !== null || last.message === d.message)) {
-            last = null;
-            return false;
-        }
-        last = { channel, message: d.message, handler };
-        return true;
-    };
-}
-/** How many failures a client reading both channels would show. */
-const shown = (pairs) => {
-    const accept = deduper();
-    return pairs.filter(([e, d]) => accept(e === 'error' ? 'error' : 'serverError', d)).length;
-};
-
-test('refusal pairs (error + serverError): the same handler on both, so a dual-channel client shows each once', async () => {
-    const s = user('d');
-    lobbyHandlers.addBot(s, io);
-    lobbyHandlers.playerReady(s, io);
-    mainRoomHandlers.mainRoomChat(s, io, { message: 'x' });
-    await tournamentHandlers.beginTournament(s, io);
-    await asyncHandler('playerBid', gameHandlers.playerBid)(s, io, { bid: 'X' }); // a wrapper pair
-    const got = errorsTo(s);
-    expect(got).toHaveLength(10);
-    for (let i = 0; i < got.length; i += 2) {
-        expect([got[i][0], got[i + 1][0]]).toEqual(['error', 'serverError']);
-        expect(typeof got[i][1].handler).toBe('string');
-        expect(got[i][1].handler).toBe(got[i + 1][1].handler);
-    }
-    expect(shown(got)).toBe(5);
-    // the deduper model itself: a twin without a handler on one side is not deduped
-    expect(shown([['error', { message: 'Lobby is full' }], ['serverError', { code: 'rejected', message: 'Lobby is full', handler: 'addBot' }]])).toBe(2);
+    expect(Object.keys(serverError).sort()).toEqual(['CODES', 'emitError', 'serverErrorOf']);
+    expect(require('../validators')).not.toHaveProperty('withValidation');
 });
 
 /** A socket wired through the real setupSocketHandlers registrations. */
@@ -194,7 +146,7 @@ function wiredSocket(id) {
     return { listeners, arm: () => { armed = true; }, disarm: () => { armed = false; }, errors: () => errorsTo({ id }) };
 }
 
-test('every registered c2s event: error and serverError name that event on every wrapper path', async () => {
+test('every registered c2s event: one serverError naming that event on every wrapper path, never error', async () => {
     const { listeners, arm, disarm, errors } = wiredSocket(`se${seq}-wired`);
     const events = [...listeners.keys()].filter((e) => e !== 'disconnect');
     expect(events).toEqual(expect.arrayContaining(['clientHello', 'mainRoomChat', 'lobbyChat', 'tournamentChat', 'chatMessage', 'addBot']));
@@ -202,9 +154,12 @@ test('every registered c2s event: error and serverError name that event on every
     const check = (ev, path, { atLeastOne }) => {
         const got = errors();
         log.length = 0;
-        if (atLeastOne && got.length === 0) bad.push(`${ev} ${path}: no error`);
-        for (const [e, d] of got) if (d.handler !== ev) bad.push(`${ev} ${path}: ${e}.handler ${d.handler}`);
-        if (shown(got) * 2 !== got.length) bad.push(`${ev} ${path}: not deduped`);
+        if (atLeastOne && got.length === 0) bad.push(`${ev} ${path}: no serverError`);
+        for (const [e, d] of got) {
+            if (e !== 'serverError') bad.push(`${ev} ${path}: sent ${e}`);
+            if (d.handler !== ev) bad.push(`${ev} ${path}: ${e}.handler ${d.handler}`);
+            if (!CODES.includes(d.code)) bad.push(`${ev} ${path}: code ${d.code}`);
+        }
     };
     const rateKeys = [];
     // 1. rate limit (every rate-limited registration)
@@ -218,8 +173,7 @@ test('every registered c2s event: error and serverError name that event on every
     // the chat events still share the chatMessage bucket
     expect(rateKeys.filter((k) => k === 'chatMessage')).toHaveLength(4);
     // 2. an unexpected exception, every registration, with a payload that
-    // gets past its checks (the contract's first example: the voice relays
-    // drop a bad one silently before reading the socket); clientHello: its
+    // gets past its checks (the contract's first example); clientHello: its
     // schema, which runs first
     const { schema } = require('../../../contract');
     for (const ev of events) {
@@ -236,20 +190,35 @@ test('every registered c2s event: error and serverError name that event on every
     expect(bad).toEqual([]);
 });
 
-test('no app-level error is emitted any other way (every site goes through emitError / sendError)', () => {
-    const fs = require('fs');
-    const path = require('path');
-    const dir = path.join(__dirname, '..');
+test('no server file emits the app-level error any more, and withValidation is gone', () => {
     const offenders = [];
-    for (const f of fs.readdirSync(dir).filter((x) => x.endsWith('.js'))) {
-        const src = fs.readFileSync(path.join(dir, f), 'utf8');
-        const lines = src.split('\n');
-        lines.forEach((l, i) => {
-            if (!/emit\('error'|sendToPlayer\([^)]*'error'/.test(l)) return;
-            // the helper itself, chat's sendError (followed by its twin) and the dead withValidation
-            if (f === 'serverError.js' || (f === 'chatHandlers.js' && /serverError/.test(lines[i + 1] || '')) || f === 'validators.js') return;
-            offenders.push(`${f}:${i + 1}`);
-        });
-    }
+    const walk = (dir) => {
+        for (const f of fs.readdirSync(dir, { withFileTypes: true })) {
+            const p = path.join(dir, f.name);
+            if (f.isDirectory()) { if (f.name !== '__tests__' && f.name !== 'testUtils') walk(p); continue; }
+            if (!f.name.endsWith('.js')) continue;
+            fs.readFileSync(p, 'utf8').split('\n').forEach((l, i) => {
+                if (/emit\(\s*['"]error['"]|sendToPlayer\([^)]*['"]error['"]|\bwithValidation\b/.test(l)) offenders.push(`${path.relative(ROOT, p)}:${i + 1}`);
+            });
+        }
+    };
+    walk(path.join(ROOT, 'server'));
     expect(offenders).toEqual([]);
+});
+
+test('the contract and the generated constants: no s2c error (baseline too), serverError stays', () => {
+    const { schema } = require('../../../contract');
+    const baseline = require('../../../contract/v1-baseline.schema.json');
+    expect(schema.s2c).not.toHaveProperty('error');
+    expect(baseline.s2c).not.toHaveProperty('error');
+    expect(schema.s2c.serverError.status).toBe('active');
+    expect(schema.s2c.serverError.emittedFrom).toEqual(['server/socket/serverError.js:emitError', 'server/socket/chatHandlers.js:sendError']);
+    const web = fs.readFileSync(path.join(ROOT, 'client/src/constants/events.js'), 'utf8');
+    expect(web).not.toMatch(/\n {2}ERROR: 'error',\n/);
+    expect(web).toMatch(/\n {2}SERVER_ERROR: 'serverError',\n/);
+    const swift = fs.readFileSync(path.join(ROOT, 'iOSClient/BABOnline/Constants/SocketEvents.swift'), 'utf8');
+    expect(swift).not.toMatch(/static let error = "error"/);
+    expect(swift).toMatch(/static let serverError = "serverError"/);
+    const layout = require('../../../contract/layout.json');
+    expect(layout.exclude.swift).not.toHaveProperty('error');
 });

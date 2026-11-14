@@ -90,6 +90,7 @@ const V1_DROPPED_EVENTS = new Set([
     'queueUpdate', // #2 the matchmaking queue
     'joinMainRoom', // #4 s2c joinMainRoom
     'serverError', // #1 phase A: the additive dual emit of app-level error
+    'error', // #1 phase B: app-level error gone, serverError alone (these games send none, so a no-op kept as the record)
     'voiceRelayAudio', // #20 the web PCM relay (s2c gone; these games have no voice, so a no-op kept as the record)
 ]);
 const DROP = Symbol('dropped by a V1 removal');

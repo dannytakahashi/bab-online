@@ -137,7 +137,7 @@ describe('a second tab of the same saved session (stub sockets)', () => {
         expect(gameManager.isInMainRoom(tab1.id)).toBe(false);
         expect(w.io.rooms.get('mainRoom').has(tab1.id)).toBe(false);
         expect(gameManager.mainRoomSocketIds.size).toBe(1);
-        expect(w.to(tab1.id, from).map((l) => l.event)).not.toContain('error');
+        expect(w.to(tab1.id, from).map((l) => l.event)).not.toContain('serverError');
         expect(w.to(tab2.id, from).map((l) => l.event)).not.toContain('sessionSuperseded');
     });
 
@@ -187,7 +187,7 @@ describe('a second tab of the same saved session (stub sockets)', () => {
         expect(lobby.players).toHaveLength(4);
         expect(gameManager.reconnectingIn(lobby.id)).toEqual([]);
         expect(tab2.data.superseded).toMatchObject({ by: tab1b.id });
-        expect(w.log.filter((l) => l.event === 'error')).toEqual([]);
+        expect(w.log.filter((l) => l.event === 'serverError')).toEqual([]);
     });
 
     // A host of another account, in the main room, with a lobby of their own
@@ -228,7 +228,7 @@ describe('a second tab of the same saved session (stub sockets)', () => {
         expect(gameManager.lobbies.get(lobby.id)).toBe(lobby);
         expect(humanSeats(lobby, w.name).map((p) => p.socketId)).toEqual([tab1.id]);
         expect(w.to(tab1.id, from).map((l) => l.event)).not.toContain('leftLobby');
-        expect(w.log.filter((l) => l.event === 'error')).toEqual([]);
+        expect(w.log.filter((l) => l.event === 'serverError')).toEqual([]);
     });
 
     test('the parked socket signs in as ANOTHER account: the seat held for it goes at once, and nothing of that lobby reaches it after', async () => {
@@ -317,7 +317,7 @@ describe('a second tab of the same saved session (stub sockets)', () => {
         // the parked tab's later disconnect (closed) changes nothing at the table
         await w.kill(tab1);
         expect(game.seat(1)).toMatchObject({ ownerSocketId: tab2.id, presence: Presence.CONNECTED });
-        expect(w.log.filter((l) => l.event === 'error')).toEqual([]);
+        expect(w.log.filter((l) => l.event === 'serverError')).toEqual([]);
     });
 
     test('a pure spectator tab stops watching when parked', async () => {
@@ -475,7 +475,7 @@ describe('over a real Socket.IO server (web tabs and the iOS User-Agent)', () =>
         }
         await settle(300);
         const names = first.seen.map(([ev]) => ev);
-        expect(names).not.toContain('error');
+        expect(names).not.toContain('serverError');
         expect(names).not.toContain('stateSnapshot');
         expect(names.filter((e) => e === 'mainRoomJoined')).toHaveLength(1); // only the one before
         const refusals = first.seen.filter(([ev, d]) => ev === 'sessionSuperseded' && d.refused);

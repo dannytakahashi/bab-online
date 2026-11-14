@@ -1,9 +1,9 @@
 /**
- * V1_REMOVALS #1 phase B readiness, on the real page: the server sends each
- * app-level error as `error` and then its `serverError {code, message,
- * handler}` twin (server/socket/serverError.js); phase B sends only
- * serverError. Either way one failure is handled once: one message, one
- * table resync, one restore refusal, one retry.
+ * V1_REMOVALS #1 phase B, on the real page: the server sends each
+ * app-level error once, as `serverError {code, message, handler}`
+ * (server/socket/serverError.js); the v1 `error` is gone. One failure is
+ * one message, one table resync, one restore refusal, one retry, and a
+ * stray v1 `error` (no server sends one) does nothing.
  */
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import { loadPage, tick, mainRoomPayload, seatDeal } from './testing/fakePage.js';
@@ -18,13 +18,8 @@ let SCREEN;
 let errors;
 let n = 1;
 
-/** What the server sends for one failure: both copies (today) or serverError alone (phase B). */
-function fail({ message, handler = null, type }, { phaseB = false } = {}) {
-  const error = { message };
-  if (type) error.type = type;
-  if (handler) error.handler = handler;
-  const code = type || 'rejected';
-  if (!phaseB) socket.fire('error', error);
+/** What the server sends for one failure. */
+function fail({ message, handler = null, code = 'rejected' }) {
   socket.fire('serverError', { code, message, handler });
 }
 
@@ -49,54 +44,45 @@ beforeEach(async () => {
 afterEach(() => errors.mockRestore());
 
 describe('a refusal (lobby is full)', () => {
-  it('both copies: reported once', () => {
+  it('reported once', () => {
     fail({ message: 'Lobby is full', handler: 'joinLobby' });
     expect(reported()).toHaveLength(1);
-    expect(reported()[0][1]).toMatchObject({ message: 'Lobby is full', handler: 'joinLobby' });
+    expect(reported()[0][1]).toMatchObject({ type: 'rejected', message: 'Lobby is full', handler: 'joinLobby' });
   });
 
-  it('serverError alone (phase B): still reported', () => {
-    fail({ message: 'Lobby is full', handler: 'joinLobby' }, { phaseB: true });
-    expect(reported()).toHaveLength(1);
-  });
-
-  it('two failures in a row are two', () => {
+  it('two failures in a row are two (nothing is deduped any more)', () => {
     fail({ message: 'Lobby is full', handler: 'joinLobby' });
     fail({ message: 'Lobby is full', handler: 'joinLobby' });
     expect(reported()).toHaveLength(2);
   });
+
+  it('a v1 error is not heard', () => {
+    socket.fire('error', { message: 'Lobby is full', handler: 'joinLobby' });
+    expect(reported()).toHaveLength(0);
+  });
 });
 
 describe('a restore refusal (the lobby closed while offline)', () => {
-  async function reenterLobby() {
+  it('back to the main room once, no error toast', async () => {
     socket.fire('lobbyCreated', { lobbyId: 'L9', players: [{ username: 'me', isReady: false }], messages: [] });
     expect(page.session.screen).toBe(SCREEN.LOBBY);
     socket.reconnect(`sock-${++n}`);
     socket.fire('restoreSessionResponse', { success: true, username: 'me', blockedUsers: [] });
     expect(socket.emitted('joinLobby')).toEqual([{ lobbyId: 'L9' }]);
     socket.clearEmits();
-  }
-
-  for (const phaseB of [false, true]) {
-    it(`${phaseB ? 'serverError alone' : 'both copies'}: back to the main room once, no error toast for the twin`, async () => {
-      await reenterLobby();
-      fail({ message: 'Lobby not found', handler: 'joinLobby' }, { phaseB });
-      expect(page.session.screen).toBe(SCREEN.MAIN_ROOM);
-      expect(socket.emitted('joinMainRoom')).toHaveLength(1);
-      // the twin is not a second, unexplained "Lobby not found"
-      expect(reported()).toHaveLength(0);
-    });
-  }
+    fail({ message: 'Lobby not found', handler: 'joinLobby' });
+    expect(page.session.screen).toBe(SCREEN.MAIN_ROOM);
+    expect(socket.emitted('joinMainRoom')).toHaveLength(1);
+    expect(reported()).toHaveLength(0);
+  });
 });
 
 describe('"User not registered yet": one joinMainRoom retry per failure', () => {
-  for (const phaseB of [false, true]) {
-    it(phaseB ? 'serverError alone' : 'both copies', async () => {
-      fail({ message: 'User not registered yet', handler: 'joinMainRoom' }, { phaseB });
-      await tick(150);
-      expect(socket.emitted('joinMainRoom')).toHaveLength(1);
-    });
-  }
+  it('one retry', async () => {
+    fail({ message: 'User not registered yet', handler: 'joinMainRoom' });
+    await tick(150);
+    expect(socket.emitted('joinMainRoom')).toHaveLength(1);
+  });
 });
 
 describe('a refused play or bid resyncs the table at once, once', () => {
@@ -112,21 +98,19 @@ describe('a refused play or bid resyncs the table at once, once', () => {
   }
   const acks = () => socket.emitted('requestSnapshot').filter((d) => String(d.requestId).startsWith('ack-'));
 
-  for (const phaseB of [false, true]) {
-    it(`a rate-limited play (${phaseB ? 'serverError alone' : 'both copies'})`, async () => {
-      const myAction = await seated();
-      expect(myAction.submitPlay({ suit: 'spades', rank: 'A' }, 1)).toBe(true);
-      fail({ message: 'Too many requests', handler: 'playCard', type: 'rateLimit' }, { phaseB });
-      expect(acks()).toEqual([{ requestId: `ack-${myAction.pending.reqId}`, log: false, customPics: false }]);
-      expect(reported()).toHaveLength(1);
-      myAction.reset();
-    });
-  }
+  it('a rate-limited play', async () => {
+    const myAction = await seated();
+    expect(myAction.submitPlay({ suit: 'spades', rank: 'A' }, 1)).toBe(true);
+    fail({ message: 'Too many requests', handler: 'playCard', code: 'rateLimit' });
+    expect(acks()).toEqual([{ requestId: `ack-${myAction.pending.reqId}`, log: false, customPics: false }]);
+    expect(reported()).toHaveLength(1);
+    myAction.reset();
+  });
 
   it('a refused bid', async () => {
     const myAction = await seated();
     expect(myAction.submitBid('1', 1)).toBe(true);
-    fail({ message: 'Invalid input', handler: 'playerBid', type: 'validation' });
+    fail({ message: 'Invalid input', handler: 'playerBid', code: 'validation' });
     expect(acks()).toHaveLength(1);
     myAction.reset();
   });
@@ -135,6 +119,14 @@ describe('a refused play or bid resyncs the table at once, once', () => {
     const myAction = await seated();
     myAction.submitPlay({ suit: 'spades', rank: 'A' }, 1);
     fail({ message: 'Lobby is full', handler: 'joinLobby' });
+    expect(acks()).toEqual([]);
+    myAction.reset();
+  });
+
+  it('a v1 error for a play does not resync (the server never sends one)', async () => {
+    const myAction = await seated();
+    myAction.submitPlay({ suit: 'spades', rank: 'A' }, 1);
+    socket.fire('error', { type: 'rateLimit', message: 'Too many requests', handler: 'playCard' });
     expect(acks()).toEqual([]);
     myAction.reset();
   });
@@ -148,7 +140,7 @@ describe('a refused play or bid resyncs the table at once, once', () => {
     gate.admit('cardPlayed', { seq: 10 }, () => {});
     gate.admit('cardPlayed', { seq: 12 }, applied); // a gap: buffered, gap-N asked
     expect(gate.buffered).toBe(1);
-    fail({ message: 'Too many requests', handler: 'requestSnapshot', type: 'rateLimit' });
+    fail({ message: 'Too many requests', handler: 'requestSnapshot', code: 'rateLimit' });
     expect(applied).toHaveBeenCalledTimes(1);
     expect(gate.buffered).toBe(0);
   });

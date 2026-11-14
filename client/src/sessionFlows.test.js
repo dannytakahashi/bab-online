@@ -157,7 +157,7 @@ describe('reconnect order: restoreSession first, then rejoin / re-spectate / re-
     socket.reconnect(nextSocketId());
     socket.fire('restoreSessionResponse', { success: true, username: 'me', blockedUsers: [] });
     socket.clearEmits();
-    socket.fire('error', { message: 'Game not found' });
+    socket.fire('serverError', { code: 'rejected', message: 'Game not found', handler: null });
     expect(socket.emitted('joinMainRoom')).toHaveLength(1);
     expect(page.session.screen).toBe(SCREEN.MAIN_ROOM);
     expect(tableLeftovers(page)).toEqual(CLEAN);
@@ -177,7 +177,7 @@ describe('reconnect order: restoreSession first, then rejoin / re-spectate / re-
     socket.clearEmits();
     socket.reconnect(nextSocketId());
     socket.fire('restoreSessionResponse', { success: true, username: 'me', blockedUsers: [] });
-    socket.fire('error', { message: 'Lobby not found' });
+    socket.fire('serverError', { code: 'rejected', message: 'Lobby not found', handler: null });
     expect(socket.emitted('joinMainRoom')).toHaveLength(1);
     expect(page.session.screen).toBe(SCREEN.MAIN_ROOM);
     expect(document.getElementById('gameLobbyContainer')).toBeNull();
@@ -486,7 +486,7 @@ describe('identity and errors', () => {
   });
 
   it('a specific server error message reaches the player', () => {
-    socket.fire('error', { message: 'Not all players are ready' });
+    socket.fire('serverError', { code: 'rejected', message: 'Not all players are ready', handler: null });
     // (the page's one toast queue, ui/kit/toast.js)
     const toast = document.querySelector('.kit-toast.toast-error');
     expect(toast.textContent).toBe('Not all players are ready');

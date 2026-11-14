@@ -82,7 +82,7 @@ test('an invalid hello is a validation error and leaves the socket legacy', () =
     const { socket, emitted, send } = wiredSocket('hello-4');
     send('clientHello', { client: 'web', version: '1', caps: 'avatarUrl' });
     expect(socket.data.client).toBeUndefined();
-    expect(emitted.map((e) => e.data.type)).toEqual(['validation']);
+    expect(emitted.map((e) => [e.event, e.data.code, e.data.handler])).toEqual([['serverError', 'validation', 'clientHello']]);
 });
 
 test('socketHasCap: live sockets only; bots, null and unknown ids are legacy', () => {

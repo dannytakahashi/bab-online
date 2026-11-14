@@ -158,7 +158,7 @@ describe('the server restarts for an update', () => {
     restart();
     socket.fire('restoreSessionResponse', { success: true, username: 'me', blockedUsers: [] });
     expect(socket.emitted('joinAsSpectator')).toEqual([{ gameId: 'g2' }]);
-    socket.fire('error', { message: 'Game not found' });
+    socket.fire('serverError', { code: 'rejected', message: 'Game not found', handler: null });
     await tick();
     expect(page.session.screen).toBe('mainRoom');
     expect(tableLeftovers(page)).toEqual(CLEAN);
@@ -173,7 +173,7 @@ describe('the server restarts for an update', () => {
     restart();
     socket.fire('restoreSessionResponse', { success: true, username: 'me', blockedUsers: [] });
     expect(socket.emitted('joinLobby')).toEqual([{ lobbyId: 'L5' }]);
-    socket.fire('error', { message: 'Lobby not found' });
+    socket.fire('serverError', { code: 'rejected', message: 'Lobby not found', handler: null });
     await tick();
     expect(page.session.screen).toBe('mainRoom');
     expect(toasts).toEqual([RESTART_LOSS_TEXT[LOSS.LOBBY]]);
@@ -189,7 +189,7 @@ describe('the server restarts for an update', () => {
     restart();
     socket.fire('restoreSessionResponse', { success: true, username: 'me', blockedUsers: [] });
     expect(socket.emitted('joinTournament')).toEqual([{ tournamentId: 't1' }]);
-    socket.fire('error', { message: 'Tournament not found' });
+    socket.fire('serverError', { code: 'rejected', message: 'Tournament not found', handler: null });
     socket.fire('mainRoomJoined', mainRoomPayload());
     await tick();
     expect(page.session.screen).toBe('mainRoom');

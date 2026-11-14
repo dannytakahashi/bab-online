@@ -170,7 +170,7 @@ async function runGame(seed, { humans = 1, maxSteps = 200000 } = {}) {
         }
         if (drawLast > drawFirst) add('botDraw', drawLast - drawFirst);
         const humanErrors = log.filter((l) => seats.some((st) => l.to === `self:${st.sock.id}`) &&
-            (l.event === 'actionRejected' || l.event === 'error'));
+            (l.event === 'actionRejected' || l.event === 'serverError'));
         const humanPositions = seats.map((st) => st.pos);
         return { total, components, traces, log, game, humanPos: humanPositions[0] ?? null, humanPositions, humanErrors };
     } finally {

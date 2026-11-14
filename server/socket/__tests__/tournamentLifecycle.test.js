@@ -341,7 +341,7 @@ describe('cancel in every tournament phase', () => {
     test('a second cancel and a non-creator cancel are refused', async () => {
         const ctx = await setupTournament(4);
         await tournamentHandlers.cancelTournament(ctx.sockets[1], ctx.io);
-        expect(ctx.log.filter((l) => l.to === `self:${ctx.sockets[1].id}` && l.event === 'error').pop().data.message)
+        expect(ctx.log.filter((l) => l.to === `self:${ctx.sockets[1].id}` && l.event === 'serverError').pop().data.message)
             .toBe('Only the creator can cancel the tournament');
         expect(gameManager.getTournamentById(ctx.t.tournamentId)).not.toBeNull();
         await tournamentHandlers.cancelTournament(ctx.sockets[0], ctx.io);

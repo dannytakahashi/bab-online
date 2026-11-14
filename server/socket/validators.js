@@ -266,36 +266,8 @@ function validate(schemaName, data) {
     return value;
 }
 
-/**
- * Create a validated handler wrapper
- * Validates input before passing to the actual handler
- * @param {string} schemaName - Name of the validation schema
- * @param {Function} handler - The actual event handler
- * @returns {Function} - Wrapped handler with validation
- */
-function withValidation(schemaName, handler) {
-    return async (socket, io, data) => {
-        try {
-            const validatedData = validate(schemaName, data);
-            return await handler(socket, io, validatedData);
-        } catch (error) {
-            if (error.isValidation) {
-                console.warn(`Validation error for ${schemaName}:`, error.message);
-                socket.emit('error', {
-                    type: 'validation',
-                    message: error.message
-                });
-                return;
-            }
-            // Re-throw non-validation errors
-            throw error;
-        }
-    };
-}
-
 module.exports = {
     validate,
-    withValidation,
     ValidationError,
     schemas,
     cardSchema
