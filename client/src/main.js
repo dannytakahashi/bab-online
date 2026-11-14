@@ -1698,10 +1698,10 @@ function initializeApp() {
       showError(message || 'Failed to load leaderboard');
     },
     // Records callbacks
-    onRecordsReceived: (records, totalGames, scope) => {
+    onRecordsReceived: (records, totalGames, scope, periodGames) => {
       if (isStaleScopeReply(scope)) return;
-      if (updateRecordsPage(records, totalGames, scope)) return;
-      showRecordsPage(records, totalGames, socket, scope ?? getStatsScope());
+      if (updateRecordsPage(records, totalGames, scope, periodGames)) return;
+      showRecordsPage(records, totalGames, socket, scope ?? getStatsScope(), periodGames);
     },
     onRecordsError: (message, scope) => {
       if (isStaleScopeReply(scope)) return;

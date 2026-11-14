@@ -1,13 +1,16 @@
 import SwiftUI
 
-/// The Stats sheet's Records tab: the web RecordsPage (the total game count, then All Time,
-/// This Year and This Month, each with highest / lowest score, biggest win and most / least
-/// bags; same labels, tones and lines; "No games yet" for an empty period or record). The
-/// periods are cards on surface.s1 in an adaptive grid: three across where they fit (the
-/// iPad). Where only one fits (phones, the closed Duo) a segmented All Time / This Year /
-/// This Month control shows one card at a time, so This Month is one tap away rather than
-/// two cards down; at accessibility sizes (where three segments cannot be read) the cards
-/// stack.
+/// The Stats sheet's Records tab: the web RecordsPage (All Time, This Year and This Month,
+/// each with its game count, highest / lowest score, biggest win and most / least bags; same
+/// labels, tones and lines; "No games yet" for an empty period or record). The periods are
+/// cards on surface.s1 in an adaptive grid: three across where they fit (the iPad), each card
+/// with its own count under its title. Where only one fits (phones, the closed Duo) a
+/// segmented All Time / This Year / This Month control shows one card at a time, so This Month
+/// is one tap away rather than two cards down, with the SELECTED period's count under the
+/// control ("records.total"; owner 2026-11-14: one total that never changed with the period);
+/// at accessibility sizes (where three segments cannot be read) the cards stack, each with
+/// its count. A count the reply does not give (a server from before periodGames: This Year
+/// and This Month) is not shown.
 struct RecordsView: View {
     @EnvironmentObject var state: RecordsState
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -39,17 +42,23 @@ struct RecordsView: View {
                         StatsRefreshBanner(failure: failure) { state.request() }
                     }
                     if let records = state.load.value {
-                        if let total = records.totalGames { totalLine(total) }
                         if state.scope != .human, records.isEmpty { botsNote }
                         // not lazy: every card shown is in the accessibility tree
                         let picks = columns == 1 && !typeSize.isAccessibilitySize
                         let periods = picks ? [state.period] : GameRecords.Period.allCases
-                        if picks { periodPicker }
+                        if picks {
+                            periodPicker
+                            // the selected period's count; hidden when the reply has none for it
+                            if let n = records.games(in: state.period) {
+                                GamesPlayedLine(count: n).accessibilityIdentifier("records.total")
+                            }
+                        }
                         VStack(spacing: Theme.Space.s4) {
                             ForEach(Array(stride(from: 0, to: periods.count, by: columns)), id: \.self) { start in
                                 HStack(alignment: .top, spacing: Theme.Space.s4) {
                                     ForEach(periods[start..<min(start + columns, periods.count)]) { period in
-                                        PeriodCard(period: period, records: records.periods[period])
+                                        PeriodCard(period: period, records: records.periods[period],
+                                                   games: picks ? nil : records.games(in: period))
                                     }
                                     // a short last row keeps the cards' width
                                     ForEach(0..<max(0, start + columns - periods.count), id: \.self) { _ in
@@ -95,14 +104,18 @@ struct RecordsView: View {
         return max(1, min(3, Int((usable + Theme.Space.s4) / (cardMinWidth + Theme.Space.s4))))
     }
 
-    /// "1,234 games played" (the web's toLocaleString count in bold).
-    private func totalLine(_ total: Int) -> some View {
-        (Text(total.formatted()).bold().foregroundColor(Theme.textPrimary)
-            + Text(total == 1 ? " game played" : " games played").foregroundColor(Theme.textSecondary))
+}
+
+/// "1,234 games played" / "1 game played" (the web's toLocaleString count in bold).
+private struct GamesPlayedLine: View {
+    let count: Int
+
+    var body: some View {
+        (Text(count.formatted()).bold().foregroundColor(Theme.textPrimary)
+            + Text(count == 1 ? " game played" : " games played").foregroundColor(Theme.textSecondary))
             .font(.subheadline)
             .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity)
-            .accessibilityIdentifier("records.total")
     }
 }
 
@@ -110,14 +123,21 @@ struct RecordsView: View {
 private struct PeriodCard: View {
     let period: GameRecords.Period
     let records: GameRecords.PeriodRecords?
+    /// The period's game count under the title (cards side by side or stacked); nil: none shown.
+    var games: Int?
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.s3) {
-            Text(period.title)
-                .font(.headline)
-                .foregroundStyle(Theme.textPrimary)
-                .frame(maxWidth: .infinity, alignment: .center)
-                .accessibilityAddTraits(.isHeader)
+            VStack(spacing: Theme.Space.s1) {
+                Text(period.title)
+                    .font(.headline)
+                    .foregroundStyle(Theme.textPrimary)
+                    .accessibilityAddTraits(.isHeader)
+                if let games {
+                    GamesPlayedLine(count: games).accessibilityIdentifier("records.count.\(period.rawValue)")
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .center)
             Divider().background(Theme.divider)
             if let records {
                 ForEach(RecordRow.rows(records)) { row in
