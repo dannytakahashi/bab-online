@@ -1672,7 +1672,8 @@ function selectOptimalCard(hand, playedCards, leadCard, leadPosition, trump, tru
         const legal = getLegalCards(hand, leadCard, isLeading, trump, trumpBroken, position, leadPosition);
         if (legal.length < 2 || !legal.includes(ruleCard)) return ruleCard;
         const found = searchCard({
-            hand, legal, ruleCard, playedCards, leadPosition, trump, trumpBroken, position, memory, handSize, playContext
+            hand, legal, ruleCard, playedCards, leadPosition, trump, trumpBroken, position, memory, handSize, playContext,
+            estimateTricks: (h) => estimateOwnTricks(h, trump, handSize)
         });
         return found || ruleCard;
     } catch (err) {

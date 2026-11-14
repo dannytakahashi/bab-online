@@ -5,8 +5,8 @@
  */
 
 const rules = require('../../rules');
-const { Solver, searchCard, readPosition, sampleDeal, teamScore, SEARCH } = require('../playSearch');
-const { selectOptimalCard, getLegalCards } = require('../BotStrategy');
+const { Solver, searchCard, readPosition, sampleDeal, pickByBidFit, teamScore, SEARCH } = require('../playSearch');
+const { selectOptimalCard, getLegalCards, estimateOwnTricks } = require('../BotStrategy');
 
 const SUITS = ['spades', 'hearts', 'diamonds', 'clubs'];
 const RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
@@ -307,6 +307,32 @@ describe('searchCard', () => {
             expect(new Set(all).size).toBe(9);
             for (const c of [...hand, trump, ...memory.playedCards]) expect(all).not.toContain(code(c));
         }
+    });
+
+    test('bid fit: sampled hands lean toward what their owners bid', () => {
+        // 4-card hand, hearts trump, nothing played. Seat 2 bid 3, seat 4 bid 0:
+        // the deals kept should give seat 2 clearly more trick-taking power.
+        const trump = card('hearts', '2');
+        const hand = [card('spades', '7'), card('spades', '5'), card('diamonds', '6'), card('clubs', '4')];
+        const pos = readPosition(hand, [undefined, undefined, undefined, undefined], null, trump, 1, { playedCards: [], trickIndex: 0 }, 4);
+        const rng = mulberry32(11);
+        const deals = [];
+        while (deals.length < 300) {
+            const d = sampleDeal(pos, rng);
+            if (d) deals.push(d);
+        }
+        const q = {
+            playContext: { playerBids: ['0', '3', '1', '0'] },
+            estimateTricks: (h) => estimateOwnTricks(h, trump, 4)
+        };
+        const kept = pickByBidFit(deals, 60, pos, q, SEARCH, rng);
+        expect(kept).toHaveLength(60);
+        const mean = (list, seat) => list.reduce((sum, d) => sum + q.estimateTricks(d[seat]), 0) / list.length;
+        expect(mean(kept, 2)).toBeGreaterThan(mean(deals, 2) + 0.5);
+        expect(mean(kept, 4)).toBeLessThan(mean(deals, 4));
+        expect(mean(kept, 2)).toBeGreaterThan(mean(kept, 4) + 1);
+        // No bids to go by (or only bores): the first deals are kept as drawn
+        expect(pickByBidFit(deals, 60, pos, { ...q, playContext: { playerBids: ['0', 'B', '2B', '3B'] } }, SEARCH, rng)).toEqual(deals.slice(0, 60));
     });
 
     test('teamScore follows the rules', () => {
