@@ -290,6 +290,10 @@ export class TrickManager {
 
     // Store position key for resize handling
     sprite.setData('playPosition', positionKey);
+    // The back of the hand it was played in: the collect turns an
+    // opponents' trick face down in it, even if the next hand's gameStart
+    // (GameState.handNo + 1) has already landed
+    sprite.setData('backFrame', tableBackFrame());
 
     // Animate to position (only when asked: `animate && x || y` used to
     // tween a restored card whose y differed)
@@ -360,7 +364,7 @@ export class TrickManager {
 
       // If not our team's trick, show card backs (unless spectating)
       if (!isMyTeam && !this._isSpectatorMode) {
-        card.setTexture(CARD_TEXTURE_KEY, tableBackFrame());
+        card.setTexture(CARD_TEXTURE_KEY, card.getData?.('backFrame') ?? tableBackFrame());
       } else {
         this._applyFaceTexture(card);
       }
