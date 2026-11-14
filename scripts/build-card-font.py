@@ -40,7 +40,7 @@ def rename(font):
         0: copyright_,
         1: FAMILY,
         2: 'Bold',
-        3: f'{PS_NAME};subset of Arvo Bold 1.006',
+        3: f'{PS_NAME};BAB Online card index 1.006',  # OFL: no Reserved Font Name in any name field of the Modified Version
         4: f'{FAMILY} Bold',
         5: version,
         6: PS_NAME,

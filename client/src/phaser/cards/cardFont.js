@@ -20,8 +20,6 @@ export const CARD_FONT_FAMILY = 'BAB Card Index';
 /** The canvas font stack for the ranks and HI / LO: the bundled face, then the system UI font. */
 export const CARD_FONT = `"${CARD_FONT_FAMILY}", ${FONT_UI}`;
 export const CARD_FONT_URL = fontUrl;
-/** How long whenCardFont waits by default before a caller draws with the fallback. */
-export const CARD_FONT_WAIT_MS = 1500;
 
 let ready = false;
 let loading = null;
@@ -85,16 +83,6 @@ export function loadCardFont({ FontFaceImpl = globalThis.FontFace, fonts = globa
       return false;
     });
   return loading;
-}
-
-/**
- * Resolves true once the font is ready, or false after `ms` (the caller
- * then draws with the fallback; the ready listeners still fire later).
- */
-export function whenCardFont(ms = CARD_FONT_WAIT_MS) {
-  if (ready) return Promise.resolve(true);
-  const load = loadCardFont();
-  return Promise.race([load, new Promise((res) => setTimeout(() => res(false), ms))]).then(() => ready);
 }
 
 /** Tests only: forget the load and the listeners. */
