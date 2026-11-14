@@ -105,7 +105,7 @@ function c2sKeeps(name, be, ce, out) {
 
 test('the baseline is the cc865b4 contract (frozen)', () => {
     expect(baseline.title).toBe('BAB Online socket contract');
-    // 80+ at cc865b4; the executed V1_REMOVALS entries hand-edit whole events out (#2, #4, #20, #3)
+    // 80+ at cc865b4; the executed V1_REMOVALS entries hand-edit whole events out (#2, #4, #20, #3, #7)
     expect(Object.keys(baseline.s2c).length).toBeGreaterThan(70);
     expect(baseline.s2c.seq).toBeUndefined();
 });

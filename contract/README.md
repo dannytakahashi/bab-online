@@ -148,7 +148,7 @@ skips exact repeats of a validated (event, target kind, payload).
   requestSnapshot) on every change. The guard holds both rules.
   gameStart bumps it once per deal and is sent to every connected seat owner
   and every spectator, all with the same value. Private game events (replays,
-  rejoin/restore/actionRejected, youDrew, playerAssigned, the private
+  rejoin/restore/actionRejected, youDrew, the private
   updateTurn) are unsequenced. Events that carry it: see `seq: true` in
   `events.schema.json` (only the room variant where a private form exists).
 - **R2.** Keep `lastSeq`. `seq === lastSeq + 1`: apply. `seq <= lastSeq`:

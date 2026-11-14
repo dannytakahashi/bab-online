@@ -118,6 +118,30 @@ function v1Projection(event, data) {
     return d;
 }
 
+/**
+ * Removals executed after the golden was regenerated (71343c5) take emits or
+ * keys out that the golden still holds. `v1Restore` puts each back exactly as
+ * the old server sent it, built from the game at emit time (one block each,
+ * naming its entry), so the golden keeps pinning everything else.
+ */
+const RESTORE_BEFORE = new WeakMap(); // wire record -> records the old server sent right before it
+function v1Restore(rec, game) {
+    // #7 playerAssigned {playerId, position}: handleDrawComplete sent one to
+    // each connected human, in draw order, while seating; the next emit was
+    // the seating positionUpdate (these scenarios have no draw-phase leaver,
+    // whose takeover log line would have come between)
+    if (rec.event === 'positionUpdate' && Array.isArray(game.drawIDs)) {
+        const before = [];
+        for (const sid of game.drawIDs) {
+            const position = game.getPositionBySocketId(sid);
+            const seat = position && game.seat(position);
+            if (!seat || game.isBot(sid) || seat.presence !== 'connected' || seat.ownerSocketId !== sid) continue;
+            before.push({ to: sid, members: [], event: 'playerAssigned', data: { playerId: sid, position } });
+        }
+        if (before.length) RESTORE_BEFORE.set(rec, before);
+    }
+}
+
 const picClass = (p) => (typeof p === 'number' ? 'number' : typeof p === 'string' && p.startsWith('data:image') ? 'custom' : String(p));
 
 /**
@@ -152,6 +176,7 @@ async function play({ seed, opts }) {
     const r = await runGame(seed, {
         ...opts,
         onEmit: (rec, ctx) => {
+            if (ctx.game) v1Restore(rec, ctx.game);
             // One record per deal: the first gameStart of a deal (one shared seq)
             if (rec.event !== 'gameStart' || !ctx.game) return;
             if (deals.length && deals[deals.length - 1].seq === rec.data.seq) return;
@@ -168,7 +193,7 @@ async function play({ seed, opts }) {
     const hash = crypto.createHash('sha256');
     let emits = 0;
     let bytes = 0;
-    for (const x of r.wire) {
+    for (const x of r.wire.flatMap((rec) => [...(RESTORE_BEFORE.get(rec) || []), rec])) {
         const data = v1Projection(x.event, x.data);
         if (data === DROP) continue;
         const json = JSON.stringify(data);

@@ -413,8 +413,9 @@ async function handleDrawComplete(io, game) {
 
         const username = entrant.username || 'Player';
         if (entrant.presence === 'connected') {
+            // No playerAssigned (V1_REMOVALS #7): positionUpdate, the seat
+            // gameStart's position and the snapshot's viewer give the seat
             game.addPlayer(playerId, username, position, pics[i], false);
-            game.sendToPlayer(io, playerId, 'playerAssigned', { playerId, position });
         } else if (entrant.presence === 'disconnected') {
             game.createSeat(position, {
                 controller: Controller.HUMAN,

@@ -20,8 +20,6 @@ extension TableReducer {
                 let r = DrawResult(username: p.username ?? "", position: p.drawOrder, cardIndex: p.cardIndex ?? 0, card: p.card)
                 if let i = d.results.firstIndex(where: { $0.drawOrder == p.drawOrder }) { d.results[i] = r } else { d.results.append(r) }
             }
-        case .playerAssigned:
-            break  // deprecated (positionUpdate carries it)
         case .positionUpdate(let p):
             positionUpdate(&s, p)
         case .teamsAnnounced(let p):

@@ -52,7 +52,7 @@ const SEEDS = Number(process.env.CHAOS_SEEDS) || 200;
 const MAX_STEPS = 400;
 
 const GAME_EVENTS = new Set([
-    'startDraw', 'playerDrew', 'youDrew', 'playerAssigned', 'positionUpdate', 'teamsAnnounced', 'createUI',
+    'startDraw', 'playerDrew', 'youDrew', 'positionUpdate', 'teamsAnnounced', 'createUI',
     'gameStart', 'updateTurn', 'bidReceived', 'doneBidding', 'rainbow', 'destroyHands', 'cardPlayed',
     'trickComplete', 'handComplete', 'gameEnd', 'abortGame', 'chatMessage', 'gameLogEntry',
     'playerDisconnected', 'playerReconnected', 'resignationAvailable', 'playerLazyMode', 'playerActiveMode',

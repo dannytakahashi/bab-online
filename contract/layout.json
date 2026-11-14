@@ -202,7 +202,6 @@
           "rejoinFailed",
           "playerDisconnected",
           "playerReconnected",
-          "playerAssigned",
           "abortGame",
           "stateSnapshot"
         ]
@@ -490,7 +489,6 @@
           "rejoinFailed",
           "playerDisconnected",
           "playerReconnected",
-          "playerAssigned",
           "abortGame"
         ]
       },
