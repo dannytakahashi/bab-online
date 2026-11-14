@@ -169,6 +169,9 @@ describe('Records', () => {
     expect(region.hasAttribute('aria-busy')).toBe(false);
     expect(region.querySelector('.records-total').textContent).toBe('2 games played');
     expect(region.querySelector('.record__sub').textContent).toBe('Cat & 🤖 Mary');
+    // one game: singular (owner 2026-11-13, "1 games played")
+    updateRecordsPage({ allTime: period, thisYear: period, thisMonth: period }, 1, 'bots');
+    expect(region.querySelector('.records-total').textContent).toBe('1 game played');
     expect(region.querySelector('.scope-note')).toBeNull();
   });
 

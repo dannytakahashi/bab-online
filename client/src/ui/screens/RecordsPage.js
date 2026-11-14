@@ -95,7 +95,7 @@ function renderRecordsBody(records, totalGames, scope) {
   if (totalGames != null) {
     body.push(el('div', {
       className: 'records-total',
-      children: [el('strong', { text: totalGames.toLocaleString() }), document.createTextNode(' games played')],
+      children: [el('strong', { text: totalGames.toLocaleString() }), document.createTextNode(totalGames === 1 ? ' game played' : ' games played')],
     }));
   }
 
