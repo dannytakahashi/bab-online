@@ -1,5 +1,5 @@
 /**
- * A reload mid-hand after tricks were already won (events-bots-s14, seat 1,
+ * A reload mid-hand after tricks were already won (a bots recording's seat 1 rejoin,
  * the real page and scene), from a server whose snapshot only counts those
  * tricks (no trickHistory that matches the counts: an older server), so
  * they are face-down stacks (with trickHistory: reloadWonTricks.test.js). The tricks won live after the reload are seen
@@ -19,7 +19,20 @@ let rec;
 
 beforeAll(async () => {
   replay = await import('../testing/replay.js');
-  rec = replay.loadRecording('events-bots-s14');
+  // the first bots recording whose rejoin hand has an opponent trick and,
+  // after it, a partner trick (which recording that is depends on the bots' bids)
+  rec = ['events-bots-s14', 'events-bots-s12'].map((n) => replay.loadRecording(n)).find((r) => {
+    const log = r.logs['seat1-rejoin'];
+    if (!log) return false;
+    let opp = false;
+    for (const e of log.slice(1)) {
+      if (e.event === 'handComplete') return false;
+      if (e.event !== 'trickComplete') continue;
+      if (e.data.winner % 2 === 0) opp = true;
+      else if (opp) return true;
+    }
+    return false;
+  });
   page = await replay.realTablePage({ username: 'ios_ann', socketId: 'ios-h1-r1' });
 });
 
@@ -43,22 +56,27 @@ describe('a reload after tricks were won: the tricks seen live keep their faces'
     expect(stacks(tm._teamTrickHistory).map(faceDown)).toEqual([true]);
     expect(stacks(tm._oppTrickHistory).map(faceDown)).toEqual([true]);
 
-    // the opponents win the next trick (face down), then the partner one (face up)
-    const done = log.findIndex((e, i) => i > 0 && e.event === 'trickComplete' && e.data.winner % 2 === 1);
-    expect(done).toBeGreaterThan(0);
-    expect(log.slice(1, done).filter((e) => e.event === 'trickComplete')).toHaveLength(1);
+    // play on to the first partner trick after an opponent trick (opponent
+    // tricks face down, every trick the partners win live face up)
+    const firstOpp = log.findIndex((e, i) => i > 0 && e.event === 'trickComplete' && e.data.winner % 2 === 0);
+    const done = log.findIndex((e, i) => i > firstOpp && e.event === 'trickComplete' && e.data.winner % 2 === 1);
+    expect(firstOpp).toBeGreaterThan(0);
+    expect(done).toBeGreaterThan(firstOpp);
+    const live = log.slice(1, done + 1).filter((e) => e.event === 'trickComplete');
+    const oppLive = live.filter((e) => e.data.winner % 2 === 0).length;
+    const teamLive = live.length - oppLive;
     replay.replayLog(page, log, { from: 1, to: done + 1 });
     replay.advance(800);
     const before = stacks(page.scene.trickManager._teamTrickHistory);
-    expect(before).toHaveLength(2);
+    expect(before).toHaveLength(1 + teamLive);
     expect(faceDown(before[0])).toBe(true);
-    expect(faceUp(before[1])).toBe(true);
+    expect(before.slice(1).every(faceUp)).toBe(true);
 
     // a tab return with something applied while hidden renders the model again
     page.scene.director.fastForward('visible');
     const after = stacks(page.scene.trickManager._teamTrickHistory);
     expect(after).toEqual(before);
-    expect(stacks(page.scene.trickManager._oppTrickHistory).map(faceDown)).toEqual([true, true]);
-    expect(page.scene.trickManager.spriteCounts()).toMatchObject({ teamStacks: 2, oppStacks: 2, stackCards: 16 });
+    expect(stacks(page.scene.trickManager._oppTrickHistory).map(faceDown)).toEqual(Array(1 + oppLive).fill(true));
+    expect(page.scene.trickManager.spriteCounts()).toMatchObject({ teamStacks: 1 + teamLive, oppStacks: 1 + oppLive, stackCards: (2 + teamLive + oppLive) * 4 });
   });
 });
