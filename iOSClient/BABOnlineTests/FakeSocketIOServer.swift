@@ -8,8 +8,10 @@ import Foundation
 /// (one request per connection, `Connection: close`).
 ///
 /// Faults it can inject: `answersSnapshots = false` (the server never answers: a stalled
-/// or namespace-less connection), `restart()` (the process restarted: every held request
-/// is dropped and old engine ids get Engine.IO's 400 "Session ID unknown").
+/// or namespace-less connection), `snapshotReplyDelay` (the answer comes, but late: a slow
+/// link), `restart()` (the process restarted: every held request is dropped and old engine
+/// ids get Engine.IO's 400 "Session ID unknown"). `deliveredAnswers` records each
+/// stateSnapshot answer written to a client's held poll, and when.
 final class FakeSocketIOServer {
     private let queue = DispatchQueue(label: "fake-socketio-server")
     private var listenFd: Int32 = -1
@@ -18,6 +20,8 @@ final class FakeSocketIOServer {
     private var _namespaceConnects = 0
     private var _events: [(engine: String, name: String, payload: [String: Any])] = []
     private var _answersSnapshots = true
+    private var _snapshotReplyDelay: TimeInterval = 0
+    private var _deliveredAnswers: [(engine: String, requestId: String, at: Date)] = []
 
     /// One accepted HTTP connection.
     private final class Conn {
@@ -57,6 +61,8 @@ final class FakeSocketIOServer {
         let sid: String
         var namespaceSid: String?
         var outbox: [String] = []
+        /// requestIds of the stateSnapshot answers in `outbox`
+        var outboxAnswers: [String] = []
         var heldPoll: Conn?
         init(sid: String) { self.sid = sid }
     }
@@ -73,6 +79,16 @@ final class FakeSocketIOServer {
         get { queue.sync { _answersSnapshots } }
         set { queue.sync { _answersSnapshots = newValue } }
     }
+    /// Seconds between a requestSnapshot and its answer (0: at once). The answer goes to the
+    /// engine that asked, even if its client has closed it meanwhile (a real server would
+    /// have dropped that engine on the client's close packet: this one is harsher).
+    var snapshotReplyDelay: TimeInterval {
+        get { queue.sync { _snapshotReplyDelay } }
+        set { queue.sync { _snapshotReplyDelay = newValue } }
+    }
+    /// Every stateSnapshot answer written to a held poll (so it reached the client's HTTP
+    /// stack): the engine, the requestId it echoed, and when.
+    var deliveredAnswers: [(engine: String, requestId: String, at: Date)] { queue.sync { _deliveredAnswers } }
 
     func start() throws {
         let fd = socket(AF_INET, SOCK_STREAM, 0)
@@ -222,7 +238,14 @@ final class FakeSocketIOServer {
                     if let id = payload["requestId"] { reply["requestId"] = id }
                     if let json = try? JSONSerialization.data(withJSONObject: ["stateSnapshot", reply]),
                        let text = String(data: json, encoding: .utf8) {
-                        push("2" + text, to: engine)
+                        let id = payload["requestId"] as? String ?? ""
+                        if _snapshotReplyDelay > 0 {
+                            queue.asyncAfter(deadline: .now() + _snapshotReplyDelay) { [weak self] in
+                                self?.push("2" + text, to: engine, answer: id)
+                            }
+                        } else {
+                            push("2" + text, to: engine, answer: id)
+                        }
                     }
                 }
             }
@@ -232,8 +255,9 @@ final class FakeSocketIOServer {
     }
 
     /// Queue a Socket.IO packet (Engine.IO message type 4) for the engine's next poll.
-    private func push(_ sio: String, to engine: Engine) {
+    private func push(_ sio: String, to engine: Engine, answer requestId: String? = nil) {
         engine.outbox.append("4" + sio)
+        if let requestId { engine.outboxAnswers.append(requestId) }
         flush(engine)
     }
 
@@ -242,6 +266,9 @@ final class FakeSocketIOServer {
         engine.heldPoll = nil
         let body = engine.outbox.joined(separator: "\u{1e}")
         engine.outbox = []
+        let now = Date()
+        _deliveredAnswers += engine.outboxAnswers.map { (engine.sid, $0, now) }
+        engine.outboxAnswers = []
         respond(conn, body)
     }
 }

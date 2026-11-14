@@ -229,18 +229,78 @@ final class ForegroundKeepTests: XCTestCase {
         XCTAssertEqual(server.namespaceConnects, 2, "one namespace on the old server, one on the restarted one")
     }
 
-    /// An answer that comes after the bound changes nothing: the connection was already
-    /// replaced, and the new one is not replaced again.
-    func testLateAnswerAfterTheBoundIsIgnored() throws {
+    /// The server answers, but after the bound (a slow link): the bound retires the old
+    /// connection and builds exactly one new one; the answer then reaches only the retired
+    /// engine, so this proves the retire (nothing of the old connection acts later), not the
+    /// requestId match (testEarlierProbesAnswerDoesNotKeepTheNextProbe does).
+    func testAnswerAfterTheBoundRebuildsOnceAndTheOldConnectionStaysRetired() throws {
         let manager = try connectAndSignIn()
-        server.answersSnapshots = false
+        let openedBefore = service.connectionsOpened
+        server.snapshotReplyDelay = SocketService.foregroundProbeTimeout + 0.5
+        let started = Date()
+
         service.resumeAfterKeepAlive()
+
         wait("rebuilt after the bound", timeout: 5) { !(service.manager === manager) }
         let fresh = try XCTUnwrap(service.manager)
-        let opened = service.connectionsOpened
-        spin(SocketService.foregroundProbeTimeout + 0.3)
-        XCTAssertTrue(service.manager === fresh)
-        XCTAssertEqual(service.connectionsOpened, opened, "one rebuild per foreground")
+        guard case .rebuilt(let reason) = service.lastForegroundOutcome else { return XCTFail("not rebuilt") }
+        XCTAssertTrue(reason.hasPrefix("probe unanswered"), reason)
+        let requestId = try XCTUnwrap(probes.first?["requestId"] as? String)
+        // the real answer, late, on the old engine's held poll
+        wait("the late answer delivered", timeout: 5) { self.server.deliveredAnswers.contains { $0.requestId == requestId } }
+        let delivered = try XCTUnwrap(server.deliveredAnswers.first { $0.requestId == requestId })
+        XCTAssertGreaterThan(delivered.at.timeIntervalSince(started), SocketService.foregroundProbeTimeout,
+                             "the answer came after the bound")
+        spin(0.5)  // let it reach whatever is left of the old connection
+        XCTAssertTrue(service.manager === fresh, "the new connection stays")
+        XCTAssertEqual(service.connectionsOpened, openedBefore + 1, "exactly one rebuild for this foreground")
+        XCTAssertEqual(service.lastForegroundOutcome, .rebuilt(reason: reason), "the late answer is not taken as kept")
+        XCTAssertFalse(service.isForegroundProbing)
+        wait("the new connection connects") { service.isConnected && self.server.namespaceConnects == 2 }
+        XCTAssertEqual(server.handshakes, 2, "one handshake for the rebuild, none after the late answer")
+    }
+
+    /// A late answer on the SAME, kept socket: foreground (fg-1), background again before it
+    /// is answered (cancelled), foreground again (fg-2). fg-1's answer arrives while fg-2
+    /// waits: it is not fg-2's, so fg-2 stays in flight until its own answer comes (a probe
+    /// that took any snapshot for its answer would be "kept" on a stale round trip).
+    func testEarlierProbesAnswerDoesNotKeepTheNextProbe() throws {
+        let manager = try connectAndSignIn()
+        server.snapshotReplyDelay = 1.0  // under the bound: every probe is answered in time
+
+        service.resumeAfterKeepAlive()
+        wait("fg-1 sent") { self.probes.count == 1 }
+        // fg-2's answer 1.2 s after its request (still under the 1.5 s bound): it lands
+        // ~0.6 s after fg-1's, a window in which only fg-1's answer has reached the client
+        server.snapshotReplyDelay = 1.2
+        service.beginBackgroundKeepAlive()
+        XCTAssertFalse(service.isForegroundProbing, "fg-1 cancelled")
+        service.endBackgroundKeepAlive()
+        spin(0.4)
+        service.resumeAfterKeepAlive()
+        wait("fg-2 sent") { self.probes.count == 2 }
+        let ids = probes.compactMap { $0["requestId"] as? String }
+        XCTAssertEqual(ids.count, 2)
+        XCTAssertNotEqual(ids.first, ids.last)
+        let (fg1, fg2) = (ids[0], ids[1])
+
+        // fg-1's answer reaches the client while fg-2 waits
+        wait("fg-1's answer delivered", timeout: 5) { self.server.deliveredAnswers.contains { $0.requestId == fg1 } }
+        XCTAssertFalse(server.deliveredAnswers.contains { $0.requestId == fg2 }, "fg-1's answer came first")
+        spin(0.2)  // let it reach the socket's handlers
+        XCTAssertFalse(server.deliveredAnswers.contains { $0.requestId == fg2 }, "still inside the window")
+        XCTAssertNil(service.lastForegroundOutcome, "fg-1's answer is not fg-2's: still waiting")
+        XCTAssertTrue(service.isForegroundProbing, "main-room actions still wait for fg-2")
+
+        // kept only on its own answer
+        wait("fg-2 kept", timeout: 5) { service.lastForegroundOutcome == .kept }
+        XCTAssertTrue(server.deliveredAnswers.contains { $0.requestId == fg2 }, "kept before fg-2's own answer")
+        XCTAssertFalse(service.isForegroundProbing)
+        XCTAssertTrue(service.manager === manager, "the same connection throughout")
+        XCTAssertEqual(server.handshakes, 1)
+        spin(SocketService.foregroundProbeTimeout)
+        XCTAssertEqual(service.lastForegroundOutcome, .kept)
+        XCTAssertTrue(service.manager === manager)
     }
 
     /// Sign-out (forceReconnect) while the probe waits: one new connection, the probe's
