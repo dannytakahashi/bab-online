@@ -13,6 +13,7 @@
 
 const gameManager = require('../game/GameManager');
 const avatarWire = require('../avatar/avatarWire');
+const { hasCap } = require('./clientInfo');
 
 /** Tournament context of a game for the snapshot, or null. */
 function tournamentInfo(gameId) {
@@ -103,6 +104,30 @@ function spectatorJoinState(game, { capable = false } = {}) {
     return state;
 }
 
+/**
+ * A pure spectator just joined `game` (joinAsSpectator,
+ * spectateTournamentGame): spectatorJoined split in two (V1_REMOVALS #8).
+ *   1. The notice {username, spectatorCount} to the room EXCEPT the joiner
+ *      (sequenced, socket.to(room)).
+ *   2. The joiner's own full state + v2 snapshot (socket.emit), built after
+ *      the notice, so snapshot.seq already counts it and the joiner's next
+ *      room event is snapshot.seq + 1 (no gap, no resync).
+ * Until then the notice went to the whole room after the full state, so
+ * the joiner also logged "<itself> joined as a spectator" (ctr-17). Both
+ * clients take a payload with a snapshot (or players + trump) as the full
+ * state and anything else as the notice, so neither needs a change.
+ */
+function sendSpectatorJoin(game, socket, username) {
+    game.broadcastExcept(socket, 'spectatorJoined', {
+        username,
+        spectatorCount: game.getSpectators().length
+    });
+    socket.emit('spectatorJoined', {
+        ...spectatorJoinState(game, { capable: hasCap(socket, 'avatarUrl') }),
+        snapshot: snapshotFor(game, socket.id, { customPics: false })
+    });
+}
+
 /** The game a socket belongs to: mapped (seat owner, entrant) or spectating. */
 function gameOf(socketId) {
     const game = gameManager.getPlayerGame(socketId);
@@ -137,5 +162,6 @@ module.exports = {
     botNameFor,
     snapshotFor,
     spectatorJoinState,
+    sendSpectatorJoin,
     requestSnapshot
 };

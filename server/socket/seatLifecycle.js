@@ -380,9 +380,11 @@ function watchSeat(io, game, pos, socket, username, { via }) {
     if (via === 'rejoin') {
         game.broadcast(io, 'playerReconnected', { position: pos, username });
         logEntry(io, game, `${username} reconnected.`);
-    } else {
-        game.broadcast(io, 'spectatorJoined', { username, spectatorCount: game.getSpectators().length });
     }
+    // via 'spectate': no spectatorJoined notice (V1_REMOVALS #8). The owner
+    // watches their own seat; it is not a spectator (spectatorCount and the
+    // spectator list never count it), so "<owner> joined as a spectator"
+    // was wrong, and nothing else in the notice changed.
     replayPresenceTo(game, socket, pos);
     maybeAbort(io, game);
     return true;

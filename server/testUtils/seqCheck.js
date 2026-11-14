@@ -7,6 +7,8 @@
  *     broadcasts and gameStarts it receives go 1 by 1 with no gap and no
  *     repeat (a socket that missed a room emit starts over: it would
  *     resync from a snapshot);
+ *   - a socket that gets a snapshot (to itself) continues from its seq
+ *     (R5): its next room event is snapshot.seq + 1;
  *   - nothing reaches a game room after its gameEnd / abortGame.
  * The game room's members come from the log entry (`members`, as the chaos
  * and tournament stub io record them) or from io.rooms at emit time.
@@ -43,11 +45,24 @@ function watchSeq(io) {
             if (seq <= st.lastSeq) fail('room seq not increasing', { gameId, event: entry.event, seq, last: st.lastSeq });
             st.lastSeq = seq;
             st.lastEvent = entry.event;
-            const members = (entry.members || [...((io.rooms && io.rooms.get(to)) || [])]).filter((m) => m !== entry.except);
-            const inRoom = new Set(members);
+            const all = entry.members || [...((io.rooms && io.rooms.get(to)) || [])];
+            const members = all.filter((m) => m !== entry.except);
+            // A socket left out with socket.to(room) is still in the room:
+            // it keeps its place, so it sees the seq it missed as a gap
+            // unless a snapshot sent to it afterwards covers it (below)
+            const inRoom = new Set(all);
             for (const sid of [...st.perSocket.keys()]) if (!inRoom.has(sid)) st.perSocket.delete(sid);
             for (const sid of members) receive(st, sid, seq, gameId, entry.event);
             if (entry.event === 'gameEnd' || entry.event === 'abortGame') st.ended = true;
+            return;
+        }
+        // A snapshot to one socket (rejoin / restore / spectator full state /
+        // actionRejected / stateSnapshot): R5, the receiver's lastSeq is now
+        // snapshot.seq, so its next room event must be snapshot.seq + 1
+        const snap = wire && wire.snapshot;
+        const one = to.startsWith('self:') ? to.slice(5) : (io.sockets && io.sockets.sockets && io.sockets.sockets.has(to) ? to : null);
+        if (one && snap && snap.gameId && Number.isInteger(snap.seq)) {
+            g(snap.gameId).perSocket.set(one, snap.seq);
             return;
         }
         if (entry.event === 'gameStart' && wire && wire.gameId) {

@@ -7520,11 +7520,9 @@
         ]
       },
       "emittedFrom": [
-        "server/socket/mainRoomHandlers.js:joinAsSpectator",
-        "server/socket/tournamentHandlers.js:spectateTournamentGame",
-        "server/socket/seatLifecycle.js:watchSeat"
+        "server/socket/snapshotHandlers.js:sendSpectatorJoin"
       ],
-      "notes": "fullState goes to the joining socket only (socket.emit), BEFORE the room notice. The notice reaches the joiner too (ctr-17; V1_REMOVALS #8). trumpBroken / teamTricks / oppTricks switch on reads the App Store iOS build already has in restoreFromSpectator (since Feb 2026): its spectator view CHANGES visibly, knowingly, as a fix (real trump-broken state and trick counts instead of false and 0-0). leadPosition is read only by iOS source builds after 10d1538 (the App Store build infers the lead from the first card). ctr-1, ctr-8, ios-8d; web reads none of them."
+      "notes": "Split (V1_REMOVALS #8, 2026-11-12; sendSpectatorJoin, from joinAsSpectator and spectateTournamentGame): the notice goes to the room EXCEPT the joiner (socket.to(room), sequenced) and is sent first; then fullState to the joining socket only (socket.emit), whose snapshot is built after the notice, so snapshot.seq counts it and the joiner's next room event is snapshot.seq + 1. The joiner no longer gets its own notice (ctr-17). An owner watching their own lazy / resigned seat via joinAsSpectator (watchSeat 'spectate') gets rejoinSuccess and sends no notice. Web and iOS 1.2.0 route a payload with a snapshot (or players + trump) as the full state, anything else as the notice, so neither changed. trumpBroken / teamTricks / oppTricks switch on reads the App Store iOS build already has in restoreFromSpectator (since Feb 2026): its spectator view CHANGES visibly, knowingly, as a fix (real trump-broken state and trick counts instead of false and 0-0). leadPosition is read only by iOS source builds after 10d1538 (the App Store build infers the lead from the first card). ctr-1, ctr-8, ios-8d; web reads none of them."
     },
     "spectatorsUpdated": {
       "payload": {

@@ -1303,6 +1303,22 @@ class GameState {
     }
 
     /**
+     * A sequenced room broadcast to everyone in the room BUT `socket`
+     * (socket.to(room)). It bumps the seq like broadcast, so the excluded
+     * socket must get a snapshot built AFTER it (snapshot.seq then covers
+     * it), else its next room event is a gap. Used for the spectatorJoined
+     * notice (V1_REMOVALS #8): the joiner gets its own full state instead.
+     */
+    broadcastExcept(socket, event, data) {
+        if (this.isTerminal()) {
+            gameLogger.debug('emit dropped: terminal', { gameId: this.gameId, event });
+            return;
+        }
+        const seq = this.nextSeq();
+        socket.to(this.roomName).emit(event, isPlainObject(data) ? { ...data, seq } : data);
+    }
+
+    /**
      * An UNSEQUENCED room emit (no seq, no bump): only for an event whose
      * schema entry says `seq: false` and whose payload is the whole
      * absolute state (spectatorsUpdated). A sequenced event the App Store
