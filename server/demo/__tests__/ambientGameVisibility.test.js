@@ -381,6 +381,10 @@ describe('a full cycle never shows alice the game', () => {
     test('start -> listed -> lobbies come and go -> spectated by test1 -> ends: no payload to alice carries its id', async () => {
         jest.useFakeTimers();
         pacing.setPacingForTests('zero');
+        // Demo games follow one another through the 60 s steps below (about
+        // 20,000 bot plays). What the bots play is not this test's subject, so
+        // their endgame search is off here: with it on the test needs ~2 min.
+        require('../../game/bot/playSearch').SEARCH.maxCards = 0;
         ambient.startAmbientActivity(io);
         const alice = enter('s-alice', 'alice');
         const bob = enter('s-bob', 'bob');
