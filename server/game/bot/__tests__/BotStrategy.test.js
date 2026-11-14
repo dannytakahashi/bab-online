@@ -1637,11 +1637,22 @@ describe('play inference', () => {
             expect(result).toEqual(H('4'));
         });
 
-        test('2nd seat throws a loser rather than ruff with a lone HI joker', () => {
+        test('2nd seat ruffs with a lone HI joker (the hold is switched off: never decline a winnable trick)', () => {
             const played = [S('K'), undefined, undefined, undefined];
             const hand = [HI, C('9'), C('5')];
-            const result = selectFollow(hand, played, S('K'), 1, heartsTrump, false, 2, mem([[1, S('K')]]), 8, null);
-            expect(result).toEqual(C('5'));
+            const play = () => selectFollow(hand, played, S('K'), 1, heartsTrump, false, 2, mem([[1, S('K')]]), 8, null);
+            expect(PLAY_TUNING.holdLoneHiRuff).toBe(false);
+            expect(play()).toEqual(HI);
+            withTuning({ holdLoneHiRuff: true }, () => expect(play()).toEqual(C('5')));
+        });
+
+        test('no-trump: no joker is spent to secure partner\'s shaky winner', () => {
+            const jokerTrump = card('joker', 'HI');
+            const hand = [LO, C('9'), C('5')];
+            const played = [S('10'), S('4'), undefined, undefined];
+            const play = () => selectFollow(hand, played, S('10'), 1, jokerTrump, false, 3, mem([[1, S('10')], [2, S('4')]]), 8, null);
+            expect(play()).not.toEqual(LO);
+            withTuning({ ruffForPartnerNoTrump: true }, () => expect(play()).toEqual(LO));
         });
 
         test('3rd seat ruffs low when the opponent behind should still follow suit', () => {

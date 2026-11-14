@@ -286,11 +286,14 @@ function countHigherUnseen(card, hand, memory, trump) {
 const PLAY_TUNING = {
     // --- Ruffs (void in the led suit, an opponent winning) ---
     ruffLow2nd: true,         // 2nd seat: the lowest winning trump, not the highest
-    holdLoneHiRuff: true,     // 2nd seat: throw a loser rather than ruff with a lone HI joker
+    holdLoneHiRuff: false,    // 2nd seat: throw a loser rather than ruff with a lone HI joker.
+                              // OFF: it declines a winnable trick for +0.09 +-0.07 points a game
+                              // once the endings are searched, and it breaks partner's soft read
     ruffLow3rd: true,         // 3rd seat: low unless the opponent behind may over-ruff
     ruffLow3rdMinUnseen: 3,   // ...judged by the unseen cards of the led suit
     ruffForPartner: true,     // 3rd seat: a low ruff over partner's shaky winner
     ruffForPartnerMaxRank: RANK_VALUES.J, // ...shaky = this rank or lower, a higher card out
+    ruffForPartnerNoTrump: false, // ...not in no-trump, where the ruff costs a joker
     // --- Leads ---
     leadBossTrump: true,      // a boss trump below the HI joker goes first
     effBossTrump: true,       // ...including one neither opponent can beat (trump caps)
@@ -317,7 +320,8 @@ const PLAY_TUNING = {
  *  - a player void in the led suit who discarded while an opponent's
  *    non-trump card was winning had no trump to ruff with, and one who
  *    discarded under an opponent's winning trump had nothing above it
- *    ("soft": true of the bots and of nearly every human play).
+ *    ("soft": true of the rule-based bots and of most human play; a bot
+ *    searching a small ending may keep its trump, so it is a read, not a fact).
  */
 function buildCardView(hand, memory, trump) {
     const noTrump = isNoTrump(trump);
@@ -1733,7 +1737,8 @@ function selectFollow(hand, playedCards, leadCard, leadPosition, trump, trumpBro
         // Partner's non-trump winner is shaky (J or lower, a higher card
         // of the suit is still out) and the opponent behind is not known
         // to be ruffing: a low ruff secures the trick
-        if (T.ruffForPartner && view && opponentsRemain && trumpCards.length > 0 && nonTrumpCards.length > 0) {
+        if (T.ruffForPartner && view && opponentsRemain && trumpCards.length > 0 && nonTrumpCards.length > 0 &&
+            (T.ruffForPartnerNoTrump || !isNoTrump(trump))) {
             const partnerOnTrump = winningCard.suit === trump.suit || winningCard.suit === 'joker';
             if (!partnerOnTrump && RANK_VALUES[winningCard.rank] <= T.ruffForPartnerMaxRank &&
                 countHigherUnseen(winningCard, hand, memory, trump) > 0 &&
@@ -1766,7 +1771,7 @@ function selectFollow(hand, playedCards, leadCard, leadPosition, trump, trumpBro
                         // 2nd seat with only the HI joker to ruff with:
                         // partner still plays, so keep its forcing lead and
                         // throw a loser instead (never when every trick is
-                        // needed)
+                        // needed). Switched off: see PLAY_TUNING
                         if (seat === 2 && T.holdLoneHiRuff && asc[0].rank === 'HI' && !effortIsMax) {
                             const losers = nonTrumpCards.filter(c => countHigherUnseen(c, hand, memory, trump) > 0);
                             if (losers.length > 0) {
