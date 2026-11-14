@@ -1674,4 +1674,48 @@ describe('play inference', () => {
                 .toEqual(C('5'));
         });
     });
+
+    describe('leads', () => {
+        test('a boss trump below the HI joker is led before the HI joker', () => {
+            const hand = [HI, LO, C('5'), D('8')];
+            expect(selectLead(hand, heartsTrump, true, { position: 1 }, mem(), 8, null)).toEqual(LO);
+        });
+
+        test('three trump with no boss among them: lead the lowest trump', () => {
+            const hand = [H('9'), H('6'), H('3'), C('5'), D('8')];
+            expect(selectLead(hand, heartsTrump, true, { position: 1 }, mem(), 8, null)).toEqual(H('3'));
+            // ...but not before trump is broken
+            expect(selectLead(hand, heartsTrump, false, { position: 1 }, mem(), 8, null).suit).not.toBe('hearts');
+        });
+
+        test('no trump lead once both opponents are out of trump', () => {
+            const hand = [H('9'), H('6'), H('3'), C('5'), D('8')];
+            const m = mem([[3, H('K')], [4, C('2')], [1, H('2')], [2, C('3')]]);
+            expect(selectLead(hand, heartsTrump, true, { position: 1 }, m, 8, null).suit).not.toBe('hearts');
+        });
+
+        test('an established off-suit winner is cashed', () => {
+            const hand = [S('K'), C('5'), D('8'), D('4')];
+            const m = mem([[2, S('A')], [3, S('2')], [4, S('3')], [1, S('4')]]);
+            expect(selectLead(hand, heartsTrump, false, { position: 1 }, m, 8, null)).toEqual(S('K'));
+        });
+
+        test('an opponent\'s void stops mattering once they are out of trump', () => {
+            const hand = [S('K'), C('5'), D('8'), D('4')];
+            // 2 is void in spades but discarded instead of ruffing our Ace
+            const m = mem([[1, S('A')], [2, C('2')], [3, S('2')], [4, S('3')]]);
+            expect(selectLead(hand, heartsTrump, false, { position: 1 }, m, 8, null)).toEqual(S('K'));
+            withTuning({ useSoftTrumpOut: false }, () => {
+                expect(selectLead(hand, heartsTrump, false, { position: 1 }, m, 8, null)).not.toEqual(S('K'));
+            });
+        });
+
+        test('a suit an opponent chose to lead is avoided', () => {
+            const hand = [C('5'), D('10'), D('6')];
+            const fresh = mem([[1, S('4')], [2, S('9')], [3, S('2')], [4, S('3')]]);
+            expect(selectLead(hand, heartsTrump, false, { position: 1 }, fresh, 8, null)).toEqual(C('5'));
+            const oppLedClubs = mem([[2, C('4')], [3, C('9')], [4, C('2')], [1, C('3')]]);
+            expect(selectLead(hand, heartsTrump, false, { position: 1 }, oppLedClubs, 8, null)).toEqual(D('6'));
+        });
+    });
 });
