@@ -62,9 +62,12 @@ const reads = (web, ios) => ({ web: [].concat(web || []), ios: [].concat(ios || 
 
 // ---------- shared payload pieces ----------
 const fail = (extra = {}) => variant('failure', obj({ success: konst(false), message: str(), ...extra }));
-const okFail = (okProps, { optional = [] } = {}) => anyOf(
+const okFail = (okProps, { optional = [], failScope = false } = {}) => anyOf(
     variant('success', obj({ success: konst(true), ...okProps }, { optional })),
-    fail(),
+    // failScope: the stats scope echo on a failure (SCOPE_ECHO_NOTE)
+    failScope
+        ? variant('failure', obj({ success: konst(false), message: str(), scope: statsScope }, { optional: ['scope'] }))
+        : fail(),
 );
 const empty = obj({});
 const lobbyLists = {
@@ -87,15 +90,17 @@ const mainRoomState = {
 const isoOrNull = () => orNull(str());
 const adminPlayerRow = obj({
     username: str(), createdAt: isoOrNull(), lastSeenAt: isoOrNull(), online: bool(),
-    gamesPlayed: int({ minimum: 0 }), isAdmin: bool(), mergedInto: orNull(str()), renamed: bool(),
+    // gamesPlayed: human games; botGamesPlayed: games with bots (users.botStats)
+    gamesPlayed: int({ minimum: 0 }), botGamesPlayed: int({ minimum: 0 }), isAdmin: bool(), mergedInto: orNull(str()), renamed: bool(),
     renameUnfinished: orNull(str()),
 });
 const adminStats = obj({ gamesPlayed: num(), wins: num(), losses: num(), draws: num(), totalPoints: num() });
 const teams = obj({ team1: arr(str()), team2: arr(str()) });
 const mergePlanView = obj({
     target: str(), sources: arr(str()), errors: arr(str()), warnings: arr(str()),
-    accounts: arr(obj({ role: enm('target', 'source', 'result'), username: str(), createdAt: isoOrNull(), stats: adminStats, note: orNull(str()) })),
+    accounts: arr(obj({ role: enm('target', 'source', 'result'), username: str(), createdAt: isoOrNull(), stats: adminStats, botStats: adminStats, note: orNull(str()) })),
     statChanges: arr(obj({ key: str(), before: num(), after: num() })),
+    botStatChanges: arr(obj({ key: str(), before: num(), after: num() })),
     profilePicFrom: orNull(str()),
     targetBlockedUsers: anyOf(obj({ before: arr(str()), after: arr(str()) }), nul()),
     gameRecords: arr(obj({ gameId: str(), completedAt: isoOrNull(), before: teams, after: teams })),
@@ -118,6 +123,10 @@ const adminAuditRow = obj({
 const adminOk = (action, props) => variant(action, obj({ requestId: str(), action: konst(action), ok: konst(true), ...props }));
 
 const scoreboard = arr(ref('scoreboardRow'));
+
+// Stats scope echo (server/utils/statsScope.js, owner 2026-11-13)
+const statsScope = enm('human', 'bots', 'all');
+const SCOPE_ECHO_NOTE = 'scope (additive 2026-11-13): the stats scope the request asked for (human | bots | all; an unknown value is human), echoed ONLY when the request carried a scope key, so a payload-less request (iOS, every shipped build) gets exactly the earlier reply. leaderboardResponse and recordsResponse failures echo it too (iOS 1.2.1 build 8 keeps a request in flight per scope and files a failure under the scope that asked); profile failures do not. The web client drops a reply whose scope is not its current choice (a stale reply after a fast switch).';
 const seatNotice = obj({ position: ref('position'), username: str() });
 
 const LEGACY_STATE_READS = reads(
@@ -682,9 +691,10 @@ const s2c = {
 
     // ==================== Profile ====================
     profileResponse: {
-        payload: okFail({ profile: ref('profile'), avatarUrl: ref('avatarUrl') }, { optional: ['avatarUrl'] }),
+        payload: okFail({ profile: ref('profile'), avatarUrl: ref('avatarUrl'), scope: statsScope }, { optional: ['avatarUrl', 'scope'] }),
         status: 'active', to: 'self',
-        added: ['avatarUrl'],
+        added: ['avatarUrl', 'scope'],
+        notes: SCOPE_ECHO_NOTE,
         clientReads: reads(W.profile, []),
         emittedFrom: ['server/socket/profileHandlers.js:getProfile'],
     },
@@ -709,17 +719,18 @@ const s2c = {
         emittedFrom: ['server/socket/profileHandlers.js:searchPlayers'],
     },
     playerProfileResponse: {
-        payload: okFail({ profile: ref('profile'), avatarUrl: ref('avatarUrl') }, { optional: ['avatarUrl'] }),
+        payload: okFail({ profile: ref('profile'), avatarUrl: ref('avatarUrl'), scope: statsScope }, { optional: ['avatarUrl', 'scope'] }),
         status: 'active', to: 'self',
-        added: ['avatarUrl'],
+        added: ['avatarUrl', 'scope'],
+        notes: SCOPE_ECHO_NOTE,
         clientReads: reads(W.profile, []),
         emittedFrom: ['server/socket/profileHandlers.js:getPlayerProfile'],
     },
     leaderboardResponse: {
-        payload: okFail({ leaderboard: arr(ref('leaderboardRow')), avatarUrls: ref('avatarUrlsByUsername') }, { optional: ['avatarUrls'] }),
+        payload: okFail({ leaderboard: arr(ref('leaderboardRow')), avatarUrls: ref('avatarUrlsByUsername'), scope: statsScope }, { optional: ['avatarUrls', 'scope'], failScope: true }),
         status: 'active', to: 'self',
-        added: ['avatarUrls'],
-        notes: 'Rows by recipient (docs/avatars.md): a capable socket gets customProfilePic null + avatarUrls {username: url}; a legacy one the small inline rendition. The App Store iOS build reads neither; the next iOS build (after 1.2.0 build 6) shows avatarUrls[username], else the stock profilePic, in Stats.',
+        added: ['avatarUrls', 'scope'],
+        notes: 'Rows by recipient (docs/avatars.md): a capable socket gets customProfilePic null + avatarUrls {username: url}; a legacy one the small inline rendition. The App Store iOS build reads neither; the next iOS build (after 1.2.0 build 6) shows avatarUrls[username], else the stock profilePic, in Stats. ' + SCOPE_ECHO_NOTE,
         clientReads: reads(W.board, I.board),
         emittedFrom: ['server/socket/profileHandlers.js:getLeaderboard'],
     },
@@ -727,9 +738,11 @@ const s2c = {
         payload: okFail({
             records: obj({ allTime: ref('recordsPeriod'), thisYear: ref('recordsPeriod'), thisMonth: ref('recordsPeriod') }, { open: true }),
             totalGames: int({ minimum: 0 }),
-        }),
+            scope: statsScope,
+        }, { optional: ['scope'], failScope: true }),
         status: 'active', to: 'self',
-        notes: 'iOS reads it from the next iOS build (after 1.2.0 build 6: the Records tab of Stats); every field optional there (a missing period or record shows "No games yet").',
+        added: ['scope'],
+        notes: 'iOS reads it from the next iOS build (after 1.2.0 build 6: the Records tab of Stats); every field optional there (a missing period or record shows "No games yet"). In the bots / all scopes a record\'s `players` lists the humans, then the bot personas (\'🤖 Mary\'); a team of two bots never holds a team record. ' + SCOPE_ECHO_NOTE,
         clientReads: reads(W.records, I.records),
         emittedFrom: ['server/socket/profileHandlers.js:getRecords'],
     },
@@ -841,7 +854,7 @@ const s2c = {
             adminOk('searchPlayers', { players: arr(adminPlayerRow) }),
             adminOk('createResetLink', { username: str(), token: str({ pattern: '^[A-Za-z0-9_-]{43}$' }), expiresAt: str() }),
             adminOk('signOutEverywhere', { username: str(), revokedSessions: int({ minimum: 0 }), disconnected: int({ minimum: 0 }) }),
-            adminOk('findDuplicates', { groups: arr(arr(obj({ username: str(), gamesPlayed: num(), createdAt: isoOrNull() }))) }),
+            adminOk('findDuplicates', { groups: arr(arr(obj({ username: str(), gamesPlayed: num(), botGamesPlayed: num(), createdAt: isoOrNull() }))) }),
             adminOk('planMerge', { plan: mergePlanView, planHash: str({ pattern: '^[0-9a-f]{64}$' }) }),
             adminOk('applyMerge', {
                 result: obj({

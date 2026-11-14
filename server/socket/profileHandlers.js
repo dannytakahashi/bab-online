@@ -12,44 +12,36 @@ const avatarStore = require('../avatar/avatarStore');
 const avatarWire = require('../avatar/avatarWire');
 const image = require('../avatar/image');
 const { hasCap } = require('./clientInfo');
+const { SCOPES, emptyStats, pickStats, sumBuckets, normalizeScope } = require('../utils/statsScope');
 
-// Leaderboard and records pages: 60 s caches, invalidated on every write
-// this process makes that changes them (recordGameStats, deleteAccount,
-// profile picture changes). The owner CLIs (merge-accounts, set-password)
-// run in another process: only the TTL covers them.
+// Leaderboard and records pages: 60 s caches, one per stats scope
+// (server/utils/statsScope.js: human | bots | all), invalidated (every scope
+// at once) on every write this process makes that changes them
+// (recordGameStats, deleteAccount, profile picture changes, admin merge and
+// rename). The owner CLIs (merge-accounts, set-password) run in another
+// process: only the TTL covers them.
 const CACHE_TTL_MS = 60000;
-const leaderboardCache = createCache({ ttlMs: CACHE_TTL_MS });
-const recordsCache = createCache({ ttlMs: CACHE_TTL_MS });
+const leaderboardCache = Object.fromEntries(SCOPES.map(s => [s, createCache({ ttlMs: CACHE_TTL_MS })]));
+const recordsCache = Object.fromEntries(SCOPES.map(s => [s, createCache({ ttlMs: CACHE_TTL_MS })]));
 let recordsCacheKey = null;
 
 /** Longest possible username (validators.js): a longer query matches nobody. */
 const MAX_USERNAME_LENGTH = 50;
 
-/** A profile's stats before its first game. */
-const emptyStats = () => ({
-    wins: 0,
-    losses: 0,
-    draws: 0,
-    gamesPlayed: 0,
-    totalPoints: 0,
-    totalTricksBid: 0,
-    totalTricksTaken: 0,
-    totalHands: 0,
-    totalSets: 0,
-    totalSetPoints: 0,
-    totalFaults: 0,
-    totalHSI: 0
-});
-
 /** Fields a profile reply is built from (plus mergedInto / renamedAt / targetRenamedAt for the redirect). */
 const PROFILE_PROJECTION = { username: 1, profilePic: 1, customProfilePic: 1, stats: 1, mergedInto: 1, renamedAt: 1, targetRenamedAt: 1 };
+/** The same plus the bot-game bucket (scopes bots / all). */
+const PROFILE_PROJECTION_WITH_BOTS = { ...PROFILE_PROJECTION, botStats: 1 };
+const profileProjection = (scope) => (scope === 'human' ? PROFILE_PROJECTION : PROFILE_PROJECTION_WITH_BOTS);
 
 /**
  * Get user profile with stats
  * @param {Socket} socket - Socket instance
  * @param {Server} io - Socket.IO server instance
+ * @param {Object} [data] - optional {scope: 'human'|'bots'|'all'} (statsScope.js)
  */
-async function getProfile(socket, io) {
+async function getProfile(socket, io, data) {
+    const { scope, echo } = normalizeScope(data);
     const usersCollection = getUsersCollection();
     const user = gameManager.getUserBySocketId(socket.id);
 
@@ -63,7 +55,7 @@ async function getProfile(socket, io) {
     }
 
     try {
-        const dbUser = await usersCollection.findOne({ username: user.username }, { projection: PROFILE_PROJECTION });
+        const dbUser = await usersCollection.findOne({ username: user.username }, { projection: profileProjection(scope) });
 
         if (!dbUser) {
             socket.emit('profileResponse', {
@@ -76,7 +68,7 @@ async function getProfile(socket, io) {
 
         // Return profile data with stats (custom picture per recipient:
         // docs/avatars.md)
-        socket.emit('profileResponse', await profileReply(socket, dbUser));
+        socket.emit('profileResponse', await profileReply(socket, dbUser, scope, echo));
 
         authLogger.debug('Profile fetched', { username: user.username });
     } catch (error) {
@@ -258,11 +250,21 @@ async function uploadProfilePic(socket, io, data) {
     }
 }
 
+/** Seat controllers that make a finished game a bot game (statsScope.js). */
+const BOT_CONTROLLERS = new Set(['bot', 'resignBot']);
+
 /**
  * Record a completed game's results into the gameRecords collection
  * @param {Object} game - The completed game object
+ * @param {{withBots?: boolean}} [options] - a bot game (any bot or
+ *   resign-bot seat at the end): the entry gets `withBots: true`, its
+ *   team1Players/team2Players hold ONLY the seats with a human owner (seat
+ *   order, the same recordName mapping) and team1Bots/team2Bots the persona
+ *   names of the seats without one ('🤖 Mary'). Bots are never in the
+ *   teamNPlayers arrays, so merge / rename / delete (which touch only those)
+ *   never see a bot name. A human game's document is exactly today's.
  */
-async function recordGameResult(game) {
+async function recordGameResult(game, { withBots = false } = {}) {
     const gameRecordsCollection = getGameRecordsCollection();
     if (!gameRecordsCollection) return;
 
@@ -274,12 +276,6 @@ async function recordGameResult(game) {
             if (!p || !p.username) return null;
             return gameManager.deletedUsernames.has(p.username) ? '[deleted]' : p.username;
         };
-        const team1Players = [game.getOriginalPlayer(1), game.getOriginalPlayer(3)]
-            .map(recordName)
-            .filter(Boolean);
-        const team2Players = [game.getOriginalPlayer(2), game.getOriginalPlayer(4)]
-            .map(recordName)
-            .filter(Boolean);
 
         // Calculate team-level bags (total tricks taken minus total tricks bid)
         const ps = game.playerStats || {};
@@ -288,64 +284,97 @@ async function recordGameResult(game) {
         const team2Bags = ((ps[2]?.totalTricks || 0) + (ps[4]?.totalTricks || 0))
             - ((ps[2]?.totalBids || 0) + (ps[4]?.totalBids || 0));
 
-        await gameRecordsCollection.insertOne({
-            gameId: game.gameId,
-            team1Score: game.score.team1,
-            team2Score: game.score.team2,
-            team1Players,
-            team2Players,
-            team1Bags,
-            team2Bags,
-            completedAt: new Date()
-        });
+        let doc;
+        if (!withBots) {
+            const team1Players = [game.getOriginalPlayer(1), game.getOriginalPlayer(3)]
+                .map(recordName)
+                .filter(Boolean);
+            const team2Players = [game.getOriginalPlayer(2), game.getOriginalPlayer(4)]
+                .map(recordName)
+                .filter(Boolean);
+            doc = {
+                gameId: game.gameId,
+                team1Score: game.score.team1,
+                team2Score: game.score.team2,
+                team1Players,
+                team2Players,
+                team1Bags,
+                team2Bags,
+                completedAt: new Date()
+            };
+        } else {
+            const owned = (pos) => Boolean(game.seat(pos)?.ownerUsername);
+            const humans = (positions) => positions.filter(owned)
+                .map(pos => recordName(game.getOriginalPlayer(pos)))
+                .filter(Boolean);
+            const bots = (positions) => positions.filter(pos => !owned(pos))
+                .map(pos => game.getOriginalPlayer(pos)?.username)
+                .filter(name => typeof name === 'string' && name.length > 0);
+            doc = {
+                gameId: game.gameId,
+                team1Score: game.score.team1,
+                team2Score: game.score.team2,
+                team1Players: humans([1, 3]),
+                team2Players: humans([2, 4]),
+                team1Bags,
+                team2Bags,
+                completedAt: new Date(),
+                withBots: true,
+                team1Bots: bots([1, 3]),
+                team2Bots: bots([2, 4])
+            };
+        }
 
-        authLogger.info('Game result recorded', { gameId: game.gameId });
+        await gameRecordsCollection.insertOne(doc);
+
+        authLogger.info('Game result recorded', { gameId: game.gameId, withBots });
     } catch (error) {
         authLogger.error('Error recording game result', { gameId: game.gameId, error: error.message });
     }
 }
 
 /**
- * Record game statistics for all players after a game ends
+ * Record game statistics for all players after a game ends. Every seat with
+ * a human owner is credited (getOriginalPlayer: lazy, resigned and /leave'd
+ * owners included); bot seats never are (no accounts). A game with a bot or
+ * resign-bot seat at the end (solo games, tournament tables with filler
+ * bots, a resigned seat) goes to each owner's `botStats` and a `withBots`
+ * record; a game whose only bots are lazy bots stays a human game
+ * (`stats`). A game with no human owner at all (the ambient demo) records
+ * nothing and leaves the caches alone.
  * @param {Object} game - The completed game object
- * @param {boolean} team1Won - Whether team 1 won (positions 1 & 3)
  */
 async function recordGameStats(game) {
     const usersCollection = getUsersCollection();
 
-    // Skip stat recording if a bot played a seat for good (native bot or
-    // resign bot). Lazy seats still count for their human.
-    const hasBots = game.seatList().some(s => s.controller === 'bot' || s.controller === 'resignBot');
-    if (hasBots) {
-        authLogger.info('Skipping stat recording — game contains bots', { gameId: game.gameId });
+    // Every seat with a human owner, as the original human player (resigned
+    // and lazy positions included)
+    const players = [1, 2, 3, 4]
+        .map(position => ({ position, player: game.getOriginalPlayer(position) }))
+        .filter(({ position, player }) => player && player.username && game.seat(position)?.ownerUsername);
+
+    if (players.length === 0) {
+        authLogger.debug('Skipping stat recording — no human players', { gameId: game.gameId });
         return;
     }
 
+    // A bot played a seat for good (native bot or resign bot): the bot-game
+    // bucket. Lazy seats still count as human games for their owner.
+    const withBots = game.seatList().some(s => BOT_CONTROLLERS.has(s.controller));
+    const bucket = withBots ? 'botStats' : 'stats';
+
     // Record the game result for records page
-    await recordGameResult(game);
+    await recordGameResult(game, { withBots });
     invalidateRecords();
 
     // Determine winner based on final scores
     const team1Won = game.score.team1 > game.score.team2;
     const isTie = game.score.team1 === game.score.team2;
 
-    // Get all players — use original human player info for resigned positions
-    const players = [
-        { position: 1, player: game.getOriginalPlayer(1) },
-        { position: 2, player: game.getOriginalPlayer(2) },
-        { position: 3, player: game.getOriginalPlayer(3) },
-        { position: 4, player: game.getOriginalPlayer(4) }
-    ];
-
     try {
         // One $inc per human seat, written in parallel; each keeps its own
         // try/catch so one failure never hides the others
         await Promise.all(players.map(async ({ position, player }) => {
-            if (!player || !player.username) return;
-
-            // Skip seats without a human owner (they have no DB records)
-            if (!game.seat(position)?.ownerUsername) return;
-
             const isTeam1 = position === 1 || position === 3;
             const isWinner = (isTeam1 && team1Won) || (!isTeam1 && !team1Won);
             const teamScore = isTeam1 ? game.score.team1 : game.score.team2;
@@ -367,24 +396,25 @@ async function recordGameStats(game) {
                     { username: player.username },
                     {
                         $inc: {
-                            'stats.gamesPlayed': 1,
-                            'stats.wins': isTie ? 0 : (isWinner ? 1 : 0),
-                            'stats.losses': isTie ? 0 : (isWinner ? 0 : 1),
-                            'stats.draws': isTie ? 1 : 0,
-                            'stats.totalPoints': teamScore,
-                            'stats.totalTricksBid': playerBids,
-                            'stats.totalTricksTaken': playerTricks,
-                            'stats.totalHands': totalHands,
-                            'stats.totalSets': teamSets,
-                            'stats.totalSetPoints': teamSetPoints,
-                            'stats.totalFaults': playerFaults,
-                            'stats.totalHSI': playerHSI
+                            [`${bucket}.gamesPlayed`]: 1,
+                            [`${bucket}.wins`]: isTie ? 0 : (isWinner ? 1 : 0),
+                            [`${bucket}.losses`]: isTie ? 0 : (isWinner ? 0 : 1),
+                            [`${bucket}.draws`]: isTie ? 1 : 0,
+                            [`${bucket}.totalPoints`]: teamScore,
+                            [`${bucket}.totalTricksBid`]: playerBids,
+                            [`${bucket}.totalTricksTaken`]: playerTricks,
+                            [`${bucket}.totalHands`]: totalHands,
+                            [`${bucket}.totalSets`]: teamSets,
+                            [`${bucket}.totalSetPoints`]: teamSetPoints,
+                            [`${bucket}.totalFaults`]: playerFaults,
+                            [`${bucket}.totalHSI`]: playerHSI
                         }
                     }
                 );
 
                 authLogger.info('Game stats recorded', {
                     username: player.username,
+                    bucket,
                     won: isWinner,
                     score: teamScore,
                     tricks: playerTricks,
@@ -459,24 +489,51 @@ async function getUserProfilePic(username, { randomFallback = true } = {}) {
     return randomFallback ? Math.floor(Math.random() * 82) + 1 : null;
 }
 
-/**
- * The leaderboard rows (one per player with a game, plus the Population
- * average row), sorted by win rate. Cached for 60 s; invalidated when stats
- * change (recordGameStats, account deletion, a profile picture change).
- */
-async function fillLeaderboard() {
-    const usersCollection = getUsersCollection();
+/** Leaderboard row fields every scope reads. */
+const LEADERBOARD_FIELDS = { username: 1, profilePic: 1, customProfilePic: 1 };
+const NOT_MERGED = { mergedInto: { $exists: false } };
 
-    // Find all users with at least one game played (merged-away
-    // accounts are tombstones whose stats live on the kept account)
-    const users = await usersCollection.find(
-        { 'stats.gamesPlayed': { $gt: 0 }, mergedInto: { $exists: false } },
-        { projection: { username: 1, profilePic: 1, customProfilePic: 1, stats: 1 } }
-    ).toArray();
+/**
+ * Per scope: which users have a row (at least one game in that scope; never
+ * a merged-away tombstone), what is read, and the bucket the row math uses.
+ * 'human' is today's query and projection exactly.
+ */
+const LEADERBOARD_QUERIES = {
+    human: {
+        filter: { 'stats.gamesPlayed': { $gt: 0 }, ...NOT_MERGED },
+        projection: { ...LEADERBOARD_FIELDS, stats: 1 },
+        bucket: (user) => user.stats || {}
+    },
+    bots: {
+        filter: { 'botStats.gamesPlayed': { $gt: 0 }, ...NOT_MERGED },
+        projection: { ...LEADERBOARD_FIELDS, botStats: 1 },
+        bucket: (user) => user.botStats || {}
+    },
+    all: {
+        filter: { $or: [{ 'stats.gamesPlayed': { $gt: 0 } }, { 'botStats.gamesPlayed': { $gt: 0 } }], ...NOT_MERGED },
+        projection: { ...LEADERBOARD_FIELDS, stats: 1, botStats: 1 },
+        bucket: (user) => sumBuckets(user.stats, user.botStats)
+    }
+};
+
+/**
+ * The leaderboard rows (one per player with a game in `scope`, plus the
+ * Population average row over those players), sorted by win rate. Cached
+ * for 60 s per scope; invalidated when stats change (recordGameStats,
+ * account deletion, a profile picture change, an admin merge or rename).
+ */
+async function fillLeaderboard(scope = 'human') {
+    const usersCollection = getUsersCollection();
+    const query = LEADERBOARD_QUERIES[scope] || LEADERBOARD_QUERIES.human;
+
+    // Find all users with at least one game played in this scope
+    // (merged-away accounts are tombstones whose stats live on the kept
+    // account)
+    const users = await usersCollection.find(query.filter, { projection: query.projection }).toArray();
 
     // Compute derived stats and format response
     const leaderboard = users.map(user => {
-        const stats = user.stats || {};
+        const stats = query.bucket(user);
         const gamesPlayed = stats.gamesPlayed || 0;
         const wins = stats.wins || 0;
         const totalPoints = stats.totalPoints || 0;
@@ -532,22 +589,35 @@ async function fillLeaderboard() {
     return avatarWire.mapProfileRows(leaderboard);
 }
 
+/** `out` plus the requested scope when the request named one (statsScope.js). */
+function withScope(out, scope, echo) {
+    if (echo) out.scope = scope;
+    return out;
+}
+
 /** The leaderboard reply for `socket` from a cached fill. */
-function leaderboardPayload(socket, value) {
+function leaderboardPayload(socket, value, scope = 'human', echo = false) {
     if (hasCap(socket, 'avatarUrl')) {
         const out = { success: true, leaderboard: value.capable };
         if (value.avatarUrls) out.avatarUrls = value.avatarUrls;
-        return out;
+        return withScope(out, scope, echo);
     }
-    return { success: true, leaderboard: value.legacy };
+    return withScope({ success: true, leaderboard: value.legacy }, scope, echo);
+}
+
+/** The stats a profile reply shows for `scope`. 'human' is the stored bucket as is. */
+function profileStats(dbUser, scope) {
+    if (scope === 'bots') return dbUser.botStats ? pickStats(dbUser.botStats) : emptyStats();
+    if (scope === 'all') return sumBuckets(dbUser.stats, dbUser.botStats);
+    return dbUser.stats || emptyStats();
 }
 
 /**
  * A profile reply (profileResponse / playerProfileResponse) for `socket`:
  * today's shape, the custom picture as the recipient can render it, plus
- * avatarUrl (additive) for a capable one.
+ * avatarUrl (additive) for a capable one, and `scope` when asked for one.
  */
-async function profileReply(socket, dbUser) {
+async function profileReply(socket, dbUser, scope = 'human', echo = false) {
     const raw = dbUser.customProfilePic || null;
     const r = raw ? await avatarWire.resolveStored(raw, dbUser.username) : { legacy: null, url: null };
     const capable = hasCap(socket, 'avatarUrl') && !!r.url;
@@ -557,38 +627,44 @@ async function profileReply(socket, dbUser) {
             username: dbUser.username,
             profilePic: dbUser.profilePic || 1,
             customProfilePic: capable ? null : r.legacy,
-            stats: dbUser.stats || emptyStats()
+            stats: profileStats(dbUser, scope)
         }
     };
     if (capable) out.avatarUrl = r.url;
-    return out;
+    return withScope(out, scope, echo);
 }
 
 /**
  * Get leaderboard data with computed stats for all players
  * @param {Socket} socket - Socket instance
  * @param {Server} io - Socket.IO server instance
+ * @param {Object} [data] - optional {scope: 'human'|'bots'|'all'} (statsScope.js)
  */
-async function getLeaderboard(socket, io) {
-    // Soft limit: over it, the (possibly stale) cached rows, never 'error'
+async function getLeaderboard(socket, io, data) {
+    const { scope, echo } = normalizeScope(data);
+    const cache = leaderboardCache[scope];
+
+    // Soft limit (one budget for every scope): over it, this scope's
+    // (possibly stale) cached rows, never 'error'
     if (!rateLimiter.check(socket.id, 'getLeaderboard')) {
-        await replyThrottled(socket, 'leaderboardResponse', leaderboardCache,
-            (value) => leaderboardPayload(socket, value));
+        await replyThrottled(socket, 'leaderboardResponse', cache,
+            (value) => leaderboardPayload(socket, value, scope, echo),
+            (fail) => withScope(fail, scope, echo));
         return;
     }
 
     try {
-        const value = await leaderboardCache.get(fillLeaderboard);
+        const value = await cache.get(() => fillLeaderboard(scope));
 
-        socket.emit('leaderboardResponse', leaderboardPayload(socket, value));
+        socket.emit('leaderboardResponse', leaderboardPayload(socket, value, scope, echo));
 
-        authLogger.debug('Leaderboard fetched', { playerCount: value.legacy.length });
+        authLogger.debug('Leaderboard fetched', { scope, playerCount: value.legacy.length });
     } catch (error) {
-        authLogger.error('Error fetching leaderboard', { error: error.message });
-        socket.emit('leaderboardResponse', {
+        authLogger.error('Error fetching leaderboard', { scope, error: error.message });
+        socket.emit('leaderboardResponse', withScope({
             success: false,
             message: 'Database error'
-        });
+        }, scope, echo));
     }
 }
 
@@ -651,12 +727,13 @@ async function searchPlayers(socket, io, data) {
  * Get another player's profile by username
  * @param {Socket} socket - Socket instance
  * @param {Server} io - Socket.IO server instance
- * @param {Object} data - Contains username string
+ * @param {Object} data - Contains username string, optional scope (statsScope.js)
  */
 async function getPlayerProfile(socket, io, data) {
     const usersCollection = getUsersCollection();
 
     const { username } = data || {};
+    const { scope, echo } = normalizeScope(data);
     if (!username || typeof username !== 'string' || !username.trim()) {
         socket.emit('playerProfileResponse', {
             success: false,
@@ -666,7 +743,7 @@ async function getPlayerProfile(socket, io, data) {
     }
 
     try {
-        let dbUser = await usersCollection.findOne({ username: username.trim() }, { projection: PROFILE_PROJECTION });
+        let dbUser = await usersCollection.findOne({ username: username.trim() }, { projection: profileProjection(scope) });
 
         // Old names from merged accounts (e.g. in game records) show the
         // account they were merged into. A rename's old name (or a merged
@@ -675,7 +752,7 @@ async function getPlayerProfile(socket, io, data) {
         if (dbUser?.mergedInto) {
             dbUser = dbUser.renamedAt || dbUser.targetRenamedAt
                 ? null
-                : await usersCollection.findOne({ username: dbUser.mergedInto }, { projection: PROFILE_PROJECTION });
+                : await usersCollection.findOne({ username: dbUser.mergedInto }, { projection: profileProjection(scope) });
         }
 
         if (!dbUser) {
@@ -686,7 +763,7 @@ async function getPlayerProfile(socket, io, data) {
             return;
         }
 
-        socket.emit('playerProfileResponse', await profileReply(socket, dbUser));
+        socket.emit('playerProfileResponse', await profileReply(socket, dbUser, scope, echo));
 
         authLogger.debug('Player profile fetched', { username: username.trim() });
     } catch (error) {
@@ -702,6 +779,29 @@ function recordsKey(now) {
 
 // Only the fields the reduction below reads
 const RECORDS_PROJECTION = { _id: 0, team1Score: 1, team2Score: 1, team1Players: 1, team2Players: 1, team1Bags: 1, team2Bags: 1 };
+// Bot games also list their bot personas (team1Bots / team2Bots)
+const RECORDS_PROJECTION_WITH_BOTS = { ...RECORDS_PROJECTION, team1Bots: 1, team2Bots: 1 };
+
+/** Which gameRecords a scope reads: human games (no withBots), bot games, or every one. */
+const RECORDS_SCOPE_FILTER = {
+    human: { withBots: { $ne: true } },
+    bots: { withBots: true },
+    all: {}
+};
+
+/**
+ * One team of a record for `scope`. Human scope: exactly the stored
+ * teamNPlayers (today's reply). Bots / all: the humans, then the bot
+ * personas (strings, so `players` keeps its wire type), and whether the
+ * team had no human at all (such a team never holds a team record).
+ */
+function recordTeam(game, n, scope) {
+    const players = game[`team${n}Players`];
+    if (scope === 'human') return { players, allBots: false };
+    const humans = Array.isArray(players) ? players : [];
+    const bots = Array.isArray(game[`team${n}Bots`]) ? game[`team${n}Bots`] : [];
+    return { players: [...humans, ...bots], allBots: humans.length === 0 && bots.length > 0 };
+}
 
 /**
  * The records page: highest/lowest team score, biggest win and most/least
@@ -710,22 +810,30 @@ const RECORDS_PROJECTION = { _id: 0, team1Score: 1, team2Score: 1, team1Players:
  * through the completedAt_-1 index and allTime in natural order, and ties
  * keep the first game seen, so merging them into one pass would change which
  * tied game a period shows.
+ *
+ * `scope` (statsScope.js): 'human' reads only human games (withBots not
+ * true) with today's projection; 'bots' only bot games; 'all' every game.
+ * In bots / all a team made only of bots never holds the team records
+ * (highest/lowest score, most/least bags); a biggest win always has a human
+ * on one side.
  */
-async function fillRecords(now) {
+async function fillRecords(now, scope = 'human') {
     const gameRecordsCollection = getGameRecordsCollection();
     const startOfYear = new Date(now.getFullYear(), 0, 1);
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const base = RECORDS_SCOPE_FILTER[scope] || RECORDS_SCOPE_FILTER.human;
+    const projection = scope === 'human' ? RECORDS_PROJECTION : RECORDS_PROJECTION_WITH_BOTS;
 
     const filters = {
-        allTime: {},
-        thisYear: { completedAt: { $gte: startOfYear } },
-        thisMonth: { completedAt: { $gte: startOfMonth } }
+        allTime: { ...base },
+        thisYear: { ...base, completedAt: { $gte: startOfYear } },
+        thisMonth: { ...base, completedAt: { $gte: startOfMonth } }
     };
 
     const periods = Object.keys(filters);
     const [totalGames, ...results] = await Promise.all([
-        gameRecordsCollection.countDocuments({}),
-        ...periods.map(period => gameRecordsCollection.find(filters[period], { projection: RECORDS_PROJECTION }).toArray())
+        gameRecordsCollection.countDocuments({ ...base }),
+        ...periods.map(period => gameRecordsCollection.find(filters[period], { projection }).toArray())
     ]);
 
     const records = {};
@@ -746,13 +854,17 @@ async function fillRecords(now) {
         let leastBags = null;
 
         for (const game of games) {
+            const team1 = recordTeam(game, 1, scope);
+            const team2 = recordTeam(game, 2, scope);
+
             // Check both teams for highest/lowest individual team score
             const entries = [
-                { score: game.team1Score, players: game.team1Players },
-                { score: game.team2Score, players: game.team2Players }
+                { score: game.team1Score, players: team1.players, allBots: team1.allBots },
+                { score: game.team2Score, players: team2.players, allBots: team2.allBots }
             ];
 
             for (const entry of entries) {
+                if (entry.allBots) continue;
                 if (!highestScore || entry.score > highestScore.score) {
                     highestScore = { score: entry.score, players: entry.players };
                 }
@@ -769,19 +881,20 @@ async function fillRecords(now) {
                     margin,
                     winnerScore: winnerIsTeam1 ? game.team1Score : game.team2Score,
                     loserScore: winnerIsTeam1 ? game.team2Score : game.team1Score,
-                    winnerPlayers: winnerIsTeam1 ? game.team1Players : game.team2Players,
-                    loserPlayers: winnerIsTeam1 ? game.team2Players : game.team1Players
+                    winnerPlayers: winnerIsTeam1 ? team1.players : team2.players,
+                    loserPlayers: winnerIsTeam1 ? team2.players : team1.players
                 };
             }
 
             // Most/least bags — skip legacy records without bags data
             if (game.team1Bags != null && game.team2Bags != null) {
                 const bagsEntries = [
-                    { bags: game.team1Bags, players: game.team1Players },
-                    { bags: game.team2Bags, players: game.team2Players }
+                    { bags: game.team1Bags, players: team1.players, allBots: team1.allBots },
+                    { bags: game.team2Bags, players: team2.players, allBots: team2.allBots }
                 ];
 
                 for (const entry of bagsEntries) {
+                    if (entry.allBots) continue;
                     if (!mostBags || entry.bags > mostBags.bags) {
                         mostBags = { bags: entry.bags, players: entry.players };
                     }
@@ -802,38 +915,44 @@ async function fillRecords(now) {
  * Get game records (highest score, lowest score, biggest win) for 3 time periods
  * @param {Socket} socket - Socket instance
  * @param {Server} io - Socket.IO server instance
+ * @param {Object} [data] - optional {scope: 'human'|'bots'|'all'} (statsScope.js)
  */
-async function getRecords(socket, io) {
+async function getRecords(socket, io, data) {
     const gameRecordsCollection = getGameRecordsCollection();
+    const { scope, echo } = normalizeScope(data);
 
     if (!gameRecordsCollection) {
-        socket.emit('recordsResponse', { success: false, message: 'Database not available' });
+        socket.emit('recordsResponse', withScope({ success: false, message: 'Database not available' }, scope, echo));
         return;
     }
 
-    // A new month starts new thisMonth (and maybe thisYear) periods
+    // A new month starts new thisMonth (and maybe thisYear) periods, in
+    // every scope
     const now = new Date();
     const key = recordsKey(now);
     if (key !== recordsCacheKey) {
-        recordsCache.invalidate();
+        invalidateRecords();
         recordsCacheKey = key;
     }
 
-    const toPayload = ({ records, totalGames }) => ({ success: true, records, totalGames });
+    const cache = recordsCache[scope];
+    const toPayload = ({ records, totalGames }) => withScope({ success: true, records, totalGames }, scope, echo);
 
-    // Soft limit: over it, the (possibly stale) cached records, never 'error'
+    // Soft limit (one budget for every scope): over it, this scope's
+    // (possibly stale) cached records, never 'error'
     if (!rateLimiter.check(socket.id, 'getRecords')) {
-        await replyThrottled(socket, 'recordsResponse', recordsCache, toPayload);
+        await replyThrottled(socket, 'recordsResponse', cache, toPayload,
+            (fail) => withScope(fail, scope, echo));
         return;
     }
 
     try {
-        const value = await recordsCache.get(() => fillRecords(now));
+        const value = await cache.get(() => fillRecords(now, scope));
         socket.emit('recordsResponse', toPayload(value));
-        authLogger.debug('Records fetched');
+        authLogger.debug('Records fetched', { scope });
     } catch (error) {
-        authLogger.error('Error fetching records', { error: error.message });
-        socket.emit('recordsResponse', { success: false, message: 'Database error' });
+        authLogger.error('Error fetching records', { scope, error: error.message });
+        socket.emit('recordsResponse', withScope({ success: false, message: 'Database error' }, scope, echo));
     }
 }
 
@@ -841,8 +960,10 @@ async function getRecords(socket, io) {
  * Reply to a request over its soft rate limit (getLeaderboard/getRecords):
  * the last cached value even if expired, else the fill already running,
  * else the ordinary failure reply both clients show (never 'error').
+ * `toFailure` adds the scope echo to a failure, so a client with several
+ * scopes in flight knows which one failed (iOS 1.2.1 build 8).
  */
-async function replyThrottled(socket, event, cache, toPayload) {
+async function replyThrottled(socket, event, cache, toPayload, toFailure = (f) => f) {
     const cached = cache.peek();
     if (cached !== undefined) {
         socket.emit(event, toPayload(cached));
@@ -853,27 +974,27 @@ async function replyThrottled(socket, event, cache, toPayload) {
         try {
             socket.emit(event, toPayload(await pending));
         } catch (error) {
-            socket.emit(event, { success: false, message: 'Database error' });
+            socket.emit(event, toFailure({ success: false, message: 'Database error' }));
         }
         return;
     }
-    socket.emit(event, { success: false, message: 'Too many requests. Please wait a moment.' });
+    socket.emit(event, toFailure({ success: false, message: 'Too many requests. Please wait a moment.' }));
 }
 
-/** A stats/picture/account change: the next leaderboard fetch reads fresh. */
+/** A stats/picture/account change: the next leaderboard fetch reads fresh (every scope). */
 function invalidateLeaderboard() {
-    leaderboardCache.invalidate();
+    for (const scope of SCOPES) leaderboardCache[scope].invalidate();
 }
 
-/** A new or anonymized game record: the next records fetch reads fresh. */
+/** A new or anonymized game record: the next records fetch reads fresh (every scope). */
 function invalidateRecords() {
-    recordsCache.invalidate();
+    for (const scope of SCOPES) recordsCache[scope].invalidate();
 }
 
-/** Test helper: empty both caches. */
+/** Test helper: empty every cache. */
 function _resetCachesForTests() {
-    leaderboardCache.invalidate();
-    recordsCache.invalidate();
+    invalidateLeaderboard();
+    invalidateRecords();
     recordsCacheKey = null;
 }
 
@@ -881,7 +1002,8 @@ module.exports = {
     invalidateLeaderboard,
     invalidateRecords,
     _resetCachesForTests,
-    _peekLeaderboardCache: () => leaderboardCache.peek(),
+    _peekLeaderboardCache: (scope = 'human') => leaderboardCache[scope]?.peek(),
+    _peekRecordsCache: (scope = 'human') => recordsCache[scope]?.peek(),
     getProfile,
     updateProfilePic,
     uploadProfilePic,

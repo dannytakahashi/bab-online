@@ -47,6 +47,7 @@ import { isBackFrame } from '../cards/cardFaces.js';
 import { uiTextStyle, refreshTextResolution } from '../text.js';
 import { COLOR, hex, alpha } from '../../ui/tokens.js';
 import { motionMs, EASE_EMPHASIZED } from '../../ui/motion.js';
+import { scopePayload } from '../../state/statsScope.js';
 
 /**
  * Main game scene class.
@@ -1546,7 +1547,7 @@ export class GameScene extends Phaser.Scene {
     avatarContainer.addEventListener('click', () => {
       const socket = window.socket;
       if (socket) {
-        socket.emit('getPlayerProfile', { username: avatarContainer.dataset.username });
+        socket.emit('getPlayerProfile', scopePayload({ username: avatarContainer.dataset.username }));
       }
     });
 

@@ -425,7 +425,7 @@ describe('actions', () => {
         expect(res.players[0]).toMatchObject({ mergedInto: 'Bea', isAdmin: false, online: false, gamesPlayed: 0, lastSeenAt: null });
         expect(res.players[3]).toMatchObject({ username: 'Owner', isAdmin: true, online: true, gamesPlayed: 4, mergedInto: null });
         expect(res.players[3].lastSeenAt).toEqual(expect.any(String));
-        expect(Object.keys(res.players[3]).sort()).toEqual(['createdAt', 'gamesPlayed', 'isAdmin', 'lastSeenAt', 'mergedInto', 'online', 'renameUnfinished', 'renamed', 'username']);
+        expect(Object.keys(res.players[3]).sort()).toEqual(['botGamesPlayed', 'createdAt', 'gamesPlayed', 'isAdmin', 'lastSeenAt', 'mergedInto', 'online', 'renameUnfinished', 'renamed', 'username']);
         expect(JSON.stringify(res)).not.toMatch(/\$2[ab]\$|hash|socketId|sessionToken|password/i);
         // read-only and opened constantly: not audited (a non-admin's attempt still is)
         expect(audit().some(e => e.action === 'listPlayers')).toBe(false);

@@ -9,7 +9,9 @@
  *     used / revoked records as history; the link page refuses a deleted
  *     account anyway, this closes the link itself);
  *   - gameRecords: the name becomes '[deleted]' in team1Players /
- *     team2Players (shared documents: the other players keep their games);
+ *     team2Players (shared documents: the other players keep their games;
+ *     a bot game's personas in team1Bots / team2Bots are not names of
+ *     accounts and stay as they are);
  *   - other players' blockedUsers: for an ADMIN delete the name is pulled,
  *     so a new account that later takes the freed name does not start out
  *     blocked; a player's OWN delete keeps them (pullBlocks: false), so a
@@ -19,8 +21,8 @@
  *     reported whom), marked `reporterDeletedAt` / `reportedDeletedAt`, so
  *     a report about a deleted account is never read as one about a new
  *     account with the same name;
- *   - the user document itself (password hash, sessions, stats and with
- *     them the leaderboard row, pictures, block list, admin fields),
+ *   - the user document itself (password hash, sessions, stats and
+ *     botStats (human and bot games) and with them the leaderboard rows, pictures, block list, admin fields),
  *     deleted by _id AND name: if the account was renamed meanwhile (the
  *     CLI, another process; the panel and the self-delete share one queue,
  *     mergeQueue.js) nothing is deleted and eraseAccount throws;

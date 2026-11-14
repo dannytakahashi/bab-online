@@ -99,7 +99,12 @@ const schemas = {
         query: Joi.string().allow('').max(500).required()
     }).required(),
     getPlayerProfile: Joi.object({
-        username: Joi.string().min(1).max(100).required()
+        username: Joi.string().min(1).max(100).required(),
+        // Stats scope (server/utils/statsScope.js). Lenient on purpose: any
+        // value (a non-string, null, a long string) is accepted here and
+        // normalized to 'human' by the handler, never refused (before the
+        // key existed, stripUnknown dropped it and the request succeeded)
+        scope: Joi.any().optional()
     }).required(),
 
     // Voice relays: checked inside voiceHandlers (a bad one is dropped

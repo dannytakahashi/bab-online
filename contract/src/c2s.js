@@ -26,6 +26,16 @@ const { ADMIN_ACTIONS } = require('../../server/admin/actions');
 const open = (props, o = {}) => obj(props, { ...o, open: true });
 const none = open({});
 const noPayload = { payload: none, optionalPayload: true };
+// Stats scope (server/utils/statsScope.js, owner 2026-11-13): optional on the
+// stats readers; missing, non-object or unknown = 'human' (today's reply)
+const statsScope = () => enm('human', 'bots', 'all');
+// getProfile / getLeaderboard / getRecords keep the open, property-less
+// payload (like addBot): they have no Joi schema (joi null is frozen by the
+// baseline, and every c2s payload WITH properties must have one: V1_REMOVALS
+// #18), and the handler normalizes whatever comes, so `scope` is documented
+// by the examples and notes rather than as a schema property
+const scopePayload = noPayload;
+const SCOPE_NOTE = 'Optional {scope: human | bots | all} (additive 2026-11-13): human = games with no bot or resign-bot seat at the end (users.stats, today\'s reply), bots = games with one (users.botStats, gameRecords withBots), all = both summed field by field. Missing, non-object or unknown = human, never refused. The reply echoes `scope` only when the request carried the key. iOS sends no payload (human).';
 const both = { web: true, ios: true };
 const webOnly = { web: true, ios: false };
 const iosOnly = { web: false, ios: true };
@@ -95,13 +105,13 @@ const c2s = {
     },
 
     // Profile
-    getProfile: { ...noPayload, status: 'active', joi: null, rateLimit: null, sentBy: webOnly, examples: [{}] },
+    getProfile: { ...scopePayload, status: 'active', joi: null, rateLimit: null, sentBy: webOnly, examples: [{}, { scope: 'bots' }, { scope: 'all' }], notes: SCOPE_NOTE },
     updateProfilePic: { payload: open({ profilePic: int({ minimum: 1, maximum: 82 }) }), status: 'active', joi: 'updateProfilePic', rateLimit: null, sentBy: webOnly, examples: [{ profilePic: 12 }], invalid: [{ profilePic: 0 }, { profilePic: 83 }, { profilePic: 500 }, {}] },
     uploadProfilePic: { payload: open({ imageData: str({ minLength: 1, maxLength: 682700 }) }), status: 'active', joi: 'uploadProfilePic', rateLimit: 'uploadProfilePic', notes: 'Pipeline on (docs/avatars.md): decoded and re-encoded server-side; stored as a WebP data URL <= 256 px; undecodable or unsafe images are refused with the usual {success:false, message}.', sentBy: webOnly, examples: [{ imageData: 'data:image/png;base64,iVBORw0KGgo=' }], invalid: [{}, { imageData: 5 }, { imageData: '' }] },
-    getLeaderboard: { ...noPayload, status: 'active', joi: null, rateLimit: null, sentBy: both, examples: [{}], notes: 'Throttled in-handler (rateLimiter key getLeaderboard); over the limit replies leaderboardResponse with the cached (possibly stale) result, else the fill in flight, else the existing {success:false, message} reply; never error. Served from a 60 s cache invalidated on stats/picture/account changes.' },
-    getRecords: { ...noPayload, status: 'active', joi: null, rateLimit: null, sentBy: both, examples: [{}], notes: 'Throttled in-handler (rateLimiter key getRecords); over the limit replies recordsResponse with the cached (possibly stale) result, else the fill in flight, else the existing {success:false, message} reply; never error. Served from a 60 s cache (per month) invalidated when a game is recorded or an account deleted.' },
+    getLeaderboard: { ...scopePayload, status: 'active', joi: null, rateLimit: null, sentBy: both, examples: [{}, { scope: 'bots' }, { scope: 'all' }], notes: 'Throttled in-handler (rateLimiter key getLeaderboard, one budget for every scope); over the limit replies leaderboardResponse with that scope\'s cached (possibly stale) result, else its fill in flight, else the existing {success:false, message} reply; never error. Served from a 60 s cache per scope, every scope invalidated on stats/picture/account changes. ' + SCOPE_NOTE },
+    getRecords: { ...scopePayload, status: 'active', joi: null, rateLimit: null, sentBy: both, examples: [{}, { scope: 'bots' }, { scope: 'all' }], notes: 'Throttled in-handler (rateLimiter key getRecords, one budget for every scope); over the limit replies recordsResponse with that scope\'s cached (possibly stale) result, else its fill in flight, else the existing {success:false, message} reply; never error. Served from a 60 s cache per scope (per month), every scope invalidated when a game is recorded or an account deleted. ' + SCOPE_NOTE },
     searchPlayers: { payload: open({ query: str({ maxLength: 500 }) }), status: 'active', joi: 'searchPlayers', rateLimit: 'searchPlayers', sentBy: webOnly, examples: [{ query: 'al' }, { query: '' }], invalid: [{}, { query: 5 }, { query: 'x'.repeat(501) }], notes: 'Joi since V1_REMOVALS #18 (2026-11-11). A blank query answers {success:false} and a trimmed query longer than 50 (the username max) an empty list, in the handler.' },
-    getPlayerProfile: { payload: open({ username: str({ minLength: 1, maxLength: 100 }) }), status: 'active', joi: 'getPlayerProfile', rateLimit: 'getPlayerProfile', sentBy: webOnly, examples: [{ username: 'alan' }, { username: '🤖 Mary' }], invalid: [{}, { username: '' }, { username: 'x'.repeat(101) }], notes: 'Joi since V1_REMOVALS #18 (2026-11-11). Web asks from search rows, seat avatars and opponent plates (dataset.username, a bot name included).' },
+    getPlayerProfile: { payload: open({ username: str({ minLength: 1, maxLength: 100 }), scope: statsScope() }, { optional: ['scope'] }), status: 'active', joi: 'getPlayerProfile', rateLimit: 'getPlayerProfile', sentBy: webOnly, examples: [{ username: 'alan' }, { username: '🤖 Mary' }, { username: 'alan', scope: 'all' }], invalid: [{}, { username: '' }, { username: 'x'.repeat(101) }], notes: 'Joi since V1_REMOVALS #18 (2026-11-11). Web asks from search rows, seat avatars and opponent plates (dataset.username, a bot name included). ' + SCOPE_NOTE + ' Joi accepts any scope value (lenient: the handler normalizes a non-string, null or unknown scope to human, echoed).' },
 
     // Tournament
     createTournament: { ...noPayload, status: 'active', joi: 'createTournament', rateLimit: 'createTournament', sentBy: both, examples: [{}] },

@@ -12,6 +12,7 @@ import { chatLine, chatForm, appendChatLine, scrollChatToEnd, followChatOnResize
 import { showPlayerSearchPage } from './PlayerSearchPage.js';
 import { showAdminPanel, removeAdminPanel } from './AdminPanel.js';
 import { isAdmin, onAdminChange } from '../../admin/adminApi.js';
+import { scopePayload } from '../../state/statsScope.js';
 
 /**
  * Module state - tracks user colors for consistent display.
@@ -218,10 +219,11 @@ export function showMainRoom(data, socket, username = null) {
   // Header row: title, page buttons, online count
   const nav = el('nav', { className: 'screen-nav', attrs: { 'aria-label': 'Main room' } });
   const navButton = (label, onClick) => nav.appendChild(createButton({ label, variant: 'secondary', size: 'sm', onClick }));
-  navButton('Leaderboard', () => socket.emit('getLeaderboard'));
-  navButton('Records', () => socket.emit('getRecords'));
+  // Stats pages ask for the device's stats scope (state/statsScope.js)
+  navButton('Leaderboard', () => socket.emit('getLeaderboard', scopePayload()));
+  navButton('Records', () => socket.emit('getRecords', scopePayload()));
   navButton('Players', () => showPlayerSearchPage(socket));
-  navButton('Profile', () => socket.emit('getProfile'));
+  navButton('Profile', () => socket.emit('getProfile', scopePayload()));
   // Admins only (display: the server checks every admin request)
   const adminButton = createButton({
     label: 'Admin', variant: 'secondary', size: 'sm', attrs: { id: 'mainRoomAdminButton', hidden: !isAdmin() },
