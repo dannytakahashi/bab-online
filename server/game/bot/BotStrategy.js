@@ -15,6 +15,7 @@ const {
     determineWinner
 } = require('../rules');
 const { getBidStyle, getPlayStyle } = require('./personalities');
+const { searchCard, SEARCH } = require('./playSearch');
 const { OWN_TRICKS, PARTNER_OVER, TEAM_SD, TEAM_SD_NO_TRUMP, SECOND_BID_PMF } = require('./bidModel');
 
 // --- Hand progression for determining game phase ---
@@ -1659,11 +1660,25 @@ function selectOptimalCard(hand, playedCards, leadCard, leadPosition, trump, tru
     const isLeading = !leadCard || playedCards.every(c => c === undefined || c === null);
     const contract = getContractState(playContext, position, handSize);
 
-    if (isLeading) {
-        return selectLead(hand, trump, trumpBroken, { position }, memory, handSize, contract);
-    }
+    const ruleCard = isLeading
+        ? selectLead(hand, trump, trumpBroken, { position }, memory, handSize, contract)
+        : selectFollow(hand, playedCards, leadCard, leadPosition, trump, trumpBroken, position, memory, handSize, contract, getPlayStyle(personality));
 
-    return selectFollow(hand, playedCards, leadCard, leadPosition, trump, trumpBroken, position, memory, handSize, contract, getPlayStyle(personality));
+    // Small endings: sampled double-dummy search (playSearch.js) may replace
+    // the rule-based card when it is clearly better; it returns null outside
+    // its scope or when the bot's memory does not cover the whole hand
+    if (!ruleCard || !trump || hand.length < 2 || hand.length > SEARCH.maxCards) return ruleCard;
+    try {
+        const legal = getLegalCards(hand, leadCard, isLeading, trump, trumpBroken, position, leadPosition);
+        if (legal.length < 2 || !legal.includes(ruleCard)) return ruleCard;
+        const found = searchCard({
+            hand, legal, ruleCard, playedCards, leadPosition, trump, trumpBroken, position, memory, handSize, playContext
+        });
+        return found || ruleCard;
+    } catch (err) {
+        SEARCH.errors = (SEARCH.errors || 0) + 1; // never let search break a play
+        return ruleCard;
+    }
 }
 
 module.exports = {
