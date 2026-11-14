@@ -2,9 +2,9 @@
  * V1_REMOVALS #9: the snapshot carriers (rejoinSuccess, restorePlayerState,
  * the spectator full state) send the v2 snapshot plus only the v1 keys a
  * client still reads (snapshotHandlers.carrierFor):
- *   - players[] {position, username, pic, socketId}: iOS 1.2.0's R5
- *     custom-picture fallback (the carrier snapshot withholds custom
- *     pictures) and voice glow fallback; web lets it win for names;
+ *   - players[] {position, username, pic}: iOS 1.2.0's R5 custom-picture
+ *     fallback (the carrier snapshot withholds custom pictures); web lets
+ *     it win for names (its socketId went with V1_REMOVALS #14);
  *   - gameId, isLazy (rejoinSuccess), trump (spectator): a pre-#233 web
  *     page routes on them;
  *   - tournamentId (rejoinSuccess), avatarUrls (capable, with a URL).
@@ -96,11 +96,11 @@ function newSocket(t, username) {
 const mine = (t, s, event) => t.log.filter((l) => l.to === `self:${s.id}` && l.event === event).map((l) => l.data);
 const keys = (d) => Object.keys(d).sort();
 
-/** players[] as every carrier sends it: the seat display identity with its socket id. */
+/** players[] as every carrier sends it: the seat display identity, no socket id (#14). */
 function expectPlayers(t, data) {
     expect(data.players).toEqual([1, 2, 3, 4].map((pos) => {
         const p = t.game.getPlayerByPosition(pos);
-        return { position: pos, username: p.username, pic: p.pic, socketId: p.socketId };
+        return { position: pos, username: p.username, pic: p.pic };
     }));
     // the reason players[] stays: the carrier snapshot withholds the custom picture (R5)
     const seat2 = data.snapshot.seats.find((s) => s.position === 2);

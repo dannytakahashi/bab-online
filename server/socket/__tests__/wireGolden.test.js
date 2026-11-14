@@ -94,7 +94,9 @@ const V1_DROPPED_EVENTS = new Set([
     'voiceRelayAudio', // #20 the web PCM relay (s2c gone; these games have no voice, so a no-op kept as the record)
 ]);
 const DROP = Symbol('dropped by a V1 removal');
-function v1Projection(event, data) {
+// The v1 client states whose players[] is playerInfoV1 (#14)
+const LEGACY_STATE_EVENTS = new Set(['rejoinSuccess', 'restorePlayerState', 'spectatorJoined']);
+function v1Projection(event, data, seatIds = new Map()) {
     if (V1_DROPPED_EVENTS.has(event)) return DROP;
     if (!data || typeof data !== 'object') return data;
     const d = { ...data };
@@ -115,6 +117,21 @@ function v1Projection(event, data) {
         d.trumpBroken = broken;
     }
     if (event === 'bidReceived' && d.bid != null) d.bid = String(d.bid); // #11
+    // #14 socket ids: playerDrew.socketId, positionUpdate.usernames[].socketId
+    // and the legacy states' players[].socketId are put back (in their
+    // fcdd885 key order) from positionUpdate.sockets, which stays, so the
+    // golden still pins every id; isBot (additive) is dropped
+    if (event === 'playerDrew' && !('socketId' in d)) {
+        const { username, card, drawOrder, ...rest } = d;
+        return { username, card, drawOrder, socketId: seatIds.get(username), ...rest };
+    }
+    if (event === 'positionUpdate') {
+        delete d.isBot;
+        if (Array.isArray(d.usernames)) d.usernames = d.usernames.map((u, i) => ('socketId' in u ? u : { username: u.username, socketId: d.sockets[i] }));
+    }
+    if (LEGACY_STATE_EVENTS.has(event) && Array.isArray(d.players)) {
+        d.players = d.players.map((p) => ('socketId' in p ? p : { position: p.position, username: p.username, pic: p.pic, socketId: seatIds.get(p.username) }));
+    }
     return d;
 }
 
@@ -197,11 +214,13 @@ async function play({ seed, opts }) {
         },
     });
     const pu = r.wire.find((x) => x.event === 'positionUpdate');
+    // #14: seat socket ids by username, from the positionUpdate.sockets that stays
+    const seatIds = new Map(pu.data.usernames.map((u, i) => [u.username, pu.data.sockets[i]]));
     const hash = crypto.createHash('sha256');
     let emits = 0;
     let bytes = 0;
     for (const x of r.wire.flatMap((rec) => [...(RESTORE_BEFORE.get(rec) || []), rec])) {
-        const data = v1Projection(x.event, RESTORED_DATA.get(x) ?? x.data);
+        const data = v1Projection(x.event, RESTORED_DATA.get(x) ?? x.data, seatIds);
         if (data === DROP) continue;
         const json = JSON.stringify(data);
         emits++;

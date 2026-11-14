@@ -749,7 +749,7 @@ describe('12. departures during the lobby countdown (CREATED)', () => {
 
         await jest.advanceTimersByTimeAsync(pacing().PREDRAW_COUNTDOWN_MS / 2 + 100); // beginDraw
         expect(events(log, 'startDraw')).toHaveLength(1);
-        expect(events(log, 'playerDrew').map((l) => l.data.socketId)).toEqual([ids[0]]);
+        expect(events(log, 'playerDrew').map((l) => l.data.username)).toEqual([`user_${ids[0]}`]);
         const pending = [1, 2, 3].map((i) => gameHandlers.draw(sockets[i], io, { num: 0 }));
         await advanceUntil(() => game.stage === Phase.BIDDING, 50);
         await jest.advanceTimersByTimeAsync(1000);

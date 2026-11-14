@@ -229,7 +229,7 @@ describe('GameState seat transitions', () => {
         expect(st.lazyPositions).toEqual([1, 2]);
         expect(st.isLazy).toBe(false);
         expect(st.players.map((p) => p.username)).toEqual(['🤖 Mike', '🤖 Zach', '🤖 Dan', 'u4']);
-        expect(st.players[0].socketId).toBe('bot:Mike:x');
+        expect(st.players.every((p) => !('socketId' in p))).toBe(true); // V1_REMOVALS #14
         expect(SeatState.validateSeats(g)).toEqual([]);
     });
 

@@ -136,7 +136,10 @@ const defs = {
         type: enm(...LOG_TYPES),
         timestamp: int(),
     }),
-    playerInfoV1: obj({ position: ref('position'), username: str(), pic: ref('pic'), socketId: str() }),
+    // No socketId since V1_REMOVALS #14 (2026-11-12): web and iOS 1.2.0
+    // map voice peers to seats by username (the seat socket id was only a
+    // fallback)
+    playerInfoV1: obj({ position: ref('position'), username: str(), pic: ref('pic') }),
     playerInfoGameStart: obj({ position: ref('position'), username: str(), pic: ref('pic') }),
     lobby: obj({
         id: str(),
