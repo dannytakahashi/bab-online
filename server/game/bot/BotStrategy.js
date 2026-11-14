@@ -378,8 +378,16 @@ function evaluateHand(hand, trump, handSize) {
     let trumpCount = 0;
     const suitCounts = { spades: 0, hearts: 0, diamonds: 0, clubs: 0 };
     const noTrump = isNoTrump(trump);
-    const ntScale = getNonTrumpScale(handSize);
-    const tScale = getTrumpScale(handSize);
+
+    // Trump-suit hands: each value is the measured trick value of that card
+    // in actual bot play (Nov 2026 calibration: least-squares fit of tricks
+    // taken on the cards held, 104k Mary hands, sim seed 501), rounded and
+    // grouped by hand size. The previous values stacked a second layer of
+    // caution on top of floor(): low/mid trump were worth 3-6x what they were
+    // credited, the trump Queen 2x and side honours ~1.5x, while the jokers
+    // and trump Ace were over-credited — so long-trump hands sandbagged and
+    // joker hands came up short. Lists read: hand size <=4, 5-7, 8-10, 11-13.
+    const size = (s, m, l, xl) => (handSize <= 4 ? s : handSize <= 7 ? m : handSize <= 10 ? l : xl);
 
     for (const card of hand) {
         const isTrump = card.suit === 'joker' || (!noTrump && card.suit === trump.suit);
@@ -397,38 +405,53 @@ function evaluateHand(hand, trump, handSize) {
         // The flipped trump card is out of play: when it's the HI joker the LO
         // becomes unbeatable, and a trump King under a flipped Ace is the boss
         // trump card after the jokers.
+        if (noTrump) {
+            // No-trump hands (a joker flipped) keep their values: they were
+            // not part of the trump-suit calibration.
+            if (card.rank === 'HI') points += 1.9;
+            else if (card.rank === 'LO') points += (trump.rank === 'HI' ? 1.9 : 1.4);
+            else if (card.rank === 'A') points += 1.3;
+            else if (card.rank === 'K') points += 0.7;
+            else if (card.rank === 'Q') points += 0.3;
+            continue;
+        }
+
+        // measured trump A 1.02 / 0.84 / 0.83 / 0.82 (was 1.4-1.5),
+        // trump K 0.92 / 0.84 / 0.80 / 0.83 (was 0.9-1.0)
+        const trumpAce = size(1.0, 0.85, 0.85, 0.8);
+        const trumpKing = size(0.9, 0.85, 0.8, 0.8);
         if (card.rank === 'HI') {
-            points += 1.9;
+            // measured 1.18 / 1.33 / 1.36 / 1.53 (was 1.9)
+            points += size(1.2, 1.35, 1.35, 1.5);
         } else if (card.rank === 'LO') {
-            points += (trump.rank === 'HI' ? 1.9 : 1.4);
+            // measured 1.00 / 0.94 / 0.89 / 0.92 (was 1.4)
+            points += 0.95;
         } else if (isTrump && card.rank === 'A') {
-            points += 1.4 * tScale;
+            points += trumpAce;
         } else if (isTrump && card.rank === 'K') {
-            points += (trump.rank === 'A' ? 1.4 : 0.9) * tScale;
+            points += (trump.rank === 'A' ? trumpAce : trumpKing);
         } else if (isTrump && card.rank === 'Q') {
-            points += (trump.rank === 'K' ? 0.9 : 0.4) * tScale;
+            // measured 0.84 / 0.81 / 0.77 / 0.78 (was 0.4)
+            points += (trump.rank === 'K' ? trumpKing : 0.8);
         } else if (isTrump) {
             // Low/mid trump (2-J): every trump card pulls weight — it ruffs or
             // forces out a bigger trump. Worth more in small hands (fewer
             // trump in play) and when higher in rank.
+            // measured 7-J 0.75 / 0.64 / 0.59 / 0.61 (was 0.5 / 0.25 / 0.15 / 0.15)
+            // measured 2-6 0.51 / 0.43 / 0.36 / 0.32 (was 0.39 / 0.1 / 0.05 / 0.05)
             const mid = RANK_VALUES[card.rank] >= 7;
-            if (handSize <= 4) points += (mid ? 0.45 : 0.35) * tScale;
-            else if (handSize <= 7) points += (mid ? 0.25 : 0.1) * tScale;
-            else points += (mid ? 0.15 : 0.05) * tScale;
-        } else if (!isTrump && card.rank === 'A') {
-            if (noTrump) {
-                points += 1.3;
-            } else {
-                points += 0.8 * ntScale;
-            }
-        } else if (!isTrump && card.rank === 'K') {
-            if (noTrump) {
-                points += 0.7;
-            } else {
-                points += 0.4 * ntScale;
-            }
-        } else if (noTrump && card.rank === 'Q') {
-            points += 0.3;
+            points += mid ? size(0.75, 0.65, 0.6, 0.6) : size(0.5, 0.45, 0.35, 0.3);
+        } else if (card.rank === 'A') {
+            // measured 0.34 / 0.58 / 0.78 / 0.94 (was 0.8 x 0.2-1.0). 1-2 card
+            // hands are bid by the small-hand rules and keep the old scale.
+            points += handSize <= 2 ? 0.8 * getNonTrumpScale(handSize) : size(0.35, 0.6, 0.8, 0.95);
+        } else if (card.rank === 'K') {
+            // measured 0.21 / 0.32 / 0.45 / 0.61 alone and 0.0 / 0.11 / 0.36 /
+            // 0.54 behind its own Ace; one value, weighted (was 0.4 x 0.2-1.0)
+            points += handSize <= 2 ? 0.4 * getNonTrumpScale(handSize) : size(0.15, 0.25, 0.4, 0.6);
+        } else if (card.rank === 'Q') {
+            // measured 0.09 / 0.17 / 0.19 / 0.20 (was not counted)
+            points += size(0, 0.15, 0.2, 0.2);
         }
     }
 
@@ -452,25 +475,36 @@ function evaluateHand(hand, trump, handSize) {
         }
     }
 
-    // Void + trump synergy: scales with trump count
-    // Voids are worthless without trump - can't trump in
     if (!noTrump) {
+        // Voids are worthless without trump - can't trump in. Each trump card
+        // now carries its own ruffing value, so a void adds only the extra
+        // ruff it opens: measured -0.13 / 0.09 / 0.35 / 0.56 per void (was
+        // 0.45-1.5 each, which double-counted the trump and overbid 3-4 card
+        // hands).
         if (trumpCount > 0) {
-            const voidBonus = Math.min(0.3 + trumpCount * 0.15, 1.5);
-            points += voids * voidBonus;
+            points += voids * size(0, 0.1, 0.35, 0.55);
+        }
+
+        // Trump length: control beyond the sum of the cards, measured ~0.17
+        // per trump beyond the third on 5+ card hands (was +0.15 / +0.4 /
+        // +0.75 for 4 / 5 / 6+ trump on 6+ card hands).
+        if (handSize >= 5) {
+            points += 0.175 * Math.max(0, trumpCount - 3);
+        }
+
+        // Hand-size baseline, set so that floor(points) lands on the
+        // best-scoring bid: on recorded hands mean(tricks - points) is -0.1 /
+        // -0.05 / -0.1 / +0.15, the rounding offsets that scored best for
+        // floor() given the set penalty. On 11-13 card hands the per-card
+        // values overlap (honours and trump compete for the same tricks),
+        // hence the negative baseline there. (1-2 card hands: none; their
+        // bids come from the small-hand rules.)
+        if (handSize >= 3) {
+            points += size(0.15, 0.05, 0, -0.45);
         }
     } else {
         // In no-trump, voids are nearly worthless
         points += voids * 0.1;
-    }
-
-    // Trump length bonus (large hands only) — smaller than before since each
-    // trump card now carries value of its own; this models the extra control
-    // long trump gives beyond the sum of its cards
-    if (handSize >= 6 && !noTrump) {
-        if (trumpCount >= 6) points += 0.75;
-        else if (trumpCount >= 5) points += 0.4;
-        else if (trumpCount >= 4) points += 0.15;
     }
 
     return {
@@ -541,7 +575,9 @@ function choose(n, k) {
  * (off-suit cards contribute ~nothing at hand sizes 1-5). Mirrors this
  * module's own small-hand bidding — which is also how people bid them — and
  * is used to read opponents' bids: a 0 says "no top trump", a number says
- * "probably one".
+ * "probably one". (It keeps the pre-November-2026 trump values: evaluateHand
+ * was recalibrated for bidding only, and this read of opponents' bids — human
+ * ones included — was left as tuned for play.)
  */
 function impliedTrumpBid(trumps, trump, handSize) {
     const m = trumps.length;
@@ -863,7 +899,9 @@ function calculateOptimalBid(hand, trump, position, existingBids, handSize, memo
 
     // Conservative rounding: floor instead of round. The set penalty
     // (-10/trick) dwarfs the overtrick payoff (+1/trick); sim-tested against
-    // +0.2/+0.45 offsets — same win rate, materially fewer sets.
+    // +0.2/+0.45 offsets — same win rate, materially fewer sets. floor() is
+    // the ONE safety margin: evaluateHand's values are measured trick values
+    // (Nov 2026), not pessimistic ones, so the bid tracks what the hand wins.
     let bid = Math.floor(evaluation.points);
 
     // No extra first-bidder discount: the pessimistic evaluation plus floor()
@@ -1005,8 +1043,11 @@ function applyBidModifier(baseBid, personality, evaluation, handSize, partnerHis
             break;
 
         case 'overconfident':
-            // Mike misjudges his hand now and then
-            if (Math.random() < 0.10) {
+            // Mike misjudges his hand now and then. 5% (was 10%): once
+            // Mary's bids were calibrated to what she wins (Nov 2026), each
+            // +1 costs more; at 10% Mike's gap to Mary doubled (-3.0pp vs
+            // -1.2pp), at 5% it is back to a slight handicap.
+            if (Math.random() < 0.05) {
                 bid = Math.min(baseBid + 1, handSize);
             }
             break;

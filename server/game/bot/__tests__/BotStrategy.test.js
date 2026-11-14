@@ -40,55 +40,88 @@ const jokerTrump = card('joker', 'HI'); // No-trump: joker flipped
 // --- evaluateHand tests ---
 
 describe('evaluateHand', () => {
-    describe('hand-size scaling for non-trump cards', () => {
-        test('non-trump Ace worth ~0.8 at hand size 13 (excluding void bonuses)', () => {
-            // Use a hand with all 4 suits represented so no void bonuses
-            const hand = [
-                card('spades', 'A'),
-                card('hearts', '2'), card('diamonds', '2'), card('clubs', '2')
-            ];
-            const result = evaluateHand(hand, heartsTrump, 13);
-            // Ace: 0.8 * 1.0 = 0.8, hearts 2 = low trump (0.05 at hand size 8+),
-            // diamonds 2 = 0, clubs 2 = 0, voids = 0 (all suits present),
-            // trump length bonus: trumpCount=1, < 4, so 0
-            expect(result.points).toBeCloseTo(0.85, 1);
+    // A card's own value: points with the card added to a fixed filler that
+    // holds every suit and already has a trump (so adding one creates no
+    // void, triggers no single-trump devaluation, and the hand-size baseline
+    // cancels out).
+    const FILLER = [card('hearts', '2'), card('spades', '2'), card('diamonds', '2'), card('clubs', '2')];
+    const cardValue = (c, size) =>
+        evaluateHand([c, ...FILLER], heartsTrump, size).points - evaluateHand(FILLER, heartsTrump, size).points;
+
+    describe('per-card values (Nov 2026 calibration: measured trick value in play)', () => {
+        test.each([
+            // [card, hand size, value]
+            [HI, 4, 1.2], [HI, 6, 1.35], [HI, 9, 1.35], [HI, 12, 1.5],
+            [LO, 4, 0.95], [LO, 12, 0.95],
+            [card('hearts', 'A'), 4, 1.0], [card('hearts', 'A'), 12, 0.8],
+            [card('hearts', 'K'), 4, 0.9], [card('hearts', 'K'), 9, 0.8],
+            [card('hearts', 'Q'), 4, 0.8], [card('hearts', 'Q'), 12, 0.8],
+            [card('hearts', '9'), 4, 0.75], [card('hearts', '9'), 6, 0.65], [card('hearts', '9'), 12, 0.6],
+            [card('hearts', '3'), 4, 0.5], [card('hearts', '3'), 6, 0.45], [card('hearts', '3'), 9, 0.35], [card('hearts', '3'), 12, 0.3],
+            [card('spades', 'A'), 4, 0.35], [card('spades', 'A'), 6, 0.6], [card('spades', 'A'), 9, 0.8], [card('spades', 'A'), 13, 0.95],
+            [card('spades', 'K'), 4, 0.15], [card('spades', 'K'), 12, 0.6],
+            [card('spades', 'Q'), 4, 0], [card('spades', 'Q'), 6, 0.15], [card('spades', 'Q'), 12, 0.2]
+        ])('%o at hand size %i is worth %f', (c, size, value) => {
+            expect(cardValue(c, size)).toBeCloseTo(value, 5);
         });
 
+        test('every trump card outvalues a side King on large hands (no inversions)', () => {
+            for (const size of [8, 10, 12]) {
+                expect(cardValue(card('hearts', '3'), size)).toBeLessThan(cardValue(card('hearts', '9'), size));
+                expect(cardValue(card('hearts', '9'), size)).toBeGreaterThanOrEqual(cardValue(card('spades', 'K'), size));
+            }
+        });
+
+        test('HI joker outvalues the trump Ace at every hand size', () => {
+            for (let size = 3; size <= 13; size++) {
+                expect(cardValue(HI, size)).toBeGreaterThan(cardValue(card('hearts', 'A'), size));
+            }
+        });
+    });
+
+    describe('hand-size scaling for non-trump cards', () => {
         test('non-trump Ace worth ~0.08 at hand size 2', () => {
             const hand = [card('spades', 'A'), card('spades', 'K')];
             const result = evaluateHand(hand, heartsTrump, 2);
-            // Ace: 0.8 * 0.1 = 0.08, King: 0.4 * 0.1 = 0.04
-            // Voids: 2 (diamonds=0, clubs=0) but trumpCount=0, so void bonus = 0
-            expect(result.points).toBeCloseTo(0.08 + 0.04, 1);
+            // 1-2 card hands keep the old scale: Ace 0.8 * 0.1, King 0.4 * 0.1;
+            // no trump, so no void bonus, and no hand-size baseline below 3 cards
+            expect(result.points).toBeCloseTo(0.08 + 0.04, 5);
         });
 
         test('non-trump Ace worth 0 at hand size 1', () => {
-            const hand = [card('spades', 'A')];
-            const result = evaluateHand(hand, heartsTrump, 1);
-            // 0.8 * 0.0 = 0, trumpCount=0 so void bonus = 0
-            expect(result.points).toBeCloseTo(0, 1);
+            const result = evaluateHand([card('spades', 'A')], heartsTrump, 1);
+            expect(result.points).toBeCloseTo(0, 5);
         });
 
-        test('HI joker always worth ~1.9 regardless of hand size', () => {
-            const hand1 = [HI];
-            const hand13 = [HI, ...Array(12).fill(null).map((_, i) => card('spades', String(i + 2)))];
-
-            const result1 = evaluateHand([HI], heartsTrump, 1);
-            const result13 = evaluateHand([HI], heartsTrump, 13);
-
-            // Both should include 1.9 for HI joker (plus void bonuses)
-            expect(result1.points).toBeGreaterThanOrEqual(1.9);
-            expect(result13.points).toBeGreaterThanOrEqual(1.9);
+        test('HI joker alone on a 1-card hand is worth 1.2', () => {
+            expect(evaluateHand([HI], heartsTrump, 1).points).toBeCloseTo(1.2, 5);
         });
 
-        test('trump Ace strong regardless of hand size', () => {
-            const hand = [card('hearts', 'A')];
-            const small = evaluateHand(hand, heartsTrump, 2);
-            const large = evaluateHand(hand, heartsTrump, 12);
+        test('trump Ace alone is about one trick on a small hand', () => {
+            expect(evaluateHand([card('hearts', 'A')], heartsTrump, 2).points).toBeCloseTo(1.0, 5);
+        });
+    });
 
-            // Trump Ace: 1.4 * tScale (1.2 for small, 1.0 for large)
-            expect(small.points).toBeGreaterThan(1.4);
-            expect(large.points).toBeGreaterThanOrEqual(1.4);
+    describe('hand-size baseline', () => {
+        test('-0.45 on 11-13 card hands, +0.15 on 3-4, none on 1-2', () => {
+            // FILLER: one low trump + three side 2s, no voids, no length
+            expect(evaluateHand(FILLER, heartsTrump, 12).points).toBeCloseTo(0.3 - 0.45, 5);
+            expect(evaluateHand(FILLER, heartsTrump, 9).points).toBeCloseTo(0.35, 5);
+            expect(evaluateHand(FILLER, heartsTrump, 6).points).toBeCloseTo(0.45 + 0.05, 5);
+            expect(evaluateHand(FILLER, heartsTrump, 4).points).toBeCloseTo(0.5 + 0.15, 5);
+            expect(evaluateHand([card('hearts', '3'), card('spades', '2')], heartsTrump, 2).points).toBeCloseTo(0.5, 5);
+        });
+    });
+
+    describe('trump length', () => {
+        test('+0.175 per trump beyond the third on 5+ card hands', () => {
+            const four = [card('hearts', '3'), card('hearts', '4'), card('hearts', '5'), card('hearts', '6'),
+                card('spades', '2'), card('diamonds', '2'), card('clubs', '2')];
+            const three = [card('hearts', '3'), card('hearts', '4'), card('hearts', '5'), card('spades', '3'),
+                card('spades', '2'), card('diamonds', '2'), card('clubs', '2')];
+            // swapping a side 3 for a low trump: +0.3 card value + 0.175 length
+            expect(evaluateHand(four, heartsTrump, 12).points - evaluateHand(three, heartsTrump, 12).points)
+                .toBeCloseTo(0.3 + 0.175, 5);
         });
     });
 
@@ -131,9 +164,12 @@ describe('evaluateHand', () => {
                 card('clubs', '2'), card('clubs', '3'), card('clubs', '4'),
                 card('spades', '5'), card('spades', '6')
             ];
+            // Same hand with a side card in place of the HI: no trump, so the
+            // difference is exactly the joker's full 11-13 card value
+            const noJoker = [card('spades', '7'), ...hand.slice(1)];
             const result = evaluateHand(hand, heartsTrump, 12);
             // HI joker is excluded from devaluation
-            expect(result.points).toBeGreaterThanOrEqual(1.9);
+            expect(result.points - evaluateHand(noJoker, heartsTrump, 12).points).toBeCloseTo(1.5, 5);
         });
     });
 
@@ -164,9 +200,9 @@ describe('evaluateHand', () => {
             const hand = [card('spades', 'A'), card('spades', 'K')];
             const result = evaluateHand(hand, heartsTrump, 4);
             // trumpCount = 0, so void bonus = 0 regardless of void count
-            // Ace: 0.8 * 0.3 = 0.24, King: 0.4 * 0.3 = 0.12
+            // Ace 0.35 + King 0.15 + the 3-4 card baseline 0.15
             expect(result.voids).toBe(2); // diamonds=0, clubs=0
-            expect(result.points).toBeCloseTo(0.24 + 0.12, 1);
+            expect(result.points).toBeCloseTo(0.35 + 0.15 + 0.15, 5);
         });
 
         test('void worth minimal in no-trump hand', () => {
@@ -220,6 +256,29 @@ describe('calculateOptimalBid', () => {
             // Should be <= 2 (floor of ~2.3)
             const bidNum = parseInt(bid);
             expect(bidNum).toBeLessThanOrEqual(3);
+        });
+    });
+
+    describe('trump-length calibration (anti-sandbagging)', () => {
+        test('five low/mid trump with no honours bids 2 on a 12-card hand', () => {
+            // Measured: such a hand takes ~2.5 tricks. The old values (mid
+            // trump 0.15, low 0.05) rated it 0.95 and bid 0.
+            const hand = [
+                card('hearts', '3'), card('hearts', '5'), card('hearts', '8'), card('hearts', '9'), card('hearts', 'J'),
+                card('spades', '2'), card('spades', '4'), card('spades', '6'),
+                card('diamonds', '3'), card('diamonds', '5'),
+                card('clubs', '4'), card('clubs', '7')
+            ];
+            // 2 x 0.3 + 3 x 0.6 + length 2 x 0.175 - 0.45 baseline = 2.3
+            expect(evaluateHand(hand, heartsTrump, 12).points).toBeCloseTo(2.3, 5);
+            expect(calculateOptimalBid(hand, heartsTrump, 2, [undefined, undefined, undefined, undefined], 12, null, null)).toBe('2');
+        });
+
+        test('a lone side Ace and junk on a 4-card hand no longer bids 1 on void bonuses', () => {
+            // Old: trump 3 (0.385) + Ace (0.24) + two voids x 0.45 = 1.5 -> bid 1
+            // (3-4 card hands were overbid: 15-17% set). New: 0.5 + 0.35 + 0.15 = 1.0
+            const hand = [card('hearts', '3'), card('spades', 'A'), card('spades', '4'), card('spades', '6')];
+            expect(evaluateHand(hand, heartsTrump, 4).points).toBeCloseTo(1.0, 5);
         });
     });
 
@@ -1254,7 +1313,8 @@ describe('applyBidModifier', () => {
         test('sometimes overbids by 1 (random)', () => {
             // Run multiple times to verify randomness
             const results = new Set();
-            for (let i = 0; i < 100; i++) {
+            // 5% per bid: 400 tries miss a 4 with probability ~1e-9
+            for (let i = 0; i < 400; i++) {
                 results.add(applyBidModifier(3, 'mike', makeEval(3.0), 12, []));
             }
             // Should see both 3 and 4 in results

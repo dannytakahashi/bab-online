@@ -387,12 +387,12 @@ describe('overconfident bid modifier (deterministic)', () => {
     const { applyBidModifier } = require('../BotStrategy');
     const makeEval = (points) => ({ points, trumpCount: 0, voids: 0, suitCounts: {}, hasHighJoker: false, hasLowJoker: false, hasTrumpAce: false });
 
-    test('mike overbids exactly when the roll is under 0.10', () => {
+    test('mike overbids exactly when the roll is under 0.05', () => {
         const realRandom = Math.random;
         try {
-            Math.random = () => 0.05;
+            Math.random = () => 0.03;
             expect(applyBidModifier(3, 'mike', makeEval(3.0), 12, [])).toBe(4);
-            Math.random = () => 0.15;
+            Math.random = () => 0.07;
             expect(applyBidModifier(3, 'mike', makeEval(3.0), 12, [])).toBe(3);
         } finally {
             Math.random = realRandom;

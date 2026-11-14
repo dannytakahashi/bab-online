@@ -23,6 +23,13 @@
  * then still proves every other byte and the RNG order are fcdd885's. The
  * file was regenerated once at 71343c5 (raw wire still fcdd885's), with the
  * projection in place, before any removal ran.
+ *
+ * The games are played by real bots, so a bot-strategy change moves the
+ * golden too: bids, scores and (through all-zero redeals) the deal sequence.
+ * Regenerated for that reason, and only that, at the November 2026 bid
+ * recalibration (branch bots/bidcal-model: evaluateHand values only; no wire,
+ * handler or RNG-call code changed — the iOS event fixtures were re-recorded
+ * by `npm run ios:fixtures` in the same commit).
  */
 
 const fs = require('fs');
