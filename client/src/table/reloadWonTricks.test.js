@@ -27,7 +27,7 @@ afterAll(() => vi.useRealTimers());
 
 const C = (rank, suit) => ({ rank, suit });
 /** Each stack's cards: 'cardBack' or the face frame. */
-const stacks = (history) => history.map((t) => t.cards.map((c) => (c.frame?.name === 'back' ? 'cardBack' : c.frame?.name)));
+const stacks = (history) => history.map((t) => t.cards.map((c) => (/^back-(red|blue)$/.test(c.frame?.name || '') ? 'cardBack' : c.frame?.name)));
 
 // two tricks already won before the reload: seat 1 (my team) took the first
 // (seat 2 led), seat 4 the second (seat 1 led); cards in play order

@@ -42,7 +42,7 @@ import { buildAvatarRing, updateSeatPlates } from '../../ui/seatPlates.js';
 import { resizeShape } from '../shapes.js';
 import { cssSize, zoomCamera } from '../backingStore.js';
 import { ensureCardAtlas, refreshCardSprites, CARD_TEXTURE_KEY } from '../cards/CardAtlas.js';
-import { BACK_FRAME } from '../cards/cardFaces.js';
+import { tableBackFrame } from '../cards/tableBack.js';
 import { uiTextStyle, refreshTextResolution } from '../text.js';
 import { COLOR, hex, alpha } from '../../ui/tokens.js';
 import { motionMs, EASE_EMPHASIZED } from '../../ui/motion.js';
@@ -303,7 +303,7 @@ export class GameScene extends Phaser.Scene {
     const cardKey = getCardImageKey(trumpCard);
     this.tableCardSprite = faceUp
       ? this.add.image(trumpX, trumpY, CARD_TEXTURE_KEY, cardKey)
-      : this.add.image(trumpX, trumpY, CARD_TEXTURE_KEY, BACK_FRAME);
+      : this.add.image(trumpX, trumpY, CARD_TEXTURE_KEY, tableBackFrame());
     this.tableCardSprite.setScale(trumpScale);
     this.tableCardSprite.setDepth(100);
 
@@ -1089,7 +1089,7 @@ export class GameScene extends Phaser.Scene {
         ease: EASE_EMPHASIZED,
         onComplete: () => {
           if (trumpSprite && trumpSprite.scene) {
-            trumpSprite.setTexture(CARD_TEXTURE_KEY, BACK_FRAME);
+            trumpSprite.setTexture(CARD_TEXTURE_KEY, tableBackFrame());
             sceneTween(this, {
               targets: trumpSprite,
               scaleX: trumpSprite.scaleY || this.cardScale('trump'),

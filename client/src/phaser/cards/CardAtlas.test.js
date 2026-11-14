@@ -9,7 +9,7 @@ import { describe, it, expect } from 'vitest';
 import { recordingContext } from '../../testing/recordingContext.js';
 import { FakeTextures } from '../../testing/fakePhaser.js';
 import {
-  ALL_CARDS, FACE_FRAMES, BACK_FRAME, SHADOW_FRAME, CARD_DESIGN, drawCard, drawSuit,
+  ALL_CARDS, FACE_FRAMES, BACK_FRAMES, SHADOW_FRAME, CARD_DESIGN, drawCard, drawSuit, backFrameForHand, isBackFrame,
 } from './cardFaces.js';
 import {
   ATLAS_FRAMES, atlasLayout, atlasBytes, cardTextureSize, drawAtlas, ensureCardAtlas, cardAtlasInfo, CARD_TEXTURE_KEY,
@@ -71,35 +71,96 @@ describe('card faces (the iOS CardTextureGenerator, on a 300 x 435 canvas)', () 
     }
   });
 
-  it('the back: a white card edge, then iOS dark green, a lighter border, an inner frame and the app icon\'s four suits', () => {
-    const ctx = draw(BACK_FRAME);
-    // The white edge is painted first (the whole card), so an overlapped fan
-    // of backs reads as separate cards on the green felt; the green panel is inset.
+  it('the back: the lattice, a cream card with the faces\' grey edge, an inset ink panel, a cream trellis and medallion, no text', () => {
+    const ctx = draw(BACK_FRAMES.red);
+    // the card first (cream, the faces' grey 3-unit edge, clipped to the card)
     const firstFill = ctx.calls.find((c) => c.op === 'fill');
-    expect(firstFill.fillStyle).toBe(C.face);
+    expect(firstFill.fillStyle).toBe(C.backPaper);
     expect(ctx.calls.find((c) => c.op === 'stroke' && c.strokeStyle === C.border)?.lineWidth).toBe(3);
-    expect(fills(ctx, C.back)).toHaveLength(1);
-    expect(ctx.calls.indexOf(fills(ctx, C.back)[0])).toBeGreaterThan(ctx.calls.indexOf(firstFill));
-    expect(ctx.calls.find((c) => c.op === 'stroke' && c.strokeStyle === C.backBorder)?.lineWidth).toBe(4);
-    expect(ctx.calls.some((c) => c.op === 'stroke' && c.strokeStyle === C.backInner)).toBe(true);
-    // iOS PR 239's back: no diamond; spade and club in text.primary at the
-    // top left and bottom right, heart and diamond in danger.text at the
-    // top right and bottom left, 2 x 2 around the centre, as vector paths
-    expect(fills(ctx, C.backDiamond)).toHaveLength(0);
-    const light = fills(ctx, COLOR.text.primary);
-    const red = fills(ctx, COLOR.danger.text);
-    expect(light).toHaveLength(2);
-    expect(red).toHaveLength(2);
-    // each suit's 100-unit box is scaled (m.a) and moved (m.e, m.f): its centre
-    const centre = (c) => ({ x: Math.round(c.m.a * 50 + c.m.e), y: Math.round(c.m.d * 50 + c.m.f) });
-    const { w, h } = CARD_DESIGN;
-    expect(light.map(centre)).toEqual([{ x: w / 2 - 34, y: Math.round(h / 2 - 34) }, { x: w / 2 + 34, y: Math.round(h / 2 + 34) }]);
-    expect(red.map(centre)).toEqual([{ x: w / 2 + 34, y: Math.round(h / 2 - 34) }, { x: w / 2 - 34, y: Math.round(h / 2 + 34) }]);
+    // the ink panel (inset 16: a white margin, so an overlapped fan reads
+    // as separate cards) and the medallion's moat, both in the red ink
+    const ink = fills(ctx, C.backRed);
+    expect(ink).toHaveLength(2);
+    expect(ctx.calls.indexOf(ink[0])).toBeGreaterThan(ctx.calls.indexOf(firstFill));
+    // the trellis: a cream double line split by an ink line, clipped to the field
+    expect(ctx.calls.filter((c) => c.op === 'clip').length).toBeGreaterThanOrEqual(2);
+    expect(ctx.calls.some((c) => c.op === 'stroke' && c.strokeStyle === C.backPaper && c.lineWidth === 3.8)).toBe(true);
+    expect(ctx.calls.some((c) => c.op === 'stroke' && c.strokeStyle === C.backRed && c.lineWidth === 1.2)).toBe(true);
+    // the four lozenges of the harlequin medallion: the last fill, centred
+    const last = ctx.calls.filter((c) => c.op === 'fill').pop();
+    expect(last.fillStyle).toBe(C.backPaper);
+    // nothing of the old four-suit back, no other colour, no text
+    for (const old of [C.back, C.backBorder, C.backInner, C.backBlue, COLOR.text.primary, COLOR.danger.text]) {
+      expect(ctx.calls.some((c) => (c.op === 'fill' && c.fillStyle === old) || (c.op === 'stroke' && c.strokeStyle === old)), old).toBe(false);
+    }
     expect(texts(ctx)).toEqual([]);
+    expect(ctx.depth).toBe(0);
+  });
+
+  it('the blue back is the red one in the blue ink: the same drawing, only the ink differs', () => {
+    const red = draw(BACK_FRAMES.red).calls;
+    const blue = draw(BACK_FRAMES.blue).calls;
+    expect(blue).toHaveLength(red.length);
+    const swap = (v) => (v === C.backRed ? C.backBlue : v);
+    blue.forEach((b, i) => {
+      const r = red[i];
+      expect([b.op, b.args, b.m, b.lineWidth, b.globalAlpha]).toEqual([r.op, r.args, r.m, r.lineWidth, r.globalAlpha]);
+      expect([b.fillStyle, b.strokeStyle]).toEqual([swap(r.fillStyle), swap(r.strokeStyle)]);
+    });
+    expect(blue.some((c) => c.fillStyle === C.backBlue)).toBe(true);
+    expect(blue.some((c) => c.fillStyle === C.backRed || c.strokeStyle === C.backRed)).toBe(false);
+    expect([C.backRed, C.backBlue, C.backPaper]).toEqual(['#b22222', '#1f4e9b', '#fffdf8']);
+  });
+
+  it('small sizes hint themselves: the trellis doubles its pitch and drops its dots, rules stay >= ~1 device px', () => {
+    // under the atlas's cell transform: a card `px` device px tall
+    const at = (px) => {
+      const ctx = recordingContext();
+      ctx.scale(px / CARD_DESIGN.h, px / CARD_DESIGN.h);
+      drawCard(ctx, BACK_FRAMES.red);
+      return ctx;
+    };
+    const ops = (ctx, op) => ctx.calls.filter((c) => c.op === op).length;
+    const big = at(435);
+    const small = at(60);
+    const tiny = at(40);
+    // fewer trellis lines (pitch doubled) and no crossing dots when small
+    expect(ops(small, 'lineTo')).toBeLessThan(ops(big, 'lineTo'));
+    expect(ops(tiny, 'lineTo')).toBeLessThanOrEqual(ops(small, 'lineTo'));
+    expect(ops(small, 'arc')).toBeLessThan(ops(big, 'arc'));
+    // the structural rules (the field's 1.6 rule, the medallion's 2.2
+    // outline) widen to 0.9 device px where they would be thinner
+    const ruleWidths = (ctx) => ctx.calls.filter((c) => c.op === 'stroke' && c.strokeStyle === C.backPaper && c.globalAlpha === 1).map((c) => c.lineWidth);
+    expect(ruleWidths(big)).toEqual(expect.arrayContaining([1.6, 2.2]));
+    for (const [px, ctx] of [[60, small], [40, tiny]]) {
+      const k = px / CARD_DESIGN.h;
+      const device = ruleWidths(ctx).map((w) => w * k);
+      expect(device.filter((d) => Math.abs(d - 0.9) < 1e-9).length, `${px}px`).toBeGreaterThanOrEqual(2);
+      expect(device.some((d) => Math.abs(d - 1.6 * k) < 1e-9 || Math.abs(d - 2.2 * k) < 1e-9), `${px}px`).toBe(false);
+    }
+    // the medallion: four lozenges at full size, one bold diamond at 40 px
+    const lastFillMoves = (ctx) => {
+      const calls = ctx.calls;
+      const end = calls.map((c) => c.op).lastIndexOf('fill');
+      const begin = calls.slice(0, end).map((c) => c.op).lastIndexOf('beginPath');
+      return calls.slice(begin, end).filter((c) => c.op === 'moveTo').length;
+    };
+    expect(lastFillMoves(big)).toBe(4);
+    expect(lastFillMoves(tiny)).toBe(1);
+  });
+
+  it('backFrameForHand: hand 1 red, 2 blue, 3 red, ... 13 red; no hand yet (the draw) and nonsense red', () => {
+    const want = Array.from({ length: 13 }, (_, i) => ((i + 1) % 2 === 0 ? 'back-blue' : 'back-red'));
+    expect(Array.from({ length: 13 }, (_, i) => backFrameForHand(i + 1))).toEqual(want);
+    expect(want.slice(0, 4)).toEqual(['back-red', 'back-blue', 'back-red', 'back-blue']);
+    for (const none of [0, null, undefined, NaN, -2, 2.5, 'x']) expect(backFrameForHand(none), String(none)).toBe('back-red');
+    expect(BACK_FRAMES).toEqual({ red: 'back-red', blue: 'back-blue' });
+    expect(isBackFrame('back-red') && isBackFrame('back-blue')).toBe(true);
+    expect(isBackFrame('back') || isBackFrame('shadow') || isBackFrame('a_spades')).toBe(false);
   });
 
   it('suits are vector paths, never text: no suit, star, card emoji or variation selector is ever drawn as a glyph', () => {
-    for (const card of [...ALL_CARDS, BACK_FRAME]) {
+    for (const card of [...ALL_CARDS, BACK_FRAMES.red, BACK_FRAMES.blue]) {
       for (const t of texts(draw(card))) expect(GLYPHS.test(t), `${JSON.stringify(card)}: "${t}"`).toBe(false);
     }
     // a suit draws with bezier/arc paths and a fill, no text
@@ -124,11 +185,11 @@ describe('card faces (the iOS CardTextureGenerator, on a 300 x 435 canvas)', () 
 });
 
 describe('the atlas: one page, hand card x DPR', () => {
-  it('draws every frame (54 faces, the back, the shadow) into its own cell, no cell over another', () => {
+  it('draws every frame (54 faces, the red and the blue back, the shadow) into its own cell, no cell over another', () => {
     const spec = { w: 64, h: 93 };
     const ctx = recordingContext();
     const drawn = drawAtlas(ctx, spec);
-    expect(drawn).toEqual([...FACE_FRAMES, BACK_FRAME, SHADOW_FRAME]);
+    expect(drawn).toEqual([...FACE_FRAMES, 'back-red', 'back-blue', SHADOW_FRAME]);
     const page = atlasLayout(spec);
     const cells = ATLAS_FRAMES.map((n) => page.frames[n]);
     for (let i = 0; i < cells.length; i++) {
@@ -143,7 +204,14 @@ describe('the atlas: one page, hand card x DPR', () => {
     }
     // every card is drawn under its cell's transform: the design canvas onto the cell
     const faceFill = ctx.calls.filter((c) => c.op === 'fill' && c.fillStyle === C.face);
-    expect(faceFill).toHaveLength(55); // 54 faces + the back's white card edge
+    expect(faceFill).toHaveLength(54); // the 54 faces (the backs are cream: card.backPaper)
+    // both backs, each in its own ink under its own cell's transform
+    for (const [name, ink] of [['back-red', C.backRed], ['back-blue', C.backBlue]]) {
+      const f = page.frames[name];
+      const panel = ctx.calls.find((c) => c.op === 'fill' && c.fillStyle === ink);
+      expect([panel.m.e, panel.m.f], name).toEqual([f.x, f.y]);
+      expect(panel.m.a).toBeCloseTo(f.w / CARD_DESIGN.w, 9);
+    }
     expect(ctx.depth).toBe(0); // save/restore balanced
   });
 
@@ -198,11 +266,12 @@ describe('the atlas: one page, hand card x DPR', () => {
     const at = (dpr) => layoutForViewport({ vw: 1920, vh: 1080, dpr }).cardTexture;
     const one = atlasBytes(at(1));
     const two = atlasBytes(at(2));
-    // 64 x 92 frames: 530 x 660 px = 1.40 MB; 128 x 186: 1042 x 1318 px = 5.49 MB (the old 64 px atlas page: 13.9 MB)
-    expect(atlasLayout(at(1))).toMatchObject({ width: 530, height: 660 });
-    expect(one).toBe(530 * 660 * 4);
-    expect(atlasLayout(at(2))).toMatchObject({ width: 1042, height: 1318 });
-    expect(two).toBe(1042 * 1318 * 4);
+    // 64 x 92 frames: 662 x 566 px = 1.50 MB; 128 x 186: 1302 x 1130 px = 5.88 MB (10 x 6 cells for
+    // 57 frames; 8 x 7 held the old 56 at 1.40 / 5.49 MB; the old 64 px atlas page: 13.9 MB)
+    expect(atlasLayout(at(1))).toMatchObject({ width: 662, height: 566 });
+    expect(one).toBe(662 * 566 * 4);
+    expect(atlasLayout(at(2))).toMatchObject({ width: 1302, height: 1130 });
+    expect(two).toBe(1302 * 1130 * 4);
     expect(two).toBeLessThan(8 * 1024 * 1024);
   });
 

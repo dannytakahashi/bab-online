@@ -57,8 +57,8 @@ describe('TrickManager stale animations', () => {
     expect(flipTimer.remove).toHaveBeenCalledWith(false);
     expect(card.setData).toHaveBeenCalledWith('flipTimer', null);
     // Opponents' tricks stay face down, snapped to the stack without a tween
-    expect(card.texture).toBe('back');
-    expect(card.setTexture).toHaveBeenCalledWith('cards', 'back');
+    expect(card.texture).toBe('back-red'); // no hand yet (GameState.handNo 0): red
+    expect(card.setTexture).toHaveBeenCalledWith('cards', 'back-red');
     expect(scene.tweens.add).not.toHaveBeenCalled();
     expect(card.setRotation).toHaveBeenCalledWith(0);
   });

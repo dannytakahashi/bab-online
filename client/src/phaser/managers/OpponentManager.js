@@ -15,7 +15,7 @@ import { layoutOf, fanPositions } from '../layout/computeTableLayout.js';
 import { hudSeat, hudRoot } from '../../ui/tableHud.js';
 import { buildAvatarRing, setRingPosition } from '../../ui/seatPlates.js';
 import { CARD_TEXTURE_KEY } from '../cards/CardAtlas.js';
-import { BACK_FRAME } from '../cards/cardFaces.js';
+import { tableBackFrame } from '../cards/tableBack.js';
 import { dealMs } from './CardManager.js';
 import { dealStaggerMs, EASE_EMPHASIZED } from '../../ui/motion.js';
 
@@ -123,7 +123,7 @@ export class OpponentManager {
     const spots = fanPositions(L, SEAT_OF[slot], count);
     const from = animate ? this._dealOrigin() : null;
     spots.forEach((p, i) => {
-      const sprite = scene.add.image(p.x, p.y, CARD_TEXTURE_KEY, BACK_FRAME);
+      const sprite = scene.add.image(p.x, p.y, CARD_TEXTURE_KEY, tableBackFrame());
       sprite.setScale(scale);
       sprite.setRotation(p.rotation);
       sprite.setDepth(100 + i);

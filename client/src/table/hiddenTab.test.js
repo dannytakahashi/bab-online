@@ -67,7 +67,7 @@ describe('a hidden tab mid-trick', () => {
     // every card in the middle is a trick card, face up, at its slot
     const trick = page.scene.trickManager.getCurrentTrickSprites();
     const L = page.scene.getLayout();
-    expect(trick.every((s) => s.texture.key === 'cards' && s.frame.name !== 'back' && s.scaleX === L.card.trick.scale)).toBe(true);
+    expect(trick.every((s) => s.texture.key === 'cards' && !/^back-/.test(s.frame.name) && s.scaleX === L.card.trick.scale)).toBe(true);
     // drawn at the layout's trick size (the atlas frame times the sprite scale)
     for (const s of trick) expect(s.height * s.scaleY).toBeCloseTo(L.card.trick.h, 6);
     // every stacked card sits on its stack, no tween left on it
