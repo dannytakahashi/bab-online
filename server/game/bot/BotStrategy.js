@@ -296,6 +296,14 @@ function countUnseenInSuit(suit, hand, memory, trump) {
 }
 
 /**
+ * Count trump (suit cards and jokers) still in other players' hands.
+ */
+function countUnseenTrump(hand, memory, trump) {
+    const count = countLiveJokersOutside(hand, memory, trump);
+    return isNoTrump(trump) ? count : count + countUnseenInSuit(trump.suit, hand, memory, trump);
+}
+
+/**
  * Count jokers still in other players' hands (not flipped, not ours, not yet
  * played). In no-trump hands the one live joker is still trump and can ruff.
  */
@@ -1382,6 +1390,16 @@ function selectLead(hand, trump, trumpBroken, gameState, memory, handSize, contr
         return legalCards.sort((a, b) => RANK_VALUES[b.rank] - RANK_VALUES[a.rank])[0];
     }
 
+    // --- Boss trump below the HI joker (LO or the top outstanding trump):
+    // lead it while others still hold trump. It wins the trick and pulls a
+    // round of trump, and HI stays back for later ---
+    if (memory && countUnseenTrump(hand, memory, trump) > 0) {
+        const bossTrump = legalTrump
+            .filter(c => c.rank !== 'HI' && countHigherUnseen(c, hand, memory, trump) === 0)
+            .sort((a, b) => RANK_VALUES[b.rank] - RANK_VALUES[a.rank])[0];
+        if (bossTrump) return bossTrump;
+    }
+
     // --- Only ±1 overtricks left: cash sure winners while we have the lead ---
     if (effort === 'cheap' && safeBossOffsuit.length > 0) {
         return safeBossOffsuit[0];
@@ -1741,6 +1759,7 @@ module.exports = {
     bestWithoutHiJoker,
     countHigherUnseen,
     countUnseenInSuit,
+    countUnseenTrump,
     countLockedWinners,
     analyzeLeadSweep,
     decideBore,

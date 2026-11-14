@@ -603,6 +603,39 @@ describe('selectLead', () => {
         // Should prefer spades (shorter + has Ace)
         expect(result.suit).toBe('spades');
     });
+
+    // Rules from the play-leak study (sim/README.md "Play leaks")
+    describe('trump leads', () => {
+        const freshMemory = () => ({
+            playedCards: [], trumpPlayed: [], trickIndex: 0, totalCardsPlayed: 0,
+            acesPlayed: { spades: false, hearts: false, diamonds: false, clubs: false }
+        });
+
+        test('leads the LO joker ahead of the HI joker', () => {
+            const hand = [HI, LO, card('clubs', '5'), card('clubs', '2')];
+            const result = selectLead(hand, heartsTrump, true, { position: 1 }, freshMemory(), 4);
+            expect(result).toEqual(LO);
+        });
+
+        test('leads the top outstanding trump once the jokers are gone', () => {
+            const hand = [card('hearts', 'A'), card('hearts', '4'), card('clubs', '5'), card('clubs', '2')];
+            const memory = freshMemory();
+            memory.playedCards = [
+                { suit: 'joker', rank: 'HI', position: 2, trickIndex: 0, isLead: true },
+                { suit: 'hearts', rank: '2', position: 3, trickIndex: 0, isLead: false },
+                { suit: 'joker', rank: 'LO', position: 4, trickIndex: 0, isLead: false },
+                { suit: 'hearts', rank: '3', position: 1, trickIndex: 0, isLead: false }
+            ];
+            const result = selectLead(hand, heartsTrump, true, { position: 1 }, memory, 5);
+            expect(result).toEqual(card('hearts', 'A'));
+        });
+
+        test('still leads the HI joker when it is the only boss trump', () => {
+            const hand = [HI, card('hearts', '4'), card('clubs', '5'), card('clubs', '2')];
+            const result = selectLead(hand, heartsTrump, true, { position: 1 }, freshMemory(), 4);
+            expect(result).toEqual(HI);
+        });
+    });
 });
 
 // --- selectFollow tests ---
