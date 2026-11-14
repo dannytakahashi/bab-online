@@ -1,8 +1,8 @@
 {
   "oneHuman": {
-    "emits": 996,
-    "bytes": 67159,
-    "wireSha256": "1ea7167f2221580f1d0c495ad5916600d62a38a315b66aba47a214b84630a4d5",
+    "emits": 997,
+    "bytes": 67268,
+    "wireSha256": "c38ac6fdb386e9c210207839550450f06ced622753df1bd9c1ceae425261bd12",
     "seatPics": [
       5,
       35,
@@ -17,7 +17,7 @@
     ],
     "trumps": [
       "Qd",
-      "7s",
+      "7c",
       "Jd",
       "6c",
       "7s",
@@ -38,10 +38,10 @@
         "4": "Ad Ah Kh 3h Ac 5s Qh 7c 5h LOj 6h 5c"
       },
       {
-        "1": "6s Kh 10h 4d 2d 3d 2h 8h 5c 3s",
-        "2": "Kd LOj Ks As 8c Ah 7h Ac 2c 10c",
-        "3": "Ad 7c Qs 6h 8s Kc Qh Jh 6d Jc",
-        "4": "5h 10d HIj 10s 5s 9c Qd 3c 2s 9s"
+        "1": "6s Jh 4d Kh 5d 8h Qh 8c Jc Ah",
+        "2": "9s Ad Qd 10d As 9c 2d 7h HIj 3c",
+        "3": "3s 2c 3d Ks Ac 8s 6h 10s 10h 7d",
+        "4": "Qs LOj Jd 4h Qc 5s 2h Kd 4c 2s"
       },
       {
         "1": "Qd 9c As 4d Kh 8s Jh LOj",
@@ -111,14 +111,14 @@
       }
     ],
     "finalScore": {
-      "team1": 310,
-      "team2": 390
+      "team1": 313,
+      "team2": 387
     }
   },
   "collidingPics": {
     "emits": 1020,
-    "bytes": 78905,
-    "wireSha256": "f39e6f5caf45796381cdd3cbf1ef2003acedc62451499989781864060d7061d7",
+    "bytes": 78837,
+    "wireSha256": "bdf9d440cae30e38218ee6180f14597470f4bf890037632adf43d126e2444633",
     "seatPics": [
       5,
       1,
@@ -227,8 +227,8 @@
       }
     ],
     "finalScore": {
-      "team1": 392,
-      "team2": 279
+      "team1": 273,
+      "team2": 202
     }
   }
 }
