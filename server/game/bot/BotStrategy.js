@@ -1756,10 +1756,6 @@ function selectFollow(hand, playedCards, leadCard, leadPosition, trump, trumpBro
 
         if (candidates.length > 0) {
             if (opponentsRemain) {
-                if (playStyle === 'flashy' && !effortIsMax) {
-                    const desc = [...candidates].sort((a, b) => RANK_VALUES[b.rank] - RANK_VALUES[a.rank]);
-                    return bestWithoutHiJoker(desc, winningCard, trump);
-                }
                 if (view) {
                     const asc = [...candidates].sort((a, b) => RANK_VALUES[a.rank] - RANK_VALUES[b.rank]);
                     const seat = playedCards.filter(c => c != null).length + 1;
@@ -1786,6 +1782,13 @@ function selectFollow(hand, playedCards, leadCard, leadPosition, trump, trumpBro
                         }
                         // Over-ruff threat: fall through to the secure pick
                     }
+                }
+                // Where the ruff does need to be high, Danny reaches for the
+                // very top one (Mary takes the cheapest boss). His flashy
+                // style no longer skips the low-ruff rules above.
+                if (playStyle === 'flashy' && !effortIsMax) {
+                    const desc = [...candidates].sort((a, b) => RANK_VALUES[b.rank] - RANK_VALUES[a.rank]);
+                    return bestWithoutHiJoker(desc, winningCard, trump);
                 }
                 return pickWinner(candidates, hand, memory, trump, winningCard, true);
             }

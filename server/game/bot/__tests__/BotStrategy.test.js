@@ -1678,6 +1678,27 @@ describe('play inference', () => {
             expect(selectFollow(hand, king, S('K'), 1, heartsTrump, false, 3, mem([[1, S('K')], [2, S('4')]]), 8, null))
                 .toEqual(C('5'));
         });
+
+        test('flashy (Danny) ruffs low at 2nd seat like everyone else', () => {
+            const played = [S('K'), undefined, undefined, undefined];
+            const hand = [H('A'), H('4'), C('5')];
+            const result = selectFollow(hand, played, S('K'), 1, heartsTrump, false, 2, mem([[1, S('K')]]), 8, null, 'flashy');
+            expect(result).toEqual(H('4'));
+        });
+
+        test('where the ruff must be high, flashy plays the top trump and balanced the cheapest boss', () => {
+            // Jokers and the trump Ace are gone, so K and Q are both boss.
+            // Position 4 ruffed a spade (void, still holding trump), so the
+            // 3rd-seat ruff stays high.
+            const hand = [H('K'), H('Q'), H('5'), C('2')];
+            const m = mem([[2, HI], [3, H('2')], [4, LO], [1, H('A')]],
+                [[1, S('A')], [2, S('2')], [3, S('3')], [4, H('3')]],
+                [[1, S('4')], [2, S('9')]]);
+            const played = [S('4'), S('9'), undefined, undefined];
+            const play = (style) => selectFollow(hand, played, S('4'), 1, heartsTrump, true, 3, m, 6, null, style);
+            expect(play('flashy')).toEqual(H('K'));
+            expect(play('balanced')).toEqual(H('Q'));
+        });
     });
 
     describe('leads', () => {
