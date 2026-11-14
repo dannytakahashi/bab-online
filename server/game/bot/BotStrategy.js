@@ -1409,6 +1409,13 @@ function selectLead(hand, trump, trumpBroken, gameState, memory, handSize, contr
     const highJoker = legalCards.find(c => c.rank === 'HI');
     if (highJoker) return highJoker;
 
+    // 1b. Long trump (4+) with no boss among them: lead the lowest to pull
+    // trump, rather than open a plain suit for the opponents to ruff later
+    if (memory && legalTrump.length >= 4 && legalOffsuit.length > 0 &&
+        !legalTrump.some(c => countHigherUnseen(c, hand, memory, trump) === 0)) {
+        return legalTrump.sort((a, b) => RANK_VALUES[a.rank] - RANK_VALUES[b.rank])[0];
+    }
+
     // 2. Group by suit
     const bySuit = { spades: [], hearts: [], diamonds: [], clubs: [] };
     const trumpSuitCards = [];

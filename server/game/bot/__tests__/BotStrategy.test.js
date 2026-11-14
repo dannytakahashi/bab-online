@@ -630,6 +630,24 @@ describe('selectLead', () => {
             expect(result).toEqual(card('hearts', 'A'));
         });
 
+        test('leads its lowest trump from 4+ trump with no boss', () => {
+            const hand = [
+                card('hearts', '9'), card('hearts', '6'), card('hearts', '4'), card('hearts', '3'),
+                card('clubs', '5'), card('clubs', '2')
+            ];
+            const result = selectLead(hand, heartsTrump, true, { position: 1 }, freshMemory(), 6);
+            expect(result).toEqual(card('hearts', '3'));
+        });
+
+        test('leads a plain suit from 3 trump with no boss', () => {
+            const hand = [
+                card('hearts', '9'), card('hearts', '6'), card('hearts', '4'),
+                card('clubs', '5'), card('clubs', '2')
+            ];
+            const result = selectLead(hand, heartsTrump, true, { position: 1 }, freshMemory(), 5);
+            expect(result.suit).toBe('clubs');
+        });
+
         test('still leads the HI joker when it is the only boss trump', () => {
             const hand = [HI, card('hearts', '4'), card('clubs', '5'), card('clubs', '2')];
             const result = selectLead(hand, heartsTrump, true, { position: 1 }, freshMemory(), 4);
