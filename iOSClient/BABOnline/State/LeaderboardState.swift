@@ -33,36 +33,109 @@ struct StatsLoad<Value: Equatable>: Equatable {
     }
 }
 
-/// A stats request over the socket with one reply event: at most one in flight, a reply or a
-/// timeout ends it (and resumes a pull to refresh), a failed reply keeps the last good value.
-/// Main thread only (the socket handlers hop to it).
-class StatsLoader<Value: Equatable>: ObservableObject {
-    @Published private(set) var load = StatsLoad<Value>()
+/// Which games the Stats sheet counts (owner 2026-11-13: games with bots are recorded from the
+/// server update that adds them; the standings default to games among people). One choice for
+/// both tabs, kept on disk (`UserDefaults` "statsScope").
+enum StatsScope: String, CaseIterable, Identifiable {
+    case human, bots, all
 
-    /// Sends the request (the emitter; tests and fixture mode replace it).
-    var send: () -> Void
+    var id: String { rawValue }
+
+    /// The segment's label (short enough for three segments on the narrowest iPhone).
+    var title: String {
+        switch self {
+        case .human: return "Humans"
+        case .bots: return "Bots"
+        case .all: return "All"
+        }
+    }
+
+    /// What VoiceOver says for the segment.
+    var spokenTitle: String {
+        switch self {
+        case .human: return "Human games"
+        case .bots: return "Bot games"
+        case .all: return "All games"
+        }
+    }
+
+    /// The request's payload: none for human games (the request as it was before scopes, which
+    /// every server answers with human games), else `{scope}`.
+    var payload: [String: Any]? { self == .human ? nil : ["scope": rawValue] }
+
+    static let defaultsKey = "statsScope"
+
+    /// The saved choice; human games when there is none (or it is not one of the three).
+    static func saved(_ defaults: UserDefaults = .standard) -> StatsScope {
+        defaults.string(forKey: defaultsKey).flatMap(StatsScope.init(rawValue:)) ?? .human
+    }
+
+    func save(_ defaults: UserDefaults = .standard) {
+        defaults.set(rawValue, forKey: Self.defaultsKey)
+    }
+
+    /// The scope a reply answers: its `scope` echo, else `current` (an older server ignores the
+    /// payload and sends no echo). nil: an echo this build does not know (the reply is dropped).
+    static func ofReply(_ dict: [String: Any], current: StatsScope) -> StatsScope? {
+        guard let echo = dict["scope"], !(echo is NSNull) else { return current }
+        return (echo as? String).flatMap(StatsScope.init(rawValue:))
+    }
+}
+
+/// A stats request over the socket with one reply event: at most one in flight per scope, a
+/// reply or a timeout ends it (and resumes a pull to refresh), a failed reply keeps the last
+/// good value. Each scope keeps its own page, so a reply for another scope (its `scope` echo)
+/// fills that scope's page and never shows under the selected one, and switching back shows
+/// that scope's last numbers while they refresh. Main thread only (the socket handlers hop to it).
+class StatsLoader<Value: Equatable>: ObservableObject {
+    /// The games counted (the Stats sheet's Humans / Bots / All, shared by both tabs).
+    @Published private(set) var scope: StatsScope
+    @Published private var loads: [StatsScope: StatsLoad<Value>] = [:]
+
+    /// The selected scope's page.
+    var load: StatsLoad<Value> { loads[scope] ?? StatsLoad() }
+
+    /// Sends the request for a scope (the emitter; tests and fixture mode replace it).
+    var send: (StatsScope) -> Void
     /// How long a request may wait for its reply.
     var timeout: TimeInterval = 10
     var now: () -> Date = Date.init
-    private var requestId = 0
+    /// Where the scope is saved (tests pass their own suite).
+    let defaults: UserDefaults
+    private var requestIds: [StatsScope: Int] = [:]
     private var waiters: [CheckedContinuation<Void, Never>] = []
 
-    init(send: @escaping () -> Void) {
+    init(send: @escaping (StatsScope) -> Void, defaults: UserDefaults = .standard) {
         self.send = send
+        self.defaults = defaults
+        scope = StatsScope.saved(defaults)
     }
 
-    /// Asks for the page unless a request is already waiting.
+    /// Shows another scope and saves the choice. The tab on screen then asks for it (its view's
+    /// `request()` on the change), keeping that scope's last data, if any, up meanwhile.
+    func select(_ newScope: StatsScope) {
+        newScope.save(defaults)
+        guard newScope != scope else { return }
+        scope = newScope
+        // a pull to refresh on the old scope's page ends with that page
+        resumeWaiters()
+    }
+
+    /// Asks for the selected scope's page unless its request is already waiting.
     func request() {
+        let scope = scope
+        var load = loads[scope] ?? StatsLoad()
         if load.isLoading { return }
         willRequest(&load)
         load.isLoading = true
         load.failure = nil
-        requestId += 1
-        let id = requestId
-        send()
+        loads[scope] = load
+        let id = (requestIds[scope] ?? 0) + 1
+        requestIds[scope] = id
+        send(scope)
         DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { [weak self] in
-            guard let self, self.requestId == id, self.load.isLoading else { return }
-            self.finish(failure: .noReply)
+            guard let self, self.requestIds[scope] == id, self.loads[scope]?.isLoading == true else { return }
+            self.finish(scope, failure: .noReply)
         }
     }
 
@@ -74,20 +147,22 @@ class StatsLoader<Value: Equatable>: ObservableObject {
         await withCheckedContinuation { waiters.append($0) }
     }
 
-    /// A reply: the decoded value, else the failure it carries.
+    /// A reply: the decoded value, else the failure it carries, on the page of the scope it
+    /// answers (`StatsScope.ofReply`: the echo, else the selected scope).
     func apply(response dict: [String: Any]) {
+        guard let target = StatsScope.ofReply(dict, current: scope) else { return }
         if let value = decode(dict) {
-            load.value = value
-            load.loadedAt = now()
-            finish(failure: nil)
+            loads[target, default: StatsLoad()].value = value
+            loads[target, default: StatsLoad()].loadedAt = now()
+            finish(target, failure: nil)
         } else {
-            finish(failure: StatsFailure(message: (dict["message"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? fallbackMessage))
+            finish(target, failure: StatsFailure(message: (dict["message"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? fallbackMessage))
         }
     }
 
     func reset() {
-        load = StatsLoad()
-        requestId += 1
+        loads = [:]
+        for s in StatsScope.allCases { requestIds[s, default: 0] += 1 }
         resumeWaiters()
     }
 
@@ -98,9 +173,9 @@ class StatsLoader<Value: Equatable>: ObservableObject {
     /// Before a request: drop what must not be shown again (RecordsState: last month's).
     func willRequest(_ load: inout StatsLoad<Value>) {}
 
-    private func finish(failure: StatsFailure?) {
-        load.isLoading = false
-        load.failure = failure
+    private func finish(_ scope: StatsScope, failure: StatsFailure?) {
+        loads[scope, default: StatsLoad()].isLoading = false
+        loads[scope, default: StatsLoad()].failure = failure
         resumeWaiters()
     }
 
@@ -121,11 +196,11 @@ final class LeaderboardState: StatsLoader<[LeaderboardEntry]> {
     @Published var expanded: Set<String> = []
 
     init() {
-        super.init(send: { LeaderboardEmitter.getLeaderboard() })
+        super.init(send: { LeaderboardEmitter.getLeaderboard(scope: $0) })
     }
 
-    override init(send: @escaping () -> Void) {
-        super.init(send: send)
+    override init(send: @escaping (StatsScope) -> Void, defaults: UserDefaults = .standard) {
+        super.init(send: send, defaults: defaults)
     }
 
     var entries: [LeaderboardEntry] { load.value ?? [] }
@@ -141,11 +216,11 @@ final class RecordsState: StatsLoader<GameRecords> {
     @Published var period: GameRecords.Period = .allTime
 
     init() {
-        super.init(send: { LeaderboardEmitter.getRecords() })
+        super.init(send: { LeaderboardEmitter.getRecords(scope: $0) })
     }
 
-    override init(send: @escaping () -> Void) {
-        super.init(send: send)
+    override init(send: @escaping (StatsScope) -> Void, defaults: UserDefaults = .standard) {
+        super.init(send: send, defaults: defaults)
     }
 
     override func decode(_ dict: [String: Any]) -> GameRecords? { GameRecords.from(response: dict) }
