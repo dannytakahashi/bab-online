@@ -236,7 +236,7 @@ const s2c = {
         status: 'active', to: 'self',
         clientReads: reads(W.lobby, I.lobby),
         emittedFrom: ['server/socket/mainRoomHandlers.js:joinMainRoom', 'server/socket/lobbyHandlers.js:leaveLobby', 'server/socket/tournamentHandlers.js:sendToMainRoom', 'server/socket/upgradeGate.js:sendMainRoom'],
-        notes: 'recentMessages (a copy of messages) is sent only by upgradeGate.sendMainRoom, to the gated iOS 1.0.0, which reads it first. The main-room handlers dropped it (V1_REMOVALS #13, 2026-11-11): web reads messages and iOS 1.1.0 recentMessages ?? messages (LobbySocketHandler, f05d264).',
+        notes: 'recentMessages (a copy of messages) is sent only by upgradeGate.sendMainRoom, to the gated iOS 1.0.0, which reads it first. The main-room handlers dropped it (V1_REMOVALS #13, 2026-11-11): web reads messages and iOS 1.1.0 recentMessages ?? messages (LobbySocketHandler, f05d264). inProgressGames is the joiner\'s own list (GameManager.getInProgressGames(username)): the ambient demo game only for the AMBIENT_CHAT_USERS accounts (owner, 2026-11-14), like the bot lines in messages.',
     },
     mainRoomMessage: {
         payload: ref('mainRoomChatLine'),
@@ -261,11 +261,11 @@ const s2c = {
     },
     lobbiesUpdated: {
         payload: obj(lobbyLists),
-        status: 'active', to: 'mainRoom',
+        status: 'active', to: ['mainRoom', 'socket'],
         reserved: [{ key: 'lobbyName', why: 'iOS reads lobbyName ?? name' }, { key: 'inProgress', why: 'reserved lobby key (iOS Lobby.from)' }],
         clientReads: reads(W.lobby, I.lobby),
         emittedFrom: ['server/socket/gameLifecycle.js:emitLobbiesUpdated', 'server/socket/mainRoomHandlers.js:createLobby', 'server/socket/mainRoomHandlers.js:joinLobby', 'server/socket/lobbyHandlers.js:leaveLobby', 'server/socket/lobbyHandlers.js:addBot', 'server/socket/lobbyHandlers.js:removeBot', 'server/socket/lobbyHandlers.js:lobbySeatExpired', 'server/socket/tournamentHandlers.js:createTournament', 'server/socket/tournamentHandlers.js:joinTournament', 'server/socket/tournamentHandlers.js:leaveTournament', 'server/socket/tournamentHandlers.js:scheduleTournamentCleanup'],
-        notes: 'Only to the main room since getLobbies (its one reply to a single socket) went with the matchmaking queue (V1_REMOVALS #2, 2026-11-11).',
+        notes: 'Only to the main room since getLobbies (its one reply to a single socket) went with the matchmaking queue (V1_REMOVALS #2, 2026-11-11). Every send goes through gameLifecycle.emitLobbiesUpdated (the other sites call it). mainRoom: one broadcast while every member gets the same lists; socket: while the ambient demo game is listed and an AMBIENT_CHAT_USERS account (default test1; server/utils/ambientChatUsers.js) is in the main room, each main-room socket gets its own copy, with the demo game in inProgressGames for that audience only (owner, 2026-11-14). Same shape either way.',
     },
 
     // ==================== Lobby ====================
