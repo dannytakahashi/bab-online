@@ -450,7 +450,10 @@ card survives fold and unfold, the trick collects across a fold.
   largest zoom (`CardTextureGenerator.textureZoom` 1.4: 280 x 406 px on a 2x iPad,
   54 faces = 24.55 MB); a phone's stay 1:1 at zoom 1 (300 x 435 on 3x, unchanged).
   Avatar circles render at the same factor.
-  The card back is not prewarmed (no table sprite uses it; the draw is SwiftUI).
+  No table sprite uses the card back (the draw for deal is SwiftUI): since 1.2.1 it
+  is the web's red lattice, rendered at the draw card's own size
+  (`cardBackImage(width:)`, 1:1, hinted for that density), which `prewarm()` renders
+  for the key window's draw size; `cardBackTexture()` (unused) draws the same lattice.
 - Effects: the rainbow, bore and OT sprites keep their art's aspect inside their
   box (128 x 118, 80 x 80, 120 x 120). No larger art exists (client/assets has the
   same PNGs): b/2b/3b/4b/ot are registered as 3x (their pixels are ~3x the box),

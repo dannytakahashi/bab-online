@@ -98,6 +98,35 @@ extension Theme {
         static let joker = Palette.Card.joker
     }
 
+    /// The card back (CardTextureGenerator.renderCardBack): the web's lattice in its red ink
+    /// (cardFaces.js drawBack with card.backRed; the draw for deal, the only place iOS shows a
+    /// back, is always before hand 1, where the web's backFrameForHand(0) is red too).
+    enum CardBack {
+        /// The panel, the trellis' ink line and the medallion's moat.
+        static let ink = Palette.Card.backRed
+        /// The cream card, the margin, the rules, beads, trellis lines, dots and lozenges.
+        static let paper = Palette.Card.backPaper
+        /// The card's grey edge, as the faces'.
+        static let edge = Palette.Card.border
+    }
+
+    /// The jokers (CardTextureGenerator.renderJoker): the web's faithful joker (cardFaces.js
+    /// drawJokerFace, JOKER_INK), the old pixel-art sprite's colours. tokens.json has no tokens
+    /// for them (the web keeps them in JOKER_INK too), so these values must match JOKER_INK.
+    /// The word is card red (HI) or card black (LO): `CardInk`.
+    enum JokerInk {
+        /// The sprite's dark slate edge.
+        static let outline = ThemeColor(0x4d5766)
+        /// The light-blue inner border and centre panel.
+        static let frame = ThemeColor(0xc7d7ec)
+        /// The panel's corner flourishes (the face's white).
+        static let flourish = Palette.Card.face
+        /// The double-bar dollar glyph.
+        static let glyph = ThemeColor(0x000000)
+        /// The white patch behind the corner word, where the inner border passes.
+        static let wordPatch = Palette.Card.face
+    }
+
     /// Suit glyphs on a dark surface (trump in the score bar): hearts and diamonds in danger.text.
     static func suitOnDark(_ suit: Suit) -> Color {
         switch suit {
