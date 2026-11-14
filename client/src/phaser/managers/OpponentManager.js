@@ -7,7 +7,7 @@
  * dealer frog live in the DOM HUD's seat nodes (ui/tableHud.js).
  */
 
-import { avatarSrc, applyAvatarImg } from '../../utils/avatar.js';
+import { seatAvatarSrc, applyAvatarImg } from '../../utils/avatar.js';
 import { team, rotate } from '../../utils/positions.js';
 import { getSocketManager } from '../../socket/SocketManager.js';
 import { sceneTween } from '../TableDirector.js';
@@ -312,7 +312,7 @@ export class OpponentManager {
   /** A built avatar takes a new name or picture (only what changed is written). */
   _updateAvatarDom(dom, pic, username) {
     const img = dom.querySelector('.opponent-avatar-img');
-    const src = avatarSrc(pic);
+    const src = seatAvatarSrc(pic);
     if (img && src && dom.dataset.src !== src) {
       applyAvatarImg(img, src);
       dom.dataset.src = src;
@@ -357,8 +357,8 @@ export class OpponentManager {
     const img = document.createElement('img');
     img.className = 'opponent-avatar-img hud-avatar-img';
     // Stock number, inline data URL or /avatar URL (utils/avatar.js)
-    applyAvatarImg(img, avatarSrc(pic));
-    container.dataset.src = avatarSrc(pic) || '';
+    applyAvatarImg(img, seatAvatarSrc(pic));
+    container.dataset.src = seatAvatarSrc(pic) || '';
     img.alt = username;
     // in its seat ring: the team's color, the bid chip and the trick pips (ui/seatPlates.js)
     container.appendChild(buildAvatarRing(img, position));
@@ -458,8 +458,8 @@ export class OpponentManager {
     // Update the image
     const img = dom.querySelector('.opponent-avatar-img');
     if (img) {
-      applyAvatarImg(img, avatarSrc(pic));
-      dom.dataset.src = avatarSrc(pic) || '';
+      applyAvatarImg(img, seatAvatarSrc(pic));
+      dom.dataset.src = seatAvatarSrc(pic) || '';
       img.alt = username;
     }
 

@@ -11,7 +11,8 @@
  * Until the rendition exists (first sight after a restart, a full derive
  * queue), for a stored value that is not a safe image (hostile), or with
  * the pipeline off, a custom picture has no URL and its slot is null: the
- * clients show their neutral picture.
+ * clients show their neutral picture (web: assets/default_avatar.png via
+ * seatAvatarSrc, never stock #1; iOS 1.2.0: the name's initial).
  */
 
 'use strict';

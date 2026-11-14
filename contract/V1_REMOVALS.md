@@ -154,8 +154,8 @@ One PR per entry:
   send no error: a no-op kept as the record). `events-humans-s13` was
   re-recorded (only its one `error` entry is gone: every other entry,
   checkpoint and final snapshot is equal up to the shifted indices).
-  Readers re-checked at eeeeb23, and again for iOS 1.2.0 build 5 (the
-  submitted build, `iOSClient/` at main 92d0c75; build 4 was pulled from
+  Readers re-checked at eeeeb23, and again for iOS 1.2.0 build 5 (the source of
+  build 6, live since 2026-11-13, `iOSClient/` at main 92d0c75; build 4 was pulled from
   review):
   - iOS 1.2.0 (build 5, `iOSClient/`): `SocketService.swift:193` listens to
     `serverError` (toast via `handleServerError:213`, table resync via
@@ -315,7 +315,7 @@ pics entry, which holds the folded URL). So keep `playerInfo` (and its
 an `avatarUrl` on playerLazyMode / playerResigned) and that build is the
 oldest one not gated.
 Still blocked by iOS 1.2.0 build 5 (re-checked 2026-11-13, `iOSClient/` at
-main 92d0c75, the submitted build; build 4 was pulled from review): its
+main 92d0c75, the source of build 6, live since 2026-11-13; build 4 was pulled from review): its
 `.playerResigned` (TableReducer+Events.swift:99-108) and `.playerLazyMode`
 (:114-121) cases still replace `seat.pic` and leave `seat.avatarUrl`, the
 draw for deal's picture (DrawPhaseView.swift:251) and the table seat
@@ -361,7 +361,7 @@ so the fcdd885 golden still pins the rest. Tests: `lifecycle.test.js` (#6
 block), `contract/__tests__/v1Removed.test.js`, transcripts, iOS
 `V1RemovalsTests`.
 Re-checked 2026-11-13 for iOS 1.2.0 build 5 (`iOSClient/` at main 92d0c75,
-the submitted build): `WirePayload.GameStart.players` is still decoded
+the source of build 6, live since 2026-11-13): `WirePayload.GameStart.players` is still decoded
 (WirePayloads.swift:40) and still never read: `TableReducer.gameStart`
 (TableReducer+Events.swift:276) reads only gameId, currentHand, dealer,
 position, trump, hand, hsiValues, score1/score2, playerInfo and avatarUrls.
@@ -396,7 +396,7 @@ position, trump, hand, hsiValues, score1/score2, playerInfo and avatarUrls.
   block), `contract/__tests__/v1Removed.test.js`, transcripts T-draw,
   iOS `V1RemovalsTests`.
   Re-checked 2026-11-13 for iOS 1.2.0 build 5 (`iOSClient/` at main
-  92d0c75, the submitted build): still registered
+  92d0c75, the source of build 6, live since 2026-11-13): still registered
   (GameSocketHandler.swift:13), decoded (ServerEvent.swift:83) and ignored
   (TableReducer+Events.swift:23-24 `break`); build 5 finds my seat from
   positionUpdate (TableReducer+Events.swift:265-271) and the seat gameStart's
@@ -444,7 +444,7 @@ position, trump, hand, hsiValues, score1/score2, playerInfo and avatarUrls.
   joiner gap (the reversed order fails them). The iOS event fixtures lost
   only the spectator viewer's own notice (seq renumbered).
   Re-checked 2026-11-13 for iOS 1.2.0 build 5 (`iOSClient/` at main
-  92d0c75, the submitted build) and web on main: the routing is unchanged
+  92d0c75, the source of build 6, live since 2026-11-13) and web on main: the routing is unchanged
   (lines at 92d0c75: ServerEvent.swift:113-120; the joiner's full state
   lands in TableReducer+Events.swift:181, the notice in :174-176; count
   from TableReducer+Snapshot.swift:73; web main.js:1107 via
@@ -546,7 +546,7 @@ the previous code); transcripts / wireProjection / presence /
 resolvingWindow / seatRecovery / hardening read the snapshot now; the iOS
 event fixtures changed only in the carriers.
 Re-checked 2026-11-13 for iOS 1.2.0 build 5 (`iOSClient/` at main 92d0c75,
-the submitted build): `RejoinEnvelope` (WirePayloads.swift:127-161) decodes
+the source of build 6, live since 2026-11-13): `RejoinEnvelope` (WirePayloads.swift:127-161) decodes
 exactly gameId, avatarUrls, snapshot, isLazy, tournamentId, players and
 trump (only to tell the spectator full state, `hasFullState`), all kept;
 the hints are read at TableReducer+Snapshot.swift:44 (tournamentId), :72
@@ -651,7 +651,7 @@ not needed (VoicePeerSeatTests.testVoicePeersMapToSeatsByUsername runs with
 still pins them byte for byte).
 
 **`positionUpdate.sockets` and iOS 1.2.0 build 5 (re-checked 2026-11-13,
-`iOSClient/` at main 92d0c75, the submitted build; build 4, which read only
+`iOSClient/` at main 92d0c75, the source of build 6, live since 2026-11-13; build 4, which read only
 the `bot:` prefix, was pulled from review).** Build 5 decodes
 `PositionUpdate.isBot: [Bool]?` (WirePayloads.swift:24) and reads `sockets`
 in one place, `TableReducer.positionUpdate` (TableReducer+Events.swift:243),
@@ -770,8 +770,8 @@ relays (today any socket can relay to any socket id). Note iOS
 **A, B, C, D and F done 2026-11-12 (PR #TBD); E kept (blocked by iOS 1.2.0
 and web).** The 2-week clientHello wait was waived by the owner. Readers
 re-checked at BASE eeeeb23 (iOSClient/ = 1.2.0 build 4, web on main), and
-again 2026-11-13 for iOS 1.2.0 build 5 (`iOSClient/` at main 92d0c75, the
-submitted build; build 4 was pulled from review). Build 5 gets every picture
+again 2026-11-13 for iOS 1.2.0 build 5 (`iOSClient/` at main 92d0c75, the source of
+build 6, live since 2026-11-13; build 4 was pulled from review). Build 5 gets every picture
 by `avatarUrl ?? pic`: the table seats (`TableRenderModel.swift:22`
 pictureKey -> `OpponentHandNode.swift:239` -> `AvatarTextureCache.texture`,
 `AvatarTextureCache.swift:35-66`: a stock number loads
@@ -788,13 +788,25 @@ number as before:
   narrowed): web folds `avatarUrls` / `avatarUrl` into the pic fields on
   ingress (`client/src/utils/avatar.js` `foldAvatarPayload`: positionUpdate,
   gameStart, rejoinSuccess / restorePlayerState / spectatorJoined,
-  playerActiveMode) and renders null as its neutral picture. iOS 1.2.0
-  decodes a null slot (`PicWire` → `.none`) and renders `avatarUrl` first
+  playerActiveMode). **Web needed one change for A** (in this PR): web at
+  BASE drew a null seat slot as stock avatar #1 (`avatarSrc(pic)`'s default
+  fallback `assets/profile1.png`, a real animal, at OpponentManager.js
+  :314 / :359 / :460 and GameScene.js :1529), and `updatePlayerInfoBox`
+  ignored null (my own box kept the bot's picture after /active). The seat
+  paths now use `seatAvatarSrc` (null → `assets/default_avatar.png`,
+  utils/avatar.js) and my own box applies it for null too
+  (`client/src/table/nullSeatPic.test.js`). A web tab opened before this
+  deploy and never reloaded still draws such a seat as stock #1 until it
+  reloads (cosmetic; index.html is no-cache, so any reload picks the fix
+  up). iOS 1.2.0 decodes a null slot (`PicWire` → `.none`) and draws the
+  name's initial (OpponentHandNode.swift), and renders `avatarUrl` first
   (TableReducer+Events positionUpdate / gameStart / playerActiveMode,
   TableReducer+Snapshot `seatState` with the carrier's hints). What both lose:
   the inline copy as the fallback when a URL fails (web retries the URL once,
-  then its neutral picture), and a picture whose rendition is not ready or
-  is hostile / undecodable shows as neutral instead of inline.
+  then `default_avatar.png`), and a picture with no URL (rendition not ready
+  or the derive queue full, a hostile / undecodable stored value or a
+  transient derive error, `AVATAR_PIPELINE=off`, no sharp) shows as web's
+  `default_avatar.png` / iOS's initial instead of inline.
 - **B** (profile / leaderboard / search rows: `customProfilePic` always null;
   `$defs.profile`, `$defs.playerSearchRow` narrowed): web reads them through
   `profileAvatarSrc` after folding `avatarUrls` / `avatarUrl`; iOS 1.2.0 has
@@ -814,7 +826,8 @@ number as before:
   `mapPlayers` / `mapProfileRows` shape), the store keeps no inline copy,
   `AVATAR_LEGACY_INLINE` and `server/avatar/placeholder.js` are gone
   (scripts/build-avatars.js no longer writes it). `AVATAR_PIPELINE=off` now
-  means no custom pictures at all, not the pre-pipeline wire.
+  means no custom pictures at all, not the pre-pipeline wire: every custom
+  seat is web's `default_avatar.png` and iOS 1.2.0's initial.
 - **E not done**: iOS 1.2.0 loads `/assets/profile<N>.png` directly
   (`HTTPAvatarLoader.load`, iOSClient/BABOnline/SpriteKit/Nodes/
   OpponentHandNode.swift), and web falls back to `assets/profile<N>.png`
@@ -1135,6 +1148,17 @@ spectator snapshots (#5, #6, #7, #8; web done 2026-11-12).
 
 ## What iOS 1.2.0 unblocks (once 1.1.0 is gated)
 
+Build 6, the App Store build since 2026-11-13, is build 5 plus a new app icon
+(#244 at 775a2e0 changed only the icon assets, the build number and tests; no app source since 92d0c75), so every "build 5" re-check
+below and in the entries above holds for the live app. main's later iOS
+work is 1.2.1: build 7 (TestFlight; #249, #250, #252, #255 on top of build
+6's source) and build 8 (next; + #261 icon, card art and the Stats scope
+picker). What it adds reads nothing removed above: the lobby rows'
+`socketId` (removeBot, kept by #14), `leaderboardResponse` /
+`recordsResponse` with their `scope` echo, failures included (#263),
+`avatarUrls[username]` before `customProfilePic` (null since #19 B: the
+stock picture), and the game-end stats.
+
 iOS 1.2.0 (build 6, live in the App Store since 2026-11-13: build 5 + the new
 app icon, so it reads what build 5 reads; build 3 was uploaded, never
 submitted; build 4 was pulled from review and never ships) does that iOS
@@ -1155,11 +1179,14 @@ above; after it, what 1.2.0 itself still reads is the remaining blocker:
   restoreSession) and renders `avatarUrl` / `avatarUrls` (positionUpdate,
   gameStart, playerActiveMode, rejoin / restore / spectator carriers,
   snapshot seats, the spectator list) through `AvatarTextureCache`
-  (`/avatar/...` paths, URLSession's cache), with the inline picture as the
-  fallback when a URL fails. Step "the clientHello log shows no socket
-  without the cap for 2+ weeks" can start counting once 1.1.0 is gated.
-  1.2.0 does not show profile, leaderboard or search pictures, so #19 B
-  never mattered to iOS.
+  (`/avatar/...` paths, URLSession's cache). 1.2.0 does not show profile,
+  leaderboard or search pictures, so #19 B never mattered to iOS. (Done
+  2026-11-12: A-D and F, the 2-week clientHello wait waived by the owner.
+  No payload carries an inline picture any more, so build 5 has no inline
+  fallback: a custom seat's `pic` slot is null (`PicWire` `.none`), its
+  `fallbackPicture` is nil (TableRenderModel.swift:24), and a failed URL
+  leaves the name's initial (OpponentHandNode.swift:241-243, :90-100; lines
+  at 92d0c75). E stays: build 5 still loads `/assets/profile<N>.png`; #19.)
 - **#9 legacy client-state keys**: `players[].pic` is now only a fallback
   (the carrier's `avatarUrls` and the snapshot's `avatarUrl` come first) and
   `players[].socketId` is no longer needed for the speaking glows (below).
@@ -1174,7 +1201,7 @@ above; after it, what 1.2.0 itself still reads is the remaining blocker:
   `TableRenderModel.seat(forVoicePeer:username:)`), the seat socket id only
   as a fallback. The voice signaling itself targets socket ids
   (`voiceOffer.targetSocketId`, `fromSocketId`), which #14 does not remove.
-  `positionUpdate.sockets`: build 5 (the submitted 1.2.0) reads
+  `positionUpdate.sockets`: build 5 (the source of the live build 6) reads
   `positionUpdate.isBot[]` first and the `bot:` prefix only when it is
   absent or short (TableReducer+Events.swift:252), finds my own seat by
   socket id, then by username (:265-270), and uses the ids for the glow only
