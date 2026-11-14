@@ -124,7 +124,8 @@ expected team score (`BotStrategy.js`, "Expected-value bidding"):
   group), shifted by numeric opponent bids already made;
 - partner: their bid plus their mean overtricks if they bid first, else an
   average over what a second-of-team partner bids;
-- team tricks ~ Normal(mean, TEAM_SD) discretized to 0..handSize, each bid
+- team tricks ~ Normal(mean, TEAM_SD, or the wider TEAM_SD_NO_TRUMP when a
+  joker was flipped) discretized to 0..handSize, each bid
   scored with the real contract scoring (team bid capped at the hand size; an
   all-zero table's last 0 counts as a redeal).
 
@@ -173,3 +174,22 @@ rate is flat there, 2 kept for the points. Personalities (`--exp
 personalities --games 8000 --seed 51`): sharon+mary 47.5%, danny+mary 50.1%,
 mike+mary 47.8%, zach+mary 48.8% (±1.1). A bid decision takes ~0.05 ms.
 Zero incidents and zero exceptions in every run.
+
+## EV follow-ups (November 2026)
+
+Paired ("duplicate") runs: every deal set is played twice with the seats
+swapped, so both pairs play the same cards; 95% CIs over deal sets.
+
+**No-trump spread.** No-trump hands were already on the EV path, with their
+own fitted card values, but they shared the trump hands' spread. Their team
+tricks spread far wider (residual SD 1.10 vs 0.79 on 3-4 cards, 1.47 vs 1.13
+on 11-13), so the bidder treated them as safer than they are: team set rate
+13.4% on no-trump vs 6.5% on trump (Mary self-play, seed 701). Richer
+no-trump features (guarded kings / queens, long suits, voids) cut the
+residual by under 2%, so the fix is the spread: `fitBidModel.js` now fits
+`TEAM_SD_NO_TRUMP` (by hand size) from no-trump rows and `TEAM_SD` from
+trump rows only. Refit three rounds on seeds 701-724 (16000 games per round).
+Against the previous tables (8000 deal sets, seed 811): no-trump team sets
+14.7% → 10.4%, +0.37 ±0.35 points per no-trump hand, game win rate 50.3%
+±0.3, margin +0.7 ±0.5; danny+zach (4000, seed 812) 50.2% ±0.5.
+

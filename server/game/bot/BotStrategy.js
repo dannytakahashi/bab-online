@@ -15,7 +15,7 @@ const {
     determineWinner
 } = require('../rules');
 const { getBidStyle, getPlayStyle } = require('./personalities');
-const { OWN_TRICKS, PARTNER_OVER, TEAM_SD, SECOND_BID_PMF } = require('./bidModel');
+const { OWN_TRICKS, PARTNER_OVER, TEAM_SD, TEAM_SD_NO_TRUMP, SECOND_BID_PMF } = require('./bidModel');
 
 // --- Hand progression for determining game phase ---
 const HAND_PROGRESSION = [12, 10, 8, 6, 4, 2, 1, 3, 5, 7, 9, 11, 13];
@@ -907,10 +907,11 @@ function contractScore(teamBid, tricks) {
  * @param {number|null} partnerBid - partner's numeric bid, or null if partner bids after us
  * @param {number} partnerOver - expected (partner tricks - partner bid)
  * @param {boolean} zeroRedeals - an all-zero table redeals, so our 0 is worth 0
+ * @param {boolean} noTrump - a joker was flipped: team tricks spread wider
  */
-function bidExpectedValues(ownMean, handSize, partnerBid, partnerOver, zeroRedeals = false) {
+function bidExpectedValues(ownMean, handSize, partnerBid, partnerOver, zeroRedeals = false, noTrump = false) {
     const weBidFirst = partnerBid === null;
-    const sd = TEAM_SD[handSize][weBidFirst ? 'first' : 'second'];
+    const sd = noTrump ? TEAM_SD_NO_TRUMP[handSize] : TEAM_SD[handSize][weBidFirst ? 'first' : 'second'];
     // Bidding second we know the partner's bid; bidding first we average over
     // what a second-of-team partner typically adds
     const scenarios = weBidFirst
@@ -1028,7 +1029,7 @@ function calculateOptimalBid(hand, trump, position, existingBids, handSize, memo
         }
         // Last to bid over three zeros: our 0 redeals the hand
         const zeroRedeals = partnerBidValue === 0 && opponentBidCount === 2 && opponentTotalBid === 0;
-        const evs = bidExpectedValues(ownMean, handSize, partnerBidValue, partnerOver, zeroRedeals);
+        const evs = bidExpectedValues(ownMean, handSize, partnerBidValue, partnerOver, zeroRedeals, noTrump);
 
         // Late game: behind, take the highest near-best bid (variance is
         // worth points); ahead, the lowest

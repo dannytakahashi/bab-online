@@ -1457,6 +1457,25 @@ describe('expected-value bidding', () => {
         expect(bidExpectedValues(0.2, 3, 0, 0.2, true)[0]).toBe(0);
     });
 
+    test('no-trump hands use their own, wider spread and so keep a bigger margin', () => {
+        const { TEAM_SD, TEAM_SD_NO_TRUMP } = require('../bidModel');
+        for (let n = 3; n <= 13; n++) {
+            expect(TEAM_SD_NO_TRUMP[n]).toBeGreaterThan(TEAM_SD[n].first);
+        }
+        let lower = 0;
+        for (let n = 3; n <= 13; n++) {
+            for (let mean = 0.5; mean <= n; mean += 0.25) {
+                for (const pb of [null, 1]) {
+                    const tr = pickBidFromEV(bidExpectedValues(mean, n, pb, 0.4, false, false));
+                    const nt = pickBidFromEV(bidExpectedValues(mean, n, pb, 0.4, false, true));
+                    expect(nt).toBeLessThanOrEqual(tr);
+                    if (nt < tr) lower++;
+                }
+            }
+        }
+        expect(lower).toBeGreaterThan(0);
+    });
+
     test('pickBidFromEV leans within the tolerance only', () => {
         const evs = [5, 10, 9, 2];
         expect(pickBidFromEV(evs)).toBe(1);

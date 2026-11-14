@@ -131,7 +131,7 @@ function loadRows(files) {
 }
 
 function fit(rows) {
-    const m = { trump: {}, noTrump: {}, partnerOver: {}, teamSd: {}, secondBidPmf: {} };
+    const m = { trump: {}, noTrump: {}, partnerOver: {}, teamSd: {}, teamSdNoTrump: {}, secondBidPmf: {} };
     for (const G of GROUPS) {
         m.trump[G] = fitLinear(rows.filter(r => r.G === G && !r.nt)
             .map(r => ({ x: [1, ...TRUMP_KEYS.map(k => r.F[k])], y: r.tricks })), 1);
@@ -152,14 +152,15 @@ function fit(rows) {
             return ps.reduce((s, r) => s + r.ptricks - r.pb, 0) / ps.length;
         };
         m.partnerOver[n] = { first: over(true), second: over(false) };
-        const sd = (weFirst) => {
-            const ps = rs.filter(r => r.weFirst === weFirst);
-            const po = m.partnerOver[n][weFirst ? 'second' : 'first'];
-            const res = ps.map(r => r.tt - (own(r) + r.pb + po));
+        const sd = (ps) => {
+            const res = ps.map(r => r.tt - (own(r) + r.pb + m.partnerOver[n][r.weFirst ? 'second' : 'first']));
             const mean = res.reduce((a, b) => a + b, 0) / res.length;
             return Math.sqrt(res.reduce((a, b) => a + (b - mean) ** 2, 0) / res.length);
         };
-        m.teamSd[n] = { first: sd(true), second: sd(false) };
+        m.teamSd[n] = { first: sd(rs.filter(r => !r.nt && r.weFirst)), second: sd(rs.filter(r => !r.nt && !r.weFirst)) };
+        // No-trump team tricks spread much wider than trump hands' (one joker
+        // in play, nothing ruffs); too few rows to split by bidding order
+        m.teamSdNoTrump[n] = sd(rs.filter(r => r.nt));
         const sec = rs.filter(r => r.weFirst);
         const pmf = new Array(n + 1).fill(0);
         for (const r of sec) pmf[Math.min(r.pb, n)]++;
@@ -191,7 +192,8 @@ function render(m, rowCount, note) {
  *   partner      = partner's bid + PARTNER_OVER (partner bid first), or a
  *                  bid drawn from SECOND_BID_PMF plus PARTNER_OVER (partner
  *                  bids after us)
- *   team tricks  ~ Normal(own + partner, TEAM_SD), discretized to 0..handSize
+ *   team tricks  ~ Normal(own + partner, TEAM_SD or TEAM_SD_NO_TRUMP),
+ *                  discretized to 0..handSize
  * and the bot bids whatever maximizes the expected team score.
  */
 'use strict';
@@ -220,9 +222,15 @@ const PARTNER_OVER = {`);
     lines.push(`};
 
 // Standard deviation of team tricks around the model's mean, by hand size and
-// our own place in the team's bidding order.
+// our own place in the team's bidding order (trump hands).
 const TEAM_SD = {`);
     for (let n = 3; n <= 13; n++) lines.push(`    ${n}: { first: ${r2(m.teamSd[n].first)}, second: ${r2(m.teamSd[n].second)} },`);
+    lines.push(`};
+
+// The same for no-trump hands, by hand size: wider, so the bidder keeps a
+// bigger margin there.
+const TEAM_SD_NO_TRUMP = {`);
+    for (let n = 3; n <= 13; n++) lines.push(`    ${n}: ${r2(m.teamSdNoTrump[n])},`);
     lines.push(`};
 
 // Distribution of the second-of-team bid (index = bid), by hand size: what a
@@ -235,7 +243,7 @@ const SECOND_BID_PMF = {`);
     }
     lines.push(`};
 
-module.exports = { OWN_TRICKS, PARTNER_OVER, TEAM_SD, SECOND_BID_PMF };
+module.exports = { OWN_TRICKS, PARTNER_OVER, TEAM_SD, TEAM_SD_NO_TRUMP, SECOND_BID_PMF };
 `);
     return lines.join('\n');
 }
