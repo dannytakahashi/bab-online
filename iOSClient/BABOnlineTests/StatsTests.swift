@@ -133,6 +133,47 @@ final class StatsTests: XCTestCase {
         XCTAssertEqual(GameRecords.Period.allCases.map(\.title), ["All Time", "This Year", "This Month"])
     }
 
+    /// periodGames (additive 2026-11-14): each period's count; owner: the one total never
+    /// changed with the selected period.
+    func testRecordsPeriodGames() throws {
+        let reply: [String: Any] = ["success": true, "totalGames": 101,
+                                    "periodGames": ["allTime": 101, "thisYear": 40, "thisMonth": 12],
+                                    "records": ["allTime": fullPeriod, "thisYear": fullPeriod, "thisMonth": fullPeriod]]
+        let r = try XCTUnwrap(GameRecords.from(response: reply))
+        XCTAssertEqual(r.totalGames, 101, "totalGames is kept as sent")
+        XCTAssertEqual(r.games(in: .allTime), 101)
+        XCTAssertEqual(r.games(in: .thisYear), 40)
+        XCTAssertEqual(r.games(in: .thisMonth), 12)
+        XCTAssertFalse(r.isEmpty)
+    }
+
+    func testRecordsPeriodGamesMissingOrMalformed() throws {
+        // a server from before periodGames: All Time falls back to totalGames, the others unknown
+        let old = try XCTUnwrap(GameRecords.from(response: ["success": true, "totalGames": 7, "records": ["allTime": fullPeriod]]))
+        XCTAssertEqual(old.games(in: .allTime), 7)
+        XCTAssertNil(old.games(in: .thisYear), "never the all-time total under This Year")
+        XCTAssertNil(old.games(in: .thisMonth))
+        // StatsWire style: numeric strings count; negatives, booleans, garbage and missing keys do not
+        let odd = try XCTUnwrap(GameRecords.from(response: ["success": true, "totalGames": 7,
+                                                            "periodGames": ["allTime": "9", "thisYear": -1, "thisMonth": true, "extra": 3] as [String: Any]]))
+        XCTAssertEqual(odd.games(in: .allTime), 9, "periodGames wins over totalGames")
+        XCTAssertNil(odd.games(in: .thisYear))
+        XCTAssertNil(odd.games(in: .thisMonth))
+        let partial = try XCTUnwrap(GameRecords.from(response: ["success": true, "periodGames": ["thisMonth": 2]]))
+        XCTAssertNil(partial.games(in: .allTime), "no allTime and no totalGames: no count")
+        XCTAssertEqual(partial.games(in: .thisMonth), 2)
+        let garbled = try XCTUnwrap(GameRecords.from(response: ["success": true, "totalGames": 4, "periodGames": "nope"]))
+        XCTAssertEqual(garbled.games(in: .allTime), 4)
+        XCTAssertNil(garbled.games(in: .thisYear))
+    }
+
+    func testRecordsIsEmptyReadsTheAllTimeCount() {
+        XCTAssertTrue(GameRecords(totalGames: nil, periodGames: [.allTime: 0, .thisYear: 0, .thisMonth: 0]).isEmpty)
+        XCTAssertFalse(GameRecords(totalGames: nil, periodGames: [.allTime: 2, .thisYear: 0, .thisMonth: 0]).isEmpty)
+        // a period count alone says nothing about All Time: the periods decide
+        XCTAssertTrue(GameRecords(periodGames: [.thisMonth: 0]).isEmpty)
+    }
+
     func testRecordsWithMissingFields() throws {
         // legacy games without bags (null), a record missing its core field, a period that is not
         // an object, no totalGames, extra keys (the rows are open on the wire)

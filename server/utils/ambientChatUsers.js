@@ -1,18 +1,22 @@
 /**
- * Who sees the ambient bots' main-room chatter (server/demo/ambientBots.js).
- * Owner, 2026-11-12: the bot lines are there for App Review (Guideline
- * 2.1(a): reviewers must see other users' chats), so only the review
- * account sees them; real players keep a main-room chat of humans only.
+ * Who sees the ambient bot activity (server/demo/ambientBots.js): the bots'
+ * main-room chatter (owner, 2026-11-12) and, since 2026-11-14 ("making the
+ * bot demo game only appear for test1 (like we did for the bot chats)"),
+ * the bot-vs-bot demo game too. Both are there for App Review (Guideline
+ * 2.1(a): reviewers must see other users' chats and games), so only the
+ * review account sees them; real players keep a main room of humans only.
  *
  *   AMBIENT_CHAT_USERS unset or blank   the default, DEFAULT_USERS (test1)
  *   AMBIENT_CHAT_USERS=alice,Bob        those usernames (case-insensitive)
  *   AMBIENT_CHAT_USERS=*                everyone (the behavior before this)
  *   AMBIENT_CHAT_USERS=none             nobody
  *
- * Only the main-room chat lines are filtered. The ambient bot-vs-bot game
- * stays listed and spectatable for everyone, and its bots' in-game chat goes
- * to the game's room as before. No dependencies; read on every call (never
- * cached), like server/utils/upgradeGateSwitch.js.
+ * One audience for both (the env name is kept for compatibility): the chat
+ * lines (seesAmbientChat) and the demo game (seesAmbientGame: listed in
+ * mainRoomJoined / lobbiesUpdated, spectatable, counted as demand for it).
+ * The demo game's own in-game bot chat goes to its room, whose members are
+ * that audience. No dependencies; read on every call (never cached), like
+ * server/utils/upgradeGateSwitch.js.
  */
 
 'use strict';
@@ -36,4 +40,16 @@ function seesAmbientChat(username, env = process.env) {
     return typeof username === 'string' && audience.names.has(username.toLowerCase());
 }
 
-module.exports = { ambientChatAudience, seesAmbientChat, DEFAULT_USERS };
+/** Does `username` see the ambient demo game (listed, spectatable)? Same audience. */
+function seesAmbientGame(username, env = process.env) {
+    return seesAmbientChat(username, env);
+}
+
+module.exports = {
+    ambientChatAudience,
+    // The same audience under its general name (chat lines and demo game)
+    ambientAudience: ambientChatAudience,
+    seesAmbientChat,
+    seesAmbientGame,
+    DEFAULT_USERS
+};

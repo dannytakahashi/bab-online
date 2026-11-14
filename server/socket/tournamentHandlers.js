@@ -43,11 +43,7 @@ function createTournament(socket, io) {
     socket.emit('tournamentCreated', tournament.getClientState());
 
     // Notify main room
-    io.to('mainRoom').emit('lobbiesUpdated', {
-        lobbies: gameManager.getAllLobbies(),
-        inProgressGames: gameManager.getInProgressGames(),
-        tournaments: gameManager.getAllTournaments()
-    });
+    emitLobbiesUpdated(io);
 
     socketLogger.info('Tournament created', {
         socketId: socket.id,
@@ -132,11 +128,7 @@ async function joinTournament(socket, io, data) {
     });
 
     // Notify main room
-    io.to('mainRoom').emit('lobbiesUpdated', {
-        lobbies: gameManager.getAllLobbies(),
-        inProgressGames: gameManager.getInProgressGames(),
-        tournaments: gameManager.getAllTournaments()
-    });
+    emitLobbiesUpdated(io);
 
     socketLogger.info('Player joined tournament', {
         socketId: socket.id,
@@ -158,7 +150,7 @@ function sendToMainRoom(socket) {
         lobbies: mainRoomResult.lobbies,
         onlineCount: onlineUsers.length,
         onlineUsers,
-        inProgressGames: gameManager.getInProgressGames(),
+        inProgressGames: gameManager.getInProgressGames(mainRoomResult.username),
         tournaments: gameManager.getAllTournaments()
     });
 }
@@ -234,11 +226,7 @@ async function leaveTournament(socket, io) {
 
     if (result.deleted) {
         // Tournament was deleted — notify main room
-        io.to('mainRoom').emit('lobbiesUpdated', {
-            lobbies: gameManager.getAllLobbies(),
-            inProgressGames: gameManager.getInProgressGames(),
-            tournaments: gameManager.getAllTournaments()
-        });
+        emitLobbiesUpdated(io);
         socketLogger.info('Player left tournament (deleted)', {
             socketId: socket.id,
             username: user?.username,
@@ -255,11 +243,7 @@ async function leaveTournament(socket, io) {
     });
 
     // Notify main room
-    io.to('mainRoom').emit('lobbiesUpdated', {
-        lobbies: gameManager.getAllLobbies(),
-        inProgressGames: gameManager.getInProgressGames(),
-        tournaments: gameManager.getAllTournaments()
-    });
+    emitLobbiesUpdated(io);
 
     socketLogger.info('Player left tournament', {
         socketId: socket.id,
@@ -728,13 +712,15 @@ function spectateTournament(socket, io, data) {
 function spectateTournamentGame(socket, io, data) {
     const { gameId } = data;
 
-    const game = gameManager.getGameById(gameId);
+    // Any game id is accepted here; the ambient demo game is "not found"
+    // outside its audience (AMBIENT_CHAT_USERS), as in joinAsSpectator
+    const user = gameManager.getUserBySocketId(socket.id);
+    const game = gameManager.getGameVisibleTo(gameId, user?.username);
     if (!game) {
         emitError(socket, { message: 'Game not found' }, 'spectateTournamentGame');
         return;
     }
 
-    const user = gameManager.getUserBySocketId(socket.id);
     if (!user) {
         emitError(socket, { message: 'User not found' }, 'spectateTournamentGame');
         return;
@@ -885,11 +871,7 @@ function scheduleTournamentCleanup(io, tournamentId, delayMs = COMPLETED_TOURNAM
         }
         gameManager.deleteTournament(tournamentId);
 
-        io.to('mainRoom').emit('lobbiesUpdated', {
-            lobbies: gameManager.getAllLobbies(),
-            inProgressGames: gameManager.getInProgressGames(),
-            tournaments: gameManager.getAllTournaments()
-        });
+        emitLobbiesUpdated(io);
         socketLogger.info('Completed tournament cleaned up', { tournamentId });
     }, delayMs);
     if (timer.unref) timer.unref();

@@ -10,6 +10,7 @@ const { Controller, Presence } = require('../game/SeatState');
 const seatLifecycle = require('./seatLifecycle');
 const { sendSpectatorJoin } = require('./snapshotHandlers');
 const { releaseStaleLobbySeat, leaveLobby } = require('./lobbyHandlers');
+const { emitLobbiesUpdated } = require('./gameLifecycle');
 
 /**
  * Handle player joining the main room
@@ -51,7 +52,7 @@ function joinMainRoom(socket, io) {
         lobbies: result.lobbies,
         onlineCount: onlineUsers.length,
         onlineUsers,
-        inProgressGames: gameManager.getInProgressGames(),
+        inProgressGames: gameManager.getInProgressGames(result.username),
         tournaments: gameManager.getAllTournaments()
     });
 
@@ -135,11 +136,7 @@ function createLobby(socket, io, data) {
     });
 
     // Notify main room of new lobby
-    io.to('mainRoom').emit('lobbiesUpdated', {
-        lobbies: gameManager.getAllLobbies(),
-        inProgressGames: gameManager.getInProgressGames(),
-        tournaments: gameManager.getAllTournaments()
-    });
+    emitLobbiesUpdated(io);
 
     socketLogger.info('Player created lobby', {
         socketId: socket.id,
@@ -231,11 +228,7 @@ function joinLobby(socket, io, data) {
     }
 
     // Notify main room of updated lobbies
-    io.to('mainRoom').emit('lobbiesUpdated', {
-        lobbies: gameManager.getAllLobbies(),
-        inProgressGames: gameManager.getInProgressGames(),
-        tournaments: gameManager.getAllTournaments()
-    });
+    emitLobbiesUpdated(io);
 
     socketLogger.info('Player joined lobby', {
         socketId: socket.id,
@@ -250,13 +243,16 @@ function joinLobby(socket, io, data) {
 function joinAsSpectator(socket, io, data) {
     const { gameId } = data;
 
-    const game = gameManager.getGameById(gameId);
+    // The ambient demo game is "not found" outside its audience (owner,
+    // 2026-11-14: AMBIENT_CHAT_USERS, default test1), the same reply as an
+    // unknown or ended game
+    const user = gameManager.getUserBySocketId(socket.id);
+    const game = gameManager.getGameVisibleTo(gameId, user?.username);
     if (!game) {
         emitError(socket, { message: 'Game not found' }, 'joinAsSpectator');
         return;
     }
 
-    const user = gameManager.getUserBySocketId(socket.id);
     if (!user) {
         emitError(socket, { message: 'User not found' }, 'joinAsSpectator');
         return;

@@ -9,6 +9,12 @@
  * server and swaps the body below it in place when the reply comes
  * (main.js updateRecordsPage). In the bot / all scopes a record's players
  * include bot personas ('🤖 Mary'), plain strings like the rest.
+ *
+ * Game counts (owner 2026-11-14: the one "N games played" line was the
+ * all-time count whatever column you read): each box says how many games
+ * its period holds, from the reply's periodGames. The overall line is shown
+ * only without periodGames (a reply from before it), where it is the
+ * all-time count it always was; with them it would only repeat All Time's.
  */
 
 import { el, openModal } from '../kit/index.js';
@@ -58,16 +64,30 @@ function createRecordEntry(label, tone, data, type) {
   return entry;
 }
 
+/** A game count as the page writes it: the bold number, then "game(s) played". */
+function gamesPlayed(count) {
+  return [el('strong', { text: count.toLocaleString() }), document.createTextNode(count === 1 ? ' game played' : ' games played')];
+}
+
+/** A count the page can show: a non-negative integer, else null (not known). */
+function countOrNull(n) {
+  return Number.isInteger(n) && n >= 0 ? n : null;
+}
+
 /**
  * Create a time period box.
  *
  * @param {string} title - Box title
  * @param {Object|null} periodData - Record data for this period
+ * @param {number|null} games - the period's game count (periodGames), null when not known
  * @returns {HTMLElement} Period box element
  */
-function createPeriodBox(title, periodData) {
+function createPeriodBox(title, periodData, games = null) {
   const box = el('section', { className: 'screen-section records-box' });
-  box.appendChild(el('h3', { className: 'records-box__title', text: title }));
+  const head = el('div', { className: 'records-box__head' });
+  head.appendChild(el('h3', { className: 'records-box__title', text: title }));
+  if (games != null) head.appendChild(el('p', { className: 'records-box__count', children: gamesPlayed(games) }));
+  box.appendChild(head);
 
   if (!periodData) {
     box.appendChild(el('div', { className: 'muted-note', text: 'No games yet' }));
@@ -83,20 +103,37 @@ function createPeriodBox(title, periodData) {
   return box;
 }
 
-/** The total line, the bot-games note when there are none yet, and the three boxes. */
-function renderRecordsBody(records, totalGames, scope) {
-  const body = [];
+/**
+ * Each period's game count from the reply's periodGames (null when the
+ * reply has none or a count is not a non-negative integer).
+ */
+export function periodCounts(periodGames) {
+  const p = periodGames && typeof periodGames === 'object' ? periodGames : {};
+  return {
+    allTime: countOrNull(p.allTime),
+    thisYear: countOrNull(p.thisYear),
+    thisMonth: countOrNull(p.thisMonth),
+  };
+}
 
-  if (scope === 'bots' && !totalGames) {
+/**
+ * The bot-games note when there are none yet, the overall line (only for a
+ * reply without periodGames) and the three boxes, each with its count.
+ */
+function renderRecordsBody(records, totalGames, scope, periodGames) {
+  const body = [];
+  const counts = periodCounts(periodGames);
+  const hasCounts = counts.allTime != null || counts.thisYear != null || counts.thisMonth != null;
+  // the scope's all-time count: periodGames.allTime, else totalGames (the same number)
+  const allTime = counts.allTime ?? countOrNull(totalGames);
+
+  if (scope === 'bots' && !allTime) {
     body.push(el('p', { className: 'scope-note', text: BOT_STATS_EMPTY_NOTE }));
   }
 
-  // Total games played
-  if (totalGames != null) {
-    body.push(el('div', {
-      className: 'records-total',
-      children: [el('strong', { text: totalGames.toLocaleString() }), document.createTextNode(totalGames === 1 ? ' game played' : ' games played')],
-    }));
+  // A reply without periodGames: the one all-time total, as before
+  if (!hasCounts && allTime != null) {
+    body.push(el('div', { className: 'records-total', children: gamesPlayed(allTime) }));
   }
 
   // Three boxes row
@@ -104,9 +141,9 @@ function renderRecordsBody(records, totalGames, scope) {
   body.push(el('div', {
     className: 'records-grid',
     children: [
-      createPeriodBox('All Time', periods.allTime),
-      createPeriodBox('This Year', periods.thisYear),
-      createPeriodBox('This Month', periods.thisMonth),
+      createPeriodBox('All Time', periods.allTime, hasCounts ? allTime : null),
+      createPeriodBox('This Year', periods.thisYear, counts.thisYear),
+      createPeriodBox('This Month', periods.thisMonth, counts.thisMonth),
     ],
   }));
   return body;
@@ -119,14 +156,15 @@ function renderRecordsBody(records, totalGames, scope) {
  * @param {number} [totalGames]
  * @param {Object} [socket] - re-asks for another scope
  * @param {string} [scope] - the scope these records are for (default: the device's choice)
+ * @param {Object} [periodGames] - {allTime, thisYear, thisMonth} game counts (recordsResponse.periodGames)
  */
-export function showRecordsPage(records, totalGames, socket = null, scope = getStatsScope()) {
+export function showRecordsPage(records, totalGames, socket = null, scope = getStatsScope(), periodGames = undefined) {
   // Remove any existing records page
   removeRecordsPage();
 
   currentScope = isStatsScope(scope) ? scope : 'human';
   const region = el('div', { className: 'scope-region', attrs: { id: 'recordsRegion' } });
-  region.replaceChildren(...renderRecordsBody(records, totalGames, currentScope));
+  region.replaceChildren(...renderRecordsBody(records, totalGames, currentScope, periodGames));
   scopeRegion = region;
   const send = createScopeRequester((next) => socket?.emit('getRecords', { scope: next }));
   requester = send;
@@ -170,13 +208,13 @@ function forgetScopeUi() {
  *
  * @returns {boolean} false when no records page is open
  */
-export function updateRecordsPage(records, totalGames, scope) {
+export function updateRecordsPage(records, totalGames, scope, periodGames = undefined) {
   if (!recordsModal || !scopeRegion) return false;
   if (isStatsScope(scope)) {
     currentScope = scope;
     scopeControl?.setValue(scope);
   }
-  scopeRegion.replaceChildren(...renderRecordsBody(records, totalGames, currentScope));
+  scopeRegion.replaceChildren(...renderRecordsBody(records, totalGames, currentScope, periodGames));
   scopeRegion.removeAttribute('aria-busy');
   return true;
 }

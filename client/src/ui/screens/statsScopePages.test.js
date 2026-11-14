@@ -8,7 +8,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { showMainRoom, removeMainRoom } from './MainRoom.js';
 import { showLeaderboardPage, updateLeaderboardPage, leaderboardRequestFailed, removeLeaderboardPage } from './LeaderboardPage.js';
-import { showRecordsPage, updateRecordsPage, recordsRequestFailed, removeRecordsPage } from './RecordsPage.js';
+import { showRecordsPage, updateRecordsPage, recordsRequestFailed, removeRecordsPage, periodCounts } from './RecordsPage.js';
 import {
   showProfilePage, showPlayerProfilePage, updateProfileStats, updatePlayerProfileStats, profileStatsRequestFailed,
   removeProfilePage, removePlayerProfilePage,
@@ -181,6 +181,53 @@ describe('Records', () => {
     radio(document, 'human').click();
     updateRecordsPage({ allTime: null, thisYear: null, thisMonth: null }, 0, 'human');
     expect(document.querySelector('#recordsRegion .scope-note')).toBeNull();
+  });
+
+  // owner 2026-11-14: "the total number of games played doesn't change when selecting this year or this month"
+  const counts = () => [...document.querySelectorAll('#recordsRegion .records-box')].map((box) => [
+    box.querySelector('.records-box__title').textContent,
+    box.querySelector('.records-box__count')?.textContent ?? null,
+  ]);
+
+  it('periodGames: each box says its own period\'s count; no overall line repeating All Time', () => {
+    showRecordsPage({ allTime: period, thisYear: period, thisMonth: period }, 101, socket, 'human', { allTime: 101, thisYear: 40, thisMonth: 1 });
+    expect(counts()).toEqual([['All Time', '101 games played'], ['This Year', '40 games played'], ['This Month', '1 game played']]);
+    expect(document.querySelector('#recordsRegion .records-total')).toBeNull();
+    // the count is the bold number, then the words
+    expect(document.querySelector('#recordsRegion .records-box__count strong').textContent).toBe('101');
+    // a scope switch swaps in that scope's counts
+    radio(document, 'all').click();
+    vi.advanceTimersByTime(200);
+    updateRecordsPage({ allTime: period, thisYear: period, thisMonth: null }, 1234, 'all', { allTime: 1234, thisYear: 3, thisMonth: 0 });
+    expect(counts()).toEqual([['All Time', `${(1234).toLocaleString()} games played`], ['This Year', '3 games played'], ['This Month', '0 games played']]);
+    expect(document.querySelector('#recordsRegion .records-total')).toBeNull();
+  });
+
+  it('a reply without periodGames keeps the one all-time line and no box counts', () => {
+    showRecordsPage({ allTime: period, thisYear: period, thisMonth: period }, 7, socket, 'human');
+    expect(document.querySelector('#recordsRegion .records-total').textContent).toBe('7 games played');
+    expect(counts().every(([, c]) => c === null)).toBe(true);
+    // a malformed periodGames is treated as absent, a bad count alone is hidden
+    updateRecordsPage({ allTime: period, thisYear: period, thisMonth: period }, 7, 'human', 'nope');
+    expect(document.querySelector('#recordsRegion .records-total').textContent).toBe('7 games played');
+    updateRecordsPage({ allTime: period, thisYear: period, thisMonth: period }, 7, 'human', { allTime: 7, thisYear: -1, thisMonth: '2' });
+    expect(counts()).toEqual([['All Time', '7 games played'], ['This Year', null], ['This Month', null]]);
+    expect(document.querySelector('#recordsRegion .records-total')).toBeNull();
+  });
+
+  it('periodCounts keeps only non-negative integers', () => {
+    expect(periodCounts({ allTime: 3, thisYear: 2, thisMonth: 0 })).toEqual({ allTime: 3, thisYear: 2, thisMonth: 0 });
+    expect(periodCounts(undefined)).toEqual({ allTime: null, thisYear: null, thisMonth: null });
+    expect(periodCounts({ allTime: 1.5, thisYear: null, thisMonth: '4' })).toEqual({ allTime: null, thisYear: null, thisMonth: null });
+  });
+
+  it('the bot-games note reads the scope\'s all-time count (periodGames.allTime, else totalGames)', () => {
+    showRecordsPage({ allTime: null, thisYear: null, thisMonth: null }, 0, socket, 'bots', { allTime: 0, thisYear: 0, thisMonth: 0 });
+    expect(document.querySelector('#recordsRegion .scope-note').textContent).toBe(BOT_STATS_EMPTY_NOTE);
+    updateRecordsPage({ allTime: period, thisYear: null, thisMonth: null }, 2, 'bots', { allTime: 2, thisYear: 0, thisMonth: 0 });
+    expect(document.querySelector('#recordsRegion .scope-note')).toBeNull();
+    updateRecordsPage({ allTime: null, thisYear: null, thisMonth: null }, undefined, 'bots', { allTime: 0, thisYear: 0, thisMonth: 0 });
+    expect(document.querySelector('#recordsRegion .scope-note').textContent).toBe(BOT_STATS_EMPTY_NOTE);
   });
 
   it('the choice is shared: switching in Records opens the Leaderboard on the same scope', () => {

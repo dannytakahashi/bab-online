@@ -56,7 +56,10 @@ describe('a solo game at the recorded clock', () => {
           const botLead = trickCards === 0 && myPos !== null && e.data.position !== myPos;
           if (botLead) seen.botLeads++;
           if (botLead && s.trickManager.isCollecting()) seen.onCollect.push(e.i);
-          if (s.cardManager._isDealing) seen.whileDealing.push(e.i);
+          // the scripted human may play the instant its turn opens (a web
+          // player cannot: its hand is not playable while the deal runs), so
+          // only the server-paced bot cards are checked against the deal
+          if (s.cardManager._isDealing && e.data.position !== myPos) seen.whileDealing.push(e.i);
           trickCards = (trickCards + 1) % 4;
         }
         if (e.event === 'gameStart' && e.data.hand) {
