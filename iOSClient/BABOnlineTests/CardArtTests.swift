@@ -89,38 +89,42 @@ final class CardArtTests: XCTestCase {
     func testBackIsTheRedLattice() {
         let backs: [(String, UIImage)] = [("texture size", CardTextureGenerator.cardBackImage())]
             + [60, 73, 90, 100].map { w in ("draw \(Int(w)) pt", CardTextureGenerator.renderBackForTesting(pixelSize: CardTextureGenerator.backPixelSize(width: w))) }
+        XCTAssertEqual(Theme.CardBack.ink, Theme.Palette.Card.backRed)
+        XCTAssertEqual(Theme.CardBack.paper, Theme.Palette.Card.backPaper)
+        for (what, image) in backs { assertRedLattice(Pixels(image), what) }
+    }
+
+    /// The red lattice (cardFaces.js drawBack): cream edge and margin, a card.backRed band,
+    /// the medallion with its paper lozenges, a paper trellis across the field, mostly ink,
+    /// none of the old green back or its suit glyphs.
+    private func assertRedLattice(_ p: Pixels, _ what: String, file: StaticString = #filePath, line: UInt = #line) {
         let ink = Theme.CardBack.ink, paper = Theme.CardBack.paper
-        XCTAssertEqual(ink, Theme.Palette.Card.backRed)
-        XCTAssertEqual(paper, Theme.Palette.Card.backPaper)
-        for (what, image) in backs {
-            let p = Pixels(image)
-            // cream card edge and margin, the ink panel's band
-            XCTAssertTrue(isClose(p.at(8, 217), paper, tol: 6), "\(what): margin \(p.at(8, 217))")
-            XCTAssertTrue(isClose(p.at(150, 8), paper, tol: 6), "\(what): margin")
-            XCTAssertTrue(isClose(p.at(28, 120), ink, tol: 30), "\(what): band \(p.at(28, 120))")
-            XCTAssertTrue(isClose(p.at(272, 315), ink, tol: 30), "\(what): band")
-            // the medallion: ink in the middle, a paper lozenge half a cell above and below it
-            XCTAssertTrue(isClose(p.at(150, 217.5), ink, tol: 30), "\(what): medallion centre \(p.at(150, 217.5))")
-            XCTAssertTrue(isClose(p.at(150, 217.5 - cellY / 2), paper, tol: 40), "\(what): medallion lozenge \(p.at(150, 217.5 - cellY / 2))")
-            XCTAssertTrue(isClose(p.at(150, 217.5 + cellY / 2), paper, tol: 40), "\(what): medallion lozenge")
-            // the trellis: along a row between crossings, the field alternates ink and paper
-            var runs = 0, last: Bool?
-            let y = 217.5 - 3 * cellY - cellY / 4
-            for x in stride(from: field + 2, through: 300 - field - 2, by: 0.5) {
-                let q = p.at(x, y)
-                let light = q.r + q.g + q.b > 3 * 200
-                if let l = last, l != light { runs += 1 }
-                last = light
-            }
-            XCTAssertGreaterThanOrEqual(runs, 16, "\(what): the trellis crosses a row at least 8 times")
-            // most of the panel is ink; none of the old back's greens
-            let inkShare = Double(p.count(ink, tol: 30)) / Double(p.w * p.h)
-            XCTAssertGreaterThan(inkShare, 0.3, "\(what): ink share \(inkShare)")
-            for green in [Theme.Palette.Card.back, Theme.Palette.Card.backBorder, Theme.Palette.Card.backInner] {
-                XCTAssertEqual(p.count(green, tol: 12), 0, "\(what): the old back's green")
-            }
-            XCTAssertEqual(p.count(Theme.Palette.Danger.text, tol: 12), 0, "\(what): the old back's suit glyphs")
+        // cream card edge and margin, the ink panel's band
+        XCTAssertTrue(isClose(p.at(8, 217), paper, tol: 6), "\(what): margin \(p.at(8, 217))", file: file, line: line)
+        XCTAssertTrue(isClose(p.at(150, 8), paper, tol: 6), "\(what): margin", file: file, line: line)
+        XCTAssertTrue(isClose(p.at(28, 120), ink, tol: 30), "\(what): band \(p.at(28, 120))", file: file, line: line)
+        XCTAssertTrue(isClose(p.at(272, 315), ink, tol: 30), "\(what): band", file: file, line: line)
+        // the medallion: ink in the middle, a paper lozenge half a cell above and below it
+        XCTAssertTrue(isClose(p.at(150, 217.5), ink, tol: 30), "\(what): medallion centre \(p.at(150, 217.5))", file: file, line: line)
+        XCTAssertTrue(isClose(p.at(150, 217.5 - cellY / 2), paper, tol: 40), "\(what): medallion lozenge \(p.at(150, 217.5 - cellY / 2))", file: file, line: line)
+        XCTAssertTrue(isClose(p.at(150, 217.5 + cellY / 2), paper, tol: 40), "\(what): medallion lozenge", file: file, line: line)
+        // the trellis: along a row between crossings, the field alternates ink and paper
+        var runs = 0, last: Bool?
+        let y = 217.5 - 3 * cellY - cellY / 4
+        for x in stride(from: field + 2, through: 300 - field - 2, by: 0.5) {
+            let q = p.at(x, y)
+            let light = q.r + q.g + q.b > 3 * 200
+            if let l = last, l != light { runs += 1 }
+            last = light
         }
+        XCTAssertGreaterThanOrEqual(runs, 16, "\(what): the trellis crosses a row at least 8 times", file: file, line: line)
+        // most of the panel is ink; none of the old back's greens
+        let inkShare = Double(p.count(ink, tol: 30)) / Double(p.w * p.h)
+        XCTAssertGreaterThan(inkShare, 0.3, "\(what): ink share \(inkShare)", file: file, line: line)
+        for green in [Theme.Palette.Card.back, Theme.Palette.Card.backBorder, Theme.Palette.Card.backInner] {
+            XCTAssertEqual(p.count(green, tol: 12), 0, "\(what): the old back's green", file: file, line: line)
+        }
+        XCTAssertEqual(p.count(Theme.Palette.Danger.text, tol: 12), 0, "\(what): the old back's suit glyphs", file: file, line: line)
     }
 
     /// The draw renders its back at the draw card's own size (1:1, no resampling), and the
@@ -166,9 +170,7 @@ final class CardArtTests: XCTestCase {
         let tex = CardTextureGenerator.cardBackTexture()
         let p = Pixels(UIImage(cgImage: tex.cgImage()))
         XCTAssertEqual(CGFloat(p.w), CardTextureGenerator.pixelSize().width)
-        XCTAssertTrue(isClose(p.at(150, 217.5), Theme.CardBack.ink, tol: 30))
-        XCTAssertTrue(isClose(p.at(28, 120), Theme.CardBack.ink, tol: 30))
-        XCTAssertEqual(p.count(Theme.Palette.Card.back, tol: 12), 0)
+        assertRedLattice(p, "SpriteKit texture")
     }
 
     // MARK: the jokers

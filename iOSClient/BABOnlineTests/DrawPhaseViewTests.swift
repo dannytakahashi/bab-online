@@ -187,7 +187,7 @@ final class DrawPhaseViewTests: XCTestCase {
             let back = CardTextureGenerator.cardBackImage(width: m.card.width)
             XCTAssertEqual(CGFloat(back.cgImage!.width), (m.card.width * deckWindow.screen.scale).rounded(.up), "back at \(Int(size.width)): 1:1")
             assertShows(back, in: top, of: snapshot(deckWindow), window: deckWindow, "back at \(Int(size.width))", block: 4)
-            assertLattice(in: top, of: snapshot(deckWindow), window: deckWindow, "deck at \(Int(size.width))")
+            assertLattice(back, in: top, of: snapshot(deckWindow), window: deckWindow, "deck at \(Int(size.width))")
         }
     }
 
@@ -306,26 +306,49 @@ final class DrawPhaseViewTests: XCTestCase {
     }
 
     /// The screen at `rect` shows the red lattice back (owner 2026-11-13): mostly card.backRed
-    /// with paper lines through it, none of the old green back.
-    private func assertLattice(in rect: CGRect, of shot: CGImage, window: UIWindow, _ what: String,
+    /// with paper lines through it, none of the old green back. The lines are a fixed width
+    /// in canvas units, so at a small deck card (56 pt on the closed Duo, k 0.56) they are
+    /// mostly anti-aliased, and a half-point offset of the deck blurs them further: a count of
+    /// pure paper pixels moves with both. So the lattice is read as its paper coverage, each
+    /// pixel's place between card.backRed (0) and card.backPaper (1) averaged over the part,
+    /// which resampling and sub-pixel shifts keep, and compared with the back's own bitmap
+    /// over the same part of the card.
+    private func assertLattice(_ art: UIImage, in rect: CGRect, of shot: CGImage, window: UIWindow, _ what: String,
                                file: StaticString = #filePath, line: UInt = #line) {
         let scale = window.screen.scale
         let origin = DrawLayoutProbe.lastContainer.origin
         let inner = rect.offsetBy(dx: origin.x, dy: origin.y).insetBy(dx: rect.width * 0.15, dy: rect.width * 0.15)
         let px = CGRect(x: inner.minX * scale, y: inner.minY * scale, width: inner.width * scale, height: inner.height * scale).integral
         guard let crop = shot.cropping(to: px) else { return XCTFail("\(what): no pixels at \(px)", file: file, line: line) }
+        // the art's same inner part, at the crop's pixels
+        let full = art.cgImage!
+        let k = CGFloat(full.width) / rect.width
+        let artInner = CGRect(x: rect.width * 0.15 * k, y: rect.width * 0.15 * k, width: inner.width * k, height: inner.height * k).integral
+        guard let ref = full.cropping(to: artInner) else { return XCTFail("\(what): no art at \(artInner)", file: file, line: line) }
         let n = (crop.width, crop.height)
-        let a = pixels(crop, size: n)
-        func near(_ c: ThemeColor, _ tol: Int) -> Int {
-            let q = (Int(c.red * 255), Int(c.green * 255), Int(c.blue * 255))
-            return stride(from: 0, to: a.count, by: 4).filter { p in
-                abs(Int(a[p]) - q.0) <= tol && abs(Int(a[p + 1]) - q.1) <= tol && abs(Int(a[p + 2]) - q.2) <= tol
-            }.count
-        }
         let total = Double(n.0 * n.1)
-        let red = Double(near(Theme.CardBack.ink, 30)) / total, paper = Double(near(Theme.CardBack.paper, 30)) / total
+        func rgb(_ c: ThemeColor) -> [Double] { [Double(c.red) * 255, Double(c.green) * 255, Double(c.blue) * 255] }
+        let ink = rgb(Theme.CardBack.ink), paperRGB = rgb(Theme.CardBack.paper)
+        let axis = zip(paperRGB, ink).map { $0 - $1 }, axis2 = axis.reduce(0) { $0 + $1 * $1 }
+        func share(_ a: [UInt8], _ c: ThemeColor, _ tol: Int) -> Double {
+            let q = rgb(c).map { Int($0) }
+            return Double(stride(from: 0, to: a.count, by: 4).filter { p in
+                abs(Int(a[p]) - q[0]) <= tol && abs(Int(a[p + 1]) - q[1]) <= tol && abs(Int(a[p + 2]) - q[2]) <= tol
+            }.count) / total
+        }
+        func coverage(_ a: [UInt8]) -> Double {
+            stride(from: 0, to: a.count, by: 4).reduce(0.0) { sum, p in
+                let t = (0..<3).reduce(0.0) { $0 + (Double(a[p + $1]) - ink[$1]) * axis[$1] } / axis2
+                return sum + min(1, max(0, t))
+            } / total
+        }
+        let a = pixels(crop, size: n), b = pixels(ref, size: n)
+        let red = share(a, Theme.CardBack.ink, 30), paper = coverage(a), artPaper = coverage(b)
+        print("[DrawArt] \(what): \(n.0)x\(n.1) px, red \(String(format: "%.3f", red)), paper coverage \(String(format: "%.4f", paper)) (the art's \(String(format: "%.4f", artPaper)))")
         XCTAssertGreaterThan(red, 0.3, "\(what): red ink \(red)", file: file, line: line)
-        XCTAssertGreaterThan(paper, 0.05, "\(what): paper lattice \(paper)", file: file, line: line)
-        XCTAssertEqual(near(Theme.Palette.Card.back, 12), 0, "\(what): the old green back", file: file, line: line)
+        // the art has its paper lattice (a plain red panel has next to none) and the screen shows as much of it
+        XCTAssertGreaterThan(artPaper, 0.08, "\(what): the back's own paper lattice \(artPaper)", file: file, line: line)
+        XCTAssertEqual(paper, artPaper, accuracy: 0.1 * artPaper, "\(what): paper lattice \(paper), the art's \(artPaper)", file: file, line: line)
+        XCTAssertEqual(share(a, Theme.Palette.Card.back, 12), 0, "\(what): the old green back", file: file, line: line)
     }
 }
