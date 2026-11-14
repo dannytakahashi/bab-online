@@ -75,7 +75,7 @@ function mapPlayers(game, players, kind) {
 }
 
 /**
- * A getClientState()/spectatorJoinState() result (players[] inside) for one
+ * A snapshot carrier's v1 part (players[] inside; snapshotHandlers.carrierFor) for one
  * recipient: players mapped, avatarUrls added for a capable one when there
  * is a URL. A shallow copy; the input is never mutated.
  */

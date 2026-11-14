@@ -964,7 +964,12 @@ class GameState {
     }
 
     /**
-     * Get current game state for a rejoining client
+     * The legacy (cc865b4) client-state projection of the game for seat
+     * socket `socketId`. Not sent since V1_REMOVALS #9 (2026-11-12): the
+     * snapshot carriers send {snapshot} plus a few v1 keys
+     * (snapshotHandlers.carrierFor). Kept as the seat model's legacy
+     * projection for tests (SeatState, wireProjection, wireCompat's cc865b4
+     * comparison).
      * @param {string} socketId - Socket ID of the player
      * @returns {Object} - Game state object
      */

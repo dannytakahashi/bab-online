@@ -4154,101 +4154,10 @@
               "gameId": {
                 "type": "string"
               },
-              "position": {
-                "anyOf": [
-                  {
-                    "$ref": "#/$defs/position"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "hand": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/$defs/card"
-                }
-              },
-              "trump": {
-                "anyOf": [
-                  {
-                    "$ref": "#/$defs/card"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "currentHand": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 13
-              },
-              "dealer": {
-                "$ref": "#/$defs/position"
-              },
-              "phase": {
-                "enum": [
-                  "waiting",
-                  "drawing",
-                  "bidding"
-                ]
-              },
-              "bidding": {
-                "type": "boolean"
-              },
-              "currentTurn": {
-                "$ref": "#/$defs/position"
-              },
-              "bids": {
-                "$ref": "#/$defs/legacyBids"
-              },
-              "playerBids": {
-                "$ref": "#/$defs/bidArray"
-              },
-              "tricks": {
-                "$ref": "#/$defs/teamPair"
-              },
-              "score": {
-                "$ref": "#/$defs/teamPair"
-              },
-              "playedCards": {
-                "$ref": "#/$defs/playedCards"
-              },
-              "leadPosition": {
-                "$ref": "#/$defs/position"
-              },
-              "isTrumpBroken": {
-                "type": "boolean"
-              },
               "players": {
                 "type": "array",
                 "items": {
                   "$ref": "#/$defs/playerInfoV1"
-                },
-                "maxItems": 4
-              },
-              "gameLog": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/$defs/gameLogEntry"
-                }
-              },
-              "hsiValues": {
-                "$ref": "#/$defs/hsiValues"
-              },
-              "resignedPositions": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/$defs/position"
-                },
-                "maxItems": 4
-              },
-              "lazyPositions": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/$defs/position"
                 },
                 "maxItems": 4
               },
@@ -4264,26 +4173,7 @@
             },
             "required": [
               "gameId",
-              "position",
-              "hand",
-              "trump",
-              "currentHand",
-              "dealer",
-              "phase",
-              "bidding",
-              "currentTurn",
-              "bids",
-              "playerBids",
-              "tricks",
-              "score",
-              "playedCards",
-              "leadPosition",
-              "isTrumpBroken",
               "players",
-              "gameLog",
-              "hsiValues",
-              "resignedPositions",
-              "lazyPositions",
               "isLazy",
               "tournamentId"
             ],
@@ -4296,101 +4186,10 @@
               "gameId": {
                 "type": "string"
               },
-              "position": {
-                "anyOf": [
-                  {
-                    "$ref": "#/$defs/position"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "hand": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/$defs/card"
-                }
-              },
-              "trump": {
-                "anyOf": [
-                  {
-                    "$ref": "#/$defs/card"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "currentHand": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 13
-              },
-              "dealer": {
-                "$ref": "#/$defs/position"
-              },
-              "phase": {
-                "enum": [
-                  "waiting",
-                  "drawing",
-                  "bidding"
-                ]
-              },
-              "bidding": {
-                "type": "boolean"
-              },
-              "currentTurn": {
-                "$ref": "#/$defs/position"
-              },
-              "bids": {
-                "$ref": "#/$defs/legacyBids"
-              },
-              "playerBids": {
-                "$ref": "#/$defs/bidArray"
-              },
-              "tricks": {
-                "$ref": "#/$defs/teamPair"
-              },
-              "score": {
-                "$ref": "#/$defs/teamPair"
-              },
-              "playedCards": {
-                "$ref": "#/$defs/playedCards"
-              },
-              "leadPosition": {
-                "$ref": "#/$defs/position"
-              },
-              "isTrumpBroken": {
-                "type": "boolean"
-              },
               "players": {
                 "type": "array",
                 "items": {
                   "$ref": "#/$defs/playerInfoV1"
-                },
-                "maxItems": 4
-              },
-              "gameLog": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/$defs/gameLogEntry"
-                }
-              },
-              "hsiValues": {
-                "$ref": "#/$defs/hsiValues"
-              },
-              "resignedPositions": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/$defs/position"
-                },
-                "maxItems": 4
-              },
-              "lazyPositions": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/$defs/position"
                 },
                 "maxItems": 4
               },
@@ -4400,26 +4199,7 @@
             },
             "required": [
               "gameId",
-              "position",
-              "hand",
-              "trump",
-              "currentHand",
-              "dealer",
-              "phase",
-              "bidding",
-              "currentTurn",
-              "bids",
-              "playerBids",
-              "tricks",
-              "score",
-              "playedCards",
-              "leadPosition",
-              "isTrumpBroken",
               "players",
-              "gameLog",
-              "hsiValues",
-              "resignedPositions",
-              "lazyPositions",
               "isLazy"
             ],
             "additionalProperties": false
@@ -4488,131 +4268,17 @@
           "gameId": {
             "type": "string"
           },
-          "position": {
-            "anyOf": [
-              {
-                "$ref": "#/$defs/position"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "hand": {
-            "type": "array",
-            "items": {
-              "$ref": "#/$defs/card"
-            }
-          },
-          "trump": {
-            "anyOf": [
-              {
-                "$ref": "#/$defs/card"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "currentHand": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 13
-          },
-          "dealer": {
-            "$ref": "#/$defs/position"
-          },
-          "phase": {
-            "enum": [
-              "waiting",
-              "drawing",
-              "bidding"
-            ]
-          },
-          "bidding": {
-            "type": "boolean"
-          },
-          "currentTurn": {
-            "$ref": "#/$defs/position"
-          },
-          "bids": {
-            "$ref": "#/$defs/legacyBids"
-          },
-          "playerBids": {
-            "$ref": "#/$defs/bidArray"
-          },
-          "tricks": {
-            "$ref": "#/$defs/teamPair"
-          },
-          "score": {
-            "$ref": "#/$defs/teamPair"
-          },
-          "playedCards": {
-            "$ref": "#/$defs/playedCards"
-          },
-          "leadPosition": {
-            "$ref": "#/$defs/position"
-          },
-          "isTrumpBroken": {
-            "type": "boolean"
-          },
           "players": {
             "type": "array",
             "items": {
               "$ref": "#/$defs/playerInfoV1"
             },
             "maxItems": 4
-          },
-          "gameLog": {
-            "type": "array",
-            "items": {
-              "$ref": "#/$defs/gameLogEntry"
-            }
-          },
-          "hsiValues": {
-            "$ref": "#/$defs/hsiValues"
-          },
-          "resignedPositions": {
-            "type": "array",
-            "items": {
-              "$ref": "#/$defs/position"
-            },
-            "maxItems": 4
-          },
-          "lazyPositions": {
-            "type": "array",
-            "items": {
-              "$ref": "#/$defs/position"
-            },
-            "maxItems": 4
-          },
-          "isLazy": {
-            "type": "boolean"
           }
         },
         "required": [
           "gameId",
-          "position",
-          "hand",
-          "trump",
-          "currentHand",
-          "dealer",
-          "phase",
-          "bidding",
-          "currentTurn",
-          "bids",
-          "playerBids",
-          "tricks",
-          "score",
-          "playedCards",
-          "leadPosition",
-          "isTrumpBroken",
-          "players",
-          "gameLog",
-          "hsiValues",
-          "resignedPositions",
-          "lazyPositions",
-          "isLazy"
+          "players"
         ],
         "additionalProperties": false
       },
@@ -5008,74 +4674,12 @@
                     "type": "null"
                   }
                 ]
-              },
-              "currentHand": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 13
-              },
-              "dealer": {
-                "$ref": "#/$defs/position"
-              },
-              "phase": {
-                "enum": [
-                  "waiting",
-                  "drawing",
-                  "bidding"
-                ]
-              },
-              "bidding": {
-                "type": "boolean"
-              },
-              "currentTurn": {
-                "$ref": "#/$defs/position"
-              },
-              "bids": {
-                "$ref": "#/$defs/legacyBids"
-              },
-              "playerBids": {
-                "$ref": "#/$defs/bidArray"
-              },
-              "tricks": {
-                "$ref": "#/$defs/teamPair"
-              },
-              "score": {
-                "$ref": "#/$defs/teamPair"
-              },
-              "playedCards": {
-                "$ref": "#/$defs/playedCards"
-              },
-              "isTrumpBroken": {
-                "type": "boolean"
-              },
-              "gameLog": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/$defs/gameLogEntry"
-                }
-              },
-              "spectatorCount": {
-                "type": "integer",
-                "minimum": 0
               }
             },
             "required": [
               "gameId",
               "players",
-              "trump",
-              "currentHand",
-              "dealer",
-              "phase",
-              "bidding",
-              "currentTurn",
-              "bids",
-              "playerBids",
-              "tricks",
-              "score",
-              "playedCards",
-              "isTrumpBroken",
-              "gameLog",
-              "spectatorCount"
+              "trump"
             ],
             "additionalProperties": false
           },

@@ -6,9 +6,7 @@ const gameManager = require('../game/GameManager');
 const { Controller, Presence } = require('../game/SeatState');
 const seatLifecycle = require('./seatLifecycle');
 const { socketLogger } = require('../utils/logger');
-const { snapshotFor } = require('./snapshotHandlers');
-const avatarWire = require('../avatar/avatarWire');
-const { hasCap } = require('./clientInfo');
+const { carrierFor } = require('./snapshotHandlers');
 const { getUsersCollection } = require('../database');
 const { verifySession } = require('../utils/sessionTokens');
 const { rememberBlockList } = require('./voiceHandlers');
@@ -170,12 +168,10 @@ async function rejoinGame(socket, io, data) {
         // Same socket asking again: idempotent, never rejoinFailed (the web
         // client drops its game on any rejoinFailed)
         const tournamentId = gameManager.tournamentGames.get(gameId) || null;
-        socket.emit('rejoinSuccess', {
-            ...avatarWire.wireClientState(game, game.getClientState(seat.seatSocketId), hasCap(socket, 'avatarUrl')),
+        socket.emit('rejoinSuccess', carrierFor(game, socket, {
             isLazy: true,
-            tournamentId: tournamentId && gameManager.getTournamentById(tournamentId) ? tournamentId : null,
-            snapshot: snapshotFor(game, socket.id, { customPics: false }) // v2 (additive)
-        });
+            tournamentId: tournamentId && gameManager.getTournamentById(tournamentId) ? tournamentId : null
+        }));
         return;
     }
     seatLifecycle.watchSeat(io, game, position, socket, username, { via: 'rejoin' });

@@ -25,11 +25,11 @@ const { botController } = require('../game/bot');
 const { Controller, Presence } = require('../game/SeatState');
 const seatLifecycle = require('./seatLifecycle');
 const { emitLobbiesUpdated } = require('./gameLifecycle');
-const { snapshotFor } = require('./snapshotHandlers');
+const { snapshotFor, carrierFor } = require('./snapshotHandlers');
 const pacing = require('../game/pacing');
 const avatarStore = require('../avatar/avatarStore');
 const avatarWire = require('../avatar/avatarWire');
-const { socketHasCap, hasCap } = require('./clientInfo');
+const { socketHasCap } = require('./clientInfo');
 
 const logContinuationError = (what, game) => (err) =>
     gameLogger.error(`${what} failed`, { gameId: game.gameId, error: err.message, stack: err.stack });
@@ -770,10 +770,7 @@ async function playCard(socket, io, data) {
             // seat state so it redraws from the truth instead of freezing.
             // Always AFTER actionRejected (iOS rolls the card back first);
             // never with tournamentId (web would route it as a rejoin)
-            socket.emit('restorePlayerState', {
-                ...avatarWire.wireClientState(game, game.getClientState(socket.id), hasCap(socket, 'avatarUrl')),
-                snapshot: snapshotFor(game, socket.id, { customPics: false }) // v2 (additive)
-            });
+            socket.emit('restorePlayerState', carrierFor(game, socket));
         }
         return;
     }

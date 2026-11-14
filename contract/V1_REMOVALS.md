@@ -503,6 +503,63 @@ So `{snapshot}` (+ rejoinSuccess's `tournamentId`) carriers need no web
 change: `table/postGateRejoin.test.js` (a lazy rejoin, /active,
 restorePlayerState, to the game end) and `postGateSpectator.test.js`.
 
+**Done 2026-11-12 (PR #TBD), keeping what a client still reads.** Every
+carrier is built by `snapshotHandlers.carrierFor`: `{gameId, players,
+avatarUrls?, ...extra, snapshot}`, with extra `isLazy` + `tournamentId` on
+rejoinSuccess (none of `tournamentId` for watchSeat via spectate) and
+`trump` on the spectator full state. Gone: `position`, `hand`,
+`currentHand`, `dealer`, `phase`, `bidding`, `currentTurn`, `bids`,
+`playerBids`, `tricks`, `score`, `playedCards`, `leadPosition`,
+`isTrumpBroken`, `gameLog`, `hsiValues`, `resignedPositions`,
+`lazyPositions` (and `trump` from rejoin / restore, `isLazy` from
+restorePlayerState), and on the spectator state also `spectatorCount` and
+the C10 aliases (`leadPosition`, `trumpBroken`, `teamTricks`, `oppTricks`).
+Kept, with the reader (checked at eeeeb23):
+- `players[]` {position, username, pic, socketId}: iOS 1.2.0
+  `WirePayloads.swift:149-158` (RejoinEnvelope.hints: `pic`, `socketId`),
+  used by `TableReducer+Snapshot.swift:172` (the R5 custom-picture
+  fallback: every carrier snapshot is `customPics: false`, and its seat has
+  no `avatarUrl` while a rendition is pending / failed / hostile or with
+  `AVATAR_PIPELINE=off`, so without `pic` the picture is lost on a fresh
+  restore) and `:70` (voice glow socket fallback). Web
+  `state/tableSync.js:52` lets it win for names / pictures and
+  `utils/avatar.js:159-162` folds `avatarUrls` into it. Dropping
+  `players[].socketId` is #14's call (1.2.0 still reads it as a fallback).
+- `avatarUrls`: iOS 1.2.0 hints (`TableReducer+Snapshot.swift:194`).
+- `tournamentId` (rejoinSuccess): web `main.js:1465`, iOS 1.2.0
+  `TableReducer+Snapshot.swift:42`.
+- `gameId`, `isLazy` (rejoinSuccess) and `trump` (spectator): current web
+  and iOS take them from the snapshot (`main.js:1454-1455`, `:1111-1113`,
+  `:1557`; iOS routes on `snapshot != nil`, `ServerEvent.swift:116`), but a
+  web page from before #233 routes on them (its onRejoinSuccess reads
+  `data.gameId` / `data.isLazy`, its onSpectatorJoined `data.players &&
+  data.trump`), and nothing makes an open tab reload, so a tab left open
+  across the #233 deploy would otherwise fail to rejoin or spectate. Three
+  small scalars; they can go once no pre-#233 tab can be open.
+`GameState.getClientState` stays as the server's legacy projection for
+tests (SeatState, wireProjection, wireCompat compares the kept keys with
+cc865b4's). Tests: `snapshotCarriers.test.js` (every emit path, exact key
+sets, players[] carrying the custom picture the snapshot withholds; fails on
+the previous code); transcripts / wireProjection / presence /
+resolvingWindow / seatRecovery / hardening read the snapshot now; the iOS
+event fixtures changed only in the carriers.
+Re-checked 2026-11-13 for iOS 1.2.0 build 5 (`iOSClient/` at main 92d0c75,
+the submitted build): `RejoinEnvelope` (WirePayloads.swift:127-161) decodes
+exactly gameId, avatarUrls, snapshot, isLazy, tournamentId, players and
+trump (only to tell the spectator full state, `hasFullState`), all kept;
+the hints are read at TableReducer+Snapshot.swift:44 (tournamentId), :72
+(socket ids, the glow fallback; gone with #14), :174 (pic) and :196
+(avatarUrls); GameSocketHandler.swift:51-89 reads nothing from the
+carriers itself. Build 5's background-resume fix (#240) gives each
+`forceReconnect` a new manager and socket (SocketService.swift:131-137):
+its `.connect` restores the session, the restore's follow-up rejoins, and
+the rejoinSuccess carrier restores the table from the snapshot alone
+(`state(from:)`, TableReducer+Snapshot.swift:36: viewer, hand, seats from
+the snapshot; `me.playerId` is the new socket's id from the restore
+answer, AuthSocketHandler.swift:141, then its `rejoinGame` :149), so a carrier without the v1 keys
+restores the same table on the new socket. Spectator entry with #238's
+single Exit: #8's note.
+
 ### 10. `cardPlayed.trump` → `trumpBroken`; drop `playerId`
 
 **Done 2026-11-11 (PR #TBD), two commits:** first `trumpBroken` is sent
@@ -908,7 +965,9 @@ step, in this order; nothing is removed by the gate PR itself.
   notice to the room except the joiner, sent first; #8.)
 - **#9 legacy client-state keys**: 1.1.0 reads `players[].socketId` (voice
   glows) and `players[].pic` (custom pictures) from rejoin / restore /
-  spectator payloads.
+  spectator payloads. (Done 2026-11-12 after the 1.1.0 gate, keeping
+  `players[]`, which 1.2.0 still reads, and gameId / isLazy / trump for
+  pre-#233 web tabs; #9.)
 - **#14 socket ids on the wire**: 1.1.0 reads `positionUpdate.sockets` and
   `players[].socketId` for voice.
 - **#19 inline avatar images**: 1.1.0 never sends `clientHello` (no
@@ -950,7 +1009,11 @@ above; after it, what 1.2.0 itself still reads is the remaining blocker:
 - **#9 legacy client-state keys**: `players[].pic` is now only a fallback
   (the carrier's `avatarUrls` and the snapshot's `avatarUrl` come first) and
   `players[].socketId` is no longer needed for the speaking glows (below).
-  iOS no longer blocks #9, nor does web (2026-11-12; #9).
+  iOS no longer blocks #9, nor does web (2026-11-12; #9). Done 2026-11-12
+  with `players[]` kept: the fallback is still the only picture a fresh
+  restore has for a custom seat whose snapshot carries no `avatarUrl`
+  (rendition pending / failed, `AVATAR_PIPELINE=off`), and 1.2.0 still
+  reads `socketId` as the glow fallback (#14).
 - **#14 socket ids on the wire**: the speaking glows map a voice peer to its
   seat by the peer's username (voicePeerList / voiceOffer carry it;
   `TableRenderModel.seat(forVoicePeer:username:)`), the seat socket id only

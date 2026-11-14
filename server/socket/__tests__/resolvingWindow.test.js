@@ -139,10 +139,8 @@ describe('rejoin during a hold', () => {
         gameManager.registerUser(r.id, t.names[1]);
         await reconnectHandlers.rejoinGame(r, t.io, { gameId: t.game.gameId, username: t.names[1] });
         const ok = t.log.find((l) => l.to === `self:${r.id}` && l.event === 'rejoinSuccess').data;
-        // v1: exactly the in-window projection (4 cards, all played, next turn, uncounted)
-        expect(ok.playedCards.filter(Boolean)).toHaveLength(4);
-        expect(ok.currentTurn).toBe(1);
-        expect(ok.tricks).toEqual({ team1: 0, team2: 0 });
+        // the in-window table (4 cards, all played, uncounted); no v1 keys since V1_REMOVALS #9
+        expect(ok).not.toHaveProperty('playedCards');
         expect(ok.snapshot.turn).toBeNull();
         expect(ok.snapshot.trick.cards).toHaveLength(4);
         expect(ok.snapshot.tricks).toEqual({ team1: 0, team2: 0 });
@@ -171,8 +169,8 @@ describe('rejoin during a hold', () => {
         gameManager.registerUser(r.id, t.names[2]);
         await reconnectHandlers.rejoinGame(r, t.io, { gameId: t.game.gameId, username: t.names[2] });
         const ok = t.log.find((l) => l.to === `self:${r.id}` && l.event === 'rejoinSuccess').data;
-        expect(ok.playedCards).toEqual([]);
-        expect(ok.tricks).toEqual({ team1: 0, team2: 2 });
+        expect(ok.snapshot.trick.cards).toEqual([]);
+        expect(ok.snapshot.tricks).toEqual({ team1: 0, team2: 2 });
         expect(ok.snapshot.turn).toBeNull();
         expect(ok.snapshot.resume).toEqual({ kind: 'hand', inMs: P().HAND_END_MS });
         await jest.advanceTimersByTimeAsync(P().HAND_END_MS);

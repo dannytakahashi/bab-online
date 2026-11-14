@@ -1,8 +1,10 @@
 /**
- * Golden wire projection: the internal stage FSM must not change what
- * clients see. For every stage, getClientState / spectatorJoined carry the
- * same field set and the legacy `phase` / `bidding` / `bids` / `currentTurn`
- * values the App Store iOS client and the web client read.
+ * Golden wire projection: the internal stage FSM must not change the legacy
+ * `phase` / `bidding` / `bids` / `currentTurn` projection. Since V1_REMOVALS
+ * #9 (2026-11-12) getClientState is no longer sent (the snapshot carriers
+ * send {snapshot} plus a few v1 keys); it stays as the server's legacy
+ * projection (seat tests, wireCompat's cc865b4 comparison) and `phase` still
+ * drives the main room's in-progress list and the ambient games.
  */
 
 const { createMemoryDb } = require('../../testUtils/memoryDb');
@@ -28,19 +30,12 @@ const LEGACY_CLIENT_STATE_KEYS = [
     'isTrumpBroken', 'players', 'gameLog', 'hsiValues', 'resignedPositions', 'lazyPositions', 'isLazy'
 ].sort();
 
-// spectatorJoined (to the joining socket) fields at 518308c
-const LEGACY_SPECTATOR_KEYS = [
-    'gameId', 'players', 'trump', 'currentHand', 'dealer', 'phase', 'bidding', 'currentTurn',
-    'bids', 'playerBids', 'tricks', 'score', 'playedCards', 'isTrumpBroken', 'gameLog', 'spectatorCount'
-].sort();
-
-// CHANGED (snapshot v2, additive): the full state gains `snapshot` (read by
-// neither shipped client) and leadPosition / trumpBroken / teamTricks /
-// oppTricks (iOS restoreFromSpectator reads them: the App Store build reads
-// the last three, so its spectator view changes as a fix; leadPosition only
-// from 10d1538 source builds; web reads none). The legacy keys above are
-// unchanged.
-const ADDITIVE_SPECTATOR_KEYS = ['snapshot', 'leadPosition', 'trumpBroken', 'teamTricks', 'oppTricks'];
+// spectatorJoined (to the joining socket) since V1_REMOVALS #9: a snapshot
+// carrier (snapshotHandlers.carrierFor). The 518308c keys currentHand,
+// dealer, phase, bidding, currentTurn, bids, playerBids, tricks, score,
+// playedCards, isTrumpBroken, gameLog, spectatorCount and the additive
+// leadPosition / trumpBroken / teamTricks / oppTricks went.
+const SPECTATOR_CARRIER_KEYS = ['gameId', 'players', 'trump', 'snapshot'].sort();
 
 const GOLDEN = {
     CREATED: { phase: 'waiting', bidding: true },
@@ -102,7 +97,7 @@ describe('getClientState golden table (forcePhase fixtures)', () => {
         expect(state).not.toHaveProperty('epoch');
     });
 
-    test('spectatorJoined carries the legacy field set', () => {
+    test('spectatorJoined carries only the carrier keys (V1_REMOVALS #9)', () => {
         const log = [];
         const io = makeIo(log);
         const { game } = seatedGame();
@@ -113,16 +108,11 @@ describe('getClientState golden table (forcePhase fixtures)', () => {
         mainRoomHandlers.joinAsSpectator(spec, io, { gameId: game.gameId });
 
         const joined = log.find((l) => l.to === `self:${spec.id}` && l.event === 'spectatorJoined');
-        expect(Object.keys(joined.data).sort()).toEqual([...LEGACY_SPECTATOR_KEYS, ...ADDITIVE_SPECTATOR_KEYS].sort());
-        expect(joined.data.phase).toBe('bidding');
-        expect(joined.data.bidding).toBe(false);
-        // The additive keys the shipped iOS spectator restore reads
-        expect(joined.data).toMatchObject({
-            leadPosition: game.leadPosition,
-            trumpBroken: game.isTrumpBroken,
-            teamTricks: game.tricks.team1,
-            oppTricks: game.tricks.team2,
-        });
+        expect(Object.keys(joined.data).sort()).toEqual(SPECTATOR_CARRIER_KEYS);
+        expect(joined.data.gameId).toBe(game.gameId);
+        expect(joined.data.trump).toEqual(game.trump);
+        expect(joined.data.snapshot.stage).toBe(Phase.PLAYING);
+        expect(joined.data.snapshot.viewer.role).toBe('spectator');
     });
 });
 

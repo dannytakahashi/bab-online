@@ -24,12 +24,8 @@ const { Phase } = require('../game/GamePhase');
 const SeatState = require('../game/SeatState');
 const pacing = require('../game/pacing');
 const { socketLogger } = require('../utils/logger');
-const { snapshotFor } = require('./snapshotHandlers');
+const { carrierFor, wireIsLazy } = require('./snapshotHandlers');
 const avatarWire = require('../avatar/avatarWire');
-const { hasCap } = require('./clientInfo');
-
-/** getClientState of seat socket `sid` as `socket` should receive it (avatars: docs/avatars.md). */
-const stateFor = (game, sid, socket) => avatarWire.wireClientState(game, game.getClientState(sid), hasCap(socket, 'avatarUrl'));
 
 const { PERSONALITY_LIST, getDisplayName } = personalities;
 const { Controller, Presence, RECONNECT_GRACE_MS, ABANDON_MS, DRAW_WATCHDOG_MS, AFK_TIMEOUT_MS } = SeatState;
@@ -309,11 +305,10 @@ function reconnectOwner(io, game, pos, socket, username) {
     const tournament = reattachTournament(io, socket, game.gameId, username);
 
     socketLogger.info('Player rejoined game', { username, gameId: game.gameId, position: pos });
-    socket.emit('rejoinSuccess', {
-        ...stateFor(game, socket.id, socket),
-        tournamentId: tournament ? tournament.tournamentId : null,
-        snapshot: snapshotFor(game, socket.id, { customPics: false }) // v2 (additive)
-    });
+    socket.emit('rejoinSuccess', carrierFor(game, socket, {
+        isLazy: wireIsLazy(game, socket.id),
+        tournamentId: tournament ? tournament.tournamentId : null
+    }));
     game.broadcast(io, 'playerReconnected', { position: pos, username });
 
     // Voice: the other connected owners at their seats
@@ -368,13 +363,13 @@ function watchSeat(io, game, pos, socket, username, { via }) {
         gameManager.leaveMainRoom(socket.id);
     }
 
-    // The seat's own view (position, hand) with the lazy flag
-    const state = { ...stateFor(game, seat.seatSocketId, socket), isLazy: true };
+    // The seat's own view (the snapshot: role lazyWatcher, the hand) with the lazy flag
+    const extra = { isLazy: true };
     if (via === 'rejoin') {
         const tournament = reattachTournament(io, socket, game.gameId, username);
-        state.tournamentId = tournament ? tournament.tournamentId : null;
+        extra.tournamentId = tournament ? tournament.tournamentId : null;
     }
-    state.snapshot = snapshotFor(game, socket.id, { customPics: false }); // v2 (additive)
+    const state = carrierFor(game, socket, extra);
     socketLogger.info('Owner watching bot-controlled seat', { username, gameId: game.gameId, position: pos, via });
     socket.emit('rejoinSuccess', state);
     if (via === 'rejoin') {
@@ -529,10 +524,7 @@ function goActive(io, game, pos, socket) {
 
     if (ownerView === 'watch') {
         // The watching client switches from its lazy view to the seat
-        socket.emit('restorePlayerState', {
-            ...stateFor(game, socket.id, socket),
-            snapshot: snapshotFor(game, socket.id, { customPics: false }) // v2 (additive)
-        });
+        socket.emit('restorePlayerState', carrierFor(game, socket));
         replayPresenceTo(game, socket, pos);
     } else if (game.acceptsTurnInput()) {
         // Only while a turn is open (the post-trick updateTurn follows otherwise)
