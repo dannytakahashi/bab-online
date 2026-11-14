@@ -231,6 +231,12 @@ describe('bots and all scopes', () => {
         // an unknown scope is not refused by Joi: human, echoed
         await handler(other, io, { username: 'Ann', scope: 'weird' });
         expect(lastTo(other, 'playerProfileResponse')).toMatchObject({ success: true, scope: 'human', profile: { stats: stats(4, 3) } });
+        // a non-string, null, object or over-long scope is not refused either
+        // (before the key existed, stripUnknown dropped it): human, echoed
+        for (const bad of [5, null, { a: 1 }, 'x'.repeat(17)]) {
+            await handler(other, io, { username: 'Ann', scope: bad });
+            expect(lastTo(other, 'playerProfileResponse')).toMatchObject({ success: true, scope: 'human', profile: { stats: stats(4, 3) } });
+        }
         // no scope: today's reply exactly
         await handler(other, io, { username: 'Ann' });
         expect(Object.keys(lastTo(other, 'playerProfileResponse'))).toEqual(['success', 'profile']);

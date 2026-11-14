@@ -19,6 +19,17 @@ export const STATS_SCOPE_LABELS = Object.freeze({
   all: 'All games',
 });
 
+/**
+ * The visible word on a narrow control (a phone): the start of each full
+ * label, so the accessible name (the full label, its rest only visually
+ * hidden) still contains the visible text.
+ */
+export const STATS_SCOPE_SHORT_LABELS = Object.freeze({
+  human: 'Human',
+  bots: 'Bot',
+  all: 'All',
+});
+
 /** Shown where a Bot games view has nothing yet (nothing was kept before this release). */
 export const BOT_STATS_EMPTY_NOTE = 'No bot games recorded yet. Games with bots count toward stats from now on.';
 

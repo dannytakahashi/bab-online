@@ -5,6 +5,7 @@
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { createStatsScopeControl } from './StatsScopeControl.js';
+import { readClientFile } from '../../testing/files.js';
 
 const key = (k) => new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true });
 const radios = (c) => [...c.element.querySelectorAll('[role="radio"]')];
@@ -29,6 +30,23 @@ describe('StatsScopeControl', () => {
     expect(checked(c)).toEqual(['bots']);
     expect(tabStops(c)).toEqual(['bots']);
     expect(c.getValue()).toBe('bots');
+  });
+
+  it('a phone-width control shows one word per option; the full label stays the name (no clipped "Human gam")', () => {
+    const c = mount();
+    // visible word first, the rest in .scope-control__more (visually hidden when narrow)
+    expect(radios(c).map((r) => r.firstChild.nodeValue)).toEqual(['Human', 'Bot', 'All']);
+    expect(radios(c).map((r) => r.querySelector('.scope-control__more')?.textContent)).toEqual([' games', ' games', ' games']);
+    expect(radios(c).every((r) => !r.hasAttribute('aria-label'))).toBe(true);
+    // jsdom has no layout: pin the CSS that makes it fit (the container query
+    // hides the rest, never display:none, which would drop it from the name)
+    const css = readClientFile('styles/screens.css');
+    expect(css).toMatch(/\.scope-control \{[^}]*container-type: inline-size;/);
+    const query = css.match(/@container \(max-width: (\d+)px\) \{\s*\.scope-control__more \{([^}]*)\}/);
+    expect(query).not.toBeNull();
+    expect(Number(query[1])).toBeGreaterThanOrEqual(320);
+    expect(query[2]).toContain('clip-path: inset(50%)');
+    expect(query[2]).not.toMatch(/display:\s*none|visibility:\s*hidden/);
   });
 
   it('defaults to Human games (also for an unknown value)', () => {

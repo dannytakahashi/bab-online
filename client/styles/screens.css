@@ -848,9 +848,13 @@
 }
 
 /* ---------- Stats scope: Human games | Bot games | All games ----------
-   (StatsScopeControl.js, a radio group; Leaderboard, Records, Profile) */
+   (StatsScopeControl.js, a radio group; Leaderboard, Records, Profile).
+   A query container: too narrow for the three full labels (a phone, in a
+   page modal), each option shows only its first word and the rest
+   (.scope-control__more) is visually hidden, still in the accessible name */
 
 .scope-control {
+    container-type: inline-size;
     display: flex;
     width: 100%;
     max-width: 420px;
@@ -864,10 +868,11 @@
 }
 
 .scope-control__option {
+    position: relative;
     flex: 1;
     min-width: 0;
     min-height: var(--hit-target);
-    padding: 0 var(--space-3);
+    padding: 0 var(--space-2);
     border: 0;
     border-radius: var(--radius-pill);
     background: transparent;
@@ -888,6 +893,20 @@
 .scope-control__option[aria-checked="true"] {
     background: var(--primary-base);
     color: var(--text-on-primary);
+}
+
+@container (max-width: 340px) {
+    .scope-control__more {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        margin: -1px;
+        padding: 0;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        clip-path: inset(50%);
+        white-space: nowrap;
+    }
 }
 
 /* A view waiting for the reply to a scope switch (aria-busy on the region) */

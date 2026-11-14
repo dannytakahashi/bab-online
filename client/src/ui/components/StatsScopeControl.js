@@ -8,10 +8,15 @@
  * the first / last, Space / Enter (the button's click) select the focused
  * option. Focus stays on the control after a switch, so a keyboard or
  * screen-reader user keeps their place while the view re-renders below.
+ *
+ * Each option is its short word ("Human") plus the rest of the label
+ * (" games") in .scope-control__more, which screens.css visually hides
+ * when the control is too narrow for the full labels (a phone): the
+ * accessible name and textContent stay "Human games".
  */
 
 import { el } from '../kit/index.js';
-import { STATS_SCOPES, STATS_SCOPE_LABELS, isStatsScope, DEFAULT_STATS_SCOPE } from '../../state/statsScope.js';
+import { STATS_SCOPES, STATS_SCOPE_LABELS, STATS_SCOPE_SHORT_LABELS, isStatsScope, DEFAULT_STATS_SCOPE } from '../../state/statsScope.js';
 
 /**
  * @param {Object} options
@@ -26,12 +31,16 @@ export function createStatsScopeControl({ value = DEFAULT_STATS_SCOPE, onChange 
   const options = {};
 
   for (const scope of STATS_SCOPES) {
+    const full = STATS_SCOPE_LABELS[scope];
+    const short = STATS_SCOPE_SHORT_LABELS[scope];
+    const rest = full.startsWith(short) ? full.slice(short.length) : '';
     const btn = el('button', {
       className: 'scope-control__option',
       attrs: { type: 'button', role: 'radio', 'aria-checked': 'false', tabindex: '-1' },
       dataset: { scope },
-      text: STATS_SCOPE_LABELS[scope],
+      text: rest ? short : full,
     });
+    if (rest) btn.appendChild(el('span', { className: 'scope-control__more', text: rest }));
     btn.addEventListener('click', () => choose(scope));
     options[scope] = btn;
     group.appendChild(btn);
