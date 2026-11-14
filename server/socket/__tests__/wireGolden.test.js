@@ -23,6 +23,13 @@
  * then still proves every other byte and the RNG order are fcdd885's. The
  * file was regenerated once at 71343c5 (raw wire still fcdd885's), with the
  * projection in place, before any removal ran.
+ *
+ * Bot decisions are part of the wire, so a bot strategy change re-records it
+ * (UPDATE_WIRE_GOLDEN=1) with no other change in the same commit: done for
+ * the bid calibration (bots/bidcal-calibrate, 2026-11-14). Seat pictures,
+ * deal count and the first deals stay the same; later deals and trumps move
+ * because Mike's erratic-play roll (BotStrategy selectFollow) draws
+ * Math.random only when the contract state allows it, and bids change that.
  */
 
 const fs = require('fs');

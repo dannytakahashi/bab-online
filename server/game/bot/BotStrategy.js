@@ -485,6 +485,142 @@ function evaluateHand(hand, trump, handSize) {
 }
 
 /**
+ * Calibrated trick estimator for trump hands of 3+ cards (bid calibration,
+ * November 2026; see sim/README.md "Bid calibration").
+ *
+ * Each value is the average number of tricks that feature was worth in real
+ * bot play: a least-squares fit of tricks won on these hand features over
+ * ~85,000 Mary self-play hands (2,000 games, sim seed 501). The estimate is
+ * unbiased — on average a hand wins exactly what it predicts — and its
+ * residual spread is `sd`. Columns are hand-size groups: 3-4 / 5-7 / 8-10 /
+ * 11-13 cards.
+ *
+ * Trump means the trump suit plus both jokers. "Side" is a non-trump suit.
+ */
+const TRICK_WEIGHTS = {
+    //            3-4    5-7    8-10   11-13
+    base:       [ 0.32,  0.06, -0.12, -0.40],
+    hiJoker:    [ 1.21,  1.29,  1.37,  1.50],
+    loJoker:    [ 1.03,  0.93,  0.88,  0.92],
+    trumpA:     [ 1.03,  0.85,  0.84,  0.84],
+    trumpK:     [ 0.92,  0.80,  0.78,  0.82],
+    trumpQ:     [ 0.87,  0.79,  0.78,  0.76],
+    trump7toJ:  [ 0.75,  0.64,  0.61,  0.61],
+    trump2to6:  [ 0.51,  0.44,  0.36,  0.32],
+    trumpPast3: [ 0.15,  0.21,  0.18,  0.19],  // each trump card beyond the third
+    sideA:      [ 0.35,  0.58,  0.77,  0.92],
+    sideKwithA: [ 0.12,  0.13,  0.37,  0.54],  // side King behind its own Ace
+    sideK:      [ 0.24,  0.31,  0.45,  0.59],  // side King without the Ace
+    sideQ:      [ 0.11,  0.18,  0.19,  0.19],
+    void:       [-0.15,  0.08,  0.32,  0.54],  // side suit with no cards
+    singleton:  [-0.12, -0.04,  0.06,  0.21]   // side suit with one card
+};
+
+/**
+ * How the bid is rounded from the estimate. A player's tricks are modelled
+ * as Normal(estimate + optimism, sd[group]); `sd` is the measured residual
+ * spread of the estimator, `optimism` the one tuned knob (fitted on
+ * counterfactual replays, held-out games: 0 to 0.2 all score within noise).
+ */
+const BID_CALIBRATION = {
+    sd: [0.59, 0.76, 0.86, 0.91],
+    optimism: 0.1
+};
+
+function trickWeightGroup(handSize) {
+    if (handSize <= 4) return 0;
+    if (handSize <= 7) return 1;
+    if (handSize <= 10) return 2;
+    return 3;
+}
+
+/**
+ * Expected tricks for a trump hand (unbiased, from TRICK_WEIGHTS).
+ * @returns {number}
+ */
+function estimateTricks(hand, trump, handSize) {
+    const g = trickWeightGroup(handSize);
+    const w = (key) => TRICK_WEIGHTS[key][g];
+    const trumpSuit = trump.suit;
+    const isTrumpCard = (c) => c.suit === 'joker' || c.suit === trumpSuit;
+    const side = { spades: [], hearts: [], diamonds: [], clubs: [] };
+
+    let est = w('base');
+    let trumpCount = 0;
+    for (const c of hand) {
+        if (isTrumpCard(c)) {
+            trumpCount++;
+            if (c.rank === 'HI') est += w('hiJoker');
+            else if (c.rank === 'LO') est += w('loJoker');
+            else if (c.rank === 'A') est += w('trumpA');
+            else if (c.rank === 'K') est += w('trumpK');
+            else if (c.rank === 'Q') est += w('trumpQ');
+            else if (RANK_VALUES[c.rank] >= RANK_VALUES['7']) est += w('trump7toJ');
+            else est += w('trump2to6');
+        } else {
+            side[c.suit].push(c.rank);
+        }
+    }
+    est += Math.max(0, trumpCount - 3) * w('trumpPast3');
+
+    for (const [suit, ranks] of Object.entries(side)) {
+        if (suit === trumpSuit) continue;
+        if (ranks.length === 0) est += w('void');
+        if (ranks.length === 1) est += w('singleton');
+        const hasA = ranks.includes('A');
+        if (hasA) est += w('sideA');
+        if (ranks.includes('K')) est += hasA ? w('sideKwithA') : w('sideK');
+        if (ranks.includes('Q')) est += w('sideQ');
+    }
+    return est;
+}
+
+// Standard normal CDF (Abramowitz-Stegun 26.2.17, |error| < 7.5e-8)
+function normalCdf(x) {
+    const t = 1 / (1 + 0.2316419 * Math.abs(x));
+    const d = 0.3989423 * Math.exp(-x * x / 2);
+    const p = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))));
+    return x > 0 ? 1 - p : p;
+}
+
+/**
+ * Pick the bid with the highest expected team score, given the estimate.
+ *
+ * The scoring is lopsided: a made contract scores 10 per bid trick (+1 per
+ * overtrick) and a set loses the WHOLE team bid. So the extra trick is bid
+ * only when it is likely enough — and the bar rises with the team bid at
+ * stake (raising b -> b+1 gains ~+9 if it makes and costs ~20*(b+p)+10 if it
+ * fails). A partner who already bid `partnerBid` puts their points at risk
+ * too, which makes us more careful.
+ *
+ * @param {number} estimate - estimateTricks() value
+ * @param {number} handSize
+ * @param {number} partnerBid - partner's numeric bid if already made, else 0
+ * @returns {number}
+ */
+function chooseBidForMaxScore(estimate, handSize, partnerBid = 0) {
+    const sd = BID_CALIBRATION.sd[trickWeightGroup(handSize)];
+    const mu = estimate + BID_CALIBRATION.optimism;
+    let best = 0;
+    let bestEv = -Infinity;
+    for (let b = 0; b <= handSize - partnerBid; b++) {
+        const teamBid = b + partnerBid;
+        let ev;
+        if (teamBid === 0) {
+            ev = Math.max(0, mu);   // a zero team bid: 1 point per trick, no risk
+        } else {
+            const pMake = normalCdf((mu - b + 0.5) / sd);
+            ev = pMake * (10 * teamBid + Math.max(0, mu - b)) - (1 - pMake) * 10 * teamBid;
+        }
+        if (ev > bestEv) {
+            bestEv = ev;
+            best = b;
+        }
+    }
+    return best;
+}
+
+/**
  * Calculate optimal bid based on hand evaluation
  * @param {Array} hand - Player's cards
  * @param {Object} trump - Trump card
@@ -861,10 +997,23 @@ function calculateOptimalBid(hand, trump, position, existingBids, handSize, memo
 
     // --- NORMAL BIDDING ---
 
-    // Conservative rounding: floor instead of round. The set penalty
-    // (-10/trick) dwarfs the overtrick payoff (+1/trick); sim-tested against
-    // +0.2/+0.45 offsets — same win rate, materially fewer sets.
-    let bid = Math.floor(evaluation.points);
+    // Trump hands of 3+ cards: calibrated trick estimate, rounded to the bid
+    // with the highest expected team score (estimateTricks /
+    // chooseBidForMaxScore). `bidEval.points` carries the estimate into the
+    // late-game and personality rules below, which read its fraction.
+    // No-trump and 1-2 card hands keep the legacy evaluation: floor instead
+    // of round, since the set penalty dwarfs the overtrick payoff.
+    let bid;
+    let bidEval = evaluation;
+    if (!noTrump && handSize >= 3) {
+        const estimate = estimateTricks(hand, trump, handSize);
+        const partnerNumeric = (partnerBid !== undefined && partnerBid !== null &&
+            !['B', '2B', '3B', '4B'].includes(partnerBid)) ? partnerBidValue : 0;
+        bid = chooseBidForMaxScore(estimate, handSize, Math.min(partnerNumeric, handSize));
+        bidEval = { ...evaluation, points: estimate };
+    } else {
+        bid = Math.floor(evaluation.points);
+    }
 
     // No extra first-bidder discount: the pessimistic evaluation plus floor()
     // already price in the uncertainty — stacking a further -1 triple-counts
@@ -945,12 +1094,12 @@ function calculateOptimalBid(hand, trump, position, existingBids, handSize, memo
     if (riskAdjustment > 0 && bid < handSize) {
         // Behind late: slightly more aggressive
         // Only bump up if evaluation is close to next integer
-        if (evaluation.points - bid >= 0.4) {
+        if (bidEval.points - bid >= 0.4) {
             bid = Math.min(bid + 1, handSize);
         }
     } else if (riskAdjustment < 0 && bid > 0) {
         // Ahead late: slightly more conservative
-        if (evaluation.points - bid < 0.3) {
+        if (bidEval.points - bid < 0.3) {
             bid = Math.max(0, bid - 1);
         }
     }
@@ -958,7 +1107,7 @@ function calculateOptimalBid(hand, trump, position, existingBids, handSize, memo
     bid = Math.max(0, bid);
 
     // Apply personality-specific bid modifier
-    bid = applyBidModifier(bid, personality, evaluation, handSize, partnerHistory);
+    bid = applyBidModifier(bid, personality, bidEval, handSize, partnerHistory);
 
     // Personality adjustments must still respect the combined-bid cap — a
     // team bid above hand size is unmakeable — and the opponent-bore cap
@@ -988,8 +1137,11 @@ function applyBidModifier(baseBid, personality, evaluation, handSize, partnerHis
     switch (getBidStyle(personality)) {
         case 'conservative':
             // Sharon trims big bids by one: banks the safety, forfeits ~9
-            // points of upside on hands she'd usually make anyway
-            if (bid >= 3) {
+            // points of upside on hands she'd usually make anyway. Only when
+            // the bid is not already well covered by the estimate: Mary's
+            // expected-score rounding is itself cautious on big bids, and
+            // trimming those too cost Sharon ~2.6pp of win rate in sim.
+            if (bid >= 3 && evaluation.points - bid < 0.5) {
                 bid = bid - 1;
             }
             break;
@@ -1453,6 +1605,10 @@ function selectOptimalCard(hand, playedCards, leadCard, leadPosition, trump, tru
 
 module.exports = {
     evaluateHand,
+    estimateTricks,
+    chooseBidForMaxScore,
+    TRICK_WEIGHTS,
+    BID_CALIBRATION,
     calculateOptimalBid,
     getLegalCards,
     canBeatCard,

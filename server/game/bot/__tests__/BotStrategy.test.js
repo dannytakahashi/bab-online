@@ -17,6 +17,8 @@ const {
     getPartnerVoidSuits,
     getGameProgress,
     applyBidModifier,
+    estimateTricks,
+    chooseBidForMaxScore,
     hasOpponentsAfterMe,
     isWinVulnerable,
     bestWithoutHiJoker,
@@ -199,6 +201,71 @@ describe('evaluateHand', () => {
             expect(isNoTrump(jokerTrump)).toBe(true);
             expect(isNoTrump(heartsTrump)).toBe(false);
         });
+    });
+});
+
+// --- Calibrated bidding (estimateTricks + chooseBidForMaxScore) ---
+
+describe('estimateTricks', () => {
+    test('sums the per-card weights for the hand-size group', () => {
+        // 8 cards (8-10 group), hearts trump: HI, trump A, trump 9, trump 3,
+        // side A+K of spades, clubs x2, no diamonds (void)
+        const hand = [
+            HI, card('hearts', 'A'), card('hearts', '9'), card('hearts', '3'),
+            card('spades', 'A'), card('spades', 'K'), card('clubs', '4'), card('clubs', '5')
+        ];
+        // base -0.12 + HI 1.37 + tA 0.84 + t7-J 0.61 + t2-6 0.36 + trumpPast3 0.18
+        // + sideA 0.77 + sideKwithA 0.37 + void 0.32
+        expect(estimateTricks(hand, heartsTrump, 8)).toBeCloseTo(4.70, 2);
+    });
+
+    test('values low trump far above the legacy evaluation', () => {
+        const hand = [
+            card('hearts', '2'), card('hearts', '3'), card('hearts', '4'), card('hearts', '5'),
+            card('spades', '2'), card('spades', '3'), card('clubs', '2'), card('clubs', '3'),
+            card('diamonds', '2'), card('diamonds', '3')
+        ];
+        const est = estimateTricks(hand, heartsTrump, 10);
+        expect(est).toBeGreaterThan(evaluateHand(hand, heartsTrump, 10).points + 1);
+    });
+});
+
+describe('chooseBidForMaxScore', () => {
+    test('bids the whole estimate when it clears the integer', () => {
+        expect(chooseBidForMaxScore(2.3, 8)).toBe(2);
+        expect(chooseBidForMaxScore(1.2, 5)).toBe(1);
+    });
+
+    test('the bar for one more trick rises with the bid at stake', () => {
+        // The first trick is worth bidding on a coin flip (bidding 0 forfeits
+        // ~10); the fourth needs the estimate well past 4
+        expect(chooseBidForMaxScore(0.6, 8)).toBe(1);
+        expect(chooseBidForMaxScore(1.9, 8)).toBe(1);
+        expect(chooseBidForMaxScore(4.3, 8)).toBe(3);
+        expect(chooseBidForMaxScore(4.5, 8)).toBe(4);
+    });
+
+    test("a partner's bid at stake makes the bid more careful", () => {
+        expect(chooseBidForMaxScore(3.4, 10, 0)).toBe(3);
+        expect(chooseBidForMaxScore(3.4, 10, 4)).toBe(2);
+        expect(chooseBidForMaxScore(1.0, 10, 4)).toBe(0);
+    });
+
+    test('never exceeds the tricks the partner left available', () => {
+        expect(chooseBidForMaxScore(6, 8, 5)).toBeLessThanOrEqual(3);
+    });
+
+    test('is monotone in the estimate', () => {
+        for (const hs of [3, 6, 9, 12]) {
+            for (const partner of [0, 2]) {
+                let prev = 0;
+                for (let e = 0; e <= hs; e += 0.05) {
+                    const b = chooseBidForMaxScore(e, hs, partner);
+                    expect(b).toBeGreaterThanOrEqual(prev);
+                    prev = b;
+                }
+            }
+        }
     });
 });
 
@@ -1212,9 +1279,14 @@ describe('applyBidModifier', () => {
     });
 
     describe('sharon (conservative)', () => {
-        test('trims big bids by 1', () => {
-            expect(applyBidModifier(3, 'sharon', makeEval(3.5), 12, [])).toBe(2);
-            expect(applyBidModifier(6, 'sharon', makeEval(6.5), 12, [])).toBe(5);
+        test('trims big bids by 1 when the estimate barely covers them', () => {
+            expect(applyBidModifier(3, 'sharon', makeEval(3.3), 12, [])).toBe(2);
+            expect(applyBidModifier(6, 'sharon', makeEval(6.2), 12, [])).toBe(5);
+        });
+
+        test('keeps a big bid the estimate clears by half a trick or more', () => {
+            expect(applyBidModifier(3, 'sharon', makeEval(3.5), 12, [])).toBe(3);
+            expect(applyBidModifier(6, 'sharon', makeEval(7.0), 12, [])).toBe(6);
         });
 
         test('does not modify small bids', () => {
