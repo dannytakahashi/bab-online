@@ -772,10 +772,12 @@ describe('real mongod', () => {
         await profile.getRecords(b, io, { scope: 'all' });
         expect(reply(b).totalGames).toBe(7);
 
-        // leaderboard: human = the reference; bots = Cy only
+        // leaderboard: human = the reference (with V1_REMOVALS #19 B applied:
+        // every row's customProfilePic null, as in (e)); bots = Cy only
+        const v1 = (d) => ({ ...d, leaderboard: d.leaderboard.map((r) => ('customProfilePic' in r ? { ...r, customProfilePic: null } : r)) });
         await ref.getLeaderboard(a, io);
         await profile.getLeaderboard(b, io);
-        expect(reply(b)).toEqual(reply(a));
+        expect(reply(b)).toEqual(v1(reply(a)));
         await profile.getLeaderboard(b, io, { scope: 'bots' });
         expect(reply(b).leaderboard.map(r => r.username)).toEqual(['Cy', 'Population']);
         await profile.getLeaderboard(b, io, { scope: 'all' });
