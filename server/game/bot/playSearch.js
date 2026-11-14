@@ -3,7 +3,8 @@
  *
  * When few cards remain, the bot samples full deals of the unseen cards
  * ("determinizations") consistent with everything it has observed (its own
- * hand, every card played, shown voids and HI-joker forced plays), solves each sampled deal exactly (double dummy), and plays the
+ * hand, every card played, shown voids, HI-joker forced plays, and loosely
+ * the bids), solves each sampled deal exactly (double dummy), and plays the
  * card with the best average hand score (own team's points minus the
  * opponents'). Outside its scope, or whenever anything about the position is
  * unclear, it returns null and the caller keeps the rule-based card.
@@ -13,11 +14,11 @@
  * what the bot has seen (the sims, wire goldens and iOS fixtures rely on it).
  */
 
-const { RANK_VALUES } = require('../rules');
+const { RANK_VALUES, BID_RANKS } = require('../rules');
 
 // Local bindings: the solver's inner loops call these millions of times, and
 // a lookup through the global object is far slower under Jest's sandbox
-const { clz32, imul, floor, min, max, abs } = Math;
+const { clz32, imul, floor, exp, log, min, max, abs } = Math;
 
 const SEARCH = {
     /** Search only when the bot holds at most this many cards. */
@@ -26,12 +27,19 @@ const SEARCH = {
     maxCardsLead: 7,
     /** Sampled deals per decision (fewer when the node budget runs out). */
     samples: 64,
+    /** Candidate deals drawn before the bid-fit weighting picks `samples`. */
+    oversample: 5,
     /** Fewest solved deals a decision may rest on. */
     minSamples: 8,
     /** Stop sampling once this many solver nodes are spent... */
     nodeBudget: 200000,
     /** ...and give up the deal being solved past this many (hard limit per decision). */
     nodeHardCap: 300000,
+    /** Bid-fit weighting: tolerance (tricks) between a sampled hand's
+     *  estimated tricks and what its owner bid. 0 disables the weighting. */
+    bidSigma: 0.6,
+    /** Tricks a bidder typically expects beyond its bid. */
+    bidOffset: 0.4,
     /** Diagnostics: set to an array to collect [cards held, cards on table,
      *  deals solved, nodes] for every search (profiling only). */
     trace: null
@@ -40,6 +48,7 @@ const SEARCH = {
 const SUIT_ID = { spades: 0, hearts: 1, diamonds: 2, clubs: 3 };
 const SUITS = ['spades', 'hearts', 'diamonds', 'clubs'];
 const SIDE_RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
+const BORES = ['B', '2B', '3B', '4B'];
 
 function mulberry32(seed) {
     let a = seed >>> 0;
@@ -434,6 +443,7 @@ function readPosition(hand, playedCards, leadPosition, trump, position, memory, 
     // under a HI-joker lead.
     const voidIn = [null, [], [], [], []];
     const cap = [null, [99, 99, 99, 99, 99], [99, 99, 99, 99, 99], [99, 99, 99, 99, 99], [99, 99, 99, 99, 99]];
+    const playedBy = [null, [], [], [], []];
 
     const noteTrick = (entries, leadEntry) => {
         const ls = suitOf(leadEntry, trumpSuitId);
@@ -457,6 +467,7 @@ function readPosition(hand, playedCards, leadPosition, trump, position, memory, 
             if (seen.has(code)) return null; // contradicts the hand or a duplicate
             seen.add(code);
             pastCards++;
+            if (e.position >= 1 && e.position <= 4) playedBy[e.position].push(e);
             if (!tricks.has(e.trickIndex)) tricks.set(e.trickIndex, []);
             tricks.get(e.trickIndex).push(e);
         }
@@ -502,7 +513,7 @@ function readPosition(hand, playedCards, leadPosition, trump, position, memory, 
     // Most constrained hand is dealt first
     others.sort((a, b) => (a.allowedCount - a.need) - (b.allowedCount - b.need));
 
-    return { trumpSuitId, table, unseen, others };
+    return { trumpSuitId, table, unseen, others, playedBy };
 }
 
 /** One sampled deal of the unseen cards, or null if the draw dead-ends. */
@@ -542,6 +553,7 @@ const solver = new Solver();
  * @param {Object|null} q.memory
  * @param {number} q.handSize
  * @param {Object|null} q.playContext
+ * @param {Function} [q.estimateTricks] - (hand) => expected own tricks, for bid weighting
  * @param {Object} [q.options] - overrides of SEARCH
  * @param {Object} [q.stats] - filled with {samples, nodes} when given
  * @returns {Object|null} the card to play, or null to keep the rule-based card
@@ -600,12 +612,20 @@ function searchCard(q) {
     seed ^= pos.unseen.length * 40503;
     const rng = mulberry32(seed);
 
-    const deals = [];
-    for (let tries = 0; deals.length < opt.samples && tries < opt.samples * 4; tries++) {
+    // Draw candidate deals; with bid weighting keep the ones that fit the bids
+    const want = opt.samples;
+    const draws = opt.bidSigma > 0 && q.estimateTricks ? want * opt.oversample : want;
+    let deals = [];
+    for (let i = 0, tries = 0; i < draws && tries < draws * 4; tries++) {
         const d = sampleDeal(pos, rng);
-        if (d) deals.push(d);
+        if (!d) continue;
+        deals.push(d);
+        i++;
     }
     if (deals.length < opt.minSamples) return null;
+    if (deals.length > want) {
+        deals = pickByBidFit(deals, want, pos, q, opt, rng);
+    }
 
     const totals = new Float64Array(candidates.length);
     const ruleIdx = candidates.indexOf(ruleCard);
@@ -672,4 +692,40 @@ function cheaper(a, b, trumpSuitId) {
     return RANK_VALUES[a.rank] < RANK_VALUES[b.rank];
 }
 
-module.exports = { searchCard, Solver, SEARCH, readPosition, sampleDeal, teamScore };
+/**
+ * Keep the `want` sampled deals that best fit the bids: each hidden hand's
+ * full holding (cards it already played plus the sampled rest) is scored
+ * with the bidder's own trick estimate and compared with what it bid.
+ */
+function pickByBidFit(deals, want, pos, q, opt, rng) {
+    const bids = (q.playContext && q.playContext.playerBids) || [];
+    const targets = {};
+    let any = false;
+    for (const o of pos.others) {
+        const raw = bids[o.pos - 1];
+        if (raw === undefined || raw === null || BORES.includes(String(raw))) continue;
+        const n = BID_RANKS[String(raw)];
+        if (n === undefined) continue;
+        targets[o.pos] = n;
+        any = true;
+    }
+    if (!any) return deals.slice(0, want);
+    const inv = 1 / (2 * opt.bidSigma * opt.bidSigma);
+    const weights = deals.map(d => {
+        let logw = 0;
+        for (const o of pos.others) {
+            if (targets[o.pos] === undefined) continue;
+            const full = d[o.pos].concat(pos.playedBy[o.pos].map(e => ({ suit: e.suit, rank: e.rank })));
+            const est = q.estimateTricks(full);
+            const diff = est - opt.bidOffset - targets[o.pos];
+            logw -= diff * diff * inv;
+        }
+        return exp(logw);
+    });
+    // Weighted sampling without replacement: keep the largest keys u^(1/w)
+    const keyed = deals.map((d, i) => ({ d, k: weights[i] > 0 ? log(rng() || 1e-12) / weights[i] : -Infinity }));
+    keyed.sort((a, b) => b.k - a.k);
+    return keyed.slice(0, want).map(x => x.d);
+}
+
+module.exports = { searchCard, Solver, SEARCH, readPosition, sampleDeal, pickByBidFit, teamScore };
