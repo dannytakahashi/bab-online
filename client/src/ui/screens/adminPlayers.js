@@ -27,6 +27,8 @@ export const PLAYER_COLUMNS = [
   { key: 'createdAt', label: 'Created', defaultAscending: false },
   { key: 'lastSeenAt', label: 'Last seen', defaultAscending: false },
   { key: 'gamesPlayed', label: 'Games', defaultAscending: false, numeric: true },
+  // games with bots (users.botStats; Games stays human games)
+  { key: 'botGamesPlayed', label: 'Bot games', defaultAscending: false, numeric: true },
   { key: 'isAdmin', label: 'Admin', defaultAscending: false },
   { key: 'mergedInto', label: 'Merged', defaultAscending: true },
 ];
@@ -47,6 +49,7 @@ function sortValue(p, key) {
     // online now is the most recent
     case 'lastSeenAt': return p.online ? Number.MAX_SAFE_INTEGER : time(p.lastSeenAt);
     case 'gamesPlayed': return p.mergedInto ? null : Number(p.gamesPlayed) || 0;
+    case 'botGamesPlayed': return p.mergedInto ? null : Number(p.botGamesPlayed) || 0;
     case 'isAdmin': return p.isAdmin ? 1 : 0;
     case 'mergedInto': return p.mergedInto ? p.mergedInto.toLowerCase() : null;
     default: return null;

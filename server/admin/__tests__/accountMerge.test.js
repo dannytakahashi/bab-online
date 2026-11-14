@@ -254,8 +254,8 @@ describe('findDuplicateCandidates', () => {
         };
         const groups = await findDuplicateCandidates(db);
         expect(groups).toEqual([[
-            { username: 'Alan', gamesPlayed: 40, createdAt: expect.any(Date) },
-            { username: 'alan2', gamesPlayed: 3, createdAt: expect.any(Date) }
+            { username: 'Alan', gamesPlayed: 40, botGamesPlayed: 0, createdAt: expect.any(Date) },
+            { username: 'alan2', gamesPlayed: 3, botGamesPlayed: 0, createdAt: expect.any(Date) }
         ]]);
         expect(loaded).toHaveLength(2);
         for (const doc of loaded) {

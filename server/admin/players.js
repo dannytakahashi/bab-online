@@ -2,7 +2,8 @@
  * The admin panel's player rows: the Players table (listPlayers: every
  * account, newest first, capped at LIST_MAX) and the name search
  * (searchPlayers), with what an admin needs and nothing more — created (the _id timestamp), last seen (the
- * newest saved-session use: sign-in or restore), online now, games played,
+ * newest saved-session use: sign-in or restore), online now, games played
+ * (human games, and bot games separately),
  * the admin flag, and for a tombstone the account it points at (merged
  * into it, or `renamed`: the old name a rename left), and for an account
  * whose rename stopped partway the old name (`renameUnfinished`: the
@@ -26,7 +27,7 @@ const MAX_QUERY = 50;
 const LIST_MAX = 500;
 
 const PROJECTION = {
-    username: 1, mergedInto: 1, renamedAt: 1, isAdmin: 1, 'stats.gamesPlayed': 1, 'renamePending.from': 1,
+    username: 1, mergedInto: 1, renamedAt: 1, isAdmin: 1, 'stats.gamesPlayed': 1, 'botStats.gamesPlayed': 1, 'renamePending.from': 1,
     'sessionTokens.lastUsedAt': 1, 'sessionTokens.createdAt': 1
 };
 
@@ -51,7 +52,9 @@ function playerRow(user, isOnline) {
         createdAt: typeof user._id?.getTimestamp === 'function' ? iso(user._id.getTimestamp()) : null,
         lastSeenAt: user.mergedInto ? null : lastSeen(user),
         online: !user.mergedInto && Boolean(isOnline(user.username)),
+        // human games (the leaderboard's default), and games with bots
         gamesPlayed: user.mergedInto ? 0 : Number(user.stats?.gamesPlayed) || 0,
+        botGamesPlayed: user.mergedInto ? 0 : Number(user.botStats?.gamesPlayed) || 0,
         isAdmin: !user.mergedInto && user.isAdmin === true,
         mergedInto: user.mergedInto || null,
         // a rename's redirect (accountRename.js), not a merged account

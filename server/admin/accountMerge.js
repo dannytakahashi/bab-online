@@ -3,7 +3,8 @@
  * from forgetting a password and signing up again).
  *
  * Merging re-points everything keyed by the old usernames ("sources") to the
- * kept account ("target"), adds the sources' cached stats into the target's,
+ * kept account ("target"), adds the sources' cached stats (both buckets:
+ * human games `stats` and bot games `botStats`) into the target's,
  * and turns each source user document into a tombstone:
  *   { username, mergedInto: <target>, mergedAt }
  * A tombstone keeps the name reserved (sign-up says "already taken"), cannot
@@ -13,14 +14,18 @@
  * Everything is planned first (planMerge, used for --dry-run) and applied
  * from that plan (applyMerge). The whole operation is idempotent: re-running
  * a finished merge is a no-op, and re-running one that was interrupted picks
- * up where it stopped. Stats are guarded per source by the target's
- * `mergedFrom` audit log, so they can never be added twice.
+ * up where it stopped. Stats (both buckets, in ONE write) are guarded per
+ * source by the target's `mergedFrom` audit log, so they can never be added
+ * twice.
  *
  * Where usernames live (keep in sync if new per-user data is added):
- *   users.username / users.stats / users.profilePic / users.customProfilePic
+ *   users.username / users.stats / users.botStats / users.profilePic /
+ *   users.customProfilePic
  *   users.blockedUsers (own list, and other users' lists naming the source)
  *   users.mergedInto (earlier tombstones that point at a source)
- *   gameRecords.team1Players / team2Players
+ *   gameRecords.team1Players / team2Players (humans only; the bot personas
+ *   of a bot game are in gameRecords.team1Bots / team2Bots, which are never
+ *   account names and are never re-pointed)
  *   reports.reporter / reports.reported
  *   passwordResets.username (open links of a source are revoked, see below)
  * Not moved: adminAudit (a log of what happened, by the names of the time).
@@ -33,26 +38,16 @@
  * their own (15 min); nothing to move.
  */
 
-const STAT_KEYS = [
-    'wins', 'losses', 'draws', 'gamesPlayed', 'totalPoints',
-    'totalTricksBid', 'totalTricksTaken', 'totalHands', 'totalSets',
-    'totalSetPoints', 'totalFaults', 'totalHSI'
-];
+const { STAT_KEYS, pickStats } = require('../utils/statsScope');
 
 // Fields removed from a source when it becomes a tombstone
 const TOMBSTONE_UNSET = [
-    'password', 'sessionToken', 'sessionTokens', 'socketId', 'stats',
+    'password', 'sessionToken', 'sessionTokens', 'socketId', 'stats', 'botStats',
     'profilePic', 'customProfilePic', 'blockedUsers', 'activeGameId',
     'activeGameStartedAt', 'activeTournamentId',
     // a tombstone is never an admin (server/admin/adminRole.js)
     'isAdmin', 'adminSince', 'adminSetBy'
 ];
-
-function pickStats(stats) {
-    const out = {};
-    for (const key of STAT_KEYS) out[key] = Number(stats?.[key]) || 0;
-    return out;
-}
 
 function addStats(a, b) {
     const out = {};
@@ -89,6 +84,8 @@ async function planMerge(db, { target, sources }) {
         targetId: null,
         statsBefore: null,
         statsAfter: null,
+        botStatsBefore: null,
+        botStatsAfter: null,
         sourceAccounts: [],
         profilePic: null,
         targetBlockedUsers: null,
@@ -148,24 +145,33 @@ async function planMerge(db, { target, sources }) {
     }
     if (plan.errors.length) return plan;
 
-    // Stats: target's cached totals plus every source not yet merged
+    // Stats: target's cached totals plus every source not yet merged, per
+    // bucket (human games and bot games)
     plan.statsBefore = pickStats(targetDoc.stats);
+    plan.botStatsBefore = pickStats(targetDoc.botStats);
     let statsAfter = { ...plan.statsBefore };
+    let botStatsAfter = { ...plan.botStatsBefore };
     for (const { doc, statsDone } of sourceDocs) {
-        const hasStats = doc.stats !== undefined;
+        const hasStats = doc.stats !== undefined || doc.botStats !== undefined;
         const stats = pickStats(doc.stats);
+        const botStats = pickStats(doc.botStats);
         const action = statsDone ? 'already-merged' : (hasStats ? 'add-stats' : 'no-stats');
-        if (action === 'add-stats') statsAfter = addStats(statsAfter, stats);
+        if (action === 'add-stats') {
+            statsAfter = addStats(statsAfter, stats);
+            botStatsAfter = addStats(botStatsAfter, botStats);
+        }
         plan.sourceAccounts.push({
             username: doc.username,
             id: doc._id,
             action,
             stats,
+            botStats,
             createdAt: typeof doc._id?.getTimestamp === 'function' ? doc._id.getTimestamp() : null
         });
         if (!isTombstoneComplete(doc)) plan.retire.push({ username: doc.username, id: doc._id });
     }
     plan.statsAfter = statsAfter;
+    plan.botStatsAfter = botStatsAfter;
 
     // Profile picture: keep the target's custom photo; otherwise inherit the
     // first source's custom photo so the player doesn't lose their picture
@@ -294,15 +300,19 @@ async function applyMerge(db, plan, { now = new Date() } = {}) {
     }
 
     // 2. Target account. The `mergedFrom.username` guard makes each source's
-    //    stats addition happen at most once, even across concurrent runs.
+    //    stats addition happen at most once, even across concurrent runs:
+    //    both buckets (stats and botStats) and the audit entry go in ONE
+    //    guarded write, so an interrupted merge can never count one twice.
     for (const src of plan.sourceAccounts) {
         if (src.action === 'already-merged') continue;
+        const botStats = src.botStats || pickStats(null);
         const update = {
-            $push: { mergedFrom: { username: src.username, stats: src.stats, mergedAt: now } }
+            $push: { mergedFrom: { username: src.username, stats: src.stats, botStats, mergedAt: now } }
         };
         if (src.action === 'add-stats') {
             const inc = {};
             for (const key of STAT_KEYS) if (src.stats[key]) inc[`stats.${key}`] = src.stats[key];
+            for (const key of STAT_KEYS) if (botStats[key]) inc[`botStats.${key}`] = botStats[key];
             if (Object.keys(inc).length) update.$inc = inc;
         }
         const res = await db.users.updateOne(
@@ -378,7 +388,9 @@ function formatPlan(plan) {
     }
 
     lines.push('', 'Accounts:');
+    const botLine = (s) => `            bot games: ${fmtStats(s || pickStats(null))}`;
     lines.push(`  target  ${plan.target}: ${fmtStats(plan.statsBefore)}`);
+    lines.push(botLine(plan.botStatsBefore));
     for (const s of plan.sourceAccounts) {
         const note = {
             'add-stats': 'stats will be added',
@@ -386,11 +398,18 @@ function formatPlan(plan) {
             'no-stats': 'no stats to add'
         }[s.action];
         lines.push(`  source  ${s.username} (created ${fmtDate(s.createdAt)}): ${fmtStats(s.stats)} (${note})`);
+        lines.push(botLine(s.botStats));
     }
     lines.push(`  result  ${plan.target}: ${fmtStats(plan.statsAfter)}`);
+    lines.push(botLine(plan.botStatsAfter));
     const changed = STAT_KEYS.filter(k => plan.statsAfter[k] !== plan.statsBefore[k]);
     for (const k of changed) {
         lines.push(`            stats.${k}: ${plan.statsBefore[k]} → ${plan.statsAfter[k]}`);
+    }
+    const before = plan.botStatsBefore || pickStats(null);
+    const after = plan.botStatsAfter || before;
+    for (const k of STAT_KEYS.filter(key => after[key] !== before[key])) {
+        lines.push(`            botStats.${k}: ${before[k]} → ${after[k]}`);
     }
 
     if (plan.profilePic) lines.push('', `Profile photo: copy custom photo from "${plan.profilePic.from}" (target has none).`);
@@ -447,7 +466,7 @@ async function findDuplicateCandidates(db, { minPrefix = 4 } = {}) {
     // server, so a full-document scan would stall live games
     const users = await db.users.find(
         { mergedInto: { $exists: false } },
-        { projection: { username: 1, 'stats.gamesPlayed': 1 } }
+        { projection: { username: 1, 'stats.gamesPlayed': 1, 'botStats.gamesPlayed': 1 } }
     ).toArray();
     const keys = users.map(u => nameKey(u.username));
 
@@ -470,13 +489,15 @@ async function findDuplicateCandidates(db, { minPrefix = 4 } = {}) {
         groups.get(root).push({
             username: u.username,
             gamesPlayed: u.stats?.gamesPlayed || 0,
+            botGamesPlayed: u.botStats?.gamesPlayed || 0,
             createdAt: typeof u._id?.getTimestamp === 'function' ? u._id.getTimestamp() : null
         });
     });
 
     return [...groups.values()]
         .filter(g => g.length > 1)
-        .map(g => g.sort((a, b) => b.gamesPlayed - a.gamesPlayed))
+        // most-played first, human and bot games together
+        .map(g => g.sort((a, b) => (b.gamesPlayed + b.botGamesPlayed) - (a.gamesPlayed + a.botGamesPlayed)))
         .sort((a, b) => a[0].username.localeCompare(b[0].username));
 }
 
@@ -486,7 +507,7 @@ function formatDuplicateGroups(groups) {
     for (const g of groups) {
         lines.push('');
         for (const u of g) {
-            lines.push(`  ${u.username.padEnd(24)} ${String(u.gamesPlayed).padStart(5)} games   created ${fmtDate(u.createdAt)}`);
+            lines.push(`  ${u.username.padEnd(24)} ${String(u.gamesPlayed).padStart(5)} games ${String(u.botGamesPlayed || 0).padStart(5)} bot games   created ${fmtDate(u.createdAt)}`);
         }
     }
     return lines.join('\n');

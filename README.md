@@ -311,6 +311,10 @@ Create a tournament from the main room to compete across 4 rounds of randomly-as
 
 Each player's round score is their team's final score from that round's game. Spectators can watch tournament games in progress from the tournament lobby. Disconnecting mid-tournament doesn't forfeit your seat — your scores are kept and you're re-attached when you reconnect; disconnected players just sit out rounds until they return. Final standings stay viewable for ~10 minutes after the tournament completes.
 
+### Stats: human games and bot games
+
+The Leaderboard, Records and Profile pages count **human games** by default (no bot at the table at the end; a player who went /lazy still counts as human). A switch at the top of each page shows **Bot games** (games with a bot or a resigned seat: solo games, tournament tables with filler bots) or **All games** (both added up). The choice is remembered on that device and shared by the three pages. Games with bots are counted from the release that added this (2026-11-13) on; older ones were never kept. The iOS app shows human games.
+
 ### Safety & Account Management
 
 - All chat (main room, lobby, in-game, tournament), usernames, and lobby names are profanity-filtered server-side.
@@ -419,9 +423,11 @@ The iOS client uses SwiftUI for UI and SpriteKit for the game canvas:
 | `rejoinGame` | Reconnect to game after disconnect |
 | `forceResign` | Replace disconnected player with a bot |
 | `joinAsSpectator` | Join an in-progress game as spectator |
-| `getProfile` | Fetch user profile and stats |
+| `getProfile` | Fetch user profile and stats (optional `{scope}`: `human` default, `bots`, `all`) |
 | `updateProfilePic` | Change profile picture |
-| `getLeaderboard` | Fetch leaderboard data |
+| `getLeaderboard` | Fetch leaderboard data (optional `{scope}`) |
+| `getRecords` | Fetch game records (optional `{scope}`) |
+| `getPlayerProfile` | Fetch another player's profile (`{username, scope?}`) |
 | `createTournament` | Create a new tournament lobby |
 | `joinTournament` | Join an existing tournament |
 | `leaveTournament` | Leave a tournament |

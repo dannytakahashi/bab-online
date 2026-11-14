@@ -448,6 +448,7 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
         td(fmtDay(p.createdAt)),
         td(tomb ? '—' : (p.online ? 'now' : fmtDate(p.lastSeenAt))),
         td(tomb ? '—' : p.gamesPlayed, 'is-num'),
+        td(tomb ? '—' : (Number(p.botGamesPlayed) || 0), 'is-num'),
         td(p.isAdmin ? chip('admin', 'gold') : '—'),
         td(tomb ? `${p.renamed ? 'renamed to' : 'into'} ${p.mergedInto}` : '—'),
         td(actions),
@@ -627,7 +628,7 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
       children: res.groups.map((g) => el('li', {
         className: 'admin-dup',
         children: [
-          el('span', { text: g.map((u) => `${u.username} (${u.gamesPlayed} games)`).join(', ') }),
+          el('span', { text: g.map((u) => `${u.username} (${u.gamesPlayed} games, ${Number(u.botGamesPlayed) || 0} bot)`).join(', ') }),
           createButton({
             label: 'Use', variant: 'ghost', size: 'sm', attrs: { 'aria-label': `Use ${g.map((u) => u.username).join(', ')}` },
             onClick: () => {
@@ -668,13 +669,17 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
       return;
     }
     const roleLabel = { target: 'Keep', source: 'Merge', result: 'Result' };
-    out.push(table(['Role', 'Account', 'Created', 'Games', 'W / L / D', 'Points', 'Note'], plan.accounts.map((a) => el('tr', {
+    out.push(table(['Role', 'Account', 'Created', 'Games', 'W / L / D', 'Points', 'Bot games', 'Note'], plan.accounts.map((a) => el('tr', {
       className: `admin-plan__${a.role}`,
       children: [td(roleLabel[a.role]), td(a.username), td(fmtDay(a.createdAt)), td(a.stats.gamesPlayed, 'is-num'),
-        td(`${a.stats.wins} / ${a.stats.losses} / ${a.stats.draws}`, 'is-num'), td(a.stats.totalPoints, 'is-num'), td(a.note || '')],
+        td(`${a.stats.wins} / ${a.stats.losses} / ${a.stats.draws}`, 'is-num'), td(a.stats.totalPoints, 'is-num'),
+        td(a.botStats ? a.botStats.gamesPlayed : 0, 'is-num'), td(a.note || '')],
     })), { caption: 'Accounts in this merge' }));
     if (plan.statChanges.length) {
       out.push(heading('Stats that change'), el('ul', { className: 'admin-list', children: plan.statChanges.map((c) => el('li', { text: `${c.key}: ${c.before} → ${c.after}` })) }));
+    }
+    if (plan.botStatChanges?.length) {
+      out.push(heading('Bot-game stats that change'), el('ul', { className: 'admin-list', children: plan.botStatChanges.map((c) => el('li', { text: `${c.key}: ${c.before} → ${c.after}` })) }));
     }
     const lines = [];
     if (plan.profilePicFrom) lines.push(`Profile photo: copy the custom photo from ${plan.profilePicFrom} (${plan.target} has none).`);

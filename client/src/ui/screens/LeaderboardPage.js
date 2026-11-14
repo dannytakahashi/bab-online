@@ -2,11 +2,18 @@
  * Leaderboard Page Screen
  *
  * A kit Modal showing player stats in a sortable table (item 18b: classes
- * from styles/screens.css, usernames as text).
+ * from styles/screens.css, usernames as text). The stats scope control on
+ * top (Human games | Bot games | All games, state/statsScope.js) re-asks
+ * the server and swaps the table body in place when the reply comes
+ * (main.js updateLeaderboardPage), so focus stays on the control.
  */
 
 import { profileAvatarSrc, applyAvatarImg } from '../../utils/avatar.js';
 import { el, openModal } from '../kit/index.js';
+import { createStatsScopeControl } from '../components/StatsScopeControl.js';
+import {
+  getStatsScope, setStatsScope, isStatsScope, createScopeRequester, BOT_STATS_EMPTY_NOTE,
+} from '../../state/statsScope.js';
 
 /**
  * Module state - tracks current sort configuration.
@@ -15,6 +22,12 @@ let currentSort = { column: 'winRate', ascending: false };
 let currentLeaderboard = null;
 let currentSocket = null;
 let leaderboardModal = null;
+/** The open page's scope, its control, the table region and body (in-place updates). */
+let currentScope = 'human';
+let scopeControl = null;
+let scopeRegion = null;
+let tableBody = null;
+let requester = null;
 
 /**
  * Get the appropriate profile picture source.
@@ -182,7 +195,8 @@ function renderTableBody(tbody, data) {
 
   // If no players, show message
   if (sortedData.length === 0) {
-    const td = el('td', { className: 'lb-empty', attrs: { colspan: COLUMNS.length }, text: 'No players have completed games yet.' });
+    const text = currentScope === 'bots' ? BOT_STATS_EMPTY_NOTE : 'No players have completed games yet.';
+    const td = el('td', { className: 'lb-empty', attrs: { colspan: COLUMNS.length }, text });
     tbody.appendChild(el('tr', { children: [td] }));
   }
 }
@@ -193,8 +207,9 @@ function renderTableBody(tbody, data) {
  *
  * @param {Array} leaderboard - Leaderboard data
  * @param {Object} socket - Socket instance
+ * @param {string} [scope] - the stats scope these rows are for (default: the device's choice)
  */
-export function showLeaderboardPage(leaderboard, socket) {
+export function showLeaderboardPage(leaderboard, socket, scope = getStatsScope()) {
   console.log('Showing leaderboard page...', leaderboard.length, 'players');
 
   // Remove any existing leaderboard page
@@ -202,15 +217,32 @@ export function showLeaderboardPage(leaderboard, socket) {
 
   currentLeaderboard = leaderboard;
   currentSocket = socket;
+  currentScope = isStatsScope(scope) ? scope : 'human';
   currentSort = { column: 'winRate', ascending: false };
 
-  // Table container with vertical scroll only
-  const tableContainer = el('div', { className: 'lb-scroll' });
+  // Table container with vertical scroll only (dimmed and aria-busy while
+  // a scope switch waits for its reply)
+  const tableContainer = el('div', { className: 'lb-scroll scope-region', attrs: { id: 'leaderboardRegion' } });
+  scopeRegion = tableContainer;
+  const send = createScopeRequester((next) => socket?.emit('getLeaderboard', { scope: next }));
+  requester = send;
+  scopeControl = createStatsScopeControl({
+    value: currentScope,
+    label: 'Which games the leaderboard counts',
+    onChange: (next) => {
+      setStatsScope(next);
+      currentScope = next;
+      tableContainer.setAttribute('aria-busy', 'true');
+      send.request(next);
+    },
+  });
+  scopeControl.element.setAttribute('aria-controls', 'leaderboardRegion');
   const table = el('table', { className: 'lb-table' });
 
   const thead = el('thead');
   const headerTr = el('tr');
   const tbody = el('tbody');
+  tableBody = tbody;
 
   // Sort handler
   const handleSort = (columnKey) => {
@@ -249,12 +281,47 @@ export function showLeaderboardPage(leaderboard, socket) {
     id: 'leaderboardPageOverlay',
     dialogId: 'leaderboardPageModal',
     className: 'page-modal page-modal--wide',
-    body: tableContainer,
+    body: [scopeControl.element, tableContainer],
     onClose: () => {
       leaderboardModal = null;
       currentLeaderboard = null;
+      forgetScopeUi();
     },
   });
+}
+
+function forgetScopeUi() {
+  requester?.cancel();
+  requester = null;
+  scopeControl = null;
+  scopeRegion = null;
+  tableBody = null;
+}
+
+/**
+ * New rows for the open page (a scope switch's reply): the body is
+ * re-rendered in place with the current sort; the modal, the control and
+ * focus stay as they are.
+ *
+ * @param {Array} leaderboard
+ * @param {string} [scope]
+ * @returns {boolean} false when no leaderboard page is open
+ */
+export function updateLeaderboardPage(leaderboard, scope) {
+  if (!leaderboardModal || !tableBody) return false;
+  currentLeaderboard = leaderboard;
+  if (isStatsScope(scope)) {
+    currentScope = scope;
+    scopeControl?.setValue(scope);
+  }
+  renderTableBody(tableBody, leaderboard);
+  scopeRegion?.removeAttribute('aria-busy');
+  return true;
+}
+
+/** A failed request: the open page stops waiting (the error is a toast). */
+export function leaderboardRequestFailed() {
+  scopeRegion?.removeAttribute('aria-busy');
 }
 
 /**
@@ -265,6 +332,7 @@ export function removeLeaderboardPage() {
   leaderboardModal = null;
   document.getElementById('leaderboardPageOverlay')?.remove();
   currentLeaderboard = null;
+  forgetScopeUi();
 }
 
 /**

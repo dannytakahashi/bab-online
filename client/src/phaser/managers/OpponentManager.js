@@ -18,6 +18,7 @@ import { CARD_TEXTURE_KEY } from '../cards/CardAtlas.js';
 import { tableBackFrame } from '../cards/tableBack.js';
 import { dealMs } from './CardManager.js';
 import { dealStaggerMs, EASE_EMPHASIZED } from '../../ui/motion.js';
+import { scopePayload } from '../../state/statsScope.js';
 
 /** OpponentManager slot → layout seat ('bottom' is a spectator's self seat). */
 const SEAT_OF = { partner: 'partner', opp1: 'opp1', opp2: 'opp2', bottom: 'self' };
@@ -348,7 +349,7 @@ export class OpponentManager {
     container.addEventListener('click', () => {
       const sm = getSocketManager();
       if (sm.socket) {
-        sm.socket.emit('getPlayerProfile', { username: container.dataset.username });
+        sm.socket.emit('getPlayerProfile', scopePayload({ username: container.dataset.username }));
       }
     });
 

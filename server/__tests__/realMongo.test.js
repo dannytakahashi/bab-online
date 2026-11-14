@@ -722,4 +722,51 @@ describe('real mongod', () => {
         expect(await users.findOne({ username: 'Iv' })).toMatchObject({ password: 'x' });
         expect(await mockHolder.gameRecords.findOne({ gameId: 'n2' })).toMatchObject({ team1Players: ['Iv', 'p'] });
     });
+
+    test('(o) stats scopes on the real driver: the human records queries still use completedAt_-1 and equal the reference with bot games present; all = the reference on human data; bots read withBots only', async () => {
+        if (!client) return;
+        const ref = makeReference(database);
+        const a = sock();
+        const b = sock();
+        const reply = (s) => log.filter(l => l.to === `self:${s.id}`).pop().data;
+        // 'all' on human-only data is the reference exactly (plus the echo)
+        await ref.getRecords(a, io);
+        await profile.getRecords(b, io, { scope: 'all' });
+        const { scope, ...allRest } = reply(b);
+        expect(scope).toBe('all');
+        expect(allRest).toEqual(reply(a));
+
+        // the human thisMonth / thisYear queries keep the completedAt_-1 index
+        const startOfMonth = new Date(new Date(now).getFullYear(), new Date(now).getMonth(), 1);
+        const plan = planOf(await mockHolder.gameRecords.find({ withBots: { $ne: true }, completedAt: { $gte: startOfMonth } }).explain('queryPlanner'));
+        expect(usesIndex(plan, 'completedAt_-1')).toBe(true);
+
+        // bot games appear: the human reply stays the pre-bot reference
+        const humanBefore = reply(a);
+        await mockHolder.gameRecords.insertMany([
+            { gameId: 'b1', withBots: true, team1Score: 990, team2Score: -500, team1Players: ['Cy'], team2Players: [], team1Bots: ['🤖 Mary'], team2Bots: ['🤖 Zach', '🤖 Mike'], team1Bags: 7, team2Bags: -3, completedAt: new Date(now - 500) },
+            { gameId: 'b2', withBots: true, team1Score: 100, team2Score: 120, team1Players: ['Alan', 'Bea'], team2Players: ['Eve'], team1Bots: [], team2Bots: ['🤖 Sharon'], team1Bags: 0, team2Bags: 2, completedAt: new Date(now - 400) }
+        ]);
+        await mockHolder.users.updateOne({ username: 'Cy' }, { $inc: { 'botStats.gamesPlayed': 1, 'botStats.wins': 1 } });
+        profile.invalidateRecords();
+        profile.invalidateLeaderboard();
+        await profile.getRecords(b, io);
+        expect(reply(b)).toEqual(humanBefore);
+        await profile.getRecords(b, io, { scope: 'bots' });
+        const bots = reply(b);
+        expect(bots.totalGames).toBe(2);
+        expect(bots.records.thisMonth.highestScore).toEqual({ score: 990, players: ['Cy', '🤖 Mary'] });
+        expect(bots.records.thisMonth.lowestScore).toEqual({ score: 100, players: ['Alan', 'Bea'] });
+        await profile.getRecords(b, io, { scope: 'all' });
+        expect(reply(b).totalGames).toBe(7);
+
+        // leaderboard: human = the reference; bots = Cy only
+        await ref.getLeaderboard(a, io);
+        await profile.getLeaderboard(b, io);
+        expect(reply(b)).toEqual(reply(a));
+        await profile.getLeaderboard(b, io, { scope: 'bots' });
+        expect(reply(b).leaderboard.map(r => r.username)).toEqual(['Cy', 'Population']);
+        await profile.getLeaderboard(b, io, { scope: 'all' });
+        expect(reply(b).leaderboard.find(r => r.username === 'Cy').gamesPlayed).toBe(5);
+    });
 });

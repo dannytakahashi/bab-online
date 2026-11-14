@@ -32,19 +32,20 @@ function fakeApi(handlers) {
 }
 
 const PLAYERS = [
-  { username: 'Bea', createdAt: '2026-01-02T00:00:00.000Z', lastSeenAt: '2026-11-10T00:00:00.000Z', online: false, gamesPlayed: 12, isAdmin: false, mergedInto: null },
-  { username: 'Owner', createdAt: '2026-01-01T00:00:00.000Z', lastSeenAt: null, online: true, gamesPlayed: 40, isAdmin: true, mergedInto: null },
-  { username: 'Bea2', createdAt: null, lastSeenAt: null, online: false, gamesPlayed: 0, isAdmin: false, mergedInto: 'Bea' },
+  { username: 'Bea', createdAt: '2026-01-02T00:00:00.000Z', lastSeenAt: '2026-11-10T00:00:00.000Z', online: false, gamesPlayed: 12, botGamesPlayed: 30, isAdmin: false, mergedInto: null },
+  { username: 'Owner', createdAt: '2026-01-01T00:00:00.000Z', lastSeenAt: null, online: true, gamesPlayed: 40, botGamesPlayed: 2, isAdmin: true, mergedInto: null },
+  { username: 'Bea2', createdAt: null, lastSeenAt: null, online: false, gamesPlayed: 0, botGamesPlayed: 0, isAdmin: false, mergedInto: 'Bea' },
 ];
 
 const PLAN = {
   target: 'Bea', sources: ['Bea2'], errors: [], warnings: ['heads up'],
   accounts: [
-    { role: 'target', username: 'Bea', createdAt: null, stats: { gamesPlayed: 12, wins: 6, losses: 6, draws: 0, totalPoints: 900 }, note: null },
-    { role: 'source', username: 'Bea2', createdAt: '2026-03-01T00:00:00.000Z', stats: { gamesPlayed: 2, wins: 1, losses: 1, draws: 0, totalPoints: 100 }, note: 'stats will be added' },
-    { role: 'result', username: 'Bea', createdAt: null, stats: { gamesPlayed: 14, wins: 7, losses: 7, draws: 0, totalPoints: 1000 }, note: null },
+    { role: 'target', username: 'Bea', createdAt: null, stats: { gamesPlayed: 12, wins: 6, losses: 6, draws: 0, totalPoints: 900 }, botStats: { gamesPlayed: 30, wins: 10, losses: 20, draws: 0, totalPoints: 4000 }, note: null },
+    { role: 'source', username: 'Bea2', createdAt: '2026-03-01T00:00:00.000Z', stats: { gamesPlayed: 2, wins: 1, losses: 1, draws: 0, totalPoints: 100 }, botStats: { gamesPlayed: 5, wins: 5, losses: 0, draws: 0, totalPoints: 900 }, note: 'stats will be added' },
+    { role: 'result', username: 'Bea', createdAt: null, stats: { gamesPlayed: 14, wins: 7, losses: 7, draws: 0, totalPoints: 1000 }, botStats: { gamesPlayed: 35, wins: 15, losses: 20, draws: 0, totalPoints: 4900 }, note: null },
   ],
   statChanges: [{ key: 'gamesPlayed', before: 12, after: 14 }],
+  botStatChanges: [{ key: 'gamesPlayed', before: 30, after: 35 }, { key: 'wins', before: 10, after: 15 }],
   profilePicFrom: null, targetBlockedUsers: null,
   gameRecords: [{ gameId: 'g1', completedAt: '2026-05-01T00:00:00.000Z', before: { team1: ['Bea2', 'x'], team2: ['y', 'z'] }, after: { team1: ['Bea', 'x'], team2: ['y', 'z'] } }],
   reports: [], otherUsersBlocks: [], chainedTombstones: [], retire: ['Bea2'], changeCount: 3,
@@ -63,7 +64,7 @@ beforeEach(() => {
     setAdmin: (a) => ({ ok: true, username: a.username, isAdmin: a.isAdmin, changed: true }),
     planMerge: { ok: true, plan: PLAN, planHash: HASH },
     applyMerge: { ok: true, result: { target: 'Bea', statsMerged: ['Bea2'], retired: ['Bea2'], gameRecords: 1, reports: 0, otherUsersBlocks: 0, chainedTombstones: 0, profilePic: false, signedOut: 0 } },
-    findDuplicates: { ok: true, groups: [[{ username: 'Bea', gamesPlayed: 12, createdAt: null }, { username: 'bea2', gamesPlayed: 1, createdAt: null }]] },
+    findDuplicates: { ok: true, groups: [[{ username: 'Bea', gamesPlayed: 12, botGamesPlayed: 3, createdAt: null }, { username: 'bea2', gamesPlayed: 1, botGamesPlayed: 0, createdAt: null }]] },
     listReports: { ok: true, reports: [{ id: 'a'.repeat(24), reporter: 'Bea', reported: 'Owner', reason: 'rude', context: 'chat line', createdAt: '2026-11-11T00:00:00.000Z', status: 'open', resolvedBy: null, resolvedAt: null, note: null }] },
     resolveReport: { ok: true, report: {} },
     listAdmins: { ok: true, admins: [{ username: 'Owner', adminSince: null }, { username: 'Bea', adminSince: null }] },
@@ -165,18 +166,21 @@ describe('the panel', () => {
     // newest first (an unknown creation date last)
     expect(namesShown()).toEqual(['Bea', 'Owner', 'Bea2']);
     const heads = [...document.querySelectorAll('#adminPlayerTable thead th')].map((th) => th.textContent.replace(/[▲▼]/g, '').trim());
-    expect(heads).toEqual(['Player', 'Created', 'Last seen', 'Games', 'Admin', 'Merged', 'Actions']);
+    expect(heads).toEqual(['Player', 'Created', 'Last seen', 'Games', 'Bot games', 'Admin', 'Merged', 'Actions']);
     expect($('#adminPlayerTable th[aria-sort]').textContent).toMatch(/Created/);
     expect($('#adminPlayerTable th[aria-sort]').getAttribute('aria-sort')).toBe('descending');
     expect(rowOf('Owner').textContent).toMatch(/Owner.*you.*online/);
     expect(rowOf('Owner').children[2].textContent).toBe('now');
-    expect(rowOf('Owner').children[4].textContent).toBe('admin');
+    expect(rowOf('Owner').children[5].textContent).toBe('admin');
     expect(rowOf('Bea').children[3].textContent).toBe('12');
-    expect(rowOf('Bea').children[5].textContent).toBe('—');
+    // games with bots, a separate column (Games stays human games)
+    expect(rowOf('Bea').children[4].textContent).toBe('30');
+    expect(rowOf('Bea').children[6].textContent).toBe('—');
     // a tombstone: marked, no reset link and no account menu, only what applies
     const tomb = rowOf('Bea2');
-    expect(tomb.children[5].textContent).toBe('into Bea');
+    expect(tomb.children[6].textContent).toBe('into Bea');
     expect(tomb.children[3].textContent).toBe('—');
+    expect(tomb.children[4].textContent).toBe('—');
     expect(byText('Reset link', tomb)).toBeUndefined();
     expect(tomb.querySelector('[aria-haspopup="menu"]')).toBeNull();
     // live accounts: a reset link and a More menu; destructive items last, after a separator, in the danger style
@@ -209,6 +213,9 @@ describe('the panel', () => {
     sortBtn('gamesPlayed').click();
     expect(namesShown()).toEqual(['Bea', 'Owner', 'Bea2']);
     expect(sortBtn('gamesPlayed').closest('th').getAttribute('aria-sort')).toBe('ascending');
+    sortBtn('botGamesPlayed').click();
+    expect(namesShown()).toEqual(['Bea', 'Owner', 'Bea2']); // most bot games first; a tombstone last
+    expect(sortBtn('botGamesPlayed').closest('th').getAttribute('aria-sort')).toBe('descending');
     sortBtn('username').click();
     expect(namesShown()).toEqual(['Bea', 'Bea2', 'Owner']);
     sortBtn('isAdmin').click();
@@ -427,8 +434,8 @@ describe('the panel', () => {
   it('a rename\'s old name is marked "renamed to X" (a merged one "into X")', async () => {
     api = fakeApi({ listPlayers: { ok: true, players: [PLAYERS[0], { ...PLAYERS[2], username: 'Bee', renamed: true }, PLAYERS[2]], total: 3, limit: 500 } });
     await openPlayers();
-    expect(rowOf('Bee').children[5].textContent).toBe('renamed to Bea');
-    expect(rowOf('Bea2').children[5].textContent).toBe('into Bea');
+    expect(rowOf('Bee').children[6].textContent).toBe('renamed to Bea');
+    expect(rowOf('Bea2').children[6].textContent).toBe('into Bea');
     expect(rowOf('Bee').querySelector('[aria-haspopup="menu"]')).toBeNull();
     expect(byText('Delete…', rowOf('Bee'))).toBeTruthy();
   });
@@ -510,6 +517,11 @@ describe('the panel', () => {
     expect(plan.textContent).toMatch(/Merge Bea2 into Bea/);
     expect(plan.querySelectorAll('tbody tr')).toHaveLength(3);
     expect(plan.textContent).toMatch(/gamesPlayed: 12 → 14/);
+    // the bot-game bucket: a column per account and its own change list
+    expect([...plan.querySelectorAll('thead th')].map((th) => th.textContent)).toContain('Bot games');
+    expect([...plan.querySelectorAll('tbody tr')].map((tr) => tr.children[6].textContent)).toEqual(['30', '5', '35']);
+    expect(plan.textContent).toMatch(/Bot-game stats that change/);
+    expect(plan.textContent).toMatch(/wins: 10 → 15/);
     expect(plan.textContent).toMatch(/Game records to re-point: 1/);
     expect(plan.textContent).toMatch(/Accounts to retire .*: Bea2/);
     expect(plan.textContent).toMatch(/heads up/);
@@ -556,6 +568,7 @@ describe('the panel', () => {
     byText('Merge').click();
     byText('Find look-alike names').click();
     await flush();
+    expect($('#adminDuplicates li span').textContent).toBe('Bea (12 games, 3 bot), bea2 (1 games, 0 bot)');
     $('#adminDuplicates button').click();
     expect($('#adminMergeKeep').value).toBe('Bea');
     expect($('#adminMergeSources').value).toBe('bea2');

@@ -490,7 +490,8 @@ describe('GameScene own avatar box (moved from main.js setGameScene)', () => {
       expect(info.hsiBox.id).toBe('player-hsi-box');
       expect(info.hsiBox.textContent).toBe('HSI: --');
       el.click();
-      expect(window.socket.emit).toHaveBeenCalledWith('getPlayerProfile', { username: 'me' });
+      // with the device's stats scope (state/statsScope.js; default human)
+      expect(window.socket.emit).toHaveBeenCalledWith('getPlayerProfile', { username: 'me', scope: 'human' });
     } finally {
       delete window.socket;
     }

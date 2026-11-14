@@ -16,7 +16,8 @@
  * @param {Function} callbacks.onCustomProfilePicUploaded - Called when custom pic is uploaded
  * @param {Function} callbacks.onCustomProfilePicUploadError - Called on custom pic upload error
  * @param {Function} callbacks.onSearchPlayersResult - Called with search results
- * @param {Function} callbacks.onPlayerProfileReceived - Called with another player's profile
+ * @param {Function} callbacks.onPlayerProfileReceived - Called with (profile, scope) of another player
+ * @param {Function} callbacks.onPlayerProfileError - Called when another player's profile fails (no toast today)
  */
 export function registerProfileHandlers(socketManager, callbacks = {}) {
   const {
@@ -28,13 +29,15 @@ export function registerProfileHandlers(socketManager, callbacks = {}) {
     onCustomProfilePicUploadError,
     onSearchPlayersResult,
     onPlayerProfileReceived,
+    onPlayerProfileError,
   } = callbacks;
 
   // Profile response
   socketManager.on('profileResponse', (data) => {
     if (data.success) {
       console.log('Profile received:', data.profile);
-      onProfileReceived?.(data.profile);
+      // scope: the stats scope echoed when the request named one (undefined = human)
+      onProfileReceived?.(data.profile, data.scope);
     } else {
       console.warn('Profile fetch failed:', data.message);
       onProfileError?.(data.message || 'Failed to fetch profile');
@@ -77,9 +80,10 @@ export function registerProfileHandlers(socketManager, callbacks = {}) {
   // Player profile response (viewing another player)
   socketManager.on('playerProfileResponse', (data) => {
     if (data.success) {
-      onPlayerProfileReceived?.(data.profile);
+      onPlayerProfileReceived?.(data.profile, data.scope);
     } else {
       console.warn('Player profile fetch failed:', data.message);
+      onPlayerProfileError?.(data.message);
     }
   });
 }

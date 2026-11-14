@@ -13,6 +13,10 @@ import { clearAllSessionData } from '../../utils/sessionPersistence.js';
 import { avatarSrc, profileAvatarSrc, applyAvatarImg } from '../../utils/avatar.js';
 import { el, createButton, createPanel, openModal } from '../kit/index.js';
 import { showError } from '../components/Toast.js';
+import { createStatsScopeControl } from '../components/StatsScopeControl.js';
+import {
+  getStatsScope, setStatsScope, isStatsScope, createScopeRequester, scopePayload, BOT_STATS_EMPTY_NOTE,
+} from '../../state/statsScope.js';
 
 /**
  * Module state - tracks current profile data and UI state.
@@ -24,6 +28,9 @@ let profileModal = null;
 let playerProfileModal = null;
 let pictureModal = null;
 let safetyModal = null;
+/** The stats section of the open own / other profile (scope control + region). */
+let ownStats = null;
+let playerStats = null;
 
 const DEFAULT_AVATAR = 'assets/default_avatar.png';
 const AVATAR_COUNT = 82;
@@ -145,8 +152,8 @@ function createStatItem(label, value) {
   });
 }
 
-/** The statistics heading and its 3 x 4 grid (both profiles). */
-function createStatsSection(stats = {}) {
+/** The 3 x 4 statistics grid (both profiles). */
+function createStatsGrid(stats = {}) {
   const gamesPlayed = stats.gamesPlayed || 0;
   const per = (total, digits = 1) => (gamesPlayed > 0 ? ((total || 0) / gamesPlayed).toFixed(digits) : '0');
 
@@ -175,7 +182,59 @@ function createStatsSection(stats = {}) {
     ['HSI', avgHSI],
   ].forEach(([label, value]) => grid.appendChild(createStatItem(label, value)));
 
-  return [el('h3', { className: 'section-title', text: 'Statistics' }), grid];
+  return grid;
+}
+
+/**
+ * The statistics heading, the stats scope control (Human games | Bot games
+ * | All games, state/statsScope.js) and the grid. Switching asks the server
+ * again (`request(scope)`); the reply replaces only the grid (update), so
+ * the picture, the buttons and focus on the control stay as they are.
+ *
+ * @param {Object} stats
+ * @param {string} scope - the scope `stats` is for
+ * @param {(scope: string) => void} request - sends the request for a new scope
+ * @param {string} regionId
+ */
+function createStatsSection(stats, scope, request, regionId) {
+  let current = isStatsScope(scope) ? scope : 'human';
+  const region = el('div', { className: 'scope-region', attrs: { id: regionId } });
+  const fill = (st) => {
+    const nodes = [];
+    if (current === 'bots' && !(st?.gamesPlayed > 0)) nodes.push(el('p', { className: 'scope-note', text: BOT_STATS_EMPTY_NOTE }));
+    nodes.push(createStatsGrid(st || {}));
+    region.replaceChildren(...nodes);
+  };
+  fill(stats);
+  const send = createScopeRequester(request);
+  const control = createStatsScopeControl({
+    value: current,
+    label: 'Which games the statistics count',
+    onChange: (next) => {
+      setStatsScope(next);
+      current = next;
+      region.setAttribute('aria-busy', 'true');
+      send.request(next);
+    },
+  });
+  control.element.setAttribute('aria-controls', regionId);
+  return {
+    nodes: [el('h3', { className: 'section-title', text: 'Statistics' }), control.element, region],
+    update(st, sc) {
+      if (isStatsScope(sc)) {
+        current = sc;
+        control.setValue(sc);
+      }
+      fill(st);
+      region.removeAttribute('aria-busy');
+    },
+    idle() {
+      region.removeAttribute('aria-busy');
+    },
+    cancel() {
+      send.cancel();
+    },
+  };
 }
 
 /** The round picture (img id for the own profile, which updates in place). */
@@ -243,8 +302,9 @@ function removePictureSelector() {
  *
  * @param {Object} profile - Profile data (username, profilePic, stats)
  * @param {Object} socket - Socket instance
+ * @param {string} [scope] - the stats scope `profile.stats` is for (default: the device's choice)
  */
-export function showProfilePage(profile, socket) {
+export function showProfilePage(profile, socket, scope = getStatsScope()) {
   console.log('Showing profile page...', profile);
 
   // Remove any existing profile page
@@ -278,6 +338,8 @@ export function showProfilePage(profile, socket) {
   }));
 
   const hero = createPanel({ elevation: 1, className: 'profile-hero screen-section', children: [createAvatar(profile, 'profilePicImage'), picInfo] });
+  const section = createStatsSection(profile.stats, scope, (next) => socket?.emit('getProfile', { scope: next }), 'profileStatsRegion');
+  ownStats = section;
 
   profileModal = openModal({
     title: profile.username,
@@ -286,13 +348,27 @@ export function showProfilePage(profile, socket) {
     id: 'profilePageOverlay',
     dialogId: 'profilePageModal',
     className: 'page-modal',
-    body: [hero, ...createStatsSection(profile.stats), createSignOutButton(), createDangerZone(socket)],
+    body: [hero, ...section.nodes, createSignOutButton(), createDangerZone(socket)],
     onClose: () => {
       profileModal = null;
       removePictureSelector();
       currentProfile = null;
+      section.cancel();
+      if (ownStats === section) ownStats = null;
     },
   });
+}
+
+/**
+ * New stats for the open own profile (a scope switch's reply): only the
+ * grid changes.
+ *
+ * @returns {boolean} false when the own profile is not open (or is another account's)
+ */
+export function updateProfileStats(profile, scope) {
+  if (!profileModal || !ownStats || !profile || profile.username !== currentProfile?.username) return false;
+  ownStats.update(profile.stats, scope);
+  return true;
 }
 
 /**
@@ -442,6 +518,8 @@ export function removeProfilePage() {
   profileModal = null;
   document.getElementById('profilePageOverlay')?.remove();
   currentProfile = null;
+  ownStats?.cancel();
+  ownStats = null;
 }
 
 /**
@@ -535,7 +613,8 @@ export function openBlockDialog(username, onConfirm) {
  *
  * @param {Object} profile - Profile data (username, profilePic, stats)
  * @param {Object} [socket] - Socket instance (enables report/block actions)
- * @param {Object} [options] - { isBlocked } current block state for the toggle
+ * @param {Object} [options] - { isBlocked } current block state for the toggle,
+ *   { scope } the stats scope `profile.stats` is for (default: the device's choice)
  */
 export function showPlayerProfilePage(profile, socket, options = {}) {
   socket = socket || currentSocket;
@@ -583,7 +662,15 @@ export function showPlayerProfilePage(profile, socket, options = {}) {
     body.push(el('div', { className: 'safety-row', children: [reportBtn, blockBtn] }));
   }
 
-  body.push(...createStatsSection(profile.stats));
+  const section = createStatsSection(
+    profile.stats,
+    options.scope ?? getStatsScope(),
+    (next) => socket?.emit('getPlayerProfile', scopePayload({ username: profile.username }, next)),
+    'playerProfileStatsRegion',
+  );
+  section.username = profile.username;
+  playerStats = section;
+  body.push(...section.nodes);
 
   playerProfileModal = openModal({
     title: profile.username,
@@ -596,8 +683,28 @@ export function showPlayerProfilePage(profile, socket, options = {}) {
     onClose: () => {
       playerProfileModal = null;
       closeSafetyDialog();
+      section.cancel();
+      if (playerStats === section) playerStats = null;
     },
   });
+}
+
+/**
+ * New stats for the open player profile of the same player (a scope
+ * switch's reply): only the grid changes; report / block stay.
+ *
+ * @returns {boolean} false when no profile of that player is open
+ */
+export function updatePlayerProfileStats(profile, scope) {
+  if (!playerProfileModal || !playerStats || !profile || playerStats.username !== profile.username) return false;
+  playerStats.update(profile.stats, scope);
+  return true;
+}
+
+/** A failed stats request: the open profiles stop waiting (the error is shown elsewhere). */
+export function profileStatsRequestFailed() {
+  ownStats?.idle();
+  playerStats?.idle();
 }
 
 /**
@@ -608,4 +715,11 @@ export function removePlayerProfilePage() {
   playerProfileModal?.close('api');
   playerProfileModal = null;
   document.getElementById('playerProfilePageOverlay')?.remove();
+  playerStats?.cancel();
+  playerStats = null;
+}
+
+/** Whether a player profile page is open (any player). */
+export function isPlayerProfilePageVisible() {
+  return document.getElementById('playerProfilePageOverlay') !== null;
 }

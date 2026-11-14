@@ -229,7 +229,7 @@ function adminDisplay(user) {
  * sessionTokens, the legacy sessionToken, activeGameId, activeTournamentId
  * and blockedUsers.
  */
-const SIGN_IN_PROJECTION = { customProfilePic: 0, stats: 0, mergedFrom: 0 };
+const SIGN_IN_PROJECTION = { customProfilePic: 0, stats: 0, botStats: 0, mergedFrom: 0 };
 const RESTORE_PROJECTION = { ...SIGN_IN_PROJECTION, password: 0 };
 
 /**

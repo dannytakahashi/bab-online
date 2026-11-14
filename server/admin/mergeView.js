@@ -48,6 +48,9 @@ function canonical(plan) {
         targetId: plan.targetId ? String(plan.targetId) : null,
         statsBefore: plan.statsBefore,
         statsAfter: plan.statsAfter,
+        // the bot-game bucket: a change only there must change the hash too
+        botStatsBefore: plan.botStatsBefore ?? null,
+        botStatsAfter: plan.botStatsAfter ?? null,
         sourceAccounts: [...plan.sourceAccounts].sort(byId).map(s => ({ ...s, id: String(s.id), createdAt: iso(s.createdAt) })),
         profilePic: plan.profilePic,
         targetBlockedUsers: plan.targetBlockedUsers,
@@ -72,6 +75,7 @@ function planView(plan) {
         warnings: [...plan.warnings],
         accounts: [],
         statChanges: [],
+        botStatChanges: [],
         profilePicFrom: null,
         targetBlockedUsers: null,
         gameRecords: [],
@@ -84,14 +88,20 @@ function planView(plan) {
     if (plan.errors.length) return view;
 
     const targetCreated = typeof plan.targetId?.getTimestamp === 'function' ? iso(plan.targetId.getTimestamp()) : null;
-    view.accounts.push({ role: 'target', username: plan.target, createdAt: targetCreated, stats: summary(plan.statsBefore), note: null });
+    // stats = human games (as before), botStats = bot games (statsScope.js)
+    view.accounts.push({ role: 'target', username: plan.target, createdAt: targetCreated, stats: summary(plan.statsBefore), botStats: summary(plan.botStatsBefore), note: null });
     for (const s of plan.sourceAccounts) {
-        view.accounts.push({ role: 'source', username: s.username, createdAt: iso(s.createdAt), stats: summary(s.stats), note: NOTES[s.action] || null });
+        view.accounts.push({ role: 'source', username: s.username, createdAt: iso(s.createdAt), stats: summary(s.stats), botStats: summary(s.botStats), note: NOTES[s.action] || null });
     }
-    view.accounts.push({ role: 'result', username: plan.target, createdAt: null, stats: summary(plan.statsAfter), note: null });
+    view.accounts.push({ role: 'result', username: plan.target, createdAt: null, stats: summary(plan.statsAfter), botStats: summary(plan.botStatsAfter), note: null });
     view.statChanges = STAT_KEYS
         .filter(k => plan.statsAfter[k] !== plan.statsBefore[k])
         .map(k => ({ key: k, before: plan.statsBefore[k], after: plan.statsAfter[k] }));
+    const botBefore = plan.botStatsBefore || {};
+    const botAfter = plan.botStatsAfter || botBefore;
+    view.botStatChanges = STAT_KEYS
+        .filter(k => (Number(botAfter[k]) || 0) !== (Number(botBefore[k]) || 0))
+        .map(k => ({ key: k, before: Number(botBefore[k]) || 0, after: Number(botAfter[k]) || 0 }));
     view.profilePicFrom = plan.profilePic ? plan.profilePic.from : null;
     view.targetBlockedUsers = plan.targetBlockedUsers
         ? { before: [...plan.targetBlockedUsers.before], after: [...plan.targetBlockedUsers.after] }

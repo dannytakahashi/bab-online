@@ -20,6 +20,7 @@ const SCREEN_FILES = [
   'src/boot/gateScreen.js', 'src/boot/boot.js', 'src/entry.js',
   'src/reset/resetPage.js', 'src/reset/resetEntry.js',
   'src/ui/screens/AdminPanel.js', 'src/ui/screens/adminPlayers.js', 'src/admin/adminApi.js',
+  'src/ui/components/StatsScopeControl.js',
 ];
 const PAGE_CSS = ['styles/screens.css', 'styles.css', 'styles/kit.css', 'styles/components.css', 'styles/gate.css', 'index.html',
   'styles/reset.css', 'reset.html'];

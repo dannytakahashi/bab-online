@@ -644,30 +644,70 @@ describe('/leave outcome and its log line', () => {
 });
 
 describe('R20 stats', () => {
-    async function statsFor(setup) {
-        const t = table();
+    /** Who got a human-game ($inc stats.*) and who a bot-game ($inc botStats.*) write, and the game record. */
+    async function statsFor(setup, opts) {
+        const t = table(opts);
         await setup(t);
         const spy = jest.spyOn(mockDb.current.users, 'updateOne');
+        const insert = jest.spyOn(mockDb.current.gameRecords, 'insertOne');
         await profileHandlers.recordGameStats(t.game);
-        return spy.mock.calls.filter(([, u]) => u.$inc && 'stats.gamesPlayed' in u.$inc).map(([f]) => f.username).sort();
+        const who = (key) => spy.mock.calls.filter(([, u]) => u.$inc && key in u.$inc).map(([f]) => f.username).sort();
+        return { human: who('stats.gamesPlayed'), bots: who('botStats.gamesPlayed'), records: insert.mock.calls.map(([d]) => d) };
     }
 
-    test('a lazy seat is recorded for its human', async () => {
-        expect(await statsFor(async (t) => chat(t, 1, '/lazy'))).toEqual(['user1', 'user2', 'user3', 'user4']);
+    test('a lazy seat is recorded for its human (a human game)', async () => {
+        const r = await statsFor(async (t) => chat(t, 1, '/lazy'));
+        expect(r.human).toEqual(['user1', 'user2', 'user3', 'user4']);
+        expect(r.bots).toEqual([]);
+        expect(r.records).toHaveLength(1);
+        expect(r.records[0].withBots).toBeUndefined();
+        expect(Object.keys(r.records[0]).sort()).toEqual(['completedAt', 'gameId', 'team1Bags', 'team1Players', 'team1Score', 'team2Bags', 'team2Players', 'team2Score']);
     });
 
-    test('a resign-bot seat skips the game', async () => {
-        expect(await statsFor(async (t) => resignedSeat(t.game, 1, botController.createBot('🤖 Zed', 'zach')))).toEqual([]);
+    test('a resign-bot seat makes it a bot game: botStats for every owner (the resigned one too), never stats', async () => {
+        const r = await statsFor(async (t) => resignedSeat(t.game, 1, botController.createBot('🤖 Zed', 'zach')));
+        expect(r.human).toEqual([]);
+        expect(r.bots).toEqual(['user1', 'user2', 'user3', 'user4']);
+        expect(r.records).toHaveLength(1);
+        // the resigned owner keeps their place among the humans; no bot name is listed
+        expect(r.records[0]).toMatchObject({ withBots: true, team1Players: ['user1', 'user3'], team2Players: ['user2', 'user4'], team1Bots: [], team2Bots: [] });
     });
 
-    test('resigned then /active is recorded again', async () => {
-        expect(await statsFor(async (t) => {
+    test('a native bot seat: botStats for the humans only, the persona in teamNBots', async () => {
+        const r = await statsFor(async () => {}, { bots: { 2: 'mary' } });
+        expect(r.human).toEqual([]);
+        expect(r.bots).toEqual(['user1', 'user3', 'user4']);
+        expect(r.records[0]).toMatchObject({ withBots: true, team1Players: ['user1', 'user3'], team2Players: ['user4'], team1Bots: [], team2Bots: ['🤖 Mary'] });
+    });
+
+    test('a solo game (one human, three bots) is a bot game for that human', async () => {
+        const r = await statsFor(async () => {}, { bots: { 2: 'mary', 3: 'zach', 4: 'sharon' } });
+        expect(r.bots).toEqual(['user1']);
+        expect(r.human).toEqual([]);
+        expect(r.records[0]).toMatchObject({ withBots: true, team1Players: ['user1'], team2Players: [], team1Bots: ['🤖 Zach'], team2Bots: ['🤖 Mary', '🤖 Sharon'] });
+    });
+
+    test('an all-bot game (no human owner) writes nothing and leaves the caches alone', async () => {
+        const log = [];
+        const io = makeIo(log);
+        await profileHandlers.getLeaderboard(makeSocket('r20-reader', log, io), io, { scope: 'all' });
+        const cached = profileHandlers._peekLeaderboardCache('all');
+        expect(cached).toBeDefined();
+        const r = await statsFor(async () => {}, { bots: { 1: 'mary', 2: 'zach', 3: 'sharon', 4: 'danny' } });
+        expect(r).toEqual({ human: [], bots: [], records: [] });
+        expect(profileHandlers._peekLeaderboardCache('all')).toBe(cached);
+    });
+
+    test('resigned then /active is recorded again as a human game', async () => {
+        const r = await statsFor(async (t) => {
             await drop(t, t.sockets[1]);
             await jest.advanceTimersByTimeAsync(60000);
             await gameHandlers.forceResign(t.sockets[2], t.io, { position: 1 });
             const w = await rejoin(t, 'user1');
             chat(t, 1, '/active', w);
-        })).toEqual(['user1', 'user2', 'user3', 'user4']);
+        });
+        expect(r.human).toEqual(['user1', 'user2', 'user3', 'user4']);
+        expect(r.bots).toEqual([]);
     });
 });
 
