@@ -103,3 +103,73 @@ control) → 4.9–5.0% (seeds 11/12); success 91% → 82–83%; team set rate
 now, by design: a 2-card bore pays ±40 against roughly +10 to +20 for a plain
 bid, so it stays +EV down to about a 60–65% sweep rate. A bid decision takes
 at most ~1 ms (5-card hand). Zero incidents and zero exceptions in every run.
+
+## Expected-value bidding (November 2026, 16000 games/match)
+
+Players saw the bots "sandbag". Measured on Mary self-play before this change
+(2000 games, seed 601): 65% of team-hands won more tricks than the team bid
+(mean +1.19 tricks), and players hit their own bid exactly 42% of the time.
+Play never throws tricks to match a bid: in 4th seat, where the check is
+exact, no lost trick could have been won with another legal card (0 of
+~68,000 after the contract was made, 0 of ~118,000 before), before and after
+this change. So the gap was in the bid, and mostly in the hand evaluation
+behind it (mid / low trump valued at 0.15 / 0.05 tricks on big hands against
+~0.6 / ~0.35 in actual play).
+
+On 3+ card hands with no bore on the table, `calculateOptimalBid` now
+estimates a distribution of team tricks and bids the number that maximizes
+expected team score (`BotStrategy.js`, "Expected-value bidding"):
+
+- own tricks: fitted per-card values in `../bidModel.js` (by hand-size
+  group), shifted by numeric opponent bids already made;
+- partner: their bid plus their mean overtricks if they bid first, else an
+  average over what a second-of-team partner bids;
+- team tricks ~ Normal(mean, TEAM_SD) discretized to 0..handSize, each bid
+  scored with the real contract scoring (team bid capped at the hand size; an
+  all-zero table's last 0 counts as a redeal).
+
+Late game (progress >= 0.7, score difference > 30) leans to the highest
+(behind) or lowest (ahead) bid within 2 points of the best. Danny / Sharon
+lean up / down within 1.5 points; Zach swaps the population
+partner-overtrick figure for his partner's observed one (shrunk toward it);
+Mike keeps his 10% +1. 1-2 card hands and hands with a bore out keep the
+previous rules. The old evaluation-based rules (floor rounding, small-hand
+caps, opponents-bid-60% and partner-bid-half trims) no longer apply to the
+EV hands: the model reads those bids directly.
+
+Refit recipe (the tables describe how the current bots play, so refit after
+any bidding or card-play change; two or three rounds settle):
+
+```bash
+node server/game/bot/sim/simulate.js --exp baseline --games 4000 --seed 604 --records /tmp/bids.jsonl
+node server/game/bot/sim/fitBidModel.js /tmp/bids.jsonl --note "..." > server/game/bot/bidModel.js
+```
+
+Tuned on seeds 31-51 and 601-604; the numbers below are on held-out seeds.
+
+| Matchup (new vs `efb189a` snapshot) | Seed | Win rate (X) | Avg score delta |
+|---|---|---|---|
+| mary,mary vs base:mary,base:mary | 61 | 68.1% ±0.7 | +65.5 |
+| mary,mary vs base:mary,base:mary | 62 | 68.2% ±0.7 | +66.1 |
+| danny,zach vs base:danny,base:zach | 13 | 66.2% ±0.7 | +66.1 |
+
+| Legacy benchmark (`--exp legacy --seed 14`) | Before | After |
+|---|---|---|
+| mary vs legacy mary | 62.1% ±0.8 | 79.1% ±0.6 |
+| mary vs legacy danny+zach | 61.8% ±0.8 | 77.2% ±0.7 |
+
+Calibration, Mary self-play (seed 601 before, seed 605 after; 2000 / 4000
+games): player tricks minus bid +0.59 → +0.47, exact 41.9% → 46.9%; team
+tricks minus bid +1.19 → +0.95, exact 26.3% → 30.7%, set 8.8% → 6.8%; points
+per team-hand 19.3 → 24.4. The remaining ~1 trick of team overage is the
+scoring's optimum, not sandbagging: raising from team bid B to B+1 must make
+(20B+10)/(20B+19) of the time (77% at B=1, 89% at B=3).
+
+Knob checks against the fitted model (8000-16000 games each): spread ×0.85 /
+×1.15 → 50.3% / 47.7%; mean +0.15 / −0.15 → 50.0% / 46.7%; late-game
+tolerance 0 / 2 / 6 / 8 against 4 → 49.6% / 50.4% / 49.8% / 46.9%, and 2
+against 4 again on seeds 65 / 66 → 49.7% / 49.7% (+4.4 / +4.8 points): win
+rate is flat there, 2 kept for the points. Personalities (`--exp
+personalities --games 8000 --seed 51`): sharon+mary 47.5%, danny+mary 50.1%,
+mike+mary 47.8%, zach+mary 48.8% (±1.1). A bid decision takes ~0.05 ms.
+Zero incidents and zero exceptions in every run.

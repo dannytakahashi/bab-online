@@ -27,8 +27,10 @@ const SEEDS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 const AMBIENT_SEEDS = [21, 22];
 
 // Recorded at commit 1 of the pacing change with df59149's values (the
-// legacy profile): 594.6 s mean over SEEDS
-const BASELINE_MS = 594600;
+// legacy profile): 594.6 s mean over SEEDS. Re-measured at 593.4 s after the
+// expected-value bidding change (2026-11-14): no delay changed, but the bots'
+// bids (redeals, contract-driven play) move the game's event count a little
+const BASELINE_MS = 593400;
 
 // Standard profile, mean seconds per component over SEEDS (pinned +-5%)
 const STANDARD_S = {

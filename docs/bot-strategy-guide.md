@@ -21,6 +21,16 @@ So: **when in doubt, bid one fewer than you think you can win** — but only *on
 
 The equilibrium: evaluate pessimistically, round down, and **stop there**. Don't add further "safety" adjustments on top — each one double-counts uncertainty that the evaluation already priced in.
 
+### Bid the expected value, not a rounded estimate (November 2026)
+
+The cleaner way to say all of the above: estimate a *distribution* of team tricks and bid whatever maximizes the expected team score. Since November 2026 Mary does exactly that on hands of 3+ cards (`calculateOptimalBid`, tables in `server/game/bot/bidModel.js`):
+
+- **Own tricks** = the sum of fitted per-card values (what each card actually wins in bot play, by hand-size group), shifted down by numeric opponent bids already made.
+- **Partner** = partner's bid plus partner's typical overtricks when they bid first; when they bid after us, an average over what a second-of-team partner usually adds. The team bid is what scores, so a known partner bid moves the break-even: raising from team bid B to B+1 needs the extra trick about (20B+10)/(20B+19) of the time — 77% at B=1, 89% at B=3.
+- **Spread** = a normal around that mean, about 0.75 tricks wide on 3-card hands and 1.2 on 11-13.
+
+The margin falls out of the math instead of a rounding rule: a hand with jokers and top trump (low variance) bids closer to its mean than a hand of side kings. This version beats the previous floor-rounding Mary 68% of games (16,000-game runs, two seeds) — and still wins about one trick per team-hand more than it bids. **That residual overage is correct under this scoring, not sandbagging**: a team that bids its expected tricks gets set 40-50% of the time. What players saw as sandbagging was mostly a bad trick estimate (below), which this fixed.
+
 ## Bidding: Hand-Size-Dependent Card Evaluation
 
 Card values change dramatically based on hand size. This is the most important evaluation concept to internalize.
@@ -35,10 +45,10 @@ With 54 cards in the deck and 4 players:
 
 ### Large Hands (8-13 cards)
 
-- **Non-trump Aces**: Strong — worth roughly 0.7-0.8 of a trick. Opponents almost certainly have the suit and must follow.
-- **Non-trump Kings**: Moderate — worth roughly 0.3-0.4 of a trick. Reliable if you also hold the Ace, but risky alone since the Ace is out there and may not belong to your partner.
+- **Non-trump Aces**: Strong — worth roughly 0.75-0.9 of a trick. Opponents almost certainly have the suit and must follow.
+- **Non-trump Kings**: Moderate — worth roughly 0.4-0.55 of a trick (a little less behind your own Ace, which already wins that suit's first trick); even a side Queen is worth ~0.2. Reliable if you also hold the Ace, but risky alone since the Ace is out there and may not belong to your partner.
 - **Trump cards**: Very strong when you hold many (5+). Trump length gives control over the hand.
-- **Every trump card counts.** Even low trump (2-6) carries fractional value at every hand size — each one ruffs a trick or forces out a bigger trump. An earlier edition valued mid trump at zero on large hands; that produced absurd inversions (a trump Jack rated below an off-suit King) and was the single largest source of underbidding the simulation found. As a rule of thumb: mid trump (7-J) ≈ 0.15-0.25 tricks, low trump ≈ 0.05-0.1, scaling up as hands shrink.
+- **Every trump card counts — far more than intuition says.** Each one ruffs a trick or forces out a bigger trump. An earlier edition valued mid trump at zero on large hands, the next at 0.15-0.25 (mid, 7-J) and 0.05-0.1 (low, 2-6); measured in actual play they are worth about **0.6 (mid) and 0.3-0.4 (low)** on 8-13 card hands, 0.65 / 0.45 on 5-7 and 0.75 / 0.5 on 3-4. That under-valuation (0.6-0.8 tricks per large hand) was the main source of the underbidding players noticed. The flip side: the jokers and the trump Ace are a little *less* sure than "near-guaranteed" (HI ≈ 1.3-1.5 counting the trick it pulls, LO ≈ 0.9, trump A/K/Q ≈ 0.75-0.85 each).
 - **Voids**: Valuable in combination with trump — each void is an opportunity to trump in on that suit.
 - **Single trump risk**: One lone non-joker trump in a large hand is likely to be outdrawn. Devalue it.
 
@@ -181,7 +191,7 @@ A rainbow (one card of each suit) pays +10 even if you're set, and rainbow hands
 
 ## What 250,000 Games Taught Us (Counterintuitive Findings)
 
-1. **Stacked conservatism loses.** Pessimistic evaluation + floor rounding is the right amount; every additional "to be safe" adjustment (first-bidder discounts, strong-hand trims) measurably cost win rate. One layer of safety, applied once.
+1. **Stacked conservatism loses.** Pessimistic evaluation + floor rounding was the right amount for that evaluation; every additional "to be safe" adjustment (first-bidder discounts, strong-hand trims) measurably cost win rate. One layer of safety, applied once — and since November 2026 that layer is the expected-value calculation itself (see "Bid the expected value").
 2. **More aggression also loses.** Adding ~half a trick of bid aggression tripled the set rate and lost games. The make-rate sweet spot is ~90%; both directions away from it are downhill.
 3. **Low trump is never worthless.** Zeroing mid/low trump value was worth several points a hand in underbids. If it can ruff, it counts.
 4. **There is no card conservation without an objective.** Once both contracts are decided, "saving" a card wastes it. Play every remaining trick to win.
