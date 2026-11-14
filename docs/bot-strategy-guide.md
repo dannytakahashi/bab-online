@@ -200,6 +200,18 @@ When you can't follow and shouldn't trump:
 - Discard from your **shortest non-trump suit** to create voids — but only if you hold trump to exploit them; with no trump, voids are worthless, so just dump your lowest card.
 - **Protect winners, not ranks.** Don't slough a card just because it's "low" if counting says it's boss, and don't cling to a King whose suit-mates make it dead. A Queen with the A-K-J gone is a winner; a King under a live Ace is a hope.
 
+## The Last Seven Cards: Search Instead of Rules (November 2026)
+
+Everything above is a rule of thumb, and rules of thumb leak most when few cards are left: the right lead or the right ruff depends on exactly who can still hold what. So once a bot holds 7 cards or fewer it stops trusting the rules and works the ending out (`server/game/bot/playSearch.js`):
+
+1. **Deal out the unseen cards many times.** Each sampled deal respects what the table has shown: a player who failed to follow is void; an opponent who followed a HI-joker lead holds no higher trump than the one it was forced to play; a player who closed a trick the other side won had nothing that could win it. Unlike bridge, many cards are simply not dealt (on a 4-card hand, 37 of 54), so the bids matter too: deals where a hand's trick-taking power fits what its owner bid are kept in preference to deals where it does not.
+2. **Solve each sampled deal exactly**, all four hands face up, for every legal card.
+3. **Play the card with the best average hand score** (our points minus theirs under the real contract: bids, bores, tricks already taken). Averaging the score rather than the tricks is what makes it play for the contract: it takes the sure trick that makes the bid over the line that wins one more trick most of the time and gets set the rest.
+
+The rule-based card is kept on an exact tie, above 7 cards, and whenever the bot has not seen the whole hand (a bot that took a seat mid-hand). Last to play, the search only ever considers cards that win a trick that can be won: it never declines one.
+
+Against the rule-only bots the searching bots win 61.6% of paired games, about 40 points per game, taking 0.29 more tricks per hand (sim README, "Play search"). The search has known blind spots: it assumes everyone sees every card from here on, so it never plays to hide a card or to make a defender guess.
+
 ## Game-Level Score Awareness
 
 Shift risk tolerance with the scoreboard, late in the game only:
