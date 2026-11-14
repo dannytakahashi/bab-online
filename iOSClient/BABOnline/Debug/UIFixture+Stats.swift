@@ -10,8 +10,16 @@ import Foundation
 /// Human games are answered as today's server does (no `scope` echo); Bots and All as the
 /// scoped server does (`scope` echoed; bot games' records carry `withBots`). The saved scope
 /// starts at Humans in fixture mode unless `-uiStatsKeepScope YES` (the persistence test).
+/// `-uiStatsHumanDelay <seconds>` answers Humans that much later (a late Humans reply landing
+/// after a switch to Bots, as a slow scoped server sends it: no echo).
 extension UIFixture {
     static let statsMode: String = UserDefaults.standard.string(forKey: "uiStats") ?? "ok"
+    private static let humanDelay: TimeInterval = {
+        let d = UserDefaults.standard.double(forKey: "uiStatsHumanDelay")
+        return d > 0 ? d : 0.4
+    }()
+
+    private static func delay(_ scope: StatsScope) -> TimeInterval { scope == .human ? humanDelay : 0.4 }
 
     static func seedStats(leaderboard: LeaderboardState, records: RecordsState) {
         guard isActive else { return }
@@ -24,13 +32,13 @@ extension UIFixture {
             asked.leaderboard += 1
             let reply = statsReply(leaderboard: true, scope: scope, attempt: asked.leaderboard)
             guard let reply else { return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { leaderboard?.apply(response: reply) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay(scope)) { leaderboard?.apply(response: reply) }
         }
         records.send = { [weak records] scope in
             asked.records += 1
             let reply = statsReply(leaderboard: false, scope: scope, attempt: asked.records)
             guard let reply else { return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { records?.apply(response: reply) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay(scope)) { records?.apply(response: reply) }
         }
     }
 

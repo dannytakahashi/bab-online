@@ -66,15 +66,23 @@ final class StatsScopeTests: XCTestCase {
     }
 
     // MARK: - Replies
+    //
+    // As the servers send them: the scoped server (server/bot-game-stats) echoes `scope` on a
+    // success only when the request named one (Bots / All; Humans sends no payload) and never
+    // on a failure; today's server echoes nothing and answers every request with human games.
 
-    /// Humans -> Bots -> Humans quickly: each scope's reply fills its own page, never the
-    /// one selected when it lands.
+    private func failure(_ message: String = "Database error") -> [String: Any] {
+        ["success": false, "message": message]
+    }
+
+    /// Humans -> Bots -> Humans quickly on the scoped server: each scope's reply fills its own
+    /// page, never the one selected when it lands.
     func testAReplyForAnotherScopeNeverShows() {
         let s = leaderboard()
         s.request()                              // human
         s.select(.bots)
         s.request()                              // bots
-        s.apply(response: rows("kim", "ivy", scope: "human"))
+        s.apply(response: rows("kim", "ivy"))    // Humans' reply: no echo
         XCTAssertEqual(s.load.display, .loading, "Bots is still loading: the human rows are not shown")
         XCTAssertTrue(s.entries.isEmpty)
         s.apply(response: rows("ora", scope: "bots"))
@@ -91,23 +99,119 @@ final class StatsScopeTests: XCTestCase {
         XCTAssertEqual(s.entries.map(\.username), ["ora", "zed"])
     }
 
-    func testFailuresLandOnTheirScope() {
+    /// The Humans reply (no echo) lands after the Bots one: Bots keeps its rows.
+    func testALateHumansReplyAfterTheBotsReply() {
+        let s = leaderboard()
+        s.request()
+        s.select(.bots)
+        s.request()
+        s.apply(response: rows("ora", scope: "bots"))
+        s.apply(response: rows("ivy", "kim"))
+        XCTAssertEqual(s.entries.map(\.username), ["ora"], "Bots is not overwritten with human rows")
+        s.select(.human)
+        XCTAssertEqual(s.entries.map(\.username), ["ivy", "kim"])
+        XCTAssertEqual(s.load.display, .content)
+    }
+
+    /// Switching back to Humans after its late reply landed: its rows, no timeout error.
+    func testALateHumansReplyFinishesHumans() async {
+        let s = await MainActor.run { () -> LeaderboardState in
+            let s = leaderboard()
+            s.timeout = 0.2
+            s.request()
+            s.select(.all)
+            s.request()
+            s.apply(response: rows("ivy", "kim"))
+            XCTAssertEqual(s.load.display, .loading, "All is still loading")
+            return s
+        }
+        try? await Task.sleep(nanoseconds: 400_000_000)
+        await MainActor.run {
+            XCTAssertEqual(s.load.failure, .noReply, "All got no reply")
+            XCTAssertTrue(s.entries.isEmpty)
+            s.select(.human)
+            XCTAssertEqual(s.entries.map(\.username), ["ivy", "kim"])
+            XCTAssertNil(s.load.failure, "Humans answered: no \"didn't answer\" error")
+        }
+    }
+
+    /// A Humans reply after its own timeout, on a Bots page waiting for its reply, before any
+    /// echo has been seen: still Humans'.
+    func testAHumansReplyAfterItsTimeoutStaysOnHumans() async {
+        let s = await MainActor.run { () -> LeaderboardState in
+            let s = leaderboard()
+            s.timeout = 0.2
+            s.request()
+            return s
+        }
+        try? await Task.sleep(nanoseconds: 400_000_000)
+        await MainActor.run {
+            XCTAssertEqual(s.load.failure, .noReply)
+            s.timeout = 10
+            s.select(.bots)
+            s.request()
+            s.apply(response: rows("ivy", "kim"))
+            XCTAssertEqual(s.load.display, .loading, "the human rows are not shown under Bots")
+            s.apply(response: rows("ora", scope: "bots"))
+            XCTAssertEqual(s.entries.map(\.username), ["ora"])
+            s.select(.human)
+            XCTAssertEqual(s.entries.map(\.username), ["ivy", "kim"])
+        }
+    }
+
+    /// Once a reply has carried an echo, a reply without one is Humans' even when no Humans
+    /// request is counted as waiting.
+    func testAfterAnEchoAReplyWithoutOneIsHumans() {
+        let s = leaderboard()
+        s.select(.bots)
+        s.request()
+        s.apply(response: rows("ora", scope: "bots"))
+        s.request()
+        s.apply(response: rows("ivy"))
+        XCTAssertEqual(s.entries.map(\.username), ["ora"])
+        XCTAssertTrue(s.load.isLoading, "Bots still waits for its own reply")
+        s.select(.human)
+        XCTAssertEqual(s.entries.map(\.username), ["ivy"])
+    }
+
+    /// A failure (never echoed): the selected page if it is waiting, else the waiting one.
+    func testFailuresWithoutEcho() {
         let s = leaderboard()
         s.request()
         s.apply(response: rows("kim"))
         s.select(.bots)
         s.request()
-        s.apply(response: ["success": false, "message": "Database error", "scope": "bots"])
+        s.apply(response: failure())
         guard case .failed(let f) = s.load.display else { return XCTFail("\(s.load.display)") }
         XCTAssertEqual(f.message, "Database error")
         s.select(.human)
         XCTAssertEqual(s.load.display, .content)
         XCTAssertNil(s.load.failure, "Humans is untouched by the Bots failure")
+
+        // Humans waiting, Bots selected and answered: the failure is Humans'
+        s.request()
+        s.select(.bots)
+        s.request()
+        s.apply(response: rows("ora", scope: "bots"))
+        s.apply(response: failure("Too many requests. Please wait a moment."))
+        XCTAssertEqual(s.load.display, .content)
+        XCTAssertNil(s.load.failure, "Bots shows its rows, not Humans' failure")
+        s.select(.human)
+        XCTAssertFalse(s.load.isLoading)
+        XCTAssertEqual(s.load.failure?.isRateLimited, true)
+        XCTAssertEqual(s.entries.map(\.username), ["kim"], "the last good rows stay")
+
+        // nothing waiting: dropped
+        s.apply(response: failure())
+        XCTAssertEqual(s.load.failure?.isRateLimited, true)
+        s.select(.all)
+        XCTAssertEqual(s.load.display, .loading)
+        XCTAssertNil(s.load.failure)
     }
 
-    /// An older server ignores the payload and sends no echo: its reply is taken as the
-    /// selected scope's (such a server only ever counts human games).
-    func testAReplyWithoutEchoIsTheSelectedScopes() {
+    /// Today's server ignores the payload and echoes nothing: Humans as before scopes, and a
+    /// Bots / All request (answered with human games) gets its reply rather than a timeout.
+    func testTodaysServerWithoutEcho() {
         let s = leaderboard()
         s.request()
         s.apply(response: rows("kim"))
@@ -117,9 +221,21 @@ final class StatsScopeTests: XCTestCase {
         s.apply(response: rows("kim"))
         XCTAssertEqual(s.load.display, .content)
         XCTAssertFalse(s.load.isLoading)
+        s.request()
         let null: [String: Any] = ["success": true, "leaderboard": [["username": "ned"]], "scope": NSNull()]
         s.apply(response: null)
         XCTAssertEqual(s.entries.map(\.username), ["ned"], "a null echo is no echo")
+
+        // both waiting (Bots, then back to Humans): one reply each, in either order
+        s.request()
+        s.select(.human)
+        s.request()
+        s.apply(response: rows("pat"))
+        s.apply(response: rows("hal"))
+        XCTAssertFalse(s.load.isLoading)
+        s.select(.bots)
+        XCTAssertFalse(s.load.isLoading, "Bots got a reply too")
+        XCTAssertEqual(s.load.display, .content)
     }
 
     func testAnUnknownEchoIsDropped() {

@@ -74,18 +74,20 @@ enum StatsScope: String, CaseIterable, Identifiable {
         defaults.set(rawValue, forKey: Self.defaultsKey)
     }
 
-    /// The scope a reply answers: its `scope` echo, else `current` (an older server ignores the
-    /// payload and sends no echo). nil: an echo this build does not know (the reply is dropped).
-    static func ofReply(_ dict: [String: Any], current: StatsScope) -> StatsScope? {
-        guard let echo = dict["scope"], !(echo is NSNull) else { return current }
-        return (echo as? String).flatMap(StatsScope.init(rawValue:))
+    /// A reply's `scope` echo: `.some(scope)`, `.some(nil)` for an echo this build does not know
+    /// (the reply is dropped), nil for none (or a null one). The scoped server echoes a success
+    /// only when its request named a scope (so never for Humans, which sends no payload) and
+    /// never echoes a failure; today's server echoes nothing.
+    static func echo(of dict: [String: Any]) -> StatsScope?? {
+        guard let echo = dict["scope"], !(echo is NSNull) else { return nil }
+        return .some((echo as? String).flatMap(StatsScope.init(rawValue:)))
     }
 }
 
 /// A stats request over the socket with one reply event: at most one in flight per scope, a
 /// reply or a timeout ends it (and resumes a pull to refresh), a failed reply keeps the last
-/// good value. Each scope keeps its own page, so a reply for another scope (its `scope` echo)
-/// fills that scope's page and never shows under the selected one, and switching back shows
+/// good value. Each scope keeps its own page, so a reply for another scope (`target`) fills
+/// that scope's page and never shows under the selected one, and switching back shows
 /// that scope's last numbers while they refresh. Main thread only (the socket handlers hop to it).
 class StatsLoader<Value: Equatable>: ObservableObject {
     /// The games counted (the Stats sheet's Humans / Bots / All, shared by both tabs).
@@ -103,6 +105,12 @@ class StatsLoader<Value: Equatable>: ObservableObject {
     /// Where the scope is saved (tests pass their own suite).
     let defaults: UserDefaults
     private var requestIds: [StatsScope: Int] = [:]
+    /// Humans requests sent and not yet answered, timed out ones included (a Humans success
+    /// has no echo, so this is how a late one is told from today's server answering Bots / All).
+    private var humanAwaited = 0
+    /// A reply has carried a `scope` echo: the server is the scoped one, whose successes
+    /// without an echo are only ever Humans'.
+    private var serverEchoes = false
     private var waiters: [CheckedContinuation<Void, Never>] = []
 
     init(send: @escaping (StatsScope) -> Void, defaults: UserDefaults = .standard) {
@@ -132,6 +140,7 @@ class StatsLoader<Value: Equatable>: ObservableObject {
         loads[scope] = load
         let id = (requestIds[scope] ?? 0) + 1
         requestIds[scope] = id
+        if scope == .human { humanAwaited += 1 }
         send(scope)
         DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { [weak self] in
             guard let self, self.requestIds[scope] == id, self.loads[scope]?.isLoading == true else { return }
@@ -148,10 +157,11 @@ class StatsLoader<Value: Equatable>: ObservableObject {
     }
 
     /// A reply: the decoded value, else the failure it carries, on the page of the scope it
-    /// answers (`StatsScope.ofReply`: the echo, else the selected scope).
+    /// answers (`target`).
     func apply(response dict: [String: Any]) {
-        guard let target = StatsScope.ofReply(dict, current: scope) else { return }
-        if let value = decode(dict) {
+        let value = decode(dict)
+        guard let target = target(of: dict, success: value != nil) else { return }
+        if let value {
             loads[target, default: StatsLoad()].value = value
             loads[target, default: StatsLoad()].loadedAt = now()
             finish(target, failure: nil)
@@ -160,8 +170,38 @@ class StatsLoader<Value: Equatable>: ObservableObject {
         }
     }
 
+    /// The page a reply lands on; nil drops it.
+    /// - An echo: that scope's page (an echo this build does not know: dropped).
+    /// - No echo, a success: human games in every case (the scoped server echoes every success
+    ///   for Bots / All, and today's server answers every request with human games), so the
+    ///   Humans page, unless no Humans reply is due (`humanAwaited`), a Bots / All request is
+    ///   waiting and no reply has carried an echo: then today's server is answering it, and its
+    ///   page (the selected one if it is waiting) shows that answer, as it did before scopes.
+    /// - No echo, a failure (neither server echoes one): the selected page if its request is
+    ///   waiting, else the waiting one (Humans first), else dropped (its request already timed
+    ///   out). A failure carries no numbers and every page keeps its last good ones.
+    private func target(of dict: [String: Any], success: Bool) -> StatsScope? {
+        if let echo = StatsScope.echo(of: dict) {
+            serverEchoes = true
+            return echo
+        }
+        // the requests waiting for a reply (a Humans one is also counted in humanAwaited)
+        let waiting = StatsScope.allCases.filter { loads[$0]?.isLoading == true }
+        if success {
+            if serverEchoes || humanAwaited > 0 || waiting.isEmpty {
+                humanAwaited = max(0, humanAwaited - 1)
+                return .human
+            }
+            return waiting.contains(scope) ? scope : waiting.first
+        }
+        let target = waiting.contains(scope) ? scope : waiting.first
+        if target == .human { humanAwaited = max(0, humanAwaited - 1) }
+        return target
+    }
+
     func reset() {
         loads = [:]
+        humanAwaited = 0
         for s in StatsScope.allCases { requestIds[s, default: 0] += 1 }
         resumeWaiters()
     }

@@ -207,6 +207,26 @@ final class StatsUITests: XCTestCase {
         app.terminate()
     }
 
+    /// A slow Humans reply (no echo, as the scoped server answers a request without a payload)
+    /// that lands after the switch to Bots stays on Humans: Bots keeps its own rows, and Humans
+    /// shows its rows when selected again, with no "didn't answer" error.
+    func testLateHumansReplyStaysOnHumans() {
+        let app = openStats(["-uiStatsHumanDelay", "3"])
+        let scope = app.segmentedControls["stats.scope"]
+        XCTAssertTrue(scope.waitForExistence(timeout: 5))
+        XCTAssertFalse(element(app, "leaderboard.row.ivy").exists, "Humans is still waiting")
+        scope.buttons["Bot games"].tap()
+        XCTAssertTrue(element(app, "leaderboard.row.ora").waitForExistence(timeout: 5), "the bot-game rows")
+        // the Humans reply lands about 3 s after the sheet opened
+        XCTAssertFalse(element(app, "leaderboard.row.ivy").waitForExistence(timeout: 5), "no human-game row under Bots")
+        XCTAssertTrue(element(app, "leaderboard.row.ora").exists)
+        scope.buttons["Human games"].tap()
+        XCTAssertTrue(element(app, "leaderboard.row.ivy").waitForExistence(timeout: 5), "the late reply filled Humans")
+        XCTAssertFalse(element(app, "leaderboard.row.ora").exists)
+        XCTAssertFalse(element(app, "stats.error").exists)
+        app.terminate()
+    }
+
     /// Bots with no games yet: bot games count from the server update on.
     func testScopeEmptyStates() {
         let app = openStats(["-uiStats", "empty"])
