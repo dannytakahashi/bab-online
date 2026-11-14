@@ -157,7 +157,7 @@ final class StatsTests: XCTestCase {
 
     func testOneRequestInFlightAndReplies() {
         var sent = 0
-        let s = LeaderboardState(send: { sent += 1 })
+        let s = LeaderboardState(send: { _ in sent += 1 })
         XCTAssertEqual(s.load.display, .loading)
         s.request()
         s.request()
@@ -180,7 +180,7 @@ final class StatsTests: XCTestCase {
     /// The sheet rebuilds a tab's view on every switch, so the choices a viewer makes in it
     /// live on the states (for the session) and survive new data.
     func testViewChoicesLiveOnTheStates() {
-        let s = LeaderboardState(send: {})
+        let s = LeaderboardState(send: { _ in })
         XCTAssertEqual(s.sort, LeaderboardSort(), "Win % descending until changed")
         XCTAssertTrue(s.expanded.isEmpty)
         s.sort.select(.setRate)
@@ -190,7 +190,7 @@ final class StatsTests: XCTestCase {
         XCTAssertEqual(s.sort, LeaderboardSort(column: .setRate, ascending: true), "a reply keeps the sort")
         XCTAssertEqual(s.expanded, ["kim"])
 
-        let r = RecordsState(send: {})
+        let r = RecordsState(send: { _ in })
         XCTAssertEqual(r.period, .allTime, "the web's first box until changed")
         r.period = .thisMonth
         r.request()
@@ -199,7 +199,7 @@ final class StatsTests: XCTestCase {
     }
 
     func testFirstFailureAndRateLimit() {
-        let s = LeaderboardState(send: {})
+        let s = LeaderboardState(send: { _ in })
         s.request()
         s.apply(response: ["success": false, "message": "Too many requests. Please wait a moment."])
         guard case .failed(let f) = s.load.display else { return XCTFail("\(s.load.display)") }
@@ -212,7 +212,7 @@ final class StatsTests: XCTestCase {
 
     func testTimeoutEndsTheRequestAndRefresh() async {
         let s = await MainActor.run { () -> LeaderboardState in
-            let s = LeaderboardState(send: {})
+            let s = LeaderboardState(send: { _ in })
             s.timeout = 0.2
             return s
         }
@@ -229,8 +229,8 @@ final class StatsTests: XCTestCase {
 
     func testRefreshReturnsOnTheReply() async {
         let s = await MainActor.run { () -> LeaderboardState in
-            let s = LeaderboardState(send: {})
-            s.send = { [weak s] in
+            let s = LeaderboardState(send: { _ in })
+            s.send = { [weak s] _ in
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { s?.apply(response: ["success": true, "leaderboard": [Any]()]) }
             }
             return s
@@ -245,7 +245,7 @@ final class StatsTests: XCTestCase {
     /// "This Month" is the server's month: records loaded last month are not shown again while
     /// this month's load; within a month a refresh keeps them on screen.
     func testRecordsFromAnEarlierMonthAreDropped() {
-        let s = RecordsState(send: {})
+        let s = RecordsState(send: { _ in })
         var cal = Calendar(identifier: .gregorian)
         cal.timeZone = TimeZone(identifier: "UTC")!
         s.calendar = cal

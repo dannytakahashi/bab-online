@@ -17,11 +17,6 @@ remove an item in the PR that fixes it.
 
 ## iOS: other
 
-- **iOS Stats sheet scope picker** (later release; server and web since 2026-11-13): the web
-  Leaderboard / Records / Profile have a Human games | Bot games | All games switch
-  (`getLeaderboard`/`getRecords` `{scope}`, echoed `scope` in the reply; docs/claude/server-infra.md
-  Stats scopes). iOS sends no scope, so its Stats sheet shows human games only; add the same
-  segmented picker (default Human games, kept per device) and send `{scope}`.
 - **Web pages iOS still lacks** (after the Stats sheet's Records tab): player search
   (web Players: search as you type, rows open a profile); other players' profiles
   (avatar, the 12-stat grid, Report / Block; web opens them from search, seat avatars

@@ -167,6 +167,83 @@ final class StatsUITests: XCTestCase {
         app.terminate()
     }
 
+    /// Humans / Bots / All: one control for both tabs, Humans first, each scope's numbers
+    /// (UIFixture+Stats), the choice kept across launches.
+    func testScopePicker() {
+        var app = openStats()
+        let scope = app.segmentedControls["stats.scope"]
+        XCTAssertTrue(scope.waitForExistence(timeout: 5))
+        XCTAssertEqual(scope.buttons.count, 3)
+        XCTAssertTrue(scope.buttons["Human games"].isSelected, "Humans by default (VoiceOver: Human games)")
+        XCTAssertTrue(scope.buttons["Bot games"].exists)
+        XCTAssertTrue(scope.buttons["All games"].exists)
+        XCTAssertTrue(element(app, "leaderboard.row.ivy").waitForExistence(timeout: 5))
+        keepScreenshot(app, "stats-scope-humans")
+
+        scope.buttons["Bot games"].tap()
+        XCTAssertTrue(element(app, "leaderboard.row.ora").waitForExistence(timeout: 5), "the bot-game rows")
+        XCTAssertFalse(element(app, "leaderboard.row.ivy").exists, "no human-game row under Bots")
+        keepScreenshot(app, "stats-scope-bots")
+        app.segmentedControls["stats.tabs"].buttons["Records"].tap()
+        let total = element(app, "records.total")
+        XCTAssertTrue(total.waitForExistence(timeout: 5))
+        XCTAssertTrue(scope.buttons["Bot games"].isSelected, "one choice for both tabs")
+        XCTAssertEqual(total.label, "6 games played")
+        XCTAssertFalse(element(app, "records.botsNote").exists, "the note is for an empty page")
+        keepScreenshot(app, "stats-scope-bots-records")
+
+        scope.buttons["All games"].tap()
+        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'records.total' AND label == '1,240 games played'"))
+            .firstMatch.waitForExistence(timeout: 5), "All asks again")
+        app.terminate()
+
+        app = Fixture.launch("main-room", extra: ["-uiStatsKeepScope", "YES"])
+        XCTAssertTrue(Fixture.readyElement(app, "main-room").waitForExistence(timeout: 20))
+        app.buttons.matching(NSPredicate(format: "label == %@", "Stats")).firstMatch.tap()
+        XCTAssertTrue(app.segmentedControls["stats.scope"].buttons["All games"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.segmentedControls["stats.scope"].buttons["All games"].isSelected, "the choice is saved")
+        XCTAssertTrue(element(app, "leaderboard.row.ora").waitForExistence(timeout: 5), "All's rows: human and bot games")
+        XCTAssertTrue(element(app, "leaderboard.row.ivy").exists)
+        app.terminate()
+    }
+
+    /// A slow Humans reply (no echo, as the scoped server answers a request without a payload)
+    /// that lands after the switch to Bots stays on Humans: Bots keeps its own rows, and Humans
+    /// shows its rows when selected again, with no "didn't answer" error.
+    func testLateHumansReplyStaysOnHumans() {
+        let app = openStats(["-uiStatsHumanDelay", "3"])
+        let scope = app.segmentedControls["stats.scope"]
+        XCTAssertTrue(scope.waitForExistence(timeout: 5))
+        XCTAssertFalse(element(app, "leaderboard.row.ivy").exists, "Humans is still waiting")
+        scope.buttons["Bot games"].tap()
+        XCTAssertTrue(element(app, "leaderboard.row.ora").waitForExistence(timeout: 5), "the bot-game rows")
+        // the Humans reply lands about 3 s after the sheet opened
+        XCTAssertFalse(element(app, "leaderboard.row.ivy").waitForExistence(timeout: 5), "no human-game row under Bots")
+        XCTAssertTrue(element(app, "leaderboard.row.ora").exists)
+        scope.buttons["Human games"].tap()
+        XCTAssertTrue(element(app, "leaderboard.row.ivy").waitForExistence(timeout: 5), "the late reply filled Humans")
+        XCTAssertFalse(element(app, "leaderboard.row.ora").exists)
+        XCTAssertFalse(element(app, "stats.error").exists)
+        app.terminate()
+    }
+
+    /// Bots with no games yet: bot games count from the server update on.
+    func testScopeEmptyStates() {
+        let app = openStats(["-uiStats", "empty"])
+        let scope = app.segmentedControls["stats.scope"]
+        XCTAssertTrue(scope.waitForExistence(timeout: 5))
+        scope.buttons["Bot games"].tap()
+        XCTAssertTrue(app.staticTexts["No Bot Games Yet"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Games with bots count from this update on."].exists)
+        keepScreenshot(app, "stats-scope-bots-empty")
+        app.segmentedControls["stats.tabs"].buttons["Records"].tap()
+        XCTAssertTrue(element(app, "records.botsNote").waitForExistence(timeout: 5))
+        XCTAssertEqual(element(app, "records.total").label, "0 games played")
+        scope.buttons["Human games"].tap()
+        XCTAssertTrue(element(app, "records.botsNote").waitForNonExistence(timeout: 5), "no note under Humans")
+        app.terminate()
+    }
+
     func testEmptyStates() {
         let app = openStats(["-uiStats", "empty"])
         let empty = element(app, "stats.empty")

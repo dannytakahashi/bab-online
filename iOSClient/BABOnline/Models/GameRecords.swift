@@ -47,7 +47,14 @@ struct GameRecords: Equatable {
     /// A period with no recorded game is absent.
     var periods: [Period: PeriodRecords] = [:]
 
+    /// No recorded game: a total of 0, or no total and no period with a game.
+    var isEmpty: Bool {
+        if let totalGames { return totalGames == 0 }
+        return periods.isEmpty
+    }
+
     /// A successful reply's records, or nil when the reply is not `success: true`.
+    /// Fields this build does not know (a bot game's `withBots`, bot seat markers) are ignored.
     /// A reply without `records` decodes to three empty periods.
     static func from(response dict: [String: Any]) -> GameRecords? {
         guard dict["success"] as? Bool == true else { return nil }
