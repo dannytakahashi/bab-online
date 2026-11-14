@@ -37,7 +37,7 @@ describe('card faces (the iOS CardTextureGenerator, on a 300 x 435 canvas)', () 
     expect(CARD_DESIGN).toEqual({ w: 300, h: 435, radius: 24 });
   });
 
-  it('every face renders: a white rounded face, the index twice (one rotated) and a centre pip, in the suit color', () => {
+  it('every face renders: a white rounded face, ONE corner index (top left) and a centre pip, in the suit color', () => {
     for (const card of ALL_CARDS.filter((c) => c.suit !== 'joker')) {
       const ctx = draw(card);
       const color = ['hearts', 'diamonds'].includes(card.suit) ? C.red : C.black;
@@ -46,30 +46,28 @@ describe('card faces (the iOS CardTextureGenerator, on a 300 x 435 canvas)', () 
       const border = ctx.calls.find((c) => c.op === 'stroke' && c.strokeStyle === C.border);
       expect(border?.lineWidth).toBe(3);
       expect(ctx.calls.some((c) => c.op === 'clip')).toBe(true);
-      // two corner indices and the pip: 3 suit shapes in the suit color
-      expect(fills(ctx, color), `${card.rank} ${card.suit} suits`).toHaveLength(3);
-      // the rank, top left and (rotated 180) bottom right
+      // the corner index's suit and the pip: 2 suit shapes in the suit color
+      expect(fills(ctx, color), `${card.rank} ${card.suit} suits`).toHaveLength(2);
+      // the rank, top left only (no rotated copy at the bottom right;
+      // the jumbo index's geometry: cardFaces.test.js)
       const ranks = ctx.calls.filter((c) => c.op === 'fillText');
-      expect(ranks.map((c) => c.args[0])).toEqual([card.rank, card.rank]);
-      expect(ranks.every((c) => c.fillStyle === color)).toBe(true);
-      const [tl, br] = ranks;
-      expect(tl.at.x).toBeCloseTo(20, 6);
-      expect(br.m.a).toBeCloseTo(-1, 6); // rotated by pi
-      expect(br.at.x).toBeCloseTo(CARD_DESIGN.w - 20, 6);
-      // the pip is centred
+      expect(ranks.map((c) => c.args[0])).toEqual([card.rank]);
+      expect(ranks[0].fillStyle).toBe(color);
+      expect(ranks[0].m.a).toBe(1);
+      expect(ranks[0].at.x).toBeLessThan(CARD_DESIGN.w / 2);
+      expect(ranks[0].at.y).toBeLessThan(CARD_DESIGN.h / 2);
+      // the pip is centred across the card
       const pip = ctx.calls.filter((c) => c.op === 'fill' && c.fillStyle === color).pop();
       expect(pip.m.a * 50 + pip.m.e).toBeCloseTo(CARD_DESIGN.w / 2, 6);
-      expect(pip.m.d * 50 + pip.m.f).toBeCloseTo(CARD_DESIGN.h / 2, 6);
     }
   });
 
-  it('jokers: purple HI / LO in both corners, a star and JOKER, a 4-unit purple border', () => {
-    for (const rank of ['HI', 'LO']) {
+  it('jokers: the word (HI red, LO black) once, in the corner, on the faithful sprite (no purple, no star, no JOKER)', () => {
+    for (const [rank, color] of [['HI', C.red], ['LO', C.black]]) {
       const ctx = draw({ suit: 'joker', rank });
-      expect(texts(ctx)).toEqual([rank, rank, 'JOKER']);
-      expect(ctx.calls.filter((c) => c.op === 'fillText').every((c) => c.fillStyle === C.joker)).toBe(true);
-      expect(fills(ctx, C.joker)).toHaveLength(1); // the star (a path)
-      expect(ctx.calls.find((c) => c.op === 'stroke' && c.strokeStyle === C.joker)?.lineWidth).toBe(4);
+      expect(texts(ctx)).toEqual([rank]);
+      expect(ctx.calls.find((c) => c.op === 'fillText').fillStyle).toBe(color);
+      expect(ctx.calls.some((c) => c.fillStyle === C.joker || c.strokeStyle === C.joker)).toBe(false);
     }
   });
 
@@ -114,10 +112,13 @@ describe('card faces (the iOS CardTextureGenerator, on a 300 x 435 canvas)', () 
     }
   });
 
-  it('text is the UI font at the iOS weights (bold 40 rank, bold 34 HI/LO, heavy 36 JOKER)', () => {
+  it('text is the UI font in bold (the rank and the joker word; sizes: cardFaces.test.js)', () => {
     const fonts = (ctx) => ctx.calls.filter((c) => c.op === 'fillText').map((c) => c.font);
-    expect(fonts(draw({ suit: 'spades', rank: 'K' }))).toEqual([`700 40px ${FONT_UI}`, `700 40px ${FONT_UI}`]);
-    expect(fonts(draw({ suit: 'joker', rank: 'HI' }))).toEqual([`700 34px ${FONT_UI}`, `700 34px ${FONT_UI}`, `800 36px ${FONT_UI}`]);
+    for (const card of [{ suit: 'spades', rank: 'K' }, { suit: 'joker', rank: 'HI' }]) {
+      const f = fonts(draw(card));
+      expect(f).toHaveLength(1);
+      expect(f[0]).toMatch(new RegExp(`^700 [0-9.]+px ${FONT_UI.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`));
+    }
     expect(FONT_UI.startsWith('-apple-system')).toBe(true);
   });
 });

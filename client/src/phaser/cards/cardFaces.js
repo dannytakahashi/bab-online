@@ -5,14 +5,16 @@
  *
  *   - a white face, corner radius 24, a grey 3-unit border (stroked on the
  *     edge and clipped to the card, as UIBezierPath.stroke into the bitmap);
- *   - the rank (system font, bold 40) at the top left, the suit centred
- *     under it, the pair rotated 180 degrees at the bottom right;
- *   - a large centre pip (the glyph of a 100-unit font);
- *   - jokers in purple: HI / LO (bold 34), a star and "JOKER" (heavy 36),
- *     with a 4-unit purple border;
+ *   - web only (2026-11): ONE jumbo corner index, top left (bold ~100
+ *     rank, the full-width "10" never condensed, a 54-unit suit under it;
+ *     INDEX), no rotated index at the bottom right, and a big centre pip
+ *     filling the card under it (PIP);
+ *   - jokers: the old pixel-art sprites redrawn as vectors (slate outline,
+ *     light-blue border and panel, the dollar glyph), the word HI (red) or
+ *     LO (black) as the corner index;
  *   - the dark-green back with its inner rounded rectangle and the four suits.
  *
- * Suits (and the joker's star) are VECTOR PATHS, never text: a suit
+ * Suits (and the joker's glyph) are VECTOR PATHS, never text: a suit
  * character can come out as a color emoji on some platforms and font
  * fallback differs between them, a path is the same everywhere. Only the
  * rank letters and the joker words are text, in the UI font (the system
@@ -38,7 +40,7 @@ export const BACK_EDGE = 14;
 export const SHADOW_FRAME = 'shadow';
 
 const C = COLOR.card;
-const SUIT_COLOR = { hearts: C.red, diamonds: C.red, spades: C.black, clubs: C.black, joker: C.joker };
+const SUIT_COLOR = { hearts: C.red, diamonds: C.red, spades: C.black, clubs: C.black };
 
 /** Every face the game deals: 52 + HI / LO jokers, as {suit, rank}. */
 export const ALL_CARDS = Object.freeze([
@@ -141,24 +143,6 @@ export function drawSuit(ctx, suit, cx, cy, size, color = SUIT_COLOR[suit]) {
   ctx.restore();
 }
 
-/** A five-pointed star (the joker's), centred on (cx, cy), outer radius r. */
-export function drawStar(ctx, cx, cy, r, color) {
-  const inner = r * 0.382;
-  ctx.save();
-  ctx.beginPath();
-  for (let i = 0; i < 10; i++) {
-    const a = -Math.PI / 2 + (i * Math.PI) / 5;
-    const rad = i % 2 === 0 ? r : inner;
-    const x = cx + rad * Math.cos(a);
-    const y = cy + rad * Math.sin(a);
-    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-  }
-  ctx.closePath();
-  ctx.fillStyle = color;
-  ctx.fill();
-  ctx.restore();
-}
-
 /** The face's white rounded rect, its border stroked on the edge and clipped to the card. */
 function cardBase(ctx, fill, stroke, lineWidth) {
   const { w, h, radius } = CARD_DESIGN;
@@ -180,63 +164,247 @@ export function rankLabel(rank) {
   return String(rank).toUpperCase();
 }
 
-// Index layout (iOS: rank drawn at (20, 16), the suit under it at the
-// rank's line height less 2). Canvas draws text from its baseline: the
-// system font's ascender is ~0.95 em, so the bold 40 rank's baseline is
-// 16 + 38; the 32-unit suit glyph's ink (~0.72 em, 23 units) sits on the
-// next line, centred 80 units down.
-const INDEX = { x: 20, rankBaseline: 54, suitCenterY: 80, suitSize: 24 };
-const PIP = { size: 74 };
+/**
+ * The JUMBO corner index (web only; the 2026-11 readability study): in a
+ * fanned hand only a strip of each card's left edge shows (25.5 px of a
+ * 59 px card at 1280 x 800, 126 design units at the tightest size the
+ * layout makes), and iOS's bold 40 rank was ~5.5 px tall there. One index,
+ * top left only (no rotated copy at the bottom right):
+ *
+ *   - the rank in bold `rank` units (cap ~0.70 em, ~70 units), its ink
+ *     `top` units down, centred on the column x = `col` but never closer
+ *     than `left` to the card's edge, and NEVER condensed: a full-width
+ *     "10" (SF bold: 105 units of ink at 100) runs from `left` to at most
+ *     `left + maxInkW` (118, inside the tightest strip less a device pixel;
+ *     cardFaces.test.js sweeps it with computeTableLayout). Where a font's
+ *     "10" is wider than maxInkW, EVERY rank shrinks to the same smaller
+ *     size (rankSize), so the ranks always match;
+ *   - the `suit`-unit suit `gap` units under the rank's baseline, centred
+ *     under the rank's ink.
+ */
+export const INDEX = Object.freeze({ left: 12, col: 50, top: 18, rank: 100, weight: WEIGHT.bold, maxInkW: 106, gap: 8, suit: 54 });
+/**
+ * The centre pip: no bottom-right index any more, so the suit grows to
+ * fill the card under the index: `size` units (iOS: the glyph of a 100
+ * font, 74), centred across the card and centred in the space between the
+ * index (its bottom ~151) and the card's bottom edge.
+ */
+export const PIP = Object.freeze({ size: 200, cx: 150, cy: 293 });
+/** Cap height / em of the UI font where the canvas gives no ink metrics. */
+const CAP_EM = 0.705;
 
-function drawIndex(ctx, rankStr, suit, color) {
-  ctx.fillStyle = color;
-  ctx.font = font(WEIGHT.bold, 40);
+const finite = (v) => typeof v === 'number' && Number.isFinite(v);
+
+/**
+ * The ink box of `str` in the context's current font, relative to the text
+ * origin (left aligned, alphabetic baseline): the browser's
+ * actualBoundingBox metrics, else (a context without them) the advance
+ * width and the cap height.
+ */
+export function inkMetrics(ctx, str, size) {
+  const m = ctx.measureText(str);
+  const hasInk = finite(m.actualBoundingBoxLeft) && finite(m.actualBoundingBoxRight)
+    && finite(m.actualBoundingBoxAscent) && m.actualBoundingBoxRight + m.actualBoundingBoxLeft > 0;
+  if (!hasInk) return { left: 0, width: m.width || 0.6 * size * String(str).length, ascent: CAP_EM * size, descent: 0 };
+  return {
+    left: -m.actualBoundingBoxLeft,
+    width: m.actualBoundingBoxRight + m.actualBoundingBoxLeft,
+    ascent: m.actualBoundingBoxAscent,
+    descent: finite(m.actualBoundingBoxDescent) ? Math.max(0, m.actualBoundingBoxDescent) : 0,
+  };
+}
+
+/** Ink width of `str` at `size` in the index weight (restores the context's font). */
+function inkWidthAt(ctx, str, size, weight = INDEX.weight) {
+  const was = ctx.font;
+  ctx.font = font(weight, size);
+  const wd = inkMetrics(ctx, str, size).width;
+  ctx.font = was;
+  return wd;
+}
+
+/**
+ * The rank size every face uses with this context's font: INDEX.rank,
+ * unless the font's full-width "10" has more than INDEX.maxInkW of ink;
+ * then all ranks shrink alike until it fits (never a condensed "10").
+ */
+export function rankSize(ctx) {
+  const wd = inkWidthAt(ctx, '10', INDEX.rank);
+  return wd > INDEX.maxInkW ? (INDEX.rank * INDEX.maxInkW) / wd : INDEX.rank;
+}
+
+/**
+ * Draw the word `str` as the corner index: bold `size`, ink top at
+ * INDEX.top, ink centred on INDEX.col and kept INDEX.left from the edge,
+ * at its natural width. Returns its ink box and baseline.
+ */
+function indexWord(ctx, str, size, color) {
+  ctx.save();
+  ctx.font = font(INDEX.weight, size);
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
-  ctx.fillText(rankStr, INDEX.x, INDEX.rankBaseline);
-  const rankW = ctx.measureText(rankStr).width || 24;
-  drawSuit(ctx, suit, INDEX.x + rankW / 2, INDEX.suitCenterY, INDEX.suitSize, color);
+  const ink = inkMetrics(ctx, str, size);
+  // one baseline for every rank: a flat cap's ascent ("K"), not each glyph's overshoot
+  const baseline = INDEX.top + inkMetrics(ctx, 'K', size).ascent;
+  const x0 = Math.max(INDEX.left, INDEX.col - ink.width / 2);
+  ctx.fillStyle = color;
+  ctx.fillText(str, x0 - ink.left, baseline);
+  ctx.restore();
+  return { x0, x1: x0 + ink.width, top: baseline - ink.ascent, baseline, bottom: baseline + ink.descent };
 }
 
-/** Draw a standard face (design units). */
+function drawIndex(ctx, rankStr, suit, color) {
+  const r = indexWord(ctx, rankStr, rankSize(ctx), color);
+  drawSuit(ctx, suit, (r.x0 + r.x1) / 2, r.baseline + INDEX.gap + INDEX.suit / 2, INDEX.suit, color);
+}
+
+/** Draw a standard face (design units): the corner index and one big pip. */
 export function drawStandardFace(ctx, card) {
-  const { w, h } = CARD_DESIGN;
   cardBase(ctx, C.face, C.border, 3);
   const color = SUIT_COLOR[card.suit];
-  const rankStr = rankLabel(card.rank);
-  drawIndex(ctx, rankStr, card.suit, color);
-  ctx.save();
-  ctx.translate(w, h);
-  ctx.rotate(Math.PI);
-  drawIndex(ctx, rankStr, card.suit, color);
-  ctx.restore();
-  drawSuit(ctx, card.suit, w / 2, h / 2, PIP.size, color);
+  drawIndex(ctx, rankLabel(card.rank), card.suit, color);
+  drawSuit(ctx, card.suit, PIP.cx, PIP.cy, PIP.size, color);
 }
 
-/** Draw a joker (design units): HI / LO, a star and JOKER, all purple. */
+// ---------------------------------------------------------------------------
+// The jokers: the old 64 x 64 pixel-art sprites (pre PR #207) redrawn as
+// vectors (the owner's "faithful" variant A): a slate outline, a light-blue
+// inner border, a light-blue centre panel with white corner flourishes and
+// the black double-bar dollar glyph. The word HI (card red) or LO (card
+// black) is the corner index, sized and placed like the ranks' (and drawn
+// once: no top-right label, no rotated bottom-right copy).
+
+/** The sprites' colours (the words use the deck's card red / black). */
+export const JOKER_INK = Object.freeze({
+  outline: '#4d5766', // the sprite's dark slate edge
+  frame: '#c7d7ec', // the light-blue inner border and centre panel
+  flourish: '#ffffff',
+  glyph: '#000000',
+});
+/** The sprite's card (x 11..52, y 2..61: 42 x 60 px) onto the design canvas. */
+const SPRITE = Object.freeze({ x: 11, y: 2, sx: CARD_DESIGN.w / 42, sy: CARD_DESIGN.h / 60 });
+/** White kept round the joker's word, cutting the inner border behind it. */
+const JOKER_WORD_PAD = 6;
+
+/**
+ * The joker word's size: the rank size, unless the wider word ("LO") would
+ * then pass the index column's maxInkW; then both words shrink alike.
+ */
+export function jokerWordSize(ctx) {
+  const size = rankSize(ctx);
+  const wd = Math.max(inkWidthAt(ctx, 'HI', size), inkWidthAt(ctx, 'LO', size));
+  return wd > INDEX.maxInkW ? (size * INDEX.maxInkW) / wd : size;
+}
+
+/** One open stroked path. */
+function strokeWith(ctx, color, lw, build) {
+  ctx.beginPath();
+  build();
+  ctx.lineWidth = lw;
+  ctx.strokeStyle = color;
+  ctx.lineCap = 'butt';
+  ctx.lineJoin = 'round';
+  ctx.stroke();
+}
+
+/** The sprite's boxy dollar (in sprite pixels, centred on (0, 0)). */
+function jokerDollar(ctx, color, lw) {
+  const p = (x, y) => [x - 32, y - 32.5];
+  const M = (x, y) => ctx.moveTo(...p(x, y));
+  const L = (x, y) => ctx.lineTo(...p(x, y));
+  const B = (a, b, c, d, e, f) => ctx.bezierCurveTo(...p(a, b), ...p(c, d), ...p(e, f));
+  // the S
+  strokeWith(ctx, color, lw, () => {
+    M(36.5, 28.9);
+    L(36.5, 27.2);
+    B(36.5, 26.1, 35.7, 25.5, 34.6, 25.5);
+    L(29.1, 25.5);
+    B(28.0, 25.5, 27.5, 26.2, 27.5, 27.3);
+    L(27.5, 30.6);
+    B(27.5, 31.5, 28.3, 31.9, 29.2, 32.2);
+    L(34.3, 34.2);
+    B(35.7, 34.7, 36.5, 35.5, 36.5, 36.7);
+    L(36.5, 38.0);
+    B(36.5, 39.0, 35.8, 39.5, 34.8, 39.5);
+    L(28.9, 39.5);
+    B(28.0, 39.5, 27.5, 38.9, 27.5, 38.0);
+    L(27.5, 36.6);
+  });
+  // the two bars and the loop that joins them under the S
+  strokeWith(ctx, color, lw, () => {
+    M(29.5, 23.5);
+    L(29.5, 39.6);
+    B(29.5, 41.9, 34.5, 41.9, 34.5, 39.6);
+    L(34.5, 23.5);
+  });
+  // top serifs
+  strokeWith(ctx, color, lw, () => {
+    M(27.9, 23.5); L(31.1, 23.5);
+    M(32.9, 23.5); L(36.1, 23.5);
+  });
+}
+
+/** A panel corner flourish (sprite pixels, the corner at (0, 0)): an L bracket and a ring. */
+function jokerFlourish(ctx, color, lw) {
+  strokeWith(ctx, color, lw, () => {
+    ctx.moveTo(6, 1.5);
+    ctx.lineTo(1.5, 1.5);
+    ctx.lineTo(1.5, 6);
+  });
+  ctx.beginPath();
+  ctx.arc(2.5, 2.5, 0.95, 0, Math.PI * 2);
+  ctx.lineWidth = lw;
+  ctx.strokeStyle = color;
+  ctx.stroke();
+}
+
+/** Draw a joker (design units). */
 export function drawJokerFace(ctx, card) {
   const { w, h } = CARD_DESIGN;
-  cardBase(ctx, C.face, C.joker, 4);
-  const label = String(card.rank).toUpperCase() === 'HI' ? 'HI' : 'LO';
-  const corner = () => {
-    ctx.fillStyle = C.joker;
-    ctx.font = font(WEIGHT.bold, 34);
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'alphabetic';
-    ctx.fillText(label, 20, 16 + 32);
-  };
-  corner();
+  const hi = rankLabel(card.rank) === 'HI';
   ctx.save();
-  ctx.translate(w, h);
-  ctx.rotate(Math.PI);
-  corner();
+  cardBase(ctx, C.face, JOKER_INK.outline, 12); // ~6 units show: the sprite's 1 px edge
+  // the light-blue inner border (sprite: a 1 px line 3 px in)
+  roundRectPath(ctx, 25, 25, w - 50, h - 50, 7);
+  ctx.lineWidth = 6.5;
+  ctx.strokeStyle = JOKER_INK.frame;
+  ctx.stroke();
+
+  ctx.save();
+  ctx.scale(SPRITE.sx, SPRITE.sy);
+  ctx.translate(-SPRITE.x, -SPRITE.y);
+  // the centre panel (sprite x 21..43, y 16..48) and its four flourishes
+  roundRectPath(ctx, 21, 16, 22, 32, 0.6);
+  ctx.fillStyle = JOKER_INK.frame;
+  ctx.fill();
+  for (const [sx, sy] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) {
+    ctx.save();
+    ctx.translate(sx > 0 ? 21 : 43, sy > 0 ? 16 : 48);
+    ctx.scale(sx, sy);
+    jokerFlourish(ctx, JOKER_INK.flourish, 0.95);
+    ctx.restore();
+  }
+  ctx.save();
+  ctx.translate(32, 32.5);
+  jokerDollar(ctx, JOKER_INK.glyph, 1);
   ctx.restore();
-  drawStar(ctx, w / 2, h / 2 - 40, 27, C.joker);
-  ctx.fillStyle = C.joker;
-  ctx.font = font(WEIGHT.heavy, 36);
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'alphabetic';
-  ctx.fillText('JOKER', w / 2, h / 2 + 40 + 13);
+  ctx.restore();
+
+  // the corner index: HI red / LO black, on a white patch the border passes behind
+  const word = hi ? 'HI' : 'LO';
+  const size = jokerWordSize(ctx);
+  ctx.save();
+  ctx.font = font(INDEX.weight, size);
+  const ink = inkMetrics(ctx, word, size);
+  const capTop = INDEX.top;
+  const capBottom = INDEX.top + inkMetrics(ctx, 'K', size).ascent;
+  ctx.restore();
+  const x0 = Math.max(INDEX.left, INDEX.col - ink.width / 2);
+  const pad = JOKER_WORD_PAD;
+  ctx.fillStyle = C.face;
+  ctx.fillRect(x0 - pad, capTop - pad, ink.width + 2 * pad, capBottom + ink.descent - capTop + 2 * pad);
+  indexWord(ctx, word, size, hi ? C.red : C.black);
+  ctx.restore();
 }
 
 /**
