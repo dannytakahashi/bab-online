@@ -10,9 +10,9 @@
  * rounds (fit, install, re-record, refit) settle them; then confirm with a
  * --baseline head-to-head (sim/README.md).
  *
- * Only Mary's records are used (run pure Mary self-play). Hands of 1-2 cards,
+ * Only Mary's records are used (run pure Mary self-play). 1-card hands,
  * bores on either team, and records where an opponent bored are skipped: the
- * EV bidder only decides 3+ card hands with no bore on the table.
+ * EV bidder only decides 2+ card hands with no bore on the table.
  */
 'use strict';
 const fs = require('fs');
@@ -20,8 +20,10 @@ const { RANK_VALUES } = require('../../rules');
 
 const BORES = ['B', '2B', '3B', '4B'];
 const isBore = (b) => BORES.includes(String(b));
-const GROUPS = ['S', 'M', 'L', 'XL'];
-const group = (n) => (n <= 4 ? 'S' : n <= 7 ? 'M' : n <= 10 ? 'L' : 'XL');
+// Smallest hand the EV bidder decides (BotStrategy EV_MIN_HAND_SIZE)
+const MIN_HAND = 2;
+const GROUPS = ['XS', 'S', 'M', 'L', 'XL'];
+const group = (n) => (n <= 2 ? 'XS' : n <= 4 ? 'S' : n <= 7 ? 'M' : n <= 10 ? 'L' : 'XL');
 const TRUMP_KEYS = ['HI', 'LO', 'tA', 'tK', 'tQ', 'tMid', 'tLow', 'sA', 'sKwA', 'sK', 'sQ', 'voids', 'single', 'tLen4p', 'oppBidSum', 'oppBidCount'];
 const NT_KEYS = ['HI', 'LO', 'A', 'K', 'Q', 'oppBidSum', 'oppBidCount'];
 // Must match BotStrategy.estimateOwnTricks
@@ -106,7 +108,7 @@ function loadRows(files) {
             if (!line) continue;
             const r = JSON.parse(line);
             const n = r.hs;
-            if (r.spec !== 'mary' || n < 3) continue;
+            if (r.spec !== 'mary' || n < MIN_HAND) continue;
             const partner = ((r.pos + 1) % 4) + 1;
             const bid = r.bids[r.pos - 1], pb = r.bids[partner - 1];
             if (isBore(bid) || isBore(pb)) continue;
@@ -144,7 +146,7 @@ function fit(rows) {
         const keys = r.nt ? NT_KEYS : TRUMP_KEYS;
         return keys.reduce((y, k, i) => y + b[i + 1] * r.F[k], b[0]);
     };
-    for (let n = 3; n <= 13; n++) {
+    for (let n = MIN_HAND; n <= 13; n++) {
         const rs = rows.filter(r => r.n === n);
         // Partner's mean (tricks - bid), by the PARTNER's place in the team order
         const over = (partnerFirst) => {
@@ -186,7 +188,7 @@ function render(m, rowCount, note) {
  * hand-edit. Refit after any change to bidding or card play.
  * ${note ? note + ' ' : ''}(${rowCount} bot-hands)
  *
- * The model, for hands of 3+ cards with no bore on the table:
+ * The model, for hands of 2+ cards with no bore on the table:
  *   own tricks   = base + sum of value x count (OWN_TRICKS, by hand-size
  *                  group; numeric opponent bids already made shift it)
  *   partner      = partner's bid + PARTNER_OVER (partner bid first), or a
@@ -198,7 +200,7 @@ function render(m, rowCount, note) {
  */
 'use strict';
 
-// Groups: S = 3-4 cards, M = 5-7, L = 8-10, XL = 11-13.
+// Groups: XS = 2 cards, S = 3-4, M = 5-7, L = 8-10, XL = 11-13.
 // Trump-hand features (counts): HI / LO jokers; trump A / K / Q; tMid = trump
 // 7-J; tLow = trump 2-6; side-suit sA = ace, sKwA = king with its ace, sK =
 // king without it, sQ = queen; voids / single = side suits holding 0 / 1
@@ -218,25 +220,25 @@ const OWN_TRICKS = {
 // Mean (tricks won - bid) of the partner, by hand size and the partner's
 // place in the team's bidding order (first = the partner bid before us).
 const PARTNER_OVER = {`);
-    for (let n = 3; n <= 13; n++) lines.push(`    ${n}: { first: ${r2(m.partnerOver[n].first)}, second: ${r2(m.partnerOver[n].second)} },`);
+    for (let n = MIN_HAND; n <= 13; n++) lines.push(`    ${n}: { first: ${r2(m.partnerOver[n].first)}, second: ${r2(m.partnerOver[n].second)} },`);
     lines.push(`};
 
 // Standard deviation of team tricks around the model's mean, by hand size and
 // our own place in the team's bidding order (trump hands).
 const TEAM_SD = {`);
-    for (let n = 3; n <= 13; n++) lines.push(`    ${n}: { first: ${r2(m.teamSd[n].first)}, second: ${r2(m.teamSd[n].second)} },`);
+    for (let n = MIN_HAND; n <= 13; n++) lines.push(`    ${n}: { first: ${r2(m.teamSd[n].first)}, second: ${r2(m.teamSd[n].second)} },`);
     lines.push(`};
 
 // The same for no-trump hands, by hand size: wider, so the bidder keeps a
 // bigger margin there.
 const TEAM_SD_NO_TRUMP = {`);
-    for (let n = 3; n <= 13; n++) lines.push(`    ${n}: ${r2(m.teamSdNoTrump[n])},`);
+    for (let n = MIN_HAND; n <= 13; n++) lines.push(`    ${n}: ${r2(m.teamSdNoTrump[n])},`);
     lines.push(`};
 
 // Distribution of the second-of-team bid (index = bid), by hand size: what a
 // partner who bids after us tends to add.
 const SECOND_BID_PMF = {`);
-    for (let n = 3; n <= 13; n++) {
+    for (let n = MIN_HAND; n <= 13; n++) {
         const p = m.secondBidPmf[n].map(r3);
         while (p.length > 1 && p[p.length - 1] === 0) p.pop();
         lines.push(`    ${n}: [${p.join(', ')}],`);

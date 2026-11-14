@@ -1431,9 +1431,9 @@ describe('expected-value bidding', () => {
     test('estimateOwnTricks is the fitted table applied to fitBidModel features (fitter and bidder agree)', () => {
         const deal = deals(7);
         for (let i = 0; i < 300; i++) {
-            const n = 3 + (i % 11);
+            const n = 2 + (i % 12);
             const { hand, trump } = deal(n);
-            const G = n <= 4 ? 'S' : n <= 7 ? 'M' : n <= 10 ? 'L' : 'XL';
+            const G = n <= 2 ? 'XS' : n <= 4 ? 'S' : n <= 7 ? 'M' : n <= 10 ? 'L' : 'XL';
             const F = features(hand, trump);
             F.oppBidSum = i % 4;
             F.oppBidCount = i % 3;
@@ -1490,11 +1490,11 @@ describe('expected-value bidding', () => {
 
     test('no-trump hands use their own, wider spread and so keep a bigger margin', () => {
         const { TEAM_SD, TEAM_SD_NO_TRUMP } = require('../bidModel');
-        for (let n = 3; n <= 13; n++) {
+        for (let n = 2; n <= 13; n++) {
             expect(TEAM_SD_NO_TRUMP[n]).toBeGreaterThan(TEAM_SD[n].first);
         }
         let lower = 0;
-        for (let n = 3; n <= 13; n++) {
+        for (let n = 2; n <= 13; n++) {
             for (let mean = 0.5; mean <= n; mean += 0.25) {
                 for (const pb of [null, 1]) {
                     const tr = pickBidFromEV(bidExpectedValues(mean, n, pb, 0.4, false, false));

@@ -56,7 +56,7 @@ Loads automatically when Claude reads a file under `server/`; the root `CLAUDE.m
 ## Bots
 
 - Bots have socketIds like `bot:{username}:{uuid}`, use `BotStrategy.js` for AI. Card play is contract-aware: `processBotPlay` passes a play context (team bids/tricks/bores) into `decideCard`. Personalities (`personalities.js`) define `bidStyle` + `playStyle` consumed by the strategy; Mary is the sim-tuned optimal baseline, the others are slight measured variations. Strategy changes must be benchmarked with `npm run sim` against the frozen legacy snapshot (`sim/legacyStrategy.js`)
-- Bidding on 3+ card hands is expected-value bidding over fitted tables in `bot/bidModel.js` (GENERATED: `simulate.js --records` then `sim/fitBidModel.js`; refit after any bidding or card-play change, recipe in `sim/README.md`). Any bot-decision change also changes the wire golden (`UPDATE_WIRE_GOLDEN=1`) and the iOS event-log fixtures (`npm run ios:fixtures`, then the iOS replay XCTests)
+- Bidding on 2+ card hands (no bore on the table) is expected-value bidding over fitted tables in `bot/bidModel.js` (GENERATED: `simulate.js --records` then `sim/fitBidModel.js`; refit after any bidding or card-play change, recipe in `sim/README.md`). Any bot-decision change also changes the wire golden (`UPDATE_WIRE_GOLDEN=1`) and the iOS event-log fixtures (`npm run ios:fixtures`, then the iOS replay XCTests)
 - Lazy-bot timers: lazy, resign and draw-leaver bots are seat bots and schedule through `BotController.scheduleBotAction` (keys `${gameId}:${botSocketId}:bid|play|draw|chat:<n>`); `/active` → `unregisterBot` → `cancelBotActions` clears every key of that bot (chat included) and `cleanupGame` clears by game prefix (srv-15; `botTiming.test.js`)
 
 ## Socket rooms and draw watchdog

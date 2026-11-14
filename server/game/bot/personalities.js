@@ -6,7 +6,7 @@
  * `bidStyle` (applyBidModifier) and `playStyle` (selectFollow), so adding a
  * personality here is what wires it into the strategy.
  *
- * bidStyle (on 3+ card hands Mary bids the expected-value optimum; the
+ * bidStyle (on 2+ card hands Mary bids the expected-value optimum; the
  * others lean along the same EV curve, see BotStrategy.applyBidModifier):
  *  - neutral:               no adjustment (Mary's EV-optimal bid)
  *  - conservative:          the lowest bid within a few points of the best

@@ -803,7 +803,7 @@ function decideBore(hand, trump, handSize, evaluation, existingBids, position, t
 // lands on exactly B: the optimum still usually wins more than it bids, but by
 // a margin set by the hand's actual uncertainty, not by a fixed rounding rule.
 
-const EV_MIN_HAND_SIZE = 3;
+const EV_MIN_HAND_SIZE = 2;
 
 /**
  * Bid-selection knobs (sim-tuned; see sim/README.md). Tolerances are in
@@ -818,6 +818,7 @@ const EV_TUNING = {
 };
 
 function bidModelGroup(handSize) {
+    if (handSize <= 2) return 'XS';
     if (handSize <= 4) return 'S';
     if (handSize <= 7) return 'M';
     if (handSize <= 10) return 'L';
@@ -1029,7 +1030,7 @@ function calculateOptimalBid(hand, trump, position, existingBids, handSize, memo
     const lockedFloor = highestBore ? 0
         : Math.max(0, countLockedWinners(hand, trump) - (partnerBidValue || 0));
 
-    // --- EXPECTED-VALUE BIDDING (3+ cards, no bore on the table) ---
+    // --- EXPECTED-VALUE BIDDING (2+ cards, no bore on the table) ---
     if (handSize >= EV_MIN_HAND_SIZE && !highestBore) {
         const ownMean = estimateOwnTricks(hand, trump, handSize, opponentTotalBid, opponentBidCount);
         let partnerOver = PARTNER_OVER[handSize][partnerBidValue === null ? 'second' : 'first'];
@@ -1053,7 +1054,7 @@ function calculateOptimalBid(hand, trump, position, existingBids, handSize, memo
         return String(Math.max(0, Math.min(bid, handSize)));
     }
 
-    // --- NORMAL BIDDING (1-2 card hands, and any hand with a bore out) ---
+    // --- RULE-BASED BIDDING (1-card hands, and any hand with a bore out) ---
 
     // Conservative rounding: floor instead of round. The set penalty
     // (-10/trick) dwarfs the overtrick payoff (+1/trick); sim-tested against
@@ -1175,7 +1176,7 @@ function calculateOptimalBid(hand, trump, position, existingBids, handSize, memo
  * @param {Object} evaluation - Hand evaluation from evaluateHand()
  * @param {number} handSize - Cards per player
  * @param {Array} partnerHistory - Zach's partner tracking [{ bid, tricks }]
- * @param {Array|null} evs - Expected score per bid (EV bidding, 3+ cards). When
+ * @param {Array|null} evs - Expected score per bid (EV bidding, 2+ cards). When
  *   given, Sharon and Danny lean along the EV curve instead of the
  *   trick-fraction rules below, and Zach's adjustment is already in the curve.
  * @returns {number} - Modified bid

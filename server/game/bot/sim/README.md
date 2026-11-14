@@ -134,7 +134,7 @@ Late game (progress >= 0.7, score difference > 30) leans to the highest
 lean up / down within 1.5 points; Zach swaps the population
 partner-overtrick figure for his partner's observed one (shrunk toward it);
 Mike keeps his 10% +1. 1-2 card hands and hands with a bore out keep the
-previous rules. The old evaluation-based rules (floor rounding, small-hand
+previous rules (2-card hands moved to EV in the follow-ups below). The old evaluation-based rules (floor rounding, small-hand
 caps, opponents-bid-60% and partner-bid-half trims) no longer apply to the
 EV hands: the model reads those bids directly.
 
@@ -209,3 +209,25 @@ the previous commit: mary 49.99% ±0.02, margin +0.01 ±0.02 (8000 deal sets,
 seed 823); sharon+mike +0.04 ±0.06 (4000, seed 824); danny+zach +0.00 ±0.05
 (4000, seed 825). Neutral, as a 0.02%-of-hands change must be; kept so that
 a bot never visibly bids under cards that cannot lose.
+
+**2-card hands on the EV path.** The old 2-card rules (count jokers and trump
+Q+, trim under a partner's bid) were very cautious: team set 2.1%, but team
+overtricks +0.40 on a 2-trick hand, and many all-zero tables that ended in a
+redeal or a bore. `EV_MIN_HAND_SIZE` is now 2 (fitted group `XS`); 1-card
+hands keep the rules (every kept 1-card deal has a bore on the table, so
+there is nothing to fit), as does any hand with a bore out. Bore logic is
+unchanged; 2-card bores fall from 10.2% to 5.2% of bot-hands (success
+83.4% → 83.2%) because numeric bids now come earlier and fewer tables reach
+the all-zero spots where bores fire. Mary self-play (seed 791): 2-card team
+overtricks +0.40 → +0.18, team set 2.1% → 9.3%. Paired runs against the
+previous commit, tables refit three rounds (seeds 761-784): mary 50.6% ±0.3,
+margin +2.1 ±0.5 per game (8000 deal sets, seed 841; +0.9 ±0.2 per 2-card
+hand); danny+zach 51.1% ±0.5, +3.1 ±0.6 (4000, seed 842); sharon+mike
+50.7% ±0.5, +2.1 ±0.7 (4000, seed 843). The whole follow-up branch against
+`bots/bidcal-ev`: mary 51.3% ±0.4, +2.5 ±0.5 (8000, seed 851); danny+zach
+51.2% ±0.5, +3.0 ±0.8 (4000, seed 852). Legacy benchmark (`--exp legacy
+--games 8000 --seed 14`): 79.5% / 78.2%. Personalities (`--exp personalities
+--games 8000 --seed 51`): sharon+mary 46.9%, danny+mary 50.2%, mike+mary
+47.1%, zach+mary 47.6% (±1.1). Zero incidents and exceptions throughout.
+
+Refit recipe unchanged (2-card rows are now included automatically).
