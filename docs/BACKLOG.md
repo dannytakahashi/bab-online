@@ -29,8 +29,6 @@ remove an item in the PR that fixes it.
   Device Hub's Open posture for the next release.
 - **The Leave alert can show stale words for up to ~1.5 s** after the other human
   leaves while it is open (`LeaveAlertFlow`, `leaveCheck`).
-- **App Store screenshot "05 game end"** (build 5 set) shows no per-player stats;
-  build 7 adds them (#250). Re-shoot it with the next screenshot pass.
 - **One extra restore after a long background:** a connection that had already
   recovered is still replaced (`forceReconnect`, about 2 s).
 
