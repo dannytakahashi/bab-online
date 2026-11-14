@@ -105,10 +105,10 @@ private struct MainRoomScreen: View {
         HStack(spacing: iconsOnly ? 4 : 8) {
             headerButton("New Game", icon: "suit.spade.fill", color: Theme.primary,
                          iconsOnly: iconsOnly) { LobbyEmitter.createLobby() }
-                .disabled(!socketService.isSessionReady)
+                .disabled(!socketService.canSendMainRoomActions)
             headerButton("Tournament", icon: "trophy.fill", color: Theme.warning,
                          iconsOnly: iconsOnly) { TournamentEmitter.createTournament() }
-                .disabled(!socketService.isSessionReady)
+                .disabled(!socketService.canSendMainRoomActions)
             headerButton("Stats", icon: "chart.bar.fill", color: Theme.textSecondary,
                          iconsOnly: iconsOnly) { showLeaderboard = true }
 
@@ -141,9 +141,9 @@ private struct MainRoomScreen: View {
     private var barControls: some ToolbarContent {
         ToolbarItemGroup(placement: .topBarLeading) {
             barButton("New Game", icon: "suit.spade.fill", color: Theme.primary) { LobbyEmitter.createLobby() }
-                .disabled(!socketService.isSessionReady)
+                .disabled(!socketService.canSendMainRoomActions)
             barButton("Tournament", icon: "trophy.fill", color: Theme.warning) { TournamentEmitter.createTournament() }
-                .disabled(!socketService.isSessionReady)
+                .disabled(!socketService.canSendMainRoomActions)
             barButton("Stats", icon: "chart.bar.fill", color: Theme.textSecondary) { showLeaderboard = true }
         }
         ToolbarItemGroup(placement: .topBarTrailing) {

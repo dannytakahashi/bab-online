@@ -91,10 +91,18 @@ final class ForegroundKeepTests: XCTestCase {
         var flags: [String] = []
         service.$isConnected.dropFirst().sink { flags.append("isConnected=\($0)") }.store(in: &bag)
         service.$isSessionReady.dropFirst().sink { flags.append("isSessionReady=\($0)") }.store(in: &bag)
+        var probing: [Bool] = []
+        service.$isForegroundProbing.dropFirst().sink { probing.append($0) }.store(in: &bag)
 
         service.resumeAfterKeepAlive()
 
+        // the socket may still be replaced: main-room actions wait for the answer
+        XCTAssertTrue(service.isForegroundProbing)
+        XCTAssertFalse(service.canSendMainRoomActions, "no New Game on a socket the probe may retire")
         wait("the probe answered") { service.lastForegroundOutcome == .kept }
+        XCTAssertFalse(service.isForegroundProbing)
+        XCTAssertTrue(service.canSendMainRoomActions, "released on the answer")
+        XCTAssertEqual(probing, [true, false])
         XCTAssertTrue(service.manager === manager, "the same manager")
         XCTAssertTrue(service.socket === socket, "the same socket")
         XCTAssertEqual(service.connectionsOpened, opened, "no new connection")
@@ -139,6 +147,7 @@ final class ForegroundKeepTests: XCTestCase {
         XCTAssertEqual(service.lastForegroundOutcome, .rebuilt(reason: "session not ready"))
         XCTAssertEqual(manager.status, .disconnected, "the old one retired")
         XCTAssertEqual(probes.count, 0, "no probe")
+        XCTAssertFalse(service.isForegroundProbing, "no probe flag: the session gate covers it")
         wait("the new connection's handshake") { self.server.handshakes == 2 }
     }
 
@@ -166,12 +175,21 @@ final class ForegroundKeepTests: XCTestCase {
         let manager = try connectAndSignIn()
         server.answersSnapshots = false
         let started = Date()
+        // the main-room actions never come on between the probe and the restore: the probe
+        // flag drops only once the rebuild's session gate is up
+        var actionsOnAt: [String] = []
+        let svc = service
+        svc.$isForegroundProbing.dropFirst().sink { probing in
+            if !probing && svc.isSessionReady { actionsOnAt.append("probe ended with isSessionReady") }
+        }.store(in: &bag)
 
         service.resumeAfterKeepAlive()
 
         spin(SocketService.foregroundProbeTimeout - 0.4)
         XCTAssertTrue(service.manager === manager, "not before the bound")
         XCTAssertTrue(service.isConnected, "no flash while it waits")
+        XCTAssertTrue(service.isSessionReady, "no session gate (it is not a reconnect yet)")
+        XCTAssertFalse(service.canSendMainRoomActions, "but main-room actions wait for the probe")
         wait("rebuilt after the bound", timeout: 5) { !(service.manager === manager) }
         XCTAssertGreaterThanOrEqual(Date().timeIntervalSince(started), SocketService.foregroundProbeTimeout - 0.05)
         guard case .rebuilt(let reason) = service.lastForegroundOutcome else { return XCTFail("not rebuilt") }
@@ -180,6 +198,11 @@ final class ForegroundKeepTests: XCTestCase {
         XCTAssertFalse(manager.reconnects)
         wait("the new connection connects") { service.isConnected && self.server.handshakes == 2 && self.server.namespaceConnects == 2 }
         XCTAssertFalse(service.isSessionReady, "the restore has to answer first (session gate)")
+        XCTAssertFalse(service.isForegroundProbing)
+        XCTAssertFalse(service.canSendMainRoomActions, "the session gate took over")
+        XCTAssertEqual(actionsOnAt, [])
+        service.noteSessionEstablished()
+        XCTAssertTrue(service.canSendMainRoomActions, "on once the restore answers")
     }
 
     /// The server restarted while the app was away: the probe's request is refused with
@@ -227,6 +250,7 @@ final class ForegroundKeepTests: XCTestCase {
         server.answersSnapshots = false
         service.resumeAfterKeepAlive()
         service.forceReconnect()
+        XCTAssertFalse(service.isForegroundProbing, "the probe is dropped")
         let afterSignOut = try XCTUnwrap(service.manager)
         let opened = service.connectionsOpened
         spin(SocketService.foregroundProbeTimeout + 0.3)
@@ -241,6 +265,8 @@ final class ForegroundKeepTests: XCTestCase {
         server.answersSnapshots = false
         service.resumeAfterKeepAlive()
         service.beginBackgroundKeepAlive()
+        XCTAssertFalse(service.isForegroundProbing, "the probe is dropped")
+        XCTAssertTrue(service.canSendMainRoomActions)
         service.endBackgroundKeepAlive()
         spin(SocketService.foregroundProbeTimeout + 0.3)
         XCTAssertTrue(service.manager === manager, "no rebuild from a cancelled probe")

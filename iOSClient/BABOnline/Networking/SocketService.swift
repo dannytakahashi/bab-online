@@ -45,6 +45,15 @@ final class SocketService: ObservableObject {
     /// false from every new `.connect` until then. Main-room actions wait for it
     /// (`noteSessionEstablished`).
     @Published var isSessionReady = false
+    /// A foreground probe is in flight (`resumeAfterKeepAlive`): the socket may still be
+    /// replaced, and an action sent on it now would be lost with it. Main-room actions wait
+    /// (`canSendMainRoomActions`); nothing else shows it (no toast: a live link answers in
+    /// milliseconds). Cleared when the probe ends: kept, or rebuilt (the session gate,
+    /// `isSessionReady` false, takes over).
+    @Published private(set) var isForegroundProbing = false
+    /// New Game, Tournament, Join and Spectate: signed in on this socket, and the socket is
+    /// not about to be replaced by a foreground probe.
+    var canSendMainRoomActions: Bool { isSessionReady && !isForegroundProbing }
 
     /// The table part of the server's 'error' (also driven by the replay tests):
     /// a refused play/bid/resync makes the table resync instead of waiting (21.10).
@@ -375,6 +384,7 @@ final class SocketService: ObservableObject {
         foregroundProbeCount += 1
         let probe = ForegroundProbe(socket: socket, requestId: "fg-\(foregroundProbeCount)")
         foregroundProbe = probe
+        isForegroundProbing = true
         print("[Socket] Foreground: probing connection \(socket.sid ?? "?") (\(probe.requestId))")
 
         probe.handlerIds.append(socket.on(SocketEvents.Server.stateSnapshot) { [weak self, weak probe] data, _ in
@@ -403,7 +413,11 @@ final class SocketService: ObservableObject {
         guard !probe.done else { return }
         probe.done = true
         for id in probe.handlerIds { probe.socket.off(id: id) }
-        if foregroundProbe === probe { foregroundProbe = nil }
+        let current = foregroundProbe === probe
+        if current { foregroundProbe = nil }
+        // cleared after the rebuild below, if any: its session gate (isSessionReady false) is
+        // up by then, so the main-room actions never come on in between
+        defer { if current { isForegroundProbing = false } }
         // replaced meanwhile (sign-out, a newer foreground): that path owns the connection now
         guard socket === probe.socket else { return }
         let ms = Int(Date().timeIntervalSince(probe.started) * 1000)
@@ -419,9 +433,16 @@ final class SocketService: ObservableObject {
     private func cancelForegroundProbe() {
         guard let probe = foregroundProbe else { return }
         foregroundProbe = nil
+        isForegroundProbing = false
         probe.done = true
         for id in probe.handlerIds { probe.socket.off(id: id) }
     }
+
+    #if DEBUG
+    /// UI fixtures only (`-uiForegroundProbe YES`): hold the moment a foreground probe is in
+    /// flight, with no socket.
+    func holdForegroundProbeForFixture() { isForegroundProbing = true }
+    #endif
 
     private func rebuildAfterForeground(reason: String) {
         lastForegroundOutcome = .rebuilt(reason: reason)
