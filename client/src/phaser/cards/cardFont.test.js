@@ -1,12 +1,13 @@
 /**
  * The card index font's loader (cardFont.js): one FontFace load of the
  * bundled woff2, added to the page's fonts; listeners hear once when it is
- * ready; no FontFace API (or a failed fetch) keeps the system fallback;
- * whenCardFont gives up waiting after a timeout (the late load still fires).
+ * ready; no FontFace API (or a failed fetch) keeps the system fallback.
+ * Drawing never waits for it: the atlas and the draw slots draw with the
+ * fallback and redraw once when it lands (CardAtlas, drawSlotFaces).
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
-  CARD_FONT, CARD_FONT_FAMILY, CARD_FONT_URL, loadCardFont, isCardFontReady, onCardFontReady, whenCardFont, resetCardFontForTests,
+  CARD_FONT, CARD_FONT_FAMILY, CARD_FONT_URL, loadCardFont, isCardFontReady, onCardFontReady, resetCardFontForTests,
 } from './cardFont.js';
 import { FONT_UI } from '../../ui/tokens.js';
 
@@ -63,23 +64,4 @@ describe('cardFont', () => {
     expect(heard).not.toHaveBeenCalled();
   });
 
-  it('whenCardFont: false after its timeout while the font is still loading; the late load still makes it ready', async () => {
-    vi.useFakeTimers();
-    try {
-      const f = fakeFont();
-      loadCardFont(f.opts);
-      const heard = vi.fn();
-      onCardFontReady(heard);
-      const w = whenCardFont(500);
-      await vi.advanceTimersByTimeAsync(500);
-      expect(await w).toBe(false);
-      f.settle(true);
-      await vi.advanceTimersByTimeAsync(0);
-      expect(isCardFontReady()).toBe(true);
-      expect(heard).toHaveBeenCalledTimes(1);
-      expect(await whenCardFont(500)).toBe(true);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
 });
