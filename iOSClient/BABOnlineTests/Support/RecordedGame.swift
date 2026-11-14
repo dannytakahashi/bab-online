@@ -93,17 +93,17 @@ struct ReducerReplay {
         switch e.event {
         case "voicePeerJoined", "voicePeerList":
             return
-        case "serverError":
-            // SocketService handles it (toast, deduped against the 'error' twin, V1_REMOVALS #1 phase A); the table store never sees it
-            return
         case "tournamentGameAssignment":
             let d = e.data as? [String: Any]
             if let gid = d?["gameId"] as? String {
                 effects += TableReducer.reduce(&state, .local(.enterGameContext(gameId: gid, tournamentId: d?["tournamentId"] as? String)))
             }
             return
-        case "error":
-            let err = try Wire.decode(WirePayload.ServerError.self, e.data)
+        case "serverError":
+            // The app's SocketService.handleServerError: a toast, and for a refused play / bid /
+            // resync routeTableError -> transportError (V1_REMOVALS #1: the server's only error event
+            // since phase B; the app-level 'error' is gone from the wire, so a recording holding one fails below)
+            let err = try Wire.decode(WirePayload.ServerError.self, e.data, strict: true)
             if let h = err.handler, ["playCard", "playerBid", "requestSnapshot"].contains(h) {
                 effects += TableReducer.reduce(&state, .local(.transportError(handler: h)))
             }

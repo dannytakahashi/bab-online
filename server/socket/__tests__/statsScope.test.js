@@ -243,7 +243,7 @@ describe('bots and all scopes', () => {
         // a merged name follows to the kept account in the scope asked for
         await handler(other, io, { username: 'OldAnn', scope: 'bots' });
         expect(lastTo(other, 'playerProfileResponse').profile).toMatchObject({ username: 'Ann', stats: stats(10, 2) });
-        expect(log.filter(l => l.event === 'error')).toEqual([]);
+        expect(log.filter(l => l.event === 'serverError')).toEqual([]);
     });
 
     test('failures carry no scope', async () => {
@@ -341,7 +341,7 @@ describe('caches per scope', () => {
         expect(await leaderboard({ scope: 'all' }, s)).toEqual({ success: false, message: 'Too many requests. Please wait a moment.', scope: 'all' });
         // a payload-less request's failure stays exactly today's
         expect(await leaderboard(undefined, s)).toEqual({ success: false, message: 'Too many requests. Please wait a moment.' });
-        expect(log.filter(l => l.event === 'error')).toEqual([]);
+        expect(log.filter(l => l.event === 'serverError')).toEqual([]);
     });
 
     test('records over the limit: that scope\'s cached records', async () => {

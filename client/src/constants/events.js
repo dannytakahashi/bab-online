@@ -164,7 +164,6 @@ export const SERVER_EVENTS = {
   DISCONNECT: 'disconnect',
   RECONNECT_ATTEMPT: 'reconnect_attempt',
   RECONNECT_FAILED: 'reconnect_failed',
-  ERROR: 'error',
   SERVER_SHUTDOWN: 'serverShutdown',
   SERVER_ERROR: 'serverError',
 

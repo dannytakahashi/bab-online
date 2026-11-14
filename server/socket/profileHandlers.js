@@ -645,7 +645,7 @@ async function getLeaderboard(socket, io, data) {
     const cache = leaderboardCache[scope];
 
     // Soft limit (one budget for every scope): over it, this scope's
-    // (possibly stale) cached rows, never 'error'
+    // (possibly stale) cached rows, never serverError
     if (!rateLimiter.check(socket.id, 'getLeaderboard')) {
         await replyThrottled(socket, 'leaderboardResponse', cache,
             (value) => leaderboardPayload(socket, value, scope, echo),
@@ -939,7 +939,7 @@ async function getRecords(socket, io, data) {
     const toPayload = ({ records, totalGames }) => withScope({ success: true, records, totalGames }, scope, echo);
 
     // Soft limit (one budget for every scope): over it, this scope's
-    // (possibly stale) cached records, never 'error'
+    // (possibly stale) cached records, never serverError
     if (!rateLimiter.check(socket.id, 'getRecords')) {
         await replyThrottled(socket, 'recordsResponse', cache, toPayload,
             (fail) => withScope(fail, scope, echo));
@@ -959,7 +959,7 @@ async function getRecords(socket, io, data) {
 /**
  * Reply to a request over its soft rate limit (getLeaderboard/getRecords):
  * the last cached value even if expired, else the fill already running,
- * else the ordinary failure reply both clients show (never 'error').
+ * else the ordinary failure reply both clients show (never serverError).
  * `toFailure` adds the scope echo to a failure, so a client with several
  * scopes in flight knows which one failed (iOS 1.2.1 build 8).
  */

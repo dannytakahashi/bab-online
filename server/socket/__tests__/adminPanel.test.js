@@ -280,7 +280,7 @@ describe('authorization matrix', () => {
     test('bad envelopes are the wrapper\'s validation error; bad args (admins only) are invalid', async () => {
         const s = await signedIn('Owner');
         await asyncHandler('adminRequest', admin.adminRequest)(s, w.io, { requestId: 'x', action: 'dropDatabase' });
-        expect(w.log.filter(l => l.event === 'error').pop().data).toMatchObject({ type: 'validation', handler: 'adminRequest' });
+        expect(w.log.filter(l => l.event === 'serverError').pop().data).toMatchObject({ code: 'validation', handler: 'adminRequest' });
         const res = await request(s, 'setAdmin', { username: 'Bea', isAdmin: 'true' });
         expect(res).toMatchObject({ ok: false, error: 'invalid' });
         expect(audit().pop()).toMatchObject({ actor: 'Owner', action: 'setAdmin', result: 'failed', detail: 'invalid request' });

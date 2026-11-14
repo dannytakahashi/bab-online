@@ -122,7 +122,7 @@ test.each([
     expect(rec.checkpoints.length).toBeGreaterThan(20);
     for (const f of Object.values(rec.final)) expect(f.snapshot.stage).toBe('HAND_RESOLVING');
     if (kind === 'humans') {
-        for (const e of ['destroyHands', 'actionRejected', 'restorePlayerState', 'error', 'rejoinSuccess', 'playerLazyMode', 'playerActiveMode', 'playerResigned', 'rainbow']) {
+        for (const e of ['destroyHands', 'actionRejected', 'restorePlayerState', 'serverError', 'rejoinSuccess', 'playerLazyMode', 'playerActiveMode', 'playerResigned', 'rainbow']) {
             expect({ e, present: hasEvent(rec, e) }).toEqual({ e, present: true });
         }
     } else if (kind === 'bots') {

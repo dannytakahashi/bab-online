@@ -1,8 +1,9 @@
 /**
  * The recorded 4-human game (events-humans-s13, seat 3 = ios_dee at
- * position 4: a rejected play answered by restorePlayerState, an `error` /
- * `serverError` twin) on the POST-GATE wire (testing/postGateWire.js: no
- * `error`, no playerAssigned, no gameStart playerInfo, no seat socket ids,
+ * position 4: a rejected play answered by restorePlayerState, a Joi-invalid
+ * play answered by serverError; recorded since #1 phase B, so no `error`) on
+ * the POST-GATE wire (testing/postGateWire.js: no playerAssigned, no
+ * gameStart playerInfo, no seat socket ids,
  * snapshot-only carriers):
  * my seat is known from positionUpdate before the first deal, and the table
  * (counts and seat names) matches every live checkpoint, as on today's wire.
@@ -23,9 +24,10 @@ beforeAll(async () => {
   const raw = replay.loadRecording('events-humans-s13');
   // the transforms really bite on this log
   const events = (log) => new Set(log.filter((e) => e.dir === 's2c').map((e) => e.event));
-  expect([...events(raw.logs.seat3)]).toEqual(expect.arrayContaining(['error', 'serverError', 'playerAssigned', 'restorePlayerState']));
+  expect([...events(raw.logs.seat3)]).toEqual(expect.arrayContaining(['serverError', 'playerAssigned', 'restorePlayerState']));
+  // #1 phase B is on the server now: the recording itself has no error
+  expect(events(raw.logs.seat3).has('error')).toBe(false);
   rec = postGateRecording(raw);
-  expect(events(rec.logs.seat3).has('error')).toBe(false);
   expect(events(rec.logs.seat3).has('playerAssigned')).toBe(false);
   page = await replay.realTablePage({ username: 'ios_dee' });
 });

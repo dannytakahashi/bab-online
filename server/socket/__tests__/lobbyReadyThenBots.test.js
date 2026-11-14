@@ -157,7 +157,7 @@ describe('Ready, then Add Bot until the lobby is full: the game starts', () => {
             expect(update.players).toHaveLength(4);
             expect(update.players.every((p) => p.ready)).toBe(true);
             expect(got.find((l) => l.event === 'allPlayersReady').data).toEqual({ gameId: game.gameId });
-            expect(got.map((l) => l.event)).not.toContain('error');
+            expect(got.map((l) => l.event)).not.toContain('serverError');
         }
         // The same start as the ready path: bots registered, the draw began
         expect(Array.from(game.entrants?.values?.() || []).filter((e) => e.isBot)).toHaveLength(bots);
@@ -342,7 +342,9 @@ describe('Ready, then Add Bot until the lobby is full: the game starts', () => {
         const from = w.log.length;
         await lobbyHandlers.addBot(ann, w.io);
         await runStart();
-        expect(w.to(ann.id, from).map((l) => l.event)).toContain('error');
+        const got = w.to(ann.id, from).map((l) => l.event);
+        expect(got).toContain('serverError');
+        expect(got).not.toContain('error');
         expect(gameManager.lobbies.has(lobbyId)).toBe(true);
         expect(events(w.log, 'allPlayersReady')).toHaveLength(0);
     });

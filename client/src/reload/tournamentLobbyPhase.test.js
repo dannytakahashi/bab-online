@@ -38,7 +38,7 @@ describe('reload in the tournament lobby before it begins', () => {
     socket.fire('restoreSessionResponse', { success: true, username: 'me', blockedUsers: [] });
     expect(socket.emitted('joinTournament')).toHaveLength(2);
     socket.clearEmits();
-    socket.fire('error', { message: 'Tournament not found' });
+    socket.fire('serverError', { code: 'rejected', message: 'Tournament not found', handler: null });
     // the server sends the main room after a failed joinTournament itself
     expect(socket.emitted('joinMainRoom')).toHaveLength(0);
     expect(page.session.screen).toBe('mainRoom');

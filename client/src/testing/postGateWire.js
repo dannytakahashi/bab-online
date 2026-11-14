@@ -5,7 +5,9 @@
  * replay through the real page shows that the web needs no change for any
  * of them. Read-only: the recordings are never rewritten.
  *
- *   #1 phase B  no `error` (its `serverError` twin stays)
+ *   #1 phase B  no `error` (its `serverError` twin stays); done on the
+ *               server, so recordings made since have none (the transform
+ *               stays for older recordings)
  *   #5          gameStart without `playerInfo` (the web keeps the names and
  *               pictures positionUpdate, the seat events and the
  *               snapshots gave; GameState.applyDeal still reads it when

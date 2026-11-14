@@ -136,7 +136,7 @@ describe('re-entering a pre-game lobby from a new socket', () => {
         // The re-entering socket gets the lobby (no error)
         const mine = w.to(ann2.id, from).map((l) => l.event);
         expect(mine).toContain('lobbyCreated');
-        expect(mine).not.toContain('error');
+        expect(mine).not.toContain('serverError');
         const created = w.to(ann2.id, from).find((l) => l.event === 'lobbyCreated').data;
         expect(created.players.map((p) => p.username)).toEqual(names);
 
@@ -165,14 +165,14 @@ describe('re-entering a pre-game lobby from a new socket', () => {
         const dan2 = await w.connect(names[3]);
         const from = w.log.length;
         mainRoomHandlers.joinLobby(dan2, w.io, { lobbyId });
-        expect(w.to(dan2.id, from).map((l) => l.event)).not.toContain('error');
+        expect(w.to(dan2.id, from).map((l) => l.event)).not.toContain('serverError');
         expect(seats(lobby)).toEqual(names);
         expect(lobby.players[3].socketId).toBe(dan2.id);
 
         const eve = await w.connect(`eve${seq}`);
         const from2 = w.log.length;
         mainRoomHandlers.joinLobby(eve, w.io, { lobbyId });
-        expect(w.to(eve.id, from2).map((l) => [l.event, l.data?.message])).toEqual([['error', 'Lobby is full'], ['serverError', 'Lobby is full']]);
+        expect(w.to(eve.id, from2).map((l) => [l.event, l.data?.message])).toEqual([['serverError', 'Lobby is full']]);
         expect(seats(lobby)).toEqual(names);
     });
 
@@ -193,7 +193,7 @@ describe('re-entering a pre-game lobby from a new socket', () => {
         // The old socket can no longer ready on the seat's behalf
         const from = w.log.length;
         lobbyHandlers.playerReady(ann1, w.io);
-        expect(w.to(ann1.id, from).map((l) => [l.event, l.data?.message])).toEqual([['error', 'Not in a lobby'], ['serverError', 'Not in a lobby']]);
+        expect(w.to(ann1.id, from).map((l) => [l.event, l.data?.message])).toEqual([['serverError', 'Not in a lobby']]);
         expect(lobby.readyPlayers.has(ann1.id)).toBe(false);
     });
 

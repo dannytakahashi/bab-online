@@ -82,7 +82,7 @@ describe('joinMainRoom while in a lobby', () => {
         expect(got).toContain('leftLobby');
         expect(got).toContain('mainRoomJoined');
         expect(got.indexOf('leftLobby')).toBeLessThan(got.indexOf('mainRoomJoined'));
-        expect(got).not.toContain('error');
+        expect(got).not.toContain('serverError'); // no refusal (the server's only failure event since #1 phase B)
         expect(gameManager.playerLobbies.has(ann.id)).toBe(false);
         expect(gameManager.getLobbyById(lobbyId)).toBeFalsy();
         expect(gameManager.isInMainRoom(ann.id)).toBe(true);
@@ -92,6 +92,7 @@ describe('joinMainRoom while in a lobby', () => {
         mainRoomHandlers.joinMainRoom(ann, io);
         expect(to(log, ann.id, after).map((l) => l.event)).toEqual(expect.arrayContaining(['mainRoomJoined']));
         expect(to(log, ann.id, after).map((l) => l.event)).not.toContain('leftLobby');
+        expect(to(log, ann.id, after).map((l) => l.event)).not.toContain('serverError');
     });
 
     test('a shared lobby: the others are told I left', async () => {
@@ -108,6 +109,7 @@ describe('joinMainRoom while in a lobby', () => {
         mainRoomHandlers.joinMainRoom(bob, io);
 
         expect(to(log, bob.id, from).map((l) => l.event)).toEqual(expect.arrayContaining(['leftLobby', 'mainRoomJoined']));
+        expect(to(log, bob.id, from).map((l) => l.event)).not.toContain('serverError');
         const annGot = to(log, ann.id, from);
         const left = annGot.find((l) => l.event === 'lobbyPlayerLeft');
         expect(left).toBeTruthy();

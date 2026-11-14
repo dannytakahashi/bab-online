@@ -394,10 +394,10 @@ describe('getVoiceIceServers handler (the shared instance, global fetch mocked)'
         await wrapped(a, io, null);
         expect(replies()).toHaveLength(2);
         await wrapped(a, io, { requestId: '' });
-        expect(log.filter((l) => l.event === 'error' && l.to === `self:${a.id}`)).toHaveLength(1);
+        expect(log.filter((l) => l.event === 'serverError' && l.to === `self:${a.id}`)).toHaveLength(1);
         log.length = 0;
         for (let i = 0; i < 25; i++) await wrapped(a, io, {});
         expect(replies()).toHaveLength(17); // the three calls above spent three
-        expect(log.filter((l) => l.event === 'error').map((l) => l.data.type)).toEqual(Array(8).fill('rateLimit'));
+        expect(log.filter((l) => l.event === 'serverError').map((l) => l.data.code)).toEqual(Array(8).fill('rateLimit'));
     });
 });

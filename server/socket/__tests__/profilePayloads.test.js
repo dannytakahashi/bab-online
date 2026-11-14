@@ -252,11 +252,11 @@ describe('uploads', () => {
         const img = fx.dataUrl(await fx.avatarPng(64));
         for (let i = 0; i < 5; i++) await upload(s, { imageData: img });
         await upload(s, { imageData: img });
-        const errs = log.filter((l) => l.to === `self:${s.id}` && l.event === 'error');
-        expect(errs.map((e) => e.data.type)).toEqual(['rateLimit']);
+        const errs = log.filter((l) => l.to === `self:${s.id}` && l.event === 'serverError');
+        expect(errs.map((e) => e.data.code)).toEqual(['rateLimit']);
         rateLimiter.clearSocket(s.id);
         await upload(s, { imageData: 'data:image/png;base64,' + 'A'.repeat(682700) });
-        expect(log.filter((l) => l.to === `self:${s.id}` && l.event === 'error').pop().data.type).toBe('validation');
+        expect(log.filter((l) => l.to === `self:${s.id}` && l.event === 'serverError').pop().data.code).toBe('validation');
     });
 
     test('upload decodes run under the store semaphore: full queue or a second upload of the same account -> "Busy, try again"', async () => {

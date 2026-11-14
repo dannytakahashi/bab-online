@@ -122,7 +122,7 @@ describe('lobbies: every join path finds the old seat by username', () => {
         await join(w, ann2, lobbyId, other);
         expect(inLobbies(ann)).toBe(1);
         expect(gameManager.getPlayerLobby(ann2.id)).toBeTruthy();
-        expect(events(w.log, 'error').filter((l) => l.to === `self:${ann2.id}`)).toEqual([]);
+        expect(events(w.log, 'serverError').filter((l) => l.to === `self:${ann2.id}`)).toEqual([]);
 
         await w.kill(ann1);
         jest.advanceTimersByTime(gameManager.constructor.LOBBY_SEAT_GRACE_MS);
@@ -194,7 +194,7 @@ describe('tournaments', () => {
         const ann2 = await w.connect(ann);
         const from = w.log.length;
         tournamentHandlers.createTournament(ann2, w.io);
-        expect(events(w.log.slice(from), 'error').map((l) => l.data.message)).toEqual(['Already in a tournament']);
+        expect(events(w.log.slice(from), 'serverError').map((l) => l.data.message)).toEqual(['Already in a tournament']);
         expect(inTournaments(ann)).toBe(1);
         t.phase = 'lobby';
     });
