@@ -201,6 +201,9 @@ function renderTableBody(tbody, data) {
   }
 }
 
+/** Under the table: the server ranks a player from 5 games in the chosen scope (profileHandlers LEADERBOARD_MIN_GAMES). */
+export const LEADERBOARD_MIN_NOTE = 'Players appear in the standings after 5 games.';
+
 /**
  * Show the leaderboard page (a kit Modal: Escape and the close button
  * close it, focus comes back to the Leaderboard button).
@@ -281,7 +284,7 @@ export function showLeaderboardPage(leaderboard, socket, scope = getStatsScope()
     id: 'leaderboardPageOverlay',
     dialogId: 'leaderboardPageModal',
     className: 'page-modal page-modal--wide',
-    body: [scopeControl.element, tableContainer],
+    body: [scopeControl.element, tableContainer, el('p', { className: 'scope-note lb-min-note', text: LEADERBOARD_MIN_NOTE })],
     onClose: () => {
       leaderboardModal = null;
       currentLeaderboard = null;

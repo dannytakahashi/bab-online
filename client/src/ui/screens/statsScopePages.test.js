@@ -7,7 +7,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { showMainRoom, removeMainRoom } from './MainRoom.js';
-import { showLeaderboardPage, updateLeaderboardPage, leaderboardRequestFailed, removeLeaderboardPage } from './LeaderboardPage.js';
+import { showLeaderboardPage, updateLeaderboardPage, leaderboardRequestFailed, removeLeaderboardPage, LEADERBOARD_MIN_NOTE } from './LeaderboardPage.js';
 import { showRecordsPage, updateRecordsPage, recordsRequestFailed, removeRecordsPage, periodCounts } from './RecordsPage.js';
 import {
   showProfilePage, showPlayerProfilePage, updateProfileStats, updatePlayerProfileStats, profileStatsRequestFailed,
@@ -85,6 +85,15 @@ describe('the main room asks with the device\'s scope', () => {
 });
 
 describe('Leaderboard', () => {
+  it('says under the table that players appear after 5 games (the server leaves out fewer)', () => {
+    showLeaderboardPage([row('ann', 5), row('Population', 4, { isPopulation: true })], socket, 'human');
+    const note = document.querySelector('#leaderboardPageModal .lb-min-note');
+    expect(note?.textContent).toBe('Players appear in the standings after 5 games.');
+    expect(LEADERBOARD_MIN_NOTE).toBe(note.textContent);
+    // after the table, not inside the scope region a switch dims
+    expect(document.getElementById('leaderboardRegion').contains(note)).toBe(false);
+  });
+
   it('the control on top (Human games checked); a switch saves, waits, re-asks once and updates in place', () => {
     showLeaderboardPage([row('ann', 4), row('Population', 4, { isPopulation: true })], socket, 'human');
     const dialog = document.getElementById('leaderboardPageModal');

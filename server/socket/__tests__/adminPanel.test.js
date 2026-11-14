@@ -718,7 +718,13 @@ describe('actions', () => {
             // the leaderboard (cache invalidated) shows the new name
             const profile = require('../profileHandlers');
             const lb = w.socket(`adm-${++n}`);
-            await profile.getLeaderboard(lb, w.io);
+            // rank from 1 game (Cy's fixture predates LEADERBOARD_MIN_GAMES)
+            profile._setLeaderboardMinGamesForTests(1);
+            try {
+                await profile.getLeaderboard(lb, w.io);
+            } finally {
+                profile._setLeaderboardMinGamesForTests();
+            }
             const board = w.log.filter(l => l.to === `self:${lb.id}` && l.event === 'leaderboardResponse').pop().data;
             expect(board.leaderboard.map(r => r.username)).toContain('Cyrus');
             expect(board.leaderboard.map(r => r.username)).not.toContain('Cy');
