@@ -10,7 +10,7 @@ import { collectMs } from '../pacing.js';
 import { sceneTween } from '../TableDirector.js';
 import { layoutOf, historySlot } from '../layout/computeTableLayout.js';
 import { CARD_TEXTURE_KEY } from '../cards/CardAtlas.js';
-import { BACK_FRAME } from '../cards/cardFaces.js';
+import { tableBackFrame } from '../cards/tableBack.js';
 import { motionMs, dealStaggerMs, EASE_EMPHASIZED, EASE_STANDARD } from '../../ui/motion.js';
 import { COLOR, RADIUS, hex } from '../../ui/tokens.js';
 
@@ -360,7 +360,7 @@ export class TrickManager {
 
       // If not our team's trick, show card backs (unless spectating)
       if (!isMyTeam && !this._isSpectatorMode) {
-        card.setTexture(CARD_TEXTURE_KEY, BACK_FRAME);
+        card.setTexture(CARD_TEXTURE_KEY, tableBackFrame());
       } else {
         this._applyFaceTexture(card);
       }
@@ -936,7 +936,7 @@ export class TrickManager {
         const faceUp = mine || this._isSpectatorMode;
         const sprite = faceUp
           ? scene.add.image(pos.x, pos.y, CARD_TEXTURE_KEY, getCardImageKey(c.card))
-          : scene.add.image(pos.x, pos.y, CARD_TEXTURE_KEY, BACK_FRAME);
+          : scene.add.image(pos.x, pos.y, CARD_TEXTURE_KEY, tableBackFrame());
         sprite.setData?.('faceKey', getCardImageKey(c.card));
         sprite.setScale(this.historyScale());
         sprite.setDepth(200 + index);
@@ -969,7 +969,7 @@ export class TrickManager {
   _createPlaceholderStack(scene, pos) {
     const cards = [];
     for (let j = 0; j < 4; j++) {
-      const sprite = scene.add.image(pos.x, pos.y, CARD_TEXTURE_KEY, BACK_FRAME);
+      const sprite = scene.add.image(pos.x, pos.y, CARD_TEXTURE_KEY, tableBackFrame());
       sprite.setScale(this.historyScale());
       sprite.setDepth(200 + j);
       sprite.setInteractive();

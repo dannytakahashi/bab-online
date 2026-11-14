@@ -1,5 +1,5 @@
 /**
- * The card atlas (item 18a, webclient-12 / ui-15): every face, the back and
+ * The card atlas (item 18a, webclient-12 / ui-15): every face, both backs and
  * the raised card's shadow drawn by cardFaces.js into ONE canvas texture
  * ('cards'), so the whole table binds one card texture.
  *
@@ -17,17 +17,21 @@
  * (atlasBytes): see atlasLayout for the grid.
  */
 import { CARD_CONFIG } from '../config.js';
-import { ALL_CARDS, FACE_FRAMES, BACK_FRAME, SHADOW_FRAME, CARD_DESIGN, CARD_ASPECT, drawCard, drawShadow } from './cardFaces.js';
+import { ALL_CARDS, FACE_FRAMES, BACK_FRAMES, SHADOW_FRAME, CARD_DESIGN, CARD_ASPECT, drawCard, drawShadow } from './cardFaces.js';
 
 export const CARD_TEXTURE_KEY = 'cards';
-/** Grid columns and the transparent gutter between cells (no bleed under linear filtering). */
-export const ATLAS_COLS = 8;
+/**
+ * Grid columns and the transparent gutter between cells (no bleed under
+ * linear filtering). 10 x 6 = 60 cells for the 57 frames (8 columns would
+ * need 8 rows: 64 cells); at the 300 px cap the page is 3022 x 2624.
+ */
+export const ATLAS_COLS = 10;
 export const ATLAS_PAD = 2;
 /** The shadow's blur margin inside its cell, as a share of the cell width. */
 export const SHADOW_MARGIN = 0.12;
 
-/** Every frame of the atlas in order: 54 faces, the back, the shadow. */
-export const ATLAS_FRAMES = Object.freeze([...FACE_FRAMES, BACK_FRAME, SHADOW_FRAME]);
+/** Every frame of the atlas in order: 54 faces, the red and the blue back, the shadow. */
+export const ATLAS_FRAMES = Object.freeze([...FACE_FRAMES, BACK_FRAMES.red, BACK_FRAMES.blue, SHADOW_FRAME]);
 
 /**
  * The frame bitmap for a card `cardH` CSS px tall at `dpr`: its height in
@@ -51,7 +55,7 @@ export function cardTextureSize(cardH, dpr = 1) {
 
 /**
  * The atlas page for frames of w x h: an ATLAS_COLS-wide grid of cells with
- * an ATLAS_PAD gutter (56 cells for the 56 frames).
+ * an ATLAS_PAD gutter.
  * @returns {{width: number, height: number, frames: Object<string, {x, y, w, h}>}}
  */
 export function atlasLayout({ w, h }) {
@@ -71,8 +75,8 @@ export function atlasBytes(spec) {
   return width * height * 4;
 }
 
-/** The card (or BACK_FRAME) a frame shows. */
-const cardOfFrame = new Map([...ALL_CARDS.map((c, i) => [FACE_FRAMES[i], c]), [BACK_FRAME, BACK_FRAME]]);
+/** The card (or the back frame's own name: drawCard draws its ink) a frame shows. */
+const cardOfFrame = new Map([...ALL_CARDS.map((c, i) => [FACE_FRAMES[i], c]), ...Object.values(BACK_FRAMES).map((b) => [b, b])]);
 
 /**
  * Draw every frame of the page onto a 2D context (the canvas already has

@@ -35,8 +35,8 @@ function replayTo(i) {
 }
 
 const ffs = () => page.scene.director.stats.fastForwards;
-const isBack = (s) => s?.texture?.key === 'cards' && s.frame?.name === 'back';
-const isFace = (s) => s?.texture?.key === 'cards' && !!s.frame?.name && s.frame.name !== 'back';
+const isBack = (s) => s?.texture?.key === 'cards' && /^back-(red|blue)$/.test(s.frame?.name || '');
+const isFace = (s) => s?.texture?.key === 'cards' && !!s.frame?.name && !/^back-/.test(s.frame.name);
 
 beforeAll(async () => {
   replay = await import('../testing/replay.js');
