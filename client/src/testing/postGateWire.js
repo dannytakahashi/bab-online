@@ -13,7 +13,8 @@
  *               snapshots gave; GameState.applyDeal still reads it when
  *               present)
  *   #6          gameStart without `players` (seat socket ids)
- *   #7          no `playerAssigned`
+ *   #7          no `playerAssigned` (executed 2026-11-12: the recordings
+ *               carry none any more, so this one is a no-op)
  *   #9          rejoinSuccess / restorePlayerState / the spectator full
  *               state carry only {snapshot} (and rejoinSuccess's
  *               tournamentId, kept while web reads it)

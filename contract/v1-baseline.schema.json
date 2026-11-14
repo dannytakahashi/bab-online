@@ -3293,36 +3293,6 @@
         "server/game/bot/BotController.js:processBotDraw"
       ]
     },
-    "playerAssigned": {
-      "payload": {
-        "type": "object",
-        "properties": {
-          "playerId": {
-            "type": "string"
-          },
-          "position": {
-            "$ref": "#/$defs/position"
-          }
-        },
-        "required": [
-          "playerId",
-          "position"
-        ],
-        "additionalProperties": false
-      },
-      "status": "deprecated",
-      "to": "socket",
-      "clientReads": {
-        "web": [
-          "client/src/main.js:playerAssigned"
-        ],
-        "ios": []
-      },
-      "emittedFrom": [
-        "server/socket/gameHandlers.js:handleDrawComplete"
-      ],
-      "notes": "Web main.js reads it; replaced by v2 viewer.position (V1_REMOVALS #7)."
-    },
     "teamsAnnounced": {
       "payload": {
         "type": "object",

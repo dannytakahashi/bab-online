@@ -339,13 +339,6 @@ const s2c = {
         clientReads: reads(W.game, I.game('registerSetupPhase')),
         emittedFrom: ['server/socket/gameHandlers.js:draw', 'server/socket/gameHandlers.js:autoDraw', 'server/game/bot/BotController.js:processBotDraw'],
     },
-    playerAssigned: {
-        payload: obj({ playerId: str(), position: ref('position') }),
-        status: 'deprecated', to: 'socket',
-        clientReads: reads([], []),
-        emittedFrom: ['server/socket/gameHandlers.js:handleDrawComplete'],
-        notes: 'Read by no client since 2026-11-12 (V1_REMOVALS #7): web takes its seat from positionUpdate (its username, GameState.applyPositionUpdate), every seat gameStart.position and snapshot viewer.position; iOS never read it.',
-    },
     teamsAnnounced: {
         payload: obj({
             team1: arr(str(), { minItems: 2, maxItems: 2 }),

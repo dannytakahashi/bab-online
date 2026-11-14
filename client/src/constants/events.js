@@ -142,7 +142,6 @@ export const SERVER_EVENTS = {
   REJOIN_FAILED: 'rejoinFailed',
   PLAYER_DISCONNECTED: 'playerDisconnected',
   PLAYER_RECONNECTED: 'playerReconnected',
-  PLAYER_ASSIGNED: 'playerAssigned',
   ABORT_GAME: 'abortGame',
   STATE_SNAPSHOT: 'stateSnapshot',
 

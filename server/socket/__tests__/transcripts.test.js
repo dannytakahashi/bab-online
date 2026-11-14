@@ -278,10 +278,8 @@ describe('seat transcripts (wire characterization)', () => {
             'room:playerDrew{card,drawOrder,socketId,username}',
             'room:playerDrew{card,drawOrder,socketId,username}',
             'room:gameLogEntry{message,type}',
-            'h2:playerAssigned{playerId,position}@p',
-            'h3:playerAssigned{playerId,position}@p',
-            // CHANGED (seat records): no playerAssigned to the dead socket of a
-            // draw-phase disconnect (it is seated in reconnect grace)
+            // CHANGED (V1_REMOVALS #7): no playerAssigned at all (h2 and h3
+            // got one each here; the seat comes from positionUpdate)
             'room:gameLogEntry{message,type}',
             'room:positionUpdate{pics,positions,sockets,usernames}',
             'room:playerDisconnected{position,username}@p',

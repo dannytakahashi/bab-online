@@ -49,3 +49,24 @@ describe('#3 client-only listeners: lobbyJoined, roomFull, activeTournamentFound
         expect(read('iOSClient/BABOnline/Networking/Handlers/AuthSocketHandler.swift')).toContain('socket.on(SocketEvents.Server.activeGameFound)');
     });
 });
+
+describe('#7 playerAssigned', () => {
+    // only comments may still name it
+    const code = (src) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+
+    test('no schema entry, constant, server emit, test-harness read or iOS listener', () => {
+        expect(schema.s2c.playerAssigned).toBeUndefined();
+        expect(baseline.s2c.playerAssigned).toBeUndefined();
+        expect(web).not.toContain("'playerAssigned'");
+        expect(swift).not.toContain('"playerAssigned"');
+        expect(SERVER.filter(([, src]) => /\bplayerAssigned\b/.test(code(src))).map(([f]) => f)).toEqual([]);
+        expect(naming(IOS_APP, 'playerAssigned')).toEqual([]);
+    });
+
+    test('the seat still reaches every client: positionUpdate sockets/usernames and the seat gameStart position stay', () => {
+        const pu = schema.s2c.positionUpdate.payload;
+        expect(pu.required).toEqual(expect.arrayContaining(['positions', 'sockets', 'usernames']));
+        const seatStart = schema.s2c.gameStart.payload.anyOf.find((v) => v.variant === 'seat');
+        expect(seatStart.required).toContain('position');
+    });
+});

@@ -45,7 +45,7 @@ const C = (rank, suit) => ({ rank, suit });
 
 // Events a live game sends to its room or seats
 const GAME_EVENTS = new Set([
-    'startDraw', 'playerDrew', 'youDrew', 'playerAssigned', 'positionUpdate', 'teamsAnnounced', 'createUI',
+    'startDraw', 'playerDrew', 'youDrew', 'positionUpdate', 'teamsAnnounced', 'createUI',
     'gameStart', 'updateTurn', 'bidReceived', 'doneBidding', 'rainbow', 'destroyHands', 'cardPlayed',
     'trickComplete', 'handComplete', 'gameEnd', 'abortGame', 'chatMessage', 'gameLogEntry',
     'playerDisconnected', 'playerReconnected', 'resignationAvailable', 'playerLazyMode', 'playerActiveMode',
@@ -709,6 +709,24 @@ describe('12. departures during the lobby countdown (CREATED)', () => {
     const nullPositionEvents = (log) => log.filter((l) => l.data && 'position' in l.data && l.data.position == null &&
         ['playerDisconnected', 'playerReconnected', 'resignationAvailable'].includes(l.event));
 
+    test('V1_REMOVALS #7: seating sends no playerAssigned; every human finds its seat in positionUpdate and its gameStart', async () => {
+        const { io, log, ids, sockets, game } = await countdown(2);
+        await jest.advanceTimersByTimeAsync(pacing().PREDRAW_COUNTDOWN_MS / 2 + 100); // beginDraw
+        const pending = [0, 1].map((i) => gameHandlers.draw(sockets[i], io, { num: 0 }));
+        await advanceUntil(() => game.stage === Phase.BIDDING, 50);
+        await Promise.all(pending);
+
+        expect(events(log, 'playerAssigned')).toEqual([]);
+        const pu = events(log, 'positionUpdate');
+        expect(pu).toHaveLength(1);
+        for (const id of ids) {
+            const pos = game.getPositionBySocketId(id);
+            expect(pu[0].data.positions[pu[0].data.sockets.indexOf(id)]).toBe(pos);
+            const deal = log.find((l) => l.event === 'gameStart' && (l.to === id || l.to === `self:${id}`));
+            expect(deal.data.position).toBe(pos);
+        }
+    });
+
     test('a disconnect auto-draws when the draw opens and the seat waits for a reconnect', async () => {
         const { io, log, ids, sockets, game } = await countdown(4);
         await queueHandlers.handleDisconnect(sockets[0], io);
@@ -747,7 +765,7 @@ describe('12. departures during the lobby countdown (CREATED)', () => {
         expect(resigned.map((st) => st.ownerUsername)).toEqual([`user_${ids[0]}`]);
         expect(resigned[0].presence).toBe('gone');
         expect(game.isBot(game.positions[resigned[0].position])).toBe(true);
-        expect(log.some((l) => l.to === ids[0] && l.event === 'playerAssigned')).toBe(false);
+        expect(log.some((l) => (l.to === ids[0] || l.to === `self:${ids[0]}`) && l.event === 'gameStart')).toBe(false);
         expect(nullPositionEvents(log)).toEqual([]);
     });
 

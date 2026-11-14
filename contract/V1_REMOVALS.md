@@ -321,6 +321,27 @@ the seat shows, the seat socket id only as the fallback, as iOS 1.2's
   Tests: `state/seating.test.js`, `eventHandlerMap.test.js`,
   `table/postGateSeat.test.js` (my seat and partner known before the first
   deal with no playerAssigned).
+- **Done 2026-11-12 (PR #TBD), after the 1.1.0 gate:** handleDrawComplete
+  no longer sends it. Re-checked first: web on main has no listener (only
+  comments name it); iOS 1.2.0 (iOSClient at eeeeb23) registers it
+  (GameSocketHandler.events) but its reducer case is `break`, and it is
+  private and unsequenced, so its absence opens no seq gap. Gone with it:
+  the schema entry (src + hand-edited baseline), the web PLAYER_ASSIGNED
+  and Swift `playerAssigned` constants (layout, legacyConstants golden),
+  the iOS source's listener / ServerEvent case / reducer case (next build),
+  and the test harnesses' read (avatarHarness / pacingHarness find the
+  seat in positionUpdate). iOS fixtures re-recorded (only the
+  playerAssigned lines go; every other entry and checkpoint snapshot is
+  unchanged), and wireGolden's `v1Restore` puts the old emits back so the
+  fcdd885 golden still pins the rest. Tests: `lifecycle.test.js` (#7
+  block), `contract/__tests__/v1Removed.test.js`, transcripts T-draw,
+  iOS `V1RemovalsTests`.
+  Re-checked 2026-11-13 for iOS 1.2.0 build 5 (`iOSClient/` at main
+  92d0c75, the submitted build): still registered
+  (GameSocketHandler.swift:13), decoded (ServerEvent.swift:83) and ignored
+  (TableReducer+Events.swift:23-24 `break`); build 5 finds my seat from
+  positionUpdate (TableReducer+Events.swift:265-271) and the seat gameStart's
+  `position` (:285-288).
 
 ### 8. Split `spectatorJoined`
 
@@ -785,7 +806,7 @@ step, in this order; nothing is removed by the gate PR itself.
 - **#6 `gameStart.players`**: web voice speaking indicator reads it.
   (Not since 2026-11-12: by owner / username, #6.)
 - **#7 `playerAssigned`**: 1.1.0 ignores it, web `main.js` reads it. (Not
-  since 2026-11-12: no reader left.)
+  since 2026-11-12: no reader left. Done 2026-11-12, #7.)
 - **#8 split `spectatorJoined`**: 1.1.0 routes on the `snapshot` key (fine);
   web routes on `players && trump`. Blocked by web. (Web routes on the
   snapshot too since 2026-11-12.)

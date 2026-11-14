@@ -119,7 +119,11 @@ async function runGame(seed, opts = {}) {
                 if (l.event === 'positionUpdate' && !spectated) spectated = 'due';
                 for (const st of seats) {
                     if (l.event === 'startDraw' && !st.drew) st.turn = 'draw';
-                    if (l.event === 'playerAssigned' && (l.to === st.sock.id || l.to === `self:${st.sock.id}`)) st.pos = l.data.position;
+                    // my seat: my socket in positionUpdate (no playerAssigned since V1_REMOVALS #7)
+                    if (l.event === 'positionUpdate' && l.to === game.roomName) {
+                        const i = l.data.sockets.indexOf(st.sock.id);
+                        if (i >= 0) st.pos = l.data.positions[i];
+                    }
                     if (l.event === 'updateTurn' && l.to === game.roomName && l.data.currentTurn === st.pos) st.turn = seen;
                 }
             }
