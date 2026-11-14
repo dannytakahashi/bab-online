@@ -132,6 +132,8 @@ final class SocketService: ObservableObject {
         let (manager, socket) = Self.makeConnection(url: URL(string: serverURL)!)
         self.manager = manager
         self.socket = socket
+        connectionsOpened += 1
+        print("[Socket] New connection #\(connectionsOpened)")
         registerHandlers()
         eventRouter?.registerAll()
         socket.connect()
@@ -256,6 +258,7 @@ final class SocketService: ObservableObject {
     /// later (`retire`).
     func forceReconnect() {
         if Self.connectionsDisabled { return }
+        cancelForegroundProbe()
         guard let manager, let socket else {
             print("[Socket] No socket to force-reconnect, calling connect()")
             connect()
@@ -283,6 +286,149 @@ final class SocketService: ObservableObject {
         manager.removeSocket(socket)
     }
 
+    // MARK: - Foreground after the keep-alive
+
+    /// What a foreground after the keep-alive does with the connection it finds
+    /// (`foregroundCheck`). Until 2026-11-14 it always rebuilt: a connection that had
+    /// already recovered (reconnected and restored in the background) was replaced anyway,
+    /// about 2 s of reconnect and restore for nothing.
+    enum ForegroundCheck: Equatable {
+        /// Connected and session-ready by every flag: prove it with one round trip
+        /// (`requestSnapshot`, `foregroundProbeTimeout`) and keep it if the server answers.
+        case probe
+        /// Not usable as it is: `forceReconnect` at once.
+        case rebuild(reason: String)
+    }
+
+    /// How a foreground after the keep-alive ended (`lastForegroundOutcome`, tests and logs).
+    enum ForegroundOutcome: Equatable {
+        case kept
+        case rebuilt(reason: String)
+    }
+
+    /// The decision, from the state alone. A status flag is never proof by itself (the
+    /// 2026-11-12 bug was a socket that said connected with its namespace lost), so even
+    /// the best case only earns a probe.
+    static func foregroundCheck(managerStatus: SocketIOStatus?, socketStatus: SocketIOStatus?,
+                                isConnected: Bool, isSessionReady: Bool) -> ForegroundCheck {
+        guard let managerStatus, let socketStatus else { return .rebuild(reason: "no connection") }
+        if socketStatus != .connected { return .rebuild(reason: "socket \(socketStatus)") }
+        if managerStatus != .connected { return .rebuild(reason: "manager \(managerStatus)") }
+        if !isConnected { return .rebuild(reason: "not connected") }
+        if !isSessionReady { return .rebuild(reason: "session not ready") }
+        return .probe
+    }
+
+    /// How long a connection that looks alive has to answer the probe. A live link answers
+    /// in well under a second; past this the old path (a new connection) is cheaper than
+    /// waiting longer.
+    static let foregroundProbeTimeout: TimeInterval = 1.5
+
+    /// Every new manager this service built (`openConnection`): the keep path builds none.
+    private(set) var connectionsOpened = 0
+    private(set) var lastForegroundOutcome: ForegroundOutcome?
+    private var foregroundProbe: ForegroundProbe?
+    private var foregroundProbeCount = 0
+
+    /// One probe in flight: the socket it was sent on, its requestId, and the handlers it
+    /// added to that socket (removed by id, never `off(event)`, which would remove the
+    /// router's stateSnapshot handler too).
+    private final class ForegroundProbe {
+        let socket: SocketIOClient
+        let requestId: String
+        let started = Date()
+        var handlerIds: [UUID] = []
+        var done = false
+        init(socket: SocketIOClient, requestId: String) {
+            self.socket = socket
+            self.requestId = requestId
+        }
+    }
+
+    /// The foreground after the keep-alive expired (BABOnlineApp). Keeps a connection that
+    /// is connected, session-ready and answers a round trip on the same socket within
+    /// `foregroundProbeTimeout`; anything else gets `forceReconnect`, as before.
+    ///
+    /// The probe is `requestSnapshot {requestId: "fg-N", log: false}`, which the server
+    /// already answers on the asking socket (`stateSnapshot` with the same requestId: the
+    /// table in a game, else `not_in_game`); no wire change. Its answer also goes through
+    /// the router like any other snapshot, so in a game it is the table resync the restore's
+    /// rejoin would have given (`applySnapshot`). The answer comes after every event the
+    /// server sent this socket while the app was away (one ordered stream), so the log they
+    /// carried is already in the store: `log: false` keeps the reply small.
+    func resumeAfterKeepAlive() {
+        if Self.connectionsDisabled { return }
+        cancelForegroundProbe()
+        lastForegroundOutcome = nil  // until this foreground's check ends
+        let check = Self.foregroundCheck(managerStatus: manager?.status, socketStatus: socket?.status,
+                                         isConnected: isConnected, isSessionReady: isSessionReady)
+        switch check {
+        case .rebuild(let reason):
+            rebuildAfterForeground(reason: reason)
+        case .probe:
+            guard let socket else { return rebuildAfterForeground(reason: "no connection") }
+            startForegroundProbe(on: socket)
+        }
+    }
+
+    private func startForegroundProbe(on socket: SocketIOClient) {
+        foregroundProbeCount += 1
+        let probe = ForegroundProbe(socket: socket, requestId: "fg-\(foregroundProbeCount)")
+        foregroundProbe = probe
+        print("[Socket] Foreground: probing connection \(socket.sid ?? "?") (\(probe.requestId))")
+
+        probe.handlerIds.append(socket.on(SocketEvents.Server.stateSnapshot) { [weak self, weak probe] data, _ in
+            guard let probe, (data.first as? [String: Any])?["requestId"] as? String == probe.requestId else { return }
+            DispatchQueue.main.async { self?.finishForegroundProbe(probe, alive: true, why: "answered") }
+        })
+        // the connection failing while we wait: no need to wait out the bound
+        probe.handlerIds.append(socket.on(clientEvent: .statusChange) { [weak self, weak probe] data, _ in
+            guard let probe, let status = data.first as? SocketIOStatus, status != .connected else { return }
+            DispatchQueue.main.async { self?.finishForegroundProbe(probe, alive: false, why: "socket \(status)") }
+        })
+        probe.handlerIds.append(socket.on(clientEvent: .disconnect) { [weak self, weak probe] _, _ in
+            guard let probe else { return }
+            DispatchQueue.main.async { self?.finishForegroundProbe(probe, alive: false, why: "disconnected") }
+        })
+
+        socket.emit(SocketEvents.Client.requestSnapshot, ["requestId": probe.requestId, "log": false, "customPics": false])
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.foregroundProbeTimeout) { [weak self, weak probe] in
+            guard let probe else { return }
+            self?.finishForegroundProbe(probe, alive: false, why: "unanswered")
+        }
+    }
+
+    private func finishForegroundProbe(_ probe: ForegroundProbe, alive: Bool, why: String) {
+        guard !probe.done else { return }
+        probe.done = true
+        for id in probe.handlerIds { probe.socket.off(id: id) }
+        if foregroundProbe === probe { foregroundProbe = nil }
+        // replaced meanwhile (sign-out, a newer foreground): that path owns the connection now
+        guard socket === probe.socket else { return }
+        let ms = Int(Date().timeIntervalSince(probe.started) * 1000)
+        if alive {
+            lastForegroundOutcome = .kept
+            print("[Socket] Foreground: connection kept (\(probe.requestId) answered in \(ms) ms)")
+        } else {
+            rebuildAfterForeground(reason: "probe \(why) after \(ms) ms")
+        }
+    }
+
+    /// A probe that has not finished does nothing more (background, sign-out, a rebuild).
+    private func cancelForegroundProbe() {
+        guard let probe = foregroundProbe else { return }
+        foregroundProbe = nil
+        probe.done = true
+        for id in probe.handlerIds { probe.socket.off(id: id) }
+    }
+
+    private func rebuildAfterForeground(reason: String) {
+        lastForegroundOutcome = .rebuilt(reason: reason)
+        print("[Socket] Foreground: rebuilding connection (\(reason))")
+        forceReconnect()
+    }
+
     /// The socket's status changed (statusChange): any status but connected means it cannot
     /// emit, so `isConnected` is false until the next `.connect` sets it (the connected
     /// status itself is left to `.connect`, which also starts the restore).
@@ -303,6 +449,7 @@ final class SocketService: ObservableObject {
     }
 
     func disconnect() {
+        cancelForegroundProbe()
         if let manager, let socket { Self.retire(manager: manager, socket: socket) }
         socket = nil
         manager = nil
@@ -316,6 +463,9 @@ final class SocketService: ObservableObject {
 
     /// Begin a background task to keep the socket alive during brief app switches (~30s).
     func beginBackgroundKeepAlive() {
+        // a probe still waiting would time out at the next foreground and replace a
+        // connection that foreground has its own check for
+        cancelForegroundProbe()
         guard backgroundTaskId == .invalid else { return }
         isBackgroundTaskActive = true
         backgroundTaskId = UIApplication.shared.beginBackgroundTask(withName: "SocketKeepAlive") { [weak self] in
