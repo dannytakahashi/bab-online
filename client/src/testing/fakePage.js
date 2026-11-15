@@ -226,8 +226,8 @@ export async function loadPage({ session = {}, connected = true, socketId = 'soc
   // Site data blocked: reading either storage throws, as browsers do
   if (blockStorage) blockWebStorage();
 
-  await import('../main.js');
-  window.dispatchEvent(new Event('load'));
+  // The boot entry runs startApp after the load event (boot/boot.js)
+  (await import('../main.js')).startApp();
 
   const { getClientSession } = await import('../state/ClientSession.js');
   const { getGameState } = await import('../state/GameState.js');

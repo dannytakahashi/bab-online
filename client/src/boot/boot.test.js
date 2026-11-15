@@ -76,11 +76,40 @@ describe('runBoot', () => {
     expect(gate()).toBeNull();
   });
 
-  it('before the load event, main.js\'s own load listener starts it (boot does not)', async () => {
+  it('the chunk lands before the load event: boot starts it on load (main.js has no load listener)', async () => {
     const app = { startApp: vi.fn() };
-    const res = runBoot({ win: fakeWin({ phone: false, ua: DESKTOP_UA, readyState: 'interactive' }), loadApp: async () => app });
-    await res.app;
+    const win = fakeWin({ phone: false, ua: DESKTOP_UA, readyState: 'interactive' });
+    const res = runBoot({ win, loadApp: async () => app });
+    await flush();
     expect(app.startApp).not.toHaveBeenCalled();
+    win.document.readyState = 'complete';
+    win.fire('load');
+    await res.app;
+    expect(app.startApp).toHaveBeenCalledTimes(1);
+    const main = readClientFile('src/main.js');
+    expect(main).not.toMatch(/addEventListener\(\s*['"]load['"]/);
+  });
+
+  it('a startApp that throws after the load event still reloads once, then shows the notice', async () => {
+    document.body.innerHTML = '<div id="boot-fallback" hidden></div>';
+    const app = { startApp: vi.fn(() => { throw new Error('no WebGL'); }) };
+    const win = fakeWin({ phone: false, ua: DESKTOP_UA, readyState: 'interactive' });
+    runBoot({ win, loadApp: async () => app });
+    await flush();
+    win.document.readyState = 'complete';
+    win.fire('load');
+    await flush();
+    expect(app.startApp).toHaveBeenCalledTimes(1);
+    expect(win.location.reload).toHaveBeenCalledTimes(1);
+    // the reloaded page fails the same way: the notice, no second reload
+    const again = fakeWin({ phone: false, ua: DESKTOP_UA, readyState: 'interactive', session: win.sessionStorage });
+    const res = runBoot({ win: again, loadApp: async () => app });
+    await flush();
+    again.document.readyState = 'complete';
+    again.fire('load');
+    await expect(res.app).rejects.toThrow('no WebGL');
+    expect(again.location.reload).not.toHaveBeenCalled();
+    expect(document.getElementById('boot-fallback').hidden).toBe(false);
   });
 
   it('a gated phone never imports the app module', async () => {

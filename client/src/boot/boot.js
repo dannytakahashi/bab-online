@@ -14,16 +14,21 @@ import {
 import { showGate } from './gateScreen.js';
 
 /**
- * Start the app: import the chunk, then run it. main.js starts on the
- * window load event; when the chunk arrives after load (it usually does
- * now that it is imported, not a static script), start it here instead.
- * startApp runs once either way.
+ * Start the app: import the chunk, wait for the window load event (now, if
+ * it has fired), then run it. Boot is the only caller of main.js startApp,
+ * so a throw from it (no WebGL, no canvas) always lands in this promise and
+ * its reload-once / static notice, whichever side of load the chunk lands.
  */
 export function startApp({ win, loadApp }) {
-  return Promise.resolve(loadApp()).then((app) => {
-    if (win.document.readyState === 'complete') app?.startApp?.();
+  return Promise.resolve(loadApp()).then((app) => afterLoad(win).then(() => {
+    app?.startApp?.();
     return app;
-  });
+  }));
+}
+
+function afterLoad(win) {
+  if (win.document?.readyState === 'complete' || typeof win.addEventListener !== 'function') return Promise.resolve();
+  return new Promise((resolve) => win.addEventListener('load', () => resolve(), { once: true }));
 }
 
 /**

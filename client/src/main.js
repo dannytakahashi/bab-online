@@ -2072,4 +2072,5 @@ export function startApp() {
   session.start();
 }
 
-window.addEventListener('load', startApp);
+// No load listener of its own: boot (src/boot/boot.js startApp) runs it
+// after the load event, inside the promise whose failure reloads once
