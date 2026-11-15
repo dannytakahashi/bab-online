@@ -42,8 +42,10 @@ async function reportUser(socket, io, data) {
         });
 
         socket.emit('reportUserResponse', { success: true });
+        // Not the reason: it is free text that can quote the chat, which the
+        // privacy policy says never reaches the logs (the row holds it)
         socketLogger.info('User report filed', {
-            reporter: reporter.username, reported: username, reason
+            reporter: reporter.username, reported: username
         });
     } catch (error) {
         socketLogger.error('Failed to store user report', { error: error.message });
