@@ -26,6 +26,7 @@ bab-online/
 │   ├── src/
 │   │   ├── entry.js           # Page entry: phone gate (boot/), then import('./main.js'), the app
 │   │   ├── boot/              # Phone gate: detection, gate screen, boot order
+│   │   ├── audio/             # Sound effects: SoundManager (Web Audio, mute), tableSounds (event → sound)
 │   │   ├── constants/         # Event names, card ranks, hand progression
 │   │   ├── utils/             # Position math, card helpers
 │   │   ├── rules/             # Card legality, bids.js bid totals (a bore = the hand, capped at it; mirror the server)
@@ -174,6 +175,7 @@ The nested `CLAUDE.md` files (`server/`, `server/admin/`, `server/demo/`, `contr
 | Web client architecture | `docs/claude/web-client.md`, Architecture | ClientSession screen FSM, SocketManager ping, reconnect order |
 | Web stay signed in, delivery, screens, phone gate | `docs/claude/web-client.md` | session storage, `staticAssets.js` + CSP + restart notice, `.screen--full`, phone gate |
 | Web table, layout, design system | `docs/claude/web-table.md` | GameState one writer, SeqGate, TableDirector, MyAction; `computeTableLayout`, `GameScene.relayout()` and its tests (`computeTableLayout.test.js`, `relayout.test.js` mid-deal / mid-trick); tokens + kit |
+| Web table sound effects | `docs/claude/web-table.md`, Web table sound | `audio/SoundManager.js` (own AudioContext, gesture unlock, `bab.sound` mute, throttle), `audio/tableSounds.js` event map, silent on snapshot / SeqGate replay, `SoundToggle` in the voice row + main room |
 
 ## Common Files to Check
 

@@ -478,7 +478,7 @@ body > #spectating-indicator {
     position: absolute;
     left: var(--voice-x, 0px);
     top: var(--voice-y, 0px);
-    width: var(--voice-w, 78px);
+    width: var(--voice-w, 120px);
     height: var(--voice-btn, 36px);
     display: flex;
     justify-content: center;
@@ -498,6 +498,12 @@ body > #spectating-indicator {
 .superseded-notice__text {
     color: var(--text-secondary);
     margin: 0 0 var(--space-4);
+}
+
+/* a spectator's row is the table's corner: its buttons keep to the corner
+   (the sound toggle alone, without voice, too) */
+#table-hud.hud-spectator > .hud-voice {
+    justify-content: flex-end;
 }
 
 .hud-voice > button {

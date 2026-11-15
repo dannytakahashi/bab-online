@@ -74,6 +74,10 @@ import { createMuteButton, removeMuteButton, showVoiceOverlay, removeVoiceOverla
 import { setTableChrome, clearHud, hudRoot } from './ui/tableHud.js';
 import { renderSpectatorBadge, removeSpectatorBadge } from './ui/components/SpectatorBadge.js';
 
+// Sound effects
+import { getSoundManager } from './audio/SoundManager.js';
+import { getTableSounds } from './audio/tableSounds.js';
+
 // ============================================
 // Game Scene Access
 // ============================================
@@ -646,6 +650,7 @@ function initializeApp() {
     director.reset();
     seqGate.reset();
     myAction.reset();
+    getTableSounds().reset();
     const scene = getGameScene();
 
     if (scene) {
@@ -1193,6 +1198,9 @@ function initializeApp() {
           // The trump takes this hand's back (it kept the finished hand's
           // through the whisk)
           scene.dealTrumpBack?.();
+
+          // The deal's sound, as the cards go down (live deals only)
+          getTableSounds().dealShown();
 
           // Display player hand via CardManager
           if (scene.handleDisplayHand && data.hand) {
@@ -2013,6 +2021,10 @@ export function startApp() {
   // The card index font (cards/cardFont.js): fetched now so it is ready
   // long before a table; the card atlas redraws if it lands later
   loadCardFont();
+
+  // Sound effects start on the first click or key (browsers allow audio
+  // only after a gesture)
+  getSoundManager().installUnlock(window);
 
   // Initialize the app
   initializeApp();
