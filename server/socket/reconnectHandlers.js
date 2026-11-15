@@ -131,6 +131,14 @@ async function rejoinGame(socket, io, data) {
         return;
     }
 
+    // Nor a lobby seat or another tournament (GameManager.activityOf)
+    const other = gameManager.activityBesides(socket.id, gameId);
+    if (other) {
+        socketLogger.warn('Rejoin refused: socket belongs elsewhere', { username, gameId, kind: other.kind });
+        socket.emit('rejoinFailed', { reason: other.kind === 'lobby' ? 'In a lobby' : other.kind === 'game' ? 'In another game' : 'In a tournament' });
+        return;
+    }
+
     const refuse = () => {
         const playersInGame = Array.from(game.players.values()).map(p => p.username);
         socketLogger.debug('Rejoin failed: player not in game', { username, playersInGame });

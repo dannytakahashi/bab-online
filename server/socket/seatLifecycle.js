@@ -718,8 +718,12 @@ function resignSeat(io, game, pos) {
     return true;
 }
 
-/** /leave from the owner socket: the bot keeps the seat, the owner is gone for good. */
-function leaveSeat(io, game, pos, socket) {
+/**
+ * /leave from the owner socket: the bot keeps the seat, the owner is gone
+ * for good. `notify` false skips the leftGame (leaveTournament late in
+ * DRAW_RESOLVING: tournamentLeft follows).
+ */
+function leaveSeat(io, game, pos, socket, { notify = true } = {}) {
     const seat = game.seat(pos);
     if (seat.controller === Controller.HUMAN && !goLazy(io, game, pos, { reason: 'leave' })) return false;
     if (!game.seatLeave(pos)) return false;
@@ -729,7 +733,7 @@ function leaveSeat(io, game, pos, socket) {
     gameManager.clearActiveGame(seat.ownerUsername, game.gameId);
     // leftGame only, from either view (the watch view's extra s2c
     // joinMainRoom had no listener: V1_REMOVALS #4)
-    socket.emit('leftGame');
+    if (notify) socket.emit('leftGame');
     socketLogger.info('Player left game (permanent)', { gameId: game.gameId, position: pos });
     maybeAbort(io, game);
     return true;

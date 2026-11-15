@@ -81,6 +81,9 @@ function releaseStaleTournamentSeat(io, evicted, username) {
     });
 }
 
+// joinTournament refusals that leave the socket where it is (activityOf)
+const STAYS_PUT = new Set(['Already in a tournament', 'Already in a lobby', 'Already in game']);
+
 /**
  * Join an existing tournament
  */
@@ -94,11 +97,12 @@ async function joinTournament(socket, io, data) {
     const result = gameManager.joinTournament(socket.id, tournamentId);
     if (!result.success) {
         emitError(socket, { message: result.error }, 'joinTournament');
-        // An active member of another tournament stays where they are — only
-        // genuinely unattached players get dropped into the main room (the
-        // clients auto-emit joinTournament after sign-in, so a failure must
-        // not strand them on a blank screen).
-        if (result.error === 'Already in a tournament') {
+        // An active member of another tournament (or a lobby seat or game:
+        // GameManager.activityOf) stays where they are — only genuinely
+        // unattached players get dropped into the main room (the clients
+        // auto-emit joinTournament after sign-in, so a failure must not
+        // strand them on a blank screen).
+        if (STAYS_PUT.has(result.error)) {
             return;
         }
         const failedUser = gameManager.getUserBySocketId(socket.id);
@@ -195,13 +199,20 @@ async function leaveTournament(socket, io) {
 
     // Leaving while their table is still before seating (the web client
     // shows the tournament lobby until startDraw) leaves that table too,
-    // like /leave would: a bot takes the seat at the draw
+    // like /leave would: a bot takes the seat at the draw. Late in
+    // DRAW_RESOLVING the seats exist already (entrants is null): the seat
+    // is left as with /leave, without the leftGame (tournamentLeft follows)
     const tableId = gameManager.playerGames.get(socket.id);
     const table = tableId && gameManager.tournamentGames.get(tableId) === tournamentId
         ? gameManager.getGameById(tableId)
         : null;
-    if (table && table.isPreSeating() && table.entrant(socket.id)) {
-        require('./chatHandlers').handleDrawPhaseLeave(socket, io, table, { notify: false });
+    if (table && table.isPreSeating()) {
+        const seated = table.entrants ? null : table.seatList().find(s => s.ownerSocketId === socket.id);
+        if (table.entrant(socket.id)) {
+            require('./chatHandlers').handleDrawPhaseLeave(socket, io, table, { notify: false });
+        } else if (seated) {
+            require('./seatLifecycle').leaveSeat(io, table, seated.position, socket, { notify: false });
+        }
     }
 
     // Leave tournament room

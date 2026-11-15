@@ -152,6 +152,56 @@ class GameManager {
         return null;
     }
 
+    /**
+     * What `socketId` belongs to, from the membership maps: a lobby seat, a
+     * game (entrant or seat owner) or a tournament that is not complete. A
+     * tournament member's round table counts as the tournament (`gameId`
+     * says which table). Spectating is not a membership. Every entry point
+     * (create/join lobby, create/join tournament, rejoinGame and the owner
+     * paths of joinAsSpectator) refuses a socket that already has another,
+     * so one socket is never an entrant of two things (a hand-written client
+     * or a double click used to make it one).
+     * @returns {{kind: 'lobby'|'game'|'tournament', id: string, gameId?: string}|null}
+     */
+    activityOf(socketId) {
+        const lobbyId = this.playerLobbies.get(socketId);
+        if (lobbyId != null) return { kind: 'lobby', id: lobbyId };
+        const tournamentId = this.playerTournaments.get(socketId);
+        const t = tournamentId != null ? this.tournaments.get(tournamentId) : null;
+        const liveTournament = t && t.phase !== 'complete' ? tournamentId : null;
+        const gameId = this.playerGames.get(socketId);
+        if (gameId != null) {
+            const tableOf = this.tournamentGames.get(gameId);
+            if (tableOf != null && tableOf === liveTournament) return { kind: 'tournament', id: tableOf, gameId };
+            return { kind: 'game', id: gameId };
+        }
+        if (liveTournament != null) return { kind: 'tournament', id: liveTournament };
+        return null;
+    }
+
+    /**
+     * The membership that keeps `socketId` out of a seat at `gameId`
+     * (rejoinGame, joinAsSpectator's owner paths), or null: none, this game
+     * itself, or the tournament this game is a table of.
+     */
+    activityBesides(socketId, gameId) {
+        const activity = this.activityOf(socketId);
+        if (!activity) return null;
+        if (activity.kind === 'game' && activity.id === gameId) return null;
+        if (activity.kind === 'tournament' && activity.id === this.tournamentGames.get(gameId) &&
+            (activity.gameId == null || activity.gameId === gameId)) return null;
+        return activity;
+    }
+
+    /** The refusal for an entry point that finds `activity` (activityOf). */
+    membershipError(activity) {
+        return {
+            lobby: 'Already in a lobby',
+            game: 'Already in game',
+            tournament: 'Already in a tournament'
+        }[activity.kind];
+    }
+
     // ==================== MAIN ROOM METHODS ====================
 
     /**
@@ -311,14 +361,12 @@ class GameManager {
      */
     createNamedLobby(socketId, name = null) {
         if (this._mergeLockedUser(socketId)) return { success: false, error: MERGE_LOCKED };
-        // Check if already in lobby
-        if (this.playerLobbies.has(socketId)) {
-            return { success: false, error: 'Already in lobby' };
-        }
-
-        // Check if already in game
-        if (this.playerGames.has(socketId)) {
-            return { success: false, error: 'Already in game' };
+        // One membership per socket (a finished tournament's results window
+        // does not count)
+        this.releaseCompletedTournamentMembership(socketId);
+        const activity = this.activityOf(socketId);
+        if (activity) {
+            return { success: false, error: activity.kind === 'lobby' ? 'Already in lobby' : this.membershipError(activity) };
         }
 
         const user = this.getUserBySocketId(socketId);
@@ -368,15 +416,10 @@ class GameManager {
             const seat = lobby?.players.find(p => !p.isBot && p.socketId === socketId);
             if (seat) return { success: true, lobby, newPlayer: seat, alreadySeated: true };
         }
-        // Check if already in a lobby
-        if (this.playerLobbies.has(socketId)) {
-            return { success: false, error: 'Already in a lobby' };
-        }
-
-        // Check if already in game
-        if (this.playerGames.has(socketId)) {
-            return { success: false, error: 'Already in game' };
-        }
+        // One membership per socket (activityOf)
+        this.releaseCompletedTournamentMembership(socketId);
+        const activity = this.activityOf(socketId);
+        if (activity) return { success: false, error: this.membershipError(activity) };
 
         const lobby = this.lobbies.get(lobbyId);
         if (!lobby) {
@@ -1361,9 +1404,10 @@ class GameManager {
         // block new ones
         this.releaseCompletedTournamentMembership(socketId);
 
-        // Check if already in a tournament
-        if (this.playerTournaments.has(socketId)) {
-            return { success: false, error: 'Already in a tournament' };
+        // One membership per socket: a lobby seat, a game or a tournament
+        const activity = this.activityOf(socketId);
+        if (activity || this.playerTournaments.has(socketId)) {
+            return { success: false, error: activity ? this.membershipError(activity) : 'Already in a tournament' };
         }
         // One tournament per user: a membership an older socket of theirs
         // still holds (half-open reconnect, a parked tab)
@@ -1399,6 +1443,12 @@ class GameManager {
 
         if (this.playerTournaments.has(socketId)) {
             return { success: false, error: 'Already in a tournament' };
+        }
+        // Nor from a lobby seat or another game (a member back at this
+        // tournament's own table still reattaches)
+        const activity = this.activityOf(socketId);
+        if (activity && !(activity.kind === 'game' && this.tournamentGames.get(activity.id) === tournamentId)) {
+            return { success: false, error: this.membershipError(activity) };
         }
 
         const tournament = this.tournaments.get(tournamentId);
