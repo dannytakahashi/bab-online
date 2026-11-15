@@ -2,6 +2,8 @@
  * Card deck management for BAB card game
  */
 
+const crypto = require('crypto');
+
 const SUITS = ['spades', 'hearts', 'diamonds', 'clubs'];
 const RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
 
@@ -30,13 +32,23 @@ class Deck {
     }
 
     /**
-     * Fisher-Yates shuffle
+     * Fisher-Yates shuffle. A real deal draws from crypto.randomInt (no
+     * predictable Math.random stream). Seeded runs (sim, contract and iOS
+     * fixtures, transcripts, chaos seeds) install their RNG over
+     * Math.random and depend on its exact stream: while Math.random is not
+     * the engine's own, the shuffle reads it as before, one call per swap.
      */
     shuffle() {
+        const seeded = Deck.isSeeded();
         for (let i = this.cards.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
+            const j = seeded ? Math.floor(Math.random() * (i + 1)) : crypto.randomInt(i + 1);
             [this.cards[i], this.cards[j]] = [this.cards[j], this.cards[i]];
         }
+    }
+
+    /** True while something replaced Math.random (a seeded run or a test). */
+    static isSeeded() {
+        return !/\[native code\]/.test(Function.prototype.toString.call(Math.random));
     }
 
     /**
