@@ -174,6 +174,45 @@ function isLegalMove(card, hand, leadCard, isLeading, trump, trumpBroken, playPo
 }
 
 /**
+ * Is playing `card` out of `hand` (the hand BEFORE the card leaves it) legal?
+ * The one legality check for a play: GameState.checkPlay (human and bot
+ * plays) and the sim both use it. `card` must be in `hand`.
+ * @param {Object} card
+ * @param {Array} hand
+ * @param {{leadCard: Object|null, isLeading: boolean, trump: Object,
+ *   trumpBroken: boolean, position: number, leadPosition: number|null}} trick
+ * @returns {boolean}
+ */
+function isLegalPlay(card, hand, { leadCard, isLeading, trump, trumpBroken, position, leadPosition }) {
+    const i = hand.findIndex(c => c.suit === card.suit && c.rank === card.rank);
+    if (i === -1) return false;
+    const remaining = hand.slice(0, i).concat(hand.slice(i + 1));
+    return isLeading
+        ? isLegalMove(card, remaining, card, true, trump, trumpBroken, position, position)
+        : isLegalMove(card, remaining, leadCard, false, trump, trumpBroken, position, leadPosition);
+}
+
+/**
+ * The first legal card of `hand` in hand order (deterministic), or null for
+ * an empty hand. The fallback when a bot's chosen card is refused.
+ */
+function firstLegalCard(hand, trick) {
+    return hand.find(c => isLegalPlay(c, hand, trick)) || null;
+}
+
+/**
+ * The bid a bot falls back to when its own is refused or its strategy
+ * throws: the minimum legal bid, '0' (legal on every hand), except '1' for
+ * the last bidder over three zeros, whose 0 would redeal the hand (a table
+ * of failing bots would otherwise redeal forever).
+ * @param {Array} playerBids - the deal's bids so far, by position - 1
+ */
+function safeBid(playerBids) {
+    const others = playerBids.filter(b => b != null);
+    return others.length === 3 && others.every(b => String(b) === '0') ? '1' : '0';
+}
+
+/**
  * Determine winner of a trick
  * @param {Array} trick - Array of 4 cards (indexed by position-1)
  * @param {number} leadPosition - Position that led (1-4)
@@ -401,6 +440,9 @@ module.exports = {
     isTrumpTight,
     isHighestTrumpInHand,
     isLegalMove,
+    isLegalPlay,
+    firstLegalCard,
+    safeBid,
     determineWinner,
     calculateScore,
     findHighestBidder,

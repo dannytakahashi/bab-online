@@ -41,7 +41,7 @@ fully reproducible.
   matches in the run. `legacy:` specs are tracked separately.
 - `byHandSize{}` — redeal rate, combined team bid as a fraction of available
   tricks, bore frequency.
-- `incidentCount` / `exceptionCount` — must be 0.
+- `incidentCount` / `bidIncidentCount` / `exceptionCount` — must be 0 (an illegal card, a bid `rules.isValidBid` refuses, a throw; each is replaced by the server's own fallback, the first legal card or `rules.safeBid`, as `BotController` does live).
 
 ## Baseline (June 2026, pre-tuning legacy snapshot, 4000 games/match)
 

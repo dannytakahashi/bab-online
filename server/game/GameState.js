@@ -29,7 +29,7 @@ const {
 } = require('./SeatState');
 const { buildSnapshotV2 } = require('./snapshotV2');
 const pacing = require('./pacing');
-const { isValidBid } = require('./rules');
+const { isValidBid, isLegalPlay, firstLegalCard } = require('./rules');
 
 /** game.resume.kind values (snapshot v2 resume.kind) */
 const RESUME_KINDS = ['countdown', 'drawReveal', 'seating', 'teams', 'firstTurn', 'trick', 'hand'];
@@ -1475,6 +1475,96 @@ class GameState {
         }
 
         return { valid: true };
+    }
+
+    // ========================================
+    // Applying bids and plays (the ONE path for humans and bots)
+    // ========================================
+
+    /**
+     * Validate and record a bid for the seat at `position`. The human
+     * playerBid handler and BotController.processBotBid both bid through
+     * here, so their checks cannot drift. The caller logs, broadcasts and
+     * advances the turn.
+     * @returns {{ok: true, bid: string} | {ok: false, reason: 'not_your_turn'|'already_bid'|'invalid_bid', bid?: string}}
+     *   reason is the actionRejected reason
+     */
+    applyBid(position, bid) {
+        // Before the deal currentTurn holds the constructor default
+        if (this._stage !== Phase.BIDDING || position !== this.currentTurn) return { ok: false, reason: 'not_your_turn' };
+        if (this.playerBids[position - 1] != null) return { ok: false, reason: 'already_bid' };
+        const bidStr = String(bid).toUpperCase();
+        if (!isValidBid(bidStr, this.playerBids, this.currentHand)) return { ok: false, reason: 'invalid_bid', bid: bidStr };
+        this.recordBid(position, bidStr);
+        return { ok: true, bid: bidStr };
+    }
+
+    /** The open trick as rules.isLegalPlay reads it, for the seat at `position`. */
+    trickFor(position) {
+        return {
+            leadCard: this.leadCard,
+            isLeading: this.playedCardsIndex === 0,
+            trump: this.trump,
+            trumpBroken: this.isTrumpBroken,
+            position,
+            leadPosition: this.leadPosition
+        };
+    }
+
+    /**
+     * May the seat at `position` play `card` now? No state changes.
+     * @param {string} [socketId] - the seat socket (default: the seat's)
+     * @returns {{ok: true} | {ok: false, reason: 'not_your_turn'|'invalid_play'|'already_played'|'illegal_card', error?: string}}
+     *   reason is the actionRejected reason
+     */
+    checkPlay(position, card, socketId = this.positions[position]) {
+        // Only in PLAYING: during TRICK_RESOLVING currentTurn has already
+        // rotated to the leader while the trick is still on the table
+        if (this._stage !== Phase.PLAYING || position !== this.currentTurn) return { ok: false, reason: 'not_your_turn' };
+        const check = this.validateCardPlay(socketId, card);
+        if (!check.valid) return { ok: false, reason: 'invalid_play', error: check.error };
+        if (this.playedCards[position - 1]) return { ok: false, reason: 'already_played' };
+        if (!isLegalPlay(card, this.getHand(socketId), this.trickFor(position))) return { ok: false, reason: 'illegal_card' };
+        return { ok: true };
+    }
+
+    /** The first legal card in the seat's hand (hand order), or null. */
+    firstLegalCard(position) {
+        return firstLegalCard(this.getHand(this.positions[position]), this.trickFor(position));
+    }
+
+    /**
+     * Validate and apply a card play for the seat at `position` (the human
+     * playCard handler and BotController.processBotPlay both play through
+     * here): checkPlay, then the card leaves the hand and goes on the table.
+     * The caller broadcasts cardPlayed, notifies the bots and advances the
+     * turn.
+     * @param {string} [socketId] - the seat socket (default: the seat's)
+     * @returns {{ok: true} | {ok: false, reason: string, error?: string}}
+     */
+    applyPlay(position, card, socketId = this.positions[position]) {
+        const check = this.checkPlay(position, card, socketId);
+        if (!check.ok) {
+            if (check.reason === 'illegal_card') {
+                // A refused card goes to the end of the hand, as before this
+                // path was shared (the recorded fixtures' snapshots pin it)
+                if (this.removeCardFromHand(socketId, card)) this.getHand(socketId).push(card);
+            }
+            return check;
+        }
+        if (!this.removeCardFromHand(socketId, card)) return { ok: false, reason: 'invalid_play', error: 'Card not in hand' };
+
+        if (this.playedCardsIndex === 0) {
+            this.leadCard = card;
+            this.leadPosition = position;
+        }
+        this.playedCards[position - 1] = card;
+        this.playedCardsIndex++;
+        this.cardIndex++;
+        if (card.suit === this.trump.suit || card.suit === 'joker') {
+            this.isTrumpBroken = true;
+        }
+        return { ok: true };
     }
 
     /**
