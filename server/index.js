@@ -96,10 +96,10 @@ function start() {
         logger.info('Server running on port 3000');
         logger.info(`Environment: ${config.env}`);
         console.log('Server started successfully on port 3000');
-        // Railway's deploy healthcheck (railway.toml) probes $PORT: if it
-        // is set to anything else, no deploy would ever pass it
+        // Railway injects PORT and a deploy healthcheck probes it, so this
+        // line in the deploy log says whether one could reach port 3000
         if (process.env.PORT && process.env.PORT !== '3000') {
-            logger.warn(`PORT is ${process.env.PORT} but the server listens on 3000; Railway's healthcheck uses PORT`);
+            logger.info(`PORT is ${process.env.PORT} but the server listens on 3000; a Railway healthcheck would probe PORT`);
         }
     });
 

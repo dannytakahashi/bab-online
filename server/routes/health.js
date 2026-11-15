@@ -2,8 +2,8 @@
  * GET /health: is the process up, and what would a deploy interrupt?
  *
  * Always 200 and cheap (no DB round trip): it is the liveness view and what
- * the owner checks before pushing. Railway's deploy gate is /ready (DB
- * ping, 503 without it; railway.toml healthcheckPath). The endpoint is
+ * the owner checks before pushing. /ready (DB ping, 503 without it) is
+ * the one to use as a Railway deploy healthcheck. The endpoint is
  * public, so it carries counts only, never usernames or ids.
  */
 

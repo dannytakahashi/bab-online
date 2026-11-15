@@ -1,8 +1,9 @@
 /**
  * A Mongo outage mid-tournament: every DB call fails the way the driver
  * does once it cannot select a server, i.e. it rejects after
- * serverSelectionTimeoutMS (database.js, 5 s instead of the driver's 30 s).
- * Play must go on: the round start (setActiveGame), the draw screen (saved
+ * SERVER_SELECTION_TIMEOUT_MS (database.js). The fakes sleep that long
+ * themselves, so this checks the swallowed-error paths, not that the option
+ * reaches MongoClient (database.test.js does). Play must go on: the round start (setActiveGame), the draw screen (saved
  * pictures) and each game end (stats, clearActiveGameForAll) swallow the
  * error and continue about 5 s later, and the tournament finishes.
  * Real handlers, stub sockets, fake timers, the in-memory DB.

@@ -101,7 +101,7 @@ describe('the server timers that use it', () => {
     });
 });
 
-// Bare setTimeout/setInterval calls left in server code, each one either
+// Bare timer calls (BARE_TIMER_RE) left in server code, each one either
 // a promise resolve / abort that cannot throw, or guarded inside. A new
 // timer that does real work uses safeTimeout/safeInterval (or
 // game.setTimer for a game's own timers); add it here only if it cannot throw.
@@ -117,6 +117,20 @@ const BARE_TIMERS = {
     'voice/turnCredentials.js': 1, // fetch timeout: ac.abort()
 };
 
+// Every way a callback can run later outside the caller's try/catch: the
+// globals bare or through global/globalThis/timers, plus process.nextTick
+// and queueMicrotask. A method on another object (foo.setTimeout) is not one.
+const BARE_TIMER_RE = /(?<![\w.])(?:(?:global|globalThis|timers|process|\))\.)?(?:set(?:Timeout|Interval|Immediate)|nextTick|queueMicrotask)\(/g;
+
+test('the bare-timer scan sees every form', () => {
+    const count = (src) => (src.match(BARE_TIMER_RE) || []).length;
+    expect(count('setTimeout(f, 1); setInterval(f, 1); setImmediate(f);')).toBe(3);
+    expect(count('global.setTimeout(f); globalThis.setInterval(f); timers.setImmediate(f);')).toBe(3);
+    expect(count("require('timers').setTimeout(f, 1);")).toBe(1);
+    expect(count('process.nextTick(f); queueMicrotask(f);')).toBe(2);
+    expect(count('safeTimeout(f, 1); game.setTimer(f); foo.setTimeout(f); clearTimeout(t);')).toBe(0);
+});
+
 test('no new bare timers in server code', () => {
     const root = path.join(__dirname, '..', '..');
     const found = {};
@@ -128,7 +142,7 @@ test('no new bare timers in server code', () => {
                 walk(full);
             } else if (entry.name.endsWith('.js')) {
                 const src = fs.readFileSync(full, 'utf8');
-                const n = (src.match(/(?<![\w.])set(?:Timeout|Interval)\(/g) || []).length;
+                const n = (src.match(BARE_TIMER_RE) || []).length;
                 if (n) found[path.relative(root, full).split(path.sep).join('/')] = n;
             }
         }

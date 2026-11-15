@@ -2,7 +2,7 @@
  * GET /health (server/routes/health.js): always 200 and cheap, with the DB
  * state from the driver (no round trip) and live counts for a deploy
  * decision. The endpoint is public: counts only, never a username or id.
- * GET /ready stays the deploy gate (503 without a DB).
+ * GET /ready stays the readiness check (503 without a DB).
  */
 
 const http = require('http');

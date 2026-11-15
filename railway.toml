@@ -2,14 +2,13 @@
 builder = "NIXPACKS"
 
 # Overrides the dashboard for each deploy (docs/claude/server-infra.md, Deploys).
+# Railway stops reading this file on 2026-12-01: the dashboard (same values
+# today) or .railway/railway.ts IaC is where these must live after that.
 [deploy]
 # Restart on a non-zero exit only: a crash exits 1 (server/utils/shutdown.js),
 # a deploy's SIGTERM exits 0. Same values as the dashboard setting.
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 10
-# A new deploy takes traffic only once /ready answers 200 (Mongo connected
-# and answering a ping); until then, or if it never does, the old one serves.
-healthcheckPath = "/ready"
-# Seconds. Covers connectDB's backoff on a slow Mongo (each attempt gives up
-# after 5 s, then waits 2, 4, 8, 16, 30 s: 6 attempts in 120 s)
-healthcheckTimeout = 120
+# No healthcheckPath: Railway probes it on $PORT, the server listens on 3000
+# only, and a /health check here was pulled in a646178 (2026-01). Set
+# PORT=3000 on the service first, then gate deploys on /ready (timeout 120).
