@@ -244,8 +244,8 @@ function adminDisplay(user) {
  * sets passwordResetNotice {by: 'link'|'admin', at}): `passwordReset {by,
  * at}` on the next signInResponse / restoreSessionResponse (additive
  * 2026-11-15; web shows one line; iOS from the next build after 1.2.1
- * build 9; iOS 1.2.0 ignores it). The session write of that reply unsets
- * the field, so it is told once.
+ * build 9; iOS 1.2.0 ignores it). The field is unset only once the reply
+ * is a success (clearResetNotice), so a refused sign-in still tells it later.
  */
 function resetNoticeFor(user) {
     const n = user && user.passwordResetNotice;
@@ -260,9 +260,18 @@ function replyExtras(user) {
     return { ...adminDisplay(user), ...(notice ? { passwordReset: notice } : {}) };
 }
 
-/** The session write's $unset, plus the reset notice once it is being told. */
-function sessionUnset(user, session) {
-    return user && user.passwordResetNotice ? { ...session.update.$unset, passwordResetNotice: '' } : session.update.$unset;
+/**
+ * The reset notice is being told: unset it, scoped to the one read (a newer
+ * reset meanwhile keeps its own). A failed write only tells it once more.
+ */
+async function clearResetNotice(usersCollection, username, user) {
+    const n = user && user.passwordResetNotice;
+    if (!n) return;
+    try {
+        await usersCollection.updateOne({ username, 'passwordResetNotice.at': n.at }, { $unset: { passwordResetNotice: '' } });
+    } catch (error) {
+        authLogger.warn('Could not clear the password reset notice', { username, error: error.message });
+    }
 }
 
 /**
@@ -385,7 +394,7 @@ async function signIn(socket, io, data) {
             { username, ...session.filter },
             {
                 $set: { socketId: socket.id, ...session.update.$set },
-                $unset: sessionUnset(user, session)
+                $unset: session.update.$unset
             }
         );
         if (written && written.matchedCount === 0) {
@@ -413,6 +422,7 @@ async function signIn(socket, io, data) {
             return;
         }
         claim = null; // signed in: the name stays claimed
+        await clearResetNotice(usersCollection, username, user);
         clearSuperseded(socket, io);
         confirmSupersede(io, parked, socket);
         reparkClosedNotices(io, socket);
@@ -800,7 +810,7 @@ async function restoreSession(socket, io, data) {
             { username, ...session.filter },
             {
                 $set: { socketId: socket.id, ...session.update.$set },
-                $unset: sessionUnset(user, session)
+                $unset: session.update.$unset
             }
         );
         if (written && written.matchedCount === 0) {
@@ -836,6 +846,7 @@ async function restoreSession(socket, io, data) {
             return;
         }
         claim = null; // signed in: the name stays claimed
+        await clearResetNotice(usersCollection, username, user);
         clearSuperseded(socket, io);
         confirmSupersede(io, parked, socket);
         reparkClosedNotices(io, socket);

@@ -389,4 +389,41 @@ describe('passwordReset notice', () => {
         expect((await restore('Bea', s.sessionToken)).reply).toMatchObject({ success: true, passwordReset: { by: 'admin' } });
         expect((await restore('Bea', s.sessionToken)).reply).not.toHaveProperty('passwordReset');
     });
+
+    test('a sign-in the session re-check refuses keeps the notice for the next one', async () => {
+        await setPassword(mockDb.current, 'Bea', 'maple-otter-42', { rounds: 4 });
+        const real = users().findOne.bind(users());
+        let calls = 0;
+        // the second read is sessionGoneSince's re-check: it fails (closed)
+        const spy = jest.spyOn(users(), 'findOne').mockImplementation((...args) => {
+            if (++calls === 2) return Promise.reject(new Error('connection reset'));
+            return real(...args);
+        });
+        const s = w.socket(`acc-${++n}`);
+        await auth.signIn(s, w.io, { username: 'Bea', password: 'maple-otter-42' });
+        spy.mockRestore();
+        expect(reply(s, 'signInResponse')).toMatchObject({ success: false });
+        expect(reply(s, 'signInResponse')).not.toHaveProperty('passwordReset');
+        expect(await users().findOne({ username: 'Bea' })).toHaveProperty('passwordResetNotice.by', 'admin');
+        const next = await signedIn('Bea', 'maple-otter-42');
+        expect(reply(next, 'signInResponse').passwordReset).toMatchObject({ by: 'admin' });
+        expect(await users().findOne({ username: 'Bea' })).not.toHaveProperty('passwordResetNotice');
+    });
+
+    test('a newer reset between the read and the clear keeps its own notice', async () => {
+        await setPassword(mockDb.current, 'Bea', 'maple-otter-42', { rounds: 4 });
+        const later = new Date(Date.now() + 60000);
+        const real = users().findOne.bind(users());
+        let calls = 0;
+        const spy = jest.spyOn(users(), 'findOne').mockImplementation(async (...args) => {
+            const out = await real(...args);
+            if (++calls === 2) await users().updateOne({ username: 'Bea' }, { $set: { passwordResetNotice: { by: 'link', at: later } } });
+            return out;
+        });
+        const s = w.socket(`acc-${++n}`);
+        await auth.signIn(s, w.io, { username: 'Bea', password: 'maple-otter-42' });
+        spy.mockRestore();
+        expect(reply(s, 'signInResponse')).toMatchObject({ success: true, passwordReset: { by: 'admin' } });
+        expect(await users().findOne({ username: 'Bea' })).toMatchObject({ passwordResetNotice: { by: 'link' } });
+    });
 });
