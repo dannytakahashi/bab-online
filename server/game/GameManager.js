@@ -65,6 +65,9 @@ class GameManager {
 
     // Constants
     static MAX_MAIN_ROOM_MESSAGES = 50;
+    // A lobby's chat history (sent whole on every join): the newest lines,
+    // as the tournament chat keeps 100
+    static MAX_LOBBY_MESSAGES = 100;
     // A lobby seat outlives its socket by this long (a reload, a short
     // network drop): the player's next socket re-entering takes it back
     static LOBBY_SEAT_GRACE_MS = 30000;
@@ -747,6 +750,9 @@ class GameManager {
         };
 
         lobby.messages.push(chatMessage);
+        if (lobby.messages.length > GameManager.MAX_LOBBY_MESSAGES) {
+            lobby.messages.splice(0, lobby.messages.length - GameManager.MAX_LOBBY_MESSAGES);
+        }
 
         return { success: true, lobby, chatMessage };
     }
