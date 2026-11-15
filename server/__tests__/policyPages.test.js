@@ -52,11 +52,17 @@ describe('/privacy', () => {
         expect(html).toContain('"[deleted]"');
         expect(html).toMatch(/<strong>Reports<\/strong> you filed or that were filed about you stay/);
         expect(html).toMatch(/<strong>The admin log<\/strong> keeps the usernames/);
-        expect(html).toMatch(/<strong>Other players' block lists<\/strong> keep your username/);
+        expect(html).toMatch(/<strong>Other players' block lists<\/strong> keep your username when you delete your account in the app/);
+        // an admin delete (an email request) pulls the name (pullBlocks default)
+        expect(html).toContain('we remove the username from block lists too');
     });
 
     test('mentions the sign-in IP log and chat staying out of storage', () => {
-        expect(html).toContain('A sign-in with your password also logs your IP address.');
+        expect(html).toContain('A sign-in with your password also logs your IP address');
+        // Railway's edge logs every connection's IP (its HTTP logs)
+        expect(html).toContain('Railway, our host, also records the IP address of every connection');
+        // safetyHandlers logs blocks and who reported whom, never the reason
+        expect(html).toContain('reports (who reported whom, not the reason)');
         expect(html).toContain('It is never saved to our database or written to our logs');
     });
 
@@ -74,7 +80,7 @@ describe('/privacy', () => {
 describe('/support', () => {
     test('the data answers match the policy', async () => {
         const html = await page('/support');
-        expect(html).toContain('Our server logs record your IP address when you sign in with your password.');
+        expect(html).toContain('Our server logs record your IP address when you sign in with your password, and our host, Railway, logs the IP address of each connection.');
         expect(html).toContain('Reports, the admin log, and other players\' block lists keep your username');
         expect(html).not.toMatch(/We only collect your username, a hashed password, and game statistics/);
     });

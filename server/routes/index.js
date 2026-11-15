@@ -37,12 +37,12 @@ router.get('/privacy', (req, res) => {
     <h2>What We Collect</h2>
     <ul>
         <li><strong>Account:</strong> your username and your password, stored only as a bcrypt hash. We don't ask for your real name, email address, or phone number.</li>
-        <li><strong>Sign-in sessions:</strong> for each device that stays signed in (up to 5), a hashed sign-in token and when it was created and last used. A session stops working 90 days after its last use. The token itself is kept on your device (the iOS Keychain, or your browser's storage).</li>
-        <li><strong>Profile:</strong> the stock picture you chose, or a picture you uploaded on the web. Uploaded pictures are re-encoded with their metadata (such as photo location) removed before anyone else sees them.</li>
+        <li><strong>Sign-in sessions:</strong> for each device that stays signed in (up to 5), a hashed sign-in token and when it was created and last used. A session stops working 90 days after its last use. The token itself is kept on your device (the iOS Keychain, or your browser's storage). An account that hasn't been used since November 7, 2026 may still hold one older sign-in token stored as is, without the 90-day limit; it is replaced with a hashed one the next time it is used.</li>
+        <li><strong>Profile:</strong> the stock picture you chose, or a picture you uploaded on the web. Other players only ever see a copy we re-encode with its metadata (such as photo location) removed, and new uploads are normally stored that way too. A picture uploaded before November 8, 2026 may still be stored as it was uploaded, metadata included, until you replace it or delete your account.</li>
         <li><strong>Games:</strong> your statistics (wins, losses, points, bids and tricks) and a record of each finished game: the usernames of the people who played, the bots' names, the scores, and when it ended.</li>
         <li><strong>Safety:</strong> the players you block, reports you file (who you reported, the reason you wrote, where it happened, and when), and reports other players file about you.</li>
-        <li><strong>Admin records:</strong> when an admin acts on an account (for example a rename, a password reset link, or a deletion), a log entry with the admin's username, the account's username, the action, and the time. Password reset links are stored only as a hash.</li>
-        <li><strong>Server logs:</strong> the server logs events such as sign-ins, sign-ups, wrong passwords, and errors, with the username involved. A sign-in with your password also logs your IP address. We use these logs to fix problems and to stop password guessing and spam sign-ups.</li>
+        <li><strong>Admin records:</strong> when an admin acts on an account or a report (for example a rename, a password reset link, or a deletion), a log entry with the admin's username, the account's username, the action, its result, a short note, and the time. A signed-in player who tries to use an admin function is logged the same way, with their username. Password reset links are stored only as a hash.</li>
+        <li><strong>Server logs:</strong> the server logs events such as sign-ins, sign-ups, wrong passwords, blocks and unblocks (who blocked whom), reports (who reported whom, not the reason), and errors, with the usernames involved. A sign-in with your password also logs your IP address, and so does a sign-in, account deletion, or sign-up that is refused after too many attempts. Railway, our host, also records the IP address of every connection to our site in its own request logs. We use these logs to fix problems and to stop password guessing and spam sign-ups.</li>
     </ul>
     <p>We don't collect your location, contacts, photo library, or device identifiers. The app contains no analytics or advertising code, and our website sets no cookies.</p>
 
@@ -51,7 +51,7 @@ router.get('/privacy', (req, res) => {
     <p><strong>Voice chat</strong> is optional and needs your permission to use the microphone. Audio is encrypted and goes directly between players' devices (WebRTC); it is never recorded, and our server only passes along the messages that set up the call. To set up the call your device contacts a STUN server (Cloudflare's, or Google's public ones), which sees your IP address. When a direct connection isn't possible, the encrypted audio is relayed through Cloudflare, which sees the IP addresses involved but cannot listen to the audio. As in any peer-to-peer call, the players you talk with can see your IP address.</p>
 
     <h2>Who Can See Your Data</h2>
-    <p>Your username, profile picture, and statistics are public: they appear on the leaderboard, in player search and profiles, and at the table, and anyone can see them, even without an account. Reports, block lists, sessions, and logs are never shown to other players; admins can see reports and the admin log.</p>
+    <p>Your username, profile picture, and statistics are public: they appear on the leaderboard, in player search and profiles, and at the table, and anyone can see them, even without an account. So do game records (who played, the scores, and when) on the Records page. Reports, block lists, sessions, and logs are never shown to other players; admins can see reports and the admin log.</p>
 
     <h2>How We Use Your Data</h2>
     <p>Only to run the game: showing your name and picture to other players, keeping leaderboards and records, reconnecting you to games in progress, handling reports and blocks, and protecting accounts from abuse. We don't use it for advertising or profiling.</p>
@@ -72,17 +72,18 @@ router.get('/privacy', (req, res) => {
         <li><strong>Game records:</strong> kept as the game's history. If you delete your account, your username in them is replaced with "[deleted]".</li>
         <li><strong>Reports and the admin log:</strong> kept as a moderation and safety record; they are not deleted automatically.</li>
         <li><strong>Password reset links:</strong> valid for 24 hours and deleted from our database about a week after they expire.</li>
-        <li><strong>Server logs:</strong> kept by Railway for a limited time (at most 30 days), then deleted.</li>
-        <li><strong>Backups:</strong> we may keep backups of the database for recovery; deleted data disappears from them as they expire, within 3 months.</li>
+        <li><strong>Old usernames:</strong> if an admin renames your account or merges it into another, the old username stays as a redirect to your account (and stays reserved) until your account is deleted.</li>
+        <li><strong>Server logs:</strong> kept by Railway, including its request logs, for a limited time (at most 30 days), then deleted.</li>
+        <li><strong>Backups:</strong> if we keep backups of the database for recovery, deleted data disappears from them as they expire, within 3 months.</li>
     </ul>
 
     <h2>Data Deletion</h2>
-    <p>You can permanently delete your account directly in the app: open <strong>Settings → Delete Account</strong> (iOS) or your <strong>profile page → Delete Account</strong> (web) and confirm with your password. This immediately deletes your account, password hash, sign-in sessions, statistics, profile picture, and block list, cancels any open password reset link, and replaces your username with "[deleted]" in game records.</p>
+    <p>You can permanently delete your account directly in the app: open <strong>Settings → Delete Account</strong> (iOS) or your <strong>profile page → Delete Account</strong> (web) and confirm with your password. This immediately deletes your account, password hash, sign-in sessions, statistics, profile picture, and block list, cancels any open password reset link, deletes any old usernames that redirect to your account, and replaces your username with "[deleted]" in game records.</p>
     <p>Some records keep your username, and why:</p>
     <ul>
         <li><strong>Reports</strong> you filed or that were filed about you stay, marked as belonging to a deleted account, so the moderation history is not lost.</li>
-        <li><strong>The admin log</strong> keeps the usernames recorded at the time, as a record of what admins did.</li>
-        <li><strong>Other players' block lists</strong> keep your username, so deleting an account and signing up again with the same name can't be used to get around a block.</li>
+        <li><strong>The admin log</strong> keeps the usernames recorded at the time, as a record of what admins did and of attempts to use admin functions.</li>
+        <li><strong>Other players' block lists</strong> keep your username when you delete your account in the app, so deleting an account and signing up again with the same name can't be used to get around a block. When we delete an account for you (for example at your request by email), we remove the username from block lists too.</li>
         <li><strong>Server logs and backups</strong> expire on the schedule above.</li>
     </ul>
     <p>You may also email <a href="mailto:support@zalberico.com">support@zalberico.com</a> if you prefer; we will process the request within 48 hours.</p>
@@ -141,7 +142,7 @@ router.get('/support', (req, res) => {
 
     <details>
         <summary>How do I delete my account?</summary>
-        <p>You can delete your account directly in the app. On iOS, open <strong>Settings</strong> (the gear icon in the main room) and tap <strong>Delete Account</strong>; on the web, open your <strong>profile page</strong> and click <strong>Delete Account</strong>. You'll confirm with your password, and your account, statistics, profile picture, and block list are deleted immediately, and your username is replaced with "[deleted]" in game records. Reports, the admin log, and other players' block lists keep your username; the <a href="/privacy">Privacy Policy</a> explains why.</p>
+        <p>You can delete your account directly in the app. On iOS, open <strong>Settings</strong> (the gear icon in the main room) and tap <strong>Delete Account</strong>; on the web, open your <strong>profile page</strong> and click <strong>Delete Account</strong>. You'll confirm with your password, and your account, statistics, profile picture, and block list are deleted immediately, and your username is replaced with "[deleted]" in game records. Reports, the admin log, and other players' block lists keep your username; the <a href="/privacy">Privacy Policy</a> explains why. (When we delete an account for you by email, block lists drop the username too.)</p>
         <p>You may also email <a href="mailto:support@zalberico.com">support@zalberico.com</a> with your username and we will delete your account within 48 hours.</p>
     </details>
 
@@ -156,7 +157,7 @@ router.get('/support', (req, res) => {
 
     <details>
         <summary>What data do you collect?</summary>
-        <p>Your username, a hashed password, your profile picture, your game statistics and game records, the players you block, and any reports you file. Our server logs record your IP address when you sign in with your password. Chat is not saved, and voice chat goes directly between players and is never recorded (when needed, Cloudflare relays the encrypted audio). We do not collect your real name, email address, location, or device identifiers, and there are no ads or tracking. See our <a href="/privacy">Privacy Policy</a> for full details.</p>
+        <p>Your username, a hashed password, your profile picture, your game statistics and game records, the players you block, and any reports you file. Our server logs record your IP address when you sign in with your password, and our host, Railway, logs the IP address of each connection. Chat is not saved, and voice chat goes directly between players and is never recorded (when needed, Cloudflare relays the encrypted audio). We do not collect your real name, email address, location, or device identifiers, and there are no ads or tracking. See our <a href="/privacy">Privacy Policy</a> for full details.</p>
     </details>
 
     <details>
