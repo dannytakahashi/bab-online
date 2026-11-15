@@ -68,6 +68,9 @@ final class ReleaseMetadataTests: XCTestCase {
             "NSPrivacyCollectedDataTypeUserID",
             "NSPrivacyCollectedDataTypeOtherUserContent",
             "NSPrivacyCollectedDataTypeGameplayContent",
+            // clientError reports (ErrorReporter): an uncaught exception, decode and socket errors
+            "NSPrivacyCollectedDataTypeCrashData",
+            "NSPrivacyCollectedDataTypeOtherDiagnosticData",
         ])
         for entry in collected { XCTAssertEqual(entry["NSPrivacyCollectedDataTypeTracking"] as? Bool, false) }
         XCTAssertNotNil(plist["NSPrivacyAccessedAPITypes"] as? [Any])

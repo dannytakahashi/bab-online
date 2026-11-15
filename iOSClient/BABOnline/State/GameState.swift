@@ -55,6 +55,8 @@ final class GameState: ObservableObject {
         if animations.contains(.sceneReset) { sceneResets += 1 }
         renderer?.apply(model: TableRenderModel(s), animations: animations)
         for fx in effects {
+            // a missed broadcast, once per launch (the web reports its SeqGate gaps the same way)
+            if case .gap(let expected, let got) = fx { ErrorReporter.shared.report(kind: "seqGap", message: "expected \(expected), got \(got)") }
             switch fx {
             case .animate: break
             #if DEBUG
